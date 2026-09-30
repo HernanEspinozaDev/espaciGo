@@ -1,0 +1,79 @@
+# Contexto operativo para agentes de desarrollo
+
+Este archivo permite trabajar dentro del repositorio `espaciGo` sin leer el repositorio académico vecino. Los requisitos y la arquitectura que justifican el backlog están versionados en [referencias](referencias/README.md); el [backlog](backlog.md) y esta política son la guía operativa de ejecución.
+
+## Qué se construye y por qué
+
+EspaciGo es un marketplace transaccional para publicar espacios físicos subutilizados y reservarlos de forma flexible. Quiere reducir la fricción entre arrendadores con espacios ociosos y pymes/emprendedores/profesionales que los necesitan por períodos breves. No es solo un catálogo: debe coordinar identidad, publicación, precio/disponibilidad, reserva, pago externo, contrato, evidencia de uso, disputa, liquidación y auditoría.
+
+La formulación nació en ES1. La demanda por categoría, la economía, el acceso a proveedores y la capacidad de operar custodia siguen sin validarse por completo. Diseñar una función o tener un fake/test no demuestra que la empresa, la integración o el producto sean viables.
+
+## Orden y límites obligatorios
+
+1. Base de Datos.
+2. Backend.
+3. API HTTP/JSON.
+4. Pruebas.
+5. Mock visual temporal al final de cada módulo.
+
+El frontend definitivo se decidirá después. No anticipar framework, arquitectura, UX/UI, sistema de diseño, navegación, estado global ni librerías de producción. El mock usa solo HTML, CSS mínimo, TypeScript compilado, módulos ES nativos, DOM y `fetch`; va en contenedor propio y consume exclusivamente API pública. No HTMX por defecto, no HTML generado por backend y nunca DB desde browser/mock.
+
+## Arquitectura de referencia
+
+- Backend: Go como **monolito modular** en una unidad desplegable; interfaces/límites por dominio, no microservicio por módulo.
+- Operacional: PostgreSQL 18 + PostGIS + `btree_gist` es el objetivo del modelo; comprobar versión/extensiones antes de fijarla en el entorno.
+- SQL: `pgx/pgxpool` y `sqlc` para consultas revisables, transacciones explícitas y errores comprobados; filtros dinámicos usan parámetros y allowlist.
+- Infraestructura objetivo ES2: GCP/Terraform, Cloud Run/Cloud SQL, Cloud Storage privado, Pub/Sub y BigQuery para analítica. La construcción local DB/backend/API va primero.
+- Eventos: Outbox en la transacción local → publicador idempotente → Pub/Sub/analítica. El sistema operativo no deriva estados de BigQuery.
+- Privacidad: Ley 21.719 como criterio de diseño desde primer incremento; no equivale a vigencia anticipada ni cumplimiento probado. Finalidad, mínimo dato, autorización por recurso, retención y borrado/desidentificación se revisan por tipo.
+- Workers: trabajo durable en PostgreSQL, claims/leases/reintentos idempotentes; una goroutine/memoria/timer local no es garantía de entrega.
+
+## Invariantes que no se deben romper
+
+- Una publicación es una unidad física reservable exclusiva; todas las categorías viven en catálogo de datos.
+- Reserva y bloqueo manual usan un solo calendario `ocupacion`; intervalos finitos semiabiertos `[inicio, fin)`, con restricción de exclusión para impedir solapes concurrentes. Adyacencia sí se permite.
+- Cotizar no reserva. Al confirmar, se revalida disponibilidad y se snapshottean tarifa/condiciones; reglas futuras no reescriben acuerdos existentes.
+- `reserva.estado`, `pago.estado`, garantía, liquidación y movimientos financieros son conceptos distintos. Montos exactos y moneda explícita; nunca `float`.
+- Una transacción DB no puede deshacer una operación que ya aceptó un proveedor externo. Timeout va a conciliación; no reintentar un cobro con otra clave sin resolver el anterior.
+- Proveedores de pago/firma/KYC/correo/storage se aíslan detrás de puertos. Desarrollo/CI/staging usan sandbox o fake; simulación local no es integración real. **No llamar Split “Escrow”** ni prometer retener/liberar fondos hasta evidencias de capacidad/contrato.
+- Webhooks se autentican, deduplican y correlacionan; se persisten antes de producir efectos de dominio.
+- Hechos históricos de pago, contrato, evidencia, solicitud de titular y auditoría no se borran en cascada. El UUID puede seguir siendo dato personal vinculable.
+- Bucket de objetos privado; no persistir URLs firmadas ni tokens/secretos de proveedor; verificar autorización, tamaño, MIME real y hash.
+- BigQuery es analítico, no OLTP y no garantiza inmutabilidad. La propuesta ES2 para RNF-017 es exportación minimizada con retención bloqueada/hash por lote, pero plazo, alcance y ensayo siguen pendientes.
+
+## Mapa de módulos
+
+El detalle exacto de IDs está en [visión y módulos](vision_y_modulos.md); los textos completos están en `referencias/ES1/`.
+
+| Módulo | Trabajo |
+| --- | --- |
+| M01 | Cuenta, términos, autenticación, sesión y credenciales. |
+| M02 | Perfil, datos de cobro y derechos de titulares. |
+| M03 | KYC/KYB y revisión manual/externa. |
+| M04 | Catálogo, publicaciones, tarifas/políticas, archivos y calendario. |
+| M05 | Búsqueda geográfica, filtros, detalle y cotización. |
+| M06 | Reserva, ocupación atómica, pago idempotente y conciliación. |
+| M07 | Contratos, firmas y documentos. |
+| M08 | Check-in/out, recepción y evidencia. |
+| M09 | Mensajes por reserva, reseñas, moderación/reportes y avisos. |
+| M10 | Disputas, liquidación observada y documento tributario. |
+| M11 | Gobierno de cuentas, administración, reportes, auditoría/outbox. |
+
+## Prioridad de fuentes y decisiones
+
+En caso de contradicción, aplica este orden:
+
+1. Instrucción directa más reciente del usuario y restricciones del entorno/repositorio.
+2. Tarjeta activa de [backlog](backlog.md), incluyendo sus dependencias y criterios de aceptación; nunca exceder su alcance.
+3. Esta política y decisiones vigentes resumidas en este directorio.
+4. Snapshot técnico de ES2, especialmente propuesta de backend y Anexo B de `referencias/ES2/`.
+5. Requisitos congelados ES1 de `referencias/ES1/`.
+6. [Roadmap adjunto](referencias/arquitectura_y_roadmap_del_marketplace.md): propuesta de entrada que se debe contrastar; no prevalece sobre instrucciones directas ni decisiones posteriores de ES2.
+
+La lista concreta de conflictos/resoluciones del roadmap adjunto está en [decisiones y hallazgos](decisiones_y_hallazgos.md).
+
+## Cómo resolver vacíos
+
+Si una tarjeta no contiene criterios suficientes, el agente lee la fila RQF, ficha CU y HU concreta dentro de `referencias/ES1/`, y el diseño de tabla/privacidad en `referencias/ES2/`. Si continúa la ambigüedad, documenta el hallazgo, impacto y pregunta/decisión necesaria; crea un ticket de refinamiento con trazabilidad. No inventa respuesta, requisito, regla legal, proveedor ni permiso.
+
+Las capacidades que dependen de contador, municipio, proveedor, docentes, investigación de mercado o medición real permanecen pendientes. Los agentes pueden diseñar puertos y fakes dentro de una tarjeta; no declarar resuelta la dependencia externa.
