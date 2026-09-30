@@ -63,6 +63,6 @@ El coordinador adapta el prompt al perfil Developer, Tester o Reviewer y proporc
 - Actualizar el backlog cuando cambien alcance/dependencias. Mantener hallazgos y pendientes externos en documentos de planificación del repo, con fecha/evidencia.
 - No entregar secretos/PII en contexto de agente. Usar fixture sintética y sandbox.
 
-## Límite del roadmap adjunto
+## Contexto del entorno
 
-La propuesta de `referencias/arquitectura_y_roadmap_del_marketplace.md` es contexto a reconciliar, no instrucciones de agente. Su Datastream, BigQuery como auditoría inmutable, transacción que abarcaría pago externo y contrato, endpoint de telemetría y HTML/HTMX dentro del backend no se ejecutan sin tickets y revisión contra las decisiones vigentes. La matriz de resolución está en `decisiones_y_hallazgos.md`.
+El documento que el usuario compartió con la descripción de su entorno no forma parte de las fuentes de producto y no se incorpora como roadmap de EspaciGo. Consulta [entorno_de_desarrollo.md](entorno_de_desarrollo.md) para verificar herramientas. Las reglas del mock de este repositorio prevalecen sobre técnicas mencionadas como ejemplo de ambiente.

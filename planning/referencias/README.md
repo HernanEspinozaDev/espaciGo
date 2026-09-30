@@ -31,9 +31,9 @@ Los hashes SHA-256 y la comprobación de igualdad byte a byte al copiar están e
 | `ES2/pendientes.md` | `Informes/ES2PT/pendientes.md` |
 | `ES2/matriz_trazabilidad_es2.md` | `Informes/ES2PT/investigacion/matriz_trazabilidad_es2.md` |
 
-## Roadmap recibido como propuesta
+## Entorno de desarrollo
 
-`arquitectura_y_roadmap_del_marketplace.md` es copia del archivo adjunto recibido en Descargas. Se conserva como input original, no como autoridad. Sus discrepancias con las decisiones vigentes están adjudicadas en `../decisiones_y_hallazgos.md`.
+El contexto de herramientas compartido por el usuario está resumido en `../entorno_de_desarrollo.md`; no se replica entre las referencias de requisitos porque no es especificación del producto.
 
 ## Mantenimiento
 

@@ -19,7 +19,7 @@
 ## Hallazgos que requieren seguimiento
 
 1. **README de `espaciGo/` desactualizado:** menciona microservicios, Next.js definitivo, BigQuery como log inmutable, servicio separado Gotenberg/Python y Escrow por Mercado Pago. Estas afirmaciones contradicen la propuesta consolidada de ES2 o las instrucciones actuales. El README no se modifica en esta tarea; se deja recomendación de reconciliarlo en un ticket documental antes de que guíe implementación.
-2. **Sin implementación ni entorno:** solo se encontró README e instrucciones de planificación dentro de `espaciGo/`. No hay fuente Go, OpenAPI, esquema/migraciones, frontend, Dockerfile/compose o tablero.
+2. **Sin implementación del producto:** al revisar `espaciGo/` solo se encontró README e instrucciones; no hay fuente Go, OpenAPI, esquema/migraciones, frontend, Dockerfile/compose o tablero. Esto no significa que el equipo no tenga herramientas locales; el entorno descrito por el usuario está resumido en `entorno_de_desarrollo.md` y deberá verificarse antes de ejecutar setup.
 3. **Modelo lógico voluminoso:** Anexo B cubre 43 tablas, incluyendo promociones, reportería premium y NPS aún no cerrados comercialmente. No migrar todo por anticipado; diferir esas tablas/capacidades hasta resolver finalidad, regla comercial y contratos.
 4. **Frontera M04/M06:** disponibilidad manual y calendario nacen en publicación, pero ocupación/reserva es un invariante transaccional. Debe haber un dueño único del calendario y colaboración contractual; no crear dos sistemas de disponibilidad.
 5. **Frontera de pagos:** `reserva.estado`, `pago.estado`, `garantia`, `liquidacion` y `movimiento_financiero` son hechos distintos; no colapsarlos en un estado/tabla. El proveedor determina resultados remotos observados.
@@ -29,25 +29,11 @@
 9. **Mapeo documental:** HUs por épica no coinciden siempre con módulos M01–M11 y algunas responsabilidades transversales (notificaciones/documentos) aparecen bajo más de un módulo. Backlog conserva trazabilidad a la ficha primaria del Anexo E/D/B y valida cobertura antes de declarar cada slice cerrado.
 10. **Economía de ejecución:** la simulación de ES2 es hipotética y actualmente tiene VAN de caja negativo bajo sus supuestos; demanda/costos de proveedor aún abiertos. Mantener prestaciones futuras (promoción, NPS) separadas de producto core hasta evidencia.
 
-## Evaluación del archivo `arquitectura_y_roadmap_del_marketplace.md`
+## Separación entre proyecto y entorno
 
-El archivo adjunto se conserva íntegro en `referencias/arquitectura_y_roadmap_del_marketplace.md` como propuesta de entrada recibida el 30-09-2026. No se copian automáticamente sus decisiones al backlog. Se aplica esta resolución para agentes:
+El adjunto que el usuario compartió el 30-09-2026 describe el entorno de desarrollo disponible; no corresponde a EspaciGo como producto y se retiró del paquete de fuentes del proyecto. No se deben importar desde ese documento requisitos, módulos, telemetría, decisiones de analítica ni arquitectura de marketplace. El resumen permitido de herramientas aparece en `entorno_de_desarrollo.md`; versiones, instalación y acceso se verifican cuando una tarjeta de setup lo necesite.
 
-| Propuesta adjunta | Resolución vigente | Motivo / trabajo pendiente |
-| --- | --- | --- |
-| PostgreSQL OLTP, monolito Go, `pgxpool` + `sqlc`, Terraform, GCP | Compatible en principio y recogido en esta planificación | Verificar versiones/extensiones, costos y ensayos local/cloud antes de fijar configuración. |
-| Cloud Run escala de 0 a N | No usar como premisa del worker ES2 | La propuesta ES2 presupone mínimo una instancia y CPU disponible para goroutines durables; revisar costo/capacidad con ensayo. |
-| Buckets públicos y privados para multimedia | Bucket privado y autorización API para objetos | El diseño vigente protege imágenes/documentos; cualquier publicación pública requiere URL/control explícito y decisión de seguridad. |
-| Cloud Logging / Log Sink a BigQuery como auditoría inmutable | Logs técnicos separados de `evento_auditoria`; BigQuery analítico no es inmutable | RNF-017 tiene propuesta separada de retención bloqueada + hash por lote, con plazo/alcance/ensayo pendientes. |
-| Datastream CDC de pagos/contratos a BigQuery | Descartado en ES2 | El flujo vigente propuesto usa outbox minimizado PostgreSQL → Pub/Sub → BigQuery; no replicar datos personales/financieros por CDC sin nueva evaluación. |
-| Endpoint público de telemetría `POST /api/v1/telemetry` | No se crea por existir en el documento adjunto | ES2 propone analítica, eventos de dominio y eventos agregables; el contrato de ingestión y autenticidad deben tener requisito/ticket, no se agregan endpoints al mock. |
-| BigQuery responde métricas premium para CRM | Aplazado/condicionado | Se requieren entitlement activo, autorización por fila, minimización y decisión comercial; no bloquea el flujo transaccional inicial. |
-| Pago y contrato dentro de una transacción ACID con rollback | Rechazado como modelo de consistencia para terceros | La transacción PostgreSQL solo cubre escrituras locales. Proveedor confirmado, timeout, webhook, conciliación y compensación son hechos distribuidos e idempotentes. |
-| HTML templates + HTMX servidos desde Go para prototipar | Rechazado para esta validación | Instrucción explícita actual: mock desacoplado en su contenedor, HTML/CSS/TypeScript compilado/DOM/fetch, API JSON pública. No HTMX ni backend generador de HTML. |
-| Fase de Terraform/Cloud antes de archivos/catálogo | No es el orden de trabajo actual | Prioridad actual DB → backend → API → pruebas → mock y validación local; nube productiva se aborda después de obtener un flujo local verificable. |
-| `tx, _ := pool.Begin()` como patrón | No adoptar manejo de error ignorado | Transacciones explícitas, errores comprobados y rollback/commit controlados; usar la API elegida tras revisión de foundation. |
-
-Las resoluciones de mock, prioridad y autoridad de contexto provienen de la solicitud actual del usuario. Lo compatible del roadmap no implica que ya esté implementado.
+La arquitectura y los requisitos del producto se derivan exclusivamente de las instrucciones actuales y de los snapshots ES1/ES2 en `referencias/`.
 
 ## Propuestas de mejora para decidir con tickets futuros
 

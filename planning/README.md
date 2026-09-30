@@ -11,6 +11,7 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [Visión y módulos](vision_y_modulos.md) | Problema, alcance del producto, módulos y trazabilidad ES1/ES2. |
 | [Contexto para agentes](contexto_para_agentes.md) | Decisiones, invariantes y precedencia de fuentes sin depender de Informes. |
 | [Ejecución con Hermes](ejecucion_con_hermes.md) | Cómo cargar contexto, asignar tarjetas y separar Developer/Tester/Reviewer. |
+| [Entorno de desarrollo](entorno_de_desarrollo.md) | Contexto de herramientas disponibles, separado de los requisitos del producto. |
 | [Plan de Base de Datos](base_de_datos.md) | Modelo global, límites por módulo, secuencia y reglas de migración. |
 | [Plan de Backend y API](backend_y_api.md) | Capas Go, contratos HTTP/JSON y convenciones previstas. |
 | [Plan de pruebas](pruebas.md) | Estrategia desde unitarias hasta recorridos funcionales. |
@@ -18,7 +19,7 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [Decisiones y hallazgos](decisiones_y_hallazgos.md) | Conflictos documentales, riesgos y temas que requieren evidencia. |
 | [Grafo de dependencias](grafo_dependencias.md) | Orden, dependencias transversales y conteo del backlog. |
 | [Backlog Kanban](backlog.md) | Registro completo de tarjetas con alcance, trazabilidad y aceptación. |
-| [Referencias](referencias/README.md) | Snapshots de ES1/ES2 para agentes y copia del roadmap recibido. |
+| [Referencias](referencias/README.md) | Snapshots de ES1/ES2 para agentes sin acceso al repositorio académico. |
 
 La tarjeta fuente es `backlog.md`; se puede trasladar después a Hermes u otro tablero. En esta sesión no hay conector de Hermes Kanban disponible, así que no se afirma que exista una carga en un tablero externo.
 

@@ -68,9 +68,7 @@ En caso de contradicción, aplica este orden:
 3. Esta política y decisiones vigentes resumidas en este directorio.
 4. Snapshot técnico de ES2, especialmente propuesta de backend y Anexo B de `referencias/ES2/`.
 5. Requisitos congelados ES1 de `referencias/ES1/`.
-6. [Roadmap adjunto](referencias/arquitectura_y_roadmap_del_marketplace.md): propuesta de entrada que se debe contrastar; no prevalece sobre instrucciones directas ni decisiones posteriores de ES2.
-
-La lista concreta de conflictos/resoluciones del roadmap adjunto está en [decisiones y hallazgos](decisiones_y_hallazgos.md).
+La descripción del entorno de desarrollo está en [entorno_de_desarrollo.md](entorno_de_desarrollo.md). Sirve para orientar la verificación de herramientas locales; no es fuente de requisitos, stack del producto ni arquitectura y no modifica las fuentes anteriores.
 
 ## Cómo resolver vacíos
 

@@ -19,4 +19,3 @@
 | `ES2/contexto.md` | `Informes/ES2PT/contexto.md` | `b69f9dcc615388db259f59abf151fcfdc7c2b1b8b26d33c469fea10ab5d48007` |
 | `ES2/pendientes.md` | `Informes/ES2PT/pendientes.md` | `0f5086af8fdcd6e4408cfe67610347dd03ff1ea36a9cea438191c3907efbafda` |
 | `ES2/matriz_trazabilidad_es2.md` | `Informes/ES2PT/investigacion/matriz_trazabilidad_es2.md` | `d7c78740de788ee4fa649390001df67f7a70adc17709a93640365ff6f98b073f` |
-| `arquitectura_y_roadmap_del_marketplace.md` | `/home/nandev/Descargas/arquitectura_y_roadmap_del_marketplace.md` | `993d9653c5c74f98127ef16d5b70fa71722ead1c8df3e9d64542fc4e4b968e69` |
