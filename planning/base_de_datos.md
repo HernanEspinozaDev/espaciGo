@@ -4,6 +4,10 @@
 
 El contrato académico vigente es [ES2 Anexo B](../../Informes/ES2PT/anexos/B_diccionario_datos.md): 43 tablas de diseño, producto completo, PostgreSQL 18 + PostGIS + `btree_gist` como objetivo. El diccionario no es DDL ejecutado y el SQL ilustrativo antiguo no debe tratarse como migración vigente. El modelo físico se implementará módulo a módulo, sin crear desde el inicio todas las tablas por anticipado.
 
+## Perfil PostgreSQL verificado para CORE-DB-03
+
+Imagen fijada por digest: `postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677`. Verificada el 2026-10-01 en una instancia desechable: PostgreSQL `18.6 (Debian 18.6-1.pgdg13+2)`, PostGIS `3.6.4` y `btree_gist` `1.8`. Evidencia de integración y limpieza en [migraciones_postgresql.md](migraciones_postgresql.md). Este perfil es para pruebas; no configura despliegue productivo.
+
 ## Modelo conceptual inicial
 
 | Área | Entidades principales | Invariante relevante |
@@ -21,7 +25,7 @@ El Anexo B tiene exactamente 43 tablas, aunque agrupa varias bajo ciertos encabe
 
 ## Secuencia física
 
-El contrato operativo de naming, checksum, serialización, transacciones, detección de deriva y reconstrucción vacía está en [migraciones_postgresql.md](migraciones_postgresql.md). Esta rama contiene un runner inicial ejecutable (`cmd/dbmigrate`); las pruebas unitarias/compilación pasan, pero las pruebas de migración contra PostgreSQL aún no se ejecutaron. CORE-DB-03 y sus sucesoras permanecen incompletas/bloqueadas hasta verificar la ejecución real.
+El contrato operativo de naming, checksum, serialización, transacciones, detección de deriva y reconstrucción vacía está en [migraciones_postgresql.md](migraciones_postgresql.md). Esta rama contiene un runner ejecutable (`cmd/dbmigrate`), y las seis pruebas de integración pasaron contra la imagen PostgreSQL/PostGIS fijada por digest. CORE-DB-03 queda pendiente de revisión del usuario; AUTH-DB-02 continúa bloqueada y no se inició trabajo sucesor.
 
 1. **Revisión de modelo global:** cardinalidades, dueños lógicos, clasificaciones personales/restringidas, plazos por finalidad, estados y claves. Registrar cambios antes de escribir DDL.
 2. **Convenciones de persistencia:** PG18/extensiones requeridas, UUID/timestamps/moneda, naming, esquema, roles de migración/API/operación, migraciones versionadas, rollback/forward-fix, test fixtures y política de cambios compatibles.

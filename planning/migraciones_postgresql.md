@@ -1,6 +1,6 @@
 # Migraciones PostgreSQL y base local reproducible
 
-Estado: el contrato y el runner inicial de CORE-DB-03 están en esta rama (`cmd/dbmigrate` y `internal/migrator`). Las pruebas unitarias sí se ejecutaron; las pruebas de integración contra PostgreSQL 18 **no** se ejecutaron porque la aprobación para iniciar la base temporal fue retirada. La tarjeta permanece incompleta y no debe marcarse Done hasta obtener esa evidencia y la revisión del usuario. Este documento complementa [base_de_datos.md](base_de_datos.md). No usar el SQL ilustrativo antiguo del Anexo B como migración.
+Estado: el runner ejecutable de CORE-DB-03 (`cmd/dbmigrate` e `internal/migrator`) y sus seis pruebas de integración se verificaron en PostgreSQL descartable. La tarjeta queda pendiente de revisión del usuario; no marcar Done ni avanzar a AUTH-DB-02 antes de esa revisión. Este documento complementa [base_de_datos.md](base_de_datos.md). No usar el SQL ilustrativo antiguo del Anexo B como migración vigente.
 
 ## Contrato de migraciones
 
@@ -14,17 +14,26 @@ Estado: el contrato y el runner inicial de CORE-DB-03 están en esta rama (`cmd/
 
 ## Base vacía reproducible
 
-La prueba usa PostgreSQL 18 y extensiones autorizadas PostGIS 3.6 y `btree_gist` 1.8, con la imagen fijada por digest en `base_de_datos.md`. No depender de la instalación local ni de `latest`.
+La prueba usa PostgreSQL 18 y extensiones autorizadas PostGIS 3.6 y `btree_gist` 1.8, con esta imagen reproducible fijada por digest: `postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677`. El contenedor no monta volúmenes persistentes; la prueba usa almacenamiento temporal `tmpfs`, puerto aleatorio ligado a loopback y credenciales sintéticas efímeras. No depender de la instalación PostgreSQL local ni de `latest`.
 
 El runner está implementado como `cmd/dbmigrate` y `internal/migrator`. Lee `DATABASE_URL`, acepta `-dir <directorio-de-migraciones>` (por defecto `db/migrations/`), y aplica únicamente archivos `V<seis dígitos>__<snake_case>.sql`. El conjunto de integración requiere `TEST_DATABASE_URL` apuntando a una base temporal con permisos para crear/eliminar bases; cada caso crea su propia base de prueba y la elimina al terminar.
 
-**Verificaciones ejecutadas:** `go test ./...` pasó sin `TEST_DATABASE_URL` (pruebas unitarias/compilación; las pruebas de integración quedan omitidas). `git diff --check` también pasó. **Pendiente:** ejecutar el conjunto con `TEST_DATABASE_URL` contra PostgreSQL 18.6/PostGIS/`btree_gist`, revisar la salida real y después actualizar el estado de la tarjeta. No afirmar que la migración fue aplicada contra PostgreSQL todavía.
+**Verificación ejecutada el 2026-10-01:** con PostgreSQL `18.6 (Debian 18.6-1.pgdg13+2)`, PostGIS `3.6.4` y `btree_gist` `1.8` en la imagen fijada arriba, se verificó la creación/versiones de ambas extensiones y pasaron las seis pruebas de integración, sin `DATABASE_URL` y con `TEST_DATABASE_URL` apuntando solo al contenedor desechable:
 
-### Verificación PostgreSQL pendiente — requiere aprobación explícita
+- `TestRunnerAppliesFromEmptyAndRepeatIsNoop` — PASS
+- `TestRunnerStoresExactMigrationAndRunnerChecksums` — PASS
+- `TestRunnerRejectsChecksumDriftBeforeDDL` — PASS
+- `TestRunnerRollsBackMigrationAndHistoryTogether` — PASS
+- `TestRunnerSerializesConcurrentExecutions` — PASS
+- `TestRunnerRejectsVersionGapBeforeDDL` — PASS
 
-Las pruebas de integración requieren `TEST_DATABASE_URL` contra la imagen de PostgreSQL/PostGIS fijada en `base_de_datos.md`. El comando de inicio que se solicitó recuperar no pudo encontrarse en la sesión histórica accesible; para evitar sustituirlo por una propuesta no aprobada, no se incluye ni ejecuta otro comando. No se creó contenedor ni base temporal.
+Comando de pruebas: `env -u DATABASE_URL go test -count=1 -v ./internal/migrator -run '^(TestRunnerAppliesFromEmptyAndRepeatIsNoop|TestRunnerStoresExactMigrationAndRunnerChecksums|TestRunnerRejectsChecksumDriftBeforeDDL|TestRunnerRollsBackMigrationAndHistoryTogether|TestRunnerSerializesConcurrentExecutions|TestRunnerRejectsVersionGapBeforeDDL)$'`, con `TEST_DATABASE_URL` fijada explícitamente al puerto loopback dinámico del contenedor. El contenedor temporal usó `tmpfs`, sin volumen persistente, y fue eliminado al terminar; Docker confirmó que el ID `15d936a72b8a25e2a683c9a3cc38a1fea847bbfb8ccacc64fbaa7ef48db93162` ya no existe. No se conectó a la instalación PostgreSQL local.
 
-Sin esa evidencia, CORE-DB-03 permanece incompleta y AUTH-DB-02 continúa bloqueada.
+Las pruebas unitarias/compilación, `go test -race ./...`, `go vet ./...` y `git diff --check` también pasaron. No se avanzó a AUTH-DB-02. CORE-DB-03 queda pendiente de revisión del usuario y no debe marcarse Done antes de esa revisión.
+
+### Limpieza y aislamiento
+
+El procedimiento configura `--restart=no`, publica el puerto solo en `127.0.0.1`, monta `/var/lib/postgresql` como `tmpfs`, genera credencial sintética efímera y elimina el contenedor mediante `trap` incluso si falla una prueba. El comando de pruebas elimina explícitamente `DATABASE_URL` y establece `TEST_DATABASE_URL` solo para la instancia descartable. Las seis pruebas crean y eliminan sus bases aisladas; la verificación de extensiones se realizó en la base administrativa descartable del contenedor.
 
 
 ## Semillas y extensiones
