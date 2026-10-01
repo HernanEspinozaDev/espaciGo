@@ -4,7 +4,7 @@
 
 La fuente vigente es `Informes/ES2PT/investigacion/propuesta_backend_final.md` v1.2 y secciones 3.3–3.7. La propuesta es **un monolito modular Go** con API HTTP/JSON/OpenAPI y una unidad desplegable Cloud Run. Los dominios se separan por paquetes e interfaces, no por microservicio/contendor por módulo. Persistencia prevista con `pgx/pgxpool` y `sqlc` para SQL revisable; llamadas dinámicas parametrizadas solo con allowlist. Workers durables se ejecutan como goroutines dentro del servicio y reclaman trabajo desde PostgreSQL; no se depende de memoria ni entrega exactamente una vez.
 
-No hay aún código de aplicación en `espaciGo/`. Nombres de paquetes y librerías concretas siguen sujetos a ticket de fundación/validación local; no se crea estructura de código en esta fase.
+La estructura lógica y las reglas verificables de dependencias están en [`estructura_backend_go.md`](estructura_backend_go.md). No hay aún código de aplicación en `espaciGo/`; nombres de paquetes y librerías concretas siguen sujetos a ticket de fundación/validación local, y no se crea estructura de código en esta fase.
 
 ## Capas previstas por módulo
 

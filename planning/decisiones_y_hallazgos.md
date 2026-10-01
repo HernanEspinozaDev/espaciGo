@@ -14,7 +14,7 @@
 | Privacidad | Ley 21.719 como criterio de diseño desde primer incremento | Decisión del usuario; no afirmar cumplimiento demostrado ni fecha de vigencia anticipada. |
 | Pagos | Sandbox en desarrollo/CI/staging; contrato backend neutral | Mercado Pago Split 1:1 investigado parcialmente; medios, tarifa, KYC, reembolso/saldo y ensayo siguen abiertos. Split no se denomina Escrow por inferencia. |
 | Mock | HTML/CSS/TS/DOM/fetch en contenedor separado, API pública | Solicitud actual; el mock no decide frontend definitivo. |
-| Kanban | `backlog.md` es registro fuente para 102 tarjetas; Hermes Kanban `espacigo` es local y contiene 184 dependencias | Lectura 2026-10-01: Kanban 11 done, 1 blocked, 90 todo; fuente con PR #5 en revisión: 4 done, 1 review, 97 todo. CORE-DB-02 sigue `done` erróneamente en el tablero; `reopen-review` fue rechazado. No se editó directamente la base. |
+| Kanban | `backlog.md` es registro fuente para 102 tarjetas; Hermes Kanban `espacigo` es local y contiene 184 dependencias | Lectura 2026-10-01: Kanban 11 done, 1 blocked, 90 todo; tras #5 fusionado, la fuente registra 5 done, 1 review, 96 todo. CORE-DB-02 ya aparece done y sus hallazgos DB02-09 siguen abiertos. CORE-BE-01 aparece done por ejecución local previa; su PR de esta entrega debe estar en review antes de habilitar sucesores. No se modifica la base del tablero. |
 | Mapa de dominio | El usuario ratificó ownership y disposiciones MAP-01–MAP-10 el 2026-10-01 | PR #1 aprobado y fusionado a `main`: https://github.com/HernanEspinozaDev/espaciGo/pull/1. Ratificación no es evidencia de implementación ni autorización de DDL fuera del backlog. |
 
 ## Hallazgos que requieren seguimiento
@@ -29,6 +29,7 @@
 8. **Requisitos heredados a medir:** rendimiento, disponibilidad, concurrencia, respaldo/restore y portabilidad son objetivos/ensayos planeados. No tratarlos como capacidades presentes.
 9. **Mapeo documental:** HUs por épica no coinciden siempre con módulos M01–M11 y algunas responsabilidades transversales (notificaciones/documentos) aparecen bajo más de un módulo. Backlog conserva trazabilidad a la ficha primaria del Anexo E/D/B y valida cobertura antes de declarar cada slice cerrado.
 10. **Economía de ejecución:** la simulación de ES2 es hipotética y actualmente tiene VAN de caja negativo bajo sus supuestos; demanda/costos de proveedor aún abiertos. Mantener prestaciones futuras (promoción, NPS) separadas de producto core hasta evidencia.
+11. **DB02-09 — brechas RQF-213–218 aún abiertas:** la trazabilidad de `revision_diccionario_datos.md` identifica preferencia de uso distinta de rol de autorización (RQF-213), historial/retención no definidos para evitar reutilización de claves durante tres meses (RQF-217) y evento/contrato específico de notificación para el cambio de clave no definido (RQF-218). CORE-DB-02 y su PR #5 quedaron completados, pero estos hallazgos no se resolvieron. AUTH-ARCH-01 debe registrar las decisiones y los tickets deben conservar RQF/CU/HU antes de cualquier DDL o implementación dependiente. No inferir campos, reglas de historial ni evento.
 
 ## Separación entre proyecto y entorno
 

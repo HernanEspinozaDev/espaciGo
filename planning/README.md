@@ -14,6 +14,7 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [Entorno de desarrollo](entorno_de_desarrollo.md) | Contexto de herramientas disponibles, separado de los requisitos del producto. |
 | [Plan de Base de Datos](base_de_datos.md) | Modelo global, límites por módulo, secuencia y reglas de migración. |
 | [Plan de Backend y API](backend_y_api.md) | Capas Go, contratos HTTP/JSON y convenciones previstas. |
+| [Estructura lógica del backend Go](estructura_backend_go.md) | CORE-BE-01: límites de paquetes, ownership SQL, transacciones, salud y workers durables. |
 | [Plan de pruebas](pruebas.md) | Estrategia desde unitarias hasta recorridos funcionales. |
 | [Frontend mock](frontend_mock.md) | Harness temporal por módulo, tecnología permitida y criterios de aceptación. |
 | [Decisiones y hallazgos](decisiones_y_hallazgos.md) | Conflictos documentales, riesgos y temas que requieren evidencia. |
