@@ -6,7 +6,7 @@ Este archivo es el registro fuente de 102 tarjetas sincronizadas con el tablero 
 
 | Bloque | N.º tarjetas | ready | running | review | done | blocked | todo |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Transversal/fundación | 9 | 0 | 0 | 1 | 3 | 0 | 5 |
+| Transversal/fundación | 9 | 0 | 0 | 0 | 4 | 0 | 5 |
 | M01 Identidad y cuenta | 10 | 0 | 0 | 0 | 0 | 0 | 10 |
 | M02 Perfil y privacidad | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | M03 Verificación KYC/KYB | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
@@ -18,9 +18,9 @@ Este archivo es el registro fuente de 102 tarjetas sincronizadas con el tablero 
 | M09 Comunicación y reputación | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | M10 Disputas, liquidación y tributación | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | M11 Administración y auditoría | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
-| **Total** | **102** | **0** | **0** | **1** | **3** | **0** | **98** |
+| **Total** | **102** | **0** | **0** | **0** | **4** | **0** | **98** |
 
-Estado al 2026-10-01: PR #2 (CORE-ARCH-01) y PR #3 (CORE-DB-03) están confirmados `MERGED`; ambos quedan `done` en este registro y Kanban. CORE-DB-01 tiene sus criterios documentales/evidencia ambiental previamente registrada y pasa a `review`, pendiente de revisión del usuario por su PR. No se repitieron comprobaciones ambientales. El Kanban muestra 11 `done`, 1 `blocked` y 90 `todo`; además marca CORE-DB-01 y CORE-DB-02 `done` antes de revisión de sus PRs. `request-review` para CORE-DB-01 fue rechazado por estar terminal; no se alteró la base del tablero. Se conserva el estado real de Kanban y queda explícita la discrepancia, sin cerrar CORE-DB-01/02 antes de la revisión del usuario.
+Estado al 2026-10-01: PR #2 (CORE-ARCH-01), #3 (CORE-DB-03) y #4 (CORE-DB-01) están confirmados `MERGED`; quedan `done` en este registro. Para CORE-DB-01 se reutilizó la evidencia ambiental ya registrada, sin repetir comprobaciones. La revisión de CORE-DB-02 está preparada en su rama, pendiente de publicar el PR independiente. Hermes Kanban `espacigo` registra 11 `done`, 1 `blocked` y 90 `todo`; CORE-DB-01 ya aparece `done`, coherente con el merge #4. CORE-DB-02 también aparece `done` indebidamente antes de la revisión. La transición admitida `reopen-review t_2377a275` fue rechazada (`not in review?`); no se modificó la base del tablero. Se conserva la discrepancia explícita: el registro fuente no cierra CORE-DB-02 y Kanban requiere recuperación por una vía soportada.
 
 Los IDs académicos completos de motivación están en [visión y módulos](vision_y_modulos.md); la propuesta física está en [Base de Datos](base_de_datos.md). La fila de trazabilidad al abrir cada módulo aplica a todas sus tarjetas; cada objetivo especifica el flujo concreto que se dividirá en PRs. En cada tarjeta “Pruebas” son validaciones que Developer/Tester deberán automatizar al ejecutarla. “Desbloquea” enumera las tarjetas inmediatas siguientes del grafo.
 
@@ -49,14 +49,14 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Evidencia:** `planning/contratos_entre_modulos.md`; verificación estática 43/43 tablas únicas, 11/11 módulos, RNF-013–043 (31/31), referencias presentes y `git diff --check` aprobado. PR #2 aprobado y fusionado a `main` el 2026-10-01 (merge commit `fa6c1237f75e63ec8c27fab02edadc0b7db8158a`). No implica código, DDL, migraciones ni pruebas de aplicación.
 
 ### CORE-DB-01 — Acordar perfil PostgreSQL y convenciones de persistencia
-- **Módulo/tipo/estado:** Transversal / ARCH / `review`.
+- **Módulo/tipo/estado:** Transversal / ARCH / `done`.
 - **Objetivo y motivación:** fijar PostgreSQL 18/PostGIS/`btree_gist` del Anexo B y validar disponibilidad local/CI antes del primer esquema.
 - **Alcance:** decidir imagen/versiones verificadas, extensiones, nombres, UUID, `timestamptz`, rangos, moneda decimal exacta, esquemas y estrategia de índices.
 - **Fuera de alcance:** crear tablas, imagen productiva o elegir proveedor cloud alternativo.
 - **Dependencias:** CORE-ARCH-01. **Desbloquea:** CORE-DB-02
 - **Aceptación:** decisión versionada con verificación local reproducible de motor/extensiones y compatibilidad objetivo.
 - **Pruebas esperadas:** levantar motor de prueba y consultar versiones/extensiones previstas.
-- **Riesgo:** PostGIS/`btree_gist` o versión no disponible en una plataforma objetivo. **Estado:** review; perfil versionado en `planning/base_de_datos.md`, propuesta técnica pendiente de revisión. Las versiones local e imagen ya estaban verificadas y se reutilizó esa evidencia sin repetir el smoke; no se eligió plataforma productiva ni se creó esquema/DDL. [PR #4](https://github.com/HernanEspinozaDev/espaciGo/pull/4).
+- **Riesgo:** PostGIS/`btree_gist` o versión no disponible en una plataforma objetivo. **Estado:** done; perfil versionado en `planning/base_de_datos.md`. Evidencia ambiental existente reutilizada sin repetir el smoke; no se eligió plataforma productiva ni se creó esquema/DDL. PR #4 aprobado y fusionado por el usuario el 2026-10-01. [PR #4](https://github.com/HernanEspinozaDev/espaciGo/pull/4).
 
 ### CORE-DB-02 — Revisar diccionario, ownership y tratamiento de datos
 - **Módulo/tipo/estado:** Transversal / ARCH / `todo`.
@@ -66,7 +66,7 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Dependencias:** CORE-DB-01. **Desbloquea:** AUTH-ARCH-01, CORE-DB-03, KYC-ARCH-01, LIST-ARCH-01, PRIV-ARCH-01
 - **Aceptación:** lista de decisiones de modelo resueltas y cambios futuros trazados a requisito, sin declarar cumplimiento legal.
 - **Pruebas esperadas:** conciliación 43 tablas ↔ módulo ↔ RQF/RNF/CU; revisión de nulabilidad/relaciones en diccionario.
-- **Riesgo:** hay capacidades promocionales/NPS todavía no aprobadas y conservarlas puede ampliar datos innecesarios. **Estado:** todo.
+- **Riesgo:** hay capacidades promocionales/NPS todavía no aprobadas y conservarlas puede ampliar datos innecesarios. **Estado:** todo; revisión documental y trazabilidad ampliada en `planning/revision_diccionario_datos.md`, incluida conciliación de RQF-213–218 con ES1 y hallazgos que requieren decisión antes del DDL M01. Rama `feat/core-db-02-review` lista para publicación; no `done` hasta atender los criterios y obtener revisión del usuario. El Kanban todavía muestra `done`; la recuperación por `reopen-review` fue rechazada y no se editó la base del tablero.
 
 ### CORE-DB-03 — Definir migrador y base local reproducible
 - **Módulo/tipo/estado:** Transversal / DB / `done`.
