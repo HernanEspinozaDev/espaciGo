@@ -21,7 +21,7 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [Backlog Kanban](backlog.md) | Registro completo de tarjetas con alcance, trazabilidad y aceptación. |
 | [Referencias](referencias/README.md) | Snapshots de ES1/ES2 para agentes sin acceso al repositorio académico. |
 
-La tarjeta fuente es `backlog.md`; se puede trasladar después a Hermes u otro tablero. En esta sesión no hay conector de Hermes Kanban disponible, así que no se afirma que exista una carga en un tablero externo.
+`backlog.md` es el registro fuente y se mantiene sincronizado con el tablero Hermes Kanban local `espacigo` (102 tarjetas). No se debe inferir que el tablero sea un servicio externo ni que se haya probado cada canal de notificación por el solo hecho de registrar estados.
 
 ## Fuentes de autoridad
 
@@ -32,6 +32,6 @@ La tarjeta fuente es `backlog.md`; se puede trasladar después a Hermes u otro t
 
 ## Estado inicial
 
-La inspección inicial de `espaciGo/` encontró el README y el archivo de instrucciones; esta carpeta ahora contiene la documentación de planificación. No se encontró implementación de aplicación, esquema físico, migraciones, API, compose ni tablero Kanban existente. Las tarjetas se entregan inicialmente `ready` solo para la revisión y refinamiento del mapa global; las demás comienzan `todo` hasta que se resuelvan sus dependencias.
+La inspección inicial de `espaciGo/` encontró el README y el archivo de instrucciones; entonces no se encontró implementación de aplicación, esquema físico, migraciones, API, compose ni tablero Kanban. Posteriormente el backlog se importó al tablero local Hermes `espacigo`. Al 2026-10-01, `PLAN-ARCH-01` está `done`, `CORE-ARCH-01` en `review` y las tarjetas posteriores siguen pendientes según sus dependencias; esto no es evidencia de implementación.
 
 La planificación incluye los once módulos académicos y considera el producto completo, con construcción incremental. Las propuestas evolucionan mediante tickets nuevos y cambios trazables; ningún cambio de esquema se hará fuera de una migración explícita. `referencias/` incorpora los anexos completos y el diseño ES2 necesarios para que agentes trabajando solo desde este repo puedan resolver los IDs de trazabilidad.

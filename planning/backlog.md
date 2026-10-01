@@ -1,48 +1,50 @@
 # Backlog técnico Kanban — registro fuente
 
-Este archivo es el log completo de tarjetas previstas para trasladar a Kanban. Cada tarjeta es una unidad revisable; `todo/ready` son estados iniciales, no avance de implementación. No hay personas, fechas ni PRs asignados.
+Este archivo es el registro fuente de 102 tarjetas sincronizadas con el tablero Hermes Kanban local `espacigo`. Cada tarjeta es una unidad revisable; el estado se recalcula con dependencias y evidencia. Corte: 2026-10-01. No hay responsables humanos ni fechas asignados.
 
 ## Distribución
 
-| Bloque | N.º tarjetas | ready | todo |
-| --- | ---: | ---: | ---: |
-| Transversal/fundación | 9 | 1 | 8 |
-| M01 Identidad y cuenta | 10 | 0 | 10 |
-| M02 Perfil y privacidad | 8 | 0 | 8 |
-| M03 Verificación KYC/KYB | 8 | 0 | 8 |
-| M04 Publicaciones y disponibilidad | 10 | 0 | 10 |
-| M05 Búsqueda y cotización | 7 | 0 | 7 |
-| M06 Reservas y pagos | 11 | 0 | 11 |
-| M07 Contratos y firma | 8 | 0 | 8 |
-| M08 Operación del arriendo | 7 | 0 | 7 |
-| M09 Comunicación y reputación | 8 | 0 | 8 |
-| M10 Disputas, liquidación y tributación | 8 | 0 | 8 |
-| M11 Administración y auditoría | 8 | 0 | 8 |
-| **Total** | **102** | **1** | **101** |
+| Bloque | N.º tarjetas | ready | running | review | done | todo |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Transversal/fundación | 9 | 0 | 0 | 1 | 1 | 7 |
+| M01 Identidad y cuenta | 10 | 0 | 0 | 0 | 0 | 10 |
+| M02 Perfil y privacidad | 8 | 0 | 0 | 0 | 0 | 8 |
+| M03 Verificación KYC/KYB | 8 | 0 | 0 | 0 | 0 | 8 |
+| M04 Publicaciones y disponibilidad | 10 | 0 | 0 | 0 | 0 | 10 |
+| M05 Búsqueda y cotización | 7 | 0 | 0 | 0 | 0 | 7 |
+| M06 Reservas y pagos | 11 | 0 | 0 | 0 | 0 | 11 |
+| M07 Contratos y firma | 8 | 0 | 0 | 0 | 0 | 8 |
+| M08 Operación del arriendo | 7 | 0 | 0 | 0 | 0 | 7 |
+| M09 Comunicación y reputación | 8 | 0 | 0 | 0 | 0 | 8 |
+| M10 Disputas, liquidación y tributación | 8 | 0 | 0 | 0 | 0 | 8 |
+| M11 Administración y auditoría | 8 | 0 | 0 | 0 | 0 | 8 |
+| **Total** | **102** | **0** | **0** | **1** | **1** | **100** |
 
 Los IDs académicos completos de motivación están en [visión y módulos](vision_y_modulos.md); la propuesta física está en [Base de Datos](base_de_datos.md). La fila de trazabilidad al abrir cada módulo aplica a todas sus tarjetas; cada objetivo especifica el flujo concreto que se dividirá en PRs. En cada tarjeta “Pruebas” son validaciones que Developer/Tester deberán automatizar al ejecutarla. “Desbloquea” enumera las tarjetas inmediatas siguientes del grafo.
 
 ## Fundación transversal
 
 ### PLAN-ARCH-01 — Revisar y fijar mapa global de dominio
-- **Módulo/tipo/estado:** Transversal / ARCH / `ready`.
+- **Módulo/tipo/estado:** Transversal / ARCH / `done`.
 - **Objetivo y motivación:** acordar límites de M01–M11, responsables lógicos de las 43 tablas y flujo de valor; ES1 A–E, ES2 Anexo B y prioridad actual.
 - **Alcance:** revisar `vision_y_modulos.md`, resolver ownership de `ocupacion`, `documento`, `notificacion`, auditoría y outbox; dejar hallazgos aceptados o tickets de cambio antes de DDL.
 - **Fuera de alcance:** DDL, cambios a informes ES1/ES2, decisiones de UI final o selección de proveedor.
 - **Dependencias:** ninguna. **Desbloquea:** CORE-ARCH-01
 - **Aceptación:** mapa aprobado por equipo con entidades/owners y discrepancias registradas con RQF/RNF/CU/HU afectados.
 - **Pruebas esperadas:** revisión de cobertura de todas las 43 entidades y once módulos contra anexos autorizados.
-- **Riesgo:** el catálogo documental puede ocultar cardinalidades o finalidades sin validar. **Estado:** ready.
+- **Riesgo:** el catálogo documental puede ocultar cardinalidades o finalidades sin validar. **Estado:** done.
+- **Evidencia de aprobación:** PR #1 aprobado y fusionado a `main` el 2026-10-01; el usuario ratificó el mapa y MAP-01–MAP-10. [PR #1](https://github.com/HernanEspinozaDev/espaciGo/pull/1). No acredita implementación ni autoriza DDL.
 
 ### CORE-ARCH-01 — Fijar contratos entre módulos y reglas transversales
-- **Módulo/tipo/estado:** Transversal / ARCH / `todo`.
+- **Módulo/tipo/estado:** Transversal / ARCH / `review`.
 - **Objetivo y motivación:** definir interfaces internas, transacciones, errores, authz, idempotencia, auditoría/outbox y dependencias conforme RNF-013–043 y ES2 3.3.
 - **Alcance:** registrar dueño de datos por módulo, reglas de importación, formato de error, correlación, límites de transacción y prácticas sin PII en logs.
 - **Fuera de alcance:** elegir microservicios, implementar Go o fijar UX.
-- **Dependencias:** PLAN-ARCH-01. **Desbloquea:** ADMIN-ARCH-01, BOOK-ARCH-01, CORE-BE-01, CORE-DB-01
+- **Dependencias:** PLAN-ARCH-01 (`done`, PR #1). **Desbloquea:** ADMIN-ARCH-01, BOOK-ARCH-01, CORE-BE-01, CORE-DB-01 (permanecen `todo` hasta aprobar esta revisión).
 - **Aceptación:** documento breve con límites, invariantes, estrategia de error/idempotencia y decisión explícita de monolito modular.
 - **Pruebas esperadas:** revisión estática de dependencias propuestas contra M01–M11 y RNF-033.
-- **Riesgo:** interfaces vagas llevan a consultas/escrituras cruzadas y acoplamiento. **Estado:** todo.
+- **Riesgo:** interfaces vagas llevan a consultas/escrituras cruzadas y acoplamiento. **Estado:** review; documento presentado, no aprobado ni cerrado.
+- **Evidencia de revisión solicitada:** `planning/contratos_entre_modulos.md`; verificación estática 43/43 tablas únicas, 11/11 módulos, RNF-013–043 (31/31), referencias presentes y `git diff --check` aprobado. Sin código, DDL, migraciones, Docker ni pruebas de aplicación.
 
 ### CORE-DB-01 — Acordar perfil PostgreSQL y convenciones de persistencia
 - **Módulo/tipo/estado:** Transversal / ARCH / `todo`.
