@@ -2,7 +2,7 @@
 
 ## Estado del tablero
 
-No se encontró tablero Kanban ni integración Hermes disponible. `backlog.md` es el registro fuente verificable para transferir tarjetas; se comprobó aquí que cada tarjeta tiene ID único, dependencias existentes y estado inicial. No hay tarjetas enviadas a un tablero externo.
+Hermes Kanban local `espacigo` contiene las 102 tarjetas del registro fuente y 184 dependencias. Al 2026-10-01, `PLAN-ARCH-01` está `done` con PR #1 como evidencia; `CORE-ARCH-01` está `review`; sus sucesores siguen `todo`. `backlog.md` refleja esos estados. El tablero local no es un servicio Kanban externo.
 
 ## Grafo global
 
@@ -41,8 +41,8 @@ Cada módulo tiene su propio subgrafo en `backlog.md`: diseño de módulo → mo
 
 ## Secuencia recomendada
 
-1. Revisar/refinar mapa global y convenciones de persistencia. `PLAN-ARCH-01` es la única tarjeta `ready` inicial.
-2. Cerrar contrato PostgreSQL, privacidad, migraciones, backend modular, API y harness de pruebas.
+1. `PLAN-ARCH-01` está cerrado con ratificación MAP-01–MAP-10 y evidencia PR #1. `CORE-ARCH-01` está en revisión; no se promueven sucesores hasta aprobarla.
+2. Después de la revisión, continuar con las tarjetas de fundación según el grafo; no iniciar DDL antes de completar y revisar la fundación acordada.
 3. Implementar M01 con DB antes de dominio/API; validarlo en mock.
 4. Desarrollar M02 y M03 en paralelo si el equipo lo permite; M04 espera ambos.
 5. M04 → M05 → M06, porque catálogo, tarifa, disponibilidad y cotización son prerrequisitos del flujo transaccional.
@@ -50,8 +50,8 @@ Cada módulo tiene su propio subgrafo en `backlog.md`: diseño de módulo → mo
 7. M09 requiere reserva y operación; M10 requiere reclamo/evidencia y cierre operativo.
 8. M11 reportes operacionales al final; la infraestructura lógica mínima de auditoría/outbox ya se trabaja en fundación y se extiende en cada módulo.
 
-## Conteo inicial
+## Conteo sincronizado al 2026-10-01
 
-Conteo recalculado desde el log al cerrar tarjetas: 102 tarjetas, 11 módulos funcionales más 1 bloque transversal de fundación. Distribución: 1 `ready`, 101 `todo`. Todas las restantes están pendientes de dependencias; no hay `in_progress`, `done` ni evidencia de ejecución. La tabla de distribución por módulo está al inicio de `backlog.md`.
+Conteo recalculado contra Hermes Kanban: 102 tarjetas, 184 dependencias, 11 módulos funcionales más 1 bloque transversal. Distribución: 1 `done`, 1 `review`, 100 `todo`, 0 `ready` y 0 `running`. Los sucesores de `CORE-ARCH-01` permanecen pendientes de su revisión; no se habilita otra tarjeta. La tabla de distribución por módulo está al inicio de `backlog.md`.
 
-El estado no dice que el plan de desarrollo comience ahora: responde al estado de dependencia del Kanban futuro. No se asignaron responsables ni fechas sin acuerdo del equipo.
+El estado representa el avance y las dependencias del tablero local. No se asignaron responsables humanos ni fechas sin acuerdo del equipo.
