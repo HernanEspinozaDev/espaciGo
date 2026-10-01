@@ -21,6 +21,8 @@ El Anexo B tiene exactamente 43 tablas, aunque agrupa varias bajo ciertos encabe
 
 ## Secuencia física
 
+El contrato operativo de naming, checksum, serialización, transacciones, detección de deriva y reconstrucción vacía está en [migraciones_postgresql.md](migraciones_postgresql.md). Esta rama contiene un runner inicial ejecutable (`cmd/dbmigrate`); las pruebas unitarias/compilación pasan, pero las pruebas de migración contra PostgreSQL aún no se ejecutaron. CORE-DB-03 y sus sucesoras permanecen incompletas/bloqueadas hasta verificar la ejecución real.
+
 1. **Revisión de modelo global:** cardinalidades, dueños lógicos, clasificaciones personales/restringidas, plazos por finalidad, estados y claves. Registrar cambios antes de escribir DDL.
 2. **Convenciones de persistencia:** PG18/extensiones requeridas, UUID/timestamps/moneda, naming, esquema, roles de migración/API/operación, migraciones versionadas, rollback/forward-fix, test fixtures y política de cambios compatibles.
 3. **Fundación mínima:** base local reproducible, extensiones autorizadas, cuentas/roles mínimos, migrador y health/readiness. No cargar datos reales; seeds solo para catálogos públicos controlados.

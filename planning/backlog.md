@@ -4,21 +4,23 @@ Este archivo es el registro fuente de 102 tarjetas sincronizadas con el tablero 
 
 ## Distribución
 
-| Bloque | N.º tarjetas | ready | running | review | done | todo |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Transversal/fundación | 9 | 0 | 0 | 1 | 1 | 7 |
-| M01 Identidad y cuenta | 10 | 0 | 0 | 0 | 0 | 10 |
-| M02 Perfil y privacidad | 8 | 0 | 0 | 0 | 0 | 8 |
-| M03 Verificación KYC/KYB | 8 | 0 | 0 | 0 | 0 | 8 |
-| M04 Publicaciones y disponibilidad | 10 | 0 | 0 | 0 | 0 | 10 |
-| M05 Búsqueda y cotización | 7 | 0 | 0 | 0 | 0 | 7 |
-| M06 Reservas y pagos | 11 | 0 | 0 | 0 | 0 | 11 |
-| M07 Contratos y firma | 8 | 0 | 0 | 0 | 0 | 8 |
-| M08 Operación del arriendo | 7 | 0 | 0 | 0 | 0 | 7 |
-| M09 Comunicación y reputación | 8 | 0 | 0 | 0 | 0 | 8 |
-| M10 Disputas, liquidación y tributación | 8 | 0 | 0 | 0 | 0 | 8 |
-| M11 Administración y auditoría | 8 | 0 | 0 | 0 | 0 | 8 |
-| **Total** | **102** | **0** | **0** | **1** | **1** | **100** |
+| Bloque | N.º tarjetas | ready | running | review | done | blocked | todo |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Transversal/fundación | 9 | 0 | 0 | 1 | 1 | 1 | 6 |
+| M01 Identidad y cuenta | 10 | 0 | 0 | 0 | 0 | 0 | 10 |
+| M02 Perfil y privacidad | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
+| M03 Verificación KYC/KYB | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
+| M04 Publicaciones y disponibilidad | 10 | 0 | 0 | 0 | 0 | 0 | 10 |
+| M05 Búsqueda y cotización | 7 | 0 | 0 | 0 | 0 | 0 | 7 |
+| M06 Reservas y pagos | 11 | 0 | 0 | 0 | 0 | 0 | 11 |
+| M07 Contratos y firma | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
+| M08 Operación del arriendo | 7 | 0 | 0 | 0 | 0 | 0 | 7 |
+| M09 Comunicación y reputación | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
+| M10 Disputas, liquidación y tributación | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
+| M11 Administración y auditoría | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
+| **Total** | **102** | **0** | **0** | **1** | **1** | **1** | **99** |
+
+Estado del backlog al 2026-10-01: CORE-DB-03 se clasifica `blocked` porque faltan pruebas reales contra PostgreSQL. Kanban todavía la muestra `done`; su corrección externa está pendiente.
 
 Los IDs académicos completos de motivación están en [visión y módulos](vision_y_modulos.md); la propuesta física está en [Base de Datos](base_de_datos.md). La fila de trazabilidad al abrir cada módulo aplica a todas sus tarjetas; cada objetivo especifica el flujo concreto que se dividirá en PRs. En cada tarjeta “Pruebas” son validaciones que Developer/Tester deberán automatizar al ejecutarla. “Desbloquea” enumera las tarjetas inmediatas siguientes del grafo.
 
@@ -67,14 +69,14 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Riesgo:** hay capacidades promocionales/NPS todavía no aprobadas y conservarlas puede ampliar datos innecesarios. **Estado:** todo.
 
 ### CORE-DB-03 — Definir migrador y base local reproducible
-- **Módulo/tipo/estado:** Transversal / DB / `todo`.
-- **Objetivo y motivación:** establecer cómo aplicar migraciones PostgreSQL nuevas y cómo probar desde cero.
-- **Alcance:** decidir naming/orden/checksum, lock de migrador, transactionality, forward-fix, extensiones, roles mínimos y semillas sintéticas.
+- **Módulo/tipo/estado:** Transversal / DB / `blocked`.
+- **Objetivo y motivación:** entregar un migrador ejecutable para aplicar migraciones PostgreSQL y verificar su comportamiento desde una base vacía.
+- **Alcance:** runner versionado, naming/orden/checksum, advisory lock, transacción por archivo, detección de deriva, forward-fix, extensiones autorizadas, roles mínimos y pruebas automatizadas.
 - **Fuera de alcance:** migraciones funcionales o datos reales.
 - **Dependencias:** CORE-DB-02. **Desbloquea:** ADMIN-DB-01, AUTH-DB-01, BOOK-DB-01, COMM-DB-01, CONT-DB-01, CORE-BE-01, CORE-ENV-01, CORE-TEST-01, DIS-DB-01, DISC-DB-01, KYC-DB-01, LIST-DB-01, OPS-DB-01, PRIV-DB-01
-- **Aceptación:** procedimiento que construye base vacía desde cero, detecta desvío de versión y no modifica una migración aplicada.
-- **Pruebas esperadas:** aplicar secuencia inicial dos veces en DB descartable y comparar estado/versión.
-- **Riesgo:** migraciones no reversibles y ausencia de estrategia de recuperación. **Estado:** todo.
+- **Aceptación:** runner ejecutable en PostgreSQL 18; aplica desde vacío, segunda ejecución idempotente, detecta drift y gaps antes de DDL, hace rollback ante fallo y serializa ejecuciones concurrentes. No marcar Done sin pruebas de integración reales contra PostgreSQL y revisión del usuario.
+- **Pruebas esperadas:** unitarias y de integración con DB descartable para orden/checksum, reejecución, drift, rollback y concurrencia.
+- **Riesgo/bloqueo:** faltan pruebas de integración contra PostgreSQL porque la base temporal requiere aprobación explícita. **Estado:** blocked.
 
 ### CORE-BE-01 — Fijar estructura lógica del monolito Go
 - **Módulo/tipo/estado:** Transversal / ARCH / `todo`.
@@ -136,7 +138,7 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Tipo/estado:** DB / todo. **Objetivo:** persistir usuario/roles/sesión/tokens/términos.
 - **Alcance:** DDL versionado, constraints/índices y catálogo mínimo de términos de prueba sintético.
 - **Fuera:** datos de personas reales, lógica de autenticación. **Dep:** AUTH-DB-01. **Desbloquea:** AUTH-BE-01
-- **Aceptación:** aplica desde vacío, repetición controlada no duplica y constraints frenan duplicados/estados inválidos. **Pruebas:** migración up/forward-fix e integridad. **Riesgo:** hash/tokens deben mantenerse fuera de logs. Estado `todo`.
+- **Aceptación:** aplica desde vacío, repetición controlada no duplica y constraints frenan duplicados/estados inválidos. **Pruebas:** migración up/forward-fix e integridad. **Riesgo:** no aplicar hasta que el runner de CORE-DB-03 pueda ejecutar y verificar migraciones contra PostgreSQL. Estado `todo`.
 
 ### AUTH-BE-01 — Implementar tipos de dominio y repositorio de cuenta
 - **Tipo/estado:** BE / todo. **Objetivo/traza:** estados de cuenta/sesión de RQF-001–023/213–218.
