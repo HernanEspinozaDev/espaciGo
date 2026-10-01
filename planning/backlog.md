@@ -56,7 +56,7 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Dependencias:** CORE-ARCH-01. **Desbloquea:** CORE-DB-02
 - **Aceptación:** decisión versionada con verificación local reproducible de motor/extensiones y compatibilidad objetivo.
 - **Pruebas esperadas:** levantar motor de prueba y consultar versiones/extensiones previstas.
-- **Riesgo:** PostGIS/`btree_gist` o versión no disponible en una plataforma objetivo. **Estado:** review; perfil versionado en `planning/base_de_datos.md`, propuesta técnica pendiente de revisión. Las versiones local e imagen ya estaban verificadas y se reutilizó esa evidencia sin repetir el smoke; no se eligió plataforma productiva ni se creó esquema/DDL.
+- **Riesgo:** PostGIS/`btree_gist` o versión no disponible en una plataforma objetivo. **Estado:** review; perfil versionado en `planning/base_de_datos.md`, propuesta técnica pendiente de revisión. Las versiones local e imagen ya estaban verificadas y se reutilizó esa evidencia sin repetir el smoke; no se eligió plataforma productiva ni se creó esquema/DDL. [PR #4](https://github.com/HernanEspinozaDev/espaciGo/pull/4).
 
 ### CORE-DB-02 — Revisar diccionario, ownership y tratamiento de datos
 - **Módulo/tipo/estado:** Transversal / ARCH / `todo`.
