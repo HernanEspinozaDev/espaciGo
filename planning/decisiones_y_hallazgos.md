@@ -14,7 +14,7 @@
 | Privacidad | Ley 21.719 como criterio de diseño desde primer incremento | Decisión del usuario; no afirmar cumplimiento demostrado ni fecha de vigencia anticipada. |
 | Pagos | Sandbox en desarrollo/CI/staging; contrato backend neutral | Mercado Pago Split 1:1 investigado parcialmente; medios, tarifa, KYC, reembolso/saldo y ensayo siguen abiertos. Split no se denomina Escrow por inferencia. |
 | Mock | HTML/CSS/TS/DOM/fetch en contenedor separado, API pública | Solicitud actual; el mock no decide frontend definitivo. |
-| Kanban | `backlog.md` es registro fuente para 102 tarjetas; Hermes Kanban `espacigo` es local y contiene 184 dependencias | Lectura 2026-10-01: Kanban 11 done, 1 blocked, 90 todo; fuente antes de publicar CORE-DB-02: 4 done, 0 review, 98 todo. CORE-DB-02 sigue `done` erróneamente en el tablero; `reopen-review` fue rechazado. No se editó directamente la base. |
+| Kanban | `backlog.md` es registro fuente para 102 tarjetas; Hermes Kanban `espacigo` es local y contiene 184 dependencias | Lectura 2026-10-01: Kanban 11 done, 1 blocked, 90 todo; fuente con PR #5 en revisión: 4 done, 1 review, 97 todo. CORE-DB-02 sigue `done` erróneamente en el tablero; `reopen-review` fue rechazado. No se editó directamente la base. |
 | Mapa de dominio | El usuario ratificó ownership y disposiciones MAP-01–MAP-10 el 2026-10-01 | PR #1 aprobado y fusionado a `main`: https://github.com/HernanEspinozaDev/espaciGo/pull/1. Ratificación no es evidencia de implementación ni autorización de DDL fuera del backlog. |
 
 ## Hallazgos que requieren seguimiento
