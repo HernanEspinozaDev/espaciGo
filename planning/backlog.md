@@ -6,7 +6,7 @@ Este archivo es el registro fuente de 102 tarjetas sincronizadas con el tablero 
 
 | Bloque | N.º tarjetas | ready | running | review | done | blocked | todo |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Transversal/fundación | 9 | 0 | 0 | 2 | 1 | 0 | 6 |
+| Transversal/fundación | 9 | 0 | 0 | 1 | 3 | 0 | 5 |
 | M01 Identidad y cuenta | 10 | 0 | 0 | 0 | 0 | 0 | 10 |
 | M02 Perfil y privacidad | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | M03 Verificación KYC/KYB | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
@@ -18,9 +18,9 @@ Este archivo es el registro fuente de 102 tarjetas sincronizadas con el tablero 
 | M09 Comunicación y reputación | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | M10 Disputas, liquidación y tributación | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | M11 Administración y auditoría | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
-| **Total** | **102** | **0** | **0** | **2** | **1** | **0** | **99** |
+| **Total** | **102** | **0** | **0** | **1** | **3** | **0** | **98** |
 
-Estado del backlog al 2026-10-01: CORE-DB-03 tiene las verificaciones técnicas completas y queda en `review`, pendiente de revisión del usuario. Kanban aún la muestra `done`; los comandos soportados para bloquear/reabrir revisión rechazaron la transición porque la tarjeta está en estado terminal. La sincronización del estado Kanban sigue pendiente de un flujo admitido de recuperación; no se modificó directamente la base del tablero.
+Estado al 2026-10-01: PR #2 (CORE-ARCH-01) y PR #3 (CORE-DB-03) están confirmados `MERGED`; ambos quedan `done` en este registro y Kanban. CORE-DB-01 tiene sus criterios documentales/evidencia ambiental previamente registrada y pasa a `review`, pendiente de revisión del usuario por su PR. No se repitieron comprobaciones ambientales. El Kanban muestra 11 `done`, 1 `blocked` y 90 `todo`; además marca CORE-DB-01 y CORE-DB-02 `done` antes de revisión de sus PRs. `request-review` para CORE-DB-01 fue rechazado por estar terminal; no se alteró la base del tablero. Se conserva el estado real de Kanban y queda explícita la discrepancia, sin cerrar CORE-DB-01/02 antes de la revisión del usuario.
 
 Los IDs académicos completos de motivación están en [visión y módulos](vision_y_modulos.md); la propuesta física está en [Base de Datos](base_de_datos.md). La fila de trazabilidad al abrir cada módulo aplica a todas sus tarjetas; cada objetivo especifica el flujo concreto que se dividirá en PRs. En cada tarjeta “Pruebas” son validaciones que Developer/Tester deberán automatizar al ejecutarla. “Desbloquea” enumera las tarjetas inmediatas siguientes del grafo.
 
@@ -38,25 +38,25 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Evidencia de aprobación:** PR #1 aprobado y fusionado a `main` el 2026-10-01; el usuario ratificó el mapa y MAP-01–MAP-10. [PR #1](https://github.com/HernanEspinozaDev/espaciGo/pull/1). No acredita implementación ni autoriza DDL.
 
 ### CORE-ARCH-01 — Fijar contratos entre módulos y reglas transversales
-- **Módulo/tipo/estado:** Transversal / ARCH / `review`.
+- **Módulo/tipo/estado:** Transversal / ARCH / `done`.
 - **Objetivo y motivación:** definir interfaces internas, transacciones, errores, authz, idempotencia, auditoría/outbox y dependencias conforme RNF-013–043 y ES2 3.3.
 - **Alcance:** registrar dueño de datos por módulo, reglas de importación, formato de error, correlación, límites de transacción y prácticas sin PII en logs.
 - **Fuera de alcance:** elegir microservicios, implementar Go o fijar UX.
-- **Dependencias:** PLAN-ARCH-01 (`done`, PR #1). **Desbloquea:** ADMIN-ARCH-01, BOOK-ARCH-01, CORE-BE-01, CORE-DB-01 (permanecen `todo` hasta aprobar esta revisión).
+- **Dependencias:** PLAN-ARCH-01 (`done`, PR #1). **Desbloquea:** ADMIN-ARCH-01, BOOK-ARCH-01, CORE-BE-01, CORE-DB-01.
 - **Aceptación:** documento breve con límites, invariantes, estrategia de error/idempotencia y decisión explícita de monolito modular.
 - **Pruebas esperadas:** revisión estática de dependencias propuestas contra M01–M11 y RNF-033.
-- **Riesgo:** interfaces vagas llevan a consultas/escrituras cruzadas y acoplamiento. **Estado:** review; documento presentado, no aprobado ni cerrado.
-- **Evidencia de revisión solicitada:** `planning/contratos_entre_modulos.md`; verificación estática 43/43 tablas únicas, 11/11 módulos, RNF-013–043 (31/31), referencias presentes y `git diff --check` aprobado. Sin código, DDL, migraciones, Docker ni pruebas de aplicación.
+- **Riesgo:** interfaces vagas llevan a consultas/escrituras cruzadas y acoplamiento. **Estado:** done.
+- **Evidencia:** `planning/contratos_entre_modulos.md`; verificación estática 43/43 tablas únicas, 11/11 módulos, RNF-013–043 (31/31), referencias presentes y `git diff --check` aprobado. PR #2 aprobado y fusionado a `main` el 2026-10-01 (merge commit `fa6c1237f75e63ec8c27fab02edadc0b7db8158a`). No implica código, DDL, migraciones ni pruebas de aplicación.
 
 ### CORE-DB-01 — Acordar perfil PostgreSQL y convenciones de persistencia
-- **Módulo/tipo/estado:** Transversal / ARCH / `todo`.
+- **Módulo/tipo/estado:** Transversal / ARCH / `review`.
 - **Objetivo y motivación:** fijar PostgreSQL 18/PostGIS/`btree_gist` del Anexo B y validar disponibilidad local/CI antes del primer esquema.
 - **Alcance:** decidir imagen/versiones verificadas, extensiones, nombres, UUID, `timestamptz`, rangos, moneda decimal exacta, esquemas y estrategia de índices.
 - **Fuera de alcance:** crear tablas, imagen productiva o elegir proveedor cloud alternativo.
 - **Dependencias:** CORE-ARCH-01. **Desbloquea:** CORE-DB-02
 - **Aceptación:** decisión versionada con verificación local reproducible de motor/extensiones y compatibilidad objetivo.
 - **Pruebas esperadas:** levantar motor de prueba y consultar versiones/extensiones previstas.
-- **Riesgo:** PostGIS/`btree_gist` o versión no disponible en una plataforma objetivo. **Estado:** todo.
+- **Riesgo:** PostGIS/`btree_gist` o versión no disponible en una plataforma objetivo. **Estado:** review; perfil versionado en `planning/base_de_datos.md`, propuesta técnica pendiente de revisión. Las versiones local e imagen ya estaban verificadas y se reutilizó esa evidencia sin repetir el smoke; no se eligió plataforma productiva ni se creó esquema/DDL. [PR #4](https://github.com/HernanEspinozaDev/espaciGo/pull/4).
 
 ### CORE-DB-02 — Revisar diccionario, ownership y tratamiento de datos
 - **Módulo/tipo/estado:** Transversal / ARCH / `todo`.
@@ -69,14 +69,14 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Riesgo:** hay capacidades promocionales/NPS todavía no aprobadas y conservarlas puede ampliar datos innecesarios. **Estado:** todo.
 
 ### CORE-DB-03 — Definir migrador y base local reproducible
-- **Módulo/tipo/estado:** Transversal / DB / `review`.
+- **Módulo/tipo/estado:** Transversal / DB / `done`.
 - **Objetivo y motivación:** entregar un migrador ejecutable para aplicar migraciones PostgreSQL y verificar su comportamiento desde una base vacía.
 - **Alcance:** runner versionado, naming/orden/checksum, advisory lock, transacción por archivo, detección de deriva, forward-fix, extensiones autorizadas, roles mínimos y pruebas automatizadas.
 - **Fuera de alcance:** migraciones funcionales o datos reales.
 - **Dependencias:** CORE-DB-02. **Desbloquea:** ADMIN-DB-01, AUTH-DB-01, BOOK-DB-01, COMM-DB-01, CONT-DB-01, CORE-BE-01, CORE-ENV-01, CORE-TEST-01, DIS-DB-01, DISC-DB-01, KYC-DB-01, LIST-DB-01, OPS-DB-01, PRIV-DB-01
-- **Aceptación:** runner ejecutable en PostgreSQL 18; aplica desde vacío, segunda ejecución idempotente, detecta drift y gaps antes de DDL, hace rollback ante fallo y serializa ejecuciones concurrentes. No marcar Done hasta recibir la revisión del usuario.
-- **Verificación:** seis pruebas de integración PostgreSQL pasaron el 2026-10-01 con la imagen por digest registrada en `base_de_datos.md`; PostgreSQL 18.6, PostGIS 3.6.4, `btree_gist` 1.8. El contenedor tmpfs fue eliminado y verificado. [Draft PR #3](https://github.com/HernanEspinozaDev/espaciGo/pull/3).
-- **Riesgo/estado:** pendiente revisión del usuario. El Kanban continúa mostrando erróneamente `done`; restauración al estado `review` pendiente de una vía admitida.
+- **Aceptación:** runner ejecutable en PostgreSQL 18; aplica desde vacío, segunda ejecución idempotente, detecta drift y gaps antes de DDL, hace rollback ante fallo y serializa ejecuciones concurrentes.
+- **Verificación:** seis pruebas de integración PostgreSQL pasaron el 2026-10-01 con la imagen por digest registrada en `base_de_datos.md`; PostgreSQL 18.6, PostGIS 3.6.4, `btree_gist` 1.8. El contenedor tmpfs fue eliminado y verificado. PR #3 fue aprobado y fusionado a `main` el 2026-10-01 (merge commit `7dd963aadcb3cc8a003ca9b246a7869c02eed842`).
+- **Riesgo/estado:** verificaciones y revisión del usuario completadas; `done`. No inicia AUTH-DB-02, que conserva sus dependencias propias.
 
 ### CORE-BE-01 — Fijar estructura lógica del monolito Go
 - **Módulo/tipo/estado:** Transversal / ARCH / `todo`.

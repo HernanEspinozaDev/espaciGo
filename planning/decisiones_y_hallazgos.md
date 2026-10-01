@@ -7,14 +7,14 @@
 | Prioridad | DB → Backend → API → pruebas → mock por módulo | Instrucción explícita actual del usuario. |
 | Alcance | Todas las categorías/funciones desde el diseño; implementación incremental | Decisión posterior en ES2 contexto y Anexo B v2. |
 | Backend | Monolito modular Go, API HTTP/JSON/OpenAPI | Propuesta ES2 v1.2; no hay aplicación implementada. |
-| Persistencia | PostgreSQL 18 + PostGIS + `btree_gist` como objetivo | Sujeta a verificación local/Cloud SQL; no hay esquema físico. |
+| Persistencia | Propuesta CORE-DB-01: PostgreSQL 18, PostGIS 3.6 y `btree_gist` 1.8; convenciones versionadas en `base_de_datos.md` | Versiones locales PostgreSQL 18.6/PostGIS 3.6.2/`btree_gist` 1.8 y la imagen fijada PostgreSQL 18.6/PostGIS 3.6.4/`btree_gist` 1.8 ya estaban verificadas. No repetir el smoke ni afirmar compatibilidad de Cloud SQL/otros patches no probados; perfil pendiente de revisión y no hay esquema físico. |
 | SQL | `pgx/pgxpool` + `sqlc`, transacciones explícitas | Propuesta ES2; confirmar versiones y flujo en ticket de fundación. |
 | Analítica | Outbox PostgreSQL → Pub/Sub → BigQuery; BigQuery no es fuente operacional ni garantiza inmutabilidad | ES2 separa analítica de RNF-017; retención bloqueada/hash sigue pendiente de plazo y ensayo. |
 | Workers | Goroutines del monolito sobre tareas durables PostgreSQL, idempotentes | Propuesta ES2; sin despliegue ni prueba. |
 | Privacidad | Ley 21.719 como criterio de diseño desde primer incremento | Decisión del usuario; no afirmar cumplimiento demostrado ni fecha de vigencia anticipada. |
 | Pagos | Sandbox en desarrollo/CI/staging; contrato backend neutral | Mercado Pago Split 1:1 investigado parcialmente; medios, tarifa, KYC, reembolso/saldo y ensayo siguen abiertos. Split no se denomina Escrow por inferencia. |
 | Mock | HTML/CSS/TS/DOM/fetch en contenedor separado, API pública | Solicitud actual; el mock no decide frontend definitivo. |
-| Kanban | `backlog.md` es registro fuente sincronizado con Hermes Kanban local `espacigo` (102 tarjetas, 184 dependencias) | Estado al 2026-10-01: 1 done, 1 review, 100 todo; no afirmar que sea un servicio externo ni que cada notificación haya sido probada. |
+| Kanban | `backlog.md` es registro fuente para 102 tarjetas; Hermes Kanban `espacigo` es local y contiene 184 dependencias | Lectura 2026-10-01: Kanban 11 done, 1 blocked, 90 todo; fuente tras esta reconciliación focal 3 done, 1 review, 98 todo. Hay estados terminales desincronizados; no se editó directamente la base del tablero. |
 | Mapa de dominio | El usuario ratificó ownership y disposiciones MAP-01–MAP-10 el 2026-10-01 | PR #1 aprobado y fusionado a `main`: https://github.com/HernanEspinozaDev/espaciGo/pull/1. Ratificación no es evidencia de implementación ni autorización de DDL fuera del backlog. |
 
 ## Hallazgos que requieren seguimiento

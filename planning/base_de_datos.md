@@ -4,6 +4,23 @@
 
 El contrato académico vigente es [ES2 Anexo B](../../Informes/ES2PT/anexos/B_diccionario_datos.md): 43 tablas de diseño, producto completo, PostgreSQL 18 + PostGIS + `btree_gist` como objetivo. El diccionario no es DDL ejecutado y el SQL ilustrativo antiguo no debe tratarse como migración vigente. El modelo físico se implementará módulo a módulo, sin crear desde el inicio todas las tablas por anticipado.
 
+## Perfil de persistencia propuesto (CORE-DB-01)
+
+Estas convenciones versionan una propuesta técnica para revisión; no crean esquema físico, no autorizan DDL y no seleccionan una plataforma productiva.
+
+- **Motor/extensiones:** PostgreSQL 18; PostGIS 3.6 y `btree_gist` 1.8 conforme al objetivo del Anexo B. La evidencia disponible cubre únicamente las versiones locales y la imagen descritas abajo; no se afirma compatibilidad con otros proveedores/patches no probados.
+- **Imagen de prueba fijada:** `postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677`; un tag sin digest no es suficiente para reproducir la prueba. No es una decisión de imagen productiva.
+- **Evidencia ambiental preexistente (2026-10-01; no repetida en esta tarjeta):** instalación local PostgreSQL 18.6, PostGIS 3.6.2 y `btree_gist` 1.8; la imagen fijada informó PostgreSQL 18.6, PostGIS 3.6.4 y `btree_gist` 1.8. Las consultas de versiones/extensiones, healthcheck y creación de `btree_gist` en instancia descartable pasaron. La diferencia observada de patch de PostGIS queda registrada; no se extrapola a otros patches ni a Cloud SQL. Evidencia detallada de instancia y pruebas en [migraciones_postgresql.md](migraciones_postgresql.md).
+- **Smoke reproducible local/CI:** usar la imagen fijada con `pg_isready`; consultar `SHOW server_version;`, `SELECT postgis_full_version();` y `SELECT extname, extversion FROM pg_extension WHERE extname IN ('postgis','btree_gist') ORDER BY extname;`; en una base descartable ejecutar `CREATE EXTENSION IF NOT EXISTS postgis;` y `CREATE EXTENSION IF NOT EXISTS btree_gist;`. Aceptar solo si PostgreSQL 18.x, PostGIS 3.6.x y `btree_gist` 1.8.x están disponibles. El registro preexistente satisface el smoke para las versiones indicadas; automatizarlo en CI cuando se cree la infraestructura de pruebas.
+- **Nombres/constraints:** tablas en singular, identificadores y columnas en `snake_case`, descriptivos y consistentes con el diccionario español. Nombrar constraints e índices de forma estable como `<tabla>_<columnas>_<tipo>`; declarar nombres explícitos para FKs y restricciones.
+- **IDs:** usar tipo `uuid` según Anexo B. La política concreta de generación/biblioteca queda por seleccionar antes de la primera migración; UUID no es autorización ni anonimización.
+- **Tiempo:** `timestamptz` para instantes UTC; `date` para fechas civiles sin hora. No usar timestamp sin zona para eventos.
+- **Rangos:** ocupación con `tstzrange` finito, no vacío y semiabierto `[inicio, fin)`; GiST/`btree_gist` para exclusión de solapes. Otros rangos temporales seguirán `[)` cuando la semántica represente intervalos.
+- **Moneda:** alinear con Anexo B: CLP en `numeric(14,0)` (pesos enteros); moneda explícita `char(3)` ISO 4217; porcentajes y cálculos intermedios con precisión/escala declaradas y versionadas. Nunca `float`/`double precision`; no fijar reglas legales de redondeo distintas del contrato sin decisión trazable.
+- **Esquema/roles:** propuesta inicial de un único esquema `public`; cualquier partición por módulo requiere decisión previa documentada. Separar rol propietario/migrador del rol runtime de privilegio mínimo; la app no recibe privilegio de crear objetos; credenciales fuera del repositorio.
+- **Índices:** añadirlos con una consulta/invariante justificada: B-tree para FK/filtros/orden medidos y GiST para geografía/rangos/exclusiones. No duplicar índices cubiertos por constraints ni crear índices parciales sin predicado trazable. Medir con `EXPLAIN (ANALYZE, BUFFERS)` y datos sintéticos antes de optimizar.
+- **Evolución:** DDL solo por migraciones versionadas con rol migrador; cambios compatibles expand/contract y sin edición manual destructiva. Esta tarjeta no crea tablas, migraciones, roles ni archivos de entorno.
+
 ## Perfil PostgreSQL verificado para CORE-DB-03
 
 Imagen fijada por digest: `postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677`. Verificada el 2026-10-01 en una instancia desechable: PostgreSQL `18.6 (Debian 18.6-1.pgdg13+2)`, PostGIS `3.6.4` y `btree_gist` `1.8`. Evidencia de integración y limpieza en [migraciones_postgresql.md](migraciones_postgresql.md). Este perfil es para pruebas; no configura despliegue productivo.
@@ -25,7 +42,7 @@ El Anexo B tiene exactamente 43 tablas, aunque agrupa varias bajo ciertos encabe
 
 ## Secuencia física
 
-El contrato operativo de naming, checksum, serialización, transacciones, detección de deriva y reconstrucción vacía está en [migraciones_postgresql.md](migraciones_postgresql.md). Esta rama contiene un runner ejecutable (`cmd/dbmigrate`), y las seis pruebas de integración pasaron contra la imagen PostgreSQL/PostGIS fijada por digest. CORE-DB-03 queda pendiente de revisión del usuario; AUTH-DB-02 continúa bloqueada y no se inició trabajo sucesor.
+El contrato operativo de naming, checksum, serialización, transacciones, detección de deriva y reconstrucción vacía está en [migraciones_postgresql.md](migraciones_postgresql.md). El runner ejecutable (`cmd/dbmigrate`) y sus seis pruebas de integración pasaron contra la imagen PostgreSQL/PostGIS fijada por digest; PR #3 fue aprobado y fusionado el 2026-10-01. CORE-DB-03 queda `done`. AUTH-DB-02 no se inició y sigue pendiente de sus dependencias; el merge del runner no sustituye CORE-DB-02 ni sus revisiones.
 
 1. **Revisión de modelo global:** cardinalidades, dueños lógicos, clasificaciones personales/restringidas, plazos por finalidad, estados y claves. Registrar cambios antes de escribir DDL.
 2. **Convenciones de persistencia:** PG18/extensiones requeridas, UUID/timestamps/moneda, naming, esquema, roles de migración/API/operación, migraciones versionadas, rollback/forward-fix, test fixtures y política de cambios compatibles.
