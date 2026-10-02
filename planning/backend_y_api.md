@@ -17,7 +17,7 @@ La estructura lógica y las reglas verificables de dependencias están en [`estr
 
 ## Contrato HTTP
 
-El API entrega JSON; el mock y clientes futuros no dependen de HTML generado por servidor. Los tickets de contrato deben fijar versionado, autenticación, permisos/roles, paginación/filtros, fechas/zona horaria, dinero, conflictos, idempotency keys y errores. OpenAPI es la fuente revisable de request/response y se actualiza con cada cambio. Las rutas concretas y códigos se acuerdan en cada ticket antes de implementación y no se inventan aquí en conflicto con CU/RQF.
+El API entrega JSON; el mock y clientes futuros no dependen de HTML generado por servidor. El contrato común fijado en [`contrato_http_api.md`](contrato_http_api.md) y [`openapi.yaml`](openapi.yaml) establece `/api/v1`, el esquema HTTP Bearer predeterminado sin fijar el formato del token, respuestas de error comunes, autorización por recurso, cursores, formatos de dinero/tiempo, correlación e idempotencia. OpenAPI es la fuente revisable de request/response y se actualiza con cada cambio. Las rutas concretas y códigos se acuerdan en cada ticket con trazabilidad a CU/RQF; no se inventan aquí. Cada ticket documenta autorización a nivel de recurso, errores aplicables y ejemplos sintéticos.
 
 Los endpoints externos (webhooks) validan firma/origen según proveedor, deduplican por identificador, guardan el evento antes de procesar y devuelven la respuesta adecuada al proveedor. Un timeout no significa que el pago falló: pasa a conciliación; nunca se repite el cobro con una clave nueva sin resolver el intento previo.
 

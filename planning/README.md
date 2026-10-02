@@ -13,7 +13,9 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [Ejecución con Hermes](ejecucion_con_hermes.md) | Cómo cargar contexto, asignar tarjetas y separar Developer/Tester/Reviewer. |
 | [Entorno de desarrollo](entorno_de_desarrollo.md) | Contexto de herramientas disponibles, separado de los requisitos del producto. |
 | [Plan de Base de Datos](base_de_datos.md) | Modelo global, límites por módulo, secuencia y reglas de migración. |
-| [Plan de Backend y API](backend_y_api.md) | Capas Go, contratos HTTP/JSON y convenciones previstas. |
+| [Plan de Backend y API](backend_y_api.md) | Capas Go y contrato HTTP/JSON. |
+| [Contrato HTTP común](contrato_http_api.md) | Versionado, autenticación/autorización, errores, paginación, formatos y guía para tickets de rutas. |
+| [OpenAPI base](openapi.yaml) | OpenAPI 3.1 común con seguridad Bearer, esquemas y respuestas reutilizables. |
 | [Estructura lógica del backend Go](estructura_backend_go.md) | CORE-BE-01: límites de paquetes, ownership SQL, transacciones, salud y workers durables. |
 | [Plan de pruebas](pruebas.md) | Estrategia desde unitarias hasta recorridos funcionales. |
 | [Frontend mock](frontend_mock.md) | Harness temporal por módulo, tecnología permitida y criterios de aceptación. |

@@ -1,0 +1,217 @@
+openapi: 3.1.0
+info:
+  title: EspaciGo API
+  version: 1.0.0
+  description: >-
+    Contrato base común. Las rutas de módulos se agregan en tickets específicos
+    con trazabilidad a CU/RQF; este documento no inventa operaciones de negocio.
+servers:
+  - url: /api/v1
+    description: Base relativa versionada; el host se configura por entorno.
+security:
+  - bearerAuth: []
+paths: {}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >-
+        Credencial de acceso protegida por TLS. Esta base no fija formato,
+        emisor ni ciclo de vida del token; cada operación declara sus excepciones.
+  headers:
+    X-Request-ID:
+      description: Identificador de correlación generado o propagado por el servidor.
+      schema:
+        type: string
+        format: uuid
+    WWW-Authenticate:
+      description: Desafío Bearer que acompaña una respuesta 401.
+      schema:
+        type: string
+      example: Bearer
+    Idempotency-Key:
+      description: Clave opaca del cliente para repetir de forma segura una operación elegible.
+      schema:
+        type: string
+        minLength: 1
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id]
+      properties:
+        code:
+          type: string
+          description: Código estable, legible por máquina y documentado por operación.
+          example: validation_error
+        message:
+          type: string
+          description: Mensaje seguro y no sensible para presentación o diagnóstico.
+          example: La solicitud contiene campos inválidos.
+        request_id:
+          type: string
+          format: uuid
+        details:
+          type: array
+          description: Detalles seguros, opcionales y específicos del error.
+          items:
+            $ref: '#/components/schemas/FieldError'
+    FieldError:
+      type: object
+      additionalProperties: false
+      required: [field, code]
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    Page:
+      type: object
+      description: Convención para colecciones; cada endpoint define su elemento.
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {}
+        next_cursor:
+          type: [string, 'null']
+          description: Cursor opaco; null cuando no existen más resultados.
+    Money:
+      type: object
+      additionalProperties: false
+      required: [amount, currency]
+      properties:
+        amount:
+          type: string
+          pattern: '^-?(0|[1-9][0-9]*)(\.[0-9]+)?$'
+          description: Decimal exacto serializado como string, sin notación exponencial; escala y redondeo se definen por operación.
+          example: '123.45'
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          description: Código de moneda ISO 4217; cada operación fija las monedas admitidas.
+    UtcTimestamp:
+      type: string
+      format: date-time
+      pattern: 'Z$'
+      description: Instante RFC 3339 normalizado a UTC y terminado en Z.
+      example: '2026-10-02T12:30:00Z'
+    CivilDate:
+      type: string
+      format: date
+      description: Fecha civil ISO 8601 sin hora ni zona horaria.
+      example: '2026-10-02'
+  examples:
+    Accepted:
+      summary: Respuesta 2xx sintética; cada operación define su esquema final.
+      value:
+        id: '00000000-0000-4000-8000-000000000001'
+    InternalError:
+      summary: Error interno genérico sin información sensible.
+      value:
+        error:
+          code: internal_error
+          message: Ocurrió un error inesperado.
+          request_id: 550e8400-e29b-41d4-a716-446655440000
+  responses:
+    BadRequest:
+      description: Solicitud mal formada o parámetros inválidos.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            invalid_request:
+              value:
+                error:
+                  code: validation_error
+                  message: La solicitud contiene campos inválidos.
+                  request_id: 550e8400-e29b-41d4-a716-446655440000
+                  details:
+                    - field: page_size
+                      code: out_of_range
+    Unauthorized:
+      description: Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+        WWW-Authenticate:
+          $ref: '#/components/headers/WWW-Authenticate'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            unauthenticated:
+              value:
+                error:
+                  code: unauthenticated
+                  message: Se requiere autenticación.
+                  request_id: 550e8400-e29b-41d4-a716-446655440000
+    Forbidden:
+      description: Identidad autenticada sin permiso para la acción o recurso.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            forbidden:
+              value:
+                error:
+                  code: forbidden
+                  message: No tienes permiso para realizar esta acción.
+                  request_id: 550e8400-e29b-41d4-a716-446655440000
+    NotFound:
+      description: Recurso inexistente o no visible para esta identidad.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Conflicto con el estado actual, versión o clave de idempotencia.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            conflict:
+              value:
+                error:
+                  code: conflict
+                  message: La operación no es compatible con el estado actual.
+                  request_id: 550e8400-e29b-41d4-a716-446655440000
+    InternalServerError:
+      description: Error inesperado; no se exponen detalles internos ni secretos.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            internal_error:
+              $ref: '#/components/examples/InternalError'
