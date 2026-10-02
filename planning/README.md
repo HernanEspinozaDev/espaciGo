@@ -18,6 +18,7 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [OpenAPI base](openapi.yaml) | OpenAPI 3.1 común con seguridad Bearer, esquemas y respuestas reutilizables. |
 | [Estructura lógica del backend Go](estructura_backend_go.md) | CORE-BE-01: límites de paquetes, ownership SQL, transacciones, salud y workers durables. |
 | [Plan de pruebas](pruebas.md) | Estrategia desde unitarias hasta recorridos funcionales. |
+| [Harness de DB y API](harness_pruebas.md) | Comandos por capa, fixtures sintéticos, aislamiento, migraciones, contratos y evidencia CI. |
 | [Frontend mock](frontend_mock.md) | Harness temporal por módulo, tecnología permitida y criterios de aceptación. |
 | [Decisiones y hallazgos](decisiones_y_hallazgos.md) | Conflictos documentales, riesgos y temas que requieren evidencia. |
 | [Grafo de dependencias](grafo_dependencias.md) | Orden, dependencias transversales y conteo del backlog. |
