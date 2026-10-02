@@ -6,7 +6,7 @@ Este archivo es el registro fuente de 102 tarjetas sincronizadas con el tablero 
 
 | Bloque | N.º tarjetas | ready | running | review | done | blocked | todo |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Transversal/fundación | 9 | 0 | 0 | 1 | 4 | 0 | 4 |
+| Transversal/fundación | 9 | 0 | 0 | 1 | 5 | 0 | 3 |
 | M01 Identidad y cuenta | 10 | 0 | 0 | 0 | 0 | 0 | 10 |
 | M02 Perfil y privacidad | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | M03 Verificación KYC/KYB | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
@@ -18,9 +18,9 @@ Este archivo es el registro fuente de 102 tarjetas sincronizadas con el tablero 
 | M09 Comunicación y reputación | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | M10 Disputas, liquidación y tributación | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | M11 Administración y auditoría | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
-| **Total** | **102** | **0** | **0** | **1** | **4** | **0** | **97** |
+| **Total** | **102** | **0** | **0** | **1** | **5** | **0** | **96** |
 
-Estado al 2026-10-01: PR #2 (CORE-ARCH-01), #3 (CORE-DB-03) y #4 (CORE-DB-01) están confirmados `MERGED`; quedan `done` en este registro. Para CORE-DB-01 se reutilizó la evidencia ambiental ya registrada, sin repetir comprobaciones. CORE-DB-02 está en `review` por PR #5 abierto, pendiente de revisión del usuario. Hermes Kanban `espacigo` registra 11 `done`, 1 `blocked` y 90 `todo`; CORE-DB-01 ya aparece `done`, coherente con el merge #4. CORE-DB-02 también aparece `done` indebidamente antes de la revisión. La transición admitida `reopen-review t_2377a275` fue rechazada (`not in review?`); no se modificó la base del tablero. Se conserva la discrepancia explícita: backlog y PR no cierran CORE-DB-02 y Kanban requiere recuperación por una vía soportada. [PR #5](https://github.com/HernanEspinozaDev/espaciGo/pull/5).
+Estado al 2026-10-01: PR #2 (CORE-ARCH-01), #3 (CORE-DB-03), #4 (CORE-DB-01) y #5 (CORE-DB-02) están confirmados `MERGED`. CORE-DB-01 y CORE-DB-02 quedan `done` por sus PR aprobados; no se repitieron pruebas ambientales de #3/#4. La trazabilidad RQF-213–218 cubre 6/6, pero DB02-09 conserva abiertas las decisiones de preferencia de uso, historial de claves y notificación; ningún DDL dependiente se considera autorizado. Hermes Kanban `espacigo` registra 11 `done`, 1 `blocked` y 90 `todo`; CORE-DB-02 ya aparece `done` y coincide con el merge #5. CORE-BE-01 está en `review` en el backlog y PR #6 está abierto para revisión; Kanban conserva `done` por una ejecución local anterior. La operación admitida `request-review t_39a64c51` fue rechazada (`task is not in running/ready`); se añadió comentario con el PR mediante el CLI admitido, sin cambiar el estado ni editar directamente la base. El registro fuente suma 5 `done`, 1 `review`, 96 `todo`; la diferencia agregada con Kanban permanece documentada sin re-revisar las demás tarjetas. [PR #5](https://github.com/HernanEspinozaDev/espaciGo/pull/5) · [PR #6](https://github.com/HernanEspinozaDev/espaciGo/pull/6).
 
 Los IDs académicos completos de motivación están en [visión y módulos](vision_y_modulos.md); la propuesta física está en [Base de Datos](base_de_datos.md). La fila de trazabilidad al abrir cada módulo aplica a todas sus tarjetas; cada objetivo especifica el flujo concreto que se dividirá en PRs. En cada tarjeta “Pruebas” son validaciones que Developer/Tester deberán automatizar al ejecutarla. “Desbloquea” enumera las tarjetas inmediatas siguientes del grafo.
 
@@ -66,7 +66,7 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Dependencias:** CORE-DB-01. **Desbloquea:** AUTH-ARCH-01, CORE-DB-03, KYC-ARCH-01, LIST-ARCH-01, PRIV-ARCH-01
 - **Aceptación:** lista de decisiones de modelo resueltas y cambios futuros trazados a requisito, sin declarar cumplimiento legal.
 - **Pruebas esperadas:** conciliación 43 tablas ↔ módulo ↔ RQF/RNF/CU; revisión de nulabilidad/relaciones en diccionario.
-- **Riesgo:** hay capacidades promocionales/NPS todavía no aprobadas y conservarlas puede ampliar datos innecesarios. **Estado:** review; revisión documental y trazabilidad ampliada en `planning/revision_diccionario_datos.md`, incluida conciliación de RQF-213–218 con ES1 y hallazgos que requieren decisión antes del DDL M01. PR #5 abierto en `feat/core-db-02-review` para revisión del usuario; no `done` hasta cumplir criterios y obtener la revisión requerida. El Kanban todavía muestra `done`; la recuperación por `reopen-review` fue rechazada y no se editó la base del tablero. [PR #5](https://github.com/HernanEspinozaDev/espaciGo/pull/5).
+- **Riesgo:** hay capacidades promocionales/NPS todavía no aprobadas y conservarlas puede ampliar datos innecesarios. **Estado:** `done`; PR #5 aprobado y fusionado por el usuario (merge commit `a8fc2392a416ef4a5683d02bbc3ee221fe1eafec`). Se verificó 6/6 RQF-213–218 y Kanban ya muestra `done`. DB02-09 y sus tres brechas permanecen abiertas; resolverlas exige decisión/tickets trazables antes de cualquier DDL dependiente. No se editaron datos del tablero. [PR #5](https://github.com/HernanEspinozaDev/espaciGo/pull/5).
 
 ### CORE-DB-03 — Definir migrador y base local reproducible
 - **Módulo/tipo/estado:** Transversal / DB / `done`.
@@ -79,14 +79,14 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Riesgo/estado:** verificaciones y revisión del usuario completadas; `done`. No inicia AUTH-DB-02, que conserva sus dependencias propias.
 
 ### CORE-BE-01 — Fijar estructura lógica del monolito Go
-- **Módulo/tipo/estado:** Transversal / ARCH / `todo`.
+- **Módulo/tipo/estado:** Transversal / ARCH / `review`. **Dependencias reevaluadas:** CORE-ARCH-01 (#2) y CORE-DB-03 (#3) están fusionadas; CORE-DB-02 (#5) también está cerrada. Siguiente tarjeta habilitada del bloque Backend; la revisión del PR es el gate actual.
 - **Objetivo y motivación:** trasladar la propuesta ES2 a límites de paquetes, casos de uso y adaptadores, RNF-033.
 - **Alcance:** acordar interfaz dominio/aplicación/persistencia/HTTP, uso propuesto de pgx/pgxpool y sqlc, configuración, salud y workers durables.
 - **Fuera de alcance:** crear código, elegir framework web sin evaluación o separar servicios.
 - **Dependencias:** CORE-ARCH-01, CORE-DB-03. **Desbloquea:** ADMIN-BE-01, AUTH-BE-01, BOOK-BE-01, BOOK-BE-03, COMM-BE-01, CONT-BE-01, CORE-API-01, DIS-BE-01, DISC-BE-01, KYC-BE-01, LIST-BE-01, OPS-BE-01, PRIV-BE-01
 - **Aceptación:** mapa de paquetes y reglas de dependencias verificables, con acceso SQL encapsulado por dueño de datos.
 - **Pruebas esperadas:** revisión de una dependencia ejemplo y límites de transacción externa.
-- **Riesgo:** SDK cloud en dominio o workers sin estado durable. **Estado:** todo.
+- **Riesgo:** SDK cloud en dominio o workers sin estado durable. **Estado:** `review`; especificación documental y ejemplo M05→M06 en `planning/estructura_backend_go.md`; no hay código ni DDL. PR #6 está abierto en `docs/core-be-01-review`. Kanban conserva `done`; `request-review t_39a64c51` falló porque la tarea no está en running/ready (o no coincide el run). Se añadió comentario por la operación CLI admitida con el enlace del PR; no se cambió el estado ni se editó directamente la base. No marcar `done` hasta la revisión requerida.
 
 ### CORE-API-01 — Fijar contrato HTTP, OpenAPI y autorización
 - **Módulo/tipo/estado:** Transversal / API / `todo`.
