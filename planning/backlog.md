@@ -1,12 +1,12 @@
 # Backlog técnico Kanban — registro fuente
 
-Este archivo es el registro fuente de 102 tarjetas sincronizadas con el tablero Hermes Kanban local `espacigo`. Cada tarjeta es una unidad revisable; el estado se recalcula con dependencias y evidencia. Corte: 2026-10-02. No hay responsables humanos ni fechas asignados.
+Este archivo es el registro fuente de 103 tarjetas del tablero Hermes Kanban local `espacigo`. Cada tarjeta es una unidad revisable; el estado se recalcula con dependencias y evidencia. Corte: 2026-10-04. No hay responsables humanos ni fechas asignados.
 
 ## Distribución
 
 | Bloque | N.º tarjetas | ready | running | review | done | blocked | todo |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Transversal/fundación | 9 | 0 | 0 | 1 | 7 | 0 | 1 |
+| Transversal/fundación | 10 | 0 | 0 | 1 | 8 | 0 | 1 |
 | M01 Identidad y cuenta | 10 | 0 | 0 | 0 | 0 | 1 | 9 |
 | M02 Perfil y privacidad | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | M03 Verificación KYC/KYB | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
@@ -18,9 +18,9 @@ Este archivo es el registro fuente de 102 tarjetas sincronizadas con el tablero 
 | M09 Comunicación y reputación | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | M10 Disputas, liquidación y tributación | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | M11 Administración y auditoría | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
-| **Total** | **102** | **0** | **0** | **1** | **7** | **1** | **93** |
+| **Total** | **103** | **0** | **0** | **1** | **8** | **1** | **93** |
 
-Estado al 2026-10-02: PRs #2–#7 están confirmados `MERGED`; CORE-API-01 quedó `done` por PR #7 (merge commit `100370e2e24dbf81a29d62014d6731081d4ff060`). CORE-BE-01 quedó `done` por PR #6 (`cc2d91c1671282e6d93ca3405ca4839549781d81`); CORE-DB-01/02/03 también están `done`, y no se repitieron pruebas ambientales de #3/#4. DB02-09 conserva abiertas las decisiones de preferencia de uso (RQF-213), historial/retención de claves (RQF-217) y evento/contrato de notificación (RQF-218); ningún DDL dependiente se considera autorizado. Hermes Kanban `espacigo` registra 11 `done`, 1 `blocked` y 90 `todo`; CORE-API-01 y CORE-TEST-01 aparecen `done` por ejecuciones locales anteriores, aunque el registro fuente deja CORE-TEST-01 en `review` mientras su PR está abierto. AUTH-DB-02 se refleja como `blocked` por decisiones de diseño pendientes y falta de una base desechable con permisos DDL. AUTH-ARCH-01, AUTH-DB-01 y CORE-ENV-01 siguen `todo` en la fuente porque sus artefactos locales no están fusionados/publicados. No se editó la base del tablero; las diferencias agregadas quedan documentadas. La fuente suma 7 `done`, 1 `review`, 1 `blocked` y 93 `todo`. [PR #5](https://github.com/HernanEspinozaDev/espaciGo/pull/5) · [PR #6](https://github.com/HernanEspinozaDev/espaciGo/pull/6) · [PR #7](https://github.com/HernanEspinozaDev/espaciGo/pull/7) · [PR #8](https://github.com/HernanEspinozaDev/espaciGo/pull/8).
+Estado al 2026-10-04: PRs #2–#8 están confirmados `MERGED`; CORE-TEST-01 quedó `done` por el PR #8 fusionado el 2026-10-02 (merge SHA `45451871f53b384e8ee5e1a66bbe7cf82feba434`), limitado a la definición documental del harness. CORE-API-01 sigue `done` por PR #7 (`100370e2e24dbf81a29d62014d6731081d4ff060`); CORE-BE-01 por PR #6 (`cc2d91c1671282e6d93ca3405ca4839549781d81`); CORE-DB-01/02/03 por PRs #4/#5/#3. CORE-ENV-02 sigue `review` en el tablero y en esta fuente; criterios automatizados y Chromium/Playwright pasaron: el probe TCP desde la red mock terminó `connect=failed timeout=true` con límite de 2 s, el control desde `data` fue `connect=success`, y el navegador cargó el mock y su JavaScript mostró `API y PostgreSQL listos.` tras fetch readiness CORS HTTP 200. DNS `temporary=true` sigue inconcluso y no es evidencia. Evidencias: `planning/evidence/`. La rama `feat/core-env-02-compose` está publicada en PR #9 abierto para revisión; no fusionada ni marcada aceptada/done. AUTH-DB-02 permanece bloqueada por decisiones de correo, expiración inactiva, TTL/límites de tokens y falta de PostgreSQL descartable con permisos DDL; DB02-09 mantiene abiertas RQF-213/-217/-218. La lectura actual de Hermes Kanban `espacigo` da 103 tarjetas: 11 `done`, 1 `review`, 1 `blocked`, 90 `todo`; la fuente suma 103: 8 `done`, 1 `review`, 1 `blocked`, 93 `todo`. La única tarjeta actualmente `blocked` en ese tablero es AUTH-DB-02; CORE-ENV-02, pausada antes por autorización, fue desbloqueada tras la autorización explícita del 2026-10-03. CORE-ENV-01, AUTH-ARCH-01 y AUTH-DB-01 siguen `todo` en la fuente aunque Kanban muestre `done`; no se editó directamente la base del tablero. [PR #5](https://github.com/HernanEspinozaDev/espaciGo/pull/5) · [PR #6](https://github.com/HernanEspinozaDev/espaciGo/pull/6) · [PR #7](https://github.com/HernanEspinozaDev/espaciGo/pull/7) · [PR #8](https://github.com/HernanEspinozaDev/espaciGo/pull/8) · [PR #9](https://github.com/HernanEspinozaDev/espaciGo/pull/9).
 
 Los IDs académicos completos de motivación están en [visión y módulos](vision_y_modulos.md); la propuesta física está en [Base de Datos](base_de_datos.md). La fila de trazabilidad al abrir cada módulo aplica a todas sus tarjetas; cada objetivo especifica el flujo concreto que se dividirá en PRs. En cada tarjeta “Pruebas” son validaciones que Developer/Tester deberán automatizar al ejecutarla. “Desbloquea” enumera las tarjetas inmediatas siguientes del grafo.
 
@@ -99,14 +99,14 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Riesgo:** diseñar contrato sin flujos de CU o exponer datos vinculables. **Estado:** `done`; contrato común y OpenAPI 3.1 sin rutas de negocio en `planning/contrato_http_api.md` y `planning/openapi.yaml`. PR #7 aprobado y fusionado el 2026-10-02 (merge commit `100370e2e24dbf81a29d62014d6731081d4ff060`). Redocly validó sin errores; dejó advertencias no bloqueantes por componentes sin rutas de negocio y licencia no especificada. Kanban conserva `done`; no se requirió edición.
 
 ### CORE-TEST-01 — Definir harness automatizado de DB y API
-- **Módulo/tipo/estado:** Transversal / TEST / `review`.
+- **Módulo/tipo/estado:** Transversal / TEST / `done`.
 - **Objetivo y motivación:** habilitar pruebas deterministas contra PostgreSQL real de test y contratos HTTP.
 - **Alcance:** decidir fixtures sintéticos, aislamiento/reset, ejecución unitaria/integración, comprobación migración desde vacío y artefactos de evidencia.
 - **Fuera de alcance:** pruebas de producción, carga medida o proveedores sin sandbox.
 - **Dependencias:** CORE-DB-03, CORE-API-01. **Desbloquea:** ADMIN-TEST-01, AUTH-TEST-01, BOOK-TEST-01, BOOK-TEST-02, COMM-TEST-01, CONT-TEST-01, CORE-ENV-01, DIS-TEST-01, DISC-TEST-01, KYC-TEST-01, LIST-TEST-01, LIST-TEST-02, OPS-TEST-01, PRIV-TEST-01
 - **Aceptación:** procedimiento que separa unit, DB integration y API contract; ningún secreto/PII real.
 - **Pruebas esperadas:** ejecutar smoke de conexión, limpieza de fixtures y fallo visible del test runner.
-- **Riesgo:** tests usando SQLite no ejercitarían rangos/exclusión PostgreSQL. **Estado:** `review`; contrato del harness en `planning/harness_pruebas.md`, enlazado desde `planning/README.md`; evidencia estática y `git diff --check` pasan. La ejecución de smoke/runner queda pendiente hasta que exista implementación/DB de test. El artefacto se presenta en el [PR #8](https://github.com/HernanEspinozaDev/espaciGo/pull/8); Kanban conserva `done` por ejecución local y no se cambió directamente.
+- **Riesgo:** tests usando SQLite no ejercitarían rangos/exclusión PostgreSQL. **Estado/evidencia:** `done` por alcance documental. `planning/harness_pruebas.md` y su enlace quedaron fusionados en PR #8 el 2026-10-02 (merge SHA `45451871f53b384e8ee5e1a66bbe7cf82feba434`). El entregable define capas, fixtures, aislamiento y evidencia; PR #8 no implementó runner de DB/API ni ejecutó smoke de PostgreSQL/cleanup. Las pruebas Go del bootstrap actual pertenecen a CORE-ENV-02 y no se atribuyen retrospectivamente a CORE-TEST-01.
 
 ### CORE-ENV-01 — Planificar entorno local aislado database/backend/mock
 - **Módulo/tipo/estado:** Transversal / ARCH / `todo`.
@@ -116,7 +116,18 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Dependencias:** CORE-DB-03, CORE-API-01, CORE-TEST-01. **Desbloquea:** ADMIN-MOCK-01, AUTH-MOCK-01, BOOK-MOCK-01, COMM-MOCK-01, CONT-MOCK-01, DIS-MOCK-01, DISC-MOCK-01, KYC-MOCK-01, LIST-MOCK-01, OPS-MOCK-01, PRIV-MOCK-01
 - **Aceptación:** diagrama/contrato local sin ruta mock→DB y checklist para que un futuro ticket lo implemente.
 - **Pruebas esperadas:** en la futura implementación: health checks, red sin acceso DB desde mock, `docker compose up` desde limpio.
-- **Riesgo:** publicar DB al host/red del mock o filtrar secretos por env. **Estado:** todo.
+- **Riesgo:** publicar DB al host/red del mock o filtrar secretos por env. **Estado:** `todo`; dependencias satisfechas después del merge #8, pendiente de su propio entregable documental.
+
+### CORE-ENV-02 — Implementar Compose local aislado database/backend/mock
+- **Módulo/tipo/estado:** Transversal / ENV / `running`.
+- **Objetivo:** bootstrap local reproducible para database, backend mínimo y mock estático.
+- **Alcance:** Compose con PostGIS fijado por digest; liveness/readiness sin autenticación ni rutas de negocio; mock HTML/CSS/TypeScript compilado que consulta readiness por HTTP/CORS; database solo en `data` interna, backend en `data`+`api`, mock solo en `api`; credenciales sintéticas locales restringidas y fuera de Git.
+- **Fuera de alcance:** DDL/migraciones de negocio, auth/sesiones, decisiones DB02-09/RQF-213/-217/-218 y despliegue productivo.
+- **Dependencias:** CORE-DB-03, CORE-API-01, CORE-TEST-01 (las tres satisfechas; PR #8 fusionado). **Desbloquea:** tarjetas MOCK del módulo, según el tablero.
+- **Aceptación:** desde copia limpia se generan credenciales locales y se levanta volumen vacío; servicios healthy y health/readiness sin filtrar DSN; mock carga y ejecuta fetch readiness por CORS; prueba desde la red real del mock demuestra que `database` no resuelve con respuesta autoritativa o, alternativamente, que el mock no conecta a PostgreSQL en la IP dinámica del contenedor dentro del timeout, sin puerto publicado; Go, TypeScript y Compose pasan; `down -v` limpia recursos descartables.
+- **Verificación local (2026-10-03):** copia temporal sin `.local` generó dos credenciales sintéticas con archivos `0600` y directorios `0700`; `config` y `up --wait` pasaron con los tres servicios healthy; los 9 checks HTTP/CORS pasaron; `down --volumes --remove-orphans` eliminó contenedores/volumen y `clean` eliminó solo los secretos de la copia temporal. `go test ./... -count=1`, `go vet ./...`, `npm ci --ignore-scripts --no-audit --no-fund`, `npm run build` y `config` pasaron.
+- **Aislamiento:** `./scripts/dev-env.sh verify-isolation` terminó `0`; salida persistida en `planning/evidence/core-env-02-network-isolation.log`. El probe inspecciona la IP dinámica de PostgreSQL, puerto 5432 y límite de 2 s desde la red real `api` del mock; el control autorizado se ejecutó desde `data`. Resultado concreto: control positivo `connect=success`; desde `api`, `connect=failed timeout=true` (agotó el límite de 2 s). No se fijó IP ni se publicó puerto PostgreSQL. DNS `temporary=true` sigue inconcluso y no se usa como prueba.
+- **Verificación Chromium (2026-10-04):** Playwright 1.63.0 + Chromium headless ejecutado desde un contenedor temporal de pruebas conectado exclusivamente a la red `api`; imagen oficial fijada por versión y digest, paquete Playwright en versión coincidente. Un override Compose temporal (solo en scratch) apuntó readiness a `backend:8080` y permitió el origen de servicio `http://mock-frontend:8081`, necesario dentro de la red aislada. El navegador cargó el mock (HTTP 200), ejecutó su JavaScript y `fetch` real a readiness por CORS; recibió HTTP 200, `{"status":"ready"}`, `Access-Control-Allow-Origin: http://mock-frontend:8081`, y la página mostró `API y PostgreSQL listos.` Sin errores JS. Captura: `planning/evidence/CORE-ENV-02-playwright.png`; log: `planning/evidence/core-env-02-playwright.log`. El contenedor se eliminó al finalizar; no se añadió servicio permanente al Compose. curl/CORS no sustituyeron la comprobación de navegador. La tarjeta está en `review` en Kanban y en la fuente; PR #9 está abierto, no fusionado, y CORE-ENV-02 no está marcada aceptada/done.
 
 ## M01 — Identidad y gestión de cuenta
 

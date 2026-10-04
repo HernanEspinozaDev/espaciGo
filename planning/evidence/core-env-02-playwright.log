@@ -1,0 +1,21 @@
+{
+  "result": "PASS",
+  "browser": "Chromium headless via Playwright 1.63.0",
+  "mockUrl": "http://mock-frontend:8081/",
+  "documentStatus": 200,
+  "pageTitle": "EspaciGo · entorno local",
+  "heading": "EspaciGo · entorno local",
+  "statusText": "API y PostgreSQL listos.",
+  "readinessRequest": {
+    "status": 200,
+    "body": {
+      "status": "ready"
+    },
+    "allowOrigin": "http://mock-frontend:8081",
+    "contentType": "application/json; charset=utf-8",
+    "requestOrigin": "http://mock-frontend:8081",
+    "requestMethod": "GET"
+  },
+  "pageErrors": [],
+  "screenshot": "/evidence/CORE-ENV-02-playwright.png"
+}

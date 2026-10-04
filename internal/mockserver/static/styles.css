@@ -1,0 +1,17 @@
+body {
+  background: #f4f6fb;
+  color: #1c2541;
+  font: 1rem/1.5 system-ui, sans-serif;
+  margin: 0;
+}
+
+main {
+  margin: 12vh auto;
+  max-width: 42rem;
+  padding: 2rem;
+}
+
+#api-status {
+  border-left: 0.25rem solid #536dfe;
+  padding-left: 0.75rem;
+}

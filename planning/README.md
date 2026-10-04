@@ -25,7 +25,7 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [Backlog Kanban](backlog.md) | Registro completo de tarjetas con alcance, trazabilidad y aceptación. |
 | [Referencias](referencias/README.md) | Snapshots de ES1/ES2 para agentes sin acceso al repositorio académico. |
 
-`backlog.md` es el registro fuente y se mantiene sincronizado con el tablero Hermes Kanban local `espacigo` (102 tarjetas). No se debe inferir que el tablero sea un servicio externo ni que se haya probado cada canal de notificación por el solo hecho de registrar estados.
+`backlog.md` es el registro fuente de las 103 tarjetas del tablero Hermes Kanban local `espacigo`; la sección de estado documenta las diferencias de estado y sus gates. No se debe inferir que el tablero sea un servicio externo ni que se haya probado cada canal de notificación por el solo hecho de registrar estados.
 
 ## Fuentes de autoridad
 
