@@ -22,6 +22,8 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [Harness de DB y API](harness_pruebas.md) | Comandos por capa, fixtures sintéticos, aislamiento, migraciones, contratos y evidencia CI. |
 | [Frontend mock](frontend_mock.md) | Harness temporal por módulo, tecnología permitida y criterios de aceptación. |
 | [Decisiones y hallazgos](decisiones_y_hallazgos.md) | Conflictos documentales, riesgos y temas que requieren evidencia. |
+| [Decisiones M01 de identidad](decisiones_m01_identidad_sesion.md) | Autorización ratificada de correo, sesiones y tokens; trazabilidad ES1/ES2 y brechas DB02-09 abiertas. |
+| [Invariantes de identidad, cuenta y sesión](invariantes_identidad_sesion.md) | AUTH-ARCH-01: flujos, estados, amenazas y reglas M01 ratificadas. |
 | [Grafo de dependencias](grafo_dependencias.md) | Orden, dependencias transversales y conteo del backlog. |
 | [Backlog Kanban](backlog.md) | Registro completo de tarjetas con alcance, trazabilidad y aceptación. |
 | [Referencias](referencias/README.md) | Snapshots de ES1/ES2 para agentes sin acceso al repositorio académico. |
