@@ -140,16 +140,20 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Aceptación:** casos de estado y amenazas acordados, sin guardar contraseña/token en claro. **Pruebas:** matriz de flujos éxito/fallo. **Riesgo:** políticas contradigan seguridad ES1. Estado `todo`.
 
 ### AUTH-DB-01 — Diseñar persistencia de cuenta, términos y sesión
-- **Tipo/estado:** DB / todo. **Objetivo/traza:** RQF-001–023, 186–188, 213–218; CU-01–06/50.
-- **Alcance:** especificar PK/UK/casefold, estados, revocación, expiración, índice de tokens y FK restrictivas para las seis tablas M01.
-- **Fuera de alcance:** almacenar contraseña/token legibles o introducir perfiles/KYC. **Dep:** AUTH-ARCH-01, CORE-DB-03. **Desbloquea:** AUTH-DB-02
-- **Aceptación:** esquema revisado contra Anexo B y reglas de privacidad. **Pruebas:** revisar duplicado de correo, expiración y restricciones. **Riesgo:** enumeración de cuentas. Estado `todo`.
+- **Tipo/estado:** DB / todo; artefacto en PR #14, pendiente de aprobación y merge para sincronizar el estado fuente. **Objetivo/traza:** RQF-001–023, 186–188, 213–218; CU-01–06/50.
+- **Alcance:** especificar PK/UK/correo_normalizado con canonicalización ratificada, estados, revocación, expiración, índice de tokens y FK restrictivas para las seis tablas M01, según `planning/persistencia_identidad_sesion.md`.
+- **Decisiones ratificadas:** correo original y clave canónica por formato validado + trim externo + Unicode casefold de toda dirección, común a registro/login/recuperación, UNIQUE y sin reglas de proveedor; sesiones con idle 30 min y absoluto 8 h; tokens y TTL/límites/invalidación como en el registro M01. No se agrega flujo de cambio de correo si los requisitos no lo exigen.
+- **Comportamiento público:** registro duplicado conserva CU-01 A1 y se documenta su conflicto anti-enumeración; recuperación responde genéricamente sin revelar existencia de cuenta.
+- **DB02-09:** RQF-213 (preferencia), RQF-217 (historial de claves) y RQF-218 (notificación) siguen abiertos y trazados. RQF-213 afecta cobertura de datos de perfil pero no autoriza incluir perfil en M01; RQF-217/RQF-218 no requieren tablas M01 en esta migración base; cualquier dependencia futura debe resolverse en su tarjeta propia antes del DDL correspondiente.
+- **Fuera de alcance:** almacenar contraseña/token legibles o introducir perfiles/KYC. **Dep:** AUTH-ARCH-01, CORE-DB-03. **Desbloquea:** AUTH-DB-02.
+- **Aceptación:** contrato físico revisado contra Anexo B, decisiones M01 ratificadas y privacidad, con requisitos y hallazgos abiertos claramente diferenciados. **Pruebas:** revisión documental de duplicado, persistencia/expiración, restricciones y DB02-09; pruebas ejecutables de PostgreSQL pertenecen a AUTH-DB-02. **Riesgo:** no convertir consultas públicas de cuenta en política distinta a CU-01 A1. Estado `todo` hasta aprobación y merge.
 
 ### AUTH-DB-02 — Crear migraciones iniciales de M01
-- **Tipo/estado:** DB / todo. **Objetivo:** persistir usuario/roles/sesión/tokens/términos.
-- **Alcance:** DDL versionado, constraints/índices y catálogo mínimo de términos de prueba sintético.
-- **Fuera:** datos de personas reales, lógica de autenticación. **Dep:** AUTH-DB-01. **Desbloquea:** AUTH-BE-01
-- **Aceptación:** aplica desde vacío, repetición controlada no duplica y constraints frenan duplicados/estados inválidos. **Pruebas:** migración up/forward-fix e integridad. **Riesgo:** el run local dejó el DDL sin prueba por permisos de PostgreSQL. El contrato upstream requiere decidir canonicalización del correo, semántica/campo de expiración inactiva y TTL/límites de tokens antes de cerrar el esquema; no inventar esos valores. Estado `blocked`.
+- **Tipo/estado:** DB / blocked hasta merge de AUTH-ARCH-01 y AUTH-DB-01. **Objetivo:** persistir usuario/roles/sesión/tokens/términos en PostgreSQL de acuerdo con el contrato M01.
+- **Alcance:** DDL versionado para campos, constraints, índices y catálogo mínimo de términos sintéticos; verificar migración desde vacío, repetición mediante el migrador aprobado, integridad/constraints y limpieza de la PostgreSQL desechable fijada. Comprobar que las migraciones existentes respetan el contrato del migrador CORE-DB-03.
+- **Fuera:** datos de personas reales, lógica de autenticación/Backend o ejecutar flujos de servicios; no crear DDL para resolver DB02-09 sin sus decisiones/tickets trazables. **Dep:** AUTH-DB-01 y AUTH-ARCH-01 fusionadas; migrador CORE-DB-03. **Desbloquea:** AUTH-BE-01.
+- **Aceptación PostgreSQL únicamente:** campos y tipos presentes conforme al contrato; constraints, índices, unicidad de correo_normalizado, integridad referencial y reglas persistibles comprobadas en el motor; migración aplica desde vacío y reejecución controlada pasa por el migrador sin duplicar/alterar estado; entorno temporal limpiado y comprobado. Incluir solo pruebas de persistencia que puedan ejecutarse sin implementar servicios (p. ej., inserciones/actualizaciones sintéticas que validen checks/FK/UK y valores almacenables).
+- **Pruebas fuera de esta tarjeta:** actividad y expiración efectiva de sesión se ejecutan en AUTH-BE-02; emisión/consumo, TTL, intentos y límites de tokens van en las tarjetas Backend de los flujos correspondientes; AUTH-TEST-01 dará cobertura posterior integrada. **Riesgo:** no atribuir a pruebas de esquema comportamiento de servicios. DB02-09 (RQF-213/-217/-218) permanece trazado como pendiente y excluido del DDL M01 no dependiente. Estado `blocked` hasta satisfacción y verificación de merges; después avanzar a `ready` conforme al tablero.
 
 ### AUTH-BE-01 — Implementar tipos de dominio y repositorio de cuenta
 - **Tipo/estado:** BE / todo. **Objetivo/traza:** estados de cuenta/sesión de RQF-001–023/213–218.
@@ -159,33 +163,34 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 
 ### AUTH-BE-02 — Implementar registro, verificación y sesión
 - **Tipo/estado:** BE / todo. **Objetivo:** CU-01–04/06, HU01–02.
-- **Alcance:** casos de uso de alta, aceptación de versión, verificación de correo según flujo, login/logout y revocación; errores sin revelar si correo existe.
+- **Alcance:** casos de uso de alta, aceptación de versión, verificación de correo, login/logout y revocación; canonicalización de correo idéntica a registro/login/recuperación conforme al registro M01; persistir y validar última actividad y vencimiento absoluto de sesión usando reloj Backend. Solo solicitudes autenticadas de operaciones de usuario renuevan actividad; health checks, polling, keepalives y renovación de tokens no. Una renovación nunca supera las 8 h absolutas.
+- **Comportamiento requerido:** duplicado de registro conserva CU-01 A1 y el conflicto con anti-enumeración se mantiene documentado antes de proponer cambios. La respuesta genérica que no revela existencia de cuenta aplica a recuperación, no debe extenderse al registro por inferencia. Los tokens de verificación usan TTL 24 h; son aleatorios, de un solo uso, almacenados como hash y nunca en logs; reemitir invalida anteriores activos por usuario/propósito. Máximo 5 intentos fallidos por token, máximo 3 emisiones/reenvíos por cuenta/propósito/ventana móvil de una hora y límites adicionales por IP, sin bloquear login.
 - **Fuera:** restablecimiento de contraseña. **Dep:** AUTH-BE-01. **Desbloquea:** AUTH-API-01
-- **Aceptación:** sesión revocable; término aceptado por versión; acceso respeta estado/rol. **Pruebas:** duplicado, credencial mala, bloqueo, logout/replay. **Riesgo:** fuerza bruta y enumeración. Estado `todo`.
+- **Aceptación:** sesión revocable; término aceptado por versión; acceso respeta estado/rol; expiración idle 30 min y absoluta 8 h verificada por Backend. **Pruebas:** duplicado conforme CU-01 A1, credencial mala, bloqueo, logout/replay, renovación de actividad por operación de usuario y no renovación por tráfico excluido, vencimientos idle/absoluto y límite máximo de renovación; token de verificación de un uso con emisión/consumo, hash, TTL, invalidación y límites ratificados. Ampliar cobertura integrada en AUTH-TEST-01. **Riesgo:** fuerza bruta y enumeración; aplicar respuesta genérica solo a recuperación. Estado `todo`.
 
 ### AUTH-BE-03 — Implementar cambio y recuperación de credenciales
 - **Tipo/estado:** BE / todo. **Objetivo:** CU-05/50, HU03, RQF-019–022/214–218.
-- **Alcance:** emisión/consumo de token de un solo uso, cambio contraseña, revocación de sesiones que corresponda y expiración.
+- **Alcance:** recuperación con respuesta genérica que no revela si existe la cuenta; emisión/consumo de token aleatorio de un solo uso, con hash almacenado y nunca en logs; reemisión invalida tokens activos previos del mismo usuario y propósito. Token de recuperación: TTL 15 min conforme RQF-021/CU-05; aplicar máximo 5 intentos fallidos por token, máximo 3 emisiones/reenvíos por cuenta y propósito en ventana móvil de una hora y límites adicionales por IP. Estos límites no bloquean login. Cambio de contraseña y revocación de sesiones según requisitos. No agregar cambio de correo salvo requisito explícito.
 - **Fuera:** email real sin adaptador. **Dep:** AUTH-BE-01. **Desbloquea:** AUTH-API-02
-- **Aceptación:** token expirado/reutilizado falla y nunca aparece en logs. **Pruebas:** expiración, repetición, contraseña actual/nueva y sesiones. **Riesgo:** secuestro/reuso de token. Estado `todo`.
+- **Aceptación:** token expirado/reutilizado/revocado falla, recuperación no enumera cuentas, no hay token en logs y el límite de intentos/emisiones se aplica sin bloquear inicio de sesión. **Pruebas:** emisión/consumo, expiración, repetición/reemisión e invalidación, cinco intentos fallidos, rate limit de tres por cuenta/propósito/hora móvil, límite IP, contraseña actual/nueva y sesiones; ampliar cobertura integrada en AUTH-TEST-01. **Riesgo:** secuestro/reuso de token y abuso de endpoint. Estado `todo`.
 
 ### AUTH-API-01 — Exponer endpoints de registro y sesión
 - **Tipo/estado:** API / todo. **Objetivo/traza:** CU-01–04/06.
-- **Alcance:** rutas OpenAPI para registro/aceptación/verify/login/logout, schemas, auth y códigos de error.
+- **Alcance:** rutas OpenAPI para registro/aceptación/verify/login/logout, schemas, auth y códigos de error. Mantener canonicalización de correo M01; conservar CU-01 A1 para correo duplicado y no trasladar a registro la respuesta genérica que solo aplica a recuperación.
 - **Fuera:** HTML, persistencia directa desde handler. **Dep:** AUTH-BE-02, CORE-API-01. **Desbloquea:** AUTH-TEST-01
-- **Aceptación:** OpenAPI refleja response/error; logout y recursos privados aplican auth. **Pruebas:** contrato 2xx/4xx/401, validación de payload. **Riesgo:** cookies/tokens deben respetar política definida. Estado `todo`.
+- **Aceptación:** OpenAPI refleja response/error; logout y recursos privados aplican auth; registro duplicado respeta CU-01 A1. **Pruebas:** contrato 2xx/4xx/401, validación de payload y duplicado. **Riesgo:** cookies/tokens deben respetar política definida; conflicto anti-enumeración debe documentarse antes de cualquier propuesta de cambio. Estado `todo`.
 
 ### AUTH-API-02 — Exponer endpoints de cambio/recuperación
 - **Tipo/estado:** API / todo. **Objetivo/traza:** CU-05/50.
-- **Alcance:** request de recuperación, consumo del token y cambio de contraseña autenticado, con throttling definido en diseño.
+- **Alcance:** request de recuperación, consumo del token y cambio de contraseña autenticado, con TTL/rate limits M01; la solicitud de recuperación usa respuesta genérica que no permite saber si existe la cuenta. No agregar cambio de correo si no lo exigen los requisitos.
 - **Fuera:** servicio externo de email. **Dep:** AUTH-BE-03, CORE-API-01. **Desbloquea:** AUTH-TEST-01
-- **Aceptación:** respuesta no permite enumeración; token no se retorna en entornos reales. **Pruebas:** contrato expiración/reuso/rate. **Riesgo:** abuso de endpoint. Estado `todo`.
+- **Aceptación:** respuesta de recuperación no permite enumeración; token no se retorna en entornos reales. **Pruebas:** contrato expiración/reuso/rate con token de 15 min, 5 fallos/token, 3 emisiones por usuario/propósito/ventana móvil de una hora y límites por IP, sin bloqueo de login. **Riesgo:** abuso de endpoint. Estado `todo`.
 
 ### AUTH-TEST-01 — Probar ciclo de identidad de extremo a extremo
-- **Tipo/estado:** TEST / todo. **Objetivo:** evidenciar CU-01–06/50.
-- **Alcance:** unitarias + DB/API integration desde alta a cierre/recuperación con fixtures sintéticos.
-- **Fuera:** proveedor de correo/producto real. **Dep:** AUTH-API-01, AUTH-API-02, CORE-TEST-01. **Desbloquea:** AUTH-MOCK-01
-- **Aceptación:** caminos felices y fallidos reproducibles; suite verifica permisos y datos persistidos. **Pruebas:** test automatizado por flujos. **Riesgo:** falsos positivos si no ejecuta contra PostgreSQL. Estado `todo`.
+- **Tipo/estado:** TEST / todo. **Objetivo:** evidenciar CU-01–06/50 y las decisiones ratificadas M01.
+- **Alcance:** unitarias + DB/API integration desde alta a cierre/recuperación con fixtures sintéticos; cobertura posterior integrada de actividad/expiración de sesión, emisión/consumo/reemisión e invalidación, TTL, intentos fallidos y límites por cuenta/propósito/IP ejecutados por Backend.
+- **Fuera:** proveedor de correo/producto real; no atribuir pruebas de persistencia AUTH-DB-02 a comportamiento de Backend. **Dep:** AUTH-API-01, AUTH-API-02, CORE-TEST-01. **Desbloquea:** AUTH-MOCK-01
+- **Aceptación:** caminos felices y fallidos reproducibles; suite verifica permisos y datos persistidos, y distingue los checks de PostgreSQL de los flujos ejecutados por servicios. **Pruebas:** automatizadas por flujo; mantener CU-01 A1 para duplicado y respuesta genérica para recuperación. **Riesgo:** falsos positivos si no ejecuta contra PostgreSQL o si el test de esquema pretende cubrir servicios. Estado `todo`.
 
 ### AUTH-MOCK-01 — Validar visualmente cuenta y sesión
 - **Tipo/estado:** otro (MOCK) / todo. **Objetivo:** permitir validación temprana de M01.
