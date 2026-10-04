@@ -1,0 +1,7 @@
+.git
+.gitignore
+.local
+mock/node_modules
+**/node_modules
+*.log
+*.tmp

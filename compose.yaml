@@ -1,0 +1,110 @@
+services:
+  database:
+    image: espacigo-local-database:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: database
+    user: "0:0"
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: espacigo_local
+      POSTGRES_USER: espacigo_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_admin_password
+    secrets:
+      - db_admin_password
+      - runtime_password
+    volumes:
+      - pgdata:/var/lib/postgresql
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  backend:
+    image: espacigo-local-api:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    user: "${LOCAL_UID:?run scripts/dev-env.sh}:${LOCAL_GID:?run scripts/dev-env.sh}"
+    restart: unless-stopped
+    environment:
+      HTTP_ADDR: ":8080"
+      DATABASE_HOST: database
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: espacigo_local
+      DATABASE_USER: espacigo_runtime
+      DATABASE_PASSWORD_FILE: /run/secrets/runtime_password
+      CORS_ALLOWED_ORIGINS: http://localhost:8081,http://127.0.0.1:8081
+    secrets:
+      - runtime_password
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - api
+      - data
+    healthcheck:
+      test: ["CMD", "/api", "check"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  mock-frontend:
+    image: espacigo-local-mock:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: mock
+    restart: unless-stopped
+    environment:
+      HTTP_ADDR: ":8081"
+      API_READY_URL: http://127.0.0.1:8080/health/ready
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8081:8081"
+    networks:
+      - api
+    healthcheck:
+      test: ["CMD", "/mock", "check"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  netprobe:
+    image: espacigo-local-netprobe:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: netprobe
+    profiles:
+      - verify
+    networks:
+      - api
+
+networks:
+  api:
+    driver: bridge
+  data:
+    driver: bridge
+    internal: true
+
+volumes:
+  pgdata:
+
+secrets:
+  db_admin_password:
+    file: ./.local/secrets/db_admin_password
+  runtime_password:
+    file: ./.local/secrets/runtime_password

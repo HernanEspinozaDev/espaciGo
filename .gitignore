@@ -1,0 +1,11 @@
+# Local synthetic credentials and runtime data
+.local/
+
+# Frontend build dependencies
+mock/node_modules/
+
+# Local editor/build artifacts
+__pycache__/
+*.py[cod]
+*.swp
+*.tmp

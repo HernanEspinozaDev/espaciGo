@@ -2,7 +2,7 @@
 
 ## Estado y alcance
 
-Este documento define el contrato del harness para el monolito modular Go. No afirma que haya runner, aplicación, migraciones ni PostgreSQL de test ya implementados: al redactarlo, el repositorio solo contiene planificación. Los comandos y checks marcados como aceptación son gates para la tarjeta que implemente el esqueleto técnico; no se sustituyen con SQLite ni con resultados simulados.
+Este documento define el contrato del harness. CORE-TEST-01 se completó como definición documental mediante el PR #8 fusionado el 2026-10-02; ese PR no entregó un runner DB/API ni ejecutó integración PostgreSQL. La rama local CORE-ENV-02 contiene un bootstrap Go y pruebas de paquete, pero no una suite de DB integration con fixtures/cleanup ni jobs CI separados. Los comandos y checks marcados como aceptación siguen siendo gates para una futura implementación del harness; no se sustituyen con SQLite ni con resultados simulados.
 
 ## Capas y comandos
 
@@ -48,4 +48,4 @@ Cuando exista el runner, demostrar en CI/local reproducible:
 4. Suite de contrato valida OpenAPI y respuestas HTTP con `httptest`; un schema incompatible produce fallo.
 5. Toda la suite funciona sin PII/secrets ni llamadas a proveedores externos.
 
-Estado actual: estos checks no se han ejecutado porque todavía no hay fuente Go, runner, migraciones ni DB de test en este repositorio. Implementación y evidencia corresponden a las tarjetas de bootstrap/entorno; esta planificación no se presenta como una suite aprobada.
+Estado: CORE-TEST-01 quedó `done` por su alcance documental en PR #8. Las pruebas de paquete del bootstrap (`go test ./...`) y los smoke HTTP/red de CORE-ENV-02 no equivalen al harness de integración descrito aquí. Siguen pendientes la DB PostgreSQL desechable para la suite general, fixtures/cleanup de integración, validación de contrato OpenAPI automatizada como capa separada y jobs CI por capa; implementarlos requiere sus tarjetas y gates correspondientes.

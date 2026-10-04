@@ -1,0 +1,87 @@
+#1 [internal] load local bake definitions
+#1 reading from stdin 596B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.72kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:26.7.0-alpine3.24
+#3 ...
+
+#4 [internal] load metadata for docker.io/library/golang:1.27.1-alpine3.24
+#4 DONE 0.4s
+
+#3 [internal] load metadata for docker.io/library/node:26.7.0-alpine3.24
+#3 DONE 0.4s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 109B done
+#5 DONE 0.0s
+
+#6 [mock-build 1/7] FROM docker.io/library/node:26.7.0-alpine3.24@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019
+#6 resolve docker.io/library/node:26.7.0-alpine3.24@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019 0.0s done
+#6 DONE 0.0s
+
+#7 [go-build 1/7] FROM docker.io/library/golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414
+#7 resolve docker.io/library/golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 0.0s done
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 738.48kB 0.0s done
+#8 DONE 0.0s
+
+#9 [go-build 2/7] WORKDIR /src
+#9 CACHED
+
+#10 [go-build 3/7] COPY go.mod go.sum ./
+#10 CACHED
+
+#11 [go-build 4/7] RUN go mod download
+#11 CACHED
+
+#12 [mock-build 2/7] WORKDIR /src
+#12 CACHED
+
+#13 [mock-build 3/7] COPY mock/package.json mock/package-lock.json ./mock/
+#13 CACHED
+
+#14 [mock-build 4/7] RUN cd mock && npm ci --ignore-scripts --no-audit --no-fund
+#14 CACHED
+
+#15 [mock-build 5/7] COPY mock ./mock
+#15 CACHED
+
+#16 [mock-build 6/7] COPY internal/mockserver/static ./internal/mockserver/static
+#16 CACHED
+
+#17 [mock-build 7/7] RUN cd mock && npm run build
+#17 CACHED
+
+#18 [go-build 5/7] COPY . .
+#18 DONE 0.0s
+
+#19 [go-build 6/7] COPY --from=mock-build /src/internal/mockserver/static/app.js /src/internal/mockserver/static/app.js
+#19 DONE 0.0s
+
+#20 [go-build 7/7] RUN mkdir -p /out     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/api ./cmd/api     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/mock ./cmd/mock     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/netprobe ./cmd/netprobe
+#20 DONE 21.5s
+
+#21 [netprobe 1/1] COPY --from=go-build --chown=65532:65532 /out/netprobe /netprobe
+#21 CACHED
+
+#22 exporting to image
+#22 exporting layers done
+#22 exporting manifest sha256:42b8eff3172d994dfa8e8cda9506059cdb17b9212b64b81108cb48fa092a8f25 done
+#22 exporting config sha256:603d02e5b5a62e04baeacb801da3bf236d151d445965631d59198cb2498c2d91 done
+#22 exporting attestation manifest sha256:09ab59a97238242eee660c0713fc30786589a81c182255e2532078837d95c835 0.0s done
+#22 exporting manifest list sha256:a9b004207ac24406981eb821bfa63ff51f7aedf6b60b86766f1ed9479aa03b8c 0.0s done
+#22 naming to docker.io/library/espacigo-local-netprobe:dev done
+#22 unpacking to docker.io/library/espacigo-local-netprobe:dev done
+#22 DONE 0.1s
+
+#23 resolving provenance for metadata file
+#23 DONE 0.0s
+mock-network DNS diagnostic: lookup=error not_found=false timeout=false temporary=true
+PASS: authorized database-network positive control: connect=success
+PASS: mock-network probe to the dynamic PostgreSQL IP:5432 failed with a 2s timeout (timeout=true)

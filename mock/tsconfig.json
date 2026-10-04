@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmitOnError": true,
+    "noImplicitReturns": true,
+    "skipLibCheck": true,
+    "rootDir": "src",
+    "outDir": "../internal/mockserver/static"
+  },
+  "include": ["src/**/*.ts"]
+}
