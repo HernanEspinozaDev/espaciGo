@@ -5,6 +5,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SECRETS_DIR="$ROOT_DIR/.local/secrets"
 export LOCAL_UID="$(id -u)"
 export LOCAL_GID="$(id -g)"
+export LOCAL_M03_EVIDENCE_DIR="${XDG_DATA_HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)/.local/share}/espacigo/m03-evidence"
 
 compose() {
   docker compose --project-directory "$ROOT_DIR" -f "$ROOT_DIR/compose.yaml" "$@"
@@ -45,6 +46,18 @@ PY
   done
 }
 
+ensure_evidence_dir() {
+  umask 077
+  mkdir -p "$LOCAL_M03_EVIDENCE_DIR"
+  chmod 0700 "$LOCAL_M03_EVIDENCE_DIR"
+  local owner
+  owner="$(stat -c '%u' "$LOCAL_M03_EVIDENCE_DIR")"
+  if [[ "$owner" != "$LOCAL_UID" ]]; then
+    printf 'Private evidence directory must be owned by UID %s: %s\n' "$LOCAL_UID" "$LOCAL_M03_EVIDENCE_DIR" >&2
+    exit 1
+  fi
+}
+
 usage() {
   printf '%s\n' \
     'Usage: scripts/dev-env.sh {config|up|down|verify-isolation|verify-http|verify-m01|clean}' \
@@ -62,10 +75,12 @@ if [[ $# -gt 0 ]]; then shift; fi
 case "$command" in
   config)
     ensure_secrets
+    ensure_evidence_dir
     compose config --quiet
     ;;
   up)
     ensure_secrets
+    ensure_evidence_dir
     compose up --build --wait "$@"
     ;;
   down)

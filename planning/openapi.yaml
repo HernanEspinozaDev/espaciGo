@@ -298,6 +298,85 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /verifications/{id}/evidence:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid, description: Caso propio de KYC/KYB } }
+    get:
+      operationId: listOwnSyntheticEvidence
+      tags: [M03 local]
+      description: Lista metadatos de fixtures sintéticos de un caso propio; no expone rutas ni URLs públicas.
+      responses:
+        '200': { description: Evidencias sintéticas propias., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticEvidenceList' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: uploadSyntheticEvidence
+      tags: [M03 local]
+      description: Crea un PNG de fixture fijo en almacenamiento local privado. No acepta archivos arbitrarios ni documentos reales.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SyntheticEvidenceCreate' }
+      responses:
+        '201': { description: Metadatos del fixture persistido., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticEvidence' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': *id006
+  /verifications/{id}/evidence/{evidenceId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: evidenceId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getOwnSyntheticEvidenceContent
+      tags: [M03 local]
+      description: Descarga inline un fixture propio con autenticación y Cache-Control no-store.
+      responses:
+        '200': { description: PNG sintético., content: { image/png: { schema: { type: string, format: binary } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: deleteOwnSyntheticEvidence
+      tags: [M03 local]
+      description: Elimina explícitamente solo el archivo sintético y sus metadatos; no elimina el volumen local.
+      responses:
+        '204': { description: Fixture eliminado. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/verifications/{id}/evidence/{evidenceId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: evidenceId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: reviewSyntheticEvidenceContent
+      tags: [M03 local]
+      description: Descarga el fixture únicamente con el rol administrador de revisión.
+      responses:
+        '200': { description: PNG sintético., content: { image/png: { schema: { type: string, format: binary } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: deleteReviewedSyntheticEvidence
+      tags: [M03 local]
+      description: Limpieza explícita del fixture con permiso de revisión.
+      responses:
+        '204': { description: Fixture eliminado. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/verifications/{id}/evidence:
+    get:
+      operationId: listEvidenceForReview
+      tags: [M03 local]
+      description: Lista metadatos de evidencias fixture de un caso para el rol administrador de revisión.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Evidencias sintéticas del caso., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticEvidenceList' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /admin/verifications:
     get:
       operationId: listPendingVerifications
@@ -671,6 +750,32 @@ components:
       required: [corrected]
       properties:
         corrected: { type: boolean, const: true }
+    SyntheticEvidenceCreate:
+      type: object
+      additionalProperties: false
+      required: [fixture_code]
+      properties:
+        fixture_code: { type: string, enum: [synthetic-png-v1] }
+    SyntheticEvidence:
+      type: object
+      additionalProperties: false
+      required: [id, verification_id, fixture_code, mime_type, size_bytes, sha256, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        verification_id: { type: string, format: uuid }
+        fixture_code: { type: string, enum: [synthetic-png-v1] }
+        mime_type: { type: string, enum: [image/png] }
+        size_bytes: { type: integer, minimum: 1, maximum: 1048576 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        created_at: { type: string, format: date-time }
+    SyntheticEvidenceList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SyntheticEvidence' }
     VerificationReview:
       type: object
       additionalProperties: false

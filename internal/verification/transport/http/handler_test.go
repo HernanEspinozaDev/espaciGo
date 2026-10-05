@@ -123,6 +123,130 @@ func newHandler(t *testing.T) http.Handler {
 	}
 	return NewHandler(testAuth{}, svc, []string{"http://localhost:8081"})
 }
+
+type evidenceRepoFake struct {
+	items map[string]verification.Evidence
+}
+
+func evidenceKey(caseID, id string) string { return caseID + ":" + id }
+func (r *evidenceRepoFake) CreateEvidence(_ context.Context, item verification.Evidence) (verification.Evidence, error) {
+	r.items[evidenceKey(item.VerificationID, item.ID)] = item
+	return item, nil
+}
+func (r *evidenceRepoFake) ListOwnEvidence(_ context.Context, owner, caseID string) ([]verification.Evidence, error) {
+	return r.list(caseID), nil
+}
+func (r *evidenceRepoFake) ListReviewEvidence(_ context.Context, caseID string) ([]verification.Evidence, error) {
+	return r.list(caseID), nil
+}
+func (r *evidenceRepoFake) list(caseID string) []verification.Evidence {
+	out := []verification.Evidence{}
+	for _, item := range r.items {
+		if item.VerificationID == caseID {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+func (r *evidenceRepoFake) GetOwnEvidence(_ context.Context, owner, caseID, id string) (verification.Evidence, error) {
+	item, ok := r.items[evidenceKey(caseID, id)]
+	if !ok || owner != "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" {
+		return verification.Evidence{}, verification.ErrNotFound
+	}
+	return item, nil
+}
+func (r *evidenceRepoFake) GetReviewEvidence(_ context.Context, caseID, id string) (verification.Evidence, error) {
+	item, ok := r.items[evidenceKey(caseID, id)]
+	if !ok {
+		return verification.Evidence{}, verification.ErrNotFound
+	}
+	return item, nil
+}
+func (r *evidenceRepoFake) DeleteOwnEvidence(_ context.Context, owner, caseID, id string) error {
+	if _, err := r.GetOwnEvidence(context.Background(), owner, caseID, id); err != nil {
+		return err
+	}
+	delete(r.items, evidenceKey(caseID, id))
+	return nil
+}
+func (r *evidenceRepoFake) DeleteReviewEvidence(_ context.Context, caseID, id string) error {
+	if _, err := r.GetReviewEvidence(context.Background(), caseID, id); err != nil {
+		return err
+	}
+	delete(r.items, evidenceKey(caseID, id))
+	return nil
+}
+
+type evidenceStoreFake struct{ blobs map[string][]byte }
+
+func (s *evidenceStoreFake) Put(_ context.Context, id string, data []byte) error {
+	s.blobs[id] = data
+	return nil
+}
+func (s *evidenceStoreFake) Get(_ context.Context, id string) ([]byte, error) {
+	data, ok := s.blobs[id]
+	if !ok {
+		return nil, fmt.Errorf("missing blob")
+	}
+	return data, nil
+}
+func (s *evidenceStoreFake) Delete(_ context.Context, id string) error {
+	delete(s.blobs, id)
+	return nil
+}
+
+func TestEvidenceAPIIsPrivateOwnerScopedAndExplicitlyCleanable(t *testing.T) {
+	caseRepo := newRepo()
+	caseID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	caseRepo.cases[caseID] = verification.Case{ID: caseID, OwnerID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Type: "kyc", State: "en_revision"}
+	ids := &testIDs{}
+	service, err := verification.NewService(caseRepo, ids, verification.LocalFixtureProvider{}, func() time.Time { return time.Unix(7, 0) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := &evidenceRepoFake{items: map[string]verification.Evidence{}}
+	storage := &evidenceStoreFake{blobs: map[string][]byte{}}
+	evidence, err := verification.NewEvidenceService(caseRepo, metadata, storage, ids, func() time.Time { return time.Unix(8, 0) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(testAuth{}, service, []string{"http://localhost:8081"}, evidence)
+	if got := call(h, "GET", "/api/v1/verifications/"+caseID+"/evidence", "", "", "").Code; got != 401 {
+		t.Fatalf("unauthenticated evidence query status=%d", got)
+	}
+	if got := call(h, "POST", "/api/v1/verifications/"+caseID+"/evidence", "user", "", `{"fixture_code":"real-file"}`).Code; got != 422 {
+		t.Fatalf("arbitrary input status=%d", got)
+	}
+	created := call(h, "POST", "/api/v1/verifications/"+caseID+"/evidence", "user", "", `{"fixture_code":"synthetic-png-v1"}`)
+	if created.Code != 201 {
+		t.Fatalf("upload status=%d %s", created.Code, created.Body)
+	}
+	var item verification.Evidence
+	if err := json.Unmarshal(created.Body.Bytes(), &item); err != nil {
+		t.Fatal(err)
+	}
+	if item.FixtureCode != verification.SyntheticEvidenceFixture || len(storage.blobs[item.ID]) == 0 {
+		t.Fatalf("fixture not persisted: %+v", item)
+	}
+	if got := call(h, "GET", "/api/v1/verifications/"+caseID+"/evidence/"+item.ID, "other", "", "").Code; got != 404 {
+		t.Fatalf("foreign content status=%d", got)
+	}
+	if got := call(h, "GET", "/api/v1/admin/verifications/"+caseID+"/evidence/"+item.ID, "admin", "", "").Code; got != 200 {
+		t.Fatalf("review content status=%d", got)
+	}
+	if got := call(h, "GET", "/api/v1/admin/verifications/"+caseID+"/evidence", "admin", "", "").Code; got != 200 {
+		t.Fatalf("review evidence list status=%d", got)
+	}
+	if got := call(h, "GET", "/api/v1/admin/verifications/"+caseID+"/evidence/"+item.ID, "user", "", "").Code; got != 403 {
+		t.Fatalf("non-review content status=%d", got)
+	}
+	if got := call(h, "DELETE", "/api/v1/verifications/"+caseID+"/evidence/"+item.ID, "user", "", "").Code; got != 204 {
+		t.Fatalf("explicit cleanup status=%d", got)
+	}
+	if len(storage.blobs) != 0 || len(metadata.items) != 0 {
+		t.Fatal("explicit cleanup did not remove blob and metadata")
+	}
+}
 func call(h http.Handler, method, path, token, key, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	if token != "" {

@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
@@ -19,13 +20,17 @@ type Authenticator interface {
 	Authorize(context.Context, identity.Secret, identity.Role, identity.ActivityKind) (identity.Principal, error)
 }
 type Handler struct {
-	auth    Authenticator
-	service *verification.Service
-	origins map[string]bool
+	auth     Authenticator
+	service  *verification.Service
+	evidence *verification.EvidenceService
+	origins  map[string]bool
 }
 
-func NewHandler(auth Authenticator, service *verification.Service, origins []string) http.Handler {
+func NewHandler(auth Authenticator, service *verification.Service, origins []string, evidence ...*verification.EvidenceService) http.Handler {
 	h := &Handler{auth: auth, service: service, origins: map[string]bool{}}
+	if len(evidence) > 0 {
+		h.evidence = evidence[0]
+	}
 	for _, o := range origins {
 		h.origins[o] = true
 	}
@@ -51,7 +56,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 	}
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(204)
@@ -75,6 +80,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 401, "unauthenticated", "Credencial ausente, incorrecta o expirada.")
 		}
 		return
+	}
+	if h.evidence != nil {
+		if handled := h.serveEvidence(w, r, path, principal, admin); handled {
+			return
+		}
 	}
 	if path == "/api/v1/verifications" && r.Method == http.MethodGet {
 		items, e := h.service.ListOwn(r.Context(), principal.AccountID)
@@ -158,6 +168,111 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeError(w, 404, "not_found", "Recurso no encontrado.")
+}
+
+func (h *Handler) serveEvidence(w http.ResponseWriter, r *http.Request, path string, principal identity.Principal, admin bool) bool {
+	const ownPrefix = "/api/v1/verifications/"
+	const adminPrefix = "/api/v1/admin/verifications/"
+	if strings.HasPrefix(path, ownPrefix) {
+		tail := strings.TrimPrefix(path, ownPrefix)
+		parts := strings.Split(tail, "/")
+		if len(parts) < 2 || !uuidPattern.MatchString(parts[0]) || parts[1] != "evidence" {
+			return false
+		}
+		caseID := parts[0]
+		if len(parts) == 2 {
+			switch r.Method {
+			case http.MethodGet:
+				items, err := h.evidence.ListOwn(r.Context(), principal.AccountID, caseID)
+				if err != nil {
+					serviceError(w, err)
+					return true
+				}
+				writeJSON(w, http.StatusOK, map[string]any{"items": items})
+				return true
+			case http.MethodPost:
+				var in struct {
+					FixtureCode string `json:"fixture_code"`
+				}
+				if !decode(w, r, &in) {
+					return true
+				}
+				if in.FixtureCode != verification.SyntheticEvidenceFixture {
+					serviceError(w, verification.ErrInvalid)
+					return true
+				}
+				item, err := h.evidence.Upload(r.Context(), principal.AccountID, caseID)
+				if err != nil {
+					serviceError(w, err)
+					return true
+				}
+				writeJSON(w, http.StatusCreated, item)
+				return true
+			}
+		}
+		if len(parts) == 3 && uuidPattern.MatchString(parts[2]) {
+			switch r.Method {
+			case http.MethodGet:
+				item, blob, err := h.evidence.OwnContent(r.Context(), principal.AccountID, caseID, parts[2])
+				if err != nil {
+					serviceError(w, err)
+					return true
+				}
+				writeEvidenceContent(w, item, blob)
+				return true
+			case http.MethodDelete:
+				if err := h.evidence.DeleteOwn(r.Context(), principal.AccountID, caseID, parts[2]); err != nil {
+					serviceError(w, err)
+					return true
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return true
+			}
+		}
+	}
+	if admin && strings.HasPrefix(path, adminPrefix) {
+		tail := strings.TrimPrefix(path, adminPrefix)
+		parts := strings.Split(tail, "/")
+		if len(parts) == 2 && uuidPattern.MatchString(parts[0]) && parts[1] == "evidence" && r.Method == http.MethodGet {
+			items, err := h.evidence.ListReview(r.Context(), parts[0])
+			if err != nil {
+				serviceError(w, err)
+				return true
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"items": items})
+			return true
+		}
+		if len(parts) == 3 && uuidPattern.MatchString(parts[0]) && parts[1] == "evidence" && uuidPattern.MatchString(parts[2]) {
+			switch r.Method {
+			case http.MethodGet:
+				item, blob, err := h.evidence.ReviewContent(r.Context(), parts[0], parts[2])
+				if err != nil {
+					serviceError(w, err)
+					return true
+				}
+				writeEvidenceContent(w, item, blob)
+				return true
+			case http.MethodDelete:
+				if err := h.evidence.DeleteReview(r.Context(), parts[0], parts[2]); err != nil {
+					serviceError(w, err)
+					return true
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func writeEvidenceContent(w http.ResponseWriter, item verification.Evidence, blob []byte) {
+	w.Header().Set("Content-Type", item.MIMEType)
+	w.Header().Set("Content-Length", strconv.FormatInt(int64(len(blob)), 10))
+	w.Header().Set("Content-Disposition", `inline; filename="synthetic-evidence.png"`)
+	w.Header().Set("X-Evidence-ID", item.ID)
+	w.Header().Set("ETag", `"`+item.SHA256+`"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(blob)
 }
 func (h *Handler) authorize(r *http.Request, admin bool) (identity.Principal, error) {
 	parts := strings.Fields(r.Header.Get("Authorization"))
