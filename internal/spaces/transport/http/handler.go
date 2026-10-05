@@ -68,6 +68,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := strings.TrimSuffix(r.URL.Path, "/")
+	const profilesPrefix = "/api/v1/spaces/categories/"
+	if strings.HasPrefix(path, profilesPrefix) && strings.HasSuffix(path, "/attributes") && r.Method == http.MethodGet {
+		category := strings.TrimSuffix(strings.TrimPrefix(path, profilesPrefix), "/attributes")
+		if category == "" || strings.Contains(category, "/") {
+			failure(w, 404, "not_found", "Perfil no encontrado.")
+			return
+		}
+		profile, e := h.service.Profile(r.Context(), category)
+		if e != nil {
+			serviceError(w, e)
+			return
+		}
+		write(w, 200, profile)
+		return
+	}
 	if path == "/api/v1/spaces/categories" && r.Method == http.MethodGet {
 		items, e := h.service.Categories(r.Context())
 		if e != nil {
@@ -143,7 +158,9 @@ func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 		failure(w, 415, "unsupported_media_type", "Se requiere application/json.")
 		return false
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
+	// Leave room for the common draft fields; the versioned attribute object
+	// has its own stricter 16 KiB limit in the domain validator.
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	defer r.Body.Close()
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()

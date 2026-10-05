@@ -59,13 +59,40 @@ func TestPostgresDraftCRUDIsOwnerScopedAndOnlyDrafts(t *testing.T) {
 	if err != nil || len(categories) != 8 {
 		t.Fatalf("category catalog count=%d err=%v", len(categories), err)
 	}
+	for _, category := range categories {
+		profile, err := repo.Profile(ctx, category.Code)
+		if err != nil || profile.CategoryCode != category.Code || profile.SchemaVersion != 1 || len(profile.Attributes) == 0 {
+			t.Fatalf("category %s profile=%+v err=%v", category.Code, profile, err)
+		}
+		for index, attribute := range profile.Attributes {
+			if attribute.Order != index+1 || attribute.Code == "" || attribute.Label == "" || attribute.Type == "" {
+				t.Fatalf("category %s has incomplete/unordered attribute %+v", category.Code, attribute)
+			}
+		}
+	}
 	in := spaces.Input{CategoryCode: "oficina", Title: "Oficina", Description: strings.Repeat("Espacio privado sintético. ", 5), AreaM2: 20, Capacity: 6, UsageRules: "No fumar", RateUnit: "dia", BasePriceCLP: 9000, Address: "Dirección privada de prueba"}
+	in.AttributeSchemaVersion = 1
+	in.Attributes = map[string]any{"puestos_trabajo": float64(6), "banos_disponibles": float64(0), "wifi": false}
 	created, err := repo.Create(ctx, ownerA, in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if created.State != "borrador" {
 		t.Fatalf("state=%q", created.State)
+	}
+	if created.AttributeSchemaVersion != 1 || created.Attributes["wifi"] != false || created.Attributes["puestos_trabajo"] != float64(6) || created.Attributes["banos_disponibles"] != float64(0) {
+		t.Fatalf("created attributes not preserved: %+v", created)
+	}
+	invalidChange := in
+	invalidChange.CategoryCode = "sala_multiproposito"
+	invalidChange.AttributeSchemaVersion = 99
+	invalidChange.Attributes = map[string]any{"proyector": true}
+	if _, err := repo.UpdateOwn(ctx, ownerA, created.ID, invalidChange); err == nil {
+		t.Fatal("update with missing destination profile unexpectedly succeeded")
+	}
+	afterRollback, err := repo.GetOwn(ctx, ownerA, created.ID)
+	if err != nil || afterRollback.CategoryCode != "oficina" || afterRollback.Attributes["wifi"] != false {
+		t.Fatalf("failed category change was not rolled back: %+v err=%v", afterRollback, err)
 	}
 	items, err := repo.ListOwn(ctx, ownerA)
 	if err != nil || len(items) != 1 {
@@ -83,9 +110,14 @@ func TestPostgresDraftCRUDIsOwnerScopedAndOnlyDrafts(t *testing.T) {
 	}
 	in.Title = "Oficina editada"
 	in.CategoryCode = "sala_multiproposito"
+	in.AttributeSchemaVersion = 1
+	in.Attributes = map[string]any{"proyector": true}
 	updated, err := repo.UpdateOwn(ctx, ownerA, created.ID, in)
 	if err != nil || updated.Title != in.Title || updated.CategoryCode != in.CategoryCode || updated.CategoryName != "Sala o espacio multipropósito" {
 		t.Fatalf("update=%v err=%v", updated, err)
+	}
+	if updated.AttributeSchemaVersion != 1 || updated.Attributes["proyector"] != true || updated.Attributes["wifi"] != nil {
+		t.Fatalf("category change retained incompatible attributes: %+v", updated)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE public.espacio SET estado='publicado' WHERE id=$1`, created.ID); err == nil {
 		t.Fatal("database accepted commercial state")

@@ -2,6 +2,7 @@ package spacespg
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
@@ -20,11 +21,17 @@ func New(pool *pgxpool.Pool, ids identity.CredentialGenerator) *Repository {
 	return &Repository{pool: pool, ids: ids}
 }
 
-const fields = `e.id::text, e.categoria_codigo, c.nombre, e.titulo, e.descripcion, e.superficie_m2::float8, e.capacidad_maxima, e.reglas_uso, e.modalidad_tarifa, e.precio_base_clp, e.direccion, e.estado`
+const fields = `e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::float8,e.capacidad_maxima,e.reglas_uso,e.modalidad_tarifa,e.precio_base_clp,e.direccion,e.estado,COALESCE(ec.perfil_version,1),COALESCE(ec.valores,'{}'::jsonb)`
+const joins = ` FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo LEFT JOIN public.espacio_caracteristicas ec ON ec.espacio_id=e.id`
 
 func scan(row pgx.Row) (spaces.Draft, error) {
 	var d spaces.Draft
-	err := row.Scan(&d.ID, &d.CategoryCode, &d.CategoryName, &d.Title, &d.Description, &d.AreaM2, &d.Capacity, &d.UsageRules, &d.RateUnit, &d.BasePriceCLP, &d.Address, &d.State)
+	var raw []byte
+	err := row.Scan(&d.ID, &d.CategoryCode, &d.CategoryName, &d.Title, &d.Description, &d.AreaM2, &d.Capacity, &d.UsageRules, &d.RateUnit, &d.BasePriceCLP, &d.Address, &d.State, &d.AttributeSchemaVersion, &raw)
+	if err == nil {
+		d.Attributes = map[string]any{}
+		err = json.Unmarshal(raw, &d.Attributes)
+	}
 	return d, mapError(err)
 }
 func (r *Repository) Categories(ctx context.Context) ([]spaces.Category, error) {
@@ -43,15 +50,51 @@ func (r *Repository) Categories(ctx context.Context) ([]spaces.Category, error) 
 	}
 	return items, rows.Err()
 }
+func (r *Repository) Profile(ctx context.Context, category string) (spaces.Profile, error) {
+	var raw []byte
+	err := r.pool.QueryRow(ctx, `SELECT perfil FROM public.categoria_perfil_atributos WHERE categoria_codigo=$1 ORDER BY version DESC LIMIT 1`, category).Scan(&raw)
+	if err != nil {
+		return spaces.Profile{}, mapError(err)
+	}
+	var p spaces.Profile
+	if err = json.Unmarshal(raw, &p); err != nil {
+		return spaces.Profile{}, err
+	}
+	return p, nil
+}
 func (r *Repository) Create(ctx context.Context, owner string, in spaces.Input) (spaces.Draft, error) {
 	id, err := r.ids.ID()
 	if err != nil {
 		return spaces.Draft{}, err
 	}
-	return scan(r.pool.QueryRow(ctx, `WITH inserted AS (INSERT INTO public.espacio (id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *) SELECT `+fields+` FROM inserted e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo`, id, owner, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address))
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return spaces.Draft{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, owner, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address)
+	if err != nil {
+		return spaces.Draft{}, mapError(err)
+	}
+	values, err := json.Marshal(in.Attributes)
+	if err != nil {
+		return spaces.Draft{}, spaces.ErrInvalid
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,$2,$3,$4::jsonb)`, id, in.CategoryCode, in.AttributeSchemaVersion, values)
+	if err != nil {
+		return spaces.Draft{}, mapError(err)
+	}
+	d, err := scan(tx.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.id=$1`, id))
+	if err != nil {
+		return spaces.Draft{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return spaces.Draft{}, err
+	}
+	return d, nil
 }
 func (r *Repository) ListOwn(ctx context.Context, owner string) ([]spaces.Draft, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+fields+` FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo WHERE e.propietario_id=$1 ORDER BY e.actualizado_en DESC,e.id`, owner)
+	rows, err := r.pool.Query(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 ORDER BY e.actualizado_en DESC,e.id`, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -67,17 +110,56 @@ func (r *Repository) ListOwn(ctx context.Context, owner string) ([]spaces.Draft,
 	return items, rows.Err()
 }
 func (r *Repository) GetOwn(ctx context.Context, owner, id string) (spaces.Draft, error) {
-	return scan(r.pool.QueryRow(ctx, `SELECT `+fields+` FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo WHERE e.propietario_id=$1 AND e.id=$2 AND e.estado='borrador'`, owner, id))
+	return scan(r.pool.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 AND e.id=$2 AND e.estado='borrador'`, owner, id))
 }
 func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.Input) (spaces.Draft, error) {
-	return scan(r.pool.QueryRow(ctx, `WITH updated AS (UPDATE public.espacio e SET categoria_codigo=$3,titulo=$4,descripcion=$5,superficie_m2=$6,capacidad_maxima=$7,reglas_uso=$8,modalidad_tarifa=$9,precio_base_clp=$10,direccion=$11,actualizado_en=now() WHERE e.propietario_id=$1 AND e.id=$2 AND e.estado='borrador' RETURNING e.*) SELECT `+fields+` FROM updated e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo`, owner, id, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address))
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return spaces.Draft{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var lockedID string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado='borrador' FOR UPDATE`, owner, id).Scan(&lockedID)
+	if err != nil {
+		return spaces.Draft{}, mapError(err)
+	}
+	_, err = tx.Exec(ctx, `DELETE FROM public.espacio_caracteristicas WHERE espacio_id=$1`, id)
+	if err != nil {
+		return spaces.Draft{}, mapError(err)
+	}
+	tag, err := tx.Exec(ctx, `UPDATE public.espacio SET categoria_codigo=$3,titulo=$4,descripcion=$5,superficie_m2=$6,capacidad_maxima=$7,reglas_uso=$8,modalidad_tarifa=$9,precio_base_clp=$10,direccion=$11,actualizado_en=now() WHERE propietario_id=$1 AND id=$2 AND estado='borrador'`, owner, id, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address)
+	if err != nil {
+		return spaces.Draft{}, mapError(err)
+	}
+	if tag.RowsAffected() != 1 {
+		return spaces.Draft{}, spaces.ErrNotFound
+	}
+	values, err := json.Marshal(in.Attributes)
+	if err != nil {
+		return spaces.Draft{}, spaces.ErrInvalid
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,$2,$3,$4::jsonb)`, id, in.CategoryCode, in.AttributeSchemaVersion, values)
+	if err != nil {
+		return spaces.Draft{}, mapError(err)
+	}
+	d, err := scan(tx.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.id=$1`, id))
+	if err != nil {
+		return spaces.Draft{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return spaces.Draft{}, err
+	}
+	if lockedID != id {
+		return spaces.Draft{}, spaces.ErrNotFound
+	}
+	return d, nil
 }
 func mapError(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return spaces.ErrNotFound
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23514" || pgErr.Code == "22003") {
+	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23514" || pgErr.Code == "22003" || pgErr.Code == "23505") {
 		return spaces.ErrInvalid
 	}
 	return err

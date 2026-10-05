@@ -17,9 +17,20 @@ func NewService(repo Repository) (*Service, error) {
 }
 
 func (s *Service) Categories(ctx context.Context) ([]Category, error) { return s.repo.Categories(ctx) }
+func (s *Service) Profile(ctx context.Context, category string) (Profile, error) {
+	return s.repo.Profile(ctx, category)
+}
 func (s *Service) Create(ctx context.Context, owner string, in Input) (Draft, error) {
 	if !validOwner(owner) || in.Validate() != nil {
 		return Draft{}, ErrInvalid
+	}
+	profile, err := s.repo.Profile(ctx, in.CategoryCode)
+	if err != nil || profile.SchemaVersion != in.AttributeSchemaVersion && in.AttributeSchemaVersion != 0 || validateAttributes(profile, in) != nil {
+		return Draft{}, ErrInvalid
+	}
+	in.AttributeSchemaVersion = profile.SchemaVersion
+	if in.Attributes == nil {
+		in.Attributes = map[string]any{}
 	}
 	return s.repo.Create(ctx, owner, in)
 }
@@ -42,7 +53,32 @@ func (s *Service) UpdateOwn(ctx context.Context, owner, id string, in Input) (Dr
 	if in.Validate() != nil {
 		return Draft{}, ErrInvalid
 	}
+	profile, err := s.repo.Profile(ctx, in.CategoryCode)
+	if err != nil || profile.SchemaVersion != in.AttributeSchemaVersion && in.AttributeSchemaVersion != 0 || validateAttributes(profile, in) != nil {
+		return Draft{}, ErrInvalid
+	}
+	in.AttributeSchemaVersion = profile.SchemaVersion
+	if in.Attributes == nil {
+		in.Attributes = map[string]any{}
+	}
 	return s.repo.UpdateOwn(ctx, owner, id, in)
+}
+
+func validateAttributes(profile Profile, input Input) error {
+	if err := profile.ValidateAttributes(input.Attributes); err != nil {
+		return err
+	}
+	if profile.CategoryCode == "parcela_eventos" {
+		for _, code := range []string{"superficie_exterior_util_m2", "superficie_cubierta_util_m2"} {
+			if value, exists := input.Attributes[code]; exists {
+				n, ok := numeric(value)
+				if !ok || n > input.AreaM2 {
+					return ErrInvalid
+				}
+			}
+		}
+	}
+	return nil
 }
 
 var uuidPattern = func() *regexp.Regexp {

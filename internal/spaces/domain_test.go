@@ -59,3 +59,32 @@ func TestDraftAreaAndPriceMatchPostgresNumericRanges(t *testing.T) {
 		t.Fatalf("max PostgreSQL bigint rejected: %v", err)
 	}
 }
+
+func TestAttributeProfilesValidateOptionalTypedValuesAndRules(t *testing.T) {
+	minOne, maxInt := 1.0, 2147483647.0
+	p := Profile{CategoryCode: "oficina", SchemaVersion: 1, Attributes: []AttributeDefinition{
+		{Code: "puestos_trabajo", Type: "integer", Minimum: &minOne, Maximum: &maxInt},
+		{Code: "wifi", Type: "boolean"},
+		{Code: "tipo_uso_oficina", Type: "enum", Options: []string{"privada", "compartida"}},
+	}}
+	for _, values := range []map[string]any{nil, {}, {"wifi": false, "puestos_trabajo": float64(1), "tipo_uso_oficina": "privada"}} {
+		if err := p.ValidateAttributes(values); err != nil {
+			t.Errorf("valid attributes %v rejected: %v", values, err)
+		}
+	}
+	for _, values := range []map[string]any{{"wifi": "true"}, {"puestos_trabajo": float64(0)}, {"puestos_trabajo": float64(2147483648)}, {"tipo_uso_oficina": "bodega"}, {"extra": true}, {"wifi": nil}} {
+		if err := p.ValidateAttributes(values); err == nil {
+			t.Errorf("invalid attributes %v accepted", values)
+		}
+	}
+	q := Profile{CategoryCode: "quincho", Attributes: []AttributeDefinition{{Code: "tipo_parrilla", Type: "enum", Options: []string{"carbon", "sin_parrilla"}}, {Code: "parrillas_disponibles", Type: "integer", Minimum: &minOne, Maximum: &maxInt}}}
+	if q.ValidateAttributes(map[string]any{"tipo_parrilla": "sin_parrilla", "parrillas_disponibles": float64(1)}) == nil {
+		t.Fatal("incompatible grill combination accepted")
+	}
+	parcel := Profile{CategoryCode: "parcela_eventos", Attributes: []AttributeDefinition{{Code: "superficie_exterior_util_m2", Type: "number", Minimum: &minOne, Maximum: &maxInt, Step: floatPtr(0.01)}}}
+	if validateAttributes(parcel, Input{AreaM2: 100, Attributes: map[string]any{"superficie_exterior_util_m2": float64(101)}}) == nil {
+		t.Fatal("partial event surface larger than common surface accepted")
+	}
+}
+
+func floatPtr(v float64) *float64 { return &v }

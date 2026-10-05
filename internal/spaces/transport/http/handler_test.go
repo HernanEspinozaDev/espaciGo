@@ -41,6 +41,17 @@ type memoryRepo struct {
 func (m *memoryRepo) Categories(context.Context) ([]spaces.Category, error) {
 	return []spaces.Category{{Code: "oficina", Name: "Oficina"}, {Code: "sala_multiproposito", Name: "Sala o espacio multipropósito"}}, nil
 }
+func (m *memoryRepo) Profile(_ context.Context, category string) (spaces.Profile, error) {
+	profiles := map[string]spaces.Profile{
+		"oficina":             {CategoryCode: "oficina", SchemaVersion: 1, Attributes: []spaces.AttributeDefinition{{Code: "puestos_trabajo", Order: 1, Label: "Puestos de trabajo", Type: "integer", FilterCandidate: false, Minimum: floatPtr(1), Maximum: floatPtr(2147483647)}, {Code: "escritorios", Order: 2, Label: "Escritorios", Type: "integer", FilterCandidate: false, Minimum: floatPtr(0), Maximum: floatPtr(2147483647)}, {Code: "wifi", Order: 3, Label: "Wi-Fi", Type: "boolean", FilterCandidate: false}, {Code: "tipo_uso_oficina", Order: 4, Label: "Tipo de uso", Type: "enum", FilterCandidate: false, Options: []string{"privada", "compartida"}}}},
+		"sala_multiproposito": {CategoryCode: "sala_multiproposito", SchemaVersion: 1, Attributes: []spaces.AttributeDefinition{{Code: "proyector", Order: 1, Label: "Proyector", Type: "boolean", FilterCandidate: false}}},
+	}
+	if p, ok := profiles[category]; ok {
+		return p, nil
+	}
+	return spaces.Profile{}, spaces.ErrNotFound
+}
+func floatPtr(v float64) *float64 { return &v }
 func (m *memoryRepo) Create(_ context.Context, owner string, in spaces.Input) (spaces.Draft, error) {
 	m.owner = owner
 	m.draft = draftFromInput(in)
@@ -69,7 +80,7 @@ func (m *memoryRepo) UpdateOwn(_ context.Context, owner, id string, in spaces.In
 }
 func draftFromInput(in spaces.Input) spaces.Draft {
 	name := map[string]string{"oficina": "Oficina", "sala_multiproposito": "Sala o espacio multipropósito"}[in.CategoryCode]
-	return spaces.Draft{CategoryCode: in.CategoryCode, CategoryName: name, Title: in.Title, Description: in.Description, AreaM2: in.AreaM2, Capacity: in.Capacity, UsageRules: in.UsageRules, RateUnit: in.RateUnit, BasePriceCLP: in.BasePriceCLP, Address: in.Address, State: "borrador"}
+	return spaces.Draft{CategoryCode: in.CategoryCode, CategoryName: name, Title: in.Title, Description: in.Description, AreaM2: in.AreaM2, Capacity: in.Capacity, UsageRules: in.UsageRules, RateUnit: in.RateUnit, BasePriceCLP: in.BasePriceCLP, Address: in.Address, State: "borrador", AttributeSchemaVersion: 1, Attributes: in.Attributes}
 }
 func validJSON() string {
 	b, _ := json.Marshal(spaces.Input{CategoryCode: "oficina", Title: "Oficina", Description: strings.Repeat("Espacio de trabajo. ", 7), AreaM2: 10, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "dia", BasePriceCLP: 6001, Address: "Calle 1"})
@@ -151,8 +162,20 @@ func TestDraftResponsesValidateAgainstOpenAPISchemaAndCategoryChanges(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	profileSchema := compileOpenAPISchema(t, schemas["SpaceAttributeProfile"])
+	inputSchema := compileOpenAPISchema(t, schemas["SpaceDraftInput"])
 
 	h := testHandler(t)
+	profileResponse := invoke(h, "GET", "/api/v1/spaces/categories/oficina/attributes", "user", "")
+	if profileResponse.Code != http.StatusOK {
+		t.Fatalf("profile status=%d %s", profileResponse.Code, profileResponse.Body.String())
+	}
+	assertJSONSchema(t, profileSchema, profileResponse.Body.Bytes(), "SpaceAttributeProfile")
+	validInputBody, err := json.Marshal(spaces.Input{CategoryCode: "oficina", Title: "Oficina", Description: strings.Repeat("Espacio de trabajo disponible. ", 4), AreaM2: 10, Capacity: 2, UsageRules: "No fumar", RateUnit: "dia", BasePriceCLP: 6001, Address: "Calle 1", AttributeSchemaVersion: 1, Attributes: map[string]any{"puestos_trabajo": float64(4), "wifi": false}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONSchema(t, inputSchema, validInputBody, "SpaceDraftInput")
 	created := invoke(h, "POST", "/api/v1/spaces", "user", validJSON())
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create status=%d: %s", created.Code, created.Body.String())
@@ -177,12 +200,35 @@ func TestDraftResponsesValidateAgainstOpenAPISchemaAndCategoryChanges(t *testing
 
 func assertDraftResponseSchema(t *testing.T, schema *jsonschema.Schema, data []byte) {
 	t.Helper()
+	assertJSONSchema(t, schema, data, "SpaceDraft")
+}
+
+func compileOpenAPISchema(t *testing.T, schemaValue any) *jsonschema.Schema {
+	t.Helper()
+	schemaBytes, err := json.Marshal(schemaValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := jsonschema.NewCompiler()
+	name := "compiled.json"
+	if err := compiler.AddResource(name, bytes.NewReader(schemaBytes)); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := compiler.Compile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return schema
+}
+
+func assertJSONSchema(t *testing.T, schema *jsonschema.Schema, data []byte, name string) {
+	t.Helper()
 	var response any
 	if err := json.Unmarshal(data, &response); err != nil {
 		t.Fatal(err)
 	}
 	if err := schema.Validate(response); err != nil {
-		t.Fatalf("response does not match OpenAPI SpaceDraft: %v\n%s", err, data)
+		t.Fatalf("JSON does not match OpenAPI %s: %v\n%s", name, err, data)
 	}
 }
 
@@ -226,5 +272,35 @@ func TestNumericValuesOutsidePostgresRangesReturn422(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCategoryProfilesAndOptionalTypedAttributes(t *testing.T) {
+	h := testHandler(t)
+	profile := invoke(h, "GET", "/api/v1/spaces/categories/oficina/attributes", "user", "")
+	if profile.Code != 200 || !strings.Contains(profile.Body.String(), `"schema_version":1`) {
+		t.Fatalf("profile response %d %s", profile.Code, profile.Body.String())
+	}
+	for _, attrs := range []string{`{"puestos_trabajo":4,"escritorios":0,"wifi":false,"tipo_uso_oficina":"privada"}`, `{}`, `{"wifi":false}`} {
+		body := strings.TrimSuffix(validJSON(), "}") + `,"attributes":` + attrs + `}`
+		response := invoke(h, "POST", "/api/v1/spaces", "user", body)
+		if response.Code != 201 {
+			t.Fatalf("valid optional attributes rejected: %d %s", response.Code, response.Body.String())
+		}
+		if strings.Contains(attrs, `"escritorios":0`) && !strings.Contains(response.Body.String(), `"escritorios":0`) {
+			t.Fatalf("zero value was not retained distinctly: %s", response.Body.String())
+		}
+	}
+	for _, attrs := range []string{`{"puestos_trabajo":"4"}`, `{"tipo_uso_oficina":"industrial"}`, `{"campo_desconocido":true}`, `{"puestos_trabajo":0}`, `{"wifi":null}`} {
+		body := strings.TrimSuffix(validJSON(), "}") + `,"attributes":` + attrs + `}`
+		response := invoke(h, "POST", "/api/v1/spaces", "user", body)
+		if response.Code != 422 {
+			t.Fatalf("invalid attributes %s status=%d want 422: %s", attrs, response.Code, response.Body.String())
+		}
+	}
+	largeValue, _ := json.Marshal(map[string]any{"extra": strings.Repeat("x", 17*1024)})
+	oversized := strings.TrimSuffix(validJSON(), "}") + `,"attributes":` + string(largeValue) + `}`
+	if response := invoke(h, "POST", "/api/v1/spaces", "user", oversized); response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("oversized attributes status=%d want 422", response.Code)
 	}
 }
