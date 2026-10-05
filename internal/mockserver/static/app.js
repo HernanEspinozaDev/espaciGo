@@ -1,4 +1,5 @@
 import { ProfileRequestGate, profileMatchesSelection } from "./profile-request.js";
+import { CalendarRequestState } from "./calendar-request.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -40,6 +41,7 @@ async function action(work) {
     }
     finally {
         buttons.forEach(button => button.disabled = false);
+        refreshCalendarControls();
     }
 }
 function form(id, work) {
@@ -368,6 +370,23 @@ form("space-form", async (data, element) => {
 const calendarSpace = document.querySelector("#calendar-space");
 const calendarOutput = document.querySelector("#calendar-output");
 const calendarBlocks = document.querySelector("#calendar-blocks");
+const calendarRequestState = new CalendarRequestState();
+const calendarZoneInput = document.querySelector('#calendar-config-form [name="time_zone"]');
+const calendarQueryForm = document.querySelector("#calendar-query-form");
+const calendarBlockForm = document.querySelector("#calendar-block-form");
+function refreshCalendarControls() {
+    const dirty = !calendarSpace.value || (() => {
+        try {
+            calendarRequestState.zoneFor(calendarSpace.value, calendarZoneInput.value);
+            return false;
+        }
+        catch {
+            return true;
+        }
+    })();
+    calendarQueryForm.querySelectorAll("button").forEach(button => button.disabled = dirty);
+    calendarBlockForm.querySelectorAll("button").forEach(button => button.disabled = dirty);
+}
 async function loadCalendarSpaces() {
     const result = await request("/api/v1/spaces", "GET", undefined, true);
     const items = result.items;
@@ -378,10 +397,10 @@ async function loadCalendarSpaces() {
     if ([...calendarSpace.options].some(option => option.value === selected))
         calendarSpace.value = selected;
 }
-function calendarPath(suffix = "") {
-    if (!calendarSpace.value)
+function calendarPath(spaceID, suffix = "") {
+    if (!spaceID)
         throw new Error("Selecciona uno de tus borradores.");
-    return `/api/v1/spaces/${encodeURIComponent(calendarSpace.value)}/availability${suffix}`;
+    return `/api/v1/spaces/${encodeURIComponent(spaceID)}/availability${suffix}`;
 }
 function localTimeAsUTC(value, zone) {
     if (!value || !zone)
@@ -403,7 +422,9 @@ function localTimeAsUTC(value, zone) {
     }
     throw new Error("La hora local no existe en esa zona por un cambio horario. Elige otra hora.");
 }
-function renderCalendarBlocks(items) {
+function renderCalendarBlocks(items, spaceID, selection) {
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
     calendarBlocks.replaceChildren();
     for (const block of items) {
         const li = document.createElement("li"), summary = document.createElement("span");
@@ -413,9 +434,13 @@ function renderCalendarBlocks(items) {
         remove.type = "button";
         remove.textContent = "Quitar bloqueo";
         remove.addEventListener("click", () => void action(async () => {
-            await request(`${calendarPath("/blocks")}/${encodeURIComponent(String(block.id))}`, "DELETE", undefined, true);
+            const capturedSpaceID = spaceID;
+            const capturedSelection = calendarRequestState.snapshot();
+            await request(`${calendarPath(capturedSpaceID, "/blocks")}/${encodeURIComponent(String(block.id))}`, "DELETE", undefined, true);
+            if (!calendarRequestState.accepts(capturedSelection, capturedSpaceID, calendarSpace.value))
+                return;
             calendarOutput.textContent = "Bloqueo retirado.";
-            document.querySelector("#calendar-query-form").requestSubmit();
+            calendarQueryForm.requestSubmit();
         }));
         li.append(summary, remove);
         calendarBlocks.append(li);
@@ -423,33 +448,54 @@ function renderCalendarBlocks(items) {
 }
 document.querySelector("#calendar-spaces-load").addEventListener("click", () => void action(loadCalendarSpaces));
 calendarSpace.addEventListener("change", () => void action(async () => {
-    const zoneInput = document.querySelector('#calendar-config-form [name="time_zone"]');
-    zoneInput.value = "";
+    const spaceID = calendarSpace.value;
+    const selection = calendarRequestState.beginSelection();
+    calendarZoneInput.value = "";
     calendarBlocks.replaceChildren();
-    if (!calendarSpace.value)
+    calendarOutput.textContent = "";
+    refreshCalendarControls();
+    if (!spaceID)
         return;
-    const result = await request(calendarPath("/timezone"), "GET", undefined, true);
-    zoneInput.value = String(result.time_zone);
+    const result = await request(calendarPath(spaceID, "/timezone"), "GET", undefined, true);
+    if (!calendarRequestState.confirm(spaceID, String(result.time_zone), selection, calendarSpace.value))
+        return;
+    calendarZoneInput.value = String(result.time_zone);
     calendarOutput.textContent = JSON.stringify(result, null, 2);
+    refreshCalendarControls();
 }));
 form("calendar-config-form", async (data) => {
-    const result = await request(calendarPath(), "PUT", { time_zone: data.get("time_zone") }, true);
+    const spaceID = calendarSpace.value, selection = calendarRequestState.snapshot();
+    const result = await request(calendarPath(spaceID), "PUT", { time_zone: data.get("time_zone") }, true);
+    if (!calendarRequestState.confirm(spaceID, String(result.time_zone), selection, calendarSpace.value))
+        return;
     calendarOutput.textContent = JSON.stringify(result, null, 2);
+    calendarZoneInput.value = String(result.time_zone);
+    refreshCalendarControls();
 });
 form("calendar-query-form", async (data) => {
-    const zone = String(new FormData(document.querySelector("#calendar-config-form")).get("time_zone") ?? "");
+    const spaceID = calendarSpace.value, selection = calendarRequestState.snapshot();
+    const zone = calendarRequestState.zoneFor(spaceID, calendarZoneInput.value);
     const query = new URLSearchParams({ from: localTimeAsUTC(String(data.get("from")), zone), to: localTimeAsUTC(String(data.get("to")), zone) });
-    const availability = await request(`${calendarPath()}?${query}`, "GET", undefined, true);
-    const blocks = await request(`${calendarPath("/blocks")}?${query}`, "GET", undefined, true);
-    renderCalendarBlocks((blocks.items ?? []));
+    const availability = await request(`${calendarPath(spaceID)}?${query}`, "GET", undefined, true);
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
+    const blocks = await request(`${calendarPath(spaceID, "/blocks")}?${query}`, "GET", undefined, true);
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
+    renderCalendarBlocks((blocks.items ?? []), spaceID, selection);
     calendarOutput.textContent = JSON.stringify({ availability, blocks }, null, 2);
 });
 form("calendar-block-form", async (data, element) => {
-    const zone = String(new FormData(document.querySelector("#calendar-config-form")).get("time_zone") ?? "");
-    const result = await request(calendarPath("/blocks"), "POST", { start_at: localTimeAsUTC(String(data.get("start_at")), zone), end_at: localTimeAsUTC(String(data.get("end_at")), zone), reason: data.get("reason") }, true);
+    const spaceID = calendarSpace.value, selection = calendarRequestState.snapshot();
+    const zone = calendarRequestState.zoneFor(spaceID, calendarZoneInput.value);
+    const result = await request(calendarPath(spaceID, "/blocks"), "POST", { start_at: localTimeAsUTC(String(data.get("start_at")), zone), end_at: localTimeAsUTC(String(data.get("end_at")), zone), reason: data.get("reason") }, true);
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
     calendarOutput.textContent = JSON.stringify(result, null, 2);
     element.reset();
 });
+calendarZoneInput.addEventListener("input", refreshCalendarControls);
+refreshCalendarControls();
 async function initialize() {
     try {
         const config = await (await fetch("/config.json", { cache: "no-store" })).json();
