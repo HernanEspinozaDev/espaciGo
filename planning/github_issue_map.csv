@@ -1,0 +1,105 @@
+﻿codigo,id_hermes,issue_numero,issue_url,estado_hermes_original,estado_operativo,issue_github,pr_relacionado,motivo_reconciliacion
+CORE-DB-01,t_8337acc2,17,https://github.com/HernanEspinozaDev/espaciGo/issues/17,done,Hecho,CLOSED,#4 MERGED (2026-10-01),Hecho verificado: PR #4 APPROVED y MERGED (2026-10-01); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+PLAN-ARCH-01,t_77d4d888,18,https://github.com/HernanEspinozaDev/espaciGo/issues/18,done,Hecho,CLOSED,#1 MERGED (2026-10-01),Hecho verificado: PR #1 APPROVED y MERGED (2026-10-01); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+CORE-ARCH-01,t_faf60973,19,https://github.com/HernanEspinozaDev/espaciGo/issues/19,done,Hecho,CLOSED,#2 MERGED (2026-10-01),Hecho verificado: PR #2 APPROVED y MERGED (2026-10-01); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+CORE-DB-02,t_2377a275,20,https://github.com/HernanEspinozaDev/espaciGo/issues/20,done,Hecho,CLOSED,#5 MERGED (2026-10-01),Hecho verificado: PR #5 APPROVED y MERGED (2026-10-01); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+CORE-DB-03,t_6d6268b6,21,https://github.com/HernanEspinozaDev/espaciGo/issues/21,done,Hecho,CLOSED,#3 MERGED (2026-10-01),Hecho verificado: PR #3 APPROVED y MERGED (2026-10-01); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+CORE-BE-01,t_39a64c51,22,https://github.com/HernanEspinozaDev/espaciGo/issues/22,done,Hecho,CLOSED,#6 MERGED (2026-10-02),Hecho verificado: PR #6 APPROVED y MERGED (2026-10-02); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+CORE-API-01,t_c2b4b456,23,https://github.com/HernanEspinozaDev/espaciGo/issues/23,done,Hecho,CLOSED,#7 MERGED (2026-10-02),Hecho verificado: PR #7 APPROVED y MERGED (2026-10-02); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+CORE-TEST-01,t_5a59a095,24,https://github.com/HernanEspinozaDev/espaciGo/issues/24,done,Hecho,CLOSED,#8 MERGED (2026-10-02),Hecho verificado: PR #8 APPROVED y MERGED (2026-10-02); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+CORE-ENV-01,t_dc2c7f18,25,https://github.com/HernanEspinozaDev/espaciGo/issues/25,done,Hecho,CLOSED,#11 MERGED (2026-10-04),Hecho verificado: PR #11 APPROVED y MERGED (2026-10-04); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+AUTH-ARCH-01,t_84cb0ac5,26,https://github.com/HernanEspinozaDev/espaciGo/issues/26,done,Hecho,CLOSED,#13 MERGED (2026-10-04),Hecho verificado: PR #13 APPROVED y MERGED (2026-10-04); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+AUTH-DB-01,t_a9806e1b,27,https://github.com/HernanEspinozaDev/espaciGo/issues/27,done,Hecho,CLOSED,#14 MERGED (2026-10-04),Hecho verificado: PR #14 APPROVED y MERGED (2026-10-04); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+AUTH-DB-02,t_b87a788d,28,https://github.com/HernanEspinozaDev/espaciGo/issues/28,done,Hecho,CLOSED,#15 MERGED (2026-10-04),Hecho verificado: PR #15 APPROVED y MERGED (2026-10-04); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+AUTH-BE-01,t_29af9825,29,https://github.com/HernanEspinozaDev/espaciGo/issues/29,done,En revisión,OPEN,#16 OPEN,"Se revierte el done histórico: PR #16 sigue OPEN/REVIEW_REQUIRED; GitHub no reporta checks. Regeneración sqlc reproducible, pruebas PostgreSQL específicas y limpieza de recursos temporales permanecen sin evidencia suficiente; conservar En revisión."
+AUTH-BE-02,t_0c29f77c,30,https://github.com/HernanEspinozaDev/espaciGo/issues/30,blocked,Bloqueado,OPEN,,Bloqueo histórico conservado; las dependencias upstream siguen sin cumplir aceptación/merge.
+AUTH-BE-03,t_d598f322,31,https://github.com/HernanEspinozaDev/espaciGo/issues/31,blocked,Bloqueado,OPEN,,Bloqueo histórico conservado; las dependencias upstream siguen sin cumplir aceptación/merge.
+AUTH-API-01,t_3c98a0cc,32,https://github.com/HernanEspinozaDev/espaciGo/issues/32,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): AUTH-BE-02.
+AUTH-API-02,t_f1f9646c,33,https://github.com/HernanEspinozaDev/espaciGo/issues/33,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): AUTH-BE-03.
+AUTH-TEST-01,t_5ef3705e,34,https://github.com/HernanEspinozaDev/espaciGo/issues/34,todo,Bloqueado,OPEN,,"No habilitada: dependencia(s) pendiente(s): AUTH-API-01, AUTH-API-02."
+AUTH-MOCK-01,t_a500d6f9,35,https://github.com/HernanEspinozaDev/espaciGo/issues/35,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): AUTH-TEST-01.
+PRIV-ARCH-01,t_6dc20e18,36,https://github.com/HernanEspinozaDev/espaciGo/issues/36,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): AUTH-MOCK-01.
+PRIV-DB-01,t_46ee9051,37,https://github.com/HernanEspinozaDev/espaciGo/issues/37,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): PRIV-ARCH-01.
+PRIV-DB-02,t_339487a1,38,https://github.com/HernanEspinozaDev/espaciGo/issues/38,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): PRIV-DB-01.
+PRIV-BE-01,t_c60a0616,39,https://github.com/HernanEspinozaDev/espaciGo/issues/39,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): PRIV-DB-02.
+PRIV-BE-02,t_0526ae06,40,https://github.com/HernanEspinozaDev/espaciGo/issues/40,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): PRIV-BE-01.
+PRIV-API-01,t_9be31daa,41,https://github.com/HernanEspinozaDev/espaciGo/issues/41,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): PRIV-BE-02.
+PRIV-TEST-01,t_a8c78c40,42,https://github.com/HernanEspinozaDev/espaciGo/issues/42,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): PRIV-API-01.
+PRIV-MOCK-01,t_24dd1eb5,43,https://github.com/HernanEspinozaDev/espaciGo/issues/43,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): PRIV-TEST-01.
+KYC-ARCH-01,t_44ad058b,44,https://github.com/HernanEspinozaDev/espaciGo/issues/44,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): AUTH-MOCK-01.
+KYC-DB-01,t_dc38e7b2,45,https://github.com/HernanEspinozaDev/espaciGo/issues/45,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): KYC-ARCH-01.
+KYC-DB-02,t_feef7de4,46,https://github.com/HernanEspinozaDev/espaciGo/issues/46,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): KYC-DB-01.
+KYC-BE-01,t_73fae409,47,https://github.com/HernanEspinozaDev/espaciGo/issues/47,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): KYC-DB-02.
+KYC-BE-02,t_3c85dc59,48,https://github.com/HernanEspinozaDev/espaciGo/issues/48,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): KYC-BE-01.
+KYC-API-01,t_830a540d,49,https://github.com/HernanEspinozaDev/espaciGo/issues/49,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): KYC-BE-02.
+KYC-TEST-01,t_9ad86ac6,50,https://github.com/HernanEspinozaDev/espaciGo/issues/50,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): KYC-API-01.
+KYC-MOCK-01,t_044cf602,51,https://github.com/HernanEspinozaDev/espaciGo/issues/51,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): KYC-TEST-01.
+LIST-ARCH-01,t_219893c7,52,https://github.com/HernanEspinozaDev/espaciGo/issues/52,todo,Bloqueado,OPEN,,"No habilitada: dependencia(s) pendiente(s): KYC-MOCK-01, PRIV-MOCK-01."
+LIST-DB-01,t_eb32de18,53,https://github.com/HernanEspinozaDev/espaciGo/issues/53,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): LIST-ARCH-01.
+LIST-DB-02,t_b45a1181,54,https://github.com/HernanEspinozaDev/espaciGo/issues/54,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): LIST-DB-01.
+LIST-BE-01,t_c6e99930,55,https://github.com/HernanEspinozaDev/espaciGo/issues/55,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): LIST-DB-02.
+LIST-BE-02,t_32ab3a99,56,https://github.com/HernanEspinozaDev/espaciGo/issues/56,todo,Bloqueado,OPEN,,"No habilitada: dependencia(s) pendiente(s): LIST-DB-02, LIST-BE-01."
+LIST-API-01,t_09a7bac1,57,https://github.com/HernanEspinozaDev/espaciGo/issues/57,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): LIST-BE-01.
+LIST-API-02,t_de1ef773,58,https://github.com/HernanEspinozaDev/espaciGo/issues/58,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): LIST-BE-02.
+LIST-TEST-01,t_3cedd6ca,59,https://github.com/HernanEspinozaDev/espaciGo/issues/59,todo,Bloqueado,OPEN,,"No habilitada: dependencia(s) pendiente(s): LIST-API-01, LIST-API-02."
+LIST-TEST-02,t_b63c3e0d,60,https://github.com/HernanEspinozaDev/espaciGo/issues/60,todo,Bloqueado,OPEN,,"No habilitada: dependencia(s) pendiente(s): LIST-API-01, LIST-API-02."
+LIST-MOCK-01,t_69c5d35e,61,https://github.com/HernanEspinozaDev/espaciGo/issues/61,todo,Bloqueado,OPEN,,"No habilitada: dependencia(s) pendiente(s): LIST-TEST-01, LIST-TEST-02."
+DISC-ARCH-01,t_4036805f,62,https://github.com/HernanEspinozaDev/espaciGo/issues/62,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): LIST-MOCK-01.
+DISC-DB-01,t_bf0698aa,63,https://github.com/HernanEspinozaDev/espaciGo/issues/63,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DISC-ARCH-01.
+DISC-DB-02,t_dcf13c6e,64,https://github.com/HernanEspinozaDev/espaciGo/issues/64,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DISC-DB-01.
+DISC-BE-01,t_bc999e6c,65,https://github.com/HernanEspinozaDev/espaciGo/issues/65,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DISC-DB-02.
+DISC-API-01,t_83163add,66,https://github.com/HernanEspinozaDev/espaciGo/issues/66,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DISC-BE-01.
+DISC-TEST-01,t_30fd553c,67,https://github.com/HernanEspinozaDev/espaciGo/issues/67,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DISC-API-01.
+DISC-MOCK-01,t_0b08da87,68,https://github.com/HernanEspinozaDev/espaciGo/issues/68,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DISC-TEST-01.
+BOOK-ARCH-01,t_51ca5741,69,https://github.com/HernanEspinozaDev/espaciGo/issues/69,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DISC-MOCK-01.
+BOOK-DB-01,t_9c9bbffc,70,https://github.com/HernanEspinozaDev/espaciGo/issues/70,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): BOOK-ARCH-01.
+BOOK-DB-02,t_f8f1a298,71,https://github.com/HernanEspinozaDev/espaciGo/issues/71,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): BOOK-DB-01.
+BOOK-BE-01,t_9021e804,72,https://github.com/HernanEspinozaDev/espaciGo/issues/72,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): BOOK-DB-02.
+BOOK-BE-02,t_e400c785,73,https://github.com/HernanEspinozaDev/espaciGo/issues/73,todo,Bloqueado,OPEN,,"No habilitada: dependencia(s) pendiente(s): BOOK-BE-01, DISC-BE-01."
+BOOK-BE-03,t_9d426ab3,74,https://github.com/HernanEspinozaDev/espaciGo/issues/74,todo,Bloqueado,OPEN,,"No habilitada: dependencia(s) pendiente(s): BOOK-BE-01, BOOK-DB-02."
+BOOK-API-01,t_72c945a5,75,https://github.com/HernanEspinozaDev/espaciGo/issues/75,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): BOOK-BE-02.
+BOOK-API-02,t_305e9c3d,76,https://github.com/HernanEspinozaDev/espaciGo/issues/76,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): BOOK-BE-03.
+BOOK-TEST-01,t_7d258b3f,77,https://github.com/HernanEspinozaDev/espaciGo/issues/77,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): BOOK-API-01.
+BOOK-TEST-02,t_c88e2c53,78,https://github.com/HernanEspinozaDev/espaciGo/issues/78,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): BOOK-API-02.
+BOOK-MOCK-01,t_940d5d07,79,https://github.com/HernanEspinozaDev/espaciGo/issues/79,todo,Bloqueado,OPEN,,"No habilitada: dependencia(s) pendiente(s): BOOK-TEST-01, BOOK-TEST-02."
+CONT-ARCH-01,t_81cc5b69,80,https://github.com/HernanEspinozaDev/espaciGo/issues/80,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): BOOK-MOCK-01.
+CONT-DB-01,t_73c4089c,81,https://github.com/HernanEspinozaDev/espaciGo/issues/81,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): CONT-ARCH-01.
+CONT-DB-02,t_70f71422,82,https://github.com/HernanEspinozaDev/espaciGo/issues/82,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): CONT-DB-01.
+CONT-BE-01,t_7310726b,83,https://github.com/HernanEspinozaDev/espaciGo/issues/83,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): CONT-DB-02.
+CONT-BE-02,t_b8ae727d,84,https://github.com/HernanEspinozaDev/espaciGo/issues/84,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): CONT-BE-01.
+CONT-API-01,t_2ac3eaf2,85,https://github.com/HernanEspinozaDev/espaciGo/issues/85,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): CONT-BE-02.
+CONT-TEST-01,t_e88f5b26,86,https://github.com/HernanEspinozaDev/espaciGo/issues/86,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): CONT-API-01.
+CONT-MOCK-01,t_aed0ed0f,87,https://github.com/HernanEspinozaDev/espaciGo/issues/87,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): CONT-TEST-01.
+OPS-ARCH-01,t_bb2aeaa7,88,https://github.com/HernanEspinozaDev/espaciGo/issues/88,todo,Bloqueado,OPEN,,"No habilitada: dependencia(s) pendiente(s): BOOK-MOCK-01, CONT-MOCK-01."
+OPS-DB-01,t_66f38a40,89,https://github.com/HernanEspinozaDev/espaciGo/issues/89,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): OPS-ARCH-01.
+OPS-DB-02,t_21912bf0,90,https://github.com/HernanEspinozaDev/espaciGo/issues/90,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): OPS-DB-01.
+OPS-BE-01,t_c3b7dae9,91,https://github.com/HernanEspinozaDev/espaciGo/issues/91,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): OPS-DB-02.
+OPS-API-01,t_329ca107,92,https://github.com/HernanEspinozaDev/espaciGo/issues/92,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): OPS-BE-01.
+OPS-TEST-01,t_cd72b21f,93,https://github.com/HernanEspinozaDev/espaciGo/issues/93,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): OPS-API-01.
+OPS-MOCK-01,t_598a9ae0,94,https://github.com/HernanEspinozaDev/espaciGo/issues/94,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): OPS-TEST-01.
+COMM-ARCH-01,t_8918dece,95,https://github.com/HernanEspinozaDev/espaciGo/issues/95,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): BOOK-MOCK-01.
+COMM-DB-01,t_c311ac8c,96,https://github.com/HernanEspinozaDev/espaciGo/issues/96,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): COMM-ARCH-01.
+COMM-DB-02,t_57dc90e1,97,https://github.com/HernanEspinozaDev/espaciGo/issues/97,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): COMM-DB-01.
+COMM-BE-01,t_d5b5e5dd,98,https://github.com/HernanEspinozaDev/espaciGo/issues/98,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): COMM-DB-02.
+COMM-BE-02,t_8778ca17,99,https://github.com/HernanEspinozaDev/espaciGo/issues/99,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): COMM-BE-01.
+COMM-API-01,t_d7a93e31,100,https://github.com/HernanEspinozaDev/espaciGo/issues/100,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): COMM-BE-02.
+COMM-TEST-01,t_84fac1f6,101,https://github.com/HernanEspinozaDev/espaciGo/issues/101,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): COMM-API-01.
+COMM-MOCK-01,t_019f00b4,102,https://github.com/HernanEspinozaDev/espaciGo/issues/102,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): COMM-TEST-01.
+DIS-ARCH-01,t_d9748c1b,103,https://github.com/HernanEspinozaDev/espaciGo/issues/103,todo,Bloqueado,OPEN,,"No habilitada: dependencia(s) pendiente(s): COMM-MOCK-01, OPS-MOCK-01."
+DIS-DB-01,t_6495f5f1,104,https://github.com/HernanEspinozaDev/espaciGo/issues/104,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DIS-ARCH-01.
+DIS-DB-02,t_46d73257,105,https://github.com/HernanEspinozaDev/espaciGo/issues/105,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DIS-DB-01.
+DIS-BE-01,t_b1151157,106,https://github.com/HernanEspinozaDev/espaciGo/issues/106,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DIS-DB-02.
+DIS-BE-02,t_e00916fa,107,https://github.com/HernanEspinozaDev/espaciGo/issues/107,todo,Bloqueado,OPEN,,"No habilitada: dependencia(s) pendiente(s): BOOK-BE-03, DIS-BE-01."
+DIS-API-01,t_6ce8ce04,108,https://github.com/HernanEspinozaDev/espaciGo/issues/108,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DIS-BE-02.
+DIS-TEST-01,t_820cef04,109,https://github.com/HernanEspinozaDev/espaciGo/issues/109,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DIS-API-01.
+DIS-MOCK-01,t_8ee56000,110,https://github.com/HernanEspinozaDev/espaciGo/issues/110,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DIS-TEST-01.
+ADMIN-ARCH-01,t_9d061238,111,https://github.com/HernanEspinozaDev/espaciGo/issues/111,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): DIS-MOCK-01.
+ADMIN-DB-01,t_90c5d3ae,112,https://github.com/HernanEspinozaDev/espaciGo/issues/112,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): ADMIN-ARCH-01.
+ADMIN-DB-02,t_4f92b437,113,https://github.com/HernanEspinozaDev/espaciGo/issues/113,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): ADMIN-DB-01.
+ADMIN-BE-01,t_39ae609f,114,https://github.com/HernanEspinozaDev/espaciGo/issues/114,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): ADMIN-DB-02.
+ADMIN-BE-02,t_b416dfe9,115,https://github.com/HernanEspinozaDev/espaciGo/issues/115,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): ADMIN-BE-01.
+ADMIN-API-01,t_62f698ed,116,https://github.com/HernanEspinozaDev/espaciGo/issues/116,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): ADMIN-BE-02.
+ADMIN-TEST-01,t_06aa2b7e,117,https://github.com/HernanEspinozaDev/espaciGo/issues/117,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): ADMIN-API-01.
+ADMIN-MOCK-01,t_5536d925,118,https://github.com/HernanEspinozaDev/espaciGo/issues/118,todo,Bloqueado,OPEN,,No habilitada: dependencia(s) pendiente(s): ADMIN-TEST-01.
+CORE-ENV-02,t_f5c1325b,119,https://github.com/HernanEspinozaDev/espaciGo/issues/119,done,Hecho,CLOSED,#9 MERGED (2026-10-04),Hecho verificado: PR #9 APPROVED y MERGED (2026-10-04); cambios publicados y alcance/evidencia histórica registrados en la Issue.
+RECOVERY-t_112e6827,t_112e6827,120,https://github.com/HernanEspinozaDev/espaciGo/issues/120,review,En revisión,OPEN,#16 OPEN,"En revisión: recuperación vinculada a AUTH-BE-01 y PR #16; no aceptar ni desbloquear sucesoras antes de revisar reproducibilidad, pruebas y limpieza pendientes."
