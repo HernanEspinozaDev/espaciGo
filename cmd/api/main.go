@@ -17,12 +17,14 @@ import (
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
+	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/health"
+	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	spacesdomain "github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
@@ -110,7 +112,11 @@ func run() error {
 		if err != nil {
 			return errors.New("calendar initialization failed")
 		}
-		spacesHandler := spaceshttp.NewHandler(service, spacesService, cfg.allowedOrigins, calendarService)
+		pricingService, err := pricing.NewService(pricingpg.New(pool), calendarService, credentials.Generator{})
+		if err != nil {
+			return errors.New("pricing initialization failed")
+		}
+		spacesHandler := spaceshttp.NewHandlerWithPricing(service, spacesService, cfg.allowedOrigins, calendarService, pricingService)
 		mux.Handle("/api/v1/spaces", spacesHandler)
 		mux.Handle("/api/v1/spaces/", spacesHandler)
 		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {

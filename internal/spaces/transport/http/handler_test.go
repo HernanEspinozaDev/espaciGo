@@ -12,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"gopkg.in/yaml.v3"
@@ -153,6 +155,84 @@ func calendarHandler(t *testing.T) http.Handler {
 		t.Fatal(err)
 	}
 	return NewHandler(fakeAuth{}, svc, nil, fakeCalendar{})
+}
+
+type priceRepo struct {
+	rate pricing.Rate
+	sim  pricing.Simulation
+}
+
+func (p *priceRepo) CurrentRate(_ context.Context, owner, space string) (pricing.Rate, error) {
+	if owner != ownerA || space != draftID {
+		return pricing.Rate{}, pricing.ErrNotFound
+	}
+	return p.rate, nil
+}
+func (p *priceRepo) RateHistory(_ context.Context, owner, space string) ([]pricing.Rate, error) {
+	r, e := p.CurrentRate(context.Background(), owner, space)
+	return []pricing.Rate{r}, e
+}
+func (p *priceRepo) UpdateRate(_ context.Context, owner, space string, in pricing.RateInput) (pricing.Rate, error) {
+	if owner != ownerA || space != draftID {
+		return pricing.Rate{}, pricing.ErrNotFound
+	}
+	p.rate.Version++
+	p.rate.Unit = in.Unit
+	p.rate.Amount = in.Amount
+	return p.rate, nil
+}
+func (p *priceRepo) CreateSimulation(_ context.Context, owner, space, id, zone string, rate pricing.Rate, start, end time.Time, units, subtotal int64) (pricing.Simulation, error) {
+	if owner != ownerA || space != draftID {
+		return pricing.Simulation{}, pricing.ErrNotFound
+	}
+	p.sim = pricing.Simulation{ID: id, SpaceID: space, RateVersion: rate.Version, RateUnit: rate.Unit, BasePrice: rate.Amount, BilledUnits: units, Currency: "CLP", Subtotal: subtotal, StartAt: start, EndAt: end, TimeZone: zone, Private: true, CreatedAt: time.Now().UTC()}
+	return p.sim, nil
+}
+func (p *priceRepo) GetSimulation(_ context.Context, owner, space, id string) (pricing.Simulation, error) {
+	if owner != ownerA || space != draftID || id != p.sim.ID {
+		return pricing.Simulation{}, pricing.ErrNotFound
+	}
+	return p.sim, nil
+}
+
+func TestPrivatePriceSimulationRoutesAndOpenAPISchemas(t *testing.T) {
+	repo := &priceRepo{rate: pricing.Rate{SpaceID: draftID, Version: 1, Unit: "hora", Amount: 8000, Currency: "CLP", CreatedAt: time.Now().UTC()}}
+	service, err := pricing.NewService(repo, fakeCalendar{}, credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spacesSvc, err := spaces.NewService(&memoryRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandlerWithPricing(fakeAuth{}, spacesSvc, []string{"http://localhost"}, fakeCalendar{}, service)
+	base := "/api/v1/spaces/" + draftID
+	read := invoke(h, "GET", base+"/tariff", "user", "")
+	if read.Code != 200 || !strings.Contains(read.Body.String(), `"version":1`) {
+		t.Fatalf("rate response %d %s", read.Code, read.Body.String())
+	}
+	updated := invoke(h, "PUT", base+"/tariff", "user", `{"rate_unit":"hora","base_price":9000}`)
+	if updated.Code != 200 || !strings.Contains(updated.Body.String(), `"version":2`) {
+		t.Fatalf("rate update %d %s", updated.Code, updated.Body.String())
+	}
+	sim := invoke(h, "POST", base+"/price-simulations", "user", `{"start_at":"2030-04-01T12:00:00Z","end_at":"2030-04-01T13:30:00Z"}`)
+	if sim.Code != 201 || !strings.Contains(sim.Body.String(), `"billed_units":2`) || !strings.Contains(sim.Body.String(), `"base_subtotal":18000`) || !strings.Contains(sim.Body.String(), `"private":true`) {
+		t.Fatalf("simulation %d %s", sim.Code, sim.Body.String())
+	}
+	if foreign := invoke(h, "GET", base+"/tariff", "other", ""); foreign.Code != 404 {
+		t.Fatalf("foreign tariff status %d", foreign.Code)
+	}
+	openapi, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "planning", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err = yaml.Unmarshal(openapi, &doc); err != nil {
+		t.Fatal(err)
+	}
+	schemas := doc["components"].(map[string]any)["schemas"].(map[string]any)
+	assertJSONSchema(t, compileOpenAPISchema(t, schemas["Rate"]), read.Body.Bytes(), "Rate")
+	assertJSONSchema(t, compileOpenAPISchema(t, schemas["PriceSimulation"]), sim.Body.Bytes(), "PriceSimulation")
 }
 func invoke(h http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))

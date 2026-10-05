@@ -14,6 +14,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 )
 
@@ -24,6 +25,7 @@ type Handler struct {
 	auth     Authenticator
 	service  *spaces.Service
 	calendar CalendarService
+	pricing  *pricing.Service
 	origins  map[string]bool
 }
 
@@ -46,6 +48,11 @@ func NewHandler(auth Authenticator, service *spaces.Service, origins []string, c
 		calendarService = calendar[0]
 	}
 	return &Handler{auth: auth, service: service, calendar: calendarService, origins: m}
+}
+func NewHandlerWithPricing(auth Authenticator, service *spaces.Service, origins []string, calendar CalendarService, pricingService *pricing.Service) http.Handler {
+	h := NewHandler(auth, service, origins, calendar).(*Handler)
+	h.pricing = pricingService
+	return h
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	id, err := (credentials.Generator{}).ID()
@@ -113,6 +120,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveCalendar(w, r, path, principal.AccountID)
 		return
 	}
+	if strings.Contains(path, "/price-simulations") || strings.HasSuffix(path, "/tariff") || strings.HasSuffix(path, "/tariffs") {
+		h.servePricing(w, r, path, principal.AccountID)
+		return
+	}
 	if path == "/api/v1/spaces/categories" && r.Method == http.MethodGet {
 		items, e := h.service.Categories(r.Context())
 		if e != nil {
@@ -174,6 +185,94 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	failure(w, 404, "not_found", "Recurso no encontrado.")
+}
+
+func (h *Handler) servePricing(w http.ResponseWriter, r *http.Request, path, owner string) {
+	if h.pricing == nil {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+		return
+	}
+	const prefix = "/api/v1/spaces/"
+	if !strings.HasPrefix(path, prefix) {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+		return
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) < 2 || parts[0] == "" {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+		return
+	}
+	spaceID := parts[0]
+	if len(parts) == 2 && parts[1] == "tariff" {
+		switch r.Method {
+		case http.MethodGet:
+			item, err := h.pricing.CurrentRate(r.Context(), owner, spaceID)
+			if err != nil {
+				pricingError(w, err)
+				return
+			}
+			write(w, 200, item)
+		case http.MethodPut:
+			var in pricing.RateInput
+			if !decode(w, r, &in) {
+				return
+			}
+			item, err := h.pricing.UpdateRate(r.Context(), owner, spaceID, in)
+			if err != nil {
+				pricingError(w, err)
+				return
+			}
+			write(w, 200, item)
+		default:
+			failure(w, 404, "not_found", "Recurso no encontrado.")
+		}
+		return
+	}
+	if len(parts) == 2 && parts[1] == "tariffs" && r.Method == http.MethodGet {
+		items, err := h.pricing.RateHistory(r.Context(), owner, spaceID)
+		if err != nil {
+			pricingError(w, err)
+			return
+		}
+		write(w, 200, map[string]any{"items": items})
+		return
+	}
+	if len(parts) == 2 && parts[1] == "price-simulations" && r.Method == http.MethodPost {
+		var in pricing.SimulationInput
+		if !decode(w, r, &in) {
+			return
+		}
+		item, err := h.pricing.Simulate(r.Context(), owner, spaceID, in)
+		if err != nil {
+			pricingError(w, err)
+			return
+		}
+		write(w, 201, item)
+		return
+	}
+	if len(parts) == 3 && parts[1] == "price-simulations" && r.Method == http.MethodGet {
+		item, err := h.pricing.GetSimulation(r.Context(), owner, spaceID, parts[2])
+		if err != nil {
+			pricingError(w, err)
+			return
+		}
+		write(w, 200, item)
+		return
+	}
+	failure(w, 404, "not_found", "Recurso no encontrado.")
+}
+
+func pricingError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, pricing.ErrInvalid):
+		failure(w, 422, "invalid_request", "La tarifa o el intervalo no es válido.")
+	case errors.Is(err, pricing.ErrNotFound):
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+	case errors.Is(err, pricing.ErrConflict):
+		failure(w, 409, "interval_unavailable", "El intervalo no está disponible para simulación.")
+	default:
+		failure(w, 500, "internal_error", "Ocurrió un error inesperado.")
+	}
 }
 func bearer(v string) string {
 	p := strings.SplitN(v, " ", 2)

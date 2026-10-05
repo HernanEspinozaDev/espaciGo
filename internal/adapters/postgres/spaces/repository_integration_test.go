@@ -152,7 +152,30 @@ func TestPostgresDraftCRUDIsOwnerScopedAndOnlyDrafts(t *testing.T) {
 	if updated.AttributeSchemaVersion != 1 || updated.Attributes["proyector"] != true || updated.Attributes["wifi"] != nil {
 		t.Fatalf("category change retained incompatible attributes: %+v", updated)
 	}
+	updated.BasePriceCLP = 12000
+	if _, err = service.UpdateOwn(ctx, ownerA, created.ID, updatedInput(in, updated)); err != nil {
+		t.Fatal(err)
+	}
+	var tariffVersions int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$1`, created.ID).Scan(&tariffVersions); err != nil || tariffVersions != 2 {
+		t.Fatalf("draft update tariff history versions=%d err=%v", tariffVersions, err)
+	}
 	if _, err = pool.Exec(ctx, `UPDATE public.espacio SET estado='publicado' WHERE id=$1`, created.ID); err == nil {
 		t.Fatal("database accepted commercial state")
 	}
+}
+
+func updatedInput(previous spaces.Input, draft spaces.Draft) spaces.Input {
+	previous.CategoryCode = draft.CategoryCode
+	previous.Title = draft.Title
+	previous.Description = draft.Description
+	previous.AreaM2 = draft.AreaM2
+	previous.Capacity = draft.Capacity
+	previous.UsageRules = draft.UsageRules
+	previous.RateUnit = draft.RateUnit
+	previous.BasePriceCLP = draft.BasePriceCLP
+	previous.Address = draft.Address
+	previous.AttributeSchemaVersion = draft.AttributeSchemaVersion
+	previous.Attributes = draft.Attributes
+	return previous
 }

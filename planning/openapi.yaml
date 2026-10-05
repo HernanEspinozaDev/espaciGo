@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: EspaciGo API
   version: 1.0.0
-  description: 'Prototipo local M01, cortes parciales M02/M03/M04 y calendario privado M06. M03 usa casos KYC/KYB sintéticos; no consulta Registro Civil/SII ni declara identidad acreditada. M04 conserva borradores privados; el slice de disponibilidad usa ocupacion, propiedad M06, sin reservas ni publicación. M02 conserva pendientes productivos; historial y avisos durables RQF-217/218 dependen de DB02-09.'
+  description: 'Prototipo local M01, cortes parciales M02/M03/M04/M05 y calendario privado M06. M03 usa casos KYC/KYB sintéticos; no consulta Registro Civil/SII ni declara identidad acreditada. M04 conserva borradores privados; disponibilidad usa ocupacion M06. M05 versiona tarifas y persiste simulaciones privadas del precio base, sin reserva ni publicación. M02 conserva pendientes productivos; historial y avisos durables RQF-217/218 dependen de DB02-09.'
 servers:
 - url: /api/v1
   description: Base relativa versionada; el host se configura por entorno.
@@ -625,6 +625,70 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /spaces/{spaceId}/tariff:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getOwnDraftTariff
+      tags: [M05 local]
+      description: Consulta la versión vigente de la tarifa base CLP del borrador propio.
+      responses:
+        '200': { description: Tarifa vigente, content: { application/json: { schema: { $ref: '#/components/schemas/Rate' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateOwnDraftTariff
+      tags: [M05 local]
+      description: Actualiza la tarifa del borrador propio creando una versión inmutable. No publica el borrador.
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/RateInput' } }
+      responses:
+        '200': { description: Nueva versión, content: { application/json: { schema: { $ref: '#/components/schemas/Rate' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /spaces/{spaceId}/tariffs:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: listOwnDraftTariffVersions
+      tags: [M05 local]
+      description: Lista versiones inmutables de tarifa del borrador propio.
+      responses:
+        '200': { description: Historial de tarifas, content: { application/json: { schema: { $ref: '#/components/schemas/RateList' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /spaces/{spaceId}/price-simulations:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: createPrivateOwnDraftPriceSimulation
+      tags: [M05 local]
+      description: 'Persiste una simulación privada del precio base si M06 confirma disponibilidad. Conserva snapshot de tarifa/versión/unidades/CLP/zona; no crea ocupación, retención, reserva, confirmación ni publicación. Horas transcurridas y fechas/meses calendario locales iniciados según aniversario local; ver decisión M05.'
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/PriceSimulationInput' } }
+      responses:
+        '201': { description: Simulación privada guardada, content: { application/json: { schema: { $ref: '#/components/schemas/PriceSimulation' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /spaces/{spaceId}/price-simulations/{simulationId}:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: simulationId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getOwnPrivatePriceSimulation
+      tags: [M05 local]
+      description: Consulta el snapshot privado del titular sin recalcularlo con la tarifa actual.
+      responses:
+        '200': { description: Snapshot de simulación, content: { application/json: { schema: { $ref: '#/components/schemas/PriceSimulation' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /spaces/{spaceId}/availability/blocks:
     parameters:
       - name: spaceId
@@ -815,6 +879,55 @@ components:
         start_at: { type: string, format: date-time, pattern: Z$ }
         end_at: { type: string, format: date-time, pattern: Z$ }
         available: { type: boolean }
+    RateInput:
+      type: object
+      additionalProperties: false
+      required: [rate_unit, base_price]
+      properties:
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        base_price: { type: integer, minimum: 5001, maximum: 9223372036854775807 }
+    Rate:
+      type: object
+      additionalProperties: false
+      required: [space_id, version, rate_unit, base_price, currency, created_at]
+      properties:
+        space_id: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        base_price: { type: integer, minimum: 5001 }
+        currency: { type: string, const: CLP }
+        created_at: { type: string, format: date-time }
+    RateList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Rate' } }
+    PriceSimulationInput:
+      type: object
+      additionalProperties: false
+      required: [start_at, end_at]
+      properties:
+        start_at: { type: string, format: date-time, pattern: Z$ }
+        end_at: { type: string, format: date-time, pattern: Z$ }
+    PriceSimulation:
+      type: object
+      additionalProperties: false
+      required: [id, space_id, rate_version, rate_unit, base_price, billed_units, currency, base_subtotal, start_at, end_at, time_zone, private, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        rate_version: { type: integer, minimum: 1 }
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        base_price: { type: integer, minimum: 5001 }
+        billed_units: { type: integer, minimum: 1 }
+        currency: { type: string, const: CLP }
+        base_subtotal: { type: integer, minimum: 1 }
+        start_at: { type: string, format: date-time, pattern: Z$ }
+        end_at: { type: string, format: date-time, pattern: Z$ }
+        time_zone: { type: string }
+        private: { type: boolean, const: true }
+        created_at: { type: string, format: date-time }
     ManualBlockInput:
       type: object
       additionalProperties: false

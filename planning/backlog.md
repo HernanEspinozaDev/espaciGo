@@ -373,6 +373,14 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 
 **Trazabilidad:** RQF-094–107; CU-19–21; HU10–14. Entidades: cotizacion y lecturas autorizadas de espacio/categoría/tarifas/políticas/ocupación.
 
+### M05-PRICE-SIMULATION-01 — Versionar tarifa y simular precio base en borrador privado
+- **Issue/estado:** #146 / corte vertical en curso. **Objetivo:** cambio de tarifa auditable y simulación privada reproducible para el titular de un borrador propio.
+- **Alcance:** historial inmutable de tarifa; zona IANA confirmada; disponibilidad por servicio M06; snapshot con unidades, CLP y versión tarifaria; formulario mock; categorías se mantienen.
+- **Fuera:** listado/búsqueda pública, comisión, impuestos, garantía, retención, reserva, confirmación, publicación y pagos.
+- **Dep:** entregas fusionadas #134, #141, #145 y fundaciones CORE/M01 #4–#9, #11, #13–#15. No depende de cerrar #54/#55 ni de las Issues completas M05/M06.
+- **Reglas:** [decisión ratificada por el usuario](decisiones_m05_simulacion_precio_privada.md).
+- **Aceptación:** actualizar conserva versiones; disponibilidad no altera `ocupacion`; snapshot se conserva tras cambios de tarifa; ownership privado en DB/API.
+
 ### DISC-ARCH-01 — Definir filtros, búsqueda geográfica y cotización
 - **Tipo/estado:** ARCH / todo. **Objetivo:** fijar criterios de consulta y cálculo previo sin retener inventario.
 - **Alcance:** filtros allowlist, distancia/ubicación, paginación, zona horaria, versión de precio y vencimiento. **Fuera:** ranking patrocinado sin regla aprobada.
