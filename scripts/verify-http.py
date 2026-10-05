@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 import json
+import os
 import urllib.error
 import urllib.request
 
-MOCK_ORIGIN = "http://127.0.0.1:8081"
-API_ORIGIN = "http://127.0.0.1:8080"
+MOCK_ORIGIN = os.environ.get("MOCK_ORIGIN", "http://127.0.0.1:8081")
+API_ORIGIN = os.environ.get("API_ORIGIN", "http://127.0.0.1:8080")
 
 
 def request(url: str, *, origin: str | None = None, method: str = "GET", headers: dict[str, str] | None = None):

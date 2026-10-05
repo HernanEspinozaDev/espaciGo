@@ -13,6 +13,7 @@ type Querier interface {
 	CountActionTokenEmissions(ctx context.Context, arg CountActionTokenEmissionsParams) (int64, error)
 	CreateAccount(ctx context.Context, arg CreateAccountParams) error
 	CreateActionToken(ctx context.Context, arg CreateActionTokenParams) error
+	CreateRightsRequest(ctx context.Context, arg CreateRightsRequestParams) (CreateRightsRequestRow, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateTenantRole(ctx context.Context, accountID string) error
 	CreateTermsAcceptance(ctx context.Context, arg CreateTermsAcceptanceParams) error
@@ -21,10 +22,13 @@ type Querier interface {
 	GetAccountRoles(ctx context.Context, accountID string) ([]string, error)
 	GetActionTokenByHash(ctx context.Context, tokenHash string) (GetActionTokenByHashRow, error)
 	GetActionTokenByID(ctx context.Context, id string) (GetActionTokenByIDRow, error)
+	// M02 profile queries are always scoped to the authenticated account ID.
+	GetProfile(ctx context.Context, accountID string) (GetProfileRow, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (GetSessionByTokenHashRow, error)
 	GetTermsVersion(ctx context.Context, id string) (GetTermsVersionRow, error)
 	GetVerificationTokenByID(ctx context.Context, id string) (GetVerificationTokenByIDRow, error)
 	InvalidateActiveActionTokens(ctx context.Context, arg InvalidateActiveActionTokensParams) (int64, error)
+	ListOwnRightsRequests(ctx context.Context, accountID string) ([]ListOwnRightsRequestsRow, error)
 	LockAccountByActionTokenID(ctx context.Context, tokenID string) (LockAccountByActionTokenIDRow, error)
 	LockAccountByEmail(ctx context.Context, normalizedEmail string) (LockAccountByEmailRow, error)
 	LockAccountBySessionHash(ctx context.Context, tokenHash string) (LockAccountBySessionHashRow, error)
@@ -36,6 +40,7 @@ type Querier interface {
 	TouchSession(ctx context.Context, arg TouchSessionParams) (int64, error)
 	UpdateLoginState(ctx context.Context, arg UpdateLoginStateParams) (int64, error)
 	UpdatePasswordHash(ctx context.Context, arg UpdatePasswordHashParams) error
+	UpsertProfile(ctx context.Context, arg UpsertProfileParams) (UpsertProfileRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

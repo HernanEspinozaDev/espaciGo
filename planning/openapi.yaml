@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: EspaciGo API
   version: 1.0.0
-  description: 'Prototipo local M01 por cortes funcionales (PR #124 y PR de credenciales, Issues #30–35). Incluye recuperación/cambio de clave local; historial y notificación durable RQF-217/218 dependen de DB02-09. HTTP solo loopback para desarrollo; TLS y correo productivo quedan pendientes.'
+  description: 'Prototipo local M01 y corte implementable de M02. Incluye perfil privado y registro de solicitudes de titular en revisión; no procesa supresión ni habilita cuenta de cobro/KYC. Historial y avisos durables RQF-217/218 dependen de DB02-09. HTTP solo loopback; TLS y correo productivo quedan pendientes.'
 servers:
 - url: /api/v1
   description: Base relativa versionada; el host se configura por entorno.
@@ -203,6 +203,49 @@ paths:
         '422': *id006
         '500': *id008
         '503': *id009
+  /profile:
+    get:
+      operationId: getOwnProfile
+      tags: [M02 local]
+      description: Perfil solo del titular autenticado. La foto requiere definir storage.
+      responses:
+        '200': { description: Perfil propio., content: { application/json: { schema: { $ref: '#/components/schemas/Profile' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Perfil aún no creado. }
+    put:
+      operationId: updateOwnProfile
+      tags: [M02 local]
+      description: Nombre visible y teléfono opcional de nueve dígitos según CU-07.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileUpdate' }
+      responses:
+        '200': { description: Perfil propio actualizado., content: { application/json: { schema: { $ref: '#/components/schemas/Profile' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': *id006
+  /rights-requests:
+    get:
+      operationId: listOwnRightsRequests
+      tags: [M02 local]
+      description: Lista solo solicitudes del titular autenticado.
+      responses:
+        '200': { description: Solicitudes propias., content: { application/json: { schema: { $ref: '#/components/schemas/RightsRequestList' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: requestDataRight
+      tags: [M02 local]
+      description: Registra acceso o supresión en_revision sin borrar/desidentificar datos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RightsRequestCreate' }
+      responses:
+        '202': { description: Solicitud recibida para revisión., content: { application/json: { schema: { $ref: '#/components/schemas/RightsRequest' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': *id006
   /auth/login:
     post:
       operationId: login
@@ -313,6 +356,39 @@ components:
         type: string
         minLength: 1
   schemas:
+    Profile:
+      type: object
+      required: [display_name, updated_at]
+      properties:
+        display_name: { type: string, minLength: 1, maxLength: 120 }
+        phone: { type: [string, 'null'], pattern: '^[0-9]{9}$' }
+        updated_at: { type: string, format: date-time }
+    ProfileUpdate:
+      type: object
+      additionalProperties: false
+      required: [display_name]
+      properties:
+        display_name: { type: string, minLength: 1, maxLength: 120 }
+        phone: { type: string, pattern: '^$|^[0-9]{9}$' }
+    RightsRequestCreate:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type: { type: string, enum: [acceso, supresion] }
+    RightsRequest:
+      type: object
+      required: [id, kind, state, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [acceso, supresion] }
+        state: { type: string, enum: [recibida, identidad_pendiente, en_revision, resuelta, denegada_fundada] }
+        created_at: { type: string, format: date-time }
+    RightsRequestList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/RightsRequest' } }
     Error:
       type: object
       additionalProperties: false
