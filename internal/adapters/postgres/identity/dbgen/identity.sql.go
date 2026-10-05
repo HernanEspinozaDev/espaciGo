@@ -357,6 +357,42 @@ func (q *Queries) GetActionTokenByHash(ctx context.Context, tokenHash string) (G
 	return i, err
 }
 
+const getActionTokenByID = `-- name: GetActionTokenByID :one
+SELECT id::text AS id, usuario_id::text AS account_id, proposito AS purpose,
+    token_hash, creado_en AS created_at, expira_en AS expires_at,
+    consumido_en AS consumed_at, invalidado_en AS invalidated_at, intentos AS attempts
+FROM public.token_accion WHERE id = $1
+`
+
+type GetActionTokenByIDRow struct {
+	ID            string             `json:"id"`
+	AccountID     string             `json:"account_id"`
+	Purpose       string             `json:"purpose"`
+	TokenHash     string             `json:"token_hash"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
+	ConsumedAt    pgtype.Timestamptz `json:"consumed_at"`
+	InvalidatedAt pgtype.Timestamptz `json:"invalidated_at"`
+	Attempts      int32              `json:"attempts"`
+}
+
+func (q *Queries) GetActionTokenByID(ctx context.Context, id string) (GetActionTokenByIDRow, error) {
+	row := q.db.QueryRow(ctx, getActionTokenByID, id)
+	var i GetActionTokenByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.Purpose,
+		&i.TokenHash,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.InvalidatedAt,
+		&i.Attempts,
+	)
+	return i, err
+}
+
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
 SELECT
     id::text AS id,
@@ -491,6 +527,45 @@ func (q *Queries) InvalidateActiveActionTokens(ctx context.Context, arg Invalida
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const lockAccountByActionTokenID = `-- name: LockAccountByActionTokenID :one
+SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
+    u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
+    u.actualizado_en AS updated_at, u.intentos_fallidos_consecutivos AS failed_attempts,
+    u.bloqueado_hasta AS blocked_until
+FROM public.usuario u JOIN public.token_accion t ON t.usuario_id = u.id
+WHERE t.id = $1
+FOR UPDATE OF u
+`
+
+type LockAccountByActionTokenIDRow struct {
+	ID              string             `json:"id"`
+	Email           string             `json:"email"`
+	NormalizedEmail string             `json:"normalized_email"`
+	PasswordHash    string             `json:"password_hash"`
+	State           string             `json:"state"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	FailedAttempts  int32              `json:"failed_attempts"`
+	BlockedUntil    pgtype.Timestamptz `json:"blocked_until"`
+}
+
+func (q *Queries) LockAccountByActionTokenID(ctx context.Context, tokenID string) (LockAccountByActionTokenIDRow, error) {
+	row := q.db.QueryRow(ctx, lockAccountByActionTokenID, tokenID)
+	var i LockAccountByActionTokenIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.NormalizedEmail,
+		&i.PasswordHash,
+		&i.State,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FailedAttempts,
+		&i.BlockedUntil,
+	)
+	return i, err
 }
 
 const lockAccountByEmail = `-- name: LockAccountByEmail :one
@@ -647,6 +722,21 @@ func (q *Queries) RecordActionTokenFailure(ctx context.Context, arg RecordAction
 	return result.RowsAffected(), nil
 }
 
+const revokeActiveSessions = `-- name: RevokeActiveSessions :exec
+UPDATE public.sesion SET revocada_en = $1
+WHERE usuario_id = $2 AND revocada_en IS NULL
+`
+
+type RevokeActiveSessionsParams struct {
+	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
+	AccountID string             `json:"account_id"`
+}
+
+func (q *Queries) RevokeActiveSessions(ctx context.Context, arg RevokeActiveSessionsParams) error {
+	_, err := q.db.Exec(ctx, revokeActiveSessions, arg.RevokedAt, arg.AccountID)
+	return err
+}
+
 const revokeSession = `-- name: RevokeSession :execrows
 UPDATE public.sesion
 SET revocada_en = $1
@@ -716,4 +806,19 @@ func (q *Queries) UpdateLoginState(ctx context.Context, arg UpdateLoginStatePara
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updatePasswordHash = `-- name: UpdatePasswordHash :exec
+UPDATE public.usuario SET hash_clave = $1, actualizado_en = now()
+WHERE id = $2
+`
+
+type UpdatePasswordHashParams struct {
+	PasswordHash string `json:"password_hash"`
+	AccountID    string `json:"account_id"`
+}
+
+func (q *Queries) UpdatePasswordHash(ctx context.Context, arg UpdatePasswordHashParams) error {
+	_, err := q.db.Exec(ctx, updatePasswordHash, arg.PasswordHash, arg.AccountID)
+	return err
 }

@@ -188,6 +188,15 @@ FROM public.usuario u JOIN public.token_accion t ON t.usuario_id = u.id
 WHERE t.id = sqlc.arg(token_id) AND t.proposito = 'verificar_correo'
 FOR UPDATE OF u;
 
+-- name: LockAccountByActionTokenID :one
+SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
+    u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
+    u.actualizado_en AS updated_at, u.intentos_fallidos_consecutivos AS failed_attempts,
+    u.bloqueado_hasta AS blocked_until
+FROM public.usuario u JOIN public.token_accion t ON t.usuario_id = u.id
+WHERE t.id = sqlc.arg(token_id)
+FOR UPDATE OF u;
+
 -- name: LockAccountBySessionHash :one
 SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
     u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
@@ -205,3 +214,17 @@ SELECT id::text AS id, usuario_id::text AS account_id, proposito AS purpose,
     token_hash, creado_en AS created_at, expira_en AS expires_at,
     consumido_en AS consumed_at, invalidado_en AS invalidated_at, intentos AS attempts
 FROM public.token_accion WHERE id = sqlc.arg(id) AND proposito = 'verificar_correo';
+
+-- name: GetActionTokenByID :one
+SELECT id::text AS id, usuario_id::text AS account_id, proposito AS purpose,
+    token_hash, creado_en AS created_at, expira_en AS expires_at,
+    consumido_en AS consumed_at, invalidado_en AS invalidated_at, intentos AS attempts
+FROM public.token_accion WHERE id = sqlc.arg(id);
+
+-- name: UpdatePasswordHash :exec
+UPDATE public.usuario SET hash_clave = sqlc.arg(password_hash), actualizado_en = now()
+WHERE id = sqlc.arg(account_id);
+
+-- name: RevokeActiveSessions :exec
+UPDATE public.sesion SET revocada_en = sqlc.arg(revoked_at)
+WHERE usuario_id = sqlc.arg(account_id) AND revocada_en IS NULL;

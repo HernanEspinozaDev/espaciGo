@@ -2,9 +2,7 @@ openapi: 3.1.0
 info:
   title: EspaciGo API
   version: 1.0.0
-  description: 'Prototipo local M01: registro, verificación, login, consulta de sesión y logout (PR #124, Issues
-    #30/#32/#34/#35). HTTP solo loopback para desarrollo; TLS/correo productivo, recuperación/CU-05/50 y DB02-09
-    quedan pendientes.'
+  description: 'Prototipo local M01 por cortes funcionales (PR #124 y PR de credenciales, Issues #30–35). Incluye recuperación/cambio de clave local; historial y notificación durable RQF-217/218 dependen de DB02-09. HTTP solo loopback para desarrollo; TLS y correo productivo quedan pendientes.'
 servers:
 - url: /api/v1
   description: Base relativa versionada; el host se configura por entorno.
@@ -148,6 +146,63 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/VerificationRequest'
+  /auth/password/recovery:
+    post:
+      operationId: requestPasswordRecovery
+      tags: [M01 local]
+      description: 'CU-05/RQF-019–020. Siempre responde con el mismo 202 para cuenta elegible/desconocida; cuota por IP puede responder 429. Envío local capturado por Mailpit; token 15 min, reemplazo invalida anterior, máximo 3 emisiones/cuenta/h.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmailRequest' }
+      responses:
+        '202': { description: Respuesta genérica anti-enumeración., content: { application/json: { schema: { $ref: '#/components/schemas/RecoveryAccepted' } } } }
+        '400': *id001
+        '405': *id004
+        '415': *id005
+        '422': *id006
+        '429': *id007
+        '500': *id008
+  /auth/password/recovery/consume:
+    post:
+      operationId: consumePasswordRecovery
+      tags: [M01 local]
+      description: 'CU-05/RQF-021–022. Token ID/secreto solo en cuerpo, hash en base de datos, 5 intentos. Cambia clave y revoca sesiones atómicamente. No implementa historial RQF-217 mientras DB02-09 no defina retención.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecoveryConsumeRequest' }
+      responses:
+        '204': { description: Clave actualizada y sesiones revocadas. }
+        '400': *id001
+        '405': *id004
+        '415': *id005
+        '422': *id006
+        '429': *id007
+        '500': *id008
+        '503': *id009
+  /auth/password/change:
+    post:
+      operationId: changePassword
+      tags: [M01 local]
+      description: 'CU-50/RQF-214–218. Requiere Bearer y clave actual, rechaza clave idéntica, invalida todas las sesiones y envía correo local tras commit. Historial RQF-217 y entrega durable/outbox RQF-218 dependen de DB02-09.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordChangeRequest' }
+      responses:
+        '204': { description: 'Clave actualizada; sesiones revocadas. El cliente debe borrar el token y volver a iniciar sesión.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '405': *id004
+        '415': *id005
+        '422': *id006
+        '500': *id008
+        '503': *id009
   /auth/login:
     post:
       operationId: login
@@ -391,6 +446,40 @@ components:
           type: string
           minLength: 1
           writeOnly: true
+    RecoveryConsumeRequest:
+      type: object
+      additionalProperties: false
+      required: [token_id, token, new_password, confirm_password]
+      properties:
+        token_id: *id010
+        token: *id011
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 72
+          writeOnly: true
+          description: Contraseña conforme a la política de M01.
+        confirm_password:
+          type: string
+          minLength: 8
+          maxLength: 72
+          writeOnly: true
+    PasswordChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password, confirm_password]
+      properties:
+        current_password: *id011
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 72
+          writeOnly: true
+        confirm_password:
+          type: string
+          minLength: 8
+          maxLength: 72
+          writeOnly: true
     LoginRequest:
       type: object
       additionalProperties: false
@@ -492,6 +581,16 @@ components:
               published_at: *id013
               synthetic:
                 const: true
+    RecoveryAccepted:
+      type: object
+      additionalProperties: false
+      required: [status, message]
+      properties:
+        status:
+          type: string
+          const: accepted
+        message:
+          type: string
   examples:
     Accepted:
       summary: Respuesta 2xx sintética; cada operación define su esquema final.

@@ -24,6 +24,14 @@ var (
 	ErrUnauthorized    = errors.New("identity: unauthorized")
 	ErrForbidden       = errors.New("identity: role not granted")
 	ErrDelivery        = errors.New("identity: mail delivery failed")
+	ErrCurrentPassword = errors.New("La contraseña actual no es correcta")
+	ErrPasswordSame    = errors.New("La contraseña nueva debe ser distinta de la actual")
+	ErrPasswordConfirm = errors.New("La repetición de la contraseña nueva no coincide")
+)
+
+const (
+	verificationPurpose = "verificar_correo"
+	recoveryPurpose     = "recuperar_clave"
 )
 
 type LoginBlockedError struct{ Until time.Time }
@@ -170,7 +178,7 @@ func (s *AuthenticationService) ReissueVerification(ctx context.Context, email, 
 			denied = ErrAccountDisabled
 			return nil
 		}
-		count, err := tx.CountActionTokenEmissions(ctx, account.ID, "verificar_correo", now.Add(-time.Hour))
+		count, err := tx.CountActionTokenEmissions(ctx, account.ID, verificationPurpose, now.Add(-time.Hour))
 		if err != nil {
 			return err
 		}
@@ -186,8 +194,8 @@ func (s *AuthenticationService) ReissueVerification(ctx context.Context, email, 
 		if err != nil {
 			return err
 		}
-		token := ActionToken{ID: id, AccountID: account.ID, Purpose: "verificar_correo", Hash: CredentialHash(raw), CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}
-		if err := tx.ReplaceVerificationToken(ctx, token); err != nil {
+		token := ActionToken{ID: id, AccountID: account.ID, Purpose: verificationPurpose, Hash: CredentialHash(raw), CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}
+		if err := tx.ReplaceActionToken(ctx, token); err != nil {
 			return err
 		}
 		delivery = VerificationDelivery{AccountID: account.ID, TokenID: id, Email: account.Email, Token: raw, ExpiresAt: token.ExpiresAt}
@@ -223,11 +231,11 @@ func (s *AuthenticationService) VerifyEmail(ctx context.Context, tokenID string,
 	}
 	var denied error
 	err = s.repo.WithLockedAccount(ctx, AccountLookup{VerificationID: tokenID}, func(account Account, tx AuthenticationTransaction) error {
-		token, err := tx.VerificationToken(ctx, tokenID)
+		token, err := tx.ActionToken(ctx, tokenID)
 		if err != nil {
 			return err
 		}
-		if account.State != AccountEmailPending || token.Purpose != "verificar_correo" || token.AccountID != account.ID || now.Before(token.CreatedAt) || !now.Before(token.ExpiresAt) || token.ConsumedAt != nil || token.InvalidatedAt != nil || token.Attempts >= 5 {
+		if account.State != AccountEmailPending || token.Purpose != verificationPurpose || token.AccountID != account.ID || now.Before(token.CreatedAt) || !now.Before(token.ExpiresAt) || token.ConsumedAt != nil || token.InvalidatedAt != nil || token.Attempts >= 5 {
 			denied = ErrTokenInvalid
 			return nil
 		}
@@ -258,6 +266,223 @@ func (s *AuthenticationService) VerifyEmail(ctx context.Context, tokenID string,
 		return err
 	}
 	return denied
+}
+
+// RequestPasswordRecovery intentionally returns the same result for missing,
+// ineligible and over-account-quota accounts. Only a trusted-IP quota rejection
+// is visible, and it happens before account lookup.
+func (s *AuthenticationService) RequestPasswordRecovery(ctx context.Context, email, clientIP string) error {
+	if ValidateEmail(email) != nil {
+		return ErrInvalid
+	}
+	address, err := netip.ParseAddr(clientIP)
+	if err != nil {
+		return ErrInvalid
+	}
+	now := s.now()
+	allowed, err := s.ipLimiter.AllowVerification(ctx, address.Unmap().String(), now)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrRateLimited
+	}
+	var delivery RecoveryDelivery
+	err = s.repo.WithLockedAccount(ctx, AccountLookup{Email: NormalizeEmail(email)}, func(account Account, tx AuthenticationTransaction) error {
+		// Do not send a credential reset to an address that has not been verified,
+		// or to a disabled account. The public response remains generic.
+		if account.State != AccountActive && account.State != AccountBlocked {
+			return nil
+		}
+		count, err := tx.CountActionTokenEmissions(ctx, account.ID, recoveryPurpose, now.Add(-time.Hour))
+		if err != nil {
+			return err
+		}
+		if count >= 3 {
+			return nil
+		}
+		raw, err := s.credentials.Token()
+		if err != nil {
+			return err
+		}
+		id, err := s.credentials.ID()
+		if err != nil {
+			return err
+		}
+		token := ActionToken{ID: id, AccountID: account.ID, Purpose: recoveryPurpose, Hash: CredentialHash(raw), CreatedAt: now, ExpiresAt: now.Add(15 * time.Minute)}
+		if err := tx.ReplaceActionToken(ctx, token); err != nil {
+			return err
+		}
+		delivery = RecoveryDelivery{AccountID: account.ID, TokenID: id, Email: account.Email, Token: raw, ExpiresAt: token.ExpiresAt}
+		return nil
+	})
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if delivery.TokenID != "" {
+		// Delivery failure is deliberately hidden from the requester to preserve
+		// the same public result as an unknown address. No token is logged.
+		_ = s.mailer.SendRecovery(ctx, delivery)
+	}
+	return nil
+}
+
+type ResetPasswordInput struct {
+	TokenID, ClientIP             string
+	Token, Password, Confirmation Secret
+}
+
+func (s *AuthenticationService) ResetPassword(ctx context.Context, input ResetPasswordInput) error {
+	if input.TokenID == "" || input.Token == "" {
+		return ErrTokenInvalid
+	}
+	if err := ValidatePassword(input.Password); err != nil {
+		return err
+	}
+	if input.Password != input.Confirmation {
+		return ErrPasswordConfirm
+	}
+	address, err := netip.ParseAddr(input.ClientIP)
+	if err != nil {
+		return ErrInvalid
+	}
+	now := s.now()
+	allowed, err := s.ipLimiter.AllowVerification(ctx, address.Unmap().String(), now)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrRateLimited
+	}
+	var email string
+	var denied error
+	err = s.repo.WithLockedAccount(ctx, AccountLookup{ActionTokenID: input.TokenID}, func(account Account, tx AuthenticationTransaction) error {
+		token, err := tx.ActionToken(ctx, input.TokenID)
+		if err != nil {
+			return err
+		}
+		if token.Purpose != recoveryPurpose || token.AccountID != account.ID || now.Before(token.CreatedAt) || !now.Before(token.ExpiresAt) || token.ConsumedAt != nil || token.InvalidatedAt != nil || token.Attempts >= 5 {
+			denied = ErrTokenInvalid
+			return nil
+		}
+		if subtle.ConstantTimeCompare([]byte(token.Hash), []byte(CredentialHash(input.Token))) != 1 {
+			_, err := tx.RecordActionTokenFailure(ctx, token.Hash, now)
+			denied = ErrTokenInvalid
+			return err
+		}
+		consumed, err := tx.ConsumeActionToken(ctx, token.Hash, now)
+		if err != nil {
+			return err
+		}
+		if !consumed {
+			denied = ErrTokenInvalid
+			return nil
+		}
+		newHash, err := s.passwords.Hash(input.Password)
+		if err != nil {
+			return err
+		}
+		if err := tx.UpdatePasswordHash(ctx, account.ID, newHash); err != nil {
+			return err
+		}
+		if err := tx.RevokeActiveSessions(ctx, account.ID, now); err != nil {
+			return err
+		}
+		email = account.Email
+		return nil
+	})
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalid) {
+		return ErrTokenInvalid
+	}
+	if err != nil {
+		return err
+	}
+	if denied != nil {
+		return denied
+	}
+	if s.mailer.SendPasswordChanged(ctx, email) != nil {
+		return ErrDelivery
+	}
+	return nil
+}
+
+type ChangePasswordInput struct {
+	SessionToken                            string
+	CurrentPassword, Password, Confirmation Secret
+}
+
+func (s *AuthenticationService) ChangePassword(ctx context.Context, input ChangePasswordInput) error {
+	if input.SessionToken == "" {
+		return ErrUnauthorized
+	}
+	if err := ValidatePassword(input.Password); err != nil {
+		return err
+	}
+	if input.Password != input.Confirmation {
+		return ErrPasswordConfirm
+	}
+	now := s.now()
+	hash := CredentialHash(Secret(input.SessionToken))
+	var email string
+	var denied error
+	err := s.repo.WithLockedAccount(ctx, AccountLookup{SessionHash: hash}, func(account Account, tx AuthenticationTransaction) error {
+		if account.State != AccountActive || (account.BlockedUntil != nil && now.Before(*account.BlockedUntil)) {
+			denied = ErrUnauthorized
+			return nil
+		}
+		session, err := tx.SessionByTokenHash(ctx, hash)
+		if err != nil {
+			return err
+		}
+		if session.AccountID != account.ID || now.Before(session.CreatedAt) || !session.ActiveAt(now) {
+			denied = ErrUnauthorized
+			return nil
+		}
+		currentOK, err := s.passwords.Matches(account.PasswordHash, input.CurrentPassword)
+		if err != nil {
+			return err
+		}
+		if !currentOK {
+			denied = ErrCurrentPassword
+			return nil
+		}
+		same, err := s.passwords.Matches(account.PasswordHash, input.Password)
+		if err != nil {
+			return err
+		}
+		if same {
+			denied = ErrPasswordSame
+			return nil
+		}
+		newHash, err := s.passwords.Hash(input.Password)
+		if err != nil {
+			return err
+		}
+		if err := tx.UpdatePasswordHash(ctx, account.ID, newHash); err != nil {
+			return err
+		}
+		if err := tx.RevokeActiveSessions(ctx, account.ID, now); err != nil {
+			return err
+		}
+		email = account.Email
+		return nil
+	})
+	if errors.Is(err, ErrNotFound) {
+		return ErrUnauthorized
+	}
+	if err != nil {
+		return err
+	}
+	if denied != nil {
+		return denied
+	}
+	if s.mailer.SendPasswordChanged(ctx, email) != nil {
+		return ErrDelivery
+	}
+	return nil
 }
 
 type LoginInput struct {

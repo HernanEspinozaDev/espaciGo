@@ -2,7 +2,7 @@
 
 ## Estrategia vigente autorizada — prototipo local M01, 2026-10-05
 
-La instrucción del usuario de priorizar el recorrido funcional en PR [#124](https://github.com/HernanEspinozaDev/espaciGo/pull/124) prevalece sobre las puertas históricas de merge por capa descritas abajo. Se conservan sus commits y pruebas. #30, #32, #34 y #35 se agrupan en el hito [Prototipo local M01](https://github.com/HernanEspinozaDev/espaciGo/milestone/1). DB → backend → API → mock se integra en la misma rama: una dependencia implementada e integrada permite avanzar, aunque aún no esté fusionada en main. Las dependencias nativas conservan la aceptación completa de las Issues; recuperación/CU-05/PT-50 de #34/#35 queda para el siguiente corte con #31/#33. No cerrar estas Issues ni afirmar M01 completo antes de revisar lo faltante.
+PR [#124](https://github.com/HernanEspinozaDev/espaciGo/pull/124) ya fue aceptado y fusionado. #30/#32 se cerraron por ese tramo. El corte #31/#33 ahora continúa en una sola rama/PR sobre main; API/mock se integran sin gates de aprobación por capa. #34/#35 siguen abiertas para aceptación integral, y RQF-217/218 continúan parcialmente pendientes por DB02-09. Mantener #123 como seguimiento separado. Esta estrategia y el flujo ejecutable están en [prototipo_local_m01.md](prototipo_local_m01.md); las instrucciones/snapshots históricos de las secciones posteriores no aplican cuando contradigan esta actualización.
 
 GitHub Issues y Projects siguen siendo el registro operativo; este ajuste documenta el motivo y no replica estados del tablero. En la secuencia nativa se quitó #32 de los bloqueadores de #34 porque su API ya está integrada en esta rama, y se pasó #33 a seguimiento del próximo corte porque la recuperación queda fuera; #24 permanece como base de pruebas satisfecha. Se quitó #34 del bloqueo de #35 porque el flujo de pruebas está integrado y el mock se ejecutó en este mismo corte; #25, entorno local ya entregado, permanece como base satisfecha. Los textos originales de aceptación/dependencias y referencias permanecen en las Issues; los comentarios registran el cambio de etapa sin cerrar tarjetas. No reimportar tarjetas ni reactivar Hermes. Controles productivos por IP/correo pueden usar adaptadores locales explícitos para este prototipo, con evolución pendiente documentada. DB02-09 y la limpieza del servidor #123 quedan fuera. Comando, pasos y límites: [prototipo_local_m01.md](prototipo_local_m01.md).
 
@@ -23,12 +23,12 @@ Corte de referencia: 2026-10-05. Usa esta guía junto con [contexto_para_agentes
    Comprueba `gh auth status --hostname github.com` sin copiar tokens. Para ver/escribir el Project desde CLI, `HernanMEC` también necesita acceso al Project y scope `project`; si falta, solicita el scope con `gh auth refresh --hostname github.com --scopes project` y verifica `gh project view 1 --owner HernanEspinozaDev` antes de depender de esa función. El acceso `repo` por sí solo no acredita acceso al Project.
 3. Abre el Project `EspaciGo — Desarrollo` para filtrar Issues y comprobar campos. La lectura/escritura del Project debe verificarse con la cuenta que efectivamente tenga acceso; no supongas que el scope de una cuenta aplica a la otra.
 4. Refresca la rama base de forma segura: `git fetch origin`; cambia a `main` solo si el checkout está limpio; luego `git pull --ff-only`.
-5. Para inspeccionar la puerta actual: `gh pr view 16 --repo HernanEspinozaDev/espaciGo` y `gh issue view 29 --repo HernanEspinozaDev/espaciGo`. Verifica el estado remoto; el snapshot de esta guía registra PR #16 `OPEN`, no fusionado.
+5. Para inspeccionar el estado vigente, consulta las Issues #31/#33, el PR del corte actual y el Project v2. PR #124 ya está `MERGED`; no uses snapshots históricos de este archivo para deducir estados.
 
 ## 2. Seleccionar trabajo
 
-- Ejecuta únicamente Issues autorizadas, con dependencias `blocked_by` satisfechas y criterios/referencias comprendidos. Una Issue `Listo` no se autoriza por sí sola; en el corte de referencia no había tarjetas `Listo`.
-- AUTH-BE-01 (#29) y su recuperación (#120) siguen `En revisión` hasta que PR #16 cumpla revisión y aceptación. AUTH-BE-02 (#30) y AUTH-BE-03 (#31) siguen `Bloqueado` por ambas Issues; no las inicies ni despaches workers mientras esas dependencias no estén satisfechas.
+- Ejecuta únicamente Issues autorizadas, con dependencias vigentes `blocked_by` satisfechas y criterios/referencias comprendidos. Una Issue `Listo` no se autoriza por sí sola.
+- #30/#32 están aceptadas por PR #124 fusionado. #31/#33 continúan en el PR del segundo corte; #34/#35 siguen abiertas hasta aceptación integral. RQF-217/218 dependen de DB02-09; #123 continúa como limpieza de servidor independiente.
 - AUTH-BE-03 conserva además los límites de RQF-217 y RQF-218; no agregues DDL ni decisiones implícitas. DB02-09 sigue abierto.
 - Antes de empezar cualquier Issue, lee el cuerpo completo, los enlaces a requisitos, las pruebas/evidencias y el estado de sus PRs. La columna `Estado Hermes (histórico)` es solo evidencia del estado anterior, no aprobación actual.
 - Mantén la secuencia del proyecto: Base de Datos → Backend → API → pruebas → mock visual temporal. Puedes completar una Issue autorizada cuando sus dependencias estén satisfechas, pero limita cada cambio a su alcance y criterios; no agregues funcionalidades fuera de esa autorización ni comiences frontend definitivo antes de su gate.
@@ -45,7 +45,7 @@ gh pr diff 16 --repo HernanEspinozaDev/espaciGo
 gh pr checks 16 --repo HernanEspinozaDev/espaciGo
 ```
 
-Con un checkout limpio separado, usa `gh pr checkout 16` para recuperar su rama existente (`wt/t_29af9825`); si ya existe localmente, verifica y actualiza esa rama sin sobrescribir cambios. Atiende los hallazgos y criterios faltantes dentro del alcance de #29/#120, ejecuta y registra evidencia reproducible, y publica commits/pushes con `HernanMEC` a la misma rama para actualizar PR #16. No uses force-push ni abras un PR sustituto. Mantén #29 y #120 `En revisión` hasta que exista evidencia y tú apruebes/fusiones desde `HernanEspinozaDev`. #30 y #31 continúan `Bloqueado` hasta satisfacer sus dependencias y gates; no las inicies antes.
+Esta sección preserva el procedimiento histórico seguido para PR #16 y no es una solicitud vigente. Continúa la rama/PR actuales según la instrucción de usuario y la estrategia M01 resumida al inicio; nunca reconstruyas progreso a partir de ese snapshot antiguo.
 
 ## 4. Rama, cambios y PR
 

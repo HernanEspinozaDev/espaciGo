@@ -1,6 +1,6 @@
-# Prototipo local M01 — registro, verificación y sesión
+# Prototipo local M01 — identidad y credenciales
 
-Entrega en PR [#124](https://github.com/HernanEspinozaDev/espaciGo/pull/124), misma rama `codex/auth-be-02-registration-session`. Conserva AUTH-BE-02 y añade integración AUTH-API-01 (#32), pruebas del corte (#34) y mock del corte (#35). Hito [M01](https://github.com/HernanEspinozaDev/espaciGo/milestone/1). La secuencia nativa de #34 conserva #24 como base satisfecha y retira #32 (implementada en la misma rama) y #33 (recuperación del siguiente corte); #35 conserva #25 como base satisfecha y deja de bloquearse por #34, cuyo flujo parcial ya está integrado y probado. Las referencias/dependencias y aceptación originales siguen visibles en cada Issue. No completa recuperación/cambio de credenciales ni toda la aceptación de M01.
+M01 avanza por dos cortes funcionales. El primero está aceptado y fusionado desde PR [#124](https://github.com/HernanEspinozaDev/espaciGo/pull/124) (registro, verificación, sesión/API/mock; #30/#32). Este PR, en rama `codex/auth-be-03-recovery-credentials`, incorpora recuperación y cambio de credenciales (#31/#33) a la misma base. Las pruebas generales (#34) y la aceptación integral del mock (#35) permanecen abiertas hasta revisión. Las referencias/dependencias originales siguen en las Issues; el milestone #1 agrupa el prototipo. No se declara M01 terminado antes de la revisión de ambos cortes y los pendientes explícitos.
 
 ## Levantar y recorrer
 
@@ -17,8 +17,10 @@ El comando construye backend y TypeScript, inicia PostgreSQL, aplica las migraci
 3. Puedes intentar login antes de verificar: HTTP 403. Abre el [buzón local](http://127.0.0.1:8025), mensaje de verificación. Copia `Token ID` y `Token` en el formulario y verifica. No hay proveedor ni entrega a Internet. Reenvío invalida el token anterior; usa el mensaje más reciente.
 4. Inicia sesión con el mismo correo/contraseña. Pulsa «Consultar sesión»: muestra tu ID y roles desde la API. El token está solo en memoria, no en localStorage/cookies ni salida visual; recargar pierde la credencial local.
 5. Pulsa «Cerrar sesión». La API revoca la sesión. Otra consulta solicita iniciar sesión; la prueba automatizada también comprueba el rechazo HTTP 401 al reutilizar la credencial revocada.
+6. Solicita recuperación desde el formulario. La API responde igual para correo conocido/desconocido; abre Mailpit y copia token ID/token, luego establece una nueva clave. El token es de un uso y expira a los 15 minutos.
+7. Inicia sesión, usa el formulario de cambio con la contraseña actual y nueva. La operación revoca todas las sesiones; vuelve a iniciar sesión y revisa el aviso local en Mailpit.
 
-API: `http://127.0.0.1:8080/api/v1/auth/{terms,register,verification,verification/reissue,login,session,logout}`. Contrato servido en [OpenAPI](http://127.0.0.1:8080/openapi.yaml), fuente `planning/openapi.yaml`. POST usa JSON; sesión/logout llevan `Authorization: Bearer …`, nunca tokens en URL. El mock tiene contenedor separado y usa exclusivamente DOM/fetch.
+API: `http://127.0.0.1:8080/api/v1/auth/{terms,register,verification,verification/reissue,login,session,logout,password/recovery,password/recovery/consume,password/change}`. Contrato servido en [OpenAPI](http://127.0.0.1:8080/openapi.yaml), fuente `planning/openapi.yaml`. POST usa JSON; sesión/logout/cambio llevan `Authorization: Bearer …`; tokens de verificación/recuperación solo van en cuerpos y nunca en URL. El mock tiene contenedor separado y usa exclusivamente DOM/fetch.
 
 ## Validación reproducible del corte
 
@@ -29,7 +31,7 @@ M01_PYTHON=.local/m01-tests/bin/python scripts/dev-env.sh verify-m01
 .local/m01-tests/bin/python -m openapi_spec_validator planning/openapi.yaml
 ```
 
-`verify-m01` crea una cuenta sintética nueva, valida respuestas contra OpenAPI, comprueba correo SMTP real en Mailpit, reemisión, tokens inválidos/replay, credenciales/roles, CORS y revocación. No imprime credenciales y compara los tokens reales con logs de contenedores en memoria. Evita correrlo repetidamente en una hora: el límite local por IP es 20 operaciones de verificación/hora; se configura antes de levantar con `LOCAL_VERIFICATION_IP_LIMIT` (1–1000). Las cuotas persistentes por cuenta son 3 emisiones/h y 5 fallos por token. La suite Go requiere `TEST_DATABASE_URL` apuntando a PostgreSQL 18/PostGIS desechable; sin esa variable omite integración. Evidencias ejecutadas: [m01-prototipo-local.md](evidence/m01-prototipo-local.md).
+`verify-m01` crea cuentas sintéticas nuevas, valida respuestas contra OpenAPI, comprueba correo SMTP real en Mailpit, reemisión, recuperación genérica, rechazo/replay, cambio autenticado, credenciales/roles, CORS, revocación tras logout/recuperación/cambio y ausencia de secretos en logs. No imprime credenciales y compara los tokens reales con logs de contenedores en memoria. Evita correrlo repetidamente en una hora: el límite local por IP es 20 operaciones de verificación/credencial por hora; se configura antes de levantar con `LOCAL_VERIFICATION_IP_LIMIT` (1–1000). Las cuotas persistentes por cuenta son 3 emisiones/h y 5 fallos por token. La suite Go requiere `TEST_DATABASE_URL` apuntando a PostgreSQL 18/PostGIS desechable; sin esa variable omite integración.
 
 ## Límites y siguiente entrega
 
@@ -37,7 +39,7 @@ Bcrypt costo 12, tokens criptográficos de 256 bits almacenados como SHA-256, tr
 
 Los términos son fixtures sintéticos publicados existentes; no son un texto contractual productivo. Mailpit conserva hasta 100 mensajes en tmpfs (pierde el buzón al recrearse). PostgreSQL conserva datos en volumen local. Se usa HTTP exclusivamente en puertos loopback. No añadir datos personales reales.
 
-Recuperación/cambio de credenciales (#31/#33, CU-05/PT-50 y aceptación restante de #34/#35) es el siguiente corte funcional. Preferencia de uso/historial/eventos de DB02-09 siguen pendientes. Limpieza del servidor: [#123](https://github.com/HernanEspinozaDev/espaciGo/issues/123), seguimiento independiente, sin acceso ni limpieza remota en esta entrega.
+RQF-217 (historial de claves) y RQF-218 (evento/entrega durable de notificación) quedan parcialmente pendientes por las decisiones DB02-09: no se añadió DDL; Mailpit es el adaptador local y avisa tras el commit, sin garantía durable. El límite por IP también es volátil y local. Preferencia de uso permanece fuera del corte. Limpieza del servidor: [#123](https://github.com/HernanEspinozaDev/espaciGo/issues/123), seguimiento independiente, sin acceso ni limpieza remota en esta entrega.
 
 ```sh
 scripts/dev-env.sh down   # detiene; conserva datos y secretos locales

@@ -1,0 +1,198 @@
+=== RUN   TestLoadConfigReadsLocalPasswordFileAndParsesOrigins
+--- PASS: TestLoadConfigReadsLocalPasswordFileAndParsesOrigins (0.00s)
+=== RUN   TestLoadConfigRejectsMissingDatabaseHost
+--- PASS: TestLoadConfigRejectsMissingDatabaseHost (0.00s)
+=== RUN   TestLoadConfigRejectsEmptyPasswordFile
+--- PASS: TestLoadConfigRejectsEmptyPasswordFile (0.00s)
+=== RUN   TestLoadConfigRejectsInvalidDatabasePort
+--- PASS: TestLoadConfigRejectsInvalidDatabasePort (0.00s)
+=== RUN   TestCheckEndpointAcceptsHealthyResponse
+--- PASS: TestCheckEndpointAcceptsHealthyResponse (0.00s)
+=== RUN   TestCheckEndpointRejectsUnavailableResponse
+--- PASS: TestCheckEndpointRejectsUnavailableResponse (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/cmd/api	1.035s
+?   	github.com/HernanEspinozaDev/espaciGo/cmd/dbmigrate	[no test files]
+=== RUN   TestCheckEndpointAcceptsHealthyResponse
+--- PASS: TestCheckEndpointAcceptsHealthyResponse (0.00s)
+=== RUN   TestCheckEndpointRejectsUnavailableResponse
+--- PASS: TestCheckEndpointRejectsUnavailableResponse (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/cmd/mock	1.031s
+=== RUN   TestDatabaseNameNotFoundPassesIsolationCheck
+--- PASS: TestDatabaseNameNotFoundPassesIsolationCheck (0.00s)
+=== RUN   TestResolvedDatabaseNameFailsIsolationCheck
+--- PASS: TestResolvedDatabaseNameFailsIsolationCheck (0.00s)
+=== RUN   TestLookupMetadataReportsOnlyOutcomeAndAddressCount
+--- PASS: TestLookupMetadataReportsOnlyOutcomeAndAddressCount (0.00s)
+=== RUN   TestLookupMetadataClassifiesNotFoundWithoutRawError
+--- PASS: TestLookupMetadataClassifiesNotFoundWithoutRawError (0.00s)
+=== RUN   TestLookupMetadataClassifiesTemporaryFailureWithoutRawError
+--- PASS: TestLookupMetadataClassifiesTemporaryFailureWithoutRawError (0.00s)
+=== RUN   TestTCPProbeReachesListenerWithinTimeout
+--- PASS: TestTCPProbeReachesListenerWithinTimeout (0.00s)
+=== RUN   TestTCPProbeRejectsHostnameTargets
+--- PASS: TestTCPProbeRejectsHostnameTargets (0.00s)
+=== RUN   TestTCPProbeRejectsNonNumericPorts
+--- PASS: TestTCPProbeRejectsNonNumericPorts (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/cmd/netprobe	1.031s
+=== RUN   TestCredentialsProvideRandom256BitSecretsAndUUIDs
+--- PASS: TestCredentialsProvideRandom256BitSecretsAndUUIDs (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials	1.031s
+=== RUN   TestLocalQuotaIsAtomicAndExpires
+--- PASS: TestLocalQuotaIsAtomicAndExpires (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth	1.031s
+=== RUN   TestBcryptCostMatchingAndNoSilentTruncation
+--- PASS: TestBcryptCostMatchingAndNoSilentTruncation (10.49s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt	11.526s
+=== RUN   TestAuthRegistrationTermsDuplicateAndUnverifiedLogin
+--- PASS: TestAuthRegistrationTermsDuplicateAndUnverifiedLogin (0.27s)
+=== RUN   TestAuthVerificationReissueFailureLimitTTLAndReplay
+=== RUN   TestAuthVerificationReissueFailureLimitTTLAndReplay/reissue
+=== RUN   TestAuthVerificationReissueFailureLimitTTLAndReplay/failures
+=== RUN   TestAuthVerificationReissueFailureLimitTTLAndReplay/ttl
+=== RUN   TestAuthVerificationReissueFailureLimitTTLAndReplay/replay
+--- PASS: TestAuthVerificationReissueFailureLimitTTLAndReplay (0.83s)
+    --- PASS: TestAuthVerificationReissueFailureLimitTTLAndReplay/reissue (0.22s)
+    --- PASS: TestAuthVerificationReissueFailureLimitTTLAndReplay/failures (0.22s)
+    --- PASS: TestAuthVerificationReissueFailureLimitTTLAndReplay/ttl (0.20s)
+    --- PASS: TestAuthVerificationReissueFailureLimitTTLAndReplay/replay (0.20s)
+=== RUN   TestAuthLoginFailureBlockResetAndPendingAccountSafety
+=== RUN   TestAuthLoginFailureBlockResetAndPendingAccountSafety/true
+=== RUN   TestAuthLoginFailureBlockResetAndPendingAccountSafety/false
+--- PASS: TestAuthLoginFailureBlockResetAndPendingAccountSafety (0.39s)
+    --- PASS: TestAuthLoginFailureBlockResetAndPendingAccountSafety/true (0.21s)
+    --- PASS: TestAuthLoginFailureBlockResetAndPendingAccountSafety/false (0.19s)
+=== RUN   TestAuthSessionRoleStateTrafficExpiryAndLogout
+=== RUN   TestAuthSessionRoleStateTrafficExpiryAndLogout/0
+=== RUN   TestAuthSessionRoleStateTrafficExpiryAndLogout/1
+=== RUN   TestAuthSessionRoleStateTrafficExpiryAndLogout/2
+=== RUN   TestAuthSessionRoleStateTrafficExpiryAndLogout/3
+=== RUN   TestAuthSessionRoleStateTrafficExpiryAndLogout/4
+--- PASS: TestAuthSessionRoleStateTrafficExpiryAndLogout (1.37s)
+    --- PASS: TestAuthSessionRoleStateTrafficExpiryAndLogout/0 (0.23s)
+    --- PASS: TestAuthSessionRoleStateTrafficExpiryAndLogout/1 (0.23s)
+    --- PASS: TestAuthSessionRoleStateTrafficExpiryAndLogout/2 (0.21s)
+    --- PASS: TestAuthSessionRoleStateTrafficExpiryAndLogout/3 (0.22s)
+    --- PASS: TestAuthSessionRoleStateTrafficExpiryAndLogout/4 (0.20s)
+=== RUN   TestAuthConcurrentReissueEnforcesAccountLimitAndIPIsIndependent
+--- PASS: TestAuthConcurrentReissueEnforcesAccountLimitAndIPIsIndependent (0.45s)
+=== RUN   TestAuthConcurrentVerificationHasOneWinnerAndLoginCountsAllFailures
+--- PASS: TestAuthConcurrentVerificationHasOneWinnerAndLoginCountsAllFailures (0.21s)
+=== RUN   TestAuthVerificationActivationRollsBackAndDeliveryFailureIsRetryable
+--- PASS: TestAuthVerificationActivationRollsBackAndDeliveryFailureIsRetryable (0.40s)
+=== RUN   TestAuthEmissionWindowSuccessfulLoginResetAndRoleRevocation
+--- PASS: TestAuthEmissionWindowSuccessfulLoginResetAndRoleRevocation (0.22s)
+=== RUN   TestAuthLoginSessionFailureRollsBackAndAlertFailureRemainsVisible
+--- PASS: TestAuthLoginSessionFailureRollsBackAndAlertFailureRemainsVisible (0.21s)
+=== RUN   TestAuthVerificationIPLimitDoesNotIncrementTokenFailures
+--- PASS: TestAuthVerificationIPLimitDoesNotIncrementTokenFailures (0.21s)
+=== RUN   TestAuthEmailVerificationPreservesExistingLoginBlock
+--- PASS: TestAuthEmailVerificationPreservesExistingLoginBlock (0.20s)
+=== RUN   TestAuthRecoveryAndPasswordChangeRevokeSessions
+--- PASS: TestAuthRecoveryAndPasswordChangeRevokeSessions (0.21s)
+=== RUN   TestAuthRecoveryTokenStopsAfterFiveFailuresWithoutBlockingLogin
+--- PASS: TestAuthRecoveryTokenStopsAfterFiveFailuresWithoutBlockingLogin (0.22s)
+=== RUN   TestCreateWithTermsRejectsAcceptanceForAnotherAccount
+--- PASS: TestCreateWithTermsRejectsAcceptanceForAnotherAccount (0.18s)
+=== RUN   TestActionTokenRepositoryReissueAttemptsConsumptionAndEmissionCount
+--- PASS: TestActionTokenRepositoryReissueAttemptsConsumptionAndEmissionCount (0.19s)
+=== RUN   TestActionTokenReplacementRollsBackIfInsertConflicts
+--- PASS: TestActionTokenReplacementRollsBackIfInsertConflicts (0.19s)
+=== RUN   TestCreateWithTermsCommitsAccountRoleAndAcceptanceTogether
+--- PASS: TestCreateWithTermsCommitsAccountRoleAndAcceptanceTogether (0.20s)
+=== RUN   TestCreateWithTermsRollsBackWhenVersionForeignKeyFails
+--- PASS: TestCreateWithTermsRollsBackWhenVersionForeignKeyFails (0.19s)
+=== RUN   TestAccountSessionAndTermsRepositoryOperations
+--- PASS: TestAccountSessionAndTermsRepositoryOperations (0.20s)
+=== RUN   TestTouchSessionDoesNotMoveActivityBackwards
+--- PASS: TestTouchSessionDoesNotMoveActivityBackwards (0.18s)
+=== RUN   TestReplacingActionTokensSerializesPerAccount
+--- PASS: TestReplacingActionTokensSerializesPerAccount (0.62s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity	8.209s
+?   	github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity/dbgen	[no test files]
+=== RUN   TestRegistrationEmailAndPasswordPolicy
+--- PASS: TestRegistrationEmailAndPasswordPolicy (0.00s)
+=== RUN   TestAuthenticationOutputsRedactCredentials
+--- PASS: TestAuthenticationOutputsRedactCredentials (0.00s)
+=== RUN   TestAuthenticationRequiresExplicitDependencies
+--- PASS: TestAuthenticationRequiresExplicitDependencies (0.00s)
+=== RUN   TestSecretRedactedAcrossFormattingAndJSON
+--- PASS: TestSecretRedactedAcrossFormattingAndJSON (0.00s)
+=== RUN   TestRegistrationRolesNeverAdmin
+--- PASS: TestRegistrationRolesNeverAdmin (0.00s)
+=== RUN   TestAccountValidationAndErrorIdentity
+--- PASS: TestAccountValidationAndErrorIdentity (0.00s)
+=== RUN   TestSessionExpiryUsesIdleAndAbsoluteLimits
+--- PASS: TestSessionExpiryUsesIdleAndAbsoluteLimits (0.00s)
+=== RUN   TestEmailNormalizationTrimsAndIgnoresCase
+--- PASS: TestEmailNormalizationTrimsAndIgnoresCase (0.00s)
+=== RUN   TestAccountValidationRequiresM01CanonicalEmail
+--- PASS: TestAccountValidationRequiresM01CanonicalEmail (0.00s)
+=== RUN   TestSessionAndActionTokenHashesRedacted
+--- PASS: TestSessionAndActionTokenHashesRedacted (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/identity	1.026s
+=== RUN   TestTransportRejectsUnsafeRequestsBeforeCallingService
+--- PASS: TestTransportRejectsUnsafeRequestsBeforeCallingService (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http	1.027s
+=== RUN   TestM01MigrationPersistsAuthorizedSchemaAndConstraints
+--- PASS: TestM01MigrationPersistsAuthorizedSchemaAndConstraints (0.34s)
+=== RUN   TestM01FKIntegrityRejectsUnknownUser
+--- PASS: TestM01FKIntegrityRejectsUnknownUser (0.17s)
+=== RUN   TestRunnerAppliesFromEmptyAndRepeatIsNoop
+--- PASS: TestRunnerAppliesFromEmptyAndRepeatIsNoop (0.23s)
+=== RUN   TestRunnerStoresExactMigrationAndRunnerChecksums
+--- PASS: TestRunnerStoresExactMigrationAndRunnerChecksums (0.21s)
+=== RUN   TestRunnerRejectsChecksumDriftBeforeDDL
+--- PASS: TestRunnerRejectsChecksumDriftBeforeDDL (0.25s)
+=== RUN   TestRunnerRollsBackMigrationAndHistoryTogether
+--- PASS: TestRunnerRollsBackMigrationAndHistoryTogether (0.16s)
+=== RUN   TestRunnerSerializesConcurrentExecutions
+--- PASS: TestRunnerSerializesConcurrentExecutions (0.46s)
+=== RUN   TestRunnerRejectsVersionGapBeforeDDL
+--- PASS: TestRunnerRejectsVersionGapBeforeDDL (0.06s)
+=== RUN   TestDiscoverMigrationsOrdersFilesAndHashesExactBytes
+--- PASS: TestDiscoverMigrationsOrdersFilesAndHashesExactBytes (0.00s)
+=== RUN   TestDiscoverMigrationsRejectsGapBeforeExecution
+--- PASS: TestDiscoverMigrationsRejectsGapBeforeExecution (0.00s)
+=== RUN   TestDiscoverMigrationsRejectsDuplicateVersion
+--- PASS: TestDiscoverMigrationsRejectsDuplicateVersion (0.00s)
+=== RUN   TestDiscoverMigrationsRejectsUnrecognizedSQLFile
+--- PASS: TestDiscoverMigrationsRejectsUnrecognizedSQLFile (0.00s)
+=== RUN   TestVerifyHistoryRejectsChecksumDrift
+--- PASS: TestVerifyHistoryRejectsChecksumDrift (0.00s)
+=== RUN   TestVerifyHistoryRejectsMissingOrRenamedAppliedFile
+--- PASS: TestVerifyHistoryRejectsMissingOrRenamedAppliedFile (0.00s)
+=== RUN   TestVerifyHistoryAcceptsMatchingAppliedPrefix
+--- PASS: TestVerifyHistoryAcceptsMatchingAppliedPrefix (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/migrator	2.956s
+=== RUN   TestRootServesStaticMockPage
+--- PASS: TestRootServesStaticMockPage (0.02s)
+=== RUN   TestConfigEndpointReturnsConfiguredAPIReadyURL
+--- PASS: TestConfigEndpointReturnsConfiguredAPIReadyURL (0.00s)
+=== RUN   TestMockHealthEndpointIsAvailable
+--- PASS: TestMockHealthEndpointIsAvailable (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/mockserver	1.046s
+=== RUN   TestLivenessDoesNotDependOnDatabase
+--- PASS: TestLivenessDoesNotDependOnDatabase (0.00s)
+=== RUN   TestReadinessReportsUnavailableWithoutLeakingDatabaseError
+--- PASS: TestReadinessReportsUnavailableWithoutLeakingDatabaseError (0.00s)
+=== RUN   TestReadinessReturnsReadyWhenDatabasePingSucceeds
+--- PASS: TestReadinessReturnsReadyWhenDatabasePingSucceeds (0.00s)
+=== RUN   TestReadinessCORSAllowsOnlyConfiguredMockOrigin
+--- PASS: TestReadinessCORSAllowsOnlyConfiguredMockOrigin (0.00s)
+=== RUN   TestReadinessAllowsCorsPreflightFromMock
+--- PASS: TestReadinessAllowsCorsPreflightFromMock (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/platform/health	1.031s
+PASS go vet and git diff --check
+PASS disposable PC PostgreSQL container and socket removed

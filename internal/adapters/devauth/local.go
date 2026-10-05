@@ -105,6 +105,12 @@ func (m Mailer) send(ctx context.Context, email, subject, body string) error {
 func (m Mailer) SendVerification(ctx context.Context, d identity.VerificationDelivery) error {
 	return m.send(ctx, d.Email, "EspaciGo - verifica tu correo (desarrollo)", "Correo sintetico de desarrollo; no es envio productivo.\r\nToken ID: "+d.TokenID+"\r\nToken: "+string(d.Token)+"\r\nExpira: "+d.ExpiresAt.UTC().Format(time.RFC3339)+"\r\nCopia ambos valores en el formulario de verificacion del mock local.")
 }
+func (m Mailer) SendRecovery(ctx context.Context, d identity.RecoveryDelivery) error {
+	return m.send(ctx, d.Email, "EspaciGo - recupera tu clave (desarrollo)", "Correo sintetico de desarrollo; no es envio productivo.\r\nToken ID: "+d.TokenID+"\r\nToken: "+string(d.Token)+"\r\nExpira: "+d.ExpiresAt.UTC().Format(time.RFC3339)+"\r\nCopia ambos valores en el formulario de recuperacion del mock local.")
+}
+func (m Mailer) SendPasswordChanged(ctx context.Context, email string) error {
+	return m.send(ctx, email, "EspaciGo - clave actualizada (desarrollo)", "La clave de tu cuenta EspaciGo local fue actualizada. Todas las sesiones anteriores fueron revocadas. Si no hiciste este cambio, contacta al equipo de desarrollo.")
+}
 func (m Mailer) SendLoginAlert(ctx context.Context, email string, until time.Time) error {
 	return m.send(ctx, email, "EspaciGo - bloqueo de login (desarrollo)", "Login bloqueado hasta "+until.UTC().Format(time.RFC3339)+" tras "+strconv.Itoa(5)+" intentos incorrectos.")
 }

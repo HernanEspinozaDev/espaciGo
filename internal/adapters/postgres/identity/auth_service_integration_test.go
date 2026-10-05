@@ -35,10 +35,31 @@ func (g *authTestGenerator) Token() (identity.Secret, error) {
 }
 
 type authTestMail struct {
-	mu       sync.Mutex
-	messages []identity.VerificationDelivery
-	alerts   int
-	fail     bool
+	mu         sync.Mutex
+	messages   []identity.VerificationDelivery
+	recoveries []identity.RecoveryDelivery
+	alerts     int
+	changes    int
+	fail       bool
+}
+
+func (m *authTestMail) SendRecovery(_ context.Context, d identity.RecoveryDelivery) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fail {
+		return errors.New("synthetic mail failure")
+	}
+	m.recoveries = append(m.recoveries, d)
+	return nil
+}
+func (m *authTestMail) SendPasswordChanged(context.Context, string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fail {
+		return errors.New("synthetic mail failure")
+	}
+	m.changes++
+	return nil
 }
 
 func (m *authTestMail) SendVerification(_ context.Context, d identity.VerificationDelivery) error {
@@ -579,4 +600,111 @@ func TestAuthEmailVerificationPreservesExistingLoginBlock(t *testing.T) {
 	}
 	h.now = h.now.Add(30 * time.Minute)
 	h.login(t, "blocked-verification@ejemplo.invalid")
+}
+
+func TestAuthRecoveryAndPasswordChangeRevokeSessions(t *testing.T) {
+	h := newAuthHarness(t)
+	h.register(t, "credentials@ejemplo.invalid")
+	h.verify(t)
+	first := h.login(t, "credentials@ejemplo.invalid")
+	if err := h.service.RequestPasswordRecovery(h.ctx, "unknown@ejemplo.invalid", "192.0.2.5"); err != nil {
+		t.Fatalf("unknown recovery leaked account existence: %v", err)
+	}
+	if err := h.service.RequestPasswordRecovery(h.ctx, "credentials@ejemplo.invalid", "192.0.2.5"); err != nil {
+		t.Fatal(err)
+	}
+	h.mail.mu.Lock()
+	recovery := h.mail.recoveries[len(h.mail.recoveries)-1]
+	h.mail.mu.Unlock()
+	if err := h.service.RequestPasswordRecovery(h.ctx, "credentials@ejemplo.invalid", "192.0.2.5"); err != nil {
+		t.Fatal(err)
+	}
+	h.mail.mu.Lock()
+	previousRecovery := recovery
+	recovery = h.mail.recoveries[len(h.mail.recoveries)-1]
+	h.mail.mu.Unlock()
+	if err := h.service.ResetPassword(h.ctx, identity.ResetPasswordInput{TokenID: previousRecovery.TokenID, Token: previousRecovery.Token, Password: "Changed#234", Confirmation: "Changed#234", ClientIP: "192.0.2.6"}); !errors.Is(err, identity.ErrTokenInvalid) {
+		t.Fatal("replaced recovery token accepted")
+	}
+	if err := h.service.RequestPasswordRecovery(h.ctx, "credentials@ejemplo.invalid", "192.0.2.5"); err != nil {
+		t.Fatal(err)
+	}
+	h.mail.mu.Lock()
+	recovery = h.mail.recoveries[len(h.mail.recoveries)-1]
+	h.mail.mu.Unlock()
+	if err := h.service.RequestPasswordRecovery(h.ctx, "credentials@ejemplo.invalid", "192.0.2.5"); err != nil {
+		t.Fatal("account emission cap disclosed through error")
+	}
+	h.mail.mu.Lock()
+	issued := len(h.mail.recoveries)
+	h.mail.mu.Unlock()
+	if issued != 3 {
+		t.Fatalf("expected 3 account recovery messages, got %d", issued)
+	}
+	token, err := h.repo.ActionTokenByHash(h.ctx, identity.CredentialHash(recovery.Token))
+	if err != nil || token.Purpose != "recuperar_clave" || token.Hash == string(recovery.Token) || token.ExpiresAt.Sub(token.CreatedAt) != 15*time.Minute {
+		t.Fatal("recovery token persistence/TTL/hash invalid")
+	}
+	if err := h.service.ResetPassword(h.ctx, identity.ResetPasswordInput{TokenID: recovery.TokenID, Token: recovery.Token, Password: "Changed#234", Confirmation: "Changed#234", ClientIP: "192.0.2.6"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.service.Authorize(h.ctx, first.Token, "", identity.AutomaticPolling); !errors.Is(err, identity.ErrUnauthorized) {
+		t.Fatal("recovery did not revoke active session")
+	}
+	if _, err := h.service.Login(h.ctx, identity.LoginInput{Email: "credentials@ejemplo.invalid", Password: "Synthetic#123"}); !errors.Is(err, identity.ErrCredentials) {
+		t.Fatal("old credential remained valid")
+	}
+	second, err := h.service.Login(h.ctx, identity.LoginInput{Email: "credentials@ejemplo.invalid", Password: "Changed#234"})
+	if err != nil {
+		t.Fatalf("recovered credential rejected: %v", err)
+	}
+	if err := h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(second.Token), CurrentPassword: "Changed#234", Password: "Changed#345", Confirmation: "Changed#345"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.service.Authorize(h.ctx, second.Token, "", identity.AutomaticPolling); !errors.Is(err, identity.ErrUnauthorized) {
+		t.Fatal("change did not revoke active session")
+	}
+	if _, err := h.service.Login(h.ctx, identity.LoginInput{Email: "credentials@ejemplo.invalid", Password: "Changed#234"}); !errors.Is(err, identity.ErrCredentials) {
+		t.Fatal("pre-change credential remained valid")
+	}
+	if _, err := h.service.Login(h.ctx, identity.LoginInput{Email: "credentials@ejemplo.invalid", Password: "Changed#345"}); err != nil {
+		t.Fatalf("new password rejected: %v", err)
+	}
+	h.mail.mu.Lock()
+	changes := h.mail.changes
+	h.mail.mu.Unlock()
+	if changes != 2 {
+		t.Fatalf("expected reset and change notifications, got %d", changes)
+	}
+}
+
+func TestAuthRecoveryTokenStopsAfterFiveFailuresWithoutBlockingLogin(t *testing.T) {
+	h := newAuthHarness(t)
+	h.register(t, "recovery-attempts@ejemplo.invalid")
+	h.verify(t)
+	if err := h.service.RequestPasswordRecovery(h.ctx, "recovery-attempts@ejemplo.invalid", "192.0.2.5"); err != nil {
+		t.Fatal(err)
+	}
+	h.mail.mu.Lock()
+	recovery := h.mail.recoveries[len(h.mail.recoveries)-1]
+	h.mail.mu.Unlock()
+	input := identity.ResetPasswordInput{TokenID: recovery.TokenID, Password: "Recovered#234", Confirmation: "Recovered#234", ClientIP: "192.0.2.6"}
+	for i := 0; i < 5; i++ {
+		input.Token = "incorrect"
+		if err := h.service.ResetPassword(h.ctx, input); !errors.Is(err, identity.ErrTokenInvalid) {
+			t.Fatalf("incorrect recovery token %d accepted: %v", i+1, err)
+		}
+	}
+	input.Token = recovery.Token
+	if err := h.service.ResetPassword(h.ctx, input); !errors.Is(err, identity.ErrTokenInvalid) {
+		t.Fatal("recovery token accepted after five failures")
+	}
+	token, err := h.repo.ActionTokenByHash(h.ctx, identity.CredentialHash(recovery.Token))
+	if err != nil || token.Attempts != 5 {
+		t.Fatal("recovery failure count was not persisted")
+	}
+	account, err := h.repo.AccountByNormalizedEmail(h.ctx, "recovery-attempts@ejemplo.invalid")
+	if err != nil || account.FailedAttempts != 0 || account.BlockedUntil != nil {
+		t.Fatal("recovery failures affected login lock")
+	}
 }
