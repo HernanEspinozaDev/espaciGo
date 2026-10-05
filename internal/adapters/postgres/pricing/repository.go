@@ -22,12 +22,13 @@ func scanRate(row pgx.Row) (pricing.Rate, error) {
 }
 
 const rateCols = `espacio_id::text,version,modalidad,precio_base_clp,moneda,creada_en`
+const joinedRateCols = `t.espacio_id::text,t.version,t.modalidad,t.precio_base_clp,t.moneda,t.creada_en`
 
 func (r *Repository) CurrentRate(ctx context.Context, owner, spaceID string) (pricing.Rate, error) {
-	return scanRate(r.pool.QueryRow(ctx, `SELECT t.`+rateCols+` FROM public.tarifa_espacio t JOIN public.espacio e ON e.id=t.espacio_id WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado='borrador' ORDER BY t.version DESC LIMIT 1`, spaceID, owner))
+	return scanRate(r.pool.QueryRow(ctx, `SELECT `+joinedRateCols+` FROM public.tarifa_espacio t JOIN public.espacio e ON e.id=t.espacio_id WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado='borrador' ORDER BY t.version DESC LIMIT 1`, spaceID, owner))
 }
 func (r *Repository) RateHistory(ctx context.Context, owner, spaceID string) ([]pricing.Rate, error) {
-	rows, err := r.pool.Query(ctx, `SELECT t.`+rateCols+` FROM public.tarifa_espacio t JOIN public.espacio e ON e.id=t.espacio_id WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado='borrador' ORDER BY t.version`, spaceID, owner)
+	rows, err := r.pool.Query(ctx, `SELECT `+joinedRateCols+` FROM public.tarifa_espacio t JOIN public.espacio e ON e.id=t.espacio_id WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado='borrador' ORDER BY t.version`, spaceID, owner)
 	if err != nil {
 		return nil, err
 	}
