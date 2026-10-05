@@ -103,7 +103,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.serviceError(w, identity.ErrUnauthorized)
 			return
 		}
-		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.AutomaticPolling)
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
 		if err != nil {
 			h.serviceError(w, err)
 			return
