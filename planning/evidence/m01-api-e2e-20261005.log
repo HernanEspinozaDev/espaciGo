@@ -1,0 +1,23 @@
+PASS OpenAPI YAML, references and JSON schemas
+PASS terms HTTP 200 contract
+PASS unknown fields rejected HTTP 400 contract
+PASS password policy HTTP 422 contract
+PASS session requires Bearer HTTP 401 contract
+PASS register HTTP 201 contract
+PASS canonical duplicate HTTP 409 contract
+PASS unverified login denied HTTP 403 contract
+PASS verification/reissue HTTP 204 contract
+PASS replaced token rejected HTTP 422 contract
+PASS incorrect verification rejected HTTP 422 contract
+PASS verification HTTP 204 contract
+PASS verification replay rejected HTTP 422 contract
+PASS wrong password denied HTTP 401 contract
+PASS login HTTP 200 contract
+PASS session HTTP 200 contract
+PASS logout HTTP 204 contract
+PASS revoked session replay rejected HTTP 401 contract
+PASS logout requires Bearer HTTP 401 contract
+PASS CORS allowed/preflight and forbidden origin
+PASS separate mock serves HTML, compiled TypeScript and CSS
+PASS actual verification/session secrets absent from stack logs
+PASS M01 local real DB -> backend -> HTTP -> SMTP inbox -> session -> logout

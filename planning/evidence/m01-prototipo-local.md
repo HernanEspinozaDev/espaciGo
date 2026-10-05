@@ -15,7 +15,7 @@ Fecha de ejecución: 2026-10-05 (America/Santiago). Rama `codex/auth-be-02-regis
 - `go test -p 1 -race -count=1 -v ./...`: **72 pruebas principales y 11 subcasos PASS**, sin SKIP ni FAIL. Incluye todos los paquetes, casos PostgreSQL/PostGIS con migración por base temporal y pruebas de migrador. Transcript: [m01-go-suite-20261005.log](m01-go-suite-20261005.log). `-p 1` limita la presión del cluster desechable; los casos concurrentes internos mantienen su concurrencia.
 - PostgreSQL 18/PostGIS del digest fijado del proyecto en contenedor desechable, cluster temporal y puerto loopback efímero; `DATABASE_URL` retirado. Contenedor cluster y bases de las pruebas eliminados por el harness. No se usó ni alteró el volumen persistente del prototipo.
 - `go vet ./...`: PASS. `git diff --check`: PASS. `npm --prefix mock run build` (TypeScript 5.9.3): PASS. `openapi-spec-validator planning/openapi.yaml`: PASS.
-- `scripts/dev-env.sh verify-m01`: PASS en salida completa E2E, guardada en `/tmp/espacigo-m01-e2e.log` durante la ejecución; transcript versionado en este archivo registra la cobertura observable. La comprobación de secretos ejecuta contra logs, sin copiarlos al transcript.
+- `scripts/dev-env.sh verify-m01`: PASS. [Transcript completo del E2E](m01-api-e2e-20261005.log), compuesto solo por etiquetas de comprobación/status HTTP; nunca copia cuerpo de correo, credenciales ni logs de contenedor.
 
 ## Límites y trabajo restante
 
