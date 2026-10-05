@@ -49,6 +49,7 @@ form("reissue-form", async data => { await request("verification/reissue", "POST
 form("login-form", async (data, element) => {
   const response = await request("login", "POST", {email: data.get("email"), password: data.get("password")});
   sessionToken = String(response.access_token); element.querySelector<HTMLInputElement>('[name="password"]')!.value = "";
+  await loadSpaceCategories();
   resultElement.textContent = "Sesión iniciada. Puedes consultarla o cerrarla.";
 });
 form("recovery-request-form", async (data, element) => {
@@ -119,6 +120,50 @@ form("review-form", async (data, element) => {
   const item = await request(`/api/v1/admin/verifications/${encodeURIComponent(id)}/review`, "POST", {decision, reason_code:data.get("reason_code")}, true);
   document.querySelector<HTMLElement>("#review-output")!.textContent = JSON.stringify(item, null, 2);
   element.reset(); resultElement.textContent = "Revisión fixture registrada.";
+});
+const spacesOutput = document.querySelector<HTMLElement>("#space-output")!;
+const spaceForm = document.querySelector<HTMLFormElement>("#space-form")!;
+const spacesList = document.querySelector<HTMLElement>("#spaces-list")!;
+let currentDraftID = "";
+async function loadSpaceCategories(): Promise<void> {
+  const categoryResult = await request("/api/v1/spaces/categories", "GET", undefined, true);
+  const categories = categoryResult.items as Array<{code:string;name:string}>;
+  const categorySelect = document.querySelector<HTMLSelectElement>("#space-category")!;
+  categorySelect.replaceChildren(new Option("Selecciona categoría", ""));
+  for (const category of categories) categorySelect.add(new Option(category.name, category.code));
+}
+function spaceInput(data: FormData): Record<string, unknown> {
+  return {title:data.get("title"), description:data.get("description"), area_m2:Number(data.get("area_m2")), category_code:data.get("category_code"), capacity:Number(data.get("capacity")), usage_rules:data.get("usage_rules"), rate_unit:data.get("rate_unit"), base_price_clp:Number(data.get("base_price_clp")), address:data.get("address")};
+}
+async function loadSpaces(): Promise<void> {
+  const result = await request("/api/v1/spaces", "GET", undefined, true);
+  const items = result.items as Array<Record<string, unknown>>;
+  spacesList.replaceChildren();
+  for (const item of items) {
+    const li = document.createElement("li"), button = document.createElement("button");
+    button.type = "button"; button.textContent = `${String(item.title)} · ${String(item.state)}`;
+    button.addEventListener("click", () => void action(async () => {
+      const draft = await request(`/api/v1/spaces/${encodeURIComponent(String(item.id))}`, "GET", undefined, true);
+      currentDraftID = String(draft.id); spaceForm.querySelector<HTMLInputElement>('[name="draft_id"]')!.value = currentDraftID;
+      for (const key of ["title","description","area_m2","category_code","capacity","usage_rules","rate_unit","base_price_clp","address"]) {
+        const field = spaceForm.elements.namedItem(key) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+        field.value = String(draft[key] ?? "");
+      }
+      document.querySelector<HTMLButtonElement>("#space-save")!.textContent = "Guardar cambios";
+      document.querySelector<HTMLButtonElement>("#space-cancel")!.hidden = false;
+      spacesOutput.textContent = JSON.stringify(draft, null, 2);
+    })); li.append(button); spacesList.append(li);
+  }
+  spacesOutput.textContent = JSON.stringify(result, null, 2);
+}
+document.querySelector("#spaces-load")!.addEventListener("click", () => void action(loadSpaces));
+document.querySelector("#space-cancel")!.addEventListener("click", () => { spaceForm.reset(); currentDraftID = ""; document.querySelector<HTMLButtonElement>("#space-save")!.textContent = "Crear borrador"; document.querySelector<HTMLButtonElement>("#space-cancel")!.hidden = true; });
+form("space-form", async (data, element) => {
+  const id = String(data.get("draft_id") ?? "");
+  const draft = await request(id ? `/api/v1/spaces/${encodeURIComponent(id)}` : "/api/v1/spaces", id ? "PUT" : "POST", spaceInput(data), true);
+  spacesOutput.textContent = JSON.stringify(draft, null, 2); element.reset(); currentDraftID = "";
+  document.querySelector<HTMLButtonElement>("#space-save")!.textContent = "Crear borrador"; document.querySelector<HTMLButtonElement>("#space-cancel")!.hidden = true;
+  resultElement.textContent = id ? "Borrador guardado." : "Borrador privado creado."; await loadSpaces();
 });
 async function initialize(): Promise<void> {
   try {

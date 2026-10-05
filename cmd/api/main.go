@@ -15,11 +15,14 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/health"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	spacesdomain "github.com/HernanEspinozaDev/espaciGo/internal/spaces"
+	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	verificationhttp "github.com/HernanEspinozaDev/espaciGo/internal/verification/transport/http"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -85,6 +88,12 @@ func run() error {
 		mux.Handle("/api/v1/verifications/", verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins))
 		mux.Handle("/api/v1/admin/verifications", verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins))
 		mux.Handle("/api/v1/admin/verifications/", verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins))
+		spacesService, err := spacesdomain.NewService(spacespg.New(pool, credentials.Generator{}))
+		if err != nil {
+			return errors.New("spaces initialization failed")
+		}
+		mux.Handle("/api/v1/spaces", spaceshttp.NewHandler(service, spacesService, cfg.allowedOrigins))
+		mux.Handle("/api/v1/spaces/", spaceshttp.NewHandler(service, spacesService, cfg.allowedOrigins))
 		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/yaml")
 			http.ServeFile(w, r, "/openapi.yaml")

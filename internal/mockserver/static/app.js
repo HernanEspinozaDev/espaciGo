@@ -62,6 +62,7 @@ form("login-form", async (data, element) => {
     const response = await request("login", "POST", { email: data.get("email"), password: data.get("password") });
     sessionToken = String(response.access_token);
     element.querySelector('[name="password"]').value = "";
+    await loadSpaceCategories();
     resultElement.textContent = "Sesión iniciada. Puedes consultarla o cerrarla.";
 });
 form("recovery-request-form", async (data, element) => {
@@ -141,6 +142,59 @@ form("review-form", async (data, element) => {
     document.querySelector("#review-output").textContent = JSON.stringify(item, null, 2);
     element.reset();
     resultElement.textContent = "Revisión fixture registrada.";
+});
+const spacesOutput = document.querySelector("#space-output");
+const spaceForm = document.querySelector("#space-form");
+const spacesList = document.querySelector("#spaces-list");
+let currentDraftID = "";
+async function loadSpaceCategories() {
+    const categoryResult = await request("/api/v1/spaces/categories", "GET", undefined, true);
+    const categories = categoryResult.items;
+    const categorySelect = document.querySelector("#space-category");
+    categorySelect.replaceChildren(new Option("Selecciona categoría", ""));
+    for (const category of categories)
+        categorySelect.add(new Option(category.name, category.code));
+}
+function spaceInput(data) {
+    return { title: data.get("title"), description: data.get("description"), area_m2: Number(data.get("area_m2")), category_code: data.get("category_code"), capacity: Number(data.get("capacity")), usage_rules: data.get("usage_rules"), rate_unit: data.get("rate_unit"), base_price_clp: Number(data.get("base_price_clp")), address: data.get("address") };
+}
+async function loadSpaces() {
+    const result = await request("/api/v1/spaces", "GET", undefined, true);
+    const items = result.items;
+    spacesList.replaceChildren();
+    for (const item of items) {
+        const li = document.createElement("li"), button = document.createElement("button");
+        button.type = "button";
+        button.textContent = `${String(item.title)} · ${String(item.state)}`;
+        button.addEventListener("click", () => void action(async () => {
+            const draft = await request(`/api/v1/spaces/${encodeURIComponent(String(item.id))}`, "GET", undefined, true);
+            currentDraftID = String(draft.id);
+            spaceForm.querySelector('[name="draft_id"]').value = currentDraftID;
+            for (const key of ["title", "description", "area_m2", "category_code", "capacity", "usage_rules", "rate_unit", "base_price_clp", "address"]) {
+                const field = spaceForm.elements.namedItem(key);
+                field.value = String(draft[key] ?? "");
+            }
+            document.querySelector("#space-save").textContent = "Guardar cambios";
+            document.querySelector("#space-cancel").hidden = false;
+            spacesOutput.textContent = JSON.stringify(draft, null, 2);
+        }));
+        li.append(button);
+        spacesList.append(li);
+    }
+    spacesOutput.textContent = JSON.stringify(result, null, 2);
+}
+document.querySelector("#spaces-load").addEventListener("click", () => void action(loadSpaces));
+document.querySelector("#space-cancel").addEventListener("click", () => { spaceForm.reset(); currentDraftID = ""; document.querySelector("#space-save").textContent = "Crear borrador"; document.querySelector("#space-cancel").hidden = true; });
+form("space-form", async (data, element) => {
+    const id = String(data.get("draft_id") ?? "");
+    const draft = await request(id ? `/api/v1/spaces/${encodeURIComponent(id)}` : "/api/v1/spaces", id ? "PUT" : "POST", spaceInput(data), true);
+    spacesOutput.textContent = JSON.stringify(draft, null, 2);
+    element.reset();
+    currentDraftID = "";
+    document.querySelector("#space-save").textContent = "Crear borrador";
+    document.querySelector("#space-cancel").hidden = true;
+    resultElement.textContent = id ? "Borrador guardado." : "Borrador privado creado.";
+    await loadSpaces();
 });
 async function initialize() {
     try {
