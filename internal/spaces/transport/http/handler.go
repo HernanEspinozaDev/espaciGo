@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
@@ -69,13 +70,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	path := strings.TrimSuffix(r.URL.Path, "/")
 	const profilesPrefix = "/api/v1/spaces/categories/"
-	if strings.HasPrefix(path, profilesPrefix) && strings.HasSuffix(path, "/attributes") && r.Method == http.MethodGet {
-		category := strings.TrimSuffix(strings.TrimPrefix(path, profilesPrefix), "/attributes")
-		if category == "" || strings.Contains(category, "/") {
+	if strings.HasPrefix(path, profilesPrefix) && r.Method == http.MethodGet {
+		parts := strings.Split(strings.TrimPrefix(path, profilesPrefix), "/")
+		if len(parts) != 2 && len(parts) != 3 || parts[0] == "" || parts[1] != "attributes" {
 			failure(w, 404, "not_found", "Perfil no encontrado.")
 			return
 		}
-		profile, e := h.service.Profile(r.Context(), category)
+		version := 0
+		if len(parts) == 3 {
+			version, e = strconv.Atoi(parts[2])
+			if e != nil || version < 1 {
+				failure(w, 404, "not_found", "Perfil no encontrado.")
+				return
+			}
+		}
+		profile, e := h.service.Profile(r.Context(), parts[0], version)
 		if e != nil {
 			serviceError(w, e)
 			return

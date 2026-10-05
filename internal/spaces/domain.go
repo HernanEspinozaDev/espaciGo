@@ -54,7 +54,9 @@ func (i Input) Validate() error {
 
 type Repository interface {
 	Categories(ctx context.Context) ([]Category, error)
-	Profile(ctx context.Context, category string) (Profile, error)
+	// version 0 selects the latest profile; a positive version selects that
+	// immutable profile version for existing drafts.
+	Profile(ctx context.Context, category string, version int) (Profile, error)
 	Create(ctx context.Context, owner string, input Input) (Draft, error)
 	ListOwn(ctx context.Context, owner string) ([]Draft, error)
 	GetOwn(ctx context.Context, owner, id string) (Draft, error)

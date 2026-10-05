@@ -1,4 +1,4 @@
-"use strict";
+import { ProfileRequestGate, profileMatchesSelection } from "./profile-request.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -148,6 +148,7 @@ const spaceForm = document.querySelector("#space-form");
 const spacesList = document.querySelector("#spaces-list");
 let currentDraftID = "";
 let currentProfile = null;
+const profileRequestGate = new ProfileRequestGate();
 async function loadSpaceCategories() {
     const categoryResult = await request("/api/v1/spaces/categories", "GET", undefined, true);
     const categories = categoryResult.items;
@@ -159,16 +160,20 @@ async function loadSpaceCategories() {
     if (categorySelect.value)
         await loadAttributeProfile(categorySelect.value);
 }
-async function loadAttributeProfile(category) {
-    if (!category) {
-        currentProfile = null;
-        document.querySelector("#space-attributes").replaceChildren();
-        return;
-    }
-    currentProfile = await request(`/api/v1/spaces/categories/${encodeURIComponent(category)}/attributes`, "GET", undefined, true);
+async function loadAttributeProfile(category, version) {
+    const requestID = profileRequestGate.begin();
+    currentProfile = null;
     const root = document.querySelector("#space-attributes");
     root.replaceChildren();
-    for (const definition of [...currentProfile.attributes].sort((a, b) => a.order - b.order)) {
+    if (!category)
+        return false;
+    const versionPath = version === undefined ? "" : `/${version}`;
+    const profile = await request(`/api/v1/spaces/categories/${encodeURIComponent(category)}/attributes${versionPath}`, "GET", undefined, true);
+    const selectedCategory = document.querySelector("#space-category").value;
+    if (!profileRequestGate.accepts(requestID, category, selectedCategory) || profile.category_code !== category || profile.schema_version !== (version ?? profile.schema_version))
+        return false;
+    currentProfile = profile;
+    for (const definition of [...profile.attributes].sort((a, b) => a.order - b.order)) {
         const label = document.createElement("label");
         label.textContent = `${definition.label}${definition.unit ? ` (${definition.unit})` : ""}`;
         let control;
@@ -204,8 +209,12 @@ async function loadAttributeProfile(category) {
         label.append(control);
         root.append(label);
     }
+    return true;
 }
 function spaceInput(data) {
+    const selectedCategory = String(data.get("category_code") ?? "");
+    if (!currentProfile || !profileMatchesSelection(currentProfile.category_code, selectedCategory))
+        throw new Error("Espera a que cargue el perfil de la categoría seleccionada.");
     const attributes = {};
     for (const definition of currentProfile?.attributes ?? []) {
         const key = `attribute:${definition.code}`, raw = data.getAll(key);
@@ -227,7 +236,7 @@ function spaceInput(data) {
         else
             attributes[definition.code] = value;
     }
-    return { title: data.get("title"), description: data.get("description"), area_m2: Number(data.get("area_m2")), category_code: data.get("category_code"), capacity: Number(data.get("capacity")), usage_rules: data.get("usage_rules"), rate_unit: data.get("rate_unit"), base_price_clp: Number(data.get("base_price_clp")), address: data.get("address"), attribute_schema_version: currentProfile?.schema_version, attributes };
+    return { title: data.get("title"), description: data.get("description"), area_m2: Number(data.get("area_m2")), category_code: selectedCategory, capacity: Number(data.get("capacity")), usage_rules: data.get("usage_rules"), rate_unit: data.get("rate_unit"), base_price_clp: Number(data.get("base_price_clp")), address: data.get("address"), attribute_schema_version: currentProfile.schema_version, attributes };
 }
 async function loadSpaces() {
     const result = await request("/api/v1/spaces", "GET", undefined, true);
@@ -245,7 +254,9 @@ async function loadSpaces() {
                 const field = spaceForm.elements.namedItem(key);
                 field.value = String(draft[key] ?? "");
             }
-            await loadAttributeProfile(String(draft.category_code));
+            const profileLoaded = await loadAttributeProfile(String(draft.category_code), Number(draft.attribute_schema_version));
+            if (!profileLoaded)
+                throw new Error("No se pudo cargar el perfil guardado del borrador.");
             for (const definition of currentProfile?.attributes ?? []) {
                 const control = spaceForm.elements.namedItem(`attribute:${definition.code}`);
                 const value = draft.attributes?.[definition.code];

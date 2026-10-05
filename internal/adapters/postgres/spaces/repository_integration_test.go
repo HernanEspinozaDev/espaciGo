@@ -60,7 +60,7 @@ func TestPostgresDraftCRUDIsOwnerScopedAndOnlyDrafts(t *testing.T) {
 		t.Fatalf("category catalog count=%d err=%v", len(categories), err)
 	}
 	for _, category := range categories {
-		profile, err := repo.Profile(ctx, category.Code)
+		profile, err := repo.Profile(ctx, category.Code, 0)
 		if err != nil || profile.CategoryCode != category.Code || profile.SchemaVersion != 1 || len(profile.Attributes) == 0 {
 			t.Fatalf("category %s profile=%+v err=%v", category.Code, profile, err)
 		}
@@ -82,6 +82,39 @@ func TestPostgresDraftCRUDIsOwnerScopedAndOnlyDrafts(t *testing.T) {
 	}
 	if created.AttributeSchemaVersion != 1 || created.Attributes["wifi"] != false || created.Attributes["puestos_trabajo"] != float64(6) || created.Attributes["banos_disponibles"] != float64(0) {
 		t.Fatalf("created attributes not preserved: %+v", created)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public.categoria_perfil_atributos(categoria_codigo,version,perfil) SELECT categoria_codigo,2,jsonb_set(perfil,'{schema_version}','2'::jsonb) FROM public.categoria_perfil_atributos WHERE categoria_codigo='oficina' AND version=1`); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := repo.Profile(ctx, "oficina", 0)
+	if err != nil || latest.SchemaVersion != 2 {
+		t.Fatalf("latest profile=%+v err=%v", latest, err)
+	}
+	old, err := repo.Profile(ctx, "oficina", 1)
+	if err != nil || old.SchemaVersion != 1 {
+		t.Fatalf("v1 profile=%+v err=%v", old, err)
+	}
+	service, err := spaces.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	editV1 := in
+	editV1.AttributeSchemaVersion = 0 // The service must preserve the draft's stored version.
+	editV1.Title = "Oficina editada con el perfil v1"
+	updatedV1, err := service.UpdateOwn(ctx, ownerA, created.ID, editV1)
+	if err != nil || updatedV1.AttributeSchemaVersion != 1 || updatedV1.Title != editV1.Title {
+		t.Fatalf("editing v1 draft after v2: %+v err=%v", updatedV1, err)
+	}
+	// PostgreSQL normalizes UUID output to lowercase; uppercase input remains the same identifier.
+	editV1.AttributeSchemaVersion = 1
+	editV1.Title = "Actualización con UUID mayúsculo"
+	updatedUpper, err := service.UpdateOwn(ctx, ownerA, strings.ToUpper(created.ID), editV1)
+	if err != nil || updatedUpper.Title != editV1.Title {
+		t.Fatalf("uppercase UUID update=%+v err=%v", updatedUpper, err)
+	}
+	readUpper, err := repo.GetOwn(ctx, ownerA, created.ID)
+	if err != nil || readUpper.Title != editV1.Title || readUpper.AttributeSchemaVersion != 1 {
+		t.Fatalf("uppercase UUID update was not committed: %+v err=%v", readUpper, err)
 	}
 	invalidChange := in
 	invalidChange.CategoryCode = "sala_multiproposito"

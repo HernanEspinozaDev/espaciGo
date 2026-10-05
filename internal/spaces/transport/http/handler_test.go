@@ -41,12 +41,18 @@ type memoryRepo struct {
 func (m *memoryRepo) Categories(context.Context) ([]spaces.Category, error) {
 	return []spaces.Category{{Code: "oficina", Name: "Oficina"}, {Code: "sala_multiproposito", Name: "Sala o espacio multipropósito"}}, nil
 }
-func (m *memoryRepo) Profile(_ context.Context, category string) (spaces.Profile, error) {
+func (m *memoryRepo) Profile(_ context.Context, category string, version int) (spaces.Profile, error) {
 	profiles := map[string]spaces.Profile{
 		"oficina":             {CategoryCode: "oficina", SchemaVersion: 1, Attributes: []spaces.AttributeDefinition{{Code: "puestos_trabajo", Order: 1, Label: "Puestos de trabajo", Type: "integer", FilterCandidate: false, Minimum: floatPtr(1), Maximum: floatPtr(2147483647)}, {Code: "escritorios", Order: 2, Label: "Escritorios", Type: "integer", FilterCandidate: false, Minimum: floatPtr(0), Maximum: floatPtr(2147483647)}, {Code: "wifi", Order: 3, Label: "Wi-Fi", Type: "boolean", FilterCandidate: false}, {Code: "tipo_uso_oficina", Order: 4, Label: "Tipo de uso", Type: "enum", FilterCandidate: false, Options: []string{"privada", "compartida"}}}},
 		"sala_multiproposito": {CategoryCode: "sala_multiproposito", SchemaVersion: 1, Attributes: []spaces.AttributeDefinition{{Code: "proyector", Order: 1, Label: "Proyector", Type: "boolean", FilterCandidate: false}}},
 	}
 	if p, ok := profiles[category]; ok {
+		if category == "oficina" && (version == 0 || version == 2) {
+			p.SchemaVersion = 2
+		}
+		if version > 0 && version != p.SchemaVersion && !(category == "oficina" && version == 1) {
+			return spaces.Profile{}, spaces.ErrNotFound
+		}
 		return p, nil
 	}
 	return spaces.Profile{}, spaces.ErrNotFound
@@ -80,7 +86,7 @@ func (m *memoryRepo) UpdateOwn(_ context.Context, owner, id string, in spaces.In
 }
 func draftFromInput(in spaces.Input) spaces.Draft {
 	name := map[string]string{"oficina": "Oficina", "sala_multiproposito": "Sala o espacio multipropósito"}[in.CategoryCode]
-	return spaces.Draft{CategoryCode: in.CategoryCode, CategoryName: name, Title: in.Title, Description: in.Description, AreaM2: in.AreaM2, Capacity: in.Capacity, UsageRules: in.UsageRules, RateUnit: in.RateUnit, BasePriceCLP: in.BasePriceCLP, Address: in.Address, State: "borrador", AttributeSchemaVersion: 1, Attributes: in.Attributes}
+	return spaces.Draft{CategoryCode: in.CategoryCode, CategoryName: name, Title: in.Title, Description: in.Description, AreaM2: in.AreaM2, Capacity: in.Capacity, UsageRules: in.UsageRules, RateUnit: in.RateUnit, BasePriceCLP: in.BasePriceCLP, Address: in.Address, State: "borrador", AttributeSchemaVersion: in.AttributeSchemaVersion, Attributes: in.Attributes}
 }
 func validJSON() string {
 	b, _ := json.Marshal(spaces.Input{CategoryCode: "oficina", Title: "Oficina", Description: strings.Repeat("Espacio de trabajo. ", 7), AreaM2: 10, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "dia", BasePriceCLP: 6001, Address: "Calle 1"})
@@ -182,7 +188,7 @@ func TestDraftResponsesValidateAgainstOpenAPISchemaAndCategoryChanges(t *testing
 	}
 	assertDraftResponseSchema(t, schema, created.Body.Bytes())
 
-	input := spaces.Input{CategoryCode: "sala_multiproposito", Title: "Sala", Description: strings.Repeat("Sala multipropósito para actividades privadas. ", 3), AreaM2: 10, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "hora", BasePriceCLP: 6001, Address: "Calle 2"}
+	input := spaces.Input{CategoryCode: "sala_multiproposito", AttributeSchemaVersion: 1, Title: "Sala", Description: strings.Repeat("Sala multipropósito para actividades privadas. ", 3), AreaM2: 10, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "hora", BasePriceCLP: 6001, Address: "Calle 2"}
 	body, _ := json.Marshal(input)
 	updated := invoke(h, "PUT", "/api/v1/spaces/"+draftID, "user", string(body))
 	if updated.Code != http.StatusOK {
@@ -278,8 +284,15 @@ func TestNumericValuesOutsidePostgresRangesReturn422(t *testing.T) {
 func TestCategoryProfilesAndOptionalTypedAttributes(t *testing.T) {
 	h := testHandler(t)
 	profile := invoke(h, "GET", "/api/v1/spaces/categories/oficina/attributes", "user", "")
-	if profile.Code != 200 || !strings.Contains(profile.Body.String(), `"schema_version":1`) {
+	if profile.Code != 200 || !strings.Contains(profile.Body.String(), `"schema_version":2`) {
 		t.Fatalf("profile response %d %s", profile.Code, profile.Body.String())
+	}
+	v1 := invoke(h, "GET", "/api/v1/spaces/categories/oficina/attributes/1", "user", "")
+	if v1.Code != 200 || !strings.Contains(v1.Body.String(), `"schema_version":1`) {
+		t.Fatalf("v1 profile response %d %s", v1.Code, v1.Body.String())
+	}
+	if missing := invoke(h, "GET", "/api/v1/spaces/categories/oficina/attributes/3", "user", ""); missing.Code != 404 {
+		t.Fatalf("missing profile version status=%d", missing.Code)
 	}
 	for _, attrs := range []string{`{"puestos_trabajo":4,"escritorios":0,"wifi":false,"tipo_uso_oficina":"privada"}`, `{}`, `{"wifi":false}`} {
 		body := strings.TrimSuffix(validJSON(), "}") + `,"attributes":` + attrs + `}`
@@ -302,5 +315,26 @@ func TestCategoryProfilesAndOptionalTypedAttributes(t *testing.T) {
 	oversized := strings.TrimSuffix(validJSON(), "}") + `,"attributes":` + string(largeValue) + `}`
 	if response := invoke(h, "POST", "/api/v1/spaces", "user", oversized); response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("oversized attributes status=%d want 422", response.Code)
+	}
+}
+
+func TestUpdateDraftKeepsItsStoredProfileVersion(t *testing.T) {
+	repo := &memoryRepo{}
+	svc, err := spaces.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, svc, nil)
+	if response := invoke(h, "POST", "/api/v1/spaces", "user", validJSON()); response.Code != 201 {
+		t.Fatalf("create status=%d %s", response.Code, response.Body.String())
+	}
+	// Simulate an existing draft that predates the currently latest profile.
+	repo.draft.AttributeSchemaVersion = 1
+	updated := invoke(h, "PUT", "/api/v1/spaces/"+draftID, "user", validJSON())
+	if updated.Code != 200 || !strings.Contains(updated.Body.String(), `"attribute_schema_version":1`) {
+		t.Fatalf("v1 update status=%d %s", updated.Code, updated.Body.String())
+	}
+	if repo.draft.AttributeSchemaVersion != 1 {
+		t.Fatalf("update implicitly converted profile version: %d", repo.draft.AttributeSchemaVersion)
 	}
 }

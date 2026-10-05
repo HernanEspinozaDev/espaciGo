@@ -3,7 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "build": "tsc --project tsconfig.json"
+    "build": "tsc --project tsconfig.json",
+    "test:profile-races": "npm run build && node --test test/profile-request.test.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3"

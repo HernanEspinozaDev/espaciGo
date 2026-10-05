@@ -17,14 +17,14 @@ func NewService(repo Repository) (*Service, error) {
 }
 
 func (s *Service) Categories(ctx context.Context) ([]Category, error) { return s.repo.Categories(ctx) }
-func (s *Service) Profile(ctx context.Context, category string) (Profile, error) {
-	return s.repo.Profile(ctx, category)
+func (s *Service) Profile(ctx context.Context, category string, version int) (Profile, error) {
+	return s.repo.Profile(ctx, category, version)
 }
 func (s *Service) Create(ctx context.Context, owner string, in Input) (Draft, error) {
 	if !validOwner(owner) || in.Validate() != nil {
 		return Draft{}, ErrInvalid
 	}
-	profile, err := s.repo.Profile(ctx, in.CategoryCode)
+	profile, err := s.repo.Profile(ctx, in.CategoryCode, 0)
 	if err != nil || profile.SchemaVersion != in.AttributeSchemaVersion && in.AttributeSchemaVersion != 0 || validateAttributes(profile, in) != nil {
 		return Draft{}, ErrInvalid
 	}
@@ -53,11 +53,24 @@ func (s *Service) UpdateOwn(ctx context.Context, owner, id string, in Input) (Dr
 	if in.Validate() != nil {
 		return Draft{}, ErrInvalid
 	}
-	profile, err := s.repo.Profile(ctx, in.CategoryCode)
-	if err != nil || profile.SchemaVersion != in.AttributeSchemaVersion && in.AttributeSchemaVersion != 0 || validateAttributes(profile, in) != nil {
+	// Existing drafts stay on their saved schema. A client may explicitly
+	// select a different category/profile, but we never silently upgrade it.
+	existing, err := s.repo.GetOwn(ctx, owner, id)
+	if err != nil {
+		return Draft{}, err
+	}
+	version := in.AttributeSchemaVersion
+	if version == 0 {
+		if in.CategoryCode != existing.CategoryCode {
+			return Draft{}, ErrInvalid
+		}
+		version = existing.AttributeSchemaVersion
+	}
+	profile, err := s.repo.Profile(ctx, in.CategoryCode, version)
+	if err != nil || profile.SchemaVersion != version || validateAttributes(profile, in) != nil {
 		return Draft{}, ErrInvalid
 	}
-	in.AttributeSchemaVersion = profile.SchemaVersion
+	in.AttributeSchemaVersion = version
 	if in.Attributes == nil {
 		in.Attributes = map[string]any{}
 	}

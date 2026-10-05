@@ -50,9 +50,14 @@ func (r *Repository) Categories(ctx context.Context) ([]spaces.Category, error) 
 	}
 	return items, rows.Err()
 }
-func (r *Repository) Profile(ctx context.Context, category string) (spaces.Profile, error) {
+func (r *Repository) Profile(ctx context.Context, category string, version int) (spaces.Profile, error) {
 	var raw []byte
-	err := r.pool.QueryRow(ctx, `SELECT perfil FROM public.categoria_perfil_atributos WHERE categoria_codigo=$1 ORDER BY version DESC LIMIT 1`, category).Scan(&raw)
+	var err error
+	if version > 0 {
+		err = r.pool.QueryRow(ctx, `SELECT perfil FROM public.categoria_perfil_atributos WHERE categoria_codigo=$1 AND version=$2`, category, version).Scan(&raw)
+	} else {
+		err = r.pool.QueryRow(ctx, `SELECT perfil FROM public.categoria_perfil_atributos WHERE categoria_codigo=$1 ORDER BY version DESC LIMIT 1`, category).Scan(&raw)
+	}
 	if err != nil {
 		return spaces.Profile{}, mapError(err)
 	}
@@ -118,8 +123,7 @@ func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.
 		return spaces.Draft{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	var lockedID string
-	err = tx.QueryRow(ctx, `SELECT id::text FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado='borrador' FOR UPDATE`, owner, id).Scan(&lockedID)
+	err = tx.QueryRow(ctx, `SELECT id::text FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado='borrador' FOR UPDATE`, owner, id).Scan(new(string))
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
@@ -148,9 +152,6 @@ func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return spaces.Draft{}, err
-	}
-	if lockedID != id {
-		return spaces.Draft{}, spaces.ErrNotFound
 	}
 	return d, nil
 }

@@ -417,6 +417,28 @@ paths:
               schema: { $ref: '#/components/schemas/SpaceAttributeProfile' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /spaces/categories/{categoryCode}/attributes/{version}:
+    parameters:
+      - name: categoryCode
+        in: path
+        required: true
+        schema: { type: string }
+      - name: version
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      operationId: getVersionedSpaceAttributeProfile
+      tags: [M04 local]
+      description: Devuelve una versión específica e inmutable del perfil, para conservar el contrato de borradores existentes.
+      responses:
+        '200':
+          description: Perfil versionado solicitado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpaceAttributeProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /spaces:
     get:
       operationId: listOwnSpaceDrafts
