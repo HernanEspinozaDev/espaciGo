@@ -89,6 +89,10 @@ func (r *Repository) Create(ctx context.Context, owner string, in spaces.Input) 
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,$2,$3)`, id, in.RateUnit, in.BasePriceCLP)
+	if err != nil {
+		return spaces.Draft{}, mapError(err)
+	}
 	d, err := scan(tx.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.id=$1`, id))
 	if err != nil {
 		return spaces.Draft{}, err
@@ -123,7 +127,9 @@ func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.
 		return spaces.Draft{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	err = tx.QueryRow(ctx, `SELECT id::text FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado='borrador' FOR UPDATE`, owner, id).Scan(new(string))
+	var oldUnit string
+	var oldAmount int64
+	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado='borrador' FOR UPDATE`, owner, id).Scan(&oldUnit, &oldAmount)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
@@ -137,6 +143,12 @@ func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.
 	}
 	if tag.RowsAffected() != 1 {
 		return spaces.Draft{}, spaces.ErrNotFound
+	}
+	if oldUnit != in.RateUnit || oldAmount != in.BasePriceCLP {
+		_, err = tx.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) SELECT $1,COALESCE(max(version),0)+1,$2,$3 FROM public.tarifa_espacio WHERE espacio_id=$1`, id, in.RateUnit, in.BasePriceCLP)
+		if err != nil {
+			return spaces.Draft{}, mapError(err)
+		}
 	}
 	values, err := json.Marshal(in.Attributes)
 	if err != nil {

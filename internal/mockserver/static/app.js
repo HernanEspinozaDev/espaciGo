@@ -374,6 +374,47 @@ const calendarRequestState = new CalendarRequestState();
 const calendarZoneInput = document.querySelector('#calendar-config-form [name="time_zone"]');
 const calendarQueryForm = document.querySelector("#calendar-query-form");
 const calendarBlockForm = document.querySelector("#calendar-block-form");
+const priceRateForm = document.querySelector("#price-rate-form");
+const priceRateOutput = document.querySelector("#price-rate-output");
+const priceSimulationOutput = document.querySelector("#price-simulation-output");
+function pricePath(suffix) { if (!calendarSpace.value)
+    throw new Error("Selecciona uno de tus borradores."); return `/api/v1/spaces/${encodeURIComponent(calendarSpace.value)}/${suffix}`; }
+document.querySelector("#price-load").addEventListener("click", () => void action(async () => {
+    const spaceID = calendarSpace.value, selection = calendarRequestState.snapshot();
+    const [rate, history] = await Promise.all([request(pricePath("tariff"), "GET", undefined, true), request(pricePath("tariffs"), "GET", undefined, true)]);
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
+    priceRateForm.querySelector('[name="rate_unit"]').value = String(rate.rate_unit);
+    priceRateForm.querySelector('[name="base_price"]').value = String(rate.base_price);
+    priceRateOutput.textContent = JSON.stringify({ current: rate, history: (history.items ?? []), private: true }, null, 2);
+}));
+form("price-rate-form", async (data) => {
+    const spaceID = calendarSpace.value, selection = calendarRequestState.snapshot();
+    const rate = await request(pricePath("tariff"), "PUT", { rate_unit: data.get("rate_unit"), base_price: Number(data.get("base_price")) }, true);
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
+    const history = await request(pricePath("tariffs"), "GET", undefined, true);
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
+    priceRateOutput.textContent = JSON.stringify({ current: rate, history: (history.items ?? []), private: true }, null, 2);
+    resultElement.textContent = "Tarifa actualizada como nueva versión; las simulaciones guardadas conservan su snapshot.";
+});
+form("price-simulation-form", async (data) => {
+    const spaceID = calendarSpace.value, selection = calendarRequestState.snapshot();
+    const zone = calendarRequestState.zoneFor(spaceID, calendarZoneInput.value);
+    const simulation = await request(pricePath("price-simulations"), "POST", { start_at: localTimeAsUTC(String(data.get("start_at")), zone), end_at: localTimeAsUTC(String(data.get("end_at")), zone) }, true);
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
+    priceSimulationOutput.textContent = JSON.stringify({ ...simulation, label: "SIMULACIÓN PRIVADA" }, null, 2);
+    resultElement.textContent = "Simulación privada guardada con su versión de tarifa. No se modificó la ocupación.";
+});
+form("price-simulation-load-form", async (data) => {
+    const spaceID = calendarSpace.value, selection = calendarRequestState.snapshot();
+    const simulation = await request(pricePath(`price-simulations/${encodeURIComponent(String(data.get("id")))}`), "GET", undefined, true);
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
+    priceSimulationOutput.textContent = JSON.stringify({ ...simulation, label: "SIMULACIÓN PRIVADA · SNAPSHOT ORIGINAL" }, null, 2);
+});
 function refreshCalendarControls() {
     const dirty = !calendarSpace.value || (() => {
         try {
@@ -386,6 +427,7 @@ function refreshCalendarControls() {
     })();
     calendarQueryForm.querySelectorAll("button").forEach(button => button.disabled = dirty);
     calendarBlockForm.querySelectorAll("button").forEach(button => button.disabled = dirty);
+    document.querySelector("#price-simulation-form").querySelectorAll("button").forEach(button => button.disabled = dirty);
 }
 async function loadCalendarSpaces() {
     const result = await request("/api/v1/spaces", "GET", undefined, true);

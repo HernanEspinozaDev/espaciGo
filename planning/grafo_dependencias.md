@@ -46,6 +46,10 @@ flowchart TD
 
 Cada módulo tiene su propio subgrafo en `backlog.md`: diseño de módulo → modelado DB → migración → dominio/repositorio → casos de uso → API → pruebas → mock. M04 y M06 añaden cortes funcionales por tamaño. El orden global permite paralelizar M02 y M03 después de identidad; contratos y operaciones se separan tras reservas, con dependencias de sus estados.
 
+## Corte M05: simulación privada de tarifa en borrador propio
+
+Issue #146 concentra diseño mínimo, migración, backend, API, pruebas enfocadas y mock en un PR. Sus dependencias reales ya están fusionadas: M04 borradores/catálogo (PR #134), atributos por categoría (PR #141), disponibilidad/zona horaria M06 (PR #145) y fundaciones CORE/M01 (PR #4–#9, #11, #13–#15). Reutiliza el servicio M06 de disponibilidad. No depende de búsqueda pública, KYC, reservas ni pagos. Los criterios globales de #54/#55 y las Issues originales M05/M06 permanecen abiertos; esta entrega puntual no los completa ni los cierra. Ver [decisión y reglas de cobro aprobadas](decisiones_m05_simulacion_precio_privada.md) y [mapa de Issues](github_issue_map.csv).
+
 ## Secuencia recomendada
 
 1. `PLAN-ARCH-01` está cerrado con ratificación MAP-01–MAP-10 y PR #1. `CORE-ARCH-01` está cerrado tras aprobación y fusión de PR #2.

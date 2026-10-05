@@ -1,0 +1,136 @@
+package pricing
+
+import (
+	"context"
+	"errors"
+	"math"
+	"regexp"
+	"strings"
+	"time"
+)
+
+var (
+	ErrInvalid  = errors.New("pricing: invalid request")
+	ErrNotFound = errors.New("pricing: private resource not found")
+	ErrConflict = errors.New("pricing: interval unavailable")
+)
+
+type Rate struct {
+	SpaceID   string    `json:"space_id"`
+	Version   int64     `json:"version"`
+	Unit      string    `json:"rate_unit"`
+	Amount    int64     `json:"base_price"`
+	Currency  string    `json:"currency"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Simulation struct {
+	ID          string    `json:"id"`
+	SpaceID     string    `json:"space_id"`
+	RateVersion int64     `json:"rate_version"`
+	RateUnit    string    `json:"rate_unit"`
+	BasePrice   int64     `json:"base_price"`
+	BilledUnits int64     `json:"billed_units"`
+	Currency    string    `json:"currency"`
+	Subtotal    int64     `json:"base_subtotal"`
+	StartAt     time.Time `json:"start_at"`
+	EndAt       time.Time `json:"end_at"`
+	TimeZone    string    `json:"time_zone"`
+	Private     bool      `json:"private"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type RateInput struct {
+	Unit   string `json:"rate_unit"`
+	Amount int64  `json:"base_price"`
+}
+type SimulationInput struct {
+	StartAt string `json:"start_at"`
+	EndAt   string `json:"end_at"`
+}
+
+type Repository interface {
+	CurrentRate(context.Context, string, string) (Rate, error)
+	RateHistory(context.Context, string, string) ([]Rate, error)
+	UpdateRate(context.Context, string, string, RateInput) (Rate, error)
+	CreateSimulation(context.Context, string, string, string, string, Rate, time.Time, time.Time, int64, int64) (Simulation, error)
+	GetSimulation(context.Context, string, string, string) (Simulation, error)
+}
+
+var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+func validateRate(in RateInput) error {
+	if (in.Unit != "hora" && in.Unit != "dia" && in.Unit != "mes") || in.Amount <= 5000 {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func parseWindow(in SimulationInput) (time.Time, time.Time, error) {
+	if !strings.HasSuffix(in.StartAt, "Z") || !strings.HasSuffix(in.EndAt, "Z") {
+		return time.Time{}, time.Time{}, ErrInvalid
+	}
+	start, err := time.Parse(time.RFC3339Nano, in.StartAt)
+	if err != nil {
+		return time.Time{}, time.Time{}, ErrInvalid
+	}
+	end, err := time.Parse(time.RFC3339Nano, in.EndAt)
+	if err != nil || !end.After(start) {
+		return time.Time{}, time.Time{}, ErrInvalid
+	}
+	return start.UTC(), end.UTC(), nil
+}
+
+func units(unit string, startUTC, endUTC time.Time, zone string) (int64, error) {
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return 0, ErrInvalid
+	}
+	switch unit {
+	case "hora":
+		seconds := endUTC.Sub(startUTC).Seconds()
+		n := int64(math.Ceil(seconds / 3600))
+		if n < 1 {
+			n = 1
+		}
+		return n, nil
+	case "dia":
+		s := startUTC.In(loc)
+		e := endUTC.In(loc)
+		endDate := time.Date(e.Year(), e.Month(), e.Day(), 0, 0, 0, 0, loc)
+		if e.Equal(endDate) {
+			e = e.Add(-time.Nanosecond)
+		}
+		startDate := time.Date(s.Year(), s.Month(), s.Day(), 0, 0, 0, 0, loc)
+		startOrdinal := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, time.UTC).Unix() / 86400
+		endOrdinal := time.Date(e.Year(), e.Month(), e.Day(), 0, 0, 0, 0, time.UTC).Unix() / 86400
+		return endOrdinal - startOrdinal + 1, nil
+	case "mes":
+		s := startUTC.In(loc)
+		e := endUTC.In(loc)
+		months := int64((e.Year()-s.Year())*12 + int(e.Month()-s.Month()))
+		if months < 1 {
+			return 1, nil
+		}
+		anniversary := addMonthsClamped(s, months)
+		if e.After(anniversary) {
+			months++
+		}
+		return months, nil
+	default:
+		return 0, ErrInvalid
+	}
+}
+
+func addMonthsClamped(v time.Time, months int64) time.Time {
+	y, m, _ := v.Date()
+	monthIndex := int64(y)*12 + int64(m-1) + months
+	targetYear := int(monthIndex / 12)
+	targetMonth := time.Month(monthIndex%12) + 1
+	last := time.Date(targetYear, targetMonth+1, 0, 0, 0, 0, 0, v.Location()).Day()
+	day := v.Day()
+	if day > last {
+		day = last
+	}
+	return time.Date(targetYear, targetMonth, day, v.Hour(), v.Minute(), v.Second(), v.Nanosecond(), v.Location())
+}
