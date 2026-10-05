@@ -70,6 +70,12 @@ En caso de contradicción, aplica este orden:
 5. Requisitos congelados ES1 de `referencias/ES1/`.
 La descripción del entorno de desarrollo está en [entorno_de_desarrollo.md](entorno_de_desarrollo.md). Sirve para orientar la verificación de herramientas locales; no es fuente de requisitos, stack del producto ni arquitectura y no modifica las fuentes anteriores.
 
+## Continuidad operativa en GitHub Projects
+
+Al 2026-10-05, el registro de ejecución vigente es el Project [EspaciGo — Desarrollo](https://github.com/users/HernanEspinozaDev/projects/1) y sus 104 Issues; la correspondencia Hermes–GitHub está en [github_issue_map.csv](github_issue_map.csv). Mantén intactas las fuentes académicas y sus requisitos: `backlog.md` conserva el detalle de 103 tarjetas originales, y `t_112e6827` preserva la recuperación como Issue 120. No despaches nuevos workers en Hermes Kanban; su board se archivó y permanece como histórico.
+
+Antes de iniciar una tarjeta, lee su Issue completa, dependencias `blocked_by`, criterios, referencias y evidencia actual de PR/CI; no derives aceptación de un estado histórico `done`. Solo la aceptación verificada permite `Hecho`. En este corte hay 13 `Hecho`, 2 `En revisión` y 89 `Bloqueado`, sin tarjetas `Listo`; AUTH-BE-01 (#29) y su recuperación (#120) siguen en revisión por PR #16 abierto, y AUTH-BE-02 (#30)/AUTH-BE-03 (#31) siguen bloqueadas por ambas. Consulta [la guía para continuar desde el PC](ejecucion_con_github_projects.md). No habilites auto-merge, no introduzcas cambios de producto fuera de una Issue autorizada y no alteres/reinicies trabajo local.
+
 ## Cómo resolver vacíos
 
 Si una tarjeta no contiene criterios suficientes, el agente lee la fila RQF, ficha CU y HU concreta dentro de `referencias/ES1/`, y el diseño de tabla/privacidad en `referencias/ES2/`. Si continúa la ambigüedad, documenta el hallazgo, impacto y pregunta/decisión necesaria; crea un ticket de refinamiento con trazabilidad. No inventa respuesta, requisito, regla legal, proveedor ni permiso.
