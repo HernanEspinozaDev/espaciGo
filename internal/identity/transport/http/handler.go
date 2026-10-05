@@ -61,7 +61,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" {
 		expected = http.MethodGet
 	}
-	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true}
+	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true}
 	if !paths[r.URL.Path] {
 		h.fail(w, 404, "not_found", "Recurso no encontrado.")
 		return
@@ -133,6 +133,54 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(204)
+	case "/api/v1/auth/password/recovery":
+		var input struct {
+			Email string `json:"email"`
+		}
+		if !h.decode(w, r, &input) {
+			return
+		}
+		if err := h.service.RequestPasswordRecovery(r.Context(), input.Email, clientIP); err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		h.write(w, 202, map[string]any{"status": "accepted", "message": "Si la cuenta es elegible, recibirás instrucciones en el correo registrado."})
+	case "/api/v1/auth/password/recovery/consume":
+		var input struct {
+			TokenID      string          `json:"token_id"`
+			Token        identity.Secret `json:"token"`
+			Password     identity.Secret `json:"new_password"`
+			Confirmation identity.Secret `json:"confirm_password"`
+		}
+		if !h.decode(w, r, &input) {
+			return
+		}
+		err := h.service.ResetPassword(r.Context(), identity.ResetPasswordInput{TokenID: input.TokenID, Token: input.Token, Password: input.Password, Confirmation: input.Confirmation, ClientIP: clientIP})
+		if err != nil {
+			h.serviceError(w, err, r.URL.Path)
+			return
+		}
+		w.WriteHeader(204)
+	case "/api/v1/auth/password/change":
+		var input struct {
+			Current      identity.Secret `json:"current_password"`
+			Password     identity.Secret `json:"new_password"`
+			Confirmation identity.Secret `json:"confirm_password"`
+		}
+		if !h.decode(w, r, &input) {
+			return
+		}
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		err := h.service.ChangePassword(r.Context(), identity.ChangePasswordInput{SessionToken: parts[1], CurrentPassword: input.Current, Password: input.Password, Confirmation: input.Confirmation})
+		if err != nil {
+			h.serviceError(w, err, r.URL.Path)
+			return
+		}
+		w.WriteHeader(204)
 	case "/api/v1/auth/login":
 		var input struct {
 			Email    string          `json:"email"`
@@ -192,7 +240,11 @@ func (h *Handler) decode(w http.ResponseWriter, r *http.Request, target any) boo
 	}
 	return true
 }
-func (h *Handler) serviceError(w http.ResponseWriter, err error) {
+func (h *Handler) serviceError(w http.ResponseWriter, err error, paths ...string) {
+	requestPath := ""
+	if len(paths) > 0 {
+		requestPath = paths[0]
+	}
 	status, code, message := 500, "internal_error", "Ocurrió un error inesperado."
 	var blocked *identity.LoginBlockedError
 	switch {
@@ -225,7 +277,19 @@ func (h *Handler) serviceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, identity.ErrTokenInvalid):
 		status = 422
 		code = "invalid_token"
-		message = "Verificación inválida, expirada o ya utilizada."
+		message = "Token inválido, expirado o ya utilizado."
+	case errors.Is(err, identity.ErrCurrentPassword):
+		status = 422
+		code = "current_password_invalid"
+		message = identity.ErrCurrentPassword.Error()
+	case errors.Is(err, identity.ErrPasswordSame):
+		status = 422
+		code = "password_unchanged"
+		message = identity.ErrPasswordSame.Error()
+	case errors.Is(err, identity.ErrPasswordConfirm):
+		status = 422
+		code = "password_confirmation_mismatch"
+		message = identity.ErrPasswordConfirm.Error()
 	case errors.Is(err, identity.ErrRateLimited):
 		status = 429
 		code = "rate_limited"
@@ -243,6 +307,9 @@ func (h *Handler) serviceError(w http.ResponseWriter, err error) {
 		status = 503
 		code = "mail_unavailable"
 		message = "Correo de desarrollo no disponible; solicita reenvío."
+		if requestPath == "/api/v1/auth/password/change" || requestPath == "/api/v1/auth/password/recovery/consume" {
+			message = "La contraseña puede haberse actualizado y las sesiones revocado; revisa Mailpit e inicia sesión con la nueva contraseña."
+		}
 	}
 	h.fail(w, status, code, message)
 }

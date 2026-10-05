@@ -17,7 +17,7 @@ async function request(path: string, method = "GET", body?: unknown, authenticat
   const response = await fetch(`${apiBase}/api/v1/auth/${path}`, {method, headers, body: body === undefined ? undefined : JSON.stringify(body), mode: "cors", cache: "no-store", credentials: "omit"});
   const data = response.status === 204 ? {} : await response.json() as Record<string,unknown> & APIError;
   if (!response.ok) {
-    if (response.status === 401 && authenticated) sessionToken = "";
+    if (authenticated && (response.status === 401 || path === "password/change" && response.status === 503)) sessionToken = "";
     const error = data as APIError;
     throw new Error(`${error.error?.message ?? "Error de API"} (HTTP ${response.status}, ${error.error?.code ?? "unknown"})`);
   }
@@ -48,6 +48,19 @@ form("login-form", async (data, element) => {
   const response = await request("login", "POST", {email: data.get("email"), password: data.get("password")});
   sessionToken = String(response.access_token); element.querySelector<HTMLInputElement>('[name="password"]')!.value = "";
   resultElement.textContent = "Sesión iniciada. Puedes consultarla o cerrarla.";
+});
+form("recovery-request-form", async (data, element) => {
+  await request("password/recovery", "POST", {email:data.get("email")});
+  element.reset(); resultElement.textContent = "Si la cuenta es elegible, recibirás instrucciones en el buzón local.";
+});
+form("recovery-consume-form", async (data, element) => {
+  await request("password/recovery/consume", "POST", {token_id:data.get("token_id"), token:data.get("token"), new_password:data.get("new_password"), confirm_password:data.get("confirm_password")});
+  sessionToken = ""; element.reset(); resultElement.textContent = "Contraseña actualizada y sesiones cerradas. Inicia sesión con la nueva contraseña.";
+});
+form("password-change-form", async (data, element) => {
+  await request("password/change", "POST", {current_password:data.get("current_password"), new_password:data.get("new_password"), confirm_password:data.get("confirm_password")}, true);
+  sessionToken = ""; element.reset(); document.querySelector("#session-output")!.textContent = "Sesión revocada por cambio de contraseña.";
+  resultElement.textContent = "Contraseña actualizada. Inicia sesión otra vez; se notificó al buzón local.";
 });
 document.querySelector("#session-button")!.addEventListener("click", () => void action(async () => {
   const response = await request("session", "GET", undefined, true);

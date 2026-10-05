@@ -130,6 +130,44 @@ assert session['account_id'] == registration['account_id'], 'session resource mi
 api('POST', 'logout', 204, token=login['access_token'])
 api('GET', 'session', 401, token=login['access_token'], label='revoked session replay rejected')
 api('POST', 'logout', 401, label='logout requires Bearer')
+
+unknown_recovery = api('POST', 'password/recovery', 202, {'email': f'absent-{uuid.uuid4().hex}@ejemplo.invalid'}, label='unknown recovery is generic')
+accepted_recovery = api('POST', 'password/recovery', 202, {'email': email}, label='known recovery is generic')
+assert unknown_recovery == accepted_recovery, 'recovery response reveals account existence'
+
+def recovery_mail():
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        _, listing, _ = raw('GET', args.mailpit + '/api/v1/messages')
+        for item in listing['messages']:
+            if any(recipient['Address'].lower() == email.lower() for recipient in (item.get('To') or [])):
+                _, message, _ = raw('GET', args.mailpit + '/api/v1/message/' + item['ID'])
+                text = message['Text']
+                token_id = re.search(r'^Token ID: ([0-9a-f-]+)', text, re.M)
+                token = re.search(r'^Token: ([A-Za-z0-9_-]+)', text, re.M)
+                if token_id and token:
+                    secrets.append(token[1])
+                    return token_id[1], token[1]
+        time.sleep(.1)
+    raise AssertionError('recovery message not captured by local SMTP')
+
+recovery_id, recovery_token = recovery_mail()
+api('POST', 'password/recovery/consume', 422, {'token_id': recovery_id, 'token': 'incorrect', 'new_password': 'Recovered#234', 'confirm_password': 'Recovered#234'}, label='wrong recovery token rejected')
+api('POST', 'password/recovery/consume', 204, {'token_id': recovery_id, 'token': recovery_token, 'new_password': 'Recovered#234', 'confirm_password': 'Recovered#234'}, label='recovery changes credential')
+api('POST', 'password/recovery/consume', 422, {'token_id': recovery_id, 'token': recovery_token, 'new_password': 'Recovered#234', 'confirm_password': 'Recovered#234'}, label='recovery token replay rejected')
+secrets.append('Recovered#234')
+api('POST', 'login', 401, {'email': email, 'password': password}, label='recovery revokes old password')
+recovered_login = api('POST', 'login', 200, {'email': email, 'password': 'Recovered#234'}, label='recovery enables new password')
+secrets.append(recovered_login['access_token'])
+api('POST', 'password/change', 422, {'current_password': 'Wrong#123', 'new_password': 'Changed#345', 'confirm_password': 'Changed#345'}, token=recovered_login['access_token'], label='change requires current credential')
+api('POST', 'password/change', 422, {'current_password': 'Recovered#234', 'new_password': 'Recovered#234', 'confirm_password': 'Recovered#234'}, token=recovered_login['access_token'], label='change rejects identical credential')
+api('POST', 'password/change', 204, {'current_password': 'Recovered#234', 'new_password': 'Changed#345', 'confirm_password': 'Changed#345'}, token=recovered_login['access_token'], label='authenticated password change')
+api('GET', 'session', 401, token=recovered_login['access_token'], label='password change revokes session')
+secrets.append('Changed#345')
+changed_login = api('POST', 'login', 200, {'email': email, 'password': 'Changed#345'}, label='changed credential works')
+secrets.append(changed_login['access_token'])
+api('POST', 'logout', 204, token=changed_login['access_token'], label='logout after credential change')
+
 # Actual CORS transport, not a mocked response.
 status, _, headers = raw('OPTIONS', args.api + '/api/v1/auth/login', headers={'Origin': 'http://localhost:8081', 'Access-Control-Request-Method': 'POST'})
 assert status == 204 and headers['Access-Control-Allow-Origin'] == 'http://localhost:8081'
