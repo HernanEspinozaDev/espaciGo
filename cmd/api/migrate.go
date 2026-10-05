@@ -36,6 +36,8 @@ func migrateLocal() error {
  GRANT SELECT ON public.version_terminos TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.perfil_usuario TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.solicitud_titular TO espacigo_runtime;
- GRANT SELECT, INSERT, UPDATE ON public.verificacion TO espacigo_runtime;`)
+ GRANT SELECT, INSERT, UPDATE ON public.verificacion TO espacigo_runtime;
+ GRANT SELECT ON public.categoria_espacio TO espacigo_runtime;
+ GRANT SELECT, INSERT, UPDATE ON public.espacio TO espacigo_runtime;`)
 	return err
 }

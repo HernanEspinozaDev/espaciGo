@@ -66,6 +66,22 @@
       <pre id="review-output">Necesitas rol administrador.</pre>
     </details>
   </section>
+  <section><h2>9. Espacios propios · borradores M04</h2>
+    <p>Solo guarda y mantiene borradores privados. Este prototipo no publica, no reserva y no cobra; la aprobación KYC fixture no concede permisos comerciales.</p>
+    <form id="space-form"><label>Título <input name="title" required maxlength="70"></label>
+      <label>Descripción <textarea name="description" required minlength="100"></textarea></label>
+      <label>Superficie m² <input name="area_m2" type="number" min="0.01" step="0.01" required></label>
+      <label>Categoría <select name="category_code" id="space-category" required></select></label>
+      <label>Capacidad máxima <input name="capacity" type="number" min="1" step="1" required></label>
+      <label>Reglas de uso <input name="usage_rules" required maxlength="250"></label>
+      <label>Modalidad <select name="rate_unit"><option value="hora">Por hora</option><option value="dia">Por día</option><option value="mes">Por mes</option></select></label>
+      <label>Precio base CLP <input name="base_price_clp" type="number" min="5001" step="1" required></label>
+      <label>Dirección privada <input name="address" required maxlength="500"></label>
+      <input type="hidden" name="draft_id"><button id="space-save">Crear borrador</button><button type="button" id="space-cancel" hidden>Cancelar edición</button>
+    </form>
+    <button id="spaces-load" type="button">Cargar mis borradores</button>
+    <ul id="spaces-list"></ul><pre id="space-output">Inicia sesión para crear y consultar borradores.</pre>
+  </section>
   <p id="result" role="status" aria-live="polite">Completa los pasos en orden.</p>
   <p>Al cambiar la contraseña se revocan todas las sesiones; vuelve a iniciar sesión. No es el frontend definitivo. Historial y entrega durable de avisos siguen pendientes de DB02-09. Cuenta de cobro/KYC real, foto y decisiones de retención/supresión no están implementadas.</p>
 </main></body></html>
