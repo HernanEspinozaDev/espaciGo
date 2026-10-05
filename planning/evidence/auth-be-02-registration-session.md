@@ -19,14 +19,14 @@ El servicio `internal/identity/auth_service.go` ofrece `Register`, `ReissueVerif
 | Concurrencia/rollback | Lock de fila de cuenta PostgreSQL compartido por login, verificación, reemisión y autorización; un único ganador al verificar, sin pérdida de fallos de login ni más de tres emisiones/h. Errores de activación no consumen token; errores de inserción de sesión no reinician contador. |
 | Secretos | `Secret` redacta formato/JSON de inputs y resultados; tokens/hashes no se incluyen en logs. Tokens de sesión/verificación concretos tienen 256 bits de azar criptográfico y IDs UUID v4. |
 
-Registro y envío son operaciones distintas: después del commit de cuenta/términos se emite el token y se invoca el correo. Si emisión/límite/entrega falla, `Register` devuelve el ID de la cuenta pendiente y el error; el consumidor debe ofrecer reemisión, sin repetir el alta. Un fallo de entrega no se oculta ni revierte la cuenta. La alerta de bloqueo se solicita después de commit; un fallo retorna `ErrDelivery` junto al error de bloqueo, que permanece persistido. No hay una promesa de cola durable ni reintento automático en memoria.
+Registro y envío son operaciones distintas: después del commit de cuenta/términos se emite el token y se invoca el correo. Si emisión/límite/entrega falla, `Register` devuelve el ID de la cuenta pendiente y el error; el consumidor debe ofrecer reemisión, sin repetir el alta. Un fallo de entrega no se oculta ni revierte la cuenta. Verificar el correo durante un bloqueo de login conserva el contador y su vencimiento: la cuenta queda verificada pero bloqueada hasta los 30 minutos, sin habilitar acceso anticipado. La alerta de bloqueo se solicita después de commit; un fallo retorna `ErrDelivery` junto al error de bloqueo, que permanece persistido. No hay una promesa de cola durable ni reintento automático en memoria.
 
 ## Pruebas ejecutadas — PC, 2026-10-05
 
 Transcript completo y hashes de sqlc: [auth-be-02-pc-20261005.log](auth-be-02-pc-20261005.log). Fixtures sintéticos; correo, hasher de los tests de flujo y política IP usan dobles explícitos. El bcrypt real se prueba por separado con costo 12; no se afirma que los dobles representen entrega real ni capacidad de un proveedor.
 
-- `go test ./internal/adapters/postgres/identity -run '^TestAuth' -count=1 -v`: PASS, 10 pruebas principales y 11 subcasos, cero omitidos.
-- `go test -race -count=1 -v ./...`, con `TEST_DATABASE_URL` del PostgreSQL desechable y `DATABASE_URL` retirado: PASS, 69 pruebas principales y 11 subcasos, cero SKIP/FAIL. Incluye las pruebas nuevas, adaptador, migrador y regresiones existentes.
+- `go test ./internal/adapters/postgres/identity -run '^TestAuth' -count=1 -v`: PASS, 11 pruebas principales y 11 subcasos, cero omitidos.
+- `go test -race -count=1 -v ./...`, con `TEST_DATABASE_URL` del PostgreSQL desechable y `DATABASE_URL` retirado: PASS, 70 pruebas principales y 11 subcasos, cero SKIP/FAIL. Incluye las pruebas nuevas, adaptador, migrador y regresiones existentes.
 - `go vet ./...`: PASS, exit 0.
 - `git diff --check`: PASS, exit 0.
 - Las consultas nuevas cambiaron el SQL: se regeneró con la versión fijada y se compararon los SHA-256 de los cuatro archivos generados antes/después de otra generación; `cmp` exit 0, idénticos.

@@ -245,6 +245,10 @@ func (s *AuthenticationService) VerifyEmail(ctx context.Context, tokenID string,
 			return nil
 		}
 		// Consumption and activation commit together, or both roll back.
+		// Email verification must not shorten an existing login block.
+		if account.BlockedUntil != nil && now.Before(*account.BlockedUntil) {
+			return tx.SaveLoginState(ctx, account.ID, AccountBlocked, account.FailedAttempts, account.BlockedUntil)
+		}
 		return tx.SaveLoginState(ctx, account.ID, AccountActive, 0, nil)
 	})
 	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalid) {

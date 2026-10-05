@@ -560,3 +560,23 @@ func TestAuthVerificationIPLimitDoesNotIncrementTokenFailures(t *testing.T) {
 	}
 	h.login(t, "ip-verify@ejemplo.invalid")
 }
+
+func TestAuthEmailVerificationPreservesExistingLoginBlock(t *testing.T) {
+	h := newAuthHarness(t)
+	id := h.register(t, "blocked-verification@ejemplo.invalid")
+	for i := 0; i < 5; i++ {
+		_, _ = h.service.Login(h.ctx, identity.LoginInput{Email: "blocked-verification@ejemplo.invalid", Password: "Wrong#123"})
+	}
+	h.verify(t)
+	a, err := h.repo.AccountByID(h.ctx, id)
+	if err != nil || a.State != identity.AccountBlocked || a.FailedAttempts != 5 || a.BlockedUntil == nil || !a.BlockedUntil.Equal(h.now.Add(30*time.Minute)) {
+		t.Fatal("verification shortened the login block")
+	}
+	_, err = h.service.Login(h.ctx, identity.LoginInput{Email: "blocked-verification@ejemplo.invalid", Password: "Synthetic#123"})
+	var blocked *identity.LoginBlockedError
+	if !errors.As(err, &blocked) {
+		t.Fatal("verified account bypassed the existing block")
+	}
+	h.now = h.now.Add(30 * time.Minute)
+	h.login(t, "blocked-verification@ejemplo.invalid")
+}
