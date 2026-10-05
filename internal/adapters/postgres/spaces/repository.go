@@ -70,14 +70,14 @@ func (r *Repository) GetOwn(ctx context.Context, owner, id string) (spaces.Draft
 	return scan(r.pool.QueryRow(ctx, `SELECT `+fields+` FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo WHERE e.propietario_id=$1 AND e.id=$2 AND e.estado='borrador'`, owner, id))
 }
 func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.Input) (spaces.Draft, error) {
-	return scan(r.pool.QueryRow(ctx, `UPDATE public.espacio e SET categoria_codigo=$3,titulo=$4,descripcion=$5,superficie_m2=$6,capacidad_maxima=$7,reglas_uso=$8,modalidad_tarifa=$9,precio_base_clp=$10,direccion=$11,actualizado_en=now() FROM public.categoria_espacio c WHERE e.categoria_codigo=c.codigo AND e.propietario_id=$1 AND e.id=$2 AND e.estado='borrador' RETURNING `+fields, owner, id, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address))
+	return scan(r.pool.QueryRow(ctx, `WITH updated AS (UPDATE public.espacio e SET categoria_codigo=$3,titulo=$4,descripcion=$5,superficie_m2=$6,capacidad_maxima=$7,reglas_uso=$8,modalidad_tarifa=$9,precio_base_clp=$10,direccion=$11,actualizado_en=now() WHERE e.propietario_id=$1 AND e.id=$2 AND e.estado='borrador' RETURNING e.*) SELECT `+fields+` FROM updated e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo`, owner, id, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address))
 }
 func mapError(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return spaces.ErrNotFound
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23514" || pgErr.Code == "22003") {
 		return spaces.ErrInvalid
 	}
 	return err

@@ -19,7 +19,7 @@ type Draft struct {
 	Title        string  `json:"title"`
 	Description  string  `json:"description"`
 	AreaM2       float64 `json:"area_m2"`
-	Capacity     int     `json:"capacity"`
+	Capacity     int32   `json:"capacity"`
 	UsageRules   string  `json:"usage_rules"`
 	RateUnit     string  `json:"rate_unit"`
 	BasePriceCLP int64   `json:"base_price_clp"`
@@ -32,7 +32,7 @@ type Input struct {
 	Title        string  `json:"title"`
 	Description  string  `json:"description"`
 	AreaM2       float64 `json:"area_m2"`
-	Capacity     int     `json:"capacity"`
+	Capacity     int32   `json:"capacity"`
 	UsageRules   string  `json:"usage_rules"`
 	RateUnit     string  `json:"rate_unit"`
 	BasePriceCLP int64   `json:"base_price_clp"`
@@ -40,7 +40,8 @@ type Input struct {
 }
 
 func (i Input) Validate() error {
-	if strings.TrimSpace(i.Title) == "" || len([]rune(i.Title)) > 70 || len([]rune(strings.TrimSpace(i.Description))) < 100 || math.IsNaN(i.AreaM2) || math.IsInf(i.AreaM2, 0) || i.AreaM2 <= 0 || i.AreaM2 >= 100000000 || i.CategoryCode == "" || i.Capacity <= 0 || strings.TrimSpace(i.UsageRules) == "" || len([]rune(i.UsageRules)) > 250 || (i.RateUnit != "hora" && i.RateUnit != "dia" && i.RateUnit != "mes") || i.BasePriceCLP <= 5000 || strings.TrimSpace(i.Address) == "" || len([]rune(i.Address)) > 500 {
+	areaCents := i.AreaM2 * 100
+	if strings.TrimSpace(i.Title) == "" || len([]rune(i.Title)) > 70 || len([]rune(strings.TrimSpace(i.Description))) < 100 || math.IsNaN(i.AreaM2) || math.IsInf(i.AreaM2, 0) || i.AreaM2 < 0.01 || i.AreaM2 > 99999999.99 || math.Abs(areaCents-math.Round(areaCents)) > 1e-7 || i.CategoryCode == "" || i.Capacity <= 0 || strings.TrimSpace(i.UsageRules) == "" || len([]rune(i.UsageRules)) > 250 || (i.RateUnit != "hora" && i.RateUnit != "dia" && i.RateUnit != "mes") || i.BasePriceCLP <= 5000 || strings.TrimSpace(i.Address) == "" || len([]rune(i.Address)) > 500 {
 		return ErrInvalid
 	}
 	return nil

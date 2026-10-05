@@ -37,3 +37,25 @@ func TestDraftInputRequiresAllCU15FieldsAndLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestDraftAreaAndPriceMatchPostgresNumericRanges(t *testing.T) {
+	for _, area := range []float64{0.01, 99999999.99} {
+		in := validInput()
+		in.AreaM2 = area
+		if err := in.Validate(); err != nil {
+			t.Errorf("PostgreSQL numeric boundary area %v rejected: %v", area, err)
+		}
+	}
+	for _, area := range []float64{0.009, 12.345, 100000000} {
+		in := validInput()
+		in.AreaM2 = area
+		if err := in.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("out-of-range area %v err=%v", area, err)
+		}
+	}
+	in := validInput()
+	in.BasePriceCLP = int64(^uint64(0) >> 1)
+	if err := in.Validate(); err != nil {
+		t.Fatalf("max PostgreSQL bigint rejected: %v", err)
+	}
+}

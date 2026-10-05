@@ -147,7 +147,12 @@ func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 	defer r.Body.Close()
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
-	if d.Decode(dst) != nil {
+	if err := d.Decode(dst); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) && (typeErr.Field == "area_m2" || typeErr.Field == "capacity" || typeErr.Field == "base_price_clp") {
+			failure(w, 422, "validation_error", "Los límites numéricos del borrador no son válidos.")
+			return false
+		}
 		failure(w, 400, "invalid_request", "El cuerpo JSON no es válido.")
 		return false
 	}
@@ -169,7 +174,7 @@ func serviceError(w http.ResponseWriter, e error) {
 	}
 }
 func failure(w http.ResponseWriter, status int, code, msg string) {
-	write(w, status, map[string]any{"error": map[string]string{"code": code, "message": msg}})
+	write(w, status, map[string]any{"error": map[string]string{"code": code, "message": msg, "request_id": w.Header().Get("X-Request-ID")}})
 }
 func write(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

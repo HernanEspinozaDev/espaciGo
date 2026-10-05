@@ -82,8 +82,9 @@ func TestPostgresDraftCRUDIsOwnerScopedAndOnlyDrafts(t *testing.T) {
 		t.Fatalf("foreign update err=%v", err)
 	}
 	in.Title = "Oficina editada"
+	in.CategoryCode = "sala_multiproposito"
 	updated, err := repo.UpdateOwn(ctx, ownerA, created.ID, in)
-	if err != nil || updated.Title != in.Title {
+	if err != nil || updated.Title != in.Title || updated.CategoryCode != in.CategoryCode || updated.CategoryName != "Sala o espacio multipropósito" {
 		t.Fatalf("update=%v err=%v", updated, err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE public.espacio SET estado='publicado' WHERE id=$1`, created.ID); err == nil {
