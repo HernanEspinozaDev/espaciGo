@@ -1,0 +1,2 @@
+# Preserve the exact V6 byte stream/checksum already applied to espacigo_pgdata.
+db/migrations/V000006__m04_extensible_category_attributes.sql whitespace=-blank-at-eof

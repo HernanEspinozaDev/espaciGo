@@ -399,6 +399,46 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SpaceCategoryList' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /spaces/categories/{categoryCode}/attributes:
+    parameters:
+      - name: categoryCode
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getSpaceAttributeProfile
+      tags: [M04 local]
+      description: Entrega el perfil inmutable vigente que describe los campos y validaciones de la categoría.
+      responses:
+        '200':
+          description: Perfil versionado de características.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpaceAttributeProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /spaces/categories/{categoryCode}/attributes/{version}:
+    parameters:
+      - name: categoryCode
+        in: path
+        required: true
+        schema: { type: string }
+      - name: version
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      operationId: getVersionedSpaceAttributeProfile
+      tags: [M04 local]
+      description: Devuelve una versión específica e inmutable del perfil, para conservar el contrato de borradores existentes.
+      responses:
+        '200':
+          description: Perfil versionado solicitado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpaceAttributeProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /spaces:
     get:
       operationId: listOwnSpaceDrafts
@@ -536,10 +576,12 @@ components:
         rate_unit: { type: string, enum: [hora, dia, mes] }
         base_price_clp: { type: integer, minimum: 5001, maximum: 9223372036854775807 }
         address: { type: string, minLength: 1, maxLength: 500, description: Dirección privada del borrador. }
+        attribute_schema_version: { type: integer, minimum: 1, description: Versión del perfil de atributos; se asume la vigente si se omite. }
+        attributes: { type: object, maxProperties: 80, description: Valores opcionales declarados; claves y tipos se validan contra el perfil de categoría. }
     SpaceDraft:
       type: object
       additionalProperties: false
-      required: [id, category_code, category_name, title, description, area_m2, capacity, usage_rules, rate_unit, base_price_clp, address, state]
+      required: [id, category_code, category_name, title, description, area_m2, capacity, usage_rules, rate_unit, base_price_clp, address, state, attribute_schema_version, attributes]
       properties:
         id: { type: string, format: uuid }
         category_code: { type: string }
@@ -553,6 +595,32 @@ components:
         base_price_clp: { type: integer, minimum: 5001, maximum: 9223372036854775807 }
         address: { type: string, minLength: 1, maxLength: 500 }
         state: { type: string, enum: [borrador] }
+        attribute_schema_version: { type: integer, minimum: 1 }
+        attributes: { type: object, maxProperties: 80, description: Características declaradas y validadas por el perfil versionado. }
+    SpaceAttributeProfile:
+      type: object
+      additionalProperties: false
+      required: [category_code, schema_version, attributes]
+      properties:
+        category_code: { type: string }
+        schema_version: { type: integer, minimum: 1 }
+        attributes:
+          type: array
+          items:
+            type: object
+            required: [code, label, type, order, filter_candidate]
+            properties:
+              code: { type: string, pattern: '^[a-z][a-z0-9_]*$' }
+              label: { type: string }
+              description: { type: string }
+              type: { type: string, enum: [boolean, integer, number, enum, enum_list] }
+              order: { type: integer, minimum: 1 }
+              unit: { type: string }
+              options: { type: array, items: { type: string } }
+              minimum: { type: number }
+              maximum: { type: number }
+              step: { type: number }
+              filter_candidate: { type: boolean }
     SpaceDraftList:
       type: object
       required: [items]

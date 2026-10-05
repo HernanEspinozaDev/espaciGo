@@ -1,3 +1,5 @@
+import { ProfileRequestGate, profileMatchesSelection } from "./profile-request.js";
+
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
 const statusElement = document.querySelector<HTMLElement>("#api-status")!;
@@ -125,15 +127,59 @@ const spacesOutput = document.querySelector<HTMLElement>("#space-output")!;
 const spaceForm = document.querySelector<HTMLFormElement>("#space-form")!;
 const spacesList = document.querySelector<HTMLElement>("#spaces-list")!;
 let currentDraftID = "";
+type AttributeDefinition = {code:string;label:string;order:number;description?:string;type:string;unit?:string;options?:string[];minimum?:number;maximum?:number;step?:number};
+type AttributeProfile = {category_code:string;schema_version:number;attributes:AttributeDefinition[]};
+let currentProfile: AttributeProfile | null = null;
+const profileRequestGate = new ProfileRequestGate();
 async function loadSpaceCategories(): Promise<void> {
   const categoryResult = await request("/api/v1/spaces/categories", "GET", undefined, true);
   const categories = categoryResult.items as Array<{code:string;name:string}>;
   const categorySelect = document.querySelector<HTMLSelectElement>("#space-category")!;
   categorySelect.replaceChildren(new Option("Selecciona categoría", ""));
   for (const category of categories) categorySelect.add(new Option(category.name, category.code));
+  categorySelect.addEventListener("change", () => void action(async () => { await loadAttributeProfile(categorySelect.value); }));
+  if (categorySelect.value) await loadAttributeProfile(categorySelect.value);
+}
+async function loadAttributeProfile(category:string, version?:number): Promise<boolean> {
+  const requestID=profileRequestGate.begin();
+  currentProfile=null;
+  const root=document.querySelector<HTMLElement>("#space-attributes")!; root.replaceChildren();
+  if (!category) return false;
+  const versionPath=version===undefined?"":`/${version}`;
+  const profile=await request(`/api/v1/spaces/categories/${encodeURIComponent(category)}/attributes${versionPath}`,"GET",undefined,true) as AttributeProfile;
+  const selectedCategory=document.querySelector<HTMLSelectElement>("#space-category")!.value;
+  if (!profileRequestGate.accepts(requestID,category,selectedCategory) || profile.category_code!==category || profile.schema_version!==(version??profile.schema_version)) return false;
+  currentProfile=profile;
+  for (const definition of [...profile.attributes].sort((a,b)=>a.order-b.order)) {
+    const label=document.createElement("label"); label.textContent=`${definition.label}${definition.unit?` (${definition.unit})`:""}`;
+    let control: HTMLInputElement|HTMLSelectElement;
+    if (definition.type==="boolean") {
+      const select=document.createElement("select"); select.add(new Option("No declarar","")); select.add(new Option("Sí","true")); select.add(new Option("No","false")); control=select;
+    } else if (definition.type==="enum" || definition.type==="enum_list") {
+      const select=document.createElement("select"); select.add(new Option("No declarar","")); if(definition.type==="enum_list") select.multiple=true;
+      for (const option of definition.options??[]) select.add(new Option(option,option)); control=select;
+    } else {
+      const input=document.createElement("input"); input.type="number"; input.step=definition.type==="integer"?"1":String(definition.step??"any");
+      if(definition.minimum!==undefined) input.min=String(definition.minimum); if(definition.maximum!==undefined) input.max=String(definition.maximum); control=input;
+    }
+    control.name=`attribute:${definition.code}`; if(definition.description) control.title=definition.description; label.append(control); root.append(label);
+  }
+  return true;
 }
 function spaceInput(data: FormData): Record<string, unknown> {
-  return {title:data.get("title"), description:data.get("description"), area_m2:Number(data.get("area_m2")), category_code:data.get("category_code"), capacity:Number(data.get("capacity")), usage_rules:data.get("usage_rules"), rate_unit:data.get("rate_unit"), base_price_clp:Number(data.get("base_price_clp")), address:data.get("address")};
+  const selectedCategory=String(data.get("category_code")??"");
+  if (!currentProfile || !profileMatchesSelection(currentProfile.category_code,selectedCategory)) throw new Error("Espera a que cargue el perfil de la categoría seleccionada.");
+  const attributes:Record<string,unknown>={};
+  for(const definition of currentProfile?.attributes??[]) {
+    const key=`attribute:${definition.code}`, raw=data.getAll(key);
+    if(definition.type==="enum_list") { const values=raw.map(String).filter(Boolean); if(values.length) attributes[definition.code]=values; continue; }
+    const value=String(raw[0]??""); if(value==="") continue;
+    if(definition.type==="boolean") attributes[definition.code]=value==="true";
+    else if(definition.type==="integer") attributes[definition.code]=Number.parseInt(value,10);
+    else if(definition.type==="number") attributes[definition.code]=Number(value);
+    else attributes[definition.code]=value;
+  }
+  return {title:data.get("title"), description:data.get("description"), area_m2:Number(data.get("area_m2")), category_code:selectedCategory, capacity:Number(data.get("capacity")), usage_rules:data.get("usage_rules"), rate_unit:data.get("rate_unit"), base_price_clp:Number(data.get("base_price_clp")), address:data.get("address"), attribute_schema_version:currentProfile.schema_version, attributes};
 }
 async function loadSpaces(): Promise<void> {
   const result = await request("/api/v1/spaces", "GET", undefined, true);
@@ -148,6 +194,14 @@ async function loadSpaces(): Promise<void> {
       for (const key of ["title","description","area_m2","category_code","capacity","usage_rules","rate_unit","base_price_clp","address"]) {
         const field = spaceForm.elements.namedItem(key) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
         field.value = String(draft[key] ?? "");
+      }
+      const profileLoaded=await loadAttributeProfile(String(draft.category_code),Number(draft.attribute_schema_version));
+      if (!profileLoaded) throw new Error("No se pudo cargar el perfil guardado del borrador.");
+      for(const definition of currentProfile?.attributes??[]) {
+        const control=spaceForm.elements.namedItem(`attribute:${definition.code}`) as HTMLInputElement|HTMLSelectElement|null;
+        const value=(draft.attributes as Record<string,unknown>)?.[definition.code]; if(!control || value===undefined) continue;
+        if(definition.type==="enum_list" && control instanceof HTMLSelectElement) { const selected=new Set(value as string[]); for(const option of control.options) option.selected=selected.has(option.value); }
+        else control.value=definition.type==="boolean"?(value?"true":"false"):String(value);
       }
       document.querySelector<HTMLButtonElement>("#space-save")!.textContent = "Guardar cambios";
       document.querySelector<HTMLButtonElement>("#space-cancel")!.hidden = false;

@@ -19,6 +19,9 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [OpenAPI base](openapi.yaml) | OpenAPI 3.1 común con seguridad Bearer, esquemas y respuestas reutilizables. |
 | [Prototipo local M03](prototipo_local_m03.md) | KYC/KYB sintético, revisión por rol administrador y reintento local. |
 | [Decisiones M03](decisiones_m03_verificacion_local.md) | Contrato fixture, privacidad y capacidades confirmadas vs pendientes. |
+| [Referencia Realmo](referencia_realmo_categorias_y_ficha.md) | Referencia de producto para categorías, características y contenido de la ficha; propuestas para evaluar. |
+| [Decisiones M04 catálogo de atributos](decisiones_m04_catalogo_atributos.md) | Contrato implementado de V6, perfiles versionados, validación y límites del prototipo. |
+| [Catálogo extensible y atributos](catalogo_extensible_categorias_y_atributos.md) | Catálogo versionado de características para ocho categorías y trazabilidad del corte M04-ATTR-01. |
 | [Estructura lógica del backend Go](estructura_backend_go.md) | CORE-BE-01: límites de paquetes, ownership SQL, transacciones, salud y workers durables. |
 | [Plan de pruebas](pruebas.md) | Estrategia desde unitarias hasta recorridos funcionales. |
 | [Harness de DB y API](harness_pruebas.md) | Comandos por capa, fixtures sintéticos, aislamiento, migraciones, contratos y evidencia CI. |
