@@ -2,7 +2,7 @@
 
 ## Levantar y recorrer
 
-Requiere Docker Compose, Go, Node/npm y Python 3. Desde la raíz del repositorio:
+Para levantar requiere Docker Compose. Para ejecutar toda la suite localmente se requieren Go, Node/npm y Python 3. Desde la raíz del repositorio:
 
 ```sh
 scripts/dev-env.sh up -d
