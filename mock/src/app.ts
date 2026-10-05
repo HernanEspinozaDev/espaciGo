@@ -6,7 +6,7 @@ let apiBase = "";
 let sessionToken = "";
 let termIDs: string[] = [];
 
-async function request(path: string, method = "GET", body?: unknown, authenticated = false): Promise<Record<string, unknown>> {
+async function request(path: string, method = "GET", body?: unknown, authenticated = false, idempotencyKey?: string): Promise<Record<string, unknown>> {
   if (!apiBase) throw new Error("API local aún no disponible.");
   const headers: Record<string,string> = {Accept: "application/json"};
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -14,6 +14,7 @@ async function request(path: string, method = "GET", body?: unknown, authenticat
     if (!sessionToken) throw new Error("Primero inicia sesión.");
     headers.Authorization = `Bearer ${sessionToken}`;
   }
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   const endpoint = path.startsWith("/") ? `${apiBase}${path}` : `${apiBase}/api/v1/auth/${path}`;
   const response = await fetch(endpoint, {method, headers, body: body === undefined ? undefined : JSON.stringify(body), mode: "cors", cache: "no-store", credentials: "omit"});
   const data = response.status === 204 ? {} : await response.json() as Record<string,unknown> & APIError;
@@ -94,6 +95,31 @@ document.querySelector("#rights-load")!.addEventListener("click", () => void act
   const items = await request("/api/v1/rights-requests", "GET", undefined, true);
   document.querySelector<HTMLElement>("#privacy-output")!.textContent = JSON.stringify(items, null, 2);
 }));
+form("verification-form", async (data) => {
+  const item = await request("/api/v1/verifications", "POST", {type:data.get("type")}, true, crypto.randomUUID());
+  document.querySelector<HTMLElement>("#verification-output")!.textContent = JSON.stringify(item, null, 2);
+  resultElement.textContent = "Solicitud sintética creada; requiere revisión autorizada. No acredita identidad.";
+});
+document.querySelector("#verification-load")!.addEventListener("click", () => void action(async () => {
+  const items = await request("/api/v1/verifications", "GET", undefined, true);
+  document.querySelector<HTMLElement>("#verification-output")!.textContent = JSON.stringify(items, null, 2);
+}));
+form("verification-retry-form", async (data, element) => {
+  const id = String(data.get("id"));
+  const item = await request(`/api/v1/verifications/${encodeURIComponent(id)}/retry`, "POST", {corrected:data.get("corrected") === "on"}, true, crypto.randomUUID());
+  document.querySelector<HTMLElement>("#verification-output")!.textContent = JSON.stringify(item, null, 2);
+  element.reset(); resultElement.textContent = "Reintento fixture creado y en revisión.";
+});
+document.querySelector("#review-load")!.addEventListener("click", () => void action(async () => {
+  const items = await request("/api/v1/admin/verifications", "GET", undefined, true);
+  document.querySelector<HTMLElement>("#review-output")!.textContent = JSON.stringify(items, null, 2);
+}));
+form("review-form", async (data, element) => {
+  const id = String(data.get("id")), decision = String(data.get("decision"));
+  const item = await request(`/api/v1/admin/verifications/${encodeURIComponent(id)}/review`, "POST", {decision, reason_code:data.get("reason_code")}, true);
+  document.querySelector<HTMLElement>("#review-output")!.textContent = JSON.stringify(item, null, 2);
+  element.reset(); resultElement.textContent = "Revisión fixture registrada.";
+});
 async function initialize(): Promise<void> {
   try {
     const config = await (await fetch("/config.json", {cache: "no-store"})).json() as MockConfig;

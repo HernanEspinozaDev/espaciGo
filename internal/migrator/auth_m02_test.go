@@ -13,7 +13,7 @@ func TestM02MigrationAddsOwnerScopedProfileAndRightsWithoutCascade(t *testing.T)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(first.Applied) != 2 || first.Applied[0] != 1 || first.Applied[1] != 2 {
+		if len(first.Applied) != 4 || first.Applied[0] != 1 || first.Applied[1] != 2 || first.Applied[2] != 3 || first.Applied[3] != 4 {
 			t.Fatalf("applied versions=%v", first.Applied)
 		}
 		second, err := Run(ctx, databaseURL, dir)
@@ -47,7 +47,7 @@ func TestM02MigrationAddsOwnerScopedProfileAndRightsWithoutCascade(t *testing.T)
 		if err := conn.QueryRow(ctx, "SELECT count(*) FROM public.schema_migrations").Scan(&migrationRows); err != nil {
 			t.Fatal(err)
 		}
-		if migrationRows != 2 {
+		if migrationRows != 4 {
 			t.Fatalf("migration history rows=%d", migrationRows)
 		}
 	})
