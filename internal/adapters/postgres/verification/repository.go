@@ -96,17 +96,8 @@ func (r *Repository) Retry(ctx context.Context, owner, priorID string, item veri
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	queries := r.queries.WithTx(tx)
 
-	// The same owner/key pair returns the first response even after the original request commits.
-	existing, err := queries.GetVerificationByIdempotency(ctx, dbgen.GetVerificationByIdempotencyParams{OwnerID: owner, IdempotencyKey: item.Idempotency})
-	if err == nil {
-		if err := tx.Commit(ctx); err != nil {
-			return verification.Case{}, mapDBError(err)
-		}
-		return fromIdempotency(existing), nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return verification.Case{}, mapDBError(err)
-	}
+	// Serialize retries for this case before checking the key. A concurrent retry
+	// may have passed its first idempotency check while waiting on this row lock.
 	prior, err := queries.LockPriorVerificationForRetry(ctx, dbgen.LockPriorVerificationForRetryParams{ID: priorID, OwnerID: owner})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return verification.Case{}, verification.ErrNotFound
@@ -116,6 +107,21 @@ func (r *Repository) Retry(ctx context.Context, owner, priorID string, item veri
 	}
 	if prior.State != "rechazada" {
 		return verification.Case{}, verification.ErrConflict
+	}
+	// Recheck after acquiring the parent lock so same-case requests that raced
+	// on the initial lookup return the one row committed by the first request.
+	existing, err := queries.GetVerificationByIdempotency(ctx, dbgen.GetVerificationByIdempotencyParams{OwnerID: owner, IdempotencyKey: item.Idempotency})
+	if err == nil {
+		if retryParent(existing.RetryOf) != priorID {
+			return verification.Case{}, verification.ErrConflict
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return verification.Case{}, mapDBError(err)
+		}
+		return fromIdempotency(existing), nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return verification.Case{}, mapDBError(err)
 	}
 	row, err := queries.CreateVerificationRetry(ctx, dbgen.CreateVerificationRetryParams{
 		ID: item.ID, OwnerID: owner, Type: prior.Type, EvidenceRef: item.EvidenceRef,

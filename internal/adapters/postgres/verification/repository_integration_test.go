@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -94,5 +95,86 @@ func TestVerificationRepositoryOwnershipIdempotencyReviewAndRetry(t *testing.T) 
 	again, err := r.Retry(ctx, owner, created.ID, retry)
 	if err != nil || again.ID != newCase.ID {
 		t.Fatalf("idempotent retry=%+v err=%v", again, err)
+	}
+
+	// Two requests for the same owner, rejected case, and key can both pass an
+	// initial lookup before either inserts. They must converge on one retry row.
+	raceParent, err := r.Create(ctx, verification.Case{
+		ID: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", OwnerID: owner, Type: "kyb",
+		State: "en_revision", Provider: "local-fixture-v1",
+		EvidenceRef: "fixture:ffffffff-ffff-4fff-8fff-ffffffffffff",
+		Idempotency: "kyb-race-parent-0001", CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Review(ctx, raceParent.ID, reviewer, false, "antecedentes_incompletos"); err != nil {
+		t.Fatal(err)
+	}
+	const concurrentKey = "kyb-retry-race-0001"
+	start := make(chan struct{})
+	results := make(chan verification.Case, 2)
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for _, id := range []string{
+		"88888888-8888-4888-8888-888888888888",
+		"99999999-9999-4999-8999-999999999999",
+	} {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			<-start
+			result, retryErr := r.Retry(ctx, owner, raceParent.ID, verification.Case{
+				ID: id, OwnerID: owner, Provider: "local-fixture-v1",
+				EvidenceRef: "fixture:" + id, State: "en_revision",
+				Idempotency: concurrentKey, CreatedAt: time.Now().UTC(),
+			})
+			results <- result
+			errs <- retryErr
+		}(id)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+	var retryIDs []string
+	for result := range results {
+		retryIDs = append(retryIDs, result.ID)
+	}
+	for retryErr := range errs {
+		if retryErr != nil {
+			t.Fatalf("concurrent retry err=%v", retryErr)
+		}
+	}
+	if len(retryIDs) != 2 || retryIDs[0] == "" || retryIDs[0] != retryIDs[1] {
+		t.Fatalf("concurrent retry IDs=%v; want same non-empty case", retryIDs)
+	}
+	var retryCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM public.verificacion WHERE usuario_id=$1 AND reintento_de=$2::text::uuid AND clave_idempotencia=$3`, owner, raceParent.ID, concurrentKey).Scan(&retryCount); err != nil {
+		t.Fatal(err)
+	}
+	if retryCount != 1 {
+		t.Fatalf("concurrent retry rows=%d; want exactly one", retryCount)
+	}
+
+	// Reusing the same owner/key for a different parent remains a conflict.
+	otherCase, err := r.Create(ctx, verification.Case{
+		ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab", OwnerID: owner, Type: "kyb",
+		State: "en_revision", Provider: "local-fixture-v1",
+		EvidenceRef: "fixture:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc",
+		Idempotency: "kyb-request-0002", CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Review(ctx, otherCase.ID, reviewer, false, "antecedentes_incompletos"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Retry(ctx, owner, otherCase.ID, verification.Case{
+		ID: "cccccccc-cccc-4ccc-8ccc-cccccccccccd", OwnerID: owner,
+		EvidenceRef: "fixture:dddddddd-dddd-4ddd-8ddd-ddddddddddde",
+		State:       "en_revision", Idempotency: concurrentKey, CreatedAt: now,
+	}); err != verification.ErrConflict {
+		t.Fatalf("incompatible retry key reuse err=%v; want conflict", err)
 	}
 }
