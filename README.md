@@ -40,3 +40,7 @@ El proyecto opera 100% online mediante una arquitectura **Cloud-Native** orienta
 
 ---
 *Proyecto de Título (TIH184) - INACAP - Septiembre 2026*
+
+## Desarrollo y planificación vigentes
+
+Este README conserva la descripción académica original. La autoridad actual para requisitos, arquitectura, orden de capas y ejecución está en [`planning/README.md`](planning/README.md) y [`planning/contexto_para_agentes.md`](planning/contexto_para_agentes.md). El backlog operativo se migró a GitHub Issues y al Project `EspaciGo — Desarrollo`; consulta [`planning/migracion_github_projects.md`](planning/migracion_github_projects.md) y [`planning/ejecucion_con_github_projects.md`](planning/ejecucion_con_github_projects.md). Este puntero no ratifica ni amplía requisitos del producto.

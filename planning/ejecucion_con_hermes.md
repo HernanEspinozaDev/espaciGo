@@ -1,5 +1,7 @@
 # Guía para ejecutar el backlog con Hermes
 
+> **Guía histórica.** Desde 2026-10-05 el trabajo operativo continúa en [GitHub Projects](ejecucion_con_github_projects.md). El tablero Hermes `espacigo` se archivó mediante el mecanismo soportado y se conserva como histórico; no reinicies su dispatcher ni asignes/ejecutes tarjetas allí. Esta guía permanece solo para interpretar los registros previos.
+
 ## ¿Le basta el plan actual a un agente sin acceso a Informes?
 
 **El backlog solo, no.** Tiene IDs RQF/CU/HU y acceptance criteria resumidos, pero las fichas completas y varios límites están en ES1/ES2. Darle únicamente `backlog.md` haría que el agente rellene vacíos por inferencia. Para resolverlo, este repositorio incluye snapshots de los anexos completos en [`referencias/`](referencias/README.md), además del contexto operativo. Así Hermes no necesita leer el repositorio hermano `Informes/` para entender los requisitos de producto y arquitectura que gobiernan estas tareas.
@@ -57,8 +59,9 @@ El coordinador adapta el prompt al perfil Developer, Tester o Reviewer y proporc
 
 ## Estado y trazabilidad
 
-- `backlog.md` es el log de planificación versionado; Hermes representa el estado de ejecución cuando se configure el tablero.
-- Al importar, conservar IDs, tipos, dependencias, aceptación y estado inicial. No crear tarjeta genérica que reemplace estos criterios.
+- `backlog.md` conserva alcance y trazabilidad; sus estados son históricos. El registro operativo vigente es GitHub Issues + Project, con mapeo en `planning/github_issue_map.csv`.
+- Los IDs, tipos, criterios, referencias y dependencias originales se conservan en Issues. No crear tarjetas duplicadas ni reemplazar estos criterios.
+- Hermes Kanban es solo archivo histórico. No arrancar dispatchers, workers ni automatizaciones para `espacigo`; el tablero fue excluido del conjunto activo mediante archivado soportado.
 - Cada PR/entrega enlaza ID del ticket y RQF/CU/HU tocados. Cada migración referencia ticket y decisión de modelo.
 - Actualizar el backlog cuando cambien alcance/dependencias. Mantener hallazgos y pendientes externos en documentos de planificación del repo, con fecha/evidencia.
 - No entregar secretos/PII en contexto de agente. Usar fixture sintética y sandbox.

@@ -1,6 +1,6 @@
 # Backlog técnico Kanban — registro fuente
 
-Este archivo es el registro fuente de 103 tarjetas del tablero Hermes Kanban local `espacigo`. Cada tarjeta es una unidad revisable; el estado se recalcula con dependencias y evidencia. Corte: 2026-10-04. No hay responsables humanos ni fechas asignados.
+Este archivo conserva el alcance y la trazabilidad de las 103 tarjetas originales de Hermes Kanban. Cada tarjeta es una unidad revisable; el estado se recalcula con dependencias y evidencia. Corte histórico: 2026-10-04. Desde 2026-10-05, el registro operativo es GitHub Issues + Project e incluye la recuperación `t_112e6827` como tarjeta 104; los estados de las secciones siguientes son snapshots y no deben usarse para asignar trabajo. Consulta [la migración](migracion_github_projects.md), [la guía de ejecución](ejecucion_con_github_projects.md) y la [correspondencia](github_issue_map.csv). No hay responsables humanos ni fechas asignados.
 
 ## Distribución
 

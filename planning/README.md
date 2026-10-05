@@ -10,7 +10,7 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | --- | --- |
 | [Visión y módulos](vision_y_modulos.md) | Problema, alcance del producto, módulos y trazabilidad ES1/ES2. |
 | [Contexto para agentes](contexto_para_agentes.md) | Decisiones, invariantes y precedencia de fuentes sin depender de Informes. |
-| [Ejecución con Hermes](ejecucion_con_hermes.md) | Cómo cargar contexto, asignar tarjetas y separar Developer/Tester/Reviewer. |
+| [Ejecución con Hermes](ejecucion_con_hermes.md) | Guía histórica del board Hermes archivado; no usar para asignar ni despachar trabajo. |
 | [Entorno de desarrollo](entorno_de_desarrollo.md) | Contexto de herramientas disponibles, separado de los requisitos del producto. |
 | [Plan de Base de Datos](base_de_datos.md) | Modelo global, límites por módulo, secuencia y reglas de migración. |
 | [Entorno local aislado](entorno_local_aislado.md) | CORE-ENV-01: topología y contrato database/backend/mock, redes, readiness, configuración, DB de test, CORS y checklist. |
@@ -25,10 +25,13 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [Decisiones M01 de identidad](decisiones_m01_identidad_sesion.md) | Autorización ratificada de correo, sesiones y tokens; trazabilidad ES1/ES2 y brechas DB02-09 abiertas. |
 | [Invariantes de identidad, cuenta y sesión](invariantes_identidad_sesion.md) | AUTH-ARCH-01: flujos, estados, amenazas y reglas M01 ratificadas. |
 | [Grafo de dependencias](grafo_dependencias.md) | Orden, dependencias transversales y conteo del backlog. |
-| [Backlog Kanban](backlog.md) | Registro completo de tarjetas con alcance, trazabilidad y aceptación. |
+| [Backlog Kanban](backlog.md) | Alcance/trazabilidad de las 103 tarjetas originales; estados históricos, no operativos. |
+| [Migración a GitHub Projects](migracion_github_projects.md) | Reconciliación del snapshot Hermes, Issues, estados, dependencias, archivadas y respaldo portable. |
+| [Ejecución en GitHub Projects](ejecucion_con_github_projects.md) | Flujo seguro de trabajo desde el PC local; gates y comandos de verificación. |
+| [Correspondencia Hermes–GitHub](github_issue_map.csv) | Tabla estable de las 104 IDs Hermes con Issue, Project, estado y relaciones. |
 | [Referencias](referencias/README.md) | Snapshots de ES1/ES2 para agentes sin acceso al repositorio académico. |
 
-`backlog.md` es el registro fuente de las 103 tarjetas del tablero Hermes Kanban local `espacigo`; la sección de estado documenta las diferencias de estado y sus gates. No se debe inferir que el tablero sea un servicio externo ni que se haya probado cada canal de notificación por el solo hecho de registrar estados.
+`backlog.md` conserva el alcance y la trazabilidad de las 103 tarjetas originales; sus estados y conteos anteriores son snapshots históricos, no el tablero operativo actual. La recuperación `t_112e6827` es la tarjeta 104. El registro operativo está en GitHub Issues + Project `EspaciGo — Desarrollo` (104 elementos, dependencias nativas de GitHub); usa [migracion_github_projects.md](migracion_github_projects.md) y [github_issue_map.csv](github_issue_map.csv) para la conciliación al 2026-10-05. Hermes Kanban queda archivado como histórico y fuera del dispatcher activo.
 
 ## Fuentes de autoridad
 
@@ -37,7 +40,7 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 3. ES1 cerrada: anexos A–E con módulos, 236 RQF, 43 RNF, 52 CU y 35 HU. ES1 se consulta como línea base; no se modifica.
 4. `espaciGo/README.md` solo como descripción del repositorio, no como autoridad cuando contradiga las decisiones posteriores.
 
-## Estado inicial
+## Estado inicial (registro histórico)
 
 La inspección inicial de `espaciGo/` encontró el README y el archivo de instrucciones; entonces no se encontró implementación de aplicación, esquema físico, migraciones, API, compose ni tablero Kanban. Posteriormente el backlog se importó al tablero local Hermes `espacigo`. Al 2026-10-01, `PLAN-ARCH-01` está `done`, `CORE-ARCH-01` en `review` y las tarjetas posteriores siguen pendientes según sus dependencias; esto no es evidencia de implementación.
 
