@@ -1,6 +1,6 @@
 # Prototipo local M01 — registro, verificación y sesión
 
-Entrega en PR [#124](https://github.com/HernanEspinozaDev/espaciGo/pull/124), misma rama `codex/auth-be-02-registration-session`. Conserva AUTH-BE-02 y añade integración AUTH-API-01 (#32), pruebas del corte (#34) y mock del corte (#35). Hito [M01](https://github.com/HernanEspinozaDev/espaciGo/milestone/1). No completa recuperación/cambio de credenciales ni toda la aceptación de M01.
+Entrega en PR [#124](https://github.com/HernanEspinozaDev/espaciGo/pull/124), misma rama `codex/auth-be-02-registration-session`. Conserva AUTH-BE-02 y añade integración AUTH-API-01 (#32), pruebas del corte (#34) y mock del corte (#35). Hito [M01](https://github.com/HernanEspinozaDev/espaciGo/milestone/1). La secuencia nativa de #34 conserva #24 como base satisfecha y retira #32 (implementada en la misma rama) y #33 (recuperación del siguiente corte); #35 conserva #25 como base satisfecha y deja de bloquearse por #34, cuyo flujo parcial ya está integrado y probado. Las referencias/dependencias y aceptación originales siguen visibles en cada Issue. No completa recuperación/cambio de credenciales ni toda la aceptación de M01.
 
 ## Levantar y recorrer
 
