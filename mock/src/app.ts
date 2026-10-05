@@ -1,41 +1,76 @@
-interface MockConfig {
-  apiReadyURL: string;
-}
+interface MockConfig { apiReadyURL: string; }
+interface APIError { error?: { code: string; message: string; request_id: string }; }
+const statusElement = document.querySelector<HTMLElement>("#api-status")!;
+const resultElement = document.querySelector<HTMLElement>("#result")!;
+let apiBase = "";
+let sessionToken = "";
+let termIDs: string[] = [];
 
-interface ReadinessResponse {
-  status?: string;
-}
-
-const statusElement = document.querySelector<HTMLElement>("#api-status");
-
-async function showReadiness(): Promise<void> {
-  if (!statusElement) {
-    return;
+async function request(path: string, method = "GET", body?: unknown, authenticated = false): Promise<Record<string, unknown>> {
+  if (!apiBase) throw new Error("API local aún no disponible.");
+  const headers: Record<string,string> = {Accept: "application/json"};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (authenticated) {
+    if (!sessionToken) throw new Error("Primero inicia sesión.");
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
-
+  const response = await fetch(`${apiBase}/api/v1/auth/${path}`, {method, headers, body: body === undefined ? undefined : JSON.stringify(body), mode: "cors", cache: "no-store", credentials: "omit"});
+  const data = response.status === 204 ? {} : await response.json() as Record<string,unknown> & APIError;
+  if (!response.ok) {
+    if (response.status === 401 && authenticated) sessionToken = "";
+    const error = data as APIError;
+    throw new Error(`${error.error?.message ?? "Error de API"} (HTTP ${response.status}, ${error.error?.code ?? "unknown"})`);
+  }
+  return data;
+}
+async function action(work: () => Promise<void>): Promise<void> {
+  const buttons = document.querySelectorAll<HTMLButtonElement>("button");
+  buttons.forEach(button => button.disabled = true);
+  try { await work(); } catch (error) { resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API."; }
+  finally { buttons.forEach(button => button.disabled = false); }
+}
+function form(id: string, work: (data: FormData, element: HTMLFormElement) => Promise<void>): void {
+  const element = document.querySelector<HTMLFormElement>(`#${id}`)!;
+  element.addEventListener("submit", event => { event.preventDefault(); void action(() => work(new FormData(element), element)); });
+}
+form("register-form", async (data, element) => {
+  if (!termIDs.length || !data.get("terms")) throw new Error("Debes aceptar los términos de prueba.");
+  const response = await request("register", "POST", {email: data.get("email"), password: data.get("password"), terms_version_ids: termIDs});
+  element.querySelector<HTMLInputElement>('[name="password"]')!.value = "";
+  resultElement.textContent = response.status === "verification_pending" ? String(response.message) : "Cuenta creada. Abre el buzón de desarrollo para verificar el correo.";
+});
+form("verify-form", async (data, element) => {
+  await request("verification", "POST", {token_id: data.get("token_id"), token: data.get("token")});
+  element.reset(); resultElement.textContent = "Correo verificado. Ya puedes iniciar sesión.";
+});
+form("reissue-form", async data => { await request("verification/reissue", "POST", {email: data.get("email")}); resultElement.textContent = "Verificación reenviada al buzón local; el token anterior queda invalidado."; });
+form("login-form", async (data, element) => {
+  const response = await request("login", "POST", {email: data.get("email"), password: data.get("password")});
+  sessionToken = String(response.access_token); element.querySelector<HTMLInputElement>('[name="password"]')!.value = "";
+  resultElement.textContent = "Sesión iniciada. Puedes consultarla o cerrarla.";
+});
+document.querySelector("#session-button")!.addEventListener("click", () => void action(async () => {
+  const response = await request("session", "GET", undefined, true);
+  document.querySelector("#session-output")!.textContent = JSON.stringify(response, null, 2);
+  resultElement.textContent = "Sesión válida; estado y roles comprobados por la API.";
+}));
+document.querySelector("#logout-button")!.addEventListener("click", () => void action(async () => {
+  await request("logout", "POST", undefined, true); sessionToken = "";
+  document.querySelector("#session-output")!.textContent = "Sesión cerrada."; resultElement.textContent = "Logout completado. La credencial anterior queda revocada.";
+}));
+async function initialize(): Promise<void> {
   try {
-    const configResponse = await fetch("/config.json", { cache: "no-store" });
-    if (!configResponse.ok) {
-      throw new Error("configuration unavailable");
-    }
-    const config = (await configResponse.json()) as MockConfig;
+    const config = await (await fetch("/config.json", {cache: "no-store"})).json() as MockConfig;
     const readyURL = new URL(config.apiReadyURL);
-    if (readyURL.protocol !== "http:" && readyURL.protocol !== "https:") {
-      throw new Error("unsupported API URL");
-    }
-
-    const response = await fetch(readyURL, {
-      headers: { Accept: "application/json" },
-      mode: "cors",
-      cache: "no-store",
-    });
-    const readiness = (await response.json()) as ReadinessResponse;
-    statusElement.textContent = response.ok && readiness.status === "ready"
-      ? "API y PostgreSQL listos."
-      : `API o PostgreSQL no disponible (HTTP ${response.status}).`;
-  } catch {
-    statusElement.textContent = "No se pudo comprobar la API local.";
-  }
+    if (readyURL.protocol !== "http:" && readyURL.protocol !== "https:") throw new Error("URL no admitida");
+    apiBase = readyURL.origin;
+    const ready = await fetch(readyURL, {cache: "no-store", mode: "cors"});
+    if (!ready.ok) throw new Error("API no disponible");
+    const terms = await request("terms");
+    const items = terms.items as Array<{id:string;code:string;type:string}>;
+    termIDs = items.filter(item => item.type === "terminos").map(item => item.id);
+    document.querySelector("#terms-version")!.textContent = items.map(item => `${item.type}: ${item.code}`).join(" · ");
+    statusElement.textContent = "API y PostgreSQL listos.";
+  } catch { statusElement.textContent = "No se pudo comprobar la API local; revisa el entorno y recarga."; }
 }
-
-void showReadiness();
+void initialize();

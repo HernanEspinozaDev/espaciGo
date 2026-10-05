@@ -288,6 +288,30 @@ func (q *Queries) GetAccountByNormalizedEmail(ctx context.Context, normalizedEma
 	return i, err
 }
 
+const getAccountRoles = `-- name: GetAccountRoles :many
+SELECT rol FROM public.rol_usuario WHERE usuario_id = $1 ORDER BY rol
+`
+
+func (q *Queries) GetAccountRoles(ctx context.Context, accountID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, getAccountRoles, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var rol string
+		if err := rows.Scan(&rol); err != nil {
+			return nil, err
+		}
+		items = append(items, rol)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getActionTokenByHash = `-- name: GetActionTokenByHash :one
 SELECT
     id::text AS id,
@@ -408,6 +432,42 @@ func (q *Queries) GetTermsVersion(ctx context.Context, id string) (GetTermsVersi
 	return i, err
 }
 
+const getVerificationTokenByID = `-- name: GetVerificationTokenByID :one
+SELECT id::text AS id, usuario_id::text AS account_id, proposito AS purpose,
+    token_hash, creado_en AS created_at, expira_en AS expires_at,
+    consumido_en AS consumed_at, invalidado_en AS invalidated_at, intentos AS attempts
+FROM public.token_accion WHERE id = $1 AND proposito = 'verificar_correo'
+`
+
+type GetVerificationTokenByIDRow struct {
+	ID            string             `json:"id"`
+	AccountID     string             `json:"account_id"`
+	Purpose       string             `json:"purpose"`
+	TokenHash     string             `json:"token_hash"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
+	ConsumedAt    pgtype.Timestamptz `json:"consumed_at"`
+	InvalidatedAt pgtype.Timestamptz `json:"invalidated_at"`
+	Attempts      int32              `json:"attempts"`
+}
+
+func (q *Queries) GetVerificationTokenByID(ctx context.Context, id string) (GetVerificationTokenByIDRow, error) {
+	row := q.db.QueryRow(ctx, getVerificationTokenByID, id)
+	var i GetVerificationTokenByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.Purpose,
+		&i.TokenHash,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.InvalidatedAt,
+		&i.Attempts,
+	)
+	return i, err
+}
+
 const invalidateActiveActionTokens = `-- name: InvalidateActiveActionTokens :execrows
 UPDATE public.token_accion
 SET invalidado_en = $1
@@ -431,6 +491,123 @@ func (q *Queries) InvalidateActiveActionTokens(ctx context.Context, arg Invalida
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const lockAccountByEmail = `-- name: LockAccountByEmail :one
+SELECT id::text AS id, correo_original AS email, correo_normalizado AS normalized_email,
+    hash_clave AS password_hash, estado AS state, creado_en AS created_at,
+    actualizado_en AS updated_at, intentos_fallidos_consecutivos AS failed_attempts,
+    bloqueado_hasta AS blocked_until
+FROM public.usuario
+WHERE correo_normalizado = $1
+FOR UPDATE
+`
+
+type LockAccountByEmailRow struct {
+	ID              string             `json:"id"`
+	Email           string             `json:"email"`
+	NormalizedEmail string             `json:"normalized_email"`
+	PasswordHash    string             `json:"password_hash"`
+	State           string             `json:"state"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	FailedAttempts  int32              `json:"failed_attempts"`
+	BlockedUntil    pgtype.Timestamptz `json:"blocked_until"`
+}
+
+func (q *Queries) LockAccountByEmail(ctx context.Context, normalizedEmail string) (LockAccountByEmailRow, error) {
+	row := q.db.QueryRow(ctx, lockAccountByEmail, normalizedEmail)
+	var i LockAccountByEmailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.NormalizedEmail,
+		&i.PasswordHash,
+		&i.State,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FailedAttempts,
+		&i.BlockedUntil,
+	)
+	return i, err
+}
+
+const lockAccountBySessionHash = `-- name: LockAccountBySessionHash :one
+SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
+    u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
+    u.actualizado_en AS updated_at, u.intentos_fallidos_consecutivos AS failed_attempts,
+    u.bloqueado_hasta AS blocked_until
+FROM public.usuario u JOIN public.sesion s ON s.usuario_id = u.id
+WHERE s.token_hash = $1
+FOR UPDATE OF u
+`
+
+type LockAccountBySessionHashRow struct {
+	ID              string             `json:"id"`
+	Email           string             `json:"email"`
+	NormalizedEmail string             `json:"normalized_email"`
+	PasswordHash    string             `json:"password_hash"`
+	State           string             `json:"state"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	FailedAttempts  int32              `json:"failed_attempts"`
+	BlockedUntil    pgtype.Timestamptz `json:"blocked_until"`
+}
+
+func (q *Queries) LockAccountBySessionHash(ctx context.Context, tokenHash string) (LockAccountBySessionHashRow, error) {
+	row := q.db.QueryRow(ctx, lockAccountBySessionHash, tokenHash)
+	var i LockAccountBySessionHashRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.NormalizedEmail,
+		&i.PasswordHash,
+		&i.State,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FailedAttempts,
+		&i.BlockedUntil,
+	)
+	return i, err
+}
+
+const lockAccountByVerificationID = `-- name: LockAccountByVerificationID :one
+SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
+    u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
+    u.actualizado_en AS updated_at, u.intentos_fallidos_consecutivos AS failed_attempts,
+    u.bloqueado_hasta AS blocked_until
+FROM public.usuario u JOIN public.token_accion t ON t.usuario_id = u.id
+WHERE t.id = $1 AND t.proposito = 'verificar_correo'
+FOR UPDATE OF u
+`
+
+type LockAccountByVerificationIDRow struct {
+	ID              string             `json:"id"`
+	Email           string             `json:"email"`
+	NormalizedEmail string             `json:"normalized_email"`
+	PasswordHash    string             `json:"password_hash"`
+	State           string             `json:"state"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	FailedAttempts  int32              `json:"failed_attempts"`
+	BlockedUntil    pgtype.Timestamptz `json:"blocked_until"`
+}
+
+func (q *Queries) LockAccountByVerificationID(ctx context.Context, tokenID string) (LockAccountByVerificationIDRow, error) {
+	row := q.db.QueryRow(ctx, lockAccountByVerificationID, tokenID)
+	var i LockAccountByVerificationIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.NormalizedEmail,
+		&i.PasswordHash,
+		&i.State,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FailedAttempts,
+		&i.BlockedUntil,
+	)
+	return i, err
 }
 
 const lockAccountForActionToken = `-- name: LockAccountForActionToken :one

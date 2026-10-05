@@ -169,3 +169,39 @@ FROM public.token_accion
 WHERE usuario_id = sqlc.arg(account_id)
   AND proposito = sqlc.arg(purpose)
   AND creado_en >= sqlc.arg(since);
+
+-- name: LockAccountByEmail :one
+SELECT id::text AS id, correo_original AS email, correo_normalizado AS normalized_email,
+    hash_clave AS password_hash, estado AS state, creado_en AS created_at,
+    actualizado_en AS updated_at, intentos_fallidos_consecutivos AS failed_attempts,
+    bloqueado_hasta AS blocked_until
+FROM public.usuario
+WHERE correo_normalizado = sqlc.arg(normalized_email)
+FOR UPDATE;
+
+-- name: LockAccountByVerificationID :one
+SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
+    u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
+    u.actualizado_en AS updated_at, u.intentos_fallidos_consecutivos AS failed_attempts,
+    u.bloqueado_hasta AS blocked_until
+FROM public.usuario u JOIN public.token_accion t ON t.usuario_id = u.id
+WHERE t.id = sqlc.arg(token_id) AND t.proposito = 'verificar_correo'
+FOR UPDATE OF u;
+
+-- name: LockAccountBySessionHash :one
+SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
+    u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
+    u.actualizado_en AS updated_at, u.intentos_fallidos_consecutivos AS failed_attempts,
+    u.bloqueado_hasta AS blocked_until
+FROM public.usuario u JOIN public.sesion s ON s.usuario_id = u.id
+WHERE s.token_hash = sqlc.arg(token_hash)
+FOR UPDATE OF u;
+
+-- name: GetAccountRoles :many
+SELECT rol FROM public.rol_usuario WHERE usuario_id = sqlc.arg(account_id) ORDER BY rol;
+
+-- name: GetVerificationTokenByID :one
+SELECT id::text AS id, usuario_id::text AS account_id, proposito AS purpose,
+    token_hash, creado_en AS created_at, expira_en AS expires_at,
+    consumido_en AS consumed_at, invalidado_en AS invalidated_at, intentos AS attempts
+FROM public.token_accion WHERE id = sqlc.arg(id) AND proposito = 'verificar_correo';

@@ -25,6 +25,42 @@ services:
       retries: 20
       start_period: 10s
 
+  migrate:
+    image: espacigo-local-api:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    entrypoint: ["/api", "migrate"]
+    user: "${LOCAL_UID:?run scripts/dev-env.sh}:${LOCAL_GID:?run scripts/dev-env.sh}"
+    environment:
+      LOCAL_AUTH_PROTOTYPE: "1"
+      DATABASE_HOST: database
+      DATABASE_NAME: espacigo_local
+      DATABASE_USER: espacigo_admin
+      DATABASE_PASSWORD_FILE: /run/secrets/db_admin_password
+    secrets:
+      - db_admin_password
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - data
+    restart: "no"
+
+  mailpit:
+    image: axllent/mailpit:v1.31.4@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48
+    environment:
+      MP_MAX_MESSAGES: "100"
+      MP_DATABASE: /data/mailpit.db
+    tmpfs:
+      - /data
+    ports:
+      - "127.0.0.1:8025:8025"
+    networks:
+      mail:
+        aliases: [mailpit]
+
   backend:
     image: espacigo-local-api:dev
     build:
@@ -35,6 +71,9 @@ services:
     restart: unless-stopped
     environment:
       HTTP_ADDR: ":8080"
+      LOCAL_AUTH_PROTOTYPE: "1"
+      LOCAL_SMTP_ADDR: mailpit:1025
+      LOCAL_VERIFICATION_IP_LIMIT: "${LOCAL_VERIFICATION_IP_LIMIT:-20}"
       DATABASE_HOST: database
       DATABASE_PORT: "5432"
       DATABASE_NAME: espacigo_local
@@ -46,11 +85,16 @@ services:
     depends_on:
       database:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
     ports:
       - "127.0.0.1:8080:8080"
     networks:
       - api
       - data
+      - mail
     healthcheck:
       test: ["CMD", "/api", "check"]
       interval: 5s
@@ -95,6 +139,8 @@ services:
 
 networks:
   api:
+    driver: bridge
+  mail:
     driver: bridge
   data:
     driver: bridge

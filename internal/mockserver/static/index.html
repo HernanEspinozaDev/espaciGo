@@ -1,17 +1,37 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>EspaciGo · entorno local</title>
-  <link rel="stylesheet" href="/styles.css">
-  <script type="module" src="/app.js"></script>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EspaciGo · prototipo local M01</title>
+  <link rel="stylesheet" href="/styles.css"><script type="module" src="/app.js"></script>
 </head>
-<body>
-  <main>
-    <h1>EspaciGo · entorno local</h1>
-    <p>Mock técnico para comprobar el backend local. No contiene flujos de producto.</p>
-    <p id="api-status" role="status" aria-live="polite">Comprobando API y base de datos…</p>
-  </main>
-</body>
-</html>
+<body><main>
+  <h1>EspaciGo · cuenta y sesión</h1>
+  <p>Prototipo local. Usa datos sintéticos. Los términos son fixtures de prueba; la preferencia de uso sigue pendiente.</p>
+  <p id="api-status" role="status" aria-live="polite">Comprobando API y base de datos…</p>
+  <section><h2>1. Registrar cuenta</h2>
+    <form id="register-form"><label>Correo <input name="email" type="email" required autocomplete="email"></label>
+      <label>Contraseña <input name="password" type="password" required minlength="8" maxlength="72" autocomplete="new-password"></label>
+      <p>Al menos 8 caracteres, una mayúscula, un número y un carácter especial; máximo técnico 72 bytes.</p>
+      <label><input name="terms" type="checkbox" required> Acepto la versión sintética de términos mostrada abajo (solo prueba).</label>
+      <p id="terms-version">Cargando versión…</p><button>Registrar</button>
+    </form>
+  </section>
+  <section><h2>2. Verificar correo</h2>
+    <p>Abre el <a href="http://127.0.0.1:8025" target="_blank" rel="noopener noreferrer">buzón de desarrollo</a>. Copia Token ID y Token del mensaje de verificación. No se envía correo a Internet.</p>
+    <form id="verify-form"><label>Token ID <input name="token_id" required autocomplete="off"></label>
+      <label>Token <input name="token" type="password" required autocomplete="off"></label><button>Verificar correo</button></form>
+    <form id="reissue-form"><label>Correo para reenvío <input name="email" type="email" required></label><button>Reenviar verificación</button></form>
+  </section>
+  <section><h2>3. Iniciar sesión</h2>
+    <form id="login-form"><label>Correo <input name="email" type="email" required autocomplete="email"></label>
+      <label>Contraseña <input name="password" type="password" required autocomplete="current-password"></label><button>Iniciar sesión</button></form>
+  </section>
+  <section><h2>4. Consultar y cerrar sesión</h2>
+    <p>La credencial se mantiene en memoria y se pierde al recargar. Consultar sesión no prolonga la inactividad.</p>
+    <button id="session-button" type="button">Consultar sesión</button> <button id="logout-button" type="button">Cerrar sesión</button>
+    <pre id="session-output">Sin sesión consultada.</pre>
+  </section>
+  <p id="result" role="status" aria-live="polite">Completa los pasos en orden.</p>
+  <p>Recuperación y cambio de credenciales quedan para el siguiente corte. No es el frontend definitivo.</p>
+</main></body></html>

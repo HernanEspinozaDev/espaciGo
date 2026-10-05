@@ -47,12 +47,13 @@ PY
 
 usage() {
   printf '%s\n' \
-    'Usage: scripts/dev-env.sh {config|up|down|verify-isolation|verify-http|clean}' \
+    'Usage: scripts/dev-env.sh {config|up|down|verify-isolation|verify-http|verify-m01|clean}' \
     '  config           Generate local secrets if missing and validate Compose' \
     '  up [options]      Build and start the stack, waiting for healthy services' \
     '  down [options]    Stop the stack (pass --volumes to remove the database)' \
     '  verify-isolation  Probe the dynamic PostgreSQL IP from mock and data networks' \
     '  verify-http       Check API health, mock assets, and HTTP/CORS behavior' \
+    '  verify-m01        Exercise real registration, SMTP, verification and session' \
     '  clean             Stop, remove volumes/orphans, and delete generated secrets'
 }
 
@@ -75,6 +76,9 @@ case "$command" in
     ;;
   verify-http)
     python3 "$ROOT_DIR/scripts/verify-http.py"
+    ;;
+  verify-m01)
+    "${M01_PYTHON:-python3}" "$ROOT_DIR/scripts/verify-m01.py" "$@"
     ;;
   clean)
     compose down --volumes --remove-orphans

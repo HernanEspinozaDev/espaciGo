@@ -7,9 +7,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
+	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
+	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/health"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,6 +24,14 @@ import (
 const readyURL = "http://127.0.0.1:8080/health/ready"
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "migrate" {
+		if migrateLocal() != nil {
+			log.Print("local migration failed; no credentials or SQL details logged")
+			os.Exit(1)
+		}
+		log.Print("local migrations and runtime grants ready")
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "check" {
 		if err := checkEndpoint(readyURL); err != nil {
 			os.Exit(1)
@@ -41,9 +56,27 @@ func run() error {
 	}
 	defer pool.Close()
 
+	mux := http.NewServeMux()
+	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
+	if os.Getenv("LOCAL_AUTH_PROTOTYPE") == "1" {
+		limit, err := strconv.Atoi(os.Getenv("LOCAL_VERIFICATION_IP_LIMIT"))
+		if err != nil || limit < 1 || limit > 1000 {
+			return errors.New("invalid local quota")
+		}
+		repo := identitypg.NewIdentityRepository(pool)
+		service, err := identity.NewAuthenticationService(repo, password.Hasher{}, devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}, devauth.NewIPLimiter(limit), credentials.Generator{}, time.Now)
+		if err != nil {
+			return errors.New("local authentication initialization failed")
+		}
+		mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins))
+		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/yaml")
+			http.ServeFile(w, r, "/openapi.yaml")
+		})
+	}
 	server := &http.Server{
 		Addr:              cfg.httpAddr,
-		Handler:           health.NewHandler(pool, cfg.allowedOrigins),
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

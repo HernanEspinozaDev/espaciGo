@@ -1,5 +1,11 @@
 # Contexto operativo para agentes de desarrollo
 
+## Estrategia vigente autorizada — prototipo local M01, 2026-10-05
+
+La instrucción del usuario de priorizar el recorrido funcional en PR [#124](https://github.com/HernanEspinozaDev/espaciGo/pull/124) prevalece sobre las puertas históricas de merge por capa descritas abajo. Se conservan sus commits y pruebas. #30, #32, #34 y #35 se agrupan en el hito [Prototipo local M01](https://github.com/HernanEspinozaDev/espaciGo/milestone/1). DB → backend → API → mock se integra en la misma rama: una dependencia implementada e integrada permite avanzar, aunque aún no esté fusionada en main. Las dependencias nativas conservan la aceptación completa de las Issues; recuperación/CU-05/PT-50 de #34/#35 queda para el siguiente corte con #31/#33. No cerrar estas Issues ni afirmar M01 completo antes de revisar lo faltante.
+
+GitHub Issues y Projects siguen siendo el registro operativo; este ajuste documenta el motivo y no replica estados del tablero. En la secuencia nativa se quitó #32 de los bloqueadores de #34 porque su API ya está integrada en esta rama, y se pasó #33 a seguimiento del próximo corte porque la recuperación queda fuera; #24 permanece como base de pruebas satisfecha. Se quitó #34 del bloqueo de #35 porque el flujo de pruebas está integrado y el mock se ejecutó en este mismo corte; #25, entorno local ya entregado, permanece como base satisfecha. Los textos originales de aceptación/dependencias y referencias permanecen en las Issues; los comentarios registran el cambio de etapa sin cerrar tarjetas. No reimportar tarjetas ni reactivar Hermes. Controles productivos por IP/correo pueden usar adaptadores locales explícitos para este prototipo, con evolución pendiente documentada. DB02-09 y la limpieza del servidor #123 quedan fuera. Comando, pasos y límites: [prototipo_local_m01.md](prototipo_local_m01.md).
+
 Este archivo permite trabajar dentro del repositorio `espaciGo` sin leer el repositorio académico vecino. Los requisitos y la arquitectura que justifican el backlog están versionados en [referencias](referencias/README.md); el [backlog](backlog.md) y esta política son la guía operativa de ejecución.
 
 ## Qué se construye y por qué
