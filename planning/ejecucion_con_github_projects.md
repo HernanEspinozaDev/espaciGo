@@ -6,6 +6,8 @@ PRs #124/#125 (M01), #126 (tramo M02) y #127 (M03 sintético) están fusionados;
 
 La base de desarrollo mantiene `pgdata`, datos sintéticos y credenciales entre ejecuciones; no usar `clean`, `down --volumes` en ese proyecto ni reiniciar desde cero. Aplicar solo migraciones pendientes. Suite PostgreSQL exclusivamente en ambiente de pruebas separado. Reutilizar imágenes/cachés. DB02-09, historial de claves, avisos durables y limpieza de servidor siguen pendientes. GitHub Issues y Projects son el registro operativo; no reimportar tarjetas ni reactivar Hermes. Los snapshots históricos que siguen abajo no aplican cuando contradigan este estado vigente.
 
+La autorización temporal #47 permite únicamente el fixture `synthetic-png-v1` generado por la API en almacenamiento privado local fuera del repo/web pública. Documentos reales, proveedor productivo, consentimiento y retención siguen abiertos en #142. Sigue [estas instrucciones de M03](evidence/m03-evidencia-sintetica-local.md); no borres el directorio de fixtures ni el volumen de desarrollo como limpieza rutinaria.
+
 Corte de referencia: 2026-10-05. Usa esta guía junto con [contexto_para_agentes.md](contexto_para_agentes.md), [README de planificación](README.md), [backlog histórico](backlog.md), [decisiones M01](decisiones_m01_identidad_sesion.md) y [la correspondencia Hermes–GitHub](github_issue_map.csv). Los requisitos y límites del producto siguen siendo los de ES1/ES2 versionados en `planning/referencias/`; esta migración no los modifica.
 
 ## 1. Preparar el PC sin perder trabajo

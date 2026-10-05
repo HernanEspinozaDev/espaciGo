@@ -74,6 +74,7 @@ services:
       LOCAL_AUTH_PROTOTYPE: "1"
       LOCAL_SMTP_ADDR: mailpit:1025
       LOCAL_VERIFICATION_IP_LIMIT: "${LOCAL_VERIFICATION_IP_LIMIT:-20}"
+      M03_EVIDENCE_DIR: /var/lib/espacigo/private-evidence
       DATABASE_HOST: database
       DATABASE_PORT: "5432"
       DATABASE_NAME: espacigo_local
@@ -82,6 +83,10 @@ services:
       CORS_ALLOWED_ORIGINS: http://localhost:8081,http://127.0.0.1:8081
     secrets:
       - runtime_password
+    volumes:
+      - type: bind
+        source: ${LOCAL_M03_EVIDENCE_DIR:?run scripts/dev-env.sh}
+        target: /var/lib/espacigo/private-evidence
     depends_on:
       database:
         condition: service_healthy

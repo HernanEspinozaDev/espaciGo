@@ -13,6 +13,7 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
@@ -80,14 +81,25 @@ func run() error {
 			return errors.New("local privacy initialization failed")
 		}
 		mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins, privacyService))
-		verificationService, err := verification.NewService(verificationpg.New(pool), credentials.Generator{}, verification.LocalFixtureProvider{}, time.Now)
+		verificationRepository := verificationpg.New(pool)
+		verificationService, err := verification.NewService(verificationRepository, credentials.Generator{}, verification.LocalFixtureProvider{}, time.Now)
 		if err != nil {
 			return errors.New("local verification initialization failed")
 		}
-		mux.Handle("/api/v1/verifications", verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins))
-		mux.Handle("/api/v1/verifications/", verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins))
-		mux.Handle("/api/v1/admin/verifications", verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins))
-		mux.Handle("/api/v1/admin/verifications/", verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins))
+		evidenceRoot := os.Getenv("M03_EVIDENCE_DIR")
+		evidenceStore, err := evidencefs.New(evidenceRoot)
+		if err != nil {
+			return errors.New("local private evidence storage is unavailable")
+		}
+		evidenceService, err := verification.NewEvidenceService(verificationRepository, verificationRepository, evidenceStore, credentials.Generator{}, time.Now)
+		if err != nil {
+			return errors.New("local evidence initialization failed")
+		}
+		verificationHandler := verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins, evidenceService)
+		mux.Handle("/api/v1/verifications", verificationHandler)
+		mux.Handle("/api/v1/verifications/", verificationHandler)
+		mux.Handle("/api/v1/admin/verifications", verificationHandler)
+		mux.Handle("/api/v1/admin/verifications/", verificationHandler)
 		spacesService, err := spacesdomain.NewService(spacespg.New(pool, credentials.Generator{}))
 		if err != nil {
 			return errors.New("spaces initialization failed")

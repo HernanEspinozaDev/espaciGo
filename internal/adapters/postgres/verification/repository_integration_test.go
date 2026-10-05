@@ -2,13 +2,18 @@ package verificationpg
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
@@ -65,6 +70,52 @@ func TestVerificationRepositoryOwnershipIdempotencyReviewAndRetry(t *testing.T) 
 	created, err := r.Create(ctx, first)
 	if err != nil {
 		t.Fatal(err)
+	}
+	privateRoot := t.TempDir()
+	if err := os.Chmod(privateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	privateStore, err := evidencefs.New(privateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidenceService, err := verification.NewEvidenceService(r, r, privateStore, credentials.Generator{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistedEvidence, err := evidenceService.Upload(ctx, owner, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readEvidence, blob, err := evidenceService.OwnContent(ctx, owner, created.ID, persistedEvidence.ID)
+	checksum := sha256.Sum256(blob)
+	if err != nil || readEvidence.ID != persistedEvidence.ID || readEvidence.SHA256 != hex.EncodeToString(checksum[:]) || readEvidence.SizeBytes != int64(len(blob)) {
+		t.Fatalf("persisted evidence=%+v err=%v", readEvidence, err)
+	}
+	ownEvidence, err := r.ListOwnEvidence(ctx, owner, created.ID)
+	if err != nil || len(ownEvidence) != 1 {
+		t.Fatalf("owner evidence=%+v err=%v", ownEvidence, err)
+	}
+	if _, _, err := evidenceService.OwnContent(ctx, other, created.ID, persistedEvidence.ID); err != verification.ErrNotFound {
+		t.Fatalf("foreign evidence read err=%v; want not found", err)
+	}
+	if foreignEvidence, err := r.ListOwnEvidence(ctx, other, created.ID); err != nil || len(foreignEvidence) != 0 {
+		t.Fatalf("foreign evidence list=%+v err=%v", foreignEvidence, err)
+	}
+	if _, _, err := evidenceService.ReviewContent(ctx, created.ID, persistedEvidence.ID); err != nil {
+		t.Fatalf("review evidence read: %v", err)
+	}
+	if reviewedEvidence, err := r.ListReviewEvidence(ctx, created.ID); err != nil || len(reviewedEvidence) != 1 {
+		t.Fatalf("review evidence list=%+v err=%v", reviewedEvidence, err)
+	}
+	if err := evidenceService.DeleteOwn(ctx, owner, created.ID, persistedEvidence.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(privateRoot, persistedEvidence.ID+".png")); !os.IsNotExist(err) {
+		t.Fatalf("blob remains after explicit cleanup: %v", err)
+	}
+	if _, err := r.GetOwnEvidence(ctx, owner, created.ID, persistedEvidence.ID); err != verification.ErrNotFound {
+		t.Fatalf("evidence remains after explicit cleanup: %v", err)
 	}
 	replayed := first
 	replayed.ID = "33333333-3333-4333-8333-333333333333"

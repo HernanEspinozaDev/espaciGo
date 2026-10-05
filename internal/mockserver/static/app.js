@@ -4,6 +4,7 @@ const resultElement = document.querySelector("#result");
 let apiBase = "";
 let sessionToken = "";
 let termIDs = [];
+let evidenceObjectURL = "";
 async function request(path, method = "GET", body, authenticated = false, idempotencyKey) {
     if (!apiBase)
         throw new Error("API local aún no disponible.");
@@ -125,6 +126,72 @@ document.querySelector("#verification-load").addEventListener("click", () => voi
     const items = await request("/api/v1/verifications", "GET", undefined, true);
     document.querySelector("#verification-output").textContent = JSON.stringify(items, null, 2);
 }));
+const evidenceCase = document.querySelector("#evidence-case-id");
+const evidenceOutput = document.querySelector("#evidence-output");
+const evidenceItems = document.querySelector("#evidence-items");
+async function evidenceContent(caseID, evidenceID, admin = false) {
+    if (!sessionToken)
+        throw new Error("Primero inicia sesión.");
+    const path = admin
+        ? `/api/v1/admin/verifications/${encodeURIComponent(caseID)}/evidence/${encodeURIComponent(evidenceID)}`
+        : `/api/v1/verifications/${encodeURIComponent(caseID)}/evidence/${encodeURIComponent(evidenceID)}`;
+    const response = await fetch(`${apiBase}${path}`, { headers: { Authorization: `Bearer ${sessionToken}`, Accept: "image/png" }, mode: "cors", cache: "no-store", credentials: "omit" });
+    if (!response.ok) {
+        const data = await response.json();
+        throw new Error(`${data.error?.message ?? "Error de API"} (HTTP ${response.status}, ${data.error?.code ?? "unknown"})`);
+    }
+    const blob = await response.blob();
+    if (evidenceObjectURL)
+        URL.revokeObjectURL(evidenceObjectURL);
+    evidenceObjectURL = URL.createObjectURL(blob);
+    const preview = document.querySelector("#evidence-preview");
+    preview.src = evidenceObjectURL;
+    preview.hidden = false;
+    evidenceOutput.textContent = `Fixture ${evidenceID} cargado (${blob.size} bytes, ${response.headers.get("ETag") ?? "sin hash"}).`;
+}
+document.querySelector("#evidence-upload").addEventListener("click", () => void action(async () => {
+    const caseID = evidenceCase.value.trim();
+    if (!caseID)
+        throw new Error("Indica el ID de tu caso.");
+    const item = await request(`/api/v1/verifications/${encodeURIComponent(caseID)}/evidence`, "POST", { fixture_code: "synthetic-png-v1" }, true);
+    evidenceOutput.textContent = `Fixture privado guardado. Metadatos: ${JSON.stringify(item, null, 2)}`;
+    await loadEvidence();
+}));
+async function loadEvidence() {
+    const caseID = evidenceCase.value.trim();
+    if (!caseID)
+        throw new Error("Indica el ID de tu caso.");
+    const response = await request(`/api/v1/verifications/${encodeURIComponent(caseID)}/evidence`, "GET", undefined, true);
+    const items = (response.items ?? []);
+    evidenceItems.replaceChildren();
+    for (const item of items) {
+        const row = document.createElement("p"), view = document.createElement("button"), remove = document.createElement("button");
+        row.append(document.createTextNode(`${item.id} · ${item.size_bytes} bytes · ${item.created_at} `));
+        view.type = "button";
+        view.textContent = "Consultar PNG";
+        view.addEventListener("click", () => void action(() => evidenceContent(caseID, item.id)));
+        remove.type = "button";
+        remove.textContent = "Eliminar fixture";
+        remove.addEventListener("click", () => void action(async () => {
+            await request(`/api/v1/verifications/${encodeURIComponent(caseID)}/evidence/${encodeURIComponent(item.id)}`, "DELETE", undefined, true);
+            evidenceOutput.textContent = `Fixture ${item.id} eliminado explícitamente.`;
+            await loadEvidence();
+        }));
+        row.append(view, remove);
+        evidenceItems.append(row);
+    }
+    evidenceOutput.textContent = `${items.length} fixture(s) privado(s): ${JSON.stringify(items, null, 2)}`;
+}
+document.querySelector("#evidence-load").addEventListener("click", () => void action(loadEvidence));
+form("review-evidence-form", async (data) => {
+    const caseID = String(data.get("case_id"));
+    const response = await request(`/api/v1/admin/verifications/${encodeURIComponent(caseID)}/evidence`, "GET", undefined, true);
+    const items = (response.items ?? []);
+    const output = document.querySelector("#review-evidence-output");
+    output.textContent = JSON.stringify(items, null, 2);
+    if (items[0])
+        await evidenceContent(caseID, items[0].id, true);
+});
 form("verification-retry-form", async (data, element) => {
     const id = String(data.get("id"));
     const item = await request(`/api/v1/verifications/${encodeURIComponent(id)}/retry`, "POST", { corrected: data.get("corrected") === "on" }, true, crypto.randomUUID());

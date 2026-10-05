@@ -54,16 +54,21 @@
     <button id="rights-load" type="button">Consultar mis solicitudes</button><pre id="privacy-output">Inicia sesión para usar M02.</pre>
   </section>
   <section><h2>8. Verificación de identidad (M03 · sandbox sintético)</h2>
-    <p>Este flujo no consulta Registro Civil/SII ni carga documentos reales. La solicitud y su referencia fixture no acreditan identidad. Las decisiones de producción, documentos privados y retención siguen pendientes.</p>
+    <p>Este flujo no consulta Registro Civil/SII ni acepta archivos del usuario. La API genera un PNG sintético fijo y lo guarda en almacenamiento local privado fuera de las rutas públicas. No usar datos reales; proveedor productivo y retención siguen pendientes.</p>
     <form id="verification-form"><label>Flujo <select name="type"><option value="kyc">Persona natural (KYC)</option><option value="kyb">Empresa (KYB)</option></select></label><button>Enviar solicitud sintética a revisión</button></form>
     <button id="verification-load" type="button">Consultar mis casos</button>
     <form id="verification-retry-form"><label>ID de caso rechazado <input name="id" required></label><label><input name="corrected" type="checkbox" required> Confirmo que corregí los antecedentes fixture</label><button>Crear reintento</button></form>
     <pre id="verification-output">Inicia sesión para usar el sandbox.</pre>
+    <div class="row"><label>Caso propio para evidencia <input id="evidence-case-id" autocomplete="off" placeholder="UUID del caso"></label>
+      <button id="evidence-upload" type="button">Crear fixture privado</button><button id="evidence-load" type="button">Consultar evidencias</button></div>
+    <pre id="evidence-output">No se han consultado fixtures.</pre><div id="evidence-items"></div><img id="evidence-preview" alt="Vista previa de fixture sintético" hidden>
     <details><summary>Herramientas locales de revisión administrativa</summary>
       <p>Solo usuarios con rol administrador pueden consultar o resolver. Rechazar requiere motivo codificado. La fixture no habilita reservas ni publicaciones.</p>
       <button id="review-load" type="button">Cargar cola de revisión</button>
       <form id="review-form"><label>ID de caso pendiente <input name="id" required></label><label>Decisión <select name="decision"><option value="aprobada">Aprobar fixture</option><option value="rechazada">Rechazar fixture</option></select></label><label>Motivo (obligatorio al rechazar) <select name="reason_code"><option value="">Sin motivo</option><option value="documento_vencido">Documento vencido (fixture)</option><option value="antecedentes_incompletos">Antecedentes incompletos (fixture)</option><option value="inicio_actividades_no_confirmado">Inicio de actividades no confirmado (fixture)</option></select></label><button>Resolver caso</button></form>
       <pre id="review-output">Necesitas rol administrador.</pre>
+      <form id="review-evidence-form"><label>ID del caso para consultar evidencia <input name="case_id" required></label><button>Listar evidencia revisable</button></form>
+      <pre id="review-evidence-output">Necesitas rol administrador.</pre>
     </details>
   </section>
   <section><h2>9. Espacios propios · borradores M04</h2>
