@@ -135,6 +135,11 @@ document.querySelector("#evidence-upload")!.addEventListener("click", () => void
   evidenceOutput.textContent=`Fixture privado guardado. Metadatos: ${JSON.stringify(item,null,2)}`;
   await loadEvidence();
 }));
+document.querySelector("#evidence-invalid")!.addEventListener("click", () => void action(async () => {
+  const caseID=evidenceCase.value.trim();
+  if (!caseID) throw new Error("Indica el ID de tu caso.");
+  await request(`/api/v1/verifications/${encodeURIComponent(caseID)}/evidence`,"POST",{fixture_code:"not-a-synthetic-fixture"},true);
+}));
 async function loadEvidence():Promise<void> {
   const caseID=evidenceCase.value.trim();
   if (!caseID) throw new Error("Indica el ID de tu caso.");

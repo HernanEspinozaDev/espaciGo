@@ -11,7 +11,7 @@ No subir RUT, identificaciones, fotos, selfies ni datos reales. No hay proveedor
 1. `scripts/dev-env.sh up` aplica únicamente migraciones pendientes y reutiliza `espacigo_pgdata` y secretos existentes.
 2. Abre `http://localhost:8081`, crea/verifica una cuenta de prueba e inicia sesión.
 3. Crea un caso KYC o KYB sintético. Copia su UUID en “Caso propio para evidencia”.
-4. Pulsa “Crear fixture privado” y luego “Consultar evidencias”. “Consultar PNG” descarga el recurso a la vista previa mediante la API autenticada. Un ID ajeno debe responder `404`; un token sin sesión `401` y una cuenta sin rol administrador no accede a rutas de revisión (`403`).
+4. Pulsa “Crear fixture privado” y luego “Consultar evidencias”. “Consultar PNG” descarga el recurso a la vista previa mediante la API autenticada. Un ID ajeno debe responder `404`; un token sin sesión `401` y una cuenta sin rol administrador no accede a rutas de revisión (`403`). “Probar rechazo 422” envía un código fixture inválido y confirma que no se almacena.
 5. Para limpiar, pulsa “Eliminar fixture” (titular) o usa `DELETE /api/v1/admin/verifications/{caseId}/evidence/{evidenceId}` con rol administrador. Esto borra el blob y su fila de metadatos. No uses `clean`, `docker compose down --volumes` ni borres `espacigo_pgdata`/secretos/directorio completo para limpiar fixtures.
 
 La API OpenAPI está publicada localmente en `http://localhost:8080/openapi.yaml`. Todas las respuestas llevan `Cache-Control: no-store`; no se emiten tokens ni se escriben blobs en logs.
