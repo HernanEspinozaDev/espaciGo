@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,7 +18,14 @@ import (
 
 func TestM01MigrationPersistsAuthorizedSchemaAndConstraints(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
-		migrationDir := filepath.Join("..", "..", "db", "migrations")
+		migrationDir := t.TempDir()
+		m01, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "V000001__m01_identity.sql"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(migrationDir, "V000001__m01_identity.sql"), m01, 0o600); err != nil {
+			t.Fatal(err)
+		}
 		migrations, err := DiscoverMigrations(migrationDir)
 		if err != nil {
 			t.Fatal(err)

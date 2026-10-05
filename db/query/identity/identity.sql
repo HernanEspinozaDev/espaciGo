@@ -228,3 +228,31 @@ WHERE id = sqlc.arg(account_id);
 -- name: RevokeActiveSessions :exec
 UPDATE public.sesion SET revocada_en = sqlc.arg(revoked_at)
 WHERE usuario_id = sqlc.arg(account_id) AND revocada_en IS NULL;
+
+-- M02 profile queries are always scoped to the authenticated account ID.
+-- name: GetProfile :one
+SELECT usuario_id::text AS account_id, nombre_visible, telefono_normalizado,
+       actualizado_en
+FROM public.perfil_usuario
+WHERE usuario_id = sqlc.arg(account_id);
+
+-- name: UpsertProfile :one
+INSERT INTO public.perfil_usuario (usuario_id, nombre_visible, telefono_normalizado, actualizado_en)
+VALUES (sqlc.arg(account_id), sqlc.arg(display_name), sqlc.narg(phone), now())
+ON CONFLICT (usuario_id) DO UPDATE
+SET nombre_visible = EXCLUDED.nombre_visible,
+    telefono_normalizado = EXCLUDED.telefono_normalizado,
+    actualizado_en = now()
+RETURNING usuario_id::text AS account_id, nombre_visible, telefono_normalizado,
+          actualizado_en;
+
+-- name: CreateRightsRequest :one
+INSERT INTO public.solicitud_titular (id, usuario_id, tipo, canal)
+VALUES (sqlc.arg(id), sqlc.arg(account_id), sqlc.arg(kind), sqlc.arg(channel))
+RETURNING id::text AS id, tipo AS kind, estado AS state, solicitada_en;
+
+-- name: ListOwnRightsRequests :many
+SELECT id::text AS id, tipo AS kind, estado AS state, solicitada_en
+FROM public.solicitud_titular
+WHERE usuario_id = sqlc.arg(account_id)
+ORDER BY solicitada_en DESC, id DESC;

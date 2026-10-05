@@ -16,6 +16,13 @@ type AceptacionTermino struct {
 	Canal      string             `json:"canal"`
 }
 
+type PerfilUsuario struct {
+	UsuarioID           string             `json:"usuario_id"`
+	NombreVisible       string             `json:"nombre_visible"`
+	TelefonoNormalizado *string            `json:"telefono_normalizado"`
+	ActualizadoEn       pgtype.Timestamptz `json:"actualizado_en"`
+}
+
 type RolUsuario struct {
 	UsuarioID    string             `json:"usuario_id"`
 	Rol          string             `json:"rol"`
@@ -32,6 +39,15 @@ type Sesion struct {
 	ExpiraEn          pgtype.Timestamptz `json:"expira_en"`
 	RevocadaEn        pgtype.Timestamptz `json:"revocada_en"`
 	ClienteResumen    *string            `json:"cliente_resumen"`
+}
+
+type SolicitudTitular struct {
+	ID           string             `json:"id"`
+	UsuarioID    string             `json:"usuario_id"`
+	Tipo         string             `json:"tipo"`
+	Canal        string             `json:"canal"`
+	Estado       string             `json:"estado"`
+	SolicitadaEn pgtype.Timestamptz `json:"solicitada_en"`
 }
 
 type TokenAccion struct {

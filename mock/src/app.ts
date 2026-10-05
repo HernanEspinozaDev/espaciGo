@@ -14,7 +14,8 @@ async function request(path: string, method = "GET", body?: unknown, authenticat
     if (!sessionToken) throw new Error("Primero inicia sesión.");
     headers.Authorization = `Bearer ${sessionToken}`;
   }
-  const response = await fetch(`${apiBase}/api/v1/auth/${path}`, {method, headers, body: body === undefined ? undefined : JSON.stringify(body), mode: "cors", cache: "no-store", credentials: "omit"});
+  const endpoint = path.startsWith("/") ? `${apiBase}${path}` : `${apiBase}/api/v1/auth/${path}`;
+  const response = await fetch(endpoint, {method, headers, body: body === undefined ? undefined : JSON.stringify(body), mode: "cors", cache: "no-store", credentials: "omit"});
   const data = response.status === 204 ? {} : await response.json() as Record<string,unknown> & APIError;
   if (!response.ok) {
     if (authenticated && (response.status === 401 || path === "password/change" && response.status === 503)) sessionToken = "";
@@ -70,6 +71,28 @@ document.querySelector("#session-button")!.addEventListener("click", () => void 
 document.querySelector("#logout-button")!.addEventListener("click", () => void action(async () => {
   await request("logout", "POST", undefined, true); sessionToken = "";
   document.querySelector("#session-output")!.textContent = "Sesión cerrada."; resultElement.textContent = "Logout completado. La credencial anterior queda revocada.";
+}));
+document.querySelector("#profile-load")!.addEventListener("click", () => void action(async () => {
+  const profile = await request("/api/v1/profile", "GET", undefined, true);
+  const form = document.querySelector<HTMLFormElement>("#profile-form")!;
+  form.querySelector<HTMLInputElement>('[name="display_name"]')!.value = String(profile.display_name ?? "");
+  form.querySelector<HTMLInputElement>('[name="phone"]')!.value = String(profile.phone ?? "");
+  document.querySelector<HTMLElement>("#privacy-output")!.textContent = JSON.stringify(profile, null, 2);
+}));
+form("profile-form", async (data) => {
+  const profile = await request("/api/v1/profile", "PUT", {display_name:data.get("display_name"), phone:data.get("phone")}, true);
+  document.querySelector<HTMLElement>("#privacy-output")!.textContent = JSON.stringify(profile, null, 2);
+  resultElement.textContent = "Perfil guardado para la cuenta de la sesión actual.";
+});
+form("rights-form", async (data, element) => {
+  const item = await request("/api/v1/rights-requests", "POST", {type:data.get("type")}, true);
+  element.reset();
+  document.querySelector<HTMLElement>("#privacy-output")!.textContent = JSON.stringify(item, null, 2);
+  resultElement.textContent = "Solicitud registrada para revisión; no se han borrado datos.";
+});
+document.querySelector("#rights-load")!.addEventListener("click", () => void action(async () => {
+  const items = await request("/api/v1/rights-requests", "GET", undefined, true);
+  document.querySelector<HTMLElement>("#privacy-output")!.textContent = JSON.stringify(items, null, 2);
 }));
 async function initialize(): Promise<void> {
   try {

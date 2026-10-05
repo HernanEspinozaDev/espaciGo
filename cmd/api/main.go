@@ -18,6 +18,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/health"
+	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -68,7 +69,11 @@ func run() error {
 		if err != nil {
 			return errors.New("local authentication initialization failed")
 		}
-		mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins))
+		privacyService, err := privacy.NewService(repo)
+		if err != nil {
+			return errors.New("local privacy initialization failed")
+		}
+		mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins, privacyService))
 		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/yaml")
 			http.ServeFile(w, r, "/openapi.yaml")

@@ -13,16 +13,21 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 )
 
 type Handler struct {
 	service *identity.AuthenticationService
 	terms   identity.AuthenticationRepository
 	origins map[string]bool
+	privacy *privacy.Service
 }
 
-func NewHandler(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string) http.Handler {
+func NewHandler(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyServices ...*privacy.Service) http.Handler {
 	h := &Handler{service: service, terms: terms, origins: map[string]bool{}}
+	if len(privacyServices) > 0 {
+		h.privacy = privacyServices[0]
+	}
 	for _, origin := range origins {
 		h.origins[origin] = true
 	}
@@ -48,7 +53,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, Retry-After")
 	}
 	if r.Method == http.MethodOptions {
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -58,16 +63,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expected := http.MethodPost
-	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" {
+	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" {
 		expected = http.MethodGet
 	}
-	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true}
+	if r.URL.Path == "/api/v1/profile" && r.Method == http.MethodPut || r.URL.Path == "/api/v1/rights-requests" && r.Method == http.MethodPost {
+		expected = r.Method
+	}
+	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true, "/api/v1/profile": true, "/api/v1/rights-requests": true}
 	if !paths[r.URL.Path] {
 		h.fail(w, 404, "not_found", "Recurso no encontrado.")
 		return
 	}
 	if r.Method != expected {
-		w.Header().Set("Allow", expected)
+		allow := expected
+		if r.URL.Path == "/api/v1/profile" {
+			allow = "GET, PUT"
+		}
+		if r.URL.Path == "/api/v1/rights-requests" {
+			allow = "GET, POST"
+		}
+		w.Header().Set("Allow", allow)
 		h.fail(w, 405, "method_not_allowed", "Método no permitido.")
 		return
 	}
@@ -78,6 +93,67 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// RemoteAddr is trusted for the local direct topology. Never trust forwarded headers.
 	switch r.URL.Path {
+	case "/api/v1/profile", "/api/v1/rights-requests":
+		if h.privacy == nil {
+			h.fail(w, http.StatusServiceUnavailable, "privacy_unavailable", "Servicio de perfil no disponible.")
+			return
+		}
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		if r.URL.Path == "/api/v1/profile" {
+			if r.Method == http.MethodGet {
+				profile, err := h.privacy.Profile(r.Context(), principal.AccountID)
+				if err != nil {
+					h.privacyError(w, err)
+					return
+				}
+				h.write(w, http.StatusOK, map[string]any{"display_name": profile.Name, "phone": profile.Phone, "updated_at": profile.UpdatedAt.UTC()})
+				return
+			}
+			var input struct {
+				Name  string `json:"display_name"`
+				Phone string `json:"phone"`
+			}
+			if !h.decode(w, r, &input) {
+				return
+			}
+			profile, err := h.privacy.UpdateProfile(r.Context(), principal.AccountID, input.Name, input.Phone)
+			if err != nil {
+				h.privacyError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, map[string]any{"display_name": profile.Name, "phone": profile.Phone, "updated_at": profile.UpdatedAt.UTC()})
+			return
+		}
+		if r.Method == http.MethodGet {
+			items, err := h.privacy.OwnRequests(r.Context(), principal.AccountID)
+			if err != nil {
+				h.privacyError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, map[string]any{"items": items})
+			return
+		}
+		var input struct {
+			Kind string `json:"type"`
+		}
+		if !h.decode(w, r, &input) {
+			return
+		}
+		item, err := h.privacy.RequestRight(r.Context(), principal.AccountID, input.Kind, "web")
+		if err != nil {
+			h.privacyError(w, err)
+			return
+		}
+		h.write(w, http.StatusAccepted, item)
 	case "/api/v1/auth/terms":
 		items := []map[string]any{}
 		for _, id := range []string{"00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"} {
@@ -312,6 +388,17 @@ func (h *Handler) serviceError(w http.ResponseWriter, err error, paths ...string
 		}
 	}
 	h.fail(w, status, code, message)
+}
+
+func (h *Handler) privacyError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, privacy.ErrInvalid):
+		h.fail(w, http.StatusUnprocessableEntity, "validation_error", "Revisa nombre, teléfono o tipo de solicitud.")
+	case errors.Is(err, privacy.ErrNotFound):
+		h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
+	default:
+		h.fail(w, http.StatusInternalServerError, "internal_error", "No se pudo completar la operación.")
+	}
 }
 func (h *Handler) fail(w http.ResponseWriter, status int, code, message string) {
 	h.write(w, status, map[string]any{"error": map[string]any{"code": code, "message": message, "request_id": w.Header().Get("X-Request-ID")}})

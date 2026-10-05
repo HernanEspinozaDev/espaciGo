@@ -15,6 +15,7 @@ import (
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
+	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -175,6 +176,44 @@ func TestActionTokenRepositoryReissueAttemptsConsumptionAndEmissionCount(t *test
 	storedRecovery, err := repo.ActionTokenByHash(ctx, recovery.Hash)
 	if err != nil || storedRecovery.ConsumedAt == nil || !storedRecovery.ConsumedAt.Equal(created.Add(14*time.Minute)) {
 		t.Fatalf("consumed token state missing: consumed=%t error=%v", storedRecovery.ConsumedAt != nil, err)
+	}
+}
+
+func TestM02ProfileAndRightsQueriesRemainOwnerScoped(t *testing.T) {
+	ctx, pool := newIdentityTestPool(t)
+	repo := identitypg.NewIdentityRepository(pool)
+	owner := testAccount("00000000-0000-4000-8000-000000000091", "m02-owner@ejemplo.invalid")
+	if err := repo.CreateWithTerms(ctx, owner, nil); err != nil {
+		t.Fatal(err)
+	}
+	other := testAccount("00000000-0000-4000-8000-000000000092", "m02-other@ejemplo.invalid")
+	if err := repo.CreateWithTerms(ctx, other, nil); err != nil {
+		t.Fatal(err)
+	}
+	phone := "123456789"
+	profile, err := repo.SaveProfile(ctx, owner.ID, "Synthetic Owner", &phone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.AccountID != owner.ID || profile.Name != "Synthetic Owner" {
+		t.Fatalf("profile=%+v", profile)
+	}
+	if _, err := repo.GetProfile(ctx, other.ID); !errors.Is(err, privacy.ErrNotFound) {
+		t.Fatalf("other account profile read err=%v", err)
+	}
+	item, err := repo.CreateRightsRequest(ctx, owner.ID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.State != "en_revision" {
+		t.Fatalf("request state=%s", item.State)
+	}
+	items, err := repo.ListOwnRightsRequests(ctx, other.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("other account received %d requests", len(items))
 	}
 }
 

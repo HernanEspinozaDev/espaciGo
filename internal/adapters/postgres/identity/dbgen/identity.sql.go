@@ -126,6 +126,43 @@ func (q *Queries) CreateActionToken(ctx context.Context, arg CreateActionTokenPa
 	return err
 }
 
+const createRightsRequest = `-- name: CreateRightsRequest :one
+INSERT INTO public.solicitud_titular (id, usuario_id, tipo, canal)
+VALUES ($1, $2, $3, $4)
+RETURNING id::text AS id, tipo AS kind, estado AS state, solicitada_en
+`
+
+type CreateRightsRequestParams struct {
+	ID        string `json:"id"`
+	AccountID string `json:"account_id"`
+	Kind      string `json:"kind"`
+	Channel   string `json:"channel"`
+}
+
+type CreateRightsRequestRow struct {
+	ID           string             `json:"id"`
+	Kind         string             `json:"kind"`
+	State        string             `json:"state"`
+	SolicitadaEn pgtype.Timestamptz `json:"solicitada_en"`
+}
+
+func (q *Queries) CreateRightsRequest(ctx context.Context, arg CreateRightsRequestParams) (CreateRightsRequestRow, error) {
+	row := q.db.QueryRow(ctx, createRightsRequest,
+		arg.ID,
+		arg.AccountID,
+		arg.Kind,
+		arg.Channel,
+	)
+	var i CreateRightsRequestRow
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.State,
+		&i.SolicitadaEn,
+	)
+	return i, err
+}
+
 const createSession = `-- name: CreateSession :exec
 INSERT INTO public.sesion (
     id, usuario_id, token_hash, creada_en, ultima_actividad_en,
@@ -393,6 +430,33 @@ func (q *Queries) GetActionTokenByID(ctx context.Context, id string) (GetActionT
 	return i, err
 }
 
+const getProfile = `-- name: GetProfile :one
+SELECT usuario_id::text AS account_id, nombre_visible, telefono_normalizado,
+       actualizado_en
+FROM public.perfil_usuario
+WHERE usuario_id = $1
+`
+
+type GetProfileRow struct {
+	AccountID           string             `json:"account_id"`
+	NombreVisible       string             `json:"nombre_visible"`
+	TelefonoNormalizado *string            `json:"telefono_normalizado"`
+	ActualizadoEn       pgtype.Timestamptz `json:"actualizado_en"`
+}
+
+// M02 profile queries are always scoped to the authenticated account ID.
+func (q *Queries) GetProfile(ctx context.Context, accountID string) (GetProfileRow, error) {
+	row := q.db.QueryRow(ctx, getProfile, accountID)
+	var i GetProfileRow
+	err := row.Scan(
+		&i.AccountID,
+		&i.NombreVisible,
+		&i.TelefonoNormalizado,
+		&i.ActualizadoEn,
+	)
+	return i, err
+}
+
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
 SELECT
     id::text AS id,
@@ -527,6 +591,45 @@ func (q *Queries) InvalidateActiveActionTokens(ctx context.Context, arg Invalida
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const listOwnRightsRequests = `-- name: ListOwnRightsRequests :many
+SELECT id::text AS id, tipo AS kind, estado AS state, solicitada_en
+FROM public.solicitud_titular
+WHERE usuario_id = $1
+ORDER BY solicitada_en DESC, id DESC
+`
+
+type ListOwnRightsRequestsRow struct {
+	ID           string             `json:"id"`
+	Kind         string             `json:"kind"`
+	State        string             `json:"state"`
+	SolicitadaEn pgtype.Timestamptz `json:"solicitada_en"`
+}
+
+func (q *Queries) ListOwnRightsRequests(ctx context.Context, accountID string) ([]ListOwnRightsRequestsRow, error) {
+	rows, err := q.db.Query(ctx, listOwnRightsRequests, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOwnRightsRequestsRow
+	for rows.Next() {
+		var i ListOwnRightsRequestsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.State,
+			&i.SolicitadaEn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const lockAccountByActionTokenID = `-- name: LockAccountByActionTokenID :one
@@ -821,4 +924,40 @@ type UpdatePasswordHashParams struct {
 func (q *Queries) UpdatePasswordHash(ctx context.Context, arg UpdatePasswordHashParams) error {
 	_, err := q.db.Exec(ctx, updatePasswordHash, arg.PasswordHash, arg.AccountID)
 	return err
+}
+
+const upsertProfile = `-- name: UpsertProfile :one
+INSERT INTO public.perfil_usuario (usuario_id, nombre_visible, telefono_normalizado, actualizado_en)
+VALUES ($1, $2, $3, now())
+ON CONFLICT (usuario_id) DO UPDATE
+SET nombre_visible = EXCLUDED.nombre_visible,
+    telefono_normalizado = EXCLUDED.telefono_normalizado,
+    actualizado_en = now()
+RETURNING usuario_id::text AS account_id, nombre_visible, telefono_normalizado,
+          actualizado_en
+`
+
+type UpsertProfileParams struct {
+	AccountID   string  `json:"account_id"`
+	DisplayName string  `json:"display_name"`
+	Phone       *string `json:"phone"`
+}
+
+type UpsertProfileRow struct {
+	AccountID           string             `json:"account_id"`
+	NombreVisible       string             `json:"nombre_visible"`
+	TelefonoNormalizado *string            `json:"telefono_normalizado"`
+	ActualizadoEn       pgtype.Timestamptz `json:"actualizado_en"`
+}
+
+func (q *Queries) UpsertProfile(ctx context.Context, arg UpsertProfileParams) (UpsertProfileRow, error) {
+	row := q.db.QueryRow(ctx, upsertProfile, arg.AccountID, arg.DisplayName, arg.Phone)
+	var i UpsertProfileRow
+	err := row.Scan(
+		&i.AccountID,
+		&i.NombreVisible,
+		&i.TelefonoNormalizado,
+		&i.ActualizadoEn,
+	)
+	return i, err
 }

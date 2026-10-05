@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,6 +14,8 @@ import (
 
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -353,6 +358,75 @@ func TestAuthSessionRoleStateTrafficExpiryAndLogout(t *testing.T) {
 	if _, err := h.service.Authorize(h.ctx, login.Token, "", identity.UserOperation); !errors.Is(err, identity.ErrUnauthorized) {
 		t.Fatal("absolute boundary accepted")
 	}
+}
+
+func TestM02AuthenticatedOperationsRenewActivityButPollingAndAbsoluteExpiryDoNot(t *testing.T) {
+	h := newAuthHarness(t)
+	h.register(t, "m02-activity@ejemplo.invalid")
+	h.verify(t)
+	login := h.login(t, "m02-activity@ejemplo.invalid")
+	created := h.now
+	profiles, err := privacy.NewService(h.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := identityhttp.NewHandler(h.service, h.repo, nil, profiles)
+	call := func(method, path, body string, expected int) {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.RemoteAddr = "192.0.2.10:8080"
+		req.Header.Set("Authorization", "Bearer "+string(login.Token))
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, req)
+		if response.Code != expected {
+			t.Fatalf("%s %s status=%d want=%d body=%s", method, path, response.Code, expected, response.Body.String())
+		}
+	}
+	assertSession := func(wantActivity time.Time) {
+		t.Helper()
+		session, err := h.repo.SessionByTokenHash(h.ctx, identity.CredentialHash(login.Token))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !session.LastActivityAt.Equal(wantActivity) {
+			t.Fatalf("last activity=%s want=%s", session.LastActivityAt, wantActivity)
+		}
+		if !session.ExpiresAt.Equal(created.Add(8 * time.Hour)) {
+			t.Fatalf("absolute expiry moved: got=%s want=%s", session.ExpiresAt, created.Add(8*time.Hour))
+		}
+	}
+
+	h.now = created.Add(20 * time.Minute)
+	call(http.MethodPut, "/api/v1/profile", `{"display_name":"Synthetic Profile"}`, http.StatusOK)
+	assertSession(h.now)
+
+	h.now = created.Add(40 * time.Minute)
+	call(http.MethodPost, "/api/v1/rights-requests", `{"type":"acceso"}`, http.StatusAccepted)
+	assertSession(h.now)
+
+	h.now = created.Add(50 * time.Minute)
+	call(http.MethodGet, "/api/v1/auth/session", "", http.StatusOK)
+	assertSession(created.Add(40 * time.Minute))
+
+	h.now = created.Add(60 * time.Minute)
+	call(http.MethodGet, "/api/v1/profile", "", http.StatusOK)
+	assertSession(h.now)
+
+	for elapsed := 80 * time.Minute; elapsed < 8*time.Hour; elapsed += 20 * time.Minute {
+		h.now = created.Add(elapsed)
+		call(http.MethodPut, "/api/v1/profile", `{"display_name":"Synthetic Profile"}`, http.StatusOK)
+		assertSession(h.now)
+	}
+	h.now = created.Add(7*time.Hour + 59*time.Minute)
+	call(http.MethodPost, "/api/v1/rights-requests", `{"type":"supresion"}`, http.StatusAccepted)
+	assertSession(h.now)
+
+	h.now = created.Add(8 * time.Hour)
+	call(http.MethodPut, "/api/v1/profile", `{"display_name":"Synthetic Profile"}`, http.StatusUnauthorized)
+	assertSession(created.Add(7*time.Hour + 59*time.Minute))
 }
 
 func TestAuthConcurrentReissueEnforcesAccountLimitAndIPIsIndependent(t *testing.T) {
