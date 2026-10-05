@@ -336,6 +336,8 @@ Los IDs académicos completos de motivación están en [visión y módulos](visi
 - **Fuera:** aceptar doble reserva, imágenes públicas por URL permanente. **Dep:** LIST-BE-01, LIST-DB-02. **Desbloquea:** LIST-API-02
 - **Aceptación:** permiso y objeto específico, MIME real/tamaño/hash verificados; calendar rules no duplican ocupación M06. **Pruebas:** fake storage y límites de archivo/intervalo. **Riesgo:** URL firmada no equivale a autorización continua. Estado `todo`.
 
+**Corte local separado #144 (M04/M06-DRAFT-CALENDAR-01):** entrega el calendario privado y bloqueos manuales sobre borradores propios mediante la `ocupacion` propiedad de M06. No cambia los criterios amplios de esta Issue ni sus dependencias de publicación/archivos; no completa #56. Racional y contrato de implementación: [decisiones_m04_calendario_borradores.md](decisiones_m04_calendario_borradores.md). #43 (perfil M02) y #142 (KYC productivo) no son prerrequisitos para titularidad autenticada de borradores privados. BOOK-DB-01/02 siguen abiertos para el ciclo completo de reserva; este corte únicamente persiste bloqueos manuales.
+
 ### LIST-API-01 — Exponer endpoints de publicación y reglas
 - **Tipo/estado:** API / todo. **Objetivo:** CU-15/18 y CRUD arrendador.
 - **Alcance:** OpenAPI para crear/leer/editar/activar/pausar publicación, categoría, tarifas y políticas.

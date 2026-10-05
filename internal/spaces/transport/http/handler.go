@@ -7,11 +7,13 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 )
 
@@ -19,17 +21,31 @@ type Authenticator interface {
 	Authorize(context.Context, identity.Secret, identity.Role, identity.ActivityKind) (identity.Principal, error)
 }
 type Handler struct {
-	auth    Authenticator
-	service *spaces.Service
-	origins map[string]bool
+	auth     Authenticator
+	service  *spaces.Service
+	calendar CalendarService
+	origins  map[string]bool
 }
 
-func NewHandler(auth Authenticator, service *spaces.Service, origins []string) http.Handler {
+type CalendarService interface {
+	SetTimeZone(context.Context, string, string, string) error
+	TimeZone(context.Context, string, string) (string, error)
+	Availability(context.Context, string, string, string, string) (occupancy.Availability, error)
+	ListBlocks(context.Context, string, string, string, string) (occupancy.Calendar, error)
+	CreateBlock(context.Context, string, string, occupancy.BlockInput) (occupancy.Block, error)
+	DeleteBlock(context.Context, string, string, string) error
+}
+
+func NewHandler(auth Authenticator, service *spaces.Service, origins []string, calendar ...CalendarService) http.Handler {
 	m := map[string]bool{}
 	for _, v := range origins {
 		m[v] = true
 	}
-	return &Handler{auth, service, m}
+	var calendarService CalendarService
+	if len(calendar) > 0 {
+		calendarService = calendar[0]
+	}
+	return &Handler{auth: auth, service: service, calendar: calendarService, origins: m}
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	id, err := (credentials.Generator{}).ID()
@@ -48,13 +64,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	}
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(204)
 		return
 	}
-	if r.URL.RawQuery != "" {
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	calendarPath := strings.Contains(path, "/availability")
+	if r.URL.RawQuery != "" && !calendarPath {
 		failure(w, 400, "invalid_request", "No se admiten parámetros de URL.")
 		return
 	}
@@ -68,7 +86,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	path := strings.TrimSuffix(r.URL.Path, "/")
 	const profilesPrefix = "/api/v1/spaces/categories/"
 	if strings.HasPrefix(path, profilesPrefix) && r.Method == http.MethodGet {
 		parts := strings.Split(strings.TrimPrefix(path, profilesPrefix), "/")
@@ -90,6 +107,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		write(w, 200, profile)
+		return
+	}
+	if calendarPath {
+		h.serveCalendar(w, r, path, principal.AccountID)
 		return
 	}
 	if path == "/api/v1/spaces/categories" && r.Method == http.MethodGet {
@@ -160,6 +181,132 @@ func bearer(v string) string {
 		return ""
 	}
 	return p[1]
+}
+
+func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, owner string) {
+	if h.calendar == nil {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+		return
+	}
+	const prefix = "/api/v1/spaces/"
+	if !strings.HasPrefix(path, prefix) {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+		return
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] != "availability" {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+		return
+	}
+	spaceID := parts[0]
+	if len(parts) == 2 {
+		switch r.Method {
+		case http.MethodPut:
+			if r.URL.RawQuery != "" {
+				failure(w, 400, "invalid_request", "No se admiten parámetros de URL.")
+				return
+			}
+			var in struct {
+				TimeZone string `json:"time_zone"`
+			}
+			if !decode(w, r, &in) {
+				return
+			}
+			if err := h.calendar.SetTimeZone(r.Context(), owner, spaceID, in.TimeZone); err != nil {
+				calendarError(w, err)
+				return
+			}
+			write(w, 200, map[string]string{"space_id": spaceID, "time_zone": in.TimeZone})
+		case http.MethodGet:
+			from, to, ok := queryWindow(w, r.URL.Query())
+			if !ok {
+				return
+			}
+			result, err := h.calendar.Availability(r.Context(), owner, spaceID, from, to)
+			if err != nil {
+				calendarError(w, err)
+				return
+			}
+			write(w, 200, result)
+		default:
+			failure(w, 404, "not_found", "Recurso no encontrado.")
+		}
+		return
+	}
+	if len(parts) == 3 && parts[2] == "blocks" {
+		switch r.Method {
+		case http.MethodGet:
+			from, to, ok := queryWindow(w, r.URL.Query())
+			if !ok {
+				return
+			}
+			result, err := h.calendar.ListBlocks(r.Context(), owner, spaceID, from, to)
+			if err != nil {
+				calendarError(w, err)
+				return
+			}
+			write(w, 200, result)
+		case http.MethodPost:
+			if r.URL.RawQuery != "" {
+				failure(w, 400, "invalid_request", "No se admiten parámetros de URL.")
+				return
+			}
+			var in occupancy.BlockInput
+			if !decode(w, r, &in) {
+				return
+			}
+			result, err := h.calendar.CreateBlock(r.Context(), owner, spaceID, in)
+			if err != nil {
+				calendarError(w, err)
+				return
+			}
+			write(w, 201, result)
+		default:
+			failure(w, 404, "not_found", "Recurso no encontrado.")
+		}
+		return
+	}
+	if len(parts) == 3 && parts[2] == "timezone" && r.Method == http.MethodGet && r.URL.RawQuery == "" {
+		zone, err := h.calendar.TimeZone(r.Context(), owner, spaceID)
+		if err != nil {
+			calendarError(w, err)
+			return
+		}
+		write(w, 200, map[string]string{"space_id": spaceID, "time_zone": zone})
+		return
+	}
+	if len(parts) == 4 && parts[2] == "blocks" && r.Method == http.MethodDelete && r.URL.RawQuery == "" {
+		if err := h.calendar.DeleteBlock(r.Context(), owner, spaceID, parts[3]); err != nil {
+			calendarError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	failure(w, 404, "not_found", "Recurso no encontrado.")
+}
+
+func queryWindow(w http.ResponseWriter, values url.Values) (string, string, bool) {
+	if len(values) != 2 || len(values["from"]) != 1 || len(values["to"]) != 1 || values.Get("from") == "" || values.Get("to") == "" {
+		failure(w, 400, "invalid_request", "Se requieren from y to como timestamps RFC 3339.")
+		return "", "", false
+	}
+	return values.Get("from"), values.Get("to"), true
+}
+
+func calendarError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, occupancy.ErrInvalid):
+		failure(w, 422, "validation_error", "Revisa la zona horaria y el intervalo indicado.")
+	case errors.Is(err, occupancy.ErrNotFound):
+		failure(w, 404, "not_found", "Espacio o bloqueo no encontrado.")
+	case errors.Is(err, occupancy.ErrConflict):
+		failure(w, 409, "occupancy_conflict", "El intervalo se superpone con una ocupación activa.")
+	case errors.Is(err, occupancy.ErrTimezoneRequired):
+		failure(w, 409, "time_zone_required", "Configura la zona horaria del espacio antes de usar el calendario.")
+	default:
+		failure(w, 500, "internal_error", "Ocurrió un error inesperado.")
+	}
 }
 func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 	mt, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))

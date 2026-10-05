@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: EspaciGo API
   version: 1.0.0
-  description: 'Prototipo local M01 y cortes parciales M02/M03. M03 permite casos KYC/KYB sintéticos en revisión y revisión admin local; no consulta Registro Civil/SII, no recibe documentos reales ni declara identidad acreditada. M02 conserva pendientes de cuenta de cobro, foto, resolución de supresión y retención. Historial y avisos durables RQF-217/218 dependen de DB02-09.'
+  description: 'Prototipo local M01, cortes parciales M02/M03/M04 y calendario privado M06. M03 usa casos KYC/KYB sintéticos; no consulta Registro Civil/SII ni declara identidad acreditada. M04 conserva borradores privados; el slice de disponibilidad usa ocupacion, propiedad M06, sin reservas ni publicación. M02 conserva pendientes productivos; historial y avisos durables RQF-217/218 dependen de DB02-09.'
 servers:
 - url: /api/v1
   description: Base relativa versionada; el host se configura por entorno.
@@ -583,6 +583,122 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /spaces/{spaceId}/availability:
+    parameters:
+      - name: spaceId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: configureOwnDraftAvailability
+      tags: [M04/M06 local]
+      description: Configura una zona horaria IANA explícita para el borrador propio; no concede publicación comercial.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AvailabilityConfig' }
+      responses:
+        '200':
+          description: Zona horaria configurada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailabilityConfigResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    get:
+      operationId: queryOwnDraftAvailability
+      tags: [M04/M06 local]
+      description: Comprueba intervalos finitos contra ocupaciones activas. El calendario `ocupacion` sigue siendo propiedad de M06.
+      parameters:
+        - { name: from, in: query, required: true, schema: { $ref: '#/components/schemas/UtcTimestamp' } }
+        - { name: to, in: query, required: true, schema: { $ref: '#/components/schemas/UtcTimestamp' } }
+      responses:
+        '200':
+          description: Resultado de disponibilidad del espacio propio.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailabilityResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /spaces/{spaceId}/availability/blocks:
+    parameters:
+      - name: spaceId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: listOwnDraftManualBlocks
+      tags: [M04/M06 local]
+      description: Lista los bloqueos manuales activos propios que intersectan el rango consultado.
+      parameters:
+        - { name: from, in: query, required: true, schema: { $ref: '#/components/schemas/UtcTimestamp' } }
+        - { name: to, in: query, required: true, schema: { $ref: '#/components/schemas/UtcTimestamp' } }
+      responses:
+        '200':
+          description: Calendario manual del borrador propio.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManualBlockList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    post:
+      operationId: createOwnDraftManualBlock
+      tags: [M04/M06 local]
+      description: Crea un intervalo manual finito semiabierto `[inicio, término)` con motivo obligatorio. Un solape activo devuelve 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManualBlockInput' }
+      responses:
+        '201':
+          description: Bloqueo manual creado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManualBlock' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /spaces/{spaceId}/availability/timezone:
+    parameters:
+      - name: spaceId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getOwnDraftTimeZone
+      tags: [M04/M06 local]
+      description: Lee la zona horaria IANA ya configurada para el borrador propio.
+      responses:
+        '200':
+          description: Zona horaria del calendario.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailabilityConfigResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /spaces/{spaceId}/availability/blocks/{blockId}:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: blockId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      operationId: deleteOwnDraftManualBlock
+      tags: [M04/M06 local]
+      description: Desactiva el bloqueo manual del borrador propio; conserva el registro de ocupación.
+      responses:
+        '204': { description: Bloqueo desactivado. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /auth/logout:
     post:
       operationId: logout
@@ -676,6 +792,70 @@ components:
         state: { type: string, enum: [borrador] }
         attribute_schema_version: { type: integer, minimum: 1 }
         attributes: { type: object, maxProperties: 80, description: Características declaradas y validadas por el perfil versionado. }
+    AvailabilityConfig:
+      type: object
+      additionalProperties: false
+      required: [time_zone]
+      properties:
+        time_zone: { type: string, minLength: 1, maxLength: 100, description: Nombre de zona horaria IANA validado en el servidor. }
+    AvailabilityConfigResponse:
+      type: object
+      additionalProperties: false
+      required: [space_id, time_zone]
+      properties:
+        space_id: { type: string, format: uuid }
+        time_zone: { type: string }
+    AvailabilityResult:
+      type: object
+      additionalProperties: false
+      required: [space_id, time_zone, start_at, end_at, available]
+      properties:
+        space_id: { type: string, format: uuid }
+        time_zone: { type: string }
+        start_at: { type: string, format: date-time, pattern: Z$ }
+        end_at: { type: string, format: date-time, pattern: Z$ }
+        available: { type: boolean }
+    ManualBlockInput:
+      type: object
+      additionalProperties: false
+      required: [start_at, end_at, reason]
+      properties:
+        start_at: { type: string, format: date-time, pattern: Z$ }
+        end_at: { type: string, format: date-time, pattern: Z$ }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    ManualBlock:
+      type: object
+      additionalProperties: false
+      required: [id, space_id, start_at, end_at, time_zone, reason, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        start_at: { type: string, format: date-time, pattern: Z$ }
+        end_at: { type: string, format: date-time, pattern: Z$ }
+        time_zone: { type: string }
+        reason: { type: string }
+        created_at: { type: string, format: date-time, pattern: Z$ }
+    ManualBlockList:
+      type: object
+      additionalProperties: false
+      required: [space_id, time_zone, items]
+      properties:
+        space_id: { type: string, format: uuid }
+        time_zone: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, space_id, start_at, end_at, time_zone, reason, created_at]
+            properties:
+              id: { type: string, format: uuid }
+              space_id: { type: string, format: uuid }
+              start_at: { type: string, format: date-time, pattern: Z$ }
+              end_at: { type: string, format: date-time, pattern: Z$ }
+              time_zone: { type: string }
+              reason: { type: string }
+              created_at: { type: string, format: date-time, pattern: Z$ }
     SpaceAttributeProfile:
       type: object
       additionalProperties: false
