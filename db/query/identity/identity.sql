@@ -89,6 +89,7 @@ UPDATE public.sesion
 SET ultima_actividad_en = sqlc.arg(activity_at)
 WHERE id = sqlc.arg(id)
   AND revocada_en IS NULL
+  AND ultima_actividad_en <= sqlc.arg(activity_at)
   AND expira_en > sqlc.arg(activity_at)
   AND ultima_actividad_en + interval '30 minutes' > sqlc.arg(activity_at);
 

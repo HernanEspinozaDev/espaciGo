@@ -1,0 +1,192 @@
+AUTH-BE-01 — ejecución PC; fecha de registro 2026-10-05 (America/Santiago)
+Base: e03ed65f8c5f246a2316242b92e03e8c5dfc107d; corrección SQL y prueba en este commit.
+Go 1.27.1 linux/amd64; sqlc v1.31.1; PostgreSQL 18.6; PostGIS 3.6.4; btree_gist 1.8.
+Digest: sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+sqlc inicial: cmp before/after + git diff --exit-code dbgen: PASS
+d71735828d92e7637d29ec31aff65762494cd4d17cb94d6b7581a43dc94ff971  internal/adapters/postgres/identity/dbgen/db.go
+9822ad00f8cc09fcbf4f33af52682325e09ac799d658f78d0b129074796bdcab  internal/adapters/postgres/identity/dbgen/identity.sql.go
+cac3fa8c0e4dfd5398425712e9e52b3f7fc1d39d1ca867fcfde56dc0e8c02f56  internal/adapters/postgres/identity/dbgen/models.go
+6b431b6037867f67123db75d599d5381ef6f3204205b8794d397a540e9f83f2a  internal/adapters/postgres/identity/dbgen/querier.go
+
+sqlc final: dos generaciones sucesivas + cmp before/after: PASS
+d71735828d92e7637d29ec31aff65762494cd4d17cb94d6b7581a43dc94ff971  internal/adapters/postgres/identity/dbgen/db.go
+beca68ec756aa483b7cb45a6b5e225fd8d754d79f768a86845eee1f37e0b04f8  internal/adapters/postgres/identity/dbgen/identity.sql.go
+cac3fa8c0e4dfd5398425712e9e52b3f7fc1d39d1ca867fcfde56dc0e8c02f56  internal/adapters/postgres/identity/dbgen/models.go
+6b431b6037867f67123db75d599d5381ef6f3204205b8794d397a540e9f83f2a  internal/adapters/postgres/identity/dbgen/querier.go
+
+Regresión antes de corregir SQL (exit 1 esperado):
+=== RUN   TestTouchSessionDoesNotMoveActivityBackwards
+    repository_integration_test.go:401: stale activity: updated=true error=<nil>; want false and nil
+--- FAIL: TestTouchSessionDoesNotMoveActivityBackwards (0.09s)
+FAIL
+FAIL	github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity	0.099s
+FAIL
+
+Adaptador específico, go test -count=1 -v (exit 0):
+=== RUN   TestCreateWithTermsRejectsAcceptanceForAnotherAccount
+--- PASS: TestCreateWithTermsRejectsAcceptanceForAnotherAccount (0.09s)
+=== RUN   TestActionTokenRepositoryReissueAttemptsConsumptionAndEmissionCount
+--- PASS: TestActionTokenRepositoryReissueAttemptsConsumptionAndEmissionCount (0.08s)
+=== RUN   TestActionTokenReplacementRollsBackIfInsertConflicts
+--- PASS: TestActionTokenReplacementRollsBackIfInsertConflicts (0.10s)
+=== RUN   TestCreateWithTermsCommitsAccountRoleAndAcceptanceTogether
+--- PASS: TestCreateWithTermsCommitsAccountRoleAndAcceptanceTogether (0.08s)
+=== RUN   TestCreateWithTermsRollsBackWhenVersionForeignKeyFails
+--- PASS: TestCreateWithTermsRollsBackWhenVersionForeignKeyFails (0.09s)
+=== RUN   TestAccountSessionAndTermsRepositoryOperations
+--- PASS: TestAccountSessionAndTermsRepositoryOperations (0.10s)
+=== RUN   TestTouchSessionDoesNotMoveActivityBackwards
+--- PASS: TestTouchSessionDoesNotMoveActivityBackwards (0.14s)
+=== RUN   TestReplacingActionTokensSerializesPerAccount
+--- PASS: TestReplacingActionTokensSerializesPerAccount (0.57s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity	1.255s
+
+Migración M01 específica, go test -count=1 -v (exit 0):
+=== RUN   TestM01MigrationPersistsAuthorizedSchemaAndConstraints
+--- PASS: TestM01MigrationPersistsAuthorizedSchemaAndConstraints (0.24s)
+=== RUN   TestM01FKIntegrityRejectsUnknownUser
+--- PASS: TestM01FKIntegrityRejectsUnknownUser (0.23s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/migrator	0.482s
+
+Suite completa, go test -race -count=1 -v ./... (exit 0):
+=== RUN   TestLoadConfigReadsLocalPasswordFileAndParsesOrigins
+--- PASS: TestLoadConfigReadsLocalPasswordFileAndParsesOrigins (0.00s)
+=== RUN   TestLoadConfigRejectsMissingDatabaseHost
+--- PASS: TestLoadConfigRejectsMissingDatabaseHost (0.00s)
+=== RUN   TestLoadConfigRejectsEmptyPasswordFile
+--- PASS: TestLoadConfigRejectsEmptyPasswordFile (0.00s)
+=== RUN   TestLoadConfigRejectsInvalidDatabasePort
+--- PASS: TestLoadConfigRejectsInvalidDatabasePort (0.00s)
+=== RUN   TestCheckEndpointAcceptsHealthyResponse
+--- PASS: TestCheckEndpointAcceptsHealthyResponse (0.00s)
+=== RUN   TestCheckEndpointRejectsUnavailableResponse
+--- PASS: TestCheckEndpointRejectsUnavailableResponse (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/cmd/api	1.032s
+?   	github.com/HernanEspinozaDev/espaciGo/cmd/dbmigrate	[no test files]
+=== RUN   TestCheckEndpointAcceptsHealthyResponse
+--- PASS: TestCheckEndpointAcceptsHealthyResponse (0.00s)
+=== RUN   TestCheckEndpointRejectsUnavailableResponse
+--- PASS: TestCheckEndpointRejectsUnavailableResponse (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/cmd/mock	1.029s
+=== RUN   TestDatabaseNameNotFoundPassesIsolationCheck
+--- PASS: TestDatabaseNameNotFoundPassesIsolationCheck (0.00s)
+=== RUN   TestResolvedDatabaseNameFailsIsolationCheck
+--- PASS: TestResolvedDatabaseNameFailsIsolationCheck (0.00s)
+=== RUN   TestLookupMetadataReportsOnlyOutcomeAndAddressCount
+--- PASS: TestLookupMetadataReportsOnlyOutcomeAndAddressCount (0.00s)
+=== RUN   TestLookupMetadataClassifiesNotFoundWithoutRawError
+--- PASS: TestLookupMetadataClassifiesNotFoundWithoutRawError (0.00s)
+=== RUN   TestLookupMetadataClassifiesTemporaryFailureWithoutRawError
+--- PASS: TestLookupMetadataClassifiesTemporaryFailureWithoutRawError (0.00s)
+=== RUN   TestTCPProbeReachesListenerWithinTimeout
+--- PASS: TestTCPProbeReachesListenerWithinTimeout (0.00s)
+=== RUN   TestTCPProbeRejectsHostnameTargets
+--- PASS: TestTCPProbeRejectsHostnameTargets (0.00s)
+=== RUN   TestTCPProbeRejectsNonNumericPorts
+--- PASS: TestTCPProbeRejectsNonNumericPorts (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/cmd/netprobe	1.018s
+=== RUN   TestCreateWithTermsRejectsAcceptanceForAnotherAccount
+--- PASS: TestCreateWithTermsRejectsAcceptanceForAnotherAccount (0.13s)
+=== RUN   TestActionTokenRepositoryReissueAttemptsConsumptionAndEmissionCount
+--- PASS: TestActionTokenRepositoryReissueAttemptsConsumptionAndEmissionCount (0.12s)
+=== RUN   TestActionTokenReplacementRollsBackIfInsertConflicts
+--- PASS: TestActionTokenReplacementRollsBackIfInsertConflicts (0.12s)
+=== RUN   TestCreateWithTermsCommitsAccountRoleAndAcceptanceTogether
+--- PASS: TestCreateWithTermsCommitsAccountRoleAndAcceptanceTogether (0.13s)
+=== RUN   TestCreateWithTermsRollsBackWhenVersionForeignKeyFails
+--- PASS: TestCreateWithTermsRollsBackWhenVersionForeignKeyFails (0.14s)
+=== RUN   TestAccountSessionAndTermsRepositoryOperations
+--- PASS: TestAccountSessionAndTermsRepositoryOperations (0.13s)
+=== RUN   TestTouchSessionDoesNotMoveActivityBackwards
+--- PASS: TestTouchSessionDoesNotMoveActivityBackwards (0.12s)
+=== RUN   TestReplacingActionTokensSerializesPerAccount
+--- PASS: TestReplacingActionTokensSerializesPerAccount (0.57s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity	2.503s
+?   	github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity/dbgen	[no test files]
+=== RUN   TestSecretRedactedAcrossFormattingAndJSON
+--- PASS: TestSecretRedactedAcrossFormattingAndJSON (0.00s)
+=== RUN   TestRegistrationRolesNeverAdmin
+--- PASS: TestRegistrationRolesNeverAdmin (0.00s)
+=== RUN   TestAccountValidationAndErrorIdentity
+--- PASS: TestAccountValidationAndErrorIdentity (0.00s)
+=== RUN   TestSessionExpiryUsesIdleAndAbsoluteLimits
+--- PASS: TestSessionExpiryUsesIdleAndAbsoluteLimits (0.00s)
+=== RUN   TestEmailNormalizationTrimsAndIgnoresCase
+--- PASS: TestEmailNormalizationTrimsAndIgnoresCase (0.00s)
+=== RUN   TestAccountValidationRequiresM01CanonicalEmail
+--- PASS: TestAccountValidationRequiresM01CanonicalEmail (0.00s)
+=== RUN   TestSessionAndActionTokenHashesRedacted
+--- PASS: TestSessionAndActionTokenHashesRedacted (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/identity	1.024s
+=== RUN   TestM01MigrationPersistsAuthorizedSchemaAndConstraints
+--- PASS: TestM01MigrationPersistsAuthorizedSchemaAndConstraints (0.23s)
+=== RUN   TestM01FKIntegrityRejectsUnknownUser
+--- PASS: TestM01FKIntegrityRejectsUnknownUser (0.12s)
+=== RUN   TestRunnerAppliesFromEmptyAndRepeatIsNoop
+--- PASS: TestRunnerAppliesFromEmptyAndRepeatIsNoop (0.16s)
+=== RUN   TestRunnerStoresExactMigrationAndRunnerChecksums
+--- PASS: TestRunnerStoresExactMigrationAndRunnerChecksums (0.17s)
+=== RUN   TestRunnerRejectsChecksumDriftBeforeDDL
+--- PASS: TestRunnerRejectsChecksumDriftBeforeDDL (0.19s)
+=== RUN   TestRunnerRollsBackMigrationAndHistoryTogether
+--- PASS: TestRunnerRollsBackMigrationAndHistoryTogether (0.13s)
+=== RUN   TestRunnerSerializesConcurrentExecutions
+--- PASS: TestRunnerSerializesConcurrentExecutions (0.42s)
+=== RUN   TestRunnerRejectsVersionGapBeforeDDL
+--- PASS: TestRunnerRejectsVersionGapBeforeDDL (0.05s)
+=== RUN   TestDiscoverMigrationsOrdersFilesAndHashesExactBytes
+--- PASS: TestDiscoverMigrationsOrdersFilesAndHashesExactBytes (0.00s)
+=== RUN   TestDiscoverMigrationsRejectsGapBeforeExecution
+--- PASS: TestDiscoverMigrationsRejectsGapBeforeExecution (0.00s)
+=== RUN   TestDiscoverMigrationsRejectsDuplicateVersion
+--- PASS: TestDiscoverMigrationsRejectsDuplicateVersion (0.00s)
+=== RUN   TestDiscoverMigrationsRejectsUnrecognizedSQLFile
+--- PASS: TestDiscoverMigrationsRejectsUnrecognizedSQLFile (0.00s)
+=== RUN   TestVerifyHistoryRejectsChecksumDrift
+--- PASS: TestVerifyHistoryRejectsChecksumDrift (0.00s)
+=== RUN   TestVerifyHistoryRejectsMissingOrRenamedAppliedFile
+--- PASS: TestVerifyHistoryRejectsMissingOrRenamedAppliedFile (0.00s)
+=== RUN   TestVerifyHistoryAcceptsMatchingAppliedPrefix
+--- PASS: TestVerifyHistoryAcceptsMatchingAppliedPrefix (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/migrator	2.522s
+=== RUN   TestRootServesStaticMockPage
+--- PASS: TestRootServesStaticMockPage (0.02s)
+=== RUN   TestConfigEndpointReturnsConfiguredAPIReadyURL
+--- PASS: TestConfigEndpointReturnsConfiguredAPIReadyURL (0.00s)
+=== RUN   TestMockHealthEndpointIsAvailable
+--- PASS: TestMockHealthEndpointIsAvailable (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/mockserver	1.044s
+=== RUN   TestLivenessDoesNotDependOnDatabase
+--- PASS: TestLivenessDoesNotDependOnDatabase (0.00s)
+=== RUN   TestReadinessReportsUnavailableWithoutLeakingDatabaseError
+--- PASS: TestReadinessReportsUnavailableWithoutLeakingDatabaseError (0.00s)
+=== RUN   TestReadinessReturnsReadyWhenDatabasePingSucceeds
+--- PASS: TestReadinessReturnsReadyWhenDatabasePingSucceeds (0.00s)
+=== RUN   TestReadinessCORSAllowsOnlyConfiguredMockOrigin
+--- PASS: TestReadinessCORSAllowsOnlyConfiguredMockOrigin (0.00s)
+=== RUN   TestReadinessAllowsCorsPreflightFromMock
+--- PASS: TestReadinessAllowsCorsPreflightFromMock (0.00s)
+PASS
+ok  	github.com/HernanEspinozaDev/espaciGo/internal/platform/health	1.020s
+
+go vet ./...: PASS (exit 0)
+git diff --check: PASS (exit 0)
+Limpieza previa: consulta pg_database / pg_stat_activity:
+remaining_test_databases=0
+other_client_sessions=0
+
+Limpieza final en este PC:
+container: absent; inspect exit=1, No such object/image
+image: absent; inspect exit=1, No such object/image
+temporary_directory_and_socket: absent (Path.exists=false); directorio eliminado completo.
+network: none; published_ports: {}; PostgreSQL data: tmpfs; no volumen persistente creado.
+Dos intentos iniciales fallaron por socket de init del entrypoint; ambos contenedores se retiraron antes del intento correcto con sockets /var/run/postgresql y /test-socket.

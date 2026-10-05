@@ -377,6 +377,39 @@ func TestAccountSessionAndTermsRepositoryOperations(t *testing.T) {
 	}
 }
 
+func TestTouchSessionDoesNotMoveActivityBackwards(t *testing.T) {
+	ctx, pool := newIdentityTestPool(t)
+	repo := identitypg.NewIdentityRepository(pool)
+	account := testAccount("00000000-0000-4000-8000-000000000090", "ordered@ejemplo.invalid")
+	if err := repo.CreateWithTerms(ctx, account, nil); err != nil {
+		t.Fatal(err)
+	}
+	session := identity.Session{
+		ID: "00000000-0000-4000-8000-000000000091", AccountID: account.ID,
+		TokenHash: strings.Repeat("9", 64), CreatedAt: account.CreatedAt,
+		LastActivityAt: account.CreatedAt, ExpiresAt: account.CreatedAt.Add(8 * time.Hour),
+	}
+	if err := repo.CreateSession(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	latest := session.CreatedAt.Add(20 * time.Minute)
+	if updated, err := repo.TouchSession(ctx, session.ID, latest); err != nil || !updated {
+		t.Fatalf("current activity: updated=%t error=%v", updated, err)
+	}
+	for _, stale := range []time.Time{session.CreatedAt.Add(10 * time.Minute), session.CreatedAt.Add(-time.Minute)} {
+		if updated, err := repo.TouchSession(ctx, session.ID, stale); err != nil || updated {
+			t.Fatalf("stale activity: updated=%t error=%v; want false and nil", updated, err)
+		}
+	}
+	stored, err := repo.SessionByTokenHash(ctx, session.TokenHash)
+	if err != nil || !stored.LastActivityAt.Equal(latest) || !stored.ExpiresAt.Equal(session.ExpiresAt) {
+		t.Fatalf("activity or absolute expiry changed: error=%v", err)
+	}
+	if updated, err := repo.TouchSession(ctx, session.ID, session.CreatedAt.Add(45*time.Minute)); err != nil || !updated {
+		t.Fatalf("activity within preserved idle window: updated=%t error=%v", updated, err)
+	}
+}
+
 func TestReplacingActionTokensSerializesPerAccount(t *testing.T) {
 	ctx, pool := newIdentityTestPool(t)
 	repo := identitypg.NewIdentityRepository(pool)

@@ -494,6 +494,7 @@ UPDATE public.sesion
 SET ultima_actividad_en = $1
 WHERE id = $2
   AND revocada_en IS NULL
+  AND ultima_actividad_en <= $1
   AND expira_en > $1
   AND ultima_actividad_en + interval '30 minutes' > $1
 `
