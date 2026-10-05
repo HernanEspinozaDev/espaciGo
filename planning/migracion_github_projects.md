@@ -6,9 +6,9 @@ Corte de verificación: 2026-10-05. Este documento registra la migración y sepa
 
 - Repositorio: `HernanEspinozaDev/espaciGo`.
 - Project: [EspaciGo — Desarrollo](https://github.com/users/HernanEspinozaDev/projects/1), Project #1.
-- Correspondencia completa, una fila por tarjeta: [github_issue_map.csv](github_issue_map.csv).
+- Snapshot de correspondencia creado durante la migración, una fila por tarjeta: [github_issue_map.csv](github_issue_map.csv). Contiene Issue, estados, PR relacionado y racional; no contiene campos de prioridad ni aristas de dependencia, que deben consultarse en GitHub.
 - Guía para continuar desde un PC local: [ejecucion_con_github_projects.md](ejecucion_con_github_projects.md).
-- El acceso autenticado como `HernanEspinozaDev` se comprobó con `gh auth status` y `gh api user`; la cuenta activa declara los scopes `repo` y `project`. Las lecturas GraphQL del Project y las escrituras de sus elementos/campos verificaron el acceso efectivo de lectura y escritura. No se guardaron tokens en el repositorio.
+- La lectura/escritura del Project durante la migración se verificó con `HernanEspinozaDev`. Para el flujo posterior, `HernanMEC` es la cuenta de desarrollo y de commits/pushes/PRs; `HernanEspinozaDev` queda para revisión, aprobación y merge. Los scopes son por cuenta y no deben darse por compartidos. No se guardaron tokens en el repositorio.
 
 ## Inventario y trazabilidad
 

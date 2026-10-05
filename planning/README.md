@@ -28,7 +28,7 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [Backlog Kanban](backlog.md) | Alcance/trazabilidad de las 103 tarjetas originales; estados históricos, no operativos. |
 | [Migración a GitHub Projects](migracion_github_projects.md) | Reconciliación del snapshot Hermes, Issues, estados, dependencias, archivadas y respaldo portable. |
 | [Ejecución en GitHub Projects](ejecucion_con_github_projects.md) | Flujo seguro de trabajo desde el PC local; gates y comandos de verificación. |
-| [Correspondencia Hermes–GitHub](github_issue_map.csv) | Tabla estable de las 104 IDs Hermes con Issue, Project, estado y relaciones. |
+| [Correspondencia Hermes–GitHub](github_issue_map.csv) | Snapshot de migración: 104 IDs Hermes, Issues, estados, PR relacionado y racional; no contiene prioridades ni aristas de dependencias. |
 | [Referencias](referencias/README.md) | Snapshots de ES1/ES2 para agentes sin acceso al repositorio académico. |
 
 `backlog.md` conserva el alcance y la trazabilidad de las 103 tarjetas originales; sus estados y conteos anteriores son snapshots históricos, no el tablero operativo actual. La recuperación `t_112e6827` es la tarjeta 104. El registro operativo está en GitHub Issues + Project `EspaciGo — Desarrollo` (104 elementos, dependencias nativas de GitHub); usa [migracion_github_projects.md](migracion_github_projects.md) y [github_issue_map.csv](github_issue_map.csv) para la conciliación al 2026-10-05. Hermes Kanban queda archivado como histórico y fuera del dispatcher activo.
