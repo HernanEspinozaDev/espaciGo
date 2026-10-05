@@ -1,8 +1,8 @@
 # Contexto operativo para agentes de desarrollo
 
-## Estrategia vigente — prototipo local M02, 2026-10-05
+## Estrategia vigente — prototipo local, 2026-10-05
 
-PRs [#124](https://github.com/HernanEspinozaDev/espaciGo/pull/124) y [#125](https://github.com/HernanEspinozaDev/espaciGo/pull/125) están aceptados y fusionados como tramos M01. #30/#32/#33/#35 quedaron aceptadas; #31/#34 siguen abiertas por los pendientes DB02-09 y cobertura M01. #123 permanece como limpieza de servidor independiente. El módulo habilitado siguiente es M02 (#36–43). El corte actual lleva en una misma rama DB → backend → API → pruebas → mock para perfil propio y recepción de solicitudes; otras capacidades incompletas (cobro/KYC, foto, resolución de supresión) se mantienen abiertas, sin marcar Hecho antes de revisión/aceptación.
+PRs #124/#125 (M01) y #126 (tramo M02) están fusionados; merge M02: `829c35959812348f36033c305b3282c0afcfa540`. Se aceptó/cerró #36 porque su matriz arquitectónica explicita acceso y pendientes. #37–43 siguen abiertas: cuenta de cobro/KYC, foto, gestión/resolución de supresión y retención quedan incompletas; M02 no está terminado. El siguiente corte habilitado es M03 (#44–51), iniciado en una rama vertical DB → backend → API → pruebas → mock con fixtures sintéticas y adaptador local, sin integración Registro Civil/SII ni documentos reales. #123 (limpieza del servidor) y DB02-09 siguen separados y pendientes.
 
 La base `pgdata` y secretos locales son persistentes: aplicar migraciones incrementales, nunca ejecutar `clean` ni pruebas destructivas contra ella. Las pruebas automáticas PostgreSQL usan una instancia/base de prueba separada. Reutilizar imágenes/cachés. No declarar automatizadas decisiones pendientes de retención, historia de claves ni avisos durables (DB02-09). Comando y límites del recorrido: [prototipo_local_m02.md](prototipo_local_m02.md); decisión de datos: [decisiones_m02_perfil_privacidad.md](decisiones_m02_perfil_privacidad.md). GitHub Issues y Projects son el registro operativo; no reimportar tarjetas ni reactivar Hermes.
 

@@ -17,6 +17,8 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [Plan de Backend y API](backend_y_api.md) | Capas Go y contrato HTTP/JSON. |
 | [Contrato HTTP común](contrato_http_api.md) | Versionado, autenticación/autorización, errores, paginación, formatos y guía para tickets de rutas. |
 | [OpenAPI base](openapi.yaml) | OpenAPI 3.1 común con seguridad Bearer, esquemas y respuestas reutilizables. |
+| [Prototipo local M03](prototipo_local_m03.md) | KYC/KYB sintético, revisión por rol administrador y reintento local. |
+| [Decisiones M03](decisiones_m03_verificacion_local.md) | Contrato fixture, privacidad y capacidades confirmadas vs pendientes. |
 | [Estructura lógica del backend Go](estructura_backend_go.md) | CORE-BE-01: límites de paquetes, ownership SQL, transacciones, salud y workers durables. |
 | [Plan de pruebas](pruebas.md) | Estrategia desde unitarias hasta recorridos funcionales. |
 | [Harness de DB y API](harness_pruebas.md) | Comandos por capa, fixtures sintéticos, aislamiento, migraciones, contratos y evidencia CI. |

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: EspaciGo API
   version: 1.0.0
-  description: 'Prototipo local M01 y corte implementable de M02. Incluye perfil privado y registro de solicitudes de titular en revisión; no procesa supresión ni habilita cuenta de cobro/KYC. Historial y avisos durables RQF-217/218 dependen de DB02-09. HTTP solo loopback; TLS y correo productivo quedan pendientes.'
+  description: 'Prototipo local M01 y cortes parciales M02/M03. M03 permite casos KYC/KYB sintéticos en revisión y revisión admin local; no consulta Registro Civil/SII, no recibe documentos reales ni declara identidad acreditada. M02 conserva pendientes de cuenta de cobro, foto, resolución de supresión y retención. Historial y avisos durables RQF-217/218 dependen de DB02-09.'
 servers:
 - url: /api/v1
   description: Base relativa versionada; el host se configura por entorno.
@@ -246,6 +246,84 @@ paths:
         '202': { description: Solicitud recibida para revisión., content: { application/json: { schema: { $ref: '#/components/schemas/RightsRequest' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': *id006
+  /verifications:
+    get:
+      operationId: listOwnVerifications
+      tags: [M03 local]
+      description: Devuelve los casos propios y referencias sintéticas; nunca documentos ni RUT.
+      responses:
+        '200': { description: Casos propios., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationList' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: startSyntheticVerification
+      tags: [M03 local]
+      description: Crea un caso kyc/kyb sintético en revisión manual. No valida identidad ni consulta proveedor externo. Idempotencia por usuario/clave.
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 80 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerificationCreate' }
+      responses:
+        '201': { description: Caso sintético en revisión., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': *id006
+  /verifications/{id}:
+    get:
+      operationId: getOwnVerification
+      tags: [M03 local]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Caso propio., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /verifications/{id}/retry:
+    post:
+      operationId: retryRejectedVerification
+      tags: [M03 local]
+      description: Reintenta solo casos rechazados del mismo titular; confirma corrección fixture y exige clave idempotente.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 80 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerificationRetry' }
+      responses:
+        '201': { description: Reintento nuevo y sintético., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /admin/verifications:
+    get:
+      operationId: listPendingVerifications
+      tags: [M03 local]
+      description: Solo rol administrador; cola de referencias fixture, sin PII.
+      responses:
+        '200': { description: Casos en revisión., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationList' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/verifications/{id}/review:
+    post:
+      operationId: reviewSyntheticVerification
+      tags: [M03 local]
+      description: Solo rol administrador. Rechazo requiere motivo codificado. Resolver fixture no acredita identidad real ni habilita transacciones.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerificationReview' }
+      responses:
+        '200': { description: Caso sintético resuelto., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /auth/login:
     post:
       operationId: login
@@ -389,6 +467,43 @@ components:
       required: [items]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/RightsRequest' } }
+    VerificationCreate:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type: { type: string, enum: [kyc, kyb] }
+    VerificationRetry:
+      type: object
+      additionalProperties: false
+      required: [corrected]
+      properties:
+        corrected: { type: boolean, const: true }
+    VerificationReview:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [aprobada, rechazada] }
+        reason_code: { type: string, enum: [documento_vencido, antecedentes_incompletos, inicio_actividades_no_confirmado] }
+    VerificationCase:
+      type: object
+      required: [id, type, state, provider, evidence_ref, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [kyc, kyb] }
+        state: { type: string, enum: [en_revision, aprobada, rechazada] }
+        provider: { type: string, const: local-fixture-v1 }
+        evidence_ref: { type: string, pattern: '^fixture:' }
+        retry_of: { type: string, format: uuid }
+        reason_code: { type: string }
+        created_at: { type: string, format: date-time }
+        resolved_at: { type: [string, 'null'], format: date-time }
+    VerificationList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/VerificationCase' } }
     Error:
       type: object
       additionalProperties: false

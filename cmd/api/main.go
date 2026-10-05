@@ -15,10 +15,13 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/health"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
+	verificationhttp "github.com/HernanEspinozaDev/espaciGo/internal/verification/transport/http"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -74,6 +77,14 @@ func run() error {
 			return errors.New("local privacy initialization failed")
 		}
 		mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins, privacyService))
+		verificationService, err := verification.NewService(verificationpg.New(pool), credentials.Generator{}, verification.LocalFixtureProvider{}, time.Now)
+		if err != nil {
+			return errors.New("local verification initialization failed")
+		}
+		mux.Handle("/api/v1/verifications", verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins))
+		mux.Handle("/api/v1/verifications/", verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins))
+		mux.Handle("/api/v1/admin/verifications", verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins))
+		mux.Handle("/api/v1/admin/verifications/", verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins))
 		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/yaml")
 			http.ServeFile(w, r, "/openapi.yaml")
