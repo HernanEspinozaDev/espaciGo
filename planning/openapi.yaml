@@ -2,23 +2,245 @@ openapi: 3.1.0
 info:
   title: EspaciGo API
   version: 1.0.0
-  description: >-
-    Contrato base común. Las rutas de módulos se agregan en tickets específicos
-    con trazabilidad a CU/RQF; este documento no inventa operaciones de negocio.
+  description: 'Prototipo local M01: registro, verificación, login, consulta de sesión y logout (PR #124, Issues
+    #30/#32/#34/#35). HTTP solo loopback para desarrollo; TLS/correo productivo, recuperación/CU-05/50 y DB02-09
+    quedan pendientes.'
 servers:
-  - url: /api/v1
-    description: Base relativa versionada; el host se configura por entorno.
+- url: /api/v1
+  description: Base relativa versionada; el host se configura por entorno.
 security:
-  - bearerAuth: []
-paths: {}
+- bearerAuth: []
+paths:
+  /auth/terms:
+    get:
+      operationId: listLocalTerms
+      tags:
+      - M01 local
+      description: Versiones sintéticas para CU-01; no textos legales productivos.
+      responses:
+        '400': &id001
+          $ref: '#/components/responses/BadRequest'
+        '403': &id002
+          $ref: '#/components/responses/Forbidden'
+        '404': &id003
+          $ref: '#/components/responses/NotFound'
+        '405': &id004
+          $ref: '#/components/responses/MethodNotAllowed'
+        '415': &id005
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422': &id006
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429': &id007
+          $ref: '#/components/responses/TooManyRequests'
+        '500': &id008
+          $ref: '#/components/responses/InternalServerError'
+        '503': &id009
+          $ref: '#/components/responses/ServiceUnavailable'
+        '200':
+          description: Operación completada.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TermsResponse'
+      security: []
+  /auth/register:
+    post:
+      operationId: registerAccount
+      tags:
+      - M01 local
+      description: 'CU-01/RQF-001–007/186–187; cuenta, arrendatario y términos atómicos. Duplicado CU-01 A1
+        explícito. Si emisión/correo falla después del commit, 202 con ID pendiente: reemitir, no repetir alta.
+        Sin preferencia RQF-213 (DB02-09).'
+      responses:
+        '400': *id001
+        '403': *id002
+        '404': *id003
+        '405': *id004
+        '415': *id005
+        '422': *id006
+        '429': *id007
+        '500': *id008
+        '503': *id009
+        '201':
+          description: Operación completada.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountCreated'
+        '202':
+          description: Operación completada.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountCreated'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+  /auth/verification/reissue:
+    post:
+      operationId: reissueVerification
+      tags:
+      - M01 local
+      description: CU-02/RQF-188; TTL 24 h, invalida token anterior; 3 emisiones/cuenta/h más cuota IP local.
+      responses:
+        '400': *id001
+        '403': *id002
+        '404': *id003
+        '405': *id004
+        '415': *id005
+        '422': *id006
+        '429': *id007
+        '500': *id008
+        '503': *id009
+        '204':
+          description: Operación completada.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+  /auth/verification:
+    post:
+      operationId: verifyEmail
+      tags:
+      - M01 local
+      description: CU-02/RQF-008–010; ID y secreto en cuerpo; 5 fallos/token, cuota IP. Consumo/activación
+        atómicos, no acorta bloqueo de login.
+      responses:
+        '400': *id001
+        '403': *id002
+        '404': *id003
+        '405': *id004
+        '415': *id005
+        '422': *id006
+        '429': *id007
+        '500': *id008
+        '503': *id009
+        '204':
+          description: Operación completada.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationRequest'
+  /auth/login:
+    post:
+      operationId: login
+      tags:
+      - M01 local
+      description: 'CU-03/04: credencial incorrecta genérica 401, no verificada 403, bloqueo 429. Sesión 8
+        h absoluta, idle 30 min.'
+      responses:
+        '400': *id001
+        '403': *id002
+        '404': *id003
+        '405': *id004
+        '415': *id005
+        '422': *id006
+        '429': *id007
+        '500': *id008
+        '503': *id009
+        '200':
+          description: Operación completada.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+  /auth/session:
+    get:
+      operationId: currentSession
+      tags:
+      - M01 local
+      description: Consulta solo la sesión del Bearer actual y sus roles/estado; no renueva inactividad. No
+        acepta IDs de terceros ni parámetros de URL.
+      responses:
+        '400': *id001
+        '403': *id002
+        '404': *id003
+        '405': *id004
+        '415': *id005
+        '422': *id006
+        '429': *id007
+        '500': *id008
+        '503': *id009
+        '200':
+          description: Operación completada.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/logout:
+    post:
+      operationId: logout
+      tags:
+      - M01 local
+      description: 'CU-06/RQF-023: requiere sesión válida; revoca credencial. Replay/expirada devuelve 401.'
+      responses:
+        '400': *id001
+        '403': *id002
+        '404': *id003
+        '405': *id004
+        '415': *id005
+        '422': *id006
+        '429': *id007
+        '500': *id008
+        '503': *id009
+        '204':
+          description: Operación completada.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
-      description: >-
-        Credencial de acceso protegida por TLS. Esta base no fija formato,
-        emisor ni ciclo de vida del token; cada operación declara sus excepciones.
+      description: Credencial de acceso protegida por TLS. Esta base no fija formato, emisor ni ciclo de vida
+        del token; cada operación declara sus excepciones.
   headers:
     X-Request-ID:
       description: Identificador de correlación generado o propagado por el servidor.
@@ -39,14 +261,18 @@ components:
     Error:
       type: object
       additionalProperties: false
-      required: [error]
+      required:
+      - error
       properties:
         error:
           $ref: '#/components/schemas/ErrorDetail'
     ErrorDetail:
       type: object
       additionalProperties: false
-      required: [code, message, request_id]
+      required:
+      - code
+      - message
+      - request_id
       properties:
         code:
           type: string
@@ -67,7 +293,9 @@ components:
     FieldError:
       type: object
       additionalProperties: false
-      required: [field, code]
+      required:
+      - field
+      - code
       properties:
         field:
           type: string
@@ -79,32 +307,39 @@ components:
       type: object
       description: Convención para colecciones; cada endpoint define su elemento.
       additionalProperties: false
-      required: [items, next_cursor]
+      required:
+      - items
+      - next_cursor
       properties:
         items:
           type: array
           items: {}
         next_cursor:
-          type: [string, 'null']
+          type:
+          - string
+          - 'null'
           description: Cursor opaco; null cuando no existen más resultados.
     Money:
       type: object
       additionalProperties: false
-      required: [amount, currency]
+      required:
+      - amount
+      - currency
       properties:
         amount:
           type: string
-          pattern: '^-?(0|[1-9][0-9]*)(\.[0-9]+)?$'
-          description: Decimal exacto serializado como string, sin notación exponencial; escala y redondeo se definen por operación.
+          pattern: ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$
+          description: Decimal exacto serializado como string, sin notación exponencial; escala y redondeo
+            se definen por operación.
           example: '123.45'
         currency:
           type: string
-          pattern: '^[A-Z]{3}$'
+          pattern: ^[A-Z]{3}$
           description: Código de moneda ISO 4217; cada operación fija las monedas admitidas.
     UtcTimestamp:
       type: string
       format: date-time
-      pattern: 'Z$'
+      pattern: Z$
       description: Instante RFC 3339 normalizado a UTC y terminado en Z.
       example: '2026-10-02T12:30:00Z'
     CivilDate:
@@ -112,11 +347,156 @@ components:
       format: date
       description: Fecha civil ISO 8601 sin hora ni zona horaria.
       example: '2026-10-02'
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - email
+      - password
+      - terms_version_ids
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          writeOnly: true
+          description: RQF-003–006; mayúscula, número, especial; máximo bcrypt 72 bytes.
+        terms_version_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: &id010
+            type: string
+            format: uuid
+    EmailRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          format: email
+    VerificationRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - token_id
+      - token
+      properties:
+        token_id: *id010
+        token: &id011
+          type: string
+          minLength: 1
+          writeOnly: true
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - email
+      - password
+      properties:
+        email:
+          type: string
+          format: email
+        password: *id011
+    AccountCreated:
+      type: object
+      additionalProperties: false
+      required:
+      - account_id
+      - status
+      properties:
+        account_id: *id010
+        status:
+          type: string
+          enum:
+          - email_pending
+          - verification_pending
+        message: &id012
+          type: string
+    LoginResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - account_id
+      - roles
+      - access_token
+      - token_type
+      - expires_at
+      properties:
+        account_id: *id010
+        roles:
+          type: array
+          items:
+            type: string
+            enum:
+            - arrendatario
+            - arrendador
+            - administrador
+        access_token:
+          type: string
+          readOnly: true
+          description: Bearer opaco; solo en esta respuesta, nunca URL/log. Mantener en memoria en mock.
+        token_type:
+          const: Bearer
+        expires_at: &id013
+          $ref: '#/components/schemas/UtcTimestamp'
+    SessionResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - account_id
+      - roles
+      properties:
+        account_id: *id010
+        roles:
+          type: array
+          items:
+            type: string
+            enum:
+            - arrendatario
+            - arrendador
+            - administrador
+    TermsResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - id
+            - code
+            - type
+            - sha256
+            - published_at
+            - synthetic
+            properties:
+              id: *id010
+              code: *id012
+              type:
+                type: string
+                enum:
+                - terminos
+                - privacidad
+              sha256:
+                type: string
+                pattern: ^[0-9a-f]{64}$
+              published_at: *id013
+              synthetic:
+                const: true
   examples:
     Accepted:
       summary: Respuesta 2xx sintética; cada operación define su esquema final.
       value:
-        id: '00000000-0000-4000-8000-000000000001'
+        id: 00000000-0000-4000-8000-000000000001
     InternalError:
       summary: Error interno genérico sin información sensible.
       value:
@@ -142,8 +522,8 @@ components:
                   message: La solicitud contiene campos inválidos.
                   request_id: 550e8400-e29b-41d4-a716-446655440000
                   details:
-                    - field: page_size
-                      code: out_of_range
+                  - field: page_size
+                    code: out_of_range
     Unauthorized:
       description: Credencial ausente, inválida o expirada; se envía un desafío aplicable.
       headers:
@@ -215,3 +595,52 @@ components:
           examples:
             internal_error:
               $ref: '#/components/examples/InternalError'
+    UnprocessableEntity:
+      description: 'validation_error o invalid_token: regla semántica no satisfecha.'
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: rate_limited o login_blocked. Retry-After en segundos.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+        Retry-After:
+          schema:
+            type: string
+            pattern: ^[0-9]+$
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ServiceUnavailable:
+      description: 'mail_unavailable: solicitar reenvío al recuperar el correo local.'
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    UnsupportedMediaType:
+      description: Usar Content-Type application/json.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    MethodNotAllowed:
+      description: Método no admitido.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

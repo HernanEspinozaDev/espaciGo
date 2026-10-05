@@ -1,31 +1,95 @@
 "use strict";
 const statusElement = document.querySelector("#api-status");
-async function showReadiness() {
-    if (!statusElement) {
-        return;
+const resultElement = document.querySelector("#result");
+let apiBase = "";
+let sessionToken = "";
+let termIDs = [];
+async function request(path, method = "GET", body, authenticated = false) {
+    if (!apiBase)
+        throw new Error("API local aún no disponible.");
+    const headers = { Accept: "application/json" };
+    if (body !== undefined)
+        headers["Content-Type"] = "application/json";
+    if (authenticated) {
+        if (!sessionToken)
+            throw new Error("Primero inicia sesión.");
+        headers.Authorization = `Bearer ${sessionToken}`;
     }
+    const response = await fetch(`${apiBase}/api/v1/auth/${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), mode: "cors", cache: "no-store", credentials: "omit" });
+    const data = response.status === 204 ? {} : await response.json();
+    if (!response.ok) {
+        if (response.status === 401 && authenticated)
+            sessionToken = "";
+        const error = data;
+        throw new Error(`${error.error?.message ?? "Error de API"} (HTTP ${response.status}, ${error.error?.code ?? "unknown"})`);
+    }
+    return data;
+}
+async function action(work) {
+    const buttons = document.querySelectorAll("button");
+    buttons.forEach(button => button.disabled = true);
     try {
-        const configResponse = await fetch("/config.json", { cache: "no-store" });
-        if (!configResponse.ok) {
-            throw new Error("configuration unavailable");
-        }
-        const config = (await configResponse.json());
-        const readyURL = new URL(config.apiReadyURL);
-        if (readyURL.protocol !== "http:" && readyURL.protocol !== "https:") {
-            throw new Error("unsupported API URL");
-        }
-        const response = await fetch(readyURL, {
-            headers: { Accept: "application/json" },
-            mode: "cors",
-            cache: "no-store",
-        });
-        const readiness = (await response.json());
-        statusElement.textContent = response.ok && readiness.status === "ready"
-            ? "API y PostgreSQL listos."
-            : `API o PostgreSQL no disponible (HTTP ${response.status}).`;
+        await work();
     }
-    catch {
-        statusElement.textContent = "No se pudo comprobar la API local.";
+    catch (error) {
+        resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
+    }
+    finally {
+        buttons.forEach(button => button.disabled = false);
     }
 }
-void showReadiness();
+function form(id, work) {
+    const element = document.querySelector(`#${id}`);
+    element.addEventListener("submit", event => { event.preventDefault(); void action(() => work(new FormData(element), element)); });
+}
+form("register-form", async (data, element) => {
+    if (!termIDs.length || !data.get("terms"))
+        throw new Error("Debes aceptar los términos de prueba.");
+    const response = await request("register", "POST", { email: data.get("email"), password: data.get("password"), terms_version_ids: termIDs });
+    element.querySelector('[name="password"]').value = "";
+    resultElement.textContent = response.status === "verification_pending" ? String(response.message) : "Cuenta creada. Abre el buzón de desarrollo para verificar el correo.";
+});
+form("verify-form", async (data, element) => {
+    await request("verification", "POST", { token_id: data.get("token_id"), token: data.get("token") });
+    element.reset();
+    resultElement.textContent = "Correo verificado. Ya puedes iniciar sesión.";
+});
+form("reissue-form", async (data) => { await request("verification/reissue", "POST", { email: data.get("email") }); resultElement.textContent = "Verificación reenviada al buzón local; el token anterior queda invalidado."; });
+form("login-form", async (data, element) => {
+    const response = await request("login", "POST", { email: data.get("email"), password: data.get("password") });
+    sessionToken = String(response.access_token);
+    element.querySelector('[name="password"]').value = "";
+    resultElement.textContent = "Sesión iniciada. Puedes consultarla o cerrarla.";
+});
+document.querySelector("#session-button").addEventListener("click", () => void action(async () => {
+    const response = await request("session", "GET", undefined, true);
+    document.querySelector("#session-output").textContent = JSON.stringify(response, null, 2);
+    resultElement.textContent = "Sesión válida; estado y roles comprobados por la API.";
+}));
+document.querySelector("#logout-button").addEventListener("click", () => void action(async () => {
+    await request("logout", "POST", undefined, true);
+    sessionToken = "";
+    document.querySelector("#session-output").textContent = "Sesión cerrada.";
+    resultElement.textContent = "Logout completado. La credencial anterior queda revocada.";
+}));
+async function initialize() {
+    try {
+        const config = await (await fetch("/config.json", { cache: "no-store" })).json();
+        const readyURL = new URL(config.apiReadyURL);
+        if (readyURL.protocol !== "http:" && readyURL.protocol !== "https:")
+            throw new Error("URL no admitida");
+        apiBase = readyURL.origin;
+        const ready = await fetch(readyURL, { cache: "no-store", mode: "cors" });
+        if (!ready.ok)
+            throw new Error("API no disponible");
+        const terms = await request("terms");
+        const items = terms.items;
+        termIDs = items.filter(item => item.type === "terminos").map(item => item.id);
+        document.querySelector("#terms-version").textContent = items.map(item => `${item.type}: ${item.code}`).join(" · ");
+        statusElement.textContent = "API y PostgreSQL listos.";
+    }
+    catch {
+        statusElement.textContent = "No se pudo comprobar la API local; revisa el entorno y recarga.";
+    }
+}
+void initialize();

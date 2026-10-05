@@ -1,17 +1,7 @@
-body {
-  background: #f4f6fb;
-  color: #1c2541;
-  font: 1rem/1.5 system-ui, sans-serif;
-  margin: 0;
-}
-
-main {
-  margin: 12vh auto;
-  max-width: 42rem;
-  padding: 2rem;
-}
-
-#api-status {
-  border-left: 0.25rem solid #536dfe;
-  padding-left: 0.75rem;
-}
+body {font-family: system-ui, sans-serif; background: #f5f7fa; color: #172b3a; margin: 0;}
+main {max-width: 760px; margin: 2rem auto; padding: 1.5rem;}
+section {background: white; border: 1px solid #d7e0e6; border-radius: 8px; padding: 1.2rem; margin: 1rem 0;}
+label {display: block; margin: .8rem 0;} input:not([type=checkbox]) {display: block; width: 100%; box-sizing: border-box; padding: .65rem; font: inherit;}
+button {padding: .65rem 1rem; background: #145b78; color: white; border: 0; border-radius: 4px; cursor: pointer; margin: .25rem 0;}
+button:disabled {opacity: .5; cursor: wait;} pre {white-space: pre-wrap; overflow-wrap: anywhere;}
+#result {padding: 1rem; background: #e3edf3;} a {color: #145b78;}

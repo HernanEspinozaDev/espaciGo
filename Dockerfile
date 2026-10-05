@@ -19,6 +19,8 @@ RUN mkdir -p /out \
 
 FROM scratch AS api
 COPY --from=go-build --chown=65532:65532 /out/api /api
+COPY db/migrations /migrations
+COPY planning/openapi.yaml /openapi.yaml
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/api"]

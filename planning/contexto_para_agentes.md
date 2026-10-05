@@ -1,5 +1,11 @@
 # Contexto operativo para agentes de desarrollo
 
+## Estrategia vigente autorizada — prototipo local M01, 2026-10-05
+
+La instrucción del usuario de priorizar el recorrido funcional en PR [#124](https://github.com/HernanEspinozaDev/espaciGo/pull/124) prevalece sobre las puertas históricas de merge por capa descritas abajo. Se conservan sus commits y pruebas. #30, #32, #34 y #35 se agrupan en el hito [Prototipo local M01](https://github.com/HernanEspinozaDev/espaciGo/milestone/1). DB → backend → API → mock se integra en la misma rama: una dependencia implementada e integrada permite avanzar, aunque aún no esté fusionada en main. Las dependencias nativas conservan la aceptación completa de las Issues; recuperación/CU-05/PT-50 de #34/#35 queda para el siguiente corte con #31/#33. No cerrar estas Issues ni afirmar M01 completo antes de revisar lo faltante.
+
+GitHub Issues y Projects siguen siendo el registro operativo; este ajuste documenta el motivo y no replica estados del tablero. No reimportar tarjetas ni reactivar Hermes. Controles productivos por IP/correo pueden usar adaptadores locales explícitos para este prototipo, con evolución pendiente documentada. DB02-09 y la limpieza del servidor #123 quedan fuera. Comando, pasos y límites: [prototipo_local_m01.md](prototipo_local_m01.md).
+
 Este archivo permite trabajar dentro del repositorio `espaciGo` sin leer el repositorio académico vecino. Los requisitos y la arquitectura que justifican el backlog están versionados en [referencias](referencias/README.md); el [backlog](backlog.md) y esta política son la guía operativa de ejecución.
 
 ## Qué se construye y por qué
