@@ -1,4 +1,5 @@
 import { ProfileRequestGate, profileMatchesSelection } from "./profile-request.js";
+import { CalendarRequestState } from "./calendar-request.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -40,6 +41,7 @@ async function action(work) {
     }
     finally {
         buttons.forEach(button => button.disabled = false);
+        refreshCalendarControls();
     }
 }
 function form(id, work) {
@@ -365,6 +367,135 @@ form("space-form", async (data, element) => {
     resultElement.textContent = id ? "Borrador guardado." : "Borrador privado creado.";
     await loadSpaces();
 });
+const calendarSpace = document.querySelector("#calendar-space");
+const calendarOutput = document.querySelector("#calendar-output");
+const calendarBlocks = document.querySelector("#calendar-blocks");
+const calendarRequestState = new CalendarRequestState();
+const calendarZoneInput = document.querySelector('#calendar-config-form [name="time_zone"]');
+const calendarQueryForm = document.querySelector("#calendar-query-form");
+const calendarBlockForm = document.querySelector("#calendar-block-form");
+function refreshCalendarControls() {
+    const dirty = !calendarSpace.value || (() => {
+        try {
+            calendarRequestState.zoneFor(calendarSpace.value, calendarZoneInput.value);
+            return false;
+        }
+        catch {
+            return true;
+        }
+    })();
+    calendarQueryForm.querySelectorAll("button").forEach(button => button.disabled = dirty);
+    calendarBlockForm.querySelectorAll("button").forEach(button => button.disabled = dirty);
+}
+async function loadCalendarSpaces() {
+    const result = await request("/api/v1/spaces", "GET", undefined, true);
+    const items = result.items;
+    const selected = calendarSpace.value;
+    calendarSpace.replaceChildren(new Option("Selecciona un borrador", ""));
+    for (const item of items)
+        calendarSpace.add(new Option(String(item.title), String(item.id)));
+    if ([...calendarSpace.options].some(option => option.value === selected))
+        calendarSpace.value = selected;
+}
+function calendarPath(spaceID, suffix = "") {
+    if (!spaceID)
+        throw new Error("Selecciona uno de tus borradores.");
+    return `/api/v1/spaces/${encodeURIComponent(spaceID)}/availability${suffix}`;
+}
+function localTimeAsUTC(value, zone) {
+    if (!value || !zone)
+        throw new Error("Selecciona fechas y configura una zona horaria IANA.");
+    const normalized = value.length === 16 ? `${value}:00` : value;
+    const target = Date.parse(`${normalized}Z`);
+    if (!Number.isFinite(target))
+        throw new Error("La fecha local no es válida.");
+    const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+    const fieldsAt = (instant) => Object.fromEntries(formatter.formatToParts(new Date(instant)).filter(part => part.type !== "literal").map(part => [part.type, Number(part.value)]));
+    let guess = target;
+    for (let attempt = 0; attempt < 4; attempt++) {
+        const fields = fieldsAt(guess);
+        const represented = Date.UTC(fields.year, fields.month - 1, fields.day, fields.hour, fields.minute, fields.second);
+        const delta = target - represented;
+        if (delta === 0)
+            return new Date(guess).toISOString();
+        guess += delta;
+    }
+    throw new Error("La hora local no existe en esa zona por un cambio horario. Elige otra hora.");
+}
+function renderCalendarBlocks(items, spaceID, selection) {
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
+    calendarBlocks.replaceChildren();
+    for (const block of items) {
+        const li = document.createElement("li"), summary = document.createElement("span");
+        const zone = String(block.time_zone), formatter = new Intl.DateTimeFormat("es-CL", { timeZone: zone, dateStyle: "medium", timeStyle: "short" });
+        summary.textContent = `${formatter.format(new Date(String(block.start_at)))} – ${formatter.format(new Date(String(block.end_at)))} (${zone}): ${String(block.reason)} `;
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "Quitar bloqueo";
+        remove.addEventListener("click", () => void action(async () => {
+            const capturedSpaceID = spaceID;
+            const capturedSelection = calendarRequestState.snapshot();
+            await request(`${calendarPath(capturedSpaceID, "/blocks")}/${encodeURIComponent(String(block.id))}`, "DELETE", undefined, true);
+            if (!calendarRequestState.accepts(capturedSelection, capturedSpaceID, calendarSpace.value))
+                return;
+            calendarOutput.textContent = "Bloqueo retirado.";
+            calendarQueryForm.requestSubmit();
+        }));
+        li.append(summary, remove);
+        calendarBlocks.append(li);
+    }
+}
+document.querySelector("#calendar-spaces-load").addEventListener("click", () => void action(loadCalendarSpaces));
+calendarSpace.addEventListener("change", () => void action(async () => {
+    const spaceID = calendarSpace.value;
+    const selection = calendarRequestState.beginSelection();
+    calendarZoneInput.value = "";
+    calendarBlocks.replaceChildren();
+    calendarOutput.textContent = "";
+    refreshCalendarControls();
+    if (!spaceID)
+        return;
+    const result = await request(calendarPath(spaceID, "/timezone"), "GET", undefined, true);
+    if (!calendarRequestState.confirm(spaceID, String(result.time_zone), selection, calendarSpace.value))
+        return;
+    calendarZoneInput.value = String(result.time_zone);
+    calendarOutput.textContent = JSON.stringify(result, null, 2);
+    refreshCalendarControls();
+}));
+form("calendar-config-form", async (data) => {
+    const spaceID = calendarSpace.value, selection = calendarRequestState.snapshot();
+    const result = await request(calendarPath(spaceID), "PUT", { time_zone: data.get("time_zone") }, true);
+    if (!calendarRequestState.confirm(spaceID, String(result.time_zone), selection, calendarSpace.value))
+        return;
+    calendarOutput.textContent = JSON.stringify(result, null, 2);
+    calendarZoneInput.value = String(result.time_zone);
+    refreshCalendarControls();
+});
+form("calendar-query-form", async (data) => {
+    const spaceID = calendarSpace.value, selection = calendarRequestState.snapshot();
+    const zone = calendarRequestState.zoneFor(spaceID, calendarZoneInput.value);
+    const query = new URLSearchParams({ from: localTimeAsUTC(String(data.get("from")), zone), to: localTimeAsUTC(String(data.get("to")), zone) });
+    const availability = await request(`${calendarPath(spaceID)}?${query}`, "GET", undefined, true);
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
+    const blocks = await request(`${calendarPath(spaceID, "/blocks")}?${query}`, "GET", undefined, true);
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
+    renderCalendarBlocks((blocks.items ?? []), spaceID, selection);
+    calendarOutput.textContent = JSON.stringify({ availability, blocks }, null, 2);
+});
+form("calendar-block-form", async (data, element) => {
+    const spaceID = calendarSpace.value, selection = calendarRequestState.snapshot();
+    const zone = calendarRequestState.zoneFor(spaceID, calendarZoneInput.value);
+    const result = await request(calendarPath(spaceID, "/blocks"), "POST", { start_at: localTimeAsUTC(String(data.get("start_at")), zone), end_at: localTimeAsUTC(String(data.get("end_at")), zone), reason: data.get("reason") }, true);
+    if (!calendarRequestState.accepts(selection, spaceID, calendarSpace.value))
+        return;
+    calendarOutput.textContent = JSON.stringify(result, null, 2);
+    element.reset();
+});
+calendarZoneInput.addEventListener("input", refreshCalendarControls);
+refreshCalendarControls();
 async function initialize() {
     try {
         const config = await (await fetch("/config.json", { cache: "no-store" })).json();

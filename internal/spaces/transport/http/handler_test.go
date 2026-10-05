@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"gopkg.in/yaml.v3"
@@ -100,6 +102,58 @@ func testHandler(t *testing.T) http.Handler {
 	}
 	return NewHandler(fakeAuth{}, svc, []string{"http://localhost"})
 }
+
+type fakeCalendar struct{}
+
+func (fakeCalendar) SetTimeZone(_ context.Context, owner, spaceID, zone string) error {
+	if owner != ownerA || spaceID != draftID {
+		return occupancy.ErrNotFound
+	}
+	if zone == "bad" {
+		return occupancy.ErrInvalid
+	}
+	return nil
+}
+func (fakeCalendar) TimeZone(_ context.Context, owner, spaceID string) (string, error) {
+	if owner != ownerA || spaceID != draftID {
+		return "", occupancy.ErrNotFound
+	}
+	return "America/Santiago", nil
+}
+func (fakeCalendar) Availability(_ context.Context, owner, spaceID, from, to string) (occupancy.Availability, error) {
+	if owner != ownerA || spaceID != draftID {
+		return occupancy.Availability{}, occupancy.ErrNotFound
+	}
+	return occupancy.Availability{SpaceID: spaceID, TimeZone: "America/Santiago", StartAt: mustTime(from), EndAt: mustTime(to), Available: true}, nil
+}
+func (fakeCalendar) ListBlocks(_ context.Context, owner, spaceID, from, to string) (occupancy.Calendar, error) {
+	if owner != ownerA || spaceID != draftID {
+		return occupancy.Calendar{}, occupancy.ErrNotFound
+	}
+	return occupancy.Calendar{SpaceID: spaceID, TimeZone: "America/Santiago", Items: []occupancy.Block{}}, nil
+}
+func (fakeCalendar) CreateBlock(_ context.Context, owner, spaceID string, in occupancy.BlockInput) (occupancy.Block, error) {
+	if owner != ownerA || spaceID != draftID {
+		return occupancy.Block{}, occupancy.ErrNotFound
+	}
+	return occupancy.Block{ID: draftID, SpaceID: spaceID, TimeZone: "America/Santiago", StartAt: mustTime(in.StartAt), EndAt: mustTime(in.EndAt), Reason: in.Reason}, nil
+}
+func (fakeCalendar) DeleteBlock(_ context.Context, owner, spaceID, blockID string) error {
+	if owner != ownerA || spaceID != draftID || blockID != draftID {
+		return occupancy.ErrNotFound
+	}
+	return nil
+}
+func mustTime(v string) time.Time { t, _ := time.Parse(time.RFC3339, v); return t.UTC() }
+
+func calendarHandler(t *testing.T) http.Handler {
+	t.Helper()
+	svc, err := spaces.NewService(&memoryRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewHandler(fakeAuth{}, svc, nil, fakeCalendar{})
+}
 func invoke(h http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	if token != "" {
@@ -142,6 +196,69 @@ func TestDraftValidationIsRejectedBeforeRepository(t *testing.T) {
 	h := testHandler(t)
 	if got := invoke(h, "POST", "/api/v1/spaces", "user", `{"category_code":"oficina"}`).Code; got != 422 {
 		t.Fatalf("validation status=%d", got)
+	}
+}
+
+func TestCalendarAPIConfiguresQueriesCreatesAndDeletesWithOwnerChecks(t *testing.T) {
+	h := calendarHandler(t)
+	base := "/api/v1/spaces/" + draftID + "/availability"
+	if got := invoke(h, "PUT", base, "", `{"time_zone":"America/Santiago"}`).Code; got != 401 {
+		t.Fatalf("unauthenticated configuration status=%d", got)
+	}
+	if got := invoke(h, "PUT", base, "user", `{"time_zone":"America/Santiago","owner_id":"`+ownerB+`"}`).Code; got != 400 {
+		t.Fatalf("unknown field status=%d", got)
+	}
+	if got := invoke(h, "PUT", base, "other", `{"time_zone":"America/Santiago"}`).Code; got != 404 {
+		t.Fatalf("foreign timezone configuration status=%d", got)
+	}
+	configured := invoke(h, "PUT", base, "user", `{"time_zone":"America/Santiago"}`)
+	if configured.Code != 200 || !strings.Contains(configured.Body.String(), `"time_zone":"America/Santiago"`) {
+		t.Fatalf("configure status=%d %s", configured.Code, configured.Body.String())
+	}
+	timeZone := invoke(h, "GET", base+"/timezone", "user", "")
+	if timeZone.Code != 200 || !strings.Contains(timeZone.Body.String(), `"time_zone":"America/Santiago"`) {
+		t.Fatalf("read configured zone status=%d %s", timeZone.Code, timeZone.Body.String())
+	}
+	query := base + "?from=2030-04-01T12%3A00%3A00Z&to=2030-04-01T13%3A00%3A00Z"
+	availability := invoke(h, "GET", query, "user", "")
+	if availability.Code != 200 || !strings.Contains(availability.Body.String(), `"available":true`) {
+		t.Fatalf("availability status=%d %s", availability.Code, availability.Body.String())
+	}
+	if got := invoke(h, "GET", base+"?from=2030-04-01T12%3A00%3A00Z", "user", "").Code; got != 400 {
+		t.Fatalf("incomplete query status=%d", got)
+	}
+	if got := invoke(h, "GET", base+"/timezone", "other", "").Code; got != 404 {
+		t.Fatalf("foreign timezone query status=%d", got)
+	}
+	blocks := "/api/v1/spaces/" + draftID + "/availability/blocks"
+	created := invoke(h, "POST", blocks, "user", `{"start_at":"2030-04-01T12:00:00Z","end_at":"2030-04-01T13:00:00Z","reason":"Mantención"}`)
+	if created.Code != 201 {
+		t.Fatalf("create block status=%d %s", created.Code, created.Body.String())
+	}
+	openapi, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "planning", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := yaml.Unmarshal(openapi, &document); err != nil {
+		t.Fatal(err)
+	}
+	schemas := document["components"].(map[string]any)["schemas"].(map[string]any)
+	assertJSONSchema(t, compileOpenAPISchema(t, schemas["AvailabilityConfig"]), []byte(`{"time_zone":"America/Santiago"}`), "AvailabilityConfig")
+	assertJSONSchema(t, compileOpenAPISchema(t, schemas["AvailabilityConfigResponse"]), configured.Body.Bytes(), "AvailabilityConfigResponse")
+	assertJSONSchema(t, compileOpenAPISchema(t, schemas["ManualBlock"]), created.Body.Bytes(), "ManualBlock")
+	assertJSONSchema(t, compileOpenAPISchema(t, schemas["AvailabilityResult"]), availability.Body.Bytes(), "AvailabilityResult")
+	assertJSONSchema(t, compileOpenAPISchema(t, schemas["ManualBlockInput"]), []byte(`{"start_at":"2030-04-01T12:00:00Z","end_at":"2030-04-01T13:00:00Z","reason":"Mantención"}`), "ManualBlockInput")
+	listed := invoke(h, "GET", blocks+"?from=2030-04-01T12%3A00%3A00Z&to=2030-04-01T13%3A00%3A00Z", "user", "")
+	if listed.Code != 200 {
+		t.Fatalf("list blocks status=%d %s", listed.Code, listed.Body.String())
+	}
+	assertJSONSchema(t, compileOpenAPISchema(t, schemas["ManualBlockList"]), listed.Body.Bytes(), "ManualBlockList")
+	if got := invoke(h, "DELETE", blocks+"/"+draftID, "other", "").Code; got != 404 {
+		t.Fatalf("foreign block delete status=%d", got)
+	}
+	if got := invoke(h, "DELETE", blocks+"/"+draftID, "user", "").Code; got != 204 {
+		t.Fatalf("delete status=%d", got)
 	}
 }
 
