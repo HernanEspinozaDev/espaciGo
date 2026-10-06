@@ -565,6 +565,11 @@ const bookingQuoteOutput = document.querySelector("#booking-quote-output");
 const bookingHistoryOutput = document.querySelector("#booking-history-output");
 const bookingCatalogCategory = document.querySelector("#booking-catalog-category");
 const bookingCatalogProfileFilters = document.querySelector("#booking-catalog-profile-filters");
+const bookingCatalogNearbyEnabled = document.querySelector("#booking-catalog-nearby-enabled");
+const bookingCatalogLatitude = document.querySelector("#booking-catalog-latitude");
+const bookingCatalogLongitude = document.querySelector("#booking-catalog-longitude");
+const bookingCatalogRadius = document.querySelector("#booking-catalog-radius");
+const bookingCatalogCenterSample = document.querySelector("#booking-catalog-center-sample");
 let selectedReservationID = "";
 let selectedReservation = null;
 let bookingInboxRevision = 0;
@@ -629,6 +634,23 @@ async function loadCatalogFilterProfile(category) {
     }
 }
 bookingCatalogCategory.addEventListener("change", () => void action(async () => loadCatalogFilterProfile(bookingCatalogCategory.value)));
+bookingCatalogNearbyEnabled.addEventListener("change", () => {
+    const enabled = bookingCatalogNearbyEnabled.checked;
+    bookingCatalogLatitude.disabled = !enabled;
+    bookingCatalogLongitude.disabled = !enabled;
+    bookingCatalogRadius.disabled = !enabled;
+    bookingCatalogLatitude.required = enabled;
+    bookingCatalogLongitude.required = enabled;
+    bookingCatalogRadius.required = enabled;
+    if (enabled && !bookingCatalogRadius.value)
+        bookingCatalogRadius.value = "5";
+});
+bookingCatalogCenterSample.addEventListener("click", () => {
+    bookingCatalogLatitude.value = "-33.4560";
+    bookingCatalogLongitude.value = "-70.6693";
+    bookingCatalogLatitude.dispatchEvent(new Event("input", { bubbles: true }));
+    bookingCatalogLongitude.dispatchEvent(new Event("input", { bubbles: true }));
+});
 form("booking-catalog-form", async (data) => {
     const token = ++bookingCatalogRequest;
     bookingQuoteState.beginSearch();
@@ -646,6 +668,14 @@ form("booking-catalog-form", async (data) => {
         query.set("min_total_clp", minTotal);
     if (maxTotal)
         query.set("max_total_clp", maxTotal);
+    if (bookingCatalogNearbyEnabled.checked) {
+        const latitude = String(data.get("latitude") ?? ""), longitude = String(data.get("longitude") ?? ""), radius = String(data.get("radius_km") ?? "");
+        if (!latitude || !longitude || !radius)
+            throw new Error("Para filtrar por cercanía indica latitud, longitud y radio.");
+        query.set("latitude", latitude);
+        query.set("longitude", longitude);
+        query.set("radius_km", radius);
+    }
     const searchZone = String(data.get("time_zone") ?? "").trim();
     if (localStart) {
         if (!searchZone)
@@ -702,8 +732,9 @@ form("booking-catalog-form", async (data) => {
         const title = document.createElement("h3");
         title.textContent = `${item.title} · ${item.category_name}`;
         const estimated = item.estimated_total_clp === undefined ? "" : ` · Estimación total ${item.estimated_total_clp.toLocaleString("es-CL")} ${item.currency}`;
+        const distance = item.distance_km === undefined ? "" : ` · Distancia directa aprox. ${item.distance_km.toFixed(1)} km (no ruta vial)`;
         const meta = document.createElement("p");
-        meta.textContent = `Tarifa ${item.base_price_clp} ${item.currency}/${item.rate_unit} · ${item.time_zone}${estimated}${item.available === undefined ? "" : item.available ? " · disponible" : " · no disponible"}`;
+        meta.textContent = `Tarifa ${item.base_price_clp} ${item.currency}/${item.rate_unit} · ${item.time_zone}${estimated}${distance}${item.available === undefined ? "" : item.available ? " · disponible" : " · no disponible"}`;
         const details = document.createElement("button");
         details.type = "button";
         details.textContent = "Ver detalle y preparar cotización";

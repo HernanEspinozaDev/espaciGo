@@ -55,6 +55,9 @@ func createLocalBookingFixture(hostEmail, renterEmail, category string) error {
 	var existingSpace string
 	err = tx.QueryRow(ctx, `SELECT f.espacio_id::text FROM public.reserva_ensayo_local_fixture f JOIN public.espacio e ON e.id=f.espacio_id WHERE f.habilitada AND f.anfitrion_id=$1 AND f.arrendatario_id=$2 AND e.categoria_codigo=$3 FOR UPDATE OF f`, hostID, renterID, category).Scan(&existingSpace)
 	if err == nil {
+		if err = ensureSyntheticFixtureLocation(ctx, tx, existingSpace, category); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -90,9 +93,38 @@ VALUES($1,$2,$3,$4,'Espacio de prueba local sintético; no se publica, no repres
 	if err != nil {
 		return err
 	}
+	if err = ensureSyntheticFixtureLocation(ctx, tx, spaceID, category); err != nil {
+		return err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
 	fmt.Printf("Fixture local habilitado: categoría %s, participantes autorizados; sin permisos comerciales ni pago real.\n", category)
 	return nil
+}
+
+func ensureSyntheticFixtureLocation(ctx context.Context, tx pgx.Tx, spaceID, category string) error {
+	latitude, longitude, ok := syntheticFixtureCoordinates(category)
+	if !ok {
+		return errors.New("fixture category has no synthetic location sample")
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_ubicacion_sintetica(espacio_id,latitud,longitud,es_sintetica)
+VALUES($1,$2,$3,true)
+ON CONFLICT (espacio_id) DO UPDATE SET latitud=EXCLUDED.latitud,longitud=EXCLUDED.longitud,es_sintetica=true`, spaceID, latitude, longitude)
+	return err
+}
+
+func syntheticFixtureCoordinates(category string) (float64, float64, bool) {
+	latitudes := map[string]float64{
+		"oficina":             -33.4560,
+		"sala_multiproposito": -33.4632,
+		"bodega":              -33.4785,
+		"estacionamiento":     -33.4965,
+		"local_flexible":      -33.5415,
+		"stand":               -33.5505,
+		"quincho":             -33.6765,
+		"parcela_eventos":     -33.6855,
+	}
+	latitude, ok := latitudes[category]
+	return latitude, -70.6693, ok
 }

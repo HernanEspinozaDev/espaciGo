@@ -45,6 +45,9 @@ type CatalogItem struct {
 	Attributes     json.RawMessage `json:"attributes"`
 	Available      *bool           `json:"available,omitempty"`
 	EstimatedTotal *int64          `json:"estimated_total_clp,omitempty"`
+	DistanceKM     *float64        `json:"distance_km,omitempty"`
+	DistanceKind   string          `json:"distance_kind,omitempty"`
+	DistanceMeters float64         `json:"-"`
 }
 type CatalogFilter struct {
 	CategoryCode   string
@@ -54,6 +57,9 @@ type CatalogFilter struct {
 	MaxTotalCLP    *int64
 	ProfileVersion int
 	Attributes     map[string]any
+	Latitude       *float64
+	Longitude      *float64
+	RadiusKM       *int
 }
 type QuoteInput struct {
 	SpaceID string `json:"space_id"`

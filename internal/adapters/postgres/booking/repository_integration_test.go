@@ -105,6 +105,13 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if !cursorRead || !cursorInsert || !cursorUpdate || cursorDelete {
 		t.Fatalf("read cursor grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", cursorRead, cursorInsert, cursorUpdate, cursorDelete)
 	}
+	var fixtureLocationRead, fixtureLocationInsert, fixtureLocationUpdate, fixtureLocationDelete bool
+	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_ensayo_local_ubicacion_sintetica','SELECT'),has_table_privilege(current_user,'public.reserva_ensayo_local_ubicacion_sintetica','INSERT'),has_table_privilege(current_user,'public.reserva_ensayo_local_ubicacion_sintetica','UPDATE'),has_table_privilege(current_user,'public.reserva_ensayo_local_ubicacion_sintetica','DELETE')`).Scan(&fixtureLocationRead, &fixtureLocationInsert, &fixtureLocationUpdate, &fixtureLocationDelete); err != nil {
+		t.Fatal(err)
+	}
+	if !fixtureLocationRead || fixtureLocationInsert || fixtureLocationUpdate || fixtureLocationDelete {
+		t.Fatalf("synthetic location grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", fixtureLocationRead, fixtureLocationInsert, fixtureLocationUpdate, fixtureLocationDelete)
+	}
 	setup, err := pgx.Connect(ctx, dbURL)
 	if err != nil {
 		t.Fatal(err)
@@ -142,6 +149,12 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id) VALUES($1,$2,$3)`, secondSpace, host, renter); err != nil {
+		t.Fatal(err)
+	}
+	centerLon, centerLat := -70.6693, -33.4560
+	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_ubicacion_sintetica(espacio_id,latitud,longitud,es_sintetica)
+VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0)::geometry),$2,true),
+      ($4,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1000,0)::geometry),$2,true)`, space, centerLon, centerLat, secondSpace); err != nil {
 		t.Fatal(err)
 	}
 	privateSpace := "ffffffff-ffff-4fff-8fff-ffffffffffff"
@@ -230,6 +243,62 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	}
 	if !foundWarehouse {
 		t.Fatalf("second fixture lacks its own category/profile/tariff: %+v", items)
+	}
+	geoCenterLat, geoCenterLon := centerLat, centerLon
+	geoRadius1, geoRadius3 := 1, 3
+	geoAt, geoUntil := fixedNow.Add(800*24*time.Hour), fixedNow.Add(800*24*time.Hour+time.Hour)
+	geoMin, geoMax := int64(12000), int64(12000)
+	var geoQuotesBefore, geoReservationsBefore, geoOccupanciesBefore int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.cotizacion_reserva_ensayo),(SELECT count(*) FROM public.reserva_ensayo_local),(SELECT count(*) FROM public.ocupacion)`).Scan(&geoQuotesBefore, &geoReservationsBefore, &geoOccupanciesBefore); err != nil {
+		t.Fatal(err)
+	}
+	geoCombined, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "bodega", StartAt: &geoAt, EndAt: &geoUntil, MinTotalCLP: &geoMin, MaxTotalCLP: &geoMax, ProfileVersion: 1, Attributes: map[string]any{"altura_util_m": 3.2, "carro_carga_disponible": false}, Latitude: &geoCenterLat, Longitude: &geoCenterLon, RadiusKM: &geoRadius1})
+	if err != nil || len(geoCombined) != 1 || geoCombined[0].SpaceID != secondSpace || geoCombined[0].DistanceKM == nil || *geoCombined[0].DistanceKM != 1.0 || geoCombined[0].DistanceKind != "direct" || geoCombined[0].EstimatedTotal == nil || *geoCombined[0].EstimatedTotal != 12000 {
+		t.Fatalf("combined geo/category/availability/attribute/price filter=%+v err=%v", geoCombined, err)
+	}
+	geoBoundary, err := svc.Catalog(ctx, renter, booking.CatalogFilter{Latitude: &geoCenterLat, Longitude: &geoCenterLon, RadiusKM: &geoRadius1})
+	if err != nil || len(geoBoundary) != 1 || geoBoundary[0].SpaceID != secondSpace {
+		t.Fatalf("one-kilometer inclusive boundary/outside results=%+v err=%v", geoBoundary, err)
+	}
+	for _, radius := range []int{1, 3, 5, 10, 25} {
+		itemsAtRadius, searchErr := svc.Catalog(ctx, renter, booking.CatalogFilter{Latitude: &geoCenterLat, Longitude: &geoCenterLon, RadiusKM: &radius})
+		want := 2
+		if radius == 1 {
+			want = 1
+		}
+		if searchErr != nil || len(itemsAtRadius) != want {
+			t.Fatalf("radius %dkm results=%+v err=%v; want %d", radius, itemsAtRadius, searchErr, want)
+		}
+	}
+	geoSorted, err := svc.Catalog(ctx, renter, booking.CatalogFilter{Latitude: &geoCenterLat, Longitude: &geoCenterLon, RadiusKM: &geoRadius3})
+	if err != nil || len(geoSorted) != 2 || geoSorted[0].SpaceID != secondSpace || geoSorted[1].SpaceID != space || geoSorted[0].DistanceKM == nil || geoSorted[1].DistanceKM == nil || *geoSorted[0].DistanceKM != 1.0 || *geoSorted[1].DistanceKM != 1.0 {
+		t.Fatalf("raw distance ordering before one-decimal rounding=%+v err=%v", geoSorted, err)
+	}
+	outsiderGeo, err := svc.Catalog(ctx, outsider, booking.CatalogFilter{Latitude: &geoCenterLat, Longitude: &geoCenterLon, RadiusKM: &geoRadius3})
+	if err != nil || len(outsiderGeo) != 0 {
+		t.Fatalf("geographic query widened fixture access for unrelated account: %+v err=%v", outsiderGeo, err)
+	}
+	geoJSON, err := json.Marshal(geoSorted)
+	if err != nil || strings.Contains(string(geoJSON), "latitude") || strings.Contains(string(geoJSON), "longitude") || strings.Contains(string(geoJSON), "direccion") || strings.Contains(string(geoJSON), "punto") {
+		t.Fatalf("catalog response exposed location or private address: %s err=%v", geoJSON, err)
+	}
+	if _, err = setup.Exec(ctx, `DELETE FROM public.reserva_ensayo_local_ubicacion_sintetica WHERE espacio_id=$1`, space); err != nil {
+		t.Fatal(err)
+	}
+	withoutMissingLocation, err := svc.Catalog(ctx, renter, booking.CatalogFilter{Latitude: &geoCenterLat, Longitude: &geoCenterLon, RadiusKM: &geoRadius3})
+	if err != nil || len(withoutMissingLocation) != 1 || withoutMissingLocation[0].SpaceID != secondSpace {
+		t.Fatalf("fixture missing synthetic location was not excluded: %+v err=%v", withoutMissingLocation, err)
+	}
+	withoutGeoFilter, err := svc.Catalog(ctx, renter, booking.CatalogFilter{})
+	if err != nil || len(withoutGeoFilter) != 2 {
+		t.Fatalf("fixture without coordinates changed non-geographic catalog results: %+v err=%v", withoutGeoFilter, err)
+	}
+	var geoQuotesAfter, geoReservationsAfter, geoOccupanciesAfter int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.cotizacion_reserva_ensayo),(SELECT count(*) FROM public.reserva_ensayo_local),(SELECT count(*) FROM public.ocupacion)`).Scan(&geoQuotesAfter, &geoReservationsAfter, &geoOccupanciesAfter); err != nil {
+		t.Fatal(err)
+	}
+	if geoQuotesAfter != geoQuotesBefore || geoReservationsAfter != geoReservationsBefore || geoOccupanciesAfter != geoOccupanciesBefore {
+		t.Fatalf("geographic catalog search wrote booking state: quotes %d->%d reservations %d->%d occupancies %d->%d", geoQuotesBefore, geoQuotesAfter, geoReservationsBefore, geoReservationsAfter, geoOccupanciesBefore, geoOccupanciesAfter)
 	}
 	detailItem, err := svc.CatalogDetail(ctx, renter, secondSpace)
 	if err != nil || detailItem.CategoryCode != "bodega" || detailItem.CategoryName != "Bodega" || detailItem.ProfileVersion != 1 || !hasAttributes(detailItem.Attributes, map[string]any{"altura_util_m": 3.2, "carro_carga_disponible": false}) {

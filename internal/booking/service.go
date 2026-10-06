@@ -52,6 +52,19 @@ func (s *Service) Catalog(ctx context.Context, actor string, filter CatalogFilte
 		filter.MinTotalCLP != nil && filter.MaxTotalCLP != nil && *filter.MinTotalCLP > *filter.MaxTotalCLP {
 		return nil, ErrInvalid
 	}
+	nearby := filter.Latitude != nil || filter.Longitude != nil || filter.RadiusKM != nil
+	if nearby {
+		if filter.Latitude == nil || filter.Longitude == nil || filter.RadiusKM == nil ||
+			math.IsNaN(*filter.Latitude) || math.IsInf(*filter.Latitude, 0) || *filter.Latitude < -90 || *filter.Latitude > 90 ||
+			math.IsNaN(*filter.Longitude) || math.IsInf(*filter.Longitude, 0) || *filter.Longitude < -180 || *filter.Longitude > 180 {
+			return nil, ErrInvalid
+		}
+		switch *filter.RadiusKM {
+		case 1, 3, 5, 10, 25:
+		default:
+			return nil, ErrInvalid
+		}
+	}
 	if len(filter.Attributes) > 0 {
 		if filter.CategoryCode == "" || filter.ProfileVersion < 1 {
 			return nil, ErrInvalid
@@ -85,30 +98,54 @@ func (s *Service) Catalog(ctx context.Context, actor string, filter CatalogFilte
 	if err != nil {
 		return nil, err
 	}
-	if filter.StartAt == nil {
-		return items, nil
+	filtered := items
+	if filter.StartAt != nil {
+		filtered = make([]CatalogItem, 0, len(items))
+		for _, item := range items {
+			units, e := PriceUnits(item.RateUnit, *filter.StartAt, *filter.EndAt, item.TimeZone)
+			if e != nil || units < 1 || item.Price > math.MaxInt64/units {
+				return nil, ErrInvalid
+			}
+			total := item.Price * units
+			item.EstimatedTotal = &total
+			if filter.MinTotalCLP != nil && total < *filter.MinTotalCLP || filter.MaxTotalCLP != nil && total > *filter.MaxTotalCLP {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
 	}
-	filtered := make([]CatalogItem, 0, len(items))
-	for _, item := range items {
-		units, e := PriceUnits(item.RateUnit, *filter.StartAt, *filter.EndAt, item.TimeZone)
-		if e != nil || units < 1 || item.Price > math.MaxInt64/units {
-			return nil, ErrInvalid
+	if nearby {
+		for i := range filtered {
+			distance := math.Round(filtered[i].DistanceMeters/100) / 10
+			filtered[i].DistanceKM = &distance
+			filtered[i].DistanceKind = "direct"
 		}
-		total := item.Price * units
-		item.EstimatedTotal = &total
-		if filter.MinTotalCLP != nil && total < *filter.MinTotalCLP || filter.MaxTotalCLP != nil && total > *filter.MaxTotalCLP {
-			continue
-		}
-		filtered = append(filtered, item)
+		sortCatalogByGeo(filtered)
+		return filtered, nil
 	}
-	sort.Slice(filtered, func(i, j int) bool {
-		if *filtered[i].EstimatedTotal != *filtered[j].EstimatedTotal {
-			return *filtered[i].EstimatedTotal < *filtered[j].EstimatedTotal
-		}
-		return filtered[i].SpaceID < filtered[j].SpaceID
-	})
+	if filter.StartAt != nil {
+		sort.Slice(filtered, func(i, j int) bool {
+			if *filtered[i].EstimatedTotal != *filtered[j].EstimatedTotal {
+				return *filtered[i].EstimatedTotal < *filtered[j].EstimatedTotal
+			}
+			return filtered[i].SpaceID < filtered[j].SpaceID
+		})
+	}
 	return filtered, nil
 }
+
+func sortCatalogByGeo(items []CatalogItem) {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].DistanceMeters != items[j].DistanceMeters {
+			return items[i].DistanceMeters < items[j].DistanceMeters
+		}
+		if items[i].EstimatedTotal != nil && items[j].EstimatedTotal != nil && *items[i].EstimatedTotal != *items[j].EstimatedTotal {
+			return *items[i].EstimatedTotal < *items[j].EstimatedTotal
+		}
+		return items[i].SpaceID < items[j].SpaceID
+	})
+}
+
 func (s *Service) CatalogDetail(ctx context.Context, actor, spaceID string) (CatalogItem, error) {
 	if !uuid.MatchString(actor) || !uuid.MatchString(spaceID) {
 		return CatalogItem{}, ErrNotFound
