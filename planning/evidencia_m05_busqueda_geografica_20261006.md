@@ -1,6 +1,6 @@
 # Evidencia — M05-LOCAL búsqueda geográfica
 
-Fecha: 2026-10-06. Issue #162. PR de implementación pendiente de publicación.
+Fecha: 2026-10-06. Issue #162. PR #163 abierto para revisión.
 
 ## Implementado
 
