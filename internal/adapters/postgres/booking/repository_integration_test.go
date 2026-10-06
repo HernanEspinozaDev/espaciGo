@@ -1354,7 +1354,163 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		t.Fatalf("monthly quote units/subtotal=%d/%d err=%v", monthQuote.Units, monthQuote.Subtotal, err)
 	}
 
+	// Weekly rules are a separate configuration and serialize with quote and
+	// reservation via the owning space row. Thursday includes a pause; Sunday
+	// spans the first valid local hour after Santiago's spring gap.
+	clockMu.Lock()
+	fixedNow = time.Date(2026, time.September, 3, 0, 0, 0, 0, selectorZone)
+	clockMu.Unlock()
+	weekly := booking.WeeklyHours{Enabled: true, Days: make([]booking.WeeklyDay, 7)}
+	for i := range weekly.Days {
+		weekly.Days[i] = booking.WeeklyDay{Weekday: i + 1, Periods: []booking.WeeklyPeriod{}}
+	}
+	weekly.Days[3].Periods = []booking.WeeklyPeriod{{Open: "09:00", Close: "12:00"}, {Open: "13:00", Close: "17:00"}}
+	weekly.Days[5].Periods = []booking.WeeklyPeriod{{Open: "22:00", Close: "24:00"}}
+	weekly.Days[6].Periods = []booking.WeeklyPeriod{{Open: "01:00", Close: "04:00"}}
+	savedHours, err := svc.SaveWeeklyHours(ctx, host, space, weekly)
+	if err != nil || !savedHours.Enabled || savedHours.TimeZone != "America/Santiago" {
+		t.Fatalf("save weekly hours=%+v err=%v", savedHours, err)
+	}
+	if _, err = svc.WeeklyHours(ctx, renter, space); err != booking.ErrNotFound {
+		t.Fatalf("renter could read host-only schedule: %v", err)
+	}
+	if _, err = svc.WeeklyHours(ctx, outsider, space); err != booking.ErrNotFound {
+		t.Fatalf("outsider could read schedule: %v", err)
+	}
+	thursday, err := svc.AvailableIntervals(ctx, renter, space, booking.AvailabilityOptionsInput{Date: "2026-09-03", Duration: 1})
+	if err != nil || len(thursday.Items) == 0 {
+		t.Fatalf("Thursday schedule candidates=%+v err=%v", thursday, err)
+	}
+	starts := map[string]bool{}
+	for _, interval := range thursday.Items {
+		localStart, localEnd := interval.StartAt.In(selectorZone), interval.EndAt.In(selectorZone)
+		if localStart.Day() != 3 || localEnd.Day() != 3 || localStart.Hour() == 12 || localStart.Hour() == 11 && localStart.Minute() == 30 || localStart.Hour() < 9 || localStart.Hour() >= 17 {
+			t.Fatalf("candidate crosses outside a scheduled segment: %s to %s", localStart, localEnd)
+		}
+		starts[localStart.Format("15:04")] = true
+	}
+	if !starts["09:00"] || !starts["13:00"] || starts["11:30"] {
+		t.Fatalf("paused Thursday candidates do not match schedule: %v", starts)
+	}
+	sunday, err := svc.AvailableIntervals(ctx, renter, space, booking.AvailabilityOptionsInput{Date: "2026-09-06", Duration: 1})
+	if err != nil || len(sunday.Items) == 0 || sunday.Items[0].StartAt.In(selectorZone).Format("2006-01-02 15:04") != "2026-09-06 01:00" {
+		t.Fatalf("spring-gap Sunday candidates=%+v err=%v", sunday, err)
+	}
+	closedFriday, err := svc.AvailableIntervals(ctx, renter, space, booking.AvailabilityOptionsInput{Date: "2026-09-04", Duration: 1})
+	if err != nil || len(closedFriday.Items) != 0 {
+		t.Fatalf("active schedule's closed Friday options=%+v err=%v", closedFriday, err)
+	}
+	clockMu.Lock()
+	fixedNow = time.Date(2026, time.April, 4, 0, 0, 0, 0, selectorZone)
+	clockMu.Unlock()
+	foldOptions, err := svc.AvailableIntervals(ctx, renter, space, booking.AvailabilityOptionsInput{Date: "2026-04-04", Duration: 1})
+	if err != nil {
+		t.Fatalf("fall-fold Saturday options err=%v", err)
+	}
+	var repeated23 []time.Time
+	for _, interval := range foldOptions.Items {
+		localStart, localEnd := interval.StartAt.In(selectorZone), interval.EndAt.In(selectorZone)
+		endAtMidnight := localEnd.Year() == 2026 && localEnd.Month() == time.April && localEnd.Day() == 5 && localEnd.Hour() == 0 && localEnd.Minute() == 0
+		if localStart.Day() != 4 || (localEnd.Day() != 4 && !endAtMidnight) || localStart.Hour() < 22 {
+			t.Fatalf("fall-fold option outside Saturday 22:00–24:00: %s to %s", localStart, localEnd)
+		}
+		if localStart.Hour() == 23 && localStart.Minute() == 0 {
+			repeated23 = append(repeated23, interval.StartAt)
+		}
+	}
+	if len(repeated23) != 2 || !repeated23[0].Before(repeated23[1]) {
+		t.Fatalf("repeated 23:00 candidates were not both preserved: %v", repeated23)
+	}
+	closedCatalog, err := svc.Catalog(ctx, renter, booking.CatalogFilter{StartAt: timePtr(time.Date(2026, 9, 3, 12, 0, 0, 0, selectorZone)), EndAt: timePtr(time.Date(2026, 9, 3, 13, 0, 0, 0, selectorZone))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range closedCatalog {
+		if item.SpaceID == space {
+			t.Fatal("catalog interval filter included a schedule pause")
+		}
+	}
+	if _, err = svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: time.Date(2026, 9, 3, 11, 30, 0, 0, selectorZone).UTC().Format(time.RFC3339Nano), EndAt: time.Date(2026, 9, 3, 12, 30, 0, 0, selectorZone).UTC().Format(time.RFC3339Nano)}); err != booking.ErrConflict {
+		t.Fatalf("quote spanning scheduled pause err=%v", err)
+	}
+	weeklyStaleStart := time.Date(2026, 9, 3, 13, 0, 0, 0, selectorZone)
+	staleQuote, err = svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: weeklyStaleStart.UTC().Format(time.RFC3339Nano), EndAt: weeklyStaleStart.Add(time.Hour).UTC().Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatalf("quote inside schedule err=%v", err)
+	}
+	weekly.Days[3].Periods = []booking.WeeklyPeriod{{Open: "14:00", Close: "17:00"}}
+	if _, err = svc.SaveWeeklyHours(ctx, host, space, weekly); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Request(ctx, renter, booking.RequestInput{QuoteID: staleQuote.ID}, "weekly-hours-stale-quote"); err != booking.ErrConflict {
+		t.Fatalf("request using quote outside updated schedule err=%v", err)
+	}
+	var weeklyRejectedReservations, weeklyRejectedOccupancies int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1),(SELECT count(*) FROM public.ocupacion WHERE tipo IN ('retencion','reserva') AND intervalo && tstzrange($2,$3,'[)'))`, staleQuote.ID, weeklyStaleStart, weeklyStaleStart.Add(time.Hour)).Scan(&weeklyRejectedReservations, &weeklyRejectedOccupancies); err != nil {
+		t.Fatal(err)
+	}
+	if weeklyRejectedReservations != 0 || weeklyRejectedOccupancies != 0 {
+		t.Fatalf("stale weekly-hours quote left reservation/occupancy=%d/%d", weeklyRejectedReservations, weeklyRejectedOccupancies)
+	}
+	// Deterministic schedule change race: the request waits on the space row,
+	// then sees the committed new schedule and rejects without side effects.
+	weeklyRaceStart := time.Date(2026, 9, 3, 15, 0, 0, 0, selectorZone)
+	raceQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: weeklyRaceStart.UTC().Format(time.RFC3339Nano), EndAt: weeklyRaceStart.Add(time.Hour).UTC().Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatalf("concurrency quote err=%v", err)
+	}
+	raceTx, err := setup.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raceTx.Exec(ctx, `SELECT id FROM public.espacio WHERE id=$1 FOR UPDATE`, space); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raceTx.Exec(ctx, `UPDATE public.espacio_horario_semanal_tramo SET apertura_minuto=16*60,cierre_minuto=17*60 WHERE espacio_id=$1 AND dia_iso=4`, space); err != nil {
+		t.Fatal(err)
+	}
+	raceResult := make(chan error, 1)
+	go func() {
+		_, requestErr := svc.Request(ctx, renter, booking.RequestInput{QuoteID: raceQuote.ID}, "weekly-hours-concurrent-change")
+		raceResult <- requestErr
+	}()
+	weeklyLockDeadline := time.Now().Add(3 * time.Second)
+	requestWaitingOnSpace := false
+	for time.Now().Before(weeklyLockDeadline) {
+		if err = setup.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT e.id::text%')`).Scan(&requestWaitingOnSpace); err != nil {
+			t.Fatal(err)
+		}
+		if requestWaitingOnSpace {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !requestWaitingOnSpace {
+		t.Fatal("request did not wait for the held space-row lock")
+	}
+	if err = raceTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = <-raceResult; err != booking.ErrConflict {
+		t.Fatalf("request waiting on schedule change err=%v", err)
+	}
+	if _, err = setup.Exec(ctx, `UPDATE public.espacio SET zona_horaria='UTC' WHERE id=$1`, space); err == nil {
+		t.Fatal("timezone change was accepted while weekly schedule is active")
+	}
+	if _, err = setup.Exec(ctx, `UPDATE public.espacio SET modalidad_tarifa='dia' WHERE id=$1`, space); err == nil {
+		t.Fatal("daily tariff was enabled while a weekly hourly schedule is active")
+	}
+	weekly.Enabled = false
+	if _, err = svc.SaveWeeklyHours(ctx, host, space, weekly); err != nil {
+		t.Fatalf("disable weekly schedule before timezone review: %v", err)
+	}
+	if _, err = setup.Exec(ctx, `UPDATE public.espacio SET zona_horaria='UTC' WHERE id=$1`, space); err != nil {
+		t.Fatalf("timezone change after disabling schedule: %v", err)
+	}
+
 }
+
+func timePtr(value time.Time) *time.Time { return &value }
 
 func hasAttributes(raw json.RawMessage, expected map[string]any) bool {
 	var actual map[string]any

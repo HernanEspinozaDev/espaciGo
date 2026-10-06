@@ -58,7 +58,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
 	}
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(204)
@@ -99,6 +99,31 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			result["next_cursor"] = page.NextCursor
 		}
 		h.reply(w, result, e)
+		return
+	}
+	if strings.HasPrefix(path, base+"/catalog/") && strings.HasSuffix(path, "/weekly-hours") {
+		spaceID := strings.TrimSuffix(strings.TrimPrefix(path, base+"/catalog/"), "/weekly-hours")
+		if strings.Contains(spaceID, "/") || spaceID == "" || r.URL.RawQuery != "" {
+			fail(w, 422, "invalid_request")
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			value, err := h.service.WeeklyHours(r.Context(), actor, spaceID)
+			h.reply(w, value, err)
+		case http.MethodPut:
+			var in struct {
+				Enabled bool                `json:"enabled"`
+				Days    []booking.WeeklyDay `json:"days"`
+			}
+			if !decode(w, r, &in) {
+				return
+			}
+			value, err := h.service.SaveWeeklyHours(r.Context(), actor, spaceID, booking.WeeklyHours{Enabled: in.Enabled, Days: in.Days})
+			h.reply(w, value, err)
+		default:
+			fail(w, 404, "not_found")
+		}
 		return
 	}
 	if strings.HasPrefix(path, base+"/catalog/") && strings.HasSuffix(path, "/availability-options") && r.Method == http.MethodGet {

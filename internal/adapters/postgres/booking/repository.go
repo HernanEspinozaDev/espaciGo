@@ -204,6 +204,15 @@ func (r *Repository) Quote(ctx context.Context, renter, spaceID, id string, star
 	if err != nil {
 		return booking.Quote{}, mapErr(err)
 	}
+	if q.RateUnit == "hora" {
+		hours, scheduleErr := r.weeklyHoursTx(ctx, tx, q.SpaceID)
+		if scheduleErr != nil {
+			return booking.Quote{}, scheduleErr
+		}
+		if hours.Enabled && !booking.IntervalFitsWeeklyHours(start, end, q.TimeZone, hours) {
+			return booking.Quote{}, booking.ErrConflict
+		}
+	}
 	units, err := booking.PriceUnits(q.RateUnit, start, end, q.TimeZone)
 	if err != nil {
 		return booking.Quote{}, booking.ErrInvalid
@@ -308,6 +317,22 @@ FOR SHARE OF e`, quoteID, renter).Scan(&lockedSpace)
 	// acquired, so quote/start deadlines are revalidated after any lock wait.
 	now := clock().UTC()
 	payExpiresAt := now.Add(payTTL)
+	if lockedSpace != "" {
+		var rateUnit string
+		var intervalStart, intervalEnd time.Time
+		if err = tx.QueryRow(ctx, `SELECT modalidad,inicio,termino FROM public.cotizacion_reserva_ensayo WHERE id=$1 AND arrendatario_id=$2`, quoteID, renter).Scan(&rateUnit, &intervalStart, &intervalEnd); err != nil {
+			return booking.Reservation{}, mapErr(err)
+		}
+		if rateUnit == "hora" {
+			hours, scheduleErr := r.weeklyHoursTx(ctx, tx, lockedSpace)
+			if scheduleErr != nil {
+				return booking.Reservation{}, scheduleErr
+			}
+			if hours.Enabled && !booking.IntervalFitsWeeklyHours(intervalStart, intervalEnd, hours.TimeZone, hours) {
+				return booking.Reservation{}, booking.ErrConflict
+			}
+		}
+	}
 	var quoteExists, quoteUsable, intervalFuture, available, rateCurrent bool
 	err = tx.QueryRow(ctx, `SELECT
 EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE f.habilitada AND q.id=$1 AND q.arrendatario_id=$2),
