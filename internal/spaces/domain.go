@@ -122,6 +122,28 @@ func (p Profile) ValidateAttributes(values map[string]any) error {
 	}
 	return nil
 }
+
+// ValidateAttributeFilters validates a partial set of search predicates using
+// the selected immutable profile version. Unlike a draft, a filter is a set of
+// independent predicates and must not trigger cross-attribute draft rules.
+func (p Profile) ValidateAttributeFilters(values map[string]any) error {
+	data, err := json.Marshal(values)
+	if err != nil || len(data) > 16*1024 {
+		return ErrInvalid
+	}
+	defs := make(map[string]AttributeDefinition, len(p.Attributes))
+	for _, d := range p.Attributes {
+		defs[d.Code] = d
+	}
+	for code, value := range values {
+		definition, ok := defs[code]
+		if !ok || value == nil || definition.validate(value) != nil {
+			return ErrInvalid
+		}
+	}
+	return nil
+}
+
 func (d AttributeDefinition) validate(value any) error {
 	switch d.Type {
 	case "boolean":

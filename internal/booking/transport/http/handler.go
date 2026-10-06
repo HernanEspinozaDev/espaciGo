@@ -269,7 +269,7 @@ func (h *Handler) replyConversation(w http.ResponseWriter, value any, err error)
 
 func catalogFilter(query url.Values) (booking.CatalogFilter, bool) {
 	for key, values := range query {
-		if (key != "category_code" && key != "start_at" && key != "end_at") || len(values) != 1 || values[0] == "" {
+		if (key != "category_code" && key != "start_at" && key != "end_at" && key != "min_total_clp" && key != "max_total_clp" && key != "profile_version" && key != "attributes") || len(values) != 1 || values[0] == "" {
 			return booking.CatalogFilter{}, false
 		}
 	}
@@ -288,6 +288,27 @@ func catalogFilter(query url.Values) (booking.CatalogFilter, bool) {
 			return booking.CatalogFilter{}, false
 		}
 		filter.StartAt, filter.EndAt = &start, &end
+	}
+	for key, dest := range map[string]**int64{"min_total_clp": &filter.MinTotalCLP, "max_total_clp": &filter.MaxTotalCLP} {
+		if raw := query.Get(key); raw != "" {
+			value, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil {
+				return booking.CatalogFilter{}, false
+			}
+			*dest = &value
+		}
+	}
+	if raw := query.Get("profile_version"); raw != "" {
+		version, err := strconv.Atoi(raw)
+		if err != nil || version < 1 {
+			return booking.CatalogFilter{}, false
+		}
+		filter.ProfileVersion = version
+	}
+	if raw := query.Get("attributes"); raw != "" {
+		if len(raw) > 16*1024 || json.Unmarshal([]byte(raw), &filter.Attributes) != nil || filter.Attributes == nil {
+			return booking.CatalogFilter{}, false
+		}
 	}
 	return filter, true
 }

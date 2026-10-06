@@ -3,11 +3,13 @@ package bookingpg
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking/expiry"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -36,6 +38,17 @@ func (r *Repository) Fixture(ctx context.Context, actor string) (booking.Fixture
 }
 
 func (r *Repository) Catalog(ctx context.Context, actor string, filter booking.CatalogFilter) ([]booking.CatalogItem, error) {
+	attributeJSON, err := json.Marshal(filter.Attributes)
+	if err != nil {
+		return nil, booking.ErrInvalid
+	}
+	if filter.Attributes == nil {
+		attributeJSON = []byte(`{}`)
+	}
+	var profileVersion any
+	if filter.ProfileVersion > 0 {
+		profileVersion = filter.ProfileVersion
+	}
 	rows, err := r.pool.Query(ctx, `SELECT e.id::text,e.categoria_codigo,k.nombre,e.titulo,e.descripcion,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,c.perfil_version,p.perfil,c.valores,
 CASE WHEN $3::timestamptz IS NULL THEN NULL ELSE NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($3,$4,'[)')) END
 FROM public.reserva_ensayo_local_fixture f
@@ -48,7 +61,8 @@ WHERE f.habilitada AND e.estado='borrador' AND e.propietario_id=f.anfitrion_id
 AND (f.anfitrion_id=$1 OR f.arrendatario_id=$1)
 AND ($2::text='' OR e.categoria_codigo=$2)
 AND ($3::timestamptz IS NULL OR NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($3,$4,'[)')))
-ORDER BY k.orden,e.titulo,e.id`, actor, filter.CategoryCode, filter.StartAt, filter.EndAt)
+AND ($5::integer IS NULL OR (c.perfil_version=$5 AND c.valores @> $6::jsonb))
+ORDER BY k.orden,e.titulo,e.id`, actor, filter.CategoryCode, filter.StartAt, filter.EndAt, profileVersion, attributeJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -67,6 +81,18 @@ ORDER BY k.orden,e.titulo,e.id`, actor, filter.CategoryCode, filter.StartAt, fil
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+func (r *Repository) CatalogProfile(ctx context.Context, category string, version int) (spaces.Profile, error) {
+	var raw []byte
+	if err := r.pool.QueryRow(ctx, `SELECT perfil FROM public.categoria_perfil_atributos WHERE categoria_codigo=$1 AND version=$2`, category, version).Scan(&raw); err != nil {
+		return spaces.Profile{}, mapErr(err)
+	}
+	var profile spaces.Profile
+	if err := json.Unmarshal(raw, &profile); err != nil {
+		return spaces.Profile{}, err
+	}
+	return profile, nil
 }
 
 func (r *Repository) CatalogDetail(ctx context.Context, actor, spaceID string) (booking.CatalogItem, error) {
@@ -194,16 +220,30 @@ func (r *Repository) Create(ctx context.Context, renter, quoteID, key string, fi
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return booking.Reservation{}, err
 	}
-	// Read the Backend clock only after the idempotency lookup while the new
-	// request transaction and its serialization lock are active.
+	// Match the row lock used by UpdateOwn before validating the quoted tariff.
+	// Keeping this lock through commit makes the tariff check and occupancy
+	// creation serializable with a concurrent tariff update.
+	var lockedSpace string
+	err = tx.QueryRow(ctx, `SELECT e.id::text
+FROM public.cotizacion_reserva_ensayo q
+JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id AND f.habilitada
+JOIN public.espacio e ON e.id=q.espacio_id AND e.propietario_id=f.anfitrion_id AND e.estado='borrador'
+WHERE q.id=$1 AND q.arrendatario_id=$2
+FOR SHARE OF e`, quoteID, renter).Scan(&lockedSpace)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return booking.Reservation{}, err
+	}
+	// Read the Backend clock only after idempotency and space locks have been
+	// acquired, so quote/start deadlines are revalidated after any lock wait.
 	now := clock().UTC()
 	payExpiresAt := now.Add(payTTL)
-	var quoteExists, quoteUsable, intervalFuture, available bool
+	var quoteExists, quoteUsable, intervalFuture, available, rateCurrent bool
 	err = tx.QueryRow(ctx, `SELECT
 EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE f.habilitada AND q.id=$1 AND q.arrendatario_id=$2),
 EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE f.habilitada AND q.id=$1 AND q.arrendatario_id=$2 AND q.vence_en>$3),
 EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE f.habilitada AND q.id=$1 AND q.arrendatario_id=$2 AND q.inicio>$3),
-NOT EXISTS(SELECT 1 FROM public.ocupacion o JOIN public.cotizacion_reserva_ensayo q ON q.espacio_id=o.espacio_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND o.activo AND o.intervalo && (SELECT tstzrange(inicio,termino,'[)') FROM public.cotizacion_reserva_ensayo WHERE id=$1))`, quoteID, renter, now).Scan(&quoteExists, &quoteUsable, &intervalFuture, &available)
+NOT EXISTS(SELECT 1 FROM public.ocupacion o JOIN public.cotizacion_reserva_ensayo q ON q.espacio_id=o.espacio_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND o.activo AND o.intervalo && (SELECT tstzrange(inicio,termino,'[)') FROM public.cotizacion_reserva_ensayo WHERE id=$1)),
+EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN LATERAL(SELECT version,modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=q.espacio_id ORDER BY version DESC LIMIT 1)t ON true WHERE q.id=$1 AND q.arrendatario_id=$2 AND t.version=q.tarifa_version AND t.modalidad=q.modalidad AND t.precio_base_clp=q.precio_unitario_clp AND t.moneda=q.moneda)`, quoteID, renter, now).Scan(&quoteExists, &quoteUsable, &intervalFuture, &available, &rateCurrent)
 	if err != nil {
 		return booking.Reservation{}, err
 	}
@@ -214,6 +254,9 @@ NOT EXISTS(SELECT 1 FROM public.ocupacion o JOIN public.cotizacion_reserva_ensay
 		return booking.Reservation{}, booking.ErrNotFound
 	}
 	if !intervalFuture {
+		return booking.Reservation{}, booking.ErrConflict
+	}
+	if !rateCurrent {
 		return booking.Reservation{}, booking.ErrConflict
 	}
 	if !available {

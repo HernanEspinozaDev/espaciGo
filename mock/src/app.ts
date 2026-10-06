@@ -429,8 +429,11 @@ calendarZoneInput.addEventListener("input",refreshCalendarControls);
 refreshCalendarControls();
 type BookingFixture = {space_id:string; title:string; category_code:string; category_name:string; description:string; time_zone:string; rate_unit:string; base_price_clp:number; currency:string; profile_version:number; profile:Record<string,unknown>; attributes:Record<string,unknown>};
 type CatalogItem = BookingFixture & {available?:boolean};
+type CatalogSearchItem = CatalogItem & {estimated_total_clp?:number};
 let bookingFixture:BookingFixture|null=null;
 let bookingCatalogRequest=0;
+let catalogProfileRequest=0;
+let catalogFilterProfile:AttributeProfile|null=null;
 const bookingQuoteState=new BookingQuoteState();
 let reservationKey=crypto.randomUUID();
 const paymentKeys=new Map<string,string>();
@@ -438,6 +441,8 @@ const bookingBase="/api/v1/local/booking-trial";
 const bookingFixtureOutput=document.querySelector<HTMLElement>("#booking-fixture-output")!;
 const bookingQuoteOutput=document.querySelector<HTMLElement>("#booking-quote-output")!;
 const bookingHistoryOutput=document.querySelector<HTMLElement>("#booking-history-output")!;
+const bookingCatalogCategory=document.querySelector<HTMLSelectElement>("#booking-catalog-category")!;
+const bookingCatalogProfileFilters=document.querySelector<HTMLElement>("#booking-catalog-profile-filters")!;
 type TrialReservation={id:string;quote_id:string;space_id:string;host_id:string;renter_id:string;state:string;rate_unit:string;unit_price_clp:number;currency:string;units:number;subtotal_clp:number;start_at:string;end_at:string;time_zone:string;pay_expires_at:string;host_expires_at?:string|null;updated_at:string;unread_count:number};
 type TrialTransition={sequence:number;to:string;reason:string;at:string};
 type TrialDetail=TrialReservation&{history:TrialTransition[]};
@@ -457,6 +462,32 @@ const conversationOutput=document.querySelector<HTMLElement>("#booking-conversat
 const conversationStatus=document.querySelector<HTMLElement>("#booking-conversation-status")!;
 function bookingData<T>(result:Record<string,unknown>):T{return result.data as T}
 const catalogResults=document.querySelector<HTMLElement>("#booking-catalog-results")!;
+async function loadCatalogFilterProfile(category:string):Promise<void>{
+  const token=++catalogProfileRequest;
+  catalogFilterProfile=null;
+  bookingCatalogProfileFilters.replaceChildren();
+  bookingCatalogProfileFilters.textContent=category?"Cargando filtros de esta categoría…":"Selecciona una categoría para cargar sus filtros tipados.";
+  if(!category)return;
+  const profile=await request(`/api/v1/spaces/categories/${encodeURIComponent(category)}/attributes`,"GET",undefined,true) as AttributeProfile;
+  if(token!==catalogProfileRequest||bookingCatalogCategory.value!==category||profile.category_code!==category)return;
+  catalogFilterProfile=profile;
+  bookingCatalogProfileFilters.replaceChildren();
+  for(const definition of [...profile.attributes].sort((a,b)=>a.order-b.order)){
+    const label=document.createElement("label");label.textContent=`${definition.label}${definition.unit?` (${definition.unit})`:""}`;
+    let control:HTMLInputElement|HTMLSelectElement;
+    if(definition.type==="boolean"){
+      const select=document.createElement("select");select.add(new Option("Cualquiera",""));select.add(new Option("Sí","true"));select.add(new Option("No","false"));control=select;
+    }else if(definition.type==="enum"||definition.type==="enum_list"){
+      const select=document.createElement("select");select.add(new Option(definition.type==="enum_list"?"Cualquiera (selecciona una o más)":"Cualquiera",""));if(definition.type==="enum_list")select.multiple=true;
+      for(const option of definition.options??[])select.add(new Option(option,option));control=select;
+    }else{
+      const input=document.createElement("input");input.type="number";input.step=definition.type==="integer"?"1":String(definition.step??"any");
+      if(definition.minimum!==undefined)input.min=String(definition.minimum);if(definition.maximum!==undefined)input.max=String(definition.maximum);control=input;
+    }
+    control.name=`catalog_attribute:${definition.code}`;if(definition.description)control.title=definition.description;label.append(control);bookingCatalogProfileFilters.append(label);
+  }
+}
+bookingCatalogCategory.addEventListener("change",()=>void action(async()=>loadCatalogFilterProfile(bookingCatalogCategory.value)));
 form("booking-catalog-form",async data=>{
   const token=++bookingCatalogRequest;
   bookingQuoteState.beginSearch();
@@ -465,11 +496,35 @@ form("booking-catalog-form",async data=>{
   if(category)query.set("category_code",category);
   const localStart=String(data.get("start_at")??""),localEnd=String(data.get("end_at")??"");
   if(Boolean(localStart)!==Boolean(localEnd))throw new Error("Para filtrar disponibilidad indica inicio y término.");
+  const minTotal=String(data.get("min_total_clp")??""),maxTotal=String(data.get("max_total_clp")??"");
+  if((minTotal||maxTotal)&&!localStart)throw new Error("Para filtrar el precio total estimado indica inicio y término.");
+  if(minTotal)query.set("min_total_clp",minTotal);
+  if(maxTotal)query.set("max_total_clp",maxTotal);
   const searchZone=String(data.get("time_zone")??"").trim();
   if(localStart){
     if(!searchZone)throw new Error("Indica la zona horaria para interpretar el intervalo de búsqueda.");
     query.set("start_at",localTimeAsUTC(localStart,searchZone));
     query.set("end_at",localTimeAsUTC(localEnd,searchZone));
+  }
+  const attributes:Record<string,unknown>={};
+  const selectedCategory=bookingCatalogCategory.value;
+  const definitions=catalogFilterProfile?.attributes??[];
+  for(const definition of definitions){
+    const key=`catalog_attribute:${definition.code}`,raw=data.getAll(key).map(String);
+    if(definition.type==="enum_list"){
+      const values=raw.filter(Boolean);if(values.length)attributes[definition.code]=values;
+      continue;
+    }
+    const value=raw[0]??"";if(value==="")continue;
+    if(definition.type==="boolean")attributes[definition.code]=value==="true";
+    else if(definition.type==="integer")attributes[definition.code]=Number.parseInt(value,10);
+    else if(definition.type==="number")attributes[definition.code]=Number(value);
+    else attributes[definition.code]=value;
+  }
+  if(Object.keys(attributes).length){
+    if(!catalogFilterProfile||catalogFilterProfile.category_code!==selectedCategory)throw new Error("Espera a que cargue el perfil de la categoría antes de buscar.");
+    query.set("profile_version",String(catalogFilterProfile.schema_version));
+    query.set("attributes",JSON.stringify(attributes));
   }
   bookingFixture=null;
   (document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]')!).value="";
@@ -479,13 +534,14 @@ form("booking-catalog-form",async data=>{
   const suffix=query.size?`?${query.toString()}`:"";
   const response=await request(`${bookingBase}/catalog${suffix}`,"GET",undefined,true);
   if(token!==bookingCatalogRequest)return;
-  const payload=bookingData<{items:CatalogItem[]}>(response);
+  const payload=bookingData<{items:CatalogSearchItem[]}>(response);
   catalogResults.replaceChildren();
   if(!payload.items.length){catalogResults.textContent="No hay espacios sintéticos habilitados para estos filtros.";return;}
   for(const item of payload.items){
     const card=document.createElement("article");
     const title=document.createElement("h3");title.textContent=`${item.title} · ${item.category_name}`;
-    const meta=document.createElement("p");meta.textContent=`${item.rate_unit} · ${item.base_price_clp} ${item.currency} · ${item.time_zone}${item.available===undefined?"":item.available?" · disponible":" · no disponible"}`;
+    const estimated=item.estimated_total_clp===undefined?"":` · Estimación total ${item.estimated_total_clp.toLocaleString("es-CL")} ${item.currency}`;
+    const meta=document.createElement("p");meta.textContent=`Tarifa ${item.base_price_clp} ${item.currency}/${item.rate_unit} · ${item.time_zone}${estimated}${item.available===undefined?"":item.available?" · disponible":" · no disponible"}`;
     const details=document.createElement("button");details.type="button";details.textContent="Ver detalle y preparar cotización";
     details.addEventListener("click",()=>void action(async()=>{
       const detailToken=++bookingCatalogRequest;

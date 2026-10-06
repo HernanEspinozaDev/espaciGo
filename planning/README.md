@@ -23,12 +23,15 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [Referencia Realmo](referencia_realmo_categorias_y_ficha.md) | Referencia de producto para categorías, características y contenido de la ficha; propuestas para evaluar. |
 | [Decisiones M04 catálogo de atributos](decisiones_m04_catalogo_atributos.md) | Contrato implementado de V6, perfiles versionados, validación y límites del prototipo. |
 | [Catálogo extensible y atributos](catalogo_extensible_categorias_y_atributos.md) | Catálogo versionado de características para ocho categorías y trazabilidad del corte M04-ATTR-01. |
+| [Decisión M05-LOCAL-02](decisiones_m05_busqueda_filtros_locales.md) | Filtros tipados por perfil versionado, disponibilidad y total CLP estimado sobre fixtures autorizados. |
 | [Estructura lógica del backend Go](estructura_backend_go.md) | CORE-BE-01: límites de paquetes, ownership SQL, transacciones, salud y workers durables. |
 | [Plan de pruebas](pruebas.md) | Estrategia desde unitarias hasta recorridos funcionales. |
 | [Harness de DB y API](harness_pruebas.md) | Comandos por capa, fixtures sintéticos, aislamiento, migraciones, contratos y evidencia CI. |
 | [Frontend mock](frontend_mock.md) | Harness temporal por módulo, tecnología permitida y criterios de aceptación. |
 | [Decisiones y hallazgos](decisiones_y_hallazgos.md) | Conflictos documentales, riesgos y temas que requieren evidencia. |
 | [Decisiones M01 de identidad](decisiones_m01_identidad_sesion.md) | Autorización ratificada de correo, sesiones y tokens; trazabilidad ES1/ES2 y brechas DB02-09 abiertas. |
+| [Decisión M05 de búsqueda local](decisiones_m05_busqueda_filtros_locales.md) | Filtros AND tipados para fixtures, cotización estimada inclusiva y sin mutar reservas. |
+| [Evidencia M05-LOCAL-02](evidencia_m05_filtros_locales_20261006.md) | Pruebas de búsqueda y comprobación del mock local con fixtures existentes. |
 | [Invariantes de identidad, cuenta y sesión](invariantes_identidad_sesion.md) | AUTH-ARCH-01: flujos, estados, amenazas y reglas M01 ratificadas. |
 | [Grafo de dependencias](grafo_dependencias.md) | Orden, dependencias transversales y conteo del backlog. |
 | [Backlog Kanban](backlog.md) | Alcance/trazabilidad de las 103 tarjetas originales; estados históricos, no operativos. |
