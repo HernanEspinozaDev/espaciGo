@@ -64,12 +64,12 @@ func createLocalIntervalSelectorFixtures(args []string) error {
 	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, loc)
 	ids := credentials.Generator{}
 	fixtures := []struct {
-		unit, category, blockID string
-		blockStart              time.Time
+		unit, category string
+		blockStart     time.Time
 	}{
-		{"hora", "oficina", "55555555-5555-4555-8555-000000000001", today.AddDate(0, 0, 2).Add(12 * time.Hour)},
-		{"dia", "bodega", "55555555-5555-4555-8555-000000000002", today.AddDate(0, 0, 3).Add(12 * time.Hour)},
-		{"mes", "local_flexible", "55555555-5555-4555-8555-000000000003", today.AddDate(0, 0, 11).Add(12 * time.Hour)},
+		{"hora", "oficina", today.AddDate(0, 0, 2).Add(12 * time.Hour)},
+		{"dia", "bodega", today.AddDate(0, 0, 3).Add(12 * time.Hour)},
+		{"mes", "local_flexible", today.AddDate(0, 0, 11).Add(12 * time.Hour)},
 	}
 	for _, fixture := range fixtures {
 		title := "M06 selector · " + fixture.unit
@@ -104,21 +104,28 @@ func createLocalIntervalSelectorFixtures(args []string) error {
 				return errors.New("existing selector fixture has an unexpected tariff; preserving it")
 			}
 		}
-		var blockSpaceID string
-		err = tx.QueryRow(ctx, `SELECT espacio_id::text FROM public.ocupacion WHERE id=$1`, fixture.blockID).Scan(&blockSpaceID)
+		const blockReason = "bloque sintético M06 selector"
+		var blockID string
+		var actualStart, actualEnd time.Time
+		var active bool
+		err = tx.QueryRow(ctx, `SELECT id::text, lower(intervalo), upper(intervalo), activo FROM public.ocupacion WHERE espacio_id=$1 AND reserva_id IS NULL AND tipo='bloqueo_manual' AND motivo=$2`, spaceID, blockReason).Scan(&blockID, &actualStart, &actualEnd, &active)
 		if errors.Is(err, pgx.ErrNoRows) {
-			if _, err = tx.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,motivo) VALUES($1,$2,NULL,tstzrange($3,$4,'[)'),'bloqueo_manual',true,'bloque sintético M06 selector')`, fixture.blockID, spaceID, fixture.blockStart.UTC(), fixture.blockStart.Add(time.Hour).UTC()); err != nil {
+			blockID, err = ids.ID()
+			if err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,motivo) VALUES($1,$2,NULL,tstzrange($3,$4,'[)'),'bloqueo_manual',true,$5)`, blockID, spaceID, fixture.blockStart.UTC(), fixture.blockStart.Add(time.Hour).UTC(), blockReason); err != nil {
 				return err
 			}
 		} else if err != nil {
 			return err
-		} else if blockSpaceID != spaceID {
-			return errors.New("selector sample block ID is already used by another space; preserving it")
+		} else if !active || !actualStart.Equal(fixture.blockStart.UTC()) || !actualEnd.Equal(fixture.blockStart.Add(time.Hour).UTC()) {
+			return errors.New("existing selector block for this fixture differs from the expected sample; preserving it")
 		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
-	fmt.Println("Fixtures sintéticos M06 listos para hora/día/mes; uno por tarifa conserva un bloqueo manual local. Fixtures previos conservados.")
+	fmt.Println("Fixtures sintéticos M06 listos para hora/día/mes; cada fixture conserva su propio bloqueo manual local. Fixtures previos conservados.")
 	return nil
 }

@@ -16,14 +16,15 @@ func availabilityCandidates(unit, dateText string, duration int, zone string, no
 	if err != nil {
 		return nil, ErrInvalid
 	}
-	date, err := time.ParseInLocation("2006-01-02", dateText, loc)
+	// Treat dateText as a calendar label. Parsing it in the fixture zone can
+	// normalize midnight into the previous date when that midnight is skipped.
+	date, err := time.Parse("2006-01-02", dateText)
 	if err != nil || date.Format("2006-01-02") != dateText {
 		return nil, ErrInvalid
 	}
 	today := now.In(loc)
-	startToday := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, loc)
-	startSelected := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, loc)
-	if startSelected.Before(startToday) || date.After(startToday.AddDate(0, 0, availabilityHorizonDays)) {
+	todayLabel := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+	if date.Before(todayLabel) || date.After(todayLabel.AddDate(0, 0, availabilityHorizonDays)) {
 		return nil, ErrInvalid
 	}
 	now = now.UTC()
@@ -36,7 +37,7 @@ func availabilityCandidates(unit, dateText string, duration int, zone string, no
 		for minute := 0; minute < 24*60; minute += 30 {
 			for _, start := range localWallInstants(date, minute/60, minute%60, loc) {
 				end := start.Add(time.Duration(duration) * time.Hour)
-				if start.After(now) {
+				if start.After(now) && end.After(start) {
 					items = append(items, AvailableInterval{StartAt: start.UTC(), EndAt: end.UTC()})
 				}
 			}
@@ -45,21 +46,21 @@ func availabilityCandidates(unit, dateText string, duration int, zone string, no
 		if duration < 1 || duration > 3 {
 			return nil, ErrInvalid
 		}
-		starts := localWallInstants(date, 0, 0, loc)
+		start, startOK := firstInstantOfLocalDate(date, loc)
 		endDate := date.AddDate(0, 0, duration)
-		ends := localWallInstants(endDate, 0, 0, loc)
-		if len(starts) > 0 && len(ends) > 0 && starts[0].After(now) {
-			items = append(items, AvailableInterval{StartAt: starts[0].UTC(), EndAt: ends[0].UTC()})
+		end, endOK := firstInstantOfLocalDate(endDate, loc)
+		if startOK && endOK && end.After(start) && start.After(now) {
+			items = append(items, AvailableInterval{StartAt: start.UTC(), EndAt: end.UTC()})
 		}
 	case "mes":
 		if duration != 1 {
 			return nil, ErrInvalid
 		}
-		starts := localWallInstants(date, 0, 0, loc)
+		start, startOK := firstInstantOfLocalDate(date, loc)
 		endDate := addCalendarMonthsClamped(date, 1)
-		ends := localWallInstants(endDate, 0, 0, loc)
-		if len(starts) > 0 && len(ends) > 0 && starts[0].After(now) {
-			items = append(items, AvailableInterval{StartAt: starts[0].UTC(), EndAt: ends[0].UTC()})
+		end, endOK := firstInstantOfLocalDate(endDate, loc)
+		if startOK && endOK && end.After(start) && start.After(now) {
+			items = append(items, AvailableInterval{StartAt: start.UTC(), EndAt: end.UTC()})
 		}
 	default:
 		return nil, ErrInvalid
@@ -68,17 +69,31 @@ func availabilityCandidates(unit, dateText string, duration int, zone string, no
 	return items, nil
 }
 
+// firstInstantOfLocalDate resolves the first instant belonging to the given
+// calendar label. If local midnight is skipped, the post-transition offset
+// maps it to the first valid time of that date.
+func firstInstantOfLocalDate(date time.Time, loc *time.Location) (time.Time, bool) {
+	year, month, day := date.Date()
+	wallUTC := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	first := time.Time{}
+	for offset := range offsetsNear(wallUTC, loc) {
+		candidate := wallUTC.Add(-time.Duration(offset) * time.Second)
+		local := candidate.In(loc)
+		ly, lm, ld := local.Date()
+		if ly == year && lm == month && ld == day && (first.IsZero() || candidate.Before(first)) {
+			first = candidate
+		}
+	}
+	return first, !first.IsZero()
+}
+
 // localWallInstants resolves a wall-clock time without relying on time.Date's
 // implicit choice during a DST fold. It returns zero values for a DST gap and
 // both UTC instants for a repeated wall time.
 func localWallInstants(date time.Time, hour, minute int, loc *time.Location) []time.Time {
 	year, month, day := date.Date()
 	wallUTC := time.Date(year, month, day, hour, minute, 0, 0, time.UTC)
-	offsets := make(map[int]struct{})
-	for probe := wallUTC.Add(-36 * time.Hour); !probe.After(wallUTC.Add(36 * time.Hour)); probe = probe.Add(15 * time.Minute) {
-		_, offset := probe.In(loc).Zone()
-		offsets[offset] = struct{}{}
-	}
+	offsets := offsetsNear(wallUTC, loc)
 	instants := make([]time.Time, 0, 2)
 	for offset := range offsets {
 		candidate := wallUTC.Add(-time.Duration(offset) * time.Second)
@@ -91,6 +106,15 @@ func localWallInstants(date time.Time, hour, minute int, loc *time.Location) []t
 	}
 	sort.Slice(instants, func(i, j int) bool { return instants[i].Before(instants[j]) })
 	return instants
+}
+
+func offsetsNear(wallUTC time.Time, loc *time.Location) map[int]struct{} {
+	offsets := make(map[int]struct{})
+	for probe := wallUTC.Add(-36 * time.Hour); !probe.After(wallUTC.Add(36 * time.Hour)); probe = probe.Add(15 * time.Minute) {
+		_, offset := probe.In(loc).Zone()
+		offsets[offset] = struct{}{}
+	}
+	return offsets
 }
 
 func addCalendarMonthsClamped(value time.Time, months int) time.Time {

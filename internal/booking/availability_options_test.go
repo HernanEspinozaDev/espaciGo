@@ -80,3 +80,52 @@ func TestAvailabilityCandidatesCalendarMonthClampsAnniversary(t *testing.T) {
 		t.Fatal("multiple-month option should not be offered")
 	}
 }
+
+func TestAvailabilityCandidatesSantiagoSkippedMidnightUsesCalendarDate(t *testing.T) {
+	loc, err := time.LoadLocation("America/Santiago")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// In 2026, Chile advances at midnight on Sep 6; 00:00 is represented by
+	// Go as 23:00 on the previous date. The injected clock keeps this test stable.
+	now := time.Date(2026, time.September, 5, 23, 30, 0, 0, loc)
+
+	hourly, err := availabilityCandidates("hora", "2026-09-06", 1, loc.String(), now)
+	if err != nil || len(hourly) != 46 {
+		t.Fatalf("hourly candidates=%d err=%v, want 46 half-hour starts on a 23-hour date", len(hourly), err)
+	}
+	first := hourly[0].StartAt.In(loc)
+	if y, m, d := first.Date(); y != 2026 || m != time.September || d != 6 || first.Hour() != 1 || first.Minute() != 0 {
+		t.Fatalf("first candidate must be the first valid wall time on Sep 6, got %s", first)
+	}
+
+	for days, wantHours := range map[int]time.Duration{1: 23, 2: 47, 3: 71} {
+		items, e := availabilityCandidates("dia", "2026-09-06", days, loc.String(), now)
+		if e != nil || len(items) != 1 {
+			t.Fatalf("%d-day candidates=%+v err=%v", days, items, e)
+		}
+		item := items[0]
+		if got := item.EndAt.Sub(item.StartAt); got != wantHours*time.Hour {
+			t.Fatalf("%d-day duration=%v, want %v", days, got, wantHours*time.Hour)
+		}
+		if !item.EndAt.After(item.StartAt) {
+			t.Fatalf("%d-day interval is empty or inverted: %+v", days, item)
+		}
+	}
+	monthly, err := availabilityCandidates("mes", "2026-09-06", 1, loc.String(), now)
+	if err != nil || len(monthly) != 1 || !monthly[0].EndAt.After(monthly[0].StartAt) {
+		t.Fatalf("month candidates=%+v err=%v", monthly, err)
+	}
+	monthStart, monthEnd := monthly[0].StartAt.In(loc), monthly[0].EndAt.In(loc)
+	if y, m, d := monthStart.Date(); y != 2026 || m != time.September || d != 6 || monthStart.Hour() != 1 {
+		t.Fatalf("monthly start does not use first valid instant of Sep 6: %s", monthStart)
+	}
+	if y, m, d := monthEnd.Date(); y != 2026 || m != time.October || d != 6 || monthEnd.Hour() != 0 {
+		t.Fatalf("monthly end is not the Oct 6 calendar anniversary: %s", monthEnd)
+	}
+	for _, item := range append(hourly, monthly...) {
+		if !item.EndAt.After(item.StartAt) {
+			t.Fatalf("empty or inverted interval: %+v", item)
+		}
+	}
+}
