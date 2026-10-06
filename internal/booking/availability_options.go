@@ -4,6 +4,8 @@ import (
 	"sort"
 	"time"
 	_ "time/tzdata"
+
+	"github.com/HernanEspinozaDev/espaciGo/internal/calendar"
 )
 
 const availabilityHorizonDays = 90
@@ -74,17 +76,7 @@ func availabilityCandidates(unit, dateText string, duration int, zone string, no
 // maps it to the first valid time of that date.
 func firstInstantOfLocalDate(date time.Time, loc *time.Location) (time.Time, bool) {
 	year, month, day := date.Date()
-	wallUTC := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
-	first := time.Time{}
-	for offset := range offsetsNear(wallUTC, loc) {
-		candidate := wallUTC.Add(-time.Duration(offset) * time.Second)
-		local := candidate.In(loc)
-		ly, lm, ld := local.Date()
-		if ly == year && lm == month && ld == day && (first.IsZero() || candidate.Before(first)) {
-			first = candidate
-		}
-	}
-	return first, !first.IsZero()
+	return calendar.FirstInstantOfDate(year, month, day, loc)
 }
 
 // localWallInstants resolves a wall-clock time without relying on time.Date's

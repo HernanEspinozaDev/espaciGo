@@ -1299,6 +1299,61 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		t.Fatalf("stale availability rejection left reservation/booking occupancy=%d/%d", lateBlockReservations, lateBlockBookingOccupancies)
 	}
 
+	// Exercise the selector intervals through the real PostgreSQL quote path:
+	// offered local calendar durations must map to the approved billable units.
+	clockMu.Lock()
+	fixedNow = time.Date(2026, time.August, 5, 23, 30, 0, 0, selectorZone)
+	clockMu.Unlock()
+	dstDaySpace, dstMonthSpace := "66666666-6666-4666-8666-666666666601", "66666666-6666-4666-8666-666666666602"
+	for _, fixture := range []struct {
+		id, category, title, unit string
+		price                     int64
+	}{
+		{dstDaySpace, "bodega", "Selector DST · día", "dia", 12000},
+		{dstMonthSpace, "local_flexible", "Selector DST · mes", "mes", 450000},
+	} {
+		if _, err = setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria) VALUES($1,$2,$3,$4,repeat('Fixture sintético de prueba DST. ',4),20,4,'Uso de prueba',$5,$6,'Privada','America/Santiago')`, fixture.id, host, fixture.category, fixture.title, fixture.unit, fixture.price); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) SELECT $1,$2,max(version),'{}' FROM public.categoria_perfil_atributos WHERE categoria_codigo=$2`, fixture.id, fixture.category); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,$2,$3)`, fixture.id, fixture.unit, fixture.price); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, fixture.id, host, renter); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for days := 1; days <= 3; days++ {
+		options, optionsErr := svc.AvailableIntervals(ctx, renter, dstDaySpace, booking.AvailabilityOptionsInput{Date: "2026-09-06", Duration: days})
+		if optionsErr != nil || len(options.Items) != 1 {
+			t.Fatalf("DST %d-day options=%+v err=%v", days, options, optionsErr)
+		}
+		interval := options.Items[0]
+		startLocal, endLocal := interval.StartAt.In(selectorZone), interval.EndAt.In(selectorZone)
+		if startLocal.Format("2006-01-02 15:04") != "2026-09-06 01:00" || !endLocal.After(startLocal) {
+			t.Fatalf("DST %d-day interval=%s–%s", days, startLocal, endLocal)
+		}
+		quote, quoteErr := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: dstDaySpace, StartAt: interval.StartAt.Format(time.RFC3339Nano), EndAt: interval.EndAt.Format(time.RFC3339Nano)})
+		if quoteErr != nil || quote.Units != int64(days) || quote.Subtotal != int64(days)*12000 {
+			t.Fatalf("DST %d-day quote units/subtotal=%d/%d err=%v", days, quote.Units, quote.Subtotal, quoteErr)
+		}
+	}
+	monthOptions, err := svc.AvailableIntervals(ctx, renter, dstMonthSpace, booking.AvailabilityOptionsInput{Date: "2026-08-06", Duration: 1})
+	if err != nil || len(monthOptions.Items) != 1 {
+		t.Fatalf("DST monthly options=%+v err=%v", monthOptions, err)
+	}
+	monthInterval := monthOptions.Items[0]
+	monthStart, monthEnd := monthInterval.StartAt.In(selectorZone), monthInterval.EndAt.In(selectorZone)
+	if monthStart.Format("2006-01-02 15:04") != "2026-08-06 00:00" || monthEnd.Format("2006-01-02 15:04") != "2026-09-06 01:00" {
+		t.Fatalf("monthly anniversary interval=%s–%s", monthStart, monthEnd)
+	}
+	monthQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: dstMonthSpace, StartAt: monthInterval.StartAt.Format(time.RFC3339Nano), EndAt: monthInterval.EndAt.Format(time.RFC3339Nano)})
+	if err != nil || monthQuote.Units != 1 || monthQuote.Subtotal != 450000 {
+		t.Fatalf("monthly quote units/subtotal=%d/%d err=%v", monthQuote.Units, monthQuote.Subtotal, err)
+	}
+
 }
 
 func hasAttributes(raw json.RawMessage, expected map[string]any) bool {

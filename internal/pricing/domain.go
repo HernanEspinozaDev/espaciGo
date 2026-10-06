@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/HernanEspinozaDev/espaciGo/internal/calendar"
 )
 
 var (
@@ -97,13 +99,15 @@ func units(unit string, startUTC, endUTC time.Time, zone string) (int64, error) 
 	case "dia":
 		s := startUTC.In(loc)
 		e := endUTC.In(loc)
-		endDate := time.Date(e.Year(), e.Month(), e.Day(), 0, 0, 0, 0, loc)
-		if e.Equal(endDate) {
+		endBoundary, exists := calendar.FirstInstantOfDate(e.Year(), e.Month(), e.Day(), loc)
+		endYear, endMonth, endDay := e.Date()
+		if exists && e.Equal(endBoundary) {
 			e = e.Add(-time.Nanosecond)
+			endYear, endMonth, endDay = e.In(loc).Date()
 		}
-		startDate := time.Date(s.Year(), s.Month(), s.Day(), 0, 0, 0, 0, loc)
-		startOrdinal := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, time.UTC).Unix() / 86400
-		endOrdinal := time.Date(e.Year(), e.Month(), e.Day(), 0, 0, 0, 0, time.UTC).Unix() / 86400
+		startYear, startMonth, startDay := s.Date()
+		startOrdinal := calendar.DateOrdinal(startYear, startMonth, startDay)
+		endOrdinal := calendar.DateOrdinal(endYear, endMonth, endDay)
 		return endOrdinal - startOrdinal + 1, nil
 	case "mes":
 		s := startUTC.In(loc)
@@ -112,7 +116,10 @@ func units(unit string, startUTC, endUTC time.Time, zone string) (int64, error) 
 		if months < 1 {
 			return 1, nil
 		}
-		anniversary := addMonthsClamped(s, months)
+		anniversary, exists := addMonthsClamped(s, months)
+		if !exists {
+			return 0, ErrInvalid
+		}
 		if e.After(anniversary) {
 			months++
 		}
@@ -122,15 +129,6 @@ func units(unit string, startUTC, endUTC time.Time, zone string) (int64, error) 
 	}
 }
 
-func addMonthsClamped(v time.Time, months int64) time.Time {
-	y, m, _ := v.Date()
-	monthIndex := int64(y)*12 + int64(m-1) + months
-	targetYear := int(monthIndex / 12)
-	targetMonth := time.Month(monthIndex%12) + 1
-	last := time.Date(targetYear, targetMonth+1, 0, 0, 0, 0, 0, v.Location()).Day()
-	day := v.Day()
-	if day > last {
-		day = last
-	}
-	return time.Date(targetYear, targetMonth, day, v.Hour(), v.Minute(), v.Second(), v.Nanosecond(), v.Location())
+func addMonthsClamped(v time.Time, months int64) (time.Time, bool) {
+	return calendar.AddMonthsClamped(v, months)
 }
