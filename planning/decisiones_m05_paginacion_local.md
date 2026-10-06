@@ -16,13 +16,17 @@ Issue #164, continuación de la búsqueda sintética autorizada en #151/#160/#16
 
 El mock ofrece tamaño de página, **Siguiente** y **Volver al inicio**. Cambiar filtros/tamaño reinicia la búsqueda; avanzar invalida detalle y cotización. Respuestas antiguas se descartan por generación de solicitud y sesión. Sigue siendo HTML, CSS y TypeScript compilado con DOM y `fetch`.
 
-Para visualizar al menos tres páginas con el tamaño predeterminado, después de tener una pareja de participantes y un fixture local habilitado:
+Para visualizar al menos tres páginas con el tamaño predeterminado, después de tener dos cuentas sintéticas activas/verificadas. Se puede conservar el modo anterior (elige la pareja de una fixture de paginación existente, o la primera pareja habilitada) o fijar explícitamente los participantes:
 
 ```sh
 bash scripts/enable-local-catalog-pagination-fixtures.sh
+# o, para elegir la pareja sin depender de la selección automática:
+bash scripts/enable-local-catalog-pagination-fixtures.sh \\
+  --host-email anfitrion@example.invalid \\
+  --renter-email arrendatario@example.invalid
 ```
 
-El comando añade de forma idempotente diez fixtures sintéticos a la pareja ya autorizada, respeta las ocho categorías y agrega coordenadas explícitamente sintéticas. No modifica fixtures previos, no publica borradores y no borra datos. Usa la base persistente existente, aplica únicamente el build del servicio y no recrea `pgdata` ni secretos.
+El comando añade de forma idempotente diez fixtures sintéticos a la pareja ya autorizada o indicada. Los dos correos deben corresponder a cuentas distintas y ambos se normalizan; con flags se resuelven usuarios activos. Respeta las ocho categorías y agrega coordenadas explícitamente sintéticas. No modifica fixtures previos, no publica borradores y no borra datos. Usa la base persistente existente, aplica únicamente el build del servicio y no recrea `pgdata` ni secretos.
 
 ## Comprobaciones
 

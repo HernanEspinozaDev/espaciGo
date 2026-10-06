@@ -6,7 +6,7 @@ Issue #164 · PR de esta subentrega.
 
 El contrato pagina por clave después de aplicar filtros, estimaciones y orden completo; no usa `OFFSET`. El cursor v1 cifra y autentica la clave de continuación con AES-GCM y solo acepta la misma cuenta, filtros normalizados, orden y tamaño de página. Un cursor de otra instancia no se acepta.
 
-El servicio local añadió diez fixtures sintéticos de forma aditiva e idempotente al par que ya estaba autorizado. La comprobación final informó **12 fixtures habilitados**, suficientes para tres páginas predeterminadas de cinco. El comando se ejecutó dos veces y la segunda ejecución verificó que los ejemplos existentes se conservan; no se eliminó ni reemplazó ningún fixture. Se conservaron el volumen persistente y los secretos.
+El servicio local añadió diez fixtures sintéticos de forma aditiva e idempotente. Para esta comprobación se registraron y verificaron dos cuentas sintéticas nuevas por el flujo de la UI y Mailpit, y se eligió esa pareja explícitamente en el comando. También se habilitó un fixture base; el helper informó **11 fixtures habilitados**, suficientes para tres páginas predeterminadas de cinco. Las cuentas y fixtures previos se conservaron; no se reinició el volumen ni se eliminaron secretos.
 
 El stack local se reconstruyó con cachés/imágenes reutilizadas, mantuvo PostgreSQL saludable y pasó `scripts/dev-env.sh verify-http`. La página del mock sirve los controles de tamaño, Siguiente y Volver al inicio. No se hicieron operaciones de cotización/reserva manuales con cuentas, pues las pruebas desechables ejercitan la API con el rol runtime sin usar credenciales de usuario reales.
 
@@ -19,7 +19,7 @@ El stack local se reconstruyó con cachés/imágenes reutilizadas, mantuvo Postg
 - `planning/openapi.yaml`: parseado correctamente con PyYAML; se verificó la ruta del catálogo.
 - `git diff --check`: pasó.
 - `bash scripts/dev-env.sh verify-http`: verificó readiness, CORS y que el mock sirve HTML, TypeScript compilado y CSS.
-- `bash scripts/enable-local-catalog-pagination-fixtures.sh`: salida verificable `Ejemplos sintéticos listos para 12 fixtures autorizados (al menos tres páginas predeterminadas); fixtures anteriores conservados.`
+- `bash scripts/enable-local-catalog-pagination-fixtures.sh --host-email m05-pagination-host-20261006@ejemplo.invalid --renter-email m05-pagination-renter-20261006@ejemplo.invalid`: salida verificable `Ejemplos sintéticos listos para 11 fixtures autorizados (al menos tres páginas predeterminadas); fixtures anteriores conservados.`
 
 Los filtros, precios y disponibilidad se consultan completos en el servicio antes de recortar página. Este corte garantiza respuesta paginada correcta, no optimiza todavía toda la carga de consulta.
 
@@ -29,4 +29,7 @@ Los filtros, precios y disponibilidad se consultan completos en el servicio ante
 - `npm --prefix mock run test:profile-races`: 18 pruebas PASS. Incluye integración de la restauración de botones de `action()` con el recálculo de Siguiente, estado final sin cursor, invalidación de una petición pendiente ante un nuevo envío del formulario y descarte de respuestas por generación/sesión.
 - `git diff --check`: PASS.
 - Reconstruí y reinicié únicamente `mock-frontend`; el build reutilizó las capas de Docker. No reinicié PostgreSQL, no apliqué migraciones ni modifiqué volumen/secretos.
-- En el navegador local inicié sesión con la cuenta sintética de evidencia M01, envié la búsqueda real desde el formulario y la API respondió sin resultados autorizados para esa cuenta. El logout cerró la sesión y limpió el detalle, la selección, el quote ID y la vista del catálogo. No pude validar las tres páginas ni el cambio a una segunda cuenta porque no tengo credenciales de una cuenta que participe en los 12 fixtures; no inventé ni restablecí credenciales. Esa comprobación requiere acceso a una cuenta sintética ya autorizada para esos fixtures.
+- En navegador, la cuenta arrendataria buscó desde el formulario real y recorrió las páginas 1, 2 y 3 con tamaño 5: las dos primeras mostraron cinco resultados y Siguiente habilitado; la última mostró el resultado restante y Siguiente deshabilitado. **Volver al inicio** retornó a la primera página y habilitó Siguiente.
+- Desde un resultado se abrió el detalle y se creó una cotización snapshot real para un intervalo futuro; la API devolvió su ID, espacio, tarifa y vencimiento. Al cerrar sesión se vaciaron el listado/detalle, el ID de espacio seleccionado y el ID de cotización, y Siguiente quedó deshabilitado.
+- Se inició sesión después con la cuenta anfitriona de la pareja. La vista mostró el estado vacío que requiere una nueva búsqueda; no retuvo resultados, selección ni cotización de la sesión arrendataria. El cursor quedó invalidado. Los datos de acceso y tokens de verificación no se guardan en esta evidencia.
+- No se modificó el mock en este ajuste adicional: la compilación y la cobertura de `action()`/estado de botones corresponden a la corrección ya publicada; aquí se comprobó el formulario real en navegador con ambas sesiones.

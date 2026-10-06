@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
@@ -13,9 +15,20 @@ import (
 
 // createLocalCatalogPaginationFixtures appends ten synthetic examples to one
 // already-authorized participant pair. It never rewrites or removes fixtures.
-func createLocalCatalogPaginationFixtures() error {
+func createLocalCatalogPaginationFixtures(args []string) error {
 	if os.Getenv("LOCAL_AUTH_PROTOTYPE") != "1" || os.Getenv("LOCAL_BOOKING_TRIAL") != "1" {
 		return errors.New("local trial disabled")
+	}
+	flags := flag.NewFlagSet("local-booking-pagination-fixtures", flag.ContinueOnError)
+	hostEmail := flags.String("host-email", "", "active verified synthetic host account")
+	renterEmail := flags.String("renter-email", "", "active verified synthetic renter account")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		return errors.New("invalid pagination fixture arguments")
+	}
+	*hostEmail = strings.ToLower(strings.TrimSpace(*hostEmail))
+	*renterEmail = strings.ToLower(strings.TrimSpace(*renterEmail))
+	if (*hostEmail == "") != (*renterEmail == "") || (*hostEmail != "" && *hostEmail == *renterEmail) {
+		return errors.New("host and renter emails must both be supplied and be different")
 	}
 	cfg, err := loadConfig(os.Getenv)
 	if err != nil {
@@ -37,12 +50,22 @@ func createLocalCatalogPaginationFixtures() error {
 		return err
 	}
 	var hostID, renterID string
-	err = tx.QueryRow(ctx, `SELECT f.anfitrion_id::text,f.arrendatario_id::text FROM public.reserva_ensayo_local_fixture f JOIN public.espacio e ON e.id=f.espacio_id WHERE f.habilitada AND e.titulo LIKE 'M05 paginación %' ORDER BY f.espacio_id LIMIT 1`).Scan(&hostID, &renterID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		err = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local_fixture WHERE habilitada ORDER BY espacio_id LIMIT 1`).Scan(&hostID, &renterID)
+	if *hostEmail != "" {
+		err = tx.QueryRow(ctx, `SELECT id::text FROM public.usuario WHERE correo_normalizado=$1 AND estado='activo'`, *hostEmail).Scan(&hostID)
+		if err == nil {
+			err = tx.QueryRow(ctx, `SELECT id::text FROM public.usuario WHERE correo_normalizado=$1 AND estado='activo'`, *renterEmail).Scan(&renterID)
+		}
+		if err == nil && hostID == renterID {
+			err = errors.New("fixture participants must be different accounts")
+		}
+	} else {
+		err = tx.QueryRow(ctx, `SELECT f.anfitrion_id::text,f.arrendatario_id::text FROM public.reserva_ensayo_local_fixture f JOIN public.espacio e ON e.id=f.espacio_id WHERE f.habilitada AND e.titulo LIKE 'M05 paginación %' ORDER BY f.espacio_id LIMIT 1`).Scan(&hostID, &renterID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local_fixture WHERE habilitada ORDER BY espacio_id LIMIT 1`).Scan(&hostID, &renterID)
+		}
 	}
 	if err != nil {
-		return errors.New("enable one authorized local fixture pair first")
+		return errors.New("pagination examples require an existing authorized pair or two active verified synthetic accounts")
 	}
 	categories := []string{"oficina", "sala_multiproposito", "bodega", "estacionamiento", "local_flexible", "stand", "quincho", "parcela_eventos"}
 	ids := credentials.Generator{}
