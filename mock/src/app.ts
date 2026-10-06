@@ -1,5 +1,6 @@
 import { ProfileRequestGate, profileMatchesSelection } from "./profile-request.js";
 import { CalendarRequestState } from "./calendar-request.js";
+import { BookingQuoteState } from "./booking-quote-state.js";
 
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
@@ -420,6 +421,7 @@ type BookingFixture = {space_id:string; title:string; category_code:string; cate
 type CatalogItem = BookingFixture & {available?:boolean};
 let bookingFixture:BookingFixture|null=null;
 let bookingCatalogRequest=0;
+const bookingQuoteState=new BookingQuoteState();
 let reservationKey=crypto.randomUUID();
 const paymentKeys=new Map<string,string>();
 const bookingBase="/api/v1/local/booking-trial";
@@ -430,6 +432,7 @@ function bookingData<T>(result:Record<string,unknown>):T{return result.data as T
 const catalogResults=document.querySelector<HTMLElement>("#booking-catalog-results")!;
 form("booking-catalog-form",async data=>{
   const token=++bookingCatalogRequest;
+  bookingQuoteState.beginSearch();
   const query=new URLSearchParams();
   const category=String(data.get("category_code")??"");
   if(category)query.set("category_code",category);
@@ -443,6 +446,8 @@ form("booking-catalog-form",async data=>{
   }
   bookingFixture=null;
   (document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]')!).value="";
+  (document.querySelector<HTMLInputElement>('#booking-request-form [name="quote_id"]')!).value="";
+  bookingQuoteOutput.textContent="La cotización queda invalidada al iniciar otra búsqueda.";
   bookingFixtureOutput.textContent="Selecciona un resultado para consultar su detalle.";
   const suffix=query.size?`?${query.toString()}`:"";
   const response=await request(`${bookingBase}/catalog${suffix}`,"GET",undefined,true);
@@ -457,8 +462,13 @@ form("booking-catalog-form",async data=>{
     const details=document.createElement("button");details.type="button";details.textContent="Ver detalle y preparar cotización";
     details.addEventListener("click",()=>void action(async()=>{
       const detailToken=++bookingCatalogRequest;
+      const selectionToken=bookingQuoteState.beginSelection(item.space_id);
+      bookingFixture=null;
+      (document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]')!).value="";
+      (document.querySelector<HTMLInputElement>('#booking-request-form [name="quote_id"]')!).value="";
+      bookingQuoteOutput.textContent="Selecciona el intervalo y prepara una nueva cotización para este espacio.";
       const detailResult=await request(`${bookingBase}/catalog/${encodeURIComponent(item.space_id)}`,"GET",undefined,true);
-      if(detailToken!==bookingCatalogRequest)return;
+      if(detailToken!==bookingCatalogRequest||!bookingQuoteState.selectionIsCurrent(selectionToken,item.space_id))return;
       bookingFixture=bookingData<BookingFixture>(detailResult);
       (document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]')!).value=bookingFixture.space_id;
       bookingFixtureOutput.textContent=`${String(detailResult.safety_notice)}\n${JSON.stringify(bookingFixture,null,2)}`;
@@ -466,16 +476,28 @@ form("booking-catalog-form",async data=>{
     card.append(title,meta,details);catalogResults.append(card);
   }
 });
-document.querySelector<HTMLFormElement>("#booking-catalog-form")!.addEventListener("input",()=>bookingCatalogRequest++);
+document.querySelector<HTMLFormElement>("#booking-catalog-form")!.addEventListener("input",()=>{
+  bookingCatalogRequest++;
+  bookingQuoteState.beginSearch();
+  bookingFixture=null;
+  (document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]')!).value="";
+  (document.querySelector<HTMLInputElement>('#booking-request-form [name="quote_id"]')!).value="";
+  bookingQuoteOutput.textContent="La cotización queda invalidada al cambiar los filtros.";
+});
 form("booking-quote-form",async data=>{
   const selectedSpace=String(data.get("space_id")??"");
   if(!bookingFixture||selectedSpace!==bookingFixture.space_id)throw new Error("Selecciona el detalle de un espacio autorizado antes de cotizar.");
+  const quoteToken=bookingQuoteState.beginQuote(selectedSpace);
+  if(quoteToken===null)throw new Error("La selección cambió. Vuelve a consultar el detalle del espacio antes de cotizar.");
   const quote=bookingData<Record<string,unknown>>(await request(`${bookingBase}/quotes`,"POST",{space_id:selectedSpace,start_at:localTimeAsUTC(String(data.get("start_at")),bookingFixture.time_zone),end_at:localTimeAsUTC(String(data.get("end_at")),bookingFixture.time_zone)},true));
+  if(quote.space_id!==selectedSpace||!bookingQuoteState.acceptQuote(quoteToken,selectedSpace,String(quote.id??"")))return;
   (document.querySelector<HTMLInputElement>('#booking-request-form [name="quote_id"]')!).value=String(quote.id);
   bookingQuoteOutput.textContent=`ENSAYO LOCAL — SIN COBRO REAL\n${JSON.stringify(quote,null,2)}`;
 });
 form("booking-request-form",async(data,element)=>{
-  const result=await request(`${bookingBase}/reservations`,"POST",{quote_id:data.get("quote_id")},true,reservationKey);
+  const quoteID=String(data.get("quote_id")??"");
+  if(!bookingQuoteState.canRequest(quoteID,bookingFixture?.space_id??null))throw new Error("La cotización no corresponde al espacio seleccionado o quedó invalidada. Selecciona el espacio y cotiza nuevamente.");
+  const result=await request(`${bookingBase}/reservations`,"POST",{quote_id:quoteID},true,reservationKey);
   const item=bookingData<Record<string,unknown>>(result);(document.querySelector<HTMLInputElement>('#booking-payment-form [name="id"]')!).value=String(item.id);(document.querySelector<HTMLInputElement>('#booking-decision-form [name="id"]')!).value=String(item.id);(document.querySelector<HTMLInputElement>('#booking-cancel-form [name="id"]')!).value=String(item.id);
   bookingHistoryOutput.textContent=JSON.stringify(item,null,2);reservationKey=crypto.randomUUID();element.reset();
 });

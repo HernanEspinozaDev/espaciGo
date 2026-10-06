@@ -767,7 +767,11 @@ paths:
     get:
       operationId: getAuthorizedLocalBookingFixture
       tags: [M06 local]
-      description: Compatibilidad con M06-LOCAL-01: retorna el primer fixture autorizado para esa cuenta. Para seleccionar entre varios fixtures usa el catálogo y detalle; cotizar siempre requiere el space_id explícito. No es búsqueda pública ni permiso comercial.
+      description: >-
+        Compatibilidad con M06-LOCAL-01: retorna el primer fixture autorizado
+        para esa cuenta. Para seleccionar entre varios fixtures usa el catálogo
+        y detalle; cotizar siempre requiere el space_id explícito. No es
+        búsqueda pública ni permiso comercial.
       responses:
         '200': { description: Fixture privado con el banner de ensayo., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingFixtureEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }

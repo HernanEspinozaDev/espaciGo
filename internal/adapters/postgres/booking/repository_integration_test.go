@@ -141,6 +141,45 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Catalog availability must drive the existing expiry transition itself;
+	// no reservation read or new quote may be needed after the payment deadline.
+	expiringStart := fixedNow.Add(24 * time.Hour)
+	expiringQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: expiringStart.Format(time.RFC3339), EndAt: expiringStart.Add(time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiringReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: expiringQuote.ID}, "catalog-expiry-direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clockMu.Lock()
+	fixedNow = expiringReservation.PayExpiresAt
+	clockMu.Unlock()
+	searchStart, searchEnd := expiringStart, expiringStart.Add(time.Hour)
+	itemsAfterExpiry, err := svc.Catalog(ctx, renter, booking.CatalogFilter{StartAt: &searchStart, EndAt: &searchEnd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var returnedAvailable bool
+	for _, item := range itemsAfterExpiry {
+		if item.SpaceID == space && item.Available != nil {
+			returnedAvailable = *item.Available
+		}
+	}
+	if !returnedAvailable {
+		t.Fatalf("catalog did not return the space after direct expiry search: %+v", itemsAfterExpiry)
+	}
+	expiredDetail, err := svc.Get(ctx, renter, expiringReservation.ID)
+	if err != nil || expiredDetail.State != "vencida_pago" || len(expiredDetail.History) != 2 || expiredDetail.History[1].To != "vencida_pago" {
+		t.Fatalf("catalog did not persist expiry and history: %+v err=%v", expiredDetail, err)
+	}
+	var activeOccupancies int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo`, expiringReservation.ID).Scan(&activeOccupancies); err != nil || activeOccupancies != 0 {
+		t.Fatalf("expired reservation active occupancy count=%d err=%v", activeOccupancies, err)
+	}
+	clockMu.Lock()
+	fixedNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	clockMu.Unlock()
 	for _, startAt := range []time.Time{fixedNow.Add(-time.Second), fixedNow} {
 		_, err = svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: startAt.Format(time.RFC3339Nano), EndAt: startAt.Add(time.Hour).Format(time.RFC3339Nano)})
 		if err != booking.ErrInvalid {

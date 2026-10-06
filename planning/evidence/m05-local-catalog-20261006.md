@@ -24,3 +24,9 @@ Issue #151, PR de implementación pendiente de revisión. El recorrido se ejecut
 La integración PostgreSQL aislada ejecuta con `espacigo_runtime` y cubre múltiples fixtures, aislamiento de borradores, filtros de categoría/intervalo, detalle autorizado, snapshots de tarifa/perfil/zona y revalidación de disponibilidad al reservar. El recorrido del mock se verificó manualmente en el entorno local persistente.
 
 Este corte no implementa catálogo público, geografía/ranking, publicación comercial, KYC productivo, cobro real ni búsqueda general M05. Issues #69–#79, DB02-09 y #123 mantienen sus criterios pendientes.
+
+## Correcciones del PR #152
+
+- Con reloj sustituible, la integración crea una retención, avanza hasta el vencimiento y consulta directamente el catálogo para el intervalo retenido. La búsqueda ejecuta el mecanismo de vencimientos antes de calcular disponibilidad: el espacio reaparece, la ocupación queda inactiva y la reserva/historial registran `vencida_pago` sin consultar ni cotizar previamente.
+- Las pruebas del estado del mock cubren cotizar A → seleccionar B → impedir la solicitud con la cotización de A, descartar la respuesta de cotización de A si llega después del cambio a B, e invalidar cotizaciones al comenzar una búsqueda.
+- Comprobaciones: `bash scripts/test-m06-local-booking-postgres.sh` pasó con PostgreSQL desechable y rol runtime; `npm --prefix mock run test:profile-races` pasó (5 pruebas); `go test ./...`, `go vet ./...`, parseo de OpenAPI y `git diff --check` pasaron.

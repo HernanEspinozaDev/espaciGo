@@ -48,6 +48,12 @@ func (s *Service) Catalog(ctx context.Context, actor string, filter CatalogFilte
 			return nil, ErrInvalid
 		}
 	}
+	// Resolve expired payment/host holds before computing availability. Catalog
+	// reads must not leave an expired reservation blocking a space until some
+	// unrelated reservation endpoint happens to trigger the expiry mechanism.
+	if err := s.repo.Expire(ctx, s.now().UTC()); err != nil {
+		return nil, err
+	}
 	return s.repo.Catalog(ctx, actor, filter)
 }
 func (s *Service) CatalogDetail(ctx context.Context, actor, spaceID string) (CatalogItem, error) {
