@@ -780,11 +780,15 @@ paths:
     get:
       operationId: searchAuthorizedLocalSyntheticCatalog
       tags: [M05 local]
-      description: Lista solo espacios sintéticos allowlisted para uno de sus participantes. Los borradores restantes y las direcciones privadas no se exponen; la disponibilidad consulta ocupacion para el intervalo indicado.
+      description: Lista solo espacios sintéticos allowlisted para uno de sus participantes. Los borradores restantes y las direcciones privadas no se exponen. Categoría, disponibilidad y todos los atributos seleccionados se combinan con AND. Los filtros de atributos usan los tipos/unidades del perfil versionado indicado y solo aplican a fixtures guardados con esa versión. Si se filtra por mínimo/máximo CLP inclusivo, se exige intervalo y se devuelve el total estimado de ese intervalo; la búsqueda no crea cotización ni ocupación. Los resultados con intervalo se ordenan por total estimado y UUID.
       parameters:
         - { name: category_code, in: query, required: false, schema: { type: string, enum: [oficina, sala_multiproposito, bodega, estacionamiento, local_flexible, stand, quincho, parcela_eventos] } }
         - { name: start_at, in: query, required: false, schema: { type: string, format: date-time } }
         - { name: end_at, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: min_total_clp, in: query, required: false, description: Mínimo inclusivo del total estimado CLP para el intervalo., schema: { type: integer, minimum: 0 } }
+        - { name: max_total_clp, in: query, required: false, description: Máximo inclusivo del total estimado CLP para el intervalo., schema: { type: integer, minimum: 0 } }
+        - { name: profile_version, in: query, required: false, description: Versión de perfil seleccionada; requerida junto con attributes y category_code., schema: { type: integer, minimum: 1 } }
+        - { name: attributes, in: query, required: false, description: Objeto JSON URL-encoded de atributos tipados exactos; enum_list usa contención de elementos., schema: { type: string, maxLength: 16384, example: '{"proyector":false}' } }
       responses:
         '200': { description: Resultados de catálogo local con banner de ensayo., content: { application/json: { schema: { $ref: '#/components/schemas/LocalCatalogEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -1060,6 +1064,7 @@ components:
         profile: { type: object }
         attributes: { type: object }
         available: { type: boolean }
+        estimated_total_clp: { type: integer, minimum: 1, description: Estimación inclusiva del precio total para el intervalo de búsqueda; se omite si no se indicó intervalo. }
     LocalBookingQuoteEnvelope:
       type: object
       required: [data, safety_notice]

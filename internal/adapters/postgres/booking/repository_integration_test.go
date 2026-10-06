@@ -2,11 +2,13 @@ package bookingpg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -133,7 +135,7 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria) VALUES($1,$2,'bodega','Bodega sintética',repeat('Detalle sintético seguro. ',4),40,2,'Acceso controlado','hora',12000,'Dirección privada','America/Santiago')`, secondSpace, host); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'bodega',1,'{"altura_util_m":3.2}'::jsonb)`, secondSpace); err != nil {
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'bodega',1,'{"altura_util_m":3.2,"carro_carga_disponible":false}'::jsonb)`, secondSpace); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',12000)`, secondSpace); err != nil {
@@ -143,10 +145,10 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	privateSpace := "ffffffff-ffff-4fff-8fff-ffffffffffff"
-	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria) VALUES($1,$2,'oficina','Draft no catalogado',repeat('Draft no visible en resultados. ',4),10,1,'Privado','hora',8000,'Privada','America/Santiago')`, privateSpace, host); err != nil {
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria) VALUES($1,$2,'bodega','Draft no catalogado',repeat('Draft no visible en resultados. ',4),10,1,'Privado','hora',8000,'Privada','America/Santiago')`, privateSpace, host); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'oficina',1,'{}')`, privateSpace); err != nil {
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'bodega',1,'{}')`, privateSpace); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',8000)`, privateSpace); err != nil {
@@ -223,14 +225,14 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 			t.Fatal("private unlisted draft leaked into catalog")
 		}
 		if item.SpaceID == secondSpace {
-			foundWarehouse = item.CategoryCode == "bodega" && item.Price == 12000 && item.ProfileVersion == 1 && string(item.Attributes) == `{"altura_util_m": 3.2}`
+			foundWarehouse = item.CategoryCode == "bodega" && item.Price == 12000 && item.ProfileVersion == 1 && hasAttributes(item.Attributes, map[string]any{"altura_util_m": 3.2, "carro_carga_disponible": false})
 		}
 	}
 	if !foundWarehouse {
 		t.Fatalf("second fixture lacks its own category/profile/tariff: %+v", items)
 	}
 	detailItem, err := svc.CatalogDetail(ctx, renter, secondSpace)
-	if err != nil || detailItem.CategoryCode != "bodega" || detailItem.CategoryName != "Bodega" || detailItem.ProfileVersion != 1 || string(detailItem.Attributes) != `{"altura_util_m": 3.2}` {
+	if err != nil || detailItem.CategoryCode != "bodega" || detailItem.CategoryName != "Bodega" || detailItem.ProfileVersion != 1 || !hasAttributes(detailItem.Attributes, map[string]any{"altura_util_m": 3.2, "carro_carga_disponible": false}) {
 		t.Fatalf("selected fixture detail=%+v err=%v", detailItem, err)
 	}
 	filtered, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "bodega"})
@@ -242,6 +244,47 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	available, err := svc.Catalog(ctx, renter, booking.CatalogFilter{StartAt: &when, EndAt: &until})
 	if err != nil || len(available) != 2 || available[0].Available == nil || !*available[0].Available {
 		t.Fatalf("available catalog=%+v err=%v", available, err)
+	}
+	if available[0].SpaceID != space || available[1].SpaceID != secondSpace || available[0].EstimatedTotal == nil || *available[0].EstimatedTotal != 8000 || available[1].EstimatedTotal == nil || *available[1].EstimatedTotal != 12000 {
+		t.Fatalf("estimated totals/order=%+v", available)
+	}
+	minTotal, maxTotal := int64(12000), int64(12000)
+	var quotesBefore, occupanciesBefore int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.cotizacion_reserva_ensayo`).Scan(&quotesBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion`).Scan(&occupanciesBefore); err != nil {
+		t.Fatal(err)
+	}
+	filteredFeatures, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "bodega", StartAt: &when, EndAt: &until, MinTotalCLP: &minTotal, MaxTotalCLP: &maxTotal, ProfileVersion: 1, Attributes: map[string]any{"altura_util_m": 3.2, "carro_carga_disponible": false}})
+	if err != nil || len(filteredFeatures) != 1 || filteredFeatures[0].SpaceID != secondSpace || filteredFeatures[0].EstimatedTotal == nil || *filteredFeatures[0].EstimatedTotal != 12000 || filteredFeatures[0].RateUnit != "hora" || filteredFeatures[0].TimeZone != "America/Santiago" {
+		t.Fatalf("AND feature/category/availability/inclusive-price filter=%+v err=%v", filteredFeatures, err)
+	}
+	var quotesAfter, occupanciesAfter int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.cotizacion_reserva_ensayo`).Scan(&quotesAfter); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion`).Scan(&occupanciesAfter); err != nil {
+		t.Fatal(err)
+	}
+	if quotesAfter != quotesBefore || occupanciesAfter != occupanciesBefore {
+		t.Fatalf("catalog search wrote quotes/occupancies: before=%d/%d after=%d/%d", quotesBefore, occupanciesBefore, quotesAfter, occupanciesAfter)
+	}
+	maxBelow := int64(11999)
+	belowBoundary, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "bodega", StartAt: &when, EndAt: &until, MaxTotalCLP: &maxBelow})
+	if err != nil || len(belowBoundary) != 0 {
+		t.Fatalf("maximum price below inclusive total returned=%+v err=%v", belowBoundary, err)
+	}
+	falseMatches, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "bodega", ProfileVersion: 1, Attributes: map[string]any{"carro_carga_disponible": false}})
+	if err != nil || len(falseMatches) != 1 || falseMatches[0].SpaceID != secondSpace {
+		t.Fatalf("boolean false search=%+v err=%v", falseMatches, err)
+	}
+	var absentMatches bool
+	if err = setup.QueryRow(ctx, `SELECT '{}'::jsonb @> '{"carro_carga_disponible":false}'::jsonb`).Scan(&absentMatches); err != nil || absentMatches {
+		t.Fatalf("absent boolean must not match false: result=%v err=%v", absentMatches, err)
+	}
+	if _, err = svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "bodega", ProfileVersion: 2, Attributes: map[string]any{"altura_util_m": 3.2}}); err != booking.ErrInvalid {
+		t.Fatalf("missing/unmatched immutable profile version accepted: %v", err)
 	}
 	if _, err = svc.Fixture(ctx, outsider); err != booking.ErrNotFound {
 		t.Fatalf("unlisted fixture visible: %v", err)
@@ -257,7 +300,7 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatalf("unknown category filter accepted: %+v %v", wrongCategory, err)
 	}
 	selectedQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: secondSpace, StartAt: fixedNow.Add(2 * time.Hour).Format(time.RFC3339), EndAt: fixedNow.Add(3 * time.Hour).Format(time.RFC3339)})
-	if err != nil || selectedQuote.SpaceID != secondSpace || selectedQuote.UnitPrice != 12000 || selectedQuote.CategoryCode != "bodega" || selectedQuote.ProfileVersion != 1 || string(selectedQuote.ProfileValues) != `{"altura_util_m": 3.2}` {
+	if err != nil || selectedQuote.SpaceID != secondSpace || selectedQuote.UnitPrice != 12000 || selectedQuote.CategoryCode != "bodega" || selectedQuote.ProfileVersion != 1 || !hasAttributes(selectedQuote.ProfileValues, map[string]any{"altura_util_m": 3.2, "carro_carga_disponible": false}) {
 		t.Fatalf("selected-space quote snapshot=%+v err=%v", selectedQuote, err)
 	}
 	if _, err = svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: privateSpace, StartAt: fixedNow.Add(2 * time.Hour).Format(time.RFC3339), EndAt: fixedNow.Add(3 * time.Hour).Format(time.RFC3339)}); err != booking.ErrNotFound {
@@ -270,7 +313,7 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatalf("filtered selected-space availability=%+v err=%v", available, err)
 	}
 	quoteForAnotherSpace, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: secondSpace, StartAt: when.Format(time.RFC3339), EndAt: until.Format(time.RFC3339)})
-	if err != nil || quoteForAnotherSpace.UnitPrice != 12000 {
+	if err != nil || quoteForAnotherSpace.UnitPrice != 12000 || quoteForAnotherSpace.Subtotal != *filteredFeatures[0].EstimatedTotal {
 		t.Fatalf("second-space quote=%+v err=%v", quoteForAnotherSpace, err)
 	}
 	secondReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: quoteForAnotherSpace.ID}, "selected-space-reservation")
@@ -945,4 +988,40 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if successes != 1 || conflicts != 1 {
 		t.Fatalf("overlap race success/conflict=%d/%d errors=%v", successes, conflicts, raceErrs)
 	}
+	// A search and quote use the current tariff; a tariff changed after quoting
+	// must be rejected again in the reservation transaction.
+	rateStart := fixedNow.Add(365 * 24 * time.Hour)
+	rateQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: secondSpace, StartAt: rateStart.Format(time.RFC3339), EndAt: rateStart.Add(time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,2,'hora',13000)`, secondSpace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Request(ctx, renter, booking.RequestInput{QuoteID: rateQuote.ID}, "stale-rate-after-search"); err != booking.ErrConflict {
+		t.Fatalf("reservation with stale tariff quote error=%v", err)
+	}
+	var staleRateReservations, staleRateOccupancies int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, rateQuote.ID).Scan(&staleRateReservations); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE espacio_id=$1 AND intervalo && tstzrange($2,$3,'[)')`, secondSpace, rateStart, rateStart.Add(time.Hour)).Scan(&staleRateOccupancies); err != nil {
+		t.Fatal(err)
+	}
+	if staleRateReservations != 0 || staleRateOccupancies != 0 {
+		t.Fatalf("stale tariff rejection left reservation/occupancy=%d/%d", staleRateReservations, staleRateOccupancies)
+	}
+}
+
+func hasAttributes(raw json.RawMessage, expected map[string]any) bool {
+	var actual map[string]any
+	if json.Unmarshal(raw, &actual) != nil {
+		return false
+	}
+	for key, value := range expected {
+		if got, ok := actual[key]; !ok || !reflect.DeepEqual(got, value) {
+			return false
+		}
+	}
+	return true
 }

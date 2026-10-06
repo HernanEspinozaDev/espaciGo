@@ -6,6 +6,8 @@ import (
 	"errors"
 	"regexp"
 	"time"
+
+	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 )
 
 var (
@@ -42,11 +44,16 @@ type CatalogItem struct {
 	Profile        json.RawMessage `json:"profile"`
 	Attributes     json.RawMessage `json:"attributes"`
 	Available      *bool           `json:"available,omitempty"`
+	EstimatedTotal *int64          `json:"estimated_total_clp,omitempty"`
 }
 type CatalogFilter struct {
-	CategoryCode string
-	StartAt      *time.Time
-	EndAt        *time.Time
+	CategoryCode   string
+	StartAt        *time.Time
+	EndAt          *time.Time
+	MinTotalCLP    *int64
+	MaxTotalCLP    *int64
+	ProfileVersion int
+	Attributes     map[string]any
 }
 type QuoteInput struct {
 	SpaceID string `json:"space_id"`
@@ -119,6 +126,7 @@ type DecisionInput struct {
 type Repository interface {
 	Fixture(context.Context, string) (Fixture, error)
 	Catalog(context.Context, string, CatalogFilter) ([]CatalogItem, error)
+	CatalogProfile(context.Context, string, int) (spaces.Profile, error)
 	CatalogDetail(context.Context, string, string) (CatalogItem, error)
 	Quote(context.Context, string, string, string, time.Time, time.Time, func() time.Time, time.Duration) (Quote, error)
 	Create(context.Context, string, string, string, []byte, string, string, time.Duration, func() time.Time) (Reservation, error)

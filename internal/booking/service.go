@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
+	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -42,6 +45,30 @@ func (s *Service) Catalog(ctx context.Context, actor string, filter CatalogFilte
 	if (filter.StartAt == nil) != (filter.EndAt == nil) {
 		return nil, ErrInvalid
 	}
+	if (filter.MinTotalCLP != nil || filter.MaxTotalCLP != nil) && filter.StartAt == nil {
+		return nil, ErrInvalid
+	}
+	if filter.MinTotalCLP != nil && *filter.MinTotalCLP < 0 || filter.MaxTotalCLP != nil && *filter.MaxTotalCLP < 0 ||
+		filter.MinTotalCLP != nil && filter.MaxTotalCLP != nil && *filter.MinTotalCLP > *filter.MaxTotalCLP {
+		return nil, ErrInvalid
+	}
+	if len(filter.Attributes) > 0 {
+		if filter.CategoryCode == "" || filter.ProfileVersion < 1 {
+			return nil, ErrInvalid
+		}
+		profile, err := s.repo.CatalogProfile(ctx, filter.CategoryCode, filter.ProfileVersion)
+		if errors.Is(err, ErrNotFound) {
+			return nil, ErrInvalid
+		}
+		if err != nil {
+			return nil, err
+		}
+		if profile.CategoryCode != filter.CategoryCode || profile.SchemaVersion != filter.ProfileVersion || profile.ValidateAttributeFilters(filter.Attributes) != nil {
+			return nil, ErrInvalid
+		}
+	} else if filter.ProfileVersion != 0 {
+		return nil, ErrInvalid
+	}
 	if filter.StartAt != nil {
 		now := s.now().UTC()
 		if !filter.EndAt.After(*filter.StartAt) || !filter.StartAt.After(now) {
@@ -54,7 +81,33 @@ func (s *Service) Catalog(ctx context.Context, actor string, filter CatalogFilte
 	if err := s.repo.Expire(ctx, s.now().UTC()); err != nil {
 		return nil, err
 	}
-	return s.repo.Catalog(ctx, actor, filter)
+	items, err := s.repo.Catalog(ctx, actor, filter)
+	if err != nil {
+		return nil, err
+	}
+	if filter.StartAt == nil {
+		return items, nil
+	}
+	filtered := make([]CatalogItem, 0, len(items))
+	for _, item := range items {
+		units, e := PriceUnits(item.RateUnit, *filter.StartAt, *filter.EndAt, item.TimeZone)
+		if e != nil || units < 1 || item.Price > math.MaxInt64/units {
+			return nil, ErrInvalid
+		}
+		total := item.Price * units
+		item.EstimatedTotal = &total
+		if filter.MinTotalCLP != nil && total < *filter.MinTotalCLP || filter.MaxTotalCLP != nil && total > *filter.MaxTotalCLP {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		if *filtered[i].EstimatedTotal != *filtered[j].EstimatedTotal {
+			return *filtered[i].EstimatedTotal < *filtered[j].EstimatedTotal
+		}
+		return filtered[i].SpaceID < filtered[j].SpaceID
+	})
+	return filtered, nil
 }
 func (s *Service) CatalogDetail(ctx context.Context, actor, spaceID string) (CatalogItem, error) {
 	if !uuid.MatchString(actor) || !uuid.MatchString(spaceID) {

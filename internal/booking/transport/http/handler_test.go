@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 )
 
 const renterID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -30,7 +32,10 @@ type repoStub struct{ fixture booking.Fixture }
 
 func (r repoStub) Fixture(context.Context, string) (booking.Fixture, error) { return r.fixture, nil }
 func (r repoStub) Catalog(context.Context, string, booking.CatalogFilter) ([]booking.CatalogItem, error) {
-	return []booking.CatalogItem{{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`)}}, nil
+	return []booking.CatalogItem{{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "America/Santiago", ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`)}}, nil
+}
+func (repoStub) CatalogProfile(ctx context.Context, category string, version int) (spaces.Profile, error) {
+	return spaces.Profile{CategoryCode: category, SchemaVersion: version, Attributes: []spaces.AttributeDefinition{{Code: "proyector", Type: "boolean"}}}, nil
 }
 func (r repoStub) CatalogDetail(context.Context, string, string) (booking.CatalogItem, error) {
 	return booking.CatalogItem{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`)}, nil
@@ -137,3 +142,43 @@ func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testin
 		t.Fatalf("quote missing safety/snapshot conditions: %v", quote)
 	}
 }
+
+func TestCatalogSearchParsesTypedFiltersAndRequiresIntervalForPrice(t *testing.T) {
+	values := url.Values{
+		"category_code":   {"sala_multiproposito"},
+		"profile_version": {"1"},
+		"attributes":      {`{"proyector":false}`},
+		"min_total_clp":   {"8000"},
+		"start_at":        {"2030-01-01T00:00:00Z"},
+		"end_at":          {"2030-01-01T01:00:00Z"},
+	}
+	filter, ok := catalogFilter(values)
+	if !ok || filter.ProfileVersion != 1 || filter.Attributes["proyector"] != false || filter.MinTotalCLP == nil || *filter.MinTotalCLP != 8000 {
+		t.Fatalf("catalog filter parse=%+v ok=%v", filter, ok)
+	}
+	if _, ok := catalogFilter(url.Values{"min_total_clp": {"8000"}}); !ok {
+		t.Fatal("syntax parser should leave interval requirement to service validation")
+	}
+	if _, ok := catalogFilter(url.Values{"attributes": {`[]`}}); ok {
+		t.Fatal("non-object attributes filter accepted")
+	}
+	if _, ok := catalogFilter(url.Values{"attributes": {`{"proyector":false}`, `{"proyector":true}`}}); ok {
+		t.Fatal("duplicate attributes query parameter accepted")
+	}
+
+	service, err := booking.NewService(repoStub{fixture: booking.Fixture{SpaceID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", Title: "Espacio sintético", OwnerID: renterID, RenterID: renterID, RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "America/Santiago"}}, credentials.Generator{}, time.Now, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.Catalog(context.Background(), renterID, booking.CatalogFilter{MinTotalCLP: int64Ptr(8000)}); err != booking.ErrInvalid {
+		t.Fatalf("price filter without interval error=%v", err)
+	}
+	if _, err = service.Catalog(context.Background(), renterID, booking.CatalogFilter{MinTotalCLP: int64Ptr(9000), MaxTotalCLP: int64Ptr(8000)}); err != booking.ErrInvalid {
+		t.Fatalf("reversed inclusive price range error=%v", err)
+	}
+	if _, err = service.Catalog(context.Background(), renterID, booking.CatalogFilter{CategoryCode: "sala_multiproposito", ProfileVersion: 1, Attributes: map[string]any{"proyector": "false"}}); err != booking.ErrInvalid {
+		t.Fatalf("wrong typed boolean filter error=%v", err)
+	}
+}
+
+func int64Ptr(value int64) *int64 { return &value }
