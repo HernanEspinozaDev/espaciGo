@@ -592,6 +592,11 @@ document.querySelector("#booking-history-load").addEventListener("click", () => 
     const result = await request(`${bookingBase}/reservations`, "GET", undefined, true);
     bookingHistoryOutput.textContent = `${String(result.safety_notice)}\n${JSON.stringify(bookingData(result), null, 2)}`;
 }));
+form("booking-history-detail-form", async (data) => {
+    const id = String(data.get("reservation_id"));
+    const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}`, "GET", undefined, true);
+    bookingHistoryOutput.textContent = `${String(result.safety_notice)}\n${JSON.stringify(bookingData(result), null, 2)}`;
+});
 async function initialize() {
     try {
         const config = await (await fetch("/config.json", { cache: "no-store" })).json();
