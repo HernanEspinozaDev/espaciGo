@@ -1,6 +1,9 @@
 package booking
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestSortCatalogByRawDistanceThenEstimateThenID(t *testing.T) {
 	items := []CatalogItem{
@@ -24,3 +27,20 @@ func TestSortCatalogByRawDistanceThenEstimateThenID(t *testing.T) {
 }
 
 func int64PtrTest(v int64) *int64 { return &v }
+
+func TestCatalogCursorFingerprintCanonicalizesEquivalentTimesAndMapKeys(t *testing.T) {
+	startA := time.Date(2035, 1, 1, 12, 0, 0, 0, time.FixedZone("one", 3600))
+	endA := startA.Add(time.Hour)
+	startB, endB := startA.UTC(), endA.UTC()
+	a, err := catalogFilterFingerprint(CatalogFilter{StartAt: &startA, EndAt: &endA, Attributes: map[string]any{"alpha": true, "beta": "x"}}, 5, "price")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := catalogFilterFingerprint(CatalogFilter{StartAt: &startB, EndAt: &endB, Attributes: map[string]any{"beta": "x", "alpha": true}}, 5, "price")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a != b {
+		t.Fatalf("equivalent filters fingerprint differs: %s %s", a, b)
+	}
+}

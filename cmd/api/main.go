@@ -42,6 +42,13 @@ import (
 const readyURL = "http://127.0.0.1:8080/health/ready"
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "local-booking-pagination-fixtures" {
+		if err := createLocalCatalogPaginationFixtures(os.Args[2:]); err != nil {
+			log.Print("synthetic pagination examples were not added; no account or database details logged")
+			os.Exit(1)
+		}
+		return
+	}
 	if (len(os.Args) == 4 || len(os.Args) == 5) && os.Args[1] == "local-booking-fixture" {
 		category := "sala_multiproposito"
 		if len(os.Args) == 5 {

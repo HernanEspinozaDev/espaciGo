@@ -88,12 +88,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if path == base+"/catalog" && r.Method == http.MethodGet {
 		filter, ok := catalogFilter(r.URL.Query())
-		if !ok {
+		pageSize, cursor, pageOK := catalogPageParams(r.URL.Query())
+		if !ok || !pageOK {
 			fail(w, 422, "invalid_request")
 			return
 		}
-		items, e := h.service.Catalog(r.Context(), actor, filter)
-		h.reply(w, map[string]any{"items": items, "safety_notice": booking.SafetyBanner}, e)
+		page, e := h.service.CatalogPage(r.Context(), actor, filter, pageSize, cursor)
+		result := map[string]any{"items": page.Items, "safety_notice": booking.SafetyBanner}
+		if page.NextCursor != "" {
+			result["next_cursor"] = page.NextCursor
+		}
+		h.reply(w, result, e)
 		return
 	}
 	if strings.HasPrefix(path, base+"/catalog/") && r.Method == http.MethodGet {
@@ -270,7 +275,7 @@ func (h *Handler) replyConversation(w http.ResponseWriter, value any, err error)
 
 func catalogFilter(query url.Values) (booking.CatalogFilter, bool) {
 	for key, values := range query {
-		if (key != "category_code" && key != "start_at" && key != "end_at" && key != "min_total_clp" && key != "max_total_clp" && key != "profile_version" && key != "attributes" && key != "latitude" && key != "longitude" && key != "radius_km") || len(values) != 1 || (values[0] == "" && key != "latitude" && key != "longitude" && key != "radius_km") {
+		if (key != "category_code" && key != "start_at" && key != "end_at" && key != "min_total_clp" && key != "max_total_clp" && key != "profile_version" && key != "attributes" && key != "latitude" && key != "longitude" && key != "radius_km" && key != "page_size" && key != "cursor") || len(values) != 1 || (values[0] == "" && key != "latitude" && key != "longitude" && key != "radius_km") {
 			return booking.CatalogFilter{}, false
 		}
 	}
@@ -328,6 +333,27 @@ func catalogFilter(query url.Values) (booking.CatalogFilter, bool) {
 		filter.RadiusKM = &radius
 	}
 	return filter, true
+}
+func catalogPageParams(query url.Values) (int, string, bool) {
+	pageSize := 0
+	if raw, ok := query["page_size"]; ok {
+		if len(raw) != 1 {
+			return 0, "", false
+		}
+		value, err := strconv.Atoi(raw[0])
+		if err != nil || value < 1 || value > 25 {
+			return 0, "", false
+		}
+		pageSize = value
+	}
+	cursor := query.Get("cursor")
+	if raw, ok := query["cursor"]; ok && len(raw) != 1 {
+		return 0, "", false
+	}
+	if len(cursor) > 8192 {
+		return 0, "", false
+	}
+	return pageSize, cursor, true
 }
 func (h *Handler) reply(w http.ResponseWriter, v any, err error) {
 	if err != nil {

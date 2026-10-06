@@ -48,6 +48,12 @@ type CatalogItem struct {
 	DistanceKM     *float64        `json:"distance_km,omitempty"`
 	DistanceKind   string          `json:"distance_kind,omitempty"`
 	DistanceMeters float64         `json:"-"`
+	CategoryOrder  int             `json:"-"`
+}
+
+type CatalogPage struct {
+	Items      []CatalogItem `json:"items"`
+	NextCursor string        `json:"next_cursor,omitempty"`
 }
 type CatalogFilter struct {
 	CategoryCode   string

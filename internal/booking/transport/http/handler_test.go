@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -31,10 +32,24 @@ func (authStub) Authorize(_ context.Context, raw identity.Secret, _ identity.Rol
 type repoStub struct {
 	fixture        booking.Fixture
 	distanceMeters float64
+	items          []booking.CatalogItem
 }
 
 func (r repoStub) Fixture(context.Context, string) (booking.Fixture, error) { return r.fixture, nil }
 func (r repoStub) Catalog(context.Context, string, booking.CatalogFilter) ([]booking.CatalogItem, error) {
+	if r.items != nil {
+		items := append([]booking.CatalogItem(nil), r.items...)
+		sort.Slice(items, func(i, j int) bool {
+			if items[i].CategoryOrder != items[j].CategoryOrder {
+				return items[i].CategoryOrder < items[j].CategoryOrder
+			}
+			if items[i].Title != items[j].Title {
+				return items[i].Title < items[j].Title
+			}
+			return items[i].SpaceID < items[j].SpaceID
+		})
+		return items, nil
+	}
 	return []booking.CatalogItem{{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "America/Santiago", ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`), DistanceMeters: r.distanceMeters}}, nil
 }
 func (repoStub) CatalogProfile(ctx context.Context, category string, version int) (spaces.Profile, error) {
@@ -112,6 +127,13 @@ func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testin
 	h.ServeHTTP(invalidFilterResponse, invalidFilter)
 	if invalidFilterResponse.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid availability filter status=%d body=%s", invalidFilterResponse.Code, invalidFilterResponse.Body.String())
+	}
+	invalidPageSize := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog?page_size=26", nil)
+	invalidPageSize.Header.Set("Authorization", "Bearer test-session")
+	invalidPageSizeResponse := httptest.NewRecorder()
+	h.ServeHTTP(invalidPageSizeResponse, invalidPageSize)
+	if invalidPageSizeResponse.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid page_size status=%d body=%s", invalidPageSizeResponse.Code, invalidPageSizeResponse.Body.String())
 	}
 	geoFixture := booking.Fixture{SpaceID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", Title: "Espacio sintético", OwnerID: renterID, RenterID: renterID, RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "America/Santiago"}
 	geoService, err := booking.NewService(repoStub{fixture: geoFixture, distanceMeters: 1423}, credentials.Generator{}, time.Now, paymentStub{})
@@ -216,3 +238,162 @@ func TestCatalogSearchParsesTypedFiltersAndRequiresIntervalForPrice(t *testing.T
 }
 
 func int64Ptr(value int64) *int64 { return &value }
+
+func TestCatalogPaginationKeysetAndCursorBinding(t *testing.T) {
+	ids := []string{"00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000004", "00000000-0000-4000-8000-000000000005", "00000000-0000-4000-8000-000000000006", "00000000-0000-4000-8000-000000000007", "00000000-0000-4000-8000-000000000008", "00000000-0000-4000-8000-000000000009", "00000000-0000-4000-8000-000000000010", "00000000-0000-4000-8000-000000000011"}
+	items := make([]booking.CatalogItem, len(ids))
+	for i, id := range ids {
+		distance := 1000 + float64(i)/100
+		if i == 5 {
+			distance = 1000 + float64(i-1)/100
+		}
+		items[i] = booking.CatalogItem{SpaceID: id, CategoryOrder: 1, Title: "Sala", DistanceMeters: distance, EstimatedTotal: int64PtrTestLocal(9000)}
+	}
+	service, err := booking.NewService(repoStub{items: items}, credentials.Generator{}, time.Now, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter := booking.CatalogFilter{Latitude: floatPtrLocal(-33.4), Longitude: floatPtrLocal(-70.6), RadiusKM: intPtrLocal(5)}
+	seen := map[string]bool{}
+	cursor := ""
+	pages := 0
+	var pageIDs [][]string
+	for {
+		page, e := service.CatalogPage(context.Background(), renterID, filter, 5, cursor)
+		if e != nil {
+			t.Fatal(e)
+		}
+		pages++
+		for _, item := range page.Items {
+			if seen[item.SpaceID] {
+				t.Fatalf("duplicate %s", item.SpaceID)
+			}
+			seen[item.SpaceID] = true
+		}
+		idsOnPage := make([]string, 0, len(page.Items))
+		for _, item := range page.Items {
+			idsOnPage = append(idsOnPage, item.SpaceID)
+		}
+		pageIDs = append(pageIDs, idsOnPage)
+		if cursor == "" && (page.Items[0].DistanceKM == nil || *page.Items[0].DistanceKM != 1.0 || page.Items[1].DistanceKM == nil || *page.Items[1].DistanceKM != 1.0 || page.Items[0].DistanceMeters >= page.Items[1].DistanceMeters) {
+			t.Fatalf("raw distances did not order equal-rounded results: %+v", page.Items[:2])
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if pages != 3 || len(seen) != len(items) {
+		t.Fatalf("pages=%d seen=%d", pages, len(seen))
+	}
+	if pageIDs[0][4] != ids[4] || pageIDs[1][0] != ids[5] {
+		t.Fatalf("page boundary did not continue through raw-distance/price/ID tie: %v", pageIDs)
+	}
+	first, err := service.CatalogPage(context.Background(), renterID, filter, 5, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultPage, err := service.CatalogPage(context.Background(), renterID, filter, 0, "")
+	if err != nil || len(defaultPage.Items) != 5 || defaultPage.NextCursor == "" {
+		t.Fatalf("default page size response=%+v err=%v", defaultPage, err)
+	}
+	for _, tc := range []struct {
+		name, actor string
+		size        int
+		filter      booking.CatalogFilter
+	}{{"account", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", 5, filter}, {"page size", renterID, 4, filter}, {"filters", renterID, 5, booking.CatalogFilter{Latitude: floatPtrLocal(-33.5), Longitude: filter.Longitude, RadiusKM: filter.RadiusKM}}} {
+		if _, e := service.CatalogPage(context.Background(), tc.actor, tc.filter, tc.size, first.NextCursor); e != booking.ErrInvalid {
+			t.Errorf("%s cursor reuse error=%v", tc.name, e)
+		}
+	}
+	if _, e := service.CatalogPage(context.Background(), renterID, filter, 5, "v2.bad"); e != booking.ErrInvalid {
+		t.Fatalf("unknown version error=%v", e)
+	}
+	mutate := byte('A')
+	if first.NextCursor[3] == mutate {
+		mutate = 'B'
+	}
+	corrupt := first.NextCursor[:3] + string(mutate) + first.NextCursor[4:]
+	if _, e := service.CatalogPage(context.Background(), renterID, filter, 5, corrupt); e != booking.ErrInvalid {
+		t.Fatalf("tampered cursor error=%v", e)
+	}
+	if _, e := service.CatalogPage(context.Background(), renterID, filter, 26, ""); e != booking.ErrInvalid {
+		t.Fatalf("oversized page error=%v", e)
+	}
+	other, err := booking.NewService(repoStub{items: items}, credentials.Generator{}, time.Now, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, e := other.CatalogPage(context.Background(), renterID, filter, 5, first.NextCursor); e != booking.ErrInvalid {
+		t.Fatalf("cursor from different process key error=%v", e)
+	}
+}
+
+func TestCatalogPaginationEmptyResultHasNoCursor(t *testing.T) {
+	service, err := booking.NewService(repoStub{items: []booking.CatalogItem{}}, credentials.Generator{}, time.Now, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := service.CatalogPage(context.Background(), renterID, booking.CatalogFilter{}, 5, "")
+	if err != nil || page.Items == nil || len(page.Items) != 0 || page.NextCursor != "" {
+		t.Fatalf("empty page=%+v err=%v", page, err)
+	}
+}
+
+func TestCatalogPaginationPreservesCategoryAndPriceOrdersAfterFiltering(t *testing.T) {
+	items := []booking.CatalogItem{
+		{SpaceID: "00000000-0000-4000-8000-000000000001", CategoryOrder: 2, Title: "Z", RateUnit: "hora", Price: 10000, Currency: "CLP", TimeZone: "UTC"},
+		{SpaceID: "00000000-0000-4000-8000-000000000002", CategoryOrder: 1, Title: "B", RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "UTC"},
+		{SpaceID: "00000000-0000-4000-8000-000000000003", CategoryOrder: 1, Title: "A", RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "UTC"},
+	}
+	service, err := booking.NewService(repoStub{items: items}, credentials.Generator{}, time.Now, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll := func(filter booking.CatalogFilter) []string {
+		t.Helper()
+		cursor := ""
+		var ids []string
+		for {
+			page, e := service.CatalogPage(context.Background(), renterID, filter, 1, cursor)
+			if e != nil {
+				t.Fatal(e)
+			}
+			for _, item := range page.Items {
+				ids = append(ids, item.SpaceID)
+			}
+			if page.NextCursor == "" {
+				break
+			}
+			cursor = page.NextCursor
+		}
+		return ids
+	}
+	categoryOrder := readAll(booking.CatalogFilter{})
+	if strings.Join(categoryOrder, ",") != "00000000-0000-4000-8000-000000000003,00000000-0000-4000-8000-000000000002,00000000-0000-4000-8000-000000000001" {
+		t.Fatalf("category/title/id order=%v", categoryOrder)
+	}
+	start := time.Now().UTC().Add(24 * time.Hour)
+	end := start.Add(time.Hour)
+	min := int64(8000)
+	priceOrder := readAll(booking.CatalogFilter{StartAt: &start, EndAt: &end, MinTotalCLP: &min})
+	if strings.Join(priceOrder, ",") != "00000000-0000-4000-8000-000000000002,00000000-0000-4000-8000-000000000003,00000000-0000-4000-8000-000000000001" {
+		t.Fatalf("filter-before-price-order=%v", priceOrder)
+	}
+}
+func int64PtrTestLocal(v int64) *int64 { return &v }
+func floatPtrLocal(v float64) *float64 { return &v }
+func intPtrLocal(v int) *int           { return &v }
+
+func TestCatalogPageQueryParameters(t *testing.T) {
+	for _, tc := range []struct {
+		query url.Values
+		want  int
+		ok    bool
+	}{{url.Values{}, 0, true}, {url.Values{"page_size": {"1"}}, 1, true}, {url.Values{"page_size": {"25"}}, 25, true}, {url.Values{"page_size": {"0"}}, 0, false}, {url.Values{"page_size": {"26"}}, 0, false}, {url.Values{"page_size": {"2", "3"}}, 0, false}, {url.Values{"cursor": {"v1.abc"}}, 0, true}} {
+		size, _, ok := catalogPageParams(tc.query)
+		if size != tc.want || ok != tc.ok {
+			t.Errorf("page params %v => %d,%v want %d,%v", tc.query, size, ok, tc.want, tc.ok)
+		}
+	}
+}

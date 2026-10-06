@@ -3,6 +3,8 @@ import { CalendarRequestState } from "./calendar-request.js";
 import { BookingQuoteState } from "./booking-quote-state.js";
 import { inboxActions } from "./booking-inbox-state.js";
 import { showThenMarkConversationPage } from "./conversation-read-state.js";
+import { CatalogPaginationState } from "./catalog-pagination-state.js";
+import { actionWithButtonState } from "./action-button-state.js";
 
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
@@ -31,7 +33,7 @@ async function request(path: string, method = "GET", body?: unknown, authenticat
       sessionToken = "";
       clearBookingInboxOnSessionLoss();
     }
-    if (authenticated && path === "password/change" && response.status === 503) sessionToken = "";
+    if (authenticated && path === "password/change" && response.status === 503) { sessionToken = ""; clearBookingInboxOnSessionLoss(); }
     const error = data as APIError;
     throw new Error(`${error.error?.message ?? "Error de API"} (HTTP ${response.status}, ${error.error?.code ?? "unknown"})`);
   }
@@ -39,10 +41,8 @@ async function request(path: string, method = "GET", body?: unknown, authenticat
 }
 async function action(work: () => Promise<void>): Promise<void> {
   const buttons = [...document.querySelectorAll<HTMLButtonElement>("button")];
-  const wasDisabled = buttons.map(button => button.disabled);
-  buttons.forEach(button => button.disabled = true);
-  try { await work(); } catch (error) { resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API."; }
-  finally { buttons.forEach((button, index) => button.disabled = wasDisabled[index]); refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); }
+  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); }); }
+  catch (error) { resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API."; }
 }
 function form(id: string, work: (data: FormData, element: HTMLFormElement) => Promise<void>): void {
   const element = document.querySelector<HTMLFormElement>(`#${id}`)!;
@@ -61,7 +61,7 @@ form("verify-form", async (data, element) => {
 form("reissue-form", async data => { await request("verification/reissue", "POST", {email: data.get("email")}); resultElement.textContent = "Verificación reenviada al buzón local; el token anterior queda invalidado."; });
 form("login-form", async (data, element) => {
   const response = await request("login", "POST", {email: data.get("email"), password: data.get("password")});
-  sessionToken = String(response.access_token); sessionAccountID = String(response.account_id); element.querySelector<HTMLInputElement>('[name="password"]')!.value = "";
+  sessionToken = String(response.access_token); sessionAccountID = String(response.account_id); resetCatalogTraversal(); element.querySelector<HTMLInputElement>('[name="password"]')!.value = "";
   await loadSpaceCategories();
   await loadBookingInbox();
   resultElement.textContent = "Sesión iniciada. Puedes consultarla o cerrarla.";
@@ -72,11 +72,11 @@ form("recovery-request-form", async (data, element) => {
 });
 form("recovery-consume-form", async (data, element) => {
   await request("password/recovery/consume", "POST", {token_id:data.get("token_id"), token:data.get("token"), new_password:data.get("new_password"), confirm_password:data.get("confirm_password")});
-  sessionToken = ""; element.reset(); resultElement.textContent = "Contraseña actualizada y sesiones cerradas. Inicia sesión con la nueva contraseña.";
+  sessionToken = ""; resetCatalogTraversal(); element.reset(); resultElement.textContent = "Contraseña actualizada y sesiones cerradas. Inicia sesión con la nueva contraseña.";
 });
 form("password-change-form", async (data, element) => {
   await request("password/change", "POST", {current_password:data.get("current_password"), new_password:data.get("new_password"), confirm_password:data.get("confirm_password")}, true);
-  sessionToken = ""; element.reset(); document.querySelector("#session-output")!.textContent = "Sesión revocada por cambio de contraseña.";
+  sessionToken = ""; resetCatalogTraversal(); element.reset(); document.querySelector("#session-output")!.textContent = "Sesión revocada por cambio de contraseña.";
   resultElement.textContent = "Contraseña actualizada. Inicia sesión otra vez; se notificó al buzón local.";
 });
 document.querySelector("#session-button")!.addEventListener("click", () => void action(async () => {
@@ -85,7 +85,7 @@ document.querySelector("#session-button")!.addEventListener("click", () => void 
   resultElement.textContent = "Sesión válida; estado y roles comprobados por la API.";
 }));
 document.querySelector("#logout-button")!.addEventListener("click", () => void action(async () => {
-  await request("logout", "POST", undefined, true); sessionToken = "";
+  await request("logout", "POST", undefined, true); sessionToken = ""; resetCatalogTraversal();
   clearBookingInboxOnSessionLoss();
   document.querySelector("#session-output")!.textContent = "Sesión cerrada."; resultElement.textContent = "Logout completado. La credencial anterior queda revocada.";
 }));
@@ -432,12 +432,29 @@ type CatalogItem = BookingFixture & {available?:boolean};
 type CatalogSearchItem = CatalogItem & {estimated_total_clp?:number;distance_km?:number;distance_kind?:"direct"};
 let bookingFixture:BookingFixture|null=null;
 let bookingCatalogRequest=0;
+let catalogNextCursor="";
+let catalogRequestCursor="";
+let catalogLoading=false;
+const catalogPagination=new CatalogPaginationState();
 let catalogProfileRequest=0;
 let catalogFilterProfile:AttributeProfile|null=null;
 const bookingQuoteState=new BookingQuoteState();
 let reservationKey=crypto.randomUUID();
 const paymentKeys=new Map<string,string>();
 const bookingBase="/api/v1/local/booking-trial";
+const catalogNextButton=document.querySelector<HTMLButtonElement>("#booking-catalog-next")!;
+function refreshCatalogControls():void { const button=document.querySelector<HTMLButtonElement>("#booking-catalog-next");if(button)button.disabled=catalogLoading||!catalogPagination.canNext; }
+function clearCatalogResultsAndSelection(message:string):void {
+  catalogProfileRequest++;
+  bookingQuoteState.beginSearch();bookingFixture=null;
+  const results=document.querySelector<HTMLElement>("#booking-catalog-results");if(results){results.replaceChildren();results.textContent=message;}
+  const detail=document.querySelector<HTMLElement>("#booking-fixture-output");if(detail)detail.textContent=message;
+  const quote=document.querySelector<HTMLElement>("#booking-quote-output");if(quote)quote.textContent="La cotización se invalidó al cambiar la sesión.";
+  const space=document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]');if(space)space.value="";
+  const quoteID=document.querySelector<HTMLInputElement>('#booking-request-form [name="quote_id"]');if(quoteID)quoteID.value="";
+}
+function resetCatalogTraversal():void { bookingCatalogRequest++;catalogPagination.invalidate();catalogNextCursor="";catalogRequestCursor="";catalogLoading=false;clearCatalogResultsAndSelection("Inicia sesión y busca fixtures sintéticos autorizados para esta cuenta.");refreshCatalogControls(); }
+function invalidateCatalogSelection(message:string):void { bookingQuoteState.beginSearch();bookingFixture=null;(document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]')!).value="";(document.querySelector<HTMLInputElement>('#booking-request-form [name="quote_id"]')!).value="";bookingQuoteOutput.textContent=message; }
 const bookingFixtureOutput=document.querySelector<HTMLElement>("#booking-fixture-output")!;
 const bookingQuoteOutput=document.querySelector<HTMLElement>("#booking-quote-output")!;
 const bookingHistoryOutput=document.querySelector<HTMLElement>("#booking-history-output")!;
@@ -506,7 +523,11 @@ bookingCatalogCenterSample.addEventListener("click",()=>{
 });
 form("booking-catalog-form",async data=>{
   const token=++bookingCatalogRequest;
-  bookingQuoteState.beginSearch();
+  const requestSession=sessionToken,requestAccount=sessionAccountID;
+  const requestedCursor=catalogRequestCursor;
+  catalogRequestCursor="";
+  catalogPagination.invalidate();
+  catalogNextCursor="";catalogLoading=false;refreshCatalogControls();
   const query=new URLSearchParams();
   const category=String(data.get("category_code")??"");
   if(category)query.set("category_code",category);
@@ -547,15 +568,26 @@ form("booking-catalog-form",async data=>{
     query.set("profile_version",String(catalogFilterProfile.schema_version));
     query.set("attributes",JSON.stringify(attributes));
   }
+  const pageSize=Number(data.get("page_size")??5);
+  if(!Number.isInteger(pageSize)||pageSize<1||pageSize>25)throw new Error("El tamaño de página debe estar entre 1 y 25.");
+  query.set("page_size",String(pageSize));
+  if(requestedCursor)query.set("cursor",requestedCursor);
+  const pageToken=catalogPagination.beginRequest();
+  catalogLoading=true;refreshCatalogControls();
+  bookingQuoteState.beginSearch();
   bookingFixture=null;
   (document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]')!).value="";
   (document.querySelector<HTMLInputElement>('#booking-request-form [name="quote_id"]')!).value="";
   bookingQuoteOutput.textContent="La cotización queda invalidada al iniciar otra búsqueda.";
   bookingFixtureOutput.textContent="Selecciona un resultado para consultar su detalle.";
   const suffix=query.size?`?${query.toString()}`:"";
-  const response=await request(`${bookingBase}/catalog${suffix}`,"GET",undefined,true);
-  if(token!==bookingCatalogRequest)return;
-  const payload=bookingData<{items:CatalogSearchItem[]}>(response);
+  let response:Record<string,unknown>;
+  try { response=await request(`${bookingBase}/catalog${suffix}`,"GET",undefined,true); }
+  finally { if(token===bookingCatalogRequest){catalogLoading=false;catalogPagination.finish(pageToken,catalogNextCursor);refreshCatalogControls();} }
+  if(token!==bookingCatalogRequest||!catalogPagination.accepts(pageToken,requestAccount,sessionAccountID)||requestSession!==sessionToken)return;
+  const payload=bookingData<{items:CatalogSearchItem[];next_cursor?:string}>(response);
+  catalogNextCursor=payload.next_cursor??"";
+  catalogPagination.finish(pageToken,catalogNextCursor);refreshCatalogControls();
   catalogResults.replaceChildren();
   if(!payload.items.length){catalogResults.textContent="No hay espacios sintéticos habilitados para estos filtros.";return;}
   for(const item of payload.items){
@@ -583,11 +615,23 @@ form("booking-catalog-form",async data=>{
 });
 document.querySelector<HTMLFormElement>("#booking-catalog-form")!.addEventListener("input",()=>{
   bookingCatalogRequest++;
+  catalogPagination.invalidate();
+  catalogNextCursor="";catalogRequestCursor="";catalogNextButton.disabled=true;
   bookingQuoteState.beginSearch();
   bookingFixture=null;
   (document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]')!).value="";
   (document.querySelector<HTMLInputElement>('#booking-request-form [name="quote_id"]')!).value="";
   bookingQuoteOutput.textContent="La cotización queda invalidada al cambiar los filtros.";
+});
+catalogNextButton.addEventListener("click",()=>{
+  const cursor=catalogPagination.beginNext();if(!cursor)return;
+  catalogRequestCursor=cursor;
+  invalidateCatalogSelection("La selección y cotización quedan invalidadas al cambiar de página.");
+  document.querySelector<HTMLFormElement>("#booking-catalog-form")!.requestSubmit();
+});
+document.querySelector<HTMLButtonElement>("#booking-catalog-restart")!.addEventListener("click",()=>{
+  resetCatalogTraversal();invalidateCatalogSelection("Búsqueda reiniciada desde la primera página.");
+  document.querySelector<HTMLFormElement>("#booking-catalog-form")!.requestSubmit();
 });
 form("booking-quote-form",async data=>{
   const selectedSpace=String(data.get("space_id")??"");
@@ -653,7 +697,7 @@ function clearConversation(message:string):void{
   refreshConversationControls();
 }
 function clearBookingInboxOnSessionLoss():void{
-  sessionAccountID="";selectedReservationID="";selectedReservation=null;
+  sessionAccountID="";selectedReservationID="";selectedReservation=null;resetCatalogTraversal();
   bookingInboxRevision++;
   renterInbox.textContent="Inicia sesión y actualiza tu bandeja.";
   hostInbox.textContent="Inicia sesión y actualiza tu bandeja.";
