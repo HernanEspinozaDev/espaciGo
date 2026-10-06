@@ -20,10 +20,10 @@ Abre la aplicación en dos perfiles/ventanas independientes del navegador, uno p
 
 1. En ambas, autentica la cuenta y abre **Reserva sintética · M06 local**. El aviso **ENSAYO LOCAL — SIN COBRO REAL** permanece visible.
 2. Como arrendatario, consulta el fixture autorizado, elige fechas futuras y crea una cotización. Confirma snapshot de tarifa, subtotal, reglas de uso, zona y vencimiento; aún no hay ocupación.
-3. Solicita la reserva. Queda `pendiente_de_pago` y se crea retención `[inicio, fin)` en `ocupacion` atómicamente; copia el ID.
-4. Como arrendatario, elige éxito, rechazo o sin respuesta. Éxito cambia a `pagada`, extiende la retención hasta el límite de respuesta de 24 h; rechazo la libera; sin respuesta conserva `pendiente_de_pago` hasta el timeout de 15 min.
-5. Como anfitrión, consulta historial y aprueba o rechaza. La aprobación queda `aprobada_host`; rechazo termina en `rechazada_arrendador`, registra devolución simulada y libera ocupación.
-6. Vuelve a consultar el historial con ambos participantes. `GET` procesa vencimientos pendientes: pago a 15 min y respuesta del anfitrión a 24 h desde el pago. La transición queda en historial y libera ocupación.
+3. Solicita la reserva. Queda `pendiente_de_pago` y se crea retención `[inicio, fin)` en `ocupacion` atómicamente. Tras el corte M06-LOCAL-02 (#153), el mock actualiza **Mis reservas** y deja seleccionado el detalle sin copiar el ID.
+4. Como arrendatario, selecciona la reserva en **Como arrendatario**, revisa detalle/historial y elige éxito, rechazo o sin respuesta. Éxito cambia a `pagada`, extiende la retención hasta el límite de respuesta de 24 h; rechazo la libera; sin respuesta conserva `pendiente_de_pago` hasta el timeout de 15 min. La bandeja y el detalle se refrescan después de la operación.
+5. Como anfitrión, inicia sesión con la otra cuenta, actualiza **Como anfitrión** y selecciona la reserva que aparece pendiente de decisión. Aprueba o rechaza desde ese detalle. La aprobación queda `aprobada_host`; rechazo termina en `rechazada_arrendador`, registra devolución simulada y libera ocupación.
+6. Revisa detalle e historial con ambos participantes. `GET` procesa vencimientos pendientes: pago a 15 min y respuesta del anfitrión a 24 h desde el pago. La transición queda en historial y libera ocupación. El arrendatario puede cancelar desde la bandeja solo en `pendiente_de_pago`; conflicto y vencimiento se muestran en el mock.
 
 Para repetir, usa otro intervalo sin solape y una clave de solicitud nueva. El mismo `Idempotency-Key` con el mismo quote recupera el mismo caso; un cuerpo distinto responde 409. El test concurrente verifica que dos claves no retengan un mismo intervalo.
 

@@ -314,15 +314,56 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if results[0].Conditions != "Reglas de prueba" {
 		t.Fatalf("reservation did not preserve conditions snapshot: %q", results[0].Conditions)
 	}
+	containsReservation := func(items []booking.Reservation, id string) bool {
+		for _, item := range items {
+			if item.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	renterInbox, err := svc.List(ctx, renter)
+	if err != nil || !containsReservation(renterInbox, results[0].ID) {
+		t.Fatalf("renter inbox omitted own reservation: count=%d err=%v", len(renterInbox), err)
+	}
+	hostInbox, err := svc.List(ctx, host)
+	if err != nil || !containsReservation(hostInbox, results[0].ID) {
+		t.Fatalf("host inbox omitted own reservation: count=%d err=%v", len(hostInbox), err)
+	}
+	outsiderInbox, err := svc.List(ctx, outsider)
+	if err != nil || len(outsiderInbox) != 0 {
+		t.Fatalf("outsider inbox contains reservations: %+v err=%v", outsiderInbox, err)
+	}
+	if _, err = svc.Pay(ctx, host, results[0].ID, "exito", "host-cannot-pay"); err != booking.ErrNotFound {
+		t.Fatalf("host paid as renter: %v", err)
+	}
+	if _, err = svc.Cancel(ctx, host, results[0].ID); err != booking.ErrNotFound {
+		t.Fatalf("host cancelled as renter: %v", err)
+	}
+	if _, err = svc.Decide(ctx, host, results[0].ID, "aprobar"); err != booking.ErrConflict {
+		t.Fatalf("host decided before payment: %v", err)
+	}
+	if _, err = svc.Decide(ctx, renter, results[0].ID, "aprobar"); err != booking.ErrNotFound {
+		t.Fatalf("renter acted as host: %v", err)
+	}
 	if _, err = svc.Get(ctx, outsider, results[0].ID); err != booking.ErrNotFound {
 		t.Fatalf("outsider queried reservation: %v", err)
 	}
 	if _, err = svc.Pay(ctx, renter, results[0].ID, "exito", "payment-one"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = svc.Cancel(ctx, renter, results[0].ID); err != booking.ErrConflict {
+		t.Fatalf("renter cancelled after payment: %v", err)
+	}
+	if _, err = svc.Decide(ctx, renter, results[0].ID, "aprobar"); err != booking.ErrNotFound {
+		t.Fatalf("renter decided on own paid reservation: %v", err)
+	}
 	approved, err := svc.Decide(ctx, host, results[0].ID, "aprobar")
 	if err != nil || approved.State != "aprobada_host" {
 		t.Fatalf("approval: %+v %v", approved, err)
+	}
+	if _, err = svc.Decide(ctx, host, results[0].ID, "aprobar"); err != booking.ErrConflict {
+		t.Fatalf("host repeated decision after approval: %v", err)
 	}
 	detail, err := svc.Get(ctx, renter, results[0].ID)
 	if err != nil || len(detail.History) != 3 {
@@ -392,6 +433,25 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	var count int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo`, pending.ID).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("expired occupancy count=%d err=%v", count, err)
+	}
+	cancelStart := start.Add(6 * time.Hour)
+	cancelQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: cancelStart.Format(time.RFC3339), EndAt: cancelStart.Add(time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelPending, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: cancelQuote.ID}, "inbox-cancel-pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := svc.Cancel(ctx, renter, cancelPending.ID)
+	if err != nil || cancelled.State != "cancelada_arrendatario" {
+		t.Fatalf("renter cancellation while pending: %+v err=%v", cancelled, err)
+	}
+	if _, err = svc.Cancel(ctx, renter, cancelPending.ID); err != booking.ErrConflict {
+		t.Fatalf("renter repeated cancellation: %v", err)
+	}
+	if _, err = svc.Pay(ctx, renter, cancelPending.ID, "exito", "payment-after-cancel"); err != booking.ErrConflict {
+		t.Fatalf("payment after cancellation: %v", err)
 	}
 	quote4, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: start.Add(7 * time.Hour).Format(time.RFC3339), EndAt: start.Add(8 * time.Hour).Format(time.RFC3339)})
 	if err != nil {
