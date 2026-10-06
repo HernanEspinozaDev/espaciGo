@@ -1,10 +1,12 @@
 import { ProfileRequestGate, profileMatchesSelection } from "./profile-request.js";
 import { CalendarRequestState } from "./calendar-request.js";
 import { BookingQuoteState } from "./booking-quote-state.js";
+import { inboxActions } from "./booking-inbox-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
 let sessionToken = "";
+let sessionAccountID = "";
 let termIDs = [];
 let evidenceObjectURL = "";
 async function request(path, method = "GET", body, authenticated = false, idempotencyKey) {
@@ -32,7 +34,8 @@ async function request(path, method = "GET", body, authenticated = false, idempo
     return data;
 }
 async function action(work) {
-    const buttons = document.querySelectorAll("button");
+    const buttons = [...document.querySelectorAll("button")];
+    const wasDisabled = buttons.map(button => button.disabled);
     buttons.forEach(button => button.disabled = true);
     try {
         await work();
@@ -41,8 +44,9 @@ async function action(work) {
         resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
     }
     finally {
-        buttons.forEach(button => button.disabled = false);
+        buttons.forEach((button, index) => button.disabled = wasDisabled[index]);
         refreshCalendarControls();
+        refreshBookingActions();
     }
 }
 function form(id, work) {
@@ -65,8 +69,10 @@ form("reissue-form", async (data) => { await request("verification/reissue", "PO
 form("login-form", async (data, element) => {
     const response = await request("login", "POST", { email: data.get("email"), password: data.get("password") });
     sessionToken = String(response.access_token);
+    sessionAccountID = String(response.account_id);
     element.querySelector('[name="password"]').value = "";
     await loadSpaceCategories();
+    await loadBookingInbox();
     resultElement.textContent = "Sesión iniciada. Puedes consultarla o cerrarla.";
 });
 form("recovery-request-form", async (data, element) => {
@@ -95,6 +101,13 @@ document.querySelector("#session-button").addEventListener("click", () => void a
 document.querySelector("#logout-button").addEventListener("click", () => void action(async () => {
     await request("logout", "POST", undefined, true);
     sessionToken = "";
+    sessionAccountID = "";
+    selectedReservationID = "";
+    selectedReservation = null;
+    document.querySelector("#booking-inbox-renter").textContent = "Inicia sesión y actualiza tu bandeja.";
+    document.querySelector("#booking-inbox-host").textContent = "Inicia sesión y actualiza tu bandeja.";
+    bookingHistoryOutput.textContent = "Inicia sesión para consultar reservas propias.";
+    refreshBookingActions();
     document.querySelector("#session-output").textContent = "Sesión cerrada.";
     resultElement.textContent = "Logout completado. La credencial anterior queda revocada.";
 }));
@@ -548,6 +561,11 @@ const bookingBase = "/api/v1/local/booking-trial";
 const bookingFixtureOutput = document.querySelector("#booking-fixture-output");
 const bookingQuoteOutput = document.querySelector("#booking-quote-output");
 const bookingHistoryOutput = document.querySelector("#booking-history-output");
+let selectedReservationID = "";
+let selectedReservation = null;
+let bookingInboxRevision = 0;
+const renterInbox = document.querySelector("#booking-inbox-renter");
+const hostInbox = document.querySelector("#booking-inbox-host");
 function bookingData(result) { return result.data; }
 const catalogResults = document.querySelector("#booking-catalog-results");
 form("booking-catalog-form", async (data) => {
@@ -636,42 +654,149 @@ form("booking-request-form", async (data, element) => {
         throw new Error("La cotización no corresponde al espacio seleccionado o quedó invalidada. Selecciona el espacio y cotiza nuevamente.");
     const result = await request(`${bookingBase}/reservations`, "POST", { quote_id: quoteID }, true, reservationKey);
     const item = bookingData(result);
-    (document.querySelector('#booking-payment-form [name="id"]')).value = String(item.id);
-    (document.querySelector('#booking-decision-form [name="id"]')).value = String(item.id);
-    (document.querySelector('#booking-cancel-form [name="id"]')).value = String(item.id);
-    bookingHistoryOutput.textContent = JSON.stringify(item, null, 2);
     reservationKey = crypto.randomUUID();
     element.reset();
+    selectedReservationID = item.id;
+    await loadBookingInbox();
+    resultElement.textContent = "Solicitud creada; quedó seleccionada en tu bandeja local.";
 });
-form("booking-payment-form", async (data) => {
-    const id = String(data.get("id"));
+const reservationStates = { pendiente_de_pago: "Pendiente de pago", pagada: "Pagada · espera decisión del anfitrión", aprobada_host: "Aprobada por anfitrión", cancelada_por_pago: "Cancelada por rechazo del pago simulado", rechazada_arrendador: "Rechazada por anfitrión", vencida_pago: "Vencida por falta de pago", vencida_host: "Vencida por falta de decisión del anfitrión", cancelada_arrendatario: "Cancelada por arrendatario" };
+function reservationState(state) { return reservationStates[state] ?? state; }
+function bookingDate(value, zone) {
+    try {
+        return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeStyle: "short", timeZone: zone }).format(new Date(value));
+    }
+    catch {
+        return value;
+    }
+}
+function reservationSummary(item, role) {
+    const when = `${bookingDate(item.start_at, item.time_zone)}–${bookingDate(item.end_at, item.time_zone)} (${item.time_zone})`;
+    let attention = "";
+    if (role === "host" && item.state === "pagada")
+        attention = ` · ${item.host_expires_at ? `espera tu decisión hasta ${bookingDate(item.host_expires_at, item.time_zone)}` : "espera tu decisión"}`;
+    else if (role === "renter" && item.state === "pendiente_de_pago")
+        attention = ` · pago vence ${bookingDate(item.pay_expires_at, item.time_zone)}`;
+    else if (item.state === "vencida_pago")
+        attention = ` · pago venció ${bookingDate(item.pay_expires_at, item.time_zone)}`;
+    else if (item.state === "vencida_host" && item.host_expires_at)
+        attention = ` · plazo del anfitrión venció ${bookingDate(item.host_expires_at, item.time_zone)}`;
+    return `Espacio ${item.space_id.slice(0, 8)} · ${reservationState(item.state)}${attention}\n${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} · ${when}`;
+}
+function renderReservationList(target, items, role) {
+    target.replaceChildren();
+    if (!items.length) {
+        target.textContent = "No tienes reservas en este rol.";
+        return;
+    }
+    const ordered = role === "host" ? [...items].sort((a, b) => Number(b.state === "pagada") - Number(a.state === "pagada")) : items;
+    for (const item of ordered) {
+        const article = document.createElement("article");
+        const summary = document.createElement("p");
+        summary.textContent = reservationSummary(item, role);
+        const choose = document.createElement("button");
+        choose.type = "button";
+        choose.textContent = "Consultar detalle e historial";
+        choose.addEventListener("click", () => void action(async () => { await loadReservationDetail(item.id); resultElement.textContent = "Detalle e historial de la reserva seleccionada."; }));
+        article.append(summary, choose);
+        target.append(article);
+    }
+}
+function renderReservationDetail(item) {
+    const deadline = ["pendiente_de_pago", "vencida_pago"].includes(item.state) ? `Vencimiento de pago: ${bookingDate(item.pay_expires_at, item.time_zone)}${item.state === "vencida_pago" ? " (vencido)" : ""}` : ["pagada", "vencida_host"].includes(item.state) && item.host_expires_at ? `Vencimiento de respuesta del anfitrión: ${bookingDate(item.host_expires_at, item.time_zone)}${item.state === "vencida_host" ? " (vencido)" : ""}` : "Sin vencimiento pendiente.";
+    const history = item.history.map(entry => `${entry.sequence}. ${reservationState(entry.to)} · ${bookingDate(entry.at, item.time_zone)} · ${entry.reason}`).join("\n");
+    bookingHistoryOutput.textContent = `ENSAYO LOCAL — SIN COBRO REAL\nEspacio: ${item.space_id}\nPrecio: ${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} (${item.units} × ${item.unit_price_clp.toLocaleString("es-CL")} por ${item.rate_unit})\nIntervalo: ${bookingDate(item.start_at, item.time_zone)}–${bookingDate(item.end_at, item.time_zone)} (${item.time_zone})\nEstado: ${reservationState(item.state)}\n${deadline}\n\nHistorial:\n${history || "Sin transiciones."}`;
+    refreshBookingActions();
+}
+function refreshBookingActions() {
+    const pay = document.querySelector("#booking-inbox-pay");
+    const cancel = document.querySelector("#booking-inbox-cancel");
+    const approve = document.querySelector("#booking-inbox-approve");
+    const reject = document.querySelector("#booking-inbox-reject");
+    if (!pay || !cancel || !approve || !reject)
+        return;
+    const now = Date.now();
+    const allowed = selectedReservation ? inboxActions(sessionAccountID, selectedReservation, now) : null;
+    pay.disabled = !allowed?.canPay;
+    cancel.disabled = !allowed?.canCancel;
+    approve.disabled = !allowed?.canDecide;
+    reject.disabled = !allowed?.canDecide;
+    const outcome = document.querySelector("#booking-inbox-payment-outcome");
+    if (outcome)
+        outcome.disabled = !allowed?.canPay;
+}
+async function loadReservationDetail(id) {
+    selectedReservationID = id;
+    selectedReservation = null;
+    refreshBookingActions();
+    const revision = ++bookingInboxRevision;
+    const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}`, "GET", undefined, true);
+    if (revision !== bookingInboxRevision || selectedReservationID !== id)
+        return;
+    selectedReservation = bookingData(result);
+    renderReservationDetail(selectedReservation);
+}
+async function loadBookingInbox() {
+    const revision = ++bookingInboxRevision;
+    if (!sessionToken || !sessionAccountID) {
+        renterInbox.textContent = "Inicia sesión y actualiza tu bandeja.";
+        hostInbox.textContent = "Inicia sesión y actualiza tu bandeja.";
+        return;
+    }
+    const result = await request(`${bookingBase}/reservations`, "GET", undefined, true);
+    if (revision !== bookingInboxRevision)
+        return;
+    const reservations = bookingData(result).items;
+    const renterRows = reservations.filter(item => item.renter_id === sessionAccountID);
+    const hostRows = reservations.filter(item => item.host_id === sessionAccountID);
+    renderReservationList(renterInbox, renterRows, "renter");
+    renderReservationList(hostInbox, hostRows, "host");
+    const current = reservations.find(item => item.id === selectedReservationID);
+    if (current)
+        await loadReservationDetail(current.id);
+    else if (selectedReservationID) {
+        selectedReservationID = "";
+        selectedReservation = null;
+        bookingHistoryOutput.textContent = "La reserva seleccionada ya no está en tu bandeja.";
+        refreshBookingActions();
+    }
+    else if (!selectedReservation)
+        refreshBookingActions();
+}
+document.querySelector("#booking-inbox-load").addEventListener("click", () => void action(async () => {
+    await loadBookingInbox();
+    resultElement.textContent = "Bandeja local actualizada desde la API.";
+}));
+async function performSelectedBookingAction(path, method, body, key) {
+    const id = selectedReservationID;
+    if (!id || !selectedReservation)
+        throw new Error("Selecciona una reserva de tu bandeja primero.");
+    try {
+        await request(`${bookingBase}/reservations/${encodeURIComponent(id)}${path}`, method, body, true, key);
+    }
+    catch (error) {
+        try {
+            await loadBookingInbox();
+        }
+        catch { /* Preserve the original conflict/error for the user. */ }
+        throw error;
+    }
+    await loadBookingInbox();
+    resultElement.textContent = "Operación local completada; detalle e historial actualizados desde la API.";
+}
+document.querySelector("#booking-inbox-pay").addEventListener("click", () => void action(async () => {
+    const id = selectedReservationID;
     let key = paymentKeys.get(id);
     if (!key) {
         key = crypto.randomUUID();
         paymentKeys.set(id, key);
     }
-    const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/payment`, "POST", { outcome: data.get("outcome") }, true, key);
-    bookingHistoryOutput.textContent = `${String(result.safety_notice)}\n${JSON.stringify(bookingData(result), null, 2)}`;
-});
-form("booking-decision-form", async (data) => {
-    const id = String(data.get("id"));
-    const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/decision`, "POST", { decision: data.get("decision") }, true);
-    bookingHistoryOutput.textContent = JSON.stringify(bookingData(result), null, 2);
-});
-form("booking-cancel-form", async (data) => {
-    const id = String(data.get("id"));
-    const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/cancel`, "POST", undefined, true);
-    bookingHistoryOutput.textContent = JSON.stringify(bookingData(result), null, 2);
-});
-document.querySelector("#booking-history-load").addEventListener("click", () => void action(async () => {
-    const result = await request(`${bookingBase}/reservations`, "GET", undefined, true);
-    bookingHistoryOutput.textContent = `${String(result.safety_notice)}\n${JSON.stringify(bookingData(result), null, 2)}`;
+    const outcome = document.querySelector("#booking-inbox-payment-outcome").value;
+    await performSelectedBookingAction("/payment", "POST", { outcome }, key);
 }));
-form("booking-history-detail-form", async (data) => {
-    const id = String(data.get("reservation_id"));
-    const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}`, "GET", undefined, true);
-    bookingHistoryOutput.textContent = `${String(result.safety_notice)}\n${JSON.stringify(bookingData(result), null, 2)}`;
-});
+document.querySelector("#booking-inbox-cancel").addEventListener("click", () => void action(async () => performSelectedBookingAction("/cancel", "POST")));
+document.querySelector("#booking-inbox-approve").addEventListener("click", () => void action(async () => performSelectedBookingAction("/decision", "POST", { decision: "aprobar" })));
+document.querySelector("#booking-inbox-reject").addEventListener("click", () => void action(async () => performSelectedBookingAction("/decision", "POST", { decision: "rechazar" })));
 async function initialize() {
     try {
         const config = await (await fetch("/config.json", { cache: "no-store" })).json();

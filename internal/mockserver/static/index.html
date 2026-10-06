@@ -119,12 +119,23 @@
     <form id="booking-quote-form"><input name="space_id" type="hidden"><label>Inicio (hora local del espacio) <input name="start_at" type="datetime-local" required></label><label>Término (hora local del espacio) <input name="end_at" type="datetime-local" required></label><button>Crear cotización snapshot</button></form>
     <pre id="booking-quote-output">La cotización no retiene disponibilidad.</pre>
     <form id="booking-request-form"><label>ID de cotización <input name="quote_id" required></label><button>Solicitar y retener disponibilidad (15 min)</button></form>
-    <form id="booking-payment-form"><label>ID de reserva <input name="id" required></label><label>Resultado fake <select name="outcome"><option value="exito">Éxito simulado</option><option value="rechazo">Rechazo simulado</option><option value="sin_respuesta">Sin respuesta simulada</option></select></label><button>Enviar pago de ensayo</button></form>
-    <form id="booking-decision-form"><label>ID de reserva <input name="id" required></label><label>Decisión del anfitrión <select name="decision"><option value="aprobar">Aprobar</option><option value="rechazar">Rechazar</option></select></label><button>Registrar decisión (24 h tras pago)</button></form>
-    <form id="booking-cancel-form"><label>ID de reserva <input name="id" required></label><button>Cancelar antes del pago</button></form>
-    <button id="booking-history-load" type="button">Listar mis reservas</button>
-    <form id="booking-history-detail-form"><label>ID de reserva para ver historial <input name="reservation_id" required></label><button>Consultar detalle e historial</button></form>
-    <pre id="booking-history-output">El historial muestra solo reservas propias.</pre>
+    <h3>Mis reservas</h3>
+    <p>La bandeja se filtra por tu cuenta autenticada. Los conflictos o vencimientos se informan y puedes actualizar para ver el estado vigente.</p>
+    <button id="booking-inbox-load" type="button">Actualizar mi bandeja</button>
+    <div class="booking-inbox-columns">
+      <section><h4>Como arrendatario</h4><div id="booking-inbox-renter">Inicia sesión y actualiza tu bandeja.</div></section>
+      <section><h4>Como anfitrión</h4><div id="booking-inbox-host">Inicia sesión y actualiza tu bandeja.</div></section>
+    </div>
+    <section id="booking-inbox-detail"><h4>Reserva seleccionada</h4>
+      <pre id="booking-history-output">Selecciona una reserva de tu bandeja para ver detalle e historial.</pre>
+      <div id="booking-inbox-actions">
+        <label>Resultado fake <select id="booking-inbox-payment-outcome"><option value="exito">Éxito simulado</option><option value="rechazo">Rechazo simulado</option><option value="sin_respuesta">Sin respuesta simulada</option></select></label>
+        <button id="booking-inbox-pay" type="button" disabled>Enviar pago de ensayo</button>
+        <button id="booking-inbox-cancel" type="button" disabled>Cancelar antes del pago</button>
+        <button id="booking-inbox-approve" type="button" disabled>Aprobar</button>
+        <button id="booking-inbox-reject" type="button" disabled>Rechazar</button>
+      </div>
+    </section>
   </section>
   <p id="result" role="status" aria-live="polite">Completa los pasos en orden.</p>
   <p>Al cambiar la contraseña se revocan todas las sesiones; vuelve a iniciar sesión. No es el frontend definitivo. Historial y entrega durable de avisos siguen pendientes de DB02-09. Cuenta de cobro/KYC real, foto y decisiones de retención/supresión no están implementadas.</p>
