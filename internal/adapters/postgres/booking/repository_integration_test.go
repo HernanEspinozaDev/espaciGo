@@ -730,6 +730,73 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_ensayo WHERE reserva_id=$1 AND resultado='devolucion_simulada'`, hostDeadlineReservation.ID).Scan(&simulatedRefund); err != nil || simulatedRefund != 1 {
 		t.Fatalf("host expiry simulated refund count=%d err=%v", simulatedRefund, err)
 	}
+	// Hold the reservation lock in another transaction. Start Send before the
+	// payment deadline, wait until PostgreSQL confirms it is blocked on that
+	// row, then advance the injected clock to the boundary before releasing it.
+	setClock(baseNow)
+	lockedStart := start.Add(16 * time.Hour)
+	lockedQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: lockedStart.Format(time.RFC3339), EndAt: lockedStart.Add(time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockedReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: lockedQuote.ID}, "blocked-send-deadline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockTx.Rollback(context.Background())
+	var lockedState string
+	if err = lockTx.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, lockedReservation.ID).Scan(&lockedState); err != nil || lockedState != "pendiente_de_pago" {
+		t.Fatalf("test lock acquired state=%s err=%v", lockedState, err)
+	}
+	sendStarted := make(chan struct{})
+	sendDone := make(chan error, 1)
+	go func() {
+		close(sendStarted)
+		_, sendErr := conversationService.Send(ctx, renter, lockedReservation.ID, "wait-through-deadline", "No debe entrar tras el plazo")
+		sendDone <- sendErr
+	}()
+	<-sendStarted
+	waitDeadline := time.Now().Add(5 * time.Second)
+	var waitingOnLock bool
+	for !waitingOnLock && time.Now().Before(waitDeadline) {
+		if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename=current_user AND wait_event_type='Lock' AND query ILIKE '%reserva_ensayo_local%')`).Scan(&waitingOnLock); err != nil {
+			t.Fatal(err)
+		}
+		if !waitingOnLock {
+			select {
+			case sendErr := <-sendDone:
+				t.Fatalf("send returned before lock release: %v", sendErr)
+			default:
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if !waitingOnLock {
+		t.Fatal("Send did not block behind the reservation row lock")
+	}
+	setClock(lockedReservation.PayExpiresAt)
+	if err = lockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = <-sendDone; err != conversation.ErrConflict {
+		t.Fatalf("send started before but acquired lock at payment deadline returned %v", err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, lockedReservation.ID).Scan(&deadlineState); err != nil || deadlineState != "vencida_pago" {
+		t.Fatalf("blocked send deadline state=%s err=%v", deadlineState, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.mensaje_reserva_ensayo WHERE reserva_id=$1`, lockedReservation.ID).Scan(&deadlineMessageCount); err != nil || deadlineMessageCount != 0 {
+		t.Fatalf("blocked send inserted messages=%d err=%v", deadlineMessageCount, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 AND estado_nuevo='vencida_pago'`, lockedReservation.ID).Scan(&paymentExpiryTransition); err != nil || paymentExpiryTransition != 1 {
+		t.Fatalf("blocked send expiry history transition count=%d err=%v", paymentExpiryTransition, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo`, lockedReservation.ID).Scan(&deadlineActiveOccupancy); err != nil || deadlineActiveOccupancy != 0 {
+		t.Fatalf("blocked send active occupancy=%d err=%v", deadlineActiveOccupancy, err)
+	}
 	setClock(baseNow)
 	if _, err = svc.Request(ctx, renter, booking.RequestInput{QuoteID: quote2.ID}, "same-key"); err != booking.ErrConflict {
 		t.Fatalf("idempotency payload conflict=%v", err)

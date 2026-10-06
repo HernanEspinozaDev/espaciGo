@@ -70,7 +70,7 @@ ORDER BY secuencia DESC LIMIT $3`, reservationID, before, limit+1)
 	return page, nil
 }
 
-func (r *Repository) Send(ctx context.Context, actor, reservationID, key, body string, fingerprint []byte, id string, createdAt time.Time) (conversation.Message, error) {
+func (r *Repository) Send(ctx context.Context, actor, reservationID, key, body string, fingerprint []byte, id string, now func() time.Time) (conversation.Message, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return conversation.Message{}, err
@@ -101,6 +101,10 @@ WHERE reserva_id=$1 AND autor_id=$2 AND clave_idempotencia=$3`, reservationID, a
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return conversation.Message{}, err
 	}
+	// Sample the injected backend clock only after acquiring the reservation
+	// lock and resolving idempotency. A send that waited on this row must be
+	// judged at the time it actually obtains the lock, not when it began.
+	createdAt := now().UTC()
 	expired, err := expiry.LockedReservation(ctx, tx, reservationID, createdAt)
 	if err != nil {
 		return conversation.Message{}, err

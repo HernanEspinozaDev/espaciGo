@@ -15,9 +15,9 @@ type serviceRepo struct{ sent int }
 func (r *serviceRepo) List(context.Context, string, string, *int64, int) (Page, error) {
 	return Page{Items: []Message{}}, nil
 }
-func (r *serviceRepo) Send(_ context.Context, actor, reservation, key, body string, _ []byte, id string, at time.Time) (Message, error) {
+func (r *serviceRepo) Send(_ context.Context, actor, reservation, key, body string, _ []byte, id string, now func() time.Time) (Message, error) {
 	r.sent++
-	return Message{ID: id, ReservationID: reservation, AuthorID: actor, Body: body, CreatedAt: at}, nil
+	return Message{ID: id, ReservationID: reservation, AuthorID: actor, Body: body, CreatedAt: now()}, nil
 }
 
 func TestServiceValidatesMessageTextAndPageBounds(t *testing.T) {

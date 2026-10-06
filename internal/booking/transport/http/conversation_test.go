@@ -24,11 +24,11 @@ func (r *conversationRepoStub) List(_ context.Context, actor, reservation string
 	}
 	return conversation.Page{Items: []conversation.Message{{ID: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", ReservationID: reservation, AuthorID: actor, Sequence: 4, Body: "texto <script> como texto", CreatedAt: time.Unix(1, 0)}}, OlderCursor: before}, nil
 }
-func (r *conversationRepoStub) Send(_ context.Context, actor, reservation, key, body string, _ []byte, id string, at time.Time) (conversation.Message, error) {
+func (r *conversationRepoStub) Send(_ context.Context, actor, reservation, key, body string, _ []byte, id string, now func() time.Time) (conversation.Message, error) {
 	if actor != renterID || reservation != testReservationID {
 		return conversation.Message{}, conversation.ErrNotFound
 	}
-	r.sent = conversation.Message{ID: id, ReservationID: reservation, AuthorID: actor, Sequence: 5, Body: body, CreatedAt: at}
+	r.sent = conversation.Message{ID: id, ReservationID: reservation, AuthorID: actor, Sequence: 5, Body: body, CreatedAt: now()}
 	return r.sent, nil
 }
 

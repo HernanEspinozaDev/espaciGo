@@ -49,7 +49,7 @@ func (s *Service) Send(ctx context.Context, actor, reservationID, key, body stri
 		return Message{}, err
 	}
 	fingerprint := sha256.Sum256([]byte(body))
-	return s.repo.Send(ctx, actor, reservationID, key, body, fingerprint[:], id, s.now().UTC())
+	return s.repo.Send(ctx, actor, reservationID, key, body, fingerprint[:], id, s.now)
 }
 
 func validKey(v string) bool {
