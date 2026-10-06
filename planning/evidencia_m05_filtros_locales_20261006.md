@@ -13,7 +13,7 @@ Los filtros respetan el perfil/versionado guardado del fixture. Un atributo ause
 - `go test ./...` — pasó.
 - `go vet ./...` — pasó.
 - `npm --prefix mock run test:profile-races` — pasó, 13 pruebas.
-- `bash scripts/test-m06-local-booking-postgres.sh` — pasó en PostgreSQL desechable con el rol de runtime. Incluye combinación AND de categoría/disponibilidad/atributos/precio, límites inclusivos, booleano falso frente a campo ausente, versión de perfil, ausencia de escrituras en cotizaciones/ocupaciones y comparación del subtotal estimado contra la cotización para el mismo intervalo. También verifica conflicto al cambiar la tarifa antes de reservar.
+- `bash scripts/test-m06-local-booking-postgres.sh` — pasó en PostgreSQL desechable con el rol de runtime. Incluye combinación AND de categoría/disponibilidad/atributos/precio, límites inclusivos, booleano falso frente a campo ausente, versión de perfil, ausencia de escrituras en cotizaciones/ocupaciones y comparación del subtotal estimado contra la cotización para el mismo intervalo. También verifica el cambio de tarifa concurrente de forma determinista: bloquea la fila del espacio con la misma modalidad usada por su actualización, inicia una solicitud y espera hasta observar en PostgreSQL que la solicitud requiere el bloqueo compartido. Tras confirmar la tarifa nueva, la solicitud rechaza la cotización obsoleta sin reserva ni ocupación. La hora se consulta después del bloqueo, y la suite general preserva el replay idempotente.
 - `git diff --check` — pasó.
 - `planning/openapi.yaml` parseado con PyYAML — pasó.
 

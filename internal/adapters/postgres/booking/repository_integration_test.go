@@ -1011,6 +1011,75 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if staleRateReservations != 0 || staleRateOccupancies != 0 {
 		t.Fatalf("stale tariff rejection left reservation/occupancy=%d/%d", staleRateReservations, staleRateOccupancies)
 	}
+
+	// A tariff edit locks the space row before appending its immutable tariff
+	// version. Hold that exact lock, start a request with a still-current quote,
+	// and commit the tariff edit only after PostgreSQL confirms the request is
+	// waiting for its FOR SHARE lock. The request must then observe the new
+	// version and fail without a reservation or occupancy.
+	concurrentRateStart := fixedNow.Add(400 * 24 * time.Hour)
+	concurrentRateQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: secondSpace, StartAt: concurrentRateStart.Format(time.RFC3339), EndAt: concurrentRateStart.Add(time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tariffTx, err := setup.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tariffTx.Rollback(ctx)
+	var oldMode string
+	var oldPrice int64
+	if err = tariffTx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp FROM public.espacio WHERE id=$1 FOR UPDATE`, secondSpace).Scan(&oldMode, &oldPrice); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tariffTx.Exec(ctx, `UPDATE public.espacio SET modalidad_tarifa='hora',precio_base_clp=14000 WHERE id=$1`, secondSpace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tariffTx.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,3,'hora',14000)`, secondSpace); err != nil {
+		t.Fatal(err)
+	}
+	rateRequestErr := make(chan error, 1)
+	rateRequestStarted := make(chan struct{})
+	go func() {
+		close(rateRequestStarted)
+		_, requestErr := svc.Request(ctx, renter, booking.RequestInput{QuoteID: concurrentRateQuote.ID}, "concurrent-stale-rate")
+		rateRequestErr <- requestErr
+	}()
+	<-rateRequestStarted
+	lockDeadline := time.Now().Add(5 * time.Second)
+	var waitingForSpace bool
+	for !waitingForSpace && time.Now().Before(lockDeadline) {
+		if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename=current_user AND wait_event_type='Lock' AND query ILIKE '%FOR SHARE OF e%')`).Scan(&waitingForSpace); err != nil {
+			t.Fatal(err)
+		}
+		if !waitingForSpace {
+			select {
+			case requestErr := <-rateRequestErr:
+				t.Fatalf("request completed before tariff lock was released: %v", requestErr)
+			default:
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if !waitingForSpace {
+		t.Fatal("reservation request did not wait for the tariff update's space-row lock")
+	}
+	if err = tariffTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = <-rateRequestErr; err != booking.ErrConflict {
+		t.Fatalf("request using an outdated concurrent tariff quote error=%v", err)
+	}
+	var concurrentRateReservations, concurrentRateOccupancies int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, concurrentRateQuote.ID).Scan(&concurrentRateReservations); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE espacio_id=$1 AND intervalo && tstzrange($2,$3,'[)')`, secondSpace, concurrentRateStart, concurrentRateStart.Add(time.Hour)).Scan(&concurrentRateOccupancies); err != nil {
+		t.Fatal(err)
+	}
+	if concurrentRateReservations != 0 || concurrentRateOccupancies != 0 {
+		t.Fatalf("concurrent stale tariff rejection left reservation/occupancy=%d/%d", concurrentRateReservations, concurrentRateOccupancies)
+	}
 }
 
 func hasAttributes(raw json.RawMessage, expected map[string]any) bool {

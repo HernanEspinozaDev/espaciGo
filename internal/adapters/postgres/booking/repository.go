@@ -220,8 +220,21 @@ func (r *Repository) Create(ctx context.Context, renter, quoteID, key string, fi
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return booking.Reservation{}, err
 	}
-	// Read the Backend clock only after the idempotency lookup while the new
-	// request transaction and its serialization lock are active.
+	// Match the row lock used by UpdateOwn before validating the quoted tariff.
+	// Keeping this lock through commit makes the tariff check and occupancy
+	// creation serializable with a concurrent tariff update.
+	var lockedSpace string
+	err = tx.QueryRow(ctx, `SELECT e.id::text
+FROM public.cotizacion_reserva_ensayo q
+JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id AND f.habilitada
+JOIN public.espacio e ON e.id=q.espacio_id AND e.propietario_id=f.anfitrion_id AND e.estado='borrador'
+WHERE q.id=$1 AND q.arrendatario_id=$2
+FOR SHARE OF e`, quoteID, renter).Scan(&lockedSpace)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return booking.Reservation{}, err
+	}
+	// Read the Backend clock only after idempotency and space locks have been
+	// acquired, so quote/start deadlines are revalidated after any lock wait.
 	now := clock().UTC()
 	payExpiresAt := now.Add(payTTL)
 	var quoteExists, quoteUsable, intervalFuture, available, rateCurrent bool
