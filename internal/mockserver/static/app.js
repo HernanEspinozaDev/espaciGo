@@ -5,6 +5,7 @@ import { inboxActions } from "./booking-inbox-state.js";
 import { showThenMarkConversationPage } from "./conversation-read-state.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { actionWithButtonState } from "./action-button-state.js";
+import { BookingAvailabilityState } from "./booking-availability-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -561,6 +562,8 @@ const catalogPagination = new CatalogPaginationState();
 let catalogProfileRequest = 0;
 let catalogFilterProfile = null;
 const bookingQuoteState = new BookingQuoteState();
+const bookingAvailabilityState = new BookingAvailabilityState();
+let selectedAvailabilityContext = null;
 let reservationKey = crypto.randomUUID();
 const paymentKeys = new Map();
 const bookingBase = "/api/v1/local/booking-trial";
@@ -570,7 +573,9 @@ function refreshCatalogControls() { const button = document.querySelector("#book
 function clearCatalogResultsAndSelection(message) {
     catalogProfileRequest++;
     bookingQuoteState.beginSearch();
+    bookingAvailabilityState.invalidate();
     bookingFixture = null;
+    resetAvailabilityPicker(message);
     const results = document.querySelector("#booking-catalog-results");
     if (results) {
         results.replaceChildren();
@@ -590,10 +595,157 @@ function clearCatalogResultsAndSelection(message) {
         quoteID.value = "";
 }
 function resetCatalogTraversal() { bookingCatalogRequest++; catalogPagination.invalidate(); catalogNextCursor = ""; catalogRequestCursor = ""; catalogLoading = false; clearCatalogResultsAndSelection("Inicia sesión y busca fixtures sintéticos autorizados para esta cuenta."); refreshCatalogControls(); }
-function invalidateCatalogSelection(message) { bookingQuoteState.beginSearch(); bookingFixture = null; (document.querySelector('#booking-quote-form [name="space_id"]')).value = ""; (document.querySelector('#booking-request-form [name="quote_id"]')).value = ""; bookingQuoteOutput.textContent = message; }
+function invalidateCatalogSelection(message) { bookingQuoteState.beginSearch(); bookingAvailabilityState.invalidate(); bookingFixture = null; resetAvailabilityPicker(message); (document.querySelector('#booking-quote-form [name="space_id"]')).value = ""; (document.querySelector('#booking-request-form [name="quote_id"]')).value = ""; bookingQuoteOutput.textContent = message; }
 const bookingFixtureOutput = document.querySelector("#booking-fixture-output");
 const bookingQuoteOutput = document.querySelector("#booking-quote-output");
+const bookingAvailabilityPicker = document.querySelector("#booking-availability-picker");
 const bookingHistoryOutput = document.querySelector("#booking-history-output");
+function resetAvailabilityPicker(message) {
+    bookingAvailabilityState.invalidate();
+    selectedAvailabilityContext = null;
+    bookingAvailabilityPicker.replaceChildren();
+    if (message) {
+        const p = document.createElement("p");
+        p.textContent = message;
+        bookingAvailabilityPicker.append(p);
+    }
+}
+function localDateText(instant, zone) {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(instant);
+    const fields = Object.fromEntries(parts.filter(p => p.type !== "literal").map(p => [p.type, p.value]));
+    return `${fields.year}-${fields.month}-${fields.day}`;
+}
+function addDateDays(date, days) {
+    const [year, month, day] = date.split("-").map(Number);
+    const value = new Date(Date.UTC(year, month - 1, day + days));
+    return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`;
+}
+function localDateTimeText(instant, zone) {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(instant));
+    const fields = Object.fromEntries(parts.filter(p => p.type !== "literal").map(p => [p.type, p.value]));
+    return `${fields.year}-${fields.month}-${fields.day}T${fields.hour}:${fields.minute}`;
+}
+function formatAvailabilityInstant(instant, zone) {
+    return new Intl.DateTimeFormat("es-CL", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "shortOffset" }).format(new Date(instant));
+}
+function currentAvailabilityContext(date, duration) {
+    if (!bookingFixture || !sessionToken || !sessionAccountID)
+        return null;
+    return { spaceID: bookingFixture.space_id, date, duration, accountID: sessionAccountID, sessionToken };
+}
+function invalidateSelectedInterval(message) {
+    bookingAvailabilityState.invalidate();
+    selectedAvailabilityContext = null;
+    if (bookingFixture)
+        bookingQuoteState.beginSelection(bookingFixture.space_id);
+    const quoteID = document.querySelector('#booking-request-form [name="quote_id"]');
+    if (quoteID)
+        quoteID.value = "";
+    bookingQuoteOutput.textContent = message;
+}
+function renderAvailabilityPicker() {
+    if (!bookingFixture) {
+        resetAvailabilityPicker("Selecciona un espacio para consultar intervalos.");
+        return;
+    }
+    bookingAvailabilityState.invalidate();
+    bookingAvailabilityPicker.replaceChildren();
+    const zone = bookingFixture.time_zone, now = new Date(), today = localDateText(now, zone), maxDate = addDateDays(today, 90);
+    const container = document.createElement("section"), title = document.createElement("h4");
+    title.textContent = "Horarios candidatos";
+    container.append(title);
+    const dateLabel = document.createElement("label");
+    dateLabel.textContent = `Fecha (${zone}) `;
+    const dateInput = document.createElement("input");
+    dateInput.type = "date";
+    dateInput.min = today;
+    dateInput.max = maxDate;
+    dateInput.value = today;
+    dateInput.required = true;
+    dateLabel.append(dateInput);
+    container.append(dateLabel);
+    const shortcuts = document.createElement("div"), shortcutsLabel = document.createElement("p");
+    shortcutsLabel.textContent = "Próximos siete días";
+    shortcuts.append(shortcutsLabel);
+    for (let offset = 0; offset < 7; offset++) {
+        const date = addDateDays(today, offset), button = document.createElement("button");
+        button.type = "button";
+        button.textContent = offset === 0 ? `Hoy · ${date}` : offset === 1 ? `Mañana · ${date}` : date;
+        button.addEventListener("click", () => { dateInput.value = date; void queryOptions(); });
+        shortcuts.append(button);
+    }
+    container.append(shortcuts);
+    const durationLabel = document.createElement("label");
+    durationLabel.textContent = "Duración ";
+    const duration = document.createElement("select");
+    const choices = bookingFixture.rate_unit === "hora" ? [[1, "1 hora transcurrida"], [2, "2 horas transcurridas"], [4, "4 horas transcurridas"]] : bookingFixture.rate_unit === "dia" ? [[1, "1 día calendario"], [2, "2 días calendario"], [3, "3 días calendario"]] : [[1, "1 mes calendario"]];
+    for (const [value, label] of choices)
+        duration.add(new Option(label, String(value)));
+    durationLabel.append(duration);
+    container.append(durationLabel);
+    const consult = document.createElement("button");
+    consult.type = "button";
+    consult.textContent = "Consultar horarios";
+    container.append(consult);
+    const notice = document.createElement("p");
+    notice.textContent = "Disponibilidad consultada; se confirmará al cotizar y reservar.";
+    container.append(notice);
+    const status = document.createElement("p");
+    status.textContent = "Elige una fecha y consulta candidatos; solo se consulta una fecha por solicitud.";
+    container.append(status);
+    const options = document.createElement("ul");
+    container.append(options);
+    bookingAvailabilityPicker.append(container);
+    const clearCurrent = () => { invalidateSelectedInterval("La fecha o duración cambió; vuelve a consultar y cotizar."); options.replaceChildren(); status.textContent = "La consulta anterior quedó invalidada."; };
+    dateInput.addEventListener("input", clearCurrent);
+    dateInput.addEventListener("change", clearCurrent);
+    duration.addEventListener("input", clearCurrent);
+    duration.addEventListener("change", clearCurrent);
+    const queryOptions = async () => {
+        if (!dateInput.value || dateInput.value < today || dateInput.value > maxDate) {
+            throw new Error("Elige una fecha local entre hoy y los próximos 90 días.");
+        }
+        const context = currentAvailabilityContext(dateInput.value, duration.value);
+        if (!context)
+            throw new Error("La sesión o el espacio seleccionado cambiaron.");
+        const token = bookingAvailabilityState.beginRequest(context);
+        options.replaceChildren();
+        status.textContent = "Consultando intervalos libres…";
+        const query = new URLSearchParams({ date: context.date, duration: context.duration });
+        const response = await request(`${bookingBase}/catalog/${encodeURIComponent(context.spaceID)}/availability-options?${query}`, "GET", undefined, true);
+        const current = currentAvailabilityContext(dateInput.value, duration.value);
+        if (!current || !bookingAvailabilityState.accepts(token, current) || bookingFixture?.space_id !== context.spaceID)
+            return;
+        const payload = bookingData(response);
+        if (payload.space_id !== context.spaceID || payload.time_zone !== bookingFixture.time_zone || payload.rate_unit !== bookingFixture.rate_unit) {
+            status.textContent = "La ficha del espacio cambió; vuelve a seleccionarla.";
+            return;
+        }
+        status.textContent = payload.items.length ? "Disponibilidad consultada; se confirmará al cotizar y reservar." : "No hay intervalos libres para esa fecha y duración.";
+        for (const interval of payload.items) {
+            const startLocal = localDateTimeText(interval.start_at, payload.time_zone), endLocal = localDateTimeText(interval.end_at, payload.time_zone);
+            const li = document.createElement("li"), select = document.createElement("button");
+            select.type = "button";
+            select.textContent = `Usar ${formatAvailabilityInstant(interval.start_at, payload.time_zone)} – ${formatAvailabilityInstant(interval.end_at, payload.time_zone)} (${payload.time_zone})`;
+            select.addEventListener("click", () => {
+                const currentSelection = currentAvailabilityContext(dateInput.value, duration.value);
+                const selected = { startAt: interval.start_at, endAt: interval.end_at, startLocal, endLocal };
+                if (!currentSelection || !bookingAvailabilityState.select(token, currentSelection, selected))
+                    return;
+                selectedAvailabilityContext = { ...currentSelection };
+                (document.querySelector('#booking-quote-form [name="start_at"]')).value = startLocal;
+                (document.querySelector('#booking-quote-form [name="end_at"]')).value = endLocal;
+                (document.querySelector('#booking-request-form [name="quote_id"]')).value = "";
+                bookingQuoteState.beginSelection(context.spaceID);
+                bookingQuoteOutput.textContent = "Intervalo seleccionado. Cotiza para volver a validar la disponibilidad.";
+                resultElement.textContent = "Intervalo cargado en el formulario de cotización.";
+            });
+            li.append(select);
+            options.append(li);
+        }
+    };
+    consult.addEventListener("click", () => void action(queryOptions));
+}
 const bookingCatalogCategory = document.querySelector("#booking-catalog-category");
 const bookingCatalogProfileFilters = document.querySelector("#booking-catalog-profile-filters");
 const bookingCatalogNearbyEnabled = document.querySelector("#booking-catalog-nearby-enabled");
@@ -759,11 +911,14 @@ form("booking-catalog-form", async (data) => {
     catalogLoading = true;
     refreshCatalogControls();
     bookingQuoteState.beginSearch();
+    bookingAvailabilityState.invalidate();
+    selectedAvailabilityContext = null;
     bookingFixture = null;
     (document.querySelector('#booking-quote-form [name="space_id"]')).value = "";
     (document.querySelector('#booking-request-form [name="quote_id"]')).value = "";
     bookingQuoteOutput.textContent = "La cotización queda invalidada al iniciar otra búsqueda.";
     bookingFixtureOutput.textContent = "Selecciona un resultado para consultar su detalle.";
+    resetAvailabilityPicker("La búsqueda nueva invalidó los intervalos anteriores.");
     const suffix = query.size ? `?${query.toString()}` : "";
     let response;
     try {
@@ -802,8 +957,11 @@ form("booking-catalog-form", async (data) => {
             const detailToken = ++bookingCatalogRequest;
             const selectionToken = bookingQuoteState.beginSelection(item.space_id);
             bookingFixture = null;
+            resetAvailabilityPicker("Cambiando espacio; las opciones anteriores quedaron invalidadas.");
             (document.querySelector('#booking-quote-form [name="space_id"]')).value = "";
             (document.querySelector('#booking-request-form [name="quote_id"]')).value = "";
+            (document.querySelector('#booking-quote-form [name="start_at"]')).value = "";
+            (document.querySelector('#booking-quote-form [name="end_at"]')).value = "";
             bookingQuoteOutput.textContent = "Selecciona el intervalo y prepara una nueva cotización para este espacio.";
             const detailResult = await request(`${bookingBase}/catalog/${encodeURIComponent(item.space_id)}`, "GET", undefined, true);
             if (detailToken !== bookingCatalogRequest || !bookingQuoteState.selectionIsCurrent(selectionToken, item.space_id))
@@ -811,6 +969,7 @@ form("booking-catalog-form", async (data) => {
             bookingFixture = bookingData(detailResult);
             (document.querySelector('#booking-quote-form [name="space_id"]')).value = bookingFixture.space_id;
             bookingFixtureOutput.textContent = `${String(detailResult.safety_notice)}\n${JSON.stringify(bookingFixture, null, 2)}`;
+            renderAvailabilityPicker();
         }));
         card.append(title, meta, details);
         catalogResults.append(card);
@@ -823,6 +982,9 @@ document.querySelector("#booking-catalog-form").addEventListener("input", () => 
     catalogRequestCursor = "";
     catalogNextButton.disabled = true;
     bookingQuoteState.beginSearch();
+    bookingAvailabilityState.invalidate();
+    selectedAvailabilityContext = null;
+    resetAvailabilityPicker("Los filtros cambiaron; los intervalos anteriores quedaron invalidados.");
     bookingFixture = null;
     (document.querySelector('#booking-quote-form [name="space_id"]')).value = "";
     (document.querySelector('#booking-request-form [name="quote_id"]')).value = "";
@@ -848,7 +1010,21 @@ form("booking-quote-form", async (data) => {
     const quoteToken = bookingQuoteState.beginQuote(selectedSpace);
     if (quoteToken === null)
         throw new Error("La selección cambió. Vuelve a consultar el detalle del espacio antes de cotizar.");
-    const quote = bookingData(await request(`${bookingBase}/quotes`, "POST", { space_id: selectedSpace, start_at: localTimeAsUTC(String(data.get("start_at")), bookingFixture.time_zone), end_at: localTimeAsUTC(String(data.get("end_at")), bookingFixture.time_zone) }, true));
+    const startLocal = String(data.get("start_at")), endLocal = String(data.get("end_at"));
+    const selectedInterval = selectedAvailabilityContext ? bookingAvailabilityState.selectedFor(selectedAvailabilityContext, startLocal, endLocal) : null;
+    let quoteResponse;
+    try {
+        quoteResponse = await request(`${bookingBase}/quotes`, "POST", { space_id: selectedSpace, start_at: selectedInterval?.startAt ?? localTimeAsUTC(startLocal, bookingFixture.time_zone), end_at: selectedInterval?.endAt ?? localTimeAsUTC(endLocal, bookingFixture.time_zone) }, true);
+    }
+    catch (error) {
+        if (error instanceof Error && error.message.includes("HTTP 409")) {
+            resetAvailabilityPicker("La disponibilidad cambió. Consulta los horarios otra vez antes de cotizar.");
+            if (bookingFixture)
+                renderAvailabilityPicker();
+        }
+        throw error;
+    }
+    const quote = bookingData(quoteResponse);
     if (quote.space_id !== selectedSpace || !bookingQuoteState.acceptQuote(quoteToken, selectedSpace, String(quote.id ?? "")))
         return;
     (document.querySelector('#booking-request-form [name="quote_id"]')).value = String(quote.id);

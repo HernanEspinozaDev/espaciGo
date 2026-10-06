@@ -66,7 +66,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	const base = "/api/v1/local/booking-trial"
 	path := strings.TrimSuffix(r.URL.Path, "/")
-	if r.URL.RawQuery != "" && path != base+"/catalog" && !strings.HasSuffix(path, "/messages") {
+	if r.URL.RawQuery != "" && path != base+"/catalog" && !strings.HasSuffix(path, "/messages") && !strings.HasSuffix(path, "/availability-options") {
 		fail(w, 400, "invalid_request")
 		return
 	}
@@ -99,6 +99,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			result["next_cursor"] = page.NextCursor
 		}
 		h.reply(w, result, e)
+		return
+	}
+	if strings.HasPrefix(path, base+"/catalog/") && strings.HasSuffix(path, "/availability-options") && r.Method == http.MethodGet {
+		spaceID := strings.TrimSuffix(strings.TrimPrefix(path, base+"/catalog/"), "/availability-options")
+		date, duration, ok := availabilityOptionsParams(r.URL.Query())
+		if strings.Contains(spaceID, "/") || spaceID == "" || !ok {
+			fail(w, 422, "invalid_request")
+			return
+		}
+		value, err := h.service.AvailableIntervals(r.Context(), actor, spaceID, booking.AvailabilityOptionsInput{Date: date, Duration: duration})
+		h.reply(w, value, err)
 		return
 	}
 	if strings.HasPrefix(path, base+"/catalog/") && r.Method == http.MethodGet {
@@ -355,6 +366,18 @@ func catalogPageParams(query url.Values) (int, string, bool) {
 	}
 	return pageSize, cursor, true
 }
+
+func availabilityOptionsParams(query url.Values) (string, int, bool) {
+	if len(query) != 2 || len(query["date"]) != 1 || len(query["duration"]) != 1 {
+		return "", 0, false
+	}
+	duration, err := strconv.Atoi(query.Get("duration"))
+	if err != nil || query.Get("date") == "" {
+		return "", 0, false
+	}
+	return query.Get("date"), duration, true
+}
+
 func (h *Handler) reply(w http.ResponseWriter, v any, err error) {
 	if err != nil {
 		if errors.Is(err, booking.ErrSimulatedNoResponse) {
