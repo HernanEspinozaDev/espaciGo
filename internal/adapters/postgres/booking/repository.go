@@ -200,9 +200,12 @@ func (r *Repository) Quote(ctx context.Context, renter, spaceID, id string, star
 	var q booking.Quote
 	var amount int64
 	var hostID, renterID string
-	err = tx.QueryRow(ctx, `SELECT x.espacio_id::text,x.anfitrion_id::text,x.arrendatario_id::text,t.version,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,e.reglas_uso,e.categoria_codigo,c.perfil_version,c.valores FROM public.reserva_ensayo_local_fixture x JOIN public.espacio e ON e.id=x.espacio_id JOIN public.espacio_caracteristicas c ON c.espacio_id=e.id AND c.categoria_codigo=e.categoria_codigo JOIN LATERAL(SELECT version,modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true WHERE x.habilitada AND x.espacio_id=$2 AND x.arrendatario_id=$1 AND e.estado='borrador' AND e.propietario_id=x.anfitrion_id FOR SHARE OF e`, renter, spaceID).Scan(&q.SpaceID, &hostID, &renterID, &q.RateVersion, &q.RateUnit, &q.UnitPrice, &q.Currency, &q.TimeZone, &q.Conditions, &q.CategoryCode, &q.ProfileVersion, &q.ProfileValues)
+	err = tx.QueryRow(ctx, `SELECT x.espacio_id::text,x.anfitrion_id::text,x.arrendatario_id::text,t.version,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,e.reglas_uso,e.categoria_codigo,c.perfil_version,c.valores,x.politica_cancelacion_version FROM public.reserva_ensayo_local_fixture x JOIN public.espacio e ON e.id=x.espacio_id JOIN public.espacio_caracteristicas c ON c.espacio_id=e.id AND c.categoria_codigo=e.categoria_codigo JOIN LATERAL(SELECT version,modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true WHERE x.habilitada AND x.espacio_id=$2 AND x.arrendatario_id=$1 AND e.estado='borrador' AND e.propietario_id=x.anfitrion_id FOR SHARE OF e`, renter, spaceID).Scan(&q.SpaceID, &hostID, &renterID, &q.RateVersion, &q.RateUnit, &q.UnitPrice, &q.Currency, &q.TimeZone, &q.Conditions, &q.CategoryCode, &q.ProfileVersion, &q.ProfileValues, &q.CancellationPolicyVersion)
 	if err != nil {
 		return booking.Quote{}, mapErr(err)
+	}
+	if q.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion {
+		return booking.Quote{}, booking.ErrConflict
 	}
 	if q.RateUnit == "hora" {
 		hours, scheduleErr := r.weeklyHoursTx(ctx, tx, q.SpaceID)
@@ -236,7 +239,7 @@ func (r *Repository) Quote(ctx context.Context, renter, spaceID, id string, star
 	q.EndAt = end
 	q.CreatedAt = now
 	q.ExpiresAt = expires
-	_, err = tx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,creada_en,vence_en,categoria_codigo,perfil_version,perfil_valores_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, id, q.SpaceID, hostID, renterID, q.RateVersion, q.RateUnit, q.UnitPrice, q.Currency, units, amount, start, end, q.TimeZone, q.Conditions, now, expires, q.CategoryCode, q.ProfileVersion, q.ProfileValues)
+	_, err = tx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,creada_en,vence_en,categoria_codigo,perfil_version,perfil_valores_snapshot,politica_cancelacion_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`, id, q.SpaceID, hostID, renterID, q.RateVersion, q.RateUnit, q.UnitPrice, q.Currency, units, amount, start, end, q.TimeZone, q.Conditions, now, expires, q.CategoryCode, q.ProfileVersion, q.ProfileValues, q.CancellationPolicyVersion)
 	if err != nil {
 		return booking.Quote{}, mapErr(err)
 	}
@@ -246,7 +249,7 @@ func (r *Repository) Quote(ctx context.Context, renter, spaceID, id string, star
 	return q, nil
 }
 
-const reservationCols = `id::text,cotizacion_id::text,espacio_id::text,anfitrion_id::text,arrendatario_id::text,estado,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,pago_vence_en,anfitrion_vence_en,creada_en,actualizada_en`
+const reservationCols = `id::text,cotizacion_id::text,espacio_id::text,anfitrion_id::text,arrendatario_id::text,estado,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,politica_cancelacion_version,pago_vence_en,anfitrion_vence_en,creada_en,actualizada_en`
 
 func scanReservation(row pgx.Row) (booking.Reservation, error) {
 	var v booking.Reservation
@@ -261,7 +264,7 @@ func scanReservationWithUnread(row pgx.Row) (booking.Reservation, error) {
 }
 
 func scanReservationColumns(row pgx.Row, v *booking.Reservation, withUnread bool) error {
-	columns := []any{&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt}
+	columns := []any{&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.CancellationPolicyVersion, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt}
 	if withUnread {
 		columns = append(columns, &v.UnreadCount)
 	}
@@ -359,8 +362,8 @@ EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN LATERAL(SELECT vers
 		return booking.Reservation{}, booking.ErrConflict
 	}
 	var v booking.Reservation
-	err = tx.QueryRow(ctx, `INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,pago_vence_en,creada_en,actualizada_en)
-SELECT $1,q.id,q.espacio_id,q.anfitrion_id,q.arrendatario_id,$4,$5,$6,'pendiente_de_pago',q.precio_unitario_clp,q.unidades,q.subtotal_clp,q.modalidad,q.moneda,q.inicio,q.termino,q.zona_horaria,q.condiciones_snapshot,$7,$8,$8 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id AND f.habilitada JOIN public.espacio e ON e.id=q.espacio_id WHERE q.id=$2 AND q.arrendatario_id=$3 AND q.vence_en>$8 AND q.inicio>$8 AND e.estado='borrador' AND e.propietario_id=f.anfitrion_id RETURNING `+reservationCols, id, quoteID, renter, key, fingerprint, occupancyID, payExpiresAt, now).Scan(&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,politica_cancelacion_version,pago_vence_en,creada_en,actualizada_en)
+SELECT $1,q.id,q.espacio_id,q.anfitrion_id,q.arrendatario_id,$4,$5,$6,'pendiente_de_pago',q.precio_unitario_clp,q.unidades,q.subtotal_clp,q.modalidad,q.moneda,q.inicio,q.termino,q.zona_horaria,q.condiciones_snapshot,q.politica_cancelacion_version,$7,$8,$8 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id AND f.habilitada JOIN public.espacio e ON e.id=q.espacio_id WHERE q.id=$2 AND q.arrendatario_id=$3 AND q.vence_en>$8 AND q.inicio>$8 AND e.estado='borrador' AND e.propietario_id=f.anfitrion_id RETURNING `+reservationCols, id, quoteID, renter, key, fingerprint, occupancyID, payExpiresAt, now).Scan(&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.CancellationPolicyVersion, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt)
 	if err != nil {
 		return booking.Reservation{}, mapErr(err)
 	}
@@ -388,6 +391,9 @@ func (r *Repository) Get(ctx context.Context, actor, id string) (booking.Detail,
 		return booking.Detail{}, err
 	}
 	defer rows.Close()
+	if err = r.attachRefund(ctx, r.pool, &v); err != nil {
+		return booking.Detail{}, err
+	}
 	out := booking.Detail{Reservation: v, History: []booking.Transition{}}
 	for rows.Next() {
 		var x booking.Transition
@@ -420,12 +426,15 @@ ORDER BY r.actualizada_en DESC,r.id`, actor)
 		if e != nil {
 			return nil, e
 		}
+		if e = r.attachRefund(ctx, r.pool, &v); e != nil {
+			return nil, e
+		}
 		out = append(out, v)
 	}
 	return out, rows.Err()
 }
 
-func (r *Repository) Pay(ctx context.Context, renter, id, outcome, key string, now, hostDeadline time.Time) (booking.Reservation, error) {
+func (r *Repository) Pay(ctx context.Context, renter, id, outcome, key string, clock func() time.Time, hostTTL time.Duration) (booking.Reservation, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return booking.Reservation{}, err
@@ -450,6 +459,21 @@ func (r *Repository) Pay(ctx context.Context, renter, id, outcome, key string, n
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return booking.Reservation{}, err
 	}
+	// Existing payment retries resolve against their idempotency record before
+	// consulting the clock. New transitions use Backend time only after the
+	// reservation lock has been acquired.
+	now := clock().UTC()
+	expired, err := expiry.LockedReservation(ctx, tx, id, now)
+	if err != nil {
+		return booking.Reservation{}, err
+	}
+	if expired {
+		if err = tx.Commit(ctx); err != nil {
+			return booking.Reservation{}, err
+		}
+		return booking.Reservation{}, booking.ErrConflict
+	}
+	hostDeadline := now.Add(hostTTL)
 	var unresolved bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reserva_pago_ensayo WHERE reserva_id=$1 AND resultado='sin_respuesta_simulada')`, id).Scan(&unresolved)
 	if err != nil {
@@ -461,7 +485,11 @@ func (r *Repository) Pay(ctx context.Context, renter, id, outcome, key string, n
 	if v.State != "pendiente_de_pago" || !now.Before(v.PayExpiresAt) {
 		return booking.Reservation{}, booking.ErrConflict
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_pago_ensayo(id,reserva_id,resultado,clave_idempotencia,creada_en) VALUES(gen_random_uuid(),$1,$2,$3,$4)`, id, result, key, now)
+	amount := int64(0)
+	if outcome == "exito" {
+		amount = v.Subtotal
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_pago_ensayo(id,reserva_id,resultado,clave_idempotencia,creada_en,importe_clp) VALUES(gen_random_uuid(),$1,$2,$3,$4,$5)`, id, result, key, now, amount)
 	if err != nil {
 		return booking.Reservation{}, err
 	}
@@ -502,7 +530,7 @@ func (r *Repository) Pay(ctx context.Context, renter, id, outcome, key string, n
 	return v, nil
 }
 
-func (r *Repository) Decide(ctx context.Context, host, id, decision string, now time.Time) (booking.Reservation, error) {
+func (r *Repository) Decide(ctx context.Context, host, id, decision, reason string, clock func() time.Time) (booking.Reservation, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return booking.Reservation{}, err
@@ -512,12 +540,24 @@ func (r *Repository) Decide(ctx context.Context, host, id, decision string, now 
 	if err != nil {
 		return booking.Reservation{}, err
 	}
+	now := clock().UTC()
+	expired, err := expiry.LockedReservation(ctx, tx, id, now)
+	if err != nil {
+		return booking.Reservation{}, err
+	}
+	if expired {
+		if err = tx.Commit(ctx); err != nil {
+			return booking.Reservation{}, err
+		}
+		return booking.Reservation{}, booking.ErrConflict
+	}
 	if v.State != "pagada" || v.HostExpiresAt == nil || !now.Before(*v.HostExpiresAt) {
 		return booking.Reservation{}, booking.ErrConflict
 	}
-	next, reason := "aprobada_host", "aprobación del anfitrión en ensayo local"
+	next := "aprobada_host"
+	historyReason := "aprobación del anfitrión en ensayo local"
 	if decision == "rechazar" {
-		next, reason = "rechazada_arrendador", "rechazo del anfitrión en ensayo local"
+		next, historyReason = "rechazada_arrendador", "rechazo del anfitrión en ensayo local: "+reason
 		_, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE reserva_id=$1 AND activo`, id, now)
 		if err != nil {
 			return booking.Reservation{}, err
@@ -536,7 +576,7 @@ func (r *Repository) Decide(ctx context.Context, host, id, decision string, now 
 	if err != nil {
 		return booking.Reservation{}, err
 	}
-	err = appendTransition(ctx, tx, id, ptrString("pagada"), next, host, reason, now)
+	err = appendTransition(ctx, tx, id, ptrString("pagada"), next, host, historyReason, now)
 	if err != nil {
 		return booking.Reservation{}, err
 	}
@@ -548,37 +588,233 @@ func (r *Repository) Decide(ctx context.Context, host, id, decision string, now 
 	return v, nil
 }
 
-func (r *Repository) Cancel(ctx context.Context, renter, id string, now time.Time) (booking.Reservation, error) {
+func (r *Repository) attachRefund(ctx context.Context, queryer interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, v *booking.Reservation) error {
+	err := queryer.QueryRow(ctx, `SELECT id::text,operacion_id::text,importe_clp,estado,ultimo_resultado,actualizada_en FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1`, v.ID).Scan(&v.RefundID, &v.RefundOperationID, &v.RefundAmountCLP, &v.RefundState, &v.RefundLastResult, &v.RefundUpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	return err
+}
+
+func (r *Repository) CancellationPreview(ctx context.Context, renter, id string, now time.Time) (booking.CancellationPreview, error) {
+	var preview booking.CancellationPreview
+	var state string
+	var payDeadline time.Time
+	err := r.pool.QueryRow(ctx, `SELECT r.id::text,r.politica_cancelacion_version,r.estado,r.inicio,r.pago_vence_en,r.moneda,
+COALESCE((SELECT sum(p.importe_clp) FROM public.reserva_pago_ensayo p WHERE p.reserva_id=r.id AND p.resultado='exito_simulado'),0)
+FROM public.reserva_ensayo_local r WHERE r.id=$1 AND r.arrendatario_id=$2`, id, renter).Scan(&preview.ReservationID, &preview.PolicyVersion, &state, &preview.Deadline, &payDeadline, &preview.Currency, &preview.AmountCLP)
+	if err != nil {
+		return booking.CancellationPreview{}, mapErr(err)
+	}
+	if preview.PolicyVersion != booking.LocalCancellationPolicyVersion {
+		return booking.CancellationPreview{}, booking.ErrConflict
+	}
+	preview.RefundLabel = "Devolución simulada — sin movimiento de dinero"
+	switch state {
+	case "pendiente_de_pago":
+		preview.Deadline = payDeadline
+		preview.Eligible = now.Before(payDeadline)
+		preview.ReasonCode = "sin_devolucion"
+		preview.AmountCLP = 0
+	case "pagada", "aprobada_host":
+		preview.Eligible = now.Before(preview.Deadline) && preview.AmountCLP > 0
+		if preview.Eligible {
+			preview.ReasonCode = "devolucion_simulada_completa"
+		} else if !now.Before(preview.Deadline) {
+			preview.ReasonCode = "inicio_alcanzado"
+		} else {
+			preview.ReasonCode = "pago_fake_no_confirmado"
+		}
+	default:
+		preview.ReasonCode = "estado_no_cancelable"
+	}
+	return preview, nil
+}
+
+func (r *Repository) Cancel(ctx context.Context, renter, id, key, reason string, fingerprint []byte, clock func() time.Time) (booking.CancellationResult, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return booking.Reservation{}, err
+		return booking.CancellationResult{}, err
 	}
 	defer tx.Rollback(ctx)
 	v, err := scanReservation(tx.QueryRow(ctx, `SELECT `+reservationCols+` FROM public.reserva_ensayo_local WHERE id=$1 AND arrendatario_id=$2 FOR UPDATE`, id, renter))
 	if err != nil {
-		return booking.Reservation{}, err
+		return booking.CancellationResult{}, err
 	}
-	if v.State != "pendiente_de_pago" {
-		return booking.Reservation{}, booking.ErrConflict
+	var priorKey, priorHash string
+	err = tx.QueryRow(ctx, `SELECT clave_idempotencia,encode(huella_solicitud,'hex') FROM public.reserva_cancelacion_ensayo WHERE reserva_id=$1`, id).Scan(&priorKey, &priorHash)
+	if err == nil {
+		if priorKey != key || priorHash != fmtHex(fingerprint) {
+			return booking.CancellationResult{}, booking.ErrConflict
+		}
+		if err = r.attachRefund(ctx, tx, &v); err != nil {
+			return booking.CancellationResult{}, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return booking.CancellationResult{}, err
+		}
+		result := cancellationResult(v)
+		result.Replayed = true
+		return result, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return booking.CancellationResult{}, err
+	}
+	// Read Backend time after the reservation lock. If a deadline elapsed while
+	// this operation waited, persist the expiry transition in this transaction.
+	now := clock().UTC()
+	expired, err := expiry.LockedReservation(ctx, tx, id, now)
+	if err != nil {
+		return booking.CancellationResult{}, err
+	}
+	if expired {
+		if err = tx.Commit(ctx); err != nil {
+			return booking.CancellationResult{}, err
+		}
+		return booking.CancellationResult{}, booking.ErrConflict
+	}
+	if v.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion {
+		return booking.CancellationResult{}, booking.ErrConflict
+	}
+	var refundAmount *int64
+	if v.State == "pendiente_de_pago" {
+		if !now.Before(v.PayExpiresAt) {
+			return booking.CancellationResult{}, booking.ErrConflict
+		}
+	} else if v.State == "pagada" || v.State == "aprobada_host" {
+		if !now.Before(v.StartAt) {
+			return booking.CancellationResult{}, booking.ErrConflict
+		}
+		var paid int64
+		if err = tx.QueryRow(ctx, `SELECT COALESCE(sum(importe_clp),0) FROM public.reserva_pago_ensayo WHERE reserva_id=$1 AND resultado='exito_simulado'`, id).Scan(&paid); err != nil {
+			return booking.CancellationResult{}, err
+		}
+		if paid <= 0 {
+			return booking.CancellationResult{}, booking.ErrConflict
+		}
+		refundAmount = &paid
+	} else {
+		return booking.CancellationResult{}, booking.ErrConflict
 	}
 	_, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE reserva_id=$1 AND activo`, id, now)
 	if err != nil {
-		return booking.Reservation{}, err
+		return booking.CancellationResult{}, err
 	}
 	_, err = tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='cancelada_arrendatario',actualizada_en=$2 WHERE id=$1`, id, now)
 	if err != nil {
-		return booking.Reservation{}, err
+		return booking.CancellationResult{}, err
 	}
-	err = appendTransition(ctx, tx, id, ptrString("pendiente_de_pago"), "cancelada_arrendatario", renter, "cancelación local antes del pago", now)
+	historyReason := "cancelación local antes del pago"
+	if refundAmount != nil {
+		historyReason = "cancelación local con devolución simulada pendiente"
+	}
+	if reason != "" {
+		historyReason += ": " + reason
+	}
+	err = appendTransition(ctx, tx, id, ptrString(v.State), "cancelada_arrendatario", renter, historyReason, now)
 	if err != nil {
-		return booking.Reservation{}, err
+		return booking.CancellationResult{}, err
 	}
-	v.State = "cancelada_arrendatario"
-	v.UpdatedAt = now
+	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_cancelacion_ensayo(id,reserva_id,arrendatario_id,clave_idempotencia,huella_solicitud,motivo,creada_en) VALUES(gen_random_uuid(),$1,$2,$3,$4,$5,$6)`, id, renter, key, fingerprint, reason, now)
+	if err != nil {
+		return booking.CancellationResult{}, mapErr(err)
+	}
+	if refundAmount != nil {
+		_, err = tx.Exec(ctx, `INSERT INTO public.reserva_devolucion_ensayo(id,reserva_id,operacion_id,importe_clp,moneda,estado,creada_en,actualizada_en) VALUES(gen_random_uuid(),$1,gen_random_uuid(),$2,'CLP','pendiente',$3,$3)`, id, *refundAmount, now)
+		if err != nil {
+			return booking.CancellationResult{}, mapErr(err)
+		}
+	}
+	v, err = scanReservation(tx.QueryRow(ctx, `SELECT `+reservationCols+` FROM public.reserva_ensayo_local WHERE id=$1`, id))
+	if err != nil {
+		return booking.CancellationResult{}, err
+	}
+	if err = r.attachRefund(ctx, tx, &v); err != nil {
+		return booking.CancellationResult{}, err
+	}
 	if err = tx.Commit(ctx); err != nil {
-		return booking.Reservation{}, mapErr(err)
+		return booking.CancellationResult{}, mapErr(err)
 	}
-	return v, nil
+	result := cancellationResult(v)
+	if refundAmount != nil {
+		result.RefundAmountCLP = refundAmount
+		result.RefundState = "pendiente"
+	}
+	return result, nil
+}
+
+func cancellationResult(v booking.Reservation) booking.CancellationResult {
+	result := booking.CancellationResult{Reservation: v, RefundState: "no_aplica"}
+	if v.RefundState != nil {
+		result.RefundState = *v.RefundState
+	}
+	result.RefundAmountCLP = v.RefundAmountCLP
+	return result
+}
+
+func (r *Repository) RefundOperation(ctx context.Context, renter, id string) (booking.RefundResult, error) {
+	var value booking.RefundResult
+	err := r.pool.QueryRow(ctx, `SELECT d.reserva_id::text,d.operacion_id::text,d.importe_clp,d.moneda,d.estado,COALESCE(d.ultimo_resultado,''),d.actualizada_en
+FROM public.reserva_devolucion_ensayo d JOIN public.reserva_ensayo_local r ON r.id=d.reserva_id
+WHERE d.reserva_id=$1 AND r.arrendatario_id=$2 AND r.estado='cancelada_arrendatario'`, id, renter).Scan(&value.ReservationID, &value.OperationID, &value.AmountCLP, &value.Currency, &value.State, &value.LastResult, &value.UpdatedAt)
+	if err != nil {
+		return booking.RefundResult{}, mapErr(err)
+	}
+	return value, nil
+}
+
+func (r *Repository) RecordRefund(ctx context.Context, renter, id, result string, now time.Time) (booking.RefundResult, error) {
+	if result != "exito_simulado" && result != "fallo_simulado" && result != "sin_respuesta_simulada" {
+		return booking.RefundResult{}, booking.ErrInvalid
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return booking.RefundResult{}, err
+	}
+	defer tx.Rollback(ctx)
+	var state, operationID, currency string
+	var amount int64
+	err = tx.QueryRow(ctx, `SELECT d.operacion_id::text,d.importe_clp,d.moneda,d.estado FROM public.reserva_devolucion_ensayo d JOIN public.reserva_ensayo_local r ON r.id=d.reserva_id WHERE d.reserva_id=$1 AND r.arrendatario_id=$2 AND r.estado='cancelada_arrendatario' FOR UPDATE OF r,d`, id, renter).Scan(&operationID, &amount, &currency, &state)
+	if err != nil {
+		return booking.RefundResult{}, mapErr(err)
+	}
+	if state == "completada" {
+		return booking.RefundResult{ReservationID: id, OperationID: operationID, AmountCLP: amount, Currency: currency, State: state, UpdatedAt: now}, nil
+	}
+	var sequence int64
+	if err = tx.QueryRow(ctx, `SELECT COALESCE(MAX(secuencia),0)+1 FROM public.reserva_devolucion_intento_ensayo WHERE devolucion_id=(SELECT id FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1)`, id).Scan(&sequence); err != nil {
+		return booking.RefundResult{}, err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_devolucion_intento_ensayo(id,devolucion_id,secuencia,resultado,creada_en) SELECT gen_random_uuid(),id,$2,$3,$4 FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1`, id, sequence, result, now)
+	if err != nil {
+		return booking.RefundResult{}, err
+	}
+	completed := result == "exito_simulado"
+	state = "pendiente"
+	var completedAt any
+	if completed {
+		state = "completada"
+		completedAt = now
+	}
+	_, err = tx.Exec(ctx, `UPDATE public.reserva_devolucion_ensayo SET estado=$2,ultimo_resultado=$3,actualizada_en=$4,completada_en=$5 WHERE reserva_id=$1`, id, state, result, now, completedAt)
+	if err != nil {
+		return booking.RefundResult{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return booking.RefundResult{}, err
+	}
+	return booking.RefundResult{ReservationID: id, OperationID: operationID, AmountCLP: amount, Currency: currency, State: state, LastResult: result, UpdatedAt: now}, nil
+}
+
+func (r *Repository) NoticeRecipients(ctx context.Context, actor, id string) ([]string, error) {
+	var hostEmail, renterEmail string
+	err := r.pool.QueryRow(ctx, `SELECT h.correo_original,a.correo_original FROM public.reserva_ensayo_local r JOIN public.usuario h ON h.id=r.anfitrion_id JOIN public.usuario a ON a.id=r.arrendatario_id WHERE r.id=$1 AND (r.anfitrion_id=$2 OR r.arrendatario_id=$2)`, id, actor).Scan(&hostEmail, &renterEmail)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return []string{hostEmail, renterEmail}, nil
 }
 
 func (r *Repository) Expire(ctx context.Context, now time.Time) error {

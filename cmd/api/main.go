@@ -167,6 +167,8 @@ func run() error {
 			if err != nil {
 				return errors.New("local booking trial initialization failed")
 			}
+			bookingService.SetLocalRefundAdapter(fakebooking.New())
+			bookingService.SetLocalNoticeSender(devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")})
 			conversationService, err := conversation.NewService(conversationpg.New(pool), credentials.Generator{}, time.Now)
 			if err != nil {
 				return errors.New("local booking conversation initialization failed")

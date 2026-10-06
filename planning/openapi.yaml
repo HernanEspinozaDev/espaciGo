@@ -937,21 +937,84 @@ paths:
         required: true
         content:
           application/json:
-            schema: { type: object, required: [decision], properties: { decision: { type: string, enum: [aprobar, rechazar] } } }
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [aprobar, rechazar] }
+                reason: { type: string, minLength: 1, description: Obligatorio únicamente para rechazar; se conserva en el historial. }
+              allOf:
+                - if: { properties: { decision: { const: rechazar } }, required: [decision] }
+                  then: { required: [reason] }
       responses:
         '200': { description: Aprobación o rechazo del participante anfitrión., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingReservationEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
-  /local/booking-trial/reservations/{reservationId}/cancel:
-    post:
-      operationId: cancelPendingLocalTrialReservation
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations/{reservationId}/cancellation-preview:
+    get:
+      operationId: previewLocalTrialReservationCancellation
       tags: [M06 local]
+      description: Solo el arrendatario titular. Muestra snapshot de política, plazo, subtotal reembolsable y etiqueta antes de confirmar. La elegibilidad es informativa; POST vuelve a validar bajo bloqueo.
       parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
       responses:
-        '200': { description: Cancelación permitida solamente antes del pago., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingReservationEnvelope' } } } }
+        '200': { description: Política y elegibilidad local actual de cancelación., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingCancellationPreviewEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /local/booking-trial/reservations/{reservationId}/cancel:
+    post:
+      operationId: cancelLocalTrialReservation
+      tags: [M06 local]
+      description: >-
+        Conserva cancelación pre-pago sin devolución. Para pagada/aprobada_host,
+        solo el arrendatario titular puede cancelar estrictamente antes del inicio.
+        La transacción cancela, libera ocupacion, agrega historial y una obligación
+        de devolución fake por el subtotal pagado. La respuesta no confirma que la
+        devolución haya sido procesada. Política local_flexible_v1 solo para fixtures.
+      parameters:
+        - { name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: { reason: { type: string, description: Motivo opcional; no modifica el cálculo. } }
+      responses:
+        '200': { description: Cancelación atómica con estado de devolución separado y aviso local no durable., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingCancellationResultEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations/{reservationId}/refund:
+    post:
+      operationId: simulateLocalTrialRefund
+      tags: [M06 local]
+      description: Fake exclusivo local. Usa el operation_id estable devuelto por detalle/cancelación como Idempotency-Key en todos los intentos. Fallo y timeout conservan la obligación pendiente; éxito marca una única devolución completada. Sin movimiento de dinero.
+      parameters:
+        - { name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [outcome]
+              properties: { outcome: { type: string, enum: [exito, fallo, sin_respuesta] } }
+      responses:
+        '200': { description: Resultado local fake y estado separado de devolución., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingRefundResultEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '504': { description: Timeout simulado; la obligación permanece pendiente., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingRefundTimeoutEnvelope' } } } }
   /local/booking-trial/reservations/{reservationId}/messages:
     parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
     get:
@@ -1173,7 +1236,7 @@ components:
         data: { $ref: '#/components/schemas/LocalBookingQuote' }
     LocalBookingQuote:
       type: object
-      required: [id, space_id, rate_version, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, category_code, profile_version, profile_values, created_at, expires_at]
+      required: [id, space_id, rate_version, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, category_code, profile_version, profile_values, cancellation_policy_version, created_at, expires_at]
       properties:
         id: { type: string, format: uuid }
         space_id: { type: string, format: uuid }
@@ -1190,6 +1253,7 @@ components:
         category_code: { type: string, enum: [oficina, sala_multiproposito, bodega, estacionamiento, local_flexible, stand, quincho, parcela_eventos] }
         profile_version: { type: integer, minimum: 1 }
         profile_values: { type: object }
+        cancellation_policy_version: { type: string, const: local_flexible_v1, description: Política local snapshot del fixture sintético; no es política comercial. }
         created_at: { type: string, format: date-time }
         expires_at: { type: string, format: date-time }
     LocalBookingReservationEnvelope:
@@ -1233,6 +1297,77 @@ components:
           required: [history]
           properties:
             history: { type: array, items: { $ref: '#/components/schemas/LocalBookingTransition' } }
+    LocalBookingCancellationPreviewEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data: { $ref: '#/components/schemas/LocalBookingCancellationPreview' }
+    LocalBookingCancellationPreview:
+      type: object
+      required: [reservation_id, policy_version, eligible, deadline, amount_clp, currency, refund_label]
+      properties:
+        reservation_id: { type: string, format: uuid }
+        policy_version: { type: string, const: local_flexible_v1 }
+        eligible: { type: boolean }
+        deadline: { type: string, format: date-time, description: Pago vence para pendiente_de_pago; inicio reservado para pagada/aprobada_host. }
+        amount_clp: { type: integer, minimum: 0, description: Subtotal efectivamente confirmado por el fake; sin comisiones ni garantías. }
+        currency: { type: string, const: CLP }
+        refund_label: { type: string, const: "Devolución simulada — sin movimiento de dinero" }
+        reason_code: { type: string, enum: [sin_devolucion, devolucion_simulada_completa, inicio_alcanzado, pago_fake_no_confirmado, estado_no_cancelable] }
+    LocalBookingCancellationResultEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data:
+          type: object
+          required: [reservation, refund_state, notice_status]
+          properties:
+            reservation: { $ref: '#/components/schemas/LocalBookingReservation' }
+            refund_amount_clp: { type: integer, minimum: 0 }
+            refund_state: { type: string, enum: [no_aplica, pendiente, completada] }
+            notice_status: { type: string, enum: [mailpit_local_no_durable, no_disponible_no_durable, no_enviado_no_durable, no_reintentado_por_idempotencia] }
+    LocalBookingRefundResultEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data:
+          type: object
+          required: [reservation_id, operation_id, amount_clp, currency, state, updated_at, notice_status]
+          properties:
+            reservation_id: { type: string, format: uuid }
+            operation_id: { type: string, format: uuid, description: Identidad estable que se reutiliza en todos los reintentos fake. }
+            amount_clp: { type: integer, minimum: 1 }
+            currency: { type: string, const: CLP }
+            state: { type: string, enum: [pendiente, completada] }
+            last_result: { type: string, enum: [exito_simulado, fallo_simulado, sin_respuesta_simulada] }
+            updated_at: { type: string, format: date-time }
+            notice_status: { type: string, enum: [mailpit_local_no_durable, no_disponible_no_durable, no_enviado_no_durable, no_reintentado_por_idempotencia] }
+    LocalBookingRefundTimeoutEnvelope:
+      type: object
+      required: [data, error, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data:
+          type: object
+          required: [reservation_id, operation_id, amount_clp, currency, state, last_result, updated_at, notice_status]
+          properties:
+            reservation_id: { type: string, format: uuid }
+            operation_id: { type: string, format: uuid }
+            amount_clp: { type: integer, minimum: 1 }
+            currency: { type: string, const: CLP }
+            state: { type: string, const: pendiente }
+            last_result: { type: string, const: sin_respuesta_simulada }
+            updated_at: { type: string, format: date-time }
+            notice_status: { type: string, enum: [mailpit_local_no_durable, no_disponible_no_durable, no_enviado_no_durable] }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, const: simulated_refund_timeout }
+            message: { type: string }
     LocalBookingTransition:
       type: object
       required: [sequence, to, reason, at]
@@ -1282,7 +1417,7 @@ components:
         created_at: { type: string, format: date-time }
     LocalBookingReservation:
       type: object
-      required: [id, quote_id, space_id, host_id, renter_id, state, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, pay_expires_at, created_at, updated_at, unread_count]
+      required: [id, quote_id, space_id, host_id, renter_id, state, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, cancellation_policy_version, pay_expires_at, created_at, updated_at, unread_count]
       properties:
         id: { type: string, format: uuid }
         quote_id: { type: string, format: uuid }
@@ -1299,6 +1434,13 @@ components:
         end_at: { type: string, format: date-time }
         time_zone: { type: string }
         conditions: { type: string }
+        cancellation_policy_version: { type: string, const: local_flexible_v1, description: Snapshot local tomado desde la cotización. }
+        refund_id: { type: string, format: uuid }
+        refund_operation_id: { type: string, format: uuid }
+        refund_amount_clp: { type: integer, minimum: 1 }
+        refund_state: { type: string, enum: [pendiente, completada] }
+        refund_last_result: { type: string, enum: [exito_simulado, fallo_simulado, sin_respuesta_simulada] }
+        refund_updated_at: { type: string, format: date-time }
         pay_expires_at: { type: string, format: date-time }
         host_expires_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }

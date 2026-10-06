@@ -137,8 +137,14 @@
       <div id="booking-inbox-actions">
         <label>Resultado fake <select id="booking-inbox-payment-outcome"><option value="exito">Éxito simulado</option><option value="rechazo">Rechazo simulado</option><option value="sin_respuesta">Sin respuesta simulada</option></select></label>
         <button id="booking-inbox-pay" type="button" disabled>Enviar pago de ensayo</button>
-        <button id="booking-inbox-cancel" type="button" disabled>Cancelar antes del pago</button>
+        <button id="booking-inbox-cancel-preview" type="button" disabled>Consultar opción de cancelación</button>
+        <pre id="booking-inbox-cancel-preview-output">Selecciona una reserva pagada o pendiente para consultar sus condiciones de cancelación.</pre>
+        <label>Motivo opcional de cancelación <input id="booking-inbox-cancel-reason" type="text"></label>
+        <button id="booking-inbox-cancel" type="button" disabled>Confirmar cancelación</button>
+        <label>Resultado fake de devolución <select id="booking-inbox-refund-outcome"><option value="exito">Éxito simulado</option><option value="fallo">Fallo simulado</option><option value="sin_respuesta">Sin respuesta simulada</option></select></label>
+        <button id="booking-inbox-refund" type="button" disabled>Procesar / reintentar devolución fake</button>
         <button id="booking-inbox-approve" type="button" disabled>Aprobar</button>
+        <label>Motivo obligatorio para rechazar <input id="booking-inbox-reject-reason" type="text"></label>
         <button id="booking-inbox-reject" type="button" disabled>Rechazar</button>
       </div>
     </section>

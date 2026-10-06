@@ -23,10 +23,18 @@ type Service struct {
 	repo                      Repository
 	ids                       identity.CredentialGenerator
 	payment                   LocalPaymentAdapter
+	refund                    LocalRefundAdapter
+	notices                   LocalNoticeSender
 	now                       func() time.Time
 	quoteTTL, payTTL, hostTTL time.Duration
 	catalogCursorKey          [32]byte
 }
+
+// SetLocalRefundAdapter and SetLocalNoticeSender are used only by the local
+// prototype wiring. No production payment or durable-notification adapter is
+// provided by this service.
+func (s *Service) SetLocalRefundAdapter(adapter LocalRefundAdapter) { s.refund = adapter }
+func (s *Service) SetLocalNoticeSender(sender LocalNoticeSender)    { s.notices = sender }
 
 func NewService(repo Repository, ids identity.CredentialGenerator, now func() time.Time, payment LocalPaymentAdapter) (*Service, error) {
 	return NewServiceWithTTLs(repo, ids, now, payment, 15*time.Minute, 15*time.Minute, 24*time.Hour)
@@ -525,11 +533,10 @@ func (s *Service) Pay(ctx context.Context, renter, id, outcome, key string) (Res
 	if err != nil {
 		return Reservation{}, ErrInvalid
 	}
-	now := s.now().UTC()
-	if err := s.repo.Expire(ctx, now); err != nil {
+	if err := s.repo.Expire(ctx, s.now().UTC()); err != nil {
 		return Reservation{}, err
 	}
-	v, err := s.repo.Pay(ctx, renter, id, resolved, key, now, now.Add(s.hostTTL))
+	v, err := s.repo.Pay(ctx, renter, id, resolved, key, s.now, s.hostTTL)
 	if err != nil {
 		return v, err
 	}
@@ -538,26 +545,105 @@ func (s *Service) Pay(ctx context.Context, renter, id, outcome, key string) (Res
 	}
 	return v, nil
 }
-func (s *Service) Decide(ctx context.Context, host, id, decision string) (Reservation, error) {
-	if !uuid.MatchString(host) || !uuid.MatchString(id) || (decision != "aprobar" && decision != "rechazar") {
+func (s *Service) Decide(ctx context.Context, host, id, decision, reason string) (Reservation, error) {
+	reason = strings.TrimSpace(reason)
+	if !uuid.MatchString(host) || !uuid.MatchString(id) || (decision != "aprobar" && decision != "rechazar") || decision == "rechazar" && reason == "" {
 		return Reservation{}, ErrInvalid
 	}
-	now := s.now().UTC()
-	if err := s.repo.Expire(ctx, now); err != nil {
+	if err := s.repo.Expire(ctx, s.now().UTC()); err != nil {
 		return Reservation{}, err
 	}
-	return s.repo.Decide(ctx, host, id, decision, now)
+	return s.repo.Decide(ctx, host, id, decision, reason, s.now)
 }
-func (s *Service) Cancel(ctx context.Context, renter, id string) (Reservation, error) {
+func (s *Service) CancellationPreview(ctx context.Context, renter, id string) (CancellationPreview, error) {
 	if !uuid.MatchString(renter) || !uuid.MatchString(id) {
-		return Reservation{}, ErrNotFound
+		return CancellationPreview{}, ErrNotFound
 	}
 	now := s.now().UTC()
 	if err := s.repo.Expire(ctx, now); err != nil {
-		return Reservation{}, err
+		return CancellationPreview{}, err
 	}
-	return s.repo.Cancel(ctx, renter, id, now)
+	return s.repo.CancellationPreview(ctx, renter, id, now)
 }
+
+func (s *Service) Cancel(ctx context.Context, renter, id, key, reason string) (CancellationResult, error) {
+	reason = strings.TrimSpace(reason)
+	if !uuid.MatchString(renter) || !uuid.MatchString(id) || strings.TrimSpace(key) == "" || len(key) > 200 {
+		return CancellationResult{}, ErrInvalid
+	}
+	fingerprint := sha256.Sum256(jsonBytes(struct {
+		Reason string `json:"reason"`
+	}{reason}))
+	result, err := s.repo.Cancel(ctx, renter, id, key, reason, fingerprint[:], s.now)
+	if err != nil {
+		return CancellationResult{}, err
+	}
+	if result.Replayed {
+		result.NoticeStatus = "no_reintentado_por_idempotencia"
+		return result, nil
+	}
+	if result.RefundState == "pendiente" {
+		result.NoticeStatus = s.sendNotice(ctx, renter, id, "Reserva cancelada · devolución simulada pendiente", "La reserva fue cancelada. La devolución simulada del subtotal está pendiente; no hay movimiento de dinero real.")
+	} else {
+		result.NoticeStatus = s.sendNotice(ctx, renter, id, "Reserva cancelada · sin devolución", "La reserva local fue cancelada antes del pago. No se generó devolución.")
+	}
+	return result, nil
+}
+
+func (s *Service) Refund(ctx context.Context, renter, id, operationID, outcome string) (RefundResult, error) {
+	if !uuid.MatchString(renter) || !uuid.MatchString(id) || !uuid.MatchString(operationID) || (outcome != "exito" && outcome != "fallo" && outcome != "sin_respuesta") {
+		return RefundResult{}, ErrInvalid
+	}
+	if s.refund == nil {
+		return RefundResult{}, ErrConflict
+	}
+	operation, err := s.repo.RefundOperation(ctx, renter, id)
+	if err != nil {
+		return RefundResult{}, err
+	}
+	if operation.OperationID != operationID {
+		return RefundResult{}, ErrConflict
+	}
+	if operation.State == "completada" {
+		operation.NoticeStatus = "no_reintentado_por_idempotencia"
+		return operation, nil
+	}
+	result, err := s.refund.ProcessRefund(ctx, operation.OperationID, operationID, outcome)
+	if err != nil {
+		return RefundResult{}, ErrInvalid
+	}
+	updated, err := s.repo.RecordRefund(ctx, renter, id, result, s.now().UTC())
+	if err != nil {
+		return RefundResult{}, err
+	}
+	if updated.State == "completada" {
+		updated.NoticeStatus = s.sendNotice(ctx, renter, id, "Devolución simulada completada", "La devolución fake del 100 % del importe confirmado quedó completada. No hubo movimiento de dinero real.")
+	} else {
+		updated.NoticeStatus = s.sendNotice(ctx, renter, id, "Devolución simulada pendiente", "La reserva sigue cancelada y la devolución fake está pendiente. Reintenta la misma operación local; no hubo movimiento de dinero real.")
+	}
+	if result == "sin_respuesta_simulada" {
+		return updated, ErrSimulatedRefundNoResponse
+	}
+	return updated, nil
+}
+
+func (s *Service) sendNotice(ctx context.Context, actor, reservationID, subject, body string) string {
+	if s.notices == nil {
+		return "no_disponible_no_durable"
+	}
+	recipients, err := s.repo.NoticeRecipients(ctx, actor, reservationID)
+	if err != nil || len(recipients) != 2 {
+		return "no_enviado_no_durable"
+	}
+	for _, recipient := range recipients {
+		if err = s.notices.SendLocalBookingNotice(ctx, recipient, subject, SafetyBanner+"\r\n\r\n"+body); err != nil {
+			return "no_enviado_no_durable"
+		}
+	}
+	return "mailpit_local_no_durable"
+}
+
+func jsonBytes(value any) []byte { raw, _ := json.Marshal(value); return raw }
 func strictTime(value string) (time.Time, error) {
 	if !strings.HasSuffix(value, "Z") {
 		return time.Time{}, ErrInvalid

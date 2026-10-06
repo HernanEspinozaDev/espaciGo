@@ -33,6 +33,8 @@ type repoStub struct {
 	fixture        booking.Fixture
 	distanceMeters float64
 	items          []booking.CatalogItem
+	decideErr      error
+	cancelErr      error
 }
 
 type weeklyRepoStub struct {
@@ -101,14 +103,26 @@ func (repoStub) Get(context.Context, string, string) (booking.Detail, error) {
 	return booking.Detail{}, nil
 }
 func (repoStub) List(context.Context, string) ([]booking.Reservation, error) { return nil, nil }
-func (repoStub) Pay(context.Context, string, string, string, string, time.Time, time.Time) (booking.Reservation, error) {
+func (repoStub) Pay(context.Context, string, string, string, string, func() time.Time, time.Duration) (booking.Reservation, error) {
 	return booking.Reservation{}, nil
 }
-func (repoStub) Decide(context.Context, string, string, string, time.Time) (booking.Reservation, error) {
-	return booking.Reservation{}, nil
+func (r repoStub) Decide(context.Context, string, string, string, string, func() time.Time) (booking.Reservation, error) {
+	return booking.Reservation{}, r.decideErr
 }
-func (repoStub) Cancel(context.Context, string, string, time.Time) (booking.Reservation, error) {
-	return booking.Reservation{}, nil
+func (r repoStub) Cancel(context.Context, string, string, string, string, []byte, func() time.Time) (booking.CancellationResult, error) {
+	return booking.CancellationResult{}, r.cancelErr
+}
+func (repoStub) CancellationPreview(context.Context, string, string, time.Time) (booking.CancellationPreview, error) {
+	return booking.CancellationPreview{}, nil
+}
+func (repoStub) RefundOperation(context.Context, string, string) (booking.RefundResult, error) {
+	return booking.RefundResult{}, nil
+}
+func (repoStub) RecordRefund(context.Context, string, string, string, time.Time) (booking.RefundResult, error) {
+	return booking.RefundResult{}, nil
+}
+func (repoStub) NoticeRecipients(context.Context, string, string) ([]string, error) {
+	return nil, nil
 }
 func (repoStub) Expire(context.Context, time.Time) error { return nil }
 
@@ -498,5 +512,43 @@ func TestCatalogPageQueryParameters(t *testing.T) {
 		if size != tc.want || ok != tc.ok {
 			t.Errorf("page params %v => %d,%v want %d,%v", tc.query, size, ok, tc.want, tc.ok)
 		}
+	}
+}
+
+func TestLocalBookingDecisionAndCancellationConflictsMatchHTTPContract(t *testing.T) {
+	repo := repoStub{decideErr: booking.ErrConflict, cancelErr: booking.ErrConflict}
+	service, err := booking.NewService(repo, credentials.Generator{}, func() time.Time { return time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC) }, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(authStub{}, service, nil)
+	base := "/api/v1/local/booking-trial/reservations/00000000-0000-4000-8000-000000000001"
+	request := func(path, body, idempotency string) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer test-session")
+		r.Header.Set("Content-Type", "application/json")
+		if idempotency != "" {
+			r.Header.Set("Idempotency-Key", idempotency)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, r)
+		return response
+	}
+	missingReason := request(base+"/decision", `{"decision":"rechazar"}`, "")
+	if missingReason.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("host rejection without reason status=%d body=%s", missingReason.Code, missingReason.Body)
+	}
+	unknown := request(base+"/decision", `{"decision":"aprobar","extra":true}`, "")
+	if unknown.Code != http.StatusBadRequest {
+		t.Fatalf("decision with unknown field status=%d body=%s", unknown.Code, unknown.Body)
+	}
+	decisionConflict := request(base+"/decision", `{"decision":"aprobar"}`, "")
+	if decisionConflict.Code != http.StatusConflict {
+		t.Fatalf("decision conflict status=%d body=%s", decisionConflict.Code, decisionConflict.Body)
+	}
+	cancelConflict := request(base+"/cancel", `{"reason":"ya no lo necesito"}`, "cancel-http-test")
+	if cancelConflict.Code != http.StatusConflict {
+		t.Fatalf("cancellation conflict status=%d body=%s", cancelConflict.Code, cancelConflict.Body)
 	}
 }
