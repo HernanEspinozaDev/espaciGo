@@ -6,6 +6,8 @@ Issue #156, trazable a #95–#98 y CU-37/CU-38/HU34. Corte local sintético; las
 
 - `bash scripts/dev-env.sh up`: entorno local saludable y V16 aplicada de forma incremental sobre `espacigo_pgdata`.
 - `bash scripts/test-m06-local-booking-postgres.sh`: pasó en PostgreSQL desechable, con el rol runtime usado por el Backend. La prueba recorre envío idempotente, autorización de anfitrión/arrendatario, rechazo de terceros, límites, paginación por cursor, envío en los tres estados activos y lectura sin envío tras cancelación, rechazo y vencimiento. También comprueba que `aprobada_host` permite conversar aunque el intervalo ya haya terminado.
+- Dos casos con reloj inyectable avanzan exactamente al plazo de pago y al de respuesta del anfitrión y envían sin consultar antes la reserva, bandeja o catálogo. El intento nuevo devuelve conflicto, no inserta mensajes, expira la reserva, libera la ocupación y registra transición; el plazo del anfitrión registra además la devolución simulada. Un reintento idempotente de mensaje existente se conserva después del vencimiento.
+- La misma integración ejecuta `scripts/clean-local-booking-thread-messages.sh` mediante `psql` conectado a la base desechable, con dos hilos. El script elimina únicamente el hilo indicado y conserva el otro, las reservas y sus historiales.
 - `go test ./...`: pasó.
 - `go vet ./...`: pasó.
 - `npm --prefix mock run test:profile-races`: pasó, 8/8.
@@ -20,6 +22,6 @@ La comprobación detectó que el wrapper de formularios dejaba deshabilitado el 
 
 ## Datos y pendientes
 
-La prueba interactiva dejó mensajes sintéticos en el hilo local a propósito para conservar la evidencia de persistencia. No se ejecutó el script de limpieza. `espacigo_pgdata` conserva su volumen preexistente (creado el `2026-10-05T01:49:09-03:00`); no se reinició ni se borró. La limpieza de un hilo requiere ejecutar explícitamente el comando documentado en `planning/decisiones_m09_conversacion_local.md`.
+La prueba interactiva dejó mensajes sintéticos en el hilo local a propósito para conservar la evidencia de persistencia. El script se probó exclusivamente en PostgreSQL desechable, no contra la base persistente. `espacigo_pgdata` conserva su volumen preexistente (creado el `2026-10-05T01:49:09-03:00`); no se reinició ni se borró. La limpieza de un hilo requiere ejecutar explícitamente el comando documentado en `planning/decisiones_m09_conversacion_local.md`.
 
 La retención productiva, moderación, acceso administrativo y solicitudes de borrado siguen pendientes en #95–#98. No hay expiración automática ni se atribuye plazo legal a esos mensajes.

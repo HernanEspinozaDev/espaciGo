@@ -19,5 +19,11 @@ export LOCAL_GID="$(id -g)"
 export LOCAL_M03_EVIDENCE_DIR="${XDG_DATA_HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)/.local/share}/espacigo/m03-evidence"
 docker compose --project-directory "$ROOT_DIR" -f "$ROOT_DIR/compose.yaml" exec -T database \
   psql -X -v ON_ERROR_STOP=1 -U espacigo_admin -d espacigo_local \
-  --set=reservation_id="$reservation_id" \
-  -c "WITH deleted AS (DELETE FROM public.mensaje_reserva_ensayo WHERE reserva_id=:'reservation_id'::uuid RETURNING 1) SELECT count(*) AS mensajes_eliminados FROM deleted"
+  --set=reservation_id="$reservation_id" <<'SQL'
+WITH deleted AS (
+  DELETE FROM public.mensaje_reserva_ensayo
+  WHERE reserva_id = :'reservation_id'::uuid
+  RETURNING 1
+)
+SELECT count(*) AS mensajes_eliminados FROM deleted;
+SQL

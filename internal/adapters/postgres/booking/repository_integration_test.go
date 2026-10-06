@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -431,6 +433,57 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.mensaje_reserva_ensayo WHERE reserva_id=$1`, results[0].ID).Scan(&messageCount); err != nil || messageCount != 5 {
 		t.Fatalf("idempotent retry left message count=%d err=%v", messageCount, err)
 	}
+	// Exercise the cleanup script's real psql variable interpolation against
+	// this disposable database. Only the selected thread may be deleted.
+	var otherThreadMessages, reservationsBefore, historiesBefore int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.mensaje_reserva_ensayo WHERE reserva_id=$1`, secondReservation.ID).Scan(&otherThreadMessages); err != nil || otherThreadMessages != 1 {
+		t.Fatalf("other thread message count=%d err=%v", otherThreadMessages, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE id IN ($1,$2)`, results[0].ID, secondReservation.ID).Scan(&reservationsBefore); err != nil || reservationsBefore != 2 {
+		t.Fatalf("reservation count before cleanup=%d err=%v", reservationsBefore, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id IN ($1,$2)`, results[0].ID, secondReservation.ID).Scan(&historiesBefore); err != nil {
+		t.Fatal(err)
+	}
+	cleanupDir := t.TempDir()
+	dockerWrapper := `#!/bin/sh
+set -eu
+while [ "$#" -gt 0 ] && [ "$1" != psql ]; do shift; done
+[ "$#" -gt 0 ] || exit 90
+shift
+reservation_arg=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --set=reservation_id=*) reservation_arg="${1#--set=reservation_id=}" ;;
+  esac
+  shift
+done
+[ -n "$reservation_arg" ] || exit 91
+exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$reservation_arg"
+`
+	if err = os.WriteFile(filepath.Join(cleanupDir, "docker"), []byte(dockerWrapper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cleanupCommand := exec.CommandContext(ctx, "bash", "../../../../scripts/clean-local-booking-thread-messages.sh", results[0].ID)
+	cleanupCommand.Env = append(os.Environ(), "PATH="+cleanupDir+":"+os.Getenv("PATH"), "TEST_DATABASE_URL="+dbURL)
+	cleanupCommand.Stdin = strings.NewReader("borrar-hilo\n")
+	cleanupOutput, cleanupErr := cleanupCommand.CombinedOutput()
+	if cleanupErr != nil {
+		t.Fatalf("thread cleanup script failed: %v\n%s", cleanupErr, cleanupOutput)
+	}
+	var selectedMessages, otherMessages, reservationsAfter, historiesAfter int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.mensaje_reserva_ensayo WHERE reserva_id=$1`, results[0].ID).Scan(&selectedMessages); err != nil || selectedMessages != 0 {
+		t.Fatalf("selected thread messages after cleanup=%d err=%v", selectedMessages, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.mensaje_reserva_ensayo WHERE reserva_id=$1`, secondReservation.ID).Scan(&otherMessages); err != nil || otherMessages != otherThreadMessages {
+		t.Fatalf("other thread messages after cleanup=%d want=%d err=%v", otherMessages, otherThreadMessages, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE id IN ($1,$2)`, results[0].ID, secondReservation.ID).Scan(&reservationsAfter); err != nil || reservationsAfter != reservationsBefore {
+		t.Fatalf("reservations after cleanup=%d want=%d err=%v", reservationsAfter, reservationsBefore, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id IN ($1,$2)`, results[0].ID, secondReservation.ID).Scan(&historiesAfter); err != nil || historiesAfter != historiesBefore {
+		t.Fatalf("histories after cleanup=%d want=%d err=%v", historiesAfter, historiesBefore, err)
+	}
 	clockMu.Lock()
 	fixedNow = start.Add(2 * time.Hour) // Past the reserved interval: approval does not end chat in this slice.
 	clockMu.Unlock()
@@ -598,6 +651,86 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if terminalRead, readErr := conversationService.List(ctx, host, cancelledByPayment.ID, nil, 10); readErr != nil || len(terminalRead.Items) != 1 {
 		t.Fatalf("payment-rejected thread was not preserved read-only: %+v err=%v", terminalRead, readErr)
 	}
+	// Sending directly at either deadline must run the existing expiry
+	// transition under the reservation lock, without a Get/List/catalog call.
+	setClock := func(value time.Time) {
+		clockMu.Lock()
+		fixedNow = value
+		clockMu.Unlock()
+	}
+	baseNow := time.Date(2030, 1, 3, 12, 0, 0, 0, time.UTC)
+	setClock(baseNow)
+	paymentDeadlineStart := start.Add(12 * time.Hour)
+	paymentDeadlineQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: paymentDeadlineStart.Format(time.RFC3339), EndAt: paymentDeadlineStart.Add(time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paymentDeadlineReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: paymentDeadlineQuote.ID}, "direct-payment-deadline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	priorMessage, err := conversationService.Send(ctx, renter, paymentDeadlineReservation.ID, "before-payment-deadline", "Mensaje anterior al plazo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setClock(paymentDeadlineReservation.PayExpiresAt)
+	if _, err = conversationService.Send(ctx, renter, paymentDeadlineReservation.ID, "at-payment-deadline", "No debe insertarse"); err != conversation.ErrConflict {
+		t.Fatalf("new message at payment deadline err=%v", err)
+	}
+	priorRetry, err := conversationService.Send(ctx, renter, paymentDeadlineReservation.ID, "before-payment-deadline", "Mensaje anterior al plazo")
+	if err != nil || priorRetry.ID != priorMessage.ID {
+		t.Fatalf("idempotent message retry after deadline=%+v original=%+v err=%v", priorRetry, priorMessage, err)
+	}
+	var deadlineState string
+	var deadlineMessageCount, deadlineActiveOccupancy int
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, paymentDeadlineReservation.ID).Scan(&deadlineState); err != nil || deadlineState != "vencida_pago" {
+		t.Fatalf("payment deadline state=%s err=%v", deadlineState, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.mensaje_reserva_ensayo WHERE reserva_id=$1`, paymentDeadlineReservation.ID).Scan(&deadlineMessageCount); err != nil || deadlineMessageCount != 1 {
+		t.Fatalf("payment deadline messages=%d want only preexisting message err=%v", deadlineMessageCount, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo`, paymentDeadlineReservation.ID).Scan(&deadlineActiveOccupancy); err != nil || deadlineActiveOccupancy != 0 {
+		t.Fatalf("payment deadline active occupancy=%d err=%v", deadlineActiveOccupancy, err)
+	}
+	var paymentExpiryTransition int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 AND estado_nuevo='vencida_pago'`, paymentDeadlineReservation.ID).Scan(&paymentExpiryTransition); err != nil || paymentExpiryTransition != 1 {
+		t.Fatalf("payment expiry history transition count=%d err=%v", paymentExpiryTransition, err)
+	}
+	setClock(baseNow)
+	hostDeadlineStart := start.Add(14 * time.Hour)
+	hostDeadlineQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: hostDeadlineStart.Format(time.RFC3339), EndAt: hostDeadlineStart.Add(time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostDeadlineReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: hostDeadlineQuote.ID}, "direct-host-deadline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paidAtDeadlineReservation, err := svc.Pay(ctx, renter, hostDeadlineReservation.ID, "exito", "direct-host-deadline-payment")
+	if err != nil || paidAtDeadlineReservation.HostExpiresAt == nil {
+		t.Fatalf("host deadline setup payment=%+v err=%v", paidAtDeadlineReservation, err)
+	}
+	setClock(*paidAtDeadlineReservation.HostExpiresAt)
+	if _, err = conversationService.Send(ctx, host, hostDeadlineReservation.ID, "at-host-deadline", "No debe insertarse"); err != conversation.ErrConflict {
+		t.Fatalf("new message at host deadline err=%v", err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, hostDeadlineReservation.ID).Scan(&deadlineState); err != nil || deadlineState != "vencida_host" {
+		t.Fatalf("host deadline state=%s err=%v", deadlineState, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.mensaje_reserva_ensayo WHERE reserva_id=$1`, hostDeadlineReservation.ID).Scan(&deadlineMessageCount); err != nil || deadlineMessageCount != 0 {
+		t.Fatalf("host deadline inserted messages=%d err=%v", deadlineMessageCount, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo`, hostDeadlineReservation.ID).Scan(&deadlineActiveOccupancy); err != nil || deadlineActiveOccupancy != 0 {
+		t.Fatalf("host deadline active occupancy=%d err=%v", deadlineActiveOccupancy, err)
+	}
+	var hostExpiryTransition, simulatedRefund int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 AND estado_nuevo='vencida_host'`, hostDeadlineReservation.ID).Scan(&hostExpiryTransition); err != nil || hostExpiryTransition != 1 {
+		t.Fatalf("host expiry history transition count=%d err=%v", hostExpiryTransition, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_ensayo WHERE reserva_id=$1 AND resultado='devolucion_simulada'`, hostDeadlineReservation.ID).Scan(&simulatedRefund); err != nil || simulatedRefund != 1 {
+		t.Fatalf("host expiry simulated refund count=%d err=%v", simulatedRefund, err)
+	}
+	setClock(baseNow)
 	if _, err = svc.Request(ctx, renter, booking.RequestInput{QuoteID: quote2.ID}, "same-key"); err != booking.ErrConflict {
 		t.Fatalf("idempotency payload conflict=%v", err)
 	}

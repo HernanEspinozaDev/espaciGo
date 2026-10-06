@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking/expiry"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -99,6 +100,16 @@ WHERE reserva_id=$1 AND autor_id=$2 AND clave_idempotencia=$3`, reservationID, a
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return conversation.Message{}, err
+	}
+	expired, err := expiry.LockedReservation(ctx, tx, reservationID, createdAt)
+	if err != nil {
+		return conversation.Message{}, err
+	}
+	if expired {
+		if err = tx.Commit(ctx); err != nil {
+			return conversation.Message{}, err
+		}
+		return conversation.Message{}, conversation.ErrConflict
 	}
 	if state != "pendiente_de_pago" && state != "pagada" && state != "aprobada_host" {
 		return conversation.Message{}, conversation.ErrConflict
