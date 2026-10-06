@@ -5,3 +5,4 @@ label {display: block; margin: .8rem 0;} input:not([type=checkbox]) {display: bl
 button {padding: .65rem 1rem; background: #145b78; color: white; border: 0; border-radius: 4px; cursor: pointer; margin: .25rem 0;}
 button:disabled {opacity: .5; cursor: wait;} pre {white-space: pre-wrap; overflow-wrap: anywhere;}
 #result {padding: 1rem; background: #e3edf3;} a {color: #145b78;}
+.safety-banner {position: sticky; top: .5rem; z-index: 2; padding: 1rem; border: 2px solid #8c3b00; background: #fff2d2; color: #612a00; font-weight: 800; text-align: center;}

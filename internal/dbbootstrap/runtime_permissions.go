@@ -21,6 +21,10 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT SELECT, INSERT, UPDATE ON public.espacio TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE, DELETE ON public.espacio_caracteristicas TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.ocupacion TO espacigo_runtime;
- GRANT SELECT, INSERT ON public.tarifa_espacio, public.simulacion_precio_privada TO espacigo_runtime;`)
+ GRANT SELECT, INSERT ON public.tarifa_espacio, public.simulacion_precio_privada TO espacigo_runtime;
+ GRANT SELECT ON public.reserva_ensayo_local_fixture TO espacigo_runtime;
+ GRANT SELECT, INSERT ON public.cotizacion_reserva_ensayo TO espacigo_runtime;
+ GRANT SELECT, INSERT, UPDATE ON public.reserva_ensayo_local TO espacigo_runtime;
+ GRANT SELECT, INSERT ON public.reserva_ensayo_transicion, public.reserva_pago_ensayo TO espacigo_runtime;`)
 	return err
 }

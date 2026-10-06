@@ -538,6 +538,60 @@ form("calendar-block-form", async (data, element) => {
 });
 calendarZoneInput.addEventListener("input", refreshCalendarControls);
 refreshCalendarControls();
+let bookingFixture = null;
+let reservationKey = crypto.randomUUID();
+const paymentKeys = new Map();
+const bookingBase = "/api/v1/local/booking-trial";
+const bookingFixtureOutput = document.querySelector("#booking-fixture-output");
+const bookingQuoteOutput = document.querySelector("#booking-quote-output");
+const bookingHistoryOutput = document.querySelector("#booking-history-output");
+function bookingData(result) { return result.data; }
+document.querySelector("#booking-fixture-load").addEventListener("click", () => void action(async () => {
+    const result = await request(`${bookingBase}/fixture`, "GET", undefined, true);
+    bookingFixture = bookingData(result);
+    bookingFixtureOutput.textContent = `${String(result.safety_notice)}\nEspacio sintético autorizado: ${bookingFixture.title} · ${bookingFixture.space_id}\nZona guardada: ${bookingFixture.time_zone}\nAnfitrión: ${bookingFixture.host_id}\nArrendatario: ${bookingFixture.renter_id}`;
+}));
+form("booking-quote-form", async (data) => {
+    if (!bookingFixture)
+        throw new Error("Consulta primero el fixture autorizado.");
+    const quote = bookingData(await request(`${bookingBase}/quotes`, "POST", { start_at: localTimeAsUTC(String(data.get("start_at")), bookingFixture.time_zone), end_at: localTimeAsUTC(String(data.get("end_at")), bookingFixture.time_zone) }, true));
+    (document.querySelector('#booking-request-form [name="quote_id"]')).value = String(quote.id);
+    bookingQuoteOutput.textContent = `ENSAYO LOCAL — SIN COBRO REAL\n${JSON.stringify(quote, null, 2)}`;
+});
+form("booking-request-form", async (data, element) => {
+    const result = await request(`${bookingBase}/reservations`, "POST", { quote_id: data.get("quote_id") }, true, reservationKey);
+    const item = bookingData(result);
+    (document.querySelector('#booking-payment-form [name="id"]')).value = String(item.id);
+    (document.querySelector('#booking-decision-form [name="id"]')).value = String(item.id);
+    (document.querySelector('#booking-cancel-form [name="id"]')).value = String(item.id);
+    bookingHistoryOutput.textContent = JSON.stringify(item, null, 2);
+    reservationKey = crypto.randomUUID();
+    element.reset();
+});
+form("booking-payment-form", async (data) => {
+    const id = String(data.get("id"));
+    let key = paymentKeys.get(id);
+    if (!key) {
+        key = crypto.randomUUID();
+        paymentKeys.set(id, key);
+    }
+    const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/payment`, "POST", { outcome: data.get("outcome") }, true, key);
+    bookingHistoryOutput.textContent = `${String(result.safety_notice)}\n${JSON.stringify(bookingData(result), null, 2)}`;
+});
+form("booking-decision-form", async (data) => {
+    const id = String(data.get("id"));
+    const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/decision`, "POST", { decision: data.get("decision") }, true);
+    bookingHistoryOutput.textContent = JSON.stringify(bookingData(result), null, 2);
+});
+form("booking-cancel-form", async (data) => {
+    const id = String(data.get("id"));
+    const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/cancel`, "POST", undefined, true);
+    bookingHistoryOutput.textContent = JSON.stringify(bookingData(result), null, 2);
+});
+document.querySelector("#booking-history-load").addEventListener("click", () => void action(async () => {
+    const result = await request(`${bookingBase}/reservations`, "GET", undefined, true);
+    bookingHistoryOutput.textContent = `${String(result.safety_notice)}\n${JSON.stringify(bookingData(result), null, 2)}`;
+}));
 async function initialize() {
     try {
         const config = await (await fetch("/config.json", { cache: "no-store" })).json();

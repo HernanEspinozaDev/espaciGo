@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: EspaciGo API
   version: 1.0.0
-  description: 'Prototipo local M01, cortes parciales M02/M03/M04/M05 y calendario privado M06. M03 usa casos KYC/KYB sintéticos; no consulta Registro Civil/SII ni declara identidad acreditada. M04 conserva borradores privados; disponibilidad usa ocupacion M06. M05 versiona tarifas y persiste simulaciones privadas del precio base, sin reserva ni publicación. M02 conserva pendientes productivos; historial y avisos durables RQF-217/218 dependen de DB02-09.'
+  description: 'Prototipo local M01, cortes parciales M02/M03/M04/M05 y calendario privado M06. M03 usa casos KYC/KYB sintéticos; no consulta Registro Civil/SII ni declara identidad acreditada. M04 conserva borradores privados; disponibilidad usa ocupacion M06. M05 versiona tarifas/simulaciones privadas; M06 habilita en perfil local un fixture de reserva con fake sin cobro real. M02 conserva pendientes productivos; historial y avisos durables RQF-217/218 dependen de DB02-09.'
 servers:
 - url: /api/v1
   description: Base relativa versionada; el host se configura por entorno.
@@ -763,6 +763,111 @@ paths:
         '204': { description: Bloqueo desactivado. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /local/booking-trial/fixture:
+    get:
+      operationId: getAuthorizedLocalBookingFixture
+      tags: [M06 local]
+      description: Solo retorna el único borrador sintético allowlisted para uno de sus dos participantes activos. No es búsqueda pública ni permiso comercial.
+      responses:
+        '200': { description: Fixture privado con el banner de ensayo., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingFixtureEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /local/booking-trial/quotes:
+    post:
+      operationId: quoteAuthorizedLocalBooking
+      tags: [M06 local]
+      description: Cotiza sin ocupar; conserva snapshot de tarifa y zona del borrador. Caducidad provisional configurable de 15 minutos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [start_at, end_at]
+              properties:
+                start_at: { type: string, format: date-time }
+                end_at: { type: string, format: date-time }
+      responses:
+        '200': { description: Cotización snapshot de ensayo local., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingQuoteEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations:
+    get:
+      operationId: listOwnLocalTrialReservations
+      tags: [M06 local]
+      description: Historial de reservas del participante autenticado en el fixture privado.
+      responses:
+        '200': { description: Historial y aviso ENSAYO LOCAL — SIN COBRO REAL., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingListEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: requestLocalTrialReservation
+      tags: [M06 local]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quote_id]
+              properties:
+                quote_id: { type: string, format: uuid }
+      responses:
+        '201': { description: Retención en ocupacion y reserva pendiente de pago dentro de una transacción., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingReservationEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /local/booking-trial/reservations/{reservationId}:
+    parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: getOwnLocalTrialReservation
+      tags: [M06 local]
+      responses:
+        '200': { description: Estado, snapshot e historial autorizado., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingDetailEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /local/booking-trial/reservations/{reservationId}/payment:
+    post:
+      operationId: simulateLocalTrialPayment
+      tags: [M06 local]
+      parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }, { name: Idempotency-Key, in: header, required: true, schema: { type: string } }]
+      description: Adaptador fake solo con LOCAL_BOOKING_TRIAL=1; admite exito, rechazo o sin_respuesta. Nunca se conecta a una pasarela.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [outcome], properties: { outcome: { type: string, enum: [exito, rechazo, sin_respuesta] } } }
+      responses:
+        '200': { description: Resultado de ensayo con banner no-cobro., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingReservationEnvelope' } } } }
+        '504': { description: Timeout simulado; la reserva sigue pendiente., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingTimeoutEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /local/booking-trial/reservations/{reservationId}/decision:
+    post:
+      operationId: decideLocalTrialReservation
+      tags: [M06 local]
+      parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [decision], properties: { decision: { type: string, enum: [aprobar, rechazar] } } }
+      responses:
+        '200': { description: Aprobación o rechazo del participante anfitrión., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingReservationEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /local/booking-trial/reservations/{reservationId}/cancel:
+    post:
+      operationId: cancelPendingLocalTrialReservation
+      tags: [M06 local]
+      parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Cancelación permitida solamente antes del pago., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingReservationEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /auth/logout:
     post:
       operationId: logout
@@ -810,6 +915,122 @@ components:
         type: string
         minLength: 1
   schemas:
+    LocalBookingFixtureEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data:
+          type: object
+          required: [space_id, title, category, host_id, renter_id, rate_unit, base_price_clp, currency, time_zone]
+          properties:
+            space_id: { type: string, format: uuid }
+            title: { type: string }
+            category: { type: string }
+            host_id: { type: string, format: uuid }
+            renter_id: { type: string, format: uuid }
+            rate_unit: { type: string, enum: [hora, dia, mes] }
+            base_price_clp: { type: integer, minimum: 5001 }
+            currency: { type: string, const: CLP }
+            time_zone: { type: string }
+    LocalBookingQuoteEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data: { $ref: '#/components/schemas/LocalBookingQuote' }
+    LocalBookingQuote:
+      type: object
+      required: [id, space_id, rate_version, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, created_at, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        rate_version: { type: integer }
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        unit_price_clp: { type: integer }
+        currency: { type: string, const: CLP }
+        units: { type: integer, minimum: 1 }
+        subtotal_clp: { type: integer, minimum: 1 }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        time_zone: { type: string }
+        conditions: { type: string }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    LocalBookingReservationEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data: { $ref: '#/components/schemas/LocalBookingReservation' }
+    LocalBookingTimeoutEnvelope:
+      type: object
+      required: [data, error, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data: { $ref: '#/components/schemas/LocalBookingReservation' }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, const: simulated_payment_timeout }
+            message: { type: string }
+    LocalBookingListEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data:
+          type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LocalBookingReservation' } }
+    LocalBookingDetailEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data: { $ref: '#/components/schemas/LocalBookingDetail' }
+    LocalBookingDetail:
+      allOf:
+        - $ref: '#/components/schemas/LocalBookingReservation'
+        - type: object
+          required: [history]
+          properties:
+            history: { type: array, items: { $ref: '#/components/schemas/LocalBookingTransition' } }
+    LocalBookingTransition:
+      type: object
+      required: [sequence, to, reason, at]
+      properties:
+        sequence: { type: integer, format: int64, minimum: 1 }
+        from: { type: string }
+        to: { type: string }
+        actor_id: { type: string, format: uuid }
+        reason: { type: string }
+        at: { type: string, format: date-time }
+    LocalBookingReservation:
+      type: object
+      required: [id, quote_id, space_id, host_id, renter_id, state, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, pay_expires_at, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        quote_id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        host_id: { type: string, format: uuid }
+        renter_id: { type: string, format: uuid }
+        state: { type: string, enum: [pendiente_de_pago, pagada, aprobada_host, cancelada_por_pago, rechazada_arrendador, vencida_pago, vencida_host, cancelada_arrendatario] }
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        unit_price_clp: { type: integer }
+        currency: { type: string, const: CLP }
+        units: { type: integer }
+        subtotal_clp: { type: integer }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        time_zone: { type: string }
+        conditions: { type: string }
+        pay_expires_at: { type: string, format: date-time }
+        host_expires_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     SpaceCategory:
       type: object
       required: [code, name]

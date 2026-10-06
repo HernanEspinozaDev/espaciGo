@@ -35,6 +35,7 @@ services:
     user: "${LOCAL_UID:?run scripts/dev-env.sh}:${LOCAL_GID:?run scripts/dev-env.sh}"
     environment:
       LOCAL_AUTH_PROTOTYPE: "1"
+      LOCAL_BOOKING_TRIAL: "1"
       DATABASE_HOST: database
       DATABASE_NAME: espacigo_local
       DATABASE_USER: espacigo_admin
@@ -72,6 +73,10 @@ services:
     environment:
       HTTP_ADDR: ":8080"
       LOCAL_AUTH_PROTOTYPE: "1"
+      LOCAL_BOOKING_TRIAL: "1"
+      LOCAL_BOOKING_QUOTE_TTL: "${LOCAL_BOOKING_QUOTE_TTL:-15m}"
+      LOCAL_BOOKING_PAY_TTL: "${LOCAL_BOOKING_PAY_TTL:-15m}"
+      LOCAL_BOOKING_HOST_TTL: "${LOCAL_BOOKING_HOST_TTL:-24h}"
       LOCAL_SMTP_ADDR: mailpit:1025
       LOCAL_VERIFICATION_IP_LIMIT: "${LOCAL_VERIFICATION_IP_LIMIT:-20}"
       M03_EVIDENCE_DIR: /var/lib/espacigo/private-evidence
