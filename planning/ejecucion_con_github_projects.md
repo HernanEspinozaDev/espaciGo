@@ -2,7 +2,7 @@
 
 ## Estrategia vigente — prototipo local, 2026-10-06
 
-Aceptación: #148 se cerró tras PRs #149/#150; #151 se cerró tras PR #152. Continuación autorizada: Issue #153, M06-LOCAL-02, bandeja local separada por rol de anfitrión/arrendatario, selección sin copiar ID, detalle/historial y acciones ya admitidas por la API. Usa estados y reglas existentes; no habilita gestión de fixtures, publicación, pasarela real ni reglas nuevas. Las Issues generales #69–#79, DB02-09 y #123 permanecen abiertas. Mantener `espacigo_pgdata` y secretos locales.
+Aceptación: #148 y #151 fueron aceptadas tras PR #152; #153 se aceptó y cerró tras PR #154. Entrega autorizada en curso: #156, M09-LOCAL-01, conversación de texto persistente asociada a la reserva seleccionada en la bandeja. Decisiones provisionales: participantes solamente; envío en pendiente de pago, pagada y aprobada por anfitrión; lectura terminal; sin cierre por fecha de intervalo; 1–2.000 caracteres; retries idempotentes; paginación estable; sin borrado automático. Véase [decisión M09](decisiones_m09_conversacion_local.md). Las Issues generales #95–#98, M05/M06, DB02-09 y #123 conservan sus criterios y pendientes. Mantener `espacigo_pgdata` y secretos locales.
 
 PRs #124/#125 (M01), #126 (tramo M02), #127 (M03 sintético), #143 (evidencia sintética local), #134 (borradores M04) y #141 (catálogo extensible M04) están fusionados. M03 y M04 siguen parciales; #142 conserva requisitos KYC productivos. El nuevo corte #144 separa explícitamente disponibilidad y bloqueos manuales privados de borradores como subentrega de LIST-BE-02 (#56). No espera #43 (perfil M02) ni #142 (documentos KYC productivos): la sesión M01 identifica al titular y el recorrido no publica ni transa. #43/#142 y los criterios completos de #56 permanecen abiertos.
 
@@ -34,7 +34,7 @@ Corte de referencia: 2026-10-05. Usa esta guía junto con [contexto_para_agentes
 ## 2. Seleccionar trabajo
 
 - Ejecuta únicamente Issues autorizadas, con dependencias vigentes `blocked_by` satisfechas y criterios/referencias comprendidos. Una Issue `Listo` no se autoriza por sí sola.
-- Las entregas M01 #30–#35 tuvieron cortes parciales en PR #124/#125; #34/#35 y M02 #37–#43 siguen abiertas donde criterios permanecen pendientes. El corte vigente es #153, sobre las APIs ya habilitadas por #148 y la sesión M01. RQF-217/218 dependen de DB02-09; #123 continúa como limpieza de servidor independiente.
+- Las entregas M01 #30–#35 tuvieron cortes parciales en PR #124/#125; #34/#35 y M02 #37–#43 siguen abiertas donde criterios permanecen pendientes. #153 se aceptó como bandeja local; #156 agrega conversación persistente sobre las reservas autorizadas. No cierra #95–#98 ni otras partes de M09. RQF-217/218 dependen de DB02-09; #123 continúa como limpieza de servidor independiente.
 - AUTH-BE-03 conserva además los límites de RQF-217 y RQF-218; no agregues DDL ni decisiones implícitas. DB02-09 sigue abierto.
 - Antes de empezar cualquier Issue, lee el cuerpo completo, los enlaces a requisitos, las pruebas/evidencias y el estado de sus PRs. La columna `Estado Hermes (histórico)` es solo evidencia del estado anterior, no aprobación actual.
 - Mantén la secuencia del proyecto: Base de Datos → Backend → API → pruebas → mock visual temporal. Puedes completar una Issue autorizada cuando sus dependencias estén satisfechas, pero limita cada cambio a su alcance y criterios; no agregues funcionalidades fuera de esa autorización ni comiences frontend definitivo antes de su gate.

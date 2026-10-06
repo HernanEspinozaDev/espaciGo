@@ -17,6 +17,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
+	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
 	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
@@ -24,6 +25,7 @@ import (
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
@@ -151,7 +153,11 @@ func run() error {
 			if err != nil {
 				return errors.New("local booking trial initialization failed")
 			}
-			bookingHandler := bookinghttp.NewHandler(service, bookingService, cfg.allowedOrigins)
+			conversationService, err := conversation.NewService(conversationpg.New(pool), credentials.Generator{}, time.Now)
+			if err != nil {
+				return errors.New("local booking conversation initialization failed")
+			}
+			bookingHandler := bookinghttp.NewHandler(service, bookingService, cfg.allowedOrigins, conversationService)
 			mux.Handle("/api/v1/local/booking-trial/", bookingHandler)
 		}
 		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {

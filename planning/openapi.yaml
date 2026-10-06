@@ -897,6 +897,46 @@ paths:
         '200': { description: Cancelación permitida solamente antes del pago., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingReservationEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /local/booking-trial/reservations/{reservationId}/messages:
+    parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: listOwnLocalReservationMessages
+      tags: [M09 local]
+      description: >-
+        Solo participantes leen. Devuelve los mensajes más recientes ordenados
+        por secuencia ascendente; before es la secuencia exclusiva del cursor
+        y older_cursor permite cargar la página previa. Conserva lectura en
+        estados terminales.
+      parameters:
+        - { name: before, in: query, required: false, schema: { type: integer, format: int64, minimum: 1 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
+      responses:
+        '200': { description: Página de texto sintético de la conversación., content: { application/json: { schema: { $ref: '#/components/schemas/LocalReservationMessagesPageEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    post:
+      operationId: sendOwnLocalReservationMessage
+      tags: [M09 local]
+      description: Envío idempotente solo en pendiente_de_pago, pagada y aprobada_host. No agrega notificaciones ni tiempo real.
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        '201': { description: Mensaje persistido; replay idéntico devuelve el mismo mensaje., content: { application/json: { schema: { $ref: '#/components/schemas/LocalReservationMessageEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /auth/logout:
     post:
       operationId: logout
@@ -1073,6 +1113,33 @@ components:
         actor_id: { type: string, format: uuid }
         reason: { type: string }
         at: { type: string, format: date-time }
+    LocalReservationMessageEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data: { $ref: '#/components/schemas/LocalReservationMessage' }
+    LocalReservationMessagesPageEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data:
+          type: object
+          required: [items, older_cursor]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LocalReservationMessage' } }
+            older_cursor: { type: [integer, 'null'], format: int64, minimum: 1 }
+    LocalReservationMessage:
+      type: object
+      required: [id, reservation_id, author_id, sequence, body, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        reservation_id: { type: string, format: uuid }
+        author_id: { type: string, format: uuid }
+        sequence: { type: integer, format: int64, minimum: 1 }
+        body: { type: string, minLength: 1, maxLength: 2000 }
+        created_at: { type: string, format: date-time }
     LocalBookingReservation:
       type: object
       required: [id, quote_id, space_id, host_id, renter_id, state, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, pay_expires_at, created_at, updated_at]

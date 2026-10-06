@@ -7,11 +7,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 )
 
@@ -19,17 +21,22 @@ type Authenticator interface {
 	Authorize(context.Context, identity.Secret, identity.Role, identity.ActivityKind) (identity.Principal, error)
 }
 type Handler struct {
-	auth    Authenticator
-	service *booking.Service
-	origins map[string]bool
+	auth         Authenticator
+	service      *booking.Service
+	conversation *conversation.Service
+	origins      map[string]bool
 }
 
-func NewHandler(auth Authenticator, service *booking.Service, origins []string) http.Handler {
+func NewHandler(auth Authenticator, service *booking.Service, origins []string, conversations ...*conversation.Service) http.Handler {
 	allowed := map[string]bool{}
 	for _, o := range origins {
 		allowed[o] = true
 	}
-	return &Handler{auth: auth, service: service, origins: allowed}
+	var conversationService *conversation.Service
+	if len(conversations) > 0 {
+		conversationService = conversations[0]
+	}
+	return &Handler{auth: auth, service: service, conversation: conversationService, origins: allowed}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +65,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	const base = "/api/v1/local/booking-trial"
 	path := strings.TrimSuffix(r.URL.Path, "/")
-	if r.URL.RawQuery != "" && path != base+"/catalog" {
+	if r.URL.RawQuery != "" && path != base+"/catalog" && !strings.HasSuffix(path, "/messages") {
 		fail(w, 400, "invalid_request")
 		return
 	}
@@ -134,6 +141,37 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.reply(w, v, e)
 			return
 		}
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "messages" {
+			if h.conversation == nil {
+				fail(w, 404, "not_found")
+				return
+			}
+			if r.Method == http.MethodGet {
+				before, limit, ok := messagePageQuery(r.URL.Query())
+				if !ok {
+					fail(w, 422, "invalid_request")
+					return
+				}
+				page, err := h.conversation.List(r.Context(), actor, parts[0], before, limit)
+				h.replyConversation(w, map[string]any{"items": page.Items, "older_cursor": page.OlderCursor}, err)
+				return
+			}
+			if r.Method == http.MethodPost {
+				var in struct {
+					Body string `json:"body"`
+				}
+				if !decode(w, r, &in) {
+					return
+				}
+				item, err := h.conversation.Send(r.Context(), actor, parts[0], r.Header.Get("Idempotency-Key"), in.Body)
+				if err != nil {
+					h.replyConversation(w, nil, err)
+					return
+				}
+				write(w, http.StatusCreated, map[string]any{"data": item, "safety_notice": booking.SafetyBanner})
+				return
+			}
+		}
 		if len(parts) == 2 && parts[0] != "" {
 			switch parts[1] {
 			case "payment":
@@ -170,6 +208,48 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	fail(w, 404, "not_found")
+}
+
+func messagePageQuery(query url.Values) (*int64, int, bool) {
+	for key, values := range query {
+		if (key != "before" && key != "limit") || len(values) != 1 || values[0] == "" {
+			return nil, 0, false
+		}
+	}
+	limit := conversation.DefaultPageSize
+	if raw := query.Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > conversation.MaxPageSize {
+			return nil, 0, false
+		}
+		limit = parsed
+	}
+	var before *int64
+	if raw := query.Get("before"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 1 {
+			return nil, 0, false
+		}
+		before = &parsed
+	}
+	return before, limit, true
+}
+
+func (h *Handler) replyConversation(w http.ResponseWriter, value any, err error) {
+	if err != nil {
+		switch {
+		case errors.Is(err, conversation.ErrInvalid):
+			fail(w, http.StatusUnprocessableEntity, "invalid_request")
+		case errors.Is(err, conversation.ErrNotFound):
+			fail(w, http.StatusNotFound, "not_found")
+		case errors.Is(err, conversation.ErrConflict):
+			fail(w, http.StatusConflict, "conflict")
+		default:
+			fail(w, http.StatusInternalServerError, "internal_error")
+		}
+		return
+	}
+	write(w, http.StatusOK, map[string]any{"data": value, "safety_notice": booking.SafetyBanner})
 }
 
 func catalogFilter(query url.Values) (booking.CatalogFilter, bool) {
