@@ -29,10 +29,23 @@ Validación ejecutada en la rama de entrega:
 - `bash scripts/dev-env.sh up`: migró V19 incrementalmente y dejó backend/mock/PostgreSQL locales arriba. La base persistente `espacigo_pgdata` y los archivos locales de secretos `db_admin_password` y `runtime_password` siguieron presentes; no se ejecutó `clean`, no se borró el volumen ni se alteraron registros de prueba.
 - `bash scripts/dev-env.sh verify-http`: pasaron las 9 comprobaciones HTTP de salud, readiness, CORS/preflight y entrega del mock.
 
-### Seguimiento manual de navegador (2026-10-06)
+### Recorrido manual del editor en navegador (2026-10-06)
 
-Se intentó iniciar la comprobación desde la pestaña local que conservaba una vista previa con resultados/cotización. Al consultar explícitamente la sesión, la API respondió `401 unauthenticated` y el mock invalidó esos datos transitorios. No se guardó ni modificó el horario; tampoco se alteraron reservas, historiales u otros datos persistentes. La captura mostraba el formulario de sesión sin sesión consultada y el aviso 401. No se recuperó ni restableció la contraseña.
+La sesión previa había expirado y la consulta explícita devolvió 401; el mock limpió los datos transitorios. No se tocó el horario de ningún fixture previo ni se restableció ninguna contraseña. Con autorización posterior se crearon dos cuentas sintéticas nuevas, verificadas por Mailpit, y se habilitó un solo fixture adicional de oficina por hora para esa pareja:
 
-El recorrido manual solicitado queda **pendiente** de reautenticar la cuenta anfitriona sintética en el navegador y después la arrendataria: como anfitrión, activar lunes con `09:00–12:00` y `13:00–17:00`, guardar, recargar el mock y comprobar persistencia; en el selector, comprobar que no ofrece candidatos durante la pausa ni en días cerrados; desactivar el horario y confirmar que vuelve la disponibilidad anterior. Como arrendataria, comprobar que el editor no aparece. Para no cambiar credenciales ni añadir datos, esta sesión se detuvo ante la falta de una sesión anfitriona válida. La integración PostgreSQL automatizada cubre selector, catálogo, cotización, solicitud y permisos con el rol runtime.
+- Anfitrión: `m06-weekly-host-1791296032582@ejemplo.invalid`.
+- Arrendatario: `m06-weekly-renter-1791296032582@ejemplo.invalid`.
+- Fixture aislado: `Espacio sintético · Oficina`, UUID `feb18bfd-4bda-4581-83de-79053ae01a32`, autorizado solo para las dos cuentas anteriores.
+- Las contraseñas temporales se entregaron al usuario por el chat; no se guardaron en el repositorio ni en esta evidencia.
+
+Resultados visibles en el mock:
+
+1. Como anfitrión, activé el horario del lunes con `09:00–12:00` y `13:00–17:00` y guardé correctamente.
+2. Recargué la página, volví a iniciar sesión como anfitrión, reabrí el detalle y comprobé que la casilla seguía activa y los cuatro valores reaparecieron en sus campos.
+3. Con el horario activo, consulté el martes `2026-10-06`, sin tramos configurados: el selector mostró **0 intervalos**. Para el lunes `2026-10-12` mostró **12 inicios**: `09:00`, `09:30`, `10:00`, `10:30`, `11:00`, `13:00`, `13:30`, `14:00`, `14:30`, `15:00`, `15:30` y `16:00`. No ofreció inicios en la pausa `12:00–13:00` ni intervalos que la atravesaran.
+4. Desactivé el horario y consulté nuevamente el martes: el selector volvió a ofrecer **25 intervalos**, confirmando el comportamiento anterior sin configuración activa. La fila queda desactivada; no hay reglas activas.
+5. Cerré la sesión de anfitrión, inicié como arrendatario, busqué el fixture y abrí el detalle. `#booking-weekly-hours-form` tuvo cero elementos y el contenedor del editor quedó vacío; la edición no aparece para el participante.
+
+Mailpit no estaba escuchando inicialmente; se inició solo su servicio local con `docker compose up --no-build --wait mailpit`. No se ejecutó `clean`, no se reinició/eliminó `espacigo_pgdata`, no se tocaron secretos ni las cuentas/fixtures previos. Se añadió únicamente la pareja y fixture sintéticos descritos arriba. El horario del nuevo fixture quedó desactivado al cerrar la prueba. No se repitió la suite completa.
 
 La Issue #168 queda abierta y en revisión hasta la aceptación de HernanEspinozaDev. El PR no se ha fusionado; Issues generales/M06 no se marcan como completadas.
