@@ -2,7 +2,7 @@
 
 ## Estrategia vigente — prototipo local, 2026-10-05
 
-El corte autorizado actual es M06-LOCAL-01 (#148): reserva sintética privada con adaptador de pago fake y una pareja de cuentas allowlisted; depende de los contratos ya fusionados de identidad, borrador, tarifa y `ocupacion`. Véase [decisión de reserva local](decisiones_m06_reserva_local_simulada.md) y [pasos del prototipo](prototipo_local_m06_reserva_simulada.md). Las Issues generales #69–#79, M05/M06, DB02-09 y #123 conservan su alcance/pendientes; el fake no implica integración ni cobro real.
+El corte M06-LOCAL-01 (#148) fue aceptado/cerrado tras PRs #149/#150 y recorrido del historial desde el mock. El corte autorizado en curso es M05-LOCAL-01 (#151): catálogo local multi-fixture allowlisted con filtros de categoría/disponibilidad y entrada al flujo de cotización/reserva existente. Véase [decisión de catálogo local](decisiones_m05_catalogo_local_ensayo.md), [decisión de reserva local](decisiones_m06_reserva_local_simulada.md) y [pasos del prototipo](prototipo_local_m06_reserva_simulada.md). Las Issues generales #69–#79, M05/M06, DB02-09 y #123 conservan sus criterios pendientes; el fake no implica integración ni cobro real.
 
 PRs #124/#125 (M01), #126 (tramo M02), #127/#143 (M03 sintético), #134/#141 (M04) y #145/#147 (calendario privado/tarifas) están fusionados; M02–M06 siguen parciales. #37–43 conservan pendientes de cobro/KYC, foto, resolución de supresión y retención. #43/#52 y las Issues generales #69–#79 mantienen sus criterios. DB02-09 y #123 permanecen separados.
 
@@ -82,7 +82,7 @@ La descripción del entorno de desarrollo está en [entorno_de_desarrollo.md](en
 
 El registro operativo es el Project [EspaciGo — Desarrollo](https://github.com/users/HernanEspinozaDev/projects/1) y sus Issues; la correspondencia Hermes–GitHub está en [github_issue_map.csv](github_issue_map.csv) como referencia de migración, no como estado vigente. Mantén intactas las fuentes académicas y sus requisitos: `backlog.md` conserva las tarjetas originales y `t_112e6827` preserva la recuperación como Issue 120. No despaches nuevos workers en Hermes Kanban; su board se archivó y permanece como histórico.
 
-Antes de iniciar una tarjeta, lee su Issue completa, dependencias `blocked_by`, criterios, referencias y evidencia actual de PR/CI; no derives aceptación de un estado histórico `done`. Solo la aceptación verificada permite `Hecho`. El corte #148 es subentrega funcional local de #73, no termina las Issues padre #69–#79 ni la integración de pasarela. M02 #37–#43, DB02-09 y #123 mantienen pendientes separados. Consulta [la guía para continuar desde el PC](ejecucion_con_github_projects.md). No habilites auto-merge, no introduzcas cambios de producto fuera de Issues autorizadas y no alteres/reinicies trabajo local.
+Antes de iniciar una tarjeta, lee su Issue completa, dependencias `blocked_by`, criterios, referencias y evidencia actual de PR/CI; no derives aceptación de un estado histórico `done`. Solo la aceptación verificada permite `Hecho`. #148 acepta solo la reserva local fake; #151 es una subentrega local vinculada a búsqueda M05 que no termina las Issues padre #69–#79 ni la integración de pasarela/publicación. M02 #37–#43, DB02-09 y #123 mantienen pendientes separados. Consulta [la guía para continuar desde el PC](ejecucion_con_github_projects.md). No habilites auto-merge, no introduzcas cambios de producto fuera de Issues autorizadas y no alteres/reinicies trabajo local.
 
 ## Cómo resolver vacíos
 

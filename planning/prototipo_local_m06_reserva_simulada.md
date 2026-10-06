@@ -1,6 +1,6 @@
 # Probar M06-LOCAL-01 — reserva con pago simulado
 
-La entrega usa la DB local persistente sin reiniciarla. `scripts/dev-env.sh up -d` conserva `espacigo_pgdata` y secretos y aplica V11 incrementalmente. No usar `clean`, `down --volumes` ni pruebas destructivas contra esa base.
+La entrega usa la DB local persistente sin reiniciarla. `scripts/dev-env.sh up -d` conserva `espacigo_pgdata` y secretos y aplica migraciones pendientes incrementalmente (V15 incluye allowlist multi-fixture). No usar `clean`, `down --volumes` ni pruebas destructivas contra esa base.
 
 ## Preparación
 
@@ -9,10 +9,10 @@ La entrega usa la DB local persistente sin reiniciarla. `scripts/dev-env.sh up -
 3. Habilita una vez el fixture privado (solo cuentas activas y con correo verificado):
 
    ```sh
-   bash scripts/enable-local-booking-fixture.sh anfitrion@example.test arrendatario@example.test
+   bash scripts/enable-local-booking-fixture.sh anfitrion@example.test arrendatario@example.test sala_multiproposito
    ```
 
-   El comando administrativo crea un único borrador sintético de sala multipropósito, tarifa inicial CLP $8.000/h y zona `America/Santiago`, y asigna explícitamente las dos cuentas. No consulta ni modifica KYC; no concede roles comerciales. Es idempotente para el mismo par. El singleton no se reasigna desde la API.
+   El comando administrativo crea o reutiliza un borrador sintético para la categoría indicada (por defecto `sala_multiproposito`), tarifa inicial CLP $8.000/h y zona `America/Santiago`, y asigna explícitamente las dos cuentas. Tras V15, cada espacio es una fila allowlisted independiente; el mismo par/categoría es idempotente. No consulta ni modifica KYC; no concede roles comerciales ni expone borradores no allowlisted. Para habilitar otro ejemplo se invoca con otra categoría.
 
 ## Recorrido
 

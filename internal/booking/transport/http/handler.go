@@ -6,7 +6,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
@@ -54,7 +56,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
-	if r.URL.RawQuery != "" {
+	const base = "/api/v1/local/booking-trial"
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	if r.URL.RawQuery != "" && path != base+"/catalog" {
 		fail(w, 400, "invalid_request")
 		return
 	}
@@ -69,11 +73,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := principal.AccountID
-	const base = "/api/v1/local/booking-trial"
-	path := strings.TrimSuffix(r.URL.Path, "/")
 	if path == base+"/fixture" && r.Method == http.MethodGet {
 		v, e := h.service.Fixture(r.Context(), actor)
 		h.reply(w, v, e)
+		return
+	}
+	if path == base+"/catalog" && r.Method == http.MethodGet {
+		filter, ok := catalogFilter(r.URL.Query())
+		if !ok {
+			fail(w, 422, "invalid_request")
+			return
+		}
+		items, e := h.service.Catalog(r.Context(), actor, filter)
+		h.reply(w, map[string]any{"items": items, "safety_notice": booking.SafetyBanner}, e)
+		return
+	}
+	if strings.HasPrefix(path, base+"/catalog/") && r.Method == http.MethodGet {
+		spaceID := strings.TrimPrefix(path, base+"/catalog/")
+		if strings.Contains(spaceID, "/") || spaceID == "" {
+			fail(w, 404, "not_found")
+			return
+		}
+		item, e := h.service.CatalogDetail(r.Context(), actor, spaceID)
+		h.reply(w, item, e)
 		return
 	}
 	if path == base+"/quotes" && r.Method == http.MethodPost {
@@ -148,6 +170,31 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	fail(w, 404, "not_found")
+}
+
+func catalogFilter(query url.Values) (booking.CatalogFilter, bool) {
+	for key, values := range query {
+		if (key != "category_code" && key != "start_at" && key != "end_at") || len(values) != 1 || values[0] == "" {
+			return booking.CatalogFilter{}, false
+		}
+	}
+	filter := booking.CatalogFilter{CategoryCode: query.Get("category_code")}
+	startRaw, endRaw := query.Get("start_at"), query.Get("end_at")
+	if (startRaw == "") != (endRaw == "") {
+		return booking.CatalogFilter{}, false
+	}
+	if startRaw != "" {
+		start, err := time.Parse(time.RFC3339Nano, startRaw)
+		if err != nil {
+			return booking.CatalogFilter{}, false
+		}
+		end, err := time.Parse(time.RFC3339Nano, endRaw)
+		if err != nil || !end.After(start) {
+			return booking.CatalogFilter{}, false
+		}
+		filter.StartAt, filter.EndAt = &start, &end
+	}
+	return filter, true
 }
 func (h *Handler) reply(w http.ResponseWriter, v any, err error) {
 	if err != nil {

@@ -109,12 +109,14 @@
     <form id="price-simulation-load-form"><label>ID de simulación guardada <input name="id" required></label><button>Consultar snapshot anterior</button></form>
     <pre id="price-simulation-output">No se ha guardado ninguna simulación.</pre>
   </section>
-  <section id="booking-trial"><h2>12. Reserva sintética · M06 local</h2>
-    <p><strong>ENSAYO LOCAL — SIN COBRO REAL.</strong> Un único borrador sintético está allowlisted para dos cuentas activas/verificadas. No se publica ni se descubre ningún otro borrador. KYC sintético no concede permisos comerciales.</p>
-    <button id="booking-fixture-load" type="button">Consultar fixture autorizado</button>
-    <pre id="booking-fixture-output">Inicia sesión como uno de los dos participantes autorizados.</pre>
-    <p>La cotización snapshot vence en 15 minutos (configurable) y no reserva ni retiene el horario.</p>
-    <form id="booking-quote-form"><label>Inicio (hora local) <input name="start_at" type="datetime-local" required></label><label>Término (hora local) <input name="end_at" type="datetime-local" required></label><button>Crear cotización snapshot</button></form>
+  <section id="booking-trial"><h2>12. Catálogo sintético y reserva local · M05/M06</h2>
+    <p><strong>ENSAYO LOCAL — SIN COBRO REAL.</strong> Solo aparecen fixtures sintéticos explícitamente habilitados para una de las cuentas participantes. Los demás borradores siguen privados. No hay publicación ni permisos comerciales derivados de KYC sintético.</p>
+    <form id="booking-catalog-form"><label>Categoría <select name="category_code"><option value="">Todas las categorías</option><option value="oficina">Oficina</option><option value="sala_multiproposito">Sala/multipropósito</option><option value="bodega">Bodega</option><option value="estacionamiento">Estacionamiento</option><option value="local_flexible">Local flexible</option><option value="stand">Stand</option><option value="quincho">Quincho</option><option value="parcela_eventos">Parcela/eventos</option></select></label>
+      <label>Desde (hora local) <input name="start_at" type="datetime-local"></label><label>Hasta (hora local) <input name="end_at" type="datetime-local"></label><label>Zona para interpretar el filtro <input name="time_zone" value="America/Santiago" required></label><button>Buscar espacios sintéticos</button></form>
+    <div id="booking-catalog-results" aria-live="polite">Inicia sesión como una cuenta participante y busca fixtures autorizados.</div>
+    <pre id="booking-fixture-output">Selecciona un resultado para consultar su detalle.</pre>
+    <p>La cotización snapshot vence en 15 minutos (configurable), queda ligada al espacio seleccionado y no retiene el horario.</p>
+    <form id="booking-quote-form"><input name="space_id" type="hidden"><label>Inicio (hora local del espacio) <input name="start_at" type="datetime-local" required></label><label>Término (hora local del espacio) <input name="end_at" type="datetime-local" required></label><button>Crear cotización snapshot</button></form>
     <pre id="booking-quote-output">La cotización no retiene disponibilidad.</pre>
     <form id="booking-request-form"><label>ID de cotización <input name="quote_id" required></label><button>Solicitar y retener disponibilidad (15 min)</button></form>
     <form id="booking-payment-form"><label>ID de reserva <input name="id" required></label><label>Resultado fake <select name="outcome"><option value="exito">Éxito simulado</option><option value="rechazo">Rechazo simulado</option><option value="sin_respuesta">Sin respuesta simulada</option></select></label><button>Enviar pago de ensayo</button></form>

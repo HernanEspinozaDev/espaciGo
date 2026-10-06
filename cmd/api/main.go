@@ -40,8 +40,12 @@ import (
 const readyURL = "http://127.0.0.1:8080/health/ready"
 
 func main() {
-	if len(os.Args) == 4 && os.Args[1] == "local-booking-fixture" {
-		if err := createLocalBookingFixture(os.Args[2], os.Args[3]); err != nil {
+	if (len(os.Args) == 4 || len(os.Args) == 5) && os.Args[1] == "local-booking-fixture" {
+		category := "sala_multiproposito"
+		if len(os.Args) == 5 {
+			category = os.Args[4]
+		}
+		if err := createLocalBookingFixture(os.Args[2], os.Args[3], category); err != nil {
 			log.Print("local fixture was not enabled; no account or database details logged")
 			os.Exit(1)
 		}

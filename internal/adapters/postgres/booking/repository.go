@@ -17,12 +17,71 @@ type Repository struct{ pool *pgxpool.Pool }
 func New(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
 
 func (r *Repository) Fixture(ctx context.Context, actor string) (booking.Fixture, error) {
+	items, err := r.Catalog(ctx, actor, booking.CatalogFilter{})
+	if err != nil {
+		return booking.Fixture{}, err
+	}
+	if len(items) == 0 {
+		return booking.Fixture{}, booking.ErrNotFound
+	}
+	item := items[0]
 	var f booking.Fixture
-	err := r.pool.QueryRow(ctx, `SELECT e.id::text,e.titulo,e.categoria_codigo,x.anfitrion_id::text,x.arrendatario_id::text,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria FROM public.reserva_ensayo_local_fixture x JOIN public.espacio e ON e.id=x.espacio_id JOIN LATERAL (SELECT modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true WHERE x.singleton AND (x.anfitrion_id=$1 OR x.arrendatario_id=$1) AND e.estado='borrador'`, actor).Scan(&f.SpaceID, &f.Title, &f.Category, &f.OwnerID, &f.RenterID, &f.RateUnit, &f.Price, &f.Currency, &f.TimeZone)
-	return f, mapErr(err)
+	err = r.pool.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local_fixture WHERE espacio_id=$1 AND habilitada`, item.SpaceID).Scan(&f.OwnerID, &f.RenterID)
+	if err != nil {
+		return booking.Fixture{}, mapErr(err)
+	}
+	f.SpaceID, f.Title, f.Category, f.RateUnit, f.Price, f.Currency, f.TimeZone = item.SpaceID, item.Title, item.CategoryCode, item.RateUnit, item.Price, item.Currency, item.TimeZone
+	return f, nil
 }
 
-func (r *Repository) Quote(ctx context.Context, renter, id string, start, end time.Time, clock func() time.Time, ttl time.Duration) (booking.Quote, error) {
+func (r *Repository) Catalog(ctx context.Context, actor string, filter booking.CatalogFilter) ([]booking.CatalogItem, error) {
+	rows, err := r.pool.Query(ctx, `SELECT e.id::text,e.categoria_codigo,k.nombre,e.titulo,e.descripcion,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,c.perfil_version,p.perfil,c.valores,
+CASE WHEN $3::timestamptz IS NULL THEN NULL ELSE NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($3,$4,'[)')) END
+FROM public.reserva_ensayo_local_fixture f
+JOIN public.espacio e ON e.id=f.espacio_id
+JOIN public.categoria_espacio k ON k.codigo=e.categoria_codigo AND k.activa
+JOIN public.espacio_caracteristicas c ON c.espacio_id=e.id AND c.categoria_codigo=e.categoria_codigo
+JOIN public.categoria_perfil_atributos p ON p.categoria_codigo=c.categoria_codigo AND p.version=c.perfil_version
+JOIN LATERAL(SELECT modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
+WHERE f.habilitada AND e.estado='borrador' AND e.propietario_id=f.anfitrion_id
+AND (f.anfitrion_id=$1 OR f.arrendatario_id=$1)
+AND ($2::text='' OR e.categoria_codigo=$2)
+AND ($3::timestamptz IS NULL OR NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($3,$4,'[)')))
+ORDER BY k.orden,e.titulo,e.id`, actor, filter.CategoryCode, filter.StartAt, filter.EndAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []booking.CatalogItem{}
+	for rows.Next() {
+		var v booking.CatalogItem
+		var available sql.NullBool
+		if err = rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.RateUnit, &v.Price, &v.Currency, &v.TimeZone, &v.ProfileVersion, &v.Profile, &v.Attributes, &available); err != nil {
+			return nil, err
+		}
+		if available.Valid {
+			value := available.Bool
+			v.Available = &value
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) CatalogDetail(ctx context.Context, actor, spaceID string) (booking.CatalogItem, error) {
+	var v booking.CatalogItem
+	err := r.pool.QueryRow(ctx, `SELECT e.id::text,e.categoria_codigo,k.nombre,e.titulo,e.descripcion,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,c.perfil_version,p.perfil,c.valores
+FROM public.reserva_ensayo_local_fixture f
+JOIN public.espacio e ON e.id=f.espacio_id
+JOIN public.categoria_espacio k ON k.codigo=e.categoria_codigo AND k.activa
+JOIN public.espacio_caracteristicas c ON c.espacio_id=e.id AND c.categoria_codigo=e.categoria_codigo
+JOIN public.categoria_perfil_atributos p ON p.categoria_codigo=c.categoria_codigo AND p.version=c.perfil_version
+JOIN LATERAL(SELECT modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
+WHERE f.espacio_id=$1 AND f.habilitada AND e.estado='borrador' AND e.propietario_id=f.anfitrion_id AND (f.anfitrion_id=$2 OR f.arrendatario_id=$2)`, spaceID, actor).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.RateUnit, &v.Price, &v.Currency, &v.TimeZone, &v.ProfileVersion, &v.Profile, &v.Attributes)
+	return v, mapErr(err)
+}
+
+func (r *Repository) Quote(ctx context.Context, renter, spaceID, id string, start, end time.Time, clock func() time.Time, ttl time.Duration) (booking.Quote, error) {
 	preNow := clock().UTC()
 	if !start.After(preNow) {
 		return booking.Quote{}, booking.ErrInvalid
@@ -42,7 +101,8 @@ func (r *Repository) Quote(ctx context.Context, renter, id string, start, end ti
 	expires := now.Add(ttl)
 	var q booking.Quote
 	var amount int64
-	err = tx.QueryRow(ctx, `SELECT x.espacio_id::text,x.anfitrion_id::text,x.arrendatario_id::text,t.version,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,e.reglas_uso FROM public.reserva_ensayo_local_fixture x JOIN public.espacio e ON e.id=x.espacio_id JOIN LATERAL(SELECT version,modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true WHERE x.singleton AND x.arrendatario_id=$1 AND e.estado='borrador' FOR SHARE OF e`, renter).Scan(&q.SpaceID, new(string), new(string), &q.RateVersion, &q.RateUnit, &q.UnitPrice, &q.Currency, &q.TimeZone, &q.Conditions)
+	var hostID, renterID string
+	err = tx.QueryRow(ctx, `SELECT x.espacio_id::text,x.anfitrion_id::text,x.arrendatario_id::text,t.version,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,e.reglas_uso,e.categoria_codigo,c.perfil_version,c.valores FROM public.reserva_ensayo_local_fixture x JOIN public.espacio e ON e.id=x.espacio_id JOIN public.espacio_caracteristicas c ON c.espacio_id=e.id AND c.categoria_codigo=e.categoria_codigo JOIN LATERAL(SELECT version,modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true WHERE x.habilitada AND x.espacio_id=$2 AND x.arrendatario_id=$1 AND e.estado='borrador' AND e.propietario_id=x.anfitrion_id FOR SHARE OF e`, renter, spaceID).Scan(&q.SpaceID, &hostID, &renterID, &q.RateVersion, &q.RateUnit, &q.UnitPrice, &q.Currency, &q.TimeZone, &q.Conditions, &q.CategoryCode, &q.ProfileVersion, &q.ProfileValues)
 	if err != nil {
 		return booking.Quote{}, mapErr(err)
 	}
@@ -69,7 +129,7 @@ func (r *Repository) Quote(ctx context.Context, renter, id string, start, end ti
 	q.EndAt = end
 	q.CreatedAt = now
 	q.ExpiresAt = expires
-	_, err = tx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,creada_en,vence_en) SELECT $1,x.espacio_id,x.anfitrion_id,x.arrendatario_id,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13 FROM public.reserva_ensayo_local_fixture x WHERE x.singleton AND x.arrendatario_id=$14`, id, q.RateVersion, q.RateUnit, q.UnitPrice, q.Currency, units, amount, start, end, q.TimeZone, q.Conditions, now, expires, renter)
+	_, err = tx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,creada_en,vence_en,categoria_codigo,perfil_version,perfil_valores_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, id, q.SpaceID, hostID, renterID, q.RateVersion, q.RateUnit, q.UnitPrice, q.Currency, units, amount, start, end, q.TimeZone, q.Conditions, now, expires, q.CategoryCode, q.ProfileVersion, q.ProfileValues)
 	if err != nil {
 		return booking.Quote{}, mapErr(err)
 	}
@@ -125,9 +185,9 @@ func (r *Repository) Create(ctx context.Context, renter, quoteID, key string, fi
 	payExpiresAt := now.Add(payTTL)
 	var quoteExists, quoteUsable, intervalFuture, available bool
 	err = tx.QueryRow(ctx, `SELECT
-EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE q.id=$1 AND q.arrendatario_id=$2),
-EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND q.vence_en>$3),
-EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND q.inicio>$3),
+EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE f.habilitada AND q.id=$1 AND q.arrendatario_id=$2),
+EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE f.habilitada AND q.id=$1 AND q.arrendatario_id=$2 AND q.vence_en>$3),
+EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE f.habilitada AND q.id=$1 AND q.arrendatario_id=$2 AND q.inicio>$3),
 NOT EXISTS(SELECT 1 FROM public.ocupacion o JOIN public.cotizacion_reserva_ensayo q ON q.espacio_id=o.espacio_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND o.activo AND o.intervalo && (SELECT tstzrange(inicio,termino,'[)') FROM public.cotizacion_reserva_ensayo WHERE id=$1))`, quoteID, renter, now).Scan(&quoteExists, &quoteUsable, &intervalFuture, &available)
 	if err != nil {
 		return booking.Reservation{}, err
@@ -146,7 +206,7 @@ NOT EXISTS(SELECT 1 FROM public.ocupacion o JOIN public.cotizacion_reserva_ensay
 	}
 	var v booking.Reservation
 	err = tx.QueryRow(ctx, `INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,pago_vence_en,creada_en,actualizada_en)
-SELECT $1,q.id,q.espacio_id,q.anfitrion_id,q.arrendatario_id,$4,$5,$6,'pendiente_de_pago',q.precio_unitario_clp,q.unidades,q.subtotal_clp,q.modalidad,q.moneda,q.inicio,q.termino,q.zona_horaria,q.condiciones_snapshot,$7,$8,$8 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id JOIN public.espacio e ON e.id=q.espacio_id WHERE q.id=$2 AND q.arrendatario_id=$3 AND q.vence_en>$8 AND q.inicio>$8 AND e.estado='borrador' RETURNING `+reservationCols, id, quoteID, renter, key, fingerprint, occupancyID, payExpiresAt, now).Scan(&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt)
+SELECT $1,q.id,q.espacio_id,q.anfitrion_id,q.arrendatario_id,$4,$5,$6,'pendiente_de_pago',q.precio_unitario_clp,q.unidades,q.subtotal_clp,q.modalidad,q.moneda,q.inicio,q.termino,q.zona_horaria,q.condiciones_snapshot,$7,$8,$8 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id AND f.habilitada JOIN public.espacio e ON e.id=q.espacio_id WHERE q.id=$2 AND q.arrendatario_id=$3 AND q.vence_en>$8 AND q.inicio>$8 AND e.estado='borrador' AND e.propietario_id=f.anfitrion_id RETURNING `+reservationCols, id, quoteID, renter, key, fingerprint, occupancyID, payExpiresAt, now).Scan(&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt)
 	if err != nil {
 		return booking.Reservation{}, mapErr(err)
 	}

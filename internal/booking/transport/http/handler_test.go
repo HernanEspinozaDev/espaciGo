@@ -29,9 +29,15 @@ func (authStub) Authorize(_ context.Context, raw identity.Secret, _ identity.Rol
 type repoStub struct{ fixture booking.Fixture }
 
 func (r repoStub) Fixture(context.Context, string) (booking.Fixture, error) { return r.fixture, nil }
-func (repoStub) Quote(_ context.Context, _ string, id string, start, end time.Time, clock func() time.Time, ttl time.Duration) (booking.Quote, error) {
+func (r repoStub) Catalog(context.Context, string, booking.CatalogFilter) ([]booking.CatalogItem, error) {
+	return []booking.CatalogItem{{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`)}}, nil
+}
+func (r repoStub) CatalogDetail(context.Context, string, string) (booking.CatalogItem, error) {
+	return booking.CatalogItem{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`)}, nil
+}
+func (repoStub) Quote(_ context.Context, _ string, spaceID, id string, start, end time.Time, clock func() time.Time, ttl time.Duration) (booking.Quote, error) {
 	created := clock().UTC()
-	return booking.Quote{ID: id, SpaceID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", RateVersion: 1, RateUnit: "hora", UnitPrice: 8000, Currency: "CLP", Units: 1, Subtotal: 8000, StartAt: start, EndAt: end, TimeZone: "America/Santiago", Conditions: "Reglas sintéticas", CreatedAt: created, ExpiresAt: created.Add(ttl)}, nil
+	return booking.Quote{ID: id, SpaceID: spaceID, RateVersion: 1, RateUnit: "hora", UnitPrice: 8000, Currency: "CLP", Units: 1, Subtotal: 8000, StartAt: start, EndAt: end, TimeZone: "America/Santiago", Conditions: "Reglas sintéticas", CategoryCode: "sala_multiproposito", ProfileVersion: 1, ProfileValues: json.RawMessage(`{}`), CreatedAt: created, ExpiresAt: created.Add(ttl)}, nil
 }
 func (repoStub) Create(context.Context, string, string, string, []byte, string, string, time.Duration, func() time.Time) (booking.Reservation, error) {
 	return booking.Reservation{}, nil
@@ -85,6 +91,27 @@ func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testin
 	if fixture["safety_notice"] != booking.SafetyBanner {
 		t.Fatalf("safety notice missing: %v", fixture)
 	}
+	catalogRequest := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog?category_code=sala_multiproposito&start_at=2030-01-01T00%3A00%3A00Z&end_at=2030-01-01T01%3A00%3A00Z", nil)
+	catalogRequest.Header.Set("Authorization", "Bearer test-session")
+	catalogResponse := httptest.NewRecorder()
+	h.ServeHTTP(catalogResponse, catalogRequest)
+	if catalogResponse.Code != http.StatusOK || !strings.Contains(catalogResponse.Body.String(), `"category_code":"sala_multiproposito"`) || !strings.Contains(catalogResponse.Body.String(), booking.SafetyBanner) {
+		t.Fatalf("catalog response=%d %s", catalogResponse.Code, catalogResponse.Body.String())
+	}
+	invalidFilter := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog?start_at=not-a-date&end_at=2030-01-01T01%3A00%3A00Z", nil)
+	invalidFilter.Header.Set("Authorization", "Bearer test-session")
+	invalidFilterResponse := httptest.NewRecorder()
+	h.ServeHTTP(invalidFilterResponse, invalidFilter)
+	if invalidFilterResponse.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid availability filter status=%d body=%s", invalidFilterResponse.Code, invalidFilterResponse.Body.String())
+	}
+	detailRequest := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", nil)
+	detailRequest.Header.Set("Authorization", "Bearer test-session")
+	detailResponse := httptest.NewRecorder()
+	h.ServeHTTP(detailResponse, detailRequest)
+	if detailResponse.Code != http.StatusOK || !strings.Contains(detailResponse.Body.String(), `"profile_version":1`) {
+		t.Fatalf("catalog detail=%d %s", detailResponse.Code, detailResponse.Body.String())
+	}
 	bad := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/quotes", strings.NewReader(`{"start_at":"2030-01-01T00:00:00Z","end_at":"2030-01-01T01:00:00Z","unexpected":true}`))
 	bad.Header.Set("Authorization", "Bearer test-session")
 	bad.Header.Set("Content-Type", "application/json")
@@ -93,7 +120,7 @@ func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testin
 	if badResponse.Code != http.StatusBadRequest {
 		t.Fatalf("unknown quote field accepted: %d", badResponse.Code)
 	}
-	quoteRequest := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/quotes", strings.NewReader(`{"start_at":"2030-01-01T00:00:00Z","end_at":"2030-01-01T01:00:00Z"}`))
+	quoteRequest := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/quotes", strings.NewReader(`{"space_id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","start_at":"2030-01-01T00:00:00Z","end_at":"2030-01-01T01:00:00Z"}`))
 	quoteRequest.Header.Set("Authorization", "Bearer test-session")
 	quoteRequest.Header.Set("Content-Type", "application/json")
 	quoteResponse := httptest.NewRecorder()
@@ -106,7 +133,7 @@ func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testin
 		t.Fatal(err)
 	}
 	data := quote["data"].(map[string]any)
-	if quote["safety_notice"] != booking.SafetyBanner || data["conditions"] != "Reglas sintéticas" {
+	if quote["safety_notice"] != booking.SafetyBanner || data["conditions"] != "Reglas sintéticas" || data["space_id"] != "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" || data["profile_version"] != float64(1) {
 		t.Fatalf("quote missing safety/snapshot conditions: %v", quote)
 	}
 }
