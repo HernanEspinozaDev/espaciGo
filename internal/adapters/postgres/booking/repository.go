@@ -49,20 +49,35 @@ func (r *Repository) Catalog(ctx context.Context, actor string, filter booking.C
 	if filter.ProfileVersion > 0 {
 		profileVersion = filter.ProfileVersion
 	}
+	var latitude, longitude, radius any
+	if filter.Latitude != nil {
+		latitude = *filter.Latitude
+	}
+	if filter.Longitude != nil {
+		longitude = *filter.Longitude
+	}
+	if filter.RadiusKM != nil {
+		radius = *filter.RadiusKM
+	}
 	rows, err := r.pool.Query(ctx, `SELECT e.id::text,e.categoria_codigo,k.nombre,e.titulo,e.descripcion,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,c.perfil_version,p.perfil,c.valores,
-CASE WHEN $3::timestamptz IS NULL THEN NULL ELSE NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($3,$4,'[)')) END
+CASE WHEN $3::timestamptz IS NULL THEN NULL ELSE NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($3,$4,'[)')) END,
+CASE WHEN $7::double precision IS NULL THEN NULL ELSE ST_Distance(g.punto,ST_SetSRID(ST_MakePoint($8::double precision,$7::double precision),4326)::geography) END
 FROM public.reserva_ensayo_local_fixture f
 JOIN public.espacio e ON e.id=f.espacio_id
 JOIN public.categoria_espacio k ON k.codigo=e.categoria_codigo AND k.activa
 JOIN public.espacio_caracteristicas c ON c.espacio_id=e.id AND c.categoria_codigo=e.categoria_codigo
 JOIN public.categoria_perfil_atributos p ON p.categoria_codigo=c.categoria_codigo AND p.version=c.perfil_version
 JOIN LATERAL(SELECT modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
+LEFT JOIN public.reserva_ensayo_local_ubicacion_sintetica g ON g.espacio_id=f.espacio_id AND g.es_sintetica
 WHERE f.habilitada AND e.estado='borrador' AND e.propietario_id=f.anfitrion_id
 AND (f.anfitrion_id=$1 OR f.arrendatario_id=$1)
 AND ($2::text='' OR e.categoria_codigo=$2)
 AND ($3::timestamptz IS NULL OR NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($3,$4,'[)')))
 AND ($5::integer IS NULL OR (c.perfil_version=$5 AND c.valores @> $6::jsonb))
-ORDER BY k.orden,e.titulo,e.id`, actor, filter.CategoryCode, filter.StartAt, filter.EndAt, profileVersion, attributeJSON)
+AND ($7::double precision IS NULL OR (g.punto IS NOT NULL
+ AND ST_DWithin(g.punto,ST_SetSRID(ST_MakePoint($8::double precision,$7::double precision),4326)::geography,$9::double precision*1000.0+0.000001)
+ AND ST_Distance(g.punto,ST_SetSRID(ST_MakePoint($8::double precision,$7::double precision),4326)::geography)<=$9::double precision*1000.0+0.000001))
+ORDER BY k.orden,e.titulo,e.id`, actor, filter.CategoryCode, filter.StartAt, filter.EndAt, profileVersion, attributeJSON, latitude, longitude, radius)
 	if err != nil {
 		return nil, err
 	}
@@ -71,12 +86,16 @@ ORDER BY k.orden,e.titulo,e.id`, actor, filter.CategoryCode, filter.StartAt, fil
 	for rows.Next() {
 		var v booking.CatalogItem
 		var available sql.NullBool
-		if err = rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.RateUnit, &v.Price, &v.Currency, &v.TimeZone, &v.ProfileVersion, &v.Profile, &v.Attributes, &available); err != nil {
+		var distanceMeters sql.NullFloat64
+		if err = rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.RateUnit, &v.Price, &v.Currency, &v.TimeZone, &v.ProfileVersion, &v.Profile, &v.Attributes, &available, &distanceMeters); err != nil {
 			return nil, err
 		}
 		if available.Valid {
 			value := available.Bool
 			v.Available = &value
+		}
+		if distanceMeters.Valid {
+			v.DistanceMeters = distanceMeters.Float64
 		}
 		out = append(out, v)
 	}

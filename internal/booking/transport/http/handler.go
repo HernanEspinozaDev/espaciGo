@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -269,7 +270,7 @@ func (h *Handler) replyConversation(w http.ResponseWriter, value any, err error)
 
 func catalogFilter(query url.Values) (booking.CatalogFilter, bool) {
 	for key, values := range query {
-		if (key != "category_code" && key != "start_at" && key != "end_at" && key != "min_total_clp" && key != "max_total_clp" && key != "profile_version" && key != "attributes") || len(values) != 1 || values[0] == "" {
+		if (key != "category_code" && key != "start_at" && key != "end_at" && key != "min_total_clp" && key != "max_total_clp" && key != "profile_version" && key != "attributes" && key != "latitude" && key != "longitude" && key != "radius_km") || len(values) != 1 || (values[0] == "" && key != "latitude" && key != "longitude" && key != "radius_km") {
 			return booking.CatalogFilter{}, false
 		}
 	}
@@ -309,6 +310,22 @@ func catalogFilter(query url.Values) (booking.CatalogFilter, bool) {
 		if len(raw) > 16*1024 || json.Unmarshal([]byte(raw), &filter.Attributes) != nil || filter.Attributes == nil {
 			return booking.CatalogFilter{}, false
 		}
+	}
+	for key, dest := range map[string]**float64{"latitude": &filter.Latitude, "longitude": &filter.Longitude} {
+		if values, present := query[key]; present {
+			value, err := strconv.ParseFloat(values[0], 64)
+			if values[0] == "" || err != nil {
+				value = math.NaN()
+			}
+			*dest = &value
+		}
+	}
+	if values, present := query["radius_km"]; present {
+		radius, err := strconv.Atoi(values[0])
+		if values[0] == "" || err != nil {
+			radius = 0
+		}
+		filter.RadiusKM = &radius
 	}
 	return filter, true
 }

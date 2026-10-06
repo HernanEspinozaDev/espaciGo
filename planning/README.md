@@ -32,6 +32,8 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [Decisiones M01 de identidad](decisiones_m01_identidad_sesion.md) | Autorización ratificada de correo, sesiones y tokens; trazabilidad ES1/ES2 y brechas DB02-09 abiertas. |
 | [Decisión M05 de búsqueda local](decisiones_m05_busqueda_filtros_locales.md) | Filtros AND tipados para fixtures, cotización estimada inclusiva y sin mutar reservas. |
 | [Evidencia M05-LOCAL-02](evidencia_m05_filtros_locales_20261006.md) | Pruebas de búsqueda y comprobación del mock local con fixtures existentes. |
+| [Decisión M05-LOCAL geográfica](decisiones_m05_busqueda_geografica_local.md) | Radios PostGIS y ubicaciones sintéticas explícitas para fixtures autorizados. |
+| [Evidencia M05-LOCAL geográfica](evidencia_m05_busqueda_geografica_20261006.md) | Migración V018, validaciones PostGIS/runtime, pruebas, estado del mock y pasos de aceptación. |
 | [Invariantes de identidad, cuenta y sesión](invariantes_identidad_sesion.md) | AUTH-ARCH-01: flujos, estados, amenazas y reglas M01 ratificadas. |
 | [Grafo de dependencias](grafo_dependencias.md) | Orden, dependencias transversales y conteo del backlog. |
 | [Backlog Kanban](backlog.md) | Alcance/trazabilidad de las 103 tarjetas originales; estados históricos, no operativos. |

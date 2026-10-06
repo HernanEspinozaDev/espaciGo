@@ -28,11 +28,14 @@ func (authStub) Authorize(_ context.Context, raw identity.Secret, _ identity.Rol
 	return identity.Principal{AccountID: renterID}, nil
 }
 
-type repoStub struct{ fixture booking.Fixture }
+type repoStub struct {
+	fixture        booking.Fixture
+	distanceMeters float64
+}
 
 func (r repoStub) Fixture(context.Context, string) (booking.Fixture, error) { return r.fixture, nil }
 func (r repoStub) Catalog(context.Context, string, booking.CatalogFilter) ([]booking.CatalogItem, error) {
-	return []booking.CatalogItem{{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "America/Santiago", ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`)}}, nil
+	return []booking.CatalogItem{{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "America/Santiago", ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`), DistanceMeters: r.distanceMeters}}, nil
 }
 func (repoStub) CatalogProfile(ctx context.Context, category string, version int) (spaces.Profile, error) {
 	return spaces.Profile{CategoryCode: category, SchemaVersion: version, Attributes: []spaces.AttributeDefinition{{Code: "proyector", Type: "boolean"}}}, nil
@@ -110,6 +113,34 @@ func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testin
 	if invalidFilterResponse.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid availability filter status=%d body=%s", invalidFilterResponse.Code, invalidFilterResponse.Body.String())
 	}
+	geoFixture := booking.Fixture{SpaceID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", Title: "Espacio sintético", OwnerID: renterID, RenterID: renterID, RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "America/Santiago"}
+	geoService, err := booking.NewService(repoStub{fixture: geoFixture, distanceMeters: 1423}, credentials.Generator{}, time.Now, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	geoHandler := NewHandler(authStub{}, geoService, []string{"http://localhost:8081"})
+	for _, query := range []string{
+		"latitude=-33.456", "latitude=&longitude=-70.6693&radius_km=5", "latitude=norte&longitude=-70.6693&radius_km=5",
+		"latitude=-33.456&longitude=-70.6693&radius_km=", "latitude=-33.456&longitude=-70.6693&radius_km=cinco",
+		"latitude=NaN&longitude=-70.6693&radius_km=5",
+		"latitude=90.1&longitude=-70.6693&radius_km=5", "latitude=-33.456&longitude=181&radius_km=5",
+		"latitude=-33.456&longitude=-70.6693&radius_km=2",
+	} {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog?"+query, nil)
+		request.Header.Set("Authorization", "Bearer test-session")
+		response := httptest.NewRecorder()
+		geoHandler.ServeHTTP(response, request)
+		if response.Code != http.StatusUnprocessableEntity {
+			t.Errorf("invalid geographic query %q status=%d body=%s", query, response.Code, response.Body.String())
+		}
+	}
+	geoRequest := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog?latitude=-33.456&longitude=-70.6693&radius_km=5", nil)
+	geoRequest.Header.Set("Authorization", "Bearer test-session")
+	geoResponse := httptest.NewRecorder()
+	geoHandler.ServeHTTP(geoResponse, geoRequest)
+	if geoResponse.Code != http.StatusOK || !strings.Contains(geoResponse.Body.String(), `"distance_km":1.4`) || !strings.Contains(geoResponse.Body.String(), `"distance_kind":"direct"`) || strings.Contains(geoResponse.Body.String(), `"latitude"`) || strings.Contains(geoResponse.Body.String(), `"longitude"`) {
+		t.Fatalf("geographic catalog response=%d %s", geoResponse.Code, geoResponse.Body.String())
+	}
 	detailRequest := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", nil)
 	detailRequest.Header.Set("Authorization", "Bearer test-session")
 	detailResponse := httptest.NewRecorder()
@@ -151,9 +182,12 @@ func TestCatalogSearchParsesTypedFiltersAndRequiresIntervalForPrice(t *testing.T
 		"min_total_clp":   {"8000"},
 		"start_at":        {"2030-01-01T00:00:00Z"},
 		"end_at":          {"2030-01-01T01:00:00Z"},
+		"latitude":        {"-33.456"},
+		"longitude":       {"-70.6693"},
+		"radius_km":       {"5"},
 	}
 	filter, ok := catalogFilter(values)
-	if !ok || filter.ProfileVersion != 1 || filter.Attributes["proyector"] != false || filter.MinTotalCLP == nil || *filter.MinTotalCLP != 8000 {
+	if !ok || filter.ProfileVersion != 1 || filter.Attributes["proyector"] != false || filter.MinTotalCLP == nil || *filter.MinTotalCLP != 8000 || filter.Latitude == nil || *filter.Latitude != -33.456 || filter.Longitude == nil || *filter.Longitude != -70.6693 || filter.RadiusKM == nil || *filter.RadiusKM != 5 {
 		t.Fatalf("catalog filter parse=%+v ok=%v", filter, ok)
 	}
 	if _, ok := catalogFilter(url.Values{"min_total_clp": {"8000"}}); !ok {

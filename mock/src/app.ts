@@ -429,7 +429,7 @@ calendarZoneInput.addEventListener("input",refreshCalendarControls);
 refreshCalendarControls();
 type BookingFixture = {space_id:string; title:string; category_code:string; category_name:string; description:string; time_zone:string; rate_unit:string; base_price_clp:number; currency:string; profile_version:number; profile:Record<string,unknown>; attributes:Record<string,unknown>};
 type CatalogItem = BookingFixture & {available?:boolean};
-type CatalogSearchItem = CatalogItem & {estimated_total_clp?:number};
+type CatalogSearchItem = CatalogItem & {estimated_total_clp?:number;distance_km?:number;distance_kind?:"direct"};
 let bookingFixture:BookingFixture|null=null;
 let bookingCatalogRequest=0;
 let catalogProfileRequest=0;
@@ -443,6 +443,11 @@ const bookingQuoteOutput=document.querySelector<HTMLElement>("#booking-quote-out
 const bookingHistoryOutput=document.querySelector<HTMLElement>("#booking-history-output")!;
 const bookingCatalogCategory=document.querySelector<HTMLSelectElement>("#booking-catalog-category")!;
 const bookingCatalogProfileFilters=document.querySelector<HTMLElement>("#booking-catalog-profile-filters")!;
+const bookingCatalogNearbyEnabled=document.querySelector<HTMLInputElement>("#booking-catalog-nearby-enabled")!;
+const bookingCatalogLatitude=document.querySelector<HTMLInputElement>("#booking-catalog-latitude")!;
+const bookingCatalogLongitude=document.querySelector<HTMLInputElement>("#booking-catalog-longitude")!;
+const bookingCatalogRadius=document.querySelector<HTMLSelectElement>("#booking-catalog-radius")!;
+const bookingCatalogCenterSample=document.querySelector<HTMLButtonElement>("#booking-catalog-center-sample")!;
 type TrialReservation={id:string;quote_id:string;space_id:string;host_id:string;renter_id:string;state:string;rate_unit:string;unit_price_clp:number;currency:string;units:number;subtotal_clp:number;start_at:string;end_at:string;time_zone:string;pay_expires_at:string;host_expires_at?:string|null;updated_at:string;unread_count:number};
 type TrialTransition={sequence:number;to:string;reason:string;at:string};
 type TrialDetail=TrialReservation&{history:TrialTransition[]};
@@ -488,6 +493,17 @@ async function loadCatalogFilterProfile(category:string):Promise<void>{
   }
 }
 bookingCatalogCategory.addEventListener("change",()=>void action(async()=>loadCatalogFilterProfile(bookingCatalogCategory.value)));
+bookingCatalogNearbyEnabled.addEventListener("change",()=>{
+  const enabled=bookingCatalogNearbyEnabled.checked;
+  bookingCatalogLatitude.disabled=!enabled;bookingCatalogLongitude.disabled=!enabled;bookingCatalogRadius.disabled=!enabled;
+  bookingCatalogLatitude.required=enabled;bookingCatalogLongitude.required=enabled;bookingCatalogRadius.required=enabled;
+  if(enabled&&!bookingCatalogRadius.value)bookingCatalogRadius.value="5";
+});
+bookingCatalogCenterSample.addEventListener("click",()=>{
+  bookingCatalogLatitude.value="-33.4560";bookingCatalogLongitude.value="-70.6693";
+  bookingCatalogLatitude.dispatchEvent(new Event("input",{bubbles:true}));
+  bookingCatalogLongitude.dispatchEvent(new Event("input",{bubbles:true}));
+});
 form("booking-catalog-form",async data=>{
   const token=++bookingCatalogRequest;
   bookingQuoteState.beginSearch();
@@ -500,6 +516,11 @@ form("booking-catalog-form",async data=>{
   if((minTotal||maxTotal)&&!localStart)throw new Error("Para filtrar el precio total estimado indica inicio y término.");
   if(minTotal)query.set("min_total_clp",minTotal);
   if(maxTotal)query.set("max_total_clp",maxTotal);
+  if(bookingCatalogNearbyEnabled.checked){
+    const latitude=String(data.get("latitude")??""),longitude=String(data.get("longitude")??""),radius=String(data.get("radius_km")??"");
+    if(!latitude||!longitude||!radius)throw new Error("Para filtrar por cercanía indica latitud, longitud y radio.");
+    query.set("latitude",latitude);query.set("longitude",longitude);query.set("radius_km",radius);
+  }
   const searchZone=String(data.get("time_zone")??"").trim();
   if(localStart){
     if(!searchZone)throw new Error("Indica la zona horaria para interpretar el intervalo de búsqueda.");
@@ -541,7 +562,8 @@ form("booking-catalog-form",async data=>{
     const card=document.createElement("article");
     const title=document.createElement("h3");title.textContent=`${item.title} · ${item.category_name}`;
     const estimated=item.estimated_total_clp===undefined?"":` · Estimación total ${item.estimated_total_clp.toLocaleString("es-CL")} ${item.currency}`;
-    const meta=document.createElement("p");meta.textContent=`Tarifa ${item.base_price_clp} ${item.currency}/${item.rate_unit} · ${item.time_zone}${estimated}${item.available===undefined?"":item.available?" · disponible":" · no disponible"}`;
+    const distance=item.distance_km===undefined?"":` · Distancia directa aprox. ${item.distance_km.toFixed(1)} km (no ruta vial)`;
+    const meta=document.createElement("p");meta.textContent=`Tarifa ${item.base_price_clp} ${item.currency}/${item.rate_unit} · ${item.time_zone}${estimated}${distance}${item.available===undefined?"":item.available?" · disponible":" · no disponible"}`;
     const details=document.createElement("button");details.type="button";details.textContent="Ver detalle y preparar cotización";
     details.addEventListener("click",()=>void action(async()=>{
       const detailToken=++bookingCatalogRequest;
