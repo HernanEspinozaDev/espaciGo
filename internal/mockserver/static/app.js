@@ -4,6 +4,7 @@ import { BookingQuoteState } from "./booking-quote-state.js";
 import { inboxActions } from "./booking-inbox-state.js";
 import { showThenMarkConversationPage } from "./conversation-read-state.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
+import { actionWithButtonState } from "./action-button-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -30,11 +31,12 @@ async function request(path, method = "GET", body, authenticated = false, idempo
     if (!response.ok) {
         if (authenticated && response.status === 401) {
             sessionToken = "";
-            resetCatalogTraversal();
             clearBookingInboxOnSessionLoss();
         }
-        if (authenticated && path === "password/change" && response.status === 503)
+        if (authenticated && path === "password/change" && response.status === 503) {
             sessionToken = "";
+            clearBookingInboxOnSessionLoss();
+        }
         const error = data;
         throw new Error(`${error.error?.message ?? "Error de API"} (HTTP ${response.status}, ${error.error?.code ?? "unknown"})`);
     }
@@ -42,19 +44,11 @@ async function request(path, method = "GET", body, authenticated = false, idempo
 }
 async function action(work) {
     const buttons = [...document.querySelectorAll("button")];
-    const wasDisabled = buttons.map(button => button.disabled);
-    buttons.forEach(button => button.disabled = true);
     try {
-        await work();
+        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); });
     }
     catch (error) {
         resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
-    }
-    finally {
-        buttons.forEach((button, index) => button.disabled = wasDisabled[index]);
-        refreshCalendarControls();
-        refreshBookingActions();
-        refreshConversationControls();
     }
 }
 function form(id, work) {
@@ -571,7 +565,31 @@ let reservationKey = crypto.randomUUID();
 const paymentKeys = new Map();
 const bookingBase = "/api/v1/local/booking-trial";
 const catalogNextButton = document.querySelector("#booking-catalog-next");
-function resetCatalogTraversal() { bookingCatalogRequest++; catalogPagination.invalidate(); catalogNextCursor = ""; catalogRequestCursor = ""; catalogLoading = false; catalogNextButton.disabled = true; }
+function refreshCatalogControls() { const button = document.querySelector("#booking-catalog-next"); if (button)
+    button.disabled = catalogLoading || !catalogPagination.canNext; }
+function clearCatalogResultsAndSelection(message) {
+    catalogProfileRequest++;
+    bookingQuoteState.beginSearch();
+    bookingFixture = null;
+    const results = document.querySelector("#booking-catalog-results");
+    if (results) {
+        results.replaceChildren();
+        results.textContent = message;
+    }
+    const detail = document.querySelector("#booking-fixture-output");
+    if (detail)
+        detail.textContent = message;
+    const quote = document.querySelector("#booking-quote-output");
+    if (quote)
+        quote.textContent = "La cotización se invalidó al cambiar la sesión.";
+    const space = document.querySelector('#booking-quote-form [name="space_id"]');
+    if (space)
+        space.value = "";
+    const quoteID = document.querySelector('#booking-request-form [name="quote_id"]');
+    if (quoteID)
+        quoteID.value = "";
+}
+function resetCatalogTraversal() { bookingCatalogRequest++; catalogPagination.invalidate(); catalogNextCursor = ""; catalogRequestCursor = ""; catalogLoading = false; clearCatalogResultsAndSelection("Inicia sesión y busca fixtures sintéticos autorizados para esta cuenta."); refreshCatalogControls(); }
 function invalidateCatalogSelection(message) { bookingQuoteState.beginSearch(); bookingFixture = null; (document.querySelector('#booking-quote-form [name="space_id"]')).value = ""; (document.querySelector('#booking-request-form [name="quote_id"]')).value = ""; bookingQuoteOutput.textContent = message; }
 const bookingFixtureOutput = document.querySelector("#booking-fixture-output");
 const bookingQuoteOutput = document.querySelector("#booking-quote-output");
@@ -666,11 +684,13 @@ bookingCatalogCenterSample.addEventListener("click", () => {
 });
 form("booking-catalog-form", async (data) => {
     const token = ++bookingCatalogRequest;
-    const pageToken = catalogPagination.beginRequest();
     const requestSession = sessionToken, requestAccount = sessionAccountID;
-    catalogLoading = true;
-    catalogNextButton.disabled = true;
-    bookingQuoteState.beginSearch();
+    const requestedCursor = catalogRequestCursor;
+    catalogRequestCursor = "";
+    catalogPagination.invalidate();
+    catalogNextCursor = "";
+    catalogLoading = false;
+    refreshCatalogControls();
     const query = new URLSearchParams();
     const category = String(data.get("category_code") ?? "");
     if (category)
@@ -733,9 +753,12 @@ form("booking-catalog-form", async (data) => {
     if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 25)
         throw new Error("El tamaño de página debe estar entre 1 y 25.");
     query.set("page_size", String(pageSize));
-    if (catalogRequestCursor)
-        query.set("cursor", catalogRequestCursor);
-    catalogRequestCursor = "";
+    if (requestedCursor)
+        query.set("cursor", requestedCursor);
+    const pageToken = catalogPagination.beginRequest();
+    catalogLoading = true;
+    refreshCatalogControls();
+    bookingQuoteState.beginSearch();
     bookingFixture = null;
     (document.querySelector('#booking-quote-form [name="space_id"]')).value = "";
     (document.querySelector('#booking-request-form [name="quote_id"]')).value = "";
@@ -750,7 +773,7 @@ form("booking-catalog-form", async (data) => {
         if (token === bookingCatalogRequest) {
             catalogLoading = false;
             catalogPagination.finish(pageToken, catalogNextCursor);
-            catalogNextButton.disabled = !catalogPagination.canNext;
+            refreshCatalogControls();
         }
     }
     if (token !== bookingCatalogRequest || !catalogPagination.accepts(pageToken, requestAccount, sessionAccountID) || requestSession !== sessionToken)
@@ -758,7 +781,7 @@ form("booking-catalog-form", async (data) => {
     const payload = bookingData(response);
     catalogNextCursor = payload.next_cursor ?? "";
     catalogPagination.finish(pageToken, catalogNextCursor);
-    catalogNextButton.disabled = !catalogPagination.canNext;
+    refreshCatalogControls();
     catalogResults.replaceChildren();
     if (!payload.items.length) {
         catalogResults.textContent = "No hay espacios sintéticos habilitados para estos filtros.";
@@ -810,8 +833,6 @@ catalogNextButton.addEventListener("click", () => {
     if (!cursor)
         return;
     catalogRequestCursor = cursor;
-    catalogLoading = true;
-    catalogNextButton.disabled = true;
     invalidateCatalogSelection("La selección y cotización quedan invalidadas al cambiar de página.");
     document.querySelector("#booking-catalog-form").requestSubmit();
 });

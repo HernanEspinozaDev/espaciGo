@@ -8,6 +8,6 @@ export class CatalogPaginationState {
         return; this.loading = false; this.cursor = nextCursor; }
     invalidate() { this.generation++; this.loading = false; this.cursor = ""; }
     beginNext() { if (this.loading || !this.cursor)
-        return null; this.generation++; this.loading = true; return this.cursor; }
+        return null; return this.cursor; }
     get canNext() { return !this.loading && Boolean(this.cursor); }
 }
