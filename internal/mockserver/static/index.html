@@ -120,7 +120,8 @@
     <form id="booking-payment-form"><label>ID de reserva <input name="id" required></label><label>Resultado fake <select name="outcome"><option value="exito">Éxito simulado</option><option value="rechazo">Rechazo simulado</option><option value="sin_respuesta">Sin respuesta simulada</option></select></label><button>Enviar pago de ensayo</button></form>
     <form id="booking-decision-form"><label>ID de reserva <input name="id" required></label><label>Decisión del anfitrión <select name="decision"><option value="aprobar">Aprobar</option><option value="rechazar">Rechazar</option></select></label><button>Registrar decisión (24 h tras pago)</button></form>
     <form id="booking-cancel-form"><label>ID de reserva <input name="id" required></label><button>Cancelar antes del pago</button></form>
-    <button id="booking-history-load" type="button">Consultar mis reservas e historial</button>
+    <button id="booking-history-load" type="button">Listar mis reservas</button>
+    <form id="booking-history-detail-form"><label>ID de reserva para ver historial <input name="reservation_id" required></label><button>Consultar detalle e historial</button></form>
     <pre id="booking-history-output">El historial muestra solo reservas propias.</pre>
   </section>
   <p id="result" role="status" aria-live="polite">Completa los pasos en orden.</p>
