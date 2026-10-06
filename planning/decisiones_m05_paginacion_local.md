@@ -21,8 +21,8 @@ Para visualizar al menos tres páginas con el tamaño predeterminado, después d
 ```sh
 bash scripts/enable-local-catalog-pagination-fixtures.sh
 # o, para elegir la pareja sin depender de la selección automática:
-bash scripts/enable-local-catalog-pagination-fixtures.sh \\
-  --host-email anfitrion@example.invalid \\
+bash scripts/enable-local-catalog-pagination-fixtures.sh \
+  --host-email anfitrion@example.invalid \
   --renter-email arrendatario@example.invalid
 ```
 

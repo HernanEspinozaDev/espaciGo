@@ -809,6 +809,20 @@ paths:
         '200': { description: Detalle del fixture con aviso local., content: { application/json: { schema: { $ref: '#/components/schemas/LocalCatalogDetailEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /local/booking-trial/catalog/{spaceId}/availability-options:
+    get:
+      operationId: getAuthorizedLocalFixtureAvailabilityOptions
+      tags: [M06 local]
+      description: 'Consulta candidatos para una sola fecha local del fixture autorizado; requiere una sesión del anfitrión o arrendatario de ese fixture. La modalidad siempre procede de su tarifa vigente. El horizonte de inicio es hoy–hoy+90 días en la zona del espacio. Hora: duración transcurrida 1/2/4 h, inicios cada 30 min; día: 1/2/3 fechas calendario completas; mes: aniversario de un mes calendario con ajuste al último día. Excluye inicios pasados/iguales al reloj Backend, horas locales DST inexistentes y candidatos que solapen una ocupación activa; ambas instancias de una hora repetida se distinguen por sus intervalos UTC. Procesa vencimientos usando el mecanismo de M06. No persiste cotizaciones ni ocupaciones y no revela datos de otras reservas. La disponibilidad se revalida al cotizar y reservar.'
+      parameters:
+        - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: date, in: query, required: true, description: Fecha local única consultada en la zona IANA del espacio; no descarga el horizonte entero., schema: { type: string, format: date } }
+        - { name: duration, in: query, required: true, description: Unidades compatibles con la modalidad vigente del espacio; hora 1/2/4 transcurridas, día 1/2/3 calendario, mes exactamente 1., schema: { type: integer, enum: [1, 2, 3, 4] } }
+      responses:
+        '200': { description: Modalidad, zona IANA e intervalos UTC libres para la fecha elegida., content: { application/json: { schema: { $ref: '#/components/schemas/LocalAvailabilityOptionsEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /local/booking-trial/quotes:
     post:
       operationId: quoteAuthorizedLocalBooking
@@ -1053,6 +1067,26 @@ components:
       properties:
         safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
         data: { $ref: '#/components/schemas/LocalCatalogItem' }
+    LocalAvailabilityOptionsEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data: { $ref: '#/components/schemas/LocalAvailabilityOptions' }
+    LocalAvailabilityOptions:
+      type: object
+      required: [space_id, time_zone, rate_unit, items]
+      properties:
+        space_id: { type: string, format: uuid }
+        time_zone: { type: string }
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        items: { type: array, items: { $ref: '#/components/schemas/LocalAvailableInterval' } }
+    LocalAvailableInterval:
+      type: object
+      required: [start_at, end_at]
+      properties:
+        start_at: { type: string, format: date-time, pattern: Z$ }
+        end_at: { type: string, format: date-time, pattern: Z$ }
     LocalCatalogItem:
       type: object
       required: [space_id, category_code, category_name, title, description, rate_unit, base_price_clp, currency, time_zone, profile_version, profile, attributes]

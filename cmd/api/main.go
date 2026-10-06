@@ -49,6 +49,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "local-booking-interval-selector-fixtures" {
+		if err := createLocalIntervalSelectorFixtures(os.Args[2:]); err != nil {
+			log.Print("synthetic interval selector fixtures were not added; no account or database details logged")
+			os.Exit(1)
+		}
+		return
+	}
 	if (len(os.Args) == 4 || len(os.Args) == 5) && os.Args[1] == "local-booking-fixture" {
 		category := "sala_multiproposito"
 		if len(os.Args) == 5 {

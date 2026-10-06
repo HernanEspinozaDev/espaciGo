@@ -127,6 +127,58 @@ WHERE f.espacio_id=$1 AND f.habilitada AND e.estado='borrador' AND e.propietario
 	return v, mapErr(err)
 }
 
+func (r *Repository) AvailableIntervals(ctx context.Context, actor, spaceID string, candidates []booking.AvailableInterval) ([]bool, error) {
+	// Recheck allowlist and both participant identities at the time of each
+	// availability request. No occupancy metadata is selected or returned.
+	var authorized bool
+	if err := r.pool.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM public.reserva_ensayo_local_fixture f
+		JOIN public.espacio e ON e.id=f.espacio_id AND e.propietario_id=f.anfitrion_id AND e.estado='borrador'
+		WHERE f.espacio_id=$1 AND f.habilitada AND (f.anfitrion_id=$2 OR f.arrendatario_id=$2))`, spaceID, actor).Scan(&authorized); err != nil {
+		return nil, err
+	}
+	if !authorized {
+		return nil, booking.ErrNotFound
+	}
+	starts, ends := make([]time.Time, len(candidates)), make([]time.Time, len(candidates))
+	for i, candidate := range candidates {
+		starts[i], ends[i] = candidate.StartAt.UTC(), candidate.EndAt.UTC()
+	}
+	available := make([]bool, len(candidates))
+	if len(candidates) == 0 {
+		return available, nil
+	}
+	rows, err := r.pool.Query(ctx, `SELECT c.ordinality,
+		NOT EXISTS(SELECT 1 FROM public.ocupacion o
+			WHERE o.espacio_id=$1 AND o.activo AND o.intervalo && tstzrange(c.starts,c.ends,'[)'))
+		FROM unnest($2::timestamptz[],$3::timestamptz[]) WITH ORDINALITY AS c(starts,ends,ordinality)
+		ORDER BY c.ordinality`, spaceID, starts, ends)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var ordinal int64
+		var free bool
+		if err = rows.Scan(&ordinal, &free); err != nil {
+			return nil, err
+		}
+		if ordinal < 1 || ordinal > int64(len(available)) {
+			return nil, errors.New("availability candidate ordinal out of range")
+		}
+		available[ordinal-1] = free
+		count++
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	if count != len(candidates) {
+		return nil, errors.New("availability candidate result count mismatch")
+	}
+	return available, nil
+}
+
 func (r *Repository) Quote(ctx context.Context, renter, spaceID, id string, start, end time.Time, clock func() time.Time, ttl time.Duration) (booking.Quote, error) {
 	preNow := clock().UTC()
 	if !start.After(preNow) {

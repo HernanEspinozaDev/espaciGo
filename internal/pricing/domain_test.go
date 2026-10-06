@@ -38,3 +38,34 @@ func TestParseWindowRequiresUTCAndPositiveRange(t *testing.T) {
 		}
 	}
 }
+
+func TestBilledUnitsDailyBoundariesWithSkippedMidnight(t *testing.T) {
+	loc, err := time.LoadLocation("America/Santiago")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, time.September, 6, 1, 0, 0, 0, loc)
+	for days, end := range map[int]time.Time{
+		1: time.Date(2026, time.September, 7, 0, 0, 0, 0, loc),
+		2: time.Date(2026, time.September, 8, 0, 0, 0, 0, loc),
+		3: time.Date(2026, time.September, 9, 0, 0, 0, 0, loc),
+	} {
+		got, e := units("dia", start.UTC(), end.UTC(), loc.String())
+		if e != nil || got != int64(days) {
+			t.Fatalf("interval for %d local dates billed %d, err=%v", days, got, e)
+		}
+	}
+}
+
+func TestBilledUnitsMonthlyAnniversaryAtSkippedMidnight(t *testing.T) {
+	loc, err := time.LoadLocation("America/Santiago")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, time.August, 6, 0, 0, 0, 0, loc)
+	end := time.Date(2026, time.September, 6, 1, 0, 0, 0, loc)
+	got, err := units("mes", start.UTC(), end.UTC(), loc.String())
+	if err != nil || got != 1 {
+		t.Fatalf("monthly interval billed %d months, err=%v", got, err)
+	}
+}

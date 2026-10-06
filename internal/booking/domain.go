@@ -72,6 +72,20 @@ type QuoteInput struct {
 	StartAt string `json:"start_at"`
 	EndAt   string `json:"end_at"`
 }
+type AvailabilityOptionsInput struct {
+	Date     string
+	Duration int
+}
+type AvailableInterval struct {
+	StartAt time.Time `json:"start_at"`
+	EndAt   time.Time `json:"end_at"`
+}
+type AvailabilityOptions struct {
+	SpaceID  string              `json:"space_id"`
+	TimeZone string              `json:"time_zone"`
+	RateUnit string              `json:"rate_unit"`
+	Items    []AvailableInterval `json:"items"`
+}
 type Quote struct {
 	ID             string          `json:"id"`
 	SpaceID        string          `json:"space_id"`
@@ -140,6 +154,7 @@ type Repository interface {
 	Catalog(context.Context, string, CatalogFilter) ([]CatalogItem, error)
 	CatalogProfile(context.Context, string, int) (spaces.Profile, error)
 	CatalogDetail(context.Context, string, string) (CatalogItem, error)
+	AvailableIntervals(context.Context, string, string, []AvailableInterval) ([]bool, error)
 	Quote(context.Context, string, string, string, time.Time, time.Time, func() time.Time, time.Duration) (Quote, error)
 	Create(context.Context, string, string, string, []byte, string, string, time.Duration, func() time.Time) (Reservation, error)
 	Get(context.Context, string, string) (Detail, error)

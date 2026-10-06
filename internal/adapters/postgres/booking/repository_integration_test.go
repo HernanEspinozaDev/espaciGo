@@ -189,6 +189,21 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	clockMu.Lock()
 	fixedNow = expiringReservation.PayExpiresAt
 	clockMu.Unlock()
+	selectorLocation, _ := time.LoadLocation("America/Santiago")
+	selectorDate := expiringStart.In(selectorLocation).Format("2006-01-02")
+	expiredHoldOptions, err := svc.AvailableIntervals(ctx, renter, space, booking.AvailabilityOptionsInput{Date: selectorDate, Duration: 1})
+	if err != nil {
+		t.Fatalf("selector did not process an expired payment hold: %+v err=%v", expiredHoldOptions, err)
+	}
+	var expiredHoldReturned bool
+	for _, option := range expiredHoldOptions.Items {
+		if option.StartAt.Equal(expiringStart) {
+			expiredHoldReturned = true
+		}
+	}
+	if !expiredHoldReturned {
+		t.Fatalf("selector did not return the interval after hold expiry: %+v", expiredHoldOptions)
+	}
 	searchStart, searchEnd := expiringStart, expiringStart.Add(time.Hour)
 	itemsAfterExpiry, err := svc.Catalog(ctx, renter, booking.CatalogFilter{StartAt: &searchStart, EndAt: &searchEnd})
 	if err != nil {
@@ -1164,6 +1179,181 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if concurrentRateReservations != 0 || concurrentRateOccupancies != 0 {
 		t.Fatalf("concurrent stale tariff rejection left reservation/occupancy=%d/%d", concurrentRateReservations, concurrentRateOccupancies)
 	}
+	clockMu.Lock()
+	fixedNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	clockMu.Unlock()
+	selectorZone, err := time.LoadLocation("America/Santiago")
+	if err != nil {
+		t.Fatal(err)
+	}
+	daySpace, monthSpace := "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+	for _, fixture := range []struct{ id, category, title, unit string }{
+		{daySpace, "bodega", "Selector local · día", "dia"},
+		{monthSpace, "local_flexible", "Selector local · mes", "mes"},
+	} {
+		if _, err = setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria) VALUES($1,$2,$3,$4,repeat('Fixture sintético de selector. ',4),20,4,'Uso de prueba',$5,8000,'Privada','America/Santiago')`, fixture.id, host, fixture.category, fixture.title, fixture.unit); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) SELECT $1,$2,max(version),'{}' FROM public.categoria_perfil_atributos WHERE categoria_codigo=$2`, fixture.id, fixture.category); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,$2,8000)`, fixture.id, fixture.unit); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, fixture.id, host, renter); err != nil {
+			t.Fatal(err)
+		}
+	}
+	blockStart := time.Date(2030, time.January, 2, 10, 0, 0, 0, selectorZone)
+	for index, block := range []struct {
+		space      string
+		start, end time.Time
+	}{
+		{space, blockStart, blockStart.Add(time.Hour)},
+		{daySpace, time.Date(2030, time.January, 2, 10, 0, 0, 0, selectorZone), time.Date(2030, time.January, 2, 11, 0, 0, 0, selectorZone)},
+		{monthSpace, time.Date(2030, time.February, 1, 0, 0, 0, 0, selectorZone), time.Date(2030, time.February, 1, 1, 0, 0, 0, selectorZone)},
+	} {
+		if _, err = setup.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,motivo) VALUES($1,$2,NULL,tstzrange($3,$4,'[)'),'bloqueo_manual',true,'bloqueo sintético de prueba')`, fmt.Sprintf("33333333-3333-4333-8333-%012d", index+1), block.space, block.start, block.end); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dayBeforeQuotes, dayBeforeOccupancies := int64(0), int64(0)
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.cotizacion_reserva_ensayo),(SELECT count(*) FROM public.ocupacion)`).Scan(&dayBeforeQuotes, &dayBeforeOccupancies); err != nil {
+		t.Fatal(err)
+	}
+	hourlyOptions, err := svc.AvailableIntervals(ctx, renter, space, booking.AvailabilityOptionsInput{Date: "2030-01-02", Duration: 1})
+	if err != nil || hourlyOptions.RateUnit != "hora" || len(hourlyOptions.Items) == 0 {
+		t.Fatalf("hourly availability options=%+v err=%v", hourlyOptions, err)
+	}
+	hasAt := func(options booking.AvailabilityOptions, local time.Time) bool {
+		for _, item := range options.Items {
+			if item.StartAt.Equal(local.UTC()) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, local := range []time.Time{
+		time.Date(2030, 1, 2, 9, 0, 0, 0, selectorZone),  // adjacent before block
+		time.Date(2030, 1, 2, 11, 0, 0, 0, selectorZone), // adjacent after block
+	} {
+		if !hasAt(hourlyOptions, local) {
+			t.Fatalf("adjacent hourly option %s missing", local)
+		}
+	}
+	for _, local := range []time.Time{
+		time.Date(2030, 1, 2, 9, 30, 0, 0, selectorZone), // partial overlap
+		time.Date(2030, 1, 2, 10, 0, 0, 0, selectorZone),
+		time.Date(2030, 1, 2, 10, 30, 0, 0, selectorZone),
+	} {
+		if hasAt(hourlyOptions, local) {
+			t.Fatalf("overlapping hourly option %s was offered", local)
+		}
+	}
+	dayBlocked, err := svc.AvailableIntervals(ctx, renter, daySpace, booking.AvailabilityOptionsInput{Date: "2030-01-02", Duration: 1})
+	if err != nil || dayBlocked.RateUnit != "dia" || len(dayBlocked.Items) != 0 {
+		t.Fatalf("partially blocked full-day candidate=%+v err=%v", dayBlocked, err)
+	}
+	dayFree, err := svc.AvailableIntervals(ctx, host, daySpace, booking.AvailabilityOptionsInput{Date: "2030-01-03", Duration: 2})
+	if err != nil || len(dayFree.Items) != 1 || dayFree.Items[0].EndAt.Sub(dayFree.Items[0].StartAt) != 48*time.Hour {
+		t.Fatalf("calendar-day candidate=%+v err=%v", dayFree, err)
+	}
+	monthBlocked, err := svc.AvailableIntervals(ctx, renter, monthSpace, booking.AvailabilityOptionsInput{Date: "2030-01-31", Duration: 1})
+	if err != nil || monthBlocked.RateUnit != "mes" || len(monthBlocked.Items) != 0 {
+		t.Fatalf("partially blocked monthly candidate=%+v err=%v", monthBlocked, err)
+	}
+	monthFree, err := svc.AvailableIntervals(ctx, renter, monthSpace, booking.AvailabilityOptionsInput{Date: "2030-02-28", Duration: 1})
+	if err != nil || len(monthFree.Items) != 1 || monthFree.Items[0].EndAt.In(selectorZone).Day() != 28 || monthFree.Items[0].EndAt.In(selectorZone).Month() != time.March {
+		t.Fatalf("monthly anniversary candidate=%+v err=%v", monthFree, err)
+	}
+	if _, err = svc.AvailableIntervals(ctx, outsider, space, booking.AvailabilityOptionsInput{Date: "2030-01-02", Duration: 1}); err != booking.ErrNotFound {
+		t.Fatalf("unauthorized selector access=%v", err)
+	}
+	var selectorQuotesAfter, selectorOccupanciesAfter int64
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.cotizacion_reserva_ensayo),(SELECT count(*) FROM public.ocupacion)`).Scan(&selectorQuotesAfter, &selectorOccupanciesAfter); err != nil {
+		t.Fatal(err)
+	}
+	if selectorQuotesAfter != dayBeforeQuotes || selectorOccupanciesAfter != dayBeforeOccupancies {
+		t.Fatalf("availability lookup persisted quotes/occupancies: before=%d/%d after=%d/%d", dayBeforeQuotes, dayBeforeOccupancies, selectorQuotesAfter, selectorOccupanciesAfter)
+	}
+	selectedInterval := hourlyOptions.Items[0]
+	lateAvailabilityQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: selectedInterval.StartAt.Format(time.RFC3339Nano), EndAt: selectedInterval.EndAt.Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatalf("quote for recently displayed free interval: %v", err)
+	}
+	lateBlockID := "44444444-4444-4444-8444-444444444444"
+	if _, err = setup.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,motivo) VALUES($1,$2,NULL,tstzrange($3,$4,'[)'),'bloqueo_manual',true,'bloqueo agregado después de consultar')`, lateBlockID, space, selectedInterval.StartAt, selectedInterval.EndAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Request(ctx, renter, booking.RequestInput{QuoteID: lateAvailabilityQuote.ID}, "availability-became-stale"); err != booking.ErrConflict {
+		t.Fatalf("reservation after a post-query occupancy should conflict: %v", err)
+	}
+	var lateBlockReservations, lateBlockBookingOccupancies int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, lateAvailabilityQuote.ID).Scan(&lateBlockReservations); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE espacio_id=$1 AND tipo='reserva' AND activo AND intervalo && tstzrange($2,$3,'[)')`, space, selectedInterval.StartAt, selectedInterval.EndAt).Scan(&lateBlockBookingOccupancies); err != nil {
+		t.Fatal(err)
+	}
+	if lateBlockReservations != 0 || lateBlockBookingOccupancies != 0 {
+		t.Fatalf("stale availability rejection left reservation/booking occupancy=%d/%d", lateBlockReservations, lateBlockBookingOccupancies)
+	}
+
+	// Exercise the selector intervals through the real PostgreSQL quote path:
+	// offered local calendar durations must map to the approved billable units.
+	clockMu.Lock()
+	fixedNow = time.Date(2026, time.August, 5, 23, 30, 0, 0, selectorZone)
+	clockMu.Unlock()
+	dstDaySpace, dstMonthSpace := "66666666-6666-4666-8666-666666666601", "66666666-6666-4666-8666-666666666602"
+	for _, fixture := range []struct {
+		id, category, title, unit string
+		price                     int64
+	}{
+		{dstDaySpace, "bodega", "Selector DST · día", "dia", 12000},
+		{dstMonthSpace, "local_flexible", "Selector DST · mes", "mes", 450000},
+	} {
+		if _, err = setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria) VALUES($1,$2,$3,$4,repeat('Fixture sintético de prueba DST. ',4),20,4,'Uso de prueba',$5,$6,'Privada','America/Santiago')`, fixture.id, host, fixture.category, fixture.title, fixture.unit, fixture.price); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) SELECT $1,$2,max(version),'{}' FROM public.categoria_perfil_atributos WHERE categoria_codigo=$2`, fixture.id, fixture.category); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,$2,$3)`, fixture.id, fixture.unit, fixture.price); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, fixture.id, host, renter); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for days := 1; days <= 3; days++ {
+		options, optionsErr := svc.AvailableIntervals(ctx, renter, dstDaySpace, booking.AvailabilityOptionsInput{Date: "2026-09-06", Duration: days})
+		if optionsErr != nil || len(options.Items) != 1 {
+			t.Fatalf("DST %d-day options=%+v err=%v", days, options, optionsErr)
+		}
+		interval := options.Items[0]
+		startLocal, endLocal := interval.StartAt.In(selectorZone), interval.EndAt.In(selectorZone)
+		if startLocal.Format("2006-01-02 15:04") != "2026-09-06 01:00" || !endLocal.After(startLocal) {
+			t.Fatalf("DST %d-day interval=%s–%s", days, startLocal, endLocal)
+		}
+		quote, quoteErr := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: dstDaySpace, StartAt: interval.StartAt.Format(time.RFC3339Nano), EndAt: interval.EndAt.Format(time.RFC3339Nano)})
+		if quoteErr != nil || quote.Units != int64(days) || quote.Subtotal != int64(days)*12000 {
+			t.Fatalf("DST %d-day quote units/subtotal=%d/%d err=%v", days, quote.Units, quote.Subtotal, quoteErr)
+		}
+	}
+	monthOptions, err := svc.AvailableIntervals(ctx, renter, dstMonthSpace, booking.AvailabilityOptionsInput{Date: "2026-08-06", Duration: 1})
+	if err != nil || len(monthOptions.Items) != 1 {
+		t.Fatalf("DST monthly options=%+v err=%v", monthOptions, err)
+	}
+	monthInterval := monthOptions.Items[0]
+	monthStart, monthEnd := monthInterval.StartAt.In(selectorZone), monthInterval.EndAt.In(selectorZone)
+	if monthStart.Format("2006-01-02 15:04") != "2026-08-06 00:00" || monthEnd.Format("2006-01-02 15:04") != "2026-09-06 01:00" {
+		t.Fatalf("monthly anniversary interval=%s–%s", monthStart, monthEnd)
+	}
+	monthQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: dstMonthSpace, StartAt: monthInterval.StartAt.Format(time.RFC3339Nano), EndAt: monthInterval.EndAt.Format(time.RFC3339Nano)})
+	if err != nil || monthQuote.Units != 1 || monthQuote.Subtotal != 450000 {
+		t.Fatalf("monthly quote units/subtotal=%d/%d err=%v", monthQuote.Units, monthQuote.Subtotal, err)
+	}
+
 }
 
 func hasAttributes(raw json.RawMessage, expected map[string]any) bool {

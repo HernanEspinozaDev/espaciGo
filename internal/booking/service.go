@@ -358,6 +358,42 @@ func (s *Service) CatalogDetail(ctx context.Context, actor, spaceID string) (Cat
 	}
 	return s.repo.CatalogDetail(ctx, actor, spaceID)
 }
+
+func (s *Service) AvailableIntervals(ctx context.Context, actor, spaceID string, in AvailabilityOptionsInput) (AvailabilityOptions, error) {
+	if !uuid.MatchString(actor) || !uuid.MatchString(spaceID) {
+		return AvailabilityOptions{}, ErrNotFound
+	}
+	item, err := s.repo.CatalogDetail(ctx, actor, spaceID)
+	if err != nil {
+		return AvailabilityOptions{}, err
+	}
+	now := s.now().UTC()
+	candidates, err := availabilityCandidates(item.RateUnit, in.Date, in.Duration, item.TimeZone, now)
+	if err != nil {
+		return AvailabilityOptions{}, err
+	}
+	// Apply the shared expiry transition mechanism before treating active
+	// occupancy rows as blocking. This is a read-only query; it creates no quote.
+	if err = s.repo.Expire(ctx, now); err != nil {
+		return AvailabilityOptions{}, err
+	}
+	available, err := s.repo.AvailableIntervals(ctx, actor, spaceID, candidates)
+	if err != nil {
+		return AvailabilityOptions{}, err
+	}
+	if len(available) != len(candidates) {
+		return AvailabilityOptions{}, ErrNotFound
+	}
+	result := AvailabilityOptions{SpaceID: item.SpaceID, TimeZone: item.TimeZone, RateUnit: item.RateUnit, Items: make([]AvailableInterval, 0, len(candidates))}
+	checkedAt := s.now().UTC()
+	for i, candidate := range candidates {
+		if available[i] && candidate.StartAt.After(checkedAt) {
+			result.Items = append(result.Items, candidate)
+		}
+	}
+	return result, nil
+}
+
 func (s *Service) Quote(ctx context.Context, renter string, in QuoteInput) (Quote, error) {
 	if !uuid.MatchString(in.SpaceID) {
 		return Quote{}, ErrInvalid

@@ -56,7 +56,14 @@ func (repoStub) CatalogProfile(ctx context.Context, category string, version int
 	return spaces.Profile{CategoryCode: category, SchemaVersion: version, Attributes: []spaces.AttributeDefinition{{Code: "proyector", Type: "boolean"}}}, nil
 }
 func (r repoStub) CatalogDetail(context.Context, string, string) (booking.CatalogItem, error) {
-	return booking.CatalogItem{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`)}, nil
+	return booking.CatalogItem{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, RateUnit: r.fixture.RateUnit, TimeZone: r.fixture.TimeZone, ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`)}, nil
+}
+func (repoStub) AvailableIntervals(_ context.Context, _ string, _ string, intervals []booking.AvailableInterval) ([]bool, error) {
+	free := make([]bool, len(intervals))
+	for i := range free {
+		free[i] = true
+	}
+	return free, nil
 }
 func (repoStub) Quote(_ context.Context, _ string, spaceID, id string, start, end time.Time, clock func() time.Time, ttl time.Duration) (booking.Quote, error) {
 	created := clock().UTC()
@@ -120,6 +127,24 @@ func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testin
 	h.ServeHTTP(catalogResponse, catalogRequest)
 	if catalogResponse.Code != http.StatusOK || !strings.Contains(catalogResponse.Body.String(), `"category_code":"sala_multiproposito"`) || !strings.Contains(catalogResponse.Body.String(), booking.SafetyBanner) {
 		t.Fatalf("catalog response=%d %s", catalogResponse.Code, catalogResponse.Body.String())
+	}
+	selectorZone, _ := time.LoadLocation("America/Santiago")
+	selectorDate := time.Now().In(selectorZone).AddDate(0, 0, 1).Format("2006-01-02")
+	availabilityRequest := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/availability-options?date="+selectorDate+"&duration=2", nil)
+	availabilityRequest.Header.Set("Authorization", "Bearer test-session")
+	availabilityResponse := httptest.NewRecorder()
+	h.ServeHTTP(availabilityResponse, availabilityRequest)
+	if availabilityResponse.Code != http.StatusOK || !strings.Contains(availabilityResponse.Body.String(), `"rate_unit":"hora"`) || !strings.Contains(availabilityResponse.Body.String(), `"time_zone":"America/Santiago"`) || !strings.Contains(availabilityResponse.Body.String(), `"items":[`) {
+		t.Fatalf("availability options response=%d %s", availabilityResponse.Code, availabilityResponse.Body.String())
+	}
+	for _, query := range []string{"date=2030-01-01", "date=2030-01-01&duration=3", "date=2030-01-01&duration=2&rate_unit=dia"} {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/availability-options?"+query, nil)
+		request.Header.Set("Authorization", "Bearer test-session")
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, request)
+		if response.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("invalid selector query %q status=%d body=%s", query, response.Code, response.Body.String())
+		}
 	}
 	invalidFilter := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog?start_at=not-a-date&end_at=2030-01-01T01%3A00%3A00Z", nil)
 	invalidFilter.Header.Set("Authorization", "Bearer test-session")
