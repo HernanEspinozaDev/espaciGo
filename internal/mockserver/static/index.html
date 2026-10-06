@@ -2,10 +2,11 @@
 <html lang="es">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>EspaciGo · prototipo local M01/M03</title>
+  <title>EspaciGo · prototipo local</title>
   <link rel="stylesheet" href="/styles.css"><script type="module" src="/app.js"></script>
 </head>
 <body><main>
+  <aside class="safety-banner" role="note">ENSAYO LOCAL — SIN COBRO REAL. Solo cuentas sintéticas autorizadas; ninguna pasarela ni fondos reales.</aside>
   <h1>EspaciGo · cuenta y sesión</h1>
   <p>Prototipo local. Usa datos sintéticos. Los términos son fixtures de prueba; la preferencia de uso sigue pendiente.</p>
   <p id="api-status" role="status" aria-live="polite">Comprobando API y base de datos…</p>
@@ -107,6 +108,20 @@
       <label>Término (hora local) <input name="end_at" type="datetime-local" required></label><button>Comprobar disponibilidad y guardar simulación privada</button></form>
     <form id="price-simulation-load-form"><label>ID de simulación guardada <input name="id" required></label><button>Consultar snapshot anterior</button></form>
     <pre id="price-simulation-output">No se ha guardado ninguna simulación.</pre>
+  </section>
+  <section id="booking-trial"><h2>12. Reserva sintética · M06 local</h2>
+    <p><strong>ENSAYO LOCAL — SIN COBRO REAL.</strong> Un único borrador sintético está allowlisted para dos cuentas activas/verificadas. No se publica ni se descubre ningún otro borrador. KYC sintético no concede permisos comerciales.</p>
+    <button id="booking-fixture-load" type="button">Consultar fixture autorizado</button>
+    <pre id="booking-fixture-output">Inicia sesión como uno de los dos participantes autorizados.</pre>
+    <p>La cotización snapshot vence en 15 minutos (configurable) y no reserva ni retiene el horario.</p>
+    <form id="booking-quote-form"><label>Inicio (hora local) <input name="start_at" type="datetime-local" required></label><label>Término (hora local) <input name="end_at" type="datetime-local" required></label><button>Crear cotización snapshot</button></form>
+    <pre id="booking-quote-output">La cotización no retiene disponibilidad.</pre>
+    <form id="booking-request-form"><label>ID de cotización <input name="quote_id" required></label><button>Solicitar y retener disponibilidad (15 min)</button></form>
+    <form id="booking-payment-form"><label>ID de reserva <input name="id" required></label><label>Resultado fake <select name="outcome"><option value="exito">Éxito simulado</option><option value="rechazo">Rechazo simulado</option><option value="sin_respuesta">Sin respuesta simulada</option></select></label><button>Enviar pago de ensayo</button></form>
+    <form id="booking-decision-form"><label>ID de reserva <input name="id" required></label><label>Decisión del anfitrión <select name="decision"><option value="aprobar">Aprobar</option><option value="rechazar">Rechazar</option></select></label><button>Registrar decisión (24 h tras pago)</button></form>
+    <form id="booking-cancel-form"><label>ID de reserva <input name="id" required></label><button>Cancelar antes del pago</button></form>
+    <button id="booking-history-load" type="button">Consultar mis reservas e historial</button>
+    <pre id="booking-history-output">El historial muestra solo reservas propias.</pre>
   </section>
   <p id="result" role="status" aria-live="polite">Completa los pasos en orden.</p>
   <p>Al cambiar la contraseña se revocan todas las sesiones; vuelve a iniciar sesión. No es el frontend definitivo. Historial y entrega durable de avisos siguen pendientes de DB02-09. Cuenta de cobro/KYC real, foto y decisiones de retención/supresión no están implementadas.</p>

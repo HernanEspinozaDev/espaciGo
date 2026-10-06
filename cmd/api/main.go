@@ -14,12 +14,16 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
+	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
 	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
+	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
@@ -36,6 +40,13 @@ import (
 const readyURL = "http://127.0.0.1:8080/health/ready"
 
 func main() {
+	if len(os.Args) == 4 && os.Args[1] == "local-booking-fixture" {
+		if err := createLocalBookingFixture(os.Args[2], os.Args[3]); err != nil {
+			log.Print("local fixture was not enabled; no account or database details logged")
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "migrate" {
 		if migrateLocal() != nil {
 			log.Print("local migration failed; no credentials or SQL details logged")
@@ -119,6 +130,26 @@ func run() error {
 		spacesHandler := spaceshttp.NewHandlerWithPricing(service, spacesService, cfg.allowedOrigins, calendarService, pricingService)
 		mux.Handle("/api/v1/spaces", spacesHandler)
 		mux.Handle("/api/v1/spaces/", spacesHandler)
+		if os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {
+			quoteTTL, err := localTrialDuration("LOCAL_BOOKING_QUOTE_TTL", 15*time.Minute)
+			if err != nil {
+				return errors.New("invalid local quote lifetime")
+			}
+			payTTL, err := localTrialDuration("LOCAL_BOOKING_PAY_TTL", 15*time.Minute)
+			if err != nil {
+				return errors.New("invalid local payment lifetime")
+			}
+			hostTTL, err := localTrialDuration("LOCAL_BOOKING_HOST_TTL", 24*time.Hour)
+			if err != nil {
+				return errors.New("invalid local host response lifetime")
+			}
+			bookingService, err := booking.NewServiceWithTTLs(bookingpg.New(pool), credentials.Generator{}, time.Now, fakebooking.New(), quoteTTL, payTTL, hostTTL)
+			if err != nil {
+				return errors.New("local booking trial initialization failed")
+			}
+			bookingHandler := bookinghttp.NewHandler(service, bookingService, cfg.allowedOrigins)
+			mux.Handle("/api/v1/local/booking-trial/", bookingHandler)
+		}
 		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/yaml")
 			http.ServeFile(w, r, "/openapi.yaml")

@@ -83,6 +83,13 @@ func (s *Service) GetSimulation(ctx context.Context, owner, spaceID, id string) 
 	}
 	return s.repo.GetSimulation(ctx, owner, spaceID, id)
 }
+
+// BilledUnits exposes the same timezone-aware unit calculation for the local
+// tenant quote snapshot, avoiding a second tariff-boundary implementation.
+func BilledUnits(unit string, startUTC, endUTC time.Time, zone string) (int64, error) {
+	return units(unit, startUTC, endUTC, zone)
+}
+
 func mapCalendarError(err error) error {
 	if err == occupancy.ErrNotFound {
 		return ErrNotFound
