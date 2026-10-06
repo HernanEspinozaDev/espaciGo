@@ -16,7 +16,10 @@ import (
 
 const testReservationID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
-type conversationRepoStub struct{ sent conversation.Message }
+type conversationRepoStub struct {
+	sent   conversation.Message
+	cursor int64
+}
 
 func (r *conversationRepoStub) List(_ context.Context, actor, reservation string, before *int64, limit int) (conversation.Page, error) {
 	if actor != renterID || reservation != testReservationID {
@@ -30,6 +33,18 @@ func (r *conversationRepoStub) Send(_ context.Context, actor, reservation, key, 
 	}
 	r.sent = conversation.Message{ID: id, ReservationID: reservation, AuthorID: actor, Sequence: 5, Body: body, CreatedAt: now()}
 	return r.sent, nil
+}
+func (r *conversationRepoStub) MarkRead(_ context.Context, actor, reservation string, through int64) (int64, error) {
+	if actor != renterID || reservation != testReservationID {
+		return 0, conversation.ErrNotFound
+	}
+	if through < 1 {
+		return 0, conversation.ErrInvalid
+	}
+	if through > r.cursor {
+		r.cursor = through
+	}
+	return r.cursor, nil
 }
 
 func TestConversationRoutesAuthenticateValidateAndReturnPlainText(t *testing.T) {
@@ -86,6 +101,15 @@ func TestConversationRoutesAuthenticateValidateAndReturnPlainText(t *testing.T) 
 	}
 	if err = json.Unmarshal(post.Body.Bytes(), &envelope); err != nil || envelope.Data.Body != "<img src=x onerror=alert(1)>" || envelope.Safety != booking.SafetyBanner {
 		t.Fatalf("unexpected message envelope: %+v err=%v", envelope, err)
+	}
+
+	read := httptest.NewRecorder()
+	readRequest := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/reservations/"+testReservationID+"/messages/read", strings.NewReader(`{"through_sequence":5}`))
+	readRequest.Header.Set("Authorization", "Bearer test-session")
+	readRequest.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(read, readRequest)
+	if read.Code != http.StatusOK || conversationRepo.cursor != 5 || !strings.Contains(read.Body.String(), `"read_through_sequence":5`) {
+		t.Fatalf("read cursor status=%d cursor=%d body=%s", read.Code, conversationRepo.cursor, read.Body.String())
 	}
 
 	missingKey := httptest.NewRecorder()

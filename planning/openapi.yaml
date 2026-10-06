@@ -937,6 +937,31 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations/{reservationId}/messages/read:
+    post:
+      operationId: advanceOwnLocalReservationMessageReadCursor
+      tags: [M09 local]
+      description: >-
+        Solo el anfitrión o arrendatario de la reserva. Avanza de forma
+        monotónica el cursor propio hasta una secuencia de mensaje del mismo
+        hilo. El mock lo solicita únicamente después de mostrar correctamente
+        la página reciente; no confirma lectura a la contraparte.
+      parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [through_sequence]
+              properties:
+                through_sequence: { type: integer, format: int64, minimum: 1 }
+      responses:
+        '200': { description: Cursor propio persistido y monotónico., content: { application/json: { schema: { $ref: '#/components/schemas/LocalReservationReadCursorEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /auth/logout:
     post:
       operationId: logout
@@ -1130,6 +1155,16 @@ components:
           properties:
             items: { type: array, items: { $ref: '#/components/schemas/LocalReservationMessage' } }
             older_cursor: { type: [integer, 'null'], format: int64, minimum: 1 }
+    LocalReservationReadCursorEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data:
+          type: object
+          required: [read_through_sequence]
+          properties:
+            read_through_sequence: { type: integer, format: int64, minimum: 1 }
     LocalReservationMessage:
       type: object
       required: [id, reservation_id, author_id, sequence, body, created_at]
@@ -1142,7 +1177,7 @@ components:
         created_at: { type: string, format: date-time }
     LocalBookingReservation:
       type: object
-      required: [id, quote_id, space_id, host_id, renter_id, state, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, pay_expires_at, created_at, updated_at]
+      required: [id, quote_id, space_id, host_id, renter_id, state, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, pay_expires_at, created_at, updated_at, unread_count]
       properties:
         id: { type: string, format: uuid }
         quote_id: { type: string, format: uuid }
@@ -1163,6 +1198,7 @@ components:
         host_expires_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        unread_count: { type: integer, minimum: 0 }
     SpaceCategory:
       type: object
       required: [code, name]

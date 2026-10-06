@@ -32,4 +32,5 @@ type Page struct {
 type Repository interface {
 	List(context.Context, string, string, *int64, int) (Page, error)
 	Send(context.Context, string, string, string, string, []byte, string, func() time.Time) (Message, error)
+	MarkRead(context.Context, string, string, int64) (int64, error)
 }

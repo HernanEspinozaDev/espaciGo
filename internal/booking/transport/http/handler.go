@@ -141,6 +141,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.reply(w, v, e)
 			return
 		}
+		if len(parts) == 3 && parts[0] != "" && parts[1] == "messages" && parts[2] == "read" && r.Method == http.MethodPost {
+			if h.conversation == nil {
+				fail(w, 404, "not_found")
+				return
+			}
+			var in struct {
+				ThroughSequence int64 `json:"through_sequence"`
+			}
+			if !decode(w, r, &in) {
+				return
+			}
+			cursor, err := h.conversation.MarkRead(r.Context(), actor, parts[0], in.ThroughSequence)
+			h.replyConversation(w, map[string]any{"read_through_sequence": cursor}, err)
+			return
+		}
 		if len(parts) == 2 && parts[0] != "" && parts[1] == "messages" {
 			if h.conversation == nil {
 				fail(w, 404, "not_found")

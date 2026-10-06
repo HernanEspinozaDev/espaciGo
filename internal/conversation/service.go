@@ -40,6 +40,13 @@ func (s *Service) List(ctx context.Context, actor, reservationID string, before 
 	return s.repo.List(ctx, actor, reservationID, before, limit)
 }
 
+func (s *Service) MarkRead(ctx context.Context, actor, reservationID string, throughSequence int64) (int64, error) {
+	if !uuidPattern.MatchString(actor) || !uuidPattern.MatchString(reservationID) || throughSequence < 1 {
+		return 0, ErrInvalid
+	}
+	return s.repo.MarkRead(ctx, actor, reservationID, throughSequence)
+}
+
 func (s *Service) Send(ctx context.Context, actor, reservationID, key, body string) (Message, error) {
 	if !uuidPattern.MatchString(actor) || !uuidPattern.MatchString(reservationID) || !validKey(key) || !validBody(body) {
 		return Message{}, ErrInvalid

@@ -2,6 +2,7 @@ import { ProfileRequestGate, profileMatchesSelection } from "./profile-request.j
 import { CalendarRequestState } from "./calendar-request.js";
 import { BookingQuoteState } from "./booking-quote-state.js";
 import { inboxActions } from "./booking-inbox-state.js";
+import { showThenMarkConversationPage } from "./conversation-read-state.js";
 
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
@@ -437,7 +438,7 @@ const bookingBase="/api/v1/local/booking-trial";
 const bookingFixtureOutput=document.querySelector<HTMLElement>("#booking-fixture-output")!;
 const bookingQuoteOutput=document.querySelector<HTMLElement>("#booking-quote-output")!;
 const bookingHistoryOutput=document.querySelector<HTMLElement>("#booking-history-output")!;
-type TrialReservation={id:string;quote_id:string;space_id:string;host_id:string;renter_id:string;state:string;rate_unit:string;unit_price_clp:number;currency:string;units:number;subtotal_clp:number;start_at:string;end_at:string;time_zone:string;pay_expires_at:string;host_expires_at?:string|null;updated_at:string};
+type TrialReservation={id:string;quote_id:string;space_id:string;host_id:string;renter_id:string;state:string;rate_unit:string;unit_price_clp:number;currency:string;units:number;subtotal_clp:number;start_at:string;end_at:string;time_zone:string;pay_expires_at:string;host_expires_at?:string|null;updated_at:string;unread_count:number};
 type TrialTransition={sequence:number;to:string;reason:string;at:string};
 type TrialDetail=TrialReservation&{history:TrialTransition[]};
 type ConversationMessage={id:string;reservation_id:string;author_id:string;sequence:number;body:string;created_at:string};
@@ -541,7 +542,8 @@ function reservationSummary(item:TrialReservation,role:"renter"|"host"):string{
   else if(role==="renter"&&item.state==="pendiente_de_pago")attention=` · pago vence ${bookingDate(item.pay_expires_at,item.time_zone)}`;
   else if(item.state==="vencida_pago")attention=` · pago venció ${bookingDate(item.pay_expires_at,item.time_zone)}`;
   else if(item.state==="vencida_host"&&item.host_expires_at)attention=` · plazo del anfitrión venció ${bookingDate(item.host_expires_at,item.time_zone)}`;
-  return `Espacio ${item.space_id.slice(0,8)} · ${reservationState(item.state)}${attention}\n${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} · ${when}`;
+  const unread=item.unread_count>0?` · ${item.unread_count} mensaje${item.unread_count===1?"":"s"} sin leer`:"";
+  return `Espacio ${item.space_id.slice(0,8)} · ${reservationState(item.state)}${attention}${unread}\n${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} · ${when}`;
 }
 function renderReservationList(target:HTMLElement,items:TrialReservation[],role:"renter"|"host"):void{
   target.replaceChildren();
@@ -611,10 +613,25 @@ async function loadConversationPage(id:string,before:number|null,prepend:boolean
   if(prepend){
     const existing=new Set(conversationMessages.map(item=>item.sequence));
     conversationMessages=[...page.items.filter(item=>!existing.has(item.sequence)),...conversationMessages].sort((a,b)=>a.sequence-b.sequence);
-  }else conversationMessages=page.items;
-  conversationOlderCursor=page.older_cursor;
-  conversationStatus.textContent=conversationMessages.length?"Solo los dos participantes pueden ver este hilo. Los mensajes no se borran automáticamente en el prototipo local.":"Aún no hay mensajes. La conversación queda ligada a esta reserva.";
-  renderConversation();refreshConversationControls();
+    conversationOlderCursor=page.older_cursor;
+    renderConversation();refreshConversationControls();
+    return;
+  }
+  await showThenMarkConversationPage(
+    async()=>page,
+    loaded=>{
+      if(token!==conversationRevision||selectedReservationID!==id)return false;
+      conversationMessages=loaded.items;
+      conversationOlderCursor=loaded.older_cursor;
+      conversationStatus.textContent=conversationMessages.length?"Solo los dos participantes pueden ver este hilo. Los mensajes no se borran automáticamente en el prototipo local.":"Aún no hay mensajes. La conversación queda ligada a esta reserva.";
+      renderConversation();refreshConversationControls();
+      return true;
+    },
+    async through=>{
+      await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/messages/read`,"POST",{through_sequence:through},true);
+      await loadBookingInbox(false);
+    }
+  );
 }
 function refreshBookingActions():void{
   const pay=document.querySelector<HTMLButtonElement>("#booking-inbox-pay");
@@ -638,7 +655,7 @@ async function loadReservationDetail(id:string):Promise<void>{
   conversationStatus.textContent=`Conversación local · ${selectedReservation.state}. ${["pendiente_de_pago","pagada","aprobada_host"].includes(selectedReservation.state)?"Puedes enviar texto plano en este estado.":"Solo lectura: el estado de la reserva no permite enviar."}`;
   refreshConversationControls();
 }
-async function loadBookingInbox():Promise<void>{
+async function loadBookingInbox(reloadSelected=true):Promise<void>{
   const revision=++bookingInboxRevision;
   if(!sessionToken||!sessionAccountID){renterInbox.textContent="Inicia sesión y actualiza tu bandeja.";hostInbox.textContent="Inicia sesión y actualiza tu bandeja.";return;}
   const result=await request(`${bookingBase}/reservations`,"GET",undefined,true);
@@ -648,8 +665,8 @@ async function loadBookingInbox():Promise<void>{
   const hostRows=reservations.filter(item=>item.host_id===sessionAccountID);
   renderReservationList(renterInbox,renterRows,"renter");renderReservationList(hostInbox,hostRows,"host");
   const current=reservations.find(item=>item.id===selectedReservationID);
-  if(current)await loadReservationDetail(current.id);
-  else if(selectedReservationID){selectedReservationID="";selectedReservation=null;bookingHistoryOutput.textContent="La reserva seleccionada ya no está en tu bandeja.";refreshBookingActions();}
+  if(current){if(reloadSelected)await loadReservationDetail(current.id);}
+  else if(selectedReservationID&&reloadSelected){selectedReservationID="";selectedReservation=null;bookingHistoryOutput.textContent="La reserva seleccionada ya no está en tu bandeja.";refreshBookingActions();}
   else if(!selectedReservation)refreshBookingActions();
 }
 document.querySelector<HTMLButtonElement>("#booking-inbox-load")!.addEventListener("click",()=>void action(async()=>{
