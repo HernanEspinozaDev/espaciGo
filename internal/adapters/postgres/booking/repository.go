@@ -22,8 +22,12 @@ func (r *Repository) Fixture(ctx context.Context, actor string) (booking.Fixture
 	return f, mapErr(err)
 }
 
-func (r *Repository) Quote(ctx context.Context, renter, id string, start, end, now, expires time.Time) (booking.Quote, error) {
-	if err := r.Expire(ctx, now); err != nil {
+func (r *Repository) Quote(ctx context.Context, renter, id string, start, end time.Time, clock func() time.Time, ttl time.Duration) (booking.Quote, error) {
+	preNow := clock().UTC()
+	if !start.After(preNow) {
+		return booking.Quote{}, booking.ErrInvalid
+	}
+	if err := r.Expire(ctx, preNow); err != nil {
 		return booking.Quote{}, err
 	}
 	tx, err := r.pool.Begin(ctx)
@@ -31,6 +35,11 @@ func (r *Repository) Quote(ctx context.Context, renter, id string, start, end, n
 		return booking.Quote{}, err
 	}
 	defer tx.Rollback(ctx)
+	now := clock().UTC()
+	if !start.After(now) {
+		return booking.Quote{}, booking.ErrInvalid
+	}
+	expires := now.Add(ttl)
 	var q booking.Quote
 	var amount int64
 	err = tx.QueryRow(ctx, `SELECT x.espacio_id::text,x.anfitrion_id::text,x.arrendatario_id::text,t.version,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,e.reglas_uso FROM public.reserva_ensayo_local_fixture x JOIN public.espacio e ON e.id=x.espacio_id JOIN LATERAL(SELECT version,modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true WHERE x.singleton AND x.arrendatario_id=$1 AND e.estado='borrador' FOR SHARE OF e`, renter).Scan(&q.SpaceID, new(string), new(string), &q.RateVersion, &q.RateUnit, &q.UnitPrice, &q.Currency, &q.TimeZone, &q.Conditions)
@@ -78,8 +87,9 @@ func scanReservation(row pgx.Row) (booking.Reservation, error) {
 	return v, mapErr(err)
 }
 
-func (r *Repository) Create(ctx context.Context, renter, quoteID, key string, fingerprint []byte, id, occupancyID string, payExpiresAt, now time.Time) (booking.Reservation, error) {
-	if err := r.Expire(ctx, now); err != nil {
+func (r *Repository) Create(ctx context.Context, renter, quoteID, key string, fingerprint []byte, id, occupancyID string, payTTL time.Duration, clock func() time.Time) (booking.Reservation, error) {
+	preNow := clock().UTC()
+	if err := r.Expire(ctx, preNow); err != nil {
 		return booking.Reservation{}, err
 	}
 	tx, err := r.pool.Begin(ctx)
@@ -109,20 +119,34 @@ func (r *Repository) Create(ctx context.Context, renter, quoteID, key string, fi
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return booking.Reservation{}, err
 	}
-	var quoteUsable, available bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND q.vence_en>$3), NOT EXISTS(SELECT 1 FROM public.ocupacion o JOIN public.cotizacion_reserva_ensayo q ON q.espacio_id=o.espacio_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND o.activo AND o.intervalo && (SELECT tstzrange(inicio,termino,'[)') FROM public.cotizacion_reserva_ensayo WHERE id=$1))`, quoteID, renter, now).Scan(&quoteUsable, &available)
+	// Read the Backend clock only after the idempotency lookup while the new
+	// request transaction and its serialization lock are active.
+	now := clock().UTC()
+	payExpiresAt := now.Add(payTTL)
+	var quoteExists, quoteUsable, intervalFuture, available bool
+	err = tx.QueryRow(ctx, `SELECT
+EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE q.id=$1 AND q.arrendatario_id=$2),
+EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND q.vence_en>$3),
+EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND q.inicio>$3),
+NOT EXISTS(SELECT 1 FROM public.ocupacion o JOIN public.cotizacion_reserva_ensayo q ON q.espacio_id=o.espacio_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND o.activo AND o.intervalo && (SELECT tstzrange(inicio,termino,'[)') FROM public.cotizacion_reserva_ensayo WHERE id=$1))`, quoteID, renter, now).Scan(&quoteExists, &quoteUsable, &intervalFuture, &available)
 	if err != nil {
 		return booking.Reservation{}, err
 	}
+	if !quoteExists {
+		return booking.Reservation{}, booking.ErrNotFound
+	}
 	if !quoteUsable {
 		return booking.Reservation{}, booking.ErrNotFound
+	}
+	if !intervalFuture {
+		return booking.Reservation{}, booking.ErrConflict
 	}
 	if !available {
 		return booking.Reservation{}, booking.ErrConflict
 	}
 	var v booking.Reservation
 	err = tx.QueryRow(ctx, `INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,pago_vence_en,creada_en,actualizada_en)
-SELECT $1,q.id,q.espacio_id,q.anfitrion_id,q.arrendatario_id,$4,$5,$6,'pendiente_de_pago',q.precio_unitario_clp,q.unidades,q.subtotal_clp,q.modalidad,q.moneda,q.inicio,q.termino,q.zona_horaria,q.condiciones_snapshot,$7,$8,$8 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id JOIN public.espacio e ON e.id=q.espacio_id WHERE q.id=$2 AND q.arrendatario_id=$3 AND q.vence_en>$8 AND e.estado='borrador' RETURNING `+reservationCols, id, quoteID, renter, key, fingerprint, occupancyID, payExpiresAt, now).Scan(&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt)
+SELECT $1,q.id,q.espacio_id,q.anfitrion_id,q.arrendatario_id,$4,$5,$6,'pendiente_de_pago',q.precio_unitario_clp,q.unidades,q.subtotal_clp,q.modalidad,q.moneda,q.inicio,q.termino,q.zona_horaria,q.condiciones_snapshot,$7,$8,$8 FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=q.espacio_id AND f.anfitrion_id=q.anfitrion_id AND f.arrendatario_id=q.arrendatario_id JOIN public.espacio e ON e.id=q.espacio_id WHERE q.id=$2 AND q.arrendatario_id=$3 AND q.vence_en>$8 AND q.inicio>$8 AND e.estado='borrador' RETURNING `+reservationCols, id, quoteID, renter, key, fingerprint, occupancyID, payExpiresAt, now).Scan(&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt)
 	if err != nil {
 		return booking.Reservation{}, mapErr(err)
 	}
@@ -130,7 +154,7 @@ SELECT $1,q.id,q.espacio_id,q.anfitrion_id,q.arrendatario_id,$4,$5,$6,'pendiente
 	if err != nil {
 		return booking.Reservation{}, mapErr(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,estado_anterior,estado_nuevo,actor_id,motivo,creada_en) VALUES(gen_random_uuid(),$1,NULL,'pendiente_de_pago',$2,'solicitud local con retención atómica',$3)`, v.ID, renter, now)
+	err = appendTransition(ctx, tx, v.ID, nil, "pendiente_de_pago", renter, "solicitud local con retención atómica", now)
 	if err != nil {
 		return booking.Reservation{}, err
 	}
@@ -145,7 +169,7 @@ func (r *Repository) Get(ctx context.Context, actor, id string) (booking.Detail,
 	if err != nil {
 		return booking.Detail{}, err
 	}
-	rows, err := r.pool.Query(ctx, `SELECT estado_anterior,estado_nuevo,actor_id::text,motivo,creada_en FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 ORDER BY creada_en,id`, id)
+	rows, err := r.pool.Query(ctx, `SELECT secuencia,estado_anterior,estado_nuevo,actor_id::text,motivo,creada_en FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 ORDER BY secuencia`, id)
 	if err != nil {
 		return booking.Detail{}, err
 	}
@@ -154,7 +178,7 @@ func (r *Repository) Get(ctx context.Context, actor, id string) (booking.Detail,
 	for rows.Next() {
 		var x booking.Transition
 		var actor sql.NullString
-		if err = rows.Scan(&x.From, &x.To, &actor, &x.Reason, &x.At); err != nil {
+		if err = rows.Scan(&x.Sequence, &x.From, &x.To, &actor, &x.Reason, &x.At); err != nil {
 			return booking.Detail{}, err
 		}
 		if actor.Valid {
@@ -246,7 +270,7 @@ func (r *Repository) Pay(ctx context.Context, renter, id, outcome, key string, n
 	if err != nil {
 		return booking.Reservation{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion VALUES(gen_random_uuid(),$1,'pendiente_de_pago',$2,$3,$4,$5)`, id, next, renter, reason, now)
+	err = appendTransition(ctx, tx, id, ptrString("pendiente_de_pago"), next, renter, reason, now)
 	if err != nil {
 		return booking.Reservation{}, err
 	}
@@ -292,7 +316,7 @@ func (r *Repository) Decide(ctx context.Context, host, id, decision string, now 
 	if err != nil {
 		return booking.Reservation{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion VALUES(gen_random_uuid(),$1,'pagada',$2,$3,$4,$5)`, id, next, host, reason, now)
+	err = appendTransition(ctx, tx, id, ptrString("pagada"), next, host, reason, now)
 	if err != nil {
 		return booking.Reservation{}, err
 	}
@@ -325,7 +349,7 @@ func (r *Repository) Cancel(ctx context.Context, renter, id string, now time.Tim
 	if err != nil {
 		return booking.Reservation{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion VALUES(gen_random_uuid(),$1,'pendiente_de_pago','cancelada_arrendatario',$2,'cancelación local antes del pago',$3)`, id, renter, now)
+	err = appendTransition(ctx, tx, id, ptrString("pendiente_de_pago"), "cancelada_arrendatario", renter, "cancelación local antes del pago", now)
 	if err != nil {
 		return booking.Reservation{}, err
 	}
@@ -375,7 +399,7 @@ func (r *Repository) Expire(ctx context.Context, now time.Time) error {
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,estado_anterior,estado_nuevo,actor_id,motivo,creada_en) VALUES(gen_random_uuid(),$1,$2,$3,NULL,$4,$5)`, x.id, x.old, next, reason, now)
+		err = appendTransition(ctx, tx, x.id, ptrString(x.old), next, nil, reason, now)
 		if err != nil {
 			return err
 		}
@@ -389,6 +413,15 @@ func (r *Repository) Expire(ctx context.Context, now time.Time) error {
 	return tx.Commit(ctx)
 }
 
+// appendTransition allocates the next per-reservation sequence while callers
+// hold the reservation row lock (or have just created the row) in this tx.
+func appendTransition(ctx context.Context, tx pgx.Tx, reservationID string, from *string, to string, actor any, reason string, at time.Time) error {
+	_, err := tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en)
+SELECT gen_random_uuid(),$1,COALESCE(MAX(secuencia),0)+1,$2,$3,$4,$5,$6
+FROM public.reserva_ensayo_transicion WHERE reserva_id=$1`, reservationID, from, to, actor, reason, at)
+	return err
+}
+
 func fmtHex(b []byte) string {
 	const h = "0123456789abcdef"
 	out := make([]byte, len(b)*2)
@@ -399,6 +432,7 @@ func fmtHex(b []byte) string {
 	return string(out)
 }
 func ptr(t time.Time) *time.Time { return &t }
+func ptrString(s string) *string { return &s }
 func mapErr(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return booking.ErrNotFound

@@ -69,11 +69,12 @@ type Reservation struct {
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
 type Transition struct {
-	From   *string   `json:"from,omitempty"`
-	To     string    `json:"to"`
-	Actor  *string   `json:"actor_id,omitempty"`
-	Reason string    `json:"reason"`
-	At     time.Time `json:"at"`
+	Sequence int64     `json:"sequence"`
+	From     *string   `json:"from,omitempty"`
+	To       string    `json:"to"`
+	Actor    *string   `json:"actor_id,omitempty"`
+	Reason   string    `json:"reason"`
+	At       time.Time `json:"at"`
 }
 type Detail struct {
 	Reservation `json:",inline"`
@@ -91,8 +92,8 @@ type DecisionInput struct {
 
 type Repository interface {
 	Fixture(context.Context, string) (Fixture, error)
-	Quote(context.Context, string, string, time.Time, time.Time, time.Time, time.Time) (Quote, error)
-	Create(context.Context, string, string, string, []byte, string, string, time.Time, time.Time) (Reservation, error)
+	Quote(context.Context, string, string, time.Time, time.Time, func() time.Time, time.Duration) (Quote, error)
+	Create(context.Context, string, string, string, []byte, string, string, time.Duration, func() time.Time) (Reservation, error)
 	Get(context.Context, string, string) (Detail, error)
 	List(context.Context, string) ([]Reservation, error)
 	Pay(context.Context, string, string, string, string, time.Time, time.Time) (Reservation, error)

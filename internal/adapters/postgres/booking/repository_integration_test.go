@@ -118,9 +118,39 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, startAt := range []time.Time{fixedNow.Add(-time.Second), fixedNow} {
+		_, err = svc.Quote(ctx, renter, booking.QuoteInput{StartAt: startAt.Format(time.RFC3339Nano), EndAt: startAt.Add(time.Hour).Format(time.RFC3339Nano)})
+		if err != booking.ErrInvalid {
+			t.Fatalf("quote start %s should be rejected at backend time %s: %v", startAt, fixedNow, err)
+		}
+	}
 	if _, err = svc.Fixture(ctx, outsider); err != booking.ErrNotFound {
 		t.Fatalf("unlisted fixture visible: %v", err)
 	}
+	staleStart := fixedNow.Add(5 * time.Minute)
+	staleQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{StartAt: staleStart.Format(time.RFC3339Nano), EndAt: staleStart.Add(time.Hour).Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clockMu.Lock()
+	fixedNow = staleStart.Add(time.Second)
+	clockMu.Unlock()
+	if _, err = svc.Request(ctx, renter, booking.RequestInput{QuoteID: staleQuote.ID}, "stale-start"); err != booking.ErrConflict {
+		t.Fatalf("still-live quote whose interval started should be rejected transactionally: %v", err)
+	}
+	var rejectedReservations, rejectedOccupancies int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, staleQuote.ID).Scan(&rejectedReservations); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE espacio_id=$1 AND intervalo && tstzrange($2,$3,'[)')`, space, staleStart, staleStart.Add(time.Hour)).Scan(&rejectedOccupancies); err != nil {
+		t.Fatal(err)
+	}
+	if rejectedReservations != 0 || rejectedOccupancies != 0 {
+		t.Fatalf("rejected request left rows: reservations=%d occupancies=%d", rejectedReservations, rejectedOccupancies)
+	}
+	clockMu.Lock()
+	fixedNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	clockMu.Unlock()
 	start := time.Date(2030, 2, 1, 12, 0, 0, 0, time.UTC)
 	quote, err := svc.Quote(ctx, renter, booking.QuoteInput{StartAt: start.Format(time.RFC3339), EndAt: start.Add(90 * time.Minute).Format(time.RFC3339)})
 	if err != nil {
@@ -163,6 +193,24 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if err != nil || len(detail.History) != 3 {
 		t.Fatalf("history=%+v err=%v", detail, err)
 	}
+	wantStates := []string{"pendiente_de_pago", "pagada", "aprobada_host"}
+	for i, transition := range detail.History {
+		if transition.Sequence != int64(i+1) || transition.To != wantStates[i] || !transition.At.Equal(fixedNow) {
+			t.Fatalf("same-instant history order[%d]=%+v, want sequence=%d state=%s timestamp=%s", i, transition, i+1, wantStates[i], fixedNow)
+		}
+	}
+	// A matching idempotency retry still returns the reservation after its
+	// interval has begun; only a new request is subject to the start-time rule.
+	clockMu.Lock()
+	fixedNow = start
+	clockMu.Unlock()
+	retried, err := svc.Request(ctx, renter, input, "same-key")
+	if err != nil || retried.ID != results[0].ID {
+		t.Fatalf("idempotent retry after interval start returned %+v, err=%v", retried, err)
+	}
+	clockMu.Lock()
+	fixedNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	clockMu.Unlock()
 	var active bool
 	var kind string
 	var expiry *time.Time

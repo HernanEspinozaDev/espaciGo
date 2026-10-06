@@ -29,10 +29,11 @@ func (authStub) Authorize(_ context.Context, raw identity.Secret, _ identity.Rol
 type repoStub struct{ fixture booking.Fixture }
 
 func (r repoStub) Fixture(context.Context, string) (booking.Fixture, error) { return r.fixture, nil }
-func (repoStub) Quote(_ context.Context, _ string, id string, start, end, created, expires time.Time) (booking.Quote, error) {
-	return booking.Quote{ID: id, SpaceID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", RateVersion: 1, RateUnit: "hora", UnitPrice: 8000, Currency: "CLP", Units: 1, Subtotal: 8000, StartAt: start, EndAt: end, TimeZone: "America/Santiago", Conditions: "Reglas sintéticas", CreatedAt: created, ExpiresAt: expires}, nil
+func (repoStub) Quote(_ context.Context, _ string, id string, start, end time.Time, clock func() time.Time, ttl time.Duration) (booking.Quote, error) {
+	created := clock().UTC()
+	return booking.Quote{ID: id, SpaceID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", RateVersion: 1, RateUnit: "hora", UnitPrice: 8000, Currency: "CLP", Units: 1, Subtotal: 8000, StartAt: start, EndAt: end, TimeZone: "America/Santiago", Conditions: "Reglas sintéticas", CreatedAt: created, ExpiresAt: created.Add(ttl)}, nil
 }
-func (repoStub) Create(context.Context, string, string, string, []byte, string, string, time.Time, time.Time) (booking.Reservation, error) {
+func (repoStub) Create(context.Context, string, string, string, []byte, string, string, time.Duration, func() time.Time) (booking.Reservation, error) {
 	return booking.Reservation{}, nil
 }
 func (repoStub) Get(context.Context, string, string) (booking.Detail, error) {

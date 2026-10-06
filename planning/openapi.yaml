@@ -1000,8 +1000,9 @@ components:
             history: { type: array, items: { $ref: '#/components/schemas/LocalBookingTransition' } }
     LocalBookingTransition:
       type: object
-      required: [to, reason, at]
+      required: [sequence, to, reason, at]
       properties:
+        sequence: { type: integer, format: int64, minimum: 1 }
         from: { type: string }
         to: { type: string }
         actor_id: { type: string, format: uuid }

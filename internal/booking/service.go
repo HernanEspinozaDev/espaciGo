@@ -49,7 +49,10 @@ func (s *Service) Quote(ctx context.Context, renter string, in QuoteInput) (Quot
 		return Quote{}, err
 	}
 	now := s.now().UTC()
-	return s.repo.Quote(ctx, renter, id, start, end, now, now.Add(s.quoteTTL))
+	if !start.After(now) {
+		return Quote{}, ErrInvalid
+	}
+	return s.repo.Quote(ctx, renter, id, start, end, s.now, s.quoteTTL)
 }
 func (s *Service) Request(ctx context.Context, renter string, in RequestInput, key string) (Reservation, error) {
 	if !uuid.MatchString(renter) || !uuid.MatchString(in.QuoteID) || strings.TrimSpace(key) == "" || len(key) > 200 {
@@ -65,8 +68,7 @@ func (s *Service) Request(ctx context.Context, renter string, in RequestInput, k
 	}
 	body, _ := json.Marshal(in)
 	fingerprint := sha256.Sum256(body)
-	now := s.now().UTC()
-	return s.repo.Create(ctx, renter, in.QuoteID, key, fingerprint[:], id, occupancyID, now.Add(s.payTTL), now)
+	return s.repo.Create(ctx, renter, in.QuoteID, key, fingerprint[:], id, occupancyID, s.payTTL, s.now)
 }
 func (s *Service) Get(ctx context.Context, actor, id string) (Detail, error) {
 	if !uuid.MatchString(actor) || !uuid.MatchString(id) {
