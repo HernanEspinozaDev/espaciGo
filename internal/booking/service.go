@@ -2,9 +2,14 @@ package booking
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -20,6 +25,7 @@ type Service struct {
 	payment                   LocalPaymentAdapter
 	now                       func() time.Time
 	quoteTTL, payTTL, hostTTL time.Duration
+	catalogCursorKey          [32]byte
 }
 
 func NewService(repo Repository, ids identity.CredentialGenerator, now func() time.Time, payment LocalPaymentAdapter) (*Service, error) {
@@ -29,7 +35,11 @@ func NewServiceWithTTLs(repo Repository, ids identity.CredentialGenerator, now f
 	if repo == nil || ids == nil || now == nil || payment == nil || quoteTTL < time.Minute || quoteTTL > time.Hour || payTTL < time.Minute || payTTL > time.Hour || hostTTL < time.Hour || hostTTL > 72*time.Hour {
 		return nil, ErrInvalid
 	}
-	return &Service{repo: repo, ids: ids, payment: payment, now: now, quoteTTL: quoteTTL, payTTL: payTTL, hostTTL: hostTTL}, nil
+	s := &Service{repo: repo, ids: ids, payment: payment, now: now, quoteTTL: quoteTTL, payTTL: payTTL, hostTTL: hostTTL}
+	if _, err := rand.Read(s.catalogCursorKey[:]); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 func (s *Service) Fixture(ctx context.Context, actor string) (Fixture, error) {
@@ -120,30 +130,226 @@ func (s *Service) Catalog(ctx context.Context, actor string, filter CatalogFilte
 			filtered[i].DistanceKM = &distance
 			filtered[i].DistanceKind = "direct"
 		}
-		sortCatalogByGeo(filtered)
+		sort.Slice(filtered, func(i, j int) bool { return compareCatalog(filtered[i], filtered[j], "distance") < 0 })
 		return filtered, nil
 	}
 	if filter.StartAt != nil {
-		sort.Slice(filtered, func(i, j int) bool {
-			if *filtered[i].EstimatedTotal != *filtered[j].EstimatedTotal {
-				return *filtered[i].EstimatedTotal < *filtered[j].EstimatedTotal
-			}
-			return filtered[i].SpaceID < filtered[j].SpaceID
-		})
+		sort.Slice(filtered, func(i, j int) bool { return compareCatalog(filtered[i], filtered[j], "price") < 0 })
 	}
 	return filtered, nil
 }
 
+type catalogCursor struct {
+	Version  int        `json:"v"`
+	Actor    string     `json:"a"`
+	Filter   string     `json:"f"`
+	Mode     string     `json:"m"`
+	PageSize int        `json:"n"`
+	Last     catalogKey `json:"l"`
+}
+
+type catalogKey struct {
+	SpaceID        string  `json:"i"`
+	CategoryOrder  int     `json:"c,omitempty"`
+	Title          string  `json:"t,omitempty"`
+	DistanceMeters float64 `json:"d,omitempty"`
+	EstimatedTotal *int64  `json:"p,omitempty"`
+}
+
+func (s *Service) CatalogPage(ctx context.Context, actor string, filter CatalogFilter, pageSize int, cursor string) (CatalogPage, error) {
+	if pageSize == 0 {
+		pageSize = 5
+	}
+	if pageSize < 1 || pageSize > 25 {
+		return CatalogPage{}, ErrInvalid
+	}
+	mode := catalogOrderMode(filter)
+	fingerprint, err := catalogFilterFingerprint(filter, pageSize, mode)
+	if err != nil {
+		return CatalogPage{}, ErrInvalid
+	}
+	var decoded *catalogCursor
+	if cursor != "" {
+		c, decodeErr := s.decodeCatalogCursor(cursor)
+		if decodeErr != nil || c.Version != 1 || c.Actor != actor || c.Filter != fingerprint || c.Mode != mode || c.PageSize != pageSize {
+			return CatalogPage{}, ErrInvalid
+		}
+		decoded = &c
+	}
+	items, err := s.Catalog(ctx, actor, filter)
+	if err != nil {
+		return CatalogPage{}, err
+	}
+	start := 0
+	if decoded != nil {
+		anchorFound := false
+		for i := range items {
+			if compareCatalogKey(items[i], decoded.Last, mode) == 0 {
+				start, anchorFound = i+1, true
+				break
+			}
+		}
+		if !anchorFound {
+			start = sort.Search(len(items), func(i int) bool { return compareCatalogKey(items[i], decoded.Last, mode) > 0 })
+		}
+	}
+	if start > len(items) {
+		start = len(items)
+	}
+	end := start + pageSize
+	if end > len(items) {
+		end = len(items)
+	}
+	page := CatalogPage{Items: append(make([]CatalogItem, 0, end-start), items[start:end]...)}
+	if end < len(items) {
+		page.NextCursor, err = s.encodeCatalogCursor(catalogCursor{Version: 1, Actor: actor, Filter: fingerprint, Mode: mode, PageSize: pageSize, Last: catalogKeyFor(items[end-1])})
+		if err != nil {
+			return CatalogPage{}, err
+		}
+	}
+	return page, nil
+}
+
+func catalogOrderMode(f CatalogFilter) string {
+	if f.Latitude != nil {
+		return "distance"
+	}
+	if f.StartAt != nil {
+		return "price"
+	}
+	return "category"
+}
+func catalogFilterFingerprint(f CatalogFilter, n int, mode string) (string, error) {
+	attributes := f.Attributes
+	if attributes == nil {
+		attributes = map[string]any{}
+	}
+	canonical := struct {
+		Category   string         `json:"category"`
+		Start      string         `json:"start,omitempty"`
+		End        string         `json:"end,omitempty"`
+		Min        *int64         `json:"min,omitempty"`
+		Max        *int64         `json:"max,omitempty"`
+		Profile    int            `json:"profile"`
+		Attributes map[string]any `json:"attributes"`
+		Lat        *float64       `json:"lat,omitempty"`
+		Lon        *float64       `json:"lon,omitempty"`
+		Radius     *int           `json:"radius,omitempty"`
+		PageSize   int            `json:"page_size"`
+		Mode       string         `json:"mode"`
+	}{Category: f.CategoryCode, Profile: f.ProfileVersion, Attributes: attributes, Min: f.MinTotalCLP, Max: f.MaxTotalCLP, Lat: f.Latitude, Lon: f.Longitude, Radius: f.RadiusKM, PageSize: n, Mode: mode}
+	if f.StartAt != nil {
+		canonical.Start = f.StartAt.UTC().Format(time.RFC3339Nano)
+		canonical.End = f.EndAt.UTC().Format(time.RFC3339Nano)
+	}
+	raw, err := json.Marshal(canonical)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return base64.RawURLEncoding.EncodeToString(sum[:]), nil
+}
+func (s *Service) encodeCatalogCursor(c catalogCursor) (string, error) {
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(s.catalogCursorKey[:])
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err = rand.Read(nonce); err != nil {
+		return "", err
+	}
+	sealed := gcm.Seal(nonce, nonce, raw, []byte("catalog-cursor-v1"))
+	return "v1." + base64.RawURLEncoding.EncodeToString(sealed), nil
+}
+func (s *Service) decodeCatalogCursor(value string) (catalogCursor, error) {
+	var c catalogCursor
+	if len(value) > 8192 || len(value) < 4 || value[:3] != "v1." {
+		return c, fmt.Errorf("invalid cursor")
+	}
+	sealed, err := base64.RawURLEncoding.DecodeString(value[3:])
+	if err != nil {
+		return c, err
+	}
+	block, err := aes.NewCipher(s.catalogCursorKey[:])
+	if err != nil {
+		return c, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil || len(sealed) < gcm.NonceSize() {
+		return c, fmt.Errorf("invalid cursor")
+	}
+	nonce := sealed[:gcm.NonceSize()]
+	raw, err := gcm.Open(nil, nonce, sealed[gcm.NonceSize():], []byte("catalog-cursor-v1"))
+	if err != nil {
+		return c, err
+	}
+	err = json.Unmarshal(raw, &c)
+	return c, err
+}
+func compareCatalog(a, b CatalogItem, mode string) int {
+	cmp := func(x, y string) int {
+		if x < y {
+			return -1
+		}
+		if x > y {
+			return 1
+		}
+		return 0
+	}
+	switch mode {
+	case "distance":
+		if a.DistanceMeters < b.DistanceMeters {
+			return -1
+		}
+		if a.DistanceMeters > b.DistanceMeters {
+			return 1
+		}
+		if a.EstimatedTotal != nil && b.EstimatedTotal != nil && *a.EstimatedTotal != *b.EstimatedTotal {
+			if *a.EstimatedTotal < *b.EstimatedTotal {
+				return -1
+			}
+			return 1
+		}
+		return cmp(a.SpaceID, b.SpaceID)
+	case "price":
+		if a.EstimatedTotal != nil && b.EstimatedTotal != nil && *a.EstimatedTotal != *b.EstimatedTotal {
+			if *a.EstimatedTotal < *b.EstimatedTotal {
+				return -1
+			}
+			return 1
+		}
+		return cmp(a.SpaceID, b.SpaceID)
+	default:
+		if a.CategoryOrder < b.CategoryOrder {
+			return -1
+		}
+		if a.CategoryOrder > b.CategoryOrder {
+			return 1
+		}
+		if v := cmp(a.Title, b.Title); v != 0 {
+			return v
+		}
+		return cmp(a.SpaceID, b.SpaceID)
+	}
+}
+
 func sortCatalogByGeo(items []CatalogItem) {
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].DistanceMeters != items[j].DistanceMeters {
-			return items[i].DistanceMeters < items[j].DistanceMeters
-		}
-		if items[i].EstimatedTotal != nil && items[j].EstimatedTotal != nil && *items[i].EstimatedTotal != *items[j].EstimatedTotal {
-			return *items[i].EstimatedTotal < *items[j].EstimatedTotal
-		}
-		return items[i].SpaceID < items[j].SpaceID
-	})
+	sort.Slice(items, func(i, j int) bool { return compareCatalog(items[i], items[j], "distance") < 0 })
+}
+
+func catalogKeyFor(item CatalogItem) catalogKey {
+	return catalogKey{SpaceID: item.SpaceID, CategoryOrder: item.CategoryOrder, Title: item.Title, DistanceMeters: item.DistanceMeters, EstimatedTotal: item.EstimatedTotal}
+}
+func compareCatalogKey(a CatalogItem, b catalogKey, mode string) int {
+	return compareCatalog(a, CatalogItem{SpaceID: b.SpaceID, CategoryOrder: b.CategoryOrder, Title: b.Title, DistanceMeters: b.DistanceMeters, EstimatedTotal: b.EstimatedTotal}, mode)
 }
 
 func (s *Service) CatalogDetail(ctx context.Context, actor, spaceID string) (CatalogItem, error) {

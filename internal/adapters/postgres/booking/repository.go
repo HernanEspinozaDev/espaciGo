@@ -61,7 +61,7 @@ func (r *Repository) Catalog(ctx context.Context, actor string, filter booking.C
 	}
 	rows, err := r.pool.Query(ctx, `SELECT e.id::text,e.categoria_codigo,k.nombre,e.titulo,e.descripcion,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,c.perfil_version,p.perfil,c.valores,
 CASE WHEN $3::timestamptz IS NULL THEN NULL ELSE NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($3,$4,'[)')) END,
-CASE WHEN $7::double precision IS NULL THEN NULL ELSE ST_Distance(g.punto,ST_SetSRID(ST_MakePoint($8::double precision,$7::double precision),4326)::geography) END
+CASE WHEN $7::double precision IS NULL THEN NULL ELSE ST_Distance(g.punto,ST_SetSRID(ST_MakePoint($8::double precision,$7::double precision),4326)::geography) END,k.orden
 FROM public.reserva_ensayo_local_fixture f
 JOIN public.espacio e ON e.id=f.espacio_id
 JOIN public.categoria_espacio k ON k.codigo=e.categoria_codigo AND k.activa
@@ -87,7 +87,7 @@ ORDER BY k.orden,e.titulo,e.id`, actor, filter.CategoryCode, filter.StartAt, fil
 		var v booking.CatalogItem
 		var available sql.NullBool
 		var distanceMeters sql.NullFloat64
-		if err = rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.RateUnit, &v.Price, &v.Currency, &v.TimeZone, &v.ProfileVersion, &v.Profile, &v.Attributes, &available, &distanceMeters); err != nil {
+		if err = rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.RateUnit, &v.Price, &v.Currency, &v.TimeZone, &v.ProfileVersion, &v.Profile, &v.Attributes, &available, &distanceMeters, &v.CategoryOrder); err != nil {
 			return nil, err
 		}
 		if available.Valid {

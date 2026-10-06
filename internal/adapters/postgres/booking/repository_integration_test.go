@@ -224,6 +224,17 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	if err != nil || len(items) != 2 {
 		t.Fatalf("authorized catalog items=%d err=%v: %+v", len(items), err, items)
 	}
+	catalogPageOne, err := svc.CatalogPage(ctx, renter, booking.CatalogFilter{}, 1, "")
+	if err != nil || len(catalogPageOne.Items) != 1 || catalogPageOne.NextCursor == "" {
+		t.Fatalf("runtime first catalog page=%+v err=%v", catalogPageOne, err)
+	}
+	catalogPageTwo, err := svc.CatalogPage(ctx, renter, booking.CatalogFilter{}, 1, catalogPageOne.NextCursor)
+	if err != nil || len(catalogPageTwo.Items) != 1 || catalogPageTwo.NextCursor != "" || catalogPageTwo.Items[0].SpaceID == catalogPageOne.Items[0].SpaceID {
+		t.Fatalf("runtime final catalog page=%+v err=%v", catalogPageTwo, err)
+	}
+	if _, err = svc.CatalogPage(ctx, outsider, booking.CatalogFilter{}, 1, catalogPageOne.NextCursor); err != booking.ErrInvalid {
+		t.Fatalf("cursor reuse by another account error=%v", err)
+	}
 	hostItems, err := svc.Catalog(ctx, host, booking.CatalogFilter{})
 	if err != nil || len(hostItems) != 2 {
 		t.Fatalf("authorized host catalog items=%d err=%v", len(hostItems), err)
@@ -255,6 +266,10 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	geoCombined, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "bodega", StartAt: &geoAt, EndAt: &geoUntil, MinTotalCLP: &geoMin, MaxTotalCLP: &geoMax, ProfileVersion: 1, Attributes: map[string]any{"altura_util_m": 3.2, "carro_carga_disponible": false}, Latitude: &geoCenterLat, Longitude: &geoCenterLon, RadiusKM: &geoRadius1})
 	if err != nil || len(geoCombined) != 1 || geoCombined[0].SpaceID != secondSpace || geoCombined[0].DistanceKM == nil || *geoCombined[0].DistanceKM != 1.0 || geoCombined[0].DistanceKind != "direct" || geoCombined[0].EstimatedTotal == nil || *geoCombined[0].EstimatedTotal != 12000 {
 		t.Fatalf("combined geo/category/availability/attribute/price filter=%+v err=%v", geoCombined, err)
+	}
+	geoPage, err := svc.CatalogPage(ctx, renter, booking.CatalogFilter{CategoryCode: "bodega", StartAt: &geoAt, EndAt: &geoUntil, MinTotalCLP: &geoMin, MaxTotalCLP: &geoMax, ProfileVersion: 1, Attributes: map[string]any{"altura_util_m": 3.2, "carro_carga_disponible": false}, Latitude: &geoCenterLat, Longitude: &geoCenterLon, RadiusKM: &geoRadius1}, 1, "")
+	if err != nil || len(geoPage.Items) != 1 || geoPage.Items[0].SpaceID != secondSpace || geoPage.NextCursor != "" {
+		t.Fatalf("combined filters must be applied before pagination: page=%+v err=%v", geoPage, err)
 	}
 	geoBoundary, err := svc.Catalog(ctx, renter, booking.CatalogFilter{Latitude: &geoCenterLat, Longitude: &geoCenterLon, RadiusKM: &geoRadius1})
 	if err != nil || len(geoBoundary) != 1 || geoBoundary[0].SpaceID != secondSpace {
