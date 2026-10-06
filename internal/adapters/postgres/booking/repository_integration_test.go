@@ -107,7 +107,30 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',8000)`, space); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(singleton,espacio_id,anfitrion_id,arrendatario_id) VALUES(true,$1,$2,$3)`, space, host, renter); err != nil {
+	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id) VALUES($1,$2,$3)`, space, host, renter); err != nil {
+		t.Fatal(err)
+	}
+	secondSpace := "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria) VALUES($1,$2,'bodega','Bodega sintética',repeat('Detalle sintético seguro. ',4),40,2,'Acceso controlado','hora',12000,'Dirección privada','America/Santiago')`, secondSpace, host); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'bodega',1,'{"altura_util_m":3.2}'::jsonb)`, secondSpace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',12000)`, secondSpace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id) VALUES($1,$2,$3)`, secondSpace, host, renter); err != nil {
+		t.Fatal(err)
+	}
+	privateSpace := "ffffffff-ffff-4fff-8fff-ffffffffffff"
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria) VALUES($1,$2,'oficina','Draft no catalogado',repeat('Draft no visible en resultados. ',4),10,1,'Privado','hora',8000,'Privada','America/Santiago')`, privateSpace, host); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'oficina',1,'{}')`, privateSpace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',8000)`, privateSpace); err != nil {
 		t.Fatal(err)
 	}
 	repo := New(pool)
@@ -119,16 +142,89 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, startAt := range []time.Time{fixedNow.Add(-time.Second), fixedNow} {
-		_, err = svc.Quote(ctx, renter, booking.QuoteInput{StartAt: startAt.Format(time.RFC3339Nano), EndAt: startAt.Add(time.Hour).Format(time.RFC3339Nano)})
+		_, err = svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: startAt.Format(time.RFC3339Nano), EndAt: startAt.Add(time.Hour).Format(time.RFC3339Nano)})
 		if err != booking.ErrInvalid {
 			t.Fatalf("quote start %s should be rejected at backend time %s: %v", startAt, fixedNow, err)
 		}
 	}
+	items, err := svc.Catalog(ctx, renter, booking.CatalogFilter{})
+	if err != nil || len(items) != 2 {
+		t.Fatalf("authorized catalog items=%d err=%v: %+v", len(items), err, items)
+	}
+	hostItems, err := svc.Catalog(ctx, host, booking.CatalogFilter{})
+	if err != nil || len(hostItems) != 2 {
+		t.Fatalf("authorized host catalog items=%d err=%v", len(hostItems), err)
+	}
+	outsiderItems, err := svc.Catalog(ctx, outsider, booking.CatalogFilter{})
+	if err != nil || len(outsiderItems) != 0 {
+		t.Fatalf("unassigned account saw catalog items=%d err=%v", len(outsiderItems), err)
+	}
+	var foundWarehouse bool
+	for _, item := range items {
+		if item.SpaceID == privateSpace {
+			t.Fatal("private unlisted draft leaked into catalog")
+		}
+		if item.SpaceID == secondSpace {
+			foundWarehouse = item.CategoryCode == "bodega" && item.Price == 12000 && item.ProfileVersion == 1 && string(item.Attributes) == `{"altura_util_m": 3.2}`
+		}
+	}
+	if !foundWarehouse {
+		t.Fatalf("second fixture lacks its own category/profile/tariff: %+v", items)
+	}
+	detailItem, err := svc.CatalogDetail(ctx, renter, secondSpace)
+	if err != nil || detailItem.CategoryCode != "bodega" || detailItem.CategoryName != "Bodega" || detailItem.ProfileVersion != 1 || string(detailItem.Attributes) != `{"altura_util_m": 3.2}` {
+		t.Fatalf("selected fixture detail=%+v err=%v", detailItem, err)
+	}
+	filtered, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "bodega"})
+	if err != nil || len(filtered) != 1 || filtered[0].SpaceID != secondSpace {
+		t.Fatalf("category filter=%+v err=%v", filtered, err)
+	}
+	when := fixedNow.Add(30 * time.Minute)
+	until := when.Add(time.Hour)
+	available, err := svc.Catalog(ctx, renter, booking.CatalogFilter{StartAt: &when, EndAt: &until})
+	if err != nil || len(available) != 2 || available[0].Available == nil || !*available[0].Available {
+		t.Fatalf("available catalog=%+v err=%v", available, err)
+	}
 	if _, err = svc.Fixture(ctx, outsider); err != booking.ErrNotFound {
 		t.Fatalf("unlisted fixture visible: %v", err)
 	}
+	if _, err = svc.CatalogDetail(ctx, outsider, space); err != booking.ErrNotFound {
+		t.Fatalf("outsider queried enabled fixture detail: %v", err)
+	}
+	if _, err = svc.CatalogDetail(ctx, renter, privateSpace); err != booking.ErrNotFound {
+		t.Fatalf("unlisted draft detail visible: %v", err)
+	}
+	wrongCategory, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "unknown"})
+	if err != booking.ErrInvalid || len(wrongCategory) != 0 {
+		t.Fatalf("unknown category filter accepted: %+v %v", wrongCategory, err)
+	}
+	selectedQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: secondSpace, StartAt: fixedNow.Add(2 * time.Hour).Format(time.RFC3339), EndAt: fixedNow.Add(3 * time.Hour).Format(time.RFC3339)})
+	if err != nil || selectedQuote.SpaceID != secondSpace || selectedQuote.UnitPrice != 12000 || selectedQuote.CategoryCode != "bodega" || selectedQuote.ProfileVersion != 1 || string(selectedQuote.ProfileValues) != `{"altura_util_m": 3.2}` {
+		t.Fatalf("selected-space quote snapshot=%+v err=%v", selectedQuote, err)
+	}
+	if _, err = svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: privateSpace, StartAt: fixedNow.Add(2 * time.Hour).Format(time.RFC3339), EndAt: fixedNow.Add(3 * time.Hour).Format(time.RFC3339)}); err != booking.ErrNotFound {
+		t.Fatalf("quote for unlisted draft=%v", err)
+	}
+	if _, err = svc.Quote(ctx, outsider, booking.QuoteInput{SpaceID: space, StartAt: fixedNow.Add(2 * time.Hour).Format(time.RFC3339), EndAt: fixedNow.Add(3 * time.Hour).Format(time.RFC3339)}); err != booking.ErrNotFound {
+		t.Fatalf("quote by unauthorized renter=%v", err)
+	}
+	if available, err = svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "bodega"}); err != nil || len(available) != 1 || available[0].SpaceID != secondSpace {
+		t.Fatalf("filtered selected-space availability=%+v err=%v", available, err)
+	}
+	quoteForAnotherSpace, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: secondSpace, StartAt: when.Format(time.RFC3339), EndAt: until.Format(time.RFC3339)})
+	if err != nil || quoteForAnotherSpace.UnitPrice != 12000 {
+		t.Fatalf("second-space quote=%+v err=%v", quoteForAnotherSpace, err)
+	}
+	if _, err = svc.Request(ctx, renter, booking.RequestInput{QuoteID: quoteForAnotherSpace.ID}, "selected-space-reservation"); err != nil {
+		t.Fatalf("selected-space request failed: %v", err)
+	}
+	if available, err = svc.Catalog(ctx, renter, booking.CatalogFilter{StartAt: &when, EndAt: &until}); err != nil || len(available) != 1 || available[0].SpaceID != space {
+		t.Fatalf("availability filter did not omit held second space: %+v err=%v", available, err)
+	}
+	// Keep the primary flow on the original space; its own price/profile and zone
+	// remain distinct from the second allowlisted fixture.
 	staleStart := fixedNow.Add(5 * time.Minute)
-	staleQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{StartAt: staleStart.Format(time.RFC3339Nano), EndAt: staleStart.Add(time.Hour).Format(time.RFC3339Nano)})
+	staleQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: staleStart.Format(time.RFC3339Nano), EndAt: staleStart.Add(time.Hour).Format(time.RFC3339Nano)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +248,7 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	fixedNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	clockMu.Unlock()
 	start := time.Date(2030, 2, 1, 12, 0, 0, 0, time.UTC)
-	quote, err := svc.Quote(ctx, renter, booking.QuoteInput{StartAt: start.Format(time.RFC3339), EndAt: start.Add(90 * time.Minute).Format(time.RFC3339)})
+	quote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: start.Format(time.RFC3339), EndAt: start.Add(90 * time.Minute).Format(time.RFC3339)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +313,7 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT activo,tipo,expira_en FROM public.ocupacion WHERE reserva_id=$1`, results[0].ID).Scan(&active, &kind, &expiry); err != nil || !active || kind != "reserva" || expiry != nil {
 		t.Fatalf("approved occupancy active=%v type=%s expiry=%v err=%v", active, kind, expiry, err)
 	}
-	quote2, err := svc.Quote(ctx, renter, booking.QuoteInput{StartAt: start.Add(3 * time.Hour).Format(time.RFC3339), EndAt: start.Add(4 * time.Hour).Format(time.RFC3339)})
+	quote2, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: start.Add(3 * time.Hour).Format(time.RFC3339), EndAt: start.Add(4 * time.Hour).Format(time.RFC3339)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +328,7 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if err != nil || rejected.State != "rechazada_arrendador" {
 		t.Fatalf("rejection: %+v %v", rejected, err)
 	}
-	quote3, err := svc.Quote(ctx, renter, booking.QuoteInput{StartAt: start.Add(5 * time.Hour).Format(time.RFC3339), EndAt: start.Add(6 * time.Hour).Format(time.RFC3339)})
+	quote3, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: start.Add(5 * time.Hour).Format(time.RFC3339), EndAt: start.Add(6 * time.Hour).Format(time.RFC3339)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +354,7 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo`, pending.ID).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("expired occupancy count=%d err=%v", count, err)
 	}
-	quote4, err := svc.Quote(ctx, renter, booking.QuoteInput{StartAt: start.Add(7 * time.Hour).Format(time.RFC3339), EndAt: start.Add(8 * time.Hour).Format(time.RFC3339)})
+	quote4, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: start.Add(7 * time.Hour).Format(time.RFC3339), EndAt: start.Add(8 * time.Hour).Format(time.RFC3339)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,11 +379,11 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	// Two distinct keys and quotes for the same window race on the single
 	// occupancy exclusion constraint; only one request can retain it.
 	startRace := start.Add(24 * time.Hour)
-	qa, err := svc.Quote(ctx, renter, booking.QuoteInput{StartAt: startRace.Format(time.RFC3339), EndAt: startRace.Add(time.Hour).Format(time.RFC3339)})
+	qa, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: startRace.Format(time.RFC3339), EndAt: startRace.Add(time.Hour).Format(time.RFC3339)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	qb, err := svc.Quote(ctx, renter, booking.QuoteInput{StartAt: startRace.Format(time.RFC3339), EndAt: startRace.Add(time.Hour).Format(time.RFC3339)})
+	qb, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: startRace.Format(time.RFC3339), EndAt: startRace.Add(time.Hour).Format(time.RFC3339)})
 	if err != nil {
 		t.Fatal(err)
 	}

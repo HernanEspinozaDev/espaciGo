@@ -539,6 +539,7 @@ form("calendar-block-form", async (data, element) => {
 calendarZoneInput.addEventListener("input", refreshCalendarControls);
 refreshCalendarControls();
 let bookingFixture = null;
+let bookingCatalogRequest = 0;
 let reservationKey = crypto.randomUUID();
 const paymentKeys = new Map();
 const bookingBase = "/api/v1/local/booking-trial";
@@ -546,15 +547,64 @@ const bookingFixtureOutput = document.querySelector("#booking-fixture-output");
 const bookingQuoteOutput = document.querySelector("#booking-quote-output");
 const bookingHistoryOutput = document.querySelector("#booking-history-output");
 function bookingData(result) { return result.data; }
-document.querySelector("#booking-fixture-load").addEventListener("click", () => void action(async () => {
-    const result = await request(`${bookingBase}/fixture`, "GET", undefined, true);
-    bookingFixture = bookingData(result);
-    bookingFixtureOutput.textContent = `${String(result.safety_notice)}\nEspacio sintético autorizado: ${bookingFixture.title} · ${bookingFixture.space_id}\nZona guardada: ${bookingFixture.time_zone}\nAnfitrión: ${bookingFixture.host_id}\nArrendatario: ${bookingFixture.renter_id}`;
-}));
+const catalogResults = document.querySelector("#booking-catalog-results");
+form("booking-catalog-form", async (data) => {
+    const token = ++bookingCatalogRequest;
+    const query = new URLSearchParams();
+    const category = String(data.get("category_code") ?? "");
+    if (category)
+        query.set("category_code", category);
+    const localStart = String(data.get("start_at") ?? ""), localEnd = String(data.get("end_at") ?? "");
+    if (Boolean(localStart) !== Boolean(localEnd))
+        throw new Error("Para filtrar disponibilidad indica inicio y término.");
+    const searchZone = String(data.get("time_zone") ?? "").trim();
+    if (localStart) {
+        if (!searchZone)
+            throw new Error("Indica la zona horaria para interpretar el intervalo de búsqueda.");
+        query.set("start_at", localTimeAsUTC(localStart, searchZone));
+        query.set("end_at", localTimeAsUTC(localEnd, searchZone));
+    }
+    bookingFixture = null;
+    (document.querySelector('#booking-quote-form [name="space_id"]')).value = "";
+    bookingFixtureOutput.textContent = "Selecciona un resultado para consultar su detalle.";
+    const suffix = query.size ? `?${query.toString()}` : "";
+    const response = await request(`${bookingBase}/catalog${suffix}`, "GET", undefined, true);
+    if (token !== bookingCatalogRequest)
+        return;
+    const payload = bookingData(response);
+    catalogResults.replaceChildren();
+    if (!payload.items.length) {
+        catalogResults.textContent = "No hay espacios sintéticos habilitados para estos filtros.";
+        return;
+    }
+    for (const item of payload.items) {
+        const card = document.createElement("article");
+        const title = document.createElement("h3");
+        title.textContent = `${item.title} · ${item.category_name}`;
+        const meta = document.createElement("p");
+        meta.textContent = `${item.rate_unit} · ${item.base_price_clp} ${item.currency} · ${item.time_zone}${item.available === undefined ? "" : item.available ? " · disponible" : " · no disponible"}`;
+        const details = document.createElement("button");
+        details.type = "button";
+        details.textContent = "Ver detalle y preparar cotización";
+        details.addEventListener("click", () => void action(async () => {
+            const detailToken = ++bookingCatalogRequest;
+            const detailResult = await request(`${bookingBase}/catalog/${encodeURIComponent(item.space_id)}`, "GET", undefined, true);
+            if (detailToken !== bookingCatalogRequest)
+                return;
+            bookingFixture = bookingData(detailResult);
+            (document.querySelector('#booking-quote-form [name="space_id"]')).value = bookingFixture.space_id;
+            bookingFixtureOutput.textContent = `${String(detailResult.safety_notice)}\n${JSON.stringify(bookingFixture, null, 2)}`;
+        }));
+        card.append(title, meta, details);
+        catalogResults.append(card);
+    }
+});
+document.querySelector("#booking-catalog-form").addEventListener("input", () => bookingCatalogRequest++);
 form("booking-quote-form", async (data) => {
-    if (!bookingFixture)
-        throw new Error("Consulta primero el fixture autorizado.");
-    const quote = bookingData(await request(`${bookingBase}/quotes`, "POST", { start_at: localTimeAsUTC(String(data.get("start_at")), bookingFixture.time_zone), end_at: localTimeAsUTC(String(data.get("end_at")), bookingFixture.time_zone) }, true));
+    const selectedSpace = String(data.get("space_id") ?? "");
+    if (!bookingFixture || selectedSpace !== bookingFixture.space_id)
+        throw new Error("Selecciona el detalle de un espacio autorizado antes de cotizar.");
+    const quote = bookingData(await request(`${bookingBase}/quotes`, "POST", { space_id: selectedSpace, start_at: localTimeAsUTC(String(data.get("start_at")), bookingFixture.time_zone), end_at: localTimeAsUTC(String(data.get("end_at")), bookingFixture.time_zone) }, true));
     (document.querySelector('#booking-request-form [name="quote_id"]')).value = String(quote.id);
     bookingQuoteOutput.textContent = `ENSAYO LOCAL — SIN COBRO REAL\n${JSON.stringify(quote, null, 2)}`;
 });

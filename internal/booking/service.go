@@ -35,7 +35,31 @@ func (s *Service) Fixture(ctx context.Context, actor string) (Fixture, error) {
 	}
 	return s.repo.Fixture(ctx, actor)
 }
+func (s *Service) Catalog(ctx context.Context, actor string, filter CatalogFilter) ([]CatalogItem, error) {
+	if !uuid.MatchString(actor) || (filter.CategoryCode != "" && !validCategory(filter.CategoryCode)) {
+		return nil, ErrInvalid
+	}
+	if (filter.StartAt == nil) != (filter.EndAt == nil) {
+		return nil, ErrInvalid
+	}
+	if filter.StartAt != nil {
+		now := s.now().UTC()
+		if !filter.EndAt.After(*filter.StartAt) || !filter.StartAt.After(now) {
+			return nil, ErrInvalid
+		}
+	}
+	return s.repo.Catalog(ctx, actor, filter)
+}
+func (s *Service) CatalogDetail(ctx context.Context, actor, spaceID string) (CatalogItem, error) {
+	if !uuid.MatchString(actor) || !uuid.MatchString(spaceID) {
+		return CatalogItem{}, ErrNotFound
+	}
+	return s.repo.CatalogDetail(ctx, actor, spaceID)
+}
 func (s *Service) Quote(ctx context.Context, renter string, in QuoteInput) (Quote, error) {
+	if !uuid.MatchString(in.SpaceID) {
+		return Quote{}, ErrInvalid
+	}
 	start, err := strictTime(in.StartAt)
 	if err != nil {
 		return Quote{}, ErrInvalid
@@ -52,7 +76,16 @@ func (s *Service) Quote(ctx context.Context, renter string, in QuoteInput) (Quot
 	if !start.After(now) {
 		return Quote{}, ErrInvalid
 	}
-	return s.repo.Quote(ctx, renter, id, start, end, s.now, s.quoteTTL)
+	return s.repo.Quote(ctx, renter, in.SpaceID, id, start, end, s.now, s.quoteTTL)
+}
+
+func validCategory(code string) bool {
+	switch code {
+	case "oficina", "sala_multiproposito", "bodega", "estacionamiento", "local_flexible", "stand", "quincho", "parcela_eventos":
+		return true
+	default:
+		return false
+	}
 }
 func (s *Service) Request(ctx context.Context, renter string, in RequestInput, key string) (Reservation, error) {
 	if !uuid.MatchString(renter) || !uuid.MatchString(in.QuoteID) || strings.TrimSpace(key) == "" || len(key) > 200 {

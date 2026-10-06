@@ -13,14 +13,18 @@ import (
 )
 
 // createLocalBookingFixture is an explicit admin-only command. It authorizes
-// exactly two active, email-verified accounts and creates one private draft.
-func createLocalBookingFixture(hostEmail, renterEmail string) error {
+// exactly two active, email-verified accounts for one private synthetic draft.
+func createLocalBookingFixture(hostEmail, renterEmail, category string) error {
 	if os.Getenv("LOCAL_AUTH_PROTOTYPE") != "1" || os.Getenv("LOCAL_BOOKING_TRIAL") != "1" {
 		return errors.New("local trial disabled")
 	}
 	hostEmail, renterEmail = strings.ToLower(strings.TrimSpace(hostEmail)), strings.ToLower(strings.TrimSpace(renterEmail))
 	if hostEmail == "" || renterEmail == "" || hostEmail == renterEmail {
 		return errors.New("invalid fixture participants")
+	}
+	category = strings.TrimSpace(category)
+	if category == "" {
+		return errors.New("invalid fixture category")
 	}
 	cfg, err := loadConfig(os.Getenv)
 	if err != nil {
@@ -38,6 +42,9 @@ func createLocalBookingFixture(hostEmail, renterEmail string) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, hostEmail+":"+renterEmail+":"+category); err != nil {
+		return err
+	}
 	var hostID, renterID string
 	if err = tx.QueryRow(ctx, `SELECT id::text FROM public.usuario WHERE correo_normalizado=$1 AND estado='activo'`, hostEmail).Scan(&hostID); err != nil {
 		return errors.New("host must be an active verified local account")
@@ -45,16 +52,21 @@ func createLocalBookingFixture(hostEmail, renterEmail string) error {
 	if err = tx.QueryRow(ctx, `SELECT id::text FROM public.usuario WHERE correo_normalizado=$1 AND estado='activo'`, renterEmail).Scan(&renterID); err != nil {
 		return errors.New("renter must be a different active verified local account")
 	}
-	var existingSpace, existingHost, existingRenter string
-	err = tx.QueryRow(ctx, `SELECT espacio_id::text,anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local_fixture WHERE singleton FOR UPDATE`).Scan(&existingSpace, &existingHost, &existingRenter)
+	var existingSpace string
+	err = tx.QueryRow(ctx, `SELECT f.espacio_id::text FROM public.reserva_ensayo_local_fixture f JOIN public.espacio e ON e.id=f.espacio_id WHERE f.habilitada AND f.anfitrion_id=$1 AND f.arrendatario_id=$2 AND e.categoria_codigo=$3 FOR UPDATE OF f`, hostID, renterID, category).Scan(&existingSpace)
 	if err == nil {
-		if existingHost == hostID && existingRenter == renterID {
-			return tx.Commit(ctx)
-		}
-		return errors.New("the single local fixture is already assigned; explicit operator cleanup is required")
+		return tx.Commit(ctx)
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return err
+	}
+	var categoryName string
+	if err = tx.QueryRow(ctx, `SELECT nombre FROM public.categoria_espacio WHERE codigo=$1 AND activa`, category).Scan(&categoryName); err != nil {
+		return errors.New("fixture category must be one of the active catalog categories")
+	}
+	var profileVersion int
+	if err = tx.QueryRow(ctx, `SELECT max(version) FROM public.categoria_perfil_atributos WHERE categoria_codigo=$1`, category).Scan(&profileVersion); err != nil || profileVersion < 1 {
+		return errors.New("fixture category profile is unavailable")
 	}
 	ids := credentials.Generator{}
 	spaceID, err := ids.ID()
@@ -62,11 +74,11 @@ func createLocalBookingFixture(hostEmail, renterEmail string) error {
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria)
-VALUES($1,$2,'sala_multiproposito','Espacio sintético de ensayo','Espacio de prueba local sintético; no se publica, no representa un inmueble real y solo es visible a los dos participantes autorizados en el ensayo de reserva.',30,8,'Uso sintético controlado','hora',8000,'Dirección sintética local','America/Santiago')`, spaceID, hostID)
+VALUES($1,$2,$3,$4,'Espacio de prueba local sintético; no se publica, no representa un inmueble real y solo es visible a los dos participantes autorizados en el ensayo local.',30,8,'Uso sintético controlado','hora',8000,'Dirección sintética local','America/Santiago')`, spaceID, hostID, category, "Espacio sintético · "+categoryName)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'sala_multiproposito',1,'{}'::jsonb)`, spaceID)
+	_, err = tx.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,$2,$3,'{}'::jsonb)`, spaceID, category, profileVersion)
 	if err != nil {
 		return err
 	}
@@ -74,13 +86,13 @@ VALUES($1,$2,'sala_multiproposito','Espacio sintético de ensayo','Espacio de pr
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(singleton,espacio_id,anfitrion_id,arrendatario_id) VALUES(true,$1,$2,$3)`, spaceID, hostID, renterID)
+	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, spaceID, hostID, renterID)
 	if err != nil {
 		return err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
-	fmt.Println("Fixture local habilitado: 1 borrador sintético, anfitrión y arrendatario autorizados; sin permisos comerciales ni pago real.")
+	fmt.Printf("Fixture local habilitado: categoría %s, participantes autorizados; sin permisos comerciales ni pago real.\n", category)
 	return nil
 }

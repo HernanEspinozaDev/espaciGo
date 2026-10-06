@@ -767,9 +767,33 @@ paths:
     get:
       operationId: getAuthorizedLocalBookingFixture
       tags: [M06 local]
-      description: Solo retorna el único borrador sintético allowlisted para uno de sus dos participantes activos. No es búsqueda pública ni permiso comercial.
+      description: Compatibilidad con M06-LOCAL-01: retorna el primer fixture autorizado para esa cuenta. Para seleccionar entre varios fixtures usa el catálogo y detalle; cotizar siempre requiere el space_id explícito. No es búsqueda pública ni permiso comercial.
       responses:
         '200': { description: Fixture privado con el banner de ensayo., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingFixtureEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /local/booking-trial/catalog:
+    get:
+      operationId: searchAuthorizedLocalSyntheticCatalog
+      tags: [M05 local]
+      description: Lista solo espacios sintéticos allowlisted para uno de sus participantes. Los borradores restantes y las direcciones privadas no se exponen; la disponibilidad consulta ocupacion para el intervalo indicado.
+      parameters:
+        - { name: category_code, in: query, required: false, schema: { type: string, enum: [oficina, sala_multiproposito, bodega, estacionamiento, local_flexible, stand, quincho, parcela_eventos] } }
+        - { name: start_at, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: end_at, in: query, required: false, schema: { type: string, format: date-time } }
+      responses:
+        '200': { description: Resultados de catálogo local con banner de ensayo., content: { application/json: { schema: { $ref: '#/components/schemas/LocalCatalogEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/catalog/{spaceId}:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getAuthorizedLocalSyntheticCatalogDetail
+      tags: [M05 local]
+      description: Devuelve el detalle seguro de un fixture explícitamente habilitado para uno de sus participantes, incluyendo categoría, perfil/atributos, tarifa y zona del mismo espacio.
+      responses:
+        '200': { description: Detalle del fixture con aviso local., content: { application/json: { schema: { $ref: '#/components/schemas/LocalCatalogDetailEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
   /local/booking-trial/quotes:
@@ -783,8 +807,9 @@ paths:
           application/json:
             schema:
               type: object
-              required: [start_at, end_at]
+              required: [space_id, start_at, end_at]
               properties:
+                space_id: { type: string, format: uuid }
                 start_at: { type: string, format: date-time }
                 end_at: { type: string, format: date-time }
       responses:
@@ -933,6 +958,39 @@ components:
             base_price_clp: { type: integer, minimum: 5001 }
             currency: { type: string, const: CLP }
             time_zone: { type: string }
+    LocalCatalogEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data:
+          type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LocalCatalogItem' } }
+    LocalCatalogDetailEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data: { $ref: '#/components/schemas/LocalCatalogItem' }
+    LocalCatalogItem:
+      type: object
+      required: [space_id, category_code, category_name, title, description, rate_unit, base_price_clp, currency, time_zone, profile_version, profile, attributes]
+      properties:
+        space_id: { type: string, format: uuid }
+        category_code: { type: string, enum: [oficina, sala_multiproposito, bodega, estacionamiento, local_flexible, stand, quincho, parcela_eventos] }
+        category_name: { type: string }
+        title: { type: string }
+        description: { type: string }
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        base_price_clp: { type: integer }
+        currency: { type: string, const: CLP }
+        time_zone: { type: string }
+        profile_version: { type: integer, minimum: 1 }
+        profile: { type: object }
+        attributes: { type: object }
+        available: { type: boolean }
     LocalBookingQuoteEnvelope:
       type: object
       required: [data, safety_notice]
@@ -941,7 +999,7 @@ components:
         data: { $ref: '#/components/schemas/LocalBookingQuote' }
     LocalBookingQuote:
       type: object
-      required: [id, space_id, rate_version, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, created_at, expires_at]
+      required: [id, space_id, rate_version, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, category_code, profile_version, profile_values, created_at, expires_at]
       properties:
         id: { type: string, format: uuid }
         space_id: { type: string, format: uuid }
@@ -955,6 +1013,9 @@ components:
         end_at: { type: string, format: date-time }
         time_zone: { type: string }
         conditions: { type: string }
+        category_code: { type: string, enum: [oficina, sala_multiproposito, bodega, estacionamiento, local_flexible, stand, quincho, parcela_eventos] }
+        profile_version: { type: integer, minimum: 1 }
+        profile_values: { type: object }
         created_at: { type: string, format: date-time }
         expires_at: { type: string, format: date-time }
     LocalBookingReservationEnvelope:

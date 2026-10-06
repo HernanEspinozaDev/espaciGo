@@ -2,7 +2,7 @@
 
 ## Estrategia vigente — prototipo local, 2026-10-05
 
-Continuación autorizada: Issue #148, M06-LOCAL-01, subentrega bajo #73 para un fixture de reserva/pago fake estrictamente local entre dos cuentas allowlisted. PR #147 integró tarifas versionadas y snapshots; #145 integró `ocupacion`; #134/#141 los borradores. La entrega de #148 no reemplaza ni cierra #69–#79: búsqueda pública, pagos/pasarela, webhook, conciliación y mock general siguen abiertos. Solo el PR #148 puede aceptar su slice; no declarar M05/M06 completos. Mantener el fixture sintético, `espacigo_pgdata` y secretos locales.
+Aceptación: #148 se cerró tras PRs #149/#150 y el historial se comprobó desde el mock. Continuación autorizada: Issue #151, M05-LOCAL-01, catálogo local de varios espacios sintéticos allowlisted con filtros por categoría/disponibilidad, detalle y enlace al flujo #148. Es una subentrega local de M05 asociada a #69; no cierra ni reemplaza #69–#79 y no habilita búsqueda pública, publicación comercial, pasarela, webhook o conciliación. Mantener `espacigo_pgdata` y secretos locales; aplicar V15 incrementalmente.
 
 PRs #124/#125 (M01), #126 (tramo M02), #127 (M03 sintético), #143 (evidencia sintética local), #134 (borradores M04) y #141 (catálogo extensible M04) están fusionados. M03 y M04 siguen parciales; #142 conserva requisitos KYC productivos. El nuevo corte #144 separa explícitamente disponibilidad y bloqueos manuales privados de borradores como subentrega de LIST-BE-02 (#56). No espera #43 (perfil M02) ni #142 (documentos KYC productivos): la sesión M01 identifica al titular y el recorrido no publica ni transa. #43/#142 y los criterios completos de #56 permanecen abiertos.
 

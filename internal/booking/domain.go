@@ -2,6 +2,7 @@ package booking
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"time"
@@ -27,25 +28,49 @@ type Fixture struct {
 	Currency string `json:"currency"`
 	TimeZone string `json:"time_zone"`
 }
+type CatalogItem struct {
+	SpaceID        string          `json:"space_id"`
+	CategoryCode   string          `json:"category_code"`
+	CategoryName   string          `json:"category_name"`
+	Title          string          `json:"title"`
+	Description    string          `json:"description"`
+	RateUnit       string          `json:"rate_unit"`
+	Price          int64           `json:"base_price_clp"`
+	Currency       string          `json:"currency"`
+	TimeZone       string          `json:"time_zone"`
+	ProfileVersion int             `json:"profile_version"`
+	Profile        json.RawMessage `json:"profile"`
+	Attributes     json.RawMessage `json:"attributes"`
+	Available      *bool           `json:"available,omitempty"`
+}
+type CatalogFilter struct {
+	CategoryCode string
+	StartAt      *time.Time
+	EndAt        *time.Time
+}
 type QuoteInput struct {
+	SpaceID string `json:"space_id"`
 	StartAt string `json:"start_at"`
 	EndAt   string `json:"end_at"`
 }
 type Quote struct {
-	ID          string    `json:"id"`
-	SpaceID     string    `json:"space_id"`
-	RateVersion int64     `json:"rate_version"`
-	RateUnit    string    `json:"rate_unit"`
-	UnitPrice   int64     `json:"unit_price_clp"`
-	Currency    string    `json:"currency"`
-	Units       int64     `json:"units"`
-	Subtotal    int64     `json:"subtotal_clp"`
-	StartAt     time.Time `json:"start_at"`
-	EndAt       time.Time `json:"end_at"`
-	TimeZone    string    `json:"time_zone"`
-	Conditions  string    `json:"conditions"`
-	CreatedAt   time.Time `json:"created_at"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	ID             string          `json:"id"`
+	SpaceID        string          `json:"space_id"`
+	RateVersion    int64           `json:"rate_version"`
+	RateUnit       string          `json:"rate_unit"`
+	UnitPrice      int64           `json:"unit_price_clp"`
+	Currency       string          `json:"currency"`
+	Units          int64           `json:"units"`
+	Subtotal       int64           `json:"subtotal_clp"`
+	StartAt        time.Time       `json:"start_at"`
+	EndAt          time.Time       `json:"end_at"`
+	TimeZone       string          `json:"time_zone"`
+	Conditions     string          `json:"conditions"`
+	CategoryCode   string          `json:"category_code"`
+	ProfileVersion int             `json:"profile_version"`
+	ProfileValues  json.RawMessage `json:"profile_values"`
+	CreatedAt      time.Time       `json:"created_at"`
+	ExpiresAt      time.Time       `json:"expires_at"`
 }
 type Reservation struct {
 	ID            string     `json:"id"`
@@ -92,7 +117,9 @@ type DecisionInput struct {
 
 type Repository interface {
 	Fixture(context.Context, string) (Fixture, error)
-	Quote(context.Context, string, string, time.Time, time.Time, func() time.Time, time.Duration) (Quote, error)
+	Catalog(context.Context, string, CatalogFilter) ([]CatalogItem, error)
+	CatalogDetail(context.Context, string, string) (CatalogItem, error)
+	Quote(context.Context, string, string, string, time.Time, time.Time, func() time.Time, time.Duration) (Quote, error)
 	Create(context.Context, string, string, string, []byte, string, string, time.Duration, func() time.Time) (Reservation, error)
 	Get(context.Context, string, string) (Detail, error)
 	List(context.Context, string) ([]Reservation, error)
