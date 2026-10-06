@@ -780,7 +780,7 @@ paths:
     get:
       operationId: searchAuthorizedLocalSyntheticCatalog
       tags: [M05 local]
-      description: Lista solo espacios sintéticos allowlisted para uno de sus participantes. Los borradores restantes, las direcciones privadas y las coordenadas no se exponen. Categoría, disponibilidad, atributos, precio y proximidad se combinan con AND. Los filtros de atributos usan los tipos/unidades del perfil versionado indicado y solo aplican a fixtures guardados con esa versión. Si se filtra por mínimo/máximo CLP inclusivo, se exige intervalo y se devuelve el total estimado de ese intervalo; la búsqueda no crea cotización ni ocupación. La proximidad requiere latitude, longitude y radius_km juntos; PostGIS aplica radio inclusivo y reporta distancia directa aproximada, no ruta. Con proximidad el orden es distancia sin redondear, total estimado cuando existe, luego UUID; con intervalo sin proximidad ordena total estimado y UUID; sin intervalo ni proximidad ordena categoría, título y UUID. Se filtran y ordenan todos los resultados antes de seleccionar la página. page_size predeterminado 5, rango 1–25. next_cursor es opaco, versionado y vinculado a cuenta, filtros y tamaño; enviarlo solo continúa la misma búsqueda. Sin next_cursor termina. Un cursor malformado, desconocido o reutilizado con otra cuenta/filtros/tamaño responde 422. La autorización de fixtures se vuelve a comprobar en cada solicitud. Los cursores del prototipo dependen de la instancia del Backend y pueden invalidarse al reiniciarla. Cada página consulta estado vigente; cambios de tarifa, disponibilidad o catálogo pueden cambiar la continuación. Reinicia la búsqueda para comenzar de nuevo. El paginado limita la respuesta, pero hoy se calcula y ordena el catálogo filtrado completo en el servicio, por lo que no optimiza toda la consulta.
+      description: Lista solo espacios sintéticos allowlisted para uno de sus participantes. Los borradores restantes, las direcciones privadas y las coordenadas no se exponen. Categoría, disponibilidad, atributos, precio y proximidad se combinan con AND. Cuando un intervalo filtra un fixture por hora con horario semanal activo, el intervalo debe caber por completo en un tramo y quedar libre de ocupaciones. Los filtros de atributos usan los tipos/unidades del perfil versionado indicado y solo aplican a fixtures guardados con esa versión. Si se filtra por mínimo/máximo CLP inclusivo, se exige intervalo y se devuelve el total estimado de ese intervalo; la búsqueda no crea cotización ni ocupación. La proximidad requiere latitude, longitude y radius_km juntos; PostGIS aplica radio inclusivo y reporta distancia directa aproximada, no ruta. Con proximidad el orden es distancia sin redondear, total estimado cuando existe, luego UUID; con intervalo sin proximidad ordena total estimado y UUID; sin intervalo ni proximidad ordena categoría, título y UUID. Se filtran y ordenan todos los resultados antes de seleccionar la página. page_size predeterminado 5, rango 1–25. next_cursor es opaco, versionado y vinculado a cuenta, filtros y tamaño; enviarlo solo continúa la misma búsqueda. Sin next_cursor termina. Un cursor malformado, desconocido o reutilizado con otra cuenta/filtros/tamaño responde 422. La autorización de fixtures se vuelve a comprobar en cada solicitud. Los cursores del prototipo dependen de la instancia del Backend y pueden invalidarse al reiniciarla. Cada página consulta estado vigente; cambios de tarifa, disponibilidad o catálogo pueden cambiar la continuación. Reinicia la búsqueda para comenzar de nuevo. El paginado limita la respuesta, pero hoy se calcula y ordena el catálogo filtrado completo en el servicio, por lo que no optimiza toda la consulta.
       parameters:
         - { name: category_code, in: query, required: false, schema: { type: string, enum: [oficina, sala_multiproposito, bodega, estacionamiento, local_flexible, stand, quincho, parcela_eventos] } }
         - { name: start_at, in: query, required: false, schema: { type: string, format: date-time } }
@@ -813,7 +813,7 @@ paths:
     get:
       operationId: getAuthorizedLocalFixtureAvailabilityOptions
       tags: [M06 local]
-      description: 'Consulta candidatos para una sola fecha local del fixture autorizado; requiere una sesión del anfitrión o arrendatario de ese fixture. La modalidad siempre procede de su tarifa vigente. El horizonte de inicio es hoy–hoy+90 días en la zona del espacio. Hora: duración transcurrida 1/2/4 h, inicios cada 30 min; día: 1/2/3 fechas calendario completas; mes: aniversario de un mes calendario con ajuste al último día. Excluye inicios pasados/iguales al reloj Backend, horas locales DST inexistentes y candidatos que solapen una ocupación activa; ambas instancias de una hora repetida se distinguen por sus intervalos UTC. Procesa vencimientos usando el mecanismo de M06. No persiste cotizaciones ni ocupaciones y no revela datos de otras reservas. La disponibilidad se revalida al cotizar y reservar.'
+      description: 'Consulta candidatos para una sola fecha local del fixture autorizado; requiere una sesión del anfitrión o arrendatario de ese fixture. La modalidad siempre procede de su tarifa vigente. El horizonte de inicio es hoy–hoy+90 días en la zona del espacio. Hora: duración transcurrida 1/2/4 h, inicios cada 30 min; día: 1/2/3 fechas calendario completas; mes: aniversario de un mes calendario con ajuste al último día. Excluye inicios pasados/iguales al reloj Backend, horas locales DST inexistentes, candidatos que no quepan por completo en un tramo semanal activo para fixtures por hora, y candidatos que solapen una ocupación activa; ambas instancias de una hora repetida se distinguen por sus intervalos UTC. Procesa vencimientos usando el mecanismo de M06. No persiste cotizaciones ni ocupaciones y no revela datos de otras reservas. La disponibilidad se revalida al cotizar y reservar.'
       parameters:
         - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: date, in: query, required: true, description: Fecha local única consultada en la zona IANA del espacio; no descarga el horizonte entero., schema: { type: string, format: date } }
@@ -823,11 +823,42 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/catalog/{spaceId}/weekly-hours:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getOwnSyntheticHourlyWeeklyHours
+      tags: [M06 local]
+      description: Solo el anfitrión del fixture sintético por hora puede consultar la regla. Sin fila, activo es false y se conserva la disponibilidad previa. Con activo true, días sin tramos están cerrados. La respuesta incluye la zona IANA vigente.
+      responses:
+        '200': { description: Configuración semanal del espacio propio., content: { application/json: { schema: { $ref: '#/components/schemas/LocalWeeklyHoursEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: replaceOwnSyntheticHourlyWeeklyHours
+      tags: [M06 local]
+      description: Solo el anfitrión. Hasta dos tramos por día, apertura < cierre, sin solapes ni cruce de medianoche. Cierre 24:00 es límite exclusivo final del día; apertura 00:00 es válida. Horas inexistentes no producen intervalos; durante horas repetidas solo se ofrece un intervalo si todas sus porciones reales permanecen dentro de un tramo. La escritura se serializa con cotizaciones y solicitudes. No altera ocupaciones, reservas ni historial. Día/mes no son elegibles.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled, days]
+              properties:
+                enabled: { type: boolean }
+                days: { type: array, minItems: 7, maxItems: 7, items: { $ref: '#/components/schemas/LocalWeeklyDay' } }
+      responses:
+        '200': { description: Configuración semanal persistida., content: { application/json: { schema: { $ref: '#/components/schemas/LocalWeeklyHoursEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /local/booking-trial/quotes:
     post:
       operationId: quoteAuthorizedLocalBooking
       tags: [M06 local]
-      description: Cotiza sin ocupar; conserva snapshot de tarifa y zona del borrador. Caducidad provisional configurable de 15 minutos.
+      description: Cotiza sin ocupar; conserva snapshot de tarifa y zona del borrador. Para un fixture sintético por hora con horario semanal activo, el intervalo completo debe caber en un tramo y estar libre de ocupaciones. La validación se serializa con cambios de horario. Caducidad provisional configurable de 15 minutos.
       requestBody:
         required: true
         content:
@@ -854,6 +885,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       operationId: requestLocalTrialReservation
+      description: Revalida el horario semanal vigente y la ocupación dentro de la transacción. Una cotización que ya no cabe produce conflicto sin crear reserva ni retención. El cambio de horario no modifica reservas ni historiales previos.
       tags: [M06 local]
       parameters:
         - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
@@ -1081,6 +1113,32 @@ components:
         time_zone: { type: string }
         rate_unit: { type: string, enum: [hora, dia, mes] }
         items: { type: array, items: { $ref: '#/components/schemas/LocalAvailableInterval' } }
+    LocalWeeklyHoursEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
+        data: { $ref: '#/components/schemas/LocalWeeklyHours' }
+    LocalWeeklyHours:
+      type: object
+      required: [space_id, enabled, time_zone, days]
+      properties:
+        space_id: { type: string, format: uuid }
+        enabled: { type: boolean }
+        time_zone: { type: string }
+        days: { type: array, minItems: 7, maxItems: 7, items: { $ref: '#/components/schemas/LocalWeeklyDay' } }
+    LocalWeeklyDay:
+      type: object
+      required: [weekday, periods]
+      properties:
+        weekday: { type: integer, minimum: 1, maximum: 7, description: Día ISO de la semana; lunes=1, domingo=7. }
+        periods: { type: array, maxItems: 2, items: { $ref: '#/components/schemas/LocalWeeklyPeriod' } }
+    LocalWeeklyPeriod:
+      type: object
+      required: [open, close]
+      properties:
+        open: { type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$' }
+        close: { type: string, pattern: '^(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]|24:00)$', description: 24:00 representa el límite final exclusivo del día y solo puede usarse al cerrar un tramo. }
     LocalAvailableInterval:
       type: object
       required: [start_at, end_at]

@@ -2,7 +2,7 @@
 
 ## Estrategia vigente — prototipo local, 2026-10-06
 
-Los cortes M06-LOCAL-01 (#148), M05-LOCAL-01 (#151), M06-LOCAL-02 (#153), M09-LOCAL-01 (#156), M09-LOCAL-02 (#158), M05-LOCAL-02 (#160), búsqueda geográfica (#162) y paginación local (#164, PR #165) están aceptados. La entrega autorizada en curso es M06-LOCAL selector de intervalos disponibles para fixtures (#166), en la rama `codex/m06-local-interval-picker`. Usa `ocupacion`, vencimientos y tarifas existentes; consulta candidatos por fecha local y no crea cotizaciones/ocupaciones. No agrega calendario alternativo ni termina las Issues generales #62–#68/#70–#72. Véase [decisión M06 selector](decisiones_m06_selector_intervalos_local.md). DB02-09, #123 y los pendientes generales siguen separados.
+Los cortes M06-LOCAL-01 (#148), M05-LOCAL-01 (#151), M06-LOCAL-02 (#153), M09-LOCAL-01 (#156), M09-LOCAL-02 (#158), M05-LOCAL-02 (#160), búsqueda geográfica (#162), paginación (#164/PR #165) y selector de intervalos (#166/PR #167) están aceptados. La entrega autorizada en curso es #168: horario semanal para fixtures sintéticos con tarifa por hora. Amplía localmente la exclusión de recurrencia descrita por HU24 en ES1, sin habilitar horarios comerciales generales ni cambiar los criterios generales #70–#72. Véase [decisión M06 de horario semanal](decisiones_m06_horario_semanal_local.md). DB02-09, #123 y los pendientes generales siguen separados.
 
 PRs #124/#125 (M01), #126 (tramo M02), #127/#143 (M03 sintético), #134/#141 (M04) y #145/#147 (calendario privado/tarifas) están fusionados; M02–M06 siguen parciales. #37–43 conservan pendientes de cobro/KYC, foto, resolución de supresión y retención. #43/#52 y las Issues generales #69–#79 mantienen sus criterios. DB02-09 y #123 permanecen separados.
 

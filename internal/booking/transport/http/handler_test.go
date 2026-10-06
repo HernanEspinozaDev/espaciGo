@@ -35,6 +35,31 @@ type repoStub struct {
 	items          []booking.CatalogItem
 }
 
+type weeklyRepoStub struct {
+	repoStub
+	hours booking.WeeklyHours
+}
+
+func (r *weeklyRepoStub) WeeklyHoursForSpace(_ context.Context, spaceID string) (booking.WeeklyHours, error) {
+	v := r.hours
+	v.SpaceID = spaceID
+	return v, nil
+}
+func (r *weeklyRepoStub) WeeklyHoursForHost(ctx context.Context, hostID, spaceID string) (booking.WeeklyHours, error) {
+	if hostID != renterID {
+		return booking.WeeklyHours{}, booking.ErrNotFound
+	}
+	return r.WeeklyHoursForSpace(ctx, spaceID)
+}
+func (r *weeklyRepoStub) SaveWeeklyHours(_ context.Context, hostID, spaceID string, value booking.WeeklyHours) (booking.WeeklyHours, error) {
+	if hostID != renterID {
+		return booking.WeeklyHours{}, booking.ErrNotFound
+	}
+	value.SpaceID, value.TimeZone = spaceID, "America/Santiago"
+	r.hours = value
+	return value, nil
+}
+
 func (r repoStub) Fixture(context.Context, string) (booking.Fixture, error) { return r.fixture, nil }
 func (r repoStub) Catalog(context.Context, string, booking.CatalogFilter) ([]booking.CatalogItem, error) {
 	if r.items != nil {
@@ -218,6 +243,59 @@ func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testin
 	data := quote["data"].(map[string]any)
 	if quote["safety_notice"] != booking.SafetyBanner || data["conditions"] != "Reglas sintéticas" || data["space_id"] != "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" || data["profile_version"] != float64(1) {
 		t.Fatalf("quote missing safety/snapshot conditions: %v", quote)
+	}
+}
+
+func TestWeeklyHoursHTTPReadsAndReplacesOwnerScheduleStrictly(t *testing.T) {
+	fixture := booking.Fixture{SpaceID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", Title: "synthetic", RateUnit: "hora", TimeZone: "America/Santiago"}
+	repo := &weeklyRepoStub{repoStub: repoStub{fixture: fixture}}
+	for i := 1; i <= 7; i++ {
+		repo.hours.Days = append(repo.hours.Days, booking.WeeklyDay{Weekday: i, Periods: []booking.WeeklyPeriod{}})
+	}
+	service, err := booking.NewService(repo, credentials.Generator{}, func() time.Time { return time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC) }, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(authStub{}, service, []string{"http://mock.local"})
+	base := "/api/v1/local/booking-trial/catalog/" + fixture.SpaceID + "/weekly-hours"
+	get := httptest.NewRequest(http.MethodGet, base, nil)
+	get.Header.Set("Authorization", "Bearer test-session")
+	got := httptest.NewRecorder()
+	h.ServeHTTP(got, get)
+	if got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"enabled":false`) {
+		t.Fatalf("GET weekly-hours status=%d body=%s", got.Code, got.Body.String())
+	}
+	days := make([]booking.WeeklyDay, 7)
+	for i := range days {
+		days[i] = booking.WeeklyDay{Weekday: i + 1, Periods: []booking.WeeklyPeriod{}}
+	}
+	days[0].Periods = []booking.WeeklyPeriod{{Open: "09:00", Close: "12:00"}, {Open: "13:00", Close: "24:00"}}
+	body, _ := json.Marshal(map[string]any{"enabled": true, "days": days})
+	put := httptest.NewRequest(http.MethodPut, base, strings.NewReader(string(body)))
+	put.Header.Set("Authorization", "Bearer test-session")
+	put.Header.Set("Content-Type", "application/json")
+	updated := httptest.NewRecorder()
+	h.ServeHTTP(updated, put)
+	if updated.Code != http.StatusOK || !strings.Contains(updated.Body.String(), `"time_zone":"America/Santiago"`) {
+		t.Fatalf("PUT weekly-hours status=%d body=%s", updated.Code, updated.Body.String())
+	}
+	days[0].Periods = []booking.WeeklyPeriod{{Open: "09:00", Close: "13:00"}, {Open: "12:00", Close: "17:00"}}
+	body, _ = json.Marshal(map[string]any{"enabled": true, "days": days})
+	invalid := httptest.NewRequest(http.MethodPut, base, strings.NewReader(string(body)))
+	invalid.Header.Set("Authorization", "Bearer test-session")
+	invalid.Header.Set("Content-Type", "application/json")
+	bad := httptest.NewRecorder()
+	h.ServeHTTP(bad, invalid)
+	if bad.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("overlap PUT status=%d body=%s", bad.Code, bad.Body.String())
+	}
+	unknownField := httptest.NewRequest(http.MethodPut, base, strings.NewReader(`{"enabled":true,"days":[],"owner_id":"x"}`))
+	unknownField.Header.Set("Authorization", "Bearer test-session")
+	unknownField.Header.Set("Content-Type", "application/json")
+	strict := httptest.NewRecorder()
+	h.ServeHTTP(strict, unknownField)
+	if strict.Code != http.StatusBadRequest {
+		t.Fatalf("unknown JSON field status=%d body=%s", strict.Code, strict.Body.String())
 	}
 }
 

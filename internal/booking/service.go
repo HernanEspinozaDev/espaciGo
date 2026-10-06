@@ -112,6 +112,17 @@ func (s *Service) Catalog(ctx context.Context, actor string, filter CatalogFilte
 	if filter.StartAt != nil {
 		filtered = make([]CatalogItem, 0, len(items))
 		for _, item := range items {
+			if item.RateUnit == "hora" {
+				if hoursRepo, ok := s.repo.(WeeklyHoursRepository); ok {
+					hours, scheduleErr := hoursRepo.WeeklyHoursForSpace(ctx, item.SpaceID)
+					if scheduleErr != nil {
+						return nil, scheduleErr
+					}
+					if hours.Enabled && !IntervalFitsWeeklyHours(*filter.StartAt, *filter.EndAt, item.TimeZone, hours) {
+						continue
+					}
+				}
+			}
 			units, e := PriceUnits(item.RateUnit, *filter.StartAt, *filter.EndAt, item.TimeZone)
 			if e != nil || units < 1 || item.Price > math.MaxInt64/units {
 				return nil, ErrInvalid
@@ -384,6 +395,25 @@ func (s *Service) AvailableIntervals(ctx context.Context, actor, spaceID string,
 	if len(available) != len(candidates) {
 		return AvailabilityOptions{}, ErrNotFound
 	}
+	if item.RateUnit == "hora" {
+		if hoursRepo, ok := s.repo.(WeeklyHoursRepository); ok {
+			hours, scheduleErr := hoursRepo.WeeklyHoursForSpace(ctx, spaceID)
+			if scheduleErr != nil {
+				return AvailabilityOptions{}, scheduleErr
+			}
+			if hours.Enabled {
+				keptCandidates := make([]AvailableInterval, 0, len(candidates))
+				keptAvailable := make([]bool, 0, len(candidates))
+				for i, candidate := range candidates {
+					if IntervalFitsWeeklyHours(candidate.StartAt, candidate.EndAt, item.TimeZone, hours) {
+						keptCandidates = append(keptCandidates, candidate)
+						keptAvailable = append(keptAvailable, available[i])
+					}
+				}
+				candidates, available = keptCandidates, keptAvailable
+			}
+		}
+	}
 	result := AvailabilityOptions{SpaceID: item.SpaceID, TimeZone: item.TimeZone, RateUnit: item.RateUnit, Items: make([]AvailableInterval, 0, len(candidates))}
 	checkedAt := s.now().UTC()
 	for i, candidate := range candidates {
@@ -392,6 +422,32 @@ func (s *Service) AvailableIntervals(ctx context.Context, actor, spaceID string,
 		}
 	}
 	return result, nil
+}
+
+func (s *Service) WeeklyHours(ctx context.Context, host, spaceID string) (WeeklyHours, error) {
+	if !uuid.MatchString(host) || !uuid.MatchString(spaceID) {
+		return WeeklyHours{}, ErrNotFound
+	}
+	repo, ok := s.repo.(WeeklyHoursRepository)
+	if !ok {
+		return WeeklyHours{}, ErrNotFound
+	}
+	return repo.WeeklyHoursForHost(ctx, host, spaceID)
+}
+
+func (s *Service) SaveWeeklyHours(ctx context.Context, host, spaceID string, value WeeklyHours) (WeeklyHours, error) {
+	if !uuid.MatchString(host) || !uuid.MatchString(spaceID) {
+		return WeeklyHours{}, ErrNotFound
+	}
+	if ValidateWeeklyHours(value) != nil {
+		return WeeklyHours{}, ErrInvalid
+	}
+	repo, ok := s.repo.(WeeklyHoursRepository)
+	if !ok {
+		return WeeklyHours{}, ErrNotFound
+	}
+	value.Days = normalizeWeeklyDays(value.Days)
+	return repo.SaveWeeklyHours(ctx, host, spaceID, value)
 }
 
 func (s *Service) Quote(ctx context.Context, renter string, in QuoteInput) (Quote, error) {

@@ -572,6 +572,7 @@ function refreshCatalogControls() { const button = document.querySelector("#book
     button.disabled = catalogLoading || !catalogPagination.canNext; }
 function clearCatalogResultsAndSelection(message) {
     catalogProfileRequest++;
+    clearWeeklyHoursEditor();
     bookingQuoteState.beginSearch();
     bookingAvailabilityState.invalidate();
     bookingFixture = null;
@@ -595,11 +596,102 @@ function clearCatalogResultsAndSelection(message) {
         quoteID.value = "";
 }
 function resetCatalogTraversal() { bookingCatalogRequest++; catalogPagination.invalidate(); catalogNextCursor = ""; catalogRequestCursor = ""; catalogLoading = false; clearCatalogResultsAndSelection("Inicia sesión y busca fixtures sintéticos autorizados para esta cuenta."); refreshCatalogControls(); }
-function invalidateCatalogSelection(message) { bookingQuoteState.beginSearch(); bookingAvailabilityState.invalidate(); bookingFixture = null; resetAvailabilityPicker(message); (document.querySelector('#booking-quote-form [name="space_id"]')).value = ""; (document.querySelector('#booking-request-form [name="quote_id"]')).value = ""; bookingQuoteOutput.textContent = message; }
+function invalidateCatalogSelection(message) { bookingQuoteState.beginSearch(); bookingAvailabilityState.invalidate(); bookingFixture = null; clearWeeklyHoursEditor(); resetAvailabilityPicker(message); (document.querySelector('#booking-quote-form [name="space_id"]')).value = ""; (document.querySelector('#booking-request-form [name="quote_id"]')).value = ""; bookingQuoteOutput.textContent = message; }
 const bookingFixtureOutput = document.querySelector("#booking-fixture-output");
 const bookingQuoteOutput = document.querySelector("#booking-quote-output");
 const bookingAvailabilityPicker = document.querySelector("#booking-availability-picker");
+const bookingWeeklyHoursEditor = document.querySelector("#booking-weekly-hours-editor");
 const bookingHistoryOutput = document.querySelector("#booking-history-output");
+let weeklyHoursRequest = 0;
+function clearWeeklyHoursEditor(message = "") {
+    weeklyHoursRequest++;
+    bookingWeeklyHoursEditor.replaceChildren();
+    if (message) {
+        const p = document.createElement("p");
+        p.textContent = message;
+        bookingWeeklyHoursEditor.append(p);
+    }
+}
+async function renderWeeklyHoursEditor(spaceID) {
+    const token = ++weeklyHoursRequest, account = sessionAccountID, session = sessionToken;
+    bookingWeeklyHoursEditor.replaceChildren();
+    if (!session || !account || bookingFixture?.space_id !== spaceID || bookingFixture.rate_unit !== "hora")
+        return;
+    try {
+        const response = await request(`${bookingBase}/catalog/${encodeURIComponent(spaceID)}/weekly-hours`, "GET", undefined, true);
+        if (token !== weeklyHoursRequest || session !== sessionToken || account !== sessionAccountID || bookingFixture?.space_id !== spaceID)
+            return;
+        const schedule = bookingData(response), formElement = document.createElement("form"), title = document.createElement("h4"), enabledLabel = document.createElement("label"), enabled = document.createElement("input"), daysContainer = document.createElement("div"), status = document.createElement("p"), save = document.createElement("button");
+        formElement.id = "booking-weekly-hours-form";
+        title.textContent = `Horario semanal (${schedule.time_zone})`;
+        enabled.type = "checkbox";
+        enabled.name = "enabled";
+        enabled.checked = schedule.enabled;
+        enabledLabel.append(enabled, document.createTextNode(" Aplicar horario semanal; días sin tramos quedan cerrados"));
+        const dayNames = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+        const controls = [];
+        for (let weekday = 1; weekday <= 7; weekday++) {
+            const saved = schedule.days.find(day => day.weekday === weekday)?.periods ?? [], fieldset = document.createElement("fieldset"), legend = document.createElement("legend");
+            legend.textContent = dayNames[weekday - 1];
+            fieldset.append(legend);
+            const opens = [], closes = [];
+            for (let slot = 0; slot < 2; slot++) {
+                const row = document.createElement("div"), open = document.createElement("input"), close = document.createElement("input");
+                open.type = "text";
+                open.inputMode = "numeric";
+                open.placeholder = "09:00";
+                open.maxLength = 5;
+                open.setAttribute("aria-label", `${dayNames[weekday - 1]} tramo ${slot + 1} apertura`);
+                open.value = saved[slot]?.open ?? "";
+                close.type = "text";
+                close.inputMode = "numeric";
+                close.placeholder = "17:00 o 24:00";
+                close.maxLength = 5;
+                close.setAttribute("aria-label", `${dayNames[weekday - 1]} tramo ${slot + 1} cierre`);
+                close.value = saved[slot]?.close ?? "";
+                row.append(document.createTextNode(`Tramo ${slot + 1}: `), open, document.createTextNode(" a "), close);
+                fieldset.append(row);
+                opens.push(open);
+                closes.push(close);
+            }
+            controls.push({ weekday, opens, closes });
+            daysContainer.append(fieldset);
+        }
+        status.textContent = "Sin configuración activa se conserva la disponibilidad actual. Cierre 24:00 significa fin del día; no cruza medianoche.";
+        save.type = "submit";
+        save.textContent = "Guardar horario semanal";
+        formElement.append(title, enabledLabel, daysContainer, status, save);
+        bookingWeeklyHoursEditor.replaceChildren(formElement);
+        formElement.addEventListener("submit", event => {
+            event.preventDefault();
+            void action(async () => {
+                if (session !== sessionToken || account !== sessionAccountID || bookingFixture?.space_id !== spaceID)
+                    throw new Error("Cambió la sesión o el espacio; vuelve a cargar el detalle.");
+                const days = controls.map(({ weekday, opens, closes }) => ({ weekday, periods: opens.flatMap((open, index) => { const a = open.value.trim(), b = closes[index].value.trim(); if (!a && !b)
+                        return []; return [{ open: a, close: b }]; }) }));
+                const result = await request(`${bookingBase}/catalog/${encodeURIComponent(spaceID)}/weekly-hours`, "PUT", { enabled: enabled.checked, days }, true);
+                if (token !== weeklyHoursRequest || session !== sessionToken || account !== sessionAccountID || bookingFixture?.space_id !== spaceID)
+                    return;
+                const saved = bookingData(result);
+                bookingAvailabilityState.invalidate();
+                selectedAvailabilityContext = null;
+                bookingQuoteState.beginSelection(spaceID);
+                (document.querySelector('#booking-request-form [name="quote_id"]')).value = "";
+                status.textContent = saved.enabled ? "Horario guardado. Las nuevas consultas, cotizaciones y reservas se validan con esta regla; las reservas existentes no cambian." : "Horario desactivado. Se conserva el comportamiento anterior; las reservas existentes no cambian.";
+                bookingQuoteOutput.textContent = "Cambió la configuración horaria. Descarta la cotización previa y vuelve a consultar y cotizar.";
+                void renderAvailabilityPicker();
+            });
+        });
+    }
+    catch (error) {
+        if (token !== weeklyHoursRequest || session !== sessionToken || account !== sessionAccountID || bookingFixture?.space_id !== spaceID)
+            return;
+        const message = error instanceof Error ? error.message : "No se pudo cargar el horario.";
+        if (message.includes("HTTP 404"))
+            return; // Participants can book, only the owner edits.
+        clearWeeklyHoursEditor(message);
+    }
+}
 function resetAvailabilityPicker(message) {
     bookingAvailabilityState.invalidate();
     selectedAvailabilityContext = null;
@@ -957,6 +1049,7 @@ form("booking-catalog-form", async (data) => {
             const detailToken = ++bookingCatalogRequest;
             const selectionToken = bookingQuoteState.beginSelection(item.space_id);
             bookingFixture = null;
+            clearWeeklyHoursEditor();
             resetAvailabilityPicker("Cambiando espacio; las opciones anteriores quedaron invalidadas.");
             (document.querySelector('#booking-quote-form [name="space_id"]')).value = "";
             (document.querySelector('#booking-request-form [name="quote_id"]')).value = "";
@@ -969,6 +1062,7 @@ form("booking-catalog-form", async (data) => {
             bookingFixture = bookingData(detailResult);
             (document.querySelector('#booking-quote-form [name="space_id"]')).value = bookingFixture.space_id;
             bookingFixtureOutput.textContent = `${String(detailResult.safety_notice)}\n${JSON.stringify(bookingFixture, null, 2)}`;
+            void renderWeeklyHoursEditor(item.space_id);
             renderAvailabilityPicker();
         }));
         card.append(title, meta, details);

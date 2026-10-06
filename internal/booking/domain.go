@@ -165,6 +165,15 @@ type Repository interface {
 	Expire(context.Context, time.Time) error
 }
 
+// WeeklyHoursRepository is optional in test doubles and required by the
+// PostgreSQL local-trial repository. Schedule writes are host-owned and
+// serialized on the space row with quote/request transactions.
+type WeeklyHoursRepository interface {
+	WeeklyHoursForSpace(context.Context, string) (WeeklyHours, error)
+	WeeklyHoursForHost(context.Context, string, string) (WeeklyHours, error)
+	SaveWeeklyHours(context.Context, string, string, WeeklyHours) (WeeklyHours, error)
+}
+
 // LocalPaymentAdapter is intentionally a narrow port. The only production in
 // this slice is the local fake; a gateway must not be wired into this profile.
 type LocalPaymentAdapter interface {
