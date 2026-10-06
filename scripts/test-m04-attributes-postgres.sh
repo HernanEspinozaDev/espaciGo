@@ -22,9 +22,10 @@ docker run -d --name "$NAME" --network none \
   --tmpfs /var/lib/postgresql:rw,size=1g \
   --mount "type=bind,src=$SOCKET_DIR,dst=/var/run/postgresql" \
   -e POSTGRES_HOST_AUTH_METHOD=trust "$IMAGE" >/dev/null
-for _ in $(seq 1 60); do
-  if docker exec "$NAME" pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
-  sleep 1
+for _ in $(seq 1 120); do
+	ready_count="$(docker logs "$NAME" 2>&1 | grep -c 'database system is ready to accept connections' || true)"
+	if [[ "$ready_count" -ge 2 ]] && docker exec "$NAME" pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
+	sleep 0.25
 done
 docker exec "$NAME" pg_isready -U postgres -d postgres >/dev/null
 if (($#)); then TEST_PACKAGES=("$@"); else TEST_PACKAGES=(./...); fi

@@ -26,7 +26,11 @@ async function request(path, method = "GET", body, authenticated = false, idempo
     const response = await fetch(endpoint, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), mode: "cors", cache: "no-store", credentials: "omit" });
     const data = response.status === 204 ? {} : await response.json();
     if (!response.ok) {
-        if (authenticated && (response.status === 401 || path === "password/change" && response.status === 503))
+        if (authenticated && response.status === 401) {
+            sessionToken = "";
+            clearBookingInboxOnSessionLoss();
+        }
+        if (authenticated && path === "password/change" && response.status === 503)
             sessionToken = "";
         const error = data;
         throw new Error(`${error.error?.message ?? "Error de API"} (HTTP ${response.status}, ${error.error?.code ?? "unknown"})`);
@@ -47,6 +51,7 @@ async function action(work) {
         buttons.forEach((button, index) => button.disabled = wasDisabled[index]);
         refreshCalendarControls();
         refreshBookingActions();
+        refreshConversationControls();
     }
 }
 function form(id, work) {
@@ -101,13 +106,7 @@ document.querySelector("#session-button").addEventListener("click", () => void a
 document.querySelector("#logout-button").addEventListener("click", () => void action(async () => {
     await request("logout", "POST", undefined, true);
     sessionToken = "";
-    sessionAccountID = "";
-    selectedReservationID = "";
-    selectedReservation = null;
-    document.querySelector("#booking-inbox-renter").textContent = "Inicia sesión y actualiza tu bandeja.";
-    document.querySelector("#booking-inbox-host").textContent = "Inicia sesión y actualiza tu bandeja.";
-    bookingHistoryOutput.textContent = "Inicia sesión para consultar reservas propias.";
-    refreshBookingActions();
+    clearBookingInboxOnSessionLoss();
     document.querySelector("#session-output").textContent = "Sesión cerrada.";
     resultElement.textContent = "Logout completado. La credencial anterior queda revocada.";
 }));
@@ -564,8 +563,15 @@ const bookingHistoryOutput = document.querySelector("#booking-history-output");
 let selectedReservationID = "";
 let selectedReservation = null;
 let bookingInboxRevision = 0;
+let conversationRevision = 0;
+let conversationOlderCursor = null;
+let conversationMessages = [];
+let pendingMessageKey = "";
+let pendingMessageBody = "";
 const renterInbox = document.querySelector("#booking-inbox-renter");
 const hostInbox = document.querySelector("#booking-inbox-host");
+const conversationOutput = document.querySelector("#booking-conversation-messages");
+const conversationStatus = document.querySelector("#booking-conversation-status");
 function bookingData(result) { return result.data; }
 const catalogResults = document.querySelector("#booking-catalog-results");
 form("booking-catalog-form", async (data) => {
@@ -708,6 +714,77 @@ function renderReservationDetail(item) {
     bookingHistoryOutput.textContent = `ENSAYO LOCAL — SIN COBRO REAL\nEspacio: ${item.space_id}\nPrecio: ${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} (${item.units} × ${item.unit_price_clp.toLocaleString("es-CL")} por ${item.rate_unit})\nIntervalo: ${bookingDate(item.start_at, item.time_zone)}–${bookingDate(item.end_at, item.time_zone)} (${item.time_zone})\nEstado: ${reservationState(item.state)}\n${deadline}\n\nHistorial:\n${history || "Sin transiciones."}`;
     refreshBookingActions();
 }
+function clearConversation(message) {
+    conversationRevision++;
+    conversationOlderCursor = null;
+    conversationMessages = [];
+    pendingMessageKey = "";
+    pendingMessageBody = "";
+    conversationOutput.replaceChildren();
+    conversationStatus.textContent = message;
+    const older = document.querySelector("#booking-conversation-older");
+    older.hidden = true;
+    older.disabled = true;
+    refreshConversationControls();
+}
+function clearBookingInboxOnSessionLoss() {
+    sessionAccountID = "";
+    selectedReservationID = "";
+    selectedReservation = null;
+    bookingInboxRevision++;
+    renterInbox.textContent = "Inicia sesión y actualiza tu bandeja.";
+    hostInbox.textContent = "Inicia sesión y actualiza tu bandeja.";
+    bookingHistoryOutput.textContent = "Inicia sesión para consultar reservas propias.";
+    clearConversation("La sesión terminó; inicia sesión para consultar conversaciones.");
+    refreshBookingActions();
+}
+function refreshConversationControls() {
+    const body = document.querySelector("#booking-conversation-body");
+    const send = document.querySelector("#booking-conversation-send");
+    const older = document.querySelector("#booking-conversation-older");
+    if (!body || !send || !older)
+        return;
+    const participant = Boolean(selectedReservation && sessionAccountID && (selectedReservation.host_id === sessionAccountID || selectedReservation.renter_id === sessionAccountID));
+    const writable = participant && ["pendiente_de_pago", "pagada", "aprobada_host"].includes(selectedReservation.state);
+    body.disabled = !writable;
+    send.disabled = !writable;
+    older.disabled = !participant || conversationOlderCursor === null;
+}
+function renderConversation() {
+    conversationOutput.replaceChildren();
+    for (const item of conversationMessages) {
+        const article = document.createElement("article");
+        const header = document.createElement("p");
+        header.textContent = `${item.author_id === sessionAccountID ? "Tú" : "Participante"} · ${bookingDate(item.created_at, selectedReservation?.time_zone ?? "UTC")} · #${item.sequence}`;
+        const body = document.createElement("p");
+        body.textContent = item.body;
+        article.append(header, body);
+        conversationOutput.append(article);
+    }
+    const older = document.querySelector("#booking-conversation-older");
+    older.hidden = conversationOlderCursor === null;
+    older.disabled = conversationOlderCursor === null;
+}
+async function loadConversationPage(id, before, prepend) {
+    const token = ++conversationRevision;
+    const query = new URLSearchParams({ limit: "30" });
+    if (before !== null)
+        query.set("before", String(before));
+    const response = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/messages?${query}`, "GET", undefined, true);
+    if (token !== conversationRevision || selectedReservationID !== id)
+        return;
+    const page = bookingData(response);
+    if (prepend) {
+        const existing = new Set(conversationMessages.map(item => item.sequence));
+        conversationMessages = [...page.items.filter(item => !existing.has(item.sequence)), ...conversationMessages].sort((a, b) => a.sequence - b.sequence);
+    }
+    else
+        conversationMessages = page.items;
+    conversationOlderCursor = page.older_cursor;
+    conversationStatus.textContent = conversationMessages.length ? "Solo los dos participantes pueden ver este hilo. Los mensajes no se borran automáticamente en el prototipo local." : "Aún no hay mensajes. La conversación queda ligada a esta reserva.";
+    renderConversation();
+    refreshConversationControls();
+}
 function refreshBookingActions() {
     const pay = document.querySelector("#booking-inbox-pay");
     const cancel = document.querySelector("#booking-inbox-cancel");
@@ -729,12 +806,16 @@ async function loadReservationDetail(id) {
     selectedReservationID = id;
     selectedReservation = null;
     refreshBookingActions();
+    clearConversation("Cargando mensajes de la reserva seleccionada…");
     const revision = ++bookingInboxRevision;
     const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}`, "GET", undefined, true);
     if (revision !== bookingInboxRevision || selectedReservationID !== id)
         return;
     selectedReservation = bookingData(result);
     renderReservationDetail(selectedReservation);
+    await loadConversationPage(id, null, false);
+    conversationStatus.textContent = `Conversación local · ${selectedReservation.state}. ${["pendiente_de_pago", "pagada", "aprobada_host"].includes(selectedReservation.state) ? "Puedes enviar texto plano en este estado." : "Solo lectura: el estado de la reserva no permite enviar."}`;
+    refreshConversationControls();
 }
 async function loadBookingInbox() {
     const revision = ++bookingInboxRevision;
@@ -797,6 +878,32 @@ document.querySelector("#booking-inbox-pay").addEventListener("click", () => voi
 document.querySelector("#booking-inbox-cancel").addEventListener("click", () => void action(async () => performSelectedBookingAction("/cancel", "POST")));
 document.querySelector("#booking-inbox-approve").addEventListener("click", () => void action(async () => performSelectedBookingAction("/decision", "POST", { decision: "aprobar" })));
 document.querySelector("#booking-inbox-reject").addEventListener("click", () => void action(async () => performSelectedBookingAction("/decision", "POST", { decision: "rechazar" })));
+document.querySelector("#booking-conversation-older").addEventListener("click", () => void action(async () => {
+    const id = selectedReservationID, cursor = conversationOlderCursor;
+    if (!id || cursor === null)
+        throw new Error("No hay mensajes anteriores para cargar.");
+    await loadConversationPage(id, cursor, true);
+}));
+form("booking-conversation-form", async (data, element) => {
+    const id = selectedReservationID;
+    if (!id || !selectedReservation)
+        throw new Error("Selecciona una reserva de tu bandeja primero.");
+    const body = String(data.get("body") ?? "");
+    if (!["pendiente_de_pago", "pagada", "aprobada_host"].includes(selectedReservation.state))
+        throw new Error("Este estado conserva lectura y no permite enviar mensajes.");
+    if (!pendingMessageKey || pendingMessageBody !== body) {
+        pendingMessageKey = crypto.randomUUID();
+        pendingMessageBody = body;
+    }
+    await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/messages`, "POST", { body }, true, pendingMessageKey);
+    if (selectedReservationID !== id)
+        return;
+    pendingMessageKey = "";
+    pendingMessageBody = "";
+    element.reset();
+    await loadConversationPage(id, null, false);
+    resultElement.textContent = "Mensaje sintético guardado en la conversación de la reserva.";
+});
 async function initialize() {
     try {
         const config = await (await fetch("/config.json", { cache: "no-store" })).json();

@@ -26,7 +26,11 @@ async function request(path: string, method = "GET", body?: unknown, authenticat
   const response = await fetch(endpoint, {method, headers, body: body === undefined ? undefined : JSON.stringify(body), mode: "cors", cache: "no-store", credentials: "omit"});
   const data = response.status === 204 ? {} : await response.json() as Record<string,unknown> & APIError;
   if (!response.ok) {
-    if (authenticated && (response.status === 401 || path === "password/change" && response.status === 503)) sessionToken = "";
+    if (authenticated && response.status === 401) {
+      sessionToken = "";
+      clearBookingInboxOnSessionLoss();
+    }
+    if (authenticated && path === "password/change" && response.status === 503) sessionToken = "";
     const error = data as APIError;
     throw new Error(`${error.error?.message ?? "Error de API"} (HTTP ${response.status}, ${error.error?.code ?? "unknown"})`);
   }
@@ -37,7 +41,7 @@ async function action(work: () => Promise<void>): Promise<void> {
   const wasDisabled = buttons.map(button => button.disabled);
   buttons.forEach(button => button.disabled = true);
   try { await work(); } catch (error) { resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API."; }
-  finally { buttons.forEach((button, index) => button.disabled = wasDisabled[index]); refreshCalendarControls(); refreshBookingActions(); }
+  finally { buttons.forEach((button, index) => button.disabled = wasDisabled[index]); refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); }
 }
 function form(id: string, work: (data: FormData, element: HTMLFormElement) => Promise<void>): void {
   const element = document.querySelector<HTMLFormElement>(`#${id}`)!;
@@ -81,11 +85,7 @@ document.querySelector("#session-button")!.addEventListener("click", () => void 
 }));
 document.querySelector("#logout-button")!.addEventListener("click", () => void action(async () => {
   await request("logout", "POST", undefined, true); sessionToken = "";
-  sessionAccountID = ""; selectedReservationID = ""; selectedReservation = null;
-  document.querySelector<HTMLElement>("#booking-inbox-renter")!.textContent = "Inicia sesión y actualiza tu bandeja.";
-  document.querySelector<HTMLElement>("#booking-inbox-host")!.textContent = "Inicia sesión y actualiza tu bandeja.";
-  bookingHistoryOutput.textContent = "Inicia sesión para consultar reservas propias.";
-  refreshBookingActions();
+  clearBookingInboxOnSessionLoss();
   document.querySelector("#session-output")!.textContent = "Sesión cerrada."; resultElement.textContent = "Logout completado. La credencial anterior queda revocada.";
 }));
 document.querySelector("#profile-load")!.addEventListener("click", () => void action(async () => {
@@ -440,11 +440,20 @@ const bookingHistoryOutput=document.querySelector<HTMLElement>("#booking-history
 type TrialReservation={id:string;quote_id:string;space_id:string;host_id:string;renter_id:string;state:string;rate_unit:string;unit_price_clp:number;currency:string;units:number;subtotal_clp:number;start_at:string;end_at:string;time_zone:string;pay_expires_at:string;host_expires_at?:string|null;updated_at:string};
 type TrialTransition={sequence:number;to:string;reason:string;at:string};
 type TrialDetail=TrialReservation&{history:TrialTransition[]};
+type ConversationMessage={id:string;reservation_id:string;author_id:string;sequence:number;body:string;created_at:string};
+type ConversationPage={items:ConversationMessage[];older_cursor:number|null};
 let selectedReservationID="";
 let selectedReservation:TrialDetail|null=null;
 let bookingInboxRevision=0;
+let conversationRevision=0;
+let conversationOlderCursor:number|null=null;
+let conversationMessages:ConversationMessage[]=[];
+let pendingMessageKey="";
+let pendingMessageBody="";
 const renterInbox=document.querySelector<HTMLElement>("#booking-inbox-renter")!;
 const hostInbox=document.querySelector<HTMLElement>("#booking-inbox-host")!;
+const conversationOutput=document.querySelector<HTMLElement>("#booking-conversation-messages")!;
+const conversationStatus=document.querySelector<HTMLElement>("#booking-conversation-status")!;
 function bookingData<T>(result:Record<string,unknown>):T{return result.data as T}
 const catalogResults=document.querySelector<HTMLElement>("#booking-catalog-results")!;
 form("booking-catalog-form",async data=>{
@@ -552,6 +561,61 @@ function renderReservationDetail(item:TrialDetail):void{
   bookingHistoryOutput.textContent=`ENSAYO LOCAL — SIN COBRO REAL\nEspacio: ${item.space_id}\nPrecio: ${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} (${item.units} × ${item.unit_price_clp.toLocaleString("es-CL")} por ${item.rate_unit})\nIntervalo: ${bookingDate(item.start_at,item.time_zone)}–${bookingDate(item.end_at,item.time_zone)} (${item.time_zone})\nEstado: ${reservationState(item.state)}\n${deadline}\n\nHistorial:\n${history||"Sin transiciones."}`;
   refreshBookingActions();
 }
+function clearConversation(message:string):void{
+  conversationRevision++;
+  conversationOlderCursor=null;
+  conversationMessages=[];
+  pendingMessageKey="";pendingMessageBody="";
+  conversationOutput.replaceChildren();
+  conversationStatus.textContent=message;
+  const older=document.querySelector<HTMLButtonElement>("#booking-conversation-older")!;
+  older.hidden=true;older.disabled=true;
+  refreshConversationControls();
+}
+function clearBookingInboxOnSessionLoss():void{
+  sessionAccountID="";selectedReservationID="";selectedReservation=null;
+  bookingInboxRevision++;
+  renterInbox.textContent="Inicia sesión y actualiza tu bandeja.";
+  hostInbox.textContent="Inicia sesión y actualiza tu bandeja.";
+  bookingHistoryOutput.textContent="Inicia sesión para consultar reservas propias.";
+  clearConversation("La sesión terminó; inicia sesión para consultar conversaciones.");
+  refreshBookingActions();
+}
+function refreshConversationControls():void{
+  const body=document.querySelector<HTMLTextAreaElement>("#booking-conversation-body");
+  const send=document.querySelector<HTMLButtonElement>("#booking-conversation-send");
+  const older=document.querySelector<HTMLButtonElement>("#booking-conversation-older");
+  if(!body||!send||!older)return;
+  const participant=Boolean(selectedReservation&&sessionAccountID&&(selectedReservation.host_id===sessionAccountID||selectedReservation.renter_id===sessionAccountID));
+  const writable=participant&&["pendiente_de_pago","pagada","aprobada_host"].includes(selectedReservation!.state);
+  body.disabled=!writable;send.disabled=!writable;
+  older.disabled=!participant||conversationOlderCursor===null;
+}
+function renderConversation():void{
+  conversationOutput.replaceChildren();
+  for(const item of conversationMessages){
+    const article=document.createElement("article");
+    const header=document.createElement("p");header.textContent=`${item.author_id===sessionAccountID?"Tú":"Participante"} · ${bookingDate(item.created_at,selectedReservation?.time_zone??"UTC")} · #${item.sequence}`;
+    const body=document.createElement("p");body.textContent=item.body;
+    article.append(header,body);conversationOutput.append(article);
+  }
+  const older=document.querySelector<HTMLButtonElement>("#booking-conversation-older")!;
+  older.hidden=conversationOlderCursor===null;older.disabled=conversationOlderCursor===null;
+}
+async function loadConversationPage(id:string,before:number|null,prepend:boolean):Promise<void>{
+  const token=++conversationRevision;
+  const query=new URLSearchParams({limit:"30"});if(before!==null)query.set("before",String(before));
+  const response=await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/messages?${query}`,"GET",undefined,true);
+  if(token!==conversationRevision||selectedReservationID!==id)return;
+  const page=bookingData<ConversationPage>(response);
+  if(prepend){
+    const existing=new Set(conversationMessages.map(item=>item.sequence));
+    conversationMessages=[...page.items.filter(item=>!existing.has(item.sequence)),...conversationMessages].sort((a,b)=>a.sequence-b.sequence);
+  }else conversationMessages=page.items;
+  conversationOlderCursor=page.older_cursor;
+  conversationStatus.textContent=conversationMessages.length?"Solo los dos participantes pueden ver este hilo. Los mensajes no se borran automáticamente en el prototipo local.":"Aún no hay mensajes. La conversación queda ligada a esta reserva.";
+  renderConversation();refreshConversationControls();
+}
 function refreshBookingActions():void{
   const pay=document.querySelector<HTMLButtonElement>("#booking-inbox-pay");
   const cancel=document.querySelector<HTMLButtonElement>("#booking-inbox-cancel");
@@ -565,10 +629,14 @@ function refreshBookingActions():void{
 }
 async function loadReservationDetail(id:string):Promise<void>{
   selectedReservationID=id;selectedReservation=null;refreshBookingActions();
+  clearConversation("Cargando mensajes de la reserva seleccionada…");
   const revision=++bookingInboxRevision;
   const result=await request(`${bookingBase}/reservations/${encodeURIComponent(id)}`,"GET",undefined,true);
   if(revision!==bookingInboxRevision||selectedReservationID!==id)return;
   selectedReservation=bookingData<TrialDetail>(result);renderReservationDetail(selectedReservation);
+  await loadConversationPage(id,null,false);
+  conversationStatus.textContent=`Conversación local · ${selectedReservation.state}. ${["pendiente_de_pago","pagada","aprobada_host"].includes(selectedReservation.state)?"Puedes enviar texto plano en este estado.":"Solo lectura: el estado de la reserva no permite enviar."}`;
+  refreshConversationControls();
 }
 async function loadBookingInbox():Promise<void>{
   const revision=++bookingInboxRevision;
@@ -603,6 +671,23 @@ document.querySelector<HTMLButtonElement>("#booking-inbox-pay")!.addEventListene
 document.querySelector<HTMLButtonElement>("#booking-inbox-cancel")!.addEventListener("click",()=>void action(async()=>performSelectedBookingAction("/cancel","POST")));
 document.querySelector<HTMLButtonElement>("#booking-inbox-approve")!.addEventListener("click",()=>void action(async()=>performSelectedBookingAction("/decision","POST",{decision:"aprobar"})));
 document.querySelector<HTMLButtonElement>("#booking-inbox-reject")!.addEventListener("click",()=>void action(async()=>performSelectedBookingAction("/decision","POST",{decision:"rechazar"})));
+document.querySelector<HTMLButtonElement>("#booking-conversation-older")!.addEventListener("click",()=>void action(async()=>{
+  const id=selectedReservationID,cursor=conversationOlderCursor;
+  if(!id||cursor===null)throw new Error("No hay mensajes anteriores para cargar.");
+  await loadConversationPage(id,cursor,true);
+}));
+form("booking-conversation-form",async(data,element)=>{
+  const id=selectedReservationID;
+  if(!id||!selectedReservation)throw new Error("Selecciona una reserva de tu bandeja primero.");
+  const body=String(data.get("body")??"");
+  if(!["pendiente_de_pago","pagada","aprobada_host"].includes(selectedReservation.state))throw new Error("Este estado conserva lectura y no permite enviar mensajes.");
+  if(!pendingMessageKey||pendingMessageBody!==body){pendingMessageKey=crypto.randomUUID();pendingMessageBody=body;}
+  await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/messages`,"POST",{body},true,pendingMessageKey);
+  if(selectedReservationID!==id)return;
+  pendingMessageKey="";pendingMessageBody="";element.reset();
+  await loadConversationPage(id,null,false);
+  resultElement.textContent="Mensaje sintético guardado en la conversación de la reserva.";
+});
 
 async function initialize(): Promise<void> {
   try {

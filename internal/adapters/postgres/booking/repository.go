@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking/expiry"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -427,47 +428,27 @@ func (r *Repository) Expire(ctx context.Context, now time.Time) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT id::text,estado FROM public.reserva_ensayo_local WHERE (estado='pendiente_de_pago' AND pago_vence_en<=$1) OR (estado='pagada' AND anfitrion_vence_en<=$1) FOR UPDATE SKIP LOCKED`, now)
+	rows, err := tx.Query(ctx, `SELECT id::text FROM public.reserva_ensayo_local WHERE (estado='pendiente_de_pago' AND pago_vence_en<=$1) OR (estado='pagada' AND anfitrion_vence_en<=$1) FOR UPDATE SKIP LOCKED`, now)
 	if err != nil {
 		return err
 	}
-	type expired struct{ id, old string }
-	all := []expired{}
+	all := []string{}
 	for rows.Next() {
-		var x expired
-		if err = rows.Scan(&x.id, &x.old); err != nil {
+		var id string
+		if err = rows.Scan(&id); err != nil {
 			rows.Close()
 			return err
 		}
-		all = append(all, x)
+		all = append(all, id)
 	}
 	if err = rows.Err(); err != nil {
 		rows.Close()
 		return err
 	}
 	rows.Close()
-	for _, x := range all {
-		next, reason := "vencida_pago", "venció plazo de pago local"
-		if x.old == "pagada" {
-			next, reason = "vencida_host", "venció plazo de respuesta del anfitrión"
-		}
-		_, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE reserva_id=$1 AND activo`, x.id, now)
-		if err != nil {
+	for _, id := range all {
+		if _, err = expiry.LockedReservation(ctx, tx, id, now); err != nil {
 			return err
-		}
-		_, err = tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado=$2,actualizada_en=$3 WHERE id=$1`, x.id, next, now)
-		if err != nil {
-			return err
-		}
-		err = appendTransition(ctx, tx, x.id, ptrString(x.old), next, nil, reason, now)
-		if err != nil {
-			return err
-		}
-		if x.old == "pagada" {
-			_, err = tx.Exec(ctx, `INSERT INTO public.reserva_pago_ensayo(id,reserva_id,resultado,clave_idempotencia,creada_en) VALUES(gen_random_uuid(),$1,'devolucion_simulada',$2,$3)`, x.id, "devolucion-expiracion:"+x.id, now)
-			if err != nil {
-				return err
-			}
 		}
 	}
 	return tx.Commit(ctx)
