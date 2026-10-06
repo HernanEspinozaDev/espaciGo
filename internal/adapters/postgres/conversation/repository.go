@@ -70,6 +70,29 @@ ORDER BY secuencia DESC LIMIT $3`, reservationID, before, limit+1)
 	return page, nil
 }
 
+func (r *Repository) MarkRead(ctx context.Context, actor, reservationID string, throughSequence int64) (int64, error) {
+	var participant bool
+	if err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reserva_ensayo_local
+WHERE id=$1 AND (anfitrion_id=$2 OR arrendatario_id=$2))`, reservationID, actor).Scan(&participant); err != nil {
+		return 0, err
+	}
+	if !participant {
+		return 0, conversation.ErrNotFound
+	}
+	var cursor int64
+	err := r.pool.QueryRow(ctx, `INSERT INTO public.reserva_mensaje_lectura(reserva_id,participante_id,ultima_secuencia_leida,actualizada_en)
+SELECT $1,$2,$3,clock_timestamp()
+WHERE EXISTS(SELECT 1 FROM public.mensaje_reserva_ensayo WHERE reserva_id=$1 AND secuencia=$3)
+ON CONFLICT (reserva_id,participante_id) DO UPDATE SET
+ultima_secuencia_leida=GREATEST(reserva_mensaje_lectura.ultima_secuencia_leida,EXCLUDED.ultima_secuencia_leida),
+actualizada_en=CASE WHEN EXCLUDED.ultima_secuencia_leida>reserva_mensaje_lectura.ultima_secuencia_leida THEN EXCLUDED.actualizada_en ELSE reserva_mensaje_lectura.actualizada_en END
+RETURNING ultima_secuencia_leida`, reservationID, actor, throughSequence).Scan(&cursor)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, conversation.ErrInvalid
+	}
+	return cursor, err
+}
+
 func (r *Repository) Send(ctx context.Context, actor, reservationID, key, body string, fingerprint []byte, id string, now func() time.Time) (conversation.Message, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

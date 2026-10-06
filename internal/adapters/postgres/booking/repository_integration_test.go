@@ -96,6 +96,13 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if !messagesRead || !messagesInsert || messagesUpdate || messagesDelete {
 		t.Fatalf("message grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", messagesRead, messagesInsert, messagesUpdate, messagesDelete)
 	}
+	var cursorRead, cursorInsert, cursorUpdate, cursorDelete bool
+	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_mensaje_lectura','SELECT'),has_table_privilege(current_user,'public.reserva_mensaje_lectura','INSERT'),has_table_privilege(current_user,'public.reserva_mensaje_lectura','UPDATE'),has_table_privilege(current_user,'public.reserva_mensaje_lectura','DELETE')`).Scan(&cursorRead, &cursorInsert, &cursorUpdate, &cursorDelete); err != nil {
+		t.Fatal(err)
+	}
+	if !cursorRead || !cursorInsert || !cursorUpdate || cursorDelete {
+		t.Fatalf("read cursor grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", cursorRead, cursorInsert, cursorUpdate, cursorDelete)
+	}
 	setup, err := pgx.Connect(ctx, dbURL)
 	if err != nil {
 		t.Fatal(err)
@@ -354,6 +361,9 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if _, err = conversationService.Send(ctx, outsider, results[0].ID, "outsider-write", "No debería entrar"); err != conversation.ErrNotFound {
 		t.Fatalf("outsider wrote conversation: %v", err)
 	}
+	if _, err = conversationService.MarkRead(ctx, outsider, results[0].ID, 1); err != conversation.ErrNotFound {
+		t.Fatalf("outsider advanced conversation cursor: %v", err)
+	}
 	if _, err = conversationService.Send(ctx, renter, results[0].ID, "too-long", strings.Repeat("x", 2001)); err != conversation.ErrInvalid {
 		t.Fatalf("message longer than 2000 chars accepted: %v", err)
 	}
@@ -429,9 +439,92 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if err != nil || len(firstPage.Items) != 1 || firstPage.Items[0].Body != "Primer mensaje idempotente" || firstPage.Items[0].Sequence >= priorPage.Items[0].Sequence || firstPage.OlderCursor != nil {
 		t.Fatalf("oldest conversation page=%+v err=%v", firstPage, err)
 	}
+	throughRecentPage := page.Items[len(page.Items)-1].Sequence
+	if cursor, markErr := conversationService.MarkRead(ctx, renter, results[0].ID, throughRecentPage); markErr != nil || cursor != throughRecentPage {
+		t.Fatalf("renter mark read cursor=%d want=%d err=%v", cursor, throughRecentPage, markErr)
+	}
+	listReservation := func(actor, id string) booking.Reservation {
+		t.Helper()
+		items, listErr := svc.List(ctx, actor)
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		for _, item := range items {
+			if item.ID == id {
+				return item
+			}
+		}
+		t.Fatalf("reservation %s missing from actor %s inbox", id, actor)
+		return booking.Reservation{}
+	}
+	if item := listReservation(renter, results[0].ID); item.UnreadCount != 0 {
+		t.Fatalf("renter unread count after marking recent page=%d", item.UnreadCount)
+	}
+	if item := listReservation(host, results[0].ID); item.UnreadCount != 3 {
+		t.Fatalf("host cursor must remain independent; unread count=%d want=3", item.UnreadCount)
+	}
+	if cursor, markErr := conversationService.MarkRead(ctx, host, results[0].ID, throughRecentPage); markErr != nil || cursor != throughRecentPage {
+		t.Fatalf("host mark read cursor=%d want=%d err=%v", cursor, throughRecentPage, markErr)
+	}
+	if _, err = conversationService.Send(ctx, renter, results[0].ID, "renter-after-cursor", "Mensaje nuevo para anfitrión"); err != nil {
+		t.Fatal(err)
+	}
+	if item := listReservation(host, results[0].ID); item.UnreadCount != 1 {
+		t.Fatalf("message received after host cursor count=%d want=1", item.UnreadCount)
+	}
+	if item := listReservation(renter, results[0].ID); item.UnreadCount != 0 {
+		t.Fatalf("own message counted as unread for renter: %d", item.UnreadCount)
+	}
+	var concurrentSequences [2]int64
+	for i, body := range []string{"Primer mensaje nuevo del anfitrión", "Segundo mensaje nuevo del anfitrión"} {
+		message, sendErr := conversationService.Send(ctx, host, results[0].ID, fmt.Sprintf("host-unread-%d", i), body)
+		if sendErr != nil {
+			t.Fatal(sendErr)
+		}
+		concurrentSequences[i] = message.Sequence
+	}
+	markErrors := make(chan error, 2)
+	var markWG sync.WaitGroup
+	for _, sequence := range concurrentSequences {
+		markWG.Add(1)
+		go func(sequence int64) {
+			defer markWG.Done()
+			_, markErr := conversationService.MarkRead(ctx, host, results[0].ID, sequence)
+			markErrors <- markErr
+		}(sequence)
+	}
+	markWG.Wait()
+	close(markErrors)
+	for markErr := range markErrors {
+		if markErr != nil {
+			t.Fatalf("concurrent mark read failed: %v", markErr)
+		}
+	}
+	if cursor, markErr := conversationService.MarkRead(ctx, host, results[0].ID, concurrentSequences[0]); markErr != nil || cursor != concurrentSequences[1] {
+		t.Fatalf("out-of-order older mark regressed host cursor=%d want=%d err=%v", cursor, concurrentSequences[1], markErr)
+	}
+	var persistedHostCursor int64
+	if err = pool.QueryRow(ctx, `SELECT ultima_secuencia_leida FROM public.reserva_mensaje_lectura WHERE reserva_id=$1 AND participante_id=$2`, results[0].ID, host).Scan(&persistedHostCursor); err != nil || persistedHostCursor != concurrentSequences[1] {
+		t.Fatalf("host cursor after out-of-order requests=%d want=%d err=%v", persistedHostCursor, concurrentSequences[1], err)
+	}
+	if item := listReservation(host, results[0].ID); item.UnreadCount != 0 {
+		t.Fatalf("host unread count after concurrent cursor advancement=%d", item.UnreadCount)
+	}
+	if item := listReservation(renter, results[0].ID); item.UnreadCount != 2 {
+		t.Fatalf("renter cursor changed with host updates; unread count=%d want=2", item.UnreadCount)
+	}
+	// A newly constructed service sees the same persisted participant cursor,
+	// matching the state a user has after logging in again.
+	reloggedService, err := conversation.NewService(conversationpg.New(pool), credentials.Generator{}, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cursor, markErr := reloggedService.MarkRead(ctx, host, results[0].ID, throughRecentPage); markErr != nil || cursor != concurrentSequences[1] {
+		t.Fatalf("persisted cursor after service recreation=%d want=%d err=%v", cursor, concurrentSequences[1], markErr)
+	}
 	var messageCount int
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.mensaje_reserva_ensayo WHERE reserva_id=$1`, results[0].ID).Scan(&messageCount); err != nil || messageCount != 5 {
-		t.Fatalf("idempotent retry left message count=%d err=%v", messageCount, err)
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.mensaje_reserva_ensayo WHERE reserva_id=$1`, results[0].ID).Scan(&messageCount); err != nil || messageCount != 8 {
+		t.Fatalf("message count after read-cursor tests=%d want=8 err=%v", messageCount, err)
 	}
 	// Exercise the cleanup script's real psql variable interpolation against
 	// this disposable database. Only the selected thread may be deleted.
@@ -532,6 +625,10 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err != nil {
 		t.Fatal(err)
 	}
+	terminalUnreadMessage, err := conversationService.Send(ctx, renter, retry.ID, "terminal-unread", "Mensaje antes del rechazo")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err = svc.Pay(ctx, renter, retry.ID, "exito", "payment-two"); err != nil {
 		t.Fatal(err)
 	}
@@ -542,8 +639,20 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if _, err = conversationService.Send(ctx, renter, retry.ID, "rejected-write", "No debe enviarse"); err != conversation.ErrConflict {
 		t.Fatalf("rejected reservation allowed message write: %v", err)
 	}
-	if terminalRead, readErr := conversationService.List(ctx, host, retry.ID, nil, 10); readErr != nil || len(terminalRead.Items) != 0 {
+	if terminalRead, readErr := conversationService.List(ctx, host, retry.ID, nil, 10); readErr != nil || len(terminalRead.Items) != 1 {
 		t.Fatalf("rejected thread not available read-only: %+v err=%v", terminalRead, readErr)
+	}
+	if item := listReservation(host, retry.ID); item.UnreadCount != 1 {
+		t.Fatalf("terminal reservation unread count=%d want=1", item.UnreadCount)
+	}
+	if item := listReservation(renter, retry.ID); item.UnreadCount != 0 {
+		t.Fatalf("terminal own message was counted unread=%d", item.UnreadCount)
+	}
+	if cursor, markErr := conversationService.MarkRead(ctx, host, retry.ID, terminalUnreadMessage.Sequence); markErr != nil || cursor != terminalUnreadMessage.Sequence {
+		t.Fatalf("terminal thread read cursor=%d err=%v", cursor, markErr)
+	}
+	if item := listReservation(host, retry.ID); item.UnreadCount != 0 {
+		t.Fatalf("terminal unread counter remained after opening thread: %d", item.UnreadCount)
 	}
 	quote3, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: start.Add(5 * time.Hour).Format(time.RFC3339), EndAt: start.Add(6 * time.Hour).Format(time.RFC3339)})
 	if err != nil {

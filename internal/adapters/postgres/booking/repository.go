@@ -144,8 +144,22 @@ const reservationCols = `id::text,cotizacion_id::text,espacio_id::text,anfitrion
 
 func scanReservation(row pgx.Row) (booking.Reservation, error) {
 	var v booking.Reservation
-	err := row.Scan(&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt)
+	err := scanReservationColumns(row, &v, false)
 	return v, mapErr(err)
+}
+
+func scanReservationWithUnread(row pgx.Row) (booking.Reservation, error) {
+	var v booking.Reservation
+	err := scanReservationColumns(row, &v, true)
+	return v, mapErr(err)
+}
+
+func scanReservationColumns(row pgx.Row, v *booking.Reservation, withUnread bool) error {
+	columns := []any{&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt}
+	if withUnread {
+		columns = append(columns, &v.UnreadCount)
+	}
+	return row.Scan(columns...)
 }
 
 func (r *Repository) Create(ctx context.Context, renter, quoteID, key string, fingerprint []byte, id, occupancyID string, payTTL time.Duration, clock func() time.Time) (booking.Reservation, error) {
@@ -250,14 +264,20 @@ func (r *Repository) Get(ctx context.Context, actor, id string) (booking.Detail,
 	return out, rows.Err()
 }
 func (r *Repository) List(ctx context.Context, actor string) ([]booking.Reservation, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+reservationCols+` FROM public.reserva_ensayo_local WHERE arrendatario_id=$1 OR anfitrion_id=$1 ORDER BY actualizada_en DESC,id`, actor)
+	rows, err := r.pool.Query(ctx, `SELECT `+reservationCols+`,
+(SELECT count(*) FROM public.mensaje_reserva_ensayo m
+ WHERE m.reserva_id=r.id AND m.autor_id<>$1
+ AND m.secuencia>COALESCE((SELECT c.ultima_secuencia_leida FROM public.reserva_mensaje_lectura c
+   WHERE c.reserva_id=r.id AND c.participante_id=$1),0))
+FROM public.reserva_ensayo_local r WHERE r.arrendatario_id=$1 OR r.anfitrion_id=$1
+ORDER BY r.actualizada_en DESC,r.id`, actor)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []booking.Reservation{}
 	for rows.Next() {
-		v, e := scanReservation(rows)
+		v, e := scanReservationWithUnread(rows)
 		if e != nil {
 			return nil, e
 		}

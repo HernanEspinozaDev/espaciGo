@@ -92,6 +92,7 @@ type Reservation struct {
 	HostExpiresAt *time.Time `json:"host_expires_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
+	UnreadCount   int64      `json:"unread_count"`
 }
 type Transition struct {
 	Sequence int64     `json:"sequence"`

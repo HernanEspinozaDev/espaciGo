@@ -10,7 +10,10 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 )
 
-type serviceRepo struct{ sent int }
+type serviceRepo struct {
+	sent   int
+	cursor int64
+}
 
 func (r *serviceRepo) List(context.Context, string, string, *int64, int) (Page, error) {
 	return Page{Items: []Message{}}, nil
@@ -18,6 +21,15 @@ func (r *serviceRepo) List(context.Context, string, string, *int64, int) (Page, 
 func (r *serviceRepo) Send(_ context.Context, actor, reservation, key, body string, _ []byte, id string, now func() time.Time) (Message, error) {
 	r.sent++
 	return Message{ID: id, ReservationID: reservation, AuthorID: actor, Body: body, CreatedAt: now()}, nil
+}
+func (r *serviceRepo) MarkRead(_ context.Context, _, _ string, through int64) (int64, error) {
+	if through < 1 {
+		return 0, ErrInvalid
+	}
+	if through > r.cursor {
+		r.cursor = through
+	}
+	return r.cursor, nil
 }
 
 func TestServiceValidatesMessageTextAndPageBounds(t *testing.T) {
@@ -40,4 +52,17 @@ func TestServiceValidatesMessageTextAndPageBounds(t *testing.T) {
 	if _, err = service.List(context.Background(), actor, reservation, nil, MaxPageSize+1); err != ErrInvalid {
 		t.Fatalf("oversized page accepted: %v", err)
 	}
+	for _, through := range []int64{12, 8, 12, 19} {
+		cursor, markErr := service.MarkRead(context.Background(), actor, reservation, through)
+		if markErr != nil || cursor != maxInt64(through, 12) {
+			t.Fatalf("mark read through=%d returned cursor=%d err=%v", through, cursor, markErr)
+		}
+	}
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }

@@ -2,6 +2,7 @@ import { ProfileRequestGate, profileMatchesSelection } from "./profile-request.j
 import { CalendarRequestState } from "./calendar-request.js";
 import { BookingQuoteState } from "./booking-quote-state.js";
 import { inboxActions } from "./booking-inbox-state.js";
+import { showThenMarkConversationPage } from "./conversation-read-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -687,7 +688,8 @@ function reservationSummary(item, role) {
         attention = ` · pago venció ${bookingDate(item.pay_expires_at, item.time_zone)}`;
     else if (item.state === "vencida_host" && item.host_expires_at)
         attention = ` · plazo del anfitrión venció ${bookingDate(item.host_expires_at, item.time_zone)}`;
-    return `Espacio ${item.space_id.slice(0, 8)} · ${reservationState(item.state)}${attention}\n${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} · ${when}`;
+    const unread = item.unread_count > 0 ? ` · ${item.unread_count} mensaje${item.unread_count === 1 ? "" : "s"} sin leer` : "";
+    return `Espacio ${item.space_id.slice(0, 8)} · ${reservationState(item.state)}${attention}${unread}\n${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} · ${when}`;
 }
 function renderReservationList(target, items, role) {
     target.replaceChildren();
@@ -777,13 +779,24 @@ async function loadConversationPage(id, before, prepend) {
     if (prepend) {
         const existing = new Set(conversationMessages.map(item => item.sequence));
         conversationMessages = [...page.items.filter(item => !existing.has(item.sequence)), ...conversationMessages].sort((a, b) => a.sequence - b.sequence);
+        conversationOlderCursor = page.older_cursor;
+        renderConversation();
+        refreshConversationControls();
+        return;
     }
-    else
-        conversationMessages = page.items;
-    conversationOlderCursor = page.older_cursor;
-    conversationStatus.textContent = conversationMessages.length ? "Solo los dos participantes pueden ver este hilo. Los mensajes no se borran automáticamente en el prototipo local." : "Aún no hay mensajes. La conversación queda ligada a esta reserva.";
-    renderConversation();
-    refreshConversationControls();
+    await showThenMarkConversationPage(async () => page, loaded => {
+        if (token !== conversationRevision || selectedReservationID !== id)
+            return false;
+        conversationMessages = loaded.items;
+        conversationOlderCursor = loaded.older_cursor;
+        conversationStatus.textContent = conversationMessages.length ? "Solo los dos participantes pueden ver este hilo. Los mensajes no se borran automáticamente en el prototipo local." : "Aún no hay mensajes. La conversación queda ligada a esta reserva.";
+        renderConversation();
+        refreshConversationControls();
+        return true;
+    }, async (through) => {
+        await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/messages/read`, "POST", { through_sequence: through }, true);
+        await loadBookingInbox(false);
+    });
 }
 function refreshBookingActions() {
     const pay = document.querySelector("#booking-inbox-pay");
@@ -817,7 +830,7 @@ async function loadReservationDetail(id) {
     conversationStatus.textContent = `Conversación local · ${selectedReservation.state}. ${["pendiente_de_pago", "pagada", "aprobada_host"].includes(selectedReservation.state) ? "Puedes enviar texto plano en este estado." : "Solo lectura: el estado de la reserva no permite enviar."}`;
     refreshConversationControls();
 }
-async function loadBookingInbox() {
+async function loadBookingInbox(reloadSelected = true) {
     const revision = ++bookingInboxRevision;
     if (!sessionToken || !sessionAccountID) {
         renterInbox.textContent = "Inicia sesión y actualiza tu bandeja.";
@@ -833,9 +846,11 @@ async function loadBookingInbox() {
     renderReservationList(renterInbox, renterRows, "renter");
     renderReservationList(hostInbox, hostRows, "host");
     const current = reservations.find(item => item.id === selectedReservationID);
-    if (current)
-        await loadReservationDetail(current.id);
-    else if (selectedReservationID) {
+    if (current) {
+        if (reloadSelected)
+            await loadReservationDetail(current.id);
+    }
+    else if (selectedReservationID && reloadSelected) {
         selectedReservationID = "";
         selectedReservation = null;
         bookingHistoryOutput.textContent = "La reserva seleccionada ya no está en tu bandeja.";
