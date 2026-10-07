@@ -114,3 +114,7 @@ func (m Mailer) SendPasswordChanged(ctx context.Context, email string) error {
 func (m Mailer) SendLoginAlert(ctx context.Context, email string, until time.Time) error {
 	return m.send(ctx, email, "EspaciGo - bloqueo de login (desarrollo)", "Login bloqueado hasta "+until.UTC().Format(time.RFC3339)+" tras "+strconv.Itoa(5)+" intentos incorrectos.")
 }
+
+func (m Mailer) SendLocalBookingNotice(ctx context.Context, email, subject, body string) error {
+	return m.send(ctx, email, subject+" (ensayo local)", body)
+}

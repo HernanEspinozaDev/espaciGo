@@ -853,6 +853,9 @@ let conversationOlderCursor = null;
 let conversationMessages = [];
 let pendingMessageKey = "";
 let pendingMessageBody = "";
+let cancellationPreview = null;
+let cancellationPreviewReservationID = "";
+const cancellationKeys = new Map();
 const renterInbox = document.querySelector("#booking-inbox-renter");
 const hostInbox = document.querySelector("#booking-inbox-host");
 const conversationOutput = document.querySelector("#booking-conversation-messages");
@@ -1182,7 +1185,8 @@ function renderReservationList(target, items, role) {
 function renderReservationDetail(item) {
     const deadline = ["pendiente_de_pago", "vencida_pago"].includes(item.state) ? `Vencimiento de pago: ${bookingDate(item.pay_expires_at, item.time_zone)}${item.state === "vencida_pago" ? " (vencido)" : ""}` : ["pagada", "vencida_host"].includes(item.state) && item.host_expires_at ? `Vencimiento de respuesta del anfitrión: ${bookingDate(item.host_expires_at, item.time_zone)}${item.state === "vencida_host" ? " (vencido)" : ""}` : "Sin vencimiento pendiente.";
     const history = item.history.map(entry => `${entry.sequence}. ${reservationState(entry.to)} · ${bookingDate(entry.at, item.time_zone)} · ${entry.reason}`).join("\n");
-    bookingHistoryOutput.textContent = `ENSAYO LOCAL — SIN COBRO REAL\nEspacio: ${item.space_id}\nPrecio: ${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} (${item.units} × ${item.unit_price_clp.toLocaleString("es-CL")} por ${item.rate_unit})\nIntervalo: ${bookingDate(item.start_at, item.time_zone)}–${bookingDate(item.end_at, item.time_zone)} (${item.time_zone})\nEstado: ${reservationState(item.state)}\n${deadline}\n\nHistorial:\n${history || "Sin transiciones."}`;
+    const refund = item.refund_state ? `\nDevolución simulada: ${item.refund_state} · ${(item.refund_amount_clp ?? 0).toLocaleString("es-CL")} ${item.currency} · ${item.refund_last_result ?? "sin intento"} · operación ${item.refund_operation_id}` : "";
+    bookingHistoryOutput.textContent = `ENSAYO LOCAL — SIN COBRO REAL\nEspacio: ${item.space_id}\nPrecio: ${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} (${item.units} × ${item.unit_price_clp.toLocaleString("es-CL")} por ${item.rate_unit})\nIntervalo: ${bookingDate(item.start_at, item.time_zone)}–${bookingDate(item.end_at, item.time_zone)} (${item.time_zone})\nPolítica snapshot: ${item.cancellation_policy_version}\nEstado: ${reservationState(item.state)}\n${deadline}${refund}\n\nHistorial:\n${history || "Sin transiciones."}`;
     refreshBookingActions();
 }
 function clearConversation(message) {
@@ -1204,6 +1208,9 @@ function clearBookingInboxOnSessionLoss() {
     selectedReservation = null;
     resetCatalogTraversal();
     bookingInboxRevision++;
+    cancellationPreview = null;
+    cancellationPreviewReservationID = "";
+    document.querySelector("#booking-inbox-cancel-preview-output").textContent = "Inicia sesión para consultar la cancelación.";
     renterInbox.textContent = "Inicia sesión y actualiza tu bandeja.";
     hostInbox.textContent = "Inicia sesión y actualiza tu bandeja.";
     bookingHistoryOutput.textContent = "Inicia sesión para consultar reservas propias.";
@@ -1271,16 +1278,21 @@ async function loadConversationPage(id, before, prepend) {
 function refreshBookingActions() {
     const pay = document.querySelector("#booking-inbox-pay");
     const cancel = document.querySelector("#booking-inbox-cancel");
+    const cancelPreview = document.querySelector("#booking-inbox-cancel-preview");
+    const refund = document.querySelector("#booking-inbox-refund");
     const approve = document.querySelector("#booking-inbox-approve");
     const reject = document.querySelector("#booking-inbox-reject");
-    if (!pay || !cancel || !approve || !reject)
+    if (!pay || !cancel || !cancelPreview || !refund || !approve || !reject)
         return;
     const now = Date.now();
     const allowed = selectedReservation ? inboxActions(sessionAccountID, selectedReservation, now) : null;
     pay.disabled = !allowed?.canPay;
-    cancel.disabled = !allowed?.canCancel;
+    cancelPreview.disabled = !allowed?.canCancel;
+    cancel.disabled = !allowed?.canCancel || cancellationPreviewReservationID !== selectedReservationID || !cancellationPreview?.eligible;
+    refund.disabled = !selectedReservation || selectedReservation.renter_id !== sessionAccountID || selectedReservation.state !== "cancelada_arrendatario" || selectedReservation.refund_state !== "pendiente" || !selectedReservation.refund_operation_id;
     approve.disabled = !allowed?.canDecide;
-    reject.disabled = !allowed?.canDecide;
+    const rejectReason = (document.querySelector("#booking-inbox-reject-reason")?.value ?? "").trim();
+    reject.disabled = !allowed?.canDecide || !rejectReason;
     const outcome = document.querySelector("#booking-inbox-payment-outcome");
     if (outcome)
         outcome.disabled = !allowed?.canPay;
@@ -1289,6 +1301,9 @@ async function loadReservationDetail(id) {
     selectedReservationID = id;
     selectedReservation = null;
     refreshBookingActions();
+    cancellationPreview = null;
+    cancellationPreviewReservationID = "";
+    document.querySelector("#booking-inbox-cancel-preview-output").textContent = "Consulta la opción de cancelación antes de confirmar.";
     clearConversation("Cargando mensajes de la reserva seleccionada…");
     const revision = ++bookingInboxRevision;
     const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}`, "GET", undefined, true);
@@ -1360,9 +1375,51 @@ document.querySelector("#booking-inbox-pay").addEventListener("click", () => voi
     const outcome = document.querySelector("#booking-inbox-payment-outcome").value;
     await performSelectedBookingAction("/payment", "POST", { outcome }, key);
 }));
-document.querySelector("#booking-inbox-cancel").addEventListener("click", () => void action(async () => performSelectedBookingAction("/cancel", "POST")));
+document.querySelector("#booking-inbox-reject-reason").addEventListener("input", refreshBookingActions);
+document.querySelector("#booking-inbox-cancel-preview").addEventListener("click", () => void action(async () => {
+    const id = selectedReservationID;
+    if (!id || !selectedReservation)
+        throw new Error("Selecciona una reserva primero.");
+    cancellationPreview = null;
+    cancellationPreviewReservationID = "";
+    refreshBookingActions();
+    const response = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/cancellation-preview`, "GET", undefined, true);
+    if (selectedReservationID !== id)
+        return;
+    cancellationPreview = bookingData(response);
+    cancellationPreviewReservationID = id;
+    const preview = cancellationPreview;
+    document.querySelector("#booking-inbox-cancel-preview-output").textContent = `ENSAYO LOCAL — SIN COBRO REAL\nPolítica: ${preview.policy_version}\nPlazo: ${bookingDate(preview.deadline, selectedReservation.time_zone)} (estrictamente antes)\nImporte: ${preview.amount_clp.toLocaleString("es-CL")} ${preview.currency}\n${preview.refund_label}\nElegible: ${preview.eligible ? "Sí" : "No"}${preview.reason_code ? ` · ${preview.reason_code}` : ""}`;
+    refreshBookingActions();
+}));
+document.querySelector("#booking-inbox-cancel").addEventListener("click", () => void action(async () => {
+    const id = selectedReservationID;
+    if (!id || !selectedReservation || cancellationPreviewReservationID !== id || !cancellationPreview?.eligible)
+        throw new Error("Consulta nuevamente las condiciones antes de confirmar la cancelación.");
+    let key = cancellationKeys.get(id);
+    if (!key) {
+        key = crypto.randomUUID();
+        cancellationKeys.set(id, key);
+    }
+    const reason = document.querySelector("#booking-inbox-cancel-reason").value;
+    await performSelectedBookingAction("/cancel", "POST", { reason }, key);
+    cancellationPreview = null;
+    cancellationPreviewReservationID = "";
+}));
+document.querySelector("#booking-inbox-refund").addEventListener("click", () => void action(async () => {
+    const id = selectedReservationID, operationID = selectedReservation?.refund_operation_id;
+    if (!id || !operationID)
+        throw new Error("No hay una obligación de devolución pendiente para esta reserva.");
+    const outcome = document.querySelector("#booking-inbox-refund-outcome").value;
+    await performSelectedBookingAction("/refund", "POST", { outcome }, operationID);
+}));
 document.querySelector("#booking-inbox-approve").addEventListener("click", () => void action(async () => performSelectedBookingAction("/decision", "POST", { decision: "aprobar" })));
-document.querySelector("#booking-inbox-reject").addEventListener("click", () => void action(async () => performSelectedBookingAction("/decision", "POST", { decision: "rechazar" })));
+document.querySelector("#booking-inbox-reject").addEventListener("click", () => void action(async () => {
+    const reason = document.querySelector("#booking-inbox-reject-reason").value.trim();
+    if (!reason)
+        throw new Error("Escribe el motivo de rechazo requerido.");
+    await performSelectedBookingAction("/decision", "POST", { decision: "rechazar", reason });
+}));
 document.querySelector("#booking-conversation-older").addEventListener("click", () => void action(async () => {
     const id = selectedReservationID, cursor = conversationOlderCursor;
     if (!id || cursor === null)

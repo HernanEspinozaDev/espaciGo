@@ -25,6 +25,61 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type localNoticeRecorder struct {
+	mu         sync.Mutex
+	recipients []string
+}
+
+func (r *localNoticeRecorder) SendLocalBookingNotice(_ context.Context, recipient, _, _ string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.recipients = append(r.recipients, recipient)
+	return nil
+}
+
+type refundRecordSignalRepository struct {
+	booking.Repository
+	completed chan struct{}
+	once      sync.Once
+}
+
+func (r *refundRecordSignalRepository) RecordRefund(ctx context.Context, renter, id, result string, now time.Time) (booking.RefundResult, error) {
+	value, err := r.Repository.RecordRefund(ctx, renter, id, result, now)
+	if err == nil && value.State == "completada" {
+		r.once.Do(func() { close(r.completed) })
+	}
+	return value, err
+}
+
+type gatedRefundAdapter struct {
+	entered chan string
+	release map[string]<-chan struct{}
+}
+
+func (a *gatedRefundAdapter) ProcessRefund(ctx context.Context, operationID, requestedKey, outcome string) (string, error) {
+	if operationID != requestedKey {
+		return "", fmt.Errorf("unexpected refund operation key")
+	}
+	select {
+	case a.entered <- outcome:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	select {
+	case <-a.release[outcome]:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	switch outcome {
+	case "exito":
+		return "exito_simulado", nil
+	case "sin_respuesta":
+		return "sin_respuesta_simulada", nil
+	default:
+		return "", fmt.Errorf("unsupported gated refund outcome")
+	}
+}
+
 func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	adminURL := os.Getenv("TEST_DATABASE_URL")
 	if adminURL == "" {
@@ -90,6 +145,27 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	}
 	if !historyRead || !historyInsert || historyUpdate || historyDelete {
 		t.Fatalf("transition grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", historyRead, historyInsert, historyUpdate, historyDelete)
+	}
+	var cancellationRead, cancellationInsert, cancellationUpdate, cancellationDelete bool
+	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_cancelacion_ensayo','SELECT'),has_table_privilege(current_user,'public.reserva_cancelacion_ensayo','INSERT'),has_table_privilege(current_user,'public.reserva_cancelacion_ensayo','UPDATE'),has_table_privilege(current_user,'public.reserva_cancelacion_ensayo','DELETE')`).Scan(&cancellationRead, &cancellationInsert, &cancellationUpdate, &cancellationDelete); err != nil {
+		t.Fatal(err)
+	}
+	if !cancellationRead || !cancellationInsert || cancellationUpdate || cancellationDelete {
+		t.Fatalf("cancellation grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", cancellationRead, cancellationInsert, cancellationUpdate, cancellationDelete)
+	}
+	var refundRead, refundInsert, refundUpdate, refundDelete bool
+	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_devolucion_ensayo','SELECT'),has_table_privilege(current_user,'public.reserva_devolucion_ensayo','INSERT'),has_table_privilege(current_user,'public.reserva_devolucion_ensayo','UPDATE'),has_table_privilege(current_user,'public.reserva_devolucion_ensayo','DELETE')`).Scan(&refundRead, &refundInsert, &refundUpdate, &refundDelete); err != nil {
+		t.Fatal(err)
+	}
+	if !refundRead || !refundInsert || !refundUpdate || refundDelete {
+		t.Fatalf("refund grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", refundRead, refundInsert, refundUpdate, refundDelete)
+	}
+	var refundAttemptRead, refundAttemptInsert, refundAttemptUpdate, refundAttemptDelete bool
+	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_devolucion_intento_ensayo','SELECT'),has_table_privilege(current_user,'public.reserva_devolucion_intento_ensayo','INSERT'),has_table_privilege(current_user,'public.reserva_devolucion_intento_ensayo','UPDATE'),has_table_privilege(current_user,'public.reserva_devolucion_intento_ensayo','DELETE')`).Scan(&refundAttemptRead, &refundAttemptInsert, &refundAttemptUpdate, &refundAttemptDelete); err != nil {
+		t.Fatal(err)
+	}
+	if !refundAttemptRead || !refundAttemptInsert || refundAttemptUpdate || refundAttemptDelete {
+		t.Fatalf("refund attempt grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", refundAttemptRead, refundAttemptInsert, refundAttemptUpdate, refundAttemptDelete)
 	}
 	var messagesRead, messagesInsert, messagesUpdate, messagesDelete bool
 	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.mensaje_reserva_ensayo','SELECT'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','INSERT'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','UPDATE'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','DELETE')`).Scan(&messagesRead, &messagesInsert, &messagesUpdate, &messagesDelete); err != nil {
@@ -175,6 +251,9 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	if err != nil {
 		t.Fatal(err)
 	}
+	svc.SetLocalRefundAdapter(fakebooking.New())
+	noticeRecorder := &localNoticeRecorder{}
+	svc.SetLocalNoticeSender(noticeRecorder)
 	// Catalog availability must drive the existing expiry transition itself;
 	// no reservation read or new quote may be needed after the payment deadline.
 	expiringStart := fixedNow.Add(24 * time.Hour)
@@ -532,13 +611,13 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	if _, err = svc.Pay(ctx, host, results[0].ID, "exito", "host-cannot-pay"); err != booking.ErrNotFound {
 		t.Fatalf("host paid as renter: %v", err)
 	}
-	if _, err = svc.Cancel(ctx, host, results[0].ID); err != booking.ErrNotFound {
+	if _, err = svc.Cancel(ctx, host, results[0].ID, "host-cannot-cancel", ""); err != booking.ErrNotFound {
 		t.Fatalf("host cancelled as renter: %v", err)
 	}
-	if _, err = svc.Decide(ctx, host, results[0].ID, "aprobar"); err != booking.ErrConflict {
+	if _, err = svc.Decide(ctx, host, results[0].ID, "aprobar", ""); err != booking.ErrConflict {
 		t.Fatalf("host decided before payment: %v", err)
 	}
-	if _, err = svc.Decide(ctx, renter, results[0].ID, "aprobar"); err != booking.ErrNotFound {
+	if _, err = svc.Decide(ctx, renter, results[0].ID, "aprobar", ""); err != booking.ErrNotFound {
 		t.Fatalf("renter acted as host: %v", err)
 	}
 	if _, err = svc.Get(ctx, outsider, results[0].ID); err != booking.ErrNotFound {
@@ -550,13 +629,10 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	if _, err = conversationService.Send(ctx, renter, results[0].ID, "paid-message", "Mensaje en pagada"); err != nil {
 		t.Fatalf("paid conversation rejected message: %v", err)
 	}
-	if _, err = svc.Cancel(ctx, renter, results[0].ID); err != booking.ErrConflict {
-		t.Fatalf("renter cancelled after payment: %v", err)
-	}
-	if _, err = svc.Decide(ctx, renter, results[0].ID, "aprobar"); err != booking.ErrNotFound {
+	if _, err = svc.Decide(ctx, renter, results[0].ID, "aprobar", ""); err != booking.ErrNotFound {
 		t.Fatalf("renter decided on own paid reservation: %v", err)
 	}
-	approved, err := svc.Decide(ctx, host, results[0].ID, "aprobar")
+	approved, err := svc.Decide(ctx, host, results[0].ID, "aprobar", "")
 	if err != nil || approved.State != "aprobada_host" {
 		t.Fatalf("approval: %+v %v", approved, err)
 	}
@@ -728,7 +804,7 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	clockMu.Lock()
 	fixedNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	clockMu.Unlock()
-	if _, err = svc.Decide(ctx, host, results[0].ID, "aprobar"); err != booking.ErrConflict {
+	if _, err = svc.Decide(ctx, host, results[0].ID, "aprobar", ""); err != booking.ErrConflict {
 		t.Fatalf("host repeated decision after approval: %v", err)
 	}
 	detail, err := svc.Get(ctx, renter, results[0].ID)
@@ -774,9 +850,13 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if _, err = svc.Pay(ctx, renter, retry.ID, "exito", "payment-two"); err != nil {
 		t.Fatal(err)
 	}
-	rejected, err := svc.Decide(ctx, host, retry.ID, "rechazar")
+	rejected, err := svc.Decide(ctx, host, retry.ID, "rechazar", "No es compatible con el uso del espacio")
 	if err != nil || rejected.State != "rechazada_arrendador" {
 		t.Fatalf("rejection: %+v %v", rejected, err)
+	}
+	rejectedDetail, err := svc.Get(ctx, renter, retry.ID)
+	if err != nil || len(rejectedDetail.History) < 3 || !strings.Contains(rejectedDetail.History[len(rejectedDetail.History)-1].Reason, "No es compatible con el uso del espacio") {
+		t.Fatalf("host rejection reason missing from history: %+v err=%v", rejectedDetail, err)
 	}
 	if _, err = conversationService.Send(ctx, renter, retry.ID, "rejected-write", "No debe enviarse"); err != conversation.ErrConflict {
 		t.Fatalf("rejected reservation allowed message write: %v", err)
@@ -840,8 +920,8 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if _, err = conversationService.Send(ctx, renter, cancelPending.ID, "before-cancel", "Mensaje antes de cancelar"); err != nil {
 		t.Fatalf("pending thread rejected message before cancellation: %v", err)
 	}
-	cancelled, err := svc.Cancel(ctx, renter, cancelPending.ID)
-	if err != nil || cancelled.State != "cancelada_arrendatario" {
+	cancelled, err := svc.Cancel(ctx, renter, cancelPending.ID, "cancel-pending-first", "")
+	if err != nil || cancelled.Reservation.State != "cancelada_arrendatario" || cancelled.RefundState != "no_aplica" {
 		t.Fatalf("renter cancellation while pending: %+v err=%v", cancelled, err)
 	}
 	if _, err = conversationService.Send(ctx, renter, cancelPending.ID, "after-cancel", "No debe enviarse"); err != conversation.ErrConflict {
@@ -850,8 +930,11 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if terminalRead, readErr := conversationService.List(ctx, host, cancelPending.ID, nil, 10); readErr != nil || len(terminalRead.Items) != 1 || terminalRead.Items[0].Body != "Mensaje antes de cancelar" {
 		t.Fatalf("cancelled thread was not preserved read-only: %+v err=%v", terminalRead, readErr)
 	}
-	if _, err = svc.Cancel(ctx, renter, cancelPending.ID); err != booking.ErrConflict {
-		t.Fatalf("renter repeated cancellation: %v", err)
+	if repeatedCancel, repeatErr := svc.Cancel(ctx, renter, cancelPending.ID, "cancel-pending-first", ""); repeatErr != nil || repeatedCancel.Reservation.ID != cancelled.Reservation.ID {
+		t.Fatalf("idempotent pending cancellation retry=%+v err=%v", repeatedCancel, repeatErr)
+	}
+	if _, err = svc.Cancel(ctx, renter, cancelPending.ID, "different-key", ""); err != booking.ErrConflict {
+		t.Fatalf("different cancellation retry key should conflict: %v", err)
 	}
 	if _, err = svc.Pay(ctx, renter, cancelPending.ID, "exito", "payment-after-cancel"); err != booking.ErrConflict {
 		t.Fatalf("payment after cancellation: %v", err)
@@ -1506,6 +1589,400 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	}
 	if _, err = setup.Exec(ctx, `UPDATE public.espacio SET zona_horaria='UTC' WHERE id=$1`, space); err != nil {
 		t.Fatalf("timezone change after disabling schedule: %v", err)
+	}
+	// Cancellation/refund consolidation: policy is snapshotted at quote time,
+	// cancellation and occupancy release are atomic, and fake retries reuse one
+	// stable refund operation without creating another obligation.
+	clockMu.Lock()
+	fixedNow = time.Date(2032, 2, 1, 12, 0, 0, 0, time.UTC)
+	clockMu.Unlock()
+	newReservation := func(offset time.Duration, idem string, approve bool) booking.Reservation {
+		t.Helper()
+		clockMu.Lock()
+		now := fixedNow
+		clockMu.Unlock()
+		startAt := now.Add(offset)
+		q, quoteErr := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: startAt.UTC().Format(time.RFC3339Nano), EndAt: startAt.Add(time.Hour).UTC().Format(time.RFC3339Nano)})
+		if quoteErr != nil {
+			t.Fatalf("quote for cancellation test offset=%s now=%s start=%s: %v", offset, now, startAt, quoteErr)
+		}
+		created, createErr := svc.Request(ctx, renter, booking.RequestInput{QuoteID: q.ID}, idem)
+		if createErr != nil {
+			t.Fatalf("create cancellation test reservation: %v", createErr)
+		}
+		paid, payErr := svc.Pay(ctx, renter, created.ID, "exito", "pay-"+idem)
+		if payErr != nil || paid.State != "pagada" {
+			t.Fatalf("pay cancellation test reservation: %+v %v", paid, payErr)
+		}
+		if approve {
+			approved, approveErr := svc.Decide(ctx, host, created.ID, "aprobar", "")
+			if approveErr != nil || approved.State != "aprobada_host" {
+				t.Fatalf("approve cancellation test reservation: %+v %v", approved, approveErr)
+			}
+			return approved
+		}
+		return paid
+	}
+	// A quote keeps its policy snapshot if the fixture's future default changes
+	// before request creation; the default is restored for later cases.
+	snapshotStart := fixedNow.Add(8 * time.Hour)
+	snapshotQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: snapshotStart.Format(time.RFC3339Nano), EndAt: snapshotStart.Add(time.Hour).Format(time.RFC3339Nano)})
+	if err != nil || snapshotQuote.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion {
+		t.Fatalf("quote cancellation policy snapshot=%q err=%v", snapshotQuote.CancellationPolicyVersion, err)
+	}
+	if _, err = setup.Exec(ctx, `UPDATE public.reserva_ensayo_local_fixture SET politica_cancelacion_version='future_policy' WHERE espacio_id=$1`, space); err != nil {
+		t.Fatal(err)
+	}
+	snapshotReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: snapshotQuote.ID}, "snapshot-policy")
+	if err != nil || snapshotReservation.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion {
+		t.Fatalf("reservation did not preserve quote policy snapshot: %+v err=%v", snapshotReservation, err)
+	}
+	if _, err = setup.Exec(ctx, `UPDATE public.reserva_ensayo_local_fixture SET politica_cancelacion_version='local_flexible_v1' WHERE espacio_id=$1`, space); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Pay(ctx, renter, snapshotReservation.ID, "exito", "snapshot-policy-pay"); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := svc.CancellationPreview(ctx, renter, snapshotReservation.ID)
+	if err != nil || !preview.Eligible || preview.AmountCLP != snapshotReservation.Subtotal || preview.PolicyVersion != booking.LocalCancellationPolicyVersion || preview.RefundLabel != "Devolución simulada — sin movimiento de dinero" {
+		t.Fatalf("cancellation preview=%+v err=%v", preview, err)
+	}
+	if _, err = svc.CancellationPreview(ctx, host, snapshotReservation.ID); err != booking.ErrNotFound {
+		t.Fatalf("host viewed renter-only cancellation preview: %v", err)
+	}
+	noticeRecorder.mu.Lock()
+	noticesBeforePaidCancel := len(noticeRecorder.recipients)
+	noticeRecorder.mu.Unlock()
+	paidCancelled, err := svc.Cancel(ctx, renter, snapshotReservation.ID, "cancel-snapshot", "Cambio de planes")
+	if err != nil || paidCancelled.Reservation.State != "cancelada_arrendatario" || paidCancelled.RefundState != "pendiente" || paidCancelled.RefundAmountCLP == nil || *paidCancelled.RefundAmountCLP != snapshotReservation.Subtotal {
+		t.Fatalf("paid cancellation=%+v err=%v", paidCancelled, err)
+	}
+	if paidCancelled.NoticeStatus != "mailpit_local_no_durable" {
+		t.Fatalf("notice status with local SMTP adapter=%q", paidCancelled.NoticeStatus)
+	}
+	noticeRecorder.mu.Lock()
+	if len(noticeRecorder.recipients) != noticesBeforePaidCancel+2 || noticeRecorder.recipients[noticesBeforePaidCancel] != "booking-0@example.test" || noticeRecorder.recipients[noticesBeforePaidCancel+1] != "booking-1@example.test" {
+		t.Fatalf("cancellation notice recipients=%v, want both participants", noticeRecorder.recipients)
+	}
+	noticeRecorder.mu.Unlock()
+	replayedCancel, err := svc.Cancel(ctx, renter, snapshotReservation.ID, "cancel-snapshot", "Cambio de planes")
+	if err != nil || !replayedCancel.Replayed || replayedCancel.Reservation.ID != snapshotReservation.ID {
+		t.Fatalf("cancellation idempotent retry=%+v err=%v", replayedCancel, err)
+	}
+	if _, err = svc.Cancel(ctx, renter, snapshotReservation.ID, "cancel-snapshot", "otro motivo"); err != booking.ErrConflict {
+		t.Fatalf("same cancellation key with different input err=%v", err)
+	}
+	if _, err = svc.Refund(ctx, renter, snapshotReservation.ID, "00000000-0000-4000-8000-000000000001", "exito"); err != booking.ErrConflict {
+		t.Fatalf("wrong refund operation identity err=%v", err)
+	}
+	refundOperation := *paidCancelled.Reservation.RefundOperationID
+	failedRefund, err := svc.Refund(ctx, renter, snapshotReservation.ID, refundOperation, "fallo")
+	if err != nil || failedRefund.State != "pendiente" || failedRefund.LastResult != "fallo_simulado" {
+		t.Fatalf("failed fake refund=%+v err=%v", failedRefund, err)
+	}
+	_, err = svc.Refund(ctx, renter, snapshotReservation.ID, refundOperation, "sin_respuesta")
+	if err != booking.ErrSimulatedRefundNoResponse {
+		t.Fatalf("fake refund timeout err=%v", err)
+	}
+	completedRefund, err := svc.Refund(ctx, renter, snapshotReservation.ID, refundOperation, "exito")
+	if err != nil || completedRefund.State != "completada" || completedRefund.AmountCLP != snapshotReservation.Subtotal {
+		t.Fatalf("successful refund retry=%+v err=%v", completedRefund, err)
+	}
+	completedRetry, err := svc.Refund(ctx, renter, snapshotReservation.ID, refundOperation, "fallo")
+	if err != nil || completedRetry.State != "completada" {
+		t.Fatalf("completed refund replay=%+v err=%v", completedRetry, err)
+	}
+	var refunds, refundAttempts, cancelActiveOccupancies, cancellationRows int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1),(SELECT count(*) FROM public.reserva_devolucion_intento_ensayo i JOIN public.reserva_devolucion_ensayo d ON d.id=i.devolucion_id WHERE d.reserva_id=$1),(SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo),(SELECT count(*) FROM public.reserva_cancelacion_ensayo WHERE reserva_id=$1)`, snapshotReservation.ID).Scan(&refunds, &refundAttempts, &cancelActiveOccupancies, &cancellationRows); err != nil {
+		t.Fatal(err)
+	}
+	if refunds != 1 || refundAttempts != 3 || cancelActiveOccupancies != 0 || cancellationRows != 1 {
+		t.Fatalf("cancel/refund atomicity counts refund=%d attempts=%d active occupancy=%d cancellations=%d", refunds, refundAttempts, cancelActiveOccupancies, cancellationRows)
+	}
+	noticeRecorder.mu.Lock()
+	if len(noticeRecorder.recipients) != noticesBeforePaidCancel+8 {
+		t.Fatalf("cancellation and fake refund notices recipients=%v; want both participants for four local state updates", noticeRecorder.recipients)
+	}
+	noticeRecorder.mu.Unlock()
+	snapshotDetail, err := svc.Get(ctx, renter, snapshotReservation.ID)
+	if err != nil || snapshotDetail.RefundState == nil || *snapshotDetail.RefundState != "completada" || snapshotDetail.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion || len(snapshotDetail.History) != 3 || snapshotDetail.History[2].To != "cancelada_arrendatario" {
+		t.Fatalf("cancelled detail/history/refund=%+v err=%v", snapshotDetail, err)
+	}
+
+	type refundCall struct {
+		result booking.RefundResult
+		err    error
+	}
+	newConcurrentRefund := func(idempotency string) (booking.Reservation, string) {
+		t.Helper()
+		reservation := newReservation(8*time.Hour, idempotency, false)
+		cancelled, cancelErr := svc.Cancel(ctx, renter, reservation.ID, "cancel-"+idempotency, "prueba de concurrencia")
+		if cancelErr != nil || cancelled.Reservation.RefundOperationID == nil {
+			t.Fatalf("create refund obligation for %s: %+v %v", idempotency, cancelled, cancelErr)
+		}
+		return cancelled.Reservation, *cancelled.Reservation.RefundOperationID
+	}
+	newConcurrentRefundService := func(adapter booking.LocalRefundAdapter) (*booking.Service, *refundRecordSignalRepository) {
+		t.Helper()
+		signalRepo := &refundRecordSignalRepository{Repository: repo, completed: make(chan struct{})}
+		refundService, serviceErr := booking.NewService(signalRepo, credentials.Generator{}, clock, fakebooking.New())
+		if serviceErr != nil {
+			t.Fatal(serviceErr)
+		}
+		refundService.SetLocalRefundAdapter(adapter)
+		refundService.SetLocalNoticeSender(noticeRecorder)
+		return refundService, signalRepo
+	}
+	awaitOutcome := func(entered <-chan string, expected string) {
+		t.Helper()
+		select {
+		case outcome := <-entered:
+			if outcome != expected {
+				t.Fatalf("refund fake entered with %q, want %q", outcome, expected)
+			}
+		case <-ctx.Done():
+			t.Fatalf("refund fake did not enter with %q before context expired", expected)
+		}
+	}
+	checkSingleCompletion := func(reservationID, expectedResult string, first, second booking.RefundResult) {
+		t.Helper()
+		var operationID, currency, state, lastResult string
+		var amount int64
+		var updatedAt time.Time
+		var attempts int
+		if err = setup.QueryRow(ctx, `SELECT d.operacion_id::text,d.importe_clp,d.moneda,d.estado,d.ultimo_resultado,d.actualizada_en,(SELECT count(*) FROM public.reserva_devolucion_intento_ensayo i WHERE i.devolucion_id=d.id) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=$1`, reservationID).Scan(&operationID, &amount, &currency, &state, &lastResult, &updatedAt, &attempts); err != nil {
+			t.Fatal(err)
+		}
+		if state != "completada" || lastResult != expectedResult || attempts != 1 {
+			t.Fatalf("persisted refund state/result/attempts=%s/%s/%d", state, lastResult, attempts)
+		}
+		if first.OperationID != operationID || second.OperationID != operationID || first.AmountCLP != amount || second.AmountCLP != amount || first.Currency != currency || second.Currency != currency || first.State != state || second.State != state || first.LastResult != lastResult || second.LastResult != lastResult || !first.UpdatedAt.Equal(updatedAt) || !second.UpdatedAt.Equal(updatedAt) {
+			t.Fatalf("refund responses diverged from persistence: db=%s/%s/%d %s %s first=%+v second=%+v", state, lastResult, amount, operationID, updatedAt, first, second)
+		}
+	}
+
+	// A completion that commits while another fake request is still waiting
+	// must win over the waiter's stale timeout result. The losing response uses
+	// the committed values and must not send a second notice or return 504.
+	timeoutVsSuccessReservation, timeoutVsSuccessOperation := newConcurrentRefund("refund-race-timeout-success")
+	timeoutRelease, successRelease := make(chan struct{}, 1), make(chan struct{}, 1)
+	timeoutSuccessAdapter := &gatedRefundAdapter{entered: make(chan string, 2), release: map[string]<-chan struct{}{"sin_respuesta": timeoutRelease, "exito": successRelease}}
+	timeoutSuccessService, timeoutSuccessRepo := newConcurrentRefundService(timeoutSuccessAdapter)
+	noticeRecorder.mu.Lock()
+	noticesBeforeTimeoutSuccess := len(noticeRecorder.recipients)
+	noticeRecorder.mu.Unlock()
+	timeoutResponse, successResponse := make(chan refundCall, 1), make(chan refundCall, 1)
+	go func() {
+		value, callErr := timeoutSuccessService.Refund(ctx, renter, timeoutVsSuccessReservation.ID, timeoutVsSuccessOperation, "sin_respuesta")
+		timeoutResponse <- refundCall{result: value, err: callErr}
+	}()
+	awaitOutcome(timeoutSuccessAdapter.entered, "sin_respuesta")
+	go func() {
+		value, callErr := timeoutSuccessService.Refund(ctx, renter, timeoutVsSuccessReservation.ID, timeoutVsSuccessOperation, "exito")
+		successResponse <- refundCall{result: value, err: callErr}
+	}()
+	awaitOutcome(timeoutSuccessAdapter.entered, "exito")
+	successRelease <- struct{}{}
+	select {
+	case <-timeoutSuccessRepo.completed:
+	case <-ctx.Done():
+		t.Fatal("successful refund did not commit before releasing concurrent timeout")
+	}
+	timeoutRelease <- struct{}{}
+	timeoutCall, successCall := <-timeoutResponse, <-successResponse
+	if timeoutCall.err != nil || !timeoutCall.result.Reused || timeoutCall.result.NoticeStatus != "no_reintentado_por_idempotencia" {
+		t.Fatalf("losing timeout response=%+v err=%v; want reused persisted success without error/notice", timeoutCall.result, timeoutCall.err)
+	}
+	if successCall.err != nil || successCall.result.Reused || successCall.result.LastResult != "exito_simulado" {
+		t.Fatalf("winning success response=%+v err=%v", successCall.result, successCall.err)
+	}
+	checkSingleCompletion(timeoutVsSuccessReservation.ID, "exito_simulado", timeoutCall.result, successCall.result)
+	noticeRecorder.mu.Lock()
+	if got := len(noticeRecorder.recipients); got != noticesBeforeTimeoutSuccess+2 {
+		noticeRecorder.mu.Unlock()
+		t.Fatalf("success/timeout race sent %d notices; want exactly one pair", got-noticesBeforeTimeoutSuccess)
+	}
+	noticeRecorder.mu.Unlock()
+
+	// Two successful fake requests are released one at a time. Once the first
+	// commits, the second returns the same persisted result as reused.
+	twoSuccessReservation, twoSuccessOperation := newConcurrentRefund("refund-race-two-successes")
+	sharedSuccessRelease := make(chan struct{}, 2)
+	firstTwoSuccessAdapter := &gatedRefundAdapter{entered: make(chan string, 2), release: map[string]<-chan struct{}{"exito": sharedSuccessRelease}}
+	twoSuccessService, twoSuccessRepo := newConcurrentRefundService(firstTwoSuccessAdapter)
+	noticeRecorder.mu.Lock()
+	noticesBeforeTwoSuccess := len(noticeRecorder.recipients)
+	noticeRecorder.mu.Unlock()
+	firstSuccessResponse, secondSuccessResponse := make(chan refundCall, 1), make(chan refundCall, 1)
+	go func() {
+		value, callErr := twoSuccessService.Refund(ctx, renter, twoSuccessReservation.ID, twoSuccessOperation, "exito")
+		firstSuccessResponse <- refundCall{result: value, err: callErr}
+	}()
+	awaitOutcome(firstTwoSuccessAdapter.entered, "exito")
+	go func() {
+		value, callErr := twoSuccessService.Refund(ctx, renter, twoSuccessReservation.ID, twoSuccessOperation, "exito")
+		secondSuccessResponse <- refundCall{result: value, err: callErr}
+	}()
+	awaitOutcome(firstTwoSuccessAdapter.entered, "exito")
+	sharedSuccessRelease <- struct{}{}
+	select {
+	case <-twoSuccessRepo.completed:
+	case <-ctx.Done():
+		t.Fatal("first successful refund did not commit before releasing second success")
+	}
+	// Both fake calls share the same outcome gate. The first token let exactly
+	// one caller return; this token releases the still-waiting caller.
+	sharedSuccessRelease <- struct{}{}
+	firstSuccessCall, secondSuccessCall := <-firstSuccessResponse, <-secondSuccessResponse
+	if firstSuccessCall.err != nil || secondSuccessCall.err != nil {
+		t.Fatalf("two success errors=%v/%v", firstSuccessCall.err, secondSuccessCall.err)
+	}
+	if firstSuccessCall.result.Reused == secondSuccessCall.result.Reused {
+		t.Fatalf("exactly one response must be marked reused: first=%+v second=%+v", firstSuccessCall.result, secondSuccessCall.result)
+	}
+	checkSingleCompletion(twoSuccessReservation.ID, "exito_simulado", firstSuccessCall.result, secondSuccessCall.result)
+	loser := firstSuccessCall.result
+	if !loser.Reused {
+		loser = secondSuccessCall.result
+	}
+	if loser.NoticeStatus != "no_reintentado_por_idempotencia" {
+		t.Fatalf("concurrent reused response notice status=%q", loser.NoticeStatus)
+	}
+	noticeRecorder.mu.Lock()
+	if got := len(noticeRecorder.recipients); got != noticesBeforeTwoSuccess+2 {
+		noticeRecorder.mu.Unlock()
+		t.Fatalf("two-success race sent %d notices; want exactly one pair", got-noticesBeforeTwoSuccess)
+	}
+	noticeRecorder.mu.Unlock()
+
+	// The strict start-time boundary is independently checked on an approved
+	// booking: at exactly start it conflicts and leaves reservation/occupancy.
+	boundary := newReservation(36*time.Hour, "cancel-boundary", true)
+	clockMu.Lock()
+	fixedNow = boundary.StartAt
+	clockMu.Unlock()
+	if _, err = svc.Cancel(ctx, renter, boundary.ID, "cancel-at-start", ""); err != booking.ErrConflict {
+		t.Fatalf("cancellation at exact start boundary err=%v", err)
+	}
+	var boundaryState string
+	var boundaryOccupancy bool
+	var boundaryRefunds int
+	if err = setup.QueryRow(ctx, `SELECT r.estado,o.activo,(SELECT count(*) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id) FROM public.reserva_ensayo_local r JOIN public.ocupacion o ON o.reserva_id=r.id WHERE r.id=$1`, boundary.ID).Scan(&boundaryState, &boundaryOccupancy, &boundaryRefunds); err != nil {
+		t.Fatal(err)
+	}
+	if boundaryState != "aprobada_host" || !boundaryOccupancy || boundaryRefunds != 0 {
+		t.Fatalf("exact-start rejection left state=%s occupancy=%v refunds=%d", boundaryState, boundaryOccupancy, boundaryRefunds)
+	}
+	// The operation begins before start but waits on the reservation lock until
+	// the exact boundary. The repository must read the injected clock after the
+	// lock, reject, and preserve the reservation, history, refund state and hold.
+	lockWaitReservation := newReservation(12*time.Hour, "cancel-clock-after-lock", true)
+	clockLockTx, beginClockLockErr := setup.Begin(ctx)
+	if beginClockLockErr != nil {
+		t.Fatal(beginClockLockErr)
+	}
+	if _, err = clockLockTx.Exec(ctx, `SELECT id FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, lockWaitReservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	clockLockResult := make(chan error, 1)
+	go func() {
+		_, cancelErr := svc.Cancel(ctx, renter, lockWaitReservation.ID, "cancel-after-lock", "Límite durante espera")
+		clockLockResult <- cancelErr
+	}()
+	clockWaitDeadline := time.Now().Add(3 * time.Second)
+	clockCancelWaiting := false
+	for time.Now().Before(clockWaitDeadline) {
+		if err = setup.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT id::text,cotizacion_id::text%')`).Scan(&clockCancelWaiting); err != nil {
+			t.Fatal(err)
+		}
+		if clockCancelWaiting {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !clockCancelWaiting {
+		_ = clockLockTx.Rollback(ctx)
+		t.Fatal("cancellation did not wait on reservation lock")
+	}
+	clockMu.Lock()
+	fixedNow = lockWaitReservation.StartAt
+	clockMu.Unlock()
+	if err = clockLockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = <-clockLockResult; err != booking.ErrConflict {
+		t.Fatalf("cancel waiting across start boundary err=%v", err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT r.estado,o.activo,(SELECT count(*) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id) FROM public.reserva_ensayo_local r JOIN public.ocupacion o ON o.reserva_id=r.id WHERE r.id=$1`, lockWaitReservation.ID).Scan(&boundaryState, &boundaryOccupancy, &boundaryRefunds); err != nil {
+		t.Fatal(err)
+	}
+	if boundaryState != "aprobada_host" || !boundaryOccupancy || boundaryRefunds != 0 {
+		t.Fatalf("cancel after lock wait changed state=%s occupancy=%v refunds=%d", boundaryState, boundaryOccupancy, boundaryRefunds)
+	}
+
+	// Race cancellation against host approval while both wait on the same
+	// reservation lock. Either approval commits first and cancellation follows,
+	// or cancellation wins and approval conflicts; there remains one refund and
+	// one terminal transition, with occupancy released atomically.
+	raceReservation := newReservation(10*time.Hour, "cancel-approve-race", false)
+	cancelRaceTx, beginCancelRaceErr := setup.Begin(ctx)
+	if beginCancelRaceErr != nil {
+		t.Fatal(beginCancelRaceErr)
+	}
+	if _, err = cancelRaceTx.Exec(ctx, `SELECT id FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, raceReservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	type cancelRaceOutcome struct {
+		name string
+		err  error
+	}
+	cancelRaceResults := make(chan cancelRaceOutcome, 2)
+	go func() {
+		_, e := svc.Decide(ctx, host, raceReservation.ID, "aprobar", "")
+		cancelRaceResults <- cancelRaceOutcome{"approval", e}
+	}()
+	go func() {
+		_, e := svc.Cancel(ctx, renter, raceReservation.ID, "cancel-race", "Carrera de ensayo")
+		cancelRaceResults <- cancelRaceOutcome{"cancellation", e}
+	}()
+	cancelLockDeadline := time.Now().Add(3 * time.Second)
+	approvalAndCancelWaiting := false
+	for time.Now().Before(cancelLockDeadline) {
+		if err = setup.QueryRow(ctx, `SELECT count(*)>=2 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT id::text,cotizacion_id::text%'`).Scan(&approvalAndCancelWaiting); err != nil {
+			t.Fatal(err)
+		}
+		if approvalAndCancelWaiting {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !approvalAndCancelWaiting {
+		_ = cancelRaceTx.Rollback(ctx)
+		t.Fatal("approval and cancellation did not both wait for the reservation lock")
+	}
+	if err = cancelRaceTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var approvalErr, cancellationErr error
+	for range 2 {
+		result := <-cancelRaceResults
+		if result.name == "approval" {
+			approvalErr = result.err
+		} else {
+			cancellationErr = result.err
+		}
+	}
+	if cancellationErr != nil || approvalErr != nil && approvalErr != booking.ErrConflict {
+		t.Fatalf("approval/cancellation race errors approval=%v cancellation=%v", approvalErr, cancellationErr)
+	}
+	if _, err = setup.Exec(ctx, `SELECT 1`); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT r.estado,o.activo,(SELECT count(*) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id),(SELECT count(*) FROM public.reserva_ensayo_transicion h WHERE h.reserva_id=r.id AND h.estado_nuevo='cancelada_arrendatario') FROM public.reserva_ensayo_local r JOIN public.ocupacion o ON o.reserva_id=r.id WHERE r.id=$1`, raceReservation.ID).Scan(&boundaryState, &boundaryOccupancy, &boundaryRefunds, &refundAttempts); err != nil {
+		t.Fatal(err)
+	}
+	if boundaryState != "cancelada_arrendatario" || boundaryOccupancy || boundaryRefunds != 1 || refundAttempts != 1 {
+		t.Fatalf("approval/cancel race final state=%s active=%v refunds=%d cancel history=%d", boundaryState, boundaryOccupancy, boundaryRefunds, refundAttempts)
 	}
 
 }

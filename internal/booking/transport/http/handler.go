@@ -247,17 +247,33 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					if !decode(w, r, &in) {
 						return
 					}
-					v, e := h.service.Decide(r.Context(), actor, parts[0], in.Decision)
+					v, e := h.service.Decide(r.Context(), actor, parts[0], in.Decision, in.Reason)
+					h.reply(w, v, e)
+					return
+				}
+			case "cancellation-preview":
+				if r.Method == http.MethodGet {
+					v, e := h.service.CancellationPreview(r.Context(), actor, parts[0])
 					h.reply(w, v, e)
 					return
 				}
 			case "cancel":
 				if r.Method == http.MethodPost {
-					if !emptyBody(r) {
-						fail(w, 400, "invalid_request")
+					var in booking.CancellationInput
+					if !decode(w, r, &in) {
 						return
 					}
-					v, e := h.service.Cancel(r.Context(), actor, parts[0])
+					v, e := h.service.Cancel(r.Context(), actor, parts[0], r.Header.Get("Idempotency-Key"), in.Reason)
+					h.reply(w, v, e)
+					return
+				}
+			case "refund":
+				if r.Method == http.MethodPost {
+					var in booking.RefundInput
+					if !decode(w, r, &in) {
+						return
+					}
+					v, e := h.service.Refund(r.Context(), actor, parts[0], r.Header.Get("Idempotency-Key"), in.Outcome)
 					h.reply(w, v, e)
 					return
 				}
@@ -407,6 +423,10 @@ func (h *Handler) reply(w http.ResponseWriter, v any, err error) {
 	if err != nil {
 		if errors.Is(err, booking.ErrSimulatedNoResponse) {
 			write(w, http.StatusGatewayTimeout, map[string]any{"data": v, "error": map[string]string{"code": "simulated_payment_timeout", "message": "El adaptador local no entregó respuesta; la reserva sigue pendiente."}, "safety_notice": booking.SafetyBanner})
+			return
+		}
+		if errors.Is(err, booking.ErrSimulatedRefundNoResponse) {
+			write(w, http.StatusGatewayTimeout, map[string]any{"data": v, "error": map[string]string{"code": "simulated_refund_timeout", "message": "La devolución fake no respondió; la obligación sigue pendiente y puede reintentarse con la misma operación."}, "safety_notice": booking.SafetyBanner})
 			return
 		}
 		switch {
