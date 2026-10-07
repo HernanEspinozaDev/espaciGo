@@ -916,7 +916,7 @@ paths:
     post:
       operationId: simulateLocalTrialPayment
       tags: [M06 local]
-      parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }, { name: Idempotency-Key, in: header, required: true, schema: { type: string } }]
+      parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }, { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }]
       description: Adaptador fake solo con LOCAL_BOOKING_TRIAL=1; admite exito, rechazo o sin_respuesta. Nunca se conecta a una pasarela.
       requestBody:
         required: true
@@ -926,8 +926,12 @@ paths:
       responses:
         '200': { description: Resultado de ensayo con banner no-cobro., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingReservationEnvelope' } } } }
         '504': { description: Timeout simulado; la reserva sigue pendiente., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingTimeoutEnvelope' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /local/booking-trial/payment-events:
     post:
       operationId: receiveAuthenticatedLocalPaymentEvent

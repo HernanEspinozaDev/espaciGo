@@ -586,6 +586,13 @@ func (s *Service) Pay(ctx context.Context, renter, id, outcome, key string) (Res
 			// process died before starting it, StartPayment is safe because the
 			// fake itself persists one result per operation ID.
 			event, err = s.payment.LookupPayment(ctx, operation)
+			if errors.Is(err, ErrSimulatedNoResponse) {
+				current, readErr := s.Get(ctx, renter, id)
+				if readErr != nil {
+					return Reservation{}, readErr
+				}
+				return current.Reservation, ErrSimulatedNoResponse
+			}
 			if err != nil {
 				return Reservation{}, err
 			}
@@ -674,6 +681,11 @@ func (s *Service) ReconcilePendingPayments(ctx context.Context) error {
 			}
 			for _, operation := range operations {
 				event, lookupErr := s.payment.LookupPayment(ctx, operation)
+				if errors.Is(lookupErr, ErrSimulatedNoResponse) {
+					// A durable timeout is a known outcome. Keep it pending for
+					// operator/retry policy instead of starting the fake again.
+					continue
+				}
 				if lookupErr != nil {
 					return lookupErr
 				}
@@ -687,8 +699,11 @@ func (s *Service) ReconcilePendingPayments(ctx context.Context) error {
 					event, lookupErr = s.payment.StartPayment(ctx, operation.ID, operation.Requested)
 					if errors.Is(lookupErr, ErrSimulatedNoResponse) {
 						// It may have recorded a result while losing its response. A
-						// status query recovers it without starting another charge.
+						// status query recovers a result or confirms a durable timeout.
 						event, lookupErr = s.payment.LookupPayment(ctx, operation)
+					}
+					if errors.Is(lookupErr, ErrSimulatedNoResponse) {
+						continue
 					}
 					if lookupErr != nil {
 						return lookupErr

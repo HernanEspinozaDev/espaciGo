@@ -31,13 +31,14 @@ type Adapter struct {
 	store    ResultStore
 	mu       sync.Mutex
 	results  map[string]booking.PaymentEvent
+	timeouts map[string]bool
 }
 
 func New(eventKey []byte) (*Adapter, error) {
 	if len(eventKey) < 32 {
 		return nil, errors.New("local payment event key must contain at least 32 bytes")
 	}
-	return &Adapter{eventKey: append([]byte(nil), eventKey...), results: make(map[string]booking.PaymentEvent)}, nil
+	return &Adapter{eventKey: append([]byte(nil), eventKey...), results: make(map[string]booking.PaymentEvent), timeouts: make(map[string]bool)}, nil
 }
 
 func NewWithStore(eventKey []byte, store ResultStore) (*Adapter, error) {
@@ -62,6 +63,10 @@ func (a *Adapter) StartPayment(ctx context.Context, operationID, requested strin
 			if err := a.store.RecordFakePaymentTimeout(ctx, operationID, time.Now().UTC()); err != nil {
 				return nil, err
 			}
+		} else {
+			a.mu.Lock()
+			a.timeouts[operationID] = true
+			a.mu.Unlock()
 		}
 		return nil, booking.ErrSimulatedNoResponse
 	case "exito":
@@ -101,6 +106,9 @@ func (a *Adapter) LookupPayment(ctx context.Context, operation booking.PaymentOp
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.timeouts[operation.ID] {
+		return nil, booking.ErrSimulatedNoResponse
+	}
 	var result *booking.PaymentEvent
 	for _, event := range a.results {
 		if event.OperationID == operation.ID {

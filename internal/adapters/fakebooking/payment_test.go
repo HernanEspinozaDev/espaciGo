@@ -39,8 +39,8 @@ func TestUnknownLookupDoesNotFabricateResultAndStartIsIdempotent(t *testing.T) {
 	if event, callErr := adapter.StartPayment(context.Background(), operation2.ID, operation2.Requested); event != nil || !errors.Is(callErr, booking.ErrSimulatedNoResponse) {
 		t.Fatalf("timeout event=%+v err=%v", event, callErr)
 	}
-	if event, lookupErr := adapter.LookupPayment(context.Background(), operation2); lookupErr != nil || event != nil {
-		t.Fatalf("timeout lookup invented a result: event=%+v err=%v", event, lookupErr)
+	if event, lookupErr := adapter.LookupPayment(context.Background(), operation2); event != nil || !errors.Is(lookupErr, booking.ErrSimulatedNoResponse) {
+		t.Fatalf("timeout lookup=%+v err=%v; want known timeout without a charge result", event, lookupErr)
 	}
 	if event, callErr := adapter.StartPayment(context.Background(), operation2.ID, operation2.Requested); event != nil || !errors.Is(callErr, booking.ErrSimulatedNoResponse) {
 		t.Fatalf("repeated timeout start event=%+v err=%v", event, callErr)
