@@ -23,9 +23,9 @@ El usuario ratificó durante esta entrega la regla `local_flexible_v1`, exclusiv
 | Issue | Estado | Evidencia de esta entrega | Brecha y dependencia que permanecen |
 | --- | --- | --- | --- |
 | #69 | Parcial | Motivo obligatorio y persistido al rechazar; reloj leído tras bloqueos para pago, decisión y cancelación; pruebas de lock wait y carrera aprobar/cancelar. | Fake solamente. Webhook firmado/deduplicado, conciliación durable y pasarela dependen de #74/#76/#78. Check-in, curso y disputa aún sin contrato. |
-| #70 | Parcial | V20 aditiva añade snapshot `local_flexible_v1`, importe efectivamente pagado, cancelación idempotente y obligación/intentos de devolución. Se conserva `ocupacion` e historial existente. | No cubre contrato/garantía ni modelo productivo de devolución. Depende de #69/#21. |
-| #71 | Parcial | Script ejecuta migraciones en Postgres desechable; prueba operación bajo `espacigo_runtime`, grants, lock wait, adyacencia y unicidad de devolución. | No certifica toda MD-01–MD-13 ni el volumen persistente. Depende de #70. |
-| #72 | Parcial | Pruebas verifican límites temporales, conflicto sin mutación, liberación, historial, reintentos fallo→timeout→éxito, carrera con aprobación y reintentos concurrentes que convergen al resultado persistido. | Estados de check-in, curso, disputa y fallos de proveedor real pendientes. Depende de #71/#22. |
+| #70 | **Hecho** | V20 aditiva añade snapshot `local_flexible_v1`, importe efectivamente pagado, cancelación idempotente y obligación/intentos de devolución. La integración verifica ocupación única, historial y persistencia. PR #170 fusionado. | Aceptación de modelo/DDL cumplida. Garantía/contrato y modelo de proveedor productivo quedan fuera de este issue; no completan M06. |
+| #71 | **Hecho** | Migración completa desde base desechable, restricción activa, adyacencia/solape/atomicidad y operaciones con `espacigo_runtime`, incluyendo V20. PR #170 fusionado. | Criterios de migración y prueba PostgreSQL de BOOK-DB-02 cumplidos. No certifica todo MD-01–MD-13, que abarca otros módulos/temas. |
+| #72 | **Hecho** | Repositorio transaccional prueba conflicto sin mutación, expiración/release, historial, reintentos y carreras de tarifa/horario, aprobación/cancelación y devolución concurrente. PR #170 fusionado. | Criterios de reserva/calendario de BOOK-BE-01 cumplidos. Ciclo de uso y políticas amplias continúan en #73; proveedor en #74. |
 | #73 | Parcial | Preview y cancelación desde API/mock; pago fake; estado separado de devolución; motivo opcional; avisos Mailpit a ambas partes. | Cancelación al inicio/en curso, check-in, disputa y política comercial real quedan fuera. Depende de #72/#65. |
 | #75 | Parcial | OpenAPI, decodificación JSON estricta, tests de conflicto/validación y respuestas para preview, cancelación, devolución y timeout. | No cubre integración de pasarela ni todos los criterios generales del Issue. Depende de #73/#23. |
 | #77 | Parcial | Integración PostgreSQL desechable con runtime; límites temporales, reintento, permiso, historial, carrera cancelar/aprobar, éxito/timeout concurrentes, dos éxitos concurrentes y avisos únicos; recorrido navegador/API con fake y Mailpit. | Pruebas locales no sustituyen criterios generales ni proveedor real. Depende de #75/#24. |
@@ -33,10 +33,10 @@ El usuario ratificó durante esta entrega la regla `local_flexible_v1`, exclusiv
 ## Dependencias y pendientes
 
 - #19/#21/#22/#23/#24 están cerradas y aportan base técnica suficiente.
-- Se conserva la cadena abierta #68 → #69 → #70 → #71 → #72 → #73 → #75 → #77 y #65 → #73. No se cierra un padre para desbloquear una hija. El catálogo/cotización de fixtures aceptado permite probar este recorrido local, pero no completa #65 ni #68. La dependencia general de #73 a #65 sigue pendiente de ajuste trazable en Projects.
+- La aceptación de PR #170 completa los criterios propios de #70–#72, que se cierran en GitHub. #69 sigue abierto porque su matriz general de estados, conciliación y escenarios remotos no está completa; #73/#75/#77 siguen abiertos por sus criterios de ciclo, contrato y pruebas más amplios. No se cierra #69 para desbloquear tareas. El catálogo/cotización de fixtures permite el recorrido local, pero no completa #65 ni #68; la dependencia general de #73 a #65 sigue pendiente de ajuste trazable en Projects.
 - #74/#76/#78 siguen abiertas: falta integración real/sandbox contractual, webhooks firmados y deduplicados, manejo durable, conciliación y garantías ante timeout/replay de proveedor.
 - #79 no se declara completo: esta evidencia cubre solo el slice local de reservas, no toda su aceptación visual/general.
-- No se cierra ninguna Issue original en esta publicación. La aceptación del PR debe preceder cualquier cambio a Hecho.
+- Tras el merge aceptado de PR #170, #70, #71 y #72 satisfacen sus criterios propios y se cierran como Hecho. #69, #73, #75 y #77 permanecen abiertas/bloqueadas porque sus criterios de conciliación, cancelación general/CU-51, contrato completo de autorización o matriz amplia aún no están cubiertos. #74/#76/#78/#79 también continúan abiertos y bloqueados según su grafo; no se marca M06 completo.
 
 ## Validación y evidencia
 
@@ -45,3 +45,7 @@ El usuario ratificó durante esta entrega la regla `local_flexible_v1`, exclusiv
 - `npm --prefix mock run build` y `npm --prefix mock run test:profile-races`: ejecutados al finalizar la entrega.
 - OpenAPI cargado con PyYAML y referencias de respuesta verificadas; `git diff --check` pasó.
 - Evidencia de recorrido, Mailpit, resultados precisos, y límites del entorno: [`evidence/m06-booking-consolidation-20261006.md`](evidence/m06-booking-consolidation-20261006.md).
+
+## Aceptación e integración
+
+PR #170 fue aprobado y fusionado en `main` el 2026-10-06 (merge `b9d337435252129f489ef990c2086854d9bc9b6f`). Se actualizó el checkout con fast-forward. `scripts/dev-env.sh up` aplicó V20 sobre el volumen existente sin borrarlo; `schema_migrations` registra `V000020__m06_local_flexible_cancellation.sql`. La comprobación posterior se limitó a API ready, HTTP 200 del mock, servicios saludables y presencia de `espacigo_pgdata`/secretos. No se repitieron las suites ya ejecutadas en la entrega.
