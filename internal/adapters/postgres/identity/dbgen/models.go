@@ -16,11 +16,289 @@ type AceptacionTermino struct {
 	Canal      string             `json:"canal"`
 }
 
+type CategoriaEspacio struct {
+	Codigo string `json:"codigo"`
+	Nombre string `json:"nombre"`
+	Orden  int16  `json:"orden"`
+	Activa bool   `json:"activa"`
+}
+
+type CategoriaPerfilAtributo struct {
+	CategoriaCodigo string             `json:"categoria_codigo"`
+	Version         int32              `json:"version"`
+	Perfil          []byte             `json:"perfil"`
+	CreadoEn        pgtype.Timestamptz `json:"creado_en"`
+}
+
+type CotizacionReservaEnsayo struct {
+	ID                         string             `json:"id"`
+	EspacioID                  string             `json:"espacio_id"`
+	AnfitrionID                string             `json:"anfitrion_id"`
+	ArrendatarioID             string             `json:"arrendatario_id"`
+	TarifaVersion              int32              `json:"tarifa_version"`
+	Modalidad                  string             `json:"modalidad"`
+	PrecioUnitarioClp          int64              `json:"precio_unitario_clp"`
+	Moneda                     string             `json:"moneda"`
+	Unidades                   int64              `json:"unidades"`
+	SubtotalClp                int64              `json:"subtotal_clp"`
+	Inicio                     pgtype.Timestamptz `json:"inicio"`
+	Termino                    pgtype.Timestamptz `json:"termino"`
+	ZonaHoraria                string             `json:"zona_horaria"`
+	CreadaEn                   pgtype.Timestamptz `json:"creada_en"`
+	VenceEn                    pgtype.Timestamptz `json:"vence_en"`
+	CondicionesSnapshot        string             `json:"condiciones_snapshot"`
+	CategoriaCodigo            string             `json:"categoria_codigo"`
+	PerfilVersion              int32              `json:"perfil_version"`
+	PerfilValoresSnapshot      []byte             `json:"perfil_valores_snapshot"`
+	PoliticaCancelacionVersion string             `json:"politica_cancelacion_version"`
+}
+
+type Espacio struct {
+	ID              string             `json:"id"`
+	PropietarioID   string             `json:"propietario_id"`
+	CategoriaCodigo string             `json:"categoria_codigo"`
+	Titulo          string             `json:"titulo"`
+	Descripcion     string             `json:"descripcion"`
+	SuperficieM2    pgtype.Numeric     `json:"superficie_m2"`
+	CapacidadMaxima int32              `json:"capacidad_maxima"`
+	ReglasUso       string             `json:"reglas_uso"`
+	ModalidadTarifa string             `json:"modalidad_tarifa"`
+	PrecioBaseClp   int64              `json:"precio_base_clp"`
+	Direccion       string             `json:"direccion"`
+	Estado          string             `json:"estado"`
+	CreadoEn        pgtype.Timestamptz `json:"creado_en"`
+	ActualizadoEn   pgtype.Timestamptz `json:"actualizado_en"`
+	ZonaHoraria     *string            `json:"zona_horaria"`
+}
+
+type EspacioCaracteristica struct {
+	EspacioID       string             `json:"espacio_id"`
+	CategoriaCodigo string             `json:"categoria_codigo"`
+	PerfilVersion   int32              `json:"perfil_version"`
+	Valores         []byte             `json:"valores"`
+	ActualizadoEn   pgtype.Timestamptz `json:"actualizado_en"`
+}
+
+type EspacioHorarioSemanal struct {
+	EspacioID     string             `json:"espacio_id"`
+	Activo        bool               `json:"activo"`
+	ActualizadoEn pgtype.Timestamptz `json:"actualizado_en"`
+}
+
+type EspacioHorarioSemanalTramo struct {
+	EspacioID      string `json:"espacio_id"`
+	DiaIso         int16  `json:"dia_iso"`
+	Orden          int16  `json:"orden"`
+	AperturaMinuto int16  `json:"apertura_minuto"`
+	CierreMinuto   int16  `json:"cierre_minuto"`
+}
+
+type EventoAuditoriaLocal struct {
+	ID            string             `json:"id"`
+	ActorID       string             `json:"actor_id"`
+	RecursoTipo   string             `json:"recurso_tipo"`
+	RecursoID     string             `json:"recurso_id"`
+	Accion        string             `json:"accion"`
+	Resultado     string             `json:"resultado"`
+	MotivoCodigo  string             `json:"motivo_codigo"`
+	CorrelacionID string             `json:"correlacion_id"`
+	OcurridoEn    pgtype.Timestamptz `json:"ocurrido_en"`
+	RetirarEn     pgtype.Timestamptz `json:"retirar_en"`
+}
+
+type HistorialClaveLocal struct {
+	ID                 string             `json:"id"`
+	UsuarioID          string             `json:"usuario_id"`
+	HashClave          string             `json:"hash_clave"`
+	DejoDeSerVigenteEn pgtype.Timestamptz `json:"dejo_de_ser_vigente_en"`
+	RetirarEn          pgtype.Timestamptz `json:"retirar_en"`
+	CreadoEn           pgtype.Timestamptz `json:"creado_en"`
+}
+
+type MensajeReservaEnsayo struct {
+	Secuencia         int64              `json:"secuencia"`
+	ID                string             `json:"id"`
+	ReservaID         string             `json:"reserva_id"`
+	AutorID           string             `json:"autor_id"`
+	ClaveIdempotencia string             `json:"clave_idempotencia"`
+	HuellaSolicitud   []byte             `json:"huella_solicitud"`
+	Cuerpo            string             `json:"cuerpo"`
+	CreadaEn          pgtype.Timestamptz `json:"creada_en"`
+}
+
+type Ocupacion struct {
+	ID            string                           `json:"id"`
+	EspacioID     string                           `json:"espacio_id"`
+	ReservaID     pgtype.UUID                      `json:"reserva_id"`
+	Intervalo     pgtype.Range[pgtype.Timestamptz] `json:"intervalo"`
+	Tipo          string                           `json:"tipo"`
+	Activo        bool                             `json:"activo"`
+	ExpiraEn      pgtype.Timestamptz               `json:"expira_en"`
+	Motivo        *string                          `json:"motivo"`
+	CreadaEn      pgtype.Timestamptz               `json:"creada_en"`
+	DesactivadaEn pgtype.Timestamptz               `json:"desactivada_en"`
+}
+
+type OutboxEventoLocal struct {
+	ID                 string             `json:"id"`
+	AgregadoTipo       string             `json:"agregado_tipo"`
+	AgregadoID         string             `json:"agregado_id"`
+	Tipo               string             `json:"tipo"`
+	ClaveDeduplicacion string             `json:"clave_deduplicacion"`
+	Version            int16              `json:"version"`
+	CreadaEn           pgtype.Timestamptz `json:"creada_en"`
+	DisponibleEn       pgtype.Timestamptz `json:"disponible_en"`
+	LeaseHasta         pgtype.Timestamptz `json:"lease_hasta"`
+	Intentos           int32              `json:"intentos"`
+	EntregadaEn        pgtype.Timestamptz `json:"entregada_en"`
+	UltimoError        *string            `json:"ultimo_error"`
+}
+
 type PerfilUsuario struct {
 	UsuarioID           string             `json:"usuario_id"`
 	NombreVisible       string             `json:"nombre_visible"`
 	TelefonoNormalizado *string            `json:"telefono_normalizado"`
 	ActualizadoEn       pgtype.Timestamptz `json:"actualizado_en"`
+}
+
+type ReservaCancelacionEnsayo struct {
+	ID                string             `json:"id"`
+	ReservaID         string             `json:"reserva_id"`
+	ArrendatarioID    string             `json:"arrendatario_id"`
+	ClaveIdempotencia string             `json:"clave_idempotencia"`
+	HuellaSolicitud   []byte             `json:"huella_solicitud"`
+	Motivo            string             `json:"motivo"`
+	CreadaEn          pgtype.Timestamptz `json:"creada_en"`
+}
+
+type ReservaDevolucionEnsayo struct {
+	ID              string             `json:"id"`
+	ReservaID       string             `json:"reserva_id"`
+	OperacionID     string             `json:"operacion_id"`
+	ImporteClp      int64              `json:"importe_clp"`
+	Moneda          string             `json:"moneda"`
+	Estado          string             `json:"estado"`
+	UltimoResultado *string            `json:"ultimo_resultado"`
+	CreadaEn        pgtype.Timestamptz `json:"creada_en"`
+	ActualizadaEn   pgtype.Timestamptz `json:"actualizada_en"`
+	CompletadaEn    pgtype.Timestamptz `json:"completada_en"`
+}
+
+type ReservaDevolucionIntentoEnsayo struct {
+	ID           string             `json:"id"`
+	DevolucionID string             `json:"devolucion_id"`
+	Secuencia    int64              `json:"secuencia"`
+	Resultado    string             `json:"resultado"`
+	CreadaEn     pgtype.Timestamptz `json:"creada_en"`
+}
+
+type ReservaEnsayoLocal struct {
+	ID                         string             `json:"id"`
+	CotizacionID               string             `json:"cotizacion_id"`
+	EspacioID                  string             `json:"espacio_id"`
+	AnfitrionID                string             `json:"anfitrion_id"`
+	ArrendatarioID             string             `json:"arrendatario_id"`
+	ClaveIdempotencia          string             `json:"clave_idempotencia"`
+	HuellaSolicitud            []byte             `json:"huella_solicitud"`
+	OcupacionID                string             `json:"ocupacion_id"`
+	Estado                     string             `json:"estado"`
+	PrecioUnitarioClp          int64              `json:"precio_unitario_clp"`
+	Unidades                   int64              `json:"unidades"`
+	SubtotalClp                int64              `json:"subtotal_clp"`
+	Modalidad                  string             `json:"modalidad"`
+	Moneda                     string             `json:"moneda"`
+	Inicio                     pgtype.Timestamptz `json:"inicio"`
+	Termino                    pgtype.Timestamptz `json:"termino"`
+	ZonaHoraria                string             `json:"zona_horaria"`
+	PagoVenceEn                pgtype.Timestamptz `json:"pago_vence_en"`
+	AnfitrionVenceEn           pgtype.Timestamptz `json:"anfitrion_vence_en"`
+	CreadaEn                   pgtype.Timestamptz `json:"creada_en"`
+	ActualizadaEn              pgtype.Timestamptz `json:"actualizada_en"`
+	CondicionesSnapshot        string             `json:"condiciones_snapshot"`
+	PoliticaCancelacionVersion string             `json:"politica_cancelacion_version"`
+}
+
+type ReservaEnsayoLocalFixture struct {
+	EspacioID                  string             `json:"espacio_id"`
+	AnfitrionID                string             `json:"anfitrion_id"`
+	ArrendatarioID             string             `json:"arrendatario_id"`
+	HabilitadaEn               pgtype.Timestamptz `json:"habilitada_en"`
+	Habilitada                 bool               `json:"habilitada"`
+	PoliticaCancelacionVersion string             `json:"politica_cancelacion_version"`
+}
+
+type ReservaEnsayoLocalUbicacionSintetica struct {
+	EspacioID   string      `json:"espacio_id"`
+	Latitud     float64     `json:"latitud"`
+	Longitud    float64     `json:"longitud"`
+	Punto       interface{} `json:"punto"`
+	EsSintetica bool        `json:"es_sintetica"`
+}
+
+type ReservaEnsayoTransicion struct {
+	ID             string             `json:"id"`
+	ReservaID      string             `json:"reserva_id"`
+	EstadoAnterior *string            `json:"estado_anterior"`
+	EstadoNuevo    string             `json:"estado_nuevo"`
+	ActorID        pgtype.UUID        `json:"actor_id"`
+	Motivo         string             `json:"motivo"`
+	CreadaEn       pgtype.Timestamptz `json:"creada_en"`
+	Secuencia      int64              `json:"secuencia"`
+}
+
+type ReservaMensajeLectura struct {
+	ReservaID            string             `json:"reserva_id"`
+	ParticipanteID       string             `json:"participante_id"`
+	UltimaSecuenciaLeida int64              `json:"ultima_secuencia_leida"`
+	ActualizadaEn        pgtype.Timestamptz `json:"actualizada_en"`
+}
+
+type ReservaPagoEnsayo struct {
+	ID                string             `json:"id"`
+	ReservaID         string             `json:"reserva_id"`
+	Resultado         string             `json:"resultado"`
+	ClaveIdempotencia string             `json:"clave_idempotencia"`
+	CreadaEn          pgtype.Timestamptz `json:"creada_en"`
+	ImporteClp        int64              `json:"importe_clp"`
+}
+
+type ReservaPagoEnsayoOperacion struct {
+	ID                  string             `json:"id"`
+	ReservaID           string             `json:"reserva_id"`
+	ArrendatarioID      string             `json:"arrendatario_id"`
+	ClaveIdempotencia   string             `json:"clave_idempotencia"`
+	HuellaSolicitud     []byte             `json:"huella_solicitud"`
+	ResultadoSolicitado string             `json:"resultado_solicitado"`
+	Estado              string             `json:"estado"`
+	ResultadoFinal      *string            `json:"resultado_final"`
+	CreadaEn            pgtype.Timestamptz `json:"creada_en"`
+	ActualizadaEn       pgtype.Timestamptz `json:"actualizada_en"`
+}
+
+type ReservaPagoEventoAplicacionEnsayo struct {
+	EventoID        string             `json:"evento_id"`
+	Estado          string             `json:"estado"`
+	CodigoResultado *string            `json:"codigo_resultado"`
+	ProcesadoEn     pgtype.Timestamptz `json:"procesado_en"`
+	CreadaEn        pgtype.Timestamptz `json:"creada_en"`
+}
+
+type ReservaPagoEventoEnsayo struct {
+	ID                string             `json:"id"`
+	OperacionID       string             `json:"operacion_id"`
+	ProveedorEventoID string             `json:"proveedor_evento_id"`
+	Resultado         string             `json:"resultado"`
+	HuellaPayload     []byte             `json:"huella_payload"`
+	AutenticadoEn     pgtype.Timestamptz `json:"autenticado_en"`
+	RecibidoEn        pgtype.Timestamptz `json:"recibido_en"`
+}
+
+type ReservaPagoFakeResultadoEnsayo struct {
+	OperacionID       string             `json:"operacion_id"`
+	Estado            string             `json:"estado"`
+	ProveedorEventoID *string            `json:"proveedor_evento_id"`
+	Resultado         *string            `json:"resultado"`
+	RegistradoEn      pgtype.Timestamptz `json:"registrado_en"`
 }
 
 type RolUsuario struct {
@@ -41,6 +319,22 @@ type Sesion struct {
 	ClienteResumen    *string            `json:"cliente_resumen"`
 }
 
+type SimulacionPrecioPrivada struct {
+	ID                 string             `json:"id"`
+	EspacioID          string             `json:"espacio_id"`
+	PropietarioID      string             `json:"propietario_id"`
+	TarifaVersion      int32              `json:"tarifa_version"`
+	Modalidad          string             `json:"modalidad"`
+	PrecioUnitarioClp  int64              `json:"precio_unitario_clp"`
+	Moneda             string             `json:"moneda"`
+	UnidadesFacturadas int64              `json:"unidades_facturadas"`
+	SubtotalClp        int64              `json:"subtotal_clp"`
+	Inicio             pgtype.Timestamptz `json:"inicio"`
+	Termino            pgtype.Timestamptz `json:"termino"`
+	ZonaHoraria        string             `json:"zona_horaria"`
+	CreadaEn           pgtype.Timestamptz `json:"creada_en"`
+}
+
 type SolicitudTitular struct {
 	ID           string             `json:"id"`
 	UsuarioID    string             `json:"usuario_id"`
@@ -48,6 +342,15 @@ type SolicitudTitular struct {
 	Canal        string             `json:"canal"`
 	Estado       string             `json:"estado"`
 	SolicitadaEn pgtype.Timestamptz `json:"solicitada_en"`
+}
+
+type TarifaEspacio struct {
+	EspacioID     string             `json:"espacio_id"`
+	Version       int32              `json:"version"`
+	Modalidad     string             `json:"modalidad"`
+	PrecioBaseClp int64              `json:"precio_base_clp"`
+	Moneda        string             `json:"moneda"`
+	CreadaEn      pgtype.Timestamptz `json:"creada_en"`
 }
 
 type TokenAccion struct {
@@ -73,6 +376,7 @@ type Usuario struct {
 	BajaSolicitadaEn             pgtype.Timestamptz `json:"baja_solicitada_en"`
 	IntentosFallidosConsecutivos int32              `json:"intentos_fallidos_consecutivos"`
 	BloqueadoHasta               pgtype.Timestamptz `json:"bloqueado_hasta"`
+	PreferenciaUso               *string            `json:"preferencia_uso"`
 }
 
 type Verificacion struct {
@@ -88,6 +392,16 @@ type Verificacion struct {
 	MotivoCodigo        *string            `json:"motivo_codigo"`
 	CreadaEn            pgtype.Timestamptz `json:"creada_en"`
 	ResueltaEn          pgtype.Timestamptz `json:"resuelta_en"`
+}
+
+type VerificacionEvidenciaSintetica struct {
+	ID             string             `json:"id"`
+	VerificacionID string             `json:"verificacion_id"`
+	CodigoFixture  string             `json:"codigo_fixture"`
+	MimeType       string             `json:"mime_type"`
+	TamanoBytes    int64              `json:"tamano_bytes"`
+	Sha256         string             `json:"sha256"`
+	CreadaEn       pgtype.Timestamptz `json:"creada_en"`
 }
 
 type VersionTermino struct {

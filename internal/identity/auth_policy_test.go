@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRegistrationEmailAndPasswordPolicy(t *testing.T) {
@@ -55,5 +56,21 @@ func TestAuthenticationOutputsRedactCredentials(t *testing.T) {
 func TestAuthenticationRequiresExplicitDependencies(t *testing.T) {
 	if _, err := NewAuthenticationService(nil, nil, nil, nil, nil, nil); !errors.Is(err, ErrInvalid) {
 		t.Fatal("service accepted missing security policies")
+	}
+}
+
+func TestAddCalendarMonthsUTCClampsCalendarDay(t *testing.T) {
+	tests := []struct {
+		input, want time.Time
+	}{
+		{time.Date(2026, time.January, 31, 10, 25, 0, 0, time.UTC), time.Date(2026, time.April, 30, 10, 25, 0, 0, time.UTC)},
+		{time.Date(2026, time.May, 31, 23, 59, 59, 0, time.UTC), time.Date(2026, time.August, 31, 23, 59, 59, 0, time.UTC)},
+		{time.Date(2024, time.February, 29, 12, 0, 0, 0, time.UTC), time.Date(2024, time.May, 29, 12, 0, 0, 0, time.UTC)},
+		{time.Date(2026, time.November, 30, 8, 0, 0, 0, time.UTC), time.Date(2027, time.February, 28, 8, 0, 0, 0, time.UTC)},
+	}
+	for _, test := range tests {
+		if got := AddCalendarMonthsUTC(test.input, 3); !got.Equal(test.want) {
+			t.Fatalf("AddCalendarMonthsUTC(%s) = %s; want %s", test.input, got, test.want)
+		}
 	}
 }

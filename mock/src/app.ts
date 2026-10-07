@@ -52,7 +52,7 @@ function form(id: string, work: (data: FormData, element: HTMLFormElement) => Pr
 }
 form("register-form", async (data, element) => {
   if (!termIDs.length || !data.get("terms")) throw new Error("Debes aceptar los términos de prueba.");
-  const response = await request("register", "POST", {email: data.get("email"), password: data.get("password"), terms_version_ids: termIDs});
+  const response = await request("register", "POST", {email: data.get("email"), password: data.get("password"), use_preference: data.get("use_preference"), terms_version_ids: termIDs});
   element.querySelector<HTMLInputElement>('[name="password"]')!.value = "";
   resultElement.textContent = response.status === "verification_pending" ? String(response.message) : "Cuenta creada. Abre el buzón de desarrollo para verificar el correo.";
 });
@@ -80,7 +80,7 @@ form("recovery-consume-form", async (data, element) => {
 form("password-change-form", async (data, element) => {
   await request("password/change", "POST", {current_password:data.get("current_password"), new_password:data.get("new_password"), confirm_password:data.get("confirm_password")}, true);
   sessionToken = ""; clearBookingInboxOnSessionLoss(); element.reset(); document.querySelector("#session-output")!.textContent = "Sesión revocada por cambio de contraseña.";
-  resultElement.textContent = "Contraseña actualizada. Inicia sesión otra vez; se notificó al buzón local.";
+  resultElement.textContent = "Contraseña actualizada. Inicia sesión otra vez; el aviso quedó en cola para el buzón de desarrollo.";
 });
 document.querySelector("#session-button")!.addEventListener("click", () => void action(async () => {
   const response = await request("session", "GET", undefined, true);
