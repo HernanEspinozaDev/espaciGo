@@ -44,6 +44,11 @@ SELECT gen_random_uuid(),$1,COALESCE(MAX(secuencia),0)+1,$2,$3,NULL,$4,$5
 FROM public.reserva_ensayo_transicion WHERE reserva_id=$1`, reservationID, state, next, reason, now); err != nil {
 		return false, err
 	}
+	if next == "vencida_pago" {
+		if _, err = tx.Exec(ctx, `UPDATE public.reserva_pago_ensayo_operacion SET estado='vencida',actualizada_en=$2 WHERE reserva_id=$1 AND estado='pendiente'`, reservationID, now); err != nil {
+			return false, err
+		}
+	}
 	if state == "pagada" {
 		if _, err = tx.Exec(ctx, `INSERT INTO public.reserva_pago_ensayo(id,reserva_id,resultado,clave_idempotencia,creada_en) VALUES(gen_random_uuid(),$1,'devolucion_simulada',$2,$3)`, reservationID, "devolucion-expiracion:"+reservationID, now); err != nil {
 			return false, err

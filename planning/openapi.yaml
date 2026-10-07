@@ -928,6 +928,50 @@ paths:
         '504': { description: Timeout simulado; la reserva sigue pendiente., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingTimeoutEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /local/booking-trial/payment-events:
+    post:
+      operationId: receiveAuthenticatedLocalPaymentEvent
+      tags: [M06 local]
+      security: []
+      description: 'Callback exclusivo del fake local. La firma HMAC en X-Local-Payment-Signature se valida antes de persistir. El inbox inmutable deduplica provider_event_id; la reconciliación aplica el evento después y puede recuperarlo tras reiniciar Backend. No corresponde a una firma ni contrato de proveedor real.'
+      parameters:
+        - name: X-Local-Payment-Signature
+          in: header
+          required: true
+          schema: { type: string, minLength: 40, maxLength: 100 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [event_id, operation_id, outcome]
+              properties:
+                event_id: { type: string, minLength: 1, maxLength: 200 }
+                operation_id: { type: string, format: uuid }
+                outcome: { type: string, enum: [exito_simulado, rechazo_simulado] }
+      responses:
+        '202':
+          description: Evento autenticado y persistido; su aplicación durable queda pendiente.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, safety_notice]
+                properties:
+                  data:
+                    type: object
+                    required: [accepted, reused]
+                    properties:
+                      accepted: { type: boolean, const: true }
+                      reused: { type: boolean }
+                  safety_notice: { type: string, const: 'ENSAYO LOCAL — SIN COBRO REAL' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /local/booking-trial/reservations/{reservationId}/decision:
     post:
       operationId: decideLocalTrialReservation

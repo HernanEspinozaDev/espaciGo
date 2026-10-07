@@ -526,24 +526,168 @@ func (s *Service) List(ctx context.Context, actor string) ([]Reservation, error)
 	return s.repo.List(ctx, actor)
 }
 func (s *Service) Pay(ctx context.Context, renter, id, outcome, key string) (Reservation, error) {
-	if !uuid.MatchString(renter) || !uuid.MatchString(id) || strings.TrimSpace(key) == "" || len(key) > 200 {
+	if !uuid.MatchString(renter) || !uuid.MatchString(id) || strings.TrimSpace(key) == "" || len(key) > 200 || (outcome != "exito" && outcome != "rechazo" && outcome != "sin_respuesta") {
 		return Reservation{}, ErrInvalid
 	}
-	resolved, err := s.payment.Process(ctx, outcome)
-	if err != nil {
+	repo, ok := s.repo.(PaymentLifecycleRepository)
+	if !ok {
 		return Reservation{}, ErrInvalid
 	}
 	if err := s.repo.Expire(ctx, s.now().UTC()); err != nil {
 		return Reservation{}, err
 	}
-	v, err := s.repo.Pay(ctx, renter, id, resolved, key, s.now, s.hostTTL)
+	operationID, err := s.ids.ID()
 	if err != nil {
-		return v, err
+		return Reservation{}, err
 	}
-	if resolved == "sin_respuesta" {
-		return v, ErrSimulatedNoResponse
+	fingerprint := sha256.Sum256([]byte("local-payment-v1\n" + outcome))
+	operation, created, err := repo.BeginPayment(ctx, renter, id, outcome, key, fingerprint[:], operationID, s.now)
+	if err != nil {
+		return Reservation{}, err
 	}
-	return v, nil
+	if operation.State == "vencida" {
+		return Reservation{}, ErrConflict
+	}
+	if operation.State == "aplicada" {
+		current, readErr := s.Get(ctx, renter, id)
+		if readErr != nil {
+			return Reservation{}, readErr
+		}
+		return current.Reservation, nil
+	}
+	var event *PaymentEvent
+	if operation.State == "pendiente" {
+		if created {
+			event, err = s.payment.StartPayment(ctx, operation.ID, operation.Requested)
+			if errors.Is(err, ErrSimulatedNoResponse) {
+				current, readErr := s.Get(ctx, renter, id)
+				if readErr != nil {
+					return Reservation{}, readErr
+				}
+				return current.Reservation, ErrSimulatedNoResponse
+			}
+			if err != nil {
+				// The durable intent may already have reached the adapter. Treat any
+				// ambiguous adapter failure as unresolved; never call Start again.
+				current, readErr := s.Get(ctx, renter, id)
+				if readErr != nil {
+					return Reservation{}, readErr
+				}
+				return current.Reservation, ErrSimulatedNoResponse
+			}
+		} else {
+			// A retry or restart uses lookup against the persisted operation ID;
+			// it never starts a second charge.
+			event, err = s.payment.LookupPayment(ctx, operation)
+			if err != nil {
+				return Reservation{}, err
+			}
+		}
+	}
+	if event != nil {
+		if _, err = s.IngestPaymentEvent(ctx, *event); err != nil {
+			return Reservation{}, err
+		}
+	}
+	if err = s.ReconcilePendingPayments(ctx); err != nil {
+		return Reservation{}, err
+	}
+	current, err := s.Get(ctx, renter, id)
+	if err != nil {
+		return Reservation{}, err
+	}
+	if current.State == "pendiente_de_pago" {
+		return current.Reservation, ErrSimulatedNoResponse
+	}
+	if current.State != "pagada" && current.State != "cancelada_por_pago" {
+		return current.Reservation, ErrConflict
+	}
+	return current.Reservation, nil
+}
+
+// IngestPaymentEvent authenticates before persisting. The inbox row is
+// immutable and survives a process restart; the reconciler applies it later.
+func (s *Service) IngestPaymentEvent(ctx context.Context, event PaymentEvent) (PaymentEventReceipt, error) {
+	if !uuid.MatchString(event.OperationID) || strings.TrimSpace(event.EventID) == "" || len(event.EventID) > 200 ||
+		(event.Outcome != "exito_simulado" && event.Outcome != "rechazo_simulado") {
+		return PaymentEventReceipt{}, ErrInvalid
+	}
+	if !s.payment.VerifyPaymentEvent(event) {
+		return PaymentEventReceipt{}, ErrUnauthenticatedPaymentEvent
+	}
+	repo, ok := s.repo.(PaymentLifecycleRepository)
+	if !ok {
+		return PaymentEventReceipt{}, ErrInvalid
+	}
+	fingerprint := sha256.Sum256([]byte(event.EventID + "\n" + event.OperationID + "\n" + event.Outcome))
+	reused, err := repo.RecordPaymentEvent(ctx, event, fingerprint[:], s.now().UTC())
+	if err != nil {
+		return PaymentEventReceipt{}, err
+	}
+	return PaymentEventReceipt{Accepted: true, Reused: reused}, nil
+}
+
+// ReconcilePendingPayments first applies authenticated inbox records, then
+// performs status-only lookups for pending intents. It never initiates a new
+// payment and is safe to repeat from startup, retry, or a background worker.
+func (s *Service) ReconcilePendingPayments(ctx context.Context) error {
+	repo, ok := s.repo.(PaymentLifecycleRepository)
+	if !ok {
+		return ErrInvalid
+	}
+	if err := s.repo.Expire(ctx, s.now().UTC()); err != nil {
+		return err
+	}
+	for pass := 0; pass < 2; pass++ {
+		eventIDs, err := repo.PendingPaymentEventIDs(ctx, 100)
+		if err != nil {
+			return err
+		}
+		for _, eventID := range eventIDs {
+			_, applyErr := repo.ApplyPaymentEvent(ctx, eventID, s.now, s.hostTTL)
+			if applyErr != nil && !errors.Is(applyErr, ErrConflict) {
+				return applyErr
+			}
+		}
+		if pass == 0 {
+			operations, err := repo.PendingPayments(ctx, 100)
+			if err != nil {
+				return err
+			}
+			for _, operation := range operations {
+				event, lookupErr := s.payment.LookupPayment(ctx, operation)
+				if lookupErr != nil {
+					return lookupErr
+				}
+				if event == nil {
+					continue
+				}
+				if _, ingestErr := s.IngestPaymentEvent(ctx, *event); ingestErr != nil {
+					return ingestErr
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// RunPaymentReconciler retries durable work at startup and periodically. A
+// failure leaves records pending for the next pass; it does not log payloads.
+func (s *Service) RunPaymentReconciler(ctx context.Context, interval time.Duration) {
+	if interval < time.Second {
+		interval = 5 * time.Second
+	}
+	_ = s.ReconcilePendingPayments(ctx)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = s.ReconcilePendingPayments(ctx)
+		}
+	}
 }
 func (s *Service) Decide(ctx context.Context, host, id, decision, reason string) (Reservation, error) {
 	reason = strings.TrimSpace(reason)

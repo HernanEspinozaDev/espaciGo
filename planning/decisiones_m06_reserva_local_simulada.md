@@ -19,13 +19,13 @@ Se reutilizan tarifas versionadas, snapshot de cotización propio del arrendatar
 
 ## Reloj y vencimientos
 
-Los casos de uso reciben un `func() time.Time` sustituible. El servicio procesa vencimientos persistidos de forma transaccional al consultar/listar o al ejecutar una transición; no depende de esperar ni de una goroutine. Los deadline se guardan en PostgreSQL y sobreviven reinicios. El worker durable, conciliación externa y garantías operacionales pertenecen a requisitos generales de M06 y siguen abiertos.
+Los casos de uso reciben un `func() time.Time` sustituible. El servicio procesa vencimientos persistidos de forma transaccional al consultar/listar o al ejecutar una transición; no depende de esperar ni de una goroutine. Los deadline se guardan en PostgreSQL y sobreviven reinicios. La entrega inicial #148 no incluía una conciliación durable de pagos. La subentrega autorizada de #74 añade para el fake local operación persistida, inbox HMAC deduplicado y reconciliación al arrancar y periódica; no acredita garantías ni contrato de proveedor real.
 
 ## Dependencias y separación
 
 Reutiliza trabajo fusionado: identidad/verificación/sesión #124; borradores #134; perfiles versionados #141; disponibilidad y `ocupacion` #145; tarifa versionada y snapshots #147. Los criterios amplios de #69–#79 siguen abiertos. Este flujo no requiere el catálogo/búsqueda pública (#52–#68): lo sustituye un fixture privado único. No requiere permiso comercial ni KYC productivo porque no publica el borrador, no cobra ni confirma fondos reales.
 
-La Issue #148 concentra DDL incremental, casos de uso, API, test PostgreSQL y mock de dos participantes. El mock local de este recorrido no es la prueba de pasarela: #74/#76/#78 continúan pendientes por sus criterios de integración, webhooks e inbox/conciliación; #79 conserva el mock amplio. La #73 general queda abierta aunque esta subentrega se acepte.
+La Issue #148 concentra DDL incremental, casos de uso, API, test PostgreSQL y mock de dos participantes. El mock local de este recorrido no es la prueba de pasarela. La subentrega #74 aborda persistencia de eventos autenticados, deduplicación/idempotencia y recuperación con el fake; integración real/sandbox, credenciales y contrato del proveedor siguen pendientes, al igual que #76/#78 por sus criterios de API y pruebas de proveedor y #79 por el mock amplio. La #73 general queda abierta aunque cortes locales se acepten.
 
 ## Fuera de alcance
 

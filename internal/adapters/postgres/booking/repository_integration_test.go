@@ -30,6 +30,15 @@ type localNoticeRecorder struct {
 	recipients []string
 }
 
+func newTestPaymentAdapter(t *testing.T) *fakebooking.Adapter {
+	t.Helper()
+	adapter, err := fakebooking.New([]byte("integration-only-local-payment-webhook-key-32-bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return adapter
+}
+
 func (r *localNoticeRecorder) SendLocalBookingNotice(_ context.Context, recipient, _, _ string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -247,11 +256,12 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	fixedNow := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	var clockMu sync.Mutex
 	clock := func() time.Time { clockMu.Lock(); defer clockMu.Unlock(); return fixedNow }
-	svc, err := booking.NewService(repo, credentials.Generator{}, clock, fakebooking.New())
+	paymentAdapter := newTestPaymentAdapter(t)
+	svc, err := booking.NewService(repo, credentials.Generator{}, clock, paymentAdapter)
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.SetLocalRefundAdapter(fakebooking.New())
+	svc.SetLocalRefundAdapter(paymentAdapter)
 	noticeRecorder := &localNoticeRecorder{}
 	svc.SetLocalNoticeSender(noticeRecorder)
 	// Catalog availability must drive the existing expiry transition itself;
@@ -897,6 +907,10 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	expired, err := svc.Get(ctx, renter, pending.ID)
 	if err != nil || expired.State != "vencida_pago" {
 		t.Fatalf("payment expiry: %+v %v", expired, err)
+	}
+	var expiredPaymentOperation string
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_pago_ensayo_operacion WHERE reserva_id=$1`, pending.ID).Scan(&expiredPaymentOperation); err != nil || expiredPaymentOperation != "vencida" {
+		t.Fatalf("ambiguous payment operation after reservation expiry=%q err=%v", expiredPaymentOperation, err)
 	}
 	if _, err = conversationService.Send(ctx, renter, pending.ID, "expired-write", "No debe enviarse"); err != conversation.ErrConflict {
 		t.Fatalf("expired payment reservation allowed message write: %v", err)
@@ -1725,7 +1739,8 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	newConcurrentRefundService := func(adapter booking.LocalRefundAdapter) (*booking.Service, *refundRecordSignalRepository) {
 		t.Helper()
 		signalRepo := &refundRecordSignalRepository{Repository: repo, completed: make(chan struct{})}
-		refundService, serviceErr := booking.NewService(signalRepo, credentials.Generator{}, clock, fakebooking.New())
+		paymentAdapter := newTestPaymentAdapter(t)
+		refundService, serviceErr := booking.NewService(signalRepo, credentials.Generator{}, clock, paymentAdapter)
 		if serviceErr != nil {
 			t.Fatal(serviceErr)
 		}
