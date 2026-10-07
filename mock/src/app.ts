@@ -114,6 +114,20 @@ document.querySelector("#rights-load")!.addEventListener("click", () => void act
   const items = await request("/api/v1/rights-requests", "GET", undefined, true);
   document.querySelector<HTMLElement>("#privacy-output")!.textContent = JSON.stringify(items, null, 2);
 }));
+document.querySelector<HTMLButtonElement>("#privacy-export")!.addEventListener("click", () => void action(async () => {
+  const owner = sessionAccountID;
+  const data = await request("/api/v1/privacy/export", "GET", undefined, true);
+  if (!owner || owner !== sessionAccountID) return;
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "espacigo-datos-propios.json";
+  link.click();
+  URL.revokeObjectURL(url);
+  document.querySelector<HTMLElement>("#privacy-output")!.textContent = JSON.stringify(data, null, 2);
+  resultElement.textContent = "Exportación local descargada. Incluye únicamente identidad modelada; no contiene credenciales ni datos de terceros.";
+}));
 form("verification-form", async (data) => {
   const item = await request("/api/v1/verifications", "POST", {type:data.get("type")}, true, crypto.randomUUID());
   document.querySelector<HTMLElement>("#verification-output")!.textContent = JSON.stringify(item, null, 2);
@@ -906,6 +920,7 @@ function clearBookingInboxOnSessionLoss():void{
   hostInbox.textContent="Inicia sesión y actualiza tu bandeja.";
   bookingHistoryOutput.textContent="Inicia sesión para consultar reservas propias.";
   bookingPaymentOutput.textContent="Inicia sesión para consultar pagos de reservas propias.";
+  document.querySelector<HTMLElement>("#privacy-output")!.textContent="Inicia sesión para usar M02.";
   const paymentButton=document.querySelector<HTMLButtonElement>("#booking-inbox-pay");if(paymentButton)paymentButton.textContent="Enviar pago de ensayo";
   const outcome=document.querySelector<HTMLSelectElement>("#booking-inbox-payment-outcome");if(outcome){outcome.value="exito";outcome.disabled=true;}
   clearConversation("La sesión terminó; inicia sesión para consultar conversaciones.");

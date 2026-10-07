@@ -246,6 +246,19 @@ paths:
         '202': { description: Solicitud recibida para revisión., content: { application/json: { schema: { $ref: '#/components/schemas/RightsRequest' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': *id006
+  /privacy/export:
+    get:
+      operationId: exportOwnIdentityData
+      tags: [M02 local]
+      description: >-
+        Devuelve una instantánea consistente y limitada a la cuenta autenticada:
+        correo proporcionado, estado, preferencia inicial, perfil, roles, aceptaciones
+        de términos y solicitudes propias. Excluye hashes, sesiones, tokens, secretos
+        y datos de terceros. No equivale a exportación de todas las áreas del producto.
+      responses:
+        '200': { description: Exportación propia local., content: { application/json: { schema: { $ref: '#/components/schemas/OwnIdentityExport' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Cuenta propia no encontrada. }
   /verifications:
     get:
       operationId: listOwnVerifications
@@ -1716,6 +1729,40 @@ components:
       required: [items]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/RightsRequest' } }
+    OwnIdentityExport:
+      type: object
+      additionalProperties: false
+      required: [account, roles, terms_acceptances, rights_requests, scope]
+      properties:
+        scope: { type: string, const: identidad_local_v1 }
+        account:
+          type: object
+          additionalProperties: false
+          required: [email, state, created_at]
+          properties:
+            email: { type: string, format: email }
+            state: { type: string }
+            use_preference: { type: [string, 'null'], enum: [ofrecer, arrendar, null] }
+            created_at: { type: string, format: date-time }
+        profile:
+          type: object
+          additionalProperties: false
+          required: [display_name, updated_at]
+          properties:
+            display_name: { type: string }
+            phone: { type: [string, 'null'], pattern: '^[0-9]{9}$' }
+            updated_at: { type: string, format: date-time }
+        roles: { type: array, items: { type: string, enum: [arrendatario, arrendador, administrador] } }
+        terms_acceptances:
+          type: array
+          items:
+            type: object
+            required: [code, type, accepted_at]
+            properties:
+              code: { type: string }
+              type: { type: string, enum: [terminos, privacidad, politica_arrendador] }
+              accepted_at: { type: string, format: date-time }
+        rights_requests: { type: array, items: { $ref: '#/components/schemas/RightsRequest' } }
     VerificationCreate:
       type: object
       additionalProperties: false

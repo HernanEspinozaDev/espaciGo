@@ -28,11 +28,43 @@ type RightsRequest struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// OwnData is the bounded identity export available in the local prototype.
+// It intentionally excludes credential hashes, sessions, action tokens and
+// records belonging to other participants or domain owners.
+type OwnData struct {
+	Account     ExportAccount     `json:"account"`
+	Profile     *ExportProfile    `json:"profile,omitempty"`
+	Roles       []string          `json:"roles"`
+	Acceptances []TermsAcceptance `json:"terms_acceptances"`
+	Requests    []RightsRequest   `json:"rights_requests"`
+	Scope       string            `json:"scope"`
+}
+
+type ExportAccount struct {
+	Email         string    `json:"email"`
+	State         string    `json:"state"`
+	UsePreference *string   `json:"use_preference,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type ExportProfile struct {
+	Name      string    `json:"display_name"`
+	Phone     *string   `json:"phone,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type TermsAcceptance struct {
+	Code       string    `json:"code"`
+	Type       string    `json:"type"`
+	AcceptedAt time.Time `json:"accepted_at"`
+}
+
 type Repository interface {
 	GetProfile(context.Context, string) (Profile, error)
 	SaveProfile(context.Context, string, string, *string) (Profile, error)
 	CreateRightsRequest(context.Context, string, string, string) (RightsRequest, error)
 	ListOwnRightsRequests(context.Context, string) ([]RightsRequest, error)
+	ExportOwnData(context.Context, string) (OwnData, error)
 }
 
 type Service struct{ repo Repository }
@@ -84,4 +116,11 @@ func (s *Service) OwnRequests(ctx context.Context, accountID string) ([]RightsRe
 		return nil, ErrInvalid
 	}
 	return s.repo.ListOwnRightsRequests(ctx, accountID)
+}
+
+func (s *Service) ExportOwnData(ctx context.Context, accountID string) (OwnData, error) {
+	if accountID == "" {
+		return OwnData{}, ErrInvalid
+	}
+	return s.repo.ExportOwnData(ctx, accountID)
 }

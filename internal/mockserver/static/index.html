@@ -48,12 +48,12 @@
     <pre id="session-output">Sin sesión consultada.</pre>
   </section>
   <section><h2>7. Perfil y privacidad (M02)</h2>
-    <p>El perfil pertenece a la sesión actual. Teléfono opcional: nueve dígitos. La solicitud de supresión queda en revisión; no elimina datos automáticamente.</p>
+    <p>El perfil pertenece a la sesión actual. Teléfono opcional: nueve dígitos. La solicitud de supresión queda en revisión; no elimina datos automáticamente. La exportación incluye los datos de identidad modelados y excluye credenciales y datos de terceros.</p>
     <button id="profile-load" type="button">Consultar mi perfil</button>
     <form id="profile-form"><label>Nombre visible <input name="display_name" required maxlength="120"></label>
       <label>Teléfono opcional <input name="phone" inputmode="numeric" pattern="[0-9]{9}" maxlength="9"></label><button>Guardar perfil</button></form>
     <form id="rights-form"><label>Solicitud <select name="type"><option value="acceso">Acceso a mis datos</option><option value="supresion">Solicitar supresión para revisión</option></select></label><button>Registrar solicitud</button></form>
-    <button id="rights-load" type="button">Consultar mis solicitudes</button><pre id="privacy-output">Inicia sesión para usar M02.</pre>
+    <button id="rights-load" type="button">Consultar mis solicitudes</button> <button id="privacy-export" type="button">Descargar mis datos de identidad</button><pre id="privacy-output">Inicia sesión para usar M02.</pre>
   </section>
   <section><h2>8. Verificación de identidad (M03 · sandbox sintético)</h2>
     <p>Este flujo no consulta Registro Civil/SII ni acepta archivos del usuario. La API genera un PNG sintético fijo y lo guarda en almacenamiento local privado fuera de las rutas públicas. No usar datos reales; proveedor productivo y retención siguen pendientes.</p>
