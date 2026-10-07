@@ -34,9 +34,10 @@ El usuario ratificó durante esta entrega la regla `local_flexible_v1`, exclusiv
 
 - #19/#21/#22/#23/#24 están cerradas y aportan base técnica suficiente.
 - La aceptación de PR #170 completa los criterios propios de #70–#72, que se cierran en GitHub. #69 sigue abierto porque su matriz general de estados, conciliación y escenarios remotos no está completa; #73/#75/#77 siguen abiertos por sus criterios de ciclo, contrato y pruebas más amplios. No se cierra #69 para desbloquear tareas. El catálogo/cotización de fixtures permite el recorrido local, pero no completa #65 ni #68; la dependencia general de #73 a #65 sigue pendiente de ajuste trazable en Projects.
-- #74/#76/#78 siguen abiertas: falta integración real/sandbox contractual, webhooks firmados y deduplicados, manejo durable, conciliación y garantías ante timeout/replay de proveedor.
+- **#74 — siguiente alcance listo:** sus dependencias declaradas #71, #72 y #22 están cerradas. Está listo el tramo fake/durable previsto por la Issue: persistencia de eventos autenticados, deduplicación, idempotencia y conciliación recuperable tras reiniciar Backend con el adaptador fake. La integración con proveedor real/sandbox, sus credenciales y su contrato siguen pendientes y separados; Listo no significa implementado.
+- #76 y #78 siguen Bloqueadas hasta completar el contrato/API y las pruebas de proveedor que realmente requieren. #79 permanece Bloqueada por #77/#78; no se desbloquea anticipadamente.
 - #79 no se declara completo: esta evidencia cubre solo el slice local de reservas, no toda su aceptación visual/general.
-- Tras el merge aceptado de PR #170, #70, #71 y #72 satisfacen sus criterios propios y se cierran como Hecho. #69, #73, #75 y #77 permanecen abiertas/bloqueadas porque sus criterios de conciliación, cancelación general/CU-51, contrato completo de autorización o matriz amplia aún no están cubiertos. #74/#76/#78/#79 también continúan abiertos y bloqueados según su grafo; no se marca M06 completo.
+- Tras el merge aceptado de PR #170, #70, #71 y #72 satisfacen sus criterios propios y se cierran como Hecho. #69, #73, #75 y #77 permanecen abiertas/bloqueadas porque sus criterios de conciliación, cancelación general/CU-51, contrato completo de autorización o matriz amplia aún no están cubiertos. #74 queda **Listo** únicamente para el alcance fake/durable descrito arriba; sandbox real permanece pendiente. #76/#78/#79 conservan Bloqueado conforme a sus dependencias; no se marca M06 completo.
 
 ## Validación y evidencia
 
