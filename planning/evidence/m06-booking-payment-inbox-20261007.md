@@ -1,6 +1,6 @@
 # Evidencia #74 — pagos fake durables
 
-Entrega separada de PR #170, habilitada después del merge #171. Dependencias declaradas: #71, #72 y #22, satisfechas. #74 permanece abierta hasta aceptación; esto no habilita ni completa la integración real/sandbox ni #76/#78/#79.
+Implementación en el PR #172, separada de la aceptación de PR #170 y habilitada después del merge #171. Dependencias declaradas: #71, #72 y #22, satisfechas. #74 permanece abierta hasta aceptación; esto no habilita ni completa la integración real/sandbox ni #76/#78/#79.
 
 ## Recorrido y garantías probadas
 
