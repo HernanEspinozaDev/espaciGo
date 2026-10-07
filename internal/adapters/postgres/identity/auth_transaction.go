@@ -34,19 +34,19 @@ func (r *IdentityRepository) WithLockedAccount(ctx context.Context, lookup ident
 	case lookup.Email != "":
 		row, e := q.LockAccountByEmail(ctx, lookup.Email)
 		err = e
-		account = accountFrom(row.ID, row.Email, row.NormalizedEmail, row.PasswordHash, row.State, row.CreatedAt, row.UpdatedAt, row.FailedAttempts, row.BlockedUntil, row.UsePreference)
+		account = accountFrom(row.ID, row.Email, row.NormalizedEmail, row.PasswordHash, row.State, row.CreatedAt, row.UpdatedAt, row.FailedAttempts, row.BlockedUntil)
 	case lookup.VerificationID != "":
 		row, e := q.LockAccountByVerificationID(ctx, lookup.VerificationID)
 		err = e
-		account = accountFrom(row.ID, row.Email, row.NormalizedEmail, row.PasswordHash, row.State, row.CreatedAt, row.UpdatedAt, row.FailedAttempts, row.BlockedUntil, row.UsePreference)
+		account = accountFrom(row.ID, row.Email, row.NormalizedEmail, row.PasswordHash, row.State, row.CreatedAt, row.UpdatedAt, row.FailedAttempts, row.BlockedUntil)
 	case lookup.ActionTokenID != "":
 		row, e := q.LockAccountByActionTokenID(ctx, lookup.ActionTokenID)
 		err = e
-		account = accountFrom(row.ID, row.Email, row.NormalizedEmail, row.PasswordHash, row.State, row.CreatedAt, row.UpdatedAt, row.FailedAttempts, row.BlockedUntil, row.UsePreference)
+		account = accountFrom(row.ID, row.Email, row.NormalizedEmail, row.PasswordHash, row.State, row.CreatedAt, row.UpdatedAt, row.FailedAttempts, row.BlockedUntil)
 	default:
 		row, e := q.LockAccountBySessionHash(ctx, lookup.SessionHash)
 		err = e
-		account = accountFrom(row.ID, row.Email, row.NormalizedEmail, row.PasswordHash, row.State, row.CreatedAt, row.UpdatedAt, row.FailedAttempts, row.BlockedUntil, row.UsePreference)
+		account = accountFrom(row.ID, row.Email, row.NormalizedEmail, row.PasswordHash, row.State, row.CreatedAt, row.UpdatedAt, row.FailedAttempts, row.BlockedUntil)
 	}
 	if err != nil {
 		return mapError(err)
@@ -91,43 +91,6 @@ func (t *authenticationTransaction) ReplaceActionToken(ctx context.Context, toke
 
 func (t *authenticationTransaction) UpdatePasswordHash(ctx context.Context, accountID string, hash identity.Secret) error {
 	return mapError(t.queries.UpdatePasswordHash(ctx, dbgen.UpdatePasswordHashParams{AccountID: accountID, PasswordHash: string(hash)}))
-}
-
-func (t *authenticationTransaction) DeleteExpiredPasswordHistory(ctx context.Context, accountID string, at time.Time) error {
-	return mapError(t.queries.DeleteExpiredPasswordHistory(ctx, dbgen.DeleteExpiredPasswordHistoryParams{AccountID: accountID, At: dbTime(at)}))
-}
-
-func (t *authenticationTransaction) PreviousPasswordHashes(ctx context.Context, accountID string, at time.Time) ([]identity.Secret, error) {
-	rows, err := t.queries.ListPasswordHistory(ctx, dbgen.ListPasswordHistoryParams{AccountID: accountID, At: dbTime(at)})
-	if err != nil {
-		return nil, mapError(err)
-	}
-	hashes := make([]identity.Secret, len(rows))
-	for i := range rows {
-		hashes[i] = identity.Secret(rows[i])
-	}
-	return hashes, nil
-}
-
-func (t *authenticationTransaction) StorePreviousPasswordHash(ctx context.Context, id, accountID string, hash identity.Secret, noLongerCurrentAt, removeAt, createdAt time.Time) error {
-	if id == "" || accountID == "" || hash == "" || !removeAt.After(noLongerCurrentAt) || createdAt.Before(noLongerCurrentAt) {
-		return identity.ErrInvalid
-	}
-	return mapError(t.queries.StorePreviousPasswordHash(ctx, dbgen.StorePreviousPasswordHashParams{ID: id, AccountID: accountID, PasswordHash: string(hash), NoLongerCurrentAt: dbTime(noLongerCurrentAt), RemoveAt: dbTime(removeAt), CreatedAt: dbTime(createdAt)}))
-}
-
-func (t *authenticationTransaction) EnqueueCredentialChanged(ctx context.Context, eventID, accountID, dedupeKey string, createdAt time.Time) error {
-	if eventID == "" || accountID == "" || dedupeKey == "" || createdAt.IsZero() {
-		return identity.ErrInvalid
-	}
-	return mapError(t.queries.EnqueueCredentialChanged(ctx, dbgen.EnqueueCredentialChangedParams{ID: eventID, AccountID: accountID, DedupeKey: dedupeKey, CreatedAt: dbTime(createdAt)}))
-}
-
-func (t *authenticationTransaction) RecordCredentialChangeAudit(ctx context.Context, auditID, actorID, resourceID, correlationID string, at, removeAt time.Time) error {
-	if auditID == "" || actorID == "" || resourceID == "" || correlationID == "" || !removeAt.After(at) {
-		return identity.ErrInvalid
-	}
-	return mapError(t.queries.RecordCredentialChangeAudit(ctx, dbgen.RecordCredentialChangeAuditParams{ID: auditID, ActorID: actorID, ResourceID: resourceID, CorrelationID: correlationID, At: dbTime(at), RemoveAt: dbTime(removeAt)}))
 }
 
 func (t *authenticationTransaction) RevokeActiveSessions(ctx context.Context, accountID string, at time.Time) error {

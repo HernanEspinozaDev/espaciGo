@@ -1,10 +1,10 @@
 -- name: CreateAccount :exec
 INSERT INTO public.usuario (
     id, correo_original, correo_normalizado, hash_clave, estado,
-    creado_en, actualizado_en, preferencia_uso
+    creado_en, actualizado_en
 ) VALUES (
     sqlc.arg(id), sqlc.arg(email), sqlc.arg(normalized_email), sqlc.arg(password_hash),
-    sqlc.arg(state), sqlc.arg(created_at), sqlc.arg(updated_at), sqlc.arg(use_preference)
+    sqlc.arg(state), sqlc.arg(created_at), sqlc.arg(updated_at)
 );
 
 -- name: CreateTenantRole :exec
@@ -28,7 +28,7 @@ SELECT
     creado_en AS created_at,
     actualizado_en AS updated_at,
     intentos_fallidos_consecutivos AS failed_attempts,
-    bloqueado_hasta AS blocked_until, preferencia_uso AS use_preference
+    bloqueado_hasta AS blocked_until
 FROM public.usuario
 WHERE correo_normalizado = sqlc.arg(normalized_email)
 LIMIT 1;
@@ -43,7 +43,7 @@ SELECT
     creado_en AS created_at,
     actualizado_en AS updated_at,
     intentos_fallidos_consecutivos AS failed_attempts,
-    bloqueado_hasta AS blocked_until, preferencia_uso AS use_preference
+    bloqueado_hasta AS blocked_until
 FROM public.usuario
 WHERE id = sqlc.arg(id)
 LIMIT 1;
@@ -174,7 +174,7 @@ WHERE usuario_id = sqlc.arg(account_id)
 SELECT id::text AS id, correo_original AS email, correo_normalizado AS normalized_email,
     hash_clave AS password_hash, estado AS state, creado_en AS created_at,
     actualizado_en AS updated_at, intentos_fallidos_consecutivos AS failed_attempts,
-    bloqueado_hasta AS blocked_until, preferencia_uso AS use_preference
+    bloqueado_hasta AS blocked_until
 FROM public.usuario
 WHERE correo_normalizado = sqlc.arg(normalized_email)
 FOR UPDATE;
@@ -183,7 +183,7 @@ FOR UPDATE;
 SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
     u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
     u.actualizado_en AS updated_at, u.intentos_fallidos_consecutivos AS failed_attempts,
-    u.bloqueado_hasta AS blocked_until, preferencia_uso AS use_preference
+    u.bloqueado_hasta AS blocked_until
 FROM public.usuario u JOIN public.token_accion t ON t.usuario_id = u.id
 WHERE t.id = sqlc.arg(token_id) AND t.proposito = 'verificar_correo'
 FOR UPDATE OF u;
@@ -192,7 +192,7 @@ FOR UPDATE OF u;
 SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
     u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
     u.actualizado_en AS updated_at, u.intentos_fallidos_consecutivos AS failed_attempts,
-    u.bloqueado_hasta AS blocked_until, preferencia_uso AS use_preference
+    u.bloqueado_hasta AS blocked_until
 FROM public.usuario u JOIN public.token_accion t ON t.usuario_id = u.id
 WHERE t.id = sqlc.arg(token_id)
 FOR UPDATE OF u;
@@ -201,7 +201,7 @@ FOR UPDATE OF u;
 SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
     u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
     u.actualizado_en AS updated_at, u.intentos_fallidos_consecutivos AS failed_attempts,
-    u.bloqueado_hasta AS blocked_until, preferencia_uso AS use_preference
+    u.bloqueado_hasta AS blocked_until
 FROM public.usuario u JOIN public.sesion s ON s.usuario_id = u.id
 WHERE s.token_hash = sqlc.arg(token_hash)
 FOR UPDATE OF u;
@@ -256,67 +256,3 @@ SELECT id::text AS id, tipo AS kind, estado AS state, solicitada_en
 FROM public.solicitud_titular
 WHERE usuario_id = sqlc.arg(account_id)
 ORDER BY solicitada_en DESC, id DESC;
-
--- name: DeleteExpiredPasswordHistory :exec
-DELETE FROM public.historial_clave_local
-WHERE usuario_id = sqlc.arg(account_id) AND retirar_en <= sqlc.arg(at);
-
--- name: PurgeExpiredPasswordHistory :exec
-DELETE FROM public.historial_clave_local WHERE retirar_en <= sqlc.arg(at);
-
--- name: ListPasswordHistory :many
-SELECT hash_clave
-FROM public.historial_clave_local
-WHERE usuario_id = sqlc.arg(account_id) AND retirar_en > sqlc.arg(at)
-ORDER BY dejo_de_ser_vigente_en DESC, id;
-
--- name: StorePreviousPasswordHash :exec
-INSERT INTO public.historial_clave_local (
-    id, usuario_id, hash_clave, dejo_de_ser_vigente_en, retirar_en, creado_en
-) VALUES (
-    sqlc.arg(id), sqlc.arg(account_id), sqlc.arg(password_hash),
-    sqlc.arg(no_longer_current_at), sqlc.arg(remove_at), sqlc.arg(created_at)
-);
-
--- name: EnqueueCredentialChanged :exec
-INSERT INTO public.outbox_evento_local (
-    id, agregado_tipo, agregado_id, tipo, clave_deduplicacion, version, creada_en, disponible_en
-) VALUES (
-    sqlc.arg(id), 'usuario', sqlc.arg(account_id), 'identidad.credencial_cambiada',
-    sqlc.arg(dedupe_key), 1, sqlc.arg(created_at), sqlc.arg(created_at)
-);
-
--- name: RecordCredentialChangeAudit :exec
-INSERT INTO public.evento_auditoria_local (
-    id, actor_id, recurso_tipo, recurso_id, accion, resultado, motivo_codigo,
-    correlacion_id, ocurrido_en, retirar_en
-) VALUES (
-    sqlc.arg(id), sqlc.arg(actor_id), 'usuario', sqlc.arg(resource_id),
-    'identidad.credencial_cambiar', 'exito', 'clave_actualizada',
-    sqlc.arg(correlation_id), sqlc.arg(at), sqlc.arg(remove_at)
-);
-
--- name: ClaimCredentialChangedNotice :one
-WITH candidate AS (
-    SELECT event.id FROM public.outbox_evento_local AS event
-    WHERE event.tipo = 'identidad.credencial_cambiada' AND event.entregada_en IS NULL
-      AND event.disponible_en <= sqlc.arg(at) AND (event.lease_hasta IS NULL OR event.lease_hasta <= sqlc.arg(at))
-    ORDER BY event.disponible_en, event.creada_en, event.id
-    FOR UPDATE SKIP LOCKED LIMIT 1
-)
-UPDATE public.outbox_evento_local AS event
-SET lease_hasta = sqlc.arg(lease_until), intentos = event.intentos + 1
-FROM candidate
-WHERE event.id = candidate.id
-RETURNING event.id::text AS id, event.agregado_id::text AS account_id, event.intentos, event.lease_hasta AS lease_until;
-
--- name: CompleteCredentialChangedNotice :execrows
-UPDATE public.outbox_evento_local
-SET entregada_en = sqlc.arg(at), lease_hasta = NULL, ultimo_error = NULL
-WHERE id = sqlc.arg(id) AND entregada_en IS NULL AND lease_hasta = sqlc.arg(lease_until);
-
--- name: RetryCredentialChangedNotice :execrows
-UPDATE public.outbox_evento_local
-SET disponible_en = sqlc.arg(retry_at), lease_hasta = NULL,
-    ultimo_error = 'mailpit_delivery_failed'
-WHERE id = sqlc.arg(id) AND entregada_en IS NULL AND lease_hasta = sqlc.arg(lease_until);

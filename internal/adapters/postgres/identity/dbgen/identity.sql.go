@@ -11,65 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const claimCredentialChangedNotice = `-- name: ClaimCredentialChangedNotice :one
-WITH candidate AS (
-    SELECT event.id FROM public.outbox_evento_local AS event
-    WHERE event.tipo = 'identidad.credencial_cambiada' AND event.entregada_en IS NULL
-      AND event.disponible_en <= $2 AND (event.lease_hasta IS NULL OR event.lease_hasta <= $2)
-    ORDER BY event.disponible_en, event.creada_en, event.id
-    FOR UPDATE SKIP LOCKED LIMIT 1
-)
-UPDATE public.outbox_evento_local AS event
-SET lease_hasta = $1, intentos = event.intentos + 1
-FROM candidate
-WHERE event.id = candidate.id
-RETURNING event.id::text AS id, event.agregado_id::text AS account_id, event.intentos, event.lease_hasta AS lease_until
-`
-
-type ClaimCredentialChangedNoticeParams struct {
-	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
-	At         pgtype.Timestamptz `json:"at"`
-}
-
-type ClaimCredentialChangedNoticeRow struct {
-	ID         string             `json:"id"`
-	AccountID  string             `json:"account_id"`
-	Intentos   int32              `json:"intentos"`
-	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
-}
-
-func (q *Queries) ClaimCredentialChangedNotice(ctx context.Context, arg ClaimCredentialChangedNoticeParams) (ClaimCredentialChangedNoticeRow, error) {
-	row := q.db.QueryRow(ctx, claimCredentialChangedNotice, arg.LeaseUntil, arg.At)
-	var i ClaimCredentialChangedNoticeRow
-	err := row.Scan(
-		&i.ID,
-		&i.AccountID,
-		&i.Intentos,
-		&i.LeaseUntil,
-	)
-	return i, err
-}
-
-const completeCredentialChangedNotice = `-- name: CompleteCredentialChangedNotice :execrows
-UPDATE public.outbox_evento_local
-SET entregada_en = $1, lease_hasta = NULL, ultimo_error = NULL
-WHERE id = $2 AND entregada_en IS NULL AND lease_hasta = $3
-`
-
-type CompleteCredentialChangedNoticeParams struct {
-	At         pgtype.Timestamptz `json:"at"`
-	ID         string             `json:"id"`
-	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
-}
-
-func (q *Queries) CompleteCredentialChangedNotice(ctx context.Context, arg CompleteCredentialChangedNoticeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, completeCredentialChangedNotice, arg.At, arg.ID, arg.LeaseUntil)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const consumeActionToken = `-- name: ConsumeActionToken :execrows
 UPDATE public.token_accion
 SET consumido_en = $1
@@ -117,10 +58,10 @@ func (q *Queries) CountActionTokenEmissions(ctx context.Context, arg CountAction
 const createAccount = `-- name: CreateAccount :exec
 INSERT INTO public.usuario (
     id, correo_original, correo_normalizado, hash_clave, estado,
-    creado_en, actualizado_en, preferencia_uso
+    creado_en, actualizado_en
 ) VALUES (
     $1, $2, $3, $4,
-    $5, $6, $7, $8
+    $5, $6, $7
 )
 `
 
@@ -132,7 +73,6 @@ type CreateAccountParams struct {
 	State           string             `json:"state"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	UsePreference   *string            `json:"use_preference"`
 }
 
 func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) error {
@@ -144,7 +84,6 @@ func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) er
 		arg.State,
 		arg.CreatedAt,
 		arg.UpdatedAt,
-		arg.UsePreference,
 	)
 	return err
 }
@@ -296,47 +235,6 @@ func (q *Queries) CreateTermsAcceptance(ctx context.Context, arg CreateTermsAcce
 	return err
 }
 
-const deleteExpiredPasswordHistory = `-- name: DeleteExpiredPasswordHistory :exec
-DELETE FROM public.historial_clave_local
-WHERE usuario_id = $1 AND retirar_en <= $2
-`
-
-type DeleteExpiredPasswordHistoryParams struct {
-	AccountID string             `json:"account_id"`
-	At        pgtype.Timestamptz `json:"at"`
-}
-
-func (q *Queries) DeleteExpiredPasswordHistory(ctx context.Context, arg DeleteExpiredPasswordHistoryParams) error {
-	_, err := q.db.Exec(ctx, deleteExpiredPasswordHistory, arg.AccountID, arg.At)
-	return err
-}
-
-const enqueueCredentialChanged = `-- name: EnqueueCredentialChanged :exec
-INSERT INTO public.outbox_evento_local (
-    id, agregado_tipo, agregado_id, tipo, clave_deduplicacion, version, creada_en, disponible_en
-) VALUES (
-    $1, 'usuario', $2, 'identidad.credencial_cambiada',
-    $3, 1, $4, $4
-)
-`
-
-type EnqueueCredentialChangedParams struct {
-	ID        string             `json:"id"`
-	AccountID string             `json:"account_id"`
-	DedupeKey string             `json:"dedupe_key"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-}
-
-func (q *Queries) EnqueueCredentialChanged(ctx context.Context, arg EnqueueCredentialChangedParams) error {
-	_, err := q.db.Exec(ctx, enqueueCredentialChanged,
-		arg.ID,
-		arg.AccountID,
-		arg.DedupeKey,
-		arg.CreatedAt,
-	)
-	return err
-}
-
 const getAccountByID = `-- name: GetAccountByID :one
 SELECT
     id::text AS id,
@@ -347,7 +245,7 @@ SELECT
     creado_en AS created_at,
     actualizado_en AS updated_at,
     intentos_fallidos_consecutivos AS failed_attempts,
-    bloqueado_hasta AS blocked_until, preferencia_uso AS use_preference
+    bloqueado_hasta AS blocked_until
 FROM public.usuario
 WHERE id = $1
 LIMIT 1
@@ -363,7 +261,6 @@ type GetAccountByIDRow struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	FailedAttempts  int32              `json:"failed_attempts"`
 	BlockedUntil    pgtype.Timestamptz `json:"blocked_until"`
-	UsePreference   *string            `json:"use_preference"`
 }
 
 func (q *Queries) GetAccountByID(ctx context.Context, id string) (GetAccountByIDRow, error) {
@@ -379,7 +276,6 @@ func (q *Queries) GetAccountByID(ctx context.Context, id string) (GetAccountByID
 		&i.UpdatedAt,
 		&i.FailedAttempts,
 		&i.BlockedUntil,
-		&i.UsePreference,
 	)
 	return i, err
 }
@@ -394,7 +290,7 @@ SELECT
     creado_en AS created_at,
     actualizado_en AS updated_at,
     intentos_fallidos_consecutivos AS failed_attempts,
-    bloqueado_hasta AS blocked_until, preferencia_uso AS use_preference
+    bloqueado_hasta AS blocked_until
 FROM public.usuario
 WHERE correo_normalizado = $1
 LIMIT 1
@@ -410,7 +306,6 @@ type GetAccountByNormalizedEmailRow struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	FailedAttempts  int32              `json:"failed_attempts"`
 	BlockedUntil    pgtype.Timestamptz `json:"blocked_until"`
-	UsePreference   *string            `json:"use_preference"`
 }
 
 func (q *Queries) GetAccountByNormalizedEmail(ctx context.Context, normalizedEmail string) (GetAccountByNormalizedEmailRow, error) {
@@ -426,7 +321,6 @@ func (q *Queries) GetAccountByNormalizedEmail(ctx context.Context, normalizedEma
 		&i.UpdatedAt,
 		&i.FailedAttempts,
 		&i.BlockedUntil,
-		&i.UsePreference,
 	)
 	return i, err
 }
@@ -738,43 +632,11 @@ func (q *Queries) ListOwnRightsRequests(ctx context.Context, accountID string) (
 	return items, nil
 }
 
-const listPasswordHistory = `-- name: ListPasswordHistory :many
-SELECT hash_clave
-FROM public.historial_clave_local
-WHERE usuario_id = $1 AND retirar_en > $2
-ORDER BY dejo_de_ser_vigente_en DESC, id
-`
-
-type ListPasswordHistoryParams struct {
-	AccountID string             `json:"account_id"`
-	At        pgtype.Timestamptz `json:"at"`
-}
-
-func (q *Queries) ListPasswordHistory(ctx context.Context, arg ListPasswordHistoryParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, listPasswordHistory, arg.AccountID, arg.At)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var hash_clave string
-		if err := rows.Scan(&hash_clave); err != nil {
-			return nil, err
-		}
-		items = append(items, hash_clave)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const lockAccountByActionTokenID = `-- name: LockAccountByActionTokenID :one
 SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
     u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
     u.actualizado_en AS updated_at, u.intentos_fallidos_consecutivos AS failed_attempts,
-    u.bloqueado_hasta AS blocked_until, preferencia_uso AS use_preference
+    u.bloqueado_hasta AS blocked_until
 FROM public.usuario u JOIN public.token_accion t ON t.usuario_id = u.id
 WHERE t.id = $1
 FOR UPDATE OF u
@@ -790,7 +652,6 @@ type LockAccountByActionTokenIDRow struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	FailedAttempts  int32              `json:"failed_attempts"`
 	BlockedUntil    pgtype.Timestamptz `json:"blocked_until"`
-	UsePreference   *string            `json:"use_preference"`
 }
 
 func (q *Queries) LockAccountByActionTokenID(ctx context.Context, tokenID string) (LockAccountByActionTokenIDRow, error) {
@@ -806,7 +667,6 @@ func (q *Queries) LockAccountByActionTokenID(ctx context.Context, tokenID string
 		&i.UpdatedAt,
 		&i.FailedAttempts,
 		&i.BlockedUntil,
-		&i.UsePreference,
 	)
 	return i, err
 }
@@ -815,7 +675,7 @@ const lockAccountByEmail = `-- name: LockAccountByEmail :one
 SELECT id::text AS id, correo_original AS email, correo_normalizado AS normalized_email,
     hash_clave AS password_hash, estado AS state, creado_en AS created_at,
     actualizado_en AS updated_at, intentos_fallidos_consecutivos AS failed_attempts,
-    bloqueado_hasta AS blocked_until, preferencia_uso AS use_preference
+    bloqueado_hasta AS blocked_until
 FROM public.usuario
 WHERE correo_normalizado = $1
 FOR UPDATE
@@ -831,7 +691,6 @@ type LockAccountByEmailRow struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	FailedAttempts  int32              `json:"failed_attempts"`
 	BlockedUntil    pgtype.Timestamptz `json:"blocked_until"`
-	UsePreference   *string            `json:"use_preference"`
 }
 
 func (q *Queries) LockAccountByEmail(ctx context.Context, normalizedEmail string) (LockAccountByEmailRow, error) {
@@ -847,7 +706,6 @@ func (q *Queries) LockAccountByEmail(ctx context.Context, normalizedEmail string
 		&i.UpdatedAt,
 		&i.FailedAttempts,
 		&i.BlockedUntil,
-		&i.UsePreference,
 	)
 	return i, err
 }
@@ -856,7 +714,7 @@ const lockAccountBySessionHash = `-- name: LockAccountBySessionHash :one
 SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
     u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
     u.actualizado_en AS updated_at, u.intentos_fallidos_consecutivos AS failed_attempts,
-    u.bloqueado_hasta AS blocked_until, preferencia_uso AS use_preference
+    u.bloqueado_hasta AS blocked_until
 FROM public.usuario u JOIN public.sesion s ON s.usuario_id = u.id
 WHERE s.token_hash = $1
 FOR UPDATE OF u
@@ -872,7 +730,6 @@ type LockAccountBySessionHashRow struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	FailedAttempts  int32              `json:"failed_attempts"`
 	BlockedUntil    pgtype.Timestamptz `json:"blocked_until"`
-	UsePreference   *string            `json:"use_preference"`
 }
 
 func (q *Queries) LockAccountBySessionHash(ctx context.Context, tokenHash string) (LockAccountBySessionHashRow, error) {
@@ -888,7 +745,6 @@ func (q *Queries) LockAccountBySessionHash(ctx context.Context, tokenHash string
 		&i.UpdatedAt,
 		&i.FailedAttempts,
 		&i.BlockedUntil,
-		&i.UsePreference,
 	)
 	return i, err
 }
@@ -897,7 +753,7 @@ const lockAccountByVerificationID = `-- name: LockAccountByVerificationID :one
 SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
     u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
     u.actualizado_en AS updated_at, u.intentos_fallidos_consecutivos AS failed_attempts,
-    u.bloqueado_hasta AS blocked_until, preferencia_uso AS use_preference
+    u.bloqueado_hasta AS blocked_until
 FROM public.usuario u JOIN public.token_accion t ON t.usuario_id = u.id
 WHERE t.id = $1 AND t.proposito = 'verificar_correo'
 FOR UPDATE OF u
@@ -913,7 +769,6 @@ type LockAccountByVerificationIDRow struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	FailedAttempts  int32              `json:"failed_attempts"`
 	BlockedUntil    pgtype.Timestamptz `json:"blocked_until"`
-	UsePreference   *string            `json:"use_preference"`
 }
 
 func (q *Queries) LockAccountByVerificationID(ctx context.Context, tokenID string) (LockAccountByVerificationIDRow, error) {
@@ -929,7 +784,6 @@ func (q *Queries) LockAccountByVerificationID(ctx context.Context, tokenID strin
 		&i.UpdatedAt,
 		&i.FailedAttempts,
 		&i.BlockedUntil,
-		&i.UsePreference,
 	)
 	return i, err
 }
@@ -946,15 +800,6 @@ func (q *Queries) LockAccountForActionToken(ctx context.Context, accountID strin
 	var id string
 	err := row.Scan(&id)
 	return id, err
-}
-
-const purgeExpiredPasswordHistory = `-- name: PurgeExpiredPasswordHistory :exec
-DELETE FROM public.historial_clave_local WHERE retirar_en <= $1
-`
-
-func (q *Queries) PurgeExpiredPasswordHistory(ctx context.Context, at pgtype.Timestamptz) error {
-	_, err := q.db.Exec(ctx, purgeExpiredPasswordHistory, at)
-	return err
 }
 
 const recordActionTokenFailure = `-- name: RecordActionTokenFailure :execrows
@@ -974,59 +819,6 @@ type RecordActionTokenFailureParams struct {
 
 func (q *Queries) RecordActionTokenFailure(ctx context.Context, arg RecordActionTokenFailureParams) (int64, error) {
 	result, err := q.db.Exec(ctx, recordActionTokenFailure, arg.TokenHash, arg.AttemptedAt)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const recordCredentialChangeAudit = `-- name: RecordCredentialChangeAudit :exec
-INSERT INTO public.evento_auditoria_local (
-    id, actor_id, recurso_tipo, recurso_id, accion, resultado, motivo_codigo,
-    correlacion_id, ocurrido_en, retirar_en
-) VALUES (
-    $1, $2, 'usuario', $3,
-    'identidad.credencial_cambiar', 'exito', 'clave_actualizada',
-    $4, $5, $6
-)
-`
-
-type RecordCredentialChangeAuditParams struct {
-	ID            string             `json:"id"`
-	ActorID       string             `json:"actor_id"`
-	ResourceID    string             `json:"resource_id"`
-	CorrelationID string             `json:"correlation_id"`
-	At            pgtype.Timestamptz `json:"at"`
-	RemoveAt      pgtype.Timestamptz `json:"remove_at"`
-}
-
-func (q *Queries) RecordCredentialChangeAudit(ctx context.Context, arg RecordCredentialChangeAuditParams) error {
-	_, err := q.db.Exec(ctx, recordCredentialChangeAudit,
-		arg.ID,
-		arg.ActorID,
-		arg.ResourceID,
-		arg.CorrelationID,
-		arg.At,
-		arg.RemoveAt,
-	)
-	return err
-}
-
-const retryCredentialChangedNotice = `-- name: RetryCredentialChangedNotice :execrows
-UPDATE public.outbox_evento_local
-SET disponible_en = $1, lease_hasta = NULL,
-    ultimo_error = 'mailpit_delivery_failed'
-WHERE id = $2 AND entregada_en IS NULL AND lease_hasta = $3
-`
-
-type RetryCredentialChangedNoticeParams struct {
-	RetryAt    pgtype.Timestamptz `json:"retry_at"`
-	ID         string             `json:"id"`
-	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
-}
-
-func (q *Queries) RetryCredentialChangedNotice(ctx context.Context, arg RetryCredentialChangedNoticeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, retryCredentialChangedNotice, arg.RetryAt, arg.ID, arg.LeaseUntil)
 	if err != nil {
 		return 0, err
 	}
@@ -1065,36 +857,6 @@ func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const storePreviousPasswordHash = `-- name: StorePreviousPasswordHash :exec
-INSERT INTO public.historial_clave_local (
-    id, usuario_id, hash_clave, dejo_de_ser_vigente_en, retirar_en, creado_en
-) VALUES (
-    $1, $2, $3,
-    $4, $5, $6
-)
-`
-
-type StorePreviousPasswordHashParams struct {
-	ID                string             `json:"id"`
-	AccountID         string             `json:"account_id"`
-	PasswordHash      string             `json:"password_hash"`
-	NoLongerCurrentAt pgtype.Timestamptz `json:"no_longer_current_at"`
-	RemoveAt          pgtype.Timestamptz `json:"remove_at"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-}
-
-func (q *Queries) StorePreviousPasswordHash(ctx context.Context, arg StorePreviousPasswordHashParams) error {
-	_, err := q.db.Exec(ctx, storePreviousPasswordHash,
-		arg.ID,
-		arg.AccountID,
-		arg.PasswordHash,
-		arg.NoLongerCurrentAt,
-		arg.RemoveAt,
-		arg.CreatedAt,
-	)
-	return err
 }
 
 const touchSession = `-- name: TouchSession :execrows

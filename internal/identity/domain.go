@@ -44,7 +44,6 @@ type Account struct {
 	Email           string
 	NormalizedEmail string
 	PasswordHash    Secret
-	UsePreference   string
 	State           AccountState
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -69,7 +68,7 @@ var (
 )
 
 func (a Account) Validate() error {
-	if a.ID == "" || a.Email == "" || a.NormalizedEmail == "" || a.NormalizedEmail != NormalizeEmail(a.Email) || a.PasswordHash == "" || !a.State.Valid() || a.FailedAttempts < 0 || (a.UsePreference != "" && a.UsePreference != "ofrecer" && a.UsePreference != "arrendar") {
+	if a.ID == "" || a.Email == "" || a.NormalizedEmail == "" || a.NormalizedEmail != NormalizeEmail(a.Email) || a.PasswordHash == "" || !a.State.Valid() || a.FailedAttempts < 0 {
 		return fmt.Errorf("%w: account", ErrInvalid)
 	}
 	return nil

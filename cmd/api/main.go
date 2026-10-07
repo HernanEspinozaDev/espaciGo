@@ -103,7 +103,6 @@ func run() error {
 
 	mux := http.NewServeMux()
 	var localPaymentService *booking.Service
-	var localIdentityService *identity.AuthenticationService
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
 	if os.Getenv("LOCAL_AUTH_PROTOTYPE") == "1" {
 		limit, err := strconv.Atoi(os.Getenv("LOCAL_VERIFICATION_IP_LIMIT"))
@@ -115,7 +114,6 @@ func run() error {
 		if err != nil {
 			return errors.New("local authentication initialization failed")
 		}
-		localIdentityService = service
 		privacyService, err := privacy.NewService(repo)
 		if err != nil {
 			return errors.New("local privacy initialization failed")
@@ -216,9 +214,6 @@ func run() error {
 	defer stop()
 	if localPaymentService != nil {
 		go localPaymentService.RunPaymentReconciler(ctx, 5*time.Second)
-	}
-	if localIdentityService != nil {
-		go localIdentityService.RunCredentialNoticeWorker(ctx, time.Second)
 	}
 	select {
 	case err := <-serverErrors:

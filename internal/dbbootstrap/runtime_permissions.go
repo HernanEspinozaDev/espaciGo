@@ -11,9 +11,6 @@ import (
 func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
 	_, err := conn.Exec(ctx, `GRANT USAGE ON SCHEMA public TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.usuario, public.sesion, public.token_accion TO espacigo_runtime;
- GRANT SELECT, INSERT, DELETE ON public.historial_clave_local TO espacigo_runtime;
- GRANT SELECT, INSERT, UPDATE ON public.outbox_evento_local TO espacigo_runtime;
- GRANT SELECT, INSERT ON public.evento_auditoria_local TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.rol_usuario, public.aceptacion_terminos TO espacigo_runtime;
  GRANT SELECT ON public.version_terminos TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.perfil_usuario TO espacigo_runtime;

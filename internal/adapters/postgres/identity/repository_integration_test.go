@@ -13,7 +13,6 @@ import (
 	"time"
 
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
-	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
@@ -48,57 +47,6 @@ func TestCreateWithTermsRejectsAcceptanceForAnotherAccount(t *testing.T) {
 	}
 	if acceptanceCount != 0 {
 		t.Fatalf("cross-account terms acceptance persisted %d rows", acceptanceCount)
-	}
-}
-
-func TestCredentialCoreRuntimeLeastPrivilege(t *testing.T) {
-	ctx, pool := newIdentityTestPool(t)
-	if _, err := pool.Exec(ctx, `DO $$ BEGIN
-IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='espacigo_runtime') THEN
-    CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
-END IF;
-END $$`); err != nil {
-		t.Fatalf("create disposable runtime role: %v", err)
-	}
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = dbbootstrap.GrantRuntimePermissions(ctx, conn.Conn()); err != nil {
-		conn.Release()
-		t.Fatalf("apply runtime permissions: %v", err)
-	}
-	conn.Release()
-	var historySelect, historyInsert, historyDelete, historyUpdate bool
-	var outboxSelect, outboxInsert, outboxUpdate, outboxDelete bool
-	var auditSelect, auditInsert, auditUpdate, auditDelete bool
-	err = pool.QueryRow(ctx, `SELECT
-has_table_privilege('espacigo_runtime','public.historial_clave_local','SELECT'),
-has_table_privilege('espacigo_runtime','public.historial_clave_local','INSERT'),
-has_table_privilege('espacigo_runtime','public.historial_clave_local','DELETE'),
-has_table_privilege('espacigo_runtime','public.historial_clave_local','UPDATE'),
-has_table_privilege('espacigo_runtime','public.outbox_evento_local','SELECT'),
-has_table_privilege('espacigo_runtime','public.outbox_evento_local','INSERT'),
-has_table_privilege('espacigo_runtime','public.outbox_evento_local','UPDATE'),
-has_table_privilege('espacigo_runtime','public.outbox_evento_local','DELETE'),
-has_table_privilege('espacigo_runtime','public.evento_auditoria_local','SELECT'),
-has_table_privilege('espacigo_runtime','public.evento_auditoria_local','INSERT'),
-has_table_privilege('espacigo_runtime','public.evento_auditoria_local','UPDATE'),
-has_table_privilege('espacigo_runtime','public.evento_auditoria_local','DELETE')`).Scan(
-		&historySelect, &historyInsert, &historyDelete, &historyUpdate,
-		&outboxSelect, &outboxInsert, &outboxUpdate, &outboxDelete,
-		&auditSelect, &auditInsert, &auditUpdate, &auditDelete,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !historySelect || !historyInsert || !historyDelete || historyUpdate ||
-		!outboxSelect || !outboxInsert || !outboxUpdate || outboxDelete ||
-		!auditSelect || !auditInsert || auditUpdate || auditDelete {
-		t.Fatalf("runtime grants history R/I/D/U=%t/%t/%t/%t outbox R/I/U/D=%t/%t/%t/%t audit R/I/U/D=%t/%t/%t/%t",
-			historySelect, historyInsert, historyDelete, historyUpdate,
-			outboxSelect, outboxInsert, outboxUpdate, outboxDelete,
-			auditSelect, auditInsert, auditUpdate, auditDelete)
 	}
 }
 

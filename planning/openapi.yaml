@@ -49,9 +49,9 @@ paths:
       operationId: registerAccount
       tags:
       - M01 local
-      description: 'CU-01/RQF-001–007/186–187/213; cuenta, arrendatario, preferencia inicial no excluyente y términos atómicos. Duplicado CU-01 A1
+      description: 'CU-01/RQF-001–007/186–187; cuenta, arrendatario y términos atómicos. Duplicado CU-01 A1
         explícito. Si emisión/correo falla después del commit, 202 con ID pendiente: reemitir, no repetir alta.
-        La preferencia no concede rol ni restringe actividades futuras.'
+        Sin preferencia RQF-213 (DB02-09).'
       responses:
         '400': *id001
         '403': *id002
@@ -1874,7 +1874,6 @@ components:
       required:
       - email
       - password
-      - use_preference
       - terms_version_ids
       properties:
         email:
@@ -1885,10 +1884,6 @@ components:
           minLength: 8
           writeOnly: true
           description: RQF-003–006; mayúscula, número, especial; máximo bcrypt 72 bytes.
-        use_preference:
-          type: string
-          enum: [ofrecer, arrendar]
-          description: Preferencia inicial de onboarding; no concede roles.
         terms_version_ids:
           type: array
           minItems: 1
@@ -1968,7 +1963,6 @@ components:
       required:
       - account_id
       - status
-      - use_preference
       properties:
         account_id: *id010
         status:
@@ -1976,9 +1970,6 @@ components:
           enum:
           - email_pending
           - verification_pending
-        use_preference:
-          type: string
-          enum: [ofrecer, arrendar]
         message: &id012
           type: string
     LoginResponse:
