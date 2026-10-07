@@ -3,7 +3,10 @@ package bookingpg
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -18,12 +21,24 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type integrationBookingAuth struct{ accountID string }
+
+func (a integrationBookingAuth) Authorize(_ context.Context, raw identity.Secret, _ identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
+	if raw != "local-booking-integration-session" {
+		return identity.Principal{}, identity.ErrUnauthorized
+	}
+	return identity.Principal{AccountID: a.accountID}, nil
+}
 
 type localNoticeRecorder struct {
 	mu         sync.Mutex
@@ -264,6 +279,80 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	svc.SetLocalRefundAdapter(paymentAdapter)
 	noticeRecorder := &localNoticeRecorder{}
 	svc.SetLocalNoticeSender(noticeRecorder)
+	// Persist two genuinely adjacent reservations, then exercise the database
+	// exclusion constraint directly through the runtime role and its public
+	// HTTP conflict translation. Offered selector slots alone do not prove the
+	// reservation/occupancy transaction accepts adjacency.
+	adjacentStart := fixedNow.Add(48 * time.Hour)
+	firstAdjacentQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: adjacentStart.Format(time.RFC3339Nano), EndAt: adjacentStart.Add(time.Hour).Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatalf("quote first adjacent reservation: %v", err)
+	}
+	secondAdjacentStart := adjacentStart.Add(time.Hour)
+	secondAdjacentQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: secondAdjacentStart.Format(time.RFC3339Nano), EndAt: secondAdjacentStart.Add(time.Hour).Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatalf("quote second adjacent reservation: %v", err)
+	}
+	overlapQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: adjacentStart.Add(15 * time.Minute).Format(time.RFC3339Nano), EndAt: adjacentStart.Add(45 * time.Minute).Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatalf("prepare quote before interval is claimed: %v", err)
+	}
+	firstAdjacent, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: firstAdjacentQuote.ID}, "local-adjacent-first")
+	if err != nil {
+		t.Fatalf("create first adjacent reservation: %v", err)
+	}
+	secondAdjacent, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: secondAdjacentQuote.ID}, "local-adjacent-second")
+	if err != nil {
+		t.Fatalf("create second adjacent reservation: %v", err)
+	}
+	if firstAdjacent.State != "pendiente_de_pago" || secondAdjacent.State != "pendiente_de_pago" {
+		t.Fatalf("adjacent reservation states=%s/%s", firstAdjacent.State, secondAdjacent.State)
+	}
+	var adjacentReservations, adjacentOccupancies, adjacentTransitions int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE id=ANY($1::uuid[]) AND estado='pendiente_de_pago'`, []string{firstAdjacent.ID, secondAdjacent.ID}).Scan(&adjacentReservations); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE reserva_id=ANY($1::uuid[]) AND activo AND tipo='retencion' AND intervalo && tstzrange($2,$3,'[)')`, []string{firstAdjacent.ID, secondAdjacent.ID}, adjacentStart, secondAdjacentStart.Add(time.Hour)).Scan(&adjacentOccupancies); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=ANY($1::uuid[]) AND secuencia=1 AND estado_nuevo='pendiente_de_pago'`, []string{firstAdjacent.ID, secondAdjacent.ID}).Scan(&adjacentTransitions); err != nil {
+		t.Fatal(err)
+	}
+	if adjacentReservations != 2 || adjacentOccupancies != 2 || adjacentTransitions != 2 {
+		t.Fatalf("adjacent persisted rows reservations/occupancies/history=%d/%d/%d", adjacentReservations, adjacentOccupancies, adjacentTransitions)
+	}
+	_, directConstraintErr := pool.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,motivo) VALUES($1,$2,NULL,tstzrange($3,$4,'[)'),'bloqueo_manual',true,'constraint integration probe')`, "77777777-7777-4777-8777-777777777701", space, adjacentStart.Add(30*time.Minute), adjacentStart.Add(90*time.Minute))
+	var pgErr *pgconn.PgError
+	if !errors.As(directConstraintErr, &pgErr) || pgErr.Code != "23P01" {
+		t.Fatalf("direct overlapping occupancy insert SQLSTATE=%v, want 23P01", directConstraintErr)
+	}
+	handler := bookinghttp.NewHandler(integrationBookingAuth{accountID: renter}, svc, nil)
+	requestBody, err := json.Marshal(booking.RequestInput{QuoteID: overlapQuote.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpRequest := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/reservations", strings.NewReader(string(requestBody)))
+	httpRequest.Header.Set("Content-Type", "application/json")
+	httpRequest.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	httpRequest.Header.Set("Idempotency-Key", "local-adjacent-overlap")
+	httpResponse := httptest.NewRecorder()
+	handler.ServeHTTP(httpResponse, httpRequest)
+	if httpResponse.Code != http.StatusConflict || strings.Contains(httpResponse.Body.String(), "23P01") {
+		t.Fatalf("public overlap response status=%d body=%s", httpResponse.Code, httpResponse.Body.String())
+	}
+	var failedReservationRows, failedHistoryRows, overlapOccupancyRows int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, overlapQuote.ID).Scan(&failedReservationRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id IN (SELECT id FROM public.reserva_ensayo_local WHERE cotizacion_id=$1)`, overlapQuote.ID).Scan(&failedHistoryRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE espacio_id=$1 AND activo AND tipo='retencion' AND intervalo && tstzrange($2,$3,'[)')`, space, adjacentStart, secondAdjacentStart.Add(time.Hour)).Scan(&overlapOccupancyRows); err != nil {
+		t.Fatal(err)
+	}
+	if failedReservationRows != 0 || failedHistoryRows != 0 || overlapOccupancyRows != 2 {
+		t.Fatalf("overlap conflict left partial rows reservation/history or changed adjacent holds=%d/%d/%d", failedReservationRows, failedHistoryRows, overlapOccupancyRows)
+	}
 	// Catalog availability must drive the existing expiry transition itself;
 	// no reservation read or new quote may be needed after the payment deadline.
 	expiringStart := fixedNow.Add(24 * time.Hour)
