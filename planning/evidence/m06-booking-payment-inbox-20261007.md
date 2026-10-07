@@ -19,8 +19,8 @@ Implementación en el PR #172, separada de la aceptación de PR #170 y habilitad
 
 - En esta corrección de seguimiento: `bash scripts/test-m06-payment-inbox-postgres.sh` — pasó en PostgreSQL desechable con `espacigo_runtime`, incluidos los casos nuevos.
 - `bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/booking` — pasó la integración de inbox y el ciclo de reservas existente.
-- `go test ./internal/adapters/fakebooking ./internal/booking/... ./cmd/api -count=1` — pasó. `go vet ./...` — pasó. PyYAML, `bash -n` y `git diff --check` — pasaron.
-- `go test ./...` había pasado en la implementación inicial del PR; no se repitió para esta corrección enfocada.
+- `go test ./...`, `go test ./internal/adapters/fakebooking ./internal/booking/... ./cmd/api -count=1` y `go vet ./...` — pasaron.
+- PyYAML, `bash -n` y `git diff --check` — pasaron. Las pruebas que necesitan PostgreSQL se ejecutaron explícitamente con los scripts desechables anteriores.
 
 ## Entorno y límites
 
