@@ -127,7 +127,8 @@
     <form id="booking-request-form"><label>ID de cotización <input name="quote_id" required></label><button>Solicitar y retener disponibilidad (15 min)</button></form>
     <h3>Mis reservas</h3>
     <p>La bandeja se filtra por tu cuenta autenticada. El contador refleja mensajes recibidos sin leer; abrir un hilo marca como leída solo la página reciente mostrada. No se envían confirmaciones a la contraparte.</p>
-    <button id="booking-inbox-load" type="button">Actualizar mi bandeja</button>
+    <p>Tras un timeout, reintenta/consulta el mismo pago con su clave guardada. Después de una conciliación, actualiza la bandeja para volver a cargar listado, detalle e historial desde la API.</p>
+    <button id="booking-inbox-load" type="button">Actualizar bandeja y consultar estados</button>
     <div class="booking-inbox-columns">
       <section><h4>Como arrendatario</h4><div id="booking-inbox-renter">Inicia sesión y actualiza tu bandeja.</div></section>
       <section><h4>Como anfitrión</h4><div id="booking-inbox-host">Inicia sesión y actualiza tu bandeja.</div></section>
@@ -137,6 +138,8 @@
       <div id="booking-inbox-actions">
         <label>Resultado fake <select id="booking-inbox-payment-outcome"><option value="exito">Éxito simulado</option><option value="rechazo">Rechazo simulado</option><option value="sin_respuesta">Sin respuesta simulada</option></select></label>
         <button id="booking-inbox-pay" type="button" disabled>Enviar pago de ensayo</button>
+        <pre id="booking-payment-output" aria-live="polite">ENSAYO LOCAL — SIN COBRO REAL
+Selecciona una reserva propia pendiente de pago.</pre>
         <button id="booking-inbox-cancel-preview" type="button" disabled>Consultar opción de cancelación</button>
         <pre id="booking-inbox-cancel-preview-output">Selecciona una reserva pagada o pendiente para consultar sus condiciones de cancelación.</pre>
         <label>Motivo opcional de cancelación <input id="booking-inbox-cancel-reason" type="text"></label>

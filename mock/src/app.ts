@@ -6,6 +6,7 @@ import { showThenMarkConversationPage } from "./conversation-read-state.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState, type AvailabilityContext, type SelectedAvailability } from "./booking-availability-state.js";
+import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
 
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
@@ -62,6 +63,7 @@ form("verify-form", async (data, element) => {
 form("reissue-form", async data => { await request("verification/reissue", "POST", {email: data.get("email")}); resultElement.textContent = "Verificación reenviada al buzón local; el token anterior queda invalidado."; });
 form("login-form", async (data, element) => {
   const response = await request("login", "POST", {email: data.get("email"), password: data.get("password")});
+  clearBookingInboxOnSessionLoss();
   sessionToken = String(response.access_token); sessionAccountID = String(response.account_id); resetCatalogTraversal(); element.querySelector<HTMLInputElement>('[name="password"]')!.value = "";
   await loadSpaceCategories();
   await loadBookingInbox();
@@ -73,11 +75,11 @@ form("recovery-request-form", async (data, element) => {
 });
 form("recovery-consume-form", async (data, element) => {
   await request("password/recovery/consume", "POST", {token_id:data.get("token_id"), token:data.get("token"), new_password:data.get("new_password"), confirm_password:data.get("confirm_password")});
-  sessionToken = ""; resetCatalogTraversal(); element.reset(); resultElement.textContent = "Contraseña actualizada y sesiones cerradas. Inicia sesión con la nueva contraseña.";
+  sessionToken = ""; clearBookingInboxOnSessionLoss(); element.reset(); resultElement.textContent = "Contraseña actualizada y sesiones cerradas. Inicia sesión con la nueva contraseña.";
 });
 form("password-change-form", async (data, element) => {
   await request("password/change", "POST", {current_password:data.get("current_password"), new_password:data.get("new_password"), confirm_password:data.get("confirm_password")}, true);
-  sessionToken = ""; resetCatalogTraversal(); element.reset(); document.querySelector("#session-output")!.textContent = "Sesión revocada por cambio de contraseña.";
+  sessionToken = ""; clearBookingInboxOnSessionLoss(); element.reset(); document.querySelector("#session-output")!.textContent = "Sesión revocada por cambio de contraseña.";
   resultElement.textContent = "Contraseña actualizada. Inicia sesión otra vez; se notificó al buzón local.";
 });
 document.querySelector("#session-button")!.addEventListener("click", () => void action(async () => {
@@ -443,7 +445,8 @@ const bookingQuoteState=new BookingQuoteState();
 const bookingAvailabilityState=new BookingAvailabilityState();
 let selectedAvailabilityContext:AvailabilityContext|null=null;
 let reservationKey=crypto.randomUUID();
-const paymentKeys=new Map<string,string>();
+const bookingPaymentState=new BookingPaymentState();
+const bookingRequestState=new BookingRequestState();
 const bookingBase="/api/v1/local/booking-trial";
 const catalogNextButton=document.querySelector<HTMLButtonElement>("#booking-catalog-next")!;
 function refreshCatalogControls():void { const button=document.querySelector<HTMLButtonElement>("#booking-catalog-next");if(button)button.disabled=catalogLoading||!catalogPagination.canNext; }
@@ -465,6 +468,7 @@ const bookingQuoteOutput=document.querySelector<HTMLElement>("#booking-quote-out
 const bookingAvailabilityPicker=document.querySelector<HTMLElement>("#booking-availability-picker")!;
 const bookingWeeklyHoursEditor=document.querySelector<HTMLElement>("#booking-weekly-hours-editor")!;
 const bookingHistoryOutput=document.querySelector<HTMLElement>("#booking-history-output")!;
+const bookingPaymentOutput=document.querySelector<HTMLElement>("#booking-payment-output")!;
 
 type WeeklyPeriod={open:string;close:string};
 type WeeklyDay={weekday:number;periods:WeeklyPeriod[]};
@@ -860,11 +864,27 @@ function renderReservationList(target:HTMLElement,items:TrialReservation[],role:
   }
 }
 function renderReservationDetail(item:TrialDetail):void{
+  if(item.state!=="pendiente_de_pago")bookingPaymentState.clearCompleted(item.id);
   const deadline=["pendiente_de_pago","vencida_pago"].includes(item.state)?`Vencimiento de pago: ${bookingDate(item.pay_expires_at,item.time_zone)}${item.state==="vencida_pago"?" (vencido)":""}`:["pagada","vencida_host"].includes(item.state)&&item.host_expires_at?`Vencimiento de respuesta del anfitrión: ${bookingDate(item.host_expires_at,item.time_zone)}${item.state==="vencida_host"?" (vencido)":""}`:"Sin vencimiento pendiente.";
   const history=item.history.map(entry=>`${entry.sequence}. ${reservationState(entry.to)} · ${bookingDate(entry.at,item.time_zone)} · ${entry.reason}`).join("\n");
   const refund=item.refund_state?`\nDevolución simulada: ${item.refund_state} · ${(item.refund_amount_clp??0).toLocaleString("es-CL")} ${item.currency} · ${item.refund_last_result??"sin intento"} · operación ${item.refund_operation_id}`:"";
   bookingHistoryOutput.textContent=`ENSAYO LOCAL — SIN COBRO REAL\nEspacio: ${item.space_id}\nPrecio: ${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} (${item.units} × ${item.unit_price_clp.toLocaleString("es-CL")} por ${item.rate_unit})\nIntervalo: ${bookingDate(item.start_at,item.time_zone)}–${bookingDate(item.end_at,item.time_zone)} (${item.time_zone})\nPolítica snapshot: ${item.cancellation_policy_version}\nEstado: ${reservationState(item.state)}\n${deadline}${refund}\n\nHistorial:\n${history||"Sin transiciones."}`;
+  renderPaymentStatus(item);
   refreshBookingActions();
+}
+function renderPaymentStatus(item:TrialDetail|TrialReservation):void{
+  const attempt=bookingPaymentState.get(item.id);
+  let status="Selecciona una reserva pendiente de pago para iniciar el ensayo local.";
+  if(item.state==="pagada")status="Pago fake confirmado. La reserva espera la decisión del anfitrión.";
+  else if(item.state==="cancelada_por_pago")status="El fake rechazó el pago. La reserva quedó cancelada y su ocupación liberada.";
+  else if(item.state==="vencida_pago")status="El plazo de pago venció. No se iniciará otro intento.";
+  else if(item.state==="pendiente_de_pago"&&attempt)status="El resultado sigue pendiente de conciliación. Consulta/reintenta con la misma clave y el mismo resultado; no se iniciará otro cobro.";
+  else if(item.state==="pendiente_de_pago")status="Reserva propia pendiente. Elige éxito, rechazo o sin respuesta simulada.";
+  bookingPaymentOutput.textContent=`ENSAYO LOCAL — SIN COBRO REAL\n${status}`;
+  const pay=document.querySelector<HTMLButtonElement>("#booking-inbox-pay");
+  if(pay)pay.textContent=attempt?"Consultar / reintentar pago (misma clave)":"Enviar pago de ensayo";
+  const outcome=document.querySelector<HTMLSelectElement>("#booking-inbox-payment-outcome");
+  if(outcome){if(attempt)outcome.value=attempt.outcome;outcome.disabled=item.state!=="pendiente_de_pago"||Boolean(attempt)||item.renter_id!==sessionAccountID;}
 }
 function clearConversation(message:string):void{
   conversationRevision++;
@@ -878,16 +898,21 @@ function clearConversation(message:string):void{
   refreshConversationControls();
 }
 function clearBookingInboxOnSessionLoss():void{
-  sessionAccountID="";selectedReservationID="";selectedReservation=null;resetCatalogTraversal();
+  sessionAccountID="";selectedReservationID="";selectedReservation=null;bookingRequestState.invalidate();resetCatalogTraversal();
   bookingInboxRevision++;
   cancellationPreview=null;cancellationPreviewReservationID="";
   document.querySelector<HTMLElement>("#booking-inbox-cancel-preview-output")!.textContent="Inicia sesión para consultar la cancelación.";
   renterInbox.textContent="Inicia sesión y actualiza tu bandeja.";
   hostInbox.textContent="Inicia sesión y actualiza tu bandeja.";
   bookingHistoryOutput.textContent="Inicia sesión para consultar reservas propias.";
+  bookingPaymentOutput.textContent="Inicia sesión para consultar pagos de reservas propias.";
+  const paymentButton=document.querySelector<HTMLButtonElement>("#booking-inbox-pay");if(paymentButton)paymentButton.textContent="Enviar pago de ensayo";
+  const outcome=document.querySelector<HTMLSelectElement>("#booking-inbox-payment-outcome");if(outcome){outcome.value="exito";outcome.disabled=true;}
   clearConversation("La sesión terminó; inicia sesión para consultar conversaciones.");
   refreshBookingActions();
 }
+// Start without displaying data that may have been left in a restored browser document.
+clearBookingInboxOnSessionLoss();
 function refreshConversationControls():void{
   const body=document.querySelector<HTMLTextAreaElement>("#booking-conversation-body");
   const send=document.querySelector<HTMLButtonElement>("#booking-conversation-send");
@@ -955,34 +980,39 @@ function refreshBookingActions():void{
   approve.disabled=!allowed?.canDecide;
   const rejectReason=(document.querySelector<HTMLInputElement>("#booking-inbox-reject-reason")?.value??"").trim();
   reject.disabled=!allowed?.canDecide||!rejectReason;
-  const outcome=document.querySelector<HTMLSelectElement>("#booking-inbox-payment-outcome");if(outcome)outcome.disabled=!allowed?.canPay;
+  const attempt=selectedReservationID?bookingPaymentState.get(selectedReservationID):null;
+  if(attempt){const outcome=document.querySelector<HTMLSelectElement>("#booking-inbox-payment-outcome");if(outcome){outcome.value=attempt.outcome;outcome.disabled=true;}pay.textContent="Consultar / reintentar pago (misma clave)";}
+  else{const outcome=document.querySelector<HTMLSelectElement>("#booking-inbox-payment-outcome");if(outcome)outcome.disabled=!allowed?.canPay;pay.textContent="Enviar pago de ensayo";}
+  if(selectedReservationID)pay.disabled=!allowed?.canPay||bookingPaymentState.isInFlight(selectedReservationID);
 }
 async function loadReservationDetail(id:string):Promise<void>{
-  selectedReservationID=id;selectedReservation=null;refreshBookingActions();
+  bookingRequestState.select(id);selectedReservationID=id;selectedReservation=null;refreshBookingActions();
   cancellationPreview=null;cancellationPreviewReservationID="";
   document.querySelector<HTMLElement>("#booking-inbox-cancel-preview-output")!.textContent="Consulta la opción de cancelación antes de confirmar.";
   clearConversation("Cargando mensajes de la reserva seleccionada…");
-  const revision=++bookingInboxRevision;
+  const revision=++bookingInboxRevision,requestContext=bookingRequestState.capture(sessionAccountID,sessionToken);
   const result=await request(`${bookingBase}/reservations/${encodeURIComponent(id)}`,"GET",undefined,true);
-  if(revision!==bookingInboxRevision||selectedReservationID!==id)return;
+  if(revision!==bookingInboxRevision||!bookingRequestState.accepts(requestContext,sessionAccountID,sessionToken))return;
   selectedReservation=bookingData<TrialDetail>(result);renderReservationDetail(selectedReservation);
   await loadConversationPage(id,null,false);
   conversationStatus.textContent=`Conversación local · ${selectedReservation.state}. ${["pendiente_de_pago","pagada","aprobada_host"].includes(selectedReservation.state)?"Puedes enviar texto plano en este estado.":"Solo lectura: el estado de la reserva no permite enviar."}`;
   refreshConversationControls();
 }
-async function loadBookingInbox(reloadSelected=true):Promise<void>{
+async function loadBookingInbox(reloadSelected=true):Promise<string|null>{
   const revision=++bookingInboxRevision;
-  if(!sessionToken||!sessionAccountID){renterInbox.textContent="Inicia sesión y actualiza tu bandeja.";hostInbox.textContent="Inicia sesión y actualiza tu bandeja.";return;}
+  if(!sessionToken||!sessionAccountID){clearBookingInboxOnSessionLoss();return null;}
+  const requestAccount=sessionAccountID,requestSession=sessionToken;
   const result=await request(`${bookingBase}/reservations`,"GET",undefined,true);
-  if(revision!==bookingInboxRevision)return;
+  if(revision!==bookingInboxRevision||requestAccount!==sessionAccountID||requestSession!==sessionToken)return null;
   const reservations=bookingData<{items:TrialReservation[]}>(result).items;
   const renterRows=reservations.filter(item=>item.renter_id===sessionAccountID);
   const hostRows=reservations.filter(item=>item.host_id===sessionAccountID);
   renderReservationList(renterInbox,renterRows,"renter");renderReservationList(hostInbox,hostRows,"host");
   const current=reservations.find(item=>item.id===selectedReservationID);
-  if(current){if(reloadSelected)await loadReservationDetail(current.id);}
-  else if(selectedReservationID&&reloadSelected){selectedReservationID="";selectedReservation=null;bookingHistoryOutput.textContent="La reserva seleccionada ya no está en tu bandeja.";refreshBookingActions();}
-  else if(!selectedReservation)refreshBookingActions();
+  if(current){if(reloadSelected){await loadReservationDetail(current.id);return selectedReservation?.id===current.id?selectedReservation.state:null;}return selectedReservation?.id===current.id?selectedReservation.state:null;}
+  else if(selectedReservationID&&reloadSelected){bookingRequestState.invalidate();selectedReservationID="";selectedReservation=null;bookingHistoryOutput.textContent="La reserva seleccionada ya no está en tu bandeja.";bookingPaymentOutput.textContent="Selecciona una reserva propia para consultar el pago.";refreshBookingActions();}
+  else if(!selectedReservation){bookingPaymentOutput.textContent="ENSAYO LOCAL — SIN COBRO REAL\nSelecciona una reserva propia pendiente para iniciar o consultar un pago fake.";refreshBookingActions();}
+  return null;
 }
 document.querySelector<HTMLButtonElement>("#booking-inbox-load")!.addEventListener("click",()=>void action(async()=>{
   await loadBookingInbox();resultElement.textContent="Bandeja local actualizada desde la API.";
@@ -990,15 +1020,43 @@ document.querySelector<HTMLButtonElement>("#booking-inbox-load")!.addEventListen
 async function performSelectedBookingAction(path:string,method:string,body?:unknown,key?:string):Promise<void>{
   const id=selectedReservationID;
   if(!id||!selectedReservation)throw new Error("Selecciona una reserva de tu bandeja primero.");
+  const context=bookingRequestState.capture(sessionAccountID,sessionToken);
   try{await request(`${bookingBase}/reservations/${encodeURIComponent(id)}${path}`,method,body,true,key);}
-  catch(error){try{await loadBookingInbox();}catch{/* Preserve the original conflict/error for the user. */}throw error;}
+  catch(error){if(!bookingRequestState.accepts(context,sessionAccountID,sessionToken))return;try{await loadBookingInbox();}catch{/* Preserve the original conflict/error for the user. */}throw error;}
+  if(!bookingRequestState.accepts(context,sessionAccountID,sessionToken))return;
   await loadBookingInbox();
+  if(!bookingRequestState.accepts(context,sessionAccountID,sessionToken))return;
   resultElement.textContent="Operación local completada; detalle e historial actualizados desde la API.";
 }
 document.querySelector<HTMLButtonElement>("#booking-inbox-pay")!.addEventListener("click",()=>void action(async()=>{
-  const id=selectedReservationID;let key=paymentKeys.get(id);if(!key){key=crypto.randomUUID();paymentKeys.set(id,key);}
+  const id=selectedReservationID,account=sessionAccountID,session=sessionToken;
+  if(!id||!selectedReservation||!inboxActions(account,selectedReservation).canPay)throw new Error("Solo el arrendatario puede pagar una reserva propia pendiente y vigente.");
   const outcome=document.querySelector<HTMLSelectElement>("#booking-inbox-payment-outcome")!.value;
-  await performSelectedBookingAction("/payment","POST",{outcome},key);
+  const context=bookingRequestState.capture(account,session);
+  renderPaymentStatus(selectedReservation);
+  const execution=await executePaymentAttempt(bookingPaymentState,id,outcome,()=>crypto.randomUUID(),attempt=>
+    request(`${bookingBase}/reservations/${encodeURIComponent(id)}/payment`,"POST",{outcome:attempt.outcome},true,attempt.idempotencyKey)
+  );
+  if(execution.status==="busy"){
+    bookingPaymentOutput.textContent="Ya hay una solicitud de pago en curso para esta reserva.";
+    return;
+  }
+  if(execution.status==="completed"){
+    if(!bookingRequestState.accepts(context,sessionAccountID,sessionToken))return;
+    await loadBookingInbox();
+    if(!bookingRequestState.accepts(context,sessionAccountID,sessionToken))return;
+    if(selectedReservation)renderPaymentStatus(selectedReservation);
+  }else{
+    if(!bookingRequestState.accepts(context,sessionAccountID,sessionToken))return;
+    let refreshedState:string|null=null;
+    try{refreshedState=await loadBookingInbox();}catch{/* Keep the original payment result visible. */}
+    if(!bookingRequestState.accepts(context,sessionAccountID,sessionToken))return;
+    const panel=paymentPanelAfterError(refreshedState,bookingPaymentState.get(id)!==null);
+    if(panel.clearAttempt)bookingPaymentState.clearCompleted(id);
+    bookingPaymentOutput.textContent=`ENSAYO LOCAL — SIN COBRO REAL\n${panel.message}`;
+    document.querySelector<HTMLButtonElement>("#booking-inbox-pay")!.textContent=panel.buttonLabel;
+  }
+  refreshBookingActions();
 }));
 document.querySelector<HTMLInputElement>("#booking-inbox-reject-reason")!.addEventListener("input",refreshBookingActions);
 document.querySelector<HTMLButtonElement>("#booking-inbox-cancel-preview")!.addEventListener("click",()=>void action(async()=>{
