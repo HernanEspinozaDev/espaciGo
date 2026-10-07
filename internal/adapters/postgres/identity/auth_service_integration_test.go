@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -141,7 +142,7 @@ func newAuthHarness(t *testing.T) *authHarness {
 }
 func (h *authHarness) register(t *testing.T, email string) string {
 	t.Helper()
-	id, err := h.service.Register(h.ctx, identity.RegisterInput{Email: email, Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"})
+	id, err := h.service.Register(h.ctx, identity.RegisterInput{Email: email, Password: "Synthetic#123", UsePreference: "arrendar", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +172,9 @@ func TestAuthRegistrationTermsDuplicateAndUnverifiedLogin(t *testing.T) {
 	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "bad", Password: "bad"}); !errors.Is(err, identity.ErrInvalid) {
 		t.Fatal("invalid registration accepted")
 	}
+	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "preference@ejemplo.invalid", Password: "Synthetic#123", UsePreference: "administrador", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"}); !errors.Is(err, identity.ErrInvalid) {
+		t.Fatal("invalid onboarding preference accepted")
+	}
 	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "terms@ejemplo.invalid", Password: "Synthetic#123", Channel: "api", ClientIP: "192.0.2.1"}); !errors.Is(err, identity.ErrInvalid) {
 		t.Fatal("registration without terms accepted")
 	}
@@ -191,7 +195,7 @@ func TestAuthRegistrationTermsDuplicateAndUnverifiedLogin(t *testing.T) {
 	if terms != 1 || tenants != 1 || admins != 0 {
 		t.Fatal("terms/least role invariant broken")
 	}
-	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "STRASSE+alias@example.invalid", Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"}); !errors.Is(err, identity.ErrEmailRegistered) {
+	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "STRASSE+alias@example.invalid", Password: "Synthetic#123", UsePreference: "ofrecer", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"}); !errors.Is(err, identity.ErrEmailRegistered) {
 		t.Fatal("canonical duplicate not explicit")
 	}
 	if _, err := h.service.Login(h.ctx, identity.LoginInput{Email: "strasse+alias@example.invalid", Password: "Synthetic#123"}); !errors.Is(err, identity.ErrEmailUnverified) {
@@ -201,6 +205,38 @@ func TestAuthRegistrationTermsDuplicateAndUnverifiedLogin(t *testing.T) {
 	login := h.login(t, "STRASSE+alias@example.invalid")
 	if login.AccountID != id || len(login.Roles) != 1 || login.Roles[0] != identity.RoleTenant || login.ExpiresAt.Sub(h.now) != 8*time.Hour {
 		t.Fatal("login roles/absolute expiry invalid")
+	}
+}
+
+func TestRegistrationAPIPersistsNonExclusiveOnboardingPreference(t *testing.T) {
+	h := newAuthHarness(t)
+	api := identityhttp.NewHandler(h.service, h.repo, nil)
+	request := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(body))
+		req.RemoteAddr = "192.0.2.40:8080"
+		req.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, req)
+		return response
+	}
+	missing := request(`{"email":"preference-missing@ejemplo.invalid","password":"Synthetic#123","terms_version_ids":["00000000-0000-4000-8000-000000000001"]}`)
+	if missing.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("missing preference status=%d body=%s", missing.Code, missing.Body.String())
+	}
+	created := request(`{"email":"preference-api@ejemplo.invalid","password":"Synthetic#123","use_preference":"ofrecer","terms_version_ids":["00000000-0000-4000-8000-000000000001"]}`)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("register status=%d body=%s", created.Code, created.Body.String())
+	}
+	var payload struct {
+		AccountID     string `json:"account_id"`
+		UsePreference string `json:"use_preference"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	account, err := h.repo.AccountByID(h.ctx, payload.AccountID)
+	if err != nil || payload.UsePreference != "ofrecer" || account.UsePreference != "ofrecer" {
+		t.Fatalf("API preference response=%q stored=%q err=%v", payload.UsePreference, account.UsePreference, err)
 	}
 }
 
@@ -549,7 +585,7 @@ func TestAuthVerificationActivationRollsBackAndDeliveryFailureIsRetryable(t *tes
 	}
 	h2 := newAuthHarness(t)
 	h2.mail.fail = true
-	pending, err := h2.service.Register(h2.ctx, identity.RegisterInput{Email: "delivery@ejemplo.invalid", Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"})
+	pending, err := h2.service.Register(h2.ctx, identity.RegisterInput{Email: "delivery@ejemplo.invalid", Password: "Synthetic#123", UsePreference: "arrendar", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"})
 	if pending == "" || !errors.Is(err, identity.ErrDelivery) {
 		t.Fatal("delivery failure did not expose committed pending account")
 	}
@@ -722,6 +758,9 @@ func TestAuthRecoveryAndPasswordChangeRevokeSessions(t *testing.T) {
 	if err := h.service.ResetPassword(h.ctx, identity.ResetPasswordInput{TokenID: recovery.TokenID, Token: recovery.Token, Password: "Changed#234", Confirmation: "Changed#234", ClientIP: "192.0.2.6"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := h.service.DispatchOneCredentialNotice(h.ctx); err != nil {
+		t.Fatalf("dispatch recovery notice: %v", err)
+	}
 	if _, err := h.service.Authorize(h.ctx, first.Token, "", identity.AutomaticPolling); !errors.Is(err, identity.ErrUnauthorized) {
 		t.Fatal("recovery did not revoke active session")
 	}
@@ -734,6 +773,9 @@ func TestAuthRecoveryAndPasswordChangeRevokeSessions(t *testing.T) {
 	}
 	if err := h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(second.Token), CurrentPassword: "Changed#234", Password: "Changed#345", Confirmation: "Changed#345"}); err != nil {
 		t.Fatal(err)
+	}
+	if err := h.service.DispatchOneCredentialNotice(h.ctx); err != nil {
+		t.Fatalf("dispatch password change notice: %v", err)
 	}
 	if _, err := h.service.Authorize(h.ctx, second.Token, "", identity.AutomaticPolling); !errors.Is(err, identity.ErrUnauthorized) {
 		t.Fatal("change did not revoke active session")
@@ -780,5 +822,188 @@ func TestAuthRecoveryTokenStopsAfterFiveFailuresWithoutBlockingLogin(t *testing.
 	account, err := h.repo.AccountByNormalizedEmail(h.ctx, "recovery-attempts@ejemplo.invalid")
 	if err != nil || account.FailedAttempts != 0 || account.BlockedUntil != nil {
 		t.Fatal("recovery failures affected login lock")
+	}
+}
+
+func TestLocalCredentialHistoryPreferenceAndDurableNoticeRecovery(t *testing.T) {
+	h := newAuthHarness(t)
+	accountID := h.register(t, "local-auth-history@ejemplo.invalid")
+	account, err := h.repo.AccountByID(h.ctx, accountID)
+	if err != nil || account.UsePreference != "arrendar" {
+		t.Fatalf("stored onboarding preference=%q err=%v", account.UsePreference, err)
+	}
+	h.verify(t)
+	first := h.login(t, "local-auth-history@ejemplo.invalid")
+	start := h.now
+	if err := h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(first.Token), CurrentPassword: "Synthetic#123", Password: "Changed#234", Confirmation: "Changed#234"}); err != nil {
+		t.Fatalf("initial password change: %v", err)
+	}
+	second, err := h.service.Login(h.ctx, identity.LoginInput{Email: "local-auth-history@ejemplo.invalid", Password: "Changed#234"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(second.Token), CurrentPassword: "Changed#234", Password: "Synthetic#123", Confirmation: "Synthetic#123"}); !errors.Is(err, identity.ErrPasswordRecentlyUsed) {
+		t.Fatalf("reused key within three calendar months err=%v", err)
+	}
+	var historyRows, outboxRows, auditRows int
+	if err = h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.historial_clave_local WHERE usuario_id=$1`, accountID).Scan(&historyRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.outbox_evento_local WHERE agregado_id=$1`, accountID).Scan(&outboxRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.evento_auditoria_local WHERE recurso_id=$1`, accountID).Scan(&auditRows); err != nil {
+		t.Fatal(err)
+	}
+	if historyRows != 1 || outboxRows != 1 || auditRows != 1 {
+		t.Fatalf("history/outbox/audit rows=%d/%d/%d; rejected reuse must add no effects", historyRows, outboxRows, auditRows)
+	}
+	var storedHash string
+	var expiresAt time.Time
+	if err = h.pool.QueryRow(h.ctx, `SELECT hash_clave, retirar_en FROM public.historial_clave_local WHERE usuario_id=$1`, accountID).Scan(&storedHash, &expiresAt); err != nil {
+		t.Fatal(err)
+	}
+	if storedHash != string(identity.CredentialHash("Synthetic#123")) || !expiresAt.Equal(identity.AddCalendarMonthsUTC(start, 3)) {
+		t.Fatalf("history hash or calendar expiration mismatch: expires=%s", expiresAt)
+	}
+
+	// Force one SMTP failure, restart the service object, advance the retry clock,
+	// then verify the same durable intent is delivered once and completed.
+	h.mail.mu.Lock()
+	h.mail.fail = true
+	h.mail.mu.Unlock()
+	if err := h.service.DispatchOneCredentialNotice(h.ctx); !errors.Is(err, identity.ErrDelivery) {
+		t.Fatalf("first dispatch err=%v; want retryable delivery error", err)
+	}
+	var attempts int
+	var delivered *time.Time
+	if err = h.pool.QueryRow(h.ctx, `SELECT intentos, entregada_en FROM public.outbox_evento_local WHERE agregado_id=$1`, accountID).Scan(&attempts, &delivered); err != nil || attempts != 1 || delivered != nil {
+		t.Fatalf("failed delivery outbox attempts=%d delivered=%v err=%v", attempts, delivered, err)
+	}
+	h.now = h.now.Add(3 * time.Second)
+	h.mail.mu.Lock()
+	h.mail.fail = false
+	h.mail.mu.Unlock()
+	restarted, err := identity.NewAuthenticationService(h.repo, authTestHasher{}, h.mail, h.limiter, &authTestGenerator{}, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.DispatchOneCredentialNotice(h.ctx); err != nil {
+		t.Fatalf("restarted dispatcher: %v", err)
+	}
+	h.mail.mu.Lock()
+	changeNotices := h.mail.changes
+	h.mail.mu.Unlock()
+	if changeNotices != 1 {
+		t.Fatalf("durable notice sends=%d; want exactly one after retry", changeNotices)
+	}
+	if err = h.pool.QueryRow(h.ctx, `SELECT intentos, entregada_en FROM public.outbox_evento_local WHERE agregado_id=$1`, accountID).Scan(&attempts, &delivered); err != nil || attempts != 2 || delivered == nil {
+		t.Fatalf("completed outbox attempts=%d delivered=%v err=%v", attempts, delivered, err)
+	}
+	if err := restarted.DispatchOneCredentialNotice(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	h.mail.mu.Lock()
+	changeNotices = h.mail.changes
+	h.mail.mu.Unlock()
+	if changeNotices != 1 {
+		t.Fatalf("completed event replay duplicated notice: sends=%d", changeNotices)
+	}
+
+	// At the exact expiry instant the previous key is no longer needed; the
+	// cleanup and the next password update commit together.
+	h.now = expiresAt
+	third, err := h.service.Login(h.ctx, identity.LoginInput{Email: "local-auth-history@ejemplo.invalid", Password: "Changed#234"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(third.Token), CurrentPassword: "Changed#234", Password: "Synthetic#123", Confirmation: "Synthetic#123"}); err != nil {
+		t.Fatalf("key reuse at inclusive three-month expiry: %v", err)
+	}
+	if err = h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.historial_clave_local WHERE usuario_id=$1`, accountID).Scan(&historyRows); err != nil || historyRows != 1 {
+		t.Fatalf("expired history was not deleted before new history insert; rows=%d err=%v", historyRows, err)
+	}
+}
+
+func TestConcurrentPasswordChangesProduceOneHistoryAndOneDurableNotice(t *testing.T) {
+	h := newAuthHarness(t)
+	accountID := h.register(t, "local-auth-race@ejemplo.invalid")
+	h.verify(t)
+	login := h.login(t, "local-auth-race@ejemplo.invalid")
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, candidate := range []string{"First#2345", "Second#2345"} {
+		candidate := candidate
+		go func() {
+			<-start
+			results <- h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(login.Token), CurrentPassword: "Synthetic#123", Password: identity.Secret(candidate), Confirmation: identity.Secret(candidate)})
+		}()
+	}
+	close(start)
+	var successes, rejected int
+	for range 2 {
+		if err := <-results; err == nil {
+			successes++
+		} else if errors.Is(err, identity.ErrUnauthorized) {
+			rejected++
+		} else {
+			t.Fatalf("concurrent password result: %v", err)
+		}
+	}
+	if successes != 1 || rejected != 1 {
+		t.Fatalf("concurrent changes success/rejected=%d/%d", successes, rejected)
+	}
+	var history, notices, audits int
+	for query, target := range map[string]*int{
+		`SELECT count(*) FROM public.historial_clave_local WHERE usuario_id=$1`:  &history,
+		`SELECT count(*) FROM public.outbox_evento_local WHERE agregado_id=$1`:   &notices,
+		`SELECT count(*) FROM public.evento_auditoria_local WHERE recurso_id=$1`: &audits,
+	} {
+		if err := h.pool.QueryRow(h.ctx, query, accountID).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if history != 1 || notices != 1 || audits != 1 {
+		t.Fatalf("concurrent side effects history/outbox/audit=%d/%d/%d", history, notices, audits)
+	}
+}
+
+func TestPasswordUpdateHistoryAuditAndOutboxCommitAtomically(t *testing.T) {
+	h := newAuthHarness(t)
+	accountID := h.register(t, "local-auth-atomic@ejemplo.invalid")
+	h.verify(t)
+	login := h.login(t, "local-auth-atomic@ejemplo.invalid")
+	before, err := h.repo.AccountByID(h.ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `CREATE FUNCTION public.fail_test_audit_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'intentional disposable test failure'; END $$;
+CREATE TRIGGER fail_test_audit_insert BEFORE INSERT ON public.evento_auditoria_local FOR EACH ROW EXECUTE FUNCTION public.fail_test_audit_insert()`); err != nil {
+		t.Fatalf("install failure trigger on disposable audit table: %v", err)
+	}
+	err = h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(login.Token), CurrentPassword: "Synthetic#123", Password: "Changed#234", Confirmation: "Changed#234"})
+	if err == nil {
+		t.Fatal("password update unexpectedly committed despite audit insert failure")
+	}
+	after, err := h.repo.AccountByID(h.ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.PasswordHash != before.PasswordHash {
+		t.Fatal("password hash committed without audit/outbox transaction")
+	}
+	for table := range map[string]bool{"historial_clave_local": true, "outbox_evento_local": true, "evento_auditoria_local": true} {
+		var count int
+		query := "SELECT count(*) FROM public." + table + " WHERE "
+		if table == "historial_clave_local" {
+			query += "usuario_id=$1"
+		} else if table == "outbox_evento_local" {
+			query += "agregado_id=$1"
+		} else {
+			query += "recurso_id=$1"
+		}
+		if err := h.pool.QueryRow(h.ctx, query, accountID).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("%s side effect count=%d err=%v; want rollback", table, count, err)
+		}
 	}
 }

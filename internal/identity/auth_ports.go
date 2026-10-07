@@ -13,6 +13,7 @@ type AuthenticationRepository interface {
 	CreateWithTerms(context.Context, Account, []TermsAcceptance) error
 	TermsVersion(context.Context, string) (TermsVersion, error)
 	WithLockedAccount(context.Context, AccountLookup, func(Account, AuthenticationTransaction) error) error
+	CredentialNoticeRepository
 }
 
 // Callbacks return persistence errors to roll back. Business rejections whose
@@ -27,10 +28,29 @@ type AuthenticationTransaction interface {
 	ActionToken(context.Context, string) (ActionToken, error)
 	ReplaceActionToken(context.Context, ActionToken) error
 	UpdatePasswordHash(context.Context, string, Secret) error
+	DeleteExpiredPasswordHistory(context.Context, string, time.Time) error
+	PreviousPasswordHashes(context.Context, string, time.Time) ([]Secret, error)
+	StorePreviousPasswordHash(context.Context, string, string, Secret, time.Time, time.Time, time.Time) error
+	EnqueueCredentialChanged(context.Context, string, string, string, time.Time) error
+	RecordCredentialChangeAudit(context.Context, string, string, string, string, time.Time, time.Time) error
 	RevokeActiveSessions(context.Context, string, time.Time) error
 	CountActionTokenEmissions(context.Context, string, string, time.Time) (int64, error)
 	RecordActionTokenFailure(context.Context, string, time.Time) (bool, error)
 	ConsumeActionToken(context.Context, string, time.Time) (bool, error)
+}
+
+type CredentialNotice struct {
+	ID, AccountID string
+	Attempts      int
+	LeaseUntil    time.Time
+}
+
+type CredentialNoticeRepository interface {
+	PurgeExpiredPasswordHistory(context.Context, time.Time) error
+	ClaimCredentialNotice(context.Context, time.Time, time.Time) (CredentialNotice, error)
+	AccountEmail(context.Context, string) (string, error)
+	CompleteCredentialNotice(context.Context, string, time.Time, time.Time) error
+	RetryCredentialNotice(context.Context, string, time.Time, time.Time) error
 }
 
 type PasswordHasher interface {

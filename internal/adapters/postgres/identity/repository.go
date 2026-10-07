@@ -56,6 +56,7 @@ func (r *IdentityRepository) CreateWithTerms(ctx context.Context, account identi
 		ID: account.ID, Email: account.Email, NormalizedEmail: account.NormalizedEmail,
 		PasswordHash: string(account.PasswordHash), State: string(account.State),
 		CreatedAt: dbTime(account.CreatedAt), UpdatedAt: dbTime(account.UpdatedAt),
+		UsePreference: textPointer(account.UsePreference),
 	}); err != nil {
 		return mapError(err)
 	}
@@ -83,7 +84,7 @@ func (r *IdentityRepository) AccountByNormalizedEmail(ctx context.Context, email
 		return identity.Account{}, mapError(err)
 	}
 	return accountFrom(row.ID, row.Email, row.NormalizedEmail, row.PasswordHash, row.State,
-		row.CreatedAt, row.UpdatedAt, row.FailedAttempts, row.BlockedUntil), nil
+		row.CreatedAt, row.UpdatedAt, row.FailedAttempts, row.BlockedUntil, row.UsePreference), nil
 }
 
 func (r *IdentityRepository) AccountByID(ctx context.Context, id string) (identity.Account, error) {
@@ -92,7 +93,7 @@ func (r *IdentityRepository) AccountByID(ctx context.Context, id string) (identi
 		return identity.Account{}, mapError(err)
 	}
 	return accountFrom(row.ID, row.Email, row.NormalizedEmail, row.PasswordHash, row.State,
-		row.CreatedAt, row.UpdatedAt, row.FailedAttempts, row.BlockedUntil), nil
+		row.CreatedAt, row.UpdatedAt, row.FailedAttempts, row.BlockedUntil, row.UsePreference), nil
 }
 
 func (r *IdentityRepository) SaveLoginState(ctx context.Context, id string, state identity.AccountState, attempts int, blocked *time.Time) error {
@@ -253,12 +254,69 @@ func (r *IdentityRepository) CountActionTokenEmissions(ctx context.Context, acco
 	return count, mapError(err)
 }
 
-func accountFrom(id, email, normalizedEmail, passwordHash, state string, createdAt, updatedAt pgtype.Timestamptz, failedAttempts int32, blockedUntil pgtype.Timestamptz) identity.Account {
+func (r *IdentityRepository) ClaimCredentialNotice(ctx context.Context, at, leaseUntil time.Time) (identity.CredentialNotice, error) {
+	row, err := r.queries.ClaimCredentialChangedNotice(ctx, dbgen.ClaimCredentialChangedNoticeParams{At: dbTime(at), LeaseUntil: dbTime(leaseUntil)})
+	if err != nil {
+		return identity.CredentialNotice{}, mapError(err)
+	}
+	return identity.CredentialNotice{ID: row.ID, AccountID: row.AccountID, Attempts: int(row.Intentos), LeaseUntil: row.LeaseUntil.Time}, nil
+}
+
+func (r *IdentityRepository) PurgeExpiredPasswordHistory(ctx context.Context, at time.Time) error {
+	return mapError(r.queries.PurgeExpiredPasswordHistory(ctx, dbTime(at)))
+}
+
+func (r *IdentityRepository) AccountEmail(ctx context.Context, accountID string) (string, error) {
+	account, err := r.AccountByID(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	return account.Email, nil
+}
+
+func (r *IdentityRepository) CompleteCredentialNotice(ctx context.Context, id string, leaseUntil, at time.Time) error {
+	rows, err := r.queries.CompleteCredentialChangedNotice(ctx, dbgen.CompleteCredentialChangedNoticeParams{ID: id, LeaseUntil: dbTime(leaseUntil), At: dbTime(at)})
+	if err != nil {
+		return mapError(err)
+	}
+	if rows == 0 {
+		return identity.ErrNotFound
+	}
+	return nil
+}
+
+func (r *IdentityRepository) RetryCredentialNotice(ctx context.Context, id string, leaseUntil, retryAt time.Time) error {
+	rows, err := r.queries.RetryCredentialChangedNotice(ctx, dbgen.RetryCredentialChangedNoticeParams{ID: id, LeaseUntil: dbTime(leaseUntil), RetryAt: dbTime(retryAt)})
+	if err != nil {
+		return mapError(err)
+	}
+	if rows == 0 {
+		return identity.ErrNotFound
+	}
+	return nil
+}
+
+func accountFrom(id, email, normalizedEmail, passwordHash, state string, createdAt, updatedAt pgtype.Timestamptz, failedAttempts int32, blockedUntil pgtype.Timestamptz, usePreference *string) identity.Account {
 	return identity.Account{
 		ID: id, Email: email, NormalizedEmail: normalizedEmail, PasswordHash: identity.Secret(passwordHash),
-		State: identity.AccountState(state), CreatedAt: createdAt.Time, UpdatedAt: updatedAt.Time,
+		UsePreference: textValue(usePreference),
+		State:         identity.AccountState(state), CreatedAt: createdAt.Time, UpdatedAt: updatedAt.Time,
 		FailedAttempts: int(failedAttempts), BlockedUntil: nullableTime(blockedUntil),
 	}
+}
+
+func textPointer(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func textValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func validTermsAcceptance(acceptance identity.TermsAcceptance) bool {

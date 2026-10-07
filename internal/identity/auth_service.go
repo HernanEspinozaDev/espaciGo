@@ -15,18 +15,19 @@ import (
 )
 
 var (
-	ErrEmailRegistered = errors.New("El correo ya está registrado; inicia sesión o recupera tu contraseña")
-	ErrCredentials     = errors.New("identity: incorrect credentials")
-	ErrEmailUnverified = errors.New("identity: verify email before signing in")
-	ErrAccountDisabled = errors.New("identity: account disabled")
-	ErrTokenInvalid    = errors.New("identity: invalid verification token")
-	ErrRateLimited     = errors.New("identity: verification rate limited")
-	ErrUnauthorized    = errors.New("identity: unauthorized")
-	ErrForbidden       = errors.New("identity: role not granted")
-	ErrDelivery        = errors.New("identity: mail delivery failed")
-	ErrCurrentPassword = errors.New("La contraseña actual no es correcta")
-	ErrPasswordSame    = errors.New("La contraseña nueva debe ser distinta de la actual")
-	ErrPasswordConfirm = errors.New("La repetición de la contraseña nueva no coincide")
+	ErrEmailRegistered      = errors.New("El correo ya está registrado; inicia sesión o recupera tu contraseña")
+	ErrCredentials          = errors.New("identity: incorrect credentials")
+	ErrEmailUnverified      = errors.New("identity: verify email before signing in")
+	ErrAccountDisabled      = errors.New("identity: account disabled")
+	ErrTokenInvalid         = errors.New("identity: invalid verification token")
+	ErrRateLimited          = errors.New("identity: verification rate limited")
+	ErrUnauthorized         = errors.New("identity: unauthorized")
+	ErrForbidden            = errors.New("identity: role not granted")
+	ErrDelivery             = errors.New("identity: mail delivery failed")
+	ErrCurrentPassword      = errors.New("La contraseña actual no es correcta")
+	ErrPasswordSame         = errors.New("La contraseña nueva debe ser distinta de la actual")
+	ErrPasswordRecentlyUsed = errors.New("La contraseña nueva fue utilizada durante los últimos tres meses")
+	ErrPasswordConfirm      = errors.New("La repetición de la contraseña nueva no coincide")
 )
 
 const (
@@ -93,6 +94,7 @@ func CredentialHash(raw Secret) string {
 type RegisterInput struct {
 	Email             string
 	Password          Secret
+	UsePreference     string
 	TermsVersionIDs   []string
 	Channel, ClientIP string
 }
@@ -100,7 +102,7 @@ type RegisterInput struct {
 // Registration persists account/tenant role/terms atomically. Token issuance and
 // mail follow commit: a delivery failure leaves a pending account that can reissue.
 func (s *AuthenticationService) Register(ctx context.Context, input RegisterInput) (string, error) {
-	if ValidateEmail(input.Email) != nil || ValidatePassword(input.Password) != nil || len(input.TermsVersionIDs) == 0 {
+	if ValidateEmail(input.Email) != nil || ValidatePassword(input.Password) != nil || len(input.TermsVersionIDs) == 0 || (input.UsePreference != "ofrecer" && input.UsePreference != "arrendar") {
 		return "", ErrInvalid
 	}
 	if input.Channel != "web" && input.Channel != "api" {
@@ -137,7 +139,7 @@ func (s *AuthenticationService) Register(ctx context.Context, input RegisterInpu
 	if err != nil {
 		return "", err
 	}
-	account := Account{ID: id, Email: input.Email, NormalizedEmail: NormalizeEmail(input.Email), PasswordHash: hash, State: AccountEmailPending, CreatedAt: now, UpdatedAt: now}
+	account := Account{ID: id, Email: input.Email, NormalizedEmail: NormalizeEmail(input.Email), PasswordHash: hash, UsePreference: input.UsePreference, State: AccountEmailPending, CreatedAt: now, UpdatedAt: now}
 	acceptances := make([]TermsAcceptance, 0, len(versions))
 	for _, version := range input.TermsVersionIDs {
 		acceptanceID, err := s.credentials.ID()
@@ -357,7 +359,6 @@ func (s *AuthenticationService) ResetPassword(ctx context.Context, input ResetPa
 	if !allowed {
 		return ErrRateLimited
 	}
-	var email string
 	var denied error
 	err = s.repo.WithLockedAccount(ctx, AccountLookup{ActionTokenID: input.TokenID}, func(account Account, tx AuthenticationTransaction) error {
 		token, err := tx.ActionToken(ctx, input.TokenID)
@@ -373,6 +374,10 @@ func (s *AuthenticationService) ResetPassword(ctx context.Context, input ResetPa
 			denied = ErrTokenInvalid
 			return err
 		}
+		if err := s.passwordAvailable(ctx, tx, account, input.Password, now); err != nil {
+			denied = err
+			return nil
+		}
 		consumed, err := tx.ConsumeActionToken(ctx, token.Hash, now)
 		if err != nil {
 			return err
@@ -385,13 +390,12 @@ func (s *AuthenticationService) ResetPassword(ctx context.Context, input ResetPa
 		if err != nil {
 			return err
 		}
-		if err := tx.UpdatePasswordHash(ctx, account.ID, newHash); err != nil {
+		if err := s.commitPasswordChange(ctx, tx, account, newHash, now); err != nil {
 			return err
 		}
 		if err := tx.RevokeActiveSessions(ctx, account.ID, now); err != nil {
 			return err
 		}
-		email = account.Email
 		return nil
 	})
 	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalid) {
@@ -402,9 +406,6 @@ func (s *AuthenticationService) ResetPassword(ctx context.Context, input ResetPa
 	}
 	if denied != nil {
 		return denied
-	}
-	if s.mailer.SendPasswordChanged(ctx, email) != nil {
-		return ErrDelivery
 	}
 	return nil
 }
@@ -426,7 +427,6 @@ func (s *AuthenticationService) ChangePassword(ctx context.Context, input Change
 	}
 	now := s.now()
 	hash := CredentialHash(Secret(input.SessionToken))
-	var email string
 	var denied error
 	err := s.repo.WithLockedAccount(ctx, AccountLookup{SessionHash: hash}, func(account Account, tx AuthenticationTransaction) error {
 		if account.State != AccountActive || (account.BlockedUntil != nil && now.Before(*account.BlockedUntil)) {
@@ -457,17 +457,20 @@ func (s *AuthenticationService) ChangePassword(ctx context.Context, input Change
 			denied = ErrPasswordSame
 			return nil
 		}
+		if err := s.passwordAvailable(ctx, tx, account, input.Password, now); err != nil {
+			denied = err
+			return nil
+		}
 		newHash, err := s.passwords.Hash(input.Password)
 		if err != nil {
 			return err
 		}
-		if err := tx.UpdatePasswordHash(ctx, account.ID, newHash); err != nil {
+		if err := s.commitPasswordChange(ctx, tx, account, newHash, now); err != nil {
 			return err
 		}
 		if err := tx.RevokeActiveSessions(ctx, account.ID, now); err != nil {
 			return err
 		}
-		email = account.Email
 		return nil
 	})
 	if errors.Is(err, ErrNotFound) {
@@ -479,10 +482,123 @@ func (s *AuthenticationService) ChangePassword(ctx context.Context, input Change
 	if denied != nil {
 		return denied
 	}
-	if s.mailer.SendPasswordChanged(ctx, email) != nil {
-		return ErrDelivery
+	return nil
+}
+
+func (s *AuthenticationService) passwordAvailable(ctx context.Context, tx AuthenticationTransaction, account Account, candidate Secret, now time.Time) error {
+	current, err := s.passwords.Matches(account.PasswordHash, candidate)
+	if err != nil {
+		return err
+	}
+	if current {
+		return ErrPasswordSame
+	}
+	if err := tx.DeleteExpiredPasswordHistory(ctx, account.ID, now); err != nil {
+		return err
+	}
+	previous, err := tx.PreviousPasswordHashes(ctx, account.ID, now)
+	if err != nil {
+		return err
+	}
+	for _, hash := range previous {
+		matches, err := s.passwords.Matches(hash, candidate)
+		if err != nil {
+			return err
+		}
+		if matches {
+			return ErrPasswordRecentlyUsed
+		}
 	}
 	return nil
+}
+
+func (s *AuthenticationService) commitPasswordChange(ctx context.Context, tx AuthenticationTransaction, account Account, newHash Secret, now time.Time) error {
+	removeAt := AddCalendarMonthsUTC(now, 3)
+	historyID, err := s.credentials.ID()
+	if err != nil {
+		return err
+	}
+	if err := tx.StorePreviousPasswordHash(ctx, historyID, account.ID, account.PasswordHash, now, removeAt, now); err != nil {
+		return err
+	}
+	noticeID, err := s.credentials.ID()
+	if err != nil {
+		return err
+	}
+	if err := tx.UpdatePasswordHash(ctx, account.ID, newHash); err != nil {
+		return err
+	}
+	if err := tx.EnqueueCredentialChanged(ctx, noticeID, account.ID, "password-change:"+noticeID, now); err != nil {
+		return err
+	}
+	auditID, err := s.credentials.ID()
+	if err != nil {
+		return err
+	}
+	return tx.RecordCredentialChangeAudit(ctx, auditID, account.ID, account.ID, noticeID, now, AddCalendarMonthsUTC(now, 60))
+}
+
+// AddCalendarMonthsUTC adds whole calendar months in UTC and clamps a day that
+// does not exist in the target month to that month's final day.
+func AddCalendarMonthsUTC(at time.Time, months int) time.Time {
+	at = at.UTC()
+	targetMonth := int(at.Month()) - 1 + months
+	year := at.Year() + targetMonth/12
+	month := time.Month(targetMonth%12 + 1)
+	if targetMonth < 0 && targetMonth%12 != 0 {
+		year--
+		month = time.Month(12 + targetMonth%12 + 1)
+	}
+	day := at.Day()
+	lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	if day > lastDay {
+		day = lastDay
+	}
+	return time.Date(year, month, day, at.Hour(), at.Minute(), at.Second(), at.Nanosecond(), time.UTC)
+}
+
+// DispatchOneCredentialNotice durably claims one event, sends its Mailpit
+// message, and records completion or a bounded retry without logging content.
+func (s *AuthenticationService) DispatchOneCredentialNotice(ctx context.Context) error {
+	now := s.now().UTC()
+	if err := s.repo.PurgeExpiredPasswordHistory(ctx, now); err != nil {
+		return err
+	}
+	notice, err := s.repo.ClaimCredentialNotice(ctx, now, now.Add(time.Minute))
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	email, err := s.repo.AccountEmail(ctx, notice.AccountID)
+	if err == nil {
+		err = s.mailer.SendPasswordChanged(ctx, email)
+	}
+	if err != nil {
+		delay := time.Duration(1<<min(notice.Attempts, 8)) * time.Second
+		if retryErr := s.repo.RetryCredentialNotice(ctx, notice.ID, notice.LeaseUntil, now.Add(delay)); retryErr != nil {
+			return retryErr
+		}
+		return ErrDelivery
+	}
+	return s.repo.CompleteCredentialNotice(ctx, notice.ID, notice.LeaseUntil, s.now().UTC())
+}
+
+func (s *AuthenticationService) RunCredentialNoticeWorker(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		_ = s.DispatchOneCredentialNotice(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 type LoginInput struct {

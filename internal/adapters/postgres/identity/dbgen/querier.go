@@ -6,9 +6,13 @@ package identitydb
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	ClaimCredentialChangedNotice(ctx context.Context, arg ClaimCredentialChangedNoticeParams) (ClaimCredentialChangedNoticeRow, error)
+	CompleteCredentialChangedNotice(ctx context.Context, arg CompleteCredentialChangedNoticeParams) (int64, error)
 	ConsumeActionToken(ctx context.Context, arg ConsumeActionTokenParams) (int64, error)
 	CountActionTokenEmissions(ctx context.Context, arg CountActionTokenEmissionsParams) (int64, error)
 	CreateAccount(ctx context.Context, arg CreateAccountParams) error
@@ -17,6 +21,8 @@ type Querier interface {
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateTenantRole(ctx context.Context, accountID string) error
 	CreateTermsAcceptance(ctx context.Context, arg CreateTermsAcceptanceParams) error
+	DeleteExpiredPasswordHistory(ctx context.Context, arg DeleteExpiredPasswordHistoryParams) error
+	EnqueueCredentialChanged(ctx context.Context, arg EnqueueCredentialChangedParams) error
 	GetAccountByID(ctx context.Context, id string) (GetAccountByIDRow, error)
 	GetAccountByNormalizedEmail(ctx context.Context, normalizedEmail string) (GetAccountByNormalizedEmailRow, error)
 	GetAccountRoles(ctx context.Context, accountID string) ([]string, error)
@@ -29,14 +35,19 @@ type Querier interface {
 	GetVerificationTokenByID(ctx context.Context, id string) (GetVerificationTokenByIDRow, error)
 	InvalidateActiveActionTokens(ctx context.Context, arg InvalidateActiveActionTokensParams) (int64, error)
 	ListOwnRightsRequests(ctx context.Context, accountID string) ([]ListOwnRightsRequestsRow, error)
+	ListPasswordHistory(ctx context.Context, arg ListPasswordHistoryParams) ([]string, error)
 	LockAccountByActionTokenID(ctx context.Context, tokenID string) (LockAccountByActionTokenIDRow, error)
 	LockAccountByEmail(ctx context.Context, normalizedEmail string) (LockAccountByEmailRow, error)
 	LockAccountBySessionHash(ctx context.Context, tokenHash string) (LockAccountBySessionHashRow, error)
 	LockAccountByVerificationID(ctx context.Context, tokenID string) (LockAccountByVerificationIDRow, error)
 	LockAccountForActionToken(ctx context.Context, accountID string) (string, error)
+	PurgeExpiredPasswordHistory(ctx context.Context, at pgtype.Timestamptz) error
 	RecordActionTokenFailure(ctx context.Context, arg RecordActionTokenFailureParams) (int64, error)
+	RecordCredentialChangeAudit(ctx context.Context, arg RecordCredentialChangeAuditParams) error
+	RetryCredentialChangedNotice(ctx context.Context, arg RetryCredentialChangedNoticeParams) (int64, error)
 	RevokeActiveSessions(ctx context.Context, arg RevokeActiveSessionsParams) error
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) (int64, error)
+	StorePreviousPasswordHash(ctx context.Context, arg StorePreviousPasswordHashParams) error
 	TouchSession(ctx context.Context, arg TouchSessionParams) (int64, error)
 	UpdateLoginState(ctx context.Context, arg UpdateLoginStateParams) (int64, error)
 	UpdatePasswordHash(ctx context.Context, arg UpdatePasswordHashParams) error
