@@ -26,7 +26,19 @@ FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservationID).Scan(&s
 	}
 	next, reason := "", ""
 	if state == "pendiente_de_pago" && !paymentDeadline.After(now) {
-		next, reason = "vencida_pago", "venció plazo de pago local"
+		// Do not race a callback that was durably authenticated before its
+		// deadline. The payment reconciler will apply it using autenticado_en.
+		var timelyCallback bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(
+SELECT 1 FROM public.reserva_pago_evento_ensayo e
+JOIN public.reserva_pago_ensayo_operacion p ON p.id=e.operacion_id
+JOIN public.reserva_pago_evento_aplicacion_ensayo a ON a.evento_id=e.id
+WHERE p.reserva_id=$1 AND e.autenticado_en<$2 AND a.estado IN ('pendiente','pendiente_conciliacion'))`, reservationID, paymentDeadline).Scan(&timelyCallback); err != nil {
+			return false, err
+		}
+		if !timelyCallback {
+			next, reason = "vencida_pago", "venció plazo de pago local"
+		}
 	} else if state == "pagada" && hostDeadline != nil && !hostDeadline.After(now) {
 		next, reason = "vencida_host", "venció plazo de respuesta del anfitrión"
 	}
@@ -43,6 +55,11 @@ FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservationID).Scan(&s
 SELECT gen_random_uuid(),$1,COALESCE(MAX(secuencia),0)+1,$2,$3,NULL,$4,$5
 FROM public.reserva_ensayo_transicion WHERE reserva_id=$1`, reservationID, state, next, reason, now); err != nil {
 		return false, err
+	}
+	if next == "vencida_pago" {
+		if _, err = tx.Exec(ctx, `UPDATE public.reserva_pago_ensayo_operacion SET estado='vencida',actualizada_en=$2 WHERE reserva_id=$1 AND estado='pendiente'`, reservationID, now); err != nil {
+			return false, err
+		}
 	}
 	if state == "pagada" {
 		if _, err = tx.Exec(ctx, `INSERT INTO public.reserva_pago_ensayo(id,reserva_id,resultado,clave_idempotencia,creada_en) VALUES(gen_random_uuid(),$1,'devolucion_simulada',$2,$3)`, reservationID, "devolucion-expiracion:"+reservationID, now); err != nil {

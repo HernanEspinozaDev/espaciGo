@@ -29,6 +29,6 @@ Para repetir, usa otro intervalo sin solape y una clave de solicitud nueva. El m
 
 ## Comprobaciones
 
-`bash scripts/test-m06-local-booking-postgres.sh` inicia PostgreSQL desechable aislado y ejecuta la integración con rol `espacigo_runtime`. No usa la DB persistente. Sin Docker/TEST_DATABASE_URL, la prueba se omite; no equivale a aceptación.
+`bash scripts/test-m06-local-booking-postgres.sh` inicia PostgreSQL desechable aislado y ejecuta la integración con rol `espacigo_runtime`. La subentrega #74 añade `bash scripts/test-m06-payment-inbox-postgres.sh` para duplicados concurrentes, replay HMAC, timeout y recuperación del inbox tras reconstruir el servicio; ambos comandos evitan la DB persistente. Sin Docker/TEST_DATABASE_URL, la prueba se omite; no equivale a aceptación.
 
-El fake no invoca proveedor, no crea movimientos reales, no promete devolución real y no confirma fondos. Los deadlines persisten en DB; la expiración se materializa al consultar o al intentar otra operación. Un worker durable y conciliación son criterios generales M06 aún pendientes. El perfil local y el puerto de API quedan vinculados a loopback; no exponer este ensayo en red.
+El fake no invoca proveedor, no crea movimientos reales, no promete devolución real y no confirma fondos. Los deadlines persisten en DB; la expiración se materializa al consultar o al intentar otra operación. La subentrega #74 añade reconciliación durable únicamente del fake; no sustituye webhook/contrato de pasarela real, sandbox, credenciales ni conciliación comercial. El perfil local y el puerto de API quedan vinculados a loopback; no exponer este ensayo en red.

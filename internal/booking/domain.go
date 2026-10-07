@@ -11,11 +11,12 @@ import (
 )
 
 var (
-	ErrInvalid                   = errors.New("booking: invalid request")
-	ErrNotFound                  = errors.New("booking: resource not found")
-	ErrConflict                  = errors.New("booking: state or availability conflict")
-	ErrSimulatedNoResponse       = errors.New("booking: fake payment timed out without a response")
-	ErrSimulatedRefundNoResponse = errors.New("booking: fake refund timed out without a response")
+	ErrInvalid                     = errors.New("booking: invalid request")
+	ErrNotFound                    = errors.New("booking: resource not found")
+	ErrConflict                    = errors.New("booking: state or availability conflict")
+	ErrUnauthenticatedPaymentEvent = errors.New("booking: unauthenticated payment event")
+	ErrSimulatedNoResponse         = errors.New("booking: fake payment timed out without a response")
+	ErrSimulatedRefundNoResponse   = errors.New("booking: fake refund timed out without a response")
 )
 
 const SafetyBanner = "ENSAYO LOCAL — SIN COBRO REAL"
@@ -155,6 +156,42 @@ type RequestInput struct {
 type PaymentInput struct {
 	Outcome string `json:"outcome"`
 }
+
+// PaymentOperation is a durable local payment intent. It is written before
+// the fake adapter is invoked, so an idempotent retry can query/reconcile the
+// existing operation without initiating another charge.
+type PaymentOperation struct {
+	ID               string    `json:"id"`
+	ReservationID    string    `json:"reservation_id"`
+	RenterID         string    `json:"renter_id"`
+	IdempotencyKey   string    `json:"-"`
+	Fingerprint      []byte    `json:"-"`
+	Requested        string    `json:"-"`
+	State            string    `json:"state"`
+	CreatedAt        time.Time `json:"created_at"`
+	ReservationState string    `json:"-"`
+	PayExpiresAt     time.Time `json:"-"`
+}
+
+// PaymentEvent contains a provider result. Signature is accepted only at the
+// local fake callback boundary and is never persisted or serialized.
+type PaymentEvent struct {
+	EventID     string `json:"event_id"`
+	OperationID string `json:"operation_id"`
+	Outcome     string `json:"outcome"`
+	Signature   string `json:"-"`
+}
+
+type PaymentEventInput struct {
+	EventID     string `json:"event_id"`
+	OperationID string `json:"operation_id"`
+	Outcome     string `json:"outcome"`
+}
+
+type PaymentEventReceipt struct {
+	Accepted bool `json:"accepted"`
+	Reused   bool `json:"reused"`
+}
 type DecisionInput struct {
 	Decision string `json:"decision"`
 	Reason   string `json:"reason,omitempty"`
@@ -217,7 +254,6 @@ type Repository interface {
 	Create(context.Context, string, string, string, []byte, string, string, time.Duration, func() time.Time) (Reservation, error)
 	Get(context.Context, string, string) (Detail, error)
 	List(context.Context, string) ([]Reservation, error)
-	Pay(context.Context, string, string, string, string, func() time.Time, time.Duration) (Reservation, error)
 	Decide(context.Context, string, string, string, string, func() time.Time) (Reservation, error)
 	Cancel(context.Context, string, string, string, string, []byte, func() time.Time) (CancellationResult, error)
 	CancellationPreview(context.Context, string, string, time.Time) (CancellationPreview, error)
@@ -225,6 +261,16 @@ type Repository interface {
 	RecordRefund(context.Context, string, string, string, time.Time) (RefundResult, error)
 	NoticeRecipients(context.Context, string, string) ([]string, error)
 	Expire(context.Context, time.Time) error
+}
+
+// PaymentLifecycleRepository separates durable event handling from the
+// broader booking repository contract so non-payment test doubles stay small.
+type PaymentLifecycleRepository interface {
+	BeginPayment(context.Context, string, string, string, string, []byte, string, func() time.Time) (PaymentOperation, bool, error)
+	PendingPayments(context.Context, int) ([]PaymentOperation, error)
+	PendingPaymentEventIDs(context.Context, int) ([]string, error)
+	RecordPaymentEvent(context.Context, PaymentEvent, []byte, time.Time) (bool, error)
+	ApplyPaymentEvent(context.Context, string, func() time.Time, time.Duration) (Reservation, error)
 }
 
 // WeeklyHoursRepository is optional in test doubles and required by the
@@ -239,7 +285,9 @@ type WeeklyHoursRepository interface {
 // LocalPaymentAdapter is intentionally a narrow port. The only production in
 // this slice is the local fake; a gateway must not be wired into this profile.
 type LocalPaymentAdapter interface {
-	Process(context.Context, string) (string, error)
+	StartPayment(context.Context, string, string) (*PaymentEvent, error)
+	LookupPayment(context.Context, PaymentOperation) (*PaymentEvent, error)
+	VerifyPaymentEvent(PaymentEvent) bool
 }
 
 var uuid = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)

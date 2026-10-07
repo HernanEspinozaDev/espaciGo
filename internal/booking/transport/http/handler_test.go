@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
@@ -40,6 +41,37 @@ type repoStub struct {
 type weeklyRepoStub struct {
 	repoStub
 	hours booking.WeeklyHours
+}
+
+type paymentEventRepoStub struct {
+	repoStub
+	seen map[string]string
+}
+
+func (r *paymentEventRepoStub) BeginPayment(context.Context, string, string, string, string, []byte, string, func() time.Time) (booking.PaymentOperation, bool, error) {
+	return booking.PaymentOperation{}, false, nil
+}
+func (r *paymentEventRepoStub) PendingPayments(context.Context, int) ([]booking.PaymentOperation, error) {
+	return nil, nil
+}
+func (r *paymentEventRepoStub) PendingPaymentEventIDs(context.Context, int) ([]string, error) {
+	return nil, nil
+}
+func (r *paymentEventRepoStub) RecordPaymentEvent(_ context.Context, event booking.PaymentEvent, _ []byte, _ time.Time) (bool, error) {
+	if r.seen == nil {
+		r.seen = map[string]string{}
+	}
+	if prior, exists := r.seen[event.EventID]; exists {
+		if prior != event.OperationID+":"+event.Outcome {
+			return false, booking.ErrConflict
+		}
+		return true, nil
+	}
+	r.seen[event.EventID] = event.OperationID + ":" + event.Outcome
+	return false, nil
+}
+func (r *paymentEventRepoStub) ApplyPaymentEvent(context.Context, string, func() time.Time, time.Duration) (booking.Reservation, error) {
+	return booking.Reservation{}, nil
 }
 
 func (r *weeklyRepoStub) WeeklyHoursForSpace(_ context.Context, spaceID string) (booking.WeeklyHours, error) {
@@ -128,12 +160,16 @@ func (repoStub) Expire(context.Context, time.Time) error { return nil }
 
 type paymentStub struct{}
 
-func (paymentStub) Process(_ context.Context, outcome string) (string, error) {
-	if outcome != "exito" && outcome != "rechazo" && outcome != "sin_respuesta" {
-		return "", errors.New("invalid")
+func (paymentStub) StartPayment(_ context.Context, operationID, outcome string) (*booking.PaymentEvent, error) {
+	if operationID == "" || (outcome != "exito" && outcome != "rechazo" && outcome != "sin_respuesta") {
+		return nil, errors.New("invalid")
 	}
-	return outcome, nil
+	return nil, nil
 }
+func (paymentStub) LookupPayment(context.Context, booking.PaymentOperation) (*booking.PaymentEvent, error) {
+	return nil, nil
+}
+func (paymentStub) VerifyPaymentEvent(booking.PaymentEvent) bool { return false }
 
 func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testing.T) {
 	service, err := booking.NewService(repoStub{fixture: booking.Fixture{SpaceID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", Title: "Espacio sintético", OwnerID: renterID, RenterID: renterID, RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "America/Santiago"}}, credentials.Generator{}, time.Now, paymentStub{})
@@ -257,6 +293,48 @@ func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testin
 	data := quote["data"].(map[string]any)
 	if quote["safety_notice"] != booking.SafetyBanner || data["conditions"] != "Reglas sintéticas" || data["space_id"] != "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" || data["profile_version"] != float64(1) {
 		t.Fatalf("quote missing safety/snapshot conditions: %v", quote)
+	}
+}
+
+func TestPaymentEventCallbackRejectsUnauthenticatedEventWithoutUserSession(t *testing.T) {
+	adapter, err := fakebooking.New([]byte("handler-test-payment-webhook-key-at-least-32-bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &paymentEventRepoStub{}
+	service, err := booking.NewService(repo, credentials.Generator{}, time.Now, adapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(authStub{}, service, nil)
+	event := adapter.SignPaymentEvent("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "exito_simulado")
+	body := `{"event_id":"` + event.EventID + `","operation_id":"` + event.OperationID + `","outcome":"` + event.Outcome + `"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/payment-events", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Local-Payment-Signature", "invalid")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated provider event status=%d body=%s", response.Code, response.Body.String())
+	}
+	if len(repo.seen) != 0 {
+		t.Fatal("unauthenticated event was persisted")
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/payment-events", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Local-Payment-Signature", event.Signature)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("authenticated callback status=%d body=%s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/payment-events", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Local-Payment-Signature", event.Signature)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"reused":true`) {
+		t.Fatalf("replayed callback status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -100,6 +102,7 @@ func run() error {
 	defer pool.Close()
 
 	mux := http.NewServeMux()
+	var localPaymentService *booking.Service
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
 	if os.Getenv("LOCAL_AUTH_PROTOTYPE") == "1" {
 		limit, err := strconv.Atoi(os.Getenv("LOCAL_VERIFICATION_IP_LIMIT"))
@@ -163,12 +166,25 @@ func run() error {
 			if err != nil {
 				return errors.New("invalid local host response lifetime")
 			}
-			bookingService, err := booking.NewServiceWithTTLs(bookingpg.New(pool), credentials.Generator{}, time.Now, fakebooking.New(), quoteTTL, payTTL, hostTTL)
+			secretBytes, err := os.ReadFile(os.Getenv("LOCAL_PAYMENT_WEBHOOK_SECRET_FILE"))
+			if err != nil {
+				return errors.New("local payment event authentication secret is unavailable")
+			}
+			paymentKey, err := hex.DecodeString(strings.TrimSpace(string(secretBytes)))
+			if err != nil || len(paymentKey) < 32 {
+				return errors.New("local payment event authentication secret is invalid")
+			}
+			paymentAdapter, err := fakebooking.NewWithStore(paymentKey, bookingpg.New(pool))
+			if err != nil {
+				return errors.New("local payment event authentication initialization failed")
+			}
+			bookingService, err := booking.NewServiceWithTTLs(bookingpg.New(pool), credentials.Generator{}, time.Now, paymentAdapter, quoteTTL, payTTL, hostTTL)
 			if err != nil {
 				return errors.New("local booking trial initialization failed")
 			}
-			bookingService.SetLocalRefundAdapter(fakebooking.New())
+			bookingService.SetLocalRefundAdapter(paymentAdapter)
 			bookingService.SetLocalNoticeSender(devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")})
+			localPaymentService = bookingService
 			conversationService, err := conversation.NewService(conversationpg.New(pool), credentials.Generator{}, time.Now)
 			if err != nil {
 				return errors.New("local booking conversation initialization failed")
@@ -196,6 +212,9 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if localPaymentService != nil {
+		go localPaymentService.RunPaymentReconciler(ctx, 5*time.Second)
+	}
 	select {
 	case err := <-serverErrors:
 		if errors.Is(err, http.ErrServerClosed) {

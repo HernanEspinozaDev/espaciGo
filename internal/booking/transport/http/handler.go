@@ -57,7 +57,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key, X-Local-Payment-Signature")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
 	}
 	if r.Method == http.MethodOptions {
@@ -68,6 +68,33 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSuffix(r.URL.Path, "/")
 	if r.URL.RawQuery != "" && path != base+"/catalog" && !strings.HasSuffix(path, "/messages") && !strings.HasSuffix(path, "/availability-options") {
 		fail(w, 400, "invalid_request")
+		return
+	}
+	if path == base+"/payment-events" && r.Method == http.MethodPost {
+		var in booking.PaymentEventInput
+		if !decode(w, r, &in) {
+			return
+		}
+		receipt, eventErr := h.service.IngestPaymentEvent(r.Context(), booking.PaymentEvent{
+			EventID: in.EventID, OperationID: in.OperationID, Outcome: in.Outcome,
+			Signature: r.Header.Get("X-Local-Payment-Signature"),
+		})
+		if eventErr != nil {
+			switch {
+			case errors.Is(eventErr, booking.ErrUnauthenticatedPaymentEvent):
+				fail(w, http.StatusUnauthorized, "unauthenticated_event")
+			case errors.Is(eventErr, booking.ErrInvalid):
+				fail(w, http.StatusUnprocessableEntity, "invalid_request")
+			case errors.Is(eventErr, booking.ErrNotFound):
+				fail(w, http.StatusNotFound, "not_found")
+			case errors.Is(eventErr, booking.ErrConflict):
+				fail(w, http.StatusConflict, "conflict")
+			default:
+				fail(w, http.StatusInternalServerError, "internal_error")
+			}
+			return
+		}
+		write(w, http.StatusAccepted, map[string]any{"data": receipt, "safety_notice": booking.SafetyBanner})
 		return
 	}
 	principal, e := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), "", identity.UserOperation)

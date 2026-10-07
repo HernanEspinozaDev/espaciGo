@@ -29,5 +29,7 @@ for _ in $(seq 1 120); do
 done
 docker exec "$NAME" pg_isready -U postgres -d postgres >/dev/null
 if (($#)); then TEST_PACKAGES=("$@"); else TEST_PACKAGES=(./...); fi
+TEST_FLAGS=()
+if [[ -n "${GO_TEST_RUN:-}" ]]; then TEST_FLAGS+=(-run "$GO_TEST_RUN"); fi
 env -u DATABASE_URL TEST_DATABASE_URL="postgres://postgres@localhost/postgres?host=$SOCKET_DIR" \
-  go test -p 1 -count=1 -v "${TEST_PACKAGES[@]}"
+  go test -p 1 -count=1 -v "${TEST_FLAGS[@]}" "${TEST_PACKAGES[@]}"

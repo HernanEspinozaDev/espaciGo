@@ -78,6 +78,7 @@ services:
       LOCAL_BOOKING_PAY_TTL: "${LOCAL_BOOKING_PAY_TTL:-15m}"
       LOCAL_BOOKING_HOST_TTL: "${LOCAL_BOOKING_HOST_TTL:-24h}"
       LOCAL_SMTP_ADDR: mailpit:1025
+      LOCAL_PAYMENT_WEBHOOK_SECRET_FILE: /run/secrets/local_payment_webhook_secret
       LOCAL_VERIFICATION_IP_LIMIT: "${LOCAL_VERIFICATION_IP_LIMIT:-20}"
       M03_EVIDENCE_DIR: /var/lib/espacigo/private-evidence
       DATABASE_HOST: database
@@ -88,6 +89,7 @@ services:
       CORS_ALLOWED_ORIGINS: http://localhost:8081,http://127.0.0.1:8081
     secrets:
       - runtime_password
+      - local_payment_webhook_secret
     volumes:
       - type: bind
         source: ${LOCAL_M03_EVIDENCE_DIR:?run scripts/dev-env.sh}
@@ -164,3 +166,5 @@ secrets:
     file: ./.local/secrets/db_admin_password
   runtime_password:
     file: ./.local/secrets/runtime_password
+  local_payment_webhook_secret:
+    file: ./.local/secrets/local_payment_webhook_secret
