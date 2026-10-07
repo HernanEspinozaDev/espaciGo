@@ -89,10 +89,11 @@ term_ids = [item['id'] for item in terms['items'] if item['type'] == 'terminos']
 email = f'prototype-{uuid.uuid4().hex}@ejemplo.invalid'
 password = 'Synthetic#123'
 api('POST', 'register', 400, {'email': email, 'role': 'administrador'}, label='unknown fields rejected')
-api('POST', 'register', 422, {'email': email, 'password': 'weak', 'terms_version_ids': term_ids}, label='password policy')
+api('POST', 'register', 422, {'email': email, 'password': 'Synthetic#123', 'terms_version_ids': term_ids}, label='required use preference')
+api('POST', 'register', 422, {'email': email, 'password': 'weak', 'use_preference': 'arrendar', 'terms_version_ids': term_ids}, label='password policy')
 api('GET', 'session', 401, label='session requires Bearer')
-registration = api('POST', 'register', 201, {'email': email, 'password': password, 'terms_version_ids': term_ids})
-api('POST', 'register', 409, {'email': email.upper(), 'password': password, 'terms_version_ids': term_ids}, label='canonical duplicate')
+registration = api('POST', 'register', 201, {'email': email, 'password': password, 'use_preference': 'arrendar', 'terms_version_ids': term_ids})
+api('POST', 'register', 409, {'email': email.upper(), 'password': password, 'use_preference': 'arrendar', 'terms_version_ids': term_ids}, label='canonical duplicate')
 api('POST', 'login', 403, {'email': email, 'password': password}, label='unverified login denied')
 
 

@@ -281,8 +281,8 @@ func (s *AuthenticationService) RequestPasswordRecovery(ctx context.Context, ema
 	if err != nil {
 		return ErrInvalid
 	}
-	now := s.now()
-	allowed, err := s.ipLimiter.AllowVerification(ctx, address.Unmap().String(), now)
+	limitAt := s.now()
+	allowed, err := s.ipLimiter.AllowVerification(ctx, address.Unmap().String(), limitAt)
 	if err != nil {
 		return err
 	}
@@ -291,6 +291,7 @@ func (s *AuthenticationService) RequestPasswordRecovery(ctx context.Context, ema
 	}
 	var delivery RecoveryDelivery
 	err = s.repo.WithLockedAccount(ctx, AccountLookup{Email: NormalizeEmail(email)}, func(account Account, tx AuthenticationTransaction) error {
+		now := s.now()
 		// Do not send a credential reset to an address that has not been verified,
 		// or to a disabled account. The public response remains generic.
 		if account.State != AccountActive && account.State != AccountBlocked {
@@ -351,8 +352,8 @@ func (s *AuthenticationService) ResetPassword(ctx context.Context, input ResetPa
 	if err != nil {
 		return ErrInvalid
 	}
-	now := s.now()
-	allowed, err := s.ipLimiter.AllowVerification(ctx, address.Unmap().String(), now)
+	limitAt := s.now()
+	allowed, err := s.ipLimiter.AllowVerification(ctx, address.Unmap().String(), limitAt)
 	if err != nil {
 		return err
 	}
@@ -361,6 +362,7 @@ func (s *AuthenticationService) ResetPassword(ctx context.Context, input ResetPa
 	}
 	var denied error
 	err = s.repo.WithLockedAccount(ctx, AccountLookup{ActionTokenID: input.TokenID}, func(account Account, tx AuthenticationTransaction) error {
+		now := s.now()
 		token, err := tx.ActionToken(ctx, input.TokenID)
 		if err != nil {
 			return err
@@ -425,10 +427,10 @@ func (s *AuthenticationService) ChangePassword(ctx context.Context, input Change
 	if input.Password != input.Confirmation {
 		return ErrPasswordConfirm
 	}
-	now := s.now()
 	hash := CredentialHash(Secret(input.SessionToken))
 	var denied error
 	err := s.repo.WithLockedAccount(ctx, AccountLookup{SessionHash: hash}, func(account Account, tx AuthenticationTransaction) error {
+		now := s.now()
 		if account.State != AccountActive || (account.BlockedUntil != nil && now.Before(*account.BlockedUntil)) {
 			denied = ErrUnauthorized
 			return nil

@@ -91,6 +91,11 @@ func (m *authTestMail) last() identity.VerificationDelivery {
 	defer m.mu.Unlock()
 	return m.messages[len(m.messages)-1]
 }
+func (m *authTestMail) lastRecovery() identity.RecoveryDelivery {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.recoveries[len(m.recoveries)-1]
+}
 
 // Deliberately test-only policy, not a ratified deployment threshold.
 type authTestIPLimiter struct {
@@ -139,6 +144,58 @@ func newAuthHarness(t *testing.T) *authHarness {
 	}
 	h.service = service
 	return h
+}
+
+func newAuthHarnessWithAtomicClock(t *testing.T) (*authHarness, *atomic.Int64) {
+	t.Helper()
+	ctx, pool := newIdentityTestPool(t)
+	clock := &atomic.Int64{}
+	initial := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	clock.Store(initial.UnixNano())
+	h := &authHarness{ctx: ctx, pool: pool, repo: identitypg.NewIdentityRepository(pool), mail: &authTestMail{}, limiter: &authTestIPLimiter{max: 100}, now: initial}
+	service, err := identity.NewAuthenticationService(h.repo, authTestHasher{}, h.mail, h.limiter, &authTestGenerator{}, func() time.Time {
+		return time.Unix(0, clock.Load()).UTC()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.service = service
+	return h, clock
+}
+
+func holdAccountRowLock(t *testing.T, h *authHarness, accountID string) func() {
+	t.Helper()
+	tx, err := h.pool.Begin(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(h.ctx, `SELECT id FROM public.usuario WHERE id=$1 FOR UPDATE`, accountID); err != nil {
+		_ = tx.Rollback(h.ctx)
+		t.Fatal(err)
+	}
+	return func() {
+		t.Helper()
+		if err := tx.Commit(h.ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func waitForAccountLockWait(t *testing.T, h *authHarness) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting int
+		err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query ILIKE '%FOR UPDATE%'`).Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waiting > 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("operation did not wait for the held account row lock")
 }
 func (h *authHarness) register(t *testing.T, email string) string {
 	t.Helper()
@@ -1005,5 +1062,115 @@ CREATE TRIGGER fail_test_audit_insert BEFORE INSERT ON public.evento_auditoria_l
 		if err := h.pool.QueryRow(h.ctx, query, accountID).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("%s side effect count=%d err=%v; want rollback", table, count, err)
 		}
+	}
+}
+
+func TestPasswordChangeRevalidatesExpiredSessionAfterAccountLockWait(t *testing.T) {
+	h, clock := newAuthHarnessWithAtomicClock(t)
+	accountID := h.register(t, "local-auth-session-lock@ejemplo.invalid")
+	h.verify(t)
+	login := h.login(t, "local-auth-session-lock@ejemplo.invalid")
+	before, err := h.repo.AccountByID(h.ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := holdAccountRowLock(t, h, accountID)
+	finished := make(chan error, 1)
+	go func() {
+		finished <- h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(login.Token), CurrentPassword: "Synthetic#123", Password: "Changed#234", Confirmation: "Changed#234"})
+	}()
+	waitForAccountLockWait(t, h)
+	expiredAt := h.now.Add(30 * time.Minute)
+	clock.Store(expiredAt.UnixNano())
+	release()
+	if err := <-finished; !errors.Is(err, identity.ErrUnauthorized) {
+		t.Fatalf("change with session expired while waiting err=%v", err)
+	}
+	after, err := h.repo.AccountByID(h.ctx, accountID)
+	if err != nil || after.PasswordHash != before.PasswordHash {
+		t.Fatalf("expired-session request changed password hash err=%v", err)
+	}
+	for table, column := range map[string]string{"historial_clave_local": "usuario_id", "outbox_evento_local": "agregado_id", "evento_auditoria_local": "recurso_id"} {
+		var count int
+		if err := h.pool.QueryRow(h.ctx, "SELECT count(*) FROM public."+table+" WHERE "+column+"=$1", accountID).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("expired-session request left %s rows=%d err=%v", table, count, err)
+		}
+	}
+	session, err := h.repo.SessionByTokenHash(h.ctx, identity.CredentialHash(login.Token))
+	if err != nil || session.RevokedAt != nil {
+		t.Fatalf("rejected request partially revoked session: revoked=%v err=%v", session.RevokedAt, err)
+	}
+}
+
+func TestPasswordResetRevalidatesExpiredTokenAfterAccountLockWait(t *testing.T) {
+	h, clock := newAuthHarnessWithAtomicClock(t)
+	accountID := h.register(t, "local-auth-token-lock@ejemplo.invalid")
+	h.verify(t)
+	if err := h.service.RequestPasswordRecovery(h.ctx, "local-auth-token-lock@ejemplo.invalid", "192.0.2.5"); err != nil {
+		t.Fatal(err)
+	}
+	recovery := h.mail.lastRecovery()
+	before, err := h.repo.AccountByID(h.ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := holdAccountRowLock(t, h, accountID)
+	finished := make(chan error, 1)
+	go func() {
+		finished <- h.service.ResetPassword(h.ctx, identity.ResetPasswordInput{TokenID: recovery.TokenID, Token: recovery.Token, Password: "Recovered#234", Confirmation: "Recovered#234", ClientIP: "192.0.2.6"})
+	}()
+	waitForAccountLockWait(t, h)
+	clock.Store(recovery.ExpiresAt.UnixNano())
+	release()
+	if err := <-finished; !errors.Is(err, identity.ErrTokenInvalid) {
+		t.Fatalf("reset with token expired while waiting err=%v", err)
+	}
+	after, err := h.repo.AccountByID(h.ctx, accountID)
+	if err != nil || after.PasswordHash != before.PasswordHash {
+		t.Fatalf("expired-token request changed password hash err=%v", err)
+	}
+	stored, err := h.repo.ActionTokenByHash(h.ctx, identity.CredentialHash(recovery.Token))
+	if err != nil || stored.ConsumedAt != nil {
+		t.Fatalf("expired-token request consumed recovery token: consumed=%v err=%v", stored.ConsumedAt, err)
+	}
+	for table, column := range map[string]string{"historial_clave_local": "usuario_id", "outbox_evento_local": "agregado_id", "evento_auditoria_local": "recurso_id"} {
+		var count int
+		if err := h.pool.QueryRow(h.ctx, "SELECT count(*) FROM public."+table+" WHERE "+column+"=$1", accountID).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("expired-token request left %s rows=%d err=%v", table, count, err)
+		}
+	}
+}
+
+func TestPasswordHistoryWindowStartsWhenLockedChangeCommits(t *testing.T) {
+	h, clock := newAuthHarnessWithAtomicClock(t)
+	accountID := h.register(t, "local-auth-history-lock@ejemplo.invalid")
+	h.verify(t)
+	login := h.login(t, "local-auth-history-lock@ejemplo.invalid")
+	startedAt := h.now
+	release := holdAccountRowLock(t, h, accountID)
+	finished := make(chan error, 1)
+	go func() {
+		finished <- h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(login.Token), CurrentPassword: "Synthetic#123", Password: "Changed#234", Confirmation: "Changed#234"})
+	}()
+	waitForAccountLockWait(t, h)
+	committedAt := startedAt.Add(7 * time.Minute)
+	clock.Store(committedAt.UnixNano())
+	release()
+	if err := <-finished; err != nil {
+		t.Fatalf("change after lock released: %v", err)
+	}
+	wantExpiry := identity.AddCalendarMonthsUTC(committedAt, 3)
+	var historyStart, historyCreated, historyExpiry, noticeAt, auditAt, auditExpiry time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT dejo_de_ser_vigente_en, creado_en, retirar_en FROM public.historial_clave_local WHERE usuario_id=$1`, accountID).Scan(&historyStart, &historyCreated, &historyExpiry); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.pool.QueryRow(h.ctx, `SELECT creada_en FROM public.outbox_evento_local WHERE agregado_id=$1`, accountID).Scan(&noticeAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.pool.QueryRow(h.ctx, `SELECT ocurrido_en, retirar_en FROM public.evento_auditoria_local WHERE recurso_id=$1`, accountID).Scan(&auditAt, &auditExpiry); err != nil {
+		t.Fatal(err)
+	}
+	if !historyStart.Equal(committedAt) || !historyCreated.Equal(committedAt) || !historyExpiry.Equal(wantExpiry) || !noticeAt.Equal(committedAt) || !auditAt.Equal(committedAt) || !auditExpiry.Equal(identity.AddCalendarMonthsUTC(committedAt, 60)) {
+		t.Fatalf("lock-time stamps mismatch history=%s/%s/%s notice=%s audit=%s/%s", historyStart, historyCreated, historyExpiry, noticeAt, auditAt, auditExpiry)
 	}
 }
