@@ -451,16 +451,22 @@ VALUES(gen_random_uuid(),$1,1,NULL,'pendiente_de_pago',$2,'solicitud sintética'
 	if _, err = service2.Cancel(ctx, renter, reservationCancelled, "cancel-before-event", "test"); err != nil {
 		t.Fatal(err)
 	}
-	lateReceipt, err := service2.IngestPaymentEvent(ctx, *cancelledEvent)
-	if err != nil || !lateReceipt.Accepted || lateReceipt.Reused {
-		t.Fatalf("late callback receipt=%+v err=%v", lateReceipt, err)
-	}
-	lateReplay, err := service2.IngestPaymentEvent(ctx, *cancelledEvent)
-	if err != nil || !lateReplay.Reused {
-		t.Fatalf("late callback replay receipt=%+v err=%v", lateReplay, err)
-	}
-	if err = service2.ReconcilePendingPayments(ctx); err != nil {
+	// Simulate a restart with the fake result persisted but no callback saved
+	// by the Backend. Reconciliation must retrieve and authenticate it itself.
+	cancelRestartInner, err := fakebooking.NewWithStore([]byte(eventSecret), repo)
+	if err != nil {
 		t.Fatal(err)
+	}
+	cancelRestartAdapter := &countedPaymentAdapter{inner: cancelRestartInner}
+	cancelRestartService, err := booking.NewServiceWithTTLs(repo, credentials.Generator{}, clock, cancelRestartAdapter, 15*time.Minute, 15*time.Minute, 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = cancelRestartService.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if cancelRestartAdapter.starts.Load() != 0 || cancelRestartAdapter.lookups.Load() == 0 {
+		t.Fatalf("cancel recovery start/lookup=%d/%d; want lookup only", cancelRestartAdapter.starts.Load(), cancelRestartAdapter.lookups.Load())
 	}
 	var cancelledState, cancelledApplication string
 	var cancelledActive bool
@@ -470,6 +476,121 @@ VALUES(gen_random_uuid(),$1,1,NULL,'pendiente_de_pago',$2,'solicitud sintética'
 	if cancelledState != "cancelada_arrendatario" || cancelledActive || cancelledApplication != "pendiente_conciliacion" {
 		t.Fatalf("cancelled late-event result state/occupancy/application=%s/%v/%s", cancelledState, cancelledActive, cancelledApplication)
 	}
+	var cancelledInbox, cancelledFakeResults int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_evento_ensayo WHERE operacion_id=$1`, operationCancelledID).Scan(&cancelledInbox); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$1 AND estado='resultado'`, operationCancelledID).Scan(&cancelledFakeResults); err != nil {
+		t.Fatal(err)
+	}
+	if err = cancelRestartService.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var cancelledInboxAfter int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_evento_ensayo WHERE operacion_id=$1`, operationCancelledID).Scan(&cancelledInboxAfter); err != nil {
+		t.Fatal(err)
+	}
+	if cancelledInbox != 1 || cancelledInboxAfter != cancelledInbox || cancelledFakeResults != 1 || cancelRestartAdapter.starts.Load() != 0 {
+		t.Fatalf("cancel replay duplicated effects inbox=%d/%d fakeResults=%d starts=%d", cancelledInbox, cancelledInboxAfter, cancelledFakeResults, cancelRestartAdapter.starts.Load())
+	}
+
+	// If the Backend crashed before the fake recorded any result, cancellation
+	// must not cause reconciliation to start a new payment.
+	quoteCancelledEmpty, reservationCancelledEmpty, occupancyCancelledEmpty := "51515151-5151-4515-8515-515151515151", "52525252-5252-4525-8525-525252525252", "53535353-5353-4535-8535-535353535353"
+	seedPaymentReservation(t, ctx, setup, spaceID, host, renter, quoteCancelledEmpty, reservationCancelledEmpty, occupancyCancelledEmpty, now, 79*time.Hour)
+	operationCancelledEmptyID := "54545454-5454-4545-8545-545454545454"
+	if _, _, err = repo.BeginPayment(ctx, renter, reservationCancelledEmpty, "exito", "cancelled-no-result-key", make([]byte, 32), operationCancelledEmptyID, clock); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service2.Cancel(ctx, renter, reservationCancelledEmpty, "cancel-without-result", "test"); err != nil {
+		t.Fatal(err)
+	}
+	noResultRestartInner, err := fakebooking.NewWithStore([]byte(eventSecret), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noResultRestartAdapter := &countedPaymentAdapter{inner: noResultRestartInner}
+	noResultRestartService, err := booking.NewServiceWithTTLs(repo, credentials.Generator{}, clock, noResultRestartAdapter, 15*time.Minute, 15*time.Minute, 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = noResultRestartService.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var cancelledNoResultState string
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, reservationCancelledEmpty).Scan(&cancelledNoResultState); err != nil || cancelledNoResultState != "cancelada_arrendatario" || noResultRestartAdapter.starts.Load() != 0 {
+		t.Fatalf("cancelled no-result recovery state=%q starts=%d err=%v", cancelledNoResultState, noResultRestartAdapter.starts.Load(), err)
+	}
+
+	// The same rule applies after the payment deadline without an expiry sweep:
+	// the absent result is not permission to start a new fake payment.
+	quoteExpiredEmpty, reservationExpiredEmpty, occupancyExpiredEmpty := "61616161-6161-4616-8616-616161616161", "62626262-6262-4626-8626-626262626262", "63636363-6363-4636-8636-636363636363"
+	seedPaymentReservation(t, ctx, setup, spaceID, host, renter, quoteExpiredEmpty, reservationExpiredEmpty, occupancyExpiredEmpty, now, 80*time.Hour)
+	operationExpiredEmptyID := "64646464-6464-4646-8646-646464646464"
+	if _, _, err = repo.BeginPayment(ctx, renter, reservationExpiredEmpty, "exito", "expired-no-result-key", make([]byte, 32), operationExpiredEmptyID, clock); err != nil {
+		t.Fatal(err)
+	}
+	currentTime = now.Add(16 * time.Minute)
+	if err = noResultRestartService.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var expiredNoResultState string
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, reservationExpiredEmpty).Scan(&expiredNoResultState); err != nil || expiredNoResultState != "vencida_pago" || noResultRestartAdapter.starts.Load() != 0 {
+		t.Fatalf("expired no-result recovery state=%q starts=%d err=%v", expiredNoResultState, noResultRestartAdapter.starts.Load(), err)
+	}
+	currentTime = now
+
+	// A fake result may be durable at the provider before the Backend stores
+	// its event, but only become observable to recovery after the deadline.
+	quoteAfterDeadline, reservationAfterDeadline, occupancyAfterDeadline := "71717171-7171-4717-8717-717171717171", "72727272-7272-4727-8727-727272727272", "73737373-7373-4737-8737-737373737373"
+	seedPaymentReservation(t, ctx, setup, spaceID, host, renter, quoteAfterDeadline, reservationAfterDeadline, occupancyAfterDeadline, now, 81*time.Hour)
+	operationAfterDeadlineID := "74747474-7474-4747-8747-747474747474"
+	operationAfterDeadline, _, err := repo.BeginPayment(ctx, renter, reservationAfterDeadline, "exito", "after-deadline-result-key", make([]byte, 32), operationAfterDeadlineID, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentTime = now.Add(16 * time.Minute)
+	if event, startErr := inner2.StartPayment(ctx, operationAfterDeadline.ID, operationAfterDeadline.Requested); startErr != nil || event == nil {
+		t.Fatalf("persist fake result after deadline=%+v err=%v", event, startErr)
+	}
+	afterDeadlineInner, err := fakebooking.NewWithStore([]byte(eventSecret), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterDeadlineAdapter := &countedPaymentAdapter{inner: afterDeadlineInner}
+	afterDeadlineService, err := booking.NewServiceWithTTLs(repo, credentials.Generator{}, clock, afterDeadlineAdapter, 15*time.Minute, 15*time.Minute, 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = afterDeadlineService.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var afterDeadlineState, afterDeadlineApplication string
+	var afterDeadlineActive bool
+	if err = pool.QueryRow(ctx, `SELECT r.estado,o.activo,a.estado FROM public.reserva_ensayo_local r JOIN public.ocupacion o ON o.reserva_id=r.id JOIN public.reserva_pago_ensayo_operacion p ON p.reserva_id=r.id JOIN public.reserva_pago_evento_ensayo e ON e.operacion_id=p.id JOIN public.reserva_pago_evento_aplicacion_ensayo a ON a.evento_id=e.id WHERE r.id=$1`, reservationAfterDeadline).Scan(&afterDeadlineState, &afterDeadlineActive, &afterDeadlineApplication); err != nil {
+		t.Fatal(err)
+	}
+	var afterDeadlineInbox, afterDeadlineResults int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_evento_ensayo WHERE operacion_id=$1`, operationAfterDeadlineID).Scan(&afterDeadlineInbox); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$1 AND estado='resultado'`, operationAfterDeadlineID).Scan(&afterDeadlineResults); err != nil {
+		t.Fatal(err)
+	}
+	if afterDeadlineState != "vencida_pago" || afterDeadlineActive || afterDeadlineApplication != "pendiente_conciliacion" || afterDeadlineInbox != 1 || afterDeadlineResults != 1 || afterDeadlineAdapter.starts.Load() != 0 {
+		t.Fatalf("after-deadline recovery state/active/application/inbox/results/starts=%s/%v/%s/%d/%d/%d", afterDeadlineState, afterDeadlineActive, afterDeadlineApplication, afterDeadlineInbox, afterDeadlineResults, afterDeadlineAdapter.starts.Load())
+	}
+	if err = afterDeadlineService.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var afterDeadlineInboxAgain int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_evento_ensayo WHERE operacion_id=$1`, operationAfterDeadlineID).Scan(&afterDeadlineInboxAgain); err != nil {
+		t.Fatal(err)
+	}
+	if afterDeadlineInboxAgain != afterDeadlineInbox || afterDeadlineAdapter.starts.Load() != 0 {
+		t.Fatalf("after-deadline replay duplicated inbox or started payment: inbox=%d/%d starts=%d", afterDeadlineInbox, afterDeadlineInboxAgain, afterDeadlineAdapter.starts.Load())
+	}
+	currentTime = now
 	quoteExpired, reservationExpired, occupancyExpired := "36363636-3636-4363-8363-363636363636", "37373737-3737-4373-8373-373737373737", "38383838-3838-4383-8383-383838383838"
 	seedPaymentReservation(t, ctx, setup, spaceID, host, renter, quoteExpired, reservationExpired, occupancyExpired, now, 77*time.Hour)
 	operationExpiredID := "39393939-3939-4393-8393-393939393939"
@@ -485,12 +606,24 @@ VALUES(gen_random_uuid(),$1,1,NULL,'pendiente_de_pago',$2,'solicitud sintética'
 	if err = repo.Expire(ctx, currentTime); err != nil {
 		t.Fatal(err)
 	}
-	expiredReceipt, err := service2.IngestPaymentEvent(ctx, *expiredEvent)
-	if err != nil || !expiredReceipt.Accepted {
-		t.Fatalf("expired callback receipt=%+v err=%v", expiredReceipt, err)
+	var operationExpiredState string
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_pago_ensayo_operacion WHERE id=$1`, operationExpiredID).Scan(&operationExpiredState); err != nil || operationExpiredState != "vencida" {
+		t.Fatalf("expiry sweep operation state=%q err=%v", operationExpiredState, err)
 	}
-	if err = service2.ReconcilePendingPayments(ctx); err != nil {
+	expiredRestartInner, err := fakebooking.NewWithStore([]byte(eventSecret), repo)
+	if err != nil {
 		t.Fatal(err)
+	}
+	expiredRestartAdapter := &countedPaymentAdapter{inner: expiredRestartInner}
+	expiredRestartService, err := booking.NewServiceWithTTLs(repo, credentials.Generator{}, clock, expiredRestartAdapter, 15*time.Minute, 15*time.Minute, 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = expiredRestartService.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if expiredRestartAdapter.starts.Load() != 0 || expiredRestartAdapter.lookups.Load() == 0 {
+		t.Fatalf("expired recovery start/lookup=%d/%d; want lookup only", expiredRestartAdapter.starts.Load(), expiredRestartAdapter.lookups.Load())
 	}
 	var expiredState, expiredApplication string
 	var expiredActive bool
@@ -499,6 +632,23 @@ VALUES(gen_random_uuid(),$1,1,NULL,'pendiente_de_pago',$2,'solicitud sintética'
 	}
 	if expiredState != "vencida_pago" || expiredActive || expiredApplication != "pendiente_conciliacion" {
 		t.Fatalf("expired late-event result state/occupancy/application=%s/%v/%s", expiredState, expiredActive, expiredApplication)
+	}
+	var expiredInbox, expiredFakeResults int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_evento_ensayo WHERE operacion_id=$1`, operationExpiredID).Scan(&expiredInbox); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$1 AND estado='resultado'`, operationExpiredID).Scan(&expiredFakeResults); err != nil {
+		t.Fatal(err)
+	}
+	if err = expiredRestartService.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var expiredInboxAfter int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_evento_ensayo WHERE operacion_id=$1`, operationExpiredID).Scan(&expiredInboxAfter); err != nil {
+		t.Fatal(err)
+	}
+	if expiredInbox != 1 || expiredInboxAfter != expiredInbox || expiredFakeResults != 1 || expiredRestartAdapter.starts.Load() != 0 {
+		t.Fatalf("expired replay duplicated effects inbox=%d/%d fakeResults=%d starts=%d", expiredInbox, expiredInboxAfter, expiredFakeResults, expiredRestartAdapter.starts.Load())
 	}
 
 	// Events authenticated before expiry are applied before the reconciliation

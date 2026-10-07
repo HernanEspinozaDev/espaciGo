@@ -80,7 +80,10 @@ func (r *Repository) PendingPayments(ctx context.Context, limit int) ([]booking.
 	}
 	rows, err := r.pool.Query(ctx, `SELECT o.id::text,o.reserva_id::text,o.arrendatario_id::text,o.clave_idempotencia,o.huella_solicitud,o.resultado_solicitado,o.estado,o.creada_en,r.estado,r.pago_vence_en
 FROM public.reserva_pago_ensayo_operacion o JOIN public.reserva_ensayo_local r ON r.id=o.reserva_id
-WHERE o.estado='pendiente' ORDER BY o.creada_en,o.id LIMIT $1`, limit)
+LEFT JOIN public.reserva_pago_fake_resultado_ensayo f ON f.operacion_id=o.id AND f.estado='resultado'
+WHERE o.estado='pendiente' OR (o.estado='vencida' AND f.operacion_id IS NOT NULL AND NOT EXISTS(
+  SELECT 1 FROM public.reserva_pago_evento_ensayo e WHERE e.operacion_id=o.id AND e.proveedor_evento_id=f.proveedor_evento_id))
+ORDER BY o.creada_en,o.id LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}

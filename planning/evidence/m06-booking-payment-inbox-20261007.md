@@ -10,6 +10,8 @@ Implementación en el PR #172, separada de la aceptación de PR #170 y habilitad
 - Se reconstruyeron el servicio y el adaptador con la misma base y clave local, simulando reinicio del Backend. El reconciliador aplicó el evento del inbox sin volver a invocar el adaptador. La reserva quedó `pagada`, con una sola fila de pago, una transición, ocupación activa y operación/evento marcados como aplicados. Reproducir el callback después del reinicio no duplicó efectos.
 - Se simuló caída después de persistir la intención y antes de iniciar el fake: `LookupPayment` no fabricó éxito; al reiniciar, la conciliación inició el fake con el ID persistido y completó una sola operación. También se simuló caída después de que el fake persistiera su resultado y antes de insertar en el inbox: al reiniciar, el resultado se recuperó sin otro inicio y se aplicó una sola vez.
 - Éxitos autenticados posteriores a la cancelación y al vencimiento quedaron en el inbox con estado `pendiente_conciliacion`. Se confirmó que no reactivaron la reserva ni la ocupación, y que el replay fue deduplicado.
+- En esta corrección se reinició el Backend antes de guardar el callback y se recuperó el resultado fake desde su almacenamiento persistente en tres situaciones, sin entregar el callback manualmente: después del plazo sin barrido previo, después de que un barrido marcara la operación `vencida`, y después de cancelar la reserva. Los resultados se autenticaron y guardaron una sola vez; quedaron `pendiente_conciliacion` sin reactivar reserva ni ocupación. Repetir conciliación no duplicó el inbox ni inició otro pago.
+- También se comprobó que, si el fake todavía no tiene resultado, una reserva cancelada o cuyo plazo venció no inicia un pago nuevo durante la conciliación. La operación vencida quedó vencida y su retención liberada.
 - Un evento autenticado antes del deadline, pero procesado después, sobrevivió incluso a un barrido de expiración intermedio y se aplicó sin perder su secuencia de historial.
 - `BeginPayment` devolvió `ErrNotFound` para una reserva inexistente y para una reserva de otro titular, manteniendo el 404 de API.
 - La integración existente además verificó que el vencimiento marque como `vencida` una operación de pago ambigua y que la retención se libere.
@@ -17,7 +19,7 @@ Implementación en el PR #172, separada de la aceptación de PR #170 y habilitad
 
 ## Comprobaciones ejecutadas
 
-- En esta corrección de seguimiento: `bash scripts/test-m06-payment-inbox-postgres.sh` — pasó en PostgreSQL desechable con `espacigo_runtime`, incluidos los casos nuevos.
+- En esta corrección de seguimiento: `bash scripts/test-m06-payment-inbox-postgres.sh` — pasó en PostgreSQL desechable con `espacigo_runtime`, incluidos recuperación posterior al plazo, recuperación después del barrido, recuperación tras cancelación, ausencia de resultado, ausencia de cobro nuevo y repetición idempotente.
 - `bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/booking` — pasó la integración de inbox y el ciclo de reservas existente.
 - `go test ./...`, `go test ./internal/adapters/fakebooking ./internal/booking/... ./cmd/api -count=1` y `go vet ./...` — pasaron.
 - PyYAML, `bash -n` y `git diff --check` — pasaron. Las pruebas que necesitan PostgreSQL se ejecutaron explícitamente con los scripts desechables anteriores.

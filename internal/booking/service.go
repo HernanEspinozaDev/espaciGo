@@ -673,14 +673,17 @@ func (s *Service) ReconcilePendingPayments(ctx context.Context) error {
 				return err
 			}
 			for _, operation := range operations {
-				if operation.ReservationState != "pendiente_de_pago" || !operation.PayExpiresAt.After(s.now().UTC()) {
-					continue
-				}
 				event, lookupErr := s.payment.LookupPayment(ctx, operation)
 				if lookupErr != nil {
 					return lookupErr
 				}
 				if event == nil {
+					// Only an active reservation with an unexpired intent may
+					// create a new fake result. Terminal operations are queried
+					// above solely to recover results the fake already persisted.
+					if operation.State != "pendiente" || operation.ReservationState != "pendiente_de_pago" || !operation.PayExpiresAt.After(s.now().UTC()) {
+						continue
+					}
 					event, lookupErr = s.payment.StartPayment(ctx, operation.ID, operation.Requested)
 					if errors.Is(lookupErr, ErrSimulatedNoResponse) {
 						// It may have recorded a result while losing its response. A
