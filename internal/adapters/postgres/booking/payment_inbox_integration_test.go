@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,7 +16,9 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,6 +35,15 @@ type gatedPaymentAdapter struct {
 	started chan struct{}
 	looked  chan struct{}
 	release chan struct{}
+}
+
+type paymentAPITestAuth struct{ accountID string }
+
+func (a paymentAPITestAuth) Authorize(_ context.Context, raw identity.Secret, _ identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
+	if raw != "payment-api-test-session" {
+		return identity.Principal{}, identity.ErrUnauthorized
+	}
+	return identity.Principal{AccountID: a.accountID}, nil
 }
 
 func seedPaymentReservation(t *testing.T, ctx context.Context, setup *pgx.Conn, spaceID, host, renter, quoteID, reservationID, occupancyID string, now time.Time, offset time.Duration) {
@@ -248,6 +262,137 @@ VALUES(gen_random_uuid(),$1,1,NULL,'pendiente_de_pago',$2,'solicitud sintética'
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// Exercise the local fake payment contract through the HTTP handler while
+	// using the disposable PostgreSQL database and runtime role above.
+	quoteHTTP, reservationHTTP, occupancyHTTP := "91919191-9191-4919-8919-919191919191", "92929292-9292-4929-8929-929292929292", "93939393-9393-4939-8939-939393939393"
+	seedPaymentReservation(t, ctx, setup, spaceID, host, renter, quoteHTTP, reservationHTTP, occupancyHTTP, now, 48*time.Hour)
+	innerHTTP, err := fakebooking.NewWithStore([]byte(eventSecret), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapterHTTP := &countedPaymentAdapter{inner: innerHTTP}
+	serviceHTTP, err := booking.NewServiceWithTTLs(repo, credentials.Generator{}, clock, adapterHTTP, 15*time.Minute, 15*time.Minute, 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handlerHTTP := bookinghttp.NewHandler(paymentAPITestAuth{accountID: renter}, serviceHTTP, nil)
+	paymentPath := "/api/v1/local/booking-trial/reservations/" + reservationHTTP + "/payment"
+	requestPayment := func(token, key, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, paymentPath, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", key)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		response := httptest.NewRecorder()
+		handlerHTTP.ServeHTTP(response, req)
+		return response
+	}
+	if unauthenticated := requestPayment("", "api-payment-key", `{"outcome":"exito"}`); unauthenticated.Code != http.StatusUnauthorized || adapterHTTP.starts.Load() != 0 {
+		t.Fatalf("payment API without session status=%d starts=%d body=%s", unauthenticated.Code, adapterHTTP.starts.Load(), unauthenticated.Body.String())
+	}
+	apiSuccess := requestPayment("payment-api-test-session", "api-payment-key", `{"outcome":"exito"}`)
+	if apiSuccess.Code != http.StatusOK || !strings.Contains(apiSuccess.Body.String(), `"state":"pagada"`) || !strings.Contains(apiSuccess.Body.String(), booking.SafetyBanner) {
+		t.Fatalf("fake payment API status=%d body=%s", apiSuccess.Code, apiSuccess.Body.String())
+	}
+	apiReplay := requestPayment("payment-api-test-session", "api-payment-key", `{"outcome":"exito"}`)
+	if apiReplay.Code != http.StatusOK || !strings.Contains(apiReplay.Body.String(), `"state":"pagada"`) || adapterHTTP.starts.Load() != 1 {
+		t.Fatalf("fake payment API replay status=%d starts=%d body=%s", apiReplay.Code, adapterHTTP.starts.Load(), apiReplay.Body.String())
+	}
+	apiConflict := requestPayment("payment-api-test-session", "api-payment-key", `{"outcome":"rechazo"}`)
+	if apiConflict.Code != http.StatusConflict || adapterHTTP.starts.Load() != 1 {
+		t.Fatalf("changed payment API replay status=%d starts=%d body=%s", apiConflict.Code, adapterHTTP.starts.Load(), apiConflict.Body.String())
+	}
+	apiInvalid := requestPayment("payment-api-test-session", "invalid-outcome-key", `{"outcome":"capture_real"}`)
+	if apiInvalid.Code != http.StatusUnprocessableEntity || adapterHTTP.starts.Load() != 1 {
+		t.Fatalf("invalid fake outcome API status=%d starts=%d body=%s", apiInvalid.Code, adapterHTTP.starts.Load(), apiInvalid.Body.String())
+	}
+	apiUnknownField := requestPayment("payment-api-test-session", "unknown-field-key", `{"outcome":"exito","unexpected":true}`)
+	if apiUnknownField.Code != http.StatusBadRequest || adapterHTTP.starts.Load() != 1 {
+		t.Fatalf("unknown payment API field status=%d starts=%d body=%s", apiUnknownField.Code, adapterHTTP.starts.Load(), apiUnknownField.Body.String())
+	}
+	unsupportedMediaRequest := httptest.NewRequest(http.MethodPost, paymentPath, strings.NewReader(`{"outcome":"exito"}`))
+	unsupportedMediaRequest.Header.Set("Authorization", "Bearer payment-api-test-session")
+	unsupportedMediaRequest.Header.Set("Idempotency-Key", "unsupported-media-key")
+	unsupportedMediaResponse := httptest.NewRecorder()
+	handlerHTTP.ServeHTTP(unsupportedMediaResponse, unsupportedMediaRequest)
+	if unsupportedMediaResponse.Code != http.StatusUnsupportedMediaType || adapterHTTP.starts.Load() != 1 {
+		t.Fatalf("unsupported payment API media type status=%d starts=%d body=%s", unsupportedMediaResponse.Code, adapterHTTP.starts.Load(), unsupportedMediaResponse.Body.String())
+	}
+	var httpPayments, httpEvents, httpActiveOccupancy int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_ensayo WHERE reserva_id=$1 AND resultado='exito_simulado'`, reservationHTTP).Scan(&httpPayments); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_evento_ensayo e JOIN public.reserva_pago_ensayo_operacion p ON p.id=e.operacion_id WHERE p.reserva_id=$1`, reservationHTTP).Scan(&httpEvents); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo AND tipo='reserva'`, reservationHTTP).Scan(&httpActiveOccupancy); err != nil {
+		t.Fatal(err)
+	}
+	if httpPayments != 1 || httpEvents != 1 || httpActiveOccupancy != 1 {
+		t.Fatalf("payment API replay side effects payments/events/active occupancy=%d/%d/%d", httpPayments, httpEvents, httpActiveOccupancy)
+	}
+	missingRequest := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/reservations/99999999-9999-4999-8999-999999999999/payment", strings.NewReader(`{"outcome":"exito"}`))
+	missingRequest.Header.Set("Content-Type", "application/json")
+	missingRequest.Header.Set("Authorization", "Bearer payment-api-test-session")
+	missingRequest.Header.Set("Idempotency-Key", "missing-payment-api-key")
+	missingResponse := httptest.NewRecorder()
+	handlerHTTP.ServeHTTP(missingResponse, missingRequest)
+	if missingResponse.Code != http.StatusNotFound || adapterHTTP.starts.Load() != 1 {
+		t.Fatalf("missing reservation payment API status=%d starts=%d body=%s", missingResponse.Code, adapterHTTP.starts.Load(), missingResponse.Body.String())
+	}
+
+	// The HTTP callback route accepts the fake's signed event without a user
+	// session, rejects invalid signatures, and lets the durable reconciler apply
+	// the accepted event only once.
+	quoteCallbackHTTP, reservationCallbackHTTP, occupancyCallbackHTTP := "b1515151-b151-4515-8515-b15151515151", "b2525252-b252-4525-8525-b25252525252", "b3535353-b353-4535-8535-b35353535353"
+	seedPaymentReservation(t, ctx, setup, spaceID, host, renter, quoteCallbackHTTP, reservationCallbackHTTP, occupancyCallbackHTTP, now, 52*time.Hour)
+	callbackOperationID := "b4545454-b454-4545-8545-b45454545454"
+	callbackOperation, _, err := repo.BeginPayment(ctx, renter, reservationCallbackHTTP, "exito", "api-callback-key", make([]byte, 32), callbackOperationID, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	callbackEvent, err := innerHTTP.StartPayment(ctx, callbackOperation.ID, callbackOperation.Requested)
+	if err != nil || callbackEvent == nil {
+		t.Fatalf("fake callback event=%+v err=%v", callbackEvent, err)
+	}
+	callbackPath := "/api/v1/local/booking-trial/payment-events"
+	callbackBody := fmt.Sprintf(`{"event_id":%q,"operation_id":%q,"outcome":%q}`, callbackEvent.EventID, callbackEvent.OperationID, callbackEvent.Outcome)
+	requestCallback := func(signature string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, callbackPath, strings.NewReader(callbackBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Local-Payment-Signature", signature)
+		response := httptest.NewRecorder()
+		handlerHTTP.ServeHTTP(response, req)
+		return response
+	}
+	if invalidCallback := requestCallback("invalid"); invalidCallback.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid fake callback status=%d body=%s", invalidCallback.Code, invalidCallback.Body.String())
+	}
+	if authenticatedCallback := requestCallback(callbackEvent.Signature); authenticatedCallback.Code != http.StatusAccepted || !strings.Contains(authenticatedCallback.Body.String(), booking.SafetyBanner) {
+		t.Fatalf("signed fake callback status=%d body=%s", authenticatedCallback.Code, authenticatedCallback.Body.String())
+	}
+	if callbackReplay := requestCallback(callbackEvent.Signature); callbackReplay.Code != http.StatusAccepted || !strings.Contains(callbackReplay.Body.String(), `"reused":true`) {
+		t.Fatalf("signed fake callback replay status=%d body=%s", callbackReplay.Code, callbackReplay.Body.String())
+	}
+	if err = serviceHTTP.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var callbackPayments, callbackEvents, callbackApplied int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_ensayo WHERE reserva_id=$1 AND resultado='exito_simulado'`, reservationCallbackHTTP).Scan(&callbackPayments); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_evento_ensayo WHERE operacion_id=$1`, callbackOperationID).Scan(&callbackEvents); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_evento_aplicacion_ensayo WHERE evento_id IN (SELECT id FROM public.reserva_pago_evento_ensayo WHERE operacion_id=$1) AND estado='aplicada'`, callbackOperationID).Scan(&callbackApplied); err != nil {
+		t.Fatal(err)
+	}
+	if callbackPayments != 1 || callbackEvents != 1 || callbackApplied != 1 {
+		t.Fatalf("callback API reconciliation payments/events/applied=%d/%d/%d", callbackPayments, callbackEvents, callbackApplied)
+	}
+
 	type paymentCall struct {
 		reservation booking.Reservation
 		err         error
@@ -682,5 +827,38 @@ VALUES(gen_random_uuid(),$1,1,NULL,'pendiente_de_pago',$2,'solicitud sintética'
 	var timelyState string
 	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, reservationTimely).Scan(&timelyState); err != nil || timelyState != "pagada" {
 		t.Fatalf("pre-deadline event processed late reservation state=%q err=%v", timelyState, err)
+	}
+
+	// Keep the timeout API case last so its pending intent cannot affect the
+	// other operations that this single integration test reconciles globally.
+	currentTime = now
+	quoteTimeoutHTTP, reservationTimeoutHTTP, occupancyTimeoutHTTP := "a1515151-a151-4515-8515-a15151515151", "a2525252-a252-4525-8525-a25252525252", "a3535353-a353-4535-8535-a35353535353"
+	seedPaymentReservation(t, ctx, setup, spaceID, host, renter, quoteTimeoutHTTP, reservationTimeoutHTTP, occupancyTimeoutHTTP, now, 50*time.Hour)
+	timeoutPath := "/api/v1/local/booking-trial/reservations/" + reservationTimeoutHTTP + "/payment"
+	requestTimeout := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, timeoutPath, strings.NewReader(`{"outcome":"sin_respuesta"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer payment-api-test-session")
+		req.Header.Set("Idempotency-Key", "api-timeout-key")
+		response := httptest.NewRecorder()
+		handlerHTTP.ServeHTTP(response, req)
+		return response
+	}
+	if timeoutResponse := requestTimeout(); timeoutResponse.Code != http.StatusGatewayTimeout || !strings.Contains(timeoutResponse.Body.String(), booking.SafetyBanner) || !strings.Contains(timeoutResponse.Body.String(), "pendiente_de_pago") {
+		t.Fatalf("fake payment API timeout status=%d body=%s", timeoutResponse.Code, timeoutResponse.Body.String())
+	}
+	timeoutStarts := adapterHTTP.starts.Load()
+	if timeoutReplay := requestTimeout(); timeoutReplay.Code != http.StatusGatewayTimeout || adapterHTTP.starts.Load() != timeoutStarts {
+		t.Fatalf("fake payment API timeout replay status=%d starts=%d body=%s", timeoutReplay.Code, adapterHTTP.starts.Load(), timeoutReplay.Body.String())
+	}
+	var timeoutResultRows, timeoutPayments int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id IN (SELECT id FROM public.reserva_pago_ensayo_operacion WHERE reserva_id=$1) AND estado='sin_respuesta'`, reservationTimeoutHTTP).Scan(&timeoutResultRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_ensayo WHERE reserva_id=$1`, reservationTimeoutHTTP).Scan(&timeoutPayments); err != nil {
+		t.Fatal(err)
+	}
+	if timeoutResultRows != 1 || timeoutPayments != 0 {
+		t.Fatalf("timeout replay persisted timeout/payment rows=%d/%d", timeoutResultRows, timeoutPayments)
 	}
 }

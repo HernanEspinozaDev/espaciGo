@@ -9,6 +9,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking/expiry"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 var _ booking.PaymentLifecycleRepository = (*Repository)(nil)
@@ -170,13 +171,22 @@ VALUES($1,'sin_respuesta',$2) ON CONFLICT(operacion_id) DO NOTHING`, operationID
 func (r *Repository) FindFakePaymentResult(ctx context.Context, operationID string) (*booking.PaymentEvent, error) {
 	var event booking.PaymentEvent
 	event.OperationID = operationID
-	err := r.pool.QueryRow(ctx, `SELECT proveedor_evento_id,resultado FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$1 AND estado='resultado'`, operationID).Scan(&event.EventID, &event.Outcome)
+	var state string
+	var eventID, outcome pgtype.Text
+	err := r.pool.QueryRow(ctx, `SELECT estado,proveedor_evento_id,resultado FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$1`, operationID).Scan(&state, &eventID, &outcome)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	if state == "sin_respuesta" {
+		return nil, booking.ErrSimulatedNoResponse
+	}
+	if state != "resultado" || !eventID.Valid || !outcome.Valid {
+		return nil, booking.ErrConflict
+	}
+	event.EventID, event.Outcome = eventID.String, outcome.String
 	return &event, nil
 }
 
