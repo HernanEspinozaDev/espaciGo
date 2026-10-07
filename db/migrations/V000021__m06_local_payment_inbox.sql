@@ -21,6 +21,18 @@ CREATE INDEX reserva_pago_ensayo_operacion_pendiente_idx
     ON public.reserva_pago_ensayo_operacion(creada_en, id)
     WHERE estado = 'pendiente';
 
+-- Durable state of the development fake itself. A persisted intent does not
+-- imply that the fake was started or that a result exists.
+CREATE TABLE public.reserva_pago_fake_resultado_ensayo (
+    operacion_id uuid PRIMARY KEY REFERENCES public.reserva_pago_ensayo_operacion(id) ON DELETE RESTRICT,
+    estado text NOT NULL CHECK (estado IN ('resultado','sin_respuesta')),
+    proveedor_evento_id text UNIQUE CHECK (proveedor_evento_id IS NULL OR length(btrim(proveedor_evento_id)) BETWEEN 1 AND 200),
+    resultado text CHECK (resultado IN ('exito_simulado','rechazo_simulado')),
+    registrado_en timestamptz NOT NULL,
+    CHECK ((estado='resultado') = (proveedor_evento_id IS NOT NULL AND resultado IS NOT NULL)),
+    CHECK (estado <> 'sin_respuesta' OR (proveedor_evento_id IS NULL AND resultado IS NULL))
+);
+
 -- Only signature-verified events are inserted here. Event contents are
 -- immutable; delivery/replay state lives in the separate processing table.
 CREATE TABLE public.reserva_pago_evento_ensayo (
@@ -39,12 +51,12 @@ CREATE INDEX reserva_pago_evento_ensayo_operacion_idx
 
 CREATE TABLE public.reserva_pago_evento_aplicacion_ensayo (
     evento_id uuid PRIMARY KEY REFERENCES public.reserva_pago_evento_ensayo(id) ON DELETE RESTRICT,
-    estado text NOT NULL CHECK (estado IN ('pendiente','aplicada','ignorada','vencida')),
-    codigo_resultado text CHECK (codigo_resultado IN ('aplicado','operacion_terminal','reserva_vencida')),
+    estado text NOT NULL CHECK (estado IN ('pendiente','aplicada','ignorada','vencida','pendiente_conciliacion')),
+    codigo_resultado text CHECK (codigo_resultado IN ('aplicado','operacion_terminal','reserva_vencida','resultado_tardio')),
     procesado_en timestamptz,
     creada_en timestamptz NOT NULL,
-    CHECK ((estado = 'pendiente') = (procesado_en IS NULL))
+    CHECK ((estado IN ('pendiente','pendiente_conciliacion')) = (procesado_en IS NULL))
 );
 CREATE INDEX reserva_pago_evento_aplicacion_pendiente_idx
     ON public.reserva_pago_evento_aplicacion_ensayo(creada_en, evento_id)
-    WHERE estado = 'pendiente';
+    WHERE estado IN ('pendiente','pendiente_conciliacion');

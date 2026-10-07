@@ -610,6 +610,9 @@ func (r *Repository) Cancel(ctx context.Context, renter, id, key, reason string,
 	if err != nil {
 		return booking.CancellationResult{}, err
 	}
+	if _, err = tx.Exec(ctx, `UPDATE public.reserva_pago_ensayo_operacion SET estado='vencida',actualizada_en=$2 WHERE reserva_id=$1 AND estado='pendiente'`, id, now); err != nil {
+		return booking.CancellationResult{}, err
+	}
 	historyReason := "cancelación local antes del pago"
 	if refundAmount != nil {
 		historyReason = "cancelación local con devolución simulada pendiente"

@@ -27,24 +27,16 @@ func (r *Repository) BeginPayment(ctx context.Context, renter, reservationID, re
 		return booking.PaymentOperation{}, false, err
 	}
 	now := clock().UTC()
-	expired, err := expiry.LockedReservation(ctx, tx, reservationID, now)
-	if err != nil {
-		return booking.PaymentOperation{}, false, err
-	}
 	var operation booking.PaymentOperation
 	var existingFingerprint []byte
 	err = tx.QueryRow(ctx, `SELECT id::text,reserva_id::text,arrendatario_id::text,clave_idempotencia,huella_solicitud,resultado_solicitado,estado,creada_en
 FROM public.reserva_pago_ensayo_operacion WHERE reserva_id=$1 AND arrendatario_id=$2 AND clave_idempotencia=$3 FOR UPDATE`, reservationID, renter, key).Scan(
 		&operation.ID, &operation.ReservationID, &operation.RenterID, &operation.IdempotencyKey, &existingFingerprint, &operation.Requested, &operation.State, &operation.CreatedAt)
 	if err == nil {
+		operation.ReservationState = reservation.State
+		operation.PayExpiresAt = reservation.PayExpiresAt
 		if !bytes.Equal(existingFingerprint, fingerprint) || operation.Requested != requested {
 			return booking.PaymentOperation{}, false, booking.ErrConflict
-		}
-		if expired && operation.State == "pendiente" {
-			if _, err = tx.Exec(ctx, `UPDATE public.reserva_pago_ensayo_operacion SET estado='vencida',actualizada_en=$2 WHERE id=$1`, operation.ID, now); err != nil {
-				return booking.PaymentOperation{}, false, err
-			}
-			operation.State = "vencida"
 		}
 		if err = tx.Commit(ctx); err != nil {
 			return booking.PaymentOperation{}, false, err
@@ -52,6 +44,10 @@ FROM public.reserva_pago_ensayo_operacion WHERE reserva_id=$1 AND arrendatario_i
 		return operation, false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
+		return booking.PaymentOperation{}, false, err
+	}
+	expired, err := expiry.LockedReservation(ctx, tx, reservationID, now)
+	if err != nil {
 		return booking.PaymentOperation{}, false, err
 	}
 	if expired || reservation.State != "pendiente_de_pago" || !reservation.PayExpiresAt.After(now) {
@@ -75,15 +71,16 @@ VALUES($1,$2,$3,$4,$5,$6,'pendiente',$7,$7)`, operationID, reservationID, renter
 	if err = tx.Commit(ctx); err != nil {
 		return booking.PaymentOperation{}, false, mapErr(err)
 	}
-	return booking.PaymentOperation{ID: operationID, ReservationID: reservationID, RenterID: renter, IdempotencyKey: key, Fingerprint: append([]byte(nil), fingerprint...), Requested: requested, State: "pendiente", CreatedAt: now}, true, nil
+	return booking.PaymentOperation{ID: operationID, ReservationID: reservationID, RenterID: renter, IdempotencyKey: key, Fingerprint: append([]byte(nil), fingerprint...), Requested: requested, State: "pendiente", CreatedAt: now, ReservationState: reservation.State, PayExpiresAt: reservation.PayExpiresAt}, true, nil
 }
 
 func (r *Repository) PendingPayments(ctx context.Context, limit int) ([]booking.PaymentOperation, error) {
 	if limit < 1 || limit > 500 {
 		return nil, booking.ErrInvalid
 	}
-	rows, err := r.pool.Query(ctx, `SELECT id::text,reserva_id::text,arrendatario_id::text,clave_idempotencia,huella_solicitud,resultado_solicitado,estado,creada_en
-FROM public.reserva_pago_ensayo_operacion WHERE estado='pendiente' ORDER BY creada_en,id LIMIT $1`, limit)
+	rows, err := r.pool.Query(ctx, `SELECT o.id::text,o.reserva_id::text,o.arrendatario_id::text,o.clave_idempotencia,o.huella_solicitud,o.resultado_solicitado,o.estado,o.creada_en,r.estado,r.pago_vence_en
+FROM public.reserva_pago_ensayo_operacion o JOIN public.reserva_ensayo_local r ON r.id=o.reserva_id
+WHERE o.estado='pendiente' ORDER BY o.creada_en,o.id LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -91,12 +88,93 @@ FROM public.reserva_pago_ensayo_operacion WHERE estado='pendiente' ORDER BY crea
 	values := make([]booking.PaymentOperation, 0)
 	for rows.Next() {
 		var value booking.PaymentOperation
-		if err := rows.Scan(&value.ID, &value.ReservationID, &value.RenterID, &value.IdempotencyKey, &value.Fingerprint, &value.Requested, &value.State, &value.CreatedAt); err != nil {
+		if err := rows.Scan(&value.ID, &value.ReservationID, &value.RenterID, &value.IdempotencyKey, &value.Fingerprint, &value.Requested, &value.State, &value.CreatedAt, &value.ReservationState, &value.PayExpiresAt); err != nil {
 			return nil, err
 		}
 		values = append(values, value)
 	}
 	return values, rows.Err()
+}
+
+// SaveFakePaymentResult durably records the result produced by the local fake.
+// The operation ID is the fake's idempotency key: repeated starts return the
+// same immutable event rather than representing another charge.
+func (r *Repository) SaveFakePaymentResult(ctx context.Context, event booking.PaymentEvent, recordedAt time.Time) (booking.PaymentEvent, bool, error) {
+	if event.OperationID == "" || event.EventID == "" || (event.Outcome != "exito_simulado" && event.Outcome != "rechazo_simulado") {
+		return booking.PaymentEvent{}, false, booking.ErrInvalid
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return booking.PaymentEvent{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	var requested string
+	err = tx.QueryRow(ctx, `SELECT resultado_solicitado FROM public.reserva_pago_ensayo_operacion WHERE id=$1 FOR UPDATE`, event.OperationID).Scan(&requested)
+	if err != nil {
+		return booking.PaymentEvent{}, false, mapErr(err)
+	}
+	if requested == "exito" && event.Outcome != "exito_simulado" || requested == "rechazo" && event.Outcome != "rechazo_simulado" || requested == "sin_respuesta" && event.Outcome != "exito_simulado" {
+		return booking.PaymentEvent{}, false, booking.ErrConflict
+	}
+	command, err := tx.Exec(ctx, `INSERT INTO public.reserva_pago_fake_resultado_ensayo(operacion_id,estado,proveedor_evento_id,resultado,registrado_en)
+VALUES($1,'resultado',$2,$3,$4) ON CONFLICT(operacion_id) DO NOTHING`, event.OperationID, event.EventID, event.Outcome, recordedAt.UTC())
+	if err != nil {
+		return booking.PaymentEvent{}, false, mapErr(err)
+	}
+	var stored booking.PaymentEvent
+	stored.OperationID = event.OperationID
+	err = tx.QueryRow(ctx, `SELECT proveedor_evento_id,resultado FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$1 AND estado='resultado'`, event.OperationID).Scan(&stored.EventID, &stored.Outcome)
+	if err != nil {
+		return booking.PaymentEvent{}, false, err
+	}
+	if stored.EventID != event.EventID || stored.Outcome != event.Outcome {
+		return booking.PaymentEvent{}, false, booking.ErrConflict
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return booking.PaymentEvent{}, false, mapErr(err)
+	}
+	return stored, command.RowsAffected() == 1, nil
+}
+
+func (r *Repository) RecordFakePaymentTimeout(ctx context.Context, operationID string, recordedAt time.Time) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var requested string
+	if err = tx.QueryRow(ctx, `SELECT resultado_solicitado FROM public.reserva_pago_ensayo_operacion WHERE id=$1 FOR UPDATE`, operationID).Scan(&requested); err != nil {
+		return mapErr(err)
+	}
+	if requested != "sin_respuesta" {
+		return booking.ErrConflict
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_pago_fake_resultado_ensayo(operacion_id,estado,registrado_en)
+VALUES($1,'sin_respuesta',$2) ON CONFLICT(operacion_id) DO NOTHING`, operationID, recordedAt.UTC())
+	if err != nil {
+		return mapErr(err)
+	}
+	var state string
+	if err = tx.QueryRow(ctx, `SELECT estado FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$1`, operationID).Scan(&state); err != nil {
+		return err
+	}
+	if state != "sin_respuesta" {
+		return booking.ErrConflict
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) FindFakePaymentResult(ctx context.Context, operationID string) (*booking.PaymentEvent, error) {
+	var event booking.PaymentEvent
+	event.OperationID = operationID
+	err := r.pool.QueryRow(ctx, `SELECT proveedor_evento_id,resultado FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$1 AND estado='resultado'`, operationID).Scan(&event.EventID, &event.Outcome)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &event, nil
 }
 
 func (r *Repository) PendingPaymentEventIDs(ctx context.Context, limit int) ([]string, error) {
@@ -150,12 +228,25 @@ func (r *Repository) RecordPaymentEvent(ctx context.Context, event booking.Payme
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return false, err
 	}
-	if operationState != "pendiente" {
-		return false, booking.ErrConflict
-	}
 	var operationRequested string
 	if err = tx.QueryRow(ctx, `SELECT resultado_solicitado FROM public.reserva_pago_ensayo_operacion WHERE id=$1`, event.OperationID).Scan(&operationRequested); err != nil {
 		return false, err
+	}
+	// A verified late callback is itself the fake's registered result. It may
+	// resolve a persisted timeout marker, but cannot replace another result.
+	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_pago_fake_resultado_ensayo(operacion_id,estado,proveedor_evento_id,resultado,registrado_en)
+VALUES($1,'resultado',$2,$3,$4)
+ON CONFLICT(operacion_id) DO UPDATE SET estado='resultado',proveedor_evento_id=EXCLUDED.proveedor_evento_id,resultado=EXCLUDED.resultado,registrado_en=EXCLUDED.registrado_en
+WHERE public.reserva_pago_fake_resultado_ensayo.estado='sin_respuesta'`, event.OperationID, event.EventID, event.Outcome, now.UTC())
+	if err != nil {
+		return false, mapErr(err)
+	}
+	var fakeEventID, fakeOutcome string
+	if err = tx.QueryRow(ctx, `SELECT proveedor_evento_id,resultado FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$1`, event.OperationID).Scan(&fakeEventID, &fakeOutcome); err != nil {
+		return false, err
+	}
+	if fakeEventID != event.EventID || fakeOutcome != event.Outcome {
+		return false, booking.ErrConflict
 	}
 	// A fake timeout represents a lost response, so a later authenticated
 	// callback may resolve it either way. Other fake outcomes must match their
@@ -169,7 +260,7 @@ VALUES(gen_random_uuid(),$1,$2,$3,$4,$5,$5) RETURNING id::text`, event.Operation
 	if err != nil {
 		return false, mapErr(err)
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO public.reserva_pago_evento_aplicacion_ensayo(evento_id,estado,creada_en) VALUES($1,'pendiente',$2)`, eventRowID, now.UTC()); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO public.reserva_pago_evento_aplicacion_ensayo(evento_id,estado,codigo_resultado,creada_en) VALUES($1,'pendiente',CASE WHEN $2='pendiente' THEN NULL ELSE 'operacion_terminal' END,$3)`, eventRowID, operationState, now.UTC()); err != nil {
 		return false, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -200,26 +291,37 @@ JOIN public.reserva_pago_ensayo_operacion o ON o.id=e.operacion_id WHERE e.id=$1
 		return booking.Reservation{}, err
 	}
 	var outcome, applicationState string
-	err = tx.QueryRow(ctx, `SELECT e.resultado,a.estado FROM public.reserva_pago_evento_ensayo e
-JOIN public.reserva_pago_evento_aplicacion_ensayo a ON a.evento_id=e.id WHERE e.id=$1 FOR UPDATE OF a`, eventRowID).Scan(&outcome, &applicationState)
+	var authenticatedAt time.Time
+	err = tx.QueryRow(ctx, `SELECT e.resultado,a.estado,e.autenticado_en FROM public.reserva_pago_evento_ensayo e
+JOIN public.reserva_pago_evento_aplicacion_ensayo a ON a.evento_id=e.id WHERE e.id=$1 FOR UPDATE OF a`, eventRowID).Scan(&outcome, &applicationState, &authenticatedAt)
 	if err != nil {
 		return booking.Reservation{}, err
 	}
-	if applicationState != "pendiente" {
+	if applicationState == "aplicada" || applicationState == "ignorada" || applicationState == "vencida" {
 		if err = tx.Commit(ctx); err != nil {
 			return booking.Reservation{}, err
 		}
 		return value, nil
 	}
 	if operationState != "pendiente" || value.State != "pendiente_de_pago" {
-		now := clock().UTC()
-		if _, err = tx.Exec(ctx, `UPDATE public.reserva_pago_evento_aplicacion_ensayo SET estado='ignorada',codigo_resultado='operacion_terminal',procesado_en=$2 WHERE evento_id=$1`, eventRowID, now); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE public.reserva_pago_evento_aplicacion_ensayo SET estado='pendiente_conciliacion',codigo_resultado='operacion_terminal',procesado_en=NULL WHERE evento_id=$1`, eventRowID); err != nil {
 			return booking.Reservation{}, err
 		}
-		if operationState == "pendiente" {
-			if _, err = tx.Exec(ctx, `UPDATE public.reserva_pago_ensayo_operacion SET estado='vencida',actualizada_en=$2 WHERE id=$1`, operationID, now); err != nil {
-				return booking.Reservation{}, err
-			}
+		if err = tx.Commit(ctx); err != nil {
+			return booking.Reservation{}, err
+		}
+		return value, booking.ErrConflict
+	}
+	// A callback authenticated before the payment deadline remains timely if
+	// processing was delayed. A callback received at/after the deadline is
+	// kept for manual reconciliation and never reactivates an expired hold.
+	if !value.PayExpiresAt.After(authenticatedAt) {
+		now := clock().UTC()
+		if _, err = expiry.LockedReservation(ctx, tx, reservationID, now); err != nil {
+			return booking.Reservation{}, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE public.reserva_pago_evento_aplicacion_ensayo SET estado='pendiente_conciliacion',codigo_resultado='resultado_tardio',procesado_en=NULL WHERE evento_id=$1`, eventRowID); err != nil {
+			return booking.Reservation{}, err
 		}
 		if err = tx.Commit(ctx); err != nil {
 			return booking.Reservation{}, err
@@ -227,11 +329,12 @@ JOIN public.reserva_pago_evento_aplicacion_ensayo a ON a.evento_id=e.id WHERE e.
 		return value, booking.ErrConflict
 	}
 	now := clock().UTC()
-	expired, err := expiry.LockedReservation(ctx, tx, reservationID, now)
+	comparisonAt := authenticatedAt
+	expired, err := expiry.LockedReservation(ctx, tx, reservationID, comparisonAt)
 	if err != nil {
 		return booking.Reservation{}, err
 	}
-	if expired || !value.PayExpiresAt.After(now) {
+	if expired {
 		if _, err = tx.Exec(ctx, `UPDATE public.reserva_pago_ensayo_operacion SET estado='vencida',actualizada_en=$2 WHERE id=$1`, operationID, now); err != nil {
 			return booking.Reservation{}, err
 		}

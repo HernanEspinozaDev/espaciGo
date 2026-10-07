@@ -174,7 +174,7 @@ func run() error {
 			if err != nil || len(paymentKey) < 32 {
 				return errors.New("local payment event authentication secret is invalid")
 			}
-			paymentAdapter, err := fakebooking.New(paymentKey)
+			paymentAdapter, err := fakebooking.NewWithStore(paymentKey, bookingpg.New(pool))
 			if err != nil {
 				return errors.New("local payment event authentication initialization failed")
 			}

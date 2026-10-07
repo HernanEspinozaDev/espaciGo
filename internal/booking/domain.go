@@ -161,14 +161,16 @@ type PaymentInput struct {
 // the fake adapter is invoked, so an idempotent retry can query/reconcile the
 // existing operation without initiating another charge.
 type PaymentOperation struct {
-	ID             string    `json:"id"`
-	ReservationID  string    `json:"reservation_id"`
-	RenterID       string    `json:"renter_id"`
-	IdempotencyKey string    `json:"-"`
-	Fingerprint    []byte    `json:"-"`
-	Requested      string    `json:"-"`
-	State          string    `json:"state"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID               string    `json:"id"`
+	ReservationID    string    `json:"reservation_id"`
+	RenterID         string    `json:"renter_id"`
+	IdempotencyKey   string    `json:"-"`
+	Fingerprint      []byte    `json:"-"`
+	Requested        string    `json:"-"`
+	State            string    `json:"state"`
+	CreatedAt        time.Time `json:"created_at"`
+	ReservationState string    `json:"-"`
+	PayExpiresAt     time.Time `json:"-"`
 }
 
 // PaymentEvent contains a provider result. Signature is accepted only at the

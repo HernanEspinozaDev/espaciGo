@@ -32,9 +32,45 @@ type gatedPaymentAdapter struct {
 	release chan struct{}
 }
 
+func seedPaymentReservation(t *testing.T, ctx context.Context, setup *pgx.Conn, spaceID, host, renter, quoteID, reservationID, occupancyID string, now time.Time, offset time.Duration) {
+	t.Helper()
+	start, end := now.Add(offset), now.Add(offset+time.Hour)
+	tx, err := setup.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SET CONSTRAINTS ALL DEFERRED`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,creada_en,vence_en,categoria_codigo,perfil_version,perfil_valores_snapshot)
+VALUES($1,$2,$3,$4,1,'hora',8000,'CLP',1,8000,$5,$6,'America/Santiago','Reglas fake',$7,$8,'sala_multiproposito',1,'{}')`, quoteID, spaceID, host, renter, start, end, now, now.Add(15*time.Minute))
+	if err == nil {
+		_, err = tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,politica_cancelacion_version,pago_vence_en,creada_en,actualizada_en)
+VALUES($1,$2,$3,$4,$5,$6,decode(repeat('02',32),'hex'),$7,'pendiente_de_pago',8000,1,8000,'hora','CLP',$8,$9,'America/Santiago','Reglas fake','local_flexible_v1',$10,$11,$11)`, reservationID, quoteID, spaceID, host, renter, "request-"+reservationID, occupancyID, start, end, now.Add(15*time.Minute), now)
+	}
+	if err == nil {
+		_, err = tx.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,expira_en,creada_en)
+VALUES($1,$2,$3,tstzrange($4,$5,'[)'),'retencion',true,$6,$7)`, occupancyID, spaceID, reservationID, start, end, now.Add(15*time.Minute), now)
+	}
+	if err == nil {
+		_, err = tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en)
+VALUES(gen_random_uuid(),$1,1,NULL,'pendiente_de_pago',$2,'solicitud sintética',$3)`, reservationID, renter, now)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (a *gatedPaymentAdapter) StartPayment(ctx context.Context, operationID, requested string) (*booking.PaymentEvent, error) {
 	a.starts.Add(1)
-	a.started <- struct{}{}
+	select {
+	case a.started <- struct{}{}:
+	default:
+	}
 	select {
 	case <-a.release:
 	case <-ctx.Done():
@@ -43,7 +79,10 @@ func (a *gatedPaymentAdapter) StartPayment(ctx context.Context, operationID, req
 	return a.inner.StartPayment(ctx, operationID, requested)
 }
 func (a *gatedPaymentAdapter) LookupPayment(ctx context.Context, operation booking.PaymentOperation) (*booking.PaymentEvent, error) {
-	a.looked <- struct{}{}
+	select {
+	case a.looked <- struct{}{}:
+	default:
+	}
 	return a.countedPaymentAdapter.LookupPayment(ctx, operation)
 }
 
@@ -127,14 +166,21 @@ func TestDurableFakePaymentInboxDeduplicatesTimeoutAndRecoversAfterRestart(t *te
 	}
 	var operationRead, operationInsert, operationUpdate bool
 	var eventRead, eventInsert, eventUpdate, eventDelete bool
+	var fakeRead, fakeInsert, fakeUpdate, fakeDelete bool
 	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_pago_ensayo_operacion','SELECT'),has_table_privilege(current_user,'public.reserva_pago_ensayo_operacion','INSERT'),has_table_privilege(current_user,'public.reserva_pago_ensayo_operacion','UPDATE')`).Scan(&operationRead, &operationInsert, &operationUpdate); err != nil {
 		t.Fatal(err)
 	}
 	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_pago_evento_ensayo','SELECT'),has_table_privilege(current_user,'public.reserva_pago_evento_ensayo','INSERT'),has_table_privilege(current_user,'public.reserva_pago_evento_ensayo','UPDATE'),has_table_privilege(current_user,'public.reserva_pago_evento_ensayo','DELETE')`).Scan(&eventRead, &eventInsert, &eventUpdate, &eventDelete); err != nil {
 		t.Fatal(err)
 	}
+	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_pago_fake_resultado_ensayo','SELECT'),has_table_privilege(current_user,'public.reserva_pago_fake_resultado_ensayo','INSERT'),has_table_privilege(current_user,'public.reserva_pago_fake_resultado_ensayo','UPDATE'),has_table_privilege(current_user,'public.reserva_pago_fake_resultado_ensayo','DELETE')`).Scan(&fakeRead, &fakeInsert, &fakeUpdate, &fakeDelete); err != nil {
+		t.Fatal(err)
+	}
 	if !operationRead || !operationInsert || !operationUpdate || !eventRead || !eventInsert || eventUpdate || eventDelete {
 		t.Fatalf("runtime payment grants: operation R/I/U=%v/%v/%v immutable event R/I/U/D=%v/%v/%v/%v", operationRead, operationInsert, operationUpdate, eventRead, eventInsert, eventUpdate, eventDelete)
+	}
+	if !fakeRead || !fakeInsert || !fakeUpdate || fakeDelete {
+		t.Fatalf("runtime fake-result grants R/I/U/D=%v/%v/%v/%v", fakeRead, fakeInsert, fakeUpdate, fakeDelete)
 	}
 
 	host, renter := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
@@ -184,13 +230,20 @@ VALUES(gen_random_uuid(),$1,1,NULL,'pendiente_de_pago',$2,'solicitud sintética'
 	}
 
 	const eventSecret = "stable-test-local-payment-webhook-key-at-least-32-bytes"
-	clock := func() time.Time { return now }
-	inner1, err := fakebooking.New([]byte(eventSecret))
+	currentTime := now
+	clock := func() time.Time { return currentTime }
+	repo := New(pool)
+	inner1, err := fakebooking.NewWithStore([]byte(eventSecret), repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	adapter1 := &gatedPaymentAdapter{countedPaymentAdapter: &countedPaymentAdapter{inner: inner1}, started: make(chan struct{}, 1), looked: make(chan struct{}, 2), release: make(chan struct{})}
-	repo := New(pool)
+	if _, _, err = repo.BeginPayment(ctx, host, reservationID, "exito", "foreign-payment-key", make([]byte, 32), "11111111-1111-4111-8111-111111111111", clock); !errors.Is(err, booking.ErrNotFound) {
+		t.Fatalf("foreign reservation BeginPayment err=%v; want not found", err)
+	}
+	if _, _, err = repo.BeginPayment(ctx, renter, "22222222-2222-4222-8222-222222222222", "exito", "missing-payment-key", make([]byte, 32), "33333333-3333-4333-8333-333333333333", clock); !errors.Is(err, booking.ErrNotFound) {
+		t.Fatalf("missing reservation BeginPayment err=%v; want not found", err)
+	}
 	service1, err := booking.NewServiceWithTTLs(repo, credentials.Generator{}, clock, adapter1, 15*time.Minute, 15*time.Minute, 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -228,12 +281,14 @@ VALUES(gen_random_uuid(),$1,1,NULL,'pendiente_de_pago',$2,'solicitud sintética'
 	if _, err = service1.Pay(ctx, renter, reservationID, "exito", "different-charge-key"); !errors.Is(err, booking.ErrConflict) {
 		t.Fatalf("second payment key after timeout err=%v; want conflict", err)
 	}
-	if got := adapter1.starts.Load(); got != 1 {
-		t.Fatalf("fake charge start calls=%d; timeout/retry must not initiate another charge", got)
-	}
 	var operationID string
 	if err = pool.QueryRow(ctx, `SELECT id::text FROM public.reserva_pago_ensayo_operacion WHERE reserva_id=$1 AND clave_idempotencia='payment-key-stable'`, reservationID).Scan(&operationID); err != nil {
 		t.Fatal(err)
+	}
+	var fakeResultRows int
+	var fakeResultState string
+	if err = pool.QueryRow(ctx, `SELECT count(*),min(estado) FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$1`, operationID).Scan(&fakeResultRows, &fakeResultState); err != nil || fakeResultRows != 1 || fakeResultState != "sin_respuesta" {
+		t.Fatalf("timeout fake records=%d state=%q err=%v; retries must not create a charge", fakeResultRows, fakeResultState, err)
 	}
 	lateEvent := *inner1.SignPaymentEvent(operationID, "exito_simulado")
 	firstReceipt, err := service1.IngestPaymentEvent(ctx, lateEvent)
@@ -262,7 +317,7 @@ VALUES(gen_random_uuid(),$1,1,NULL,'pendiente_de_pago',$2,'solicitud sintética'
 
 	// Model a process restart: a new Service and adapter instance read the
 	// authenticated inbox from PostgreSQL and apply it without another charge.
-	inner2, err := fakebooking.New([]byte(eventSecret))
+	inner2, err := fakebooking.NewWithStore([]byte(eventSecret), repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,5 +366,171 @@ VALUES(gen_random_uuid(),$1,1,NULL,'pendiente_de_pago',$2,'solicitud sintética'
 	}
 	if replayPayment, replayErr := service2.Pay(ctx, renter, reservationID, "sin_respuesta", "payment-key-stable"); replayErr != nil || replayPayment.State != "pagada" || adapter2.starts.Load() != 0 {
 		t.Fatalf("payment replay after settlement=%+v err=%v starts=%d", replayPayment, replayErr, adapter2.starts.Load())
+	}
+
+	// A durable intent with no fake result is not a success. On restart the
+	// reconciler starts the fake with the operation key and then applies it.
+	quoteBefore, reservationBefore, occupancyBefore := "12121212-1212-4121-8121-121212121212", "13131313-1313-4131-8131-131313131313", "14141414-1414-4141-8141-141414141414"
+	seedPaymentReservation(t, ctx, setup, spaceID, host, renter, quoteBefore, reservationBefore, occupancyBefore, now, 72*time.Hour)
+	operationBeforeID := "15151515-1515-4151-8151-151515151515"
+	operationBefore, created, err := repo.BeginPayment(ctx, renter, reservationBefore, "exito", "before-start-key", make([]byte, 32), operationBeforeID, clock)
+	if err != nil || !created {
+		t.Fatalf("create intent before simulated crash=%+v created=%v err=%v", operationBefore, created, err)
+	}
+	if event, lookupErr := inner2.LookupPayment(ctx, operationBefore); lookupErr != nil || event != nil {
+		t.Fatalf("unknown fake operation lookup fabricated event=%+v err=%v", event, lookupErr)
+	}
+	if err = service2.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var stateBefore string
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, reservationBefore).Scan(&stateBefore); err != nil || stateBefore != "pagada" {
+		t.Fatalf("recovery before fake start reservation state=%q err=%v", stateBefore, err)
+	}
+	var fakeResultsBefore int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$1 AND estado='resultado'`, operationBeforeID).Scan(&fakeResultsBefore); err != nil || fakeResultsBefore != 1 {
+		t.Fatalf("recovery before start fake results=%d err=%v", fakeResultsBefore, err)
+	}
+
+	// Simulate a crash after the fake durably records its result but before the
+	// Backend inserts the authenticated event into its inbox.
+	quoteAfter, reservationAfter, occupancyAfter := "21212121-2121-4212-8212-212121212121", "23232323-2323-4232-8232-232323232323", "24242424-2424-4242-8242-242424242424"
+	seedPaymentReservation(t, ctx, setup, spaceID, host, renter, quoteAfter, reservationAfter, occupancyAfter, now, 74*time.Hour)
+	operationAfterID := "25252525-2525-4252-8252-252525252525"
+	operationAfter, created, err := repo.BeginPayment(ctx, renter, reservationAfter, "exito", "after-start-key", make([]byte, 32), operationAfterID, clock)
+	if err != nil || !created {
+		t.Fatalf("create post-start intent=%+v created=%v err=%v", operationAfter, created, err)
+	}
+	producedEvent, err := inner2.StartPayment(ctx, operationAfter.ID, operationAfter.Requested)
+	if err != nil || producedEvent == nil {
+		t.Fatalf("fake result before simulated crash=%+v err=%v", producedEvent, err)
+	}
+	innerAfterRestart, err := fakebooking.NewWithStore([]byte(eventSecret), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapterAfterRestart := &countedPaymentAdapter{inner: innerAfterRestart}
+	serviceAfterRestart, err := booking.NewServiceWithTTLs(repo, credentials.Generator{}, clock, adapterAfterRestart, 15*time.Minute, 15*time.Minute, 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = serviceAfterRestart.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if adapterAfterRestart.starts.Load() != 0 {
+		t.Fatalf("recovery after fake result started it again: starts=%d", adapterAfterRestart.starts.Load())
+	}
+	var stateAfter string
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, reservationAfter).Scan(&stateAfter); err != nil || stateAfter != "pagada" {
+		t.Fatalf("recovery after fake start reservation state=%q err=%v", stateAfter, err)
+	}
+	var resultRowsAfter, inboxRowsAfter int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$1`, operationAfterID).Scan(&resultRowsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_evento_ensayo WHERE operacion_id=$1`, operationAfterID).Scan(&inboxRowsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if resultRowsAfter != 1 || inboxRowsAfter != 1 {
+		t.Fatalf("post-start restart duplicated fake result/inbox rows=%d/%d", resultRowsAfter, inboxRowsAfter)
+	}
+
+	// An authenticated callback arriving after cancellation is retained for
+	// reconciliation and cannot reactivate the reservation or its occupancy.
+	quoteCancelled, reservationCancelled, occupancyCancelled := "31313131-3131-4313-8313-313131313131", "32323232-3232-4323-8323-323232323232", "34343434-3434-4434-8434-343434343434"
+	seedPaymentReservation(t, ctx, setup, spaceID, host, renter, quoteCancelled, reservationCancelled, occupancyCancelled, now, 76*time.Hour)
+	operationCancelledID := "35353535-3535-4353-8353-353535353535"
+	operationCancelled, _, err := repo.BeginPayment(ctx, renter, reservationCancelled, "exito", "cancelled-late-key", make([]byte, 32), operationCancelledID, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelledEvent, err := inner2.StartPayment(ctx, operationCancelled.ID, operationCancelled.Requested)
+	if err != nil || cancelledEvent == nil {
+		t.Fatalf("register fake result before cancellation=%+v err=%v", cancelledEvent, err)
+	}
+	if _, err = service2.Cancel(ctx, renter, reservationCancelled, "cancel-before-event", "test"); err != nil {
+		t.Fatal(err)
+	}
+	lateReceipt, err := service2.IngestPaymentEvent(ctx, *cancelledEvent)
+	if err != nil || !lateReceipt.Accepted || lateReceipt.Reused {
+		t.Fatalf("late callback receipt=%+v err=%v", lateReceipt, err)
+	}
+	lateReplay, err := service2.IngestPaymentEvent(ctx, *cancelledEvent)
+	if err != nil || !lateReplay.Reused {
+		t.Fatalf("late callback replay receipt=%+v err=%v", lateReplay, err)
+	}
+	if err = service2.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var cancelledState, cancelledApplication string
+	var cancelledActive bool
+	if err = pool.QueryRow(ctx, `SELECT r.estado,o.activo,a.estado FROM public.reserva_ensayo_local r JOIN public.ocupacion o ON o.reserva_id=r.id JOIN public.reserva_pago_ensayo_operacion p ON p.reserva_id=r.id JOIN public.reserva_pago_evento_ensayo e ON e.operacion_id=p.id JOIN public.reserva_pago_evento_aplicacion_ensayo a ON a.evento_id=e.id WHERE r.id=$1`, reservationCancelled).Scan(&cancelledState, &cancelledActive, &cancelledApplication); err != nil {
+		t.Fatal(err)
+	}
+	if cancelledState != "cancelada_arrendatario" || cancelledActive || cancelledApplication != "pendiente_conciliacion" {
+		t.Fatalf("cancelled late-event result state/occupancy/application=%s/%v/%s", cancelledState, cancelledActive, cancelledApplication)
+	}
+	quoteExpired, reservationExpired, occupancyExpired := "36363636-3636-4363-8363-363636363636", "37373737-3737-4373-8373-373737373737", "38383838-3838-4383-8383-383838383838"
+	seedPaymentReservation(t, ctx, setup, spaceID, host, renter, quoteExpired, reservationExpired, occupancyExpired, now, 77*time.Hour)
+	operationExpiredID := "39393939-3939-4393-8393-393939393939"
+	operationExpired, _, err := repo.BeginPayment(ctx, renter, reservationExpired, "exito", "expired-late-key", make([]byte, 32), operationExpiredID, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredEvent, err := inner2.StartPayment(ctx, operationExpired.ID, operationExpired.Requested)
+	if err != nil || expiredEvent == nil {
+		t.Fatalf("expired late-event fake result=%+v err=%v", expiredEvent, err)
+	}
+	currentTime = now.Add(16 * time.Minute)
+	if err = repo.Expire(ctx, currentTime); err != nil {
+		t.Fatal(err)
+	}
+	expiredReceipt, err := service2.IngestPaymentEvent(ctx, *expiredEvent)
+	if err != nil || !expiredReceipt.Accepted {
+		t.Fatalf("expired callback receipt=%+v err=%v", expiredReceipt, err)
+	}
+	if err = service2.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var expiredState, expiredApplication string
+	var expiredActive bool
+	if err = pool.QueryRow(ctx, `SELECT r.estado,o.activo,a.estado FROM public.reserva_ensayo_local r JOIN public.ocupacion o ON o.reserva_id=r.id JOIN public.reserva_pago_ensayo_operacion p ON p.reserva_id=r.id JOIN public.reserva_pago_evento_ensayo e ON e.operacion_id=p.id JOIN public.reserva_pago_evento_aplicacion_ensayo a ON a.evento_id=e.id WHERE r.id=$1`, reservationExpired).Scan(&expiredState, &expiredActive, &expiredApplication); err != nil {
+		t.Fatal(err)
+	}
+	if expiredState != "vencida_pago" || expiredActive || expiredApplication != "pendiente_conciliacion" {
+		t.Fatalf("expired late-event result state/occupancy/application=%s/%v/%s", expiredState, expiredActive, expiredApplication)
+	}
+
+	// Events authenticated before expiry are applied before the reconciliation
+	// sweep even when processing occurs after the payment deadline.
+	quoteTimely, reservationTimely, occupancyTimely := "41414141-4141-4414-8414-414141414141", "42424242-4242-4424-8424-424242424242", "43434343-4343-4434-8434-434343434343"
+	seedPaymentReservation(t, ctx, setup, spaceID, host, renter, quoteTimely, reservationTimely, occupancyTimely, now, 78*time.Hour)
+	currentTime = now
+	operationTimelyID := "44444444-4444-4444-8444-444444444444"
+	operationTimely, _, err := repo.BeginPayment(ctx, renter, reservationTimely, "exito", "timely-event-key", make([]byte, 32), operationTimelyID, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	timelyEvent, err := inner2.StartPayment(ctx, operationTimely.ID, operationTimely.Requested)
+	if err != nil || timelyEvent == nil {
+		t.Fatalf("timely fake result=%+v err=%v", timelyEvent, err)
+	}
+	if _, err = service2.IngestPaymentEvent(ctx, *timelyEvent); err != nil {
+		t.Fatal(err)
+	}
+	currentTime = now.Add(16 * time.Minute)
+	if err = repo.Expire(ctx, currentTime); err != nil {
+		t.Fatal(err)
+	}
+	var beforeReconcile string
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, reservationTimely).Scan(&beforeReconcile); err != nil || beforeReconcile != "pendiente_de_pago" {
+		t.Fatalf("expiry sweep discarded pre-deadline pending callback: state=%q err=%v", beforeReconcile, err)
+	}
+	if err = service2.ReconcilePendingPayments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var timelyState string
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, reservationTimely).Scan(&timelyState); err != nil || timelyState != "pagada" {
+		t.Fatalf("pre-deadline event processed late reservation state=%q err=%v", timelyState, err)
 	}
 }

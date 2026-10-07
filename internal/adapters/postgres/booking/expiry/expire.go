@@ -26,7 +26,19 @@ FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservationID).Scan(&s
 	}
 	next, reason := "", ""
 	if state == "pendiente_de_pago" && !paymentDeadline.After(now) {
-		next, reason = "vencida_pago", "venció plazo de pago local"
+		// Do not race a callback that was durably authenticated before its
+		// deadline. The payment reconciler will apply it using autenticado_en.
+		var timelyCallback bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(
+SELECT 1 FROM public.reserva_pago_evento_ensayo e
+JOIN public.reserva_pago_ensayo_operacion p ON p.id=e.operacion_id
+JOIN public.reserva_pago_evento_aplicacion_ensayo a ON a.evento_id=e.id
+WHERE p.reserva_id=$1 AND e.autenticado_en<$2 AND a.estado IN ('pendiente','pendiente_conciliacion'))`, reservationID, paymentDeadline).Scan(&timelyCallback); err != nil {
+			return false, err
+		}
+		if !timelyCallback {
+			next, reason = "vencida_pago", "venció plazo de pago local"
+		}
 	} else if state == "pagada" && hostDeadline != nil && !hostDeadline.After(now) {
 		next, reason = "vencida_host", "venció plazo de respuesta del anfitrión"
 	}

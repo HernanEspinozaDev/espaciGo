@@ -533,6 +533,12 @@ func (s *Service) Pay(ctx context.Context, renter, id, outcome, key string) (Res
 	if !ok {
 		return Reservation{}, ErrInvalid
 	}
+	// Process authenticated callbacks before an expiry sweep. A callback
+	// received before the deadline stays timely even if reconciliation runs
+	// after that deadline.
+	if err := s.ReconcilePendingPayments(ctx); err != nil {
+		return Reservation{}, err
+	}
 	if err := s.repo.Expire(ctx, s.now().UTC()); err != nil {
 		return Reservation{}, err
 	}
@@ -576,11 +582,25 @@ func (s *Service) Pay(ctx context.Context, renter, id, outcome, key string) (Res
 				return current.Reservation, ErrSimulatedNoResponse
 			}
 		} else {
-			// A retry or restart uses lookup against the persisted operation ID;
-			// it never starts a second charge.
+			// First ask whether the idempotent fake recorded a result. If the
+			// process died before starting it, StartPayment is safe because the
+			// fake itself persists one result per operation ID.
 			event, err = s.payment.LookupPayment(ctx, operation)
 			if err != nil {
 				return Reservation{}, err
+			}
+			if event == nil && operation.State == "pendiente" && operation.ReservationState == "pendiente_de_pago" && operation.PayExpiresAt.After(s.now().UTC()) {
+				event, err = s.payment.StartPayment(ctx, operation.ID, operation.Requested)
+				if errors.Is(err, ErrSimulatedNoResponse) {
+					current, readErr := s.Get(ctx, renter, id)
+					if readErr != nil {
+						return Reservation{}, readErr
+					}
+					return current.Reservation, ErrSimulatedNoResponse
+				}
+				if err != nil {
+					return Reservation{}, err
+				}
 			}
 		}
 	}
@@ -628,15 +648,13 @@ func (s *Service) IngestPaymentEvent(ctx context.Context, event PaymentEvent) (P
 }
 
 // ReconcilePendingPayments first applies authenticated inbox records, then
-// performs status-only lookups for pending intents. It never initiates a new
-// payment and is safe to repeat from startup, retry, or a background worker.
+// queries the durable fake. If an intent was persisted before a crash but the
+// fake was never started, it starts it using the fake's operation-scoped
+// idempotency key. Finally it expires remaining deadlines.
 func (s *Service) ReconcilePendingPayments(ctx context.Context) error {
 	repo, ok := s.repo.(PaymentLifecycleRepository)
 	if !ok {
 		return ErrInvalid
-	}
-	if err := s.repo.Expire(ctx, s.now().UTC()); err != nil {
-		return err
 	}
 	for pass := 0; pass < 2; pass++ {
 		eventIDs, err := repo.PendingPaymentEventIDs(ctx, 100)
@@ -655,12 +673,26 @@ func (s *Service) ReconcilePendingPayments(ctx context.Context) error {
 				return err
 			}
 			for _, operation := range operations {
+				if operation.ReservationState != "pendiente_de_pago" || !operation.PayExpiresAt.After(s.now().UTC()) {
+					continue
+				}
 				event, lookupErr := s.payment.LookupPayment(ctx, operation)
 				if lookupErr != nil {
 					return lookupErr
 				}
 				if event == nil {
-					continue
+					event, lookupErr = s.payment.StartPayment(ctx, operation.ID, operation.Requested)
+					if errors.Is(lookupErr, ErrSimulatedNoResponse) {
+						// It may have recorded a result while losing its response. A
+						// status query recovers it without starting another charge.
+						event, lookupErr = s.payment.LookupPayment(ctx, operation)
+					}
+					if lookupErr != nil {
+						return lookupErr
+					}
+					if event == nil {
+						continue
+					}
 				}
 				if _, ingestErr := s.IngestPaymentEvent(ctx, *event); ingestErr != nil {
 					return ingestErr
@@ -668,7 +700,7 @@ func (s *Service) ReconcilePendingPayments(ctx context.Context) error {
 			}
 		}
 	}
-	return nil
+	return s.repo.Expire(ctx, s.now().UTC())
 }
 
 // RunPaymentReconciler retries durable work at startup and periodically. A
