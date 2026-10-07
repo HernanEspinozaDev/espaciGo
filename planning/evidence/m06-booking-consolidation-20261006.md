@@ -1,6 +1,6 @@
 # Evidencia de consolidación local M06 — 2026-10-06
 
-Esta es una ampliación del prototipo de reservas para revisión en el PR de consolidación. No constituye aceptación de #69/#70/#71/#72/#73/#75/#77 ni completa M06. La política `local_flexible_v1` aplica solamente a fixtures sintéticos y pagos fake; no hubo movimiento de dinero.
+Esta evidencia respalda la entrega local del PR #170 y su aceptación posterior. Solo se aceptan los criterios específicos completados de #70/#71/#72; no completa M06 ni los criterios generales de #69/#73/#75/#77. La política `local_flexible_v1` aplica solamente a fixtures sintéticos y pagos fake; no hubo movimiento de dinero.
 
 ## Pruebas de Backend y PostgreSQL
 
@@ -33,7 +33,7 @@ El directorio temporal, las cuentas y el volumen desechable no contienen los dat
 
 ## Límites
 
-Cancelación desde el inicio/en curso, check-in, disputas, política comercial, devolución de proveedor real, webhooks firmados/deduplicados, conciliación y avisos durables continúan pendientes. #74/#76/#78 siguen abiertas; #79 no queda completa por este recorrido. No se afirma ninguna actualización de GitHub Projects ni se cierran Issues en esta evidencia.
+Cancelación desde el inicio/en curso, check-in, disputas, política comercial y proveedor real continúan pendientes. #69/#73/#75/#77 permanecen abiertas por criterios generales. Para #74 ya están satisfechas las dependencias de su tramo fake/durable; persisten como trabajo futuro la persistencia de eventos autenticados, deduplicación, idempotencia y conciliación recuperable al reiniciar Backend. El adaptador real/sandbox, credenciales y contrato de proveedor quedan separados. #76/#78 siguen bloqueadas por esas dependencias de proveedor/API y #79 sigue bloqueada por sus dependencias generales; este corte no las habilita.
 
 ## Ajuste de reintentos concurrentes de devolución
 
@@ -45,3 +45,13 @@ Pruebas deterministas en la integración PostgreSQL desechable:
 - Dos éxitos concurrentes: ambas alcanzan el adaptador, se libera una y se espera su commit antes de liberar la otra. Hay una sola finalización/intento, una respuesta original y otra `reused=true`, ambas con el resultado y timestamp persistidos, y un único par de avisos.
 
 Comando focal ejecutado nuevamente: `bash scripts/test-m06-local-booking-postgres.sh` — pasó. No se alteró V20, el volumen persistente ni los secretos.
+
+## Aceptación posterior al merge
+
+PR #170 se fusionó en `main` el 2026-10-06 (merge `b9d337435252129f489ef990c2086854d9bc9b6f`). El checkout quedó sincronizado por fast-forward. `scripts/dev-env.sh up` actualizó API/mock y aplicó V20 incrementalmente sobre la base existente; `schema_migrations` confirma `V000020__m06_local_flexible_cancellation.sql`. Comprobación posterior mínima: API `/health/ready` respondió `ready`, el mock respondió HTTP 200 y los servicios quedaron saludables. Se confirmó la presencia del volumen `espacigo_pgdata` y de los archivos de secretos locales sin leer ni mostrar su contenido. No se borraron datos ni se repitieron suites.
+
+Con la aceptación del slice local se cierran #70 (BOOK-DB-01), #71 (BOOK-DB-02) y #72 (BOOK-BE-01), cuyos criterios originales específicos quedaron satisfechos. #69, #73, #75, #77 y los pendientes productivos/de mock permanecen abiertos; esta aceptación no declara completo M06.
+
+## Preparación de #74 — alcance fake/durable
+
+Tras cerrar #70–#72, y con #22 también cerrado, todas las dependencias declaradas por #74 para iniciar su parte Backend están satisfechas. Projects deja #74 en Listo para implementar con el adaptador fake: eventos autenticados persistidos, deduplicación/idempotencia y conciliación recuperable tras reinicio. Esa implementación todavía no forma parte de esta evidencia ni de PR #170. La pasarela real/sandbox, credenciales, contrato del proveedor y las tareas #76/#78/#79 permanecen pendientes conforme a sus propias dependencias.
