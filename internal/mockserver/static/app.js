@@ -6,7 +6,7 @@ import { showThenMarkConversationPage } from "./conversation-read-state.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState } from "./booking-availability-state.js";
-import { BookingPaymentState, BookingRequestState, executePaymentAttempt } from "./booking-payment-state.js";
+import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -1377,12 +1377,12 @@ async function loadBookingInbox(reloadSelected = true) {
     const revision = ++bookingInboxRevision;
     if (!sessionToken || !sessionAccountID) {
         clearBookingInboxOnSessionLoss();
-        return;
+        return null;
     }
     const requestAccount = sessionAccountID, requestSession = sessionToken;
     const result = await request(`${bookingBase}/reservations`, "GET", undefined, true);
     if (revision !== bookingInboxRevision || requestAccount !== sessionAccountID || requestSession !== sessionToken)
-        return;
+        return null;
     const reservations = bookingData(result).items;
     const renterRows = reservations.filter(item => item.renter_id === sessionAccountID);
     const hostRows = reservations.filter(item => item.host_id === sessionAccountID);
@@ -1390,8 +1390,11 @@ async function loadBookingInbox(reloadSelected = true) {
     renderReservationList(hostInbox, hostRows, "host");
     const current = reservations.find(item => item.id === selectedReservationID);
     if (current) {
-        if (reloadSelected)
+        if (reloadSelected) {
             await loadReservationDetail(current.id);
+            return selectedReservation?.id === current.id ? selectedReservation.state : null;
+        }
+        return selectedReservation?.id === current.id ? selectedReservation.state : null;
     }
     else if (selectedReservationID && reloadSelected) {
         bookingRequestState.invalidate();
@@ -1405,6 +1408,7 @@ async function loadBookingInbox(reloadSelected = true) {
         bookingPaymentOutput.textContent = "ENSAYO LOCAL — SIN COBRO REAL\nSelecciona una reserva propia pendiente para iniciar o consultar un pago fake.";
         refreshBookingActions();
     }
+    return null;
 }
 document.querySelector("#booking-inbox-load").addEventListener("click", () => void action(async () => {
     await loadBookingInbox();
@@ -1458,16 +1462,18 @@ document.querySelector("#booking-inbox-pay").addEventListener("click", () => voi
     else {
         if (!bookingRequestState.accepts(context, sessionAccountID, sessionToken))
             return;
-        const error = execution.error;
-        const timedOut = error instanceof Error && error.message.includes("HTTP 504");
+        let refreshedState = null;
         try {
-            await loadBookingInbox();
+            refreshedState = await loadBookingInbox();
         }
         catch { /* Keep the original payment result visible. */ }
         if (!bookingRequestState.accepts(context, sessionAccountID, sessionToken))
             return;
-        const apiMessage = error instanceof Error ? error.message : "Error de conexión";
-        bookingPaymentOutput.textContent = `ENSAYO LOCAL — SIN COBRO REAL\n${timedOut ? "El Backend no recibió respuesta del fake. El resultado puede seguir conciliándose; usa «Consultar / reintentar pago» para consultar el mismo intento, con la misma clave y el mismo resultado." : `No se pudo confirmar el resultado (${apiMessage}). Conservamos la misma clave y solicitud para consultar/reintentar el mismo intento.`}`;
+        const panel = paymentPanelAfterError(refreshedState, bookingPaymentState.get(id) !== null);
+        if (panel.clearAttempt)
+            bookingPaymentState.clearCompleted(id);
+        bookingPaymentOutput.textContent = `ENSAYO LOCAL — SIN COBRO REAL\n${panel.message}`;
+        document.querySelector("#booking-inbox-pay").textContent = panel.buttonLabel;
     }
     refreshBookingActions();
 }));

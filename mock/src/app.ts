@@ -6,7 +6,7 @@ import { showThenMarkConversationPage } from "./conversation-read-state.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState, type AvailabilityContext, type SelectedAvailability } from "./booking-availability-state.js";
-import { BookingPaymentState, BookingRequestState, executePaymentAttempt } from "./booking-payment-state.js";
+import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
 
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
@@ -998,20 +998,21 @@ async function loadReservationDetail(id:string):Promise<void>{
   conversationStatus.textContent=`Conversación local · ${selectedReservation.state}. ${["pendiente_de_pago","pagada","aprobada_host"].includes(selectedReservation.state)?"Puedes enviar texto plano en este estado.":"Solo lectura: el estado de la reserva no permite enviar."}`;
   refreshConversationControls();
 }
-async function loadBookingInbox(reloadSelected=true):Promise<void>{
+async function loadBookingInbox(reloadSelected=true):Promise<string|null>{
   const revision=++bookingInboxRevision;
-  if(!sessionToken||!sessionAccountID){clearBookingInboxOnSessionLoss();return;}
+  if(!sessionToken||!sessionAccountID){clearBookingInboxOnSessionLoss();return null;}
   const requestAccount=sessionAccountID,requestSession=sessionToken;
   const result=await request(`${bookingBase}/reservations`,"GET",undefined,true);
-  if(revision!==bookingInboxRevision||requestAccount!==sessionAccountID||requestSession!==sessionToken)return;
+  if(revision!==bookingInboxRevision||requestAccount!==sessionAccountID||requestSession!==sessionToken)return null;
   const reservations=bookingData<{items:TrialReservation[]}>(result).items;
   const renterRows=reservations.filter(item=>item.renter_id===sessionAccountID);
   const hostRows=reservations.filter(item=>item.host_id===sessionAccountID);
   renderReservationList(renterInbox,renterRows,"renter");renderReservationList(hostInbox,hostRows,"host");
   const current=reservations.find(item=>item.id===selectedReservationID);
-  if(current){if(reloadSelected)await loadReservationDetail(current.id);}
+  if(current){if(reloadSelected){await loadReservationDetail(current.id);return selectedReservation?.id===current.id?selectedReservation.state:null;}return selectedReservation?.id===current.id?selectedReservation.state:null;}
   else if(selectedReservationID&&reloadSelected){bookingRequestState.invalidate();selectedReservationID="";selectedReservation=null;bookingHistoryOutput.textContent="La reserva seleccionada ya no está en tu bandeja.";bookingPaymentOutput.textContent="Selecciona una reserva propia para consultar el pago.";refreshBookingActions();}
   else if(!selectedReservation){bookingPaymentOutput.textContent="ENSAYO LOCAL — SIN COBRO REAL\nSelecciona una reserva propia pendiente para iniciar o consultar un pago fake.";refreshBookingActions();}
+  return null;
 }
 document.querySelector<HTMLButtonElement>("#booking-inbox-load")!.addEventListener("click",()=>void action(async()=>{
   await loadBookingInbox();resultElement.textContent="Bandeja local actualizada desde la API.";
@@ -1047,12 +1048,13 @@ document.querySelector<HTMLButtonElement>("#booking-inbox-pay")!.addEventListene
     if(selectedReservation)renderPaymentStatus(selectedReservation);
   }else{
     if(!bookingRequestState.accepts(context,sessionAccountID,sessionToken))return;
-    const error=execution.error;
-    const timedOut=error instanceof Error&&error.message.includes("HTTP 504");
-    try{await loadBookingInbox();}catch{/* Keep the original payment result visible. */}
+    let refreshedState:string|null=null;
+    try{refreshedState=await loadBookingInbox();}catch{/* Keep the original payment result visible. */}
     if(!bookingRequestState.accepts(context,sessionAccountID,sessionToken))return;
-    const apiMessage=error instanceof Error?error.message:"Error de conexión";
-    bookingPaymentOutput.textContent=`ENSAYO LOCAL — SIN COBRO REAL\n${timedOut?"El Backend no recibió respuesta del fake. El resultado puede seguir conciliándose; usa «Consultar / reintentar pago» para consultar el mismo intento, con la misma clave y el mismo resultado.":`No se pudo confirmar el resultado (${apiMessage}). Conservamos la misma clave y solicitud para consultar/reintentar el mismo intento.`}`;
+    const panel=paymentPanelAfterError(refreshedState,bookingPaymentState.get(id)!==null);
+    if(panel.clearAttempt)bookingPaymentState.clearCompleted(id);
+    bookingPaymentOutput.textContent=`ENSAYO LOCAL — SIN COBRO REAL\n${panel.message}`;
+    document.querySelector<HTMLButtonElement>("#booking-inbox-pay")!.textContent=panel.buttonLabel;
   }
   refreshBookingActions();
 }));

@@ -20,7 +20,9 @@ Pruebas enfocadas de estado y concurrencia del mock:
 npm --prefix mock run test:payment-flow
 ```
 
-Compilación más 5 pruebas: clave/resultado estables ante timeout y concurrencia, separación por reserva, descarte de respuestas obsoletas por reserva/cuenta/sesión, recuperación tras conciliación y deduplicación de clicks.
+Compilación más 9 pruebas: clave/resultado estables ante timeout y concurrencia, separación por reserva, descarte de respuestas obsoletas por reserva/cuenta/sesión, recuperación tras conciliación, deduplicación de clicks y prevalencia del estado refrescado de la API sobre el error inicial.
+
+La actualización del panel cubre timeout seguido de consulta `pagada` (mensaje de éxito y limpieza de clave), error seguido de consulta `vencida_pago` (mensaje de vencimiento y limpieza) y estado aún pendiente o no disponible (mensaje incierto, acción de reintento y conservación de la misma clave).
 
 Comprobación de regresión de estados de bandeja y carreras existentes:
 

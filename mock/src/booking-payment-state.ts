@@ -11,6 +11,41 @@ export type PaymentExecution<T> =
   | {status: "completed"; attempt: PaymentAttempt; value: T}
   | {status: "uncertain"; attempt: PaymentAttempt; error: unknown};
 
+export interface PaymentPanelAfterError {
+  message: string;
+  buttonLabel: string;
+  clearAttempt: boolean;
+}
+
+/** Prefer a freshly loaded API state to the error from the preceding payment request. */
+export function paymentPanelAfterError(
+  refreshedState: string | null,
+  hasAttempt: boolean,
+): PaymentPanelAfterError {
+  if (refreshedState === "pagada") {
+    return {message:"Pago fake confirmado por la API. La reserva espera la decisión del anfitrión.",buttonLabel:"Enviar pago de ensayo",clearAttempt:true};
+  }
+  if (refreshedState === "cancelada_por_pago") {
+    return {message:"La API confirmó el rechazo del pago fake; la reserva quedó cancelada.",buttonLabel:"Enviar pago de ensayo",clearAttempt:true};
+  }
+  if (refreshedState === "vencida_pago") {
+    return {message:"La API confirmó que venció el plazo de pago. No se iniciará otro intento.",buttonLabel:"Enviar pago de ensayo",clearAttempt:true};
+  }
+  if (refreshedState && refreshedState !== "pendiente_de_pago") {
+    const labels: Record<string,string> = {
+      cancelada_arrendatario:"cancelada por el arrendatario",
+      rechazada_arrendador:"rechazada por el anfitrión",
+      vencida_host:"vencida por falta de decisión del anfitrión",
+      aprobada_host:"aprobada por el anfitrión",
+    };
+    return {message:`La API confirmó que la reserva está ${labels[refreshedState]??refreshedState}; no corresponde reintentar el pago.`,buttonLabel:"Enviar pago de ensayo",clearAttempt:true};
+  }
+  if (refreshedState === "pendiente_de_pago" && hasAttempt) {
+    return {message:"La reserva continúa pendiente y el resultado no está confirmado. Consulta/reintenta con la misma clave y el mismo resultado.",buttonLabel:"Consultar / reintentar pago (misma clave)",clearAttempt:false};
+  }
+  return {message:hasAttempt?"No se pudo actualizar el estado de la reserva. Conservamos la misma clave y solicitud para consultar/reintentar el mismo intento.":"No se pudo actualizar el estado de la reserva; vuelve a consultar tu bandeja.",buttonLabel:hasAttempt?"Consultar / reintentar pago (misma clave)":"Enviar pago de ensayo",clearAttempt:false};
+}
+
 export interface BookingRequestContext {
   reservationID: string;
   accountID: string;
