@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "scripts": {
     "build": "tsc --project tsconfig.json",
+    "test:payment-flow": "npm run build && node --test test/booking-payment-state.test.mjs",
     "test:profile-races": "npm run build && node --test test/profile-request.test.mjs test/booking-quote-state.test.mjs test/booking-inbox-state.test.mjs test/conversation-read-state.test.mjs test/catalog-pagination-state.test.mjs test/booking-availability-state.test.mjs"
   },
   "devDependencies": {
