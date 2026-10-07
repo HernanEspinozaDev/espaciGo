@@ -774,14 +774,18 @@ func (r *Repository) RecordRefund(ctx context.Context, renter, id, result string
 		return booking.RefundResult{}, err
 	}
 	defer tx.Rollback(ctx)
-	var state, operationID, currency string
+	var state, operationID, currency, lastResult string
 	var amount int64
-	err = tx.QueryRow(ctx, `SELECT d.operacion_id::text,d.importe_clp,d.moneda,d.estado FROM public.reserva_devolucion_ensayo d JOIN public.reserva_ensayo_local r ON r.id=d.reserva_id WHERE d.reserva_id=$1 AND r.arrendatario_id=$2 AND r.estado='cancelada_arrendatario' FOR UPDATE OF r,d`, id, renter).Scan(&operationID, &amount, &currency, &state)
+	var updatedAt time.Time
+	err = tx.QueryRow(ctx, `SELECT d.operacion_id::text,d.importe_clp,d.moneda,d.estado,COALESCE(d.ultimo_resultado,''),d.actualizada_en FROM public.reserva_devolucion_ensayo d JOIN public.reserva_ensayo_local r ON r.id=d.reserva_id WHERE d.reserva_id=$1 AND r.arrendatario_id=$2 AND r.estado='cancelada_arrendatario' FOR UPDATE OF r,d`, id, renter).Scan(&operationID, &amount, &currency, &state, &lastResult, &updatedAt)
 	if err != nil {
 		return booking.RefundResult{}, mapErr(err)
 	}
 	if state == "completada" {
-		return booking.RefundResult{ReservationID: id, OperationID: operationID, AmountCLP: amount, Currency: currency, State: state, UpdatedAt: now}, nil
+		if err = tx.Commit(ctx); err != nil {
+			return booking.RefundResult{}, err
+		}
+		return booking.RefundResult{ReservationID: id, OperationID: operationID, AmountCLP: amount, Currency: currency, State: state, LastResult: lastResult, UpdatedAt: updatedAt, Reused: true}, nil
 	}
 	var sequence int64
 	if err = tx.QueryRow(ctx, `SELECT COALESCE(MAX(secuencia),0)+1 FROM public.reserva_devolucion_intento_ensayo WHERE devolucion_id=(SELECT id FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1)`, id).Scan(&sequence); err != nil {

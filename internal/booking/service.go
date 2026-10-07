@@ -605,6 +605,7 @@ func (s *Service) Refund(ctx context.Context, renter, id, operationID, outcome s
 		return RefundResult{}, ErrConflict
 	}
 	if operation.State == "completada" {
+		operation.Reused = true
 		operation.NoticeStatus = "no_reintentado_por_idempotencia"
 		return operation, nil
 	}
@@ -615,6 +616,10 @@ func (s *Service) Refund(ctx context.Context, renter, id, operationID, outcome s
 	updated, err := s.repo.RecordRefund(ctx, renter, id, result, s.now().UTC())
 	if err != nil {
 		return RefundResult{}, err
+	}
+	if updated.Reused {
+		updated.NoticeStatus = "no_reintentado_por_idempotencia"
+		return updated, nil
 	}
 	if updated.State == "completada" {
 		updated.NoticeStatus = s.sendNotice(ctx, renter, id, "Devolución simulada completada", "La devolución fake del 100 % del importe confirmado quedó completada. No hubo movimiento de dinero real.")

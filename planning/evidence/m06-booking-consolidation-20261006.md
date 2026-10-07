@@ -34,3 +34,14 @@ El directorio temporal, las cuentas y el volumen desechable no contienen los dat
 ## Límites
 
 Cancelación desde el inicio/en curso, check-in, disputas, política comercial, devolución de proveedor real, webhooks firmados/deduplicados, conciliación y avisos durables continúan pendientes. #74/#76/#78 siguen abiertas; #79 no queda completa por este recorrido. No se afirma ninguna actualización de GitHub Projects ni se cierran Issues en esta evidencia.
+
+## Ajuste de reintentos concurrentes de devolución
+
+En la rama del PR #170 se añadió `reused` a la respuesta para distinguir una operación resuelta por otra solicitud concurrente. Si la transacción encuentra la obligación ya completada después de tomar el bloqueo, el repositorio devuelve `operation_id`, monto, moneda, `last_result` y `updated_at` desde PostgreSQL. El servicio no vuelve a notificar y no convierte un resultado fake timeout/fallo descartado en error si prevaleció la finalización guardada.
+
+Pruebas deterministas en la integración PostgreSQL desechable:
+
+- Éxito concurrente con timeout: se mantienen ambas solicitudes en el adaptador fake, se deja confirmar y persistir el éxito, y recién entonces se libera el timeout. Las dos respuestas son completadas con los campos idénticos a PostgreSQL; la del timeout descartado lleva `reused=true`, responde sin 504 y no añade avisos.
+- Dos éxitos concurrentes: ambas alcanzan el adaptador, se libera una y se espera su commit antes de liberar la otra. Hay una sola finalización/intento, una respuesta original y otra `reused=true`, ambas con el resultado y timestamp persistidos, y un único par de avisos.
+
+Comando focal ejecutado nuevamente: `bash scripts/test-m06-local-booking-postgres.sh` — pasó. No se alteró V20, el volumen persistente ni los secretos.

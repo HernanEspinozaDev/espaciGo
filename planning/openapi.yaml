@@ -1335,7 +1335,7 @@ components:
         safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
         data:
           type: object
-          required: [reservation_id, operation_id, amount_clp, currency, state, updated_at, notice_status]
+          required: [reservation_id, operation_id, amount_clp, currency, state, last_result, updated_at, notice_status]
           properties:
             reservation_id: { type: string, format: uuid }
             operation_id: { type: string, format: uuid, description: Identidad estable que se reutiliza en todos los reintentos fake. }
@@ -1345,6 +1345,7 @@ components:
             last_result: { type: string, enum: [exito_simulado, fallo_simulado, sin_respuesta_simulada] }
             updated_at: { type: string, format: date-time }
             notice_status: { type: string, enum: [mailpit_local_no_durable, no_disponible_no_durable, no_enviado_no_durable, no_reintentado_por_idempotencia] }
+            reused: { type: boolean, description: La operación ya se había completado concurrentemente; se devuelve su resultado persistido y no se repite el aviso. }
     LocalBookingRefundTimeoutEnvelope:
       type: object
       required: [data, error, safety_notice]

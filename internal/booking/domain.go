@@ -196,6 +196,7 @@ type RefundResult struct {
 	LastResult    string    `json:"last_result,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at"`
 	NoticeStatus  string    `json:"notice_status"`
+	Reused        bool      `json:"reused,omitempty"`
 }
 
 type LocalNoticeSender interface {

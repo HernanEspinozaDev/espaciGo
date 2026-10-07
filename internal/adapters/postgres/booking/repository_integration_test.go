@@ -37,6 +37,49 @@ func (r *localNoticeRecorder) SendLocalBookingNotice(_ context.Context, recipien
 	return nil
 }
 
+type refundRecordSignalRepository struct {
+	booking.Repository
+	completed chan struct{}
+	once      sync.Once
+}
+
+func (r *refundRecordSignalRepository) RecordRefund(ctx context.Context, renter, id, result string, now time.Time) (booking.RefundResult, error) {
+	value, err := r.Repository.RecordRefund(ctx, renter, id, result, now)
+	if err == nil && value.State == "completada" {
+		r.once.Do(func() { close(r.completed) })
+	}
+	return value, err
+}
+
+type gatedRefundAdapter struct {
+	entered chan string
+	release map[string]<-chan struct{}
+}
+
+func (a *gatedRefundAdapter) ProcessRefund(ctx context.Context, operationID, requestedKey, outcome string) (string, error) {
+	if operationID != requestedKey {
+		return "", fmt.Errorf("unexpected refund operation key")
+	}
+	select {
+	case a.entered <- outcome:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	select {
+	case <-a.release[outcome]:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	switch outcome {
+	case "exito":
+		return "exito_simulado", nil
+	case "sin_respuesta":
+		return "sin_respuesta_simulada", nil
+	default:
+		return "", fmt.Errorf("unsupported gated refund outcome")
+	}
+}
+
 func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	adminURL := os.Getenv("TEST_DATABASE_URL")
 	if adminURL == "" {
@@ -1665,6 +1708,152 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err != nil || snapshotDetail.RefundState == nil || *snapshotDetail.RefundState != "completada" || snapshotDetail.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion || len(snapshotDetail.History) != 3 || snapshotDetail.History[2].To != "cancelada_arrendatario" {
 		t.Fatalf("cancelled detail/history/refund=%+v err=%v", snapshotDetail, err)
 	}
+
+	type refundCall struct {
+		result booking.RefundResult
+		err    error
+	}
+	newConcurrentRefund := func(idempotency string) (booking.Reservation, string) {
+		t.Helper()
+		reservation := newReservation(8*time.Hour, idempotency, false)
+		cancelled, cancelErr := svc.Cancel(ctx, renter, reservation.ID, "cancel-"+idempotency, "prueba de concurrencia")
+		if cancelErr != nil || cancelled.Reservation.RefundOperationID == nil {
+			t.Fatalf("create refund obligation for %s: %+v %v", idempotency, cancelled, cancelErr)
+		}
+		return cancelled.Reservation, *cancelled.Reservation.RefundOperationID
+	}
+	newConcurrentRefundService := func(adapter booking.LocalRefundAdapter) (*booking.Service, *refundRecordSignalRepository) {
+		t.Helper()
+		signalRepo := &refundRecordSignalRepository{Repository: repo, completed: make(chan struct{})}
+		refundService, serviceErr := booking.NewService(signalRepo, credentials.Generator{}, clock, fakebooking.New())
+		if serviceErr != nil {
+			t.Fatal(serviceErr)
+		}
+		refundService.SetLocalRefundAdapter(adapter)
+		refundService.SetLocalNoticeSender(noticeRecorder)
+		return refundService, signalRepo
+	}
+	awaitOutcome := func(entered <-chan string, expected string) {
+		t.Helper()
+		select {
+		case outcome := <-entered:
+			if outcome != expected {
+				t.Fatalf("refund fake entered with %q, want %q", outcome, expected)
+			}
+		case <-ctx.Done():
+			t.Fatalf("refund fake did not enter with %q before context expired", expected)
+		}
+	}
+	checkSingleCompletion := func(reservationID, expectedResult string, first, second booking.RefundResult) {
+		t.Helper()
+		var operationID, currency, state, lastResult string
+		var amount int64
+		var updatedAt time.Time
+		var attempts int
+		if err = setup.QueryRow(ctx, `SELECT d.operacion_id::text,d.importe_clp,d.moneda,d.estado,d.ultimo_resultado,d.actualizada_en,(SELECT count(*) FROM public.reserva_devolucion_intento_ensayo i WHERE i.devolucion_id=d.id) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=$1`, reservationID).Scan(&operationID, &amount, &currency, &state, &lastResult, &updatedAt, &attempts); err != nil {
+			t.Fatal(err)
+		}
+		if state != "completada" || lastResult != expectedResult || attempts != 1 {
+			t.Fatalf("persisted refund state/result/attempts=%s/%s/%d", state, lastResult, attempts)
+		}
+		if first.OperationID != operationID || second.OperationID != operationID || first.AmountCLP != amount || second.AmountCLP != amount || first.Currency != currency || second.Currency != currency || first.State != state || second.State != state || first.LastResult != lastResult || second.LastResult != lastResult || !first.UpdatedAt.Equal(updatedAt) || !second.UpdatedAt.Equal(updatedAt) {
+			t.Fatalf("refund responses diverged from persistence: db=%s/%s/%d %s %s first=%+v second=%+v", state, lastResult, amount, operationID, updatedAt, first, second)
+		}
+	}
+
+	// A completion that commits while another fake request is still waiting
+	// must win over the waiter's stale timeout result. The losing response uses
+	// the committed values and must not send a second notice or return 504.
+	timeoutVsSuccessReservation, timeoutVsSuccessOperation := newConcurrentRefund("refund-race-timeout-success")
+	timeoutRelease, successRelease := make(chan struct{}, 1), make(chan struct{}, 1)
+	timeoutSuccessAdapter := &gatedRefundAdapter{entered: make(chan string, 2), release: map[string]<-chan struct{}{"sin_respuesta": timeoutRelease, "exito": successRelease}}
+	timeoutSuccessService, timeoutSuccessRepo := newConcurrentRefundService(timeoutSuccessAdapter)
+	noticeRecorder.mu.Lock()
+	noticesBeforeTimeoutSuccess := len(noticeRecorder.recipients)
+	noticeRecorder.mu.Unlock()
+	timeoutResponse, successResponse := make(chan refundCall, 1), make(chan refundCall, 1)
+	go func() {
+		value, callErr := timeoutSuccessService.Refund(ctx, renter, timeoutVsSuccessReservation.ID, timeoutVsSuccessOperation, "sin_respuesta")
+		timeoutResponse <- refundCall{result: value, err: callErr}
+	}()
+	awaitOutcome(timeoutSuccessAdapter.entered, "sin_respuesta")
+	go func() {
+		value, callErr := timeoutSuccessService.Refund(ctx, renter, timeoutVsSuccessReservation.ID, timeoutVsSuccessOperation, "exito")
+		successResponse <- refundCall{result: value, err: callErr}
+	}()
+	awaitOutcome(timeoutSuccessAdapter.entered, "exito")
+	successRelease <- struct{}{}
+	select {
+	case <-timeoutSuccessRepo.completed:
+	case <-ctx.Done():
+		t.Fatal("successful refund did not commit before releasing concurrent timeout")
+	}
+	timeoutRelease <- struct{}{}
+	timeoutCall, successCall := <-timeoutResponse, <-successResponse
+	if timeoutCall.err != nil || !timeoutCall.result.Reused || timeoutCall.result.NoticeStatus != "no_reintentado_por_idempotencia" {
+		t.Fatalf("losing timeout response=%+v err=%v; want reused persisted success without error/notice", timeoutCall.result, timeoutCall.err)
+	}
+	if successCall.err != nil || successCall.result.Reused || successCall.result.LastResult != "exito_simulado" {
+		t.Fatalf("winning success response=%+v err=%v", successCall.result, successCall.err)
+	}
+	checkSingleCompletion(timeoutVsSuccessReservation.ID, "exito_simulado", timeoutCall.result, successCall.result)
+	noticeRecorder.mu.Lock()
+	if got := len(noticeRecorder.recipients); got != noticesBeforeTimeoutSuccess+2 {
+		noticeRecorder.mu.Unlock()
+		t.Fatalf("success/timeout race sent %d notices; want exactly one pair", got-noticesBeforeTimeoutSuccess)
+	}
+	noticeRecorder.mu.Unlock()
+
+	// Two successful fake requests are released one at a time. Once the first
+	// commits, the second returns the same persisted result as reused.
+	twoSuccessReservation, twoSuccessOperation := newConcurrentRefund("refund-race-two-successes")
+	sharedSuccessRelease := make(chan struct{}, 2)
+	firstTwoSuccessAdapter := &gatedRefundAdapter{entered: make(chan string, 2), release: map[string]<-chan struct{}{"exito": sharedSuccessRelease}}
+	twoSuccessService, twoSuccessRepo := newConcurrentRefundService(firstTwoSuccessAdapter)
+	noticeRecorder.mu.Lock()
+	noticesBeforeTwoSuccess := len(noticeRecorder.recipients)
+	noticeRecorder.mu.Unlock()
+	firstSuccessResponse, secondSuccessResponse := make(chan refundCall, 1), make(chan refundCall, 1)
+	go func() {
+		value, callErr := twoSuccessService.Refund(ctx, renter, twoSuccessReservation.ID, twoSuccessOperation, "exito")
+		firstSuccessResponse <- refundCall{result: value, err: callErr}
+	}()
+	awaitOutcome(firstTwoSuccessAdapter.entered, "exito")
+	go func() {
+		value, callErr := twoSuccessService.Refund(ctx, renter, twoSuccessReservation.ID, twoSuccessOperation, "exito")
+		secondSuccessResponse <- refundCall{result: value, err: callErr}
+	}()
+	awaitOutcome(firstTwoSuccessAdapter.entered, "exito")
+	sharedSuccessRelease <- struct{}{}
+	select {
+	case <-twoSuccessRepo.completed:
+	case <-ctx.Done():
+		t.Fatal("first successful refund did not commit before releasing second success")
+	}
+	// Both fake calls share the same outcome gate. The first token let exactly
+	// one caller return; this token releases the still-waiting caller.
+	sharedSuccessRelease <- struct{}{}
+	firstSuccessCall, secondSuccessCall := <-firstSuccessResponse, <-secondSuccessResponse
+	if firstSuccessCall.err != nil || secondSuccessCall.err != nil {
+		t.Fatalf("two success errors=%v/%v", firstSuccessCall.err, secondSuccessCall.err)
+	}
+	if firstSuccessCall.result.Reused == secondSuccessCall.result.Reused {
+		t.Fatalf("exactly one response must be marked reused: first=%+v second=%+v", firstSuccessCall.result, secondSuccessCall.result)
+	}
+	checkSingleCompletion(twoSuccessReservation.ID, "exito_simulado", firstSuccessCall.result, secondSuccessCall.result)
+	loser := firstSuccessCall.result
+	if !loser.Reused {
+		loser = secondSuccessCall.result
+	}
+	if loser.NoticeStatus != "no_reintentado_por_idempotencia" {
+		t.Fatalf("concurrent reused response notice status=%q", loser.NoticeStatus)
+	}
+	noticeRecorder.mu.Lock()
+	if got := len(noticeRecorder.recipients); got != noticesBeforeTwoSuccess+2 {
+		noticeRecorder.mu.Unlock()
+		t.Fatalf("two-success race sent %d notices; want exactly one pair", got-noticesBeforeTwoSuccess)
+	}
+	noticeRecorder.mu.Unlock()
 
 	// The strict start-time boundary is independently checked on an approved
 	// booking: at exactly start it conflicts and leaves reservation/occupancy.
