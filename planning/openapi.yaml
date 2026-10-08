@@ -266,9 +266,9 @@ paths:
       description: >-
         Operación exclusiva del rol administrador. Revisa y persiste obligaciones
         locales detectables bajo bloqueo de la cuenta. No ejecuta la baja. Las
-        disputas no pueden certificarse hasta integrar M10 y la retención histórica
-        fuera de auditoría sigue pendiente; por ello un resultado incompleto conserva
-        la solicitud en revisión. Repetir Idempotency-Key devuelve el mismo resultado.
+        disputas sintéticas abiertas se consultan como obligación; retención histórica
+        fuera de auditoría sigue pendiente y conserva la solicitud en revisión.
+        Repetir Idempotency-Key devuelve el mismo resultado.
       parameters:
         - name: request_id
           in: path
@@ -291,9 +291,10 @@ paths:
                   outcome: { type: string, enum: [bloqueada, revision_incompleta] }
                   obligations_detected:
                     type: array
-                    items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente] }
+                    items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente, disputa_abierta] }
                   pending_checks:
                     type: array
+                    description: fuente_disputas_no_modelada solo puede aparecer al reproducir evaluaciones históricas guardadas antes de V24.
                     items: { type: string, enum: [fuente_disputas_no_modelada, matriz_retencion_historicos_incompleta] }
                   reviewed_at: { type: string, format: date-time }
                   reused: { type: boolean }
@@ -1211,6 +1212,84 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations/{reservation_id}/disputes:
+    parameters:
+      - { name: reservation_id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: listOwnReservationTrialDisputes
+      tags: [M10 local]
+      description: Solo el anfitrión y arrendatario de la reserva; terceros reciben 404.
+      responses:
+        '200': { description: Incidencias propias., content: { application/json: { schema: { type: object, required: [items, scope], properties: { items: { type: array, items: { $ref: '#/components/schemas/LocalTrialDispute' } }, scope: { type: string, const: local_synthetic_disputes } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: openOwnHostedTrialDispute
+      tags: [M10 local]
+      description: >-
+        Excepción sintética de privacidad: solo su anfitrión abre, incluso en una reserva
+        terminal. No implementa CU-39, ventana de 24 horas, evidencia, operación, cambios
+        de reserva ni fondos.
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason_code]
+              properties: { reason_code: { type: string, const: ensayo_privacidad } }
+      responses:
+        '201': { description: Incidencia abierta con historial inicial., content: { application/json: { schema: { $ref: '#/components/schemas/LocalTrialDispute' } } } }
+        '200': { description: Reintento idempotente; registro existente con reused=true., content: { application/json: { schema: { $ref: '#/components/schemas/LocalTrialDispute' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Reserva inexistente o actor no anfitrión. }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/disputes/{dispute_id}/history:
+    get:
+      operationId: getOwnTrialDisputeHistory
+      tags: [M10 local]
+      parameters:
+        - { name: dispute_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Historial persistente por secuencia para cualquiera de las partes., content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/LocalTrialDisputeTransition' } } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/disputes:
+    get:
+      operationId: listOpenLocalTrialDisputes
+      tags: [M10 local]
+      description: Solo administrador; consulta local sin resolución económica.
+      responses:
+        '200': { description: Incidencias abiertas., content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/LocalTrialDispute' } } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/disputes/{dispute_id}/close:
+    post:
+      operationId: closeLocalTrialDispute
+      tags: [M10 local]
+      description: Cierre administrativo del ensayo; no es resolución, garantía ni liquidación.
+      parameters:
+        - { name: dispute_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason_code]
+              properties: { reason_code: { type: string, enum: [ensayo_finalizado, registro_erroneo, duplicada] } }
+      responses:
+        '200': { description: Incidencia cerrada; actor, fecha y motivo se conservan en historial., content: { application/json: { schema: { $ref: '#/components/schemas/LocalTrialDispute' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Ya cerrada; no se puede reabrir. }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /auth/logout:
     post:
       operationId: logout
@@ -1985,6 +2064,34 @@ components:
       format: date
       description: Fecha civil ISO 8601 sin hora ni zona horaria.
       example: '2026-10-02'
+    LocalTrialDispute:
+      type: object
+      additionalProperties: false
+      required: [id, reservation_id, host_id, renter_id, opened_by, opening_reason_code, state, opened_at, reused]
+      properties:
+        id: { type: string, format: uuid }
+        reservation_id: { type: string, format: uuid }
+        host_id: { type: string, format: uuid }
+        renter_id: { type: string, format: uuid }
+        opened_by: { type: string, format: uuid }
+        opening_reason_code: { type: string, const: ensayo_privacidad }
+        state: { type: string, enum: [abierta, cerrada] }
+        opened_at: { type: string, format: date-time }
+        closed_by: { type: string, format: uuid }
+        close_reason_code: { type: string, enum: [ensayo_finalizado, registro_erroneo, duplicada] }
+        closed_at: { type: string, format: date-time }
+        reused: { type: boolean }
+    LocalTrialDisputeTransition:
+      type: object
+      additionalProperties: false
+      required: [sequence, new_state, actor_id, reason_code, occurred_at]
+      properties:
+        sequence: { type: integer, format: int64 }
+        previous_state: { type: string, enum: [abierta, cerrada] }
+        new_state: { type: string, enum: [abierta, cerrada] }
+        actor_id: { type: string, format: uuid }
+        reason_code: { type: string, enum: [ensayo_privacidad, ensayo_finalizado, registro_erroneo, duplicada] }
+        occurred_at: { type: string, format: date-time }
     RegisterRequest:
       type: object
       additionalProperties: false

@@ -20,6 +20,7 @@ import (
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
+	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
 	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
@@ -28,6 +29,8 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
+	"github.com/HernanEspinozaDev/espaciGo/internal/dispute"
+	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
@@ -121,6 +124,15 @@ func run() error {
 			return errors.New("local privacy initialization failed")
 		}
 		mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins, privacyService))
+		disputeService, err := dispute.NewService(disputepg.New(pool), time.Now)
+		if err != nil {
+			return errors.New("local dispute initialization failed")
+		}
+		disputeHandler := disputehttp.NewHandler(service, disputeService, cfg.allowedOrigins)
+		mux.Handle("/api/v1/local/booking-trial/reservations/", disputeHandler)
+		mux.Handle("/api/v1/local/booking-trial/disputes/", disputeHandler)
+		mux.Handle("/api/v1/admin/disputes", disputeHandler)
+		mux.Handle("/api/v1/admin/disputes/", disputeHandler)
 		verificationRepository := verificationpg.New(pool)
 		verificationService, err := verification.NewService(verificationRepository, credentials.Generator{}, verification.LocalFixtureProvider{}, time.Now)
 		if err != nil {

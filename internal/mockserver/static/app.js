@@ -56,7 +56,7 @@ async function request(path, method = "GET", body, authenticated = false, idempo
 async function action(work) {
     const buttons = [...document.querySelectorAll("button")];
     try {
-        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); });
+        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); });
     }
     catch (error) {
         resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
@@ -950,6 +950,11 @@ const bookingCatalogCenterSample = document.querySelector("#booking-catalog-cent
 let selectedReservationID = "";
 let selectedReservation = null;
 let bookingInboxRevision = 0;
+let localDisputes = [];
+let disputeRevision = 0;
+const disputeOpenKeys = new Map();
+let disputeAdminRevision = 0;
+let disputeAdminItems = [];
 let conversationRevision = 0;
 let conversationOlderCursor = null;
 let conversationMessages = [];
@@ -1364,6 +1369,9 @@ function clearBookingInboxOnSessionLoss() {
         outcome.disabled = true;
     }
     clearConversation("La sesión terminó; inicia sesión para consultar conversaciones.");
+    clearDisputes("Inicia sesión y selecciona una reserva para consultar incidencias.");
+    disputeOpenKeys.clear();
+    clearAdminDisputes("Requiere rol administrador.");
     refreshBookingActions();
 }
 // Start without displaying data that may have been left in a restored browser document.
@@ -1462,10 +1470,117 @@ function refreshBookingActions() {
     if (selectedReservationID)
         pay.disabled = !allowed?.canPay || bookingPaymentState.isInFlight(selectedReservationID);
 }
+function clearDisputes(message) {
+    disputeRevision++;
+    localDisputes = [];
+    const output = document.querySelector("#local-dispute-output");
+    if (output)
+        output.textContent = message;
+    refreshDisputeControls();
+}
+function refreshDisputeControls() {
+    const open = document.querySelector("#local-dispute-open");
+    const refresh = document.querySelector("#local-dispute-refresh");
+    const output = document.querySelector("#local-dispute-output");
+    if (!open || !refresh || !output)
+        return;
+    const context = Boolean(sessionToken && sessionAccountID && selectedReservation && selectedReservation.id === selectedReservationID);
+    const existing = localDisputes.find(item => item.reservation_id === selectedReservationID && item.state === "abierta");
+    open.hidden = !context || selectedReservation?.host_id !== sessionAccountID || Boolean(existing);
+    open.disabled = !context || selectedReservation?.host_id !== sessionAccountID || Boolean(existing);
+    refresh.disabled = !context;
+}
+async function loadReservationDisputes(id) {
+    const revision = ++disputeRevision, token = sessionToken, account = sessionAccountID, generation = sessionGeneration;
+    const response = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/disputes`, "GET", undefined, true);
+    if (revision !== disputeRevision || token !== sessionToken || account !== sessionAccountID || generation !== sessionGeneration || id !== selectedReservationID)
+        return;
+    localDisputes = (response.items ?? []);
+    const output = document.querySelector("#local-dispute-output");
+    const dispute = localDisputes.find(item => item.state === "abierta") ?? localDisputes.at(-1);
+    if (dispute) {
+        const historyResponse = await request(`/api/v1/local/booking-trial/disputes/${encodeURIComponent(dispute.id)}/history`, "GET", undefined, true);
+        if (revision !== disputeRevision || token !== sessionToken || account !== sessionAccountID || generation !== sessionGeneration || id !== selectedReservationID)
+            return;
+        const history = (historyResponse.items ?? []);
+        const historyText = history.map(item => `#${item.sequence} ${item.new_state} · ${item.reason_code} · actor ${item.actor_id} · ${item.occurred_at}`).join("\n");
+        output.textContent = `ENSAYO LOCAL · Sin resolución económica\nIncidencia ${dispute.id}\nEstado: ${dispute.state}\nMotivo de apertura: ${dispute.opening_reason_code}\nAbierta: ${dispute.opened_at}${dispute.closed_at ? `\nCierre: ${dispute.close_reason_code} · ${dispute.closed_at}` : ""}\nHistorial:\n${historyText}`;
+    }
+    else
+        output.textContent = "No hay incidencias en esta reserva.";
+    refreshDisputeControls();
+}
+document.querySelector("#local-dispute-refresh").addEventListener("click", () => void action(async () => {
+    const id = selectedReservationID;
+    if (!id || !selectedReservation)
+        throw new Error("Selecciona una reserva propia primero.");
+    await loadReservationDisputes(id);
+}));
+document.querySelector("#local-dispute-open").addEventListener("click", () => void action(async () => {
+    const id = selectedReservationID, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    if (!id || !selectedReservation || selectedReservation.host_id !== account)
+        throw new Error("Solo el anfitrión de esta reserva puede abrir la incidencia local.");
+    const key = disputeOpenKeys.get(id) ?? crypto.randomUUID();
+    disputeOpenKeys.set(id, key);
+    const reason = (document.querySelector("#local-dispute-open-reason")).value;
+    const response = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/disputes`, "POST", { reason_code: reason }, true, key);
+    if (id !== selectedReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
+        return;
+    const item = response;
+    localDisputes = [item];
+    disputeOpenKeys.delete(id);
+    await loadReservationDisputes(id);
+}));
+function clearAdminDisputes(message) {
+    disputeAdminRevision++;
+    disputeAdminItems = [];
+    const target = document.querySelector("#local-dispute-admin-items");
+    target?.replaceChildren();
+    const status = document.querySelector("#local-dispute-admin-status");
+    if (status)
+        status.textContent = message;
+}
+document.querySelector("#local-dispute-admin-load").addEventListener("click", () => void action(async () => {
+    await loadDisputeAdminQueue();
+}));
+async function loadDisputeAdminQueue() {
+    const revision = ++disputeAdminRevision, token = sessionToken, account = sessionAccountID, generation = sessionGeneration;
+    const response = await request("/api/v1/admin/disputes", "GET", undefined, true);
+    if (revision !== disputeAdminRevision || token !== sessionToken || account !== sessionAccountID || generation !== sessionGeneration)
+        return;
+    disputeAdminItems = (response.items ?? []);
+    const target = document.querySelector("#local-dispute-admin-items");
+    target.replaceChildren();
+    for (const item of disputeAdminItems) {
+        const row = document.createElement("section"), summary = document.createElement("p"), reason = document.createElement("select"), close = document.createElement("button");
+        summary.textContent = `${item.id} · reserva ${item.reservation_id} · ${item.opening_reason_code} · ${item.opened_at}`;
+        for (const [value, label] of [["ensayo_finalizado", "Ensayo finalizado"], ["registro_erroneo", "Registro erróneo"], ["duplicada", "Duplicada"]]) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = label;
+            reason.append(option);
+        }
+        close.type = "button";
+        close.textContent = "Cerrar incidencia (sin resolución económica)";
+        close.addEventListener("click", () => void action(async () => {
+            const currentToken = sessionToken, currentAccount = sessionAccountID, currentGeneration = sessionGeneration;
+            await request(`/api/v1/admin/disputes/${encodeURIComponent(item.id)}/close`, "POST", { reason_code: reason.value }, true);
+            if (currentToken !== sessionToken || currentAccount !== sessionAccountID || currentGeneration !== sessionGeneration)
+                return;
+            await loadDisputeAdminQueue();
+            if (selectedReservationID === item.reservation_id)
+                await loadReservationDisputes(item.reservation_id);
+        }));
+        row.append(summary, reason, close);
+        target.append(row);
+    }
+    document.querySelector("#local-dispute-admin-status").textContent = `${disputeAdminItems.length} incidencia(s) abierta(s). El cierre es administrativo y no económico.`;
+}
 async function loadReservationDetail(id) {
     bookingRequestState.select(id);
     selectedReservationID = id;
     selectedReservation = null;
+    clearDisputes("Cargando incidencia de la reserva seleccionada…");
     refreshBookingActions();
     cancellationPreview = null;
     cancellationPreviewReservationID = "";
@@ -1477,6 +1592,7 @@ async function loadReservationDetail(id) {
         return;
     selectedReservation = bookingData(result);
     renderReservationDetail(selectedReservation);
+    await loadReservationDisputes(id);
     await loadConversationPage(id, null, false);
     conversationStatus.textContent = `Conversación local · ${selectedReservation.state}. ${["pendiente_de_pago", "pagada", "aprobada_host"].includes(selectedReservation.state) ? "Puedes enviar texto plano en este estado." : "Solo lectura: el estado de la reserva no permite enviar."}`;
     refreshConversationControls();
@@ -1508,6 +1624,7 @@ async function loadBookingInbox(reloadSelected = true) {
         bookingRequestState.invalidate();
         selectedReservationID = "";
         selectedReservation = null;
+        clearDisputes("La reserva seleccionada ya no está en tu bandeja.");
         bookingHistoryOutput.textContent = "La reserva seleccionada ya no está en tu bandeja.";
         bookingPaymentOutput.textContent = "Selecciona una reserva propia para consultar el pago.";
         refreshBookingActions();

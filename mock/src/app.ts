@@ -52,7 +52,7 @@ async function request(path: string, method = "GET", body?: unknown, authenticat
 }
 async function action(work: () => Promise<void>): Promise<void> {
   const buttons = [...document.querySelectorAll<HTMLButtonElement>("button")];
-  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); }); }
+  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); }); }
   catch (error) { resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API."; }
 }
 function form(id: string, work: (data: FormData, element: HTMLFormElement) => Promise<void>): void {
@@ -725,6 +725,12 @@ type ConversationPage={items:ConversationMessage[];older_cursor:number|null};
 let selectedReservationID="";
 let selectedReservation:TrialDetail|null=null;
 let bookingInboxRevision=0;
+type LocalDispute={id:string;reservation_id:string;host_id:string;renter_id:string;state:string;opening_reason_code:string;opened_at:string;close_reason_code?:string|null;closed_at?:string|null};
+let localDisputes:LocalDispute[]=[];
+let disputeRevision=0;
+const disputeOpenKeys=new Map<string,string>();
+let disputeAdminRevision=0;
+let disputeAdminItems:LocalDispute[]=[];
 let conversationRevision=0;
 let conversationOlderCursor:number|null=null;
 let conversationMessages:ConversationMessage[]=[];
@@ -1006,6 +1012,9 @@ function clearBookingInboxOnSessionLoss():void{
   const paymentButton=document.querySelector<HTMLButtonElement>("#booking-inbox-pay");if(paymentButton)paymentButton.textContent="Enviar pago de ensayo";
   const outcome=document.querySelector<HTMLSelectElement>("#booking-inbox-payment-outcome");if(outcome){outcome.value="exito";outcome.disabled=true;}
   clearConversation("La sesión terminó; inicia sesión para consultar conversaciones.");
+  clearDisputes("Inicia sesión y selecciona una reserva para consultar incidencias.");
+  disputeOpenKeys.clear();
+  clearAdminDisputes("Requiere rol administrador.");
   refreshBookingActions();
 }
 // Start without displaying data that may have been left in a restored browser document.
@@ -1082,8 +1091,84 @@ function refreshBookingActions():void{
   else{const outcome=document.querySelector<HTMLSelectElement>("#booking-inbox-payment-outcome");if(outcome)outcome.disabled=!allowed?.canPay;pay.textContent="Enviar pago de ensayo";}
   if(selectedReservationID)pay.disabled=!allowed?.canPay||bookingPaymentState.isInFlight(selectedReservationID);
 }
+function clearDisputes(message:string):void{
+  disputeRevision++;localDisputes=[];
+  const output=document.querySelector<HTMLElement>("#local-dispute-output");if(output)output.textContent=message;
+  refreshDisputeControls();
+}
+function refreshDisputeControls():void{
+  const open=document.querySelector<HTMLButtonElement>("#local-dispute-open");
+  const refresh=document.querySelector<HTMLButtonElement>("#local-dispute-refresh");
+  const output=document.querySelector<HTMLElement>("#local-dispute-output");
+  if(!open||!refresh||!output)return;
+  const context=Boolean(sessionToken&&sessionAccountID&&selectedReservation&&selectedReservation.id===selectedReservationID);
+  const existing=localDisputes.find(item=>item.reservation_id===selectedReservationID&&item.state==="abierta");
+  open.hidden=!context||selectedReservation?.host_id!==sessionAccountID||Boolean(existing);
+  open.disabled=!context||selectedReservation?.host_id!==sessionAccountID||Boolean(existing);
+  refresh.disabled=!context;
+}
+async function loadReservationDisputes(id:string):Promise<void>{
+  const revision=++disputeRevision,token=sessionToken,account=sessionAccountID,generation=sessionGeneration;
+  const response=await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/disputes`,"GET",undefined,true);
+  if(revision!==disputeRevision||token!==sessionToken||account!==sessionAccountID||generation!==sessionGeneration||id!==selectedReservationID)return;
+  localDisputes=(response.items??[]) as LocalDispute[];
+  const output=document.querySelector<HTMLElement>("#local-dispute-output")!;
+  const dispute=localDisputes.find(item=>item.state==="abierta")??localDisputes.at(-1);
+  if(dispute){
+    const historyResponse=await request(`/api/v1/local/booking-trial/disputes/${encodeURIComponent(dispute.id)}/history`,"GET",undefined,true);
+    if(revision!==disputeRevision||token!==sessionToken||account!==sessionAccountID||generation!==sessionGeneration||id!==selectedReservationID)return;
+    const history=(historyResponse.items??[]) as Array<{sequence:number;new_state:string;actor_id:string;reason_code:string;occurred_at:string}>;
+    const historyText=history.map(item=>`#${item.sequence} ${item.new_state} · ${item.reason_code} · actor ${item.actor_id} · ${item.occurred_at}`).join("\n");
+    output.textContent=`ENSAYO LOCAL · Sin resolución económica\nIncidencia ${dispute.id}\nEstado: ${dispute.state}\nMotivo de apertura: ${dispute.opening_reason_code}\nAbierta: ${dispute.opened_at}${dispute.closed_at?`\nCierre: ${dispute.close_reason_code} · ${dispute.closed_at}`:""}\nHistorial:\n${historyText}`;
+  }else output.textContent="No hay incidencias en esta reserva.";
+  refreshDisputeControls();
+}
+document.querySelector<HTMLButtonElement>("#local-dispute-refresh")!.addEventListener("click",()=>void action(async()=>{
+  const id=selectedReservationID;if(!id||!selectedReservation)throw new Error("Selecciona una reserva propia primero.");
+  await loadReservationDisputes(id);
+}));
+document.querySelector<HTMLButtonElement>("#local-dispute-open")!.addEventListener("click",()=>void action(async()=>{
+  const id=selectedReservationID,account=sessionAccountID,token=sessionToken,generation=sessionGeneration;
+  if(!id||!selectedReservation||selectedReservation.host_id!==account)throw new Error("Solo el anfitrión de esta reserva puede abrir la incidencia local.");
+  const key=disputeOpenKeys.get(id)??crypto.randomUUID();disputeOpenKeys.set(id,key);
+  const reason=(document.querySelector<HTMLSelectElement>("#local-dispute-open-reason")!).value;
+  const response=await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/disputes`,"POST",{reason_code:reason},true,key);
+  if(id!==selectedReservationID||account!==sessionAccountID||token!==sessionToken||generation!==sessionGeneration)return;
+  const item=response as unknown as LocalDispute;localDisputes=[item];disputeOpenKeys.delete(id);
+  await loadReservationDisputes(id);
+}));
+function clearAdminDisputes(message:string):void{
+  disputeAdminRevision++;disputeAdminItems=[];
+  const target=document.querySelector<HTMLElement>("#local-dispute-admin-items");target?.replaceChildren();
+  const status=document.querySelector<HTMLElement>("#local-dispute-admin-status");if(status)status.textContent=message;
+}
+document.querySelector<HTMLButtonElement>("#local-dispute-admin-load")!.addEventListener("click",()=>void action(async()=>{
+  await loadDisputeAdminQueue();
+}));
+async function loadDisputeAdminQueue():Promise<void>{
+  const revision=++disputeAdminRevision,token=sessionToken,account=sessionAccountID,generation=sessionGeneration;
+  const response=await request("/api/v1/admin/disputes","GET",undefined,true);
+  if(revision!==disputeAdminRevision||token!==sessionToken||account!==sessionAccountID||generation!==sessionGeneration)return;
+  disputeAdminItems=(response.items??[]) as LocalDispute[];
+  const target=document.querySelector<HTMLElement>("#local-dispute-admin-items")!;target.replaceChildren();
+  for(const item of disputeAdminItems){
+    const row=document.createElement("section"),summary=document.createElement("p"),reason=document.createElement("select"),close=document.createElement("button");
+    summary.textContent=`${item.id} · reserva ${item.reservation_id} · ${item.opening_reason_code} · ${item.opened_at}`;
+    for(const [value,label] of [["ensayo_finalizado","Ensayo finalizado"],["registro_erroneo","Registro erróneo"],["duplicada","Duplicada"]]){const option=document.createElement("option");option.value=value;option.textContent=label;reason.append(option);}
+    close.type="button";close.textContent="Cerrar incidencia (sin resolución económica)";
+    close.addEventListener("click",()=>void action(async()=>{
+      const currentToken=sessionToken,currentAccount=sessionAccountID,currentGeneration=sessionGeneration;
+      await request(`/api/v1/admin/disputes/${encodeURIComponent(item.id)}/close`,"POST",{reason_code:reason.value},true);
+      if(currentToken!==sessionToken||currentAccount!==sessionAccountID||currentGeneration!==sessionGeneration)return;
+      await loadDisputeAdminQueue();
+      if(selectedReservationID===item.reservation_id)await loadReservationDisputes(item.reservation_id);
+    }));
+    row.append(summary,reason,close);target.append(row);
+  }
+  document.querySelector<HTMLElement>("#local-dispute-admin-status")!.textContent=`${disputeAdminItems.length} incidencia(s) abierta(s). El cierre es administrativo y no económico.`;
+}
 async function loadReservationDetail(id:string):Promise<void>{
-  bookingRequestState.select(id);selectedReservationID=id;selectedReservation=null;refreshBookingActions();
+  bookingRequestState.select(id);selectedReservationID=id;selectedReservation=null;clearDisputes("Cargando incidencia de la reserva seleccionada…");refreshBookingActions();
   cancellationPreview=null;cancellationPreviewReservationID="";
   document.querySelector<HTMLElement>("#booking-inbox-cancel-preview-output")!.textContent="Consulta la opción de cancelación antes de confirmar.";
   clearConversation("Cargando mensajes de la reserva seleccionada…");
@@ -1091,6 +1176,7 @@ async function loadReservationDetail(id:string):Promise<void>{
   const result=await request(`${bookingBase}/reservations/${encodeURIComponent(id)}`,"GET",undefined,true);
   if(revision!==bookingInboxRevision||!bookingRequestState.accepts(requestContext,sessionAccountID,sessionToken))return;
   selectedReservation=bookingData<TrialDetail>(result);renderReservationDetail(selectedReservation);
+  await loadReservationDisputes(id);
   await loadConversationPage(id,null,false);
   conversationStatus.textContent=`Conversación local · ${selectedReservation.state}. ${["pendiente_de_pago","pagada","aprobada_host"].includes(selectedReservation.state)?"Puedes enviar texto plano en este estado.":"Solo lectura: el estado de la reserva no permite enviar."}`;
   refreshConversationControls();
@@ -1107,7 +1193,7 @@ async function loadBookingInbox(reloadSelected=true):Promise<string|null>{
   renderReservationList(renterInbox,renterRows,"renter");renderReservationList(hostInbox,hostRows,"host");
   const current=reservations.find(item=>item.id===selectedReservationID);
   if(current){if(reloadSelected){await loadReservationDetail(current.id);return selectedReservation?.id===current.id?selectedReservation.state:null;}return selectedReservation?.id===current.id?selectedReservation.state:null;}
-  else if(selectedReservationID&&reloadSelected){bookingRequestState.invalidate();selectedReservationID="";selectedReservation=null;bookingHistoryOutput.textContent="La reserva seleccionada ya no está en tu bandeja.";bookingPaymentOutput.textContent="Selecciona una reserva propia para consultar el pago.";refreshBookingActions();}
+  else if(selectedReservationID&&reloadSelected){bookingRequestState.invalidate();selectedReservationID="";selectedReservation=null;clearDisputes("La reserva seleccionada ya no está en tu bandeja.");bookingHistoryOutput.textContent="La reserva seleccionada ya no está en tu bandeja.";bookingPaymentOutput.textContent="Selecciona una reserva propia para consultar el pago.";refreshBookingActions();}
   else if(!selectedReservation){bookingPaymentOutput.textContent="ENSAYO LOCAL — SIN COBRO REAL\nSelecciona una reserva propia pendiente para iniciar o consultar un pago fake.";refreshBookingActions();}
   return null;
 }
