@@ -8,6 +8,7 @@ import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState } from "./booking-availability-state.js";
 import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
 import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExportSessionMatches } from "./privacy-export-state.js";
+import { clearSuppressionReviewPanelState, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount } from "./suppression-review-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -17,6 +18,7 @@ let sessionGeneration = 0;
 let pendingPrivacyExport = null;
 let privacyExportObjectURL = "";
 let suppressionQueueRevision = 0;
+let suppressionReviewPanelState = initialSuppressionReviewPanelState();
 const suppressionReviewKeys = new Map();
 let termIDs = [];
 let evidenceObjectURL = "";
@@ -147,10 +149,14 @@ document.querySelector("#rights-load").addEventListener("click", () => void acti
 function clearSuppressionQueue() {
     suppressionQueueRevision++;
     suppressionReviewKeys.clear();
+    suppressionReviewPanelState = clearSuppressionReviewPanelState();
     document.querySelector("#suppression-queue-items")?.replaceChildren();
+    const status = document.querySelector("#suppression-queue-status");
+    if (status)
+        status.textContent = suppressionReviewPanelState.queueStatus;
     const output = document.querySelector("#suppression-review-output");
     if (output)
-        output.textContent = "Inicia sesión con rol administrador para consultar la cola.";
+        output.textContent = suppressionReviewPanelState.evaluationText;
 }
 async function loadSuppressionQueue() {
     const token = sessionToken, account = sessionAccountID, generation = sessionGeneration, revision = ++suppressionQueueRevision;
@@ -172,14 +178,16 @@ async function loadSuppressionQueue() {
             const result = await request(`/api/v1/privacy/suppression-requests/${encodeURIComponent(item.request_id)}/review`, "POST", undefined, true, key);
             if (requestToken !== sessionToken || requestAccount !== sessionAccountID || requestGeneration !== sessionGeneration)
                 return;
-            document.querySelector("#suppression-review-output").textContent = JSON.stringify(result, null, 2);
+            suppressionReviewPanelState = withSuppressionEvaluation(suppressionReviewPanelState, result);
+            document.querySelector("#suppression-review-output").textContent = suppressionReviewPanelState.evaluationText;
             suppressionReviewKeys.delete(item.request_id);
             await loadSuppressionQueue();
         }));
         row.append(label, review);
         container.append(row);
     }
-    document.querySelector("#suppression-review-output").textContent = `${items.length} solicitud(es) en revisión. La evaluación no ejecuta la baja.`;
+    suppressionReviewPanelState = withSuppressionQueueCount(suppressionReviewPanelState, items.length);
+    document.querySelector("#suppression-queue-status").textContent = suppressionReviewPanelState.queueStatus;
 }
 document.querySelector("#suppression-queue-load").addEventListener("click", () => void action(loadSuppressionQueue));
 document.querySelector("#privacy-export").addEventListener("click", () => void action(async () => {

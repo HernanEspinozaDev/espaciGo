@@ -26,3 +26,9 @@ La revisión administrativa del endpoint se ejecutó usando un `pgxpool` con `SE
 - Falta ratificar fundamento/plazo por dato para aceptaciones, verificaciones, borradores, reservas, pagos, mensajes y otros hechos históricos. Las copias/backups no tienen inventario operativo local suficiente.
 - No se ejecuta la baja; eliminar o minimizar cualquier registro persistente necesita completar la matriz y una operación transaccional con bloqueos reevaluados junto a los módulos que crean obligaciones.
 - Archivos reales, retención productiva e inmutabilidad RNF-017 quedan fuera; #142 y el trabajo de GCP no cambian.
+
+## Ajuste de presentación del PR #188
+
+La pantalla separa el estado/contador de solicitudes (`#suppression-queue-status`) de la evaluación administrativa (`#suppression-review-output`). Refrescar la cola actualiza solo el contador; conserva visibles `outcome`, `obligations_detected`, `pending_checks` y la fecha devueltos por la API. El estado y resultado visibles se limpian junto con la cola al cambiar o perder la sesión. La evaluación sigue siendo de revisión: la supresión permanece deshabilitada.
+
+Prueba enfocada añadida: `mock/test/suppression-review-state.test.mjs`, secuencia evaluar → refrescar cola → comprobar contador y persistencia del resultado/fecha → limpiar sesión. Validación ejecutada con `cd mock && npm run build && node --test test/suppression-review-state.test.mjs`; suites Backend y ambientales no se repitieron.
