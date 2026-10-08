@@ -522,6 +522,50 @@ func TestM02AuthenticatedOperationsRenewActivityButPollingAndAbsoluteExpiryDoNot
 	assertSession(created.Add(7*time.Hour + 59*time.Minute))
 }
 
+func TestM02IdentityExportUsesAuthenticatedAccountAndExcludesCredentials(t *testing.T) {
+	h := newAuthHarness(t)
+	h.register(t, "export-owner@ejemplo.invalid")
+	h.verify(t)
+	h.register(t, "export-other@ejemplo.invalid")
+	h.verify(t)
+	owner := h.login(t, "export-owner@ejemplo.invalid")
+	other := h.login(t, "export-other@ejemplo.invalid")
+	service, err := privacy.NewService(h.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := identityhttp.NewHandler(h.service, h.repo, nil, service)
+	call := func(token identity.Secret) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/privacy/export", nil)
+		req.RemoteAddr = "192.0.2.10:8080"
+		req.Header.Set("Authorization", "Bearer "+string(token))
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, req)
+		return response
+	}
+	ownerResponse := call(owner.Token)
+	if ownerResponse.Code != http.StatusOK {
+		t.Fatalf("owner export status=%d body=%s", ownerResponse.Code, ownerResponse.Body.String())
+	}
+	var exported privacy.OwnData
+	if err := json.Unmarshal(ownerResponse.Body.Bytes(), &exported); err != nil {
+		t.Fatal(err)
+	}
+	if exported.Account.Email != "export-owner@ejemplo.invalid" || exported.Scope != "identidad_local_v1" || exported.Account.Email == "export-other@ejemplo.invalid" {
+		t.Fatalf("export is not scoped to authenticated account: %+v", exported.Account)
+	}
+	for _, forbidden := range []string{"password_hash", "token_hash", "access_token", "session"} {
+		if strings.Contains(ownerResponse.Body.String(), forbidden) {
+			t.Fatalf("export response contains forbidden credential field %q", forbidden)
+		}
+	}
+	otherResponse := call(other.Token)
+	if otherResponse.Code != http.StatusOK || !strings.Contains(otherResponse.Body.String(), "export-other@ejemplo.invalid") || strings.Contains(otherResponse.Body.String(), "export-owner@ejemplo.invalid") {
+		t.Fatalf("second account export leaked another account: status=%d body=%s", otherResponse.Code, otherResponse.Body.String())
+	}
+}
+
 func TestAuthConcurrentReissueEnforcesAccountLimitAndIPIsIndependent(t *testing.T) {
 	h := newAuthHarness(t)
 	h.register(t, "concurrent@ejemplo.invalid")

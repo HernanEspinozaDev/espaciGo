@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -266,6 +267,33 @@ func TestM02ProfileAndRightsQueriesRemainOwnerScoped(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("other account received %d requests", len(items))
+	}
+
+	export, err := repo.ExportOwnData(ctx, owner.ID)
+	if err != nil {
+		t.Fatalf("export own data: %v", err)
+	}
+	if export.Account.Email != owner.Email || export.Account.State != string(owner.State) || len(export.Roles) != 1 || export.Roles[0] != "arrendatario" || export.Profile == nil || export.Profile.Name != "Synthetic Owner" || len(export.Requests) != 1 {
+		t.Fatalf("incomplete owner export: %+v", export)
+	}
+	otherExport, err := repo.ExportOwnData(ctx, other.ID)
+	if err != nil {
+		t.Fatalf("export other data: %v", err)
+	}
+	if otherExport.Account.Email != other.Email || otherExport.Account.Email == export.Account.Email || otherExport.Profile != nil || len(otherExport.Requests) != 0 {
+		t.Fatalf("export leaked owner data into another account: %+v", otherExport)
+	}
+	if _, err := repo.ExportOwnData(ctx, "00000000-0000-4000-8000-000000000099"); !errors.Is(err, privacy.ErrNotFound) {
+		t.Fatalf("missing account export err=%v", err)
+	}
+	encoded, err := json.Marshal(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{string(owner.PasswordHash), "password_hash", "token_hash", "sesion"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("export contains credential/internal value %q", forbidden)
+		}
 	}
 }
 

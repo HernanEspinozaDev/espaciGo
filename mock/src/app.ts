@@ -7,6 +7,7 @@ import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState, type AvailabilityContext, type SelectedAvailability } from "./booking-availability-state.js";
 import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
+import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExportSessionMatches, type PrivacyExportContext } from "./privacy-export-state.js";
 
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
@@ -15,27 +16,31 @@ const resultElement = document.querySelector<HTMLElement>("#result")!;
 let apiBase = "";
 let sessionToken = "";
 let sessionAccountID = "";
+let sessionGeneration = 0;
+let pendingPrivacyExport: {context:PrivacyExportContext;data:Record<string,unknown>;json:string;url:string}|null = null;
+let privacyExportObjectURL = "";
 let termIDs: string[] = [];
 let evidenceObjectURL = "";
 
 async function request(path: string, method = "GET", body?: unknown, authenticated = false, idempotencyKey?: string): Promise<Record<string, unknown>> {
   if (!apiBase) throw new Error("API local aún no disponible.");
+  const requestSessionToken = authenticated ? sessionToken : "";
   const headers: Record<string,string> = {Accept: "application/json"};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (authenticated) {
     if (!sessionToken) throw new Error("Primero inicia sesión.");
-    headers.Authorization = `Bearer ${sessionToken}`;
+    headers.Authorization = `Bearer ${requestSessionToken}`;
   }
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   const endpoint = path.startsWith("/") ? `${apiBase}${path}` : `${apiBase}/api/v1/auth/${path}`;
   const response = await fetch(endpoint, {method, headers, body: body === undefined ? undefined : JSON.stringify(body), mode: "cors", cache: "no-store", credentials: "omit"});
   const data = response.status === 204 ? {} : await response.json() as Record<string,unknown> & APIError;
   if (!response.ok) {
-    if (authenticated && response.status === 401) {
+    if (authenticated && response.status === 401 && sessionToken === requestSessionToken) {
       sessionToken = "";
       clearBookingInboxOnSessionLoss();
     }
-    if (authenticated && path === "password/change" && response.status === 503) { sessionToken = ""; clearBookingInboxOnSessionLoss(); }
+    if (authenticated && path === "password/change" && response.status === 503 && sessionToken === requestSessionToken) { sessionToken = ""; clearBookingInboxOnSessionLoss(); }
     const error = data as APIError;
     throw new Error(`${error.error?.message ?? "Error de API"} (HTTP ${response.status}, ${error.error?.code ?? "unknown"})`);
   }
@@ -43,7 +48,7 @@ async function request(path: string, method = "GET", body?: unknown, authenticat
 }
 async function action(work: () => Promise<void>): Promise<void> {
   const buttons = [...document.querySelectorAll<HTMLButtonElement>("button")];
-  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); }); }
+  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); }); }
   catch (error) { resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API."; }
 }
 function form(id: string, work: (data: FormData, element: HTMLFormElement) => Promise<void>): void {
@@ -64,7 +69,7 @@ form("reissue-form", async data => { await request("verification/reissue", "POST
 form("login-form", async (data, element) => {
   const response = await request("login", "POST", {email: data.get("email"), password: data.get("password")});
   clearBookingInboxOnSessionLoss();
-  sessionToken = String(response.access_token); sessionAccountID = String(response.account_id); resetCatalogTraversal(); element.querySelector<HTMLInputElement>('[name="password"]')!.value = "";
+  sessionToken = String(response.access_token); sessionAccountID = String(response.account_id); sessionGeneration++; resetCatalogTraversal(); element.querySelector<HTMLInputElement>('[name="password"]')!.value = "";
   await loadSpaceCategories();
   await loadBookingInbox();
   resultElement.textContent = "Sesión iniciada. Puedes consultarla o cerrarla.";
@@ -114,6 +119,48 @@ document.querySelector("#rights-load")!.addEventListener("click", () => void act
   const items = await request("/api/v1/rights-requests", "GET", undefined, true);
   document.querySelector<HTMLElement>("#privacy-output")!.textContent = JSON.stringify(items, null, 2);
 }));
+document.querySelector<HTMLButtonElement>("#privacy-export")!.addEventListener("click", () => void action(async () => {
+  const context = capturePrivacyExportContext(sessionAccountID, sessionToken, sessionGeneration);
+  if (!context) throw new Error("Inicia sesión para exportar tus datos.");
+  await deliverPrivacyExportIfCurrent(
+    context,
+    () => request("/api/v1/privacy/export", "GET", undefined, true),
+    current => privacyExportSessionMatches(current, sessionAccountID, sessionToken, sessionGeneration),
+    data => {
+      const json=JSON.stringify(data,null,2);
+      if(privacyExportObjectURL)URL.revokeObjectURL(privacyExportObjectURL);
+      const url=URL.createObjectURL(new Blob([json],{type:"application/json"}));
+      privacyExportObjectURL=url;
+      pendingPrivacyExport = {context,data,json,url};
+      const downloadLink = document.querySelector<HTMLAnchorElement>("#privacy-export-download")!;
+      downloadLink.href=url;
+      resultElement.textContent = "Datos de identidad preparados. Confirma la descarga mientras mantengas esta sesión.";
+    },
+  );
+}));
+document.querySelector<HTMLAnchorElement>("#privacy-export-download")!.addEventListener("click", event => {
+  const pending = pendingPrivacyExport;
+  if (!pending || !privacyExportSessionMatches(pending.context, sessionAccountID, sessionToken, sessionGeneration)) {
+    event.preventDefault();
+    pendingPrivacyExport = null;
+    refreshPrivacyExportControls();
+    resultElement.textContent = "La sesión cambió; prepara de nuevo la exportación.";
+    return;
+  }
+  document.querySelector<HTMLElement>("#privacy-output")!.textContent = pending.json;
+  pendingPrivacyExport = null;
+  resultElement.textContent = "Exportación local descargada. Incluye únicamente identidad modelada; no contiene credenciales ni datos de terceros.";
+  // Keep the Blob URL alive long enough for the browser to finish its download.
+  setTimeout(()=>{if(privacyExportObjectURL===pending.url){URL.revokeObjectURL(pending.url);privacyExportObjectURL="";}refreshPrivacyExportControls();},60_000);
+});
+function refreshPrivacyExportControls():void {
+  const link=document.querySelector<HTMLAnchorElement>("#privacy-export-download");
+  if(!link)return;
+  const pending=pendingPrivacyExport;
+  const current=Boolean(pending&&privacyExportSessionMatches(pending.context,sessionAccountID,sessionToken,sessionGeneration));
+  link.hidden=!current;
+  if(!current)link.removeAttribute("href");
+}
 form("verification-form", async (data) => {
   const item = await request("/api/v1/verifications", "POST", {type:data.get("type")}, true, crypto.randomUUID());
   document.querySelector<HTMLElement>("#verification-output")!.textContent = JSON.stringify(item, null, 2);
@@ -898,6 +945,12 @@ function clearConversation(message:string):void{
   refreshConversationControls();
 }
 function clearBookingInboxOnSessionLoss():void{
+  sessionGeneration++;
+  if(pendingPrivacyExport)URL.revokeObjectURL(pendingPrivacyExport.url);
+  if(privacyExportObjectURL)URL.revokeObjectURL(privacyExportObjectURL);
+  privacyExportObjectURL="";
+  pendingPrivacyExport = null;
+  refreshPrivacyExportControls();
   sessionAccountID="";selectedReservationID="";selectedReservation=null;bookingRequestState.invalidate();resetCatalogTraversal();
   bookingInboxRevision++;
   cancellationPreview=null;cancellationPreviewReservationID="";
@@ -906,6 +959,7 @@ function clearBookingInboxOnSessionLoss():void{
   hostInbox.textContent="Inicia sesión y actualiza tu bandeja.";
   bookingHistoryOutput.textContent="Inicia sesión para consultar reservas propias.";
   bookingPaymentOutput.textContent="Inicia sesión para consultar pagos de reservas propias.";
+  document.querySelector<HTMLElement>("#privacy-output")!.textContent="Inicia sesión para usar M02.";
   const paymentButton=document.querySelector<HTMLButtonElement>("#booking-inbox-pay");if(paymentButton)paymentButton.textContent="Enviar pago de ensayo";
   const outcome=document.querySelector<HTMLSelectElement>("#booking-inbox-payment-outcome");if(outcome){outcome.value="exito";outcome.disabled=true;}
   clearConversation("La sesión terminó; inicia sesión para consultar conversaciones.");

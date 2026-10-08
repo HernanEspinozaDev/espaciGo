@@ -2,7 +2,9 @@ package privacy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,6 +31,9 @@ func (m *memoryRepository) CreateRightsRequest(_ context.Context, id, kind, chan
 }
 func (m *memoryRepository) ListOwnRightsRequests(context.Context, string) ([]RightsRequest, error) {
 	return m.requests, nil
+}
+func (m *memoryRepository) ExportOwnData(_ context.Context, accountID string) (OwnData, error) {
+	return OwnData{Account: ExportAccount{Email: accountID, State: "activo"}, Roles: []string{"arrendatario"}, Acceptances: []TermsAcceptance{}, Requests: []RightsRequest{}, Scope: "identidad_local_v1"}, nil
 }
 
 func TestProfileValidationAndRightsRemainPending(t *testing.T) {
@@ -65,5 +70,29 @@ func TestProfileValidationAndRightsRemainPending(t *testing.T) {
 	}
 	if _, err := svc.RequestRight(context.Background(), "account", "delete_everything", "web"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("unsupported request err=%v", err)
+	}
+}
+
+func TestOwnDataExportHasBoundedScopeAndNoCredentialFields(t *testing.T) {
+	repo := &memoryRepository{}
+	svc, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ExportOwnData(context.Background(), ""); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("empty account export err=%v", err)
+	}
+	data, err := svc.ExportOwnData(context.Background(), "own@example.invalid")
+	if err != nil || data.Account.Email != "own@example.invalid" || data.Scope != "identidad_local_v1" {
+		t.Fatalf("export=%+v err=%v", data, err)
+	}
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"password_hash", "token", "session", "secret"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("export contains forbidden field %q: %s", forbidden, encoded)
+		}
 	}
 }

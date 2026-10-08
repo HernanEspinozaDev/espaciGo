@@ -63,13 +63,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expected := http.MethodPost
-	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" {
+	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" {
 		expected = http.MethodGet
 	}
 	if r.URL.Path == "/api/v1/profile" && r.Method == http.MethodPut || r.URL.Path == "/api/v1/rights-requests" && r.Method == http.MethodPost {
 		expected = r.Method
 	}
-	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true, "/api/v1/profile": true, "/api/v1/rights-requests": true}
+	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true, "/api/v1/profile": true, "/api/v1/rights-requests": true, "/api/v1/privacy/export": true}
 	if !paths[r.URL.Path] {
 		h.fail(w, 404, "not_found", "Recurso no encontrado.")
 		return
@@ -93,7 +93,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// RemoteAddr is trusted for the local direct topology. Never trust forwarded headers.
 	switch r.URL.Path {
-	case "/api/v1/profile", "/api/v1/rights-requests":
+	case "/api/v1/profile", "/api/v1/rights-requests", "/api/v1/privacy/export":
 		if h.privacy == nil {
 			h.fail(w, http.StatusServiceUnavailable, "privacy_unavailable", "Servicio de perfil no disponible.")
 			return
@@ -106,6 +106,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
 		if err != nil {
 			h.serviceError(w, err)
+			return
+		}
+		if r.URL.Path == "/api/v1/privacy/export" {
+			data, err := h.privacy.ExportOwnData(r.Context(), principal.AccountID)
+			if err != nil {
+				h.privacyError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, data)
 			return
 		}
 		if r.URL.Path == "/api/v1/profile" {
