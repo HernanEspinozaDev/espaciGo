@@ -47,6 +47,13 @@ import (
 const readyURL = "http://127.0.0.1:8080/health/ready"
 
 func main() {
+	if len(os.Args) >= 2 && (os.Args[1] == "local-privacy-retention-purge" || os.Args[1] == "local-privacy-replay-export" || os.Args[1] == "local-privacy-replay-apply") {
+		if err := runLocalPrivacyCommand(os.Args[1], os.Args[2:]); err != nil {
+			log.Print("local privacy operation failed; verify the command, restored database, and administrator authorization")
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "local-booking-pagination-fixtures" {
 		if err := createLocalCatalogPaginationFixtures(os.Args[2:]); err != nil {
 			log.Print("synthetic pagination examples were not added; no account or database details logged")
@@ -108,6 +115,7 @@ func run() error {
 	var localPaymentService *booking.Service
 	var localIdentityService *identity.AuthenticationService
 	var localPrivacyService *privacy.Service
+	var privacyReplayRegistryPath string
 	var privacyEvidenceCleaner privacy.SyntheticEvidenceCleaner
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
 	if os.Getenv("LOCAL_AUTH_PROTOTYPE") == "1" {
@@ -126,6 +134,7 @@ func run() error {
 			return errors.New("local privacy initialization failed")
 		}
 		localPrivacyService = privacyService
+		privacyReplayRegistryPath = os.Getenv("LOCAL_PRIVACY_REPLAY_FILE")
 		disputeService, err := dispute.NewService(disputepg.New(pool), time.Now)
 		if err != nil {
 			return errors.New("local dispute initialization failed")
@@ -143,7 +152,7 @@ func run() error {
 			return errors.New("local private evidence storage is unavailable")
 		}
 		privacyEvidenceCleaner = evidenceStore
-		mux.Handle("/api/v1/", identityhttp.NewHandlerWithSuppressionCleaner(service, repo, cfg.allowedOrigins, privacyService, evidenceStore))
+		mux.Handle("/api/v1/", identityhttp.NewHandlerWithSuppressionRegistry(service, repo, cfg.allowedOrigins, privacyService, evidenceStore, privacyReplayRegistryPath))
 		evidenceService, err := verification.NewEvidenceService(verificationRepository, verificationRepository, evidenceStore, credentials.Generator{}, time.Now)
 		if err != nil {
 			return errors.New("local evidence initialization failed")
@@ -234,7 +243,8 @@ func run() error {
 		go localIdentityService.RunCredentialNoticeWorker(ctx, time.Second)
 	}
 	if localPrivacyService != nil {
-		go localPrivacyService.RunSuppressionCleanupWorker(ctx, 10*time.Second, privacyEvidenceCleaner)
+		go localPrivacyService.RunSuppressionCleanupWorker(ctx, 10*time.Second, privacyEvidenceCleaner, privacyReplayRegistryPath)
+		go localPrivacyService.RunReservationRetentionWorker(ctx, time.Hour, 100)
 	}
 	select {
 	case err := <-serverErrors:

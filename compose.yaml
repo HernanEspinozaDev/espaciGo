@@ -81,6 +81,7 @@ services:
       LOCAL_PAYMENT_WEBHOOK_SECRET_FILE: /run/secrets/local_payment_webhook_secret
       LOCAL_VERIFICATION_IP_LIMIT: "${LOCAL_VERIFICATION_IP_LIMIT:-20}"
       M03_EVIDENCE_DIR: /var/lib/espacigo/private-evidence
+      LOCAL_PRIVACY_REPLAY_FILE: /var/lib/espacigo/privacy-replay/completed-suppressions-v1.json
       DATABASE_HOST: database
       DATABASE_PORT: "5432"
       DATABASE_NAME: espacigo_local
@@ -94,6 +95,9 @@ services:
       - type: bind
         source: ${LOCAL_M03_EVIDENCE_DIR:?run scripts/dev-env.sh}
         target: /var/lib/espacigo/private-evidence
+      - type: bind
+        source: ${LOCAL_PRIVACY_REPLAY_DIR:?run scripts/dev-env.sh}
+        target: /var/lib/espacigo/privacy-replay
     depends_on:
       database:
         condition: service_healthy

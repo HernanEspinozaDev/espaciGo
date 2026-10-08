@@ -6,6 +6,7 @@ SECRETS_DIR="$ROOT_DIR/.local/secrets"
 export LOCAL_UID="$(id -u)"
 export LOCAL_GID="$(id -g)"
 export LOCAL_M03_EVIDENCE_DIR="${XDG_DATA_HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)/.local/share}/espacigo/m03-evidence"
+export LOCAL_PRIVACY_REPLAY_DIR="${XDG_STATE_HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)/.local/state}/espacigo/privacy-replay"
 
 compose() {
   docker compose --project-directory "$ROOT_DIR" -f "$ROOT_DIR/compose.yaml" "$@"
@@ -58,6 +59,22 @@ ensure_evidence_dir() {
   fi
 }
 
+ensure_privacy_replay_dir() {
+  umask 077
+  if [[ -L "$LOCAL_PRIVACY_REPLAY_DIR" ]]; then
+    printf 'Privacy replay directory cannot be a symlink: %s\n' "$LOCAL_PRIVACY_REPLAY_DIR" >&2
+    exit 1
+  fi
+  mkdir -p "$LOCAL_PRIVACY_REPLAY_DIR"
+  chmod 0700 "$LOCAL_PRIVACY_REPLAY_DIR"
+  local owner
+  owner="$(stat -c '%u' "$LOCAL_PRIVACY_REPLAY_DIR")"
+  if [[ "$owner" != "$LOCAL_UID" ]]; then
+    printf 'Privacy replay directory must be owned by UID %s: %s\n' "$LOCAL_UID" "$LOCAL_PRIVACY_REPLAY_DIR" >&2
+    exit 1
+  fi
+}
+
 usage() {
   printf '%s\n' \
     'Usage: scripts/dev-env.sh {config|up|down|verify-isolation|verify-http|verify-m01|clean}' \
@@ -76,11 +93,13 @@ case "$command" in
   config)
     ensure_secrets
     ensure_evidence_dir
+    ensure_privacy_replay_dir
     compose config --quiet
     ;;
   up)
     ensure_secrets
     ensure_evidence_dir
+    ensure_privacy_replay_dir
     compose up --build --wait "$@"
     ;;
   down)
