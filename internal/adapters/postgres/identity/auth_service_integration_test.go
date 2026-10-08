@@ -15,15 +15,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
+	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	disputedomain "github.com/HernanEspinozaDev/espaciGo/internal/dispute"
 	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
+	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -1295,7 +1300,12 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	}
 	caseID, evidenceID := "82000000-0000-4000-8000-000000000005", "82000000-0000-4000-8000-000000000006"
 	fixtureID := "82000000-0000-4000-8000-000000000007"
-	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,creada_en,resuelta_en) VALUES($1,$2,'kyc','aprobada','fixture:'||$3,'suppression-case-01',$4,$5,$5)`, caseID, targetID, fixtureID, adminID, h.now); err != nil {
+	terminalAt := h.now.AddDate(0, -7, 0)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,creada_en,resuelta_en) VALUES($1,$2,'kyc','aprobada','fixture:'||$3,'suppression-case-01',$4,$5,$6)`, caseID, targetID, fixtureID, adminID, terminalAt.Add(-time.Hour), terminalAt); err != nil {
+		t.Fatal(err)
+	}
+	pendingCaseID := "82000000-0000-4000-8000-000000000008"
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,creada_en) VALUES($1,$2,'kyb','en_revision','fixture:82000000-0000-4000-8000-000000000009','suppression-case-pending',$3)`, pendingCaseID, targetID, h.now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.verificacion_evidencia_sintetica(id,verificacion_id,codigo_fixture,mime_type,tamano_bytes,sha256,creada_en) VALUES($1,$2,'synthetic-png-v1','image/png',1,repeat('c',64),$3)`, evidenceID, caseID, h.now); err != nil {
@@ -1404,14 +1414,18 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 		t.Fatalf("session remains usable after local suppression: %v", err)
 	}
 	var requestState, requestReason string
-	var resolvedAt, requestExpiry, termsExpiry, verificationExpiry, outboxCancel, outboxExpiry time.Time
+	var resolvedAt, requestExpiry, termsExpiry, verificationExpiry, verificationTerminalAt, verificationPrivacyAt, pendingResolvedAt, pendingVerificationExpiry, pendingPrivacyAt, outboxCancel, outboxExpiry time.Time
 	if err := h.pool.QueryRow(h.ctx, `SELECT estado,motivo_resolucion_codigo,resuelta_en,retirar_en FROM public.solicitud_titular WHERE id=$1`, request.ID).Scan(&requestState, &requestReason, &resolvedAt, &requestExpiry); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.pool.QueryRow(h.ctx, `SELECT retirar_en FROM public.aceptacion_terminos WHERE usuario_id=$1 ORDER BY aceptada_en LIMIT 1`, targetID).Scan(&termsExpiry); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.pool.QueryRow(h.ctx, `SELECT estado,retirar_en FROM public.verificacion WHERE id=$1`, caseID).Scan(&state, &verificationExpiry); err != nil {
+	if err := h.pool.QueryRow(h.ctx, `SELECT estado,retirar_en,resuelta_en,retirada_privacidad_en FROM public.verificacion WHERE id=$1`, caseID).Scan(&state, &verificationExpiry, &verificationTerminalAt, &verificationPrivacyAt); err != nil {
+		t.Fatal(err)
+	}
+	var pendingState string
+	if err := h.pool.QueryRow(h.ctx, `SELECT estado,retirar_en,resuelta_en,retirada_privacidad_en FROM public.verificacion WHERE id=$1`, pendingCaseID).Scan(&pendingState, &pendingVerificationExpiry, &pendingResolvedAt, &pendingPrivacyAt); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.pool.QueryRow(h.ctx, `SELECT cancelada_en,retirar_en FROM public.outbox_evento_local WHERE agregado_id=$1 AND clave_deduplicacion='privacy-test-outbox'`, targetID).Scan(&outboxCancel, &outboxExpiry); err != nil {
@@ -1421,8 +1435,9 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	if err := h.pool.QueryRow(h.ctx, `SELECT vinculos_retirar_en FROM public.reserva_ensayo_local WHERE id='83000000-0000-4000-8000-000000000003'`).Scan(&reservationLinksExpiry); err != nil {
 		t.Fatal(err)
 	}
-	if requestState != "resuelta" || requestReason != "baja_local_minimizada" || !requestExpiry.Equal(identity.AddCalendarMonthsUTC(resolvedAt, 60)) || !termsExpiry.Equal(identity.AddCalendarMonthsUTC(h.now.Add(-6*time.Second), 60)) || state != "retirada_privacidad" || !verificationExpiry.Equal(h.now.Add(-6*time.Second).AddDate(2, 0, 0)) || !outboxCancel.Equal(h.now.Add(-6*time.Second)) || !outboxExpiry.Equal(h.now.Add(-6*time.Second).Add(30*24*time.Hour)) || !reservationLinksExpiry.Equal(h.now.Add(-6*time.Second).AddDate(2, 0, 0)) {
-		t.Fatalf("retention/resolution mismatch request=%s/%s terms=%s verification=%s outbox=%s/%s reservation-links=%s", requestState, requestReason, termsExpiry, verificationExpiry, outboxCancel, outboxExpiry, reservationLinksExpiry)
+	privacyAt := h.now.Add(-6 * time.Second)
+	if requestState != "resuelta" || requestReason != "baja_local_minimizada" || !requestExpiry.Equal(identity.AddCalendarMonthsUTC(resolvedAt, 60)) || !termsExpiry.Equal(identity.AddCalendarMonthsUTC(privacyAt, 60)) || state != "retirada_privacidad" || !verificationTerminalAt.Equal(terminalAt) || !verificationExpiry.Equal(terminalAt.AddDate(2, 0, 0)) || !verificationPrivacyAt.Equal(privacyAt) || pendingState != "retirada_privacidad" || !pendingResolvedAt.Equal(privacyAt) || !pendingVerificationExpiry.Equal(privacyAt.AddDate(2, 0, 0)) || !pendingPrivacyAt.Equal(privacyAt) || !outboxCancel.Equal(privacyAt) || !outboxExpiry.Equal(privacyAt.Add(30*24*time.Hour)) || !reservationLinksExpiry.Equal(privacyAt.AddDate(2, 0, 0)) {
+		t.Fatalf("retention/resolution mismatch request=%s/%s terms=%s verification=%s/%s/%s pending=%s/%s/%s/%s outbox=%s/%s reservation-links=%s", requestState, requestReason, termsExpiry, state, verificationTerminalAt, verificationExpiry, pendingState, pendingResolvedAt, pendingVerificationExpiry, pendingPrivacyAt, outboxCancel, outboxExpiry, reservationLinksExpiry)
 	}
 	var otherEmail string
 	if err := h.pool.QueryRow(h.ctx, `SELECT correo_original FROM public.usuario WHERE id=$1`, otherID).Scan(&otherEmail); err != nil || otherEmail != "suppression-unrelated@ejemplo.invalid" {
@@ -1445,6 +1460,148 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	if executions != 1 || auditRows != 1 {
 		t.Fatalf("idempotent replay duplicated execution/audit=%d/%d", executions, auditRows)
 	}
+}
+
+func TestSuppressionSerializesPreviouslyAuthorizedProfileVerificationEvidenceAndDraftWrites(t *testing.T) {
+	h := newAuthHarness(t)
+	ownerID := h.register(t, "privacy-write-race-owner@ejemplo.invalid")
+	h.verify(t)
+	actorID := h.register(t, "privacy-write-race-admin@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.repo.SaveProfile(h.ctx, ownerID, "Perfil antes de la baja", nil); err != nil {
+		t.Fatal(err)
+	}
+	request, err := h.repo.CreateRightsRequest(h.ctx, ownerID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	draftRepo := spacespg.New(h.pool, credentials.Generator{})
+	draft, err := draftRepo.Create(h.ctx, ownerID, spaces.Input{
+		CategoryCode: "oficina", Title: "Borrador previo", Description: strings.Repeat("Contenido sintético. ", 5),
+		AreaM2: 20, Capacity: 4, UsageRules: "Reglas sintéticas", RateUnit: "hora", BasePriceCLP: 10000,
+		Address: "Dirección sintética", AttributeSchemaVersion: 1, Attributes: map[string]any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verificationRepo := verificationpg.New(h.pool)
+	const priorCaseID = "84000000-0000-4000-8000-000000000001"
+	if _, err := verificationRepo.Create(h.ctx, verification.Case{
+		ID: priorCaseID, OwnerID: ownerID, Type: "kyc", State: "en_revision", Provider: "local-fixture-v1",
+		EvidenceRef: "fixture:84000000-0000-4000-8000-000000000002", Idempotency: "race-case-before", CreatedAt: h.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := evidencefs.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidenceService, err := verification.NewEvidenceService(verificationRepo, verificationRepo, store, &authTestGenerator{}, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	privacyService, err := privacy.NewService(h.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Queue suppression first behind a held row lock, then queue writes that
+	// represent requests already authorized by middleware. PostgreSQL releases
+	// the waiters in lock-queue order; every later writer must see the retired
+	// account and leave no data behind.
+	release := holdAccountRowLock(t, h, ownerID)
+	type suppressionResult struct {
+		item privacy.SuppressionExecution
+		err  error
+	}
+	suppressed := make(chan suppressionResult, 1)
+	go func() {
+		item, err := privacyService.ExecuteSuppression(h.ctx, actorID, request.ID, "write-race-suppression", "write-race", func() time.Time { return h.now }, nil)
+		suppressed <- suppressionResult{item, err}
+	}()
+	waitForAccountLockWait(t, h)
+	profileDone := make(chan error, 1)
+	verificationDone := make(chan error, 1)
+	draftDone := make(chan error, 1)
+	evidenceDone := make(chan error, 1)
+	go func() {
+		_, err := h.repo.SaveProfile(h.ctx, ownerID, "Perfil recreado después de baja", nil)
+		profileDone <- err
+	}()
+	go func() {
+		_, err := verificationRepo.Create(h.ctx, verification.Case{
+			ID: "84000000-0000-4000-8000-000000000003", OwnerID: ownerID, Type: "kyb", State: "en_revision", Provider: "local-fixture-v1",
+			EvidenceRef: "fixture:84000000-0000-4000-8000-000000000004", Idempotency: "race-case-after", CreatedAt: h.now,
+		})
+		verificationDone <- err
+	}()
+	go func() {
+		input := spaces.Input{
+			CategoryCode: "oficina", Title: "Borrador recreado después de baja", Description: strings.Repeat("Contenido libre nuevo. ", 5),
+			AreaM2: 20, Capacity: 4, UsageRules: "Reglas nuevas", RateUnit: "hora", BasePriceCLP: 10000,
+			Address: "Nueva dirección sintética", AttributeSchemaVersion: 1, Attributes: map[string]any{},
+		}
+		_, err := draftRepo.UpdateOwn(h.ctx, ownerID, draft.ID, input)
+		draftDone <- err
+	}()
+	go func() {
+		_, err := evidenceService.Upload(h.ctx, ownerID, priorCaseID)
+		evidenceDone <- err
+	}()
+	waitForAccountLockWaitCount(t, h, 5)
+	waitForFiles(t, root, 1)
+	release()
+	if result := <-suppressed; result.err != nil || result.item.Status != "limpieza_pendiente" {
+		t.Fatalf("suppression race result=%+v err=%v", result.item, result.err)
+	}
+	if err := <-profileDone; !errors.Is(err, privacy.ErrNotFound) {
+		t.Fatalf("stale profile write err=%v, want account unavailable", err)
+	}
+	if err := <-verificationDone; !errors.Is(err, verification.ErrNotFound) {
+		t.Fatalf("stale verification write err=%v, want account unavailable", err)
+	}
+	if err := <-draftDone; !errors.Is(err, spaces.ErrNotFound) {
+		t.Fatalf("stale draft write err=%v, want account unavailable", err)
+	}
+	if err := <-evidenceDone; !errors.Is(err, verification.ErrNotFound) {
+		t.Fatalf("stale evidence upload err=%v, want account unavailable", err)
+	}
+	files, err := os.ReadDir(root)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("orphaned evidence after losing account-lock race: files=%v err=%v", files, err)
+	}
+	var profiles, createdCases, evidences int
+	var state, title string
+	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.perfil_usuario WHERE usuario_id=$1),
+		(SELECT count(*) FROM public.verificacion WHERE usuario_id=$1 AND clave_idempotencia='race-case-after'),
+		(SELECT count(*) FROM public.verificacion_evidencia_sintetica e JOIN public.verificacion v ON v.id=e.verificacion_id WHERE v.usuario_id=$1),
+		(SELECT estado FROM public.usuario WHERE id=$1),
+		(SELECT titulo FROM public.espacio WHERE id=$2)`, ownerID, draft.ID).Scan(&profiles, &createdCases, &evidences, &state, &title); err != nil {
+		t.Fatal(err)
+	}
+	if profiles != 0 || createdCases != 0 || evidences != 0 || state != "desidentificado" || title != "Borrador retirado" {
+		t.Fatalf("post-suppression writes survived: profile=%d case=%d evidence=%d account=%s draft=%q", profiles, createdCases, evidences, state, title)
+	}
+}
+
+func waitForFiles(t *testing.T, directory string, count int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		items, err := os.ReadDir(directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(items) >= count {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d generated test files in %s", count, directory)
 }
 
 func TestAuthConcurrentReissueEnforcesAccountLimitAndIPIsIndependent(t *testing.T) {

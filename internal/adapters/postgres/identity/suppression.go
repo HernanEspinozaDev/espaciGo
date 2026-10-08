@@ -195,12 +195,12 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 			return privacy.SuppressionExecution{}, suppressionError(err)
 		}
 	}
-	for _, statement := range []string{
-		`UPDATE public.verificacion SET estado='retirada_privacidad',revisor_id=NULL,motivo_codigo='baja_privacidad',resuelta_en=$2::timestamptz,retirar_en=$2::timestamptz + interval '2 years' WHERE usuario_id=$1`,
-	} {
-		if _, err = tx.Exec(ctx, statement, subjectID, checkedAt); err != nil {
-			return privacy.SuppressionExecution{}, suppressionError(err)
-		}
+	// Keep a terminal case's original resolution/deadline. Pending cases are
+	// closed by the privacy action and retain from that terminal event instead.
+	if _, err = tx.Exec(ctx, `UPDATE public.verificacion SET estado='retirada_privacidad',
+		revisor_id=NULL,motivo_codigo='baja_privacidad',resuelta_en=COALESCE(resuelta_en,$2::timestamptz),
+		retirada_privacidad_en=$2::timestamptz WHERE usuario_id=$1`, subjectID, checkedAt); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	termExpiry := identity.AddCalendarMonthsUTC(checkedAt, 60)
 	if _, err = tx.Exec(ctx, `UPDATE public.aceptacion_terminos SET retirar_en=$2 WHERE usuario_id=$1`, subjectID, termExpiry); err != nil {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	dbgen "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity/dbgen"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
@@ -27,8 +28,23 @@ func (r *IdentityRepository) GetProfile(ctx context.Context, accountID string) (
 }
 
 func (r *IdentityRepository) SaveProfile(ctx context.Context, accountID, name string, phone *string) (privacy.Profile, error) {
-	row, err := r.queries.UpsertProfile(ctx, dbgen.UpsertProfileParams{AccountID: accountID, DisplayName: name, Phone: phone})
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return privacy.Profile{}, mapError(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	active, err := accountlock.LockActive(ctx, tx, accountID)
+	if err != nil {
+		return privacy.Profile{}, mapError(err)
+	}
+	if !active {
+		return privacy.Profile{}, privacy.ErrNotFound
+	}
+	row, err := r.queries.WithTx(tx).UpsertProfile(ctx, dbgen.UpsertProfileParams{AccountID: accountID, DisplayName: name, Phone: phone})
+	if err != nil {
+		return privacy.Profile{}, mapError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return privacy.Profile{}, mapError(err)
 	}
 	return privacy.Profile{AccountID: row.AccountID, Name: row.NombreVisible, Phone: row.TelefonoNormalizado, UpdatedAt: row.ActualizadoEn.Time}, nil

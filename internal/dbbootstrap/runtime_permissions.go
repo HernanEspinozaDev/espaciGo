@@ -7,7 +7,8 @@ import (
 )
 
 // GrantRuntimePermissions applies the least-privilege table grants after migrations.
-// Versioned rates and private simulations are append/read only for the API role.
+// Versioned rates and private simulations are append/read only for user flows;
+// the administrator-guarded local suppression path may delete private simulations.
 func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
 	_, err := conn.Exec(ctx, `GRANT USAGE ON SCHEMA public TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.usuario, public.sesion, public.token_accion TO espacigo_runtime;
@@ -52,6 +53,12 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT SELECT, INSERT, UPDATE, DELETE ON public.reserva_mensaje_lectura TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.ejecucion_baja_local TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.baja_archivo_pendiente_local TO espacigo_runtime;
- GRANT DELETE ON public.simulacion_precio_privada TO espacigo_runtime;`)
+	`)
+	if err != nil {
+		return err
+	}
+	// The API's administrator-guarded local suppression path needs to remove
+	// private simulations. No pricing endpoint exposes that delete operation.
+	_, err = conn.Exec(ctx, `GRANT DELETE ON public.simulacion_precio_privada TO espacigo_runtime;`)
 	return err
 }

@@ -236,6 +236,7 @@ func TestM02ProfileAndRightsQueriesRemainOwnerScoped(t *testing.T) {
 	ctx, pool := newIdentityTestPool(t)
 	repo := identitypg.NewIdentityRepository(pool)
 	owner := testAccount("00000000-0000-4000-8000-000000000091", "m02-owner@ejemplo.invalid")
+	owner.State = identity.AccountActive
 	if err := repo.CreateWithTerms(ctx, owner, nil); err != nil {
 		t.Fatal(err)
 	}

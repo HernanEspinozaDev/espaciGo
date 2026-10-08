@@ -18,7 +18,13 @@ ALTER TABLE public.solicitud_titular
         motivo_resolucion_codigo IS NULL OR motivo_resolucion_codigo IN ('baja_local_minimizada','derecho_tramitado')
     );
 
-ALTER TABLE public.verificacion ADD COLUMN retirar_en timestamptz;
+ALTER TABLE public.verificacion
+    ADD COLUMN retirar_en timestamptz,
+    ADD COLUMN retirada_privacidad_en timestamptz,
+    ADD CONSTRAINT verificacion_retirada_privacidad_ck CHECK (
+        (estado='retirada_privacidad' AND retirada_privacidad_en IS NOT NULL)
+        OR (estado<>'retirada_privacidad' AND retirada_privacidad_en IS NULL)
+    );
 UPDATE public.verificacion SET retirar_en = resuelta_en + interval '2 years' WHERE resuelta_en IS NOT NULL;
 ALTER TABLE public.verificacion DROP CONSTRAINT verificacion_estado_ck;
 ALTER TABLE public.verificacion ADD CONSTRAINT verificacion_estado_ck CHECK (estado IN ('en_revision','aprobada','rechazada','retirada_privacidad'));
@@ -89,7 +95,9 @@ CREATE INDEX ejecucion_baja_local_pendiente_idx ON public.ejecucion_baja_local(i
 CREATE OR REPLACE FUNCTION public.set_local_verification_retention_deadline() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF NEW.estado IN ('aprobada','rechazada','retirada_privacidad') AND NEW.resuelta_en IS NOT NULL THEN
+    IF TG_OP='UPDATE' AND NEW.estado='retirada_privacidad' AND OLD.resuelta_en IS NOT NULL THEN
+        NEW.retirar_en := OLD.retirar_en;
+    ELSIF NEW.estado IN ('aprobada','rechazada','retirada_privacidad') AND NEW.resuelta_en IS NOT NULL THEN
         NEW.retirar_en := NEW.resuelta_en + interval '2 years';
     ELSE
         NEW.retirar_en := NULL;

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	dbgen "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification/dbgen"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
@@ -23,19 +24,47 @@ func New(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool, queries: dbgen.New(pool)}
 }
 
+// lockActiveOwner is the shared serialization point with local suppression.
+// Every owner-side verification/evidence mutation acquires this row before any
+// verification row, then revalidates the account state inside its transaction.
+func lockActiveOwner(ctx context.Context, tx pgx.Tx, owner string) error {
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return mapDBError(err)
+	}
+	if !active {
+		return verification.ErrNotFound
+	}
+	return nil
+}
+
 func (r *Repository) Create(ctx context.Context, item verification.Case) (verification.Case, error) {
-	row, err := r.queries.CreateVerification(ctx, dbgen.CreateVerificationParams{
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return verification.Case{}, mapDBError(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := lockActiveOwner(ctx, tx, item.OwnerID); err != nil {
+		return verification.Case{}, err
+	}
+	queries := r.queries.WithTx(tx)
+	row, err := queries.CreateVerification(ctx, dbgen.CreateVerificationParams{
 		ID: item.ID, OwnerID: item.OwnerID, Type: item.Type, EvidenceRef: item.EvidenceRef,
 		IdempotencyKey: item.Idempotency, CreatedAt: dbTime(item.CreatedAt),
 	})
 	if err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return verification.Case{}, mapDBError(err)
+		}
 		return fromCreate(row), nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return verification.Case{}, mapDBError(err)
 	}
-	prior, err := r.queries.GetVerificationByIdempotency(ctx, dbgen.GetVerificationByIdempotencyParams{OwnerID: item.OwnerID, IdempotencyKey: item.Idempotency})
+	prior, err := queries.GetVerificationByIdempotency(ctx, dbgen.GetVerificationByIdempotencyParams{OwnerID: item.OwnerID, IdempotencyKey: item.Idempotency})
 	if err != nil {
+		return verification.Case{}, mapDBError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return verification.Case{}, mapDBError(err)
 	}
 	return fromIdempotency(prior), nil
@@ -74,15 +103,30 @@ func (r *Repository) ListPending(ctx context.Context) ([]verification.Case, erro
 }
 
 func (r *Repository) Review(ctx context.Context, id, reviewer string, approved bool, reason string) (verification.Case, error) {
+	var owner string
+	if err := r.pool.QueryRow(ctx, `SELECT usuario_id::text FROM public.verificacion WHERE id=$1`, id).Scan(&owner); err != nil {
+		return verification.Case{}, mapDBError(err)
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return verification.Case{}, mapDBError(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := lockActiveOwner(ctx, tx, owner); err != nil {
+		return verification.Case{}, err
+	}
 	state := "rechazada"
 	if approved {
 		state = "aprobada"
 	}
-	row, err := r.queries.ReviewVerification(ctx, dbgen.ReviewVerificationParams{State: state, ReviewerID: reviewer, ReasonCode: reason, ID: id})
+	row, err := r.queries.WithTx(tx).ReviewVerification(ctx, dbgen.ReviewVerificationParams{State: state, ReviewerID: reviewer, ReasonCode: reason, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return verification.Case{}, verification.ErrConflict
 	}
 	if err != nil {
+		return verification.Case{}, mapDBError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return verification.Case{}, mapDBError(err)
 	}
 	return fromReview(row), nil
@@ -95,6 +139,9 @@ func (r *Repository) Retry(ctx context.Context, owner, priorID string, item veri
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	queries := r.queries.WithTx(tx)
+	if err := lockActiveOwner(ctx, tx, owner); err != nil {
+		return verification.Case{}, err
+	}
 
 	// Serialize retries for this case before checking the key. A concurrent retry
 	// may have passed its first idempotency check while waiting on this row lock.

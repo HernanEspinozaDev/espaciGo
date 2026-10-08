@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	domain "github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -16,7 +17,19 @@ type Repository struct{ pool *pgxpool.Pool }
 func New(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
 
 func (r *Repository) SetTimeZone(ctx context.Context, owner, spaceID, zone string) error {
-	result, err := r.pool.Exec(ctx, `UPDATE public.espacio
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return domain.ErrNotFound
+	}
+	result, err := tx.Exec(ctx, `UPDATE public.espacio
 		SET zona_horaria=$3, actualizado_en=now()
 		WHERE id=$1 AND propietario_id=$2 AND estado='borrador'`, spaceID, owner, zone)
 	if err != nil {
@@ -25,7 +38,7 @@ func (r *Repository) SetTimeZone(ctx context.Context, owner, spaceID, zone strin
 	if result.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (r *Repository) TimeZone(ctx context.Context, owner, spaceID string) (string, error) {
@@ -78,13 +91,29 @@ func (r *Repository) ListBlocks(ctx context.Context, owner, spaceID string, star
 }
 
 func (r *Repository) CreateBlock(ctx context.Context, owner, spaceID, blockID string, start, end time.Time, reason string) (domain.Block, error) {
-	zone, err := r.timeZone(ctx, owner, spaceID)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return domain.Block{}, err
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return domain.Block{}, err
+	}
+	if !active {
+		return domain.Block{}, domain.ErrNotFound
+	}
+	var zone *string
+	err = tx.QueryRow(ctx, `SELECT zona_horaria FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado='borrador'`, spaceID, owner).Scan(&zone)
+	if err != nil {
+		return domain.Block{}, mapError(err)
+	}
+	if zone == nil || *zone == "" {
+		return domain.Block{}, domain.ErrTimezoneRequired
+	}
 	var block domain.Block
-	block.TimeZone = zone
-	err = r.pool.QueryRow(ctx, `INSERT INTO public.ocupacion
+	block.TimeZone = *zone
+	err = tx.QueryRow(ctx, `INSERT INTO public.ocupacion
 		(id, espacio_id, reserva_id, intervalo, tipo, activo, motivo)
 		SELECT $1,e.id,NULL,tstzrange($4,$5,'[)'),'bloqueo_manual',true,$6
 		FROM public.espacio e WHERE e.id=$2 AND e.propietario_id=$3 AND e.estado='borrador'
@@ -93,12 +122,27 @@ func (r *Repository) CreateBlock(ctx context.Context, owner, spaceID, blockID st
 	if err != nil {
 		return domain.Block{}, mapError(err)
 	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Block{}, mapError(err)
+	}
 	block.StartAt, block.EndAt, block.CreatedAt = block.StartAt.UTC(), block.EndAt.UTC(), block.CreatedAt.UTC()
 	return block, nil
 }
 
 func (r *Repository) DeleteBlock(ctx context.Context, owner, spaceID, blockID string) error {
-	result, err := r.pool.Exec(ctx, `UPDATE public.ocupacion o SET activo=false, desactivada_en=now()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return domain.ErrNotFound
+	}
+	result, err := tx.Exec(ctx, `UPDATE public.ocupacion o SET activo=false, desactivada_en=now()
 		FROM public.espacio e WHERE o.espacio_id=e.id AND e.id=$1 AND e.propietario_id=$2
 		AND e.estado='borrador' AND o.id=$3 AND o.tipo='bloqueo_manual' AND o.activo`, spaceID, owner, blockID)
 	if err != nil {
@@ -107,7 +151,7 @@ func (r *Repository) DeleteBlock(ctx context.Context, owner, spaceID, blockID st
 	if result.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (r *Repository) timeZone(ctx context.Context, owner, spaceID string) (string, error) {

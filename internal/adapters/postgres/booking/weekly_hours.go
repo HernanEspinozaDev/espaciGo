@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/jackc/pgx/v5"
 )
@@ -108,6 +109,13 @@ func (r *Repository) SaveWeeklyHours(ctx context.Context, hostID, spaceID string
 		return booking.WeeklyHours{}, err
 	}
 	defer tx.Rollback(ctx)
+	active, err := accountlock.LockActive(ctx, tx, hostID)
+	if err != nil {
+		return booking.WeeklyHours{}, err
+	}
+	if !active {
+		return booking.WeeklyHours{}, booking.ErrNotFound
+	}
 	var rateUnit string
 	var zone sql.NullString
 	err = tx.QueryRow(ctx, `SELECT t.modalidad,e.zona_horaria FROM public.espacio e
