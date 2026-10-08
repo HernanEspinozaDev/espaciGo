@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
@@ -53,6 +55,19 @@ type authTestMail struct {
 	alerts     int
 	changes    int
 	fail       bool
+}
+
+type failOnceEvidenceCleaner struct {
+	store *evidencefs.Store
+	fail  bool
+}
+
+func (c *failOnceEvidenceCleaner) Delete(ctx context.Context, id string) error {
+	if c.fail {
+		c.fail = false
+		return errors.New("synthetic local storage failure")
+	}
+	return c.store.Delete(ctx, id)
 }
 
 func (m *authTestMail) SendRecovery(_ context.Context, d identity.RecoveryDelivery) error {
@@ -200,7 +215,12 @@ END $$`); err != nil {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(runtimePool.Close)
+	t.Cleanup(func() {
+		runtimePool.Close()
+		if _, err := h.pool.Exec(h.ctx, `DROP OWNED BY espacigo_runtime; DROP ROLE IF EXISTS espacigo_runtime`); err != nil {
+			t.Errorf("clean up disposable runtime role: %v", err)
+		}
+	})
 	return runtimePool
 }
 
@@ -683,7 +703,7 @@ func TestM02SuppressionReviewRequiresAdminAndReusesPersistedIncompleteAssessment
 	if err := json.Unmarshal(first.Body.Bytes(), &firstResult); err != nil {
 		t.Fatal(err)
 	}
-	if firstResult.Outcome != "revision_incompleta" || len(firstResult.Obligations) != 0 || !reflect.DeepEqual(firstResult.PendingChecks, []string{"matriz_retencion_historicos_incompleta"}) || firstResult.Reused {
+	if firstResult.Outcome != "elegible" || len(firstResult.Obligations) != 0 || len(firstResult.PendingChecks) != 0 || firstResult.Reused {
 		t.Fatalf("unexpected first assessment: %+v", firstResult)
 	}
 	second := call(admin.Token, "assessment-1")
@@ -855,7 +875,7 @@ func TestLocalDisputeBlocksBothParticipantsUntilAdministratorCloses(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		if review.Outcome != "bloqueada" || !reflect.DeepEqual(review.Obligations, []string{"disputa_abierta"}) || !reflect.DeepEqual(review.PendingChecks, []string{"matriz_retencion_historicos_incompleta"}) {
+		if review.Outcome != "bloqueada" || !reflect.DeepEqual(review.Obligations, []string{"disputa_abierta"}) || len(review.PendingChecks) != 0 {
 			t.Fatalf("open dispute did not block participant=%s: %+v", request.ID, review)
 		}
 	}
@@ -888,7 +908,7 @@ func TestLocalDisputeBlocksBothParticipantsUntilAdministratorCloses(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		if review.Outcome != "revision_incompleta" || len(review.Obligations) != 0 || !reflect.DeepEqual(review.PendingChecks, []string{"matriz_retencion_historicos_incompleta"}) {
+		if review.Outcome != "elegible" || len(review.Obligations) != 0 || len(review.PendingChecks) != 0 {
 			t.Fatalf("closed dispute remained a blocker participant=%s: %+v", request.ID, review)
 		}
 	}
@@ -1000,7 +1020,7 @@ func TestLocalDisputeOpenAndCloseSerializeWithSuppressionReview(t *testing.T) {
 	waitForAccountLockWaitCount(t, h, 2)
 	release()
 	closeErr, reviewedAfterClose := <-closeRequest, <-secondReview
-	if closeErr != nil || reviewedAfterClose.err != nil || reviewedAfterClose.item.Outcome != "revision_incompleta" || len(reviewedAfterClose.item.Obligations) != 0 {
+	if closeErr != nil || reviewedAfterClose.err != nil || reviewedAfterClose.item.Outcome != "elegible" || len(reviewedAfterClose.item.Obligations) != 0 {
 		t.Fatalf("close/review lock ordering left stale blocker: close=%v review=%+v", closeErr, reviewedAfterClose)
 	}
 	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.disputa_ensayo_historial WHERE disputa_id=$1`, openOutcome.item.ID).Scan(&histories); err != nil {
@@ -1086,6 +1106,27 @@ func TestM02SuppressionReviewListsOnlyLiveReservationAndPaymentObligations(t *te
 	if activeResult.Outcome != "bloqueada" || !reflect.DeepEqual(activeResult.Obligations, []string{"reserva_activa", "pago_o_devolucion_pendiente"}) {
 		t.Fatalf("live obligations=%+v", activeResult)
 	}
+	blocked, err := h.repo.ExecuteSuppression(h.ctx, adminID, activeRequest.ID, "execute-blocked-live", "execute-live", func() time.Time { return h.now })
+	if err != nil || blocked.Status != "bloqueada" || !reflect.DeepEqual(blocked.Obligations, []string{"reserva_activa", "pago_o_devolucion_pendiente"}) {
+		t.Fatalf("execution must recheck live reservation/payment obligations: %+v err=%v", blocked, err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_pago_ensayo_operacion SET estado='aplicada',resultado_final='exito_simulado' WHERE id='70000000-0000-4000-8000-000000000005'`); err != nil {
+		t.Fatal(err)
+	}
+	blockedReservation, err := h.repo.ExecuteSuppression(h.ctx, adminID, activeRequest.ID, "execute-blocked-reservation", "execute-reservation", func() time.Time { return h.now })
+	if err != nil || blockedReservation.Status != "bloqueada" || !reflect.DeepEqual(blockedReservation.Obligations, []string{"reserva_activa"}) {
+		t.Fatalf("active reservation alone must block execution: %+v err=%v", blockedReservation, err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_ensayo_local SET estado='cancelada_arrendatario' WHERE id='70000000-0000-4000-8000-000000000003'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_pago_ensayo_operacion SET estado='pendiente',resultado_final=NULL WHERE id='70000000-0000-4000-8000-000000000005'`); err != nil {
+		t.Fatal(err)
+	}
+	blockedPayment, err := h.repo.ExecuteSuppression(h.ctx, adminID, activeRequest.ID, "execute-blocked-payment", "execute-payment", func() time.Time { return h.now })
+	if err != nil || blockedPayment.Status != "bloqueada" || !reflect.DeepEqual(blockedPayment.Obligations, []string{"pago_o_devolucion_pendiente"}) {
+		t.Fatalf("pending payment alone must block execution: %+v err=%v", blockedPayment, err)
+	}
 
 	terminalRequester := h.register(t, "suppression-historical@ejemplo.invalid")
 	h.verify(t)
@@ -1098,8 +1139,23 @@ func TestM02SuppressionReviewListsOnlyLiveReservationAndPaymentObligations(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if terminalResult.Outcome != "revision_incompleta" || len(terminalResult.Obligations) != 0 {
+	if terminalResult.Outcome != "elegible" || len(terminalResult.Obligations) != 0 {
 		t.Fatalf("terminal history alone should not be an obligation: %+v", terminalResult)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.disputa_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,abierta_por,motivo_codigo,estado,clave_idempotencia,huella_solicitud,abierta_en) VALUES('71000000-0000-4000-8000-000000000005','71000000-0000-4000-8000-000000000003',$1,$2,$1,'ensayo_privacidad','abierta','dispute-blocker',decode(repeat('33',32),'hex'),$3)`, terminalRequester, adminID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	blockedDispute, err := h.repo.ExecuteSuppression(h.ctx, adminID, terminalRequest.ID, "execute-blocked-dispute", "execute-dispute", func() time.Time { return h.now })
+	if err != nil || blockedDispute.Status != "bloqueada" || !reflect.DeepEqual(blockedDispute.Obligations, []string{"disputa_abierta"}) {
+		t.Fatalf("open dispute alone must block execution: %+v err=%v", blockedDispute, err)
+	}
+	blockedReplay, err := h.repo.ExecuteSuppression(h.ctx, adminID, terminalRequest.ID, "execute-blocked-dispute", "execute-dispute", func() time.Time { return h.now })
+	if err != nil || blockedReplay.Status != "bloqueada" || !blockedReplay.Reused || !reflect.DeepEqual(blockedReplay.Obligations, []string{"disputa_abierta"}) {
+		t.Fatalf("blocked execution retry must reuse the persisted result: %+v err=%v", blockedReplay, err)
+	}
+	var targetState string
+	if err := h.pool.QueryRow(h.ctx, `SELECT estado FROM public.usuario WHERE id=$1`, terminalRequester).Scan(&targetState); err != nil || targetState != "activo" {
+		t.Fatalf("blocked account was modified: state=%q err=%v", targetState, err)
 	}
 }
 
@@ -1142,6 +1198,252 @@ func TestM02SuppressionReviewSamplesClockAfterAccountLock(t *testing.T) {
 	}
 	if !result.ReviewedAt.Equal(advanced) {
 		t.Fatalf("review timestamp=%s, want post-lock clock %s", result.ReviewedAt, advanced)
+	}
+}
+
+func TestM02SuppressionExecutionRechecksDisputeAfterAccountLock(t *testing.T) {
+	h := newAuthHarness(t)
+	requesterID := h.register(t, "suppression-race-owner@ejemplo.invalid")
+	h.verify(t)
+	otherID := h.register(t, "suppression-race-other@ejemplo.invalid")
+	h.verify(t)
+	adminID := h.register(t, "suppression-race-admin@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	request, err := h.repo.CreateRightsRequest(h.ctx, requesterID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedPrivacyReviewReservation(t, h, "72000000-0000-4000-8000-000000000001", "72000000-0000-4000-8000-000000000002", "72000000-0000-4000-8000-000000000003", "72000000-0000-4000-8000-000000000004", requesterID, otherID, "cancelada_arrendatario")
+	hold, err := h.pool.Begin(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = hold.Rollback(context.Background()) }()
+	if _, err := hold.Exec(h.ctx, `SELECT id FROM public.usuario WHERE id=$1 FOR UPDATE`, requesterID); err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		result privacy.SuppressionExecution
+		err    error
+	}
+	finished := make(chan outcome, 1)
+	go func() {
+		result, err := h.repo.ExecuteSuppression(h.ctx, adminID, request.ID, "suppress-after-dispute-race", "suppression-dispute-race", func() time.Time { return h.now })
+		finished <- outcome{result, err}
+	}()
+	waitForAccountLockWait(t, h)
+	if _, err := hold.Exec(h.ctx, `INSERT INTO public.disputa_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,abierta_por,motivo_codigo,estado,clave_idempotencia,huella_solicitud,abierta_en) VALUES('72000000-0000-4000-8000-000000000005','72000000-0000-4000-8000-000000000003',$1,$2,$1,'ensayo_privacidad','abierta','race-dispute',decode(repeat('44',32),'hex'),$3)`, requesterID, otherID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if err := hold.Commit(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	result := <-finished
+	if result.err != nil || result.result.Status != "bloqueada" || !reflect.DeepEqual(result.result.Obligations, []string{"disputa_abierta"}) {
+		t.Fatalf("execution did not see committed concurrent dispute: %+v err=%v", result.result, result.err)
+	}
+	var state string
+	if err := h.pool.QueryRow(h.ctx, `SELECT estado FROM public.usuario WHERE id=$1`, requesterID).Scan(&state); err != nil || state != "activo" {
+		t.Fatalf("concurrently blocked account changed: state=%s err=%v", state, err)
+	}
+}
+
+func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *testing.T) {
+	h := newAuthHarness(t)
+	targetID := h.register(t, "suppression-target@ejemplo.invalid")
+	h.verify(t)
+	targetSession := h.login(t, "suppression-target@ejemplo.invalid")
+	adminID := h.register(t, "suppression-admin@ejemplo.invalid")
+	h.verify(t)
+	adminSession := h.login(t, "suppression-admin@ejemplo.invalid")
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	otherID := h.register(t, "suppression-unrelated@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.repo.SaveProfile(h.ctx, targetID, "Cuenta Sintetica", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.repo.SaveProfile(h.ctx, otherID, "Otra Cuenta", nil); err != nil {
+		t.Fatal(err)
+	}
+	request, err := h.repo.CreateRightsRequest(h.ctx, targetID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.historial_clave_local(id,usuario_id,hash_clave,dejo_de_ser_vigente_en,retirar_en,creado_en) VALUES('82000000-0000-4000-8000-000000000001',$1,'synthetic-old-password-hash',$2,$3,$2)`, targetID, h.now.Add(-time.Hour), identity.AddCalendarMonthsUTC(h.now, 3)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.token_accion(id,usuario_id,proposito,token_hash,creado_en,expira_en) VALUES('82000000-0000-4000-8000-000000000002',$1,'recuperar_clave',repeat('b',64),$2,$3)`, targetID, h.now, h.now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.outbox_evento_local(id,agregado_tipo,agregado_id,tipo,clave_deduplicacion,version,creada_en,disponible_en) VALUES('82000000-0000-4000-8000-000000000003','usuario',$1,'identidad.credencial_cambiada','privacy-test-outbox',1,$2,$2)`, targetID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	spaceID := "82000000-0000-4000-8000-000000000004"
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria) VALUES($1,$2,'oficina','Espacio sintético',repeat('Contenido libre de ensayo ',5),20,2,'Reglas sintéticas','hora',12000,'Dirección sintética','borrador','UTC')`, spaceID, targetID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores,actualizado_en) VALUES($1,'oficina',1,'{}'::jsonb,$2)`, spaceID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada_en,habilitada) VALUES($1,$2,$3,$4,true)`, spaceID, targetID, otherID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	caseID, evidenceID := "82000000-0000-4000-8000-000000000005", "82000000-0000-4000-8000-000000000006"
+	fixtureID := "82000000-0000-4000-8000-000000000007"
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,creada_en,resuelta_en) VALUES($1,$2,'kyc','aprobada','fixture:'||$3,'suppression-case-01',$4,$5,$5)`, caseID, targetID, fixtureID, adminID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.verificacion_evidencia_sintetica(id,verificacion_id,codigo_fixture,mime_type,tamano_bytes,sha256,creada_en) VALUES($1,$2,'synthetic-png-v1','image/png',1,repeat('c',64),$3)`, evidenceID, caseID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	seedPrivacyReviewReservation(t, h, "83000000-0000-4000-8000-000000000001", "83000000-0000-4000-8000-000000000002", "83000000-0000-4000-8000-000000000003", "83000000-0000-4000-8000-000000000004", targetID, otherID, "cancelada_arrendatario")
+	var messageSequence int64
+	if err := h.pool.QueryRow(h.ctx, `INSERT INTO public.mensaje_reserva_ensayo(id,reserva_id,autor_id,clave_idempotencia,huella_solicitud,cuerpo,creada_en) VALUES('83000000-0000-4000-8000-000000000005','83000000-0000-4000-8000-000000000003',$1,'privacy-terminal-thread',decode(repeat('55',32),'hex'),'synthetic message body',$2) RETURNING secuencia`, otherID, h.now).Scan(&messageSequence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_mensaje_lectura(reserva_id,participante_id,ultima_secuencia_leida,actualizada_en) VALUES('83000000-0000-4000-8000-000000000003',$1,$2,$3)`, targetID, messageSequence, h.now); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := evidencefs.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(h.ctx, evidenceID, []byte("synthetic png bytes")); err != nil {
+		t.Fatal(err)
+	}
+	runtimeRepo := newRuntimeIdentityRepository(t, h)
+	privacyService, err := privacy.NewService(runtimeRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleaner := &failOnceEvidenceCleaner{store: store, fail: true}
+	executionNow := h.now
+	api := identityhttp.NewHandlerWithSuppressionClock(h.service, h.repo, nil, privacyService, cleaner, func() time.Time { return executionNow })
+	call := func(session identity.LoginResult, key string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/privacy/suppression-requests/"+request.ID+"/execute", nil)
+		req.RemoteAddr = "192.0.2.44:8080"
+		req.Header.Set("Authorization", "Bearer "+string(session.Token))
+		req.Header.Set("Idempotency-Key", key)
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, req)
+		return response
+	}
+	if denied := call(targetSession, "not-admin"); denied.Code != http.StatusForbidden {
+		t.Fatalf("owner execution status=%d body=%s", denied.Code, denied.Body.String())
+	}
+	pending, err := privacyService.ExecuteSuppression(h.ctx, adminID, request.ID, "local-suppression-1", "suppression-correlation", func() time.Time { return executionNow }, cleaner)
+	if err != nil || pending.Status != "limpieza_pendiente" || pending.PendingFiles != 1 || pending.CompletedAt != nil {
+		t.Fatalf("file failure was not left recoverable: err=%v result=%+v", err, pending)
+	}
+	var state, email, passwordHash string
+	var preference *string
+	if err := h.pool.QueryRow(h.ctx, `SELECT estado,correo_original,hash_clave,preferencia_uso FROM public.usuario WHERE id=$1`, targetID).Scan(&state, &email, &passwordHash, &preference); err != nil {
+		t.Fatal(err)
+	}
+	if state != "desidentificado" || email != "Cuenta retirada" || passwordHash != "" || preference != nil {
+		t.Fatalf("account was not minimized: state=%s email=%q hash=%q preference=%v", state, email, passwordHash, preference)
+	}
+	var originalSession, originalProfile, originalToken, oldKeys, activeRole int
+	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.sesion WHERE usuario_id=$1),(SELECT count(*) FROM public.perfil_usuario WHERE usuario_id=$1),(SELECT count(*) FROM public.token_accion WHERE usuario_id=$1),(SELECT count(*) FROM public.historial_clave_local WHERE usuario_id=$1),(SELECT count(*) FROM public.rol_usuario WHERE usuario_id=$1)`, targetID).Scan(&originalSession, &originalProfile, &originalToken, &oldKeys, &activeRole); err != nil {
+		t.Fatal(err)
+	}
+	if originalSession != 0 || originalProfile != 0 || originalToken != 0 || oldKeys != 0 || activeRole != 0 {
+		t.Fatalf("access-bearing data remains session/profile/token/history/role=%d/%d/%d/%d/%d", originalSession, originalProfile, originalToken, oldKeys, activeRole)
+	}
+	var fixtureEnabled bool
+	var title, direction string
+	if err := h.pool.QueryRow(h.ctx, `SELECT f.habilitada,e.titulo,e.direccion FROM public.reserva_ensayo_local_fixture f JOIN public.espacio e ON e.id=f.espacio_id WHERE f.espacio_id=$1`, spaceID).Scan(&fixtureEnabled, &title, &direction); err != nil {
+		t.Fatal(err)
+	}
+	if fixtureEnabled || title != "Borrador retirado" || strings.Contains(direction, "Dirección sintética") {
+		t.Fatalf("draft/fixture not scrubbed and disabled: enabled=%t title=%q direction=%q", fixtureEnabled, title, direction)
+	}
+	clock := h.now.Add(6 * time.Second)
+	h.now = clock
+	executionNow = clock
+	if err := privacyService.RunSuppressionCleanupOnce(h.ctx, func() time.Time { return executionNow }, cleaner); err != nil {
+		t.Fatalf("cleanup worker did not recover pending file work: %v", err)
+	}
+	complete, err := privacyService.ExecuteSuppression(h.ctx, adminID, request.ID, "local-suppression-1", "suppression-correlation", func() time.Time { return executionNow }, cleaner)
+	if err != nil || complete.Status != "completada" || complete.Outcome != "baja_local_con_minimizacion_y_retencion_residual" || !complete.Reused || complete.CompletedAt == nil {
+		t.Fatalf("recovered execution err=%v result=%+v", err, complete)
+	}
+	if _, err := store.Get(h.ctx, evidenceID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("synthetic blob remains after recovery: %v", err)
+	}
+	var evidenceRows, jobCompleted int
+	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.verificacion_evidencia_sintetica WHERE id=$1),(SELECT count(*) FROM public.baja_archivo_pendiente_local WHERE evidencia_id=$1 AND completada_en IS NOT NULL)`, evidenceID).Scan(&evidenceRows, &jobCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if evidenceRows != 0 || jobCompleted != 1 {
+		t.Fatalf("file reference/job state=%d/%d", evidenceRows, jobCompleted)
+	}
+	var messages, cursors, reservations, occupations, convertedQuotes int
+	if err := h.pool.QueryRow(h.ctx, `SELECT
+		(SELECT count(*) FROM public.mensaje_reserva_ensayo WHERE reserva_id='83000000-0000-4000-8000-000000000003'),
+		(SELECT count(*) FROM public.reserva_mensaje_lectura WHERE reserva_id='83000000-0000-4000-8000-000000000003'),
+		(SELECT count(*) FROM public.reserva_ensayo_local WHERE id='83000000-0000-4000-8000-000000000003'),
+		(SELECT count(*) FROM public.ocupacion WHERE id='83000000-0000-4000-8000-000000000004'),
+		(SELECT count(*) FROM public.cotizacion_reserva_ensayo WHERE id='83000000-0000-4000-8000-000000000002')`).Scan(&messages, &cursors, &reservations, &occupations, &convertedQuotes); err != nil {
+		t.Fatal(err)
+	}
+	if messages != 0 || cursors != 0 || reservations != 1 || occupations != 1 || convertedQuotes != 1 {
+		t.Fatalf("terminal-thread cleanup altered wrong data: messages=%d cursors=%d reservations=%d occupations=%d converted_quotes=%d", messages, cursors, reservations, occupations, convertedQuotes)
+	}
+	if _, err := h.service.Authorize(h.ctx, targetSession.Token, identity.RoleTenant, identity.UserOperation); !errors.Is(err, identity.ErrUnauthorized) {
+		t.Fatalf("session remains usable after local suppression: %v", err)
+	}
+	var requestState, requestReason string
+	var resolvedAt, requestExpiry, termsExpiry, verificationExpiry, outboxCancel, outboxExpiry time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT estado,motivo_resolucion_codigo,resuelta_en,retirar_en FROM public.solicitud_titular WHERE id=$1`, request.ID).Scan(&requestState, &requestReason, &resolvedAt, &requestExpiry); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.pool.QueryRow(h.ctx, `SELECT retirar_en FROM public.aceptacion_terminos WHERE usuario_id=$1 ORDER BY aceptada_en LIMIT 1`, targetID).Scan(&termsExpiry); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.pool.QueryRow(h.ctx, `SELECT estado,retirar_en FROM public.verificacion WHERE id=$1`, caseID).Scan(&state, &verificationExpiry); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.pool.QueryRow(h.ctx, `SELECT cancelada_en,retirar_en FROM public.outbox_evento_local WHERE agregado_id=$1 AND clave_deduplicacion='privacy-test-outbox'`, targetID).Scan(&outboxCancel, &outboxExpiry); err != nil {
+		t.Fatal(err)
+	}
+	var reservationLinksExpiry time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT vinculos_retirar_en FROM public.reserva_ensayo_local WHERE id='83000000-0000-4000-8000-000000000003'`).Scan(&reservationLinksExpiry); err != nil {
+		t.Fatal(err)
+	}
+	if requestState != "resuelta" || requestReason != "baja_local_minimizada" || !requestExpiry.Equal(identity.AddCalendarMonthsUTC(resolvedAt, 60)) || !termsExpiry.Equal(identity.AddCalendarMonthsUTC(h.now.Add(-6*time.Second), 60)) || state != "retirada_privacidad" || !verificationExpiry.Equal(h.now.Add(-6*time.Second).AddDate(2, 0, 0)) || !outboxCancel.Equal(h.now.Add(-6*time.Second)) || !outboxExpiry.Equal(h.now.Add(-6*time.Second).Add(30*24*time.Hour)) || !reservationLinksExpiry.Equal(h.now.Add(-6*time.Second).AddDate(2, 0, 0)) {
+		t.Fatalf("retention/resolution mismatch request=%s/%s terms=%s verification=%s outbox=%s/%s reservation-links=%s", requestState, requestReason, termsExpiry, verificationExpiry, outboxCancel, outboxExpiry, reservationLinksExpiry)
+	}
+	var otherEmail string
+	if err := h.pool.QueryRow(h.ctx, `SELECT correo_original FROM public.usuario WHERE id=$1`, otherID).Scan(&otherEmail); err != nil || otherEmail != "suppression-unrelated@ejemplo.invalid" {
+		t.Fatalf("another account was modified: email=%q err=%v", otherEmail, err)
+	}
+	replay := call(adminSession, "local-suppression-1")
+	var replayed privacy.SuppressionExecution
+	if replay.Code != http.StatusOK || json.Unmarshal(replay.Body.Bytes(), &replayed) != nil || !replayed.Reused || replayed.CompletedAt == nil || !replayed.CompletedAt.Equal(*complete.CompletedAt) {
+		t.Fatalf("completed replay not stable: status=%d body=%s result=%+v", replay.Code, replay.Body.String(), replayed)
+	}
+	apiReplay := call(adminSession, "local-suppression-1")
+	var apiResult privacy.SuppressionExecution
+	if apiReplay.Code != http.StatusOK || json.Unmarshal(apiReplay.Body.Bytes(), &apiResult) != nil || !apiResult.Reused || apiResult.CompletedAt == nil || !apiResult.CompletedAt.Equal(*complete.CompletedAt) {
+		t.Fatalf("execute API does not expose the persisted replay: status=%d body=%s result=%+v", apiReplay.Code, apiReplay.Body.String(), apiResult)
+	}
+	var executions, auditRows int
+	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.ejecucion_baja_local WHERE solicitud_id=$1),(SELECT count(*) FROM public.evento_auditoria_local WHERE recurso_id=$1 AND accion='privacy.suppression.execute' AND clave_idempotencia='local-suppression-1')`, request.ID).Scan(&executions, &auditRows); err != nil {
+		t.Fatal(err)
+	}
+	if executions != 1 || auditRows != 1 {
+		t.Fatalf("idempotent replay duplicated execution/audit=%d/%d", executions, auditRows)
 	}
 }
 

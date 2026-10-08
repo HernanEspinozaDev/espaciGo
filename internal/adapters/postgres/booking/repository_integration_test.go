@@ -120,18 +120,35 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if _, err = admin.Exec(ctx, `CREATE DATABASE `+pgx.Identifier{name}.Sanitize()); err != nil {
 		t.Fatal(err)
 	}
+	var dbURL string
 	t.Cleanup(func() {
 		cleanCtx, cc := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cc()
-		_, _ = admin.Exec(cleanCtx, `DROP DATABASE `+pgx.Identifier{name}.Sanitize()+` WITH (FORCE)`)
-		_, _ = admin.Exec(cleanCtx, `DROP ROLE IF EXISTS espacigo_runtime`)
+		if dbURL != "" {
+			if cleanupConn, e := pgx.Connect(cleanCtx, dbURL); e == nil {
+				_, _ = cleanupConn.Exec(cleanCtx, `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='espacigo_runtime') THEN DROP OWNED BY espacigo_runtime; END IF; END $$`)
+				_ = cleanupConn.Close(cleanCtx)
+			}
+		}
+		cleanupAdmin, e := pgx.Connect(cleanCtx, adminURL)
+		if e != nil {
+			t.Errorf("reconnect disposable booking PostgreSQL: %v", e)
+			return
+		}
+		defer cleanupAdmin.Close(context.Background())
+		if _, e := cleanupAdmin.Exec(cleanCtx, `DROP DATABASE `+pgx.Identifier{name}.Sanitize()+` WITH (FORCE)`); e != nil {
+			t.Errorf("drop disposable booking database: %v", e)
+		}
+		if _, e := cleanupAdmin.Exec(cleanCtx, `DROP ROLE IF EXISTS espacigo_runtime`); e != nil {
+			t.Errorf("drop disposable runtime role: %v", e)
+		}
 	})
 	u, err := url.Parse(adminURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	u.Path = "/" + name
-	dbURL := u.String()
+	dbURL = u.String()
 	if _, err = migrator.Run(ctx, dbURL, "../../../../db/migrations"); err != nil {
 		t.Fatal(err)
 	}
@@ -195,14 +212,14 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.mensaje_reserva_ensayo','SELECT'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','INSERT'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','UPDATE'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','DELETE')`).Scan(&messagesRead, &messagesInsert, &messagesUpdate, &messagesDelete); err != nil {
 		t.Fatal(err)
 	}
-	if !messagesRead || !messagesInsert || messagesUpdate || messagesDelete {
+	if !messagesRead || !messagesInsert || messagesUpdate || !messagesDelete {
 		t.Fatalf("message grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", messagesRead, messagesInsert, messagesUpdate, messagesDelete)
 	}
 	var cursorRead, cursorInsert, cursorUpdate, cursorDelete bool
 	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_mensaje_lectura','SELECT'),has_table_privilege(current_user,'public.reserva_mensaje_lectura','INSERT'),has_table_privilege(current_user,'public.reserva_mensaje_lectura','UPDATE'),has_table_privilege(current_user,'public.reserva_mensaje_lectura','DELETE')`).Scan(&cursorRead, &cursorInsert, &cursorUpdate, &cursorDelete); err != nil {
 		t.Fatal(err)
 	}
-	if !cursorRead || !cursorInsert || !cursorUpdate || cursorDelete {
+	if !cursorRead || !cursorInsert || !cursorUpdate || !cursorDelete {
 		t.Fatalf("read cursor grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", cursorRead, cursorInsert, cursorUpdate, cursorDelete)
 	}
 	var fixtureLocationRead, fixtureLocationInsert, fixtureLocationUpdate, fixtureLocationDelete bool
@@ -1663,7 +1680,7 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	weeklyLockDeadline := time.Now().Add(3 * time.Second)
 	requestWaitingOnSpace := false
 	for time.Now().Before(weeklyLockDeadline) {
-		if err = setup.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT e.id::text%')`).Scan(&requestWaitingOnSpace); err != nil {
+		if err = setup.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query ILIKE '%public.espacio%')`).Scan(&requestWaitingOnSpace); err != nil {
 			t.Fatal(err)
 		}
 		if requestWaitingOnSpace {
@@ -2024,8 +2041,10 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		t.Fatalf("cancel after lock wait changed state=%s occupancy=%v refunds=%d", boundaryState, boundaryOccupancy, boundaryRefunds)
 	}
 
-	// Race cancellation against host approval while both wait on the same
-	// reservation lock. Either approval commits first and cancellation follows,
+	// Race cancellation against host approval while the account-first lock order
+	// serializes both with suppression and the reservation transition. One action
+	// may wait on the participant lock while the other waits on the reservation;
+	// either approval commits first and cancellation follows,
 	// or cancellation wins and approval conflicts; there remains one refund and
 	// one terminal transition, with occupancy released atomically.
 	raceReservation := newReservation(10*time.Hour, "cancel-approve-race", false)
@@ -2052,7 +2071,7 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	cancelLockDeadline := time.Now().Add(3 * time.Second)
 	approvalAndCancelWaiting := false
 	for time.Now().Before(cancelLockDeadline) {
-		if err = setup.QueryRow(ctx, `SELECT count(*)>=2 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT id::text,cotizacion_id::text%'`).Scan(&approvalAndCancelWaiting); err != nil {
+		if err = setup.QueryRow(ctx, `SELECT count(*)>=2 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query ILIKE '%FOR UPDATE%'`).Scan(&approvalAndCancelWaiting); err != nil {
 			t.Fatal(err)
 		}
 		if approvalAndCancelWaiting {
@@ -2062,7 +2081,7 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	}
 	if !approvalAndCancelWaiting {
 		_ = cancelRaceTx.Rollback(ctx)
-		t.Fatal("approval and cancellation did not both wait for the reservation lock")
+		t.Fatal("approval and cancellation did not both wait in the protected lock order")
 	}
 	if err = cancelRaceTx.Commit(ctx); err != nil {
 		t.Fatal(err)

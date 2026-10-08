@@ -107,6 +107,8 @@ func run() error {
 	mux := http.NewServeMux()
 	var localPaymentService *booking.Service
 	var localIdentityService *identity.AuthenticationService
+	var localPrivacyService *privacy.Service
+	var privacyEvidenceCleaner privacy.SyntheticEvidenceCleaner
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
 	if os.Getenv("LOCAL_AUTH_PROTOTYPE") == "1" {
 		limit, err := strconv.Atoi(os.Getenv("LOCAL_VERIFICATION_IP_LIMIT"))
@@ -123,7 +125,7 @@ func run() error {
 		if err != nil {
 			return errors.New("local privacy initialization failed")
 		}
-		mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins, privacyService))
+		localPrivacyService = privacyService
 		disputeService, err := dispute.NewService(disputepg.New(pool), time.Now)
 		if err != nil {
 			return errors.New("local dispute initialization failed")
@@ -140,6 +142,8 @@ func run() error {
 		if err != nil {
 			return errors.New("local private evidence storage is unavailable")
 		}
+		privacyEvidenceCleaner = evidenceStore
+		mux.Handle("/api/v1/", identityhttp.NewHandlerWithSuppressionCleaner(service, repo, cfg.allowedOrigins, privacyService, evidenceStore))
 		evidenceService, err := verification.NewEvidenceService(verificationRepository, verificationRepository, evidenceStore, credentials.Generator{}, time.Now)
 		if err != nil {
 			return errors.New("local evidence initialization failed")
@@ -228,6 +232,9 @@ func run() error {
 	}
 	if localIdentityService != nil {
 		go localIdentityService.RunCredentialNoticeWorker(ctx, time.Second)
+	}
+	if localPrivacyService != nil {
+		go localPrivacyService.RunSuppressionCleanupWorker(ctx, 10*time.Second, privacyEvidenceCleaner)
 	}
 	select {
 	case err := <-serverErrors:

@@ -23,6 +23,9 @@ func (r *Repository) BeginPayment(ctx context.Context, renter, reservationID, re
 		return booking.PaymentOperation{}, false, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockReservationParties(ctx, tx, reservationID); err != nil {
+		return booking.PaymentOperation{}, false, err
+	}
 	reservation, err := scanReservation(tx.QueryRow(ctx, `SELECT `+reservationCols+` FROM public.reserva_ensayo_local WHERE id=$1 AND arrendatario_id=$2 FOR UPDATE`, reservationID, renter))
 	if err != nil {
 		return booking.PaymentOperation{}, false, err
@@ -112,6 +115,13 @@ func (r *Repository) SaveFakePaymentResult(ctx context.Context, event booking.Pa
 		return booking.PaymentEvent{}, false, err
 	}
 	defer tx.Rollback(ctx)
+	var reservationID string
+	if err := tx.QueryRow(ctx, `SELECT reserva_id::text FROM public.reserva_pago_ensayo_operacion WHERE id=$1`, event.OperationID).Scan(&reservationID); err != nil {
+		return booking.PaymentEvent{}, false, mapErr(err)
+	}
+	if err := lockReservationParties(ctx, tx, reservationID); err != nil {
+		return booking.PaymentEvent{}, false, err
+	}
 	var requested string
 	err = tx.QueryRow(ctx, `SELECT resultado_solicitado FROM public.reserva_pago_ensayo_operacion WHERE id=$1 FOR UPDATE`, event.OperationID).Scan(&requested)
 	if err != nil {
@@ -146,6 +156,13 @@ func (r *Repository) RecordFakePaymentTimeout(ctx context.Context, operationID s
 		return err
 	}
 	defer tx.Rollback(ctx)
+	var reservationID string
+	if err := tx.QueryRow(ctx, `SELECT reserva_id::text FROM public.reserva_pago_ensayo_operacion WHERE id=$1`, operationID).Scan(&reservationID); err != nil {
+		return mapErr(err)
+	}
+	if err := lockReservationParties(ctx, tx, reservationID); err != nil {
+		return err
+	}
 	var requested string
 	if err = tx.QueryRow(ctx, `SELECT resultado_solicitado FROM public.reserva_pago_ensayo_operacion WHERE id=$1 FOR UPDATE`, operationID).Scan(&requested); err != nil {
 		return mapErr(err)
@@ -221,6 +238,13 @@ func (r *Repository) RecordPaymentEvent(ctx context.Context, event booking.Payme
 		return false, err
 	}
 	defer tx.Rollback(ctx)
+	var reservationID string
+	if err := tx.QueryRow(ctx, `SELECT reserva_id::text FROM public.reserva_pago_ensayo_operacion WHERE id=$1`, event.OperationID).Scan(&reservationID); err != nil {
+		return false, mapErr(err)
+	}
+	if err := lockReservationParties(ctx, tx, reservationID); err != nil {
+		return false, err
+	}
 	var operationState string
 	err = tx.QueryRow(ctx, `SELECT estado FROM public.reserva_pago_ensayo_operacion WHERE id=$1 FOR UPDATE`, event.OperationID).Scan(&operationState)
 	if err != nil {
@@ -294,6 +318,9 @@ JOIN public.reserva_pago_ensayo_operacion o ON o.id=e.operacion_id WHERE e.id=$1
 		return booking.Reservation{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockReservationParties(ctx, tx, reservationID); err != nil {
+		return booking.Reservation{}, err
+	}
 	value, err := scanReservation(tx.QueryRow(ctx, `SELECT `+reservationCols+` FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservationID))
 	if err != nil {
 		return booking.Reservation{}, err

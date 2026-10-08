@@ -241,16 +241,19 @@ func (r *Repository) Close(ctx context.Context, administratorID, disputeID, reas
 func lockAccounts(ctx context.Context, tx pgx.Tx, accountIDs ...string) error {
 	ids := append([]string(nil), accountIDs...)
 	sort.Strings(ids)
-	rows, err := tx.Query(ctx, `SELECT id::text FROM public.usuario WHERE id::text=ANY($1::text[]) ORDER BY id::text FOR UPDATE`, ids)
+	rows, err := tx.Query(ctx, `SELECT estado FROM public.usuario WHERE id::text=ANY($1::text[]) ORDER BY id::text FOR UPDATE`, ids)
 	if err != nil {
 		return mapError(err)
 	}
 	defer rows.Close()
 	count := 0
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var state string
+		if err := rows.Scan(&state); err != nil {
 			return mapError(err)
+		}
+		if state != "activo" {
+			return domain.ErrConflict
 		}
 		count++
 	}

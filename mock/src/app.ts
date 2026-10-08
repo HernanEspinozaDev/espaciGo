@@ -8,7 +8,7 @@ import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState, type AvailabilityContext, type SelectedAvailability } from "./booking-availability-state.js";
 import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
 import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExportSessionMatches, type PrivacyExportContext } from "./privacy-export-state.js";
-import { clearSuppressionReviewPanelState, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount, type SuppressionReviewPanelState } from "./suppression-review-state.js";
+import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount, type SuppressionReviewPanelState } from "./suppression-review-state.js";
 
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
@@ -155,7 +155,21 @@ async function loadSuppressionQueue():Promise<void> {
       suppressionReviewKeys.delete(item.request_id);
       await loadSuppressionQueue();
     }));
-    row.append(label,review);container.append(row);
+    const execute=document.createElement("button");execute.type="button";execute.textContent="Ejecutar baja local";
+    execute.addEventListener("click",()=>void action(async()=>{
+      if(!confirm("Se volverán a comprobar las obligaciones. Solo aplica a datos sintéticos. El resultado será baja con minimización y retención residual; no anonimización ni supresión integral."))return;
+      const requestToken=sessionToken,requestAccount=sessionAccountID,requestGeneration=sessionGeneration;
+      const storageKey=`espacigo.local-suppression.${requestAccount}.${item.request_id}`;
+      const key=localStorage.getItem(storageKey)??crypto.randomUUID();localStorage.setItem(storageKey,key);
+      const result=await request(`/api/v1/privacy/suppression-requests/${encodeURIComponent(item.request_id)}/execute`,"POST",undefined,true,key);
+      if(requestToken!==sessionToken||requestAccount!==sessionAccountID||requestGeneration!==sessionGeneration)return;
+      suppressionReviewPanelState=withSuppressionEvaluation(suppressionReviewPanelState,result);
+      const details=formatSuppressionExecution(result);
+      document.querySelector<HTMLElement>("#suppression-review-output")!.textContent=details;
+      if(result.status==="completada"||result.status==="bloqueada")localStorage.removeItem(storageKey);
+      await loadSuppressionQueue();
+    }));
+    row.append(label,review,execute);container.append(row);
   }
   suppressionReviewPanelState=withSuppressionQueueCount(suppressionReviewPanelState,items.length);
   document.querySelector<HTMLElement>("#suppression-queue-status")!.textContent=suppressionReviewPanelState.queueStatus;
