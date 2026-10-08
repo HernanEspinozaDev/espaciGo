@@ -62,6 +62,13 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT SELECT, INSERT, UPDATE, DELETE ON public.reserva_mensaje_lectura TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.ejecucion_baja_local TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.baja_archivo_pendiente_local TO espacigo_runtime;
+	GRANT SELECT, INSERT ON public.foto_perfil_sintetica_local TO espacigo_runtime;
+	GRANT UPDATE (estado,retirada_en,limpia_en,intentos_limpieza,proximo_intento_en,ultimo_codigo_error,archivo_id,mime_type,sha256,size_bytes) ON public.foto_perfil_sintetica_local TO espacigo_runtime;
+	GRANT SELECT, INSERT ON public.cuenta_cobro_sintetica_local TO espacigo_runtime;
+	GRANT UPDATE (referencia_ficticia,estado,actualizada_en,revocada_en) ON public.cuenta_cobro_sintetica_local TO espacigo_runtime;
+	GRANT SELECT, INSERT ON public.cuenta_cobro_sintetica_historial_local TO espacigo_runtime;
+	GRANT USAGE, SELECT ON SEQUENCE public.cuenta_cobro_sintetica_historial_local_id_seq TO espacigo_runtime;
+	GRANT SELECT, INSERT, DELETE ON public.m02_operacion_idempotente_local TO espacigo_runtime;
 	GRANT SELECT, INSERT ON public.reserva_vinculo_purgado_local TO espacigo_runtime;
 	GRANT SELECT, INSERT, UPDATE ON public.reaplicacion_baja_local TO espacigo_runtime;
 	`)

@@ -1752,6 +1752,19 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.verificacion_evidencia_sintetica(id,verificacion_id,codigo_fixture,mime_type,tamano_bytes,sha256,creada_en) VALUES($1,$2,'synthetic-png-v1','image/png',1,repeat('c',64),$3)`, evidenceID, caseID, h.now); err != nil {
 		t.Fatal(err)
 	}
+	photoID, payoutID := "82000000-0000-4000-8000-000000000010", "82000000-0000-4000-8000-000000000011"
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.foto_perfil_sintetica_local(id,usuario_id,archivo_id,mime_type,fixture_code,sha256,size_bytes,estado,creada_en,clave_idempotencia) VALUES($1,$2,$1,'image/png','synthetic-png-v1',repeat('d',64),3,'activa',$3,'photo-suppression-key')`, photoID, targetID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.cuenta_cobro_sintetica_local(id,usuario_id,adaptador,referencia_ficticia,estado,creada_en,actualizada_en) VALUES($1,$2,'fake-local-v1','demo_82000000-0000-4000-8000-000000000012','activa',$3,$3)`, payoutID, targetID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.cuenta_cobro_sintetica_historial_local(cuenta_id,usuario_id,accion,ocurrida_en,correlacion_id,clave_idempotencia) VALUES($1,$2,'creada',$3,'payout-suppression','payout-suppression-key')`, payoutID, targetID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.m02_operacion_idempotente_local(usuario_id,recurso,clave_idempotencia,solicitud_sha256,respuesta,creada_en) VALUES($1,'cuenta_cobro','payout-suppression-key',repeat('e',64),'{}'::jsonb,$2)`, targetID, h.now); err != nil {
+		t.Fatal(err)
+	}
 	seedPrivacyReviewReservation(t, h, "83000000-0000-4000-8000-000000000001", "83000000-0000-4000-8000-000000000002", "83000000-0000-4000-8000-000000000003", "83000000-0000-4000-8000-000000000004", targetID, otherID, "cancelada_arrendatario")
 	var messageSequence int64
 	if err := h.pool.QueryRow(h.ctx, `INSERT INTO public.mensaje_reserva_ensayo(id,reserva_id,autor_id,clave_idempotencia,huella_solicitud,cuerpo,creada_en) VALUES('83000000-0000-4000-8000-000000000005','83000000-0000-4000-8000-000000000003',$1,'privacy-terminal-thread',decode(repeat('55',32),'hex'),'synthetic message body',$2) RETURNING secuencia`, otherID, h.now).Scan(&messageSequence); err != nil {
@@ -1769,6 +1782,9 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 		t.Fatal(err)
 	}
 	if err := store.Put(h.ctx, evidenceID, []byte("synthetic png bytes")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(h.ctx, photoID, []byte("synthetic profile png")); err != nil {
 		t.Fatal(err)
 	}
 	runtimeRepo := newRuntimeIdentityRepository(t, h)
@@ -1866,6 +1882,29 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	}
 	if evidenceRows != 0 || jobCompleted != 1 {
 		t.Fatalf("file reference/job state=%d/%d", evidenceRows, jobCompleted)
+	}
+	var photoFile *string
+	var photoCleaned *time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT archivo_id::text,limpia_en FROM public.foto_perfil_sintetica_local WHERE id=$1`, photoID).Scan(&photoFile, &photoCleaned); err != nil {
+		t.Fatal(err)
+	}
+	if photoFile != nil || photoCleaned == nil {
+		t.Fatalf("suppressed photo cleanup state file=%v cleaned=%v", photoFile, photoCleaned)
+	}
+	var payoutState string
+	var payoutReference *string
+	if err := h.pool.QueryRow(h.ctx, `SELECT estado,referencia_ficticia FROM public.cuenta_cobro_sintetica_local WHERE id=$1`, payoutID).Scan(&payoutState, &payoutReference); err != nil {
+		t.Fatal(err)
+	}
+	if payoutState != "retirada_baja" || payoutReference != nil {
+		t.Fatalf("suppressed payout state=%s reference=%v", payoutState, payoutReference)
+	}
+	var payoutHistory, idempotencyRows int
+	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.cuenta_cobro_sintetica_historial_local WHERE cuenta_id=$1),(SELECT count(*) FROM public.m02_operacion_idempotente_local WHERE usuario_id=$2)`, payoutID, targetID).Scan(&payoutHistory, &idempotencyRows); err != nil {
+		t.Fatal(err)
+	}
+	if payoutHistory != 2 || idempotencyRows != 0 {
+		t.Fatalf("payout history/idempotency after suppression=%d/%d", payoutHistory, idempotencyRows)
 	}
 	var messages, cursors, reservations, occupations, convertedQuotes int
 	if err := h.pool.QueryRow(h.ctx, `SELECT

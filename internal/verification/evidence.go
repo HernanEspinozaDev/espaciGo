@@ -171,3 +171,7 @@ func syntheticEvidencePNG() ([]byte, error) {
 	}
 	return out.Bytes(), nil
 }
+
+// SyntheticPNG returns the fixed local fixture used by verification and the
+// M02 profile-photo prototype. Callers never provide image bytes.
+func SyntheticPNG() ([]byte, error) { return syntheticEvidencePNG() }

@@ -160,7 +160,24 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	rows.Close()
-	removed := []string{"sesiones_y_tokens", "hash_vigente_e_historial_claves", "roles_activos", "perfil_y_preferencia", "contenido_de_borradores", "fixtures_del_titular", "cotizaciones_no_convertidas", "mensajes_de_reservas_terminales_sinteticas", "simulaciones_privadas", "avisos_de_credenciales_sin_finalidad"}
+	photoRows, err := tx.Query(ctx, `SELECT id::text FROM public.foto_perfil_sintetica_local WHERE usuario_id=$1 AND archivo_id IS NOT NULL ORDER BY id`, subjectID)
+	if err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	for photoRows.Next() {
+		var id string
+		if err := photoRows.Scan(&id); err != nil {
+			photoRows.Close()
+			return privacy.SuppressionExecution{}, suppressionError(err)
+		}
+		evidenceIDs = append(evidenceIDs, id)
+	}
+	if err := photoRows.Err(); err != nil {
+		photoRows.Close()
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	photoRows.Close()
+	removed := []string{"sesiones_y_tokens", "hash_vigente_e_historial_claves", "roles_activos", "perfil_y_preferencia", "foto_sintetica_con_limpieza_recuperable", "referencias_cuenta_cobro_fake", "contenido_de_borradores", "fixtures_del_titular", "cotizaciones_no_convertidas", "mensajes_de_reservas_terminales_sinteticas", "simulaciones_privadas", "avisos_de_credenciales_sin_finalidad", "claves_idempotentes_m02"}
 	retained := []string{"ancla_tecnica_usuario", "aceptaciones_terminos_5_anios", "solicitud_y_decision_5_anios", "metadata_verificacion_2_anios", "reservas_pagos_devoluciones_y_disputas_24_meses_desde_cierre", "historiales_transaccionales", "auditoria_5_anios", "copias_locales_no_eliminadas"}
 	detail := suppressionDetail{Obligations: []string{}, Removed: removed, Retained: retained, Decision: "baja_elegible_privacidad_local_v1"}
 	encoded, err := json.Marshal(detail)
@@ -174,6 +191,18 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		if _, err = tx.Exec(ctx, `INSERT INTO public.baja_archivo_pendiente_local(ejecucion_id,evidencia_id,disponible_en) VALUES($1,$2,$3)`, executionID, evidenceID, checkedAt); err != nil {
 			return privacy.SuppressionExecution{}, suppressionError(err)
 		}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.foto_perfil_sintetica_local SET estado='retirada_baja',retirada_en=COALESCE(retirada_en,$2),proximo_intento_en=CASE WHEN archivo_id IS NULL THEN NULL ELSE $2 END WHERE usuario_id=$1 AND estado<>'retirada_baja'`, subjectID, checkedAt); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.cuenta_cobro_sintetica_local SET estado='retirada_baja',referencia_ficticia=NULL,revocada_en=COALESCE(revocada_en,$2),actualizada_en=$2 WHERE usuario_id=$1 AND estado IN ('activa','reemplazada','revocada')`, subjectID, checkedAt); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO public.cuenta_cobro_sintetica_historial_local(cuenta_id,usuario_id,accion,ocurrida_en,correlacion_id,clave_idempotencia) SELECT id,usuario_id,'retirada_baja',$2,$3,'privacy-suppression:'||$3 FROM public.cuenta_cobro_sintetica_local WHERE usuario_id=$1 ON CONFLICT DO NOTHING`, subjectID, checkedAt, requestID); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM public.m02_operacion_idempotente_local WHERE usuario_id=$1`, subjectID); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	if err = r.auditSuppression(ctx, tx, actorID, requestID, key, correlationID, checkedAt, "exito", "baja_local_minimizada", map[string]any{"removed": removed, "retained": retained, "file_jobs": len(evidenceIDs)}); err != nil {
 		return privacy.SuppressionExecution{}, err
@@ -344,6 +373,9 @@ func (r *IdentityRepository) CompleteSuppressionFile(ctx context.Context, file p
 	}
 	if done == nil {
 		if _, err = tx.Exec(ctx, `DELETE FROM public.verificacion_evidencia_sintetica WHERE id=$1`, file.EvidenceID); err != nil {
+			return mapError(err)
+		}
+		if _, err = tx.Exec(ctx, `UPDATE public.foto_perfil_sintetica_local SET archivo_id=NULL,mime_type=NULL,sha256=NULL,size_bytes=NULL,limpia_en=$2,proximo_intento_en=NULL,ultimo_codigo_error=NULL WHERE id=$1 AND estado='retirada_baja'`, file.EvidenceID, at.UTC()); err != nil {
 			return mapError(err)
 		}
 		if _, err = tx.Exec(ctx, `UPDATE public.baja_archivo_pendiente_local SET completada_en=$3,ultimo_codigo_error=NULL WHERE ejecucion_id=$1 AND evidencia_id=$2`, file.ExecutionID, file.EvidenceID, at.UTC()); err != nil {

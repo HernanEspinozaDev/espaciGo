@@ -31,6 +31,7 @@ type sectionReader interface {
 }
 
 type Repository struct {
+	pool         *pgxpool.Pool
 	verification *verificationpg.Repository
 	files        verification.EvidenceStorage
 	spaces       sectionReader
@@ -42,6 +43,7 @@ type Repository struct {
 
 func New(pool *pgxpool.Pool, files verification.EvidenceStorage) *Repository {
 	return &Repository{
+		pool:         pool,
 		verification: verificationpg.New(pool), files: files,
 		spaces:  spacespg.New(pool, credentials.Generator{}),
 		pricing: pricingpg.New(pool), bookings: bookingpg.New(pool),
@@ -74,6 +76,90 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 		return nil, nil, nil, privacy.ErrInvalid
 	}
 	sections := map[string]json.RawMessage{}
+	type photoRecord struct {
+		ID      string    `json:"id"`
+		State   string    `json:"state"`
+		Fixture string    `json:"fixture_code"`
+		MIME    string    `json:"mime_type"`
+		SHA     string    `json:"sha256"`
+		Size    int64     `json:"size_bytes"`
+		Created time.Time `json:"created_at"`
+		Archive string    `json:"archive_file,omitempty"`
+	}
+	photoRows, photoErr := r.pool.Query(ctx, `SELECT id::text,estado,fixture_code,mime_type,sha256,size_bytes,creada_en FROM public.foto_perfil_sintetica_local WHERE usuario_id=$1 AND archivo_id IS NOT NULL ORDER BY creada_en,id`, owner)
+	if photoErr != nil {
+		return nil, nil, nil, photoErr
+	}
+	photoFiles := []privacy.ExportFile{}
+	photoExclusions := []string{}
+	photos := []photoRecord{}
+	for photoRows.Next() {
+		var p photoRecord
+		if e := photoRows.Scan(&p.ID, &p.State, &p.Fixture, &p.MIME, &p.SHA, &p.Size, &p.Created); e != nil {
+			photoRows.Close()
+			return nil, nil, nil, e
+		}
+		if r.files != nil {
+			if content, e := r.files.Get(ctx, p.ID); e == nil {
+				p.Archive = "files/profile/photo-" + p.ID + ".png"
+				photoFiles = append(photoFiles, privacy.ExportFile{Name: p.Archive, MediaType: "image/png", Description: "Foto sintética propia", Content: content})
+			} else {
+				photoExclusions = append(photoExclusions, "foto sintética "+p.ID+" sin archivo disponible; omitida del ZIP")
+			}
+		} else {
+			photoExclusions = append(photoExclusions, "storage privado no disponible; foto sintética omitida del ZIP")
+		}
+		photos = append(photos, p)
+	}
+	if photoErr = photoRows.Err(); photoErr != nil {
+		photoRows.Close()
+		return nil, nil, nil, photoErr
+	}
+	photoRows.Close()
+	photoJSON, _ := json.Marshal(map[string]any{"photos": photos})
+	sections["synthetic_profile_photo"] = photoJSON
+	rows, e := r.pool.Query(ctx, `SELECT id::text,adaptador,referencia_ficticia,estado,creada_en,actualizada_en,revocada_en FROM public.cuenta_cobro_sintetica_local WHERE usuario_id=$1 ORDER BY creada_en,id`, owner)
+	if e != nil {
+		return nil, nil, nil, e
+	}
+	payouts := []map[string]any{}
+	for rows.Next() {
+		var id, adapter, state string
+		var ref *string
+		var created, updated time.Time
+		var revoked *time.Time
+		if e = rows.Scan(&id, &adapter, &ref, &state, &created, &updated, &revoked); e != nil {
+			rows.Close()
+			return nil, nil, nil, e
+		}
+		payouts = append(payouts, map[string]any{"id": id, "adapter": adapter, "reference": ref, "state": state, "created_at": created, "updated_at": updated, "revoked_at": revoked})
+	}
+	if e = rows.Err(); e != nil {
+		rows.Close()
+		return nil, nil, nil, e
+	}
+	rows.Close()
+	historyRows, e := r.pool.Query(ctx, `SELECT h.cuenta_id::text,h.accion,h.ocurrida_en,h.correlacion_id FROM public.cuenta_cobro_sintetica_historial_local h WHERE h.usuario_id=$1 ORDER BY h.ocurrida_en,h.id`, owner)
+	if e != nil {
+		return nil, nil, nil, e
+	}
+	hist := []map[string]any{}
+	for historyRows.Next() {
+		var id, action, corr string
+		var at time.Time
+		if e = historyRows.Scan(&id, &action, &at, &corr); e != nil {
+			historyRows.Close()
+			return nil, nil, nil, e
+		}
+		hist = append(hist, map[string]any{"account_id": id, "action": action, "occurred_at": at, "correlation_id": corr})
+	}
+	if e = historyRows.Err(); e != nil {
+		historyRows.Close()
+		return nil, nil, nil, e
+	}
+	historyRows.Close()
+	payoutJSON, _ := json.Marshal(map[string]any{"accounts": payouts, "history": hist})
+	sections["synthetic_payout_accounts"] = payoutJSON
 	for _, reader := range []sectionReader{r.spaces, r.pricing, r.bookings, r.conversation, r.disputes} {
 		part, err := reader.ExportOwnArchiveSections(ctx, owner)
 		if err != nil {
@@ -121,7 +207,7 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 		return nil, nil, nil, err
 	}
 	sections["verification_history"] = historyJSON
-	files := []privacy.ExportFile{}
+	files := append([]privacy.ExportFile{}, photoFiles...)
 	exclusionCounts := 0
 	evidenceItems := []evidenceRecord{}
 	for _, item := range cases {
@@ -152,7 +238,7 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 		return nil, nil, nil, err
 	}
 	sections["synthetic_evidence"] = evidenceJSON
-	exclusions := []string{}
+	exclusions := append([]string{}, photoExclusions...)
 	if exclusionCounts > 0 {
 		exclusions = append(exclusions, fmt.Sprintf("%d evidencia(s) propia(s) referenciada(s) sin archivo disponible; omitidas del ZIP", exclusionCounts))
 	}
