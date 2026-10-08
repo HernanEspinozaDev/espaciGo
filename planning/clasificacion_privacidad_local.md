@@ -1,6 +1,6 @@
 # Clasificación de referencias, archivos y derivados para supresión local
 
-Actualizado: 2026-10-08. Alcance: tablas y archivos presentes en `main` tras PR #187; cuentas y archivos sintéticos locales. Este inventario prepara LOCAL-PRIV-01A (#185); no es una política productiva ni una afirmación de anonimización.
+Actualizado: 2026-10-08. Alcance: tablas y archivos presentes en `main` tras PR #188, más la subentrega local #189 en revisión; cuentas y reservas sintéticas locales. Este inventario prepara LOCAL-PRIV-01A (#185); no es una política productiva ni una afirmación de anonimización.
 
 ## Reglas vigentes
 
@@ -8,6 +8,7 @@ Actualizado: 2026-10-08. Alcance: tablas y archivos presentes en `main` tras PR 
 - Si procede, hay que revocar sesiones/tokens, retirar publicaciones y tratar cada dato según una matriz con fundamento y plazo. No se borran hechos históricos con `ON DELETE CASCADE`.
 - Un UUID, una relación o un derivado que permita volver a una persona mantiene el dato como identificable. Cambiar correo/nombre por sí solo no equivale a anonimizar.
 - Auditoría: conservar cinco años desde el evento por RNF-043. Ese plazo no se extiende a otras tablas. Outbox, mensajes e historial de claves tienen políticas independientes.
+- #189 agrega `disputa_ensayo_local` y su historial solo para fixtures sintéticos. Únicamente el anfitrión de esa reserva la abre por un motivo codificado; ambas partes consultan y solo un administrador la cierra por motivo codificado. Una disputa abierta bloquea a ambos participantes; cerrarla elimina solo ese bloqueador. El cierre no resuelve dinero, no altera la reserva y no habilita la baja.
 - Este inventario usa categorías de tratamiento (`retirar`, `minimizar`, `conservar con fundamento`, `sin decisión`). Solo las dos primeras describen una acción futura; no autorizan a aplicarla a datos persistentes existentes en esta entrega.
 
 ## Inventario de referencias y datos derivados
@@ -33,6 +34,14 @@ Actualizado: 2026-10-08. Alcance: tablas y archivos presentes en `main` tras PR 
 
 Una revisión de supresión debe evaluar bajo bloqueo de la cuenta y volver a leer el reloj después del bloqueo. Se consideran obligaciones activas únicamente los estados de reserva/pago vigentes y las disputas abiertas; los registros históricos terminales por sí solos no bloquean. Se guarda solicitud y códigos de motivo estructurados. La revisión no puede impedir tramitar exportación/acceso.
 
-El esquema local actual no contiene entidad/estado de disputa (M10 sigue pendiente). Por eso una revisión local puede identificar reservas y pagos pendientes, pero no certificar que no existan disputas: resultado `revision_incompleta`, con el código estructurado `fuente_disputas_no_modelada`, hasta integrar ese módulo. La matriz también deja expresamente pendientes los plazos/fundamentos de tablas históricas y mensajes fuera de la auditoría; no se ejecutará borrado o desidentificación global hasta resolverlos.
+La subentrega #189 implementa únicamente el dato mínimo de disputa abierta para detectar el bloqueador `disputa_abierta`. La operación comercial CU-39, evidencia/descargos, resolución, garantías y fondos continúan pendientes. La matriz aún carece de fundamento/plazo ratificado para históricos fuera de auditoría; por eso, incluso sin obligaciones activas, la revisión permanece `revision_incompleta` por `matriz_retencion_historicos_incompleta`. No se ejecuta borrado ni desidentificación.
+
+## Decisión local ratificada para #189
+
+- Solo anfitrión de la reserva puede abrir una incidencia de cualquier estado, incluida terminal; no se aplica la ventana comercial de 24 horas. La excepción existe solo para verificar el bloqueador de privacidad y no modifica CU-39.
+- Apertura con motivo estructurado `ensayo_privacidad`, sin archivos ni texto personal libre. Una incidencia abierta por reserva; reintentar con la misma clave devuelve el registro persistido. Una incidencia cerrada no se reabre.
+- Estados `abierta` y `cerrada`. Ambos participantes consultan; terceros reciben 404. Solo administradores cierran con `ensayo_finalizado`, `registro_erroneo` o `duplicada`; son motivos de cierre administrativo, no resultados económicos.
+- Apertura, cierre y evaluación serializan mediante bloqueos de cuenta en orden estable; la revisión lee después de adquirir el bloqueo. Cierre elimina únicamente `disputa_abierta`. No se actualizan reservas, ocupaciones, pagos, garantías ni fondos.
+- Esta regla de ensayo no ratifica retención productiva ni habilita supresión; #185/#40 y los criterios generales M10 continúan abiertos.
 
 La automatización de una próxima entrega debe comprobar: dos cuentas aisladas; reserva activa; pago/resultado en conciliación pendiente; caso terminal histórico sin bloqueo; reintento idempotente de revisión; solicitudes de acceso aún disponibles; actor sin rol denegado; y límites de que una revisión no ejecuta la baja ni declara anonimización.

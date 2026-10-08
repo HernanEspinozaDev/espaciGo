@@ -239,7 +239,7 @@ func (r *IdentityRepository) ReviewSuppression(ctx context.Context, reviewerID, 
 	}
 	checkedAt := now().UTC().Truncate(time.Microsecond) // Sample post-lock and match PostgreSQL timestamp precision.
 	obligations := make([]string, 0, 3)
-	pendingChecks := []string{"fuente_disputas_no_modelada", "matriz_retencion_historicos_incompleta"}
+	pendingChecks := []string{"matriz_retencion_historicos_incompleta"}
 	var found bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (
 		SELECT 1 FROM public.reserva_ensayo_local
@@ -270,6 +270,15 @@ func (r *IdentityRepository) ReviewSuppression(ctx context.Context, reviewerID, 
 	}
 	if found {
 		obligations = append(obligations, "pago_o_devolucion_pendiente")
+	}
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM public.disputa_ensayo_local
+		WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado='abierta'
+	)`, subjectID).Scan(&found); err != nil {
+		return privacy.SuppressionReview{}, mapError(err)
+	}
+	if found {
+		obligations = append(obligations, "disputa_abierta")
 	}
 	outcome := "revision_incompleta"
 	if len(obligations) > 0 {

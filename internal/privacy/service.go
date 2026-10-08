@@ -29,8 +29,7 @@ type RightsRequest struct {
 }
 
 // SuppressionReview reports only structured obligation codes. It never executes
-// suppression; unresolved retention rules and the missing M10 dispute model
-// keep an otherwise clear request in review.
+// suppression; unresolved retention rules keep an otherwise clear request in review.
 type SuppressionReview struct {
 	RequestID     string    `json:"request_id"`
 	Outcome       string    `json:"outcome"`

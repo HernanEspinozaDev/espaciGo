@@ -20,6 +20,7 @@ import (
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
+	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
 	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
@@ -28,6 +29,8 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
+	"github.com/HernanEspinozaDev/espaciGo/internal/dispute"
+	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
@@ -121,6 +124,12 @@ func run() error {
 			return errors.New("local privacy initialization failed")
 		}
 		mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins, privacyService))
+		disputeService, err := dispute.NewService(disputepg.New(pool), time.Now)
+		if err != nil {
+			return errors.New("local dispute initialization failed")
+		}
+		disputeHandler := disputehttp.NewHandler(service, disputeService, cfg.allowedOrigins)
+		registerDisputeRoutes(mux, disputeHandler)
 		verificationRepository := verificationpg.New(pool)
 		verificationService, err := verification.NewService(verificationRepository, credentials.Generator{}, verification.LocalFixtureProvider{}, time.Now)
 		if err != nil {
@@ -234,6 +243,16 @@ func run() error {
 		}
 		return nil
 	}
+}
+
+// registerDisputeRoutes uses method-aware exact patterns so the dispute handler
+// cannot shadow the existing booking endpoints under the reservations prefix.
+func registerDisputeRoutes(mux *http.ServeMux, handler http.Handler) {
+	mux.Handle("GET /api/v1/local/booking-trial/reservations/{reservation_id}/disputes", handler)
+	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservation_id}/disputes", handler)
+	mux.Handle("GET /api/v1/local/booking-trial/disputes/{dispute_id}/history", handler)
+	mux.Handle("GET /api/v1/admin/disputes", handler)
+	mux.Handle("POST /api/v1/admin/disputes/{dispute_id}/close", handler)
 }
 
 func checkEndpoint(target string) error {

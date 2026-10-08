@@ -14,8 +14,11 @@ import (
 	"testing"
 	"time"
 
+	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
+	disputedomain "github.com/HernanEspinozaDev/espaciGo/internal/dispute"
+	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
@@ -167,6 +170,10 @@ func newAuthHarnessWithAtomicClock(t *testing.T) (*authHarness, *atomic.Int64) {
 }
 
 func newRuntimeIdentityRepository(t *testing.T, h *authHarness) *identitypg.IdentityRepository {
+	return identitypg.NewIdentityRepository(newRuntimePool(t, h))
+}
+
+func newRuntimePool(t *testing.T, h *authHarness) *pgxpool.Pool {
 	t.Helper()
 	if _, err := h.pool.Exec(h.ctx, `DO $$ BEGIN
 IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='espacigo_runtime') THEN
@@ -194,7 +201,7 @@ END $$`); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(runtimePool.Close)
-	return identitypg.NewIdentityRepository(runtimePool)
+	return runtimePool
 }
 
 func holdAccountRowLock(t *testing.T, h *authHarness, accountID string) func() {
@@ -218,8 +225,8 @@ func holdAccountRowLock(t *testing.T, h *authHarness, accountID string) func() {
 func waitForAccountLockWait(t *testing.T, h *authHarness) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
+	var waiting int
 	for time.Now().Before(deadline) {
-		var waiting int
 		err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query ILIKE '%FOR UPDATE%'`).Scan(&waiting)
 		if err != nil {
 			t.Fatal(err)
@@ -230,6 +237,23 @@ func waitForAccountLockWait(t *testing.T, h *authHarness) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("operation did not wait for the held account row lock")
+}
+
+func waitForAccountLockWaitCount(t *testing.T, h *authHarness, want int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var waiting int
+	for time.Now().Before(deadline) {
+		err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query ILIKE '%FOR UPDATE%'`).Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waiting >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("only %d operations waited on the account lock, want %d", waiting, want)
 }
 func (h *authHarness) register(t *testing.T, email string) string {
 	t.Helper()
@@ -659,7 +683,7 @@ func TestM02SuppressionReviewRequiresAdminAndReusesPersistedIncompleteAssessment
 	if err := json.Unmarshal(first.Body.Bytes(), &firstResult); err != nil {
 		t.Fatal(err)
 	}
-	if firstResult.Outcome != "revision_incompleta" || len(firstResult.Obligations) != 0 || len(firstResult.PendingChecks) != 2 || firstResult.Reused {
+	if firstResult.Outcome != "revision_incompleta" || len(firstResult.Obligations) != 0 || !reflect.DeepEqual(firstResult.PendingChecks, []string{"matriz_retencion_historicos_incompleta"}) || firstResult.Reused {
 		t.Fatalf("unexpected first assessment: %+v", firstResult)
 	}
 	second := call(admin.Token, "assessment-1")
@@ -696,6 +720,294 @@ func TestM02SuppressionReviewRequiresAdminAndReusesPersistedIncompleteAssessment
 	export, err := privacyService.ExportOwnData(h.ctx, requesterID)
 	if err != nil || export.Account.Email != "suppression-requester@ejemplo.invalid" {
 		t.Fatalf("suppression review blocked another data right: export=%+v err=%v", export.Account, err)
+	}
+}
+
+func TestLocalDisputeBlocksBothParticipantsUntilAdministratorCloses(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "dispute-host@ejemplo.invalid")
+	h.verify(t)
+	host := h.login(t, "dispute-host@ejemplo.invalid")
+	renterID := h.register(t, "dispute-renter@ejemplo.invalid")
+	h.verify(t)
+	renter := h.login(t, "dispute-renter@ejemplo.invalid")
+	otherHostID := h.register(t, "dispute-outsider@ejemplo.invalid")
+	h.verify(t)
+	outsider := h.login(t, "dispute-outsider@ejemplo.invalid")
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.espacio (
+		id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,
+		reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria
+	) VALUES ('72000000-0000-4000-0000-000000000009',$1,'oficina','Other host space',repeat('Synthetic description ',6),20,2,'Synthetic rules','hora',12000,'Synthetic address','borrador','UTC')`, otherHostID); err != nil {
+		t.Fatal(err)
+	}
+	adminID := h.register(t, "dispute-admin@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES ($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	admin := h.login(t, "dispute-admin@ejemplo.invalid")
+	const reservationID = "72000000-0000-4000-8000-000000000003"
+	const occupancyID = "72000000-0000-4000-8000-000000000004"
+	seedPrivacyReviewReservation(t, h, "72000000-0000-4000-8000-000000000001", "72000000-0000-4000-8000-000000000002", reservationID, occupancyID, hostID, renterID, "cancelada_arrendatario")
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE id=$1`, occupancyID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	runtimePool := newRuntimePool(t, h)
+	disputeService, err := disputedomain.NewService(disputepg.New(runtimePool), func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	privacyService, err := privacy.NewService(identitypg.NewIdentityRepository(runtimePool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := disputehttp.NewHandler(h.service, disputeService, nil)
+	call := func(method, path string, token identity.Secret, key, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.RemoteAddr = "192.0.2.10:8080"
+		req.Header.Set("Authorization", "Bearer "+string(token))
+		if key != "" {
+			req.Header.Set("Idempotency-Key", key)
+		}
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, req)
+		return response
+	}
+	openPath := "/api/v1/local/booking-trial/reservations/" + reservationID + "/disputes"
+	first := call(http.MethodPost, openPath, host.Token, "dispute-open-1", `{"reason_code":"ensayo_privacidad"}`)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("open status=%d body=%s", first.Code, first.Body.String())
+	}
+	var opened disputedomain.Dispute
+	if err := json.Unmarshal(first.Body.Bytes(), &opened); err != nil {
+		t.Fatal(err)
+	}
+	replay := call(http.MethodPost, openPath, host.Token, "dispute-open-1", `{"reason_code":"ensayo_privacidad"}`)
+	var replayed disputedomain.Dispute
+	if err := json.Unmarshal(replay.Body.Bytes(), &replayed); err != nil {
+		t.Fatal(err)
+	}
+	if replay.Code != http.StatusOK || !replayed.Reused || replayed.ID != opened.ID {
+		t.Fatalf("idempotent replay status=%d result=%+v initial=%+v", replay.Code, replayed, opened)
+	}
+	if _, err := runtimePool.Exec(h.ctx, `UPDATE public.disputa_ensayo_historial SET motivo_codigo='duplicada' WHERE disputa_id=$1`, opened.ID); err == nil {
+		t.Fatal("runtime role unexpectedly modified dispute history")
+	}
+	if _, err := runtimePool.Exec(h.ctx, `DELETE FROM public.disputa_ensayo_historial WHERE disputa_id=$1`, opened.ID); err == nil {
+		t.Fatal("runtime role unexpectedly deleted dispute history")
+	}
+	if _, err := runtimePool.Exec(h.ctx, `UPDATE public.disputa_ensayo_local SET abierta_por=$2 WHERE id=$1`, opened.ID, renterID); err == nil {
+		t.Fatal("runtime role unexpectedly modified dispute opening actor")
+	}
+	if duplicate := call(http.MethodPost, openPath, host.Token, "dispute-open-2", `{"reason_code":"ensayo_privacidad"}`); duplicate.Code != http.StatusConflict {
+		t.Fatalf("second open dispute status=%d body=%s", duplicate.Code, duplicate.Body.String())
+	}
+	if wrongReason := call(http.MethodPost, openPath, host.Token, "dispute-open-bad", `{"reason_code":"arriendo_en_curso"}`); wrongReason.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unsupported opening reason status=%d body=%s", wrongReason.Code, wrongReason.Body.String())
+	} else {
+		assertCommonHTTPError(t, wrongReason, "invalid_request")
+	}
+	if renterOpen := call(http.MethodPost, openPath, renter.Token, "renter-open", `{"reason_code":"ensayo_privacidad"}`); renterOpen.Code != http.StatusNotFound {
+		t.Fatalf("non-host open status=%d body=%s", renterOpen.Code, renterOpen.Body.String())
+	}
+	if otherHostOpen := call(http.MethodPost, openPath, outsider.Token, "other-host-open", `{"reason_code":"ensayo_privacidad"}`); otherHostOpen.Code != http.StatusNotFound {
+		t.Fatalf("host of another space open status=%d body=%s", otherHostOpen.Code, otherHostOpen.Body.String())
+	}
+	if participantView := call(http.MethodGet, openPath, renter.Token, "", ""); participantView.Code != http.StatusOK || !strings.Contains(participantView.Body.String(), opened.ID) {
+		t.Fatalf("renter view status=%d body=%s", participantView.Code, participantView.Body.String())
+	}
+	if outsiderView := call(http.MethodGet, openPath, outsider.Token, "", ""); outsiderView.Code != http.StatusNotFound {
+		t.Fatalf("outsider view status=%d body=%s", outsiderView.Code, outsiderView.Body.String())
+	} else {
+		assertCommonHTTPError(t, outsiderView, "not_found")
+	}
+	adminQueue := call(http.MethodGet, "/api/v1/admin/disputes", admin.Token, "", "")
+	if adminQueue.Code != http.StatusOK || !strings.Contains(adminQueue.Body.String(), opened.ID) {
+		t.Fatalf("admin dispute queue status=%d body=%s", adminQueue.Code, adminQueue.Body.String())
+	}
+	if renterQueue := call(http.MethodGet, "/api/v1/admin/disputes", renter.Token, "", ""); renterQueue.Code != http.StatusForbidden {
+		t.Fatalf("participant read admin queue status=%d body=%s", renterQueue.Code, renterQueue.Body.String())
+	}
+	closePath := "/api/v1/admin/disputes/" + opened.ID + "/close"
+	if renterClose := call(http.MethodPost, closePath, renter.Token, "", `{"reason_code":"ensayo_finalizado"}`); renterClose.Code != http.StatusForbidden {
+		t.Fatalf("participant close status=%d body=%s", renterClose.Code, renterClose.Body.String())
+	} else {
+		assertCommonHTTPError(t, renterClose, "forbidden")
+	}
+	if badClose := call(http.MethodPost, closePath, admin.Token, "", `{"reason_code":"resuelta_a_favor_del_host"}`); badClose.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid close reason status=%d body=%s", badClose.Code, badClose.Body.String())
+	}
+
+	hostRequest, err := privacyService.RequestRight(h.ctx, hostID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	renterRequest, err := privacyService.RequestRight(h.ctx, renterID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range []privacy.RightsRequest{hostRequest, renterRequest} {
+		review, err := privacyService.ReviewSuppression(h.ctx, adminID, request.ID, "dispute-open-"+request.ID, "dispute-test", func() time.Time { return h.now })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if review.Outcome != "bloqueada" || !reflect.DeepEqual(review.Obligations, []string{"disputa_abierta"}) || !reflect.DeepEqual(review.PendingChecks, []string{"matriz_retencion_historicos_incompleta"}) {
+			t.Fatalf("open dispute did not block participant=%s: %+v", request.ID, review)
+		}
+	}
+
+	closedResponse := call(http.MethodPost, closePath, admin.Token, "", `{"reason_code":"ensayo_finalizado"}`)
+	var closed disputedomain.Dispute
+	if closedResponse.Code != http.StatusOK || json.Unmarshal(closedResponse.Body.Bytes(), &closed) != nil || closed.State != "cerrada" || closed.CloseReason == nil || *closed.CloseReason != "ensayo_finalizado" {
+		t.Fatalf("close status=%d body=%s result=%+v", closedResponse.Code, closedResponse.Body.String(), closed)
+	}
+	if repeatedClose := call(http.MethodPost, closePath, admin.Token, "", `{"reason_code":"duplicada"}`); repeatedClose.Code != http.StatusConflict {
+		t.Fatalf("closed dispute was reopened status=%d body=%s", repeatedClose.Code, repeatedClose.Body.String())
+	} else {
+		assertCommonHTTPError(t, repeatedClose, "conflict")
+	}
+	closedReplay := call(http.MethodPost, openPath, host.Token, "dispute-open-1", `{"reason_code":"ensayo_privacidad"}`)
+	var replayedClosed disputedomain.Dispute
+	if closedReplay.Code != http.StatusOK || json.Unmarshal(closedReplay.Body.Bytes(), &replayedClosed) != nil || !replayedClosed.Reused || replayedClosed.State != "cerrada" {
+		t.Fatalf("closed opening replay changed state status=%d body=%s result=%+v", closedReplay.Code, closedReplay.Body.String(), replayedClosed)
+	}
+	historyPath := "/api/v1/local/booking-trial/disputes/" + opened.ID + "/history"
+	historyResponse := call(http.MethodGet, historyPath, host.Token, "", "")
+	var history struct {
+		Items []disputedomain.Transition `json:"items"`
+	}
+	if historyResponse.Code != http.StatusOK || json.Unmarshal(historyResponse.Body.Bytes(), &history) != nil || len(history.Items) != 2 || history.Items[0].NewState != "abierta" || history.Items[1].NewState != "cerrada" || history.Items[0].Sequence >= history.Items[1].Sequence {
+		t.Fatalf("history status=%d body=%s parsed=%+v", historyResponse.Code, historyResponse.Body.String(), history)
+	}
+	for _, request := range []privacy.RightsRequest{hostRequest, renterRequest} {
+		review, err := privacyService.ReviewSuppression(h.ctx, adminID, request.ID, "dispute-closed-"+request.ID, "dispute-test", func() time.Time { return h.now })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if review.Outcome != "revision_incompleta" || len(review.Obligations) != 0 || !reflect.DeepEqual(review.PendingChecks, []string{"matriz_retencion_historicos_incompleta"}) {
+			t.Fatalf("closed dispute remained a blocker participant=%s: %+v", request.ID, review)
+		}
+	}
+	var bookingState string
+	var activeOccupancy bool
+	if err := h.pool.QueryRow(h.ctx, `SELECT r.estado,o.activo FROM public.reserva_ensayo_local r JOIN public.ocupacion o ON o.id=r.ocupacion_id WHERE r.id=$1`, reservationID).Scan(&bookingState, &activeOccupancy); err != nil {
+		t.Fatal(err)
+	}
+	if bookingState != "cancelada_arrendatario" || activeOccupancy {
+		t.Fatalf("local dispute mutated booking/occupancy: state=%s active=%v", bookingState, activeOccupancy)
+	}
+}
+
+func assertCommonHTTPError(t *testing.T, response *httptest.ResponseRecorder, expectedCode string) {
+	t.Helper()
+	var payload struct {
+		Error struct {
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			RequestID string `json:"request_id"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("error response is not JSON: %v; body=%s", err, response.Body.String())
+	}
+	id := payload.Error.RequestID
+	if payload.Error.Code != expectedCode || strings.TrimSpace(payload.Error.Message) == "" || len(id) != 36 || id[8] != '-' || id[13] != '-' || id[18] != '-' || id[23] != '-' || response.Header().Get("X-Request-ID") != id {
+		t.Fatalf("error response does not satisfy common OpenAPI fields: status=%d payload=%+v header request id=%q", response.Code, payload.Error, response.Header().Get("X-Request-ID"))
+	}
+}
+
+func TestLocalDisputeOpenAndCloseSerializeWithSuppressionReview(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "dispute-race-host@ejemplo.invalid")
+	h.verify(t)
+	renterID := h.register(t, "dispute-race-renter@ejemplo.invalid")
+	h.verify(t)
+	adminID := h.register(t, "dispute-race-admin@ejemplo.invalid")
+	h.verify(t)
+	const reservationID = "73000000-0000-4000-8000-000000000003"
+	const occupancyID = "73000000-0000-4000-8000-000000000004"
+	seedPrivacyReviewReservation(t, h, "73000000-0000-4000-8000-000000000001", "73000000-0000-4000-8000-000000000002", reservationID, occupancyID, hostID, renterID, "cancelada_arrendatario")
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE id=$1`, occupancyID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	runtimePool := newRuntimePool(t, h)
+	disputes, err := disputedomain.NewService(disputepg.New(runtimePool), func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	privacyService, err := privacy.NewService(identitypg.NewIdentityRepository(runtimePool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := privacyService.RequestRight(h.ctx, hostID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockedAccount := hostID
+	if renterID < hostID {
+		lockedAccount = renterID
+	}
+	release := holdAccountRowLock(t, h, lockedAccount)
+	type openResult struct {
+		item disputedomain.Dispute
+		err  error
+	}
+	opened := make(chan openResult, 1)
+	go func() {
+		item, err := disputes.Open(h.ctx, hostID, reservationID, disputedomain.OpeningReason, "race-open")
+		opened <- openResult{item: item, err: err}
+	}()
+	waitForAccountLockWait(t, h)
+	type reviewResult struct {
+		item privacy.SuppressionReview
+		err  error
+	}
+	firstReview := make(chan reviewResult, 1)
+	go func() {
+		item, err := privacyService.ReviewSuppression(h.ctx, adminID, request.ID, "race-open-review", "race", func() time.Time { return h.now })
+		firstReview <- reviewResult{item: item, err: err}
+	}()
+	waitForAccountLockWaitCount(t, h, 2)
+	release()
+	openOutcome, reviewOutcome := <-opened, <-firstReview
+	if openOutcome.err != nil || reviewOutcome.err != nil || reviewOutcome.item.Outcome != "bloqueada" || !reflect.DeepEqual(reviewOutcome.item.Obligations, []string{"disputa_abierta"}) {
+		t.Fatalf("open/review lock ordering lost blocker: open=%+v review=%+v", openOutcome, reviewOutcome)
+	}
+	var records, histories int
+	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.disputa_ensayo_local WHERE reserva_id=$1),(SELECT count(*) FROM public.disputa_ensayo_historial WHERE disputa_id=$2)`, reservationID, openOutcome.item.ID).Scan(&records, &histories); err != nil {
+		t.Fatal(err)
+	}
+	if records != 1 || histories != 1 {
+		t.Fatalf("opening race left partial/duplicate state: disputes=%d history=%d", records, histories)
+	}
+
+	closeRequest := make(chan error, 1)
+	release = holdAccountRowLock(t, h, lockedAccount)
+	go func() {
+		_, err := disputes.Close(h.ctx, adminID, openOutcome.item.ID, "ensayo_finalizado")
+		closeRequest <- err
+	}()
+	waitForAccountLockWait(t, h)
+	secondReview := make(chan reviewResult, 1)
+	go func() {
+		item, err := privacyService.ReviewSuppression(h.ctx, adminID, request.ID, "race-close-review", "race", func() time.Time { return h.now })
+		secondReview <- reviewResult{item: item, err: err}
+	}()
+	waitForAccountLockWaitCount(t, h, 2)
+	release()
+	closeErr, reviewedAfterClose := <-closeRequest, <-secondReview
+	if closeErr != nil || reviewedAfterClose.err != nil || reviewedAfterClose.item.Outcome != "revision_incompleta" || len(reviewedAfterClose.item.Obligations) != 0 {
+		t.Fatalf("close/review lock ordering left stale blocker: close=%v review=%+v", closeErr, reviewedAfterClose)
+	}
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.disputa_ensayo_historial WHERE disputa_id=$1`, openOutcome.item.ID).Scan(&histories); err != nil {
+		t.Fatal(err)
+	}
+	if histories != 2 {
+		t.Fatalf("close/review race produced wrong history count: %d", histories)
 	}
 }
 
