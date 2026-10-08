@@ -6,6 +6,7 @@ The script uses only the loopback API/Mailpit and the local database container.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import pathlib
@@ -72,29 +73,46 @@ def api(method: str, path: str, expected: int, data=None, token=None, headers=No
     return body
 
 
-def wait_mail(email: str) -> dict:
-    deadline = time.monotonic() + 15
+def mail_ids() -> set[str]:
+    status, listing = request("GET", MAILPIT + "/api/v1/messages")
+    if status != 200:
+        raise RuntimeError("Local Mailpit is not available")
+    return {item.get("ID", "") for item in listing.get("messages", [])}
+
+
+def find_mail(email: str, excluded_ids: set[str], purpose: str, timeout: float) -> dict | None:
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         status, listing = request("GET", MAILPIT + "/api/v1/messages")
         if status == 200:
             for item in listing.get("messages", []):
+                if item.get("ID") in excluded_ids:
+                    continue
                 recipients = item.get("To") or []
                 if any((recipient.get("Address") or "").lower() == email.lower() for recipient in recipients):
                     status, message = request("GET", MAILPIT + "/api/v1/message/" + item["ID"])
-                    if status == 200:
+                    subject = (message.get("Subject") or "").lower() if status == 200 else ""
+                    if status == 200 and purpose in subject:
                         return message
         time.sleep(0.2)
+    return None
+
+
+def wait_mail(email: str, excluded_ids: set[str], purpose: str) -> dict:
+    message = find_mail(email, excluded_ids, purpose, 15)
+    if message:
+        return message
     raise RuntimeError("Timed out waiting for the local verification message")
 
 
-def verify_email(email: str) -> None:
-    message = wait_mail(email)
+def consume_mail_token(email: str, excluded_ids: set[str], purpose: str, endpoint: str, payload_builder) -> None:
+    message = wait_mail(email, excluded_ids, purpose)
     text = message.get("Text", "")
     token_id = re.search(r"^Token ID: ([0-9a-f-]+)", text, re.M)
     token = re.search(r"^Token: ([A-Za-z0-9_-]+)", text, re.M)
     if not token_id or not token:
         raise RuntimeError("Local verification email did not contain the expected activation fields")
-    api("POST", "/api/v1/auth/verification", 204, {"token_id": token_id[1], "token": token[1]})
+    api("POST", endpoint, 204, payload_builder(token_id[1], token[1]))
 
 
 def password_for_test() -> str:
@@ -121,26 +139,85 @@ def login(email: str, password: str):
     return None
 
 
-def prepare_account(state: dict, kind: str, terms_ids: list[str]) -> dict:
+def account_status(email: str):
+    if not re.fullmatch(r"[a-z0-9-]+@example\.test", email):
+        raise RuntimeError("Synthetic account email is invalid")
+    row = psql("SELECT id::text || '|' || estado FROM public.usuario WHERE correo_normalizado='" + email + "';")
+    if not row:
+        return None
+    pieces = row.split("|", 1)
+    if len(pieces) != 2:
+        raise RuntimeError("Could not inspect synthetic account state")
+    return pieces[0], pieces[1]
+
+
+def ensure_account(state: dict, kind: str, terms_ids: list[str]) -> dict:
     actor = state["actors"][kind]
     existing = login(actor["email"], actor["password"])
     if existing:
         actor["id"] = existing["account_id"]
         save_state(state)
         return existing
-    registered = api("POST", "/api/v1/auth/register", 201, {
-        "email": actor["email"],
-        "password": actor["password"],
-        "use_preference": actor["preference"],
-        "terms_version_ids": terms_ids,
-    })
-    actor["id"] = registered["account_id"]
+    current = account_status(actor["email"])
+    newly_registered = False
+    if current is None:
+        before = mail_ids()
+        status, registered = request("POST", API + "/api/v1/auth/register", {
+            "email": actor["email"], "password": actor["password"],
+            "use_preference": actor["preference"], "terms_version_ids": terms_ids,
+        })
+        if status == 201:
+            actor["id"] = registered["account_id"]
+            save_state(state)
+            current = (actor["id"], "correo_pendiente")
+            newly_registered = True
+        elif status == 409:
+            current = account_status(actor["email"])
+        else:
+            raise RuntimeError(f"Could not register the {kind} synthetic account (HTTP {status})")
+    if current is None:
+        raise RuntimeError("Synthetic account could not be recovered after registration")
+    actor["id"] = current[0]
     save_state(state)
-    verify_email(actor["email"])
+
+    if current[1] == "correo_pendiente":
+        before = set() if newly_registered else mail_ids()
+        if not newly_registered:
+            status, _ = request("POST", API + "/api/v1/auth/verification/reissue", {"email": actor["email"]})
+            if status != 204:
+                raise RuntimeError(f"Could not reissue local verification for {kind} (HTTP {status})")
+        consume_mail_token(actor["email"], before, "verifica tu correo", "/api/v1/auth/verification",
+                           lambda token_id, token: {"token_id": token_id, "token": token})
+        result = login(actor["email"], actor["password"])
+        if result:
+            actor["id"] = result["account_id"]
+            save_state(state)
+            return result
+
+    # An active synthetic account with a lost/stale local password is recovered
+    # only through the local email flow. Save the replacement before requesting
+    # mail so an interrupted invocation can safely retry it.
+    if not actor.get("recovery_pending"):
+        actor["password"] = password_for_test()
+        actor["recovery_excluded_ids"] = sorted(mail_ids())
+        actor["recovery_pending"] = True
+        save_state(state)
+    before = set(actor.get("recovery_excluded_ids", []))
+    recovery_mail = find_mail(actor["email"], before, "recupera tu clave", 0.3)
+    if recovery_mail is None:
+        status, _ = request("POST", API + "/api/v1/auth/password/recovery", {"email": actor["email"]})
+        if status != 202:
+            raise RuntimeError(f"Could not start local credential recovery for {kind} (HTTP {status})")
+    consume_mail_token(actor["email"], before, "recupera tu clave", "/api/v1/auth/password/recovery/consume",
+                       lambda token_id, token: {"token_id": token_id, "token": token,
+                                               "new_password": actor["password"],
+                                               "confirm_password": actor["password"]})
     result = login(actor["email"], actor["password"])
     if not result:
-        raise RuntimeError("Verified synthetic account could not log in")
+        raise RuntimeError(f"Recovered {kind} synthetic account could not log in")
     actor["id"] = result["account_id"]
+    actor.pop("recovery_pending", None)
+    actor.pop("recovery_excluded_ids", None)
     save_state(state)
     return result
 
@@ -176,6 +253,9 @@ def seed_test_data(state: dict) -> None:
     # One new booking per execution makes the verifier reusable after the
     # previous run canceled its booking. Closed synthetic history is kept.
     if fixture.get("completed") or not fixture.get("reservation_id"):
+        space_id = fixture["space_id"]
+        fixture.clear()
+        fixture["space_id"] = space_id
         fixture.update({
             "quote_id": str(uuid.uuid4()),
             "reservation_id": str(uuid.uuid4()),
@@ -251,14 +331,57 @@ COMMIT;
     save_state(state)
 
 
+def ensure_key(fixture: dict, name: str) -> str:
+    if name not in fixture:
+        fixture[name] = "local-priv189-" + name.replace("_", "-") + "-" + uuid.uuid4().hex
+    return fixture[name]
+
+
+def list_right_requests(token: str):
+    return api("GET", "/api/v1/rights-requests", 200, token=token).get("items", [])
+
+
+def interrupt_if_requested(phase: str) -> None:
+    if os.environ.get("LOCAL_PRIV189_TEST_INTERRUPT_AFTER") == phase:
+        raise SystemExit(f"INTERRUPTED after {phase} commit (test hook)")
+
+
+def request_created_in_run(item: dict, started_at: str) -> bool:
+    try:
+        created = dt.datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
+        started = dt.datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        return item.get("kind") == "supresion" and created >= started - dt.timedelta(seconds=2)
+    except (KeyError, ValueError, TypeError):
+        return False
+
+
+def ensure_right_request(state: dict, fixture: dict, participant: str, token: str) -> str:
+    requests = fixture.setdefault("suppression_requests", {})
+    if requests.get(participant):
+        return requests[participant]
+    for item in list_right_requests(token):
+        if request_created_in_run(item, fixture["run_started_at"]):
+            requests[participant] = item["id"]
+            save_state(state)
+            return item["id"]
+    # The rights request endpoint has no idempotency header; the account-scoped
+    # list above is the recovery index if the process stops after commit.
+    save_state(state)
+    created = api("POST", "/api/v1/rights-requests", 202, {"type": "supresion"}, token=token)
+    interrupt_if_requested("rights_request_" + participant)
+    requests[participant] = created["id"]
+    save_state(state)
+    return created["id"]
+
+
 def main() -> None:
     api("GET", "/health/ready", 200)
     mail_status, _ = request("GET", MAILPIT + "/api/v1/messages")
     if mail_status != 200:
         raise RuntimeError("Local Mailpit is not available")
-    migration_version = psql("SELECT max(version) FROM public.schema_migrations;")
-    if migration_version != "24":
-        raise RuntimeError("Expected incremental local schema version V24")
+    v24_present = psql("SELECT EXISTS (SELECT 1 FROM public.schema_migrations WHERE version=24);")
+    if v24_present != "t":
+        raise RuntimeError("Expected incremental local schema V24 to be applied")
     if state_path.exists():
         if state_path.stat().st_mode & 0o077:
             raise RuntimeError("Credential file permissions are too broad; chmod 600 it before reuse")
@@ -273,33 +396,13 @@ def main() -> None:
     terms_ids = [item["id"] for item in terms["items"] if item["type"] in {"terminos", "privacidad"}]
     if len(terms_ids) < 2:
         raise RuntimeError("Expected synthetic terms and privacy versions were not available")
-    logins = {}
-    for kind in ("host", "renter", "admin"):
-        actor = state["actors"][kind]
-        existing = login(actor["email"], actor["password"])
-        if existing:
-            actor["id"] = existing["account_id"]
-            logins[kind] = existing
-            save_state(state)
-            continue
-        status, registered = request("POST", API + "/api/v1/auth/register", {
-            "email": actor["email"], "password": actor["password"],
-            "use_preference": actor["preference"], "terms_version_ids": terms_ids,
-        })
-        if status != 201:
-            raise RuntimeError(f"Could not register the {kind} synthetic account (HTTP {status})")
-        actor["id"] = registered["account_id"]
-        save_state(state)
-        verify_email(actor["email"])
-        fresh = login(actor["email"], actor["password"])
-        if not fresh:
-            raise RuntimeError(f"Verified {kind} synthetic account could not log in")
-        logins[kind] = fresh
-        save_state(state)
+    logins = {kind: ensure_account(state, kind, terms_ids) for kind in ("host", "renter", "admin")}
     if len({state["actors"][kind]["id"] for kind in ("host", "renter", "admin")}) != 3:
         raise RuntimeError("Actor identity separation check failed")
 
+    fixture = state["fixture"]
     seed_test_data(state)
+    fixture = state["fixture"]
     # Refresh sessions after bootstrap assigned the separated local roles.
     for kind in ("host", "renter", "admin"):
         actor = state["actors"][kind]
@@ -315,97 +418,137 @@ def main() -> None:
         raise RuntimeError("Renter account does not have its independent renter-only role")
     if "administrador" not in admin_roles or "arrendador" in admin_roles:
         raise RuntimeError("Independent administrator role is missing or mixed with host role")
-    host_token = logins["host"]["access_token"]
-    renter_token = logins["renter"]["access_token"]
-    admin_token = logins["admin"]["access_token"]
-    reservation_id = state["fixture"]["reservation_id"]
+    host_token, renter_token, admin_token = (logins[k]["access_token"] for k in ("host", "renter", "admin"))
+    reservation_id = fixture["reservation_id"]
     dispute_path = f"/api/v1/local/booking-trial/reservations/{reservation_id}/disputes"
-
-    host_detail = api("GET", f"/api/v1/local/booking-trial/reservations/{reservation_id}", 200, token=host_token)
-    renter_detail = api("GET", f"/api/v1/local/booking-trial/reservations/{reservation_id}", 200, token=renter_token)
+    reservation_path = f"/api/v1/local/booking-trial/reservations/{reservation_id}"
+    host_detail = api("GET", reservation_path, 200, token=host_token)
+    renter_detail = api("GET", reservation_path, 200, token=renter_token)
     if host_detail.get("data", {}).get("id") != reservation_id or renter_detail.get("data", {}).get("id") != reservation_id:
         raise RuntimeError("Reservation detail did not resolve for both participants")
 
+    # Opening uses a persisted key, so a rerun after API commit replays the same
+    # operation instead of creating a second dispute.
     before_host_close = api("GET", dispute_path, 200, token=renter_token)
+    dispute_key = ensure_key(fixture, "dispute_open_key")
+    save_state(state)
     if before_host_close.get("items"):
-        raise RuntimeError("Synthetic reservation already has a dispute; inspect test state before rerunning")
-    renter_cannot_open = api("POST", dispute_path, 404, {"reason_code": "ensayo_privacidad"}, token=renter_token,
-                             headers={"Idempotency-Key": "local-priv189-renter-denied-" + uuid.uuid4().hex})
-    del renter_cannot_open
-    dispute_key = "local-priv189-" + uuid.uuid4().hex
-    opened = api("POST", dispute_path, 201, {"reason_code": "ensayo_privacidad"}, token=host_token,
-                 headers={"Idempotency-Key": dispute_key})
-    dispute_id = opened["id"]
-    if opened.get("state") != "abierta" or opened.get("opened_by") != state["actors"]["host"]["id"]:
-        raise RuntimeError("Host did not open the expected dispute")
-    renter_view = api("GET", dispute_path, 200, token=renter_token)
-    if len(renter_view.get("items", [])) != 1 or renter_view["items"][0].get("id") != dispute_id:
-        raise RuntimeError("Renter could not read the host's dispute")
-    host_cannot_close = api("POST", f"/api/v1/admin/disputes/{dispute_id}/close", 403,
-                            {"reason_code": "ensayo_finalizado"}, token=host_token)
-    del host_cannot_close
-    renter_cannot_close = api("POST", f"/api/v1/admin/disputes/{dispute_id}/close", 403,
-                              {"reason_code": "ensayo_finalizado"}, token=renter_token)
-    del renter_cannot_close
-
-    host_request = api("POST", "/api/v1/rights-requests", 202, {"type": "supresion"}, token=host_token)
-    renter_request = api("POST", "/api/v1/rights-requests", 202, {"type": "supresion"}, token=renter_token)
-    requests = {"host": host_request["id"], "renter": renter_request["id"]}
-    state["fixture"]["suppression_requests"] = requests
-    state["fixture"]["dispute_id"] = dispute_id
+        opened = before_host_close["items"][0]
+        fixture["dispute_id"] = opened["id"]
+    else:
+        denied = request("POST", API + dispute_path, {"reason_code": "ensayo_privacidad"}, token=renter_token,
+                         headers={"Idempotency-Key": ensure_key(fixture, "renter_denied_key")})
+        if denied[0] != 404:
+            raise RuntimeError("A renter other than the host opened the dispute")
+        status, opened = request("POST", API + dispute_path, {"reason_code": "ensayo_privacidad"}, token=host_token,
+                                 headers={"Idempotency-Key": dispute_key})
+        if status not in (200, 201):
+            raise RuntimeError(f"Could not open synthetic dispute (HTTP {status})")
+        # A controlled interruption exercises the exact crash window after the
+        # server commits but before this client persists the returned identifier.
+        interrupt_if_requested("dispute_open")
+        fixture["dispute_id"] = opened["id"]
+        save_state(state)
+    dispute_id = fixture["dispute_id"]
+    if opened.get("state") not in ("abierta", "cerrada") or opened.get("opened_by") != state["actors"]["host"]["id"]:
+        # The participant list may not include opened_by; the canonical lookup is
+        # the host idempotent replay if the dispute was discovered by the renter.
+        status, opened = request("POST", API + dispute_path, {"reason_code": "ensayo_privacidad"}, token=host_token,
+                                 headers={"Idempotency-Key": dispute_key})
+        if status not in (200, 201) or opened.get("opened_by") != state["actors"]["host"]["id"]:
+            raise RuntimeError("Synthetic host dispute did not resolve through its persisted idempotency key")
+    if not fixture.get("run_started_at"):
+        fixture["run_started_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        save_state(state)
+    # A new booking receives its own rights-request window; write it before any
+    # request so a restart can rediscover a committed request via the API.
+    if fixture.get("rights_requests_for_reservation") != reservation_id:
+        fixture["run_started_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        fixture["suppression_requests"] = {}
+        fixture["review_keys"] = {}
+        fixture["rights_requests_for_reservation"] = reservation_id
+        save_state(state)
+    host_request = ensure_right_request(state, fixture, "host", host_token)
+    renter_request = ensure_right_request(state, fixture, "renter", renter_token)
+    requests = {"host": host_request, "renter": renter_request}
+    fixture["dispute_id"] = dispute_id
     save_state(state)
 
-    def review(request_id: str, key: str):
+    def review(request_id: str, phase: str, participant: str):
+        keymap = fixture.setdefault("review_keys", {}).setdefault(phase, {})
+        key = keymap.get(participant) or ensure_key(fixture, f"review_{phase}_{participant}")
+        keymap[participant] = key
+        save_state(state)
         return api("POST", f"/api/v1/privacy/suppression-requests/{request_id}/review", 200,
                    token=admin_token, headers={"Idempotency-Key": key})
 
     expected_pending = ["matriz_retencion_historicos_incompleta"]
+    renter_view = api("GET", dispute_path, 200, token=renter_token)
+    if len(renter_view.get("items", [])) != 1 or renter_view["items"][0].get("id") != dispute_id:
+        raise RuntimeError("Renter could not read the host's dispute")
+    for participant in ("host", "renter"):
+        status, _ = request("POST", API + f"/api/v1/admin/disputes/{dispute_id}/close", {
+            "reason_code": "ensayo_finalizado"}, token=logins[participant]["access_token"])
+        if status != 403:
+            raise RuntimeError("Non-admin participant could close the dispute")
     for participant, request_id in requests.items():
-        result = review(request_id, f"priv189-open-{participant}-{uuid.uuid4().hex}")
+        result = review(request_id, "open", participant)
         if result.get("obligations_detected") != ["reserva_activa", "disputa_abierta"] or result.get("pending_checks") != expected_pending:
             raise RuntimeError(f"Open dispute blocker mismatch for {participant}")
 
     queue = api("GET", "/api/v1/admin/disputes", 200, token=admin_token)
-    if not any(item.get("id") == dispute_id for item in queue.get("items", [])):
+    if not any(item.get("id") == dispute_id for item in queue.get("items", [])) and renter_view["items"][0].get("state") == "abierta":
         raise RuntimeError("Independent administrator could not see the open dispute queue")
-    api("POST", f"/api/v1/admin/disputes/{dispute_id}/close", 200,
-        {"reason_code": "ensayo_finalizado"}, token=admin_token)
+    dispute_state = renter_view["items"][0].get("state")
+    if dispute_state == "abierta":
+        close_key = ensure_key(fixture, "dispute_close_key")
+        save_state(state)
+        closed_status, _ = request("POST", API + f"/api/v1/admin/disputes/{dispute_id}/close",
+                                   {"reason_code": "ensayo_finalizado"}, token=admin_token,
+                                   headers={"Idempotency-Key": close_key})
+        if closed_status != 200:
+            # Close endpoint is not idempotent; inspect persisted state before
+            # reporting failure in case the prior run committed before stopping.
+            refreshed = api("GET", dispute_path, 200, token=renter_token).get("items", [])
+            if not refreshed or refreshed[0].get("state") != "cerrada":
+                raise RuntimeError(f"Administrator could not close dispute (HTTP {closed_status})")
     renter_closed_view = api("GET", dispute_path, 200, token=renter_token)
     if len(renter_closed_view.get("items", [])) != 1 or renter_closed_view["items"][0].get("state") != "cerrada":
         raise RuntimeError("Renter did not see the closed dispute")
     for participant, request_id in requests.items():
-        result = review(request_id, f"priv189-closed-{participant}-{uuid.uuid4().hex}")
+        result = review(request_id, "closed", participant)
         if result.get("obligations_detected") != ["reserva_activa"] or result.get("pending_checks") != expected_pending:
             raise RuntimeError(f"Closing dispute changed more than its blocker for {participant}")
 
-    detail_after_close = api("GET", f"/api/v1/local/booking-trial/reservations/{reservation_id}", 200, token=renter_token)
-    if detail_after_close.get("data", {}).get("state") != "pendiente_de_pago":
-        raise RuntimeError("Closing the dispute unexpectedly changed the reservation")
-    cancel_key = "local-priv189-cancel-" + uuid.uuid4().hex
-    cancel = api("POST", f"/api/v1/local/booking-trial/reservations/{reservation_id}/cancel", 200,
-                 {"reason": "Fin del ensayo local"}, token=renter_token,
-                 headers={"Idempotency-Key": cancel_key})
-    if cancel.get("data", {}).get("reservation", {}).get("state") != "cancelada_arrendatario":
-        raise RuntimeError("Renter reservation action did not cancel the synthetic pending booking")
-    canceled_detail = api("GET", f"/api/v1/local/booking-trial/reservations/{reservation_id}", 200, token=host_token)
+    detail_after_close = api("GET", reservation_path, 200, token=renter_token)
+    if detail_after_close.get("data", {}).get("state") == "pendiente_de_pago":
+        cancel_key = ensure_key(fixture, "cancel_key")
+        save_state(state)
+        status, cancel = request("POST", API + reservation_path + "/cancel", {"reason": "Fin del ensayo local"},
+                                 token=renter_token, headers={"Idempotency-Key": cancel_key})
+        if status != 200:
+            refreshed = api("GET", reservation_path, 200, token=renter_token).get("data", {})
+            if refreshed.get("state") != "cancelada_arrendatario":
+                raise RuntimeError(f"Renter could not cancel synthetic pending booking (HTTP {status})")
+        elif cancel.get("data", {}).get("reservation", {}).get("state") != "cancelada_arrendatario":
+            raise RuntimeError("Renter reservation action did not cancel the synthetic pending booking")
+    canceled_detail = api("GET", reservation_path, 200, token=host_token)
     if canceled_detail.get("data", {}).get("state") != "cancelada_arrendatario":
         raise RuntimeError("Host could not see the renter's confirmed reservation action")
     for participant, request_id in requests.items():
-        result = review(request_id, f"priv189-canceled-{participant}-{uuid.uuid4().hex}")
+        result = review(request_id, "canceled", participant)
         if result.get("obligations_detected") != [] or result.get("pending_checks") != expected_pending:
             raise RuntimeError(f"Terminal reservation retained an unexpected blocker for {participant}")
 
-    state["fixture"]["completed"] = True
+    fixture["completed"] = True
     save_state(state)
-
-    print("PASS V24 local migration and healthy local API/Mailpit")
-    print("PASS three independent verified accounts; host, renter and admin permissions kept separate")
-    print("PASS host opens dispute; renter reads it; admin-only closure")
+    print("PASS schema V24 row exists (independent of any later migration version); API and Mailpit healthy")
+    print("PASS three independent verified synthetic actors and separated permissions")
+    print("PASS dispute open/read/admin close; recovery keys and per-step state permit interruption resume")
     print("PASS both participants detect disputa_abierta; closure removes only that blocker")
     print("PASS reservation detail/action remains usable; renter cancels and host sees updated state")
     print("PASS after cancellation, no obligation remains; historical retention check remains pending")
-    print("Synthetic account credentials are stored outside the repository with mode 0600:")
-    print(state_path)
+    print("Synthetic account credentials remain outside repository with mode 0600:", state_path)
     print("Synthetic fixture reservation:", reservation_id)
     print("Dispute:", dispute_id)
 
