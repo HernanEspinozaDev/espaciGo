@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 )
 
@@ -28,6 +29,12 @@ func NewHandler(auth Authenticator, s *Service, origins []string) http.Handler {
 	return &Handler{auth: auth, service: s, origins: m}
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	requestID, err := (credentials.Generator{}).ID()
+	if err != nil {
+		write(w, http.StatusInternalServerError, "internal_error", "Ocurrió un error inesperado.")
+		return
+	}
+	w.Header().Set("X-Request-ID", requestID)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Add("Vary", "Origin")
@@ -37,6 +44,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Access-Control-Allow-Origin", o)
+		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, DELETE, OPTIONS")
 	}
@@ -50,11 +58,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Fields(r.Header.Get("Authorization"))
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		w.Header().Set("WWW-Authenticate", "Bearer")
 		write(w, 401, "unauthenticated", "Credencial ausente o expirada.")
 		return
 	}
 	p, err := h.auth.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
 	if err != nil {
+		w.Header().Set("WWW-Authenticate", "Bearer")
 		write(w, 401, "unauthenticated", "Credencial ausente o expirada.")
 		return
 	}
@@ -161,7 +171,7 @@ func (h *Handler) failure(w http.ResponseWriter, e error) {
 	}
 }
 func write(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": msg}})
+	writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": msg, "request_id": w.Header().Get("X-Request-ID")}})
 }
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

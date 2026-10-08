@@ -38,6 +38,25 @@ PASS
 
 No se repitió la suite general. No se levantó el prototipo persistente ni se aplicó V30 al volumen `espacigo_pgdata`; secretos y datos persistentes quedaron intactos. El recorrido del mock queda para revisión manual con una cuenta de KYC sintético aprobado y otra cuenta distinta; no se afirma una sesión de navegador que no se ejecutó.
 
+## Ajustes de revisión #203
+
+- La descarga de PNG vuelve a comprobar token, cuenta y generación de sesión después de resolver `response.blob()` y antes de reemplazar la imagen o metadata. El flujo de generación repite la comprobación después de `loadM02Photo()` y antes de mostrar resultado o mensaje. La generación distingue logout/login aunque vuelva la misma cuenta.
+- Foto y cuenta fake usan el sobre común `{error:{code,message,request_id}}`; `request_id` coincide con `X-Request-ID`, y las respuestas 401 incluyen `WWW-Authenticate: Bearer`.
+- Pruebas enfocadas: respuesta de PNG retrasada tras logout/login de la misma cuenta; respuesta tardía tras cambio de cuenta; generación nueva aunque token/cuenta se reutilicen; errores 401 y 422 en ambas rutas con comprobación del cuerpo y encabezados.
+
+```text
+go test ./internal/m02local -run 'TestM02(PhotoAndPayoutErrorsUseCommonHTTPContract|PhotoEndpointRejectsClientProvidedImageBytes)$'
+PASS
+
+npm --prefix mock run test:profile-races
+PASS (TypeScript compilado; 25 pruebas del mock, incluidas 3 de sesión/foto)
+
+git diff --check
+PASS
+```
+
+Estas son pruebas enfocadas de los cambios solicitados; no se repitieron PostgreSQL, suites Backend ni recorrido manual de navegador, y no se tocó el volumen persistente ni los secretos.
+
 ## Recorrido manual de revisión
 
 1. Aplicar migraciones normalmente con `scripts/dev-env.sh up -d` y abrir <http://127.0.0.1:8081>.

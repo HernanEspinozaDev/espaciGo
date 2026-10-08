@@ -8,6 +8,7 @@ import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState, type AvailabilityContext, type SelectedAvailability } from "./booking-availability-state.js";
 import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
 import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExportSessionMatches, type PrivacyExportContext } from "./privacy-export-state.js";
+import { applyM02PhotoIfCurrent, captureM02PhotoSession, deliverM02PhotoIfCurrent, m02PhotoSessionMatches } from "./m02-photo-session-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount, type SuppressionReviewPanelState } from "./suppression-review-state.js";
 
 interface MockConfig { apiReadyURL: string; }
@@ -136,8 +137,10 @@ document.querySelector("#m02-photo-create")!.addEventListener("click",()=>void a
   if(!currentM02Session(opToken,opAccount,opGeneration))return;
   m02PhotoRetryKey="";
   await loadM02Photo();
-  document.querySelector<HTMLElement>("#m02-photo-output")!.textContent=JSON.stringify(result,null,2);
-  resultElement.textContent="PNG sintético generado por el Backend y guardado en almacenamiento privado.";
+  applyM02PhotoIfCurrent({token:opToken,account:opAccount,generation:opGeneration},
+    context=>m02PhotoSessionMatches(context,sessionToken,sessionAccountID,sessionGeneration),
+    ()=>{document.querySelector<HTMLElement>("#m02-photo-output")!.textContent=JSON.stringify(result,null,2);
+      resultElement.textContent="PNG sintético generado por el Backend y guardado en almacenamiento privado.";});
 }));
 document.querySelector("#m02-photo-load")!.addEventListener("click",()=>void action(loadM02Photo));
 document.querySelector("#m02-photo-remove")!.addEventListener("click",()=>void action(async()=>{
@@ -151,15 +154,19 @@ document.querySelector("#m02-photo-remove")!.addEventListener("click",()=>void a
   document.querySelector<HTMLElement>("#m02-photo-output")!.textContent=JSON.stringify(result,null,2);
 }));
 async function loadM02Photo():Promise<void>{
-  const startToken=sessionToken,startAccount=sessionAccountID,startGeneration=sessionGeneration;
+  const captured=captureM02PhotoSession(sessionToken,sessionAccountID,sessionGeneration);
+  if(!captured)return;
+  const {token:startToken,account:startAccount,generation:startGeneration}=captured;
   const photo=await request("/api/v1/profile/photo","GET",undefined,true);
   if(!currentM02Session(startToken,startAccount,startGeneration))return;
   const response=await fetch(`${apiBase}/api/v1/profile/photo/content`,{headers:{Authorization:`Bearer ${startToken}`,Accept:"image/png"},mode:"cors",cache:"no-store",credentials:"omit"});
   if(!response.ok){if(response.status===401&&sessionToken===startToken){sessionToken="";clearBookingInboxOnSessionLoss();}throw new Error(`No se pudo consultar la foto (HTTP ${response.status}).`);}
   if(!currentM02Session(startToken,startAccount,startGeneration))return;
-  const blob=await response.blob();clearM02PhotoPreview();m02PhotoURL=URL.createObjectURL(blob);
-  const preview=document.querySelector<HTMLImageElement>("#m02-photo-preview")!;preview.src=m02PhotoURL;preview.hidden=false;
-  document.querySelector<HTMLElement>("#m02-photo-output")!.textContent=JSON.stringify(photo,null,2);
+  await deliverM02PhotoIfCurrent(captured,()=>response.blob(),
+    context=>m02PhotoSessionMatches(context,sessionToken,sessionAccountID,sessionGeneration),
+    blob=>{clearM02PhotoPreview();m02PhotoURL=URL.createObjectURL(blob);
+      const preview=document.querySelector<HTMLImageElement>("#m02-photo-preview")!;preview.src=m02PhotoURL;preview.hidden=false;
+      document.querySelector<HTMLElement>("#m02-photo-output")!.textContent=JSON.stringify(photo,null,2);});
 }
 function clearM02PhotoPreview():void{if(m02PhotoURL){URL.revokeObjectURL(m02PhotoURL);m02PhotoURL="";}const preview=document.querySelector<HTMLImageElement>("#m02-photo-preview");if(preview){preview.hidden=true;preview.removeAttribute("src");}}
 document.querySelector("#m02-payout-create")!.addEventListener("click",()=>void action(async()=>{
