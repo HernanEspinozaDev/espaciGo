@@ -1585,6 +1585,99 @@ func TestM02SuppressionExecutionRechecksDisputeAfterAccountLock(t *testing.T) {
 	}
 }
 
+func TestEligibleSuppressionPreservesTerminalAndCancelsPendingCredentialNoticeCycles(t *testing.T) {
+	for _, terminal := range []bool{false, true} {
+		name := "pending"
+		if terminal {
+			name = "terminal"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := newAuthHarness(t)
+			targetID := h.register(t, "suppression-outbox-"+name+"@ejemplo.invalid")
+			h.verify(t)
+			adminID := h.register(t, "suppression-outbox-admin-"+name+"@ejemplo.invalid")
+			h.verify(t)
+			if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador')`, adminID); err != nil {
+				t.Fatal(err)
+			}
+			privacyService, err := privacy.NewService(h.repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := privacyService.RequestRight(h.ctx, targetID, "supresion", "web")
+			if err != nil {
+				t.Fatal(err)
+			}
+			const eventID = "83000000-0000-4000-8000-000000000001"
+			startedAt := h.now
+			if terminal {
+				startedAt = h.now.Add(-48 * time.Hour)
+			}
+			failedAt := startedAt.Add(time.Hour)
+			var insertErr error
+			if terminal {
+				_, insertErr = h.pool.Exec(h.ctx, `INSERT INTO public.outbox_evento_local(
+					id,agregado_tipo,agregado_id,tipo,clave_deduplicacion,version,creada_en,disponible_en,
+					intentos,intentos_ciclo,fallo_terminal_en,codigo_fallo_terminal,retirar_en
+				) VALUES($1,'usuario',$2,'identidad.credencial_cambiada','suppression-terminal-outbox',1,$3,$3,8,8,$4::timestamptz,'mailpit_delivery_failed',$4::timestamptz + interval '30 days')`, eventID, targetID, startedAt, failedAt)
+			} else {
+				_, insertErr = h.pool.Exec(h.ctx, `INSERT INTO public.outbox_evento_local(
+					id,agregado_tipo,agregado_id,tipo,clave_deduplicacion,version,creada_en,disponible_en
+				) VALUES($1,'usuario',$2,'identidad.credencial_cambiada','suppression-pending-outbox',1,$3,$3)`, eventID, targetID, startedAt)
+			}
+			if insertErr != nil {
+				t.Fatal(insertErr)
+			}
+			cycleState, cycleAttempts, cycleCode := "pendiente", 0, ""
+			var cycleFinished any
+			if terminal {
+				cycleState, cycleAttempts, cycleCode, cycleFinished = "fallo_terminal", 8, "mailpit_delivery_failed", failedAt
+			}
+			if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.outbox_evento_ciclo_local(evento_id,numero_ciclo,estado,iniciada_en,finalizada_en,intentos,codigo_resultado) VALUES($1,1,$2,$3,$4,$5,NULLIF($6,''))`, eventID, cycleState, startedAt, cycleFinished, cycleAttempts, cycleCode); err != nil {
+				t.Fatal(err)
+			}
+
+			result, err := privacyService.ExecuteSuppression(h.ctx, adminID, request.ID, "suppression-outbox-cycle-1", "suppression-outbox-correlation", func() time.Time { return h.now }, nil)
+			if err != nil || result.Status == "bloqueada" {
+				t.Fatalf("eligible suppression failed: result=%+v err=%v", result, err)
+			}
+			var accountState string
+			if err := h.pool.QueryRow(h.ctx, `SELECT estado FROM public.usuario WHERE id=$1`, targetID).Scan(&accountState); err != nil || accountState != "desidentificado" {
+				t.Fatalf("eligible suppression did not retire account: state=%q err=%v", accountState, err)
+			}
+			var canceledAt, terminalAt *time.Time
+			var reason, terminalCode *string
+			var removeAt time.Time
+			if err := h.pool.QueryRow(h.ctx, `SELECT cancelada_en,motivo_cancelacion_codigo,fallo_terminal_en,codigo_fallo_terminal,retirar_en FROM public.outbox_evento_local WHERE id=$1`, eventID).Scan(&canceledAt, &reason, &terminalAt, &terminalCode, &removeAt); err != nil {
+				t.Fatal(err)
+			}
+			var persistedState string
+			var cycleFinalized *time.Time
+			var cycleResult *string
+			if err := h.pool.QueryRow(h.ctx, `SELECT estado,finalizada_en,codigo_resultado FROM public.outbox_evento_ciclo_local WHERE evento_id=$1 AND numero_ciclo=1`, eventID).Scan(&persistedState, &cycleFinalized, &cycleResult); err != nil {
+				t.Fatal(err)
+			}
+			if terminal {
+				if canceledAt != nil || reason != nil || terminalAt == nil || !terminalAt.Equal(failedAt) || terminalCode == nil || *terminalCode != "mailpit_delivery_failed" || !removeAt.Equal(failedAt.Add(30*24*time.Hour)) || persistedState != "fallo_terminal" || cycleFinalized == nil || !cycleFinalized.Equal(failedAt) || cycleResult == nil || *cycleResult != "mailpit_delivery_failed" {
+					t.Fatalf("terminal notice/history changed during suppression: cancelled=%v reason=%v terminal=%v/%v remove=%s cycle=%s/%v/%v", canceledAt, reason, terminalAt, terminalCode, removeAt, persistedState, cycleFinalized, cycleResult)
+				}
+			} else if canceledAt == nil || !canceledAt.Equal(h.now) || reason == nil || *reason != "baja_local_sin_finalidad" || terminalAt != nil || terminalCode != nil || !removeAt.Equal(h.now.Add(30*24*time.Hour)) || persistedState != "cancelada" || cycleFinalized == nil || !cycleFinalized.Equal(h.now) || cycleResult == nil || *cycleResult != "baja_local_sin_finalidad" {
+				t.Fatalf("pending notice/cycle not atomically canceled: cancelled=%v reason=%v terminal=%v/%v remove=%s cycle=%s/%v/%v", canceledAt, reason, terminalAt, terminalCode, removeAt, persistedState, cycleFinalized, cycleResult)
+			}
+
+			if err := h.service.DispatchOneCredentialNotice(h.ctx); err != nil {
+				t.Fatalf("retired recipient notice was dispatched: %v", err)
+			}
+			if h.mail.changes != 0 {
+				t.Fatalf("retired recipient got %d credential notices", h.mail.changes)
+			}
+			if _, err := h.service.ReopenCredentialNotice(h.ctx, eventID, adminID, "reintento_operativo", "suppression-outbox-reopen", "suppression-outbox-correlation"); !errors.Is(err, identity.ErrCredentialNoticeRecipient) {
+				t.Fatalf("retired recipient notice reopened: %v", err)
+			}
+		})
+	}
+}
+
 func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *testing.T) {
 	h := newAuthHarness(t)
 	targetID := h.register(t, "suppression-target@ejemplo.invalid")
@@ -1615,6 +1708,9 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 		t.Fatal(err)
 	}
 	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.outbox_evento_local(id,agregado_tipo,agregado_id,tipo,clave_deduplicacion,version,creada_en,disponible_en) VALUES('82000000-0000-4000-8000-000000000003','usuario',$1,'identidad.credencial_cambiada','privacy-test-outbox',1,$2,$2)`, targetID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.outbox_evento_ciclo_local(evento_id,numero_ciclo,estado,iniciada_en) VALUES('82000000-0000-4000-8000-000000000003',1,'pendiente',$1)`, h.now); err != nil {
 		t.Fatal(err)
 	}
 	spaceID := "82000000-0000-4000-8000-000000000004"

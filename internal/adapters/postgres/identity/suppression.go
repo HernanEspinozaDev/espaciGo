@@ -218,7 +218,24 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 	) WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND r.estado IN ('cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario')`, subjectID); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE public.outbox_evento_local SET cancelada_en=$2::timestamptz,motivo_cancelacion_codigo='baja_local_sin_finalidad',lease_hasta=NULL,retirar_en=$2::timestamptz + interval '30 days' WHERE agregado_tipo='usuario' AND agregado_id=$1 AND tipo='identidad.credencial_cambiada' AND entregada_en IS NULL AND cancelada_en IS NULL`, subjectID, checkedAt); err != nil {
+	if _, err = tx.Exec(ctx, `WITH cancelled AS (
+		UPDATE public.outbox_evento_local AS event
+		SET cancelada_en=$2::timestamptz,motivo_cancelacion_codigo='baja_local_sin_finalidad',
+			lease_hasta=NULL,retirar_en=$2::timestamptz + interval '30 days',ultimo_error='account_suppressed'
+		WHERE event.agregado_tipo='usuario' AND event.agregado_id=$1
+		  AND event.tipo='identidad.credencial_cambiada'
+		  AND event.entregada_en IS NULL AND event.cancelada_en IS NULL
+		  AND event.fallo_terminal_en IS NULL
+		  AND EXISTS (
+			SELECT 1 FROM public.outbox_evento_ciclo_local AS cycle
+			WHERE cycle.evento_id=event.id AND cycle.numero_ciclo=event.ciclo_actual AND cycle.estado='pendiente'
+		  )
+		RETURNING event.id,event.ciclo_actual,event.cancelada_en
+	)
+	UPDATE public.outbox_evento_ciclo_local AS cycle
+	SET estado='cancelada',finalizada_en=cancelled.cancelada_en,codigo_resultado='baja_local_sin_finalidad'
+	FROM cancelled
+	WHERE cycle.evento_id=cancelled.id AND cycle.numero_ciclo=cancelled.ciclo_actual`, subjectID, checkedAt); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE public.reserva_ensayo_local_fixture SET habilitada=false WHERE anfitrion_id=$1 OR arrendatario_id=$1`, subjectID); err != nil {
