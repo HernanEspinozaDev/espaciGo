@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,9 +15,11 @@ import (
 	"time"
 
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -161,6 +164,37 @@ func newAuthHarnessWithAtomicClock(t *testing.T) (*authHarness, *atomic.Int64) {
 	}
 	h.service = service
 	return h, clock
+}
+
+func newRuntimeIdentityRepository(t *testing.T, h *authHarness) *identitypg.IdentityRepository {
+	t.Helper()
+	if _, err := h.pool.Exec(h.ctx, `DO $$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='espacigo_runtime') THEN
+    CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+END IF;
+END $$`); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := h.pool.Acquire(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dbbootstrap.GrantRuntimePermissions(h.ctx, conn.Conn()); err != nil {
+		conn.Release()
+		t.Fatal(err)
+	}
+	conn.Release()
+	config := h.pool.Config().Copy()
+	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, `SET ROLE espacigo_runtime`)
+		return err
+	}
+	runtimePool, err := pgxpool.NewWithConfig(h.ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtimePool.Close)
+	return identitypg.NewIdentityRepository(runtimePool)
 }
 
 func holdAccountRowLock(t *testing.T, h *authHarness, accountID string) func() {
@@ -563,6 +597,239 @@ func TestM02IdentityExportUsesAuthenticatedAccountAndExcludesCredentials(t *test
 	otherResponse := call(other.Token)
 	if otherResponse.Code != http.StatusOK || !strings.Contains(otherResponse.Body.String(), "export-other@ejemplo.invalid") || strings.Contains(otherResponse.Body.String(), "export-owner@ejemplo.invalid") {
 		t.Fatalf("second account export leaked another account: status=%d body=%s", otherResponse.Code, otherResponse.Body.String())
+	}
+}
+
+func TestM02SuppressionReviewRequiresAdminAndReusesPersistedIncompleteAssessment(t *testing.T) {
+	h := newAuthHarness(t)
+	requesterID := h.register(t, "suppression-requester@ejemplo.invalid")
+	h.verify(t)
+	requester := h.login(t, "suppression-requester@ejemplo.invalid")
+	privacyRepo := newRuntimeIdentityRepository(t, h)
+	privacyService, err := privacy.NewService(privacyRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := privacyService.RequestRight(h.ctx, requesterID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	adminID := h.register(t, "suppression-reviewer@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES ($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	admin := h.login(t, "suppression-reviewer@ejemplo.invalid")
+	api := identityhttp.NewHandler(h.service, h.repo, nil, privacyService)
+	queueCall := func(token identity.Secret) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/privacy/suppression-requests", nil)
+		req.RemoteAddr = "192.0.2.10:8080"
+		req.Header.Set("Authorization", "Bearer "+string(token))
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, req)
+		return response
+	}
+	call := func(token identity.Secret, key string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/privacy/suppression-requests/"+request.ID+"/review", nil)
+		req.RemoteAddr = "192.0.2.10:8080"
+		req.Header.Set("Authorization", "Bearer "+string(token))
+		req.Header.Set("Idempotency-Key", key)
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, req)
+		return response
+	}
+	if denied := call(requester.Token, "requester-must-not-review"); denied.Code != http.StatusForbidden {
+		t.Fatalf("requester review status=%d body=%s, want 403", denied.Code, denied.Body.String())
+	}
+	if denied := queueCall(requester.Token); denied.Code != http.StatusForbidden {
+		t.Fatalf("requester queue status=%d body=%s, want 403", denied.Code, denied.Body.String())
+	}
+	queue := queueCall(admin.Token)
+	if queue.Code != http.StatusOK || !strings.Contains(queue.Body.String(), request.ID) || strings.Contains(queue.Body.String(), "suppression-requester@ejemplo.invalid") {
+		t.Fatalf("admin queue status=%d body=%s", queue.Code, queue.Body.String())
+	}
+	first := call(admin.Token, "assessment-1")
+	if first.Code != http.StatusOK {
+		t.Fatalf("admin assessment status=%d body=%s", first.Code, first.Body.String())
+	}
+	var firstResult privacy.SuppressionReview
+	if err := json.Unmarshal(first.Body.Bytes(), &firstResult); err != nil {
+		t.Fatal(err)
+	}
+	if firstResult.Outcome != "revision_incompleta" || len(firstResult.Obligations) != 0 || len(firstResult.PendingChecks) != 2 || firstResult.Reused {
+		t.Fatalf("unexpected first assessment: %+v", firstResult)
+	}
+	second := call(admin.Token, "assessment-1")
+	var secondResult privacy.SuppressionReview
+	if err := json.Unmarshal(second.Body.Bytes(), &secondResult); err != nil {
+		t.Fatal(err)
+	}
+	if second.Code != http.StatusOK || !secondResult.Reused || !secondResult.ReviewedAt.Equal(firstResult.ReviewedAt) || secondResult.Outcome != firstResult.Outcome {
+		t.Fatalf("idempotent replay status=%d result=%+v first=%+v", second.Code, secondResult, firstResult)
+	}
+	var auditRows int
+	var auditAt, auditExpires time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*),min(ocurrido_en),min(retirar_en) FROM public.evento_auditoria_local WHERE recurso_id=$1 AND accion='privacy.suppression.review' AND clave_idempotencia='assessment-1'`, request.ID).Scan(&auditRows, &auditAt, &auditExpires); err != nil {
+		t.Fatal(err)
+	}
+	if auditRows != 1 {
+		t.Fatalf("review replay duplicated audit: rows=%d", auditRows)
+	}
+	if !auditAt.Equal(firstResult.ReviewedAt) || !auditExpires.Equal(identity.AddCalendarMonthsUTC(firstResult.ReviewedAt, 60)) {
+		t.Fatalf("audit retention does not start at review event: at=%s remove=%s", auditAt, auditExpires)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.evento_auditoria_local (
+		id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,
+		ocurrido_en,retirar_en,clave_idempotencia,detalle_codigos
+	) VALUES ('80000000-0000-4000-8000-000000000001',$1,'solicitud_titular',$2,
+		'privacy.suppression.review','exito','supresion_revision_incompleta','invalid-payload',
+		$3,$4,'invalid-payload','{"obligations_detected":[],"pending_checks":[],"email":"private@example.invalid"}'::jsonb)`, adminID, request.ID, firstResult.ReviewedAt, identity.AddCalendarMonthsUTC(firstResult.ReviewedAt, 60)); err == nil {
+		t.Fatal("audit allowed an unclassified free-text field")
+	}
+	requests, err := privacyService.OwnRequests(h.ctx, requesterID)
+	if err != nil || len(requests) != 1 || requests[0].State != "en_revision" {
+		t.Fatalf("assessment must keep the request open for access rights: requests=%+v err=%v", requests, err)
+	}
+	export, err := privacyService.ExportOwnData(h.ctx, requesterID)
+	if err != nil || export.Account.Email != "suppression-requester@ejemplo.invalid" {
+		t.Fatalf("suppression review blocked another data right: export=%+v err=%v", export.Account, err)
+	}
+}
+
+func seedPrivacyReviewReservation(t *testing.T, h *authHarness, spaceID, quoteID, reservationID, occupancyID, hostID, renterID, state string) {
+	t.Helper()
+	tx, err := h.pool.Begin(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(h.ctx) }()
+	start := h.now.Add(48 * time.Hour)
+	end := start.Add(24 * time.Hour)
+	if _, err := tx.Exec(h.ctx, `INSERT INTO public.espacio (
+		id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,
+		reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria
+	) VALUES ($1,$2,'oficina','Synthetic',repeat('Synthetic description ',6),20,2,'Synthetic rules','hora',12000,'Synthetic address','borrador','UTC')`, spaceID, hostID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(h.ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp,moneda,creada_en) VALUES ($1,1,'hora',12000,'CLP',$2)`, spaceID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(h.ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores,actualizado_en) VALUES ($1,'oficina',1,'{}'::jsonb,$2)`, spaceID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(h.ctx, `INSERT INTO public.cotizacion_reserva_ensayo (
+		id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,
+		categoria_codigo,perfil_version,perfil_valores_snapshot,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,creada_en,vence_en,condiciones_snapshot,politica_cancelacion_version
+	) VALUES ($1,$2,$3,$4,1,'hora',12000,'oficina',1,'{}'::jsonb,'CLP',1,12000,$5,$6,'UTC',$7::timestamptz,$7::timestamptz + interval '15 minutes','synthetic use conditions','local_flexible_v1')`, quoteID, spaceID, hostID, renterID, start, end, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(h.ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,creada_en)
+	VALUES ($1,$2,$3,tstzrange($4,$5,'[)'),'reserva',true,$6)`, occupancyID, spaceID, reservationID, start, end, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(h.ctx, `INSERT INTO public.reserva_ensayo_local (
+		id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,
+		estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,
+		pago_vence_en,creada_en,actualizada_en,condiciones_snapshot,politica_cancelacion_version,ocupacion_id
+	) VALUES ($1,$2,$3,$4,$5,'synthetic-key',decode(repeat('11',32),'hex'),$6,12000,1,12000,'hora','CLP',$7,$8,'UTC',$9,$10,$10,'synthetic use conditions','local_flexible_v1',$11)`, reservationID, quoteID, spaceID, hostID, renterID, state, start, end, h.now.Add(time.Hour), h.now, occupancyID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestM02SuppressionReviewListsOnlyLiveReservationAndPaymentObligations(t *testing.T) {
+	h := newAuthHarness(t)
+	requesterID := h.register(t, "suppression-live@ejemplo.invalid")
+	h.verify(t)
+	otherID := h.register(t, "suppression-counterparty@ejemplo.invalid")
+	h.verify(t)
+	adminID := h.register(t, "suppression-observer@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES ($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	service, err := privacy.NewService(h.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeRequest, err := service.RequestRight(h.ctx, requesterID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedPrivacyReviewReservation(t, h, "70000000-0000-4000-8000-000000000001", "70000000-0000-4000-8000-000000000002", "70000000-0000-4000-8000-000000000003", "70000000-0000-4000-8000-000000000004", requesterID, otherID, "aprobada_host")
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_pago_ensayo_operacion (
+		id,reserva_id,arrendatario_id,clave_idempotencia,huella_solicitud,resultado_solicitado,estado,creada_en,actualizada_en
+	) VALUES ('70000000-0000-4000-8000-000000000005','70000000-0000-4000-8000-000000000003',$1,'payment-pending',decode(repeat('22',32),'hex'),'exito','pendiente',$2,$2)`, otherID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	activeResult, err := h.repo.ReviewSuppression(h.ctx, adminID, activeRequest.ID, "live-obligations", "test-correlation-live", func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activeResult.Outcome != "bloqueada" || !reflect.DeepEqual(activeResult.Obligations, []string{"reserva_activa", "pago_o_devolucion_pendiente"}) {
+		t.Fatalf("live obligations=%+v", activeResult)
+	}
+
+	terminalRequester := h.register(t, "suppression-historical@ejemplo.invalid")
+	h.verify(t)
+	terminalRequest, err := service.RequestRight(h.ctx, terminalRequester, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedPrivacyReviewReservation(t, h, "71000000-0000-4000-8000-000000000001", "71000000-0000-4000-8000-000000000002", "71000000-0000-4000-8000-000000000003", "71000000-0000-4000-8000-000000000004", terminalRequester, adminID, "cancelada_arrendatario")
+	terminalResult, err := h.repo.ReviewSuppression(h.ctx, adminID, terminalRequest.ID, "terminal-history", "test-correlation-terminal", func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if terminalResult.Outcome != "revision_incompleta" || len(terminalResult.Obligations) != 0 {
+		t.Fatalf("terminal history alone should not be an obligation: %+v", terminalResult)
+	}
+}
+
+func TestM02SuppressionReviewSamplesClockAfterAccountLock(t *testing.T) {
+	h := newAuthHarness(t)
+	requesterID := h.register(t, "suppression-clock@ejemplo.invalid")
+	h.verify(t)
+	reviewerID := h.register(t, "suppression-clock-reviewer@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES ($1,'administrador')`, reviewerID); err != nil {
+		t.Fatal(err)
+	}
+	service, err := privacy.NewService(h.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := service.RequestRight(h.ctx, requesterID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := &atomic.Int64{}
+	clock.Store(h.now.UnixNano())
+	resultCh := make(chan privacy.SuppressionReview, 1)
+	errCh := make(chan error, 1)
+	release := holdAccountRowLock(t, h, requesterID)
+	go func() {
+		result, reviewErr := h.repo.ReviewSuppression(h.ctx, reviewerID, request.ID, "clock-after-lock", "clock-correlation", func() time.Time {
+			return time.Unix(0, clock.Load()).UTC()
+		})
+		resultCh <- result
+		errCh <- reviewErr
+	}()
+	waitForAccountLockWait(t, h)
+	advanced := h.now.Add(4 * time.Hour)
+	clock.Store(advanced.UnixNano())
+	release()
+	result := <-resultCh
+	if err := <-errCh; err != nil {
+		t.Fatal(err)
+	}
+	if !result.ReviewedAt.Equal(advanced) {
+		t.Fatalf("review timestamp=%s, want post-lock clock %s", result.ReviewedAt, advanced)
 	}
 }
 

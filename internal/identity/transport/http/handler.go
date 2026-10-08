@@ -54,7 +54,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -69,8 +69,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/api/v1/profile" && r.Method == http.MethodPut || r.URL.Path == "/api/v1/rights-requests" && r.Method == http.MethodPost {
 		expected = r.Method
 	}
-	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true, "/api/v1/profile": true, "/api/v1/rights-requests": true, "/api/v1/privacy/export": true}
-	if !paths[r.URL.Path] {
+	const suppressionQueuePath = "/api/v1/privacy/suppression-requests"
+	if r.URL.Path == suppressionQueuePath {
+		expected = http.MethodGet
+	}
+	const reviewPrefix = "/api/v1/privacy/suppression-requests/"
+	reviewSuffix := "/review"
+	reviewPath := strings.HasPrefix(r.URL.Path, reviewPrefix) && strings.HasSuffix(r.URL.Path, reviewSuffix)
+	if reviewPath {
+		expected = http.MethodPost
+	}
+	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true, "/api/v1/profile": true, "/api/v1/rights-requests": true, "/api/v1/privacy/export": true, suppressionQueuePath: true}
+	if !paths[r.URL.Path] && !reviewPath {
 		h.fail(w, 404, "not_found", "Recurso no encontrado.")
 		return
 	}
@@ -92,6 +102,60 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// RemoteAddr is trusted for the local direct topology. Never trust forwarded headers.
+	if reviewPath {
+		if strings.Count(strings.TrimPrefix(r.URL.Path, reviewPrefix), "/") != 1 || !strings.HasSuffix(r.URL.Path, reviewSuffix) {
+			h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
+			return
+		}
+		requestID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, reviewPrefix), reviewSuffix)
+		if !canonicalUUID(requestID) {
+			h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
+			return
+		}
+		if h.privacy == nil {
+			h.fail(w, http.StatusServiceUnavailable, "privacy_unavailable", "Servicio de privacidad no disponible.")
+			return
+		}
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), identity.RoleAdministrator, identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		review, err := h.privacy.ReviewSuppression(r.Context(), principal.AccountID, requestID, r.Header.Get("Idempotency-Key"), w.Header().Get("X-Request-ID"), time.Now)
+		if err != nil {
+			h.privacyError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, review)
+		return
+	}
+	if r.URL.Path == suppressionQueuePath {
+		if h.privacy == nil {
+			h.fail(w, http.StatusServiceUnavailable, "privacy_unavailable", "Servicio de privacidad no disponible.")
+			return
+		}
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		if _, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), identity.RoleAdministrator, identity.UserOperation); err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		items, err := h.privacy.PendingSuppressions(r.Context())
+		if err != nil {
+			h.privacyError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, map[string]any{"items": items})
+		return
+	}
 	switch r.URL.Path {
 	case "/api/v1/profile", "/api/v1/rights-requests", "/api/v1/privacy/export":
 		if h.privacy == nil {
@@ -406,13 +470,34 @@ func (h *Handler) serviceError(w http.ResponseWriter, err error, paths ...string
 
 func (h *Handler) privacyError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, identity.ErrConflict):
+		h.fail(w, http.StatusConflict, "conflict", "La solicitud de supresión cambió o la clave idempotente pertenece a otra revisión.")
 	case errors.Is(err, privacy.ErrInvalid):
-		h.fail(w, http.StatusUnprocessableEntity, "validation_error", "Revisa nombre, teléfono o tipo de solicitud.")
+		h.fail(w, http.StatusUnprocessableEntity, "validation_error", "Revisa los datos enviados para esta operación de privacidad.")
 	case errors.Is(err, privacy.ErrNotFound):
 		h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
 	default:
 		h.fail(w, http.StatusInternalServerError, "internal_error", "No se pudo completar la operación.")
 	}
+}
+
+func canonicalUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i, r := range value {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+				return false
+			}
+		}
+	}
+	return true
 }
 func (h *Handler) fail(w http.ResponseWriter, status int, code, message string) {
 	h.write(w, status, map[string]any{"error": map[string]any{"code": code, "message": message, "request_id": w.Header().Get("X-Request-ID")}})

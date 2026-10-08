@@ -19,6 +19,8 @@ let sessionAccountID = "";
 let sessionGeneration = 0;
 let pendingPrivacyExport: {context:PrivacyExportContext;data:Record<string,unknown>;json:string;url:string}|null = null;
 let privacyExportObjectURL = "";
+let suppressionQueueRevision = 0;
+const suppressionReviewKeys = new Map<string,string>();
 let termIDs: string[] = [];
 let evidenceObjectURL = "";
 
@@ -119,6 +121,39 @@ document.querySelector("#rights-load")!.addEventListener("click", () => void act
   const items = await request("/api/v1/rights-requests", "GET", undefined, true);
   document.querySelector<HTMLElement>("#privacy-output")!.textContent = JSON.stringify(items, null, 2);
 }));
+function clearSuppressionQueue():void {
+  suppressionQueueRevision++;
+  suppressionReviewKeys.clear();
+  document.querySelector<HTMLElement>("#suppression-queue-items")?.replaceChildren();
+  const output=document.querySelector<HTMLElement>("#suppression-review-output");
+  if(output)output.textContent="Inicia sesión con rol administrador para consultar la cola.";
+}
+async function loadSuppressionQueue():Promise<void> {
+  const token=sessionToken, account=sessionAccountID, generation=sessionGeneration, revision=++suppressionQueueRevision;
+  const response=await request("/api/v1/privacy/suppression-requests","GET",undefined,true);
+  if(revision!==suppressionQueueRevision||token!==sessionToken||account!==sessionAccountID||generation!==sessionGeneration)return;
+  const items=(response.items??[]) as Array<{request_id:string;created_at:string}>;
+  const container=document.querySelector<HTMLElement>("#suppression-queue-items")!;
+  container.replaceChildren();
+  for(const item of items){
+    const row=document.createElement("p"), label=document.createElement("span"), review=document.createElement("button");
+    label.textContent=`Solicitud ${item.request_id} · ${item.created_at} `;
+    review.type="button";review.textContent="Evaluar obligaciones";
+    review.addEventListener("click",()=>void action(async()=>{
+      const requestToken=sessionToken, requestAccount=sessionAccountID, requestGeneration=sessionGeneration;
+      const key=suppressionReviewKeys.get(item.request_id)??crypto.randomUUID();
+      suppressionReviewKeys.set(item.request_id,key);
+      const result=await request(`/api/v1/privacy/suppression-requests/${encodeURIComponent(item.request_id)}/review`,"POST",undefined,true,key);
+      if(requestToken!==sessionToken||requestAccount!==sessionAccountID||requestGeneration!==sessionGeneration)return;
+      document.querySelector<HTMLElement>("#suppression-review-output")!.textContent=JSON.stringify(result,null,2);
+      suppressionReviewKeys.delete(item.request_id);
+      await loadSuppressionQueue();
+    }));
+    row.append(label,review);container.append(row);
+  }
+  document.querySelector<HTMLElement>("#suppression-review-output")!.textContent=`${items.length} solicitud(es) en revisión. La evaluación no ejecuta la baja.`;
+}
+document.querySelector("#suppression-queue-load")!.addEventListener("click",()=>void action(loadSuppressionQueue));
 document.querySelector<HTMLButtonElement>("#privacy-export")!.addEventListener("click", () => void action(async () => {
   const context = capturePrivacyExportContext(sessionAccountID, sessionToken, sessionGeneration);
   if (!context) throw new Error("Inicia sesión para exportar tus datos.");
@@ -951,6 +986,7 @@ function clearBookingInboxOnSessionLoss():void{
   privacyExportObjectURL="";
   pendingPrivacyExport = null;
   refreshPrivacyExportControls();
+  clearSuppressionQueue();
   sessionAccountID="";selectedReservationID="";selectedReservation=null;bookingRequestState.invalidate();resetCatalogTraversal();
   bookingInboxRevision++;
   cancellationPreview=null;cancellationPreviewReservationID="";

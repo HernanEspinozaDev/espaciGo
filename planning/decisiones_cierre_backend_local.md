@@ -19,3 +19,11 @@ Ya existen selección explícita por configuración local de los habilitadores d
 El outbox/auditoría general no está implementado. D-PRIV y D-DIS/ADMIN quedaron ratificadas para datos sintéticos locales y habilitan su base neutral; D-COMM sigue pendiente para tipos de notificación de reseñas/moderación y preferencias, sin bloquear el evento de cambio de clave ya especificado. El primer corte implementará auditoría/outbox tipados, transacción, permisos runtime y entrega Mailpit del aviso de credenciales. La política de retención de cinco años aplica solo a auditoría; outbox e historial tienen ciclos separados. No extrapolar a inmutabilidad productiva ni a notificación durable externa.
 
 No se cambia la base persistente ni se crea migración hasta que la parte concreta tenga contrato aceptado. Las pruebas de migraciones de CORE usarán PostgreSQL desechable y el rol `espacigo_runtime`.
+
+## D-PRIV — clasificación y revisión de supresión local
+
+PR #187 se aceptó como exportación acotada de identidad. Su JSON y enlace se comprobaron en navegador; la automatización no confirmó el archivo guardado. #185/#40 siguen abiertas y no se consideran satisfechas por esa subentrega.
+
+La clasificación actual de referencias, archivos privados y derivados está en [`clasificacion_privacidad_local.md`](clasificacion_privacidad_local.md). La revisión de bloqueos implementada en V23 persiste en la auditoría append-only la clave idempotente y códigos detectados para reservas activas y pagos/devoluciones pendientes. Se toma el reloj después de bloquear la cuenta. No ejecuta la baja, no elimina datos y no declara anonimización.
+
+Los históricos fuera de auditoría siguen sin fundamento/plazo aprobado. El esquema M10 aún no modela disputas, por lo que una revisión sin obligaciones conocidas queda `revision_incompleta`, no habilitada para supresión. La regla de cinco años aplica exclusivamente a `evento_auditoria_local`; RNF-017 productivo continúa pendiente. La matriz sintética local no autoriza documentos reales ni modifica `#142`.
