@@ -352,6 +352,32 @@ paths:
         '404': { description: Solicitud de supresión no encontrada. }
         '409': { description: Clave idempotente incompatible o solicitud no ejecutable. }
         '422': { description: Clave idempotente ausente o inválida. }
+        '503': { description: La ejecución se completó, pero el registro local externo requiere resincronización; repetir la misma clave no duplica la baja. }
+  /privacy/retention/purge:
+    post:
+      operationId: purgeExpiredLocalSyntheticReservationLinks
+      tags: [M02 local]
+      description: >-
+        Operación administrativa local por lotes. Procesa únicamente hechos de
+        reservas sintéticas terminales cuya retención de 24 meses ya venció,
+        revalidando pagos, devoluciones y disputas bajo bloqueo. Conserva los
+        hechos históricos y retira solo vínculos personales; no declara
+        supresión integral ni anonimización.
+      responses:
+        '200':
+          description: Conteos estructurados del lote procesado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scanned, purged, deferred]
+                properties:
+                  scanned: { type: integer, minimum: 0 }
+                  purged: { type: integer, minimum: 0 }
+                  deferred: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Se requiere rol administrador. }
+        '503': { description: Servicio local de privacidad no disponible. }
   /privacy/suppression-requests:
     get:
       operationId: listPendingLocalSuppressionRequests

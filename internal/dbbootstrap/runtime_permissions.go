@@ -17,8 +17,9 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT SELECT, INSERT, UPDATE ON public.outbox_evento_local TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.evento_auditoria_local TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.disputa_ensayo_local TO espacigo_runtime;
- GRANT UPDATE (estado,cerrada_por,motivo_cierre_codigo,cerrada_en) ON public.disputa_ensayo_local TO espacigo_runtime;
+ GRANT UPDATE (estado,cerrada_por,motivo_cierre_codigo,cerrada_en,anfitrion_id,arrendatario_id,abierta_por) ON public.disputa_ensayo_local TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.disputa_ensayo_historial TO espacigo_runtime;
+ GRANT UPDATE (actor_id) ON public.disputa_ensayo_historial TO espacigo_runtime;
  GRANT USAGE, SELECT ON SEQUENCE public.disputa_ensayo_historial_secuencia_seq TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.rol_usuario, public.aceptacion_terminos TO espacigo_runtime;
  GRANT DELETE ON public.rol_usuario TO espacigo_runtime;
@@ -36,23 +37,28 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT SELECT, INSERT, UPDATE ON public.ocupacion TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.tarifa_espacio, public.simulacion_precio_privada TO espacigo_runtime;
  GRANT SELECT ON public.reserva_ensayo_local_fixture TO espacigo_runtime;
- GRANT UPDATE (habilitada) ON public.reserva_ensayo_local_fixture TO espacigo_runtime;
+ GRANT UPDATE (habilitada,anfitrion_id,arrendatario_id) ON public.reserva_ensayo_local_fixture TO espacigo_runtime;
  GRANT SELECT ON public.reserva_ensayo_local_ubicacion_sintetica TO espacigo_runtime;
  GRANT SELECT, INSERT, DELETE ON public.cotizacion_reserva_ensayo TO espacigo_runtime;
- GRANT UPDATE (retirar_en) ON public.cotizacion_reserva_ensayo TO espacigo_runtime;
+ GRANT UPDATE (retirar_en,anfitrion_id,arrendatario_id) ON public.cotizacion_reserva_ensayo TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.reserva_ensayo_local TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.reserva_ensayo_transicion, public.reserva_pago_ensayo TO espacigo_runtime;
+	GRANT UPDATE (actor_id) ON public.reserva_ensayo_transicion TO espacigo_runtime;
 	GRANT SELECT, INSERT, UPDATE ON public.reserva_pago_ensayo_operacion TO espacigo_runtime;
 	GRANT SELECT, INSERT, UPDATE ON public.reserva_pago_fake_resultado_ensayo TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.reserva_pago_evento_ensayo TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.reserva_pago_evento_aplicacion_ensayo TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.reserva_cancelacion_ensayo TO espacigo_runtime;
+	GRANT UPDATE (arrendatario_id) ON public.reserva_cancelacion_ensayo TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.reserva_devolucion_ensayo TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.reserva_devolucion_intento_ensayo TO espacigo_runtime;
  GRANT SELECT, INSERT, DELETE ON public.mensaje_reserva_ensayo TO espacigo_runtime;
+	GRANT UPDATE (autor_id) ON public.mensaje_reserva_ensayo TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE, DELETE ON public.reserva_mensaje_lectura TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.ejecucion_baja_local TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.baja_archivo_pendiente_local TO espacigo_runtime;
+	GRANT SELECT, INSERT ON public.reserva_vinculo_purgado_local TO espacigo_runtime;
+	GRANT SELECT, INSERT, UPDATE ON public.reaplicacion_baja_local TO espacigo_runtime;
 	`)
 	if err != nil {
 		return err

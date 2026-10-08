@@ -1337,7 +1337,8 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	}
 	cleaner := &failOnceEvidenceCleaner{store: store, fail: true}
 	executionNow := h.now
-	api := identityhttp.NewHandlerWithSuppressionClock(h.service, h.repo, nil, privacyService, cleaner, func() time.Time { return executionNow })
+	registryPath := root + "/completed-suppressions-v1.json"
+	api := identityhttp.NewHandlerWithSuppressionClockAndRegistry(h.service, h.repo, nil, privacyService, cleaner, func() time.Time { return executionNow }, registryPath)
 	call := func(session identity.LoginResult, key string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/privacy/suppression-requests/"+request.ID+"/execute", nil)
@@ -1384,9 +1385,18 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	if err := privacyService.RunSuppressionCleanupOnce(h.ctx, func() time.Time { return executionNow }, cleaner); err != nil {
 		t.Fatalf("cleanup worker did not recover pending file work: %v", err)
 	}
-	complete, err := privacyService.ExecuteSuppression(h.ctx, adminID, request.ID, "local-suppression-1", "suppression-correlation", func() time.Time { return executionNow }, cleaner)
-	if err != nil || complete.Status != "completada" || complete.Outcome != "baja_local_con_minimizacion_y_retencion_residual" || !complete.Reused || complete.CompletedAt == nil {
-		t.Fatalf("recovered execution err=%v result=%+v", err, complete)
+	completedResponse := call(adminSession, "local-suppression-1")
+	var complete privacy.SuppressionExecution
+	if completedResponse.Code != http.StatusOK || json.Unmarshal(completedResponse.Body.Bytes(), &complete) != nil || complete.Status != "completada" || complete.Outcome != "baja_local_con_minimizacion_y_retencion_residual" || !complete.Reused || complete.CompletedAt == nil {
+		t.Fatalf("recovered API execution response=%d body=%s result=%+v", completedResponse.Code, completedResponse.Body.String(), complete)
+	}
+	registryInfo, err := os.Stat(registryPath)
+	if err != nil || registryInfo.Mode().Perm() != 0600 {
+		t.Fatalf("API restore registry permissions=%v err=%v", registryInfo, err)
+	}
+	registryBytes, err := os.ReadFile(registryPath)
+	if err != nil || !strings.Contains(string(registryBytes), complete.RequestID) || strings.Contains(string(registryBytes), "suppression-target@ejemplo.invalid") {
+		t.Fatalf("API restore registry contents invalid: err=%v", err)
 	}
 	if _, err := store.Get(h.ctx, evidenceID); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("synthetic blob remains after recovery: %v", err)

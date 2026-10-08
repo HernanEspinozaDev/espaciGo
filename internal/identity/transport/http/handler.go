@@ -17,12 +17,13 @@ import (
 )
 
 type Handler struct {
-	service         *identity.AuthenticationService
-	terms           identity.AuthenticationRepository
-	origins         map[string]bool
-	privacy         *privacy.Service
-	evidenceCleaner privacy.SyntheticEvidenceCleaner
-	now             func() time.Time
+	service                 *identity.AuthenticationService
+	terms                   identity.AuthenticationRepository
+	origins                 map[string]bool
+	privacy                 *privacy.Service
+	evidenceCleaner         privacy.SyntheticEvidenceCleaner
+	suppressionRegistryPath string
+	now                     func() time.Time
 }
 
 func NewHandler(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyServices ...*privacy.Service) http.Handler {
@@ -38,6 +39,23 @@ func NewHandlerWithSuppressionClock(service *identity.AuthenticationService, ter
 	if now != nil {
 		h.now = now
 	}
+	return h
+}
+
+// NewHandlerWithSuppressionRegistry keeps the local restore sidecar current
+// whenever a suppression execution has committed successfully.
+func NewHandlerWithSuppressionRegistry(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyService *privacy.Service, cleaner privacy.SyntheticEvidenceCleaner, registryPath string) http.Handler {
+	h := newHandler(service, terms, origins, cleaner, privacyService).(*Handler)
+	h.suppressionRegistryPath = registryPath
+	return h
+}
+
+func NewHandlerWithSuppressionClockAndRegistry(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyService *privacy.Service, cleaner privacy.SyntheticEvidenceCleaner, now func() time.Time, registryPath string) http.Handler {
+	h := newHandler(service, terms, origins, cleaner, privacyService).(*Handler)
+	if now != nil {
+		h.now = now
+	}
+	h.suppressionRegistryPath = registryPath
 	return h
 }
 
@@ -100,7 +118,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if reviewPath || executePath {
 		expected = http.MethodPost
 	}
-	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true, "/api/v1/profile": true, "/api/v1/rights-requests": true, "/api/v1/privacy/export": true, suppressionQueuePath: true}
+	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true, "/api/v1/profile": true, "/api/v1/rights-requests": true, "/api/v1/privacy/export": true, "/api/v1/privacy/retention/purge": true, suppressionQueuePath: true}
 	if !paths[r.URL.Path] && !reviewPath && !executePath {
 		h.fail(w, 404, "not_found", "Recurso no encontrado.")
 		return
@@ -158,6 +176,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.privacyError(w, err)
 				return
 			}
+			if result.Status == "completada" && h.suppressionRegistryPath != "" {
+				if err := h.privacy.ExportSuppressionReplayManifestToFile(r.Context(), h.suppressionRegistryPath); err != nil {
+					h.fail(w, http.StatusServiceUnavailable, "privacy_replay_registry_unavailable", "La baja se completó, pero el registro local de recuperación requiere reintento.")
+					return
+				}
+			}
 			h.write(w, http.StatusOK, result)
 		} else {
 			review, err := h.privacy.ReviewSuppression(r.Context(), principal.AccountID, requestID, r.Header.Get("Idempotency-Key"), w.Header().Get("X-Request-ID"), h.now)
@@ -167,6 +191,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			h.write(w, http.StatusOK, review)
 		}
+		return
+	}
+	if r.URL.Path == "/api/v1/privacy/retention/purge" {
+		if r.Method != http.MethodPost {
+			h.fail(w, http.StatusMethodNotAllowed, "method_not_allowed", "Método no permitido.")
+			return
+		}
+		if h.privacy == nil {
+			h.fail(w, http.StatusServiceUnavailable, "privacy_unavailable", "Servicio de privacidad no disponible.")
+			return
+		}
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		if _, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), identity.RoleAdministrator, identity.UserOperation); err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		result, err := h.privacy.PurgeExpiredReservationLinks(r.Context(), h.now().UTC(), 100)
+		if err != nil {
+			h.privacyError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, result)
 		return
 	}
 	if r.URL.Path == suppressionQueuePath {

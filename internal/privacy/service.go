@@ -2,9 +2,15 @@ package privacy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 )
@@ -65,6 +71,42 @@ type SuppressionFile struct {
 	EvidenceID  string
 }
 
+// SuppressionReplayEntry is the minimum outside-database record needed to
+// reapply an already completed local suppression after restoring an older
+// backup. It intentionally contains no contact, credential, or token data.
+type SuppressionReplayEntry struct {
+	ExecutionID string    `json:"execution_id"`
+	RequestID   string    `json:"request_id"`
+	AccountID   string    `json:"account_id"`
+	RequestedAt time.Time `json:"requested_at"`
+	CompletedAt time.Time `json:"completed_at"`
+}
+
+type SuppressionReplayManifest struct {
+	Version int                      `json:"version"`
+	Entries []SuppressionReplayEntry `json:"entries"`
+}
+
+type RetentionPurgeResult struct {
+	Scanned  int `json:"scanned"`
+	Purged   int `json:"purged"`
+	Deferred int `json:"deferred"`
+}
+
+type SuppressionReplayResult struct {
+	ExecutionID string `json:"execution_id"`
+	AccountID   string `json:"account_id"`
+	Status      string `json:"status"`
+	Reused      bool   `json:"reused"`
+}
+
+type LocalPrivacyOperationsRepository interface {
+	PurgeExpiredReservationLinks(context.Context, time.Time, int) (RetentionPurgeResult, error)
+	ExportCompletedSuppressions(context.Context) (SuppressionReplayManifest, error)
+	PrepareSuppressionReplay(context.Context, SuppressionReplayEntry, string, string, time.Time) (requestID, operationKey, status string, reused bool, err error)
+	FinishSuppressionReplay(context.Context, SuppressionReplayEntry, string, string, string, time.Time) error
+}
+
 type SuppressionExecutionRepository interface {
 	ExecuteSuppression(context.Context, string, string, string, string, func() time.Time) (SuppressionExecution, error)
 	PendingSuppressionFiles(context.Context, string, time.Time) ([]SuppressionFile, error)
@@ -123,6 +165,8 @@ type Repository interface {
 }
 
 type Service struct{ repo Repository }
+
+var suppressionRegistryWriteMu sync.Mutex
 
 func NewService(repo Repository) (*Service, error) {
 	if repo == nil {
@@ -272,19 +316,250 @@ func (s *Service) RunSuppressionCleanupOnce(ctx context.Context, now func() time
 	return nil
 }
 
-func (s *Service) RunSuppressionCleanupWorker(ctx context.Context, interval time.Duration, cleaner SyntheticEvidenceCleaner) {
+func (s *Service) RunSuppressionCleanupWorker(ctx context.Context, interval time.Duration, cleaner SyntheticEvidenceCleaner, replayRegistryPath ...string) {
 	if interval <= 0 {
 		interval = time.Minute
 	}
+	process := func() {
+		_ = s.RunSuppressionCleanupOnce(ctx, time.Now, cleaner)
+		if len(replayRegistryPath) > 0 && replayRegistryPath[0] != "" {
+			_ = s.ExportSuppressionReplayManifestToFile(ctx, replayRegistryPath[0])
+		}
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	_ = s.RunSuppressionCleanupOnce(ctx, time.Now, cleaner)
+	process()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = s.RunSuppressionCleanupOnce(ctx, time.Now, cleaner)
+			process()
 		}
 	}
+}
+
+func (s *Service) RunReservationRetentionWorker(ctx context.Context, interval time.Duration, batchSize int) {
+	if interval <= 0 {
+		interval = time.Hour
+	}
+	if batchSize <= 0 || batchSize > 500 {
+		batchSize = 100
+	}
+	process := func() { _, _ = s.PurgeExpiredReservationLinks(ctx, time.Now().UTC(), batchSize) }
+	process()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			process()
+		}
+	}
+}
+
+// PurgeExpiredReservationLinks performs one bounded local-retention pass. The
+// repository rechecks deadlines and obligations while holding the participant
+// account locks and reservation row lock.
+func (s *Service) PurgeExpiredReservationLinks(ctx context.Context, now time.Time, limit int) (RetentionPurgeResult, error) {
+	repo, ok := s.repo.(LocalPrivacyOperationsRepository)
+	if !ok || limit < 1 || limit > 500 {
+		return RetentionPurgeResult{}, ErrInvalid
+	}
+	return repo.PurgeExpiredReservationLinks(ctx, now.UTC(), limit)
+}
+
+func (s *Service) ExportSuppressionReplayManifest(ctx context.Context) (SuppressionReplayManifest, error) {
+	repo, ok := s.repo.(LocalPrivacyOperationsRepository)
+	if !ok {
+		return SuppressionReplayManifest{}, errors.New("privacy: replay export unavailable")
+	}
+	return repo.ExportCompletedSuppressions(ctx)
+}
+
+// ExportSuppressionReplayManifestWithFile merges database executions with the
+// existing external registry. This is essential after restoring an older
+// database: its export is a subset of the still-authoritative sidecar.
+func (s *Service) ExportSuppressionReplayManifestWithFile(ctx context.Context, path string) (SuppressionReplayManifest, error) {
+	manifest, err := s.ExportSuppressionReplayManifest(ctx)
+	if err != nil || path == "" {
+		return manifest, err
+	}
+	external, err := readSuppressionReplayManifest(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return manifest, nil
+	}
+	if err != nil {
+		return SuppressionReplayManifest{}, err
+	}
+	return mergeSuppressionReplayManifests(manifest, external)
+}
+
+func readSuppressionReplayManifest(path string) (SuppressionReplayManifest, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return SuppressionReplayManifest{}, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 16<<20 {
+		return SuppressionReplayManifest{}, ErrInvalid
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return SuppressionReplayManifest{}, err
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(io.LimitReader(file, 16<<20))
+	decoder.DisallowUnknownFields()
+	var manifest SuppressionReplayManifest
+	if err := decoder.Decode(&manifest); err != nil {
+		return SuppressionReplayManifest{}, ErrInvalid
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF || manifest.Version != 1 {
+		return SuppressionReplayManifest{}, ErrInvalid
+	}
+	for _, entry := range manifest.Entries {
+		if entry.ExecutionID == "" || entry.RequestID == "" || entry.AccountID == "" || entry.RequestedAt.IsZero() || entry.CompletedAt.IsZero() {
+			return SuppressionReplayManifest{}, ErrInvalid
+		}
+	}
+	return manifest, nil
+}
+
+func mergeSuppressionReplayManifests(manifests ...SuppressionReplayManifest) (SuppressionReplayManifest, error) {
+	merged := SuppressionReplayManifest{Version: 1, Entries: []SuppressionReplayEntry{}}
+	byID := make(map[string]SuppressionReplayEntry)
+	for _, manifest := range manifests {
+		if manifest.Version != 1 {
+			return SuppressionReplayManifest{}, ErrInvalid
+		}
+		for _, entry := range manifest.Entries {
+			if entry.ExecutionID == "" || entry.RequestID == "" || entry.AccountID == "" || entry.RequestedAt.IsZero() || entry.CompletedAt.IsZero() {
+				return SuppressionReplayManifest{}, ErrInvalid
+			}
+			if prior, exists := byID[entry.ExecutionID]; exists {
+				if prior.RequestID != entry.RequestID || prior.AccountID != entry.AccountID || !prior.RequestedAt.Equal(entry.RequestedAt) || !prior.CompletedAt.Equal(entry.CompletedAt) {
+					return SuppressionReplayManifest{}, ErrInvalid
+				}
+				continue
+			}
+			byID[entry.ExecutionID] = entry
+		}
+	}
+	for _, entry := range byID {
+		merged.Entries = append(merged.Entries, entry)
+	}
+	sort.Slice(merged.Entries, func(i, j int) bool {
+		if merged.Entries[i].CompletedAt.Equal(merged.Entries[j].CompletedAt) {
+			return merged.Entries[i].ExecutionID < merged.Entries[j].ExecutionID
+		}
+		return merged.Entries[i].CompletedAt.Before(merged.Entries[j].CompletedAt)
+	})
+	if len(merged.Entries) > 10000 {
+		return SuppressionReplayManifest{}, ErrInvalid
+	}
+	return merged, nil
+}
+
+// ExportSuppressionReplayManifestToFile refreshes a mode-0600 sidecar outside
+// PostgreSQL/pgdata. The atomic replacement lets a local database restore keep
+// a registry of completed synthetic suppressions to reapply.
+func (s *Service) ExportSuppressionReplayManifestToFile(ctx context.Context, path string) error {
+	if path == "" || !filepath.IsAbs(path) {
+		return ErrInvalid
+	}
+	suppressionRegistryWriteMu.Lock()
+	defer suppressionRegistryWriteMu.Unlock()
+	manifest, err := s.ExportSuppressionReplayManifestWithFile(ctx, path)
+	if err != nil {
+		return err
+	}
+	encoded, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	encoded = append(encoded, '\n')
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return ErrInvalid
+	}
+	if err := os.Chmod(dir, 0700); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(dir, ".privacy-replay-*.tmp")
+	if err != nil {
+		return err
+	}
+	temporaryName := temporary.Name()
+	defer func() { _ = os.Remove(temporaryName) }()
+	if err := temporary.Chmod(0600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(encoded); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryName, path); err != nil {
+		return err
+	}
+	directory, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
+}
+
+// ReplaySuppressionManifest reapplies only source executions that had already
+// completed. A restored snapshot may contain older obligations; the normal
+// execution path still rechecks them before changing the restored database.
+func (s *Service) ReplaySuppressionManifest(ctx context.Context, manifest SuppressionReplayManifest, restoreID, actorID string, now time.Time, cleaner SyntheticEvidenceCleaner) ([]SuppressionReplayResult, error) {
+	repo, ok := s.repo.(LocalPrivacyOperationsRepository)
+	if !ok || manifest.Version != 1 || restoreID == "" || actorID == "" || len(manifest.Entries) > 10000 {
+		return nil, ErrInvalid
+	}
+	results := make([]SuppressionReplayResult, 0, len(manifest.Entries))
+	for _, entry := range manifest.Entries {
+		if entry.ExecutionID == "" || entry.RequestID == "" || entry.AccountID == "" || entry.RequestedAt.IsZero() || entry.CompletedAt.IsZero() {
+			return results, ErrInvalid
+		}
+		requestID, key, status, reused, err := repo.PrepareSuppressionReplay(ctx, entry, restoreID, actorID, now.UTC())
+		if err != nil {
+			return results, err
+		}
+		if status == "reaplicada" || status == "ya_presente" {
+			results = append(results, SuppressionReplayResult{ExecutionID: entry.ExecutionID, AccountID: entry.AccountID, Status: status, Reused: true})
+			continue
+		}
+		outcome, err := s.ExecuteSuppression(ctx, actorID, requestID, key, "restore:"+restoreID, func() time.Time { return entry.CompletedAt.UTC() }, cleaner)
+		if err != nil {
+			return results, err
+		}
+		resultStatus := "pendiente"
+		if outcome.Status == "completada" {
+			resultStatus = "reaplicada"
+		}
+		if err := repo.FinishSuppressionReplay(ctx, entry, restoreID, key, resultStatus, now.UTC()); err != nil {
+			return results, err
+		}
+		results = append(results, SuppressionReplayResult{ExecutionID: entry.ExecutionID, AccountID: entry.AccountID, Status: resultStatus, Reused: reused || outcome.Reused})
+	}
+	return results, nil
 }
