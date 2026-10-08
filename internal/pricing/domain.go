@@ -2,6 +2,7 @@ package pricing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"regexp"
@@ -10,6 +11,12 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/calendar"
 )
+
+// ArchiveSectionRepository exports owner-scoped rate revisions and private
+// simulation snapshots without consulting or changing availability.
+type ArchiveSectionRepository interface {
+	ExportOwnArchiveSections(context.Context, string) (map[string]json.RawMessage, error)
+}
 
 var (
 	ErrInvalid  = errors.New("pricing: invalid request")

@@ -47,3 +47,31 @@ test("does not surface a stale export failure after the session changes", async 
   assert.equal(await operation, false);
   assert.equal(delivered, 0);
 });
+
+test("delivers ZIP bytes only to the session that requested the archive", async () => {
+  const context = capturePrivacyExportContext("account-a", "token-a", 11);
+  assert.ok(context);
+  const zipBytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x01]);
+  let current = {accountID:"account-a", sessionToken:"token-a", generation:11};
+  let delivered = null;
+  const result = await deliverPrivacyExportIfCurrent(
+    context,
+    async () => new Blob([zipBytes], {type:"application/zip"}),
+    captured => privacyExportSessionMatches(captured,current.accountID,current.sessionToken,current.generation),
+    value => { delivered = value; },
+  );
+  assert.equal(result,true);
+  assert.equal(delivered.type,"application/zip");
+  assert.deepEqual([...new Uint8Array(await delivered.arrayBuffer())],[...zipBytes]);
+
+  current = {accountID:"account-b",sessionToken:"token-b",generation:12};
+  let staleDelivery = 0;
+  const stale = await deliverPrivacyExportIfCurrent(
+    context,
+    async () => new Blob([zipBytes],{type:"application/zip"}),
+    captured => privacyExportSessionMatches(captured,current.accountID,current.sessionToken,current.generation),
+    () => { staleDelivery++; },
+  );
+  assert.equal(stale,false);
+  assert.equal(staleDelivery,0);
+});

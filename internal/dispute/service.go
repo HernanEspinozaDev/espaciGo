@@ -3,11 +3,18 @@ package dispute
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
 	"time"
 )
+
+// ArchiveSectionRepository provides only participant-owned dispute facts and
+// actor labels, never participant identifiers.
+type ArchiveSectionRepository interface {
+	ExportOwnArchiveSections(context.Context, string) (map[string]json.RawMessage, error)
+}
 
 var (
 	ErrInvalid  = errors.New("dispute: invalid input")

@@ -259,6 +259,28 @@ paths:
         '200': { description: Exportación propia local., content: { application/json: { schema: { $ref: '#/components/schemas/OwnIdentityExport' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { description: Cuenta propia no encontrada. }
+  /privacy/export/archive:
+    get:
+      operationId: downloadCompleteOwnDataArchive
+      tags: [M02 local]
+      description: >-
+        Devuelve un ZIP descargable versionado con los datos propios actualmente implementados,
+        un manifiesto de secciones/archivos/exclusiones y archivos sintéticos propios disponibles.
+        Requiere sesión vigente y sigue disponible aunque una solicitud de supresión esté bloqueada.
+        No incluye credenciales, tokens, datos personales de otros participantes, mensajes ajenos,
+        payloads de adaptadores ni información administrativa restringida. Cada módulo produce
+        una proyección de lectura acotada; la exportación no modifica datos.
+      responses:
+        '200':
+          description: Archivo ZIP propio local.
+          headers:
+            Content-Disposition: { schema: { type: string }, description: Nombre de descarga del ZIP. }
+            Cache-Control: { schema: { type: string }, description: no-store. }
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Cuenta propia no encontrada. }
   /privacy/suppression-requests/{request_id}/review:
     post:
       operationId: reviewLocalSuppressionBlockers

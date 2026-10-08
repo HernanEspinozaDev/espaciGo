@@ -147,14 +147,14 @@ func (r *IdentityRepository) ExportOwnData(ctx context.Context, accountID string
 	}
 
 	data.Requests = []privacy.RightsRequest{}
-	rows, err = tx.Query(ctx, `SELECT id::text, tipo, estado, solicitada_en
+	rows, err = tx.Query(ctx, `SELECT id::text, tipo, estado, solicitada_en, resuelta_en, motivo_resolucion_codigo
 		FROM public.solicitud_titular WHERE usuario_id=$1 ORDER BY solicitada_en, id`, accountID)
 	if err != nil {
 		return privacy.OwnData{}, mapError(err)
 	}
 	for rows.Next() {
 		var item privacy.RightsRequest
-		if err := rows.Scan(&item.ID, &item.Kind, &item.State, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.State, &item.CreatedAt, &item.ResolvedAt, &item.DecisionCode); err != nil {
 			rows.Close()
 			return privacy.OwnData{}, mapError(err)
 		}

@@ -1,9 +1,12 @@
 package privacy
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,8 +19,9 @@ import (
 )
 
 var (
-	ErrInvalid  = errors.New("invalid privacy input")
-	ErrNotFound = errors.New("privacy resource not found")
+	ErrInvalid           = errors.New("invalid privacy input")
+	ErrNotFound          = errors.New("privacy resource not found")
+	ErrExportUnavailable = errors.New("complete owner export unavailable")
 )
 
 type Profile struct {
@@ -28,10 +32,12 @@ type Profile struct {
 }
 
 type RightsRequest struct {
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind"`
-	State     string    `json:"state"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           string     `json:"id"`
+	Kind         string     `json:"kind"`
+	State        string     `json:"state"`
+	CreatedAt    time.Time  `json:"created_at"`
+	ResolvedAt   *time.Time `json:"resolved_at,omitempty"`
+	DecisionCode *string    `json:"decision_code,omitempty"`
 }
 
 // SuppressionReview reports only structured obligation codes. It never executes
@@ -137,6 +143,41 @@ type OwnData struct {
 	Scope       string            `json:"scope"`
 }
 
+// CompleteOwnData is the versioned local archive contract. Domain adapters
+// provide already-sanitized sections; the archive layer never queries tables.
+type CompleteOwnData struct {
+	SchemaVersion int                        `json:"schema_version"`
+	ExportedAt    time.Time                  `json:"exported_at"`
+	Identity      OwnData                    `json:"identity"`
+	Sections      map[string]json.RawMessage `json:"sections"`
+}
+
+type ExportFile struct {
+	Name        string `json:"name"`
+	MediaType   string `json:"media_type"`
+	Description string `json:"description"`
+	Content     []byte `json:"-"`
+}
+
+type ExportManifest struct {
+	SchemaVersion int              `json:"schema_version"`
+	DataFile      string           `json:"data_file"`
+	Sections      []string         `json:"sections"`
+	Files         []ExportFileInfo `json:"files"`
+	Exclusions    []string         `json:"exclusions"`
+	ExportedAt    time.Time        `json:"exported_at"`
+}
+
+type ExportFileInfo struct {
+	Name        string `json:"name"`
+	MediaType   string `json:"media_type"`
+	Description string `json:"description"`
+}
+
+type CompleteExportRepository interface {
+	ExportAdditionalOwnData(context.Context, string) (map[string]json.RawMessage, []ExportFile, []string, error)
+}
+
 type ExportAccount struct {
 	Email         string    `json:"email"`
 	State         string    `json:"state"`
@@ -164,15 +205,23 @@ type Repository interface {
 	ExportOwnData(context.Context, string) (OwnData, error)
 }
 
-type Service struct{ repo Repository }
+type Service struct {
+	repo     Repository
+	complete CompleteExportRepository
+	now      func() time.Time
+}
 
 var suppressionRegistryWriteMu sync.Mutex
 
-func NewService(repo Repository) (*Service, error) {
+func NewService(repo Repository, complete ...CompleteExportRepository) (*Service, error) {
 	if repo == nil {
 		return nil, ErrInvalid
 	}
-	return &Service{repo: repo}, nil
+	s := &Service{repo: repo, now: time.Now}
+	if len(complete) > 0 {
+		s.complete = complete[0]
+	}
+	return s, nil
 }
 
 func (s *Service) Profile(ctx context.Context, accountID string) (Profile, error) {
@@ -222,6 +271,98 @@ func (s *Service) ExportOwnData(ctx context.Context, accountID string) (OwnData,
 		return OwnData{}, ErrInvalid
 	}
 	return s.repo.ExportOwnData(ctx, accountID)
+}
+
+// ExportOwnArchive builds a versioned, read-only ZIP for the authenticated
+// principal. Each module owns its projection and returns only admitted fields.
+func (s *Service) ExportOwnArchive(ctx context.Context, accountID string) ([]byte, error) {
+	if accountID == "" {
+		return nil, ErrInvalid
+	}
+	if s.complete == nil {
+		return nil, ErrExportUnavailable
+	}
+	identity, err := s.repo.ExportOwnData(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	// Authorization roles are operational permissions, not part of this
+	// personal-data archive and may reveal restricted administrative access.
+	identity.Roles = []string{}
+	sections := map[string]json.RawMessage{}
+	files := []ExportFile{}
+	exclusions := []string{
+		"credenciales, hashes, sesiones, tokens y secretos",
+		"IDs personales y datos de contacto de otras cuentas",
+		"mensajes escritos por otras cuentas",
+		"texto libre compartido de condiciones e historial que podría contener datos personales de terceros",
+		"payloads internos de adaptadores/proveedores, roles operativos y registros administrativos restringidos",
+		"dominios aún no implementados en el prototipo local",
+	}
+	var moreFiles []ExportFile
+	var moreExclusions []string
+	sections, moreFiles, moreExclusions, err = s.complete.ExportAdditionalOwnData(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, moreFiles...)
+	exclusions = append(exclusions, moreExclusions...)
+	if sections == nil {
+		sections = map[string]json.RawMessage{}
+	}
+	data := CompleteOwnData{SchemaVersion: 1, ExportedAt: s.now().UTC(), Identity: identity, Sections: sections}
+	dataJSON, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode export data: %w", err)
+	}
+	manifest := ExportManifest{SchemaVersion: 1, DataFile: "data.json", Sections: []string{"identity"}, Files: []ExportFileInfo{}, Exclusions: exclusions, ExportedAt: data.ExportedAt}
+	for section := range sections {
+		manifest.Sections = append(manifest.Sections, section)
+	}
+	sort.Strings(manifest.Sections)
+	sort.Strings(manifest.Exclusions)
+	for _, file := range files {
+		manifest.Files = append(manifest.Files, ExportFileInfo{Name: file.Name, MediaType: file.MediaType, Description: file.Description})
+	}
+	sort.Slice(manifest.Files, func(i, j int) bool { return manifest.Files[i].Name < manifest.Files[j].Name })
+	manifestJSON, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode export manifest: %w", err)
+	}
+	var archive bytes.Buffer
+	w := zip.NewWriter(&archive)
+	for _, entry := range []struct {
+		name string
+		body []byte
+	}{{"manifest.json", manifestJSON}, {"data.json", dataJSON}} {
+		f, e := w.Create(entry.name)
+		if e != nil {
+			return nil, e
+		}
+		if _, e = f.Write(entry.body); e != nil {
+			return nil, e
+		}
+	}
+	for _, file := range files {
+		if !safeExportFileName(file.Name) {
+			return nil, ErrInvalid
+		}
+		f, e := w.Create(file.Name)
+		if e != nil {
+			return nil, e
+		}
+		if _, e = f.Write(file.Content); e != nil {
+			return nil, e
+		}
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return archive.Bytes(), nil
+}
+
+func safeExportFileName(name string) bool {
+	return strings.HasPrefix(name, "files/") && !strings.Contains(name, "..") && !strings.HasPrefix(name, "/")
 }
 
 func (s *Service) ReviewSuppression(ctx context.Context, reviewerID, requestID, idempotencyKey, correlationID string, now func() time.Time) (SuppressionReview, error) {

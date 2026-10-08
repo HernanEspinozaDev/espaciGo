@@ -2,9 +2,16 @@ package conversation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 )
+
+// ArchiveSectionRepository exports only messages authored by the participant
+// and that participant's own read cursor; it never returns counterpart text.
+type ArchiveSectionRepository interface {
+	ExportOwnArchiveSections(context.Context, string) (map[string]json.RawMessage, error)
+}
 
 var (
 	ErrInvalid    = errors.New("conversation: invalid request")
