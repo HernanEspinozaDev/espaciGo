@@ -544,7 +544,7 @@ paths:
     get:
       operationId: listOwnSyntheticEligibility
       tags: [M03 local]
-      description: Elegibilidad local derivada de aprobación sintética vigente, persistida por tipo; no modifica roles ni acredita identidad real.
+      description: Elegibilidad efectiva derivada de aprobación sintética vigente. Devuelve falso para cuenta inactiva o caso retirado; KYC y KYB no se sustituyen ni modifican roles. El ZIP propio incluye elegibilidad e historial.
       responses:
         '200': { description: Estado local KYC/KYB por separado., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationEligibilityList' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -1208,7 +1208,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       operationId: requestLocalTrialReservation
-      description: Revalida el horario semanal vigente y la ocupación dentro de la transacción. Una cotización que ya no cabe produce conflicto sin crear reserva ni retención. El cambio de horario no modifica reservas ni historiales previos.
+      description: Revalida horario, ocupación y elegibilidad KYC sintética de anfitrión y arrendatario dentro de la transacción. La falta de KYC, una cotización que ya no cabe u ocupación incompatible producen conflicto sin crear reserva ni retención. El cambio de elegibilidad no modifica reservas ni historiales previos.
       tags: [M06 local]
       parameters:
         - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
@@ -2257,7 +2257,7 @@ components:
             required: [sequence, action, to_state, occurred_at]
             properties:
               sequence: { type: integer, format: int64 }
-              action: { type: string, enum: [solicitada, revision_aprobada, revision_rechazada, subsanacion_solicitada, elegibilidad_revocada, estado_observado_en_migracion] }
+              action: { type: string, enum: [solicitada, revision_aprobada, revision_rechazada, subsanacion_solicitada, elegibilidad_revocada, elegibilidad_retirada_privacidad, estado_observado_en_migracion] }
               from_state: { type: string }
               to_state: { type: string, enum: [en_revision, aprobada, rechazada, revocada, retirada_privacidad] }
               reason_code: { type: string }

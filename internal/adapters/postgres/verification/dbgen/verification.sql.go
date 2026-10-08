@@ -472,13 +472,16 @@ func (q *Queries) ListRejectedVerifications(ctx context.Context) ([]ListRejected
 
 const listSyntheticEligibility = `-- name: ListSyntheticEligibility :many
 SELECT kinds.tipo AS type,
-       COALESCE(e.estado='elegible',false) AS eligible,
+       COALESCE(e.estado='elegible' AND verification.estado='aprobada' AND owner.estado='activo',false) AS eligible,
        COALESCE(e.verificacion_id::text,'') AS verification_id,
        e.concedida_en AS granted_at, e.revocada_en AS revoked_at,
        COALESCE(e.motivo_revocacion_codigo,'') AS revocation_reason
 FROM unnest(ARRAY['kyc','kyb']::text[]) AS kinds(tipo)
 LEFT JOIN public.elegibilidad_verificacion_local e
   ON e.usuario_id=$1 AND e.tipo=kinds.tipo
+LEFT JOIN public.verificacion verification
+  ON verification.id=e.verificacion_id AND verification.usuario_id=e.usuario_id AND verification.tipo=e.tipo
+LEFT JOIN public.usuario owner ON owner.id=e.usuario_id
 ORDER BY kinds.tipo
 `
 

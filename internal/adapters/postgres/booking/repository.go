@@ -318,6 +318,9 @@ func (r *Repository) Create(ctx context.Context, renter, quoteID, key string, fi
 	if err = lockActiveAccounts(ctx, tx, renter, quoteHost); err != nil {
 		return booking.Reservation{}, err
 	}
+	if err = requireLocalKYCEligibility(ctx, tx, renter, quoteHost); err != nil {
+		return booking.Reservation{}, err
+	}
 	// Match the row lock used by UpdateOwn before validating the quoted tariff.
 	// Keeping this lock through commit makes the tariff check and occupancy
 	// creation serializable with a concurrent tariff update.

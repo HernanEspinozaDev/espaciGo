@@ -296,6 +296,54 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	svc.SetLocalRefundAdapter(paymentAdapter)
 	noticeRecorder := &localNoticeRecorder{}
 	svc.SetLocalNoticeSender(noticeRecorder)
+	// New reservations require an effective KYC approval from both participants.
+	// The test first omits each side in turn and checks no reservation or hold is
+	// left behind, then seeds the approvals used by the rest of this lifecycle.
+	seedKYC := func(account string) string {
+		t.Helper()
+		var verificationID string
+		if err := setup.QueryRow(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,proveedor_ref,referencia_evidencia,clave_idempotencia,revisor_id,creada_en,resuelta_en)
+			VALUES(gen_random_uuid(),$1,'kyc','aprobada','local-fixture-v1','fixture:'||gen_random_uuid()::text,$2,$3,$4,$4) RETURNING id::text`, account, "booking-kyc-"+account, outsider, fixedNow.Add(-time.Hour)).Scan(&verificationID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := setup.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',$3)`, account, verificationID, fixedNow.Add(-time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		return verificationID
+	}
+	hostKYC := seedKYC(host)
+	missingRenterQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: fixedNow.Add(24 * time.Hour).Format(time.RFC3339), EndAt: fixedNow.Add(25 * time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Request(ctx, renter, booking.RequestInput{QuoteID: missingRenterQuote.ID}, "missing-renter-kyc"); err != booking.ErrConflict {
+		t.Fatalf("reservation without renter KYC err=%v, want conflict", err)
+	}
+	renterKYC := seedKYC(renter)
+	if _, err = setup.Exec(ctx, `DELETE FROM public.elegibilidad_verificacion_local WHERE usuario_id=$1 AND tipo='kyc'`, host); err != nil {
+		t.Fatal(err)
+	}
+	missingHostQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: fixedNow.Add(26 * time.Hour).Format(time.RFC3339), EndAt: fixedNow.Add(27 * time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Request(ctx, renter, booking.RequestInput{QuoteID: missingHostQuote.ID}, "missing-host-kyc"); err != booking.ErrConflict {
+		t.Fatalf("reservation without host KYC err=%v, want conflict", err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',$3)`, host, hostKYC, fixedNow.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var rejectedRows, rejectedKYCQuoteOccupancies int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=ANY($1::uuid[])`, []string{missingRenterQuote.ID, missingHostQuote.ID}).Scan(&rejectedRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE activo AND reserva_id IN (SELECT id FROM public.reserva_ensayo_local WHERE cotizacion_id=ANY($1::uuid[]))`, []string{missingRenterQuote.ID, missingHostQuote.ID}).Scan(&rejectedKYCQuoteOccupancies); err != nil {
+		t.Fatal(err)
+	}
+	if rejectedRows != 0 || rejectedKYCQuoteOccupancies != 0 {
+		t.Fatalf("KYC rejection left partial reservation/occupancy=%d/%d", rejectedRows, rejectedKYCQuoteOccupancies)
+	}
+	_ = renterKYC
 	// Persist two genuinely adjacent reservations, then exercise the database
 	// exclusion constraint directly through the runtime role and its public
 	// HTTP conflict translation. Offered selector slots alone do not prove the
@@ -1689,6 +1737,11 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		time.Sleep(10 * time.Millisecond)
 	}
 	if !requestWaitingOnSpace {
+		select {
+		case earlyErr := <-raceResult:
+			t.Fatalf("request finished before acquiring the held space-row lock: %v", earlyErr)
+		default:
+		}
 		t.Fatal("request did not wait for the held space-row lock")
 	}
 	if err = raceTx.Commit(ctx); err != nil {

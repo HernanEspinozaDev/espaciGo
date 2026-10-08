@@ -52,24 +52,24 @@ func TestVerificationRepositoryOwnershipIdempotencyReviewAndRetry(t *testing.T) 
 	parsed.Path = "/" + database
 	testURL := parsed.String()
 	migrationRoot := "../../../../db/migrations"
-	preV28 := t.TempDir()
+	preV27 := t.TempDir()
 	migrationFiles, err := os.ReadDir(migrationRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, file := range migrationFiles {
-		if file.Name() == "V000028__local_kyc_eligibility_and_history.sql" {
+		if file.Name() == "V000028__local_kyc_eligibility_and_history.sql" || file.Name() == "V000029__local_privacy_kyc_eligibility.sql" {
 			continue
 		}
 		contents, readErr := os.ReadFile(filepath.Join(migrationRoot, file.Name()))
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
-		if writeErr := os.WriteFile(filepath.Join(preV28, file.Name()), contents, 0o600); writeErr != nil {
+		if writeErr := os.WriteFile(filepath.Join(preV27, file.Name()), contents, 0o600); writeErr != nil {
 			t.Fatal(writeErr)
 		}
 	}
-	if _, err := migrator.Run(ctx, testURL, preV28); err != nil {
+	if _, err := migrator.Run(ctx, testURL, preV27); err != nil {
 		t.Fatal(err)
 	}
 	migrationConn, err := pgx.Connect(ctx, testURL)

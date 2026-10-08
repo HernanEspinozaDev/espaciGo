@@ -20,10 +20,12 @@ La corrección de un rechazo se limita al código correspondiente: `documento_ve
 
 Los reintentos anteriores a V28 no contenían el código de corrección. La migración los conserva con `legado_pre_v28_sin_codigo`; ese marcador documenta la ausencia histórica y no se acepta para crear un reintento nuevo.
 
-## Dependencia aún por resolver
+## Mapeo ratificado e integración por corte
 
-La relación entre el tipo KYC/KYB y cada operación comercial requiere una regla de producto. La implementación mantiene una interfaz de elegibilidad por tipo y **no cablea aún los gates de publicación/reserva** hasta ratificar esa asignación. El modelo actual no tiene una relación de cuenta con entidad empresa que permita inferirla. La publicación general de M04 y los requisitos transaccionales generales de M06 siguen abiertos. No usar el tipo de preferencia de identidad como sustituto.
+El 2026-10-08 se ratificó que las cuentas personales actuales requieren KYC sintético aprobado para nuevas publicaciones y reservas. KYB no sustituye KYC en este recorrido y no se requieren ambos tipos. La elegibilidad no concede roles. La solicitud de reserva revalida KYC vigente para anfitrión y arrendatario dentro de la transacción, después de bloquear ambas cuentas; aprobación y baja usan el mismo bloqueo. Una baja efectiva retira la elegibilidad en esa misma transacción, registra historial y conserva los vencimientos terminales originales.
+
+El ciclo general de publicación aún no tiene endpoint de publicación en M04. Su gate queda registrado como dependencia de LOCAL-LIST/M04; este PR no implementa ese módulo entero ni presume que el borrador esté publicado. #45/#48–#50 siguen abiertos mientras falten los criterios del módulo y la conexión del gate de publicación.
 
 ## Pendientes
 
-Notificación de resultado KYC en un outbox de dominio aún no está implementada; Mailpit/proveedor y la notificación durable ratificada en AUTH aplican al cambio de credenciales, no se atribuyen a esta revisión. La integración, consentimiento y retención productivos permanecen en #142. Los criterios generales de #45 y #48–#50 continúan abiertos.
+Notificación de resultado KYC en un outbox de dominio aún no está implementada; Mailpit/proveedor y la notificación durable ratificada en AUTH aplican al cambio de credenciales, no se atribuyen a esta revisión. La elegibilidad y el historial derivado siguen el vencimiento original de metadata KYC, dos años desde el estado terminal; la baja los retira sin reiniciar la fecha. El ZIP propio incluye verificación, historial y elegibilidad efectiva sin identificar al revisor. La purga física coordinada al vencimiento sigue pendiente en el cierre de privacidad. La integración, consentimiento y retención productivos permanecen en #142. Los criterios generales de #45 y #48–#50 continúan abiertos.
