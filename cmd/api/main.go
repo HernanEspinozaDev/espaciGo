@@ -34,6 +34,7 @@ import (
 	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/health"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
@@ -116,6 +117,7 @@ func run() error {
 	var localPaymentService *booking.Service
 	var localIdentityService *identity.AuthenticationService
 	var localPrivacyService *privacy.Service
+	var localM02Service *m02local.Service
 	var privacyReplayRegistryPath string
 	var privacyEvidenceCleaner privacy.SyntheticEvidenceCleaner
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
@@ -153,6 +155,15 @@ func run() error {
 			return errors.New("local verification initialization failed")
 		}
 		privacyEvidenceCleaner = evidenceStore
+		m02Service, err := m02local.New(pool, evidenceStore, time.Now)
+		if err != nil {
+			return errors.New("local M02 initialization failed")
+		}
+		localM02Service = m02Service
+		m02Handler := m02local.NewHandler(service, m02Service, cfg.allowedOrigins)
+		mux.Handle("/api/v1/profile/photo", m02Handler)
+		mux.Handle("/api/v1/profile/photo/", m02Handler)
+		mux.Handle("/api/v1/payout-account", m02Handler)
 		mux.Handle("/api/v1/", identityhttp.NewHandlerWithSuppressionRegistry(service, repo, cfg.allowedOrigins, privacyService, evidenceStore, privacyReplayRegistryPath))
 		evidenceService, err := verification.NewEvidenceService(verificationRepository, verificationRepository, evidenceStore, credentials.Generator{}, time.Now)
 		if err != nil {
@@ -245,6 +256,20 @@ func run() error {
 	}
 	if localPrivacyService != nil {
 		go localPrivacyService.RunSuppressionCleanupWorker(ctx, 10*time.Second, privacyEvidenceCleaner, privacyReplayRegistryPath)
+		if localM02Service != nil {
+			go func() {
+				ticker := time.NewTicker(15 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						_ = localM02Service.CleanRetiredPhotos(ctx, 20)
+					}
+				}
+			}()
+		}
 		go localPrivacyService.RunReservationRetentionWorker(ctx, time.Hour, 100)
 	}
 	select {

@@ -6,7 +6,7 @@ Fecha inicial: 2026-10-07; conciliado con `main` #199 el 2026-10-08. Complementa
 
 - `LOCAL-*` identifica paquetes de cierre. Tipo `VERTICAL` agrupa las etapas ARCH → DB → BE → API → TEST → MOCK de las tarjetas originales para evitar un PR por etapa. No sustituye la trazabilidad de esas tarjetas.
 - Reutilizar las Issues originales; crear un hijo local cuando sea necesario distinguir criterios locales de proveedores/GCP o ampliar una entrega ya cerrada. LOCAL-KYC-01 es Issue #200 y subissue de #45, relacionada con #48–#50. No importar de nuevo el backlog Hermes.
-- LOCAL-PLAN-01, LOCAL-CORE-01 y LOCAL-AUTH-01 cuentan con entregas aceptadas (#181/#180/#182). LOCAL-BOOK-01 también fue aceptada (#177). LOCAL-PRIV-01 permanece parcial con cortes #186/#192/#194/#196/#198 aceptados. LOCAL-KYC-01 (#200) está En curso; KYC para nuevas reservas personales de anfitrión y arrendatario está implementado. El gate de publicación queda como dependencia explícita de LOCAL-LIST/M04, porque su endpoint aún no existe. El resto de los paquetes no cambia por sí mismo Issues ni Projects.
+- LOCAL-PLAN-01, LOCAL-CORE-01 y LOCAL-AUTH-01 cuentan con entregas aceptadas (#181/#180/#182). LOCAL-BOOK-01 también fue aceptada (#177). LOCAL-PRIV-01 permanece parcial con cortes #186/#192/#194/#196/#198 aceptados; #202 (LOCAL-M02-01) añade foto PNG sintética y referencia de cobro fake, sin cerrar el padre. LOCAL-KYC-01 (#200) fue aceptada y cerrada tras PR #201; KYC para nuevas reservas personales de anfitrión y arrendatario está implementado. El gate de publicación queda como dependencia explícita de LOCAL-LIST/M04, porque su endpoint aún no existe. El resto de los paquetes no cambia por sí mismo Issues ni Projects.
 - Una dependencia significa contrato/entrega aceptada y disponible en la rama base. Las puertas D-* del plan bloquean solo las operaciones que necesitan su decisión; no esperar a resolver toda la lista de decisiones para avanzar trabajo independiente.
 - Toda tarjeta VERTICAL incluye Backend/API → pruebas → tarjeta final de mock de su módulo. El mock no queda `ready` antes de existir sus APIs y pruebas necesarias.
 - Aceptación común: código en PR revisable, comportamiento/errores documentados, permisos efectivos, evidencia del commit y sin secretos; aceptación humana y merge para `Hecho`. Conservar volumen y migraciones previas.
@@ -92,6 +92,15 @@ Fecha inicial: 2026-10-07; conciliado con `main` #199 el 2026-10-08. Complementa
 - **Aceptación:** solo titular/administrador autorizado accede; una resolución produce el efecto acordado sobre datos o un motivo trazado de conservación/rechazo; exportación acotada; actuación no rompe integridad.
 - **Pruebas previstas:** solicitud duplicada, cambio de estado, ownership, datos exportados/suprimidos/conservados y replay; finalizar LOCAL-PRIV-MOCK-01.
 - **Riesgo:** cerrar solicitudes sin actuar o borrar evidencias que deben conservarse por política ratificada.
+
+### LOCAL-PRIV-M02-01 — Foto sintética y cuenta de cobro fake (Issue #202)
+
+- **Módulo/tipo/estado:** M02 / subentrega VERTICAL / `En curso`; vinculada a #37–#43, bajo seguimiento de #185/#40.
+- **Objetivo:** añadir los dos recursos M02 faltantes que se pueden verificar localmente sin proveedor productivo.
+- **Alcance:** PNG fijo generado por Backend y guardado en storage privado; leer/reemplazar/retirar foto propia; referencia `fake-local-v1` con alta/consulta/cambio/revocación, gate KYC sintético efectivo, ZIP, baja y limpieza recuperable. Integrar controles en mock existente.
+- **Fuera:** imagen real/carga arbitraria, RUT, cuentas bancarias reales, pagos/transferencias, proveedor real, cierre de padres ni publicación M04.
+- **Dependencias:** almacenamiento privado, auth/ownership, elegibilidad local, export ZIP, baja bloqueada/worker recuperable satisfechos por entregas aceptadas; permiso de escritura sincronizado por account lock. No depende de #142 ni desbloquea M04.
+- **Aceptación:** migración incremental; privacidad de archivo; aislamiento; reintentos y concurrencia con baja; KYC requerido al crear/cambiar el payout fake; ZIP incluye datos propios; limpieza falla/reintenta; pruebas PostgreSQL desechables y mock.
 
 ### LOCAL-KYC-01 — Elegibilidad y ciclo de revisión sintéticos (Issue #200)
 

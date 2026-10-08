@@ -207,7 +207,7 @@ paths:
     get:
       operationId: getOwnProfile
       tags: [M02 local]
-      description: Perfil solo del titular autenticado. La foto requiere definir storage.
+      description: Perfil solo del titular autenticado. La foto sintética se administra mediante /profile/photo.
       responses:
         '200': { description: Perfil propio., content: { application/json: { schema: { $ref: '#/components/schemas/Profile' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -225,6 +225,69 @@ paths:
         '200': { description: Perfil propio actualizado., content: { application/json: { schema: { $ref: '#/components/schemas/Profile' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': *id006
+  /profile/photo:
+    get:
+      operationId: getOwnSyntheticProfilePhoto
+      tags: [M02 local]
+      description: Metadata de la foto PNG fija generada por Backend; nunca acepta bytes del cliente.
+      responses:
+        '200': { description: Metadata propia., content: { application/json: { schema: { type: object, required: [id, fixture_code, mime_type, sha256, size_bytes, created_at], properties: { id: {type: string, format: uuid}, fixture_code: {type: string, enum: [synthetic-png-v1]}, mime_type: {type: string, enum: [image/png]}, sha256: {type: string}, size_bytes: {type: integer}, created_at: {type: string, format: date-time} } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: generateOwnSyntheticProfilePhoto
+      tags: [M02 local]
+      description: Genera/reemplaza el fixture fijo en almacenamiento privado. No admite multipart ni imagen arbitraria.
+      parameters: [{name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 8, maxLength: 128}}]
+      responses:
+        '200': { description: Foto propia generada., content: { application/json: { schema: { type: object } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': *id006
+    delete:
+      operationId: removeOwnSyntheticProfilePhoto
+      tags: [M02 local]
+      parameters: [{name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 8, maxLength: 128}}]
+      responses:
+        '200': { description: Retirada con limpieza privada recuperable. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /profile/photo/content:
+    get:
+      operationId: getOwnSyntheticProfilePhotoContent
+      tags: [M02 local]
+      description: PNG privado del titular autenticado.
+      responses:
+        '200': { description: PNG sintético propio., content: { image/png: { schema: { type: string, format: binary } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /payout-account:
+    get:
+      operationId: getOwnSyntheticPayoutAccount
+      tags: [M02 local]
+      description: Referencia ficticia del adaptador local; no contiene datos bancarios.
+      responses:
+        '200': { description: Cuenta fake propia., content: { application/json: { schema: { type: object } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: createOrReplaceOwnSyntheticPayoutAccount
+      tags: [M02 local]
+      description: Requiere KYC sintético efectivo. No recibe RUT, datos bancarios ni credenciales externas.
+      parameters: [{name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 8, maxLength: 128}}]
+      responses:
+        '200': { description: Cuenta simulada creada o reemplazada., content: { application/json: { schema: { type: object } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': *id006
+    delete:
+      operationId: revokeOwnSyntheticPayoutAccount
+      tags: [M02 local]
+      parameters: [{name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 8, maxLength: 128}}]
+      responses:
+        '200': { description: Cuenta fake revocada; no existe transferencia real. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /rights-requests:
     get:
       operationId: listOwnRightsRequests

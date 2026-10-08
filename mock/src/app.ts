@@ -27,6 +27,11 @@ let suppressionReviewPanelState: SuppressionReviewPanelState = initialSuppressio
 const suppressionReviewKeys = new Map<string,string>();
 let termIDs: string[] = [];
 let evidenceObjectURL = "";
+let m02PhotoURL = "";
+let m02PhotoRetryKey = "";
+let m02PhotoRemoveRetryKey = "";
+let m02PayoutRetryKey = "";
+let m02PayoutRevokeRetryKey = "";
 
 async function request(path: string, method = "GET", body?: unknown, authenticated = false, idempotencyKey?: string): Promise<Record<string, unknown>> {
   if (!apiBase) throw new Error("API local aún no disponible.");
@@ -122,6 +127,49 @@ form("profile-form", async (data) => {
   document.querySelector<HTMLElement>("#privacy-output")!.textContent = JSON.stringify(profile, null, 2);
   resultElement.textContent = "Perfil guardado para la cuenta de la sesión actual.";
 });
+function newIdempotencyKey():string{return crypto.randomUUID();}
+document.querySelector("#m02-photo-create")!.addEventListener("click",()=>void action(async()=>{
+  if(!sessionToken)throw new Error("Inicia sesión.");
+  const opToken=sessionToken,opAccount=sessionAccountID,opGeneration=sessionGeneration;
+  if(!m02PhotoRetryKey)m02PhotoRetryKey=newIdempotencyKey();
+  const result=await request("/api/v1/profile/photo","PUT",undefined,true,m02PhotoRetryKey);
+  if(!currentM02Session(opToken,opAccount,opGeneration))return;
+  m02PhotoRetryKey="";
+  await loadM02Photo();
+  document.querySelector<HTMLElement>("#m02-photo-output")!.textContent=JSON.stringify(result,null,2);
+  resultElement.textContent="PNG sintético generado por el Backend y guardado en almacenamiento privado.";
+}));
+document.querySelector("#m02-photo-load")!.addEventListener("click",()=>void action(loadM02Photo));
+document.querySelector("#m02-photo-remove")!.addEventListener("click",()=>void action(async()=>{
+  if(!sessionToken)throw new Error("Inicia sesión.");
+  const opToken=sessionToken,opAccount=sessionAccountID,opGeneration=sessionGeneration;
+  if(!m02PhotoRemoveRetryKey)m02PhotoRemoveRetryKey=newIdempotencyKey();
+  const result=await request("/api/v1/profile/photo","DELETE",undefined,true,m02PhotoRemoveRetryKey);
+  if(!currentM02Session(opToken,opAccount,opGeneration))return;
+  m02PhotoRemoveRetryKey="";
+  clearM02PhotoPreview();
+  document.querySelector<HTMLElement>("#m02-photo-output")!.textContent=JSON.stringify(result,null,2);
+}));
+async function loadM02Photo():Promise<void>{
+  const startToken=sessionToken,startAccount=sessionAccountID,startGeneration=sessionGeneration;
+  const photo=await request("/api/v1/profile/photo","GET",undefined,true);
+  if(!currentM02Session(startToken,startAccount,startGeneration))return;
+  const response=await fetch(`${apiBase}/api/v1/profile/photo/content`,{headers:{Authorization:`Bearer ${startToken}`,Accept:"image/png"},mode:"cors",cache:"no-store",credentials:"omit"});
+  if(!response.ok){if(response.status===401&&sessionToken===startToken){sessionToken="";clearBookingInboxOnSessionLoss();}throw new Error(`No se pudo consultar la foto (HTTP ${response.status}).`);}
+  if(!currentM02Session(startToken,startAccount,startGeneration))return;
+  const blob=await response.blob();clearM02PhotoPreview();m02PhotoURL=URL.createObjectURL(blob);
+  const preview=document.querySelector<HTMLImageElement>("#m02-photo-preview")!;preview.src=m02PhotoURL;preview.hidden=false;
+  document.querySelector<HTMLElement>("#m02-photo-output")!.textContent=JSON.stringify(photo,null,2);
+}
+function clearM02PhotoPreview():void{if(m02PhotoURL){URL.revokeObjectURL(m02PhotoURL);m02PhotoURL="";}const preview=document.querySelector<HTMLImageElement>("#m02-photo-preview");if(preview){preview.hidden=true;preview.removeAttribute("src");}}
+document.querySelector("#m02-payout-create")!.addEventListener("click",()=>void action(async()=>{
+  if(!sessionToken)throw new Error("Inicia sesión.");const opToken=sessionToken,opAccount=sessionAccountID,opGeneration=sessionGeneration;if(!m02PayoutRetryKey)m02PayoutRetryKey=newIdempotencyKey();
+  const result=await request("/api/v1/payout-account","PUT",undefined,true,m02PayoutRetryKey);if(!currentM02Session(opToken,opAccount,opGeneration))return;m02PayoutRetryKey="";
+  document.querySelector<HTMLElement>("#m02-payout-output")!.textContent=`ENSAYO LOCAL — SIN TRANSFERENCIA REAL.\n${JSON.stringify(result,null,2)}`;
+}));
+document.querySelector("#m02-payout-load")!.addEventListener("click",()=>void action(async()=>{const token=sessionToken,account=sessionAccountID,generation=sessionGeneration;const data=await request("/api/v1/payout-account","GET",undefined,true);if(!currentM02Session(token,account,generation))return;document.querySelector<HTMLElement>("#m02-payout-output")!.textContent=`ENSAYO LOCAL — SIN TRANSFERENCIA REAL.\n${JSON.stringify(data,null,2)}`;}));
+document.querySelector("#m02-payout-revoke")!.addEventListener("click",()=>void action(async()=>{const token=sessionToken,account=sessionAccountID,generation=sessionGeneration;if(!m02PayoutRevokeRetryKey)m02PayoutRevokeRetryKey=newIdempotencyKey();const data=await request("/api/v1/payout-account","DELETE",undefined,true,m02PayoutRevokeRetryKey);if(!currentM02Session(token,account,generation))return;m02PayoutRevokeRetryKey="";m02PayoutRetryKey="";document.querySelector<HTMLElement>("#m02-payout-output")!.textContent=`Cuenta fake revocada. ENSAYO LOCAL — SIN TRANSFERENCIA REAL.\n${JSON.stringify(data,null,2)}`;}));
+function currentM02Session(token:string,account:string,generation:number):boolean{return !!token&&sessionToken===token&&sessionAccountID===account&&sessionGeneration===generation;}
 form("rights-form", async (data, element) => {
   const item = await request("/api/v1/rights-requests", "POST", {type:data.get("type")}, true);
   element.reset();
@@ -1096,6 +1144,9 @@ function clearBookingInboxOnSessionLoss():void{
   evidencePreview.hidden=true; evidencePreview.removeAttribute("src");
   if(evidenceObjectURL){URL.revokeObjectURL(evidenceObjectURL);evidenceObjectURL="";}
   sessionAccountID="";selectedReservationID="";selectedReservation=null;bookingRequestState.invalidate();resetCatalogTraversal();
+  clearM02PhotoPreview();m02PhotoRetryKey="";m02PhotoRemoveRetryKey="";m02PayoutRetryKey="";m02PayoutRevokeRetryKey="";
+  document.querySelector<HTMLElement>("#m02-photo-output")!.textContent="Inicia sesión para consultar tu foto sintética.";
+  document.querySelector<HTMLElement>("#m02-payout-output")!.textContent="Inicia sesión. ENSAYO LOCAL — SIN TRANSFERENCIA REAL.";
   bookingInboxRevision++;
   cancellationPreview=null;cancellationPreviewReservationID="";
   document.querySelector<HTMLElement>("#booking-inbox-cancel-preview-output")!.textContent="Inicia sesión para consultar la cancelación.";
