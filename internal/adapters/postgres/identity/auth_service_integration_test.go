@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
@@ -2591,5 +2593,312 @@ func TestPasswordHistoryWindowStartsWhenLockedChangeCommits(t *testing.T) {
 	}
 	if !historyStart.Equal(committedAt) || !historyCreated.Equal(committedAt) || !historyExpiry.Equal(wantExpiry) || !noticeAt.Equal(committedAt) || !auditAt.Equal(committedAt) || !auditExpiry.Equal(identity.AddCalendarMonthsUTC(committedAt, 60)) {
 		t.Fatalf("lock-time stamps mismatch history=%s/%s/%s notice=%s audit=%s/%s", historyStart, historyCreated, historyExpiry, noticeAt, auditAt, auditExpiry)
+	}
+}
+
+func TestCredentialNoticeTerminalCycleAdminRecoveryAndRetention(t *testing.T) {
+	h := newAuthHarness(t)
+	ownerID := h.register(t, "outbox-owner@ejemplo.invalid")
+	h.verify(t)
+	ownerSession := h.login(t, "outbox-owner@ejemplo.invalid")
+	if err := h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(ownerSession.Token), CurrentPassword: "Synthetic#123", Password: "Changed#234", Confirmation: "Changed#234"}); err != nil {
+		t.Fatal(err)
+	}
+	ownerSession, err := h.service.Login(h.ctx, identity.LoginInput{Email: "outbox-owner@ejemplo.invalid", Password: "Changed#234"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var eventID string
+	if err := h.pool.QueryRow(h.ctx, `SELECT id::text FROM public.outbox_evento_local WHERE agregado_id=$1 AND tipo='identidad.credencial_cambiada'`, ownerID).Scan(&eventID); err != nil {
+		t.Fatal(err)
+	}
+	adminID := h.register(t, "outbox-admin@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	adminSession := h.login(t, "outbox-admin@ejemplo.invalid")
+
+	h.mail.mu.Lock()
+	h.mail.fail = true
+	h.mail.mu.Unlock()
+	for attempt := 1; attempt <= 8; attempt++ {
+		if attempt > 1 {
+			if err := h.pool.QueryRow(h.ctx, `SELECT disponible_en FROM public.outbox_evento_local WHERE id=$1`, eventID).Scan(&h.now); err != nil {
+				t.Fatalf("load retry deadline before attempt %d: %v", attempt, err)
+			}
+		}
+		if err := h.service.DispatchOneCredentialNotice(h.ctx); !errors.Is(err, identity.ErrDelivery) {
+			t.Fatalf("automatic attempt %d err=%v, want delivery failure", attempt, err)
+		}
+		if attempt == 1 {
+			// The process object is replaced while the database-backed attempt stays pending.
+			restarted, err := identity.NewAuthenticationService(h.repo, authTestHasher{}, h.mail, h.limiter, &authTestGenerator{}, func() time.Time { return h.now })
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.service = restarted
+		}
+	}
+	var total, cycleAttempts, cycleNumber int
+	var terminalAt, removeAt time.Time
+	var errorCode string
+	var lease *time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT intentos,intentos_ciclo,ciclo_actual,fallo_terminal_en,codigo_fallo_terminal,retirar_en,lease_hasta FROM public.outbox_evento_local WHERE id=$1`, eventID).Scan(&total, &cycleAttempts, &cycleNumber, &terminalAt, &errorCode, &removeAt, &lease); err != nil {
+		t.Fatal(err)
+	}
+	if total != 8 || cycleAttempts != 8 || cycleNumber != 1 || !terminalAt.Equal(h.now) || errorCode != "mailpit_delivery_failed" || !removeAt.Equal(terminalAt.Add(30*24*time.Hour)) || lease != nil {
+		t.Fatalf("terminal state total/cycle/number=%d/%d/%d at=%s code=%q remove=%s lease=%v", total, cycleAttempts, cycleNumber, terminalAt, errorCode, removeAt, lease)
+	}
+	if err := h.service.DispatchOneCredentialNotice(h.ctx); err != nil {
+		t.Fatalf("worker should ignore terminal cycle: %v", err)
+	}
+	var attemptsAfter int
+	if err := h.pool.QueryRow(h.ctx, `SELECT intentos FROM public.outbox_evento_local WHERE id=$1`, eventID).Scan(&attemptsAfter); err != nil || attemptsAfter != 8 {
+		t.Fatalf("terminal worker attempt count=%d err=%v", attemptsAfter, err)
+	}
+
+	handler := identityhttp.NewHandler(h.service, h.repo, nil)
+	call := func(method, path, token, key, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+string(token))
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if key != "" {
+			req.Header.Set("Idempotency-Key", key)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		return response
+	}
+	if denied := call(http.MethodGet, "/api/v1/admin/credential-notices", string(ownerSession.Token), "", ""); denied.Code != http.StatusForbidden {
+		t.Fatalf("non-admin outbox queue status=%d body=%s", denied.Code, denied.Body.String())
+	}
+	if listed := call(http.MethodGet, "/api/v1/admin/credential-notices", string(adminSession.Token), "", ""); listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), eventID) || strings.Contains(listed.Body.String(), "outbox-owner@ejemplo.invalid") {
+		t.Fatalf("admin queue status=%d body=%s", listed.Code, listed.Body.String())
+	}
+
+	const key = "outbox-reopen-cycle-two"
+	path := "/api/v1/admin/credential-notices/" + eventID + "/reopen"
+	const body = `{"reason_code":"smtp_restaurado"}`
+	start := make(chan struct{})
+	responses := make(chan *httptest.ResponseRecorder, 2)
+	for range 2 {
+		go func() {
+			<-start
+			responses <- call(http.MethodPost, path, string(adminSession.Token), key, body)
+		}()
+	}
+	close(start)
+	var reused int
+	for range 2 {
+		response := <-responses
+		if response.Code != http.StatusOK {
+			t.Fatalf("concurrent reopen status=%d body=%s", response.Code, response.Body.String())
+		}
+		var result identity.CredentialNoticeCycle
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.EventID != eventID || result.CycleNumber != 2 || result.TotalAttempts != 8 || result.State != "pendiente" || result.ReasonCode != "smtp_restaurado" {
+			t.Fatalf("reopen response %+v", result)
+		}
+		if result.Reused {
+			reused++
+		}
+	}
+	if reused != 1 {
+		t.Fatalf("concurrent retry reused count=%d; want one reused response", reused)
+	}
+	var cycles, auditRows, currentTotal, currentCycleAttempts int
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.outbox_evento_ciclo_local WHERE evento_id=$1`, eventID).Scan(&cycles); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.evento_auditoria_local WHERE recurso_id=$1 AND accion='identity.credential_notice.reopen' AND clave_idempotencia=$2`, eventID, key).Scan(&auditRows); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.pool.QueryRow(h.ctx, `SELECT intentos,intentos_ciclo FROM public.outbox_evento_local WHERE id=$1`, eventID).Scan(&currentTotal, &currentCycleAttempts); err != nil {
+		t.Fatal(err)
+	}
+	if cycles != 2 || auditRows != 1 || currentTotal != 8 || currentCycleAttempts != 0 {
+		t.Fatalf("cycle/audit/attempts after concurrent reopen=%d/%d/%d/%d", cycles, auditRows, currentTotal, currentCycleAttempts)
+	}
+	var auditActor, auditReason, auditCorrelation string
+	if err := h.pool.QueryRow(h.ctx, `SELECT actor_id::text,motivo_codigo,correlacion_id FROM public.evento_auditoria_local WHERE recurso_id=$1 AND accion='identity.credential_notice.reopen'`, eventID).Scan(&auditActor, &auditReason, &auditCorrelation); err != nil {
+		t.Fatal(err)
+	}
+	if auditActor != adminID || auditReason != "smtp_restaurado" || auditCorrelation == "" {
+		t.Fatalf("reopen audit actor/reason/correlation=%q/%q/%q", auditActor, auditReason, auditCorrelation)
+	}
+
+	h.mail.mu.Lock()
+	h.mail.fail = false
+	beforeSend := h.mail.changes
+	h.mail.mu.Unlock()
+	if err := h.service.DispatchOneCredentialNotice(h.ctx); err != nil {
+		t.Fatalf("reopened notice dispatch: %v", err)
+	}
+	h.mail.mu.Lock()
+	sent := h.mail.changes - beforeSend
+	h.mail.mu.Unlock()
+	if sent != 1 {
+		t.Fatalf("reopened cycle sent %d notices; want one", sent)
+	}
+	var delivered, deliveredRemoveAt time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT entregada_en,retirar_en FROM public.outbox_evento_local WHERE id=$1`, eventID).Scan(&delivered, &deliveredRemoveAt); err != nil {
+		t.Fatal(err)
+	}
+	if !deliveredRemoveAt.Equal(delivered.Add(30 * 24 * time.Hour)) {
+		t.Fatalf("delivered retention=%s want %s", deliveredRemoveAt, delivered.Add(30*24*time.Hour))
+	}
+	if _, err := h.service.ReopenCredentialNotice(h.ctx, eventID, adminID, "reintento_operativo", "outbox-reopen-delivered", "test-correlation"); !errors.Is(err, identity.ErrCredentialNoticeState) {
+		t.Fatalf("delivered event reopen err=%v", err)
+	}
+	if purged, err := h.service.PurgeExpiredCredentialNotices(h.ctx, deliveredRemoveAt.Add(-time.Nanosecond), 10); err != nil || purged != 0 {
+		t.Fatalf("purge before delivered deadline=%d err=%v", purged, err)
+	}
+	if purged, err := h.service.PurgeExpiredCredentialNotices(h.ctx, deliveredRemoveAt, 10); err != nil || purged != 1 {
+		t.Fatalf("purge at delivered deadline=%d err=%v", purged, err)
+	}
+}
+
+func TestCredentialNoticeInactiveRecipientCannotBeRecoveredOrSent(t *testing.T) {
+	h := newAuthHarness(t)
+	ownerID := h.register(t, "outbox-inactive@ejemplo.invalid")
+	h.verify(t)
+	ownerSession := h.login(t, "outbox-inactive@ejemplo.invalid")
+	if err := h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(ownerSession.Token), CurrentPassword: "Synthetic#123", Password: "Changed#234", Confirmation: "Changed#234"}); err != nil {
+		t.Fatal(err)
+	}
+	adminID := h.register(t, "outbox-inactive-admin@ejemplo.invalid")
+	h.verify(t)
+	var eventID string
+	if err := h.pool.QueryRow(h.ctx, `SELECT id::text FROM public.outbox_evento_local WHERE agregado_id=$1 AND tipo='identidad.credencial_cambiada'`, ownerID).Scan(&eventID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.outbox_evento_local SET intentos=8,intentos_ciclo=8,fallo_terminal_en=$2::timestamptz,codigo_fallo_terminal='mailpit_delivery_failed',retirar_en=$2::timestamptz+interval '30 days' WHERE id=$1`, eventID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.outbox_evento_ciclo_local SET estado='fallo_terminal',finalizada_en=$2,intentos=8,codigo_resultado='mailpit_delivery_failed' WHERE evento_id=$1 AND numero_ciclo=1`, eventID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.usuario SET estado='bloqueado' WHERE id=$1`, ownerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.service.ReopenCredentialNotice(h.ctx, eventID, adminID, "smtp_restaurado", "outbox-inactive-reopen", "test-correlation"); !errors.Is(err, identity.ErrCredentialNoticeRecipient) {
+		t.Fatalf("inactive recipient reopen err=%v", err)
+	}
+	if err := h.service.DispatchOneCredentialNotice(h.ctx); err != nil {
+		t.Fatalf("worker should safely ignore terminal inactive event: %v", err)
+	}
+	var delivered *time.Time
+	var statusCount int
+	if err := h.pool.QueryRow(h.ctx, `SELECT entregada_en FROM public.outbox_evento_local WHERE id=$1`, eventID).Scan(&delivered); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.outbox_evento_ciclo_local WHERE evento_id=$1 AND estado='fallo_terminal'`, eventID).Scan(&statusCount); err != nil || statusCount != 1 || delivered != nil {
+		t.Fatalf("inactive terminal state count=%d delivered=%v err=%v", statusCount, delivered, err)
+	}
+
+	// A separate pending event whose account becomes inactive is cancelled by
+	// the dispatcher before it may send, with the ratified 30-day deadline.
+	owner2ID := h.register(t, "outbox-inactive-pending@ejemplo.invalid")
+	h.verify(t)
+	owner2Session := h.login(t, "outbox-inactive-pending@ejemplo.invalid")
+	if err := h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(owner2Session.Token), CurrentPassword: "Synthetic#123", Password: "Changed#234", Confirmation: "Changed#234"}); err != nil {
+		t.Fatal(err)
+	}
+	var pendingID string
+	if err := h.pool.QueryRow(h.ctx, `SELECT id::text FROM public.outbox_evento_local WHERE agregado_id=$1 AND tipo='identidad.credencial_cambiada'`, owner2ID).Scan(&pendingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.usuario SET estado='bloqueado' WHERE id=$1`, owner2ID); err != nil {
+		t.Fatal(err)
+	}
+	before := h.mail.changes
+	if err := h.service.DispatchOneCredentialNotice(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	var canceledAt, removeAt time.Time
+	var reason string
+	var attempts int
+	if err := h.pool.QueryRow(h.ctx, `SELECT cancelada_en,retirar_en,motivo_cancelacion_codigo,intentos FROM public.outbox_evento_local WHERE id=$1`, pendingID).Scan(&canceledAt, &removeAt, &reason, &attempts); err != nil {
+		t.Fatal(err)
+	}
+	if reason != "destinatario_inactivo" || attempts != 0 || !removeAt.Equal(canceledAt.Add(30*24*time.Hour)) || before != h.mail.changes {
+		t.Fatalf("inactive pending event reason/attempts/deadline/sends=%q/%d/%s/sends=%d->%d", reason, attempts, removeAt, before, h.mail.changes)
+	}
+}
+
+func TestCredentialNoticeMailpitDeliverySmoke(t *testing.T) {
+	addr := os.Getenv("LOCAL_SMTP_ADDR")
+	mailpitURL := os.Getenv("LOCAL_MAILPIT_API")
+	if addr == "" || mailpitURL == "" {
+		t.Skip("set LOCAL_SMTP_ADDR and LOCAL_MAILPIT_API to verify the local Mailpit transport")
+	}
+	h := newAuthHarness(t)
+	email := fmt.Sprintf("outbox-mailpit-%d@ejemplo.invalid", time.Now().UnixNano())
+	h.register(t, email)
+	h.verify(t)
+	session := h.login(t, email)
+	service, err := identity.NewAuthenticationService(h.repo, authTestHasher{}, devauth.Mailer{Address: addr}, h.limiter, &authTestGenerator{}, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.service = service
+	if err := h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(session.Token), CurrentPassword: "Synthetic#123", Password: "Changed#234", Confirmation: "Changed#234"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.service.DispatchOneCredentialNotice(h.ctx); err != nil {
+		t.Fatalf("dispatch through Mailpit: %v", err)
+	}
+	searchURL := strings.TrimRight(mailpitURL, "/") + "/api/v1/search?query=" + url.QueryEscape("to:"+email)
+	response, err := http.Get(searchURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("Mailpit search returned %s", response.Status)
+	}
+	var result struct {
+		Messages []struct {
+			ID      string
+			Subject string
+			To      []struct{ Address string }
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	var found string
+	for _, message := range result.Messages {
+		for _, recipient := range message.To {
+			if strings.EqualFold(recipient.Address, email) && strings.Contains(message.Subject, "clave actualizada") {
+				found = message.ID
+			}
+		}
+	}
+	if found == "" {
+		t.Fatalf("Mailpit did not contain the generic notice for %s", email)
+	}
+	// This smoke adds no lasting message to the developer mailbox.
+	deleteBody, err := json.Marshal(map[string][]string{"IDs": {found}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteRequest, err := http.NewRequest(http.MethodDelete, strings.TrimRight(mailpitURL, "/")+"/api/v1/messages", bytes.NewReader(deleteBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteRequest.Header.Set("Content-Type", "application/json")
+	deleted, err := http.DefaultClient.Do(deleteRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted.Body.Close()
+	if deleted.StatusCode < 200 || deleted.StatusCode >= 300 {
+		t.Fatalf("Mailpit cleanup returned %s", deleted.Status)
 	}
 }

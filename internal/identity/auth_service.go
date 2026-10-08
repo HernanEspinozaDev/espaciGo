@@ -15,19 +15,21 @@ import (
 )
 
 var (
-	ErrEmailRegistered      = errors.New("El correo ya está registrado; inicia sesión o recupera tu contraseña")
-	ErrCredentials          = errors.New("identity: incorrect credentials")
-	ErrEmailUnverified      = errors.New("identity: verify email before signing in")
-	ErrAccountDisabled      = errors.New("identity: account disabled")
-	ErrTokenInvalid         = errors.New("identity: invalid verification token")
-	ErrRateLimited          = errors.New("identity: verification rate limited")
-	ErrUnauthorized         = errors.New("identity: unauthorized")
-	ErrForbidden            = errors.New("identity: role not granted")
-	ErrDelivery             = errors.New("identity: mail delivery failed")
-	ErrCurrentPassword      = errors.New("La contraseña actual no es correcta")
-	ErrPasswordSame         = errors.New("La contraseña nueva debe ser distinta de la actual")
-	ErrPasswordRecentlyUsed = errors.New("La contraseña nueva fue utilizada durante los últimos tres meses")
-	ErrPasswordConfirm      = errors.New("La repetición de la contraseña nueva no coincide")
+	ErrEmailRegistered           = errors.New("El correo ya está registrado; inicia sesión o recupera tu contraseña")
+	ErrCredentials               = errors.New("identity: incorrect credentials")
+	ErrEmailUnverified           = errors.New("identity: verify email before signing in")
+	ErrAccountDisabled           = errors.New("identity: account disabled")
+	ErrTokenInvalid              = errors.New("identity: invalid verification token")
+	ErrRateLimited               = errors.New("identity: verification rate limited")
+	ErrUnauthorized              = errors.New("identity: unauthorized")
+	ErrForbidden                 = errors.New("identity: role not granted")
+	ErrDelivery                  = errors.New("identity: mail delivery failed")
+	ErrCurrentPassword           = errors.New("La contraseña actual no es correcta")
+	ErrPasswordSame              = errors.New("La contraseña nueva debe ser distinta de la actual")
+	ErrPasswordRecentlyUsed      = errors.New("La contraseña nueva fue utilizada durante los últimos tres meses")
+	ErrPasswordConfirm           = errors.New("La repetición de la contraseña nueva no coincide")
+	ErrCredentialNoticeState     = errors.New("identity: credential notice is not recoverable")
+	ErrCredentialNoticeRecipient = errors.New("identity: credential notice recipient is inactive")
 )
 
 const (
@@ -560,10 +562,13 @@ func AddCalendarMonthsUTC(at time.Time, months int) time.Time {
 }
 
 // DispatchOneCredentialNotice durably claims one event, sends its Mailpit
-// message, and records completion or a bounded retry without logging content.
+// message, and records completion or one of at most eight attempts per cycle.
 func (s *AuthenticationService) DispatchOneCredentialNotice(ctx context.Context) error {
 	now := s.now().UTC()
 	if err := s.repo.PurgeExpiredPasswordHistory(ctx, now); err != nil {
+		return err
+	}
+	if _, err := s.repo.CancelInactiveCredentialNotices(ctx, now, 100); err != nil {
 		return err
 	}
 	notice, err := s.repo.ClaimCredentialNotice(ctx, now, now.Add(time.Minute))
@@ -573,18 +578,46 @@ func (s *AuthenticationService) DispatchOneCredentialNotice(ctx context.Context)
 	if err != nil {
 		return err
 	}
-	email, err := s.repo.AccountEmail(ctx, notice.AccountID)
+	email, err := s.repo.ActiveAccountEmail(ctx, notice.AccountID)
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrAccountDisabled) {
+		return s.repo.CancelInactiveCredentialNotice(ctx, notice.ID, notice.LeaseUntil, s.now().UTC())
+	}
 	if err == nil {
 		err = s.mailer.SendPasswordChanged(ctx, email)
 	}
 	if err != nil {
-		delay := time.Duration(1<<min(notice.Attempts, 8)) * time.Second
-		if retryErr := s.repo.RetryCredentialNotice(ctx, notice.ID, notice.LeaseUntil, now.Add(delay)); retryErr != nil {
+		delay := time.Duration(1<<min(notice.CycleAttempts, 8)) * time.Second
+		failedAt := s.now().UTC()
+		if retryErr := s.repo.RetryCredentialNotice(ctx, notice.ID, notice.LeaseUntil, failedAt, failedAt.Add(delay), "mailpit_delivery_failed"); retryErr != nil {
 			return retryErr
 		}
 		return ErrDelivery
 	}
 	return s.repo.CompleteCredentialNotice(ctx, notice.ID, notice.LeaseUntil, s.now().UTC())
+}
+
+func (s *AuthenticationService) TerminalCredentialNotices(ctx context.Context) ([]CredentialNoticeSummary, error) {
+	return s.repo.ListTerminalCredentialNotices(ctx)
+}
+
+func (s *AuthenticationService) ReopenCredentialNotice(ctx context.Context, eventID, actorID, reason, idempotencyKey, correlationID string) (CredentialNoticeCycle, error) {
+	if eventID == "" || actorID == "" || len(idempotencyKey) < 8 || len(idempotencyKey) > 200 || len(correlationID) < 1 || len(correlationID) > 120 || (reason != "smtp_restaurado" && reason != "reintento_operativo") {
+		return CredentialNoticeCycle{}, ErrInvalid
+	}
+	auditID, err := s.credentials.ID()
+	if err != nil {
+		return CredentialNoticeCycle{}, err
+	}
+	at := s.now().UTC()
+	return s.repo.ReopenCredentialNotice(ctx, ReopenCredentialNoticeInput{
+		EventID: eventID, ActorID: actorID, AuditID: auditID, ReasonCode: reason,
+		CorrelationID: correlationID, IdempotencyKey: idempotencyKey, At: at,
+		AuditRemoveAt: AddCalendarMonthsUTC(at, 60),
+	})
+}
+
+func (s *AuthenticationService) PurgeExpiredCredentialNotices(ctx context.Context, at time.Time, limit int) (int64, error) {
+	return s.repo.PurgeExpiredCredentialNotices(ctx, at.UTC(), limit)
 }
 
 func (s *AuthenticationService) RunCredentialNoticeWorker(ctx context.Context, interval time.Duration) {

@@ -21,6 +21,8 @@ let sessionGeneration = 0;
 let pendingPrivacyExport: {context:PrivacyExportContext;url:string}|null = null;
 let privacyExportObjectURL = "";
 let suppressionQueueRevision = 0;
+let credentialNoticeQueueRevision = 0;
+const credentialNoticeRecoveryKeys = new Map<string,string>();
 let suppressionReviewPanelState: SuppressionReviewPanelState = initialSuppressionReviewPanelState();
 const suppressionReviewKeys = new Map<string,string>();
 let termIDs: string[] = [];
@@ -59,7 +61,7 @@ async function requestArchive(path:string,bearer:string):Promise<Blob> {
 }
 async function action(work: () => Promise<void>): Promise<void> {
   const buttons = [...document.querySelectorAll<HTMLButtonElement>("button")];
-  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); }); }
+  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); }); }
   catch (error) { resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API."; }
 }
 function form(id: string, work: (data: FormData, element: HTMLFormElement) => Promise<void>): void {
@@ -182,6 +184,38 @@ async function loadSuppressionQueue():Promise<void> {
   document.querySelector<HTMLElement>("#suppression-queue-status")!.textContent=suppressionReviewPanelState.queueStatus;
 }
 document.querySelector("#suppression-queue-load")!.addEventListener("click",()=>void action(loadSuppressionQueue));
+interface CredentialNoticeSummary {event_id:string;error_code:string;total_attempts:number;cycle_number:number;cycle_attempts:number;failed_at:string;remove_at:string;}
+function clearCredentialNoticeQueue(message="Requiere rol administrador."):void {
+  credentialNoticeQueueRevision++;credentialNoticeRecoveryKeys.clear();
+  document.querySelector<HTMLElement>("#credential-notice-items")?.replaceChildren();
+  const status=document.querySelector<HTMLElement>("#credential-notice-status"),output=document.querySelector<HTMLElement>("#credential-notice-output");
+  if(status)status.textContent=message;if(output)output.textContent=message;refreshCredentialNoticeControls();
+}
+function refreshCredentialNoticeControls():void {const button=document.querySelector<HTMLButtonElement>("#credential-notice-load");if(button)button.disabled=!sessionToken;}
+async function loadCredentialNoticeQueue():Promise<void>{
+  const token=sessionToken,account=sessionAccountID,generation=sessionGeneration,revision=++credentialNoticeQueueRevision;
+  const response=await request("/api/v1/admin/credential-notices","GET",undefined,true);
+  if(revision!==credentialNoticeQueueRevision||token!==sessionToken||account!==sessionAccountID||generation!==sessionGeneration)return;
+  const items=(response.items??[]) as CredentialNoticeSummary[],container=document.querySelector<HTMLElement>("#credential-notice-items")!;container.replaceChildren();
+  for(const item of items){
+    const row=document.createElement("section"),details=document.createElement("p"),reason=document.createElement("select"),reopen=document.createElement("button");
+    details.textContent=`Evento ${item.event_id} · ciclo ${item.cycle_number} (${item.cycle_attempts}/8 intentos; ${item.total_attempts} total) · ${item.error_code} · fallo ${item.failed_at} · retención hasta ${item.remove_at}`;
+    reason.setAttribute("aria-label","Motivo estructurado de recuperación");
+    for(const [value,label] of [["smtp_restaurado","SMTP restaurado"],["reintento_operativo","Reintento operativo"]]){const option=document.createElement("option");option.value=value;option.textContent=label;reason.append(option);}
+    reopen.type="button";reopen.textContent="Reabrir ciclo";
+    reopen.addEventListener("click",()=>void action(async()=>{
+      const requestToken=sessionToken,requestAccount=sessionAccountID,requestGeneration=sessionGeneration,key=credentialNoticeRecoveryKeys.get(item.event_id)??crypto.randomUUID();credentialNoticeRecoveryKeys.set(item.event_id,key);
+      const result=await request(`/api/v1/admin/credential-notices/${encodeURIComponent(item.event_id)}/reopen`,"POST",{reason_code:reason.value},true,key);
+      if(requestToken!==sessionToken||requestAccount!==sessionAccountID||requestGeneration!==sessionGeneration)return;
+      document.querySelector<HTMLElement>("#credential-notice-output")!.textContent=`${result.reused?"Reapertura idempotente reutilizada":"Nuevo ciclo pendiente"}: ciclo ${result.cycle_number}, total acumulado ${result.total_attempts}. SMTP local puede duplicar un aviso si se interrumpe después de aceptarlo; no se garantiza entrega exactamente una vez.`;
+      credentialNoticeRecoveryKeys.delete(item.event_id);await loadCredentialNoticeQueue();
+    }));
+    row.append(details,reason,reopen);container.append(row);
+  }
+  document.querySelector<HTMLElement>("#credential-notice-status")!.textContent=`${items.length} avisos en fallo terminal.`;
+  if(!items.length)document.querySelector<HTMLElement>("#credential-notice-output")!.textContent="No hay avisos terminales que requieran recuperación.";refreshCredentialNoticeControls();
+}
+document.querySelector<HTMLButtonElement>("#credential-notice-load")!.addEventListener("click",()=>void action(loadCredentialNoticeQueue));
 document.querySelector<HTMLButtonElement>("#privacy-export")!.addEventListener("click", () => void action(async () => {
   const context = capturePrivacyExportContext(sessionAccountID, sessionToken, sessionGeneration);
   if (!context) throw new Error("Inicia sesión para exportar tus datos.");
@@ -1020,6 +1054,7 @@ function clearBookingInboxOnSessionLoss():void{
   pendingPrivacyExport = null;
   refreshPrivacyExportControls();
   clearSuppressionQueue();
+  clearCredentialNoticeQueue();
   sessionAccountID="";selectedReservationID="";selectedReservation=null;bookingRequestState.invalidate();resetCatalogTraversal();
   bookingInboxRevision++;
   cancellationPreview=null;cancellationPreviewReservationID="";

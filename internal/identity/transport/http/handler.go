@@ -110,6 +110,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == suppressionQueuePath {
 		expected = http.MethodGet
 	}
+	const credentialNoticeQueuePath = "/api/v1/admin/credential-notices"
+	const credentialNoticePrefix = "/api/v1/admin/credential-notices/"
+	credentialNoticeReopenPath := strings.HasPrefix(r.URL.Path, credentialNoticePrefix) && strings.HasSuffix(r.URL.Path, "/reopen")
+	if r.URL.Path == credentialNoticeQueuePath {
+		expected = http.MethodGet
+	}
+	if credentialNoticeReopenPath {
+		expected = http.MethodPost
+	}
 	const reviewPrefix = "/api/v1/privacy/suppression-requests/"
 	reviewSuffix := "/review"
 	reviewPath := strings.HasPrefix(r.URL.Path, reviewPrefix) && strings.HasSuffix(r.URL.Path, reviewSuffix)
@@ -118,8 +127,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if reviewPath || executePath {
 		expected = http.MethodPost
 	}
-	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true, "/api/v1/profile": true, "/api/v1/rights-requests": true, "/api/v1/privacy/export": true, "/api/v1/privacy/export/archive": true, "/api/v1/privacy/retention/purge": true, suppressionQueuePath: true}
-	if !paths[r.URL.Path] && !reviewPath && !executePath {
+	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true, "/api/v1/profile": true, "/api/v1/rights-requests": true, "/api/v1/privacy/export": true, "/api/v1/privacy/export/archive": true, "/api/v1/privacy/retention/purge": true, suppressionQueuePath: true, credentialNoticeQueuePath: true}
+	if !paths[r.URL.Path] && !reviewPath && !executePath && !credentialNoticeReopenPath {
 		h.fail(w, 404, "not_found", "Recurso no encontrado.")
 		return
 	}
@@ -138,6 +147,46 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		h.fail(w, 400, "invalid_request", "Dirección de cliente inválida.")
+		return
+	}
+	if r.URL.Path == credentialNoticeQueuePath || credentialNoticeReopenPath {
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), identity.RoleAdministrator, identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		if r.URL.Path == credentialNoticeQueuePath {
+			items, err := h.service.TerminalCredentialNotices(r.Context())
+			if err != nil {
+				h.serviceError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, map[string]any{"items": items})
+			return
+		}
+		relative := strings.TrimPrefix(r.URL.Path, credentialNoticePrefix)
+		eventID := strings.TrimSuffix(relative, "/reopen")
+		if strings.Contains(eventID, "/") || !canonicalUUID(eventID) {
+			h.fail(w, http.StatusNotFound, "not_found", "Evento no encontrado.")
+			return
+		}
+		var input struct {
+			ReasonCode string `json:"reason_code"`
+		}
+		if !h.decode(w, r, &input) {
+			return
+		}
+		result, err := h.service.ReopenCredentialNotice(r.Context(), eventID, principal.AccountID, input.ReasonCode, r.Header.Get("Idempotency-Key"), w.Header().Get("X-Request-ID"))
+		if err != nil {
+			h.serviceError(w, err, r.URL.Path)
+			return
+		}
+		h.write(w, http.StatusOK, result)
 		return
 	}
 	// RemoteAddr is trusted for the local direct topology. Never trust forwarded headers.
@@ -216,7 +265,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.privacyError(w, err)
 			return
 		}
-		h.write(w, http.StatusOK, result)
+		outboxPurged, err := h.service.PurgeExpiredCredentialNotices(r.Context(), h.now().UTC(), 100)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, map[string]any{"scanned": result.Scanned, "purged": result.Purged, "deferred": result.Deferred, "outbox_events_purged": outboxPurged})
 		return
 	}
 	if r.URL.Path == suppressionQueuePath {
@@ -522,6 +576,14 @@ func (h *Handler) serviceError(w http.ResponseWriter, err error, paths ...string
 		status = 403
 		code = "forbidden"
 		message = "La cuenta no permite esta operación."
+	case errors.Is(err, identity.ErrCredentialNoticeState):
+		status = http.StatusConflict
+		code = "credential_notice_not_recoverable"
+		message = "El evento no está en estado terminal recuperable."
+	case errors.Is(err, identity.ErrCredentialNoticeRecipient):
+		status = http.StatusConflict
+		code = "credential_notice_recipient_inactive"
+		message = "El destinatario no mantiene una cuenta activa."
 	case errors.Is(err, identity.ErrTokenInvalid):
 		status = 422
 		code = "invalid_token"

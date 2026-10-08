@@ -259,19 +259,19 @@ func (r *IdentityRepository) ClaimCredentialNotice(ctx context.Context, at, leas
 	if err != nil {
 		return identity.CredentialNotice{}, mapError(err)
 	}
-	return identity.CredentialNotice{ID: row.ID, AccountID: row.AccountID, Attempts: int(row.Intentos), LeaseUntil: row.LeaseUntil.Time}, nil
+	return identity.CredentialNotice{ID: row.ID, AccountID: row.AccountID, Attempts: int(row.TotalAttempts), CycleAttempts: int(row.CycleAttempts), CycleNumber: int(row.CycleNumber), LeaseUntil: row.LeaseUntil.Time}, nil
 }
 
 func (r *IdentityRepository) PurgeExpiredPasswordHistory(ctx context.Context, at time.Time) error {
 	return mapError(r.queries.PurgeExpiredPasswordHistory(ctx, dbTime(at)))
 }
 
-func (r *IdentityRepository) AccountEmail(ctx context.Context, accountID string) (string, error) {
-	account, err := r.AccountByID(ctx, accountID)
+func (r *IdentityRepository) ActiveAccountEmail(ctx context.Context, accountID string) (string, error) {
+	email, err := r.queries.ActiveCredentialNoticeRecipientEmail(ctx, accountID)
 	if err != nil {
-		return "", err
+		return "", mapError(err)
 	}
-	return account.Email, nil
+	return email, nil
 }
 
 func (r *IdentityRepository) CompleteCredentialNotice(ctx context.Context, id string, leaseUntil, at time.Time) error {
@@ -285,8 +285,11 @@ func (r *IdentityRepository) CompleteCredentialNotice(ctx context.Context, id st
 	return nil
 }
 
-func (r *IdentityRepository) RetryCredentialNotice(ctx context.Context, id string, leaseUntil, retryAt time.Time) error {
-	rows, err := r.queries.RetryCredentialChangedNotice(ctx, dbgen.RetryCredentialChangedNoticeParams{ID: id, LeaseUntil: dbTime(leaseUntil), RetryAt: dbTime(retryAt)})
+func (r *IdentityRepository) RetryCredentialNotice(ctx context.Context, id string, leaseUntil, at, retryAt time.Time, code string) error {
+	if code != "mailpit_delivery_failed" && code != "worker_interrupted" {
+		return identity.ErrInvalid
+	}
+	rows, err := r.queries.RetryCredentialChangedNotice(ctx, dbgen.RetryCredentialChangedNoticeParams{ID: id, LeaseUntil: dbTime(leaseUntil), At: dbTime(at), RetryAt: dbTime(retryAt), ErrorCode: &code})
 	if err != nil {
 		return mapError(err)
 	}
@@ -294,6 +297,129 @@ func (r *IdentityRepository) RetryCredentialNotice(ctx context.Context, id strin
 		return identity.ErrNotFound
 	}
 	return nil
+}
+
+func (r *IdentityRepository) CancelInactiveCredentialNotice(ctx context.Context, id string, leaseUntil, at time.Time) error {
+	rows, err := r.queries.CancelInactiveCredentialNotice(ctx, dbgen.CancelInactiveCredentialNoticeParams{ID: id, LeaseUntil: dbTime(leaseUntil), At: dbTime(at)})
+	if err != nil {
+		return mapError(err)
+	}
+	if rows == 0 {
+		return identity.ErrNotFound
+	}
+	return nil
+}
+
+func (r *IdentityRepository) CancelInactiveCredentialNotices(ctx context.Context, at time.Time, limit int) (int64, error) {
+	if limit < 1 || limit > 500 {
+		return 0, identity.ErrInvalid
+	}
+	rows, err := r.queries.CancelInactiveCredentialNotices(ctx, dbgen.CancelInactiveCredentialNoticesParams{At: dbTime(at), LimitRows: int32(limit)})
+	return rows, mapError(err)
+}
+
+func (r *IdentityRepository) PurgeExpiredCredentialNotices(ctx context.Context, at time.Time, limit int) (int64, error) {
+	if limit < 1 || limit > 500 {
+		return 0, identity.ErrInvalid
+	}
+	rows, err := r.queries.PurgeExpiredCredentialNotices(ctx, dbgen.PurgeExpiredCredentialNoticesParams{At: dbTime(at), LimitRows: int32(limit)})
+	return rows, mapError(err)
+}
+
+func (r *IdentityRepository) ListTerminalCredentialNotices(ctx context.Context) ([]identity.CredentialNoticeSummary, error) {
+	rows, err := r.queries.ListTerminalCredentialNotices(ctx)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	items := make([]identity.CredentialNoticeSummary, 0, len(rows))
+	for _, row := range rows {
+		item := identity.CredentialNoticeSummary{ID: row.ID, AccountID: row.AccountID, TotalAttempts: int(row.TotalAttempts), CycleNumber: int(row.CycleNumber), CycleAttempts: int(row.CycleAttempts), FailedAt: row.FailedAt.Time, RemoveAt: row.RemoveAt.Time}
+		if row.ErrorCode != nil {
+			item.ErrorCode = *row.ErrorCode
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (r *IdentityRepository) ReopenCredentialNotice(ctx context.Context, input identity.ReopenCredentialNoticeInput) (identity.CredentialNoticeCycle, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return identity.CredentialNoticeCycle{}, mapError(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	queries := r.queries.WithTx(tx)
+
+	// Discover the aggregate first, then lock the account before the event. This
+	// matches suppression's account->outbox order and prevents a re-open racing a
+	// completed account reduction.
+	var accountID string
+	if err := tx.QueryRow(ctx, `SELECT agregado_id::text FROM public.outbox_evento_local WHERE id=$1 AND tipo='identidad.credencial_cambiada'`, input.EventID).Scan(&accountID); err != nil {
+		return identity.CredentialNoticeCycle{}, mapError(err)
+	}
+	var state string
+	if err := tx.QueryRow(ctx, `SELECT estado FROM public.usuario WHERE id=$1 FOR UPDATE`, accountID).Scan(&state); err != nil {
+		return identity.CredentialNoticeCycle{}, mapError(err)
+	}
+	row, err := queries.LockCredentialNoticeForRecovery(ctx, input.EventID)
+	if err != nil {
+		return identity.CredentialNoticeCycle{}, mapError(err)
+	}
+	if row.AccountID != accountID {
+		return identity.CredentialNoticeCycle{}, identity.ErrCredentialNoticeState
+	}
+	key := input.IdempotencyKey
+	prior, priorErr := queries.FindCredentialNoticeCycleByKey(ctx, dbgen.FindCredentialNoticeCycleByKeyParams{EventID: input.EventID, IdempotencyKey: &key})
+	if priorErr == nil {
+		result := credentialNoticeCycleFromPrior(input.EventID, prior, int(row.Intentos), true)
+		if err := tx.Commit(ctx); err != nil {
+			return identity.CredentialNoticeCycle{}, mapError(err)
+		}
+		return result, nil
+	}
+	if !errors.Is(priorErr, pgx.ErrNoRows) {
+		return identity.CredentialNoticeCycle{}, mapError(priorErr)
+	}
+	if state != string(identity.AccountActive) {
+		return identity.CredentialNoticeCycle{}, identity.ErrCredentialNoticeRecipient
+	}
+	if row.EntregadaEn.Valid || row.CanceladaEn.Valid || !row.FalloTerminalEn.Valid {
+		return identity.CredentialNoticeCycle{}, identity.ErrCredentialNoticeState
+	}
+	cycleNumber := row.CicloActual + 1
+	reason, correlation, idempotency := input.ReasonCode, input.CorrelationID, input.IdempotencyKey
+	actorUUID := pgtype.UUID{}
+	if err := actorUUID.Scan(input.ActorID); err != nil {
+		return identity.CredentialNoticeCycle{}, identity.ErrInvalid
+	}
+	if err := queries.CreateCredentialNoticeRecoveryCycle(ctx, dbgen.CreateCredentialNoticeRecoveryCycleParams{EventID: input.EventID, CycleNumber: cycleNumber, At: dbTime(input.At), ActorID: actorUUID, ReasonCode: &reason, CorrelationID: &correlation, IdempotencyKey: &idempotency}); err != nil {
+		return identity.CredentialNoticeCycle{}, mapError(err)
+	}
+	updated, err := queries.ReopenCredentialNotice(ctx, dbgen.ReopenCredentialNoticeParams{ID: input.EventID, CycleNumber: cycleNumber, At: dbTime(input.At)})
+	if err != nil {
+		return identity.CredentialNoticeCycle{}, mapError(err)
+	}
+	if updated != 1 {
+		return identity.CredentialNoticeCycle{}, identity.ErrCredentialNoticeState
+	}
+	if err := queries.RecordCredentialNoticeRecoveryAudit(ctx, dbgen.RecordCredentialNoticeRecoveryAuditParams{AuditID: input.AuditID, ActorID: input.ActorID, EventID: input.EventID, ReasonCode: input.ReasonCode, CorrelationID: input.CorrelationID, At: dbTime(input.At), RemoveAt: dbTime(input.AuditRemoveAt), IdempotencyKey: &idempotency}); err != nil {
+		return identity.CredentialNoticeCycle{}, mapError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return identity.CredentialNoticeCycle{}, mapError(err)
+	}
+	return identity.CredentialNoticeCycle{EventID: input.EventID, CycleNumber: int(cycleNumber), State: "pendiente", ReasonCode: reason, IdempotencyKey: idempotency, TotalAttempts: int(row.Intentos), StartedAt: input.At}, nil
+}
+
+func credentialNoticeCycleFromPrior(eventID string, row dbgen.FindCredentialNoticeCycleByKeyRow, total int, reused bool) identity.CredentialNoticeCycle {
+	result := identity.CredentialNoticeCycle{EventID: eventID, CycleNumber: int(row.NumeroCiclo), State: row.Estado, TotalAttempts: total, CycleAttempts: int(row.Intentos), StartedAt: row.IniciadaEn.Time, Reused: reused}
+	if row.ReasonCode != nil {
+		result.ReasonCode = *row.ReasonCode
+	}
+	if row.ClaveIdempotencia != nil {
+		result.IdempotencyKey = *row.ClaveIdempotencia
+	}
+	return result
 }
 
 func accountFrom(id, email, normalizedEmail, passwordHash, state string, createdAt, updatedAt pgtype.Timestamptz, failedAttempts int32, blockedUntil pgtype.Timestamptz, usePreference *string) identity.Account {

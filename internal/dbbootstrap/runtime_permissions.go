@@ -15,6 +15,8 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT DELETE ON public.sesion, public.token_accion TO espacigo_runtime;
  GRANT SELECT, INSERT, DELETE ON public.historial_clave_local TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.outbox_evento_local TO espacigo_runtime;
+ GRANT SELECT, INSERT, UPDATE ON public.outbox_evento_ciclo_local TO espacigo_runtime;
+ GRANT EXECUTE ON FUNCTION public.purge_expired_local_credential_notices(timestamptz,integer) TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.evento_auditoria_local TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.disputa_ensayo_local TO espacigo_runtime;
  GRANT UPDATE (estado,cerrada_por,motivo_cierre_codigo,cerrada_en,anfitrion_id,arrendatario_id,abierta_por) ON public.disputa_ensayo_local TO espacigo_runtime;

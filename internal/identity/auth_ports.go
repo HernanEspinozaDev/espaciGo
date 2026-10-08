@@ -40,17 +40,51 @@ type AuthenticationTransaction interface {
 }
 
 type CredentialNotice struct {
-	ID, AccountID string
-	Attempts      int
-	LeaseUntil    time.Time
+	ID, AccountID           string
+	Attempts, CycleAttempts int
+	CycleNumber             int
+	LeaseUntil              time.Time
+}
+
+type CredentialNoticeSummary struct {
+	ID            string    `json:"event_id"`
+	AccountID     string    `json:"-"`
+	ErrorCode     string    `json:"error_code"`
+	TotalAttempts int       `json:"total_attempts"`
+	CycleNumber   int       `json:"cycle_number"`
+	CycleAttempts int       `json:"cycle_attempts"`
+	FailedAt      time.Time `json:"failed_at"`
+	RemoveAt      time.Time `json:"remove_at"`
+}
+
+type CredentialNoticeCycle struct {
+	EventID        string    `json:"event_id"`
+	State          string    `json:"state"`
+	ReasonCode     string    `json:"reason_code"`
+	IdempotencyKey string    `json:"idempotency_key"`
+	CycleNumber    int       `json:"cycle_number"`
+	TotalAttempts  int       `json:"total_attempts"`
+	CycleAttempts  int       `json:"cycle_attempts"`
+	StartedAt      time.Time `json:"started_at"`
+	Reused         bool      `json:"reused"`
+}
+
+type ReopenCredentialNoticeInput struct {
+	EventID, ActorID, AuditID, ReasonCode, CorrelationID, IdempotencyKey string
+	At, AuditRemoveAt                                                    time.Time
 }
 
 type CredentialNoticeRepository interface {
 	PurgeExpiredPasswordHistory(context.Context, time.Time) error
+	PurgeExpiredCredentialNotices(context.Context, time.Time, int) (int64, error)
+	CancelInactiveCredentialNotices(context.Context, time.Time, int) (int64, error)
+	ListTerminalCredentialNotices(context.Context) ([]CredentialNoticeSummary, error)
+	ReopenCredentialNotice(context.Context, ReopenCredentialNoticeInput) (CredentialNoticeCycle, error)
 	ClaimCredentialNotice(context.Context, time.Time, time.Time) (CredentialNotice, error)
-	AccountEmail(context.Context, string) (string, error)
+	ActiveAccountEmail(context.Context, string) (string, error)
+	CancelInactiveCredentialNotice(context.Context, string, time.Time, time.Time) error
 	CompleteCredentialNotice(context.Context, string, time.Time, time.Time) error
-	RetryCredentialNotice(context.Context, string, time.Time, time.Time) error
+	RetryCredentialNotice(context.Context, string, time.Time, time.Time, time.Time, string) error
 }
 
 type PasswordHasher interface {

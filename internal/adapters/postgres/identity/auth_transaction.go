@@ -120,7 +120,10 @@ func (t *authenticationTransaction) EnqueueCredentialChanged(ctx context.Context
 	if eventID == "" || accountID == "" || dedupeKey == "" || createdAt.IsZero() {
 		return identity.ErrInvalid
 	}
-	return mapError(t.queries.EnqueueCredentialChanged(ctx, dbgen.EnqueueCredentialChangedParams{ID: eventID, AccountID: accountID, DedupeKey: dedupeKey, CreatedAt: dbTime(createdAt)}))
+	if err := t.queries.EnqueueCredentialChanged(ctx, dbgen.EnqueueCredentialChangedParams{ID: eventID, AccountID: accountID, DedupeKey: dedupeKey, CreatedAt: dbTime(createdAt)}); err != nil {
+		return mapError(err)
+	}
+	return mapError(t.queries.StartCredentialNoticeCycle(ctx, dbgen.StartCredentialNoticeCycleParams{EventID: eventID, StartedAt: dbTime(createdAt)}))
 }
 
 func (t *authenticationTransaction) RecordCredentialChangeAudit(ctx context.Context, auditID, actorID, resourceID, correlationID string, at, removeAt time.Time) error {
