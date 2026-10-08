@@ -259,6 +259,76 @@ paths:
         '200': { description: Exportación propia local., content: { application/json: { schema: { $ref: '#/components/schemas/OwnIdentityExport' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { description: Cuenta propia no encontrada. }
+  /privacy/suppression-requests/{request_id}/review:
+    post:
+      operationId: reviewLocalSuppressionBlockers
+      tags: [M02 local]
+      description: >-
+        Operación exclusiva del rol administrador. Revisa y persiste obligaciones
+        locales detectables bajo bloqueo de la cuenta. No ejecuta la baja. Las
+        disputas no pueden certificarse hasta integrar M10 y la retención histórica
+        fuera de auditoría sigue pendiente; por ello un resultado incompleto conserva
+        la solicitud en revisión. Repetir Idempotency-Key devuelve el mismo resultado.
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        '200':
+          description: Evaluación local persistida o reutilizada; ninguna supresión ejecutada.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [request_id, outcome, obligations_detected, pending_checks, reviewed_at, reused]
+                properties:
+                  request_id: { type: string, format: uuid }
+                  outcome: { type: string, enum: [bloqueada, revision_incompleta] }
+                  obligations_detected:
+                    type: array
+                    items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente] }
+                  pending_checks:
+                    type: array
+                    items: { type: string, enum: [fuente_disputas_no_modelada, matriz_retencion_historicos_incompleta] }
+                  reviewed_at: { type: string, format: date-time }
+                  reused: { type: boolean }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Se requiere rol administrador. }
+        '404': { description: Solicitud de supresión no encontrada. }
+        '409': { description: Clave idempotente reutilizada por otro revisor o solicitud ya no revisable. }
+        '422': { description: Clave idempotente ausente o inválida. }
+  /privacy/suppression-requests:
+    get:
+      operationId: listPendingLocalSuppressionRequests
+      tags: [M02 local]
+      description: >-
+        Cola mínima, disponible únicamente para administradores autorizados. No
+        incluye datos de cuenta ni terceros; identifica cada solicitud solo por ID
+        y fecha para permitir su evaluación explícita.
+      responses:
+        '200':
+          description: Solicitudes de supresión en revisión.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [request_id, created_at]
+                      properties:
+                        request_id: { type: string, format: uuid }
+                        created_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Se requiere rol administrador. }
   /verifications:
     get:
       operationId: listOwnVerifications

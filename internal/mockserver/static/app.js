@@ -8,6 +8,7 @@ import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState } from "./booking-availability-state.js";
 import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
 import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExportSessionMatches } from "./privacy-export-state.js";
+import { clearSuppressionReviewPanelState, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount } from "./suppression-review-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -16,6 +17,9 @@ let sessionAccountID = "";
 let sessionGeneration = 0;
 let pendingPrivacyExport = null;
 let privacyExportObjectURL = "";
+let suppressionQueueRevision = 0;
+let suppressionReviewPanelState = initialSuppressionReviewPanelState();
+const suppressionReviewKeys = new Map();
 let termIDs = [];
 let evidenceObjectURL = "";
 async function request(path, method = "GET", body, authenticated = false, idempotencyKey) {
@@ -142,6 +146,50 @@ document.querySelector("#rights-load").addEventListener("click", () => void acti
     const items = await request("/api/v1/rights-requests", "GET", undefined, true);
     document.querySelector("#privacy-output").textContent = JSON.stringify(items, null, 2);
 }));
+function clearSuppressionQueue() {
+    suppressionQueueRevision++;
+    suppressionReviewKeys.clear();
+    suppressionReviewPanelState = clearSuppressionReviewPanelState();
+    document.querySelector("#suppression-queue-items")?.replaceChildren();
+    const status = document.querySelector("#suppression-queue-status");
+    if (status)
+        status.textContent = suppressionReviewPanelState.queueStatus;
+    const output = document.querySelector("#suppression-review-output");
+    if (output)
+        output.textContent = suppressionReviewPanelState.evaluationText;
+}
+async function loadSuppressionQueue() {
+    const token = sessionToken, account = sessionAccountID, generation = sessionGeneration, revision = ++suppressionQueueRevision;
+    const response = await request("/api/v1/privacy/suppression-requests", "GET", undefined, true);
+    if (revision !== suppressionQueueRevision || token !== sessionToken || account !== sessionAccountID || generation !== sessionGeneration)
+        return;
+    const items = (response.items ?? []);
+    const container = document.querySelector("#suppression-queue-items");
+    container.replaceChildren();
+    for (const item of items) {
+        const row = document.createElement("p"), label = document.createElement("span"), review = document.createElement("button");
+        label.textContent = `Solicitud ${item.request_id} · ${item.created_at} `;
+        review.type = "button";
+        review.textContent = "Evaluar obligaciones";
+        review.addEventListener("click", () => void action(async () => {
+            const requestToken = sessionToken, requestAccount = sessionAccountID, requestGeneration = sessionGeneration;
+            const key = suppressionReviewKeys.get(item.request_id) ?? crypto.randomUUID();
+            suppressionReviewKeys.set(item.request_id, key);
+            const result = await request(`/api/v1/privacy/suppression-requests/${encodeURIComponent(item.request_id)}/review`, "POST", undefined, true, key);
+            if (requestToken !== sessionToken || requestAccount !== sessionAccountID || requestGeneration !== sessionGeneration)
+                return;
+            suppressionReviewPanelState = withSuppressionEvaluation(suppressionReviewPanelState, result);
+            document.querySelector("#suppression-review-output").textContent = suppressionReviewPanelState.evaluationText;
+            suppressionReviewKeys.delete(item.request_id);
+            await loadSuppressionQueue();
+        }));
+        row.append(label, review);
+        container.append(row);
+    }
+    suppressionReviewPanelState = withSuppressionQueueCount(suppressionReviewPanelState, items.length);
+    document.querySelector("#suppression-queue-status").textContent = suppressionReviewPanelState.queueStatus;
+}
+document.querySelector("#suppression-queue-load").addEventListener("click", () => void action(loadSuppressionQueue));
 document.querySelector("#privacy-export").addEventListener("click", () => void action(async () => {
     const context = capturePrivacyExportContext(sessionAccountID, sessionToken, sessionGeneration);
     if (!context)
@@ -1292,6 +1340,7 @@ function clearBookingInboxOnSessionLoss() {
     privacyExportObjectURL = "";
     pendingPrivacyExport = null;
     refreshPrivacyExportControls();
+    clearSuppressionQueue();
     sessionAccountID = "";
     selectedReservationID = "";
     selectedReservation = null;

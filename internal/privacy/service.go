@@ -28,6 +28,28 @@ type RightsRequest struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// SuppressionReview reports only structured obligation codes. It never executes
+// suppression; unresolved retention rules and the missing M10 dispute model
+// keep an otherwise clear request in review.
+type SuppressionReview struct {
+	RequestID     string    `json:"request_id"`
+	Outcome       string    `json:"outcome"`
+	Obligations   []string  `json:"obligations_detected"`
+	PendingChecks []string  `json:"pending_checks"`
+	ReviewedAt    time.Time `json:"reviewed_at"`
+	Reused        bool      `json:"reused"`
+}
+
+type SuppressionQueueItem struct {
+	RequestID string    `json:"request_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type SuppressionReviewRepository interface {
+	ListPendingSuppressions(context.Context) ([]SuppressionQueueItem, error)
+	ReviewSuppression(context.Context, string, string, string, string, func() time.Time) (SuppressionReview, error)
+}
+
 // OwnData is the bounded identity export available in the local prototype.
 // It intentionally excludes credential hashes, sessions, action tokens and
 // records belonging to other participants or domain owners.
@@ -123,4 +145,26 @@ func (s *Service) ExportOwnData(ctx context.Context, accountID string) (OwnData,
 		return OwnData{}, ErrInvalid
 	}
 	return s.repo.ExportOwnData(ctx, accountID)
+}
+
+func (s *Service) ReviewSuppression(ctx context.Context, reviewerID, requestID, idempotencyKey, correlationID string, now func() time.Time) (SuppressionReview, error) {
+	if reviewerID == "" || requestID == "" || strings.TrimSpace(idempotencyKey) == "" || len(idempotencyKey) > 200 || correlationID == "" || len(correlationID) > 120 {
+		return SuppressionReview{}, ErrInvalid
+	}
+	repo, ok := s.repo.(SuppressionReviewRepository)
+	if !ok {
+		return SuppressionReview{}, errors.New("privacy: suppression review repository unavailable")
+	}
+	if now == nil {
+		now = time.Now
+	}
+	return repo.ReviewSuppression(ctx, reviewerID, requestID, idempotencyKey, correlationID, now)
+}
+
+func (s *Service) PendingSuppressions(ctx context.Context) ([]SuppressionQueueItem, error) {
+	repo, ok := s.repo.(SuppressionReviewRepository)
+	if !ok {
+		return nil, errors.New("privacy: suppression review repository unavailable")
+	}
+	return repo.ListPendingSuppressions(ctx)
 }
