@@ -7,23 +7,28 @@ import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState } from "./booking-availability-state.js";
 import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
+import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExportSessionMatches } from "./privacy-export-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
 let sessionToken = "";
 let sessionAccountID = "";
+let sessionGeneration = 0;
+let pendingPrivacyExport = null;
+let privacyExportObjectURL = "";
 let termIDs = [];
 let evidenceObjectURL = "";
 async function request(path, method = "GET", body, authenticated = false, idempotencyKey) {
     if (!apiBase)
         throw new Error("API local aún no disponible.");
+    const requestSessionToken = authenticated ? sessionToken : "";
     const headers = { Accept: "application/json" };
     if (body !== undefined)
         headers["Content-Type"] = "application/json";
     if (authenticated) {
         if (!sessionToken)
             throw new Error("Primero inicia sesión.");
-        headers.Authorization = `Bearer ${sessionToken}`;
+        headers.Authorization = `Bearer ${requestSessionToken}`;
     }
     if (idempotencyKey)
         headers["Idempotency-Key"] = idempotencyKey;
@@ -31,11 +36,11 @@ async function request(path, method = "GET", body, authenticated = false, idempo
     const response = await fetch(endpoint, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), mode: "cors", cache: "no-store", credentials: "omit" });
     const data = response.status === 204 ? {} : await response.json();
     if (!response.ok) {
-        if (authenticated && response.status === 401) {
+        if (authenticated && response.status === 401 && sessionToken === requestSessionToken) {
             sessionToken = "";
             clearBookingInboxOnSessionLoss();
         }
-        if (authenticated && path === "password/change" && response.status === 503) {
+        if (authenticated && path === "password/change" && response.status === 503 && sessionToken === requestSessionToken) {
             sessionToken = "";
             clearBookingInboxOnSessionLoss();
         }
@@ -47,7 +52,7 @@ async function request(path, method = "GET", body, authenticated = false, idempo
 async function action(work) {
     const buttons = [...document.querySelectorAll("button")];
     try {
-        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); });
+        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); });
     }
     catch (error) {
         resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
@@ -75,6 +80,7 @@ form("login-form", async (data, element) => {
     clearBookingInboxOnSessionLoss();
     sessionToken = String(response.access_token);
     sessionAccountID = String(response.account_id);
+    sessionGeneration++;
     resetCatalogTraversal();
     element.querySelector('[name="password"]').value = "";
     await loadSpaceCategories();
@@ -137,20 +143,49 @@ document.querySelector("#rights-load").addEventListener("click", () => void acti
     document.querySelector("#privacy-output").textContent = JSON.stringify(items, null, 2);
 }));
 document.querySelector("#privacy-export").addEventListener("click", () => void action(async () => {
-    const owner = sessionAccountID;
-    const data = await request("/api/v1/privacy/export", "GET", undefined, true);
-    if (!owner || owner !== sessionAccountID)
-        return;
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "espacigo-datos-propios.json";
-    link.click();
-    URL.revokeObjectURL(url);
-    document.querySelector("#privacy-output").textContent = JSON.stringify(data, null, 2);
-    resultElement.textContent = "Exportación local descargada. Incluye únicamente identidad modelada; no contiene credenciales ni datos de terceros.";
+    const context = capturePrivacyExportContext(sessionAccountID, sessionToken, sessionGeneration);
+    if (!context)
+        throw new Error("Inicia sesión para exportar tus datos.");
+    await deliverPrivacyExportIfCurrent(context, () => request("/api/v1/privacy/export", "GET", undefined, true), current => privacyExportSessionMatches(current, sessionAccountID, sessionToken, sessionGeneration), data => {
+        const json = JSON.stringify(data, null, 2);
+        if (privacyExportObjectURL)
+            URL.revokeObjectURL(privacyExportObjectURL);
+        const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+        privacyExportObjectURL = url;
+        pendingPrivacyExport = { context, data, json, url };
+        const downloadLink = document.querySelector("#privacy-export-download");
+        downloadLink.href = url;
+        resultElement.textContent = "Datos de identidad preparados. Confirma la descarga mientras mantengas esta sesión.";
+    });
 }));
+document.querySelector("#privacy-export-download").addEventListener("click", event => {
+    const pending = pendingPrivacyExport;
+    if (!pending || !privacyExportSessionMatches(pending.context, sessionAccountID, sessionToken, sessionGeneration)) {
+        event.preventDefault();
+        pendingPrivacyExport = null;
+        refreshPrivacyExportControls();
+        resultElement.textContent = "La sesión cambió; prepara de nuevo la exportación.";
+        return;
+    }
+    document.querySelector("#privacy-output").textContent = pending.json;
+    pendingPrivacyExport = null;
+    resultElement.textContent = "Exportación local descargada. Incluye únicamente identidad modelada; no contiene credenciales ni datos de terceros.";
+    // Keep the Blob URL alive long enough for the browser to finish its download.
+    setTimeout(() => { if (privacyExportObjectURL === pending.url) {
+        URL.revokeObjectURL(pending.url);
+        privacyExportObjectURL = "";
+    } refreshPrivacyExportControls(); }, 60_000);
+});
+function refreshPrivacyExportControls() {
+    const link = document.querySelector("#privacy-export-download");
+    if (!link)
+        return;
+    const pending = pendingPrivacyExport;
+    const current = Boolean(pending && privacyExportSessionMatches(pending.context, sessionAccountID, sessionToken, sessionGeneration));
+    link.hidden = !current;
+    if (!current)
+        link.removeAttribute("href");
+}
 form("verification-form", async (data) => {
     const item = await request("/api/v1/verifications", "POST", { type: data.get("type") }, true, crypto.randomUUID());
     document.querySelector("#verification-output").textContent = JSON.stringify(item, null, 2);
@@ -1249,6 +1284,14 @@ function clearConversation(message) {
     refreshConversationControls();
 }
 function clearBookingInboxOnSessionLoss() {
+    sessionGeneration++;
+    if (pendingPrivacyExport)
+        URL.revokeObjectURL(pendingPrivacyExport.url);
+    if (privacyExportObjectURL)
+        URL.revokeObjectURL(privacyExportObjectURL);
+    privacyExportObjectURL = "";
+    pendingPrivacyExport = null;
+    refreshPrivacyExportControls();
     sessionAccountID = "";
     selectedReservationID = "";
     selectedReservation = null;
