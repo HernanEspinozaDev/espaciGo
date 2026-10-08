@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"github.com/jackc/pgx/v5"
@@ -33,6 +34,19 @@ func scan(row pgx.Row) (spaces.Draft, error) {
 		err = json.Unmarshal(raw, &d.Attributes)
 	}
 	return d, mapError(err)
+}
+
+// lockActiveOwner shares the same row lock as privacy suppression, so a draft
+// write authorized before the request cannot recreate scrubbed content after it.
+func lockActiveOwner(ctx context.Context, tx pgx.Tx, owner string) error {
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return spaces.ErrNotFound
+	}
+	return nil
 }
 func (r *Repository) Categories(ctx context.Context) ([]spaces.Category, error) {
 	rows, err := r.pool.Query(ctx, `SELECT codigo,nombre FROM public.categoria_espacio WHERE activa ORDER BY orden`)
@@ -77,6 +91,9 @@ func (r *Repository) Create(ctx context.Context, owner string, in spaces.Input) 
 		return spaces.Draft{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockActiveOwner(ctx, tx, owner); err != nil {
+		return spaces.Draft{}, err
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, owner, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
@@ -127,6 +144,9 @@ func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.
 		return spaces.Draft{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockActiveOwner(ctx, tx, owner); err != nil {
+		return spaces.Draft{}, err
+	}
 	var oldUnit string
 	var oldAmount int64
 	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado='borrador' FOR UPDATE`, owner, id).Scan(&oldUnit, &oldAmount)

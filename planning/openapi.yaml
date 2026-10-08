@@ -266,8 +266,9 @@ paths:
       description: >-
         Operación exclusiva del rol administrador. Revisa y persiste obligaciones
         locales detectables bajo bloqueo de la cuenta. No ejecuta la baja. Las
-        disputas sintéticas abiertas se consultan como obligación; retención histórica
-        fuera de auditoría sigue pendiente y conserva la solicitud en revisión.
+        disputas sintéticas abiertas se consultan como obligación. Las retenciones
+        sintéticas locales ratificadas permiten determinar elegibilidad, pero no
+        ejecutan por sí solas la baja.
         Repetir Idempotency-Key devuelve el mismo resultado.
       parameters:
         - name: request_id
@@ -288,7 +289,7 @@ paths:
                 required: [request_id, outcome, obligations_detected, pending_checks, reviewed_at, reused]
                 properties:
                   request_id: { type: string, format: uuid }
-                  outcome: { type: string, enum: [bloqueada, revision_incompleta] }
+                  outcome: { type: string, enum: [bloqueada, elegible, revision_incompleta] }
                   obligations_detected:
                     type: array
                     items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente, disputa_abierta] }
@@ -302,6 +303,54 @@ paths:
         '403': { description: Se requiere rol administrador. }
         '404': { description: Solicitud de supresión no encontrada. }
         '409': { description: Clave idempotente reutilizada por otro revisor o solicitud ya no revisable. }
+        '422': { description: Clave idempotente ausente o inválida. }
+  /privacy/suppression-requests/{request_id}/execute:
+    post:
+      operationId: executeLocalSyntheticSuppression
+      tags: [M02 local]
+      description: >-
+        Exclusivo de administrador sobre una solicitud del titular. Revalida bajo
+        bloqueo reservas, pagos/devoluciones y disputas abiertas. En la baja elegible
+        aplica privacidad_local_v1 solo a datos sintéticos; preserva hechos requeridos,
+        revoca credenciales y minimiza la cuenta. La respuesta distingue bloqueo,
+        limpieza de archivos pendiente y baja con minimización y retención residual;
+        nunca afirma anonimización o supresión integral. Idempotente por solicitud y
+        clave. El borrado de archivos se recupera desde la cola persistente.
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        '200':
+          description: Resultado bloqueado, pendiente de archivos o completado; los reintentos reutilizan el resultado persistido.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [request_id, status, outcome, decision_code, obligations_detected, removed, retained, pending_files, started_at, reused]
+                properties:
+                  request_id: { type: string, format: uuid }
+                  status: { type: string, enum: [bloqueada, limpieza_pendiente, completada] }
+                  outcome: { type: string, enum: [bloqueada, limpieza_pendiente, baja_local_con_minimizacion_y_retencion_residual] }
+                  decision_code: { type: string, enum: [supresion_bloqueada_por_obligaciones, baja_elegible_privacidad_local_v1] }
+                  obligations_detected:
+                    type: array
+                    items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente, disputa_abierta] }
+                  removed: { type: array, items: { type: string } }
+                  retained: { type: array, items: { type: string } }
+                  pending_files: { type: integer, minimum: 0 }
+                  started_at: { type: string, format: date-time }
+                  completed_at: { type: string, format: date-time }
+                  reused: { type: boolean }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Se requiere rol administrador. }
+        '404': { description: Solicitud de supresión no encontrada. }
+        '409': { description: Clave idempotente incompatible o solicitud no ejecutable. }
         '422': { description: Clave idempotente ausente o inválida. }
   /privacy/suppression-requests:
     get:
@@ -876,8 +925,8 @@ paths:
         - { name: latitude, in: query, required: false, description: Centro sintético; requiere longitude y radius_km., schema: { type: number, format: double, minimum: -90, maximum: 90 } }
         - { name: longitude, in: query, required: false, description: Centro sintético; requiere latitude y radius_km., schema: { type: number, format: double, minimum: -180, maximum: 180 } }
         - { name: radius_km, in: query, required: false, description: Radio inclusivo permitido. Requiere latitude y longitude., schema: { type: integer, enum: [1, 3, 5, 10, 25] } }
-        - { name: page_size, in: query, required: false, description: Cantidad de resultados, predeterminado 5., schema: { type: integer, default: 5, minimum: 1, maximum: 25 } }
-        - { name: cursor, in: query, required: false, description: Continuación opaca vinculada a cuenta, filtros, tamaño y orden de esta búsqueda., schema: { type: string, minLength: 1, maxLength: 8192 } }
+        - { name: page_size, in: query, required: false, description: 'Cantidad de resultados, predeterminado 5.', schema: { type: integer, default: 5, minimum: 1, maximum: 25 } }
+        - { name: cursor, in: query, required: false, description: 'Continuación opaca vinculada a cuenta, filtros, tamaño y orden de esta búsqueda.', schema: { type: string, minLength: 1, maxLength: 8192 } }
       responses:
         '200': { description: Resultados de catálogo local con banner de ensayo., content: { application/json: { schema: { $ref: '#/components/schemas/LocalCatalogEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -901,9 +950,9 @@ paths:
       parameters:
         - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: date, in: query, required: true, description: Fecha local única consultada en la zona IANA del espacio; no descarga el horizonte entero., schema: { type: string, format: date } }
-        - { name: duration, in: query, required: true, description: Unidades compatibles con la modalidad vigente del espacio; hora 1/2/4 transcurridas, día 1/2/3 calendario, mes exactamente 1., schema: { type: integer, enum: [1, 2, 3, 4] } }
+        - { name: duration, in: query, required: true, description: 'Unidades compatibles con la modalidad vigente del espacio; hora 1/2/4 transcurridas, día 1/2/3 calendario, mes exactamente 1.', schema: { type: integer, enum: [1, 2, 3, 4] } }
       responses:
-        '200': { description: Modalidad, zona IANA e intervalos UTC libres para la fecha elegida., content: { application/json: { schema: { $ref: '#/components/schemas/LocalAvailabilityOptionsEnvelope' } } } }
+        '200': { description: 'Modalidad, zona IANA e intervalos UTC libres para la fecha elegida.', content: { application/json: { schema: { $ref: '#/components/schemas/LocalAvailabilityOptionsEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
@@ -993,7 +1042,7 @@ paths:
       operationId: getOwnLocalTrialReservation
       tags: [M06 local]
       responses:
-        '200': { description: Estado, snapshot e historial autorizado., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingDetailEnvelope' } } } }
+        '200': { description: 'Estado, snapshot e historial autorizado.', content: { application/json: { schema: { $ref: '#/components/schemas/LocalBookingDetailEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
   /local/booking-trial/reservations/{reservationId}/payment:
@@ -1296,7 +1345,7 @@ paths:
               required: [reason_code]
               properties: { reason_code: { type: string, enum: [ensayo_finalizado, registro_erroneo, duplicada] } }
       responses:
-        '200': { description: Incidencia cerrada; actor, fecha y motivo se conservan en historial., content: { application/json: { schema: { $ref: '#/components/schemas/LocalTrialDispute' } } } }
+        '200': { description: 'Incidencia cerrada; actor, fecha y motivo se conservan en historial.', content: { application/json: { schema: { $ref: '#/components/schemas/LocalTrialDispute' } } } }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }

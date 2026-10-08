@@ -44,6 +44,40 @@ type SuppressionQueueItem struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// SuppressionExecution is a local-only result. RetainedCodes explain residual
+// links; this status never claims anonymization or full erasure.
+type SuppressionExecution struct {
+	RequestID    string     `json:"request_id"`
+	Status       string     `json:"status"`
+	Outcome      string     `json:"outcome"`
+	DecisionCode string     `json:"decision_code"`
+	Obligations  []string   `json:"obligations_detected"`
+	Removed      []string   `json:"removed"`
+	Retained     []string   `json:"retained"`
+	PendingFiles int        `json:"pending_files"`
+	StartedAt    time.Time  `json:"started_at"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+	Reused       bool       `json:"reused"`
+}
+
+type SuppressionFile struct {
+	ExecutionID string
+	EvidenceID  string
+}
+
+type SuppressionExecutionRepository interface {
+	ExecuteSuppression(context.Context, string, string, string, string, func() time.Time) (SuppressionExecution, error)
+	PendingSuppressionFiles(context.Context, string, time.Time) ([]SuppressionFile, error)
+	CompleteSuppressionFile(context.Context, SuppressionFile, time.Time) error
+	FailSuppressionFile(context.Context, SuppressionFile, time.Time) error
+	FinishSuppression(context.Context, string, time.Time) (SuppressionExecution, error)
+	PendingSuppressionRequests(context.Context) ([]string, error)
+}
+
+type SyntheticEvidenceCleaner interface {
+	Delete(context.Context, string) error
+}
+
 type SuppressionReviewRepository interface {
 	ListPendingSuppressions(context.Context) ([]SuppressionQueueItem, error)
 	ReviewSuppression(context.Context, string, string, string, string, func() time.Time) (SuppressionReview, error)
@@ -166,4 +200,91 @@ func (s *Service) PendingSuppressions(ctx context.Context) ([]SuppressionQueueIt
 		return nil, errors.New("privacy: suppression review repository unavailable")
 	}
 	return repo.ListPendingSuppressions(ctx)
+}
+
+func (s *Service) ExecuteSuppression(ctx context.Context, actorID, requestID, key, correlationID string, now func() time.Time, cleaner SyntheticEvidenceCleaner) (SuppressionExecution, error) {
+	if actorID == "" || requestID == "" || strings.TrimSpace(key) == "" || len(key) > 200 || correlationID == "" || len(correlationID) > 120 {
+		return SuppressionExecution{}, ErrInvalid
+	}
+	repo, ok := s.repo.(SuppressionExecutionRepository)
+	if !ok {
+		return SuppressionExecution{}, errors.New("privacy: suppression execution repository unavailable")
+	}
+	if now == nil {
+		now = time.Now
+	}
+	result, err := repo.ExecuteSuppression(ctx, actorID, requestID, key, correlationID, now)
+	if err != nil || result.Status == "bloqueada" || result.Status == "completada" {
+		return result, err
+	}
+	if cleaner == nil {
+		return result, nil
+	}
+	files, err := repo.PendingSuppressionFiles(ctx, result.RequestID, now().UTC())
+	if err != nil {
+		return result, err
+	}
+	for _, file := range files {
+		if err := cleaner.Delete(ctx, file.EvidenceID); err != nil {
+			_ = repo.FailSuppressionFile(ctx, file, now().UTC())
+			continue
+		}
+		if err := repo.CompleteSuppressionFile(ctx, file, now().UTC()); err != nil {
+			return result, err
+		}
+	}
+	return repo.FinishSuppression(ctx, result.RequestID, now().UTC())
+}
+
+func (s *Service) RunSuppressionCleanupOnce(ctx context.Context, now func() time.Time, cleaner SyntheticEvidenceCleaner) error {
+	repo, ok := s.repo.(SuppressionExecutionRepository)
+	if !ok {
+		return errors.New("privacy: suppression execution repository unavailable")
+	}
+	if now == nil {
+		now = time.Now
+	}
+	ids, err := repo.PendingSuppressionRequests(ctx)
+	if err != nil {
+		return err
+	}
+	for _, requestID := range ids {
+		files, err := repo.PendingSuppressionFiles(ctx, requestID, now().UTC())
+		if err != nil {
+			return err
+		}
+		for _, file := range files {
+			if cleaner == nil {
+				continue
+			}
+			if err := cleaner.Delete(ctx, file.EvidenceID); err != nil {
+				_ = repo.FailSuppressionFile(ctx, file, now().UTC())
+				continue
+			}
+			if err := repo.CompleteSuppressionFile(ctx, file, now().UTC()); err != nil {
+				return err
+			}
+		}
+		if _, err := repo.FinishSuppression(ctx, requestID, now().UTC()); err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) RunSuppressionCleanupWorker(ctx context.Context, interval time.Duration, cleaner SyntheticEvidenceCleaner) {
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	_ = s.RunSuppressionCleanupOnce(ctx, time.Now, cleaner)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = s.RunSuppressionCleanupOnce(ctx, time.Now, cleaner)
+		}
+	}
 }

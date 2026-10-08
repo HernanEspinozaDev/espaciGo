@@ -144,8 +144,16 @@ func TestDurableFakePaymentInboxDeduplicatesTimeoutAndRecoversAfterRestart(t *te
 		}
 		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cleanCancel()
-		_, _ = admin.Exec(cleanCtx, `DROP DATABASE `+pgx.Identifier{dbName}.Sanitize()+` WITH (FORCE)`)
-		_, _ = admin.Exec(cleanCtx, `DROP ROLE IF EXISTS espacigo_runtime`)
+		if cleanupConn, e := pgx.Connect(cleanCtx, dbURL); e == nil {
+			_, _ = cleanupConn.Exec(cleanCtx, `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='espacigo_runtime') THEN DROP OWNED BY espacigo_runtime; END IF; END $$`)
+			_ = cleanupConn.Close(cleanCtx)
+		}
+		if _, e := admin.Exec(cleanCtx, `DROP DATABASE `+pgx.Identifier{dbName}.Sanitize()+` WITH (FORCE)`); e != nil {
+			t.Errorf("drop disposable payment database: %v", e)
+		}
+		if _, e := admin.Exec(cleanCtx, `DROP ROLE IF EXISTS espacigo_runtime`); e != nil {
+			t.Errorf("drop disposable runtime role: %v", e)
+		}
 		_ = admin.Close(context.Background())
 	}()
 	if _, err = migrator.Run(ctx, dbURL, "../../../../db/migrations"); err != nil {

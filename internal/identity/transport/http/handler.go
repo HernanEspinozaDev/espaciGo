@@ -17,14 +17,33 @@ import (
 )
 
 type Handler struct {
-	service *identity.AuthenticationService
-	terms   identity.AuthenticationRepository
-	origins map[string]bool
-	privacy *privacy.Service
+	service         *identity.AuthenticationService
+	terms           identity.AuthenticationRepository
+	origins         map[string]bool
+	privacy         *privacy.Service
+	evidenceCleaner privacy.SyntheticEvidenceCleaner
+	now             func() time.Time
 }
 
 func NewHandler(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyServices ...*privacy.Service) http.Handler {
-	h := &Handler{service: service, terms: terms, origins: map[string]bool{}}
+	return newHandler(service, terms, origins, nil, privacyServices...)
+}
+
+func NewHandlerWithSuppressionCleaner(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyService *privacy.Service, cleaner privacy.SyntheticEvidenceCleaner) http.Handler {
+	return newHandler(service, terms, origins, cleaner, privacyService)
+}
+
+func NewHandlerWithSuppressionClock(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyService *privacy.Service, cleaner privacy.SyntheticEvidenceCleaner, now func() time.Time) http.Handler {
+	h := newHandler(service, terms, origins, cleaner, privacyService).(*Handler)
+	if now != nil {
+		h.now = now
+	}
+	return h
+}
+
+func newHandler(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, cleaner privacy.SyntheticEvidenceCleaner, privacyServices ...*privacy.Service) http.Handler {
+	h := &Handler{service: service, terms: terms, origins: map[string]bool{}, now: time.Now}
+	h.evidenceCleaner = cleaner
 	if len(privacyServices) > 0 {
 		h.privacy = privacyServices[0]
 	}
@@ -76,11 +95,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	const reviewPrefix = "/api/v1/privacy/suppression-requests/"
 	reviewSuffix := "/review"
 	reviewPath := strings.HasPrefix(r.URL.Path, reviewPrefix) && strings.HasSuffix(r.URL.Path, reviewSuffix)
-	if reviewPath {
+	executeSuffix := "/execute"
+	executePath := strings.HasPrefix(r.URL.Path, reviewPrefix) && strings.HasSuffix(r.URL.Path, executeSuffix)
+	if reviewPath || executePath {
 		expected = http.MethodPost
 	}
 	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true, "/api/v1/profile": true, "/api/v1/rights-requests": true, "/api/v1/privacy/export": true, suppressionQueuePath: true}
-	if !paths[r.URL.Path] && !reviewPath {
+	if !paths[r.URL.Path] && !reviewPath && !executePath {
 		h.fail(w, 404, "not_found", "Recurso no encontrado.")
 		return
 	}
@@ -102,13 +123,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// RemoteAddr is trusted for the local direct topology. Never trust forwarded headers.
-	if reviewPath {
-		if strings.Count(strings.TrimPrefix(r.URL.Path, reviewPrefix), "/") != 1 || !strings.HasSuffix(r.URL.Path, reviewSuffix) {
+	if reviewPath || executePath {
+		suffix := reviewSuffix
+		if executePath {
+			suffix = executeSuffix
+		}
+		relativePath := strings.TrimPrefix(r.URL.Path, reviewPrefix)
+		if !strings.HasSuffix(relativePath, suffix) {
 			h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
 			return
 		}
-		requestID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, reviewPrefix), reviewSuffix)
-		if !canonicalUUID(requestID) {
+		requestID := strings.TrimSuffix(relativePath, suffix)
+		if strings.Contains(requestID, "/") || !canonicalUUID(requestID) {
 			h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
 			return
 		}
@@ -126,12 +152,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.serviceError(w, err)
 			return
 		}
-		review, err := h.privacy.ReviewSuppression(r.Context(), principal.AccountID, requestID, r.Header.Get("Idempotency-Key"), w.Header().Get("X-Request-ID"), time.Now)
-		if err != nil {
-			h.privacyError(w, err)
-			return
+		if executePath {
+			result, err := h.privacy.ExecuteSuppression(r.Context(), principal.AccountID, requestID, r.Header.Get("Idempotency-Key"), w.Header().Get("X-Request-ID"), h.now, h.evidenceCleaner)
+			if err != nil {
+				h.privacyError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, result)
+		} else {
+			review, err := h.privacy.ReviewSuppression(r.Context(), principal.AccountID, requestID, r.Header.Get("Idempotency-Key"), w.Header().Get("X-Request-ID"), h.now)
+			if err != nil {
+				h.privacyError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, review)
 		}
-		h.write(w, http.StatusOK, review)
 		return
 	}
 	if r.URL.Path == suppressionQueuePath {

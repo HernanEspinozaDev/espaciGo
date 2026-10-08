@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -49,6 +50,13 @@ func (r *Repository) UpdateRate(ctx context.Context, owner, spaceID string, in p
 		return pricing.Rate{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return pricing.Rate{}, err
+	}
+	if !active {
+		return pricing.Rate{}, pricing.ErrNotFound
+	}
 	var unit string
 	var amount int64
 	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado='borrador' FOR UPDATE`, spaceID, owner).Scan(&unit, &amount)
@@ -72,14 +80,29 @@ func (r *Repository) UpdateRate(ctx context.Context, owner, spaceID string, in p
 	return item, nil
 }
 func (r *Repository) CreateSimulation(ctx context.Context, owner, spaceID, id, zone string, rate pricing.Rate, start, end time.Time, units, subtotal int64) (pricing.Simulation, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return pricing.Simulation{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return pricing.Simulation{}, err
+	}
+	if !active {
+		return pricing.Simulation{}, pricing.ErrNotFound
+	}
 	var s pricing.Simulation
-	err := r.pool.QueryRow(ctx, `INSERT INTO public.simulacion_precio_privada(id,espacio_id,propietario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades_facturadas,subtotal_clp,inicio,termino,zona_horaria)
+	err = tx.QueryRow(ctx, `INSERT INTO public.simulacion_precio_privada(id,espacio_id,propietario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades_facturadas,subtotal_clp,inicio,termino,zona_horaria)
 	SELECT $1,e.id,e.propietario_id,$4,$5,$6,'CLP',$7,$8,$9,$10,$11 FROM public.espacio e WHERE e.id=$2 AND e.propietario_id=$3 AND e.estado='borrador'
 	RETURNING id::text,espacio_id::text,tarifa_version,modalidad,precio_unitario_clp,unidades_facturadas,moneda,subtotal_clp,inicio,termino,zona_horaria,true,creada_en`, id, spaceID, owner, rate.Version, rate.Unit, rate.Amount, units, subtotal, start, end, zone).Scan(&s.ID, &s.SpaceID, &s.RateVersion, &s.RateUnit, &s.BasePrice, &s.BilledUnits, &s.Currency, &s.Subtotal, &s.StartAt, &s.EndAt, &s.TimeZone, &s.Private, &s.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pricing.Simulation{}, pricing.ErrNotFound
 	}
 	if err != nil {
+		return pricing.Simulation{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return pricing.Simulation{}, err
 	}
 	s.StartAt = s.StartAt.UTC()

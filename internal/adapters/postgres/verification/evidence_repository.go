@@ -4,20 +4,44 @@ import (
 	"context"
 	"errors"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (r *Repository) CreateEvidence(ctx context.Context, item verification.Evidence) (verification.Evidence, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return verification.Evidence{}, mapEvidenceDBError(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	var owner string
+	if err = tx.QueryRow(ctx, `SELECT usuario_id::text FROM public.verificacion WHERE id=$1`, item.VerificationID).Scan(&owner); errors.Is(err, pgx.ErrNoRows) {
+		return verification.Evidence{}, verification.ErrNotFound
+	}
+	if err != nil {
+		return verification.Evidence{}, mapEvidenceDBError(err)
+	}
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return verification.Evidence{}, mapEvidenceDBError(err)
+	}
+	if !active {
+		return verification.Evidence{}, verification.ErrNotFound
+	}
 	var created verification.Evidence
-	err := r.pool.QueryRow(ctx, `INSERT INTO public.verificacion_evidencia_sintetica
+	err = tx.QueryRow(ctx, `INSERT INTO public.verificacion_evidencia_sintetica
 		(id, verificacion_id, codigo_fixture, mime_type, tamano_bytes, sha256, creada_en)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		SELECT $1, v.id, $3, $4, $5, $6, $7 FROM public.verificacion v
+		WHERE v.id=$2 AND v.usuario_id=$8
 		RETURNING id::text, verificacion_id::text, codigo_fixture, mime_type, tamano_bytes, sha256, creada_en`,
-		item.ID, item.VerificationID, item.FixtureCode, item.MIMEType, item.SizeBytes, item.SHA256, dbTime(item.CreatedAt)).
+		item.ID, item.VerificationID, item.FixtureCode, item.MIMEType, item.SizeBytes, item.SHA256, dbTime(item.CreatedAt), owner).
 		Scan(&created.ID, &created.VerificationID, &created.FixtureCode, &created.MIMEType, &created.SizeBytes, &created.SHA256, &created.CreatedAt)
 	if err != nil {
+		return verification.Evidence{}, mapEvidenceDBError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return verification.Evidence{}, mapEvidenceDBError(err)
 	}
 	return created, nil

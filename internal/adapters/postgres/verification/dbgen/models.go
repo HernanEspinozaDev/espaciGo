@@ -14,6 +14,16 @@ type AceptacionTermino struct {
 	VersionID  string             `json:"version_id"`
 	AceptadaEn pgtype.Timestamptz `json:"aceptada_en"`
 	Canal      string             `json:"canal"`
+	RetirarEn  pgtype.Timestamptz `json:"retirar_en"`
+}
+
+type BajaArchivoPendienteLocal struct {
+	EjecucionID       string             `json:"ejecucion_id"`
+	EvidenciaID       string             `json:"evidencia_id"`
+	Intentos          int32              `json:"intentos"`
+	DisponibleEn      pgtype.Timestamptz `json:"disponible_en"`
+	UltimoCodigoError *string            `json:"ultimo_codigo_error"`
+	CompletadaEn      pgtype.Timestamptz `json:"completada_en"`
 }
 
 type CategoriaEspacio struct {
@@ -51,6 +61,47 @@ type CotizacionReservaEnsayo struct {
 	PerfilVersion              int32              `json:"perfil_version"`
 	PerfilValoresSnapshot      []byte             `json:"perfil_valores_snapshot"`
 	PoliticaCancelacionVersion string             `json:"politica_cancelacion_version"`
+	RetirarEn                  pgtype.Timestamptz `json:"retirar_en"`
+}
+
+type DisputaEnsayoHistorial struct {
+	Secuencia      int64              `json:"secuencia"`
+	DisputaID      string             `json:"disputa_id"`
+	EstadoAnterior *string            `json:"estado_anterior"`
+	EstadoNuevo    string             `json:"estado_nuevo"`
+	ActorID        string             `json:"actor_id"`
+	MotivoCodigo   string             `json:"motivo_codigo"`
+	OcurridaEn     pgtype.Timestamptz `json:"ocurrida_en"`
+}
+
+type DisputaEnsayoLocal struct {
+	ID                 string             `json:"id"`
+	ReservaID          string             `json:"reserva_id"`
+	AnfitrionID        string             `json:"anfitrion_id"`
+	ArrendatarioID     string             `json:"arrendatario_id"`
+	AbiertaPor         string             `json:"abierta_por"`
+	MotivoCodigo       string             `json:"motivo_codigo"`
+	Estado             string             `json:"estado"`
+	ClaveIdempotencia  string             `json:"clave_idempotencia"`
+	HuellaSolicitud    []byte             `json:"huella_solicitud"`
+	AbiertaEn          pgtype.Timestamptz `json:"abierta_en"`
+	CerradaPor         pgtype.UUID        `json:"cerrada_por"`
+	MotivoCierreCodigo *string            `json:"motivo_cierre_codigo"`
+	CerradaEn          pgtype.Timestamptz `json:"cerrada_en"`
+}
+
+type EjecucionBajaLocal struct {
+	ID                string             `json:"id"`
+	SolicitudID       string             `json:"solicitud_id"`
+	UsuarioID         string             `json:"usuario_id"`
+	ActorID           string             `json:"actor_id"`
+	ClaveIdempotencia string             `json:"clave_idempotencia"`
+	Estado            string             `json:"estado"`
+	MotivoCodigo      string             `json:"motivo_codigo"`
+	IniciadaEn        pgtype.Timestamptz `json:"iniciada_en"`
+	CompletadaEn      pgtype.Timestamptz `json:"completada_en"`
+	RetirarEn         pgtype.Timestamptz `json:"retirar_en"`
+	Detalle           []byte             `json:"detalle"`
 }
 
 type Espacio struct {
@@ -94,16 +145,18 @@ type EspacioHorarioSemanalTramo struct {
 }
 
 type EventoAuditoriaLocal struct {
-	ID            string             `json:"id"`
-	ActorID       string             `json:"actor_id"`
-	RecursoTipo   string             `json:"recurso_tipo"`
-	RecursoID     string             `json:"recurso_id"`
-	Accion        string             `json:"accion"`
-	Resultado     string             `json:"resultado"`
-	MotivoCodigo  string             `json:"motivo_codigo"`
-	CorrelacionID string             `json:"correlacion_id"`
-	OcurridoEn    pgtype.Timestamptz `json:"ocurrido_en"`
-	RetirarEn     pgtype.Timestamptz `json:"retirar_en"`
+	ID                string             `json:"id"`
+	ActorID           string             `json:"actor_id"`
+	RecursoTipo       string             `json:"recurso_tipo"`
+	RecursoID         string             `json:"recurso_id"`
+	Accion            string             `json:"accion"`
+	Resultado         string             `json:"resultado"`
+	MotivoCodigo      string             `json:"motivo_codigo"`
+	CorrelacionID     string             `json:"correlacion_id"`
+	OcurridoEn        pgtype.Timestamptz `json:"ocurrido_en"`
+	RetirarEn         pgtype.Timestamptz `json:"retirar_en"`
+	ClaveIdempotencia *string            `json:"clave_idempotencia"`
+	DetalleCodigos    []byte             `json:"detalle_codigos"`
 }
 
 type HistorialClaveLocal struct {
@@ -140,18 +193,21 @@ type Ocupacion struct {
 }
 
 type OutboxEventoLocal struct {
-	ID                 string             `json:"id"`
-	AgregadoTipo       string             `json:"agregado_tipo"`
-	AgregadoID         string             `json:"agregado_id"`
-	Tipo               string             `json:"tipo"`
-	ClaveDeduplicacion string             `json:"clave_deduplicacion"`
-	Version            int16              `json:"version"`
-	CreadaEn           pgtype.Timestamptz `json:"creada_en"`
-	DisponibleEn       pgtype.Timestamptz `json:"disponible_en"`
-	LeaseHasta         pgtype.Timestamptz `json:"lease_hasta"`
-	Intentos           int32              `json:"intentos"`
-	EntregadaEn        pgtype.Timestamptz `json:"entregada_en"`
-	UltimoError        *string            `json:"ultimo_error"`
+	ID                      string             `json:"id"`
+	AgregadoTipo            string             `json:"agregado_tipo"`
+	AgregadoID              string             `json:"agregado_id"`
+	Tipo                    string             `json:"tipo"`
+	ClaveDeduplicacion      string             `json:"clave_deduplicacion"`
+	Version                 int16              `json:"version"`
+	CreadaEn                pgtype.Timestamptz `json:"creada_en"`
+	DisponibleEn            pgtype.Timestamptz `json:"disponible_en"`
+	LeaseHasta              pgtype.Timestamptz `json:"lease_hasta"`
+	Intentos                int32              `json:"intentos"`
+	EntregadaEn             pgtype.Timestamptz `json:"entregada_en"`
+	UltimoError             *string            `json:"ultimo_error"`
+	CanceladaEn             pgtype.Timestamptz `json:"cancelada_en"`
+	MotivoCancelacionCodigo *string            `json:"motivo_cancelacion_codigo"`
+	RetirarEn               pgtype.Timestamptz `json:"retirar_en"`
 }
 
 type PerfilUsuario struct {
@@ -216,6 +272,7 @@ type ReservaEnsayoLocal struct {
 	ActualizadaEn              pgtype.Timestamptz `json:"actualizada_en"`
 	CondicionesSnapshot        string             `json:"condiciones_snapshot"`
 	PoliticaCancelacionVersion string             `json:"politica_cancelacion_version"`
+	VinculosRetirarEn          pgtype.Timestamptz `json:"vinculos_retirar_en"`
 }
 
 type ReservaEnsayoLocalFixture struct {
@@ -336,12 +393,15 @@ type SimulacionPrecioPrivada struct {
 }
 
 type SolicitudTitular struct {
-	ID           string             `json:"id"`
-	UsuarioID    string             `json:"usuario_id"`
-	Tipo         string             `json:"tipo"`
-	Canal        string             `json:"canal"`
-	Estado       string             `json:"estado"`
-	SolicitadaEn pgtype.Timestamptz `json:"solicitada_en"`
+	ID                     string             `json:"id"`
+	UsuarioID              string             `json:"usuario_id"`
+	Tipo                   string             `json:"tipo"`
+	Canal                  string             `json:"canal"`
+	Estado                 string             `json:"estado"`
+	SolicitadaEn           pgtype.Timestamptz `json:"solicitada_en"`
+	ResueltaEn             pgtype.Timestamptz `json:"resuelta_en"`
+	MotivoResolucionCodigo *string            `json:"motivo_resolucion_codigo"`
+	RetirarEn              pgtype.Timestamptz `json:"retirar_en"`
 }
 
 type TarifaEspacio struct {
@@ -377,6 +437,7 @@ type Usuario struct {
 	IntentosFallidosConsecutivos int32              `json:"intentos_fallidos_consecutivos"`
 	BloqueadoHasta               pgtype.Timestamptz `json:"bloqueado_hasta"`
 	PreferenciaUso               *string            `json:"preferencia_uso"`
+	BajaIniciadaEn               pgtype.Timestamptz `json:"baja_iniciada_en"`
 }
 
 type Verificacion struct {
@@ -392,6 +453,7 @@ type Verificacion struct {
 	MotivoCodigo        *string            `json:"motivo_codigo"`
 	CreadaEn            pgtype.Timestamptz `json:"creada_en"`
 	ResueltaEn          pgtype.Timestamptz `json:"resuelta_en"`
+	RetirarEn           pgtype.Timestamptz `json:"retirar_en"`
 }
 
 type VerificacionEvidenciaSintetica struct {

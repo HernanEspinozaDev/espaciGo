@@ -8,7 +8,7 @@ import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState } from "./booking-availability-state.js";
 import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
 import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExportSessionMatches } from "./privacy-export-state.js";
-import { clearSuppressionReviewPanelState, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount } from "./suppression-review-state.js";
+import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount } from "./suppression-review-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -183,7 +183,27 @@ async function loadSuppressionQueue() {
             suppressionReviewKeys.delete(item.request_id);
             await loadSuppressionQueue();
         }));
-        row.append(label, review);
+        const execute = document.createElement("button");
+        execute.type = "button";
+        execute.textContent = "Ejecutar baja local";
+        execute.addEventListener("click", () => void action(async () => {
+            if (!confirm("Se volverán a comprobar las obligaciones. Solo aplica a datos sintéticos. El resultado será baja con minimización y retención residual; no anonimización ni supresión integral."))
+                return;
+            const requestToken = sessionToken, requestAccount = sessionAccountID, requestGeneration = sessionGeneration;
+            const storageKey = `espacigo.local-suppression.${requestAccount}.${item.request_id}`;
+            const key = localStorage.getItem(storageKey) ?? crypto.randomUUID();
+            localStorage.setItem(storageKey, key);
+            const result = await request(`/api/v1/privacy/suppression-requests/${encodeURIComponent(item.request_id)}/execute`, "POST", undefined, true, key);
+            if (requestToken !== sessionToken || requestAccount !== sessionAccountID || requestGeneration !== sessionGeneration)
+                return;
+            suppressionReviewPanelState = withSuppressionEvaluation(suppressionReviewPanelState, result);
+            const details = formatSuppressionExecution(result);
+            document.querySelector("#suppression-review-output").textContent = details;
+            if (result.status === "completada" || result.status === "bloqueada")
+                localStorage.removeItem(storageKey);
+            await loadSuppressionQueue();
+        }));
+        row.append(label, review, execute);
         container.append(row);
     }
     suppressionReviewPanelState = withSuppressionQueueCount(suppressionReviewPanelState, items.length);

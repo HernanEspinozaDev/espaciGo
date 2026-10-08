@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	dbgen "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity/dbgen"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
@@ -27,8 +28,23 @@ func (r *IdentityRepository) GetProfile(ctx context.Context, accountID string) (
 }
 
 func (r *IdentityRepository) SaveProfile(ctx context.Context, accountID, name string, phone *string) (privacy.Profile, error) {
-	row, err := r.queries.UpsertProfile(ctx, dbgen.UpsertProfileParams{AccountID: accountID, DisplayName: name, Phone: phone})
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return privacy.Profile{}, mapError(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	active, err := accountlock.LockActive(ctx, tx, accountID)
+	if err != nil {
+		return privacy.Profile{}, mapError(err)
+	}
+	if !active {
+		return privacy.Profile{}, privacy.ErrNotFound
+	}
+	row, err := r.queries.WithTx(tx).UpsertProfile(ctx, dbgen.UpsertProfileParams{AccountID: accountID, DisplayName: name, Phone: phone})
+	if err != nil {
+		return privacy.Profile{}, mapError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return privacy.Profile{}, mapError(err)
 	}
 	return privacy.Profile{AccountID: row.AccountID, Name: row.NombreVisible, Phone: row.TelefonoNormalizado, UpdatedAt: row.ActualizadoEn.Time}, nil
@@ -208,8 +224,12 @@ func (r *IdentityRepository) ReviewSuppression(ctx context.Context, reviewerID, 
 		switch existingReason {
 		case "supresion_con_obligaciones":
 			existing.Outcome = "bloqueada"
-		case "supresion_revision_incompleta":
-			existing.Outcome = "revision_incompleta"
+		case "supresion_revision_incompleta", "supresion_elegible":
+			if existingReason == "supresion_elegible" {
+				existing.Outcome = "elegible"
+			} else {
+				existing.Outcome = "revision_incompleta"
+			}
 		default:
 			return privacy.SuppressionReview{}, identity.ErrConflict
 		}
@@ -238,49 +258,12 @@ func (r *IdentityRepository) ReviewSuppression(ctx context.Context, reviewerID, 
 		now = time.Now
 	}
 	checkedAt := now().UTC().Truncate(time.Microsecond) // Sample post-lock and match PostgreSQL timestamp precision.
-	obligations := make([]string, 0, 3)
-	pendingChecks := []string{"matriz_retencion_historicos_incompleta"}
-	var found bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM public.reserva_ensayo_local
-		WHERE (anfitrion_id=$1 OR arrendatario_id=$1)
-		  AND estado IN ('pendiente_de_pago','pagada','aprobada_host')
-	)`, subjectID).Scan(&found); err != nil {
-		return privacy.SuppressionReview{}, mapError(err)
+	obligations, err := activeSuppressionObligations(ctx, tx, subjectID)
+	if err != nil {
+		return privacy.SuppressionReview{}, err
 	}
-	if found {
-		obligations = append(obligations, "reserva_activa")
-	}
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM public.reserva_pago_ensayo_operacion p
-		JOIN public.reserva_ensayo_local r ON r.id=p.reserva_id
-		WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND p.estado='pendiente'
-		UNION ALL
-		SELECT 1 FROM public.reserva_pago_evento_aplicacion_ensayo a
-		JOIN public.reserva_pago_evento_ensayo e ON e.id=a.evento_id
-		JOIN public.reserva_pago_ensayo_operacion p ON p.id=e.operacion_id
-		JOIN public.reserva_ensayo_local r ON r.id=p.reserva_id
-		WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND a.estado='pendiente_conciliacion'
-		UNION ALL
-		SELECT 1 FROM public.reserva_devolucion_ensayo d
-		JOIN public.reserva_ensayo_local r ON r.id=d.reserva_id
-		WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND d.estado='pendiente'
-	)`, subjectID).Scan(&found); err != nil {
-		return privacy.SuppressionReview{}, mapError(err)
-	}
-	if found {
-		obligations = append(obligations, "pago_o_devolucion_pendiente")
-	}
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM public.disputa_ensayo_local
-		WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado='abierta'
-	)`, subjectID).Scan(&found); err != nil {
-		return privacy.SuppressionReview{}, mapError(err)
-	}
-	if found {
-		obligations = append(obligations, "disputa_abierta")
-	}
-	outcome := "revision_incompleta"
+	pendingChecks := []string{}
+	outcome := "elegible"
 	if len(obligations) > 0 {
 		outcome = "bloqueada"
 	}
@@ -292,7 +275,7 @@ func (r *IdentityRepository) ReviewSuppression(ctx context.Context, reviewerID, 
 	if err != nil {
 		return privacy.SuppressionReview{}, err
 	}
-	reason := "supresion_revision_incompleta"
+	reason := "supresion_elegible"
 	result := "exito"
 	if outcome == "bloqueada" {
 		reason = "supresion_con_obligaciones"

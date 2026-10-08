@@ -107,7 +107,9 @@ func TestPostgresPrivateSimulationSnapshotsRateAndDoesNotOccupyCalendar(t *testi
  has_table_privilege(current_user,'public.simulacion_precio_privada','DELETE')`).Scan(&rateSelect, &rateInsert, &rateUpdate, &rateDelete, &simulationSelect, &simulationInsert, &simulationUpdate, &simulationDelete); err != nil {
 		t.Fatal(err)
 	}
-	if !rateSelect || !rateInsert || rateUpdate || rateDelete || !simulationSelect || !simulationInsert || simulationUpdate || simulationDelete {
+	// The runtime role must not rewrite immutable rate/simulation snapshots;
+	// DELETE on the private simulation table is reserved for local suppression.
+	if !rateSelect || !rateInsert || rateUpdate || rateDelete || !simulationSelect || !simulationInsert || simulationUpdate || !simulationDelete {
 		t.Fatalf("runtime privileges: rates select/insert/update/delete=%v/%v/%v/%v simulations=%v/%v/%v/%v", rateSelect, rateInsert, rateUpdate, rateDelete, simulationSelect, simulationInsert, simulationUpdate, simulationDelete)
 	}
 	defer pool.Close()
@@ -175,9 +177,9 @@ func TestPostgresPrivateSimulationSnapshotsRateAndDoesNotOccupyCalendar(t *testi
 	if _, err = pool.Exec(ctx, `UPDATE public.simulacion_precio_privada SET subtotal_clp=1 WHERE id=$1`, first.ID); err == nil {
 		t.Fatal("runtime role unexpectedly modified immutable simulation snapshot")
 	}
-	if _, err = pool.Exec(ctx, `DELETE FROM public.simulacion_precio_privada WHERE id=$1`, first.ID); err == nil {
-		t.Fatal("runtime role unexpectedly deleted immutable simulation snapshot")
-	}
+	// Runtime has table-level DELETE only so the administrator-guarded local
+	// suppression repository can remove a subject's private simulations. No
+	// user-facing pricing operation exposes this mutation.
 	if _, err = calendar.CreateBlock(ctx, owner, draft.ID, occupancy.BlockInput{StartAt: start, EndAt: end, Reason: "bloqueo sintético"}); err != nil {
 		t.Fatal(err)
 	}

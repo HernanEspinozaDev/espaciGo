@@ -192,6 +192,13 @@ func (r *Repository) Quote(ctx context.Context, renter, spaceID, id string, star
 		return booking.Quote{}, err
 	}
 	defer tx.Rollback(ctx)
+	var quoteHost string
+	if err := tx.QueryRow(ctx, `SELECT anfitrion_id::text FROM public.reserva_ensayo_local_fixture WHERE espacio_id=$1 AND arrendatario_id=$2 AND habilitada`, spaceID, renter).Scan(&quoteHost); err != nil {
+		return booking.Quote{}, mapErr(err)
+	}
+	if err := lockActiveAccounts(ctx, tx, renter, quoteHost); err != nil {
+		return booking.Quote{}, err
+	}
 	now := clock().UTC()
 	if !start.After(now) {
 		return booking.Quote{}, booking.ErrInvalid
@@ -239,7 +246,8 @@ func (r *Repository) Quote(ctx context.Context, renter, spaceID, id string, star
 	q.EndAt = end
 	q.CreatedAt = now
 	q.ExpiresAt = expires
-	_, err = tx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,creada_en,vence_en,categoria_codigo,perfil_version,perfil_valores_snapshot,politica_cancelacion_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`, id, q.SpaceID, hostID, renterID, q.RateVersion, q.RateUnit, q.UnitPrice, q.Currency, units, amount, start, end, q.TimeZone, q.Conditions, now, expires, q.CategoryCode, q.ProfileVersion, q.ProfileValues, q.CancellationPolicyVersion)
+	retireAt := expires.AddDate(0, 0, 90)
+	_, err = tx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,creada_en,vence_en,categoria_codigo,perfil_version,perfil_valores_snapshot,politica_cancelacion_version,retirar_en) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`, id, q.SpaceID, hostID, renterID, q.RateVersion, q.RateUnit, q.UnitPrice, q.Currency, units, amount, start, end, q.TimeZone, q.Conditions, now, expires, q.CategoryCode, q.ProfileVersion, q.ProfileValues, q.CancellationPolicyVersion, retireAt)
 	if err != nil {
 		return booking.Quote{}, mapErr(err)
 	}
@@ -301,6 +309,13 @@ func (r *Repository) Create(ctx context.Context, renter, quoteID, key string, fi
 		return v, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
+		return booking.Reservation{}, err
+	}
+	var quoteHost string
+	if err = tx.QueryRow(ctx, `SELECT anfitrion_id::text FROM public.cotizacion_reserva_ensayo WHERE id=$1 AND arrendatario_id=$2`, quoteID, renter).Scan(&quoteHost); err != nil {
+		return booking.Reservation{}, mapErr(err)
+	}
+	if err = lockActiveAccounts(ctx, tx, renter, quoteHost); err != nil {
 		return booking.Reservation{}, err
 	}
 	// Match the row lock used by UpdateOwn before validating the quoted tariff.
@@ -440,6 +455,9 @@ func (r *Repository) Decide(ctx context.Context, host, id, decision, reason stri
 		return booking.Reservation{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockReservationParties(ctx, tx, id); err != nil {
+		return booking.Reservation{}, err
+	}
 	v, err := scanReservation(tx.QueryRow(ctx, `SELECT `+reservationCols+` FROM public.reserva_ensayo_local WHERE id=$1 AND anfitrion_id=$2 FOR UPDATE`, id, host))
 	if err != nil {
 		return booking.Reservation{}, err
@@ -543,6 +561,9 @@ func (r *Repository) Cancel(ctx context.Context, renter, id, key, reason string,
 		return booking.CancellationResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockReservationParties(ctx, tx, id); err != nil {
+		return booking.CancellationResult{}, err
+	}
 	v, err := scanReservation(tx.QueryRow(ctx, `SELECT `+reservationCols+` FROM public.reserva_ensayo_local WHERE id=$1 AND arrendatario_id=$2 FOR UPDATE`, id, renter))
 	if err != nil {
 		return booking.CancellationResult{}, err
@@ -681,6 +702,9 @@ func (r *Repository) RecordRefund(ctx context.Context, renter, id, result string
 		return booking.RefundResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockReservationParties(ctx, tx, id); err != nil {
+		return booking.RefundResult{}, err
+	}
 	var state, operationID, currency, lastResult string
 	var amount int64
 	var updatedAt time.Time

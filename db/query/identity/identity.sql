@@ -299,7 +299,7 @@ INSERT INTO public.evento_auditoria_local (
 -- name: ClaimCredentialChangedNotice :one
 WITH candidate AS (
     SELECT event.id FROM public.outbox_evento_local AS event
-    WHERE event.tipo = 'identidad.credencial_cambiada' AND event.entregada_en IS NULL
+    WHERE event.tipo = 'identidad.credencial_cambiada' AND event.entregada_en IS NULL AND event.cancelada_en IS NULL
       AND event.disponible_en <= sqlc.arg(at) AND (event.lease_hasta IS NULL OR event.lease_hasta <= sqlc.arg(at))
     ORDER BY event.disponible_en, event.creada_en, event.id
     FOR UPDATE SKIP LOCKED LIMIT 1
@@ -312,7 +312,7 @@ RETURNING event.id::text AS id, event.agregado_id::text AS account_id, event.int
 
 -- name: CompleteCredentialChangedNotice :execrows
 UPDATE public.outbox_evento_local
-SET entregada_en = sqlc.arg(at), lease_hasta = NULL, ultimo_error = NULL
+SET entregada_en = sqlc.arg(at)::timestamptz, retirar_en = sqlc.arg(at)::timestamptz + interval '30 days', lease_hasta = NULL, ultimo_error = NULL
 WHERE id = sqlc.arg(id) AND entregada_en IS NULL AND lease_hasta = sqlc.arg(lease_until);
 
 -- name: RetryCredentialChangedNotice :execrows

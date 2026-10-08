@@ -14,7 +14,7 @@ import (
 const claimCredentialChangedNotice = `-- name: ClaimCredentialChangedNotice :one
 WITH candidate AS (
     SELECT event.id FROM public.outbox_evento_local AS event
-    WHERE event.tipo = 'identidad.credencial_cambiada' AND event.entregada_en IS NULL
+    WHERE event.tipo = 'identidad.credencial_cambiada' AND event.entregada_en IS NULL AND event.cancelada_en IS NULL
       AND event.disponible_en <= $2 AND (event.lease_hasta IS NULL OR event.lease_hasta <= $2)
     ORDER BY event.disponible_en, event.creada_en, event.id
     FOR UPDATE SKIP LOCKED LIMIT 1
@@ -52,7 +52,7 @@ func (q *Queries) ClaimCredentialChangedNotice(ctx context.Context, arg ClaimCre
 
 const completeCredentialChangedNotice = `-- name: CompleteCredentialChangedNotice :execrows
 UPDATE public.outbox_evento_local
-SET entregada_en = $1, lease_hasta = NULL, ultimo_error = NULL
+SET entregada_en = $1::timestamptz, retirar_en = $1::timestamptz + interval '30 days', lease_hasta = NULL, ultimo_error = NULL
 WHERE id = $2 AND entregada_en IS NULL AND lease_hasta = $3
 `
 

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   clearSuppressionReviewPanelState,
+  formatSuppressionExecution,
   initialSuppressionReviewPanelState,
   withSuppressionEvaluation,
   withSuppressionQueueCount,
@@ -28,4 +29,22 @@ test("refreshing the queue preserves the latest administrative evaluation", () =
   const cleared = clearSuppressionReviewPanelState();
   assert.match(cleared.queueStatus, /Inicia sesión/);
   assert.match(cleared.evaluationText, /Inicia sesión/);
+});
+
+test("suppression execution presents residual retention and recoverable file failures", () => {
+  const text = formatSuppressionExecution({
+    status: "limpieza_pendiente",
+    outcome: "limpieza_pendiente",
+    obligations_detected: [],
+    pending_files: 1,
+    removed: ["sesiones_y_tokens"],
+    retained: ["ancla_tecnica_usuario", "auditoria_5_anios"],
+    started_at: "2026-10-08T10:00:00Z",
+    completed_at: null,
+  });
+  assert.match(text, /Resultado: limpieza_pendiente/);
+  assert.match(text, /Archivos pendientes: 1/);
+  assert.match(text, /sesiones_y_tokens/);
+  assert.match(text, /auditoria_5_anios/);
+  assert.match(text, /Término: pendiente/);
 });
