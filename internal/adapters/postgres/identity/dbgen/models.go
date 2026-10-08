@@ -43,8 +43,8 @@ type CategoriaPerfilAtributo struct {
 type CotizacionReservaEnsayo struct {
 	ID                         string             `json:"id"`
 	EspacioID                  string             `json:"espacio_id"`
-	AnfitrionID                string             `json:"anfitrion_id"`
-	ArrendatarioID             string             `json:"arrendatario_id"`
+	AnfitrionID                pgtype.UUID        `json:"anfitrion_id"`
+	ArrendatarioID             pgtype.UUID        `json:"arrendatario_id"`
 	TarifaVersion              int32              `json:"tarifa_version"`
 	Modalidad                  string             `json:"modalidad"`
 	PrecioUnitarioClp          int64              `json:"precio_unitario_clp"`
@@ -69,7 +69,7 @@ type DisputaEnsayoHistorial struct {
 	DisputaID      string             `json:"disputa_id"`
 	EstadoAnterior *string            `json:"estado_anterior"`
 	EstadoNuevo    string             `json:"estado_nuevo"`
-	ActorID        string             `json:"actor_id"`
+	ActorID        pgtype.UUID        `json:"actor_id"`
 	MotivoCodigo   string             `json:"motivo_codigo"`
 	OcurridaEn     pgtype.Timestamptz `json:"ocurrida_en"`
 }
@@ -77,9 +77,9 @@ type DisputaEnsayoHistorial struct {
 type DisputaEnsayoLocal struct {
 	ID                 string             `json:"id"`
 	ReservaID          string             `json:"reserva_id"`
-	AnfitrionID        string             `json:"anfitrion_id"`
-	ArrendatarioID     string             `json:"arrendatario_id"`
-	AbiertaPor         string             `json:"abierta_por"`
+	AnfitrionID        pgtype.UUID        `json:"anfitrion_id"`
+	ArrendatarioID     pgtype.UUID        `json:"arrendatario_id"`
+	AbiertaPor         pgtype.UUID        `json:"abierta_por"`
 	MotivoCodigo       string             `json:"motivo_codigo"`
 	Estado             string             `json:"estado"`
 	ClaveIdempotencia  string             `json:"clave_idempotencia"`
@@ -172,7 +172,7 @@ type MensajeReservaEnsayo struct {
 	Secuencia         int64              `json:"secuencia"`
 	ID                string             `json:"id"`
 	ReservaID         string             `json:"reserva_id"`
-	AutorID           string             `json:"autor_id"`
+	AutorID           pgtype.UUID        `json:"autor_id"`
 	ClaveIdempotencia string             `json:"clave_idempotencia"`
 	HuellaSolicitud   []byte             `json:"huella_solicitud"`
 	Cuerpo            string             `json:"cuerpo"`
@@ -192,6 +192,20 @@ type Ocupacion struct {
 	DesactivadaEn pgtype.Timestamptz               `json:"desactivada_en"`
 }
 
+type OutboxEventoCicloLocal struct {
+	EventoID               string             `json:"evento_id"`
+	NumeroCiclo            int32              `json:"numero_ciclo"`
+	Estado                 string             `json:"estado"`
+	IniciadaEn             pgtype.Timestamptz `json:"iniciada_en"`
+	FinalizadaEn           pgtype.Timestamptz `json:"finalizada_en"`
+	Intentos               int32              `json:"intentos"`
+	CodigoResultado        *string            `json:"codigo_resultado"`
+	ActorReaperturaID      pgtype.UUID        `json:"actor_reapertura_id"`
+	MotivoReaperturaCodigo *string            `json:"motivo_reapertura_codigo"`
+	CorrelacionID          *string            `json:"correlacion_id"`
+	ClaveIdempotencia      *string            `json:"clave_idempotencia"`
+}
+
 type OutboxEventoLocal struct {
 	ID                      string             `json:"id"`
 	AgregadoTipo            string             `json:"agregado_tipo"`
@@ -208,6 +222,10 @@ type OutboxEventoLocal struct {
 	CanceladaEn             pgtype.Timestamptz `json:"cancelada_en"`
 	MotivoCancelacionCodigo *string            `json:"motivo_cancelacion_codigo"`
 	RetirarEn               pgtype.Timestamptz `json:"retirar_en"`
+	CicloActual             int32              `json:"ciclo_actual"`
+	IntentosCiclo           int32              `json:"intentos_ciclo"`
+	FalloTerminalEn         pgtype.Timestamptz `json:"fallo_terminal_en"`
+	CodigoFalloTerminal     *string            `json:"codigo_fallo_terminal"`
 }
 
 type PerfilUsuario struct {
@@ -217,10 +235,19 @@ type PerfilUsuario struct {
 	ActualizadoEn       pgtype.Timestamptz `json:"actualizado_en"`
 }
 
+type ReaplicacionBajaLocal struct {
+	RestoreID         string             `json:"restore_id"`
+	EjecucionOrigenID string             `json:"ejecucion_origen_id"`
+	UsuarioID         string             `json:"usuario_id"`
+	Estado            string             `json:"estado"`
+	Intentos          int32              `json:"intentos"`
+	AplicadaEn        pgtype.Timestamptz `json:"aplicada_en"`
+}
+
 type ReservaCancelacionEnsayo struct {
 	ID                string             `json:"id"`
 	ReservaID         string             `json:"reserva_id"`
-	ArrendatarioID    string             `json:"arrendatario_id"`
+	ArrendatarioID    pgtype.UUID        `json:"arrendatario_id"`
 	ClaveIdempotencia string             `json:"clave_idempotencia"`
 	HuellaSolicitud   []byte             `json:"huella_solicitud"`
 	Motivo            string             `json:"motivo"`
@@ -252,8 +279,8 @@ type ReservaEnsayoLocal struct {
 	ID                         string             `json:"id"`
 	CotizacionID               string             `json:"cotizacion_id"`
 	EspacioID                  string             `json:"espacio_id"`
-	AnfitrionID                string             `json:"anfitrion_id"`
-	ArrendatarioID             string             `json:"arrendatario_id"`
+	AnfitrionID                pgtype.UUID        `json:"anfitrion_id"`
+	ArrendatarioID             pgtype.UUID        `json:"arrendatario_id"`
 	ClaveIdempotencia          string             `json:"clave_idempotencia"`
 	HuellaSolicitud            []byte             `json:"huella_solicitud"`
 	OcupacionID                string             `json:"ocupacion_id"`
@@ -277,8 +304,8 @@ type ReservaEnsayoLocal struct {
 
 type ReservaEnsayoLocalFixture struct {
 	EspacioID                  string             `json:"espacio_id"`
-	AnfitrionID                string             `json:"anfitrion_id"`
-	ArrendatarioID             string             `json:"arrendatario_id"`
+	AnfitrionID                pgtype.UUID        `json:"anfitrion_id"`
+	ArrendatarioID             pgtype.UUID        `json:"arrendatario_id"`
 	HabilitadaEn               pgtype.Timestamptz `json:"habilitada_en"`
 	Habilitada                 bool               `json:"habilitada"`
 	PoliticaCancelacionVersion string             `json:"politica_cancelacion_version"`
@@ -322,7 +349,7 @@ type ReservaPagoEnsayo struct {
 type ReservaPagoEnsayoOperacion struct {
 	ID                  string             `json:"id"`
 	ReservaID           string             `json:"reserva_id"`
-	ArrendatarioID      string             `json:"arrendatario_id"`
+	ArrendatarioID      pgtype.UUID        `json:"arrendatario_id"`
 	ClaveIdempotencia   string             `json:"clave_idempotencia"`
 	HuellaSolicitud     []byte             `json:"huella_solicitud"`
 	ResultadoSolicitado string             `json:"resultado_solicitado"`
@@ -356,6 +383,13 @@ type ReservaPagoFakeResultadoEnsayo struct {
 	ProveedorEventoID *string            `json:"proveedor_evento_id"`
 	Resultado         *string            `json:"resultado"`
 	RegistradoEn      pgtype.Timestamptz `json:"registrado_en"`
+}
+
+type ReservaVinculoPurgadoLocal struct {
+	ReservaID       string             `json:"reserva_id"`
+	VencioEn        pgtype.Timestamptz `json:"vencio_en"`
+	PurgadoEn       pgtype.Timestamptz `json:"purgado_en"`
+	CamposRetirados []string           `json:"campos_retirados"`
 }
 
 type RolUsuario struct {
@@ -441,19 +475,20 @@ type Usuario struct {
 }
 
 type Verificacion struct {
-	ID                  string             `json:"id"`
-	UsuarioID           string             `json:"usuario_id"`
-	Tipo                string             `json:"tipo"`
-	Estado              string             `json:"estado"`
-	ProveedorRef        string             `json:"proveedor_ref"`
-	ReferenciaEvidencia string             `json:"referencia_evidencia"`
-	ClaveIdempotencia   string             `json:"clave_idempotencia"`
-	ReintentoDe         pgtype.UUID        `json:"reintento_de"`
-	RevisorID           pgtype.UUID        `json:"revisor_id"`
-	MotivoCodigo        *string            `json:"motivo_codigo"`
-	CreadaEn            pgtype.Timestamptz `json:"creada_en"`
-	ResueltaEn          pgtype.Timestamptz `json:"resuelta_en"`
-	RetirarEn           pgtype.Timestamptz `json:"retirar_en"`
+	ID                   string             `json:"id"`
+	UsuarioID            string             `json:"usuario_id"`
+	Tipo                 string             `json:"tipo"`
+	Estado               string             `json:"estado"`
+	ProveedorRef         string             `json:"proveedor_ref"`
+	ReferenciaEvidencia  string             `json:"referencia_evidencia"`
+	ClaveIdempotencia    string             `json:"clave_idempotencia"`
+	ReintentoDe          pgtype.UUID        `json:"reintento_de"`
+	RevisorID            pgtype.UUID        `json:"revisor_id"`
+	MotivoCodigo         *string            `json:"motivo_codigo"`
+	CreadaEn             pgtype.Timestamptz `json:"creada_en"`
+	ResueltaEn           pgtype.Timestamptz `json:"resuelta_en"`
+	RetirarEn            pgtype.Timestamptz `json:"retirar_en"`
+	RetiradaPrivacidadEn pgtype.Timestamptz `json:"retirada_privacidad_en"`
 }
 
 type VerificacionEvidenciaSintetica struct {

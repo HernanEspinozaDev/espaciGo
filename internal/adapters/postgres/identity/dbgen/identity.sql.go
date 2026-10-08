@@ -11,49 +11,168 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const claimCredentialChangedNotice = `-- name: ClaimCredentialChangedNotice :one
+const activeCredentialNoticeRecipientEmail = `-- name: ActiveCredentialNoticeRecipientEmail :one
+SELECT correo_original FROM public.usuario
+WHERE id=$1 AND estado='activo'
+`
+
+func (q *Queries) ActiveCredentialNoticeRecipientEmail(ctx context.Context, accountID string) (string, error) {
+	row := q.db.QueryRow(ctx, activeCredentialNoticeRecipientEmail, accountID)
+	var correo_original string
+	err := row.Scan(&correo_original)
+	return correo_original, err
+}
+
+const cancelInactiveCredentialNotice = `-- name: CancelInactiveCredentialNotice :execrows
+WITH cancelled AS (
+UPDATE public.outbox_evento_local
+SET cancelada_en=$1, motivo_cancelacion_codigo='destinatario_inactivo',
+    retirar_en=$1::timestamptz + interval '30 days', lease_hasta=NULL,
+    ultimo_error='recipient_inactive'
+WHERE id=$2 AND entregada_en IS NULL AND cancelada_en IS NULL
+  AND lease_hasta=$3
+RETURNING id,ciclo_actual,cancelada_en
+)
+UPDATE public.outbox_evento_ciclo_local AS cycle
+SET estado='cancelada',finalizada_en=cancelled.cancelada_en,codigo_resultado='recipient_inactive'
+FROM cancelled
+WHERE cycle.evento_id=cancelled.id AND cycle.numero_ciclo=cancelled.ciclo_actual
+`
+
+type CancelInactiveCredentialNoticeParams struct {
+	At         pgtype.Timestamptz `json:"at"`
+	ID         string             `json:"id"`
+	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
+}
+
+func (q *Queries) CancelInactiveCredentialNotice(ctx context.Context, arg CancelInactiveCredentialNoticeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelInactiveCredentialNotice, arg.At, arg.ID, arg.LeaseUntil)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const cancelInactiveCredentialNotices = `-- name: CancelInactiveCredentialNotices :execrows
 WITH candidate AS (
     SELECT event.id FROM public.outbox_evento_local AS event
+    JOIN public.usuario AS account ON account.id=event.agregado_id
+    WHERE event.tipo='identidad.credencial_cambiada' AND account.estado<>'activo'
+      AND event.entregada_en IS NULL AND event.cancelada_en IS NULL
+      AND event.fallo_terminal_en IS NULL AND (event.lease_hasta IS NULL OR event.lease_hasta<=$1)
+    ORDER BY event.creada_en,event.id FOR UPDATE OF event SKIP LOCKED LIMIT $2
+), cancelled AS (
+    UPDATE public.outbox_evento_local AS event
+       SET cancelada_en=$1,motivo_cancelacion_codigo='destinatario_inactivo',
+           retirar_en=$1::timestamptz + interval '30 days',lease_hasta=NULL,
+           ultimo_error='recipient_inactive'
+      FROM candidate WHERE event.id=candidate.id
+      RETURNING event.id,event.ciclo_actual,event.cancelada_en
+)
+UPDATE public.outbox_evento_ciclo_local AS cycle
+SET estado='cancelada',finalizada_en=cancelled.cancelada_en,codigo_resultado='recipient_inactive'
+FROM cancelled
+WHERE cycle.evento_id=cancelled.id AND cycle.numero_ciclo=cancelled.ciclo_actual
+`
+
+type CancelInactiveCredentialNoticesParams struct {
+	At        pgtype.Timestamptz `json:"at"`
+	LimitRows int32              `json:"limit_rows"`
+}
+
+func (q *Queries) CancelInactiveCredentialNotices(ctx context.Context, arg CancelInactiveCredentialNoticesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelInactiveCredentialNotices, arg.At, arg.LimitRows)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const claimCredentialChangedNotice = `-- name: ClaimCredentialChangedNotice :one
+WITH exhausted AS (
+    UPDATE public.outbox_evento_local
+       SET fallo_terminal_en=$1, codigo_fallo_terminal='worker_interrupted',
+           retirar_en=$1::timestamptz + interval '30 days', lease_hasta=NULL,
+           ultimo_error='worker_interrupted'
+     WHERE tipo='identidad.credencial_cambiada' AND entregada_en IS NULL AND cancelada_en IS NULL
+       AND fallo_terminal_en IS NULL AND intentos_ciclo >= 8
+       AND lease_hasta IS NOT NULL AND lease_hasta <= $1
+     RETURNING id,ciclo_actual,intentos_ciclo,fallo_terminal_en,codigo_fallo_terminal
+), closed_cycles AS (
+    UPDATE public.outbox_evento_ciclo_local AS cycle
+       SET estado='fallo_terminal', finalizada_en=exhausted.fallo_terminal_en,
+           intentos=exhausted.intentos_ciclo, codigo_resultado=exhausted.codigo_fallo_terminal
+      FROM exhausted
+     WHERE cycle.evento_id=exhausted.id AND cycle.numero_ciclo=exhausted.ciclo_actual
+     RETURNING cycle.evento_id
+), candidate AS (
+    SELECT event.id FROM public.outbox_evento_local AS event
     WHERE event.tipo = 'identidad.credencial_cambiada' AND event.entregada_en IS NULL AND event.cancelada_en IS NULL
-      AND event.disponible_en <= $2 AND (event.lease_hasta IS NULL OR event.lease_hasta <= $2)
+      AND event.fallo_terminal_en IS NULL AND event.intentos_ciclo < 8
+      AND event.disponible_en <= $1 AND (event.lease_hasta IS NULL OR event.lease_hasta <= $1)
+      AND EXISTS (SELECT 1 FROM public.usuario account WHERE account.id=event.agregado_id AND account.estado='activo')
     ORDER BY event.disponible_en, event.creada_en, event.id
     FOR UPDATE SKIP LOCKED LIMIT 1
+), claimed AS (
+    UPDATE public.outbox_evento_local AS event
+       SET lease_hasta=$2, intentos=event.intentos+1,
+           intentos_ciclo=event.intentos_ciclo+1
+      FROM candidate
+     WHERE event.id=candidate.id
+     RETURNING event.id,event.agregado_id,event.intentos,event.intentos_ciclo,
+               event.ciclo_actual,event.lease_hasta
+), claimed_cycle AS (
+    UPDATE public.outbox_evento_ciclo_local AS cycle
+       SET intentos=claimed.intentos_ciclo
+      FROM claimed
+     WHERE cycle.evento_id=claimed.id AND cycle.numero_ciclo=claimed.ciclo_actual
+     RETURNING cycle.evento_id
 )
-UPDATE public.outbox_evento_local AS event
-SET lease_hasta = $1, intentos = event.intentos + 1
-FROM candidate
-WHERE event.id = candidate.id
-RETURNING event.id::text AS id, event.agregado_id::text AS account_id, event.intentos, event.lease_hasta AS lease_until
+SELECT claimed.id::text AS id, claimed.agregado_id::text AS account_id,
+       claimed.intentos AS total_attempts, claimed.intentos_ciclo AS cycle_attempts,
+       claimed.ciclo_actual AS cycle_number, claimed.lease_hasta AS lease_until
+FROM claimed
 `
 
 type ClaimCredentialChangedNoticeParams struct {
-	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
 	At         pgtype.Timestamptz `json:"at"`
+	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
 }
 
 type ClaimCredentialChangedNoticeRow struct {
-	ID         string             `json:"id"`
-	AccountID  string             `json:"account_id"`
-	Intentos   int32              `json:"intentos"`
-	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
+	ID            string             `json:"id"`
+	AccountID     string             `json:"account_id"`
+	TotalAttempts int32              `json:"total_attempts"`
+	CycleAttempts int32              `json:"cycle_attempts"`
+	CycleNumber   int32              `json:"cycle_number"`
+	LeaseUntil    pgtype.Timestamptz `json:"lease_until"`
 }
 
 func (q *Queries) ClaimCredentialChangedNotice(ctx context.Context, arg ClaimCredentialChangedNoticeParams) (ClaimCredentialChangedNoticeRow, error) {
-	row := q.db.QueryRow(ctx, claimCredentialChangedNotice, arg.LeaseUntil, arg.At)
+	row := q.db.QueryRow(ctx, claimCredentialChangedNotice, arg.At, arg.LeaseUntil)
 	var i ClaimCredentialChangedNoticeRow
 	err := row.Scan(
 		&i.ID,
 		&i.AccountID,
-		&i.Intentos,
+		&i.TotalAttempts,
+		&i.CycleAttempts,
+		&i.CycleNumber,
 		&i.LeaseUntil,
 	)
 	return i, err
 }
 
 const completeCredentialChangedNotice = `-- name: CompleteCredentialChangedNotice :execrows
+WITH completed AS (
 UPDATE public.outbox_evento_local
 SET entregada_en = $1::timestamptz, retirar_en = $1::timestamptz + interval '30 days', lease_hasta = NULL, ultimo_error = NULL
 WHERE id = $2 AND entregada_en IS NULL AND lease_hasta = $3
+RETURNING id,ciclo_actual
+)
+UPDATE public.outbox_evento_ciclo_local AS cycle
+SET estado='entregada', finalizada_en=$1, codigo_resultado=NULL
+FROM completed
+WHERE cycle.evento_id=completed.id AND cycle.numero_ciclo=completed.ciclo_actual
 `
 
 type CompleteCredentialChangedNoticeParams struct {
@@ -183,6 +302,39 @@ func (q *Queries) CreateActionToken(ctx context.Context, arg CreateActionTokenPa
 		arg.ConsumedAt,
 		arg.InvalidatedAt,
 		arg.Attempts,
+	)
+	return err
+}
+
+const createCredentialNoticeRecoveryCycle = `-- name: CreateCredentialNoticeRecoveryCycle :exec
+INSERT INTO public.outbox_evento_ciclo_local(
+    evento_id,numero_ciclo,estado,iniciada_en,actor_reapertura_id,
+    motivo_reapertura_codigo,correlacion_id,clave_idempotencia
+) VALUES (
+    $1,$2,'pendiente',$3,$4,
+    $5,$6,$7
+)
+`
+
+type CreateCredentialNoticeRecoveryCycleParams struct {
+	EventID        string             `json:"event_id"`
+	CycleNumber    int32              `json:"cycle_number"`
+	At             pgtype.Timestamptz `json:"at"`
+	ActorID        pgtype.UUID        `json:"actor_id"`
+	ReasonCode     *string            `json:"reason_code"`
+	CorrelationID  *string            `json:"correlation_id"`
+	IdempotencyKey *string            `json:"idempotency_key"`
+}
+
+func (q *Queries) CreateCredentialNoticeRecoveryCycle(ctx context.Context, arg CreateCredentialNoticeRecoveryCycleParams) error {
+	_, err := q.db.Exec(ctx, createCredentialNoticeRecoveryCycle,
+		arg.EventID,
+		arg.CycleNumber,
+		arg.At,
+		arg.ActorID,
+		arg.ReasonCode,
+		arg.CorrelationID,
+		arg.IdempotencyKey,
 	)
 	return err
 }
@@ -335,6 +487,50 @@ func (q *Queries) EnqueueCredentialChanged(ctx context.Context, arg EnqueueCrede
 		arg.CreatedAt,
 	)
 	return err
+}
+
+const findCredentialNoticeCycleByKey = `-- name: FindCredentialNoticeCycleByKey :one
+SELECT numero_ciclo, estado, iniciada_en, finalizada_en, intentos, codigo_resultado,
+       actor_reapertura_id::text AS actor_id, motivo_reapertura_codigo AS reason_code,
+       correlacion_id, clave_idempotencia
+FROM public.outbox_evento_ciclo_local
+WHERE evento_id=$1 AND clave_idempotencia=$2
+`
+
+type FindCredentialNoticeCycleByKeyParams struct {
+	EventID        string  `json:"event_id"`
+	IdempotencyKey *string `json:"idempotency_key"`
+}
+
+type FindCredentialNoticeCycleByKeyRow struct {
+	NumeroCiclo       int32              `json:"numero_ciclo"`
+	Estado            string             `json:"estado"`
+	IniciadaEn        pgtype.Timestamptz `json:"iniciada_en"`
+	FinalizadaEn      pgtype.Timestamptz `json:"finalizada_en"`
+	Intentos          int32              `json:"intentos"`
+	CodigoResultado   *string            `json:"codigo_resultado"`
+	ActorID           string             `json:"actor_id"`
+	ReasonCode        *string            `json:"reason_code"`
+	CorrelacionID     *string            `json:"correlacion_id"`
+	ClaveIdempotencia *string            `json:"clave_idempotencia"`
+}
+
+func (q *Queries) FindCredentialNoticeCycleByKey(ctx context.Context, arg FindCredentialNoticeCycleByKeyParams) (FindCredentialNoticeCycleByKeyRow, error) {
+	row := q.db.QueryRow(ctx, findCredentialNoticeCycleByKey, arg.EventID, arg.IdempotencyKey)
+	var i FindCredentialNoticeCycleByKeyRow
+	err := row.Scan(
+		&i.NumeroCiclo,
+		&i.Estado,
+		&i.IniciadaEn,
+		&i.FinalizadaEn,
+		&i.Intentos,
+		&i.CodigoResultado,
+		&i.ActorID,
+		&i.ReasonCode,
+		&i.CorrelacionID,
+		&i.ClaveIdempotencia,
+	)
+	return i, err
 }
 
 const getAccountByID = `-- name: GetAccountByID :one
@@ -770,6 +966,56 @@ func (q *Queries) ListPasswordHistory(ctx context.Context, arg ListPasswordHisto
 	return items, nil
 }
 
+const listTerminalCredentialNotices = `-- name: ListTerminalCredentialNotices :many
+SELECT event.id::text AS id,event.agregado_id::text AS account_id,
+       event.intentos AS total_attempts,event.ciclo_actual AS cycle_number,
+       event.intentos_ciclo AS cycle_attempts,event.codigo_fallo_terminal AS error_code,
+       event.fallo_terminal_en AS failed_at,event.retirar_en AS remove_at
+FROM public.outbox_evento_local AS event
+WHERE event.tipo='identidad.credencial_cambiada' AND event.fallo_terminal_en IS NOT NULL
+ORDER BY event.fallo_terminal_en,event.id
+`
+
+type ListTerminalCredentialNoticesRow struct {
+	ID            string             `json:"id"`
+	AccountID     string             `json:"account_id"`
+	TotalAttempts int32              `json:"total_attempts"`
+	CycleNumber   int32              `json:"cycle_number"`
+	CycleAttempts int32              `json:"cycle_attempts"`
+	ErrorCode     *string            `json:"error_code"`
+	FailedAt      pgtype.Timestamptz `json:"failed_at"`
+	RemoveAt      pgtype.Timestamptz `json:"remove_at"`
+}
+
+func (q *Queries) ListTerminalCredentialNotices(ctx context.Context) ([]ListTerminalCredentialNoticesRow, error) {
+	rows, err := q.db.Query(ctx, listTerminalCredentialNotices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTerminalCredentialNoticesRow
+	for rows.Next() {
+		var i ListTerminalCredentialNoticesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.TotalAttempts,
+			&i.CycleNumber,
+			&i.CycleAttempts,
+			&i.ErrorCode,
+			&i.FailedAt,
+			&i.RemoveAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockAccountByActionTokenID = `-- name: LockAccountByActionTokenID :one
 SELECT u.id::text AS id, u.correo_original AS email, u.correo_normalizado AS normalized_email,
     u.hash_clave AS password_hash, u.estado AS state, u.creado_en AS created_at,
@@ -948,6 +1194,53 @@ func (q *Queries) LockAccountForActionToken(ctx context.Context, accountID strin
 	return id, err
 }
 
+const lockCredentialNoticeForRecovery = `-- name: LockCredentialNoticeForRecovery :one
+SELECT id::text AS id, agregado_id::text AS account_id, entregada_en,
+       cancelada_en, fallo_terminal_en, intentos, ciclo_actual
+FROM public.outbox_evento_local WHERE id=$1 FOR UPDATE
+`
+
+type LockCredentialNoticeForRecoveryRow struct {
+	ID              string             `json:"id"`
+	AccountID       string             `json:"account_id"`
+	EntregadaEn     pgtype.Timestamptz `json:"entregada_en"`
+	CanceladaEn     pgtype.Timestamptz `json:"cancelada_en"`
+	FalloTerminalEn pgtype.Timestamptz `json:"fallo_terminal_en"`
+	Intentos        int32              `json:"intentos"`
+	CicloActual     int32              `json:"ciclo_actual"`
+}
+
+func (q *Queries) LockCredentialNoticeForRecovery(ctx context.Context, id string) (LockCredentialNoticeForRecoveryRow, error) {
+	row := q.db.QueryRow(ctx, lockCredentialNoticeForRecovery, id)
+	var i LockCredentialNoticeForRecoveryRow
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.EntregadaEn,
+		&i.CanceladaEn,
+		&i.FalloTerminalEn,
+		&i.Intentos,
+		&i.CicloActual,
+	)
+	return i, err
+}
+
+const purgeExpiredCredentialNotices = `-- name: PurgeExpiredCredentialNotices :one
+SELECT public.purge_expired_local_credential_notices($1,$2) AS purged
+`
+
+type PurgeExpiredCredentialNoticesParams struct {
+	At        pgtype.Timestamptz `json:"at"`
+	LimitRows int32              `json:"limit_rows"`
+}
+
+func (q *Queries) PurgeExpiredCredentialNotices(ctx context.Context, arg PurgeExpiredCredentialNoticesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, purgeExpiredCredentialNotices, arg.At, arg.LimitRows)
+	var purged int64
+	err := row.Scan(&purged)
+	return purged, err
+}
+
 const purgeExpiredPasswordHistory = `-- name: PurgeExpiredPasswordHistory :exec
 DELETE FROM public.historial_clave_local WHERE retirar_en <= $1
 `
@@ -1012,21 +1305,102 @@ func (q *Queries) RecordCredentialChangeAudit(ctx context.Context, arg RecordCre
 	return err
 }
 
-const retryCredentialChangedNotice = `-- name: RetryCredentialChangedNotice :execrows
+const recordCredentialNoticeRecoveryAudit = `-- name: RecordCredentialNoticeRecoveryAudit :exec
+INSERT INTO public.evento_auditoria_local(
+    id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,
+    correlacion_id,ocurrido_en,retirar_en,clave_idempotencia
+) VALUES (
+    $1,$2,'outbox_evento',$3,
+    'identity.credential_notice.reopen','exito',$4,
+    $5,$6,$7,$8
+)
+`
+
+type RecordCredentialNoticeRecoveryAuditParams struct {
+	AuditID        string             `json:"audit_id"`
+	ActorID        string             `json:"actor_id"`
+	EventID        string             `json:"event_id"`
+	ReasonCode     string             `json:"reason_code"`
+	CorrelationID  string             `json:"correlation_id"`
+	At             pgtype.Timestamptz `json:"at"`
+	RemoveAt       pgtype.Timestamptz `json:"remove_at"`
+	IdempotencyKey *string            `json:"idempotency_key"`
+}
+
+func (q *Queries) RecordCredentialNoticeRecoveryAudit(ctx context.Context, arg RecordCredentialNoticeRecoveryAuditParams) error {
+	_, err := q.db.Exec(ctx, recordCredentialNoticeRecoveryAudit,
+		arg.AuditID,
+		arg.ActorID,
+		arg.EventID,
+		arg.ReasonCode,
+		arg.CorrelationID,
+		arg.At,
+		arg.RemoveAt,
+		arg.IdempotencyKey,
+	)
+	return err
+}
+
+const reopenCredentialNotice = `-- name: ReopenCredentialNotice :execrows
 UPDATE public.outbox_evento_local
-SET disponible_en = $1, lease_hasta = NULL,
-    ultimo_error = 'mailpit_delivery_failed'
-WHERE id = $2 AND entregada_en IS NULL AND lease_hasta = $3
+SET ciclo_actual=$1,intentos_ciclo=0,fallo_terminal_en=NULL,
+    codigo_fallo_terminal=NULL,disponible_en=$2,lease_hasta=NULL,
+    retirar_en=NULL,ultimo_error=NULL
+WHERE id=$3 AND fallo_terminal_en IS NOT NULL
+  AND entregada_en IS NULL AND cancelada_en IS NULL
+`
+
+type ReopenCredentialNoticeParams struct {
+	CycleNumber int32              `json:"cycle_number"`
+	At          pgtype.Timestamptz `json:"at"`
+	ID          string             `json:"id"`
+}
+
+func (q *Queries) ReopenCredentialNotice(ctx context.Context, arg ReopenCredentialNoticeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, reopenCredentialNotice, arg.CycleNumber, arg.At, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const retryCredentialChangedNotice = `-- name: RetryCredentialChangedNotice :execrows
+WITH changed AS (
+UPDATE public.outbox_evento_local AS event
+SET disponible_en = $3,
+    lease_hasta=NULL,
+    ultimo_error=$2,
+    fallo_terminal_en=CASE WHEN event.intentos_ciclo >= 8 THEN $1::timestamptz ELSE NULL::timestamptz END,
+    codigo_fallo_terminal=CASE WHEN event.intentos_ciclo >= 8 THEN $2 ELSE NULL END,
+    retirar_en=CASE WHEN event.intentos_ciclo >= 8 THEN $1::timestamptz + interval '30 days' ELSE NULL END
+WHERE event.id = $4 AND event.entregada_en IS NULL AND event.lease_hasta = $5
+RETURNING event.id,event.ciclo_actual,event.intentos_ciclo,event.fallo_terminal_en,event.codigo_fallo_terminal
+)
+UPDATE public.outbox_evento_ciclo_local AS cycle
+SET estado=CASE WHEN changed.intentos_ciclo >= 8 THEN 'fallo_terminal' ELSE 'pendiente' END,
+    finalizada_en=CASE WHEN changed.intentos_ciclo >= 8 THEN $1::timestamptz ELSE NULL::timestamptz END,
+    intentos=changed.intentos_ciclo,
+    codigo_resultado=CASE WHEN changed.intentos_ciclo >= 8 THEN $2 ELSE NULL END
+FROM changed
+WHERE cycle.evento_id=changed.id AND cycle.numero_ciclo=changed.ciclo_actual
 `
 
 type RetryCredentialChangedNoticeParams struct {
+	At         pgtype.Timestamptz `json:"at"`
+	ErrorCode  *string            `json:"error_code"`
 	RetryAt    pgtype.Timestamptz `json:"retry_at"`
 	ID         string             `json:"id"`
 	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
 }
 
 func (q *Queries) RetryCredentialChangedNotice(ctx context.Context, arg RetryCredentialChangedNoticeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, retryCredentialChangedNotice, arg.RetryAt, arg.ID, arg.LeaseUntil)
+	result, err := q.db.Exec(ctx, retryCredentialChangedNotice,
+		arg.At,
+		arg.ErrorCode,
+		arg.RetryAt,
+		arg.ID,
+		arg.LeaseUntil,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -1065,6 +1439,21 @@ func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const startCredentialNoticeCycle = `-- name: StartCredentialNoticeCycle :exec
+INSERT INTO public.outbox_evento_ciclo_local(evento_id,numero_ciclo,estado,iniciada_en)
+VALUES ($1,1,'pendiente',$2)
+`
+
+type StartCredentialNoticeCycleParams struct {
+	EventID   string             `json:"event_id"`
+	StartedAt pgtype.Timestamptz `json:"started_at"`
+}
+
+func (q *Queries) StartCredentialNoticeCycle(ctx context.Context, arg StartCredentialNoticeCycleParams) error {
+	_, err := q.db.Exec(ctx, startCredentialNoticeCycle, arg.EventID, arg.StartedAt)
+	return err
 }
 
 const storePreviousPasswordHash = `-- name: StorePreviousPasswordHash :exec

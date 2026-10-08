@@ -374,7 +374,7 @@ paths:
         '404': { description: Solicitud de supresión no encontrada. }
         '409': { description: Clave idempotente incompatible o solicitud no ejecutable. }
         '422': { description: Clave idempotente ausente o inválida. }
-        '503': { description: La ejecución se completó, pero el registro local externo requiere resincronización; repetir la misma clave no duplica la baja. }
+        '503': { description: 'La ejecución se completó, pero el registro local externo requiere resincronización; repetir la misma clave no duplica la baja.' }
   /privacy/retention/purge:
     post:
       operationId: purgeExpiredLocalSyntheticReservationLinks
@@ -397,9 +397,98 @@ paths:
                   scanned: { type: integer, minimum: 0 }
                   purged: { type: integer, minimum: 0 }
                   deferred: { type: integer, minimum: 0 }
+                  outbox_events_purged: { type: integer, minimum: 0 }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: Se requiere rol administrador. }
         '503': { description: Servicio local de privacidad no disponible. }
+  /admin/credential-notices:
+    get:
+      summary: Listar avisos locales con fallo terminal
+      operationId: listTerminalLocalCredentialNotices
+      tags: [M01 local]
+      description: >-
+        Lista avisos de cambio de credenciales en fallo terminal. Solo
+        administradores. No incluye destinatario, contenido SMTP, contraseñas,
+        tokens ni datos personales de la cuenta.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Eventos terminales recuperables.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [event_id, error_code, total_attempts, cycle_number, cycle_attempts, failed_at, remove_at]
+                      properties:
+                        event_id: { type: string, format: uuid }
+                        error_code: { type: string }
+                        total_attempts: { type: integer, minimum: 0 }
+                        cycle_number: { type: integer, minimum: 1 }
+                        cycle_attempts: { type: integer, minimum: 0, maximum: 8 }
+                        failed_at: { type: string, format: date-time }
+                        remove_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Se requiere rol administrador. }
+  /admin/credential-notices/{event_id}/reopen:
+    post:
+      summary: Reabrir idempotentemente un ciclo de aviso terminal
+      operationId: reopenTerminalLocalCredentialNotice
+      tags: [M01 local]
+      description: >-
+        Reabre de forma idempotente un evento terminal elegible, iniciando un
+        ciclo de hasta ocho intentos sin reiniciar el total acumulado. Auditoría
+        estructurada y destinatario activo obligatorio. SMTP puede duplicar un
+        correo tras una caída entre aceptación SMTP y confirmación en base de
+        datos; no se garantiza entrega exactamente una vez.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: event_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 200 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason_code]
+              properties:
+                reason_code: { type: string, enum: [smtp_restaurado, reintento_operativo] }
+      responses:
+        '200':
+          description: Ciclo abierto o resultado idempotente reutilizado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [event_id, state, reason_code, idempotency_key, cycle_number, total_attempts, cycle_attempts, started_at, reused]
+                properties:
+                  event_id: { type: string, format: uuid }
+                  state: { type: string, enum: [pendiente] }
+                  reason_code: { type: string, enum: [smtp_restaurado, reintento_operativo] }
+                  idempotency_key: { type: string }
+                  cycle_number: { type: integer, minimum: 2 }
+                  total_attempts: { type: integer, minimum: 0 }
+                  cycle_attempts: { type: integer, minimum: 0, maximum: 8 }
+                  started_at: { type: string, format: date-time }
+                  reused: { type: boolean }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Se requiere rol administrador. }
+        '404': { description: Evento inexistente o no recuperable. }
+        '409': { description: 'Evento entregado, cancelado, destinatario inactivo o clave incompatible.' }
+        '422': { description: Motivo o clave idempotente inválidos. }
   /privacy/suppression-requests:
     get:
       operationId: listPendingLocalSuppressionRequests
@@ -1516,7 +1605,7 @@ components:
       type: object
       required: [weekday, periods]
       properties:
-        weekday: { type: integer, minimum: 1, maximum: 7, description: Día ISO de la semana; lunes=1, domingo=7. }
+        weekday: { type: integer, minimum: 1, maximum: 7, description: 'Día ISO de la semana; lunes=1, domingo=7.' }
         periods: { type: array, maxItems: 2, items: { $ref: '#/components/schemas/LocalWeeklyPeriod' } }
     LocalWeeklyPeriod:
       type: object
@@ -1549,7 +1638,7 @@ components:
         available: { type: boolean }
         estimated_total_clp: { type: integer, minimum: 1, description: Estimación inclusiva del precio total para el intervalo de búsqueda; se omite si no se indicó intervalo. }
         distance_km: { type: number, format: float, minimum: 0, description: Distancia geográfica directa aproximada a una décima de kilómetro; solo se incluye con filtro geográfico. No es distancia por carretera. }
-        distance_kind: { type: string, enum: [direct], description: Identifica distancia directa, no ruta vial. }
+        distance_kind: { type: string, enum: [direct], description: 'Identifica distancia directa, no ruta vial.' }
     LocalBookingQuoteEnvelope:
       type: object
       required: [data, safety_notice]
