@@ -234,9 +234,34 @@ func canonicalUUID(value string) bool {
 }
 
 func fail(w http.ResponseWriter, status int, code string) {
+	requestID := w.Header().Get("X-Request-ID")
+	if requestID == "" {
+		generated, err := (credentials.Generator{}).ID()
+		if err != nil {
+			generated = "00000000-0000-4000-8000-000000000000"
+		}
+		requestID = generated
+		w.Header().Set("X-Request-ID", requestID)
+	}
+	messages := map[string]string{
+		"origin_denied":          "El origen de la solicitud no está permitido.",
+		"invalid_request":        "La solicitud contiene campos inválidos.",
+		"not_found":              "No se encontró la incidencia o reserva solicitada.",
+		"method_not_allowed":     "El método HTTP no está permitido para esta operación.",
+		"unauthenticated":        "La sesión no es válida o expiró.",
+		"forbidden":              "La cuenta no tiene permiso para esta operación.",
+		"unsupported_media_type": "El cuerpo debe usar application/json.",
+		"invalid_json":           "El cuerpo JSON no es válido.",
+		"conflict":               "La incidencia cambió o la solicitud entra en conflicto con su estado actual.",
+		"internal_error":         "Ocurrió un error inesperado.",
+	}
+	message, ok := messages[code]
+	if !ok {
+		message = "No fue posible completar la solicitud."
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code}})
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message, "request_id": requestID}})
 }
 
 func write(w http.ResponseWriter, status int, payload any) {

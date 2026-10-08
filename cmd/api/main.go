@@ -129,10 +129,7 @@ func run() error {
 			return errors.New("local dispute initialization failed")
 		}
 		disputeHandler := disputehttp.NewHandler(service, disputeService, cfg.allowedOrigins)
-		mux.Handle("/api/v1/local/booking-trial/reservations/", disputeHandler)
-		mux.Handle("/api/v1/local/booking-trial/disputes/", disputeHandler)
-		mux.Handle("/api/v1/admin/disputes", disputeHandler)
-		mux.Handle("/api/v1/admin/disputes/", disputeHandler)
+		registerDisputeRoutes(mux, disputeHandler)
 		verificationRepository := verificationpg.New(pool)
 		verificationService, err := verification.NewService(verificationRepository, credentials.Generator{}, verification.LocalFixtureProvider{}, time.Now)
 		if err != nil {
@@ -246,6 +243,16 @@ func run() error {
 		}
 		return nil
 	}
+}
+
+// registerDisputeRoutes uses method-aware exact patterns so the dispute handler
+// cannot shadow the existing booking endpoints under the reservations prefix.
+func registerDisputeRoutes(mux *http.ServeMux, handler http.Handler) {
+	mux.Handle("GET /api/v1/local/booking-trial/reservations/{reservation_id}/disputes", handler)
+	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservation_id}/disputes", handler)
+	mux.Handle("GET /api/v1/local/booking-trial/disputes/{dispute_id}/history", handler)
+	mux.Handle("GET /api/v1/admin/disputes", handler)
+	mux.Handle("POST /api/v1/admin/disputes/{dispute_id}/close", handler)
 }
 
 func checkEndpoint(target string) error {

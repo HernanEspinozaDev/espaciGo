@@ -808,6 +808,8 @@ func TestLocalDisputeBlocksBothParticipantsUntilAdministratorCloses(t *testing.T
 	}
 	if wrongReason := call(http.MethodPost, openPath, host.Token, "dispute-open-bad", `{"reason_code":"arriendo_en_curso"}`); wrongReason.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("unsupported opening reason status=%d body=%s", wrongReason.Code, wrongReason.Body.String())
+	} else {
+		assertCommonHTTPError(t, wrongReason, "invalid_request")
 	}
 	if renterOpen := call(http.MethodPost, openPath, renter.Token, "renter-open", `{"reason_code":"ensayo_privacidad"}`); renterOpen.Code != http.StatusNotFound {
 		t.Fatalf("non-host open status=%d body=%s", renterOpen.Code, renterOpen.Body.String())
@@ -820,6 +822,8 @@ func TestLocalDisputeBlocksBothParticipantsUntilAdministratorCloses(t *testing.T
 	}
 	if outsiderView := call(http.MethodGet, openPath, outsider.Token, "", ""); outsiderView.Code != http.StatusNotFound {
 		t.Fatalf("outsider view status=%d body=%s", outsiderView.Code, outsiderView.Body.String())
+	} else {
+		assertCommonHTTPError(t, outsiderView, "not_found")
 	}
 	adminQueue := call(http.MethodGet, "/api/v1/admin/disputes", admin.Token, "", "")
 	if adminQueue.Code != http.StatusOK || !strings.Contains(adminQueue.Body.String(), opened.ID) {
@@ -831,6 +835,8 @@ func TestLocalDisputeBlocksBothParticipantsUntilAdministratorCloses(t *testing.T
 	closePath := "/api/v1/admin/disputes/" + opened.ID + "/close"
 	if renterClose := call(http.MethodPost, closePath, renter.Token, "", `{"reason_code":"ensayo_finalizado"}`); renterClose.Code != http.StatusForbidden {
 		t.Fatalf("participant close status=%d body=%s", renterClose.Code, renterClose.Body.String())
+	} else {
+		assertCommonHTTPError(t, renterClose, "forbidden")
 	}
 	if badClose := call(http.MethodPost, closePath, admin.Token, "", `{"reason_code":"resuelta_a_favor_del_host"}`); badClose.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid close reason status=%d body=%s", badClose.Code, badClose.Body.String())
@@ -861,6 +867,8 @@ func TestLocalDisputeBlocksBothParticipantsUntilAdministratorCloses(t *testing.T
 	}
 	if repeatedClose := call(http.MethodPost, closePath, admin.Token, "", `{"reason_code":"duplicada"}`); repeatedClose.Code != http.StatusConflict {
 		t.Fatalf("closed dispute was reopened status=%d body=%s", repeatedClose.Code, repeatedClose.Body.String())
+	} else {
+		assertCommonHTTPError(t, repeatedClose, "conflict")
 	}
 	closedReplay := call(http.MethodPost, openPath, host.Token, "dispute-open-1", `{"reason_code":"ensayo_privacidad"}`)
 	var replayedClosed disputedomain.Dispute
@@ -891,6 +899,24 @@ func TestLocalDisputeBlocksBothParticipantsUntilAdministratorCloses(t *testing.T
 	}
 	if bookingState != "cancelada_arrendatario" || activeOccupancy {
 		t.Fatalf("local dispute mutated booking/occupancy: state=%s active=%v", bookingState, activeOccupancy)
+	}
+}
+
+func assertCommonHTTPError(t *testing.T, response *httptest.ResponseRecorder, expectedCode string) {
+	t.Helper()
+	var payload struct {
+		Error struct {
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			RequestID string `json:"request_id"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("error response is not JSON: %v; body=%s", err, response.Body.String())
+	}
+	id := payload.Error.RequestID
+	if payload.Error.Code != expectedCode || strings.TrimSpace(payload.Error.Message) == "" || len(id) != 36 || id[8] != '-' || id[13] != '-' || id[18] != '-' || id[23] != '-' || response.Header().Get("X-Request-ID") != id {
+		t.Fatalf("error response does not satisfy common OpenAPI fields: status=%d payload=%+v header request id=%q", response.Code, payload.Error, response.Header().Get("X-Request-ID"))
 	}
 }
 

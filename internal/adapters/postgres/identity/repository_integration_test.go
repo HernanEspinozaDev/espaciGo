@@ -125,14 +125,6 @@ func newIdentityTestPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 	if err != nil {
 		t.Fatalf("connect to disposable PostgreSQL: %v", err)
 	}
-	if _, err := admin.Exec(setupCtx, `DO $$ BEGIN
-IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='espacigo_runtime') THEN
-    CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
-END IF;
-END $$`); err != nil {
-		_ = admin.Close(context.Background())
-		t.Fatalf("provision runtime role in disposable PostgreSQL: %v", err)
-	}
 	databaseName := fmt.Sprintf("auth_be01_test_%d", time.Now().UnixNano())
 	if _, err := admin.Exec(setupCtx, "CREATE DATABASE "+pgx.Identifier{databaseName}.Sanitize()); err != nil {
 		_ = admin.Close(context.Background())

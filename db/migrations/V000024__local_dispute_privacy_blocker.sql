@@ -57,8 +57,3 @@ CREATE TABLE public.disputa_ensayo_historial (
     )
 );
 CREATE INDEX disputa_ensayo_historial_idx ON public.disputa_ensayo_historial(disputa_id, secuencia);
-
-GRANT SELECT, INSERT ON public.disputa_ensayo_local TO espacigo_runtime;
-GRANT UPDATE (estado,cerrada_por,motivo_cierre_codigo,cerrada_en) ON public.disputa_ensayo_local TO espacigo_runtime;
-GRANT SELECT, INSERT ON public.disputa_ensayo_historial TO espacigo_runtime;
-GRANT USAGE, SELECT ON SEQUENCE public.disputa_ensayo_historial_secuencia_seq TO espacigo_runtime;
