@@ -27,3 +27,9 @@ Esta excepción no permite RUT, documentos, fotos, selfie, imágenes del usuario
 | Habilitar publicación/reserva por KYC/KYB | Fuera de este corte; el fixture no concede derechos de producto |
 
 Trazabilidad: Issue #44–51, HU04, CU-10–14, RQF-038–059, RQF-192–194 y RQF-219–220; Anexo B `verificacion`. El diseño no afirma cumplimiento legal ni integración productiva.
+
+## Addendum ratificado — 2026-10-08, LOCAL-KYC-01
+
+La decisión anterior de mantener la aprobación completamente fuera de elegibilidad se modifica **solo para el prototipo local sintético**: una aprobación concede elegibilidad persistente por tipo; no concede roles ni se calcula usando únicamente el caso más reciente. Casos nuevos pendientes/rechazados no revocan la concesión. Solo una acción administrativa explícita, estructurada y auditada la revoca; una nueva aprobación explícita puede restaurar el tipo. Reservas existentes e historiales no se alteran.
+
+La consulta propia, revocación, historial e integración con reserva son parte del corte ampliado #200. El usuario ratificó KYC sintético vigente para anfitrión y arrendatario en nuevas reservas de cuentas personales; KYB no sustituye KYC y no se infiere de `use_preference`. Baja y reserva comparten bloqueos de cuenta. M04 aún no ofrece endpoint de publicación: su gate se implementará con ese ciclo, sin introducirlo en #200. Exportación y retención siguen la política local de verificación. #142 y los criterios generales de #45/#48–#50 continúan abiertos.

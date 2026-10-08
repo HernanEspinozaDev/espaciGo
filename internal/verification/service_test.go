@@ -41,7 +41,8 @@ func (r *memoryRepo) GetOwn(_ context.Context, owner, id string) (Case, error) {
 }
 func (r *memoryRepo) ListOwn(context.Context, string) ([]Case, error) { return nil, nil }
 func (r *memoryRepo) ListPending(context.Context) ([]Case, error)     { return nil, nil }
-func (r *memoryRepo) Review(_ context.Context, id, reviewer string, approve bool, reason string) (Case, error) {
+func (r *memoryRepo) ListRejected(context.Context) ([]Case, error)    { return nil, nil }
+func (r *memoryRepo) Review(_ context.Context, id, reviewer string, approve bool, reason string, now func() time.Time) (Case, error) {
 	c, ok := r.items[id]
 	if !ok {
 		return Case{}, ErrNotFound
@@ -50,7 +51,7 @@ func (r *memoryRepo) Review(_ context.Context, id, reviewer string, approve bool
 		return Case{}, ErrConflict
 	}
 	c.ReviewerID = reviewer
-	c.ResolvedAt = timePtr(time.Unix(2, 0))
+	c.ResolvedAt = timePtr(now())
 	c.State = "rechazada"
 	c.ReasonCode = reason
 	if approve {
@@ -60,7 +61,7 @@ func (r *memoryRepo) Review(_ context.Context, id, reviewer string, approve bool
 	r.items[id] = c
 	return c, nil
 }
-func (r *memoryRepo) Retry(_ context.Context, owner, prior string, c Case) (Case, error) {
+func (r *memoryRepo) Retry(_ context.Context, owner, prior string, c Case, now func() time.Time) (Case, error) {
 	old, e := r.GetOwn(context.Background(), owner, prior)
 	if e != nil {
 		return Case{}, e
@@ -70,8 +71,16 @@ func (r *memoryRepo) Retry(_ context.Context, owner, prior string, c Case) (Case
 	}
 	c.Type = old.Type
 	c.RetryOf = prior
+	c.CreatedAt = now()
 	r.items[c.ID] = c
 	return c, nil
+}
+func (r *memoryRepo) ListHistory(context.Context, string, string) ([]HistoryEntry, error) {
+	return nil, nil
+}
+func (r *memoryRepo) ListEligibility(context.Context, string) ([]Eligibility, error) { return nil, nil }
+func (r *memoryRepo) Revoke(context.Context, string, string, string, string, string, func() time.Time) (Case, error) {
+	return Case{}, ErrNotFound
 }
 func timePtr(t time.Time) *time.Time { return &t }
 
@@ -95,13 +104,13 @@ func TestSyntheticCaseReviewRetryAndSafeSerialization(t *testing.T) {
 	if err != nil || rejected.State != "rechazada" {
 		t.Fatalf("review: %+v err=%v", rejected, err)
 	}
-	if _, err := svc.Retry(context.Background(), "other", item.ID, "retry-key-01", true); !errors.Is(err, ErrNotFound) {
+	if _, err := svc.Retry(context.Background(), "other", item.ID, "retry-key-01", "antecedentes_fixture_actualizados"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("other owner retry err=%v", err)
 	}
-	if _, err := svc.Retry(context.Background(), "owner", item.ID, "retry-key-01", false); !errors.Is(err, ErrInvalid) {
+	if _, err := svc.Retry(context.Background(), "owner", item.ID, "retry-key-01", ""); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("uncorrected retry err=%v", err)
 	}
-	retried, err := svc.Retry(context.Background(), "owner", item.ID, "retry-key-01", true)
+	retried, err := svc.Retry(context.Background(), "owner", item.ID, "retry-key-01", "antecedentes_fixture_actualizados")
 	if err != nil || retried.RetryOf != item.ID || retried.Type != "kyc" || retried.State != "en_revision" {
 		t.Fatalf("retry: %+v err=%v", retried, err)
 	}

@@ -14,3 +14,7 @@ Este inventario es una inspección de ubicaciones conocidas del checkout/compose
 ## Ubicaciones no comprobadas
 
 No se inspeccionaron el resto del home, otros discos/montajes, snapshots del sistema de archivos, respaldos del host, sincronización en nube, copias manuales o exportaciones fuera del checkout. Tampoco se comprobó si existen copias en otros equipos. Por tanto, se desconoce su existencia y contenido; no se afirma que estén inventariadas ni que hayan recibido reaplicación de bajas.
+
+## Tratamiento ratificado para el entorno local
+
+Se conserva `espacigo_pgdata` y los datos sintéticos existentes. El registro externo de bajas se mantiene separado de las copias de datos y debe reaplicarse en un destino restaurado antes de exponerlo. Los secretos y credenciales de prueba se mantienen fuera de las copias de datos. La evidencia V26 cubre el archivo externo conocido y un restore aislado; no se borró ni restauró el volumen activo. Las ubicaciones listadas como no comprobadas siguen pendientes explícitos; este inventario no se amplía a todo el equipo para habilitar LOCAL-KYC-01.

@@ -25,7 +25,8 @@ RETURNING id::text AS id, usuario_id::text AS owner_id, tipo AS type,
     COALESCE(reintento_de::text, ''::text) AS retry_of,
     COALESCE(motivo_codigo, '') AS reason_code,
     creada_en AS created_at, resuelta_en AS resolved_at,
-    clave_idempotencia AS idempotency_key
+    clave_idempotencia AS idempotency_key, COALESCE(correccion_codigo,'') AS correction_code,
+    revocada_en AS revoked_at, COALESCE(motivo_revocacion_codigo,'') AS revocation_reason
 `
 
 type CreateVerificationParams struct {
@@ -38,17 +39,20 @@ type CreateVerificationParams struct {
 }
 
 type CreateVerificationRow struct {
-	ID             string             `json:"id"`
-	OwnerID        string             `json:"owner_id"`
-	Type           string             `json:"type"`
-	State          string             `json:"state"`
-	Provider       string             `json:"provider"`
-	EvidenceRef    string             `json:"evidence_ref"`
-	RetryOf        interface{}        `json:"retry_of"`
-	ReasonCode     string             `json:"reason_code"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	ResolvedAt     pgtype.Timestamptz `json:"resolved_at"`
-	IdempotencyKey string             `json:"idempotency_key"`
+	ID               string             `json:"id"`
+	OwnerID          string             `json:"owner_id"`
+	Type             string             `json:"type"`
+	State            string             `json:"state"`
+	Provider         string             `json:"provider"`
+	EvidenceRef      string             `json:"evidence_ref"`
+	RetryOf          interface{}        `json:"retry_of"`
+	ReasonCode       string             `json:"reason_code"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ResolvedAt       pgtype.Timestamptz `json:"resolved_at"`
+	IdempotencyKey   string             `json:"idempotency_key"`
+	CorrectionCode   string             `json:"correction_code"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	RevocationReason string             `json:"revocation_reason"`
 }
 
 func (q *Queries) CreateVerification(ctx context.Context, arg CreateVerificationParams) (CreateVerificationRow, error) {
@@ -73,6 +77,9 @@ func (q *Queries) CreateVerification(ctx context.Context, arg CreateVerification
 		&i.CreatedAt,
 		&i.ResolvedAt,
 		&i.IdempotencyKey,
+		&i.CorrectionCode,
+		&i.RevokedAt,
+		&i.RevocationReason,
 	)
 	return i, err
 }
@@ -80,18 +87,19 @@ func (q *Queries) CreateVerification(ctx context.Context, arg CreateVerification
 const createVerificationRetry = `-- name: CreateVerificationRetry :one
 INSERT INTO public.verificacion (
     id, usuario_id, tipo, estado, proveedor_ref, referencia_evidencia,
-    clave_idempotencia, reintento_de, creada_en
+    clave_idempotencia, reintento_de, creada_en, correccion_codigo
 ) VALUES (
     $1, $2, $3, 'en_revision',
     'local-fixture-v1', $4, $5,
-    $6::text::uuid, $7
+    $6::text::uuid, $7, $8
 )
 RETURNING id::text AS id, usuario_id::text AS owner_id, tipo AS type,
     estado AS state, proveedor_ref AS provider, referencia_evidencia AS evidence_ref,
     COALESCE(reintento_de::text, ''::text) AS retry_of,
     COALESCE(motivo_codigo, '') AS reason_code,
     creada_en AS created_at, resuelta_en AS resolved_at,
-    clave_idempotencia AS idempotency_key
+    clave_idempotencia AS idempotency_key, correccion_codigo AS correction_code,
+    revocada_en AS revoked_at, COALESCE(motivo_revocacion_codigo,'') AS revocation_reason
 `
 
 type CreateVerificationRetryParams struct {
@@ -102,20 +110,24 @@ type CreateVerificationRetryParams struct {
 	IdempotencyKey string             `json:"idempotency_key"`
 	RetryOf        string             `json:"retry_of"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	CorrectionCode *string            `json:"correction_code"`
 }
 
 type CreateVerificationRetryRow struct {
-	ID             string             `json:"id"`
-	OwnerID        string             `json:"owner_id"`
-	Type           string             `json:"type"`
-	State          string             `json:"state"`
-	Provider       string             `json:"provider"`
-	EvidenceRef    string             `json:"evidence_ref"`
-	RetryOf        interface{}        `json:"retry_of"`
-	ReasonCode     string             `json:"reason_code"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	ResolvedAt     pgtype.Timestamptz `json:"resolved_at"`
-	IdempotencyKey string             `json:"idempotency_key"`
+	ID               string             `json:"id"`
+	OwnerID          string             `json:"owner_id"`
+	Type             string             `json:"type"`
+	State            string             `json:"state"`
+	Provider         string             `json:"provider"`
+	EvidenceRef      string             `json:"evidence_ref"`
+	RetryOf          interface{}        `json:"retry_of"`
+	ReasonCode       string             `json:"reason_code"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ResolvedAt       pgtype.Timestamptz `json:"resolved_at"`
+	IdempotencyKey   string             `json:"idempotency_key"`
+	CorrectionCode   *string            `json:"correction_code"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	RevocationReason string             `json:"revocation_reason"`
 }
 
 func (q *Queries) CreateVerificationRetry(ctx context.Context, arg CreateVerificationRetryParams) (CreateVerificationRetryRow, error) {
@@ -127,6 +139,7 @@ func (q *Queries) CreateVerificationRetry(ctx context.Context, arg CreateVerific
 		arg.IdempotencyKey,
 		arg.RetryOf,
 		arg.CreatedAt,
+		arg.CorrectionCode,
 	)
 	var i CreateVerificationRetryRow
 	err := row.Scan(
@@ -141,6 +154,9 @@ func (q *Queries) CreateVerificationRetry(ctx context.Context, arg CreateVerific
 		&i.CreatedAt,
 		&i.ResolvedAt,
 		&i.IdempotencyKey,
+		&i.CorrectionCode,
+		&i.RevokedAt,
+		&i.RevocationReason,
 	)
 	return i, err
 }
@@ -151,7 +167,8 @@ SELECT id::text AS id, usuario_id::text AS owner_id, tipo AS type,
     COALESCE(reintento_de::text, ''::text) AS retry_of,
     COALESCE(motivo_codigo, '') AS reason_code,
     creada_en AS created_at, resuelta_en AS resolved_at,
-    clave_idempotencia AS idempotency_key
+    clave_idempotencia AS idempotency_key, COALESCE(correccion_codigo,'') AS correction_code,
+    revocada_en AS revoked_at, COALESCE(motivo_revocacion_codigo,'') AS revocation_reason
 FROM public.verificacion
 WHERE usuario_id = $1 AND id = $2
 LIMIT 1
@@ -163,17 +180,20 @@ type GetOwnVerificationParams struct {
 }
 
 type GetOwnVerificationRow struct {
-	ID             string             `json:"id"`
-	OwnerID        string             `json:"owner_id"`
-	Type           string             `json:"type"`
-	State          string             `json:"state"`
-	Provider       string             `json:"provider"`
-	EvidenceRef    string             `json:"evidence_ref"`
-	RetryOf        interface{}        `json:"retry_of"`
-	ReasonCode     string             `json:"reason_code"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	ResolvedAt     pgtype.Timestamptz `json:"resolved_at"`
-	IdempotencyKey string             `json:"idempotency_key"`
+	ID               string             `json:"id"`
+	OwnerID          string             `json:"owner_id"`
+	Type             string             `json:"type"`
+	State            string             `json:"state"`
+	Provider         string             `json:"provider"`
+	EvidenceRef      string             `json:"evidence_ref"`
+	RetryOf          interface{}        `json:"retry_of"`
+	ReasonCode       string             `json:"reason_code"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ResolvedAt       pgtype.Timestamptz `json:"resolved_at"`
+	IdempotencyKey   string             `json:"idempotency_key"`
+	CorrectionCode   string             `json:"correction_code"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	RevocationReason string             `json:"revocation_reason"`
 }
 
 func (q *Queries) GetOwnVerification(ctx context.Context, arg GetOwnVerificationParams) (GetOwnVerificationRow, error) {
@@ -191,6 +211,9 @@ func (q *Queries) GetOwnVerification(ctx context.Context, arg GetOwnVerification
 		&i.CreatedAt,
 		&i.ResolvedAt,
 		&i.IdempotencyKey,
+		&i.CorrectionCode,
+		&i.RevokedAt,
+		&i.RevocationReason,
 	)
 	return i, err
 }
@@ -201,7 +224,8 @@ SELECT id::text AS id, usuario_id::text AS owner_id, tipo AS type,
     COALESCE(reintento_de::text, ''::text) AS retry_of,
     COALESCE(motivo_codigo, '') AS reason_code,
     creada_en AS created_at, resuelta_en AS resolved_at,
-    clave_idempotencia AS idempotency_key
+    clave_idempotencia AS idempotency_key, COALESCE(correccion_codigo,'') AS correction_code,
+    revocada_en AS revoked_at, COALESCE(motivo_revocacion_codigo,'') AS revocation_reason
 FROM public.verificacion
 WHERE usuario_id = $1 AND clave_idempotencia = $2
 LIMIT 1
@@ -213,17 +237,20 @@ type GetVerificationByIdempotencyParams struct {
 }
 
 type GetVerificationByIdempotencyRow struct {
-	ID             string             `json:"id"`
-	OwnerID        string             `json:"owner_id"`
-	Type           string             `json:"type"`
-	State          string             `json:"state"`
-	Provider       string             `json:"provider"`
-	EvidenceRef    string             `json:"evidence_ref"`
-	RetryOf        interface{}        `json:"retry_of"`
-	ReasonCode     string             `json:"reason_code"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	ResolvedAt     pgtype.Timestamptz `json:"resolved_at"`
-	IdempotencyKey string             `json:"idempotency_key"`
+	ID               string             `json:"id"`
+	OwnerID          string             `json:"owner_id"`
+	Type             string             `json:"type"`
+	State            string             `json:"state"`
+	Provider         string             `json:"provider"`
+	EvidenceRef      string             `json:"evidence_ref"`
+	RetryOf          interface{}        `json:"retry_of"`
+	ReasonCode       string             `json:"reason_code"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ResolvedAt       pgtype.Timestamptz `json:"resolved_at"`
+	IdempotencyKey   string             `json:"idempotency_key"`
+	CorrectionCode   string             `json:"correction_code"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	RevocationReason string             `json:"revocation_reason"`
 }
 
 func (q *Queries) GetVerificationByIdempotency(ctx context.Context, arg GetVerificationByIdempotencyParams) (GetVerificationByIdempotencyRow, error) {
@@ -241,6 +268,9 @@ func (q *Queries) GetVerificationByIdempotency(ctx context.Context, arg GetVerif
 		&i.CreatedAt,
 		&i.ResolvedAt,
 		&i.IdempotencyKey,
+		&i.CorrectionCode,
+		&i.RevokedAt,
+		&i.RevocationReason,
 	)
 	return i, err
 }
@@ -251,24 +281,28 @@ SELECT id::text AS id, usuario_id::text AS owner_id, tipo AS type,
     COALESCE(reintento_de::text, ''::text) AS retry_of,
     COALESCE(motivo_codigo, '') AS reason_code,
     creada_en AS created_at, resuelta_en AS resolved_at,
-    clave_idempotencia AS idempotency_key
+    clave_idempotencia AS idempotency_key, COALESCE(correccion_codigo,'') AS correction_code,
+    revocada_en AS revoked_at, COALESCE(motivo_revocacion_codigo,'') AS revocation_reason
 FROM public.verificacion
 WHERE usuario_id = $1
 ORDER BY creada_en DESC
 `
 
 type ListOwnVerificationsRow struct {
-	ID             string             `json:"id"`
-	OwnerID        string             `json:"owner_id"`
-	Type           string             `json:"type"`
-	State          string             `json:"state"`
-	Provider       string             `json:"provider"`
-	EvidenceRef    string             `json:"evidence_ref"`
-	RetryOf        interface{}        `json:"retry_of"`
-	ReasonCode     string             `json:"reason_code"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	ResolvedAt     pgtype.Timestamptz `json:"resolved_at"`
-	IdempotencyKey string             `json:"idempotency_key"`
+	ID               string             `json:"id"`
+	OwnerID          string             `json:"owner_id"`
+	Type             string             `json:"type"`
+	State            string             `json:"state"`
+	Provider         string             `json:"provider"`
+	EvidenceRef      string             `json:"evidence_ref"`
+	RetryOf          interface{}        `json:"retry_of"`
+	ReasonCode       string             `json:"reason_code"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ResolvedAt       pgtype.Timestamptz `json:"resolved_at"`
+	IdempotencyKey   string             `json:"idempotency_key"`
+	CorrectionCode   string             `json:"correction_code"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	RevocationReason string             `json:"revocation_reason"`
 }
 
 func (q *Queries) ListOwnVerifications(ctx context.Context, ownerID string) ([]ListOwnVerificationsRow, error) {
@@ -292,6 +326,9 @@ func (q *Queries) ListOwnVerifications(ctx context.Context, ownerID string) ([]L
 			&i.CreatedAt,
 			&i.ResolvedAt,
 			&i.IdempotencyKey,
+			&i.CorrectionCode,
+			&i.RevokedAt,
+			&i.RevocationReason,
 		); err != nil {
 			return nil, err
 		}
@@ -309,24 +346,28 @@ SELECT id::text AS id, usuario_id::text AS owner_id, tipo AS type,
     COALESCE(reintento_de::text, ''::text) AS retry_of,
     COALESCE(motivo_codigo, '') AS reason_code,
     creada_en AS created_at, resuelta_en AS resolved_at,
-    clave_idempotencia AS idempotency_key
+    clave_idempotencia AS idempotency_key, COALESCE(correccion_codigo,'') AS correction_code,
+    revocada_en AS revoked_at, COALESCE(motivo_revocacion_codigo,'') AS revocation_reason
 FROM public.verificacion
 WHERE estado = 'en_revision'
 ORDER BY creada_en
 `
 
 type ListPendingVerificationsRow struct {
-	ID             string             `json:"id"`
-	OwnerID        string             `json:"owner_id"`
-	Type           string             `json:"type"`
-	State          string             `json:"state"`
-	Provider       string             `json:"provider"`
-	EvidenceRef    string             `json:"evidence_ref"`
-	RetryOf        interface{}        `json:"retry_of"`
-	ReasonCode     string             `json:"reason_code"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	ResolvedAt     pgtype.Timestamptz `json:"resolved_at"`
-	IdempotencyKey string             `json:"idempotency_key"`
+	ID               string             `json:"id"`
+	OwnerID          string             `json:"owner_id"`
+	Type             string             `json:"type"`
+	State            string             `json:"state"`
+	Provider         string             `json:"provider"`
+	EvidenceRef      string             `json:"evidence_ref"`
+	RetryOf          interface{}        `json:"retry_of"`
+	ReasonCode       string             `json:"reason_code"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ResolvedAt       pgtype.Timestamptz `json:"resolved_at"`
+	IdempotencyKey   string             `json:"idempotency_key"`
+	CorrectionCode   string             `json:"correction_code"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	RevocationReason string             `json:"revocation_reason"`
 }
 
 func (q *Queries) ListPendingVerifications(ctx context.Context) ([]ListPendingVerificationsRow, error) {
@@ -350,6 +391,177 @@ func (q *Queries) ListPendingVerifications(ctx context.Context) ([]ListPendingVe
 			&i.CreatedAt,
 			&i.ResolvedAt,
 			&i.IdempotencyKey,
+			&i.CorrectionCode,
+			&i.RevokedAt,
+			&i.RevocationReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRejectedVerifications = `-- name: ListRejectedVerifications :many
+SELECT id::text AS id, usuario_id::text AS owner_id, tipo AS type,
+    estado AS state, proveedor_ref AS provider, referencia_evidencia AS evidence_ref,
+    COALESCE(reintento_de::text, ''::text) AS retry_of,
+    COALESCE(motivo_codigo, '') AS reason_code,
+    creada_en AS created_at, resuelta_en AS resolved_at,
+    clave_idempotencia AS idempotency_key, COALESCE(correccion_codigo,'') AS correction_code,
+    revocada_en AS revoked_at, COALESCE(motivo_revocacion_codigo,'') AS revocation_reason
+FROM public.verificacion
+WHERE estado = 'rechazada'
+ORDER BY resuelta_en DESC, id
+`
+
+type ListRejectedVerificationsRow struct {
+	ID               string             `json:"id"`
+	OwnerID          string             `json:"owner_id"`
+	Type             string             `json:"type"`
+	State            string             `json:"state"`
+	Provider         string             `json:"provider"`
+	EvidenceRef      string             `json:"evidence_ref"`
+	RetryOf          interface{}        `json:"retry_of"`
+	ReasonCode       string             `json:"reason_code"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ResolvedAt       pgtype.Timestamptz `json:"resolved_at"`
+	IdempotencyKey   string             `json:"idempotency_key"`
+	CorrectionCode   string             `json:"correction_code"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	RevocationReason string             `json:"revocation_reason"`
+}
+
+func (q *Queries) ListRejectedVerifications(ctx context.Context) ([]ListRejectedVerificationsRow, error) {
+	rows, err := q.db.Query(ctx, listRejectedVerifications)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRejectedVerificationsRow
+	for rows.Next() {
+		var i ListRejectedVerificationsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerID,
+			&i.Type,
+			&i.State,
+			&i.Provider,
+			&i.EvidenceRef,
+			&i.RetryOf,
+			&i.ReasonCode,
+			&i.CreatedAt,
+			&i.ResolvedAt,
+			&i.IdempotencyKey,
+			&i.CorrectionCode,
+			&i.RevokedAt,
+			&i.RevocationReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSyntheticEligibility = `-- name: ListSyntheticEligibility :many
+SELECT kinds.tipo AS type,
+       COALESCE(e.estado='elegible' AND verification.estado='aprobada' AND owner.estado='activo',false) AS eligible,
+       COALESCE(e.verificacion_id::text,'') AS verification_id,
+       e.concedida_en AS granted_at, e.revocada_en AS revoked_at,
+       COALESCE(e.motivo_revocacion_codigo,'') AS revocation_reason
+FROM unnest(ARRAY['kyc','kyb']::text[]) AS kinds(tipo)
+LEFT JOIN public.elegibilidad_verificacion_local e
+  ON e.usuario_id=$1 AND e.tipo=kinds.tipo
+LEFT JOIN public.verificacion verification
+  ON verification.id=e.verificacion_id AND verification.usuario_id=e.usuario_id AND verification.tipo=e.tipo
+LEFT JOIN public.usuario owner ON owner.id=e.usuario_id
+ORDER BY kinds.tipo
+`
+
+type ListSyntheticEligibilityRow struct {
+	Type             interface{}        `json:"type"`
+	Eligible         interface{}        `json:"eligible"`
+	VerificationID   interface{}        `json:"verification_id"`
+	GrantedAt        pgtype.Timestamptz `json:"granted_at"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	RevocationReason string             `json:"revocation_reason"`
+}
+
+func (q *Queries) ListSyntheticEligibility(ctx context.Context, ownerID string) ([]ListSyntheticEligibilityRow, error) {
+	rows, err := q.db.Query(ctx, listSyntheticEligibility, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSyntheticEligibilityRow
+	for rows.Next() {
+		var i ListSyntheticEligibilityRow
+		if err := rows.Scan(
+			&i.Type,
+			&i.Eligible,
+			&i.VerificationID,
+			&i.GrantedAt,
+			&i.RevokedAt,
+			&i.RevocationReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVerificationHistory = `-- name: ListVerificationHistory :many
+SELECT history.id AS sequence, history.accion AS action,
+       COALESCE(history.estado_anterior,'') AS from_state,
+       history.estado_nuevo AS to_state, COALESCE(history.motivo_codigo,'') AS reason_code,
+       history.ocurrida_en AS occurred_at
+FROM public.verificacion_historial_local history
+JOIN public.verificacion v ON v.id=history.verificacion_id
+WHERE v.usuario_id=$1 AND v.id=$2
+ORDER BY history.id
+`
+
+type ListVerificationHistoryParams struct {
+	OwnerID string `json:"owner_id"`
+	ID      string `json:"id"`
+}
+
+type ListVerificationHistoryRow struct {
+	Sequence   int64              `json:"sequence"`
+	Action     string             `json:"action"`
+	FromState  string             `json:"from_state"`
+	ToState    string             `json:"to_state"`
+	ReasonCode string             `json:"reason_code"`
+	OccurredAt pgtype.Timestamptz `json:"occurred_at"`
+}
+
+func (q *Queries) ListVerificationHistory(ctx context.Context, arg ListVerificationHistoryParams) ([]ListVerificationHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listVerificationHistory, arg.OwnerID, arg.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListVerificationHistoryRow
+	for rows.Next() {
+		var i ListVerificationHistoryRow
+		if err := rows.Scan(
+			&i.Sequence,
+			&i.Action,
+			&i.FromState,
+			&i.ToState,
+			&i.ReasonCode,
+			&i.OccurredAt,
 		); err != nil {
 			return nil, err
 		}
@@ -362,7 +574,7 @@ func (q *Queries) ListPendingVerifications(ctx context.Context) ([]ListPendingVe
 }
 
 const lockPriorVerificationForRetry = `-- name: LockPriorVerificationForRetry :one
-SELECT tipo AS type, estado AS state
+SELECT tipo AS type, estado AS state, COALESCE(motivo_codigo, '') AS reason_code
 FROM public.verificacion
 WHERE id = $1 AND usuario_id = $2
 FOR UPDATE
@@ -374,14 +586,40 @@ type LockPriorVerificationForRetryParams struct {
 }
 
 type LockPriorVerificationForRetryRow struct {
-	Type  string `json:"type"`
-	State string `json:"state"`
+	Type       string `json:"type"`
+	State      string `json:"state"`
+	ReasonCode string `json:"reason_code"`
 }
 
 func (q *Queries) LockPriorVerificationForRetry(ctx context.Context, arg LockPriorVerificationForRetryParams) (LockPriorVerificationForRetryRow, error) {
 	row := q.db.QueryRow(ctx, lockPriorVerificationForRetry, arg.ID, arg.OwnerID)
 	var i LockPriorVerificationForRetryRow
-	err := row.Scan(&i.Type, &i.State)
+	err := row.Scan(&i.Type, &i.State, &i.ReasonCode)
+	return i, err
+}
+
+const lockVerificationForRevoke = `-- name: LockVerificationForRevoke :one
+SELECT usuario_id::text AS owner_id, tipo AS type, estado AS state,
+       clave_idempotencia AS idempotency_key
+FROM public.verificacion WHERE id=$1 FOR UPDATE
+`
+
+type LockVerificationForRevokeRow struct {
+	OwnerID        string `json:"owner_id"`
+	Type           string `json:"type"`
+	State          string `json:"state"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+func (q *Queries) LockVerificationForRevoke(ctx context.Context, id string) (LockVerificationForRevokeRow, error) {
+	row := q.db.QueryRow(ctx, lockVerificationForRevoke, id)
+	var i LockVerificationForRevokeRow
+	err := row.Scan(
+		&i.OwnerID,
+		&i.Type,
+		&i.State,
+		&i.IdempotencyKey,
+	)
 	return i, err
 }
 
@@ -395,7 +633,8 @@ RETURNING id::text AS id, usuario_id::text AS owner_id, tipo AS type,
     COALESCE(reintento_de::text, ''::text) AS retry_of,
     COALESCE(motivo_codigo, '') AS reason_code,
     creada_en AS created_at, resuelta_en AS resolved_at,
-    clave_idempotencia AS idempotency_key
+    clave_idempotencia AS idempotency_key, COALESCE(correccion_codigo,'') AS correction_code,
+    revocada_en AS revoked_at, COALESCE(motivo_revocacion_codigo,'') AS revocation_reason
 `
 
 type ReviewVerificationParams struct {
@@ -406,17 +645,20 @@ type ReviewVerificationParams struct {
 }
 
 type ReviewVerificationRow struct {
-	ID             string             `json:"id"`
-	OwnerID        string             `json:"owner_id"`
-	Type           string             `json:"type"`
-	State          string             `json:"state"`
-	Provider       string             `json:"provider"`
-	EvidenceRef    string             `json:"evidence_ref"`
-	RetryOf        interface{}        `json:"retry_of"`
-	ReasonCode     string             `json:"reason_code"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	ResolvedAt     pgtype.Timestamptz `json:"resolved_at"`
-	IdempotencyKey string             `json:"idempotency_key"`
+	ID               string             `json:"id"`
+	OwnerID          string             `json:"owner_id"`
+	Type             string             `json:"type"`
+	State            string             `json:"state"`
+	Provider         string             `json:"provider"`
+	EvidenceRef      string             `json:"evidence_ref"`
+	RetryOf          interface{}        `json:"retry_of"`
+	ReasonCode       string             `json:"reason_code"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ResolvedAt       pgtype.Timestamptz `json:"resolved_at"`
+	IdempotencyKey   string             `json:"idempotency_key"`
+	CorrectionCode   string             `json:"correction_code"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	RevocationReason string             `json:"revocation_reason"`
 }
 
 func (q *Queries) ReviewVerification(ctx context.Context, arg ReviewVerificationParams) (ReviewVerificationRow, error) {
@@ -439,6 +681,9 @@ func (q *Queries) ReviewVerification(ctx context.Context, arg ReviewVerification
 		&i.CreatedAt,
 		&i.ResolvedAt,
 		&i.IdempotencyKey,
+		&i.CorrectionCode,
+		&i.RevokedAt,
+		&i.RevocationReason,
 	)
 	return i, err
 }

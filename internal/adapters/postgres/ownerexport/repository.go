@@ -99,6 +99,28 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 		return nil, nil, nil, err
 	}
 	sections["verifications"] = caseJSON
+	eligibility, err := r.verification.ListEligibility(ctx, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	eligibilityJSON, err := json.Marshal(eligibility)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["verification_eligibility"] = eligibilityJSON
+	history := make(map[string][]verification.HistoryEntry, len(cases))
+	for _, item := range cases {
+		entries, err := r.verification.ListHistory(ctx, owner, item.ID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		history[item.ID] = entries
+	}
+	historyJSON, err := json.Marshal(history)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["verification_history"] = historyJSON
 	files := []privacy.ExportFile{}
 	exclusionCounts := 0
 	evidenceItems := []evidenceRecord{}

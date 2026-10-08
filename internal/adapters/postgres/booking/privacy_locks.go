@@ -32,6 +32,29 @@ func lockActiveAccounts(ctx context.Context, tx pgx.Tx, ids ...string) error {
 	return nil
 }
 
+// requireLocalKYCEligibility is evaluated only after the participant account
+// rows are locked. Verification approval and privacy suppression take the
+// same account lock, so eligibility cannot be revoked between this check and
+// reservation/occupancy commit.
+func requireLocalKYCEligibility(ctx context.Context, tx pgx.Tx, ids ...string) error {
+	for _, id := range ids {
+		var eligible bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (
+			SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
+			JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id
+			JOIN public.usuario account ON account.id=eligibility.usuario_id
+			WHERE eligibility.usuario_id=$1 AND eligibility.tipo='kyc' AND eligibility.estado='elegible'
+			  AND verification.estado='aprobada' AND account.estado='activo'
+		)`, id).Scan(&eligible); err != nil {
+			return err
+		}
+		if !eligible {
+			return booking.ErrConflict
+		}
+	}
+	return nil
+}
+
 func lockReservationParties(ctx context.Context, tx pgx.Tx, reservationID string) error {
 	var hostID, renterID string
 	if err := tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local WHERE id=$1`, reservationID).Scan(&hostID, &renterID); err != nil {

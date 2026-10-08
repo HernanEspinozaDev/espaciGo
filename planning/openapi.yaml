@@ -540,6 +540,14 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': *id006
+  /verifications/eligibility:
+    get:
+      operationId: listOwnSyntheticEligibility
+      tags: [M03 local]
+      description: Elegibilidad efectiva derivada de aprobación sintética vigente. Devuelve falso para cuenta inactiva o caso retirado; KYC y KYB no se sustituyen ni modifican roles. El ZIP propio incluye elegibilidad e historial.
+      responses:
+        '200': { description: Estado local KYC/KYB por separado., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationEligibilityList' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /verifications/{id}:
     get:
       operationId: getOwnVerification
@@ -550,11 +558,21 @@ paths:
         '200': { description: Caso propio., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationCase' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /verifications/{id}/history:
+    get:
+      operationId: listOwnVerificationHistory
+      tags: [M03 local]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Historial ordenado del caso propio., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationHistoryList' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /verifications/{id}/retry:
     post:
       operationId: retryRejectedVerification
       tags: [M03 local]
-      description: Reintenta solo casos rechazados del mismo titular; confirma corrección fixture y exige clave idempotente.
+      description: Reintenta solo casos rechazados del mismo titular; indica la corrección fixture compatible con el motivo y exige clave idempotente.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 80 } }
@@ -568,6 +586,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /verifications/{id}/evidence:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid, description: Caso propio de KYC/KYB } }
@@ -656,11 +675,20 @@ paths:
         '200': { description: Casos en revisión., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationList' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/verifications/failed:
+    get:
+      operationId: listRejectedVerifications
+      tags: [M03 local]
+      description: Solo rol administrador; casos rechazados de fixture para revisar motivo y subsanación, sin PII.
+      responses:
+        '200': { description: Casos rechazados sintéticos., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationList' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /admin/verifications/{id}/review:
     post:
       operationId: reviewSyntheticVerification
       tags: [M03 local]
-      description: Solo rol administrador. Rechazo requiere motivo codificado. Resolver fixture no acredita identidad real ni habilita transacciones.
+      description: Solo rol administrador. Rechazo requiere motivo codificado. La aprobación concede solo elegibilidad sintética local del tipo registrado; no acredita identidad real ni modifica roles. El gate de cada operación depende del mapeo de producto vigente.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
@@ -672,6 +700,31 @@ paths:
         '200': { description: Caso sintético resuelto., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationCase' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /admin/verifications/{id}/revoke:
+    post:
+      operationId: revokeSyntheticEligibility
+      tags: [M03 local]
+      description: Solo administrador; revoca explícitamente una elegibilidad sintética vigente y registra auditoría. No cancela reservas ni altera historiales.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason_code]
+              properties:
+                reason_code: { type: string, enum: [aprobacion_fixture_incorrecta, revision_fixture_actualizada] }
+      responses:
+        '200': { description: Elegibilidad revocada o resultado idempotente persistido., content: { application/json: { schema: { $ref: '#/components/schemas/VerificationCase' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
   /auth/login:
     post:
@@ -1155,7 +1208,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       operationId: requestLocalTrialReservation
-      description: Revalida el horario semanal vigente y la ocupación dentro de la transacción. Una cotización que ya no cabe produce conflicto sin crear reserva ni retención. El cambio de horario no modifica reservas ni historiales previos.
+      description: Revalida horario, ocupación y elegibilidad KYC sintética de anfitrión y arrendatario dentro de la transacción. La falta de KYC, una cotización que ya no cabe u ocupación incompatible producen conflicto sin crear reserva ni retención. El cambio de elegibilidad no modifica reservas ni historiales previos.
       tags: [M06 local]
       parameters:
         - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
@@ -2122,9 +2175,9 @@ components:
     VerificationRetry:
       type: object
       additionalProperties: false
-      required: [corrected]
+      required: [correction_code]
       properties:
-        corrected: { type: boolean, const: true }
+        correction_code: { type: string, enum: [fixture_vigente_actualizado, antecedentes_fixture_actualizados, inicio_actividades_fixture_actualizadas] }
     SyntheticEvidenceCreate:
       type: object
       additionalProperties: false
@@ -2164,13 +2217,51 @@ components:
       properties:
         id: { type: string, format: uuid }
         type: { type: string, enum: [kyc, kyb] }
-        state: { type: string, enum: [en_revision, aprobada, rechazada] }
+        state: { type: string, enum: [en_revision, aprobada, rechazada, revocada] }
         provider: { type: string, const: local-fixture-v1 }
         evidence_ref: { type: string, pattern: '^fixture:' }
         retry_of: { type: string, format: uuid }
         reason_code: { type: string }
+        correction_code: { type: string, enum: [fixture_vigente_actualizado, antecedentes_fixture_actualizados, inicio_actividades_fixture_actualizadas, legado_pre_v28_sin_codigo] }
+        revoked_at: { type: [string, 'null'], format: date-time }
+        revocation_reason_code: { type: string, enum: [aprobacion_fixture_incorrecta, revision_fixture_actualizada] }
         created_at: { type: string, format: date-time }
         resolved_at: { type: [string, 'null'], format: date-time }
+    VerificationEligibilityList:
+      type: object
+      required: [items, scope]
+      properties:
+        scope: { type: string, const: synthetic_local }
+        items:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            type: object
+            required: [type, eligible, verification_id, granted_at, revoked_at, revocation_reason_code]
+            properties:
+              type: { type: string, enum: [kyc, kyb] }
+              eligible: { type: boolean }
+              verification_id: { type: string }
+              granted_at: { type: [string, 'null'], format: date-time }
+              revoked_at: { type: [string, 'null'], format: date-time }
+              revocation_reason_code: { type: string }
+    VerificationHistoryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [sequence, action, to_state, occurred_at]
+            properties:
+              sequence: { type: integer, format: int64 }
+              action: { type: string, enum: [solicitada, revision_aprobada, revision_rechazada, subsanacion_solicitada, elegibilidad_revocada, elegibilidad_retirada_privacidad, estado_observado_en_migracion] }
+              from_state: { type: string }
+              to_state: { type: string, enum: [en_revision, aprobada, rechazada, revocada, retirada_privacidad] }
+              reason_code: { type: string }
+              occurred_at: { type: string, format: date-time }
     VerificationList:
       type: object
       required: [items]

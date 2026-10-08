@@ -4,10 +4,22 @@
 
 Este directorio contiene la línea base evolutiva para construir EspaciGo con prioridad en **Base de Datos → Backend → API → pruebas → validación visual con frontend mock**. Es planificación, no evidencia de implementación. La interfaz definitiva queda fuera de alcance y se decidirá cuando el backend y la persistencia hayan avanzado.
 
+## Prioridad vigente — cierre local completo, 2026-10-08
+
+El [plan de cierre del backend local](plan_cierre_backend_local.md) organiza el trabajo restante de M01–M11 y define la aceptación LOCAL-1. El [backlog de cierre](backlog_cierre_backend_local.md) propone paquetes, dependencias y una validación mock final por módulo; la Issue operativa #200 representa LOCAL-KYC-01. El [prompt de ejecución](prompt_cierre_backend_local.md) permite entregar esa instrucción al agente de desarrollo.
+
+La matriz fue conciliada tras el merge #199. M01 conserva criterios generales abiertos pese a #182/#198 aceptadas; M02 incluye exportación ZIP de lo implementado (#196), baja/purga/replay local (#192/#194) y outbox terminal (#198), pero #185/#40 siguen abiertas. LOCAL-KYC-01 (#200) implementa elegibilidad sintética y la exige a anfitrión/arrendatario al crear nuevas reservas. El gate de publicación queda como dependencia de LOCAL-LIST/M04 porque aún no existe su endpoint. Documentos y proveedores reales siguen en #142.
+
+**Completar todo el alcance local antes de proponer pruebas o despliegue GCP.** No ejecutar esa fase como parte del cierre. Se reutilizan capacidades aceptadas y adaptadores fake explícitos; el resultado no acredita integraciones reales ni cierre global del producto.
+
 ## Documentos
 
 | Documento | Contenido |
 | --- | --- |
+| [Plan de cierre local](plan_cierre_backend_local.md) | Objetivo actual M01–M11, hitos L0–L5, decisiones, pruebas locales y definición LOCAL-1; GCP queda para después. |
+| [Backlog de cierre local](backlog_cierre_backend_local.md) | Paquetes propuestos, trazabilidad a Issues, aceptación y once tarjetas finales de mock; no son cambios operativos del Project. |
+| [Prompt de cierre local](prompt_cierre_backend_local.md) | Instrucción para la ejecución posterior, con cuentas GitHub, primera entrega y condición de parada. |
+| [Evaluación de alcance al 2026-10-07](alcance_backend_local_y_transicion_gcp_20261007.md) | Inventario de partida y comparación histórica; la secuencia vigente es la del plan de cierre local. |
 | [Visión y módulos](vision_y_modulos.md) | Problema, alcance del producto, módulos y trazabilidad ES1/ES2. |
 | [Contexto para agentes](contexto_para_agentes.md) | Decisiones, invariantes y precedencia de fuentes sin depender de Informes. |
 | [Ejecución con Hermes](ejecucion_con_hermes.md) | Guía histórica del board Hermes archivado; no usar para asignar ni despachar trabajo. |
@@ -19,6 +31,7 @@ Este directorio contiene la línea base evolutiva para construir EspaciGo con pr
 | [OpenAPI base](openapi.yaml) | OpenAPI 3.1 común con seguridad Bearer, esquemas y respuestas reutilizables. |
 | [Prototipo local M03](prototipo_local_m03.md) | KYC/KYB sintético, revisión por rol administrador y reintento local. |
 | [Decisiones M03](decisiones_m03_verificacion_local.md) | Contrato fixture, privacidad y capacidades confirmadas vs pendientes. |
+| [LOCAL-KYC-01](decisiones_local_kyc_eligibilidad.md) | Elegibilidad sintética persistente por tipo, subsanación, auditoría y gate KYC de nuevas reservas; gate de publicación pendiente del endpoint M04. |
 | [Evidencia sintética M03](evidence/m03-evidencia-sintetica-local.md) | Alcance temporal, recorrido API/mock, acceso y limpieza puntual de archivos sintéticos de #47. |
 | [Referencia Realmo](referencia_realmo_categorias_y_ficha.md) | Referencia de producto para categorías, características y contenido de la ficha; propuestas para evaluar. |
 | [Decisiones M04 catálogo de atributos](decisiones_m04_catalogo_atributos.md) | Contrato implementado de V6, perfiles versionados, validación y límites del prototipo. |

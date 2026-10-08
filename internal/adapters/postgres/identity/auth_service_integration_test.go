@@ -837,7 +837,7 @@ func TestLocalCompleteExportZIPIsOwnerScopedReadOnlyAndAvailableWithBlockedSuppr
 	if err := json.Unmarshal(hostEntries["manifest.json"], &manifest); err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"verifications", "synthetic_evidence", "spaces", "rates", "simulations", "quotes", "reservations", "payments", "payment_operations", "refunds", "disputes", "messages_written_by_owner", "conversation_read_cursors"} {
+	for _, required := range []string{"verifications", "verification_eligibility", "verification_history", "synthetic_evidence", "spaces", "rates", "simulations", "quotes", "reservations", "payments", "payment_operations", "refunds", "disputes", "messages_written_by_owner", "conversation_read_cursors"} {
 		if !containsString(manifest.Sections, required) {
 			t.Errorf("manifest missing section %s: %+v", required, manifest.Sections)
 		}
@@ -848,6 +848,14 @@ func TestLocalCompleteExportZIPIsOwnerScopedReadOnlyAndAvailableWithBlockedSuppr
 	var decoded privacy.CompleteOwnData
 	if err := json.Unmarshal(hostEntries["data.json"], &decoded); err != nil {
 		t.Fatal(err)
+	}
+	var exportedEligibility []verification.Eligibility
+	if err := json.Unmarshal(decoded.Sections["verification_eligibility"], &exportedEligibility); err != nil || len(exportedEligibility) != 2 || exportedEligibility[0].Eligible || exportedEligibility[1].Eligible {
+		t.Fatalf("synthetic verification eligibility missing or incorrectly exported: %+v err=%v", exportedEligibility, err)
+	}
+	var exportedHistory map[string][]verification.HistoryEntry
+	if err := json.Unmarshal(decoded.Sections["verification_history"], &exportedHistory); err != nil || len(exportedHistory) == 0 {
+		t.Fatalf("synthetic verification history missing from archive: %+v err=%v", exportedHistory, err)
 	}
 	if decoded.SchemaVersion != 1 || decoded.Identity.Account.Email != "archive-host@ejemplo.invalid" || decoded.Identity.Account.UsePreference == nil || *decoded.Identity.Account.UsePreference != "arrendar" || decoded.Identity.Profile == nil || decoded.Identity.Profile.Name != "Host Archive" || len(decoded.Identity.Roles) != 0 || len(decoded.Identity.Acceptances) == 0 || len(decoded.Identity.Requests) != 2 {
 		t.Fatalf("host identity section incomplete: %+v", decoded.Identity)
@@ -1726,7 +1734,15 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	caseID, evidenceID := "82000000-0000-4000-8000-000000000005", "82000000-0000-4000-8000-000000000006"
 	fixtureID := "82000000-0000-4000-8000-000000000007"
 	terminalAt := h.now.AddDate(0, -7, 0)
-	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,creada_en,resuelta_en) VALUES($1,$2,'kyc','aprobada','fixture:'||$3,'suppression-case-01',$4,$5,$6)`, caseID, targetID, fixtureID, adminID, terminalAt.Add(-time.Hour), terminalAt); err != nil {
+	verificationRepo := verificationpg.New(h.pool)
+	if _, err := verificationRepo.Create(h.ctx, verification.Case{ID: caseID, OwnerID: targetID, Type: "kyc", State: "en_revision", Provider: "local-fixture-v1", EvidenceRef: "fixture:" + fixtureID, Idempotency: "suppression-case-01", CreatedAt: terminalAt.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verificationRepo.Review(h.ctx, caseID, adminID, true, "", func() time.Time { return terminalAt }); err != nil {
+		t.Fatal(err)
+	}
+	var originalVerificationDeadline time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT retirar_en FROM public.verificacion WHERE id=$1`, caseID).Scan(&originalVerificationDeadline); err != nil {
 		t.Fatal(err)
 	}
 	pendingCaseID := "82000000-0000-4000-8000-000000000008"
@@ -1780,6 +1796,24 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	pending, err := privacyService.ExecuteSuppression(h.ctx, adminID, request.ID, "local-suppression-1", "suppression-correlation", func() time.Time { return executionNow }, cleaner)
 	if err != nil || pending.Status != "limpieza_pendiente" || pending.PendingFiles != 1 || pending.CompletedAt != nil {
 		t.Fatalf("file failure was not left recoverable: err=%v result=%+v", err, pending)
+	}
+	eligibility, err := verificationRepo.ListEligibility(h.ctx, targetID)
+	if err != nil || len(eligibility) != 2 || eligibility[0].Eligible || eligibility[1].Eligible {
+		t.Fatalf("privacy suppression left effective verification eligibility: %+v err=%v", eligibility, err)
+	}
+	var eligibilityState, eligibilityReason string
+	var eligibilityEnded, retainedDeadline time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT e.estado,e.motivo_revocacion_codigo,e.revocada_en,v.retirar_en
+		FROM public.elegibilidad_verificacion_local e JOIN public.verificacion v ON v.id=e.verificacion_id
+		WHERE e.usuario_id=$1 AND e.tipo='kyc'`, targetID).Scan(&eligibilityState, &eligibilityReason, &eligibilityEnded, &retainedDeadline); err != nil {
+		t.Fatal(err)
+	}
+	if eligibilityState != "retirada_privacidad" || eligibilityReason != "baja_privacidad" || !eligibilityEnded.Equal(h.now) || !retainedDeadline.Equal(originalVerificationDeadline) {
+		t.Fatalf("privacy eligibility retirement changed wrong fields: state=%s reason=%s at=%s original deadline=%s current deadline=%s", eligibilityState, eligibilityReason, eligibilityEnded, originalVerificationDeadline, retainedDeadline)
+	}
+	verificationHistory, err := verificationRepo.ListHistory(h.ctx, targetID, caseID)
+	if err != nil || len(verificationHistory) < 3 || verificationHistory[len(verificationHistory)-1].Action != "elegibilidad_retirada_privacidad" {
+		t.Fatalf("privacy eligibility event missing from preserved case history: %+v err=%v", verificationHistory, err)
 	}
 	var state, email, passwordHash string
 	var preference *string
@@ -2020,6 +2054,68 @@ func TestSuppressionSerializesPreviouslyAuthorizedProfileVerificationEvidenceAnd
 	}
 	if profiles != 0 || createdCases != 0 || evidences != 0 || state != "desidentificado" || title != "Borrador retirado" {
 		t.Fatalf("post-suppression writes survived: profile=%d case=%d evidence=%d account=%s draft=%q", profiles, createdCases, evidences, state, title)
+	}
+}
+
+func TestSuppressionSerializesConcurrentSyntheticVerificationApproval(t *testing.T) {
+	h := newAuthHarness(t)
+	ownerID := h.register(t, "privacy-kyc-race-owner@ejemplo.invalid")
+	h.verify(t)
+	adminID := h.register(t, "privacy-kyc-race-admin@ejemplo.invalid")
+	h.verify(t)
+	request, err := h.repo.CreateRightsRequest(h.ctx, ownerID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verificationRepo := verificationpg.New(h.pool)
+	caseID := "85000000-0000-4000-8000-000000000001"
+	if _, err := verificationRepo.Create(h.ctx, verification.Case{ID: caseID, OwnerID: ownerID, Type: "kyc", State: "en_revision", Provider: "local-fixture-v1", EvidenceRef: "fixture:85000000-0000-4000-8000-000000000002", Idempotency: "suppression-approval-race", CreatedAt: h.now}); err != nil {
+		t.Fatal(err)
+	}
+	privacyService, err := privacy.NewService(h.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := holdAccountRowLock(t, h, ownerID)
+	type reviewResult struct {
+		item verification.Case
+		err  error
+	}
+	reviewDone := make(chan reviewResult, 1)
+	go func() {
+		item, err := verificationRepo.Review(h.ctx, caseID, adminID, true, "", func() time.Time { return h.now })
+		reviewDone <- reviewResult{item, err}
+	}()
+	waitForAccountLockWait(t, h)
+	type suppressionResult struct {
+		item privacy.SuppressionExecution
+		err  error
+	}
+	suppressionDone := make(chan suppressionResult, 1)
+	go func() {
+		item, err := privacyService.ExecuteSuppression(h.ctx, adminID, request.ID, "kyc-approval-race", "kyc-approval-race", func() time.Time { return h.now }, nil)
+		suppressionDone <- suppressionResult{item, err}
+	}()
+	waitForAccountLockWaitCount(t, h, 2)
+	release()
+	approved := <-reviewDone
+	if approved.err != nil || approved.item.State != "aprobada" {
+		t.Fatalf("approval did not win the ordered account-lock race: item=%+v err=%v", approved.item, approved.err)
+	}
+	suppressed := <-suppressionDone
+	if suppressed.err != nil || suppressed.item.Status != "limpieza_pendiente" {
+		t.Fatalf("baja after approval failed: item=%+v err=%v", suppressed.item, suppressed.err)
+	}
+	eligibility, err := verificationRepo.ListEligibility(h.ctx, ownerID)
+	if err != nil || len(eligibility) != 2 || eligibility[0].Eligible || eligibility[1].Eligible {
+		t.Fatalf("concurrent approval/baja left effective eligibility: %+v err=%v", eligibility, err)
+	}
+	var accountState, caseState, eligibilityState string
+	if err := h.pool.QueryRow(h.ctx, `SELECT u.estado,v.estado,e.estado FROM public.usuario u JOIN public.verificacion v ON v.usuario_id=u.id JOIN public.elegibilidad_verificacion_local e ON e.verificacion_id=v.id WHERE u.id=$1 AND v.id=$2`, ownerID, caseID).Scan(&accountState, &caseState, &eligibilityState); err != nil {
+		t.Fatal(err)
+	}
+	if accountState != "desidentificado" || caseState != "retirada_privacidad" || eligibilityState != "retirada_privacidad" {
+		t.Fatalf("race final states account/case/eligibility=%s/%s/%s", accountState, caseState, eligibilityState)
 	}
 }
 

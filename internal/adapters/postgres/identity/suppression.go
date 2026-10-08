@@ -202,6 +202,22 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		retirada_privacidad_en=$2::timestamptz WHERE usuario_id=$1`, subjectID, checkedAt); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
+	// End derived KYC/KYB eligibility in the same protected transaction. Keep
+	// the source cases, append-only history and their original retention dates.
+	if _, err = tx.Exec(ctx, `INSERT INTO public.verificacion_historial_local(
+		verificacion_id,actor_id,accion,estado_anterior,estado_nuevo,motivo_codigo,correlacion_id,clave_idempotencia,ocurrida_en)
+		SELECT e.verificacion_id,$2,'elegibilidad_retirada_privacidad','aprobada','retirada_privacidad','baja_privacidad',
+			$3||':'||e.tipo,$4,$5
+		FROM public.elegibilidad_verificacion_local e
+		WHERE e.usuario_id=$1 AND e.estado='elegible'
+		ON CONFLICT (verificacion_id,clave_idempotencia) DO NOTHING`, subjectID, actorID, "privacy-suppression:"+requestID, "privacy-suppression:"+requestID, checkedAt); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.elegibilidad_verificacion_local SET estado='retirada_privacidad',
+		revocada_en=$2,revocada_por=$3,motivo_revocacion_codigo='baja_privacidad'
+		WHERE usuario_id=$1 AND estado='elegible'`, subjectID, checkedAt, actorID); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
 	termExpiry := identity.AddCalendarMonthsUTC(checkedAt, 60)
 	if _, err = tx.Exec(ctx, `UPDATE public.aceptacion_terminos SET retirar_en=$2 WHERE usuario_id=$1`, subjectID, termExpiry); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
