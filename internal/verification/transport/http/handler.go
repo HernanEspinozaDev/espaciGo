@@ -95,6 +95,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"items": items})
 		return
 	}
+	if path == "/api/v1/verifications/eligibility" && r.Method == http.MethodGet {
+		items, e := h.service.Eligibility(r.Context(), principal.AccountID)
+		if e != nil {
+			serviceError(w, e)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": items, "scope": "synthetic_local"})
+		return
+	}
 	if path == "/api/v1/verifications" && r.Method == http.MethodPost {
 		var in struct {
 			Type string `json:"type"`
@@ -119,6 +128,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"items": items})
 		return
 	}
+	if path == "/api/v1/admin/verifications/failed" && admin && r.Method == http.MethodGet {
+		items, e := h.service.Rejected(r.Context())
+		if e != nil {
+			writeError(w, 500, "internal_error", "Ocurrió un error inesperado.")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": items})
+		return
+	}
 	if strings.HasPrefix(path, "/api/v1/verifications/") {
 		tail := strings.TrimPrefix(path, "/api/v1/verifications/")
 		parts := strings.Split(tail, "/")
@@ -131,14 +149,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, item)
 			return
 		}
+		if len(parts) == 2 && parts[1] == "history" && uuidPattern.MatchString(parts[0]) && r.Method == http.MethodGet {
+			items, e := h.service.History(r.Context(), principal.AccountID, parts[0])
+			if e != nil {
+				serviceError(w, e)
+				return
+			}
+			writeJSON(w, 200, map[string]any{"items": items})
+			return
+		}
 		if len(parts) == 2 && parts[1] == "retry" && uuidPattern.MatchString(parts[0]) && r.Method == http.MethodPost {
 			var in struct {
-				Corrected bool `json:"corrected"`
+				CorrectionCode string `json:"correction_code"`
 			}
 			if !decode(w, r, &in) {
 				return
 			}
-			item, e := h.service.Retry(r.Context(), principal.AccountID, parts[0], r.Header.Get("Idempotency-Key"), in.Corrected)
+			item, e := h.service.Retry(r.Context(), principal.AccountID, parts[0], r.Header.Get("Idempotency-Key"), in.CorrectionCode)
 			if e != nil {
 				serviceError(w, e)
 				return
@@ -159,6 +186,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			item, e := h.service.Review(r.Context(), parts[0], principal.AccountID, in.Decision, in.Reason)
+			if e != nil {
+				serviceError(w, e)
+				return
+			}
+			writeJSON(w, 200, item)
+			return
+		}
+		if admin && len(parts) == 2 && parts[1] == "revoke" && uuidPattern.MatchString(parts[0]) && r.Method == http.MethodPost {
+			var in struct {
+				Reason string `json:"reason_code"`
+			}
+			if !decode(w, r, &in) {
+				return
+			}
+			item, e := h.service.Revoke(r.Context(), parts[0], principal.AccountID, in.Reason, r.Header.Get("Idempotency-Key"), requestID)
 			if e != nil {
 				serviceError(w, e)
 				return

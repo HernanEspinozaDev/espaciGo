@@ -82,7 +82,16 @@ func (r *repo) ListPending(_ context.Context) ([]verification.Case, error) {
 	}
 	return out, nil
 }
-func (r *repo) Review(_ context.Context, id, reviewer string, approved bool, reason string) (verification.Case, error) {
+func (r *repo) ListRejected(_ context.Context) ([]verification.Case, error) {
+	out := []verification.Case{}
+	for _, c := range r.cases {
+		if c.State == "rechazada" {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+func (r *repo) Review(_ context.Context, id, reviewer string, approved bool, reason string, now func() time.Time) (verification.Case, error) {
 	c, ok := r.cases[id]
 	if !ok {
 		return verification.Case{}, verification.ErrNotFound
@@ -91,7 +100,7 @@ func (r *repo) Review(_ context.Context, id, reviewer string, approved bool, rea
 		return verification.Case{}, verification.ErrConflict
 	}
 	c.ReviewerID = reviewer
-	c.ResolvedAt = timePtr(time.Unix(3, 0))
+	c.ResolvedAt = timePtr(now())
 	if approved {
 		c.State = "aprobada"
 	} else {
@@ -101,7 +110,7 @@ func (r *repo) Review(_ context.Context, id, reviewer string, approved bool, rea
 	r.cases[id] = c
 	return c, nil
 }
-func (r *repo) Retry(_ context.Context, owner, prior string, c verification.Case) (verification.Case, error) {
+func (r *repo) Retry(_ context.Context, owner, prior string, c verification.Case, now func() time.Time) (verification.Case, error) {
 	old, e := r.GetOwn(context.Background(), owner, prior)
 	if e != nil {
 		return verification.Case{}, e
@@ -112,6 +121,27 @@ func (r *repo) Retry(_ context.Context, owner, prior string, c verification.Case
 	c.Type = old.Type
 	c.RetryOf = prior
 	r.cases[c.ID] = c
+	return c, nil
+}
+func (r *repo) ListHistory(_ context.Context, owner, id string) ([]verification.HistoryEntry, error) {
+	if _, err := r.GetOwn(context.Background(), owner, id); err != nil {
+		return nil, err
+	}
+	return []verification.HistoryEntry{}, nil
+}
+func (r *repo) ListEligibility(_ context.Context, owner string) ([]verification.Eligibility, error) {
+	if owner == "" {
+		return nil, verification.ErrInvalid
+	}
+	return []verification.Eligibility{{Type: "kyc"}, {Type: "kyb"}}, nil
+}
+func (r *repo) Revoke(_ context.Context, id, reviewer, reason, key, correlation string, _ func() time.Time) (verification.Case, error) {
+	c, ok := r.cases[id]
+	if !ok {
+		return verification.Case{}, verification.ErrNotFound
+	}
+	c.State = "revocada"
+	r.cases[id] = c
 	return c, nil
 }
 func timePtr(t time.Time) *time.Time { return &t }
@@ -304,7 +334,17 @@ func TestKYCAPIAuthOwnershipAndReview(t *testing.T) {
 	if resolved.Code != 200 {
 		t.Fatalf("review: %d %s", resolved.Code, resolved.Body)
 	}
-	retry := call(h, "POST", "/api/v1/verifications/"+item.ID+"/retry", "user", "retry-0001", `{"corrected":true}`)
+	failed := call(h, "GET", "/api/v1/admin/verifications/failed", "admin", "", "")
+	if failed.Code != http.StatusOK || !strings.Contains(failed.Body.String(), item.ID) {
+		t.Fatalf("failed validations list: %d %s", failed.Code, failed.Body)
+	}
+	if got := call(h, "POST", "/api/v1/verifications/"+item.ID+"/retry", "user", "retry-old-01", `{"corrected":true}`).Code; got != http.StatusBadRequest {
+		t.Fatalf("legacy non-typed correction was not rejected strictly: status=%d", got)
+	}
+	if got := call(h, "POST", "/api/v1/verifications/"+item.ID+"/retry", "user", "retry-wrong-01", `{"correction_code":"fixture_vigente_actualizado"}`).Code; got != http.StatusUnprocessableEntity {
+		t.Fatalf("correction incompatible with rejection reason status=%d", got)
+	}
+	retry := call(h, "POST", "/api/v1/verifications/"+item.ID+"/retry", "user", "retry-0001", `{"correction_code":"antecedentes_fixture_actualizados"}`)
 	if retry.Code != 201 {
 		t.Fatalf("retry: %d %s", retry.Code, retry.Body)
 	}
@@ -320,5 +360,39 @@ func TestKYCAPIRejectsUnknownFieldsAndQuery(t *testing.T) {
 	}
 	if _, err := verification.NewService(nil, &testIDs{}, verification.LocalFixtureProvider{}, time.Now); !errors.Is(err, verification.ErrInvalid) {
 		t.Fatalf("nil repo error=%v", err)
+	}
+}
+
+func TestVerificationHistoryEligibilityFailedQueueAndAdminRevocation(t *testing.T) {
+	h := newHandler(t)
+	create := call(h, "POST", "/api/v1/verifications", "user", "request-2001", `{"type":"kyc"}`)
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", create.Code, create.Body)
+	}
+	var item verification.Case
+	if err := json.Unmarshal(create.Body.Bytes(), &item); err != nil {
+		t.Fatal(err)
+	}
+	if got := call(h, "GET", "/api/v1/verifications/eligibility", "user", "", "").Code; got != http.StatusOK {
+		t.Fatalf("eligibility status=%d", got)
+	}
+	if got := call(h, "GET", "/api/v1/verifications/"+item.ID+"/history", "user", "", "").Code; got != http.StatusOK {
+		t.Fatalf("own history status=%d", got)
+	}
+	if got := call(h, "GET", "/api/v1/verifications/"+item.ID+"/history", "other", "", "").Code; got != http.StatusNotFound {
+		t.Fatalf("foreign history status=%d", got)
+	}
+	if got := call(h, "GET", "/api/v1/admin/verifications/failed", "user", "", "").Code; got != http.StatusForbidden {
+		t.Fatalf("failed queue without admin status=%d", got)
+	}
+	if got := call(h, "POST", "/api/v1/admin/verifications/"+item.ID+"/review", "admin", "", `{"decision":"aprobada"}`).Code; got != http.StatusOK {
+		t.Fatalf("approval status=%d", got)
+	}
+	if got := call(h, "POST", "/api/v1/admin/verifications/"+item.ID+"/revoke", "user", "revoke-key-01", `{"reason_code":"revision_fixture_actualizada"}`).Code; got != http.StatusForbidden {
+		t.Fatalf("revocation without admin status=%d", got)
+	}
+	revoked := call(h, "POST", "/api/v1/admin/verifications/"+item.ID+"/revoke", "admin", "revoke-key-01", `{"reason_code":"revision_fixture_actualizada"}`)
+	if revoked.Code != http.StatusOK || !strings.Contains(revoked.Body.String(), `"state":"revocada"`) {
+		t.Fatalf("admin revocation status=%d body=%s", revoked.Code, revoked.Body)
 	}
 }

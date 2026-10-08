@@ -41,7 +41,11 @@ def resolve(value):
 
 # Parse/check referenced response schemas before running the real flow.
 for operations in spec['paths'].values():
-    for operation in operations.values():
+    for method, operation in operations.items():
+        # OpenAPI Path Items may also contain a path-level `parameters` list;
+        # only HTTP operation objects define responses.
+        if method not in {'get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'trace'}:
+            continue
         for response in operation['responses'].values():
             response = resolve(response)
             for content in response.get('content', {}).values():

@@ -1,6 +1,12 @@
 # Continuar EspaciGo desde un PC con GitHub Projects
 
-## Estrategia vigente — prototipo local, 2026-10-06
+## Instrucción vigente — backend local completo, 2026-10-07
+
+Seguir [plan_cierre_backend_local.md](plan_cierre_backend_local.md), [backlog_cierre_backend_local.md](backlog_cierre_backend_local.md) y [prompt_cierre_backend_local.md](prompt_cierre_backend_local.md). El objetivo es completar el alcance local M01–M11 y aceptar LOCAL-1 antes de proponer cualquier prueba/despliegue GCP. Los paquetes son planificación: contrastar Issues, PRs y evidencias actuales antes de trasladarlos a Projects.
+
+Priorizar entregas verticales y reutilizar código aceptado; no crear otra función de ensayo sin relación con una brecha de cierre. Una revisión por entrega, pruebas enfocadas durante el trabajo y gate consolidado al finalizar. HernanMEC desarrolla/publica; HernanEspinozaDev revisa/fusiona. Conservar volumen, secretos y datos locales. Las condiciones y exclusiones del plan vigente prevalecen sobre los snapshots siguientes.
+
+## Estrategia anterior — prototipo local, 2026-10-06 (histórico)
 
 Aceptación: #148/PR #149, #151/PR #152, #153/PR #154, #156/PR #157, #158/PR #159, #160/PR #161, #162/PR #163, #164/PR #165 y #166/PR #167 están fusionadas y aceptadas en sus cortes locales. Entrega autorizada en curso: #168, horario semanal para fixtures sintéticos por hora. La autorización amplía solo el prototipo local, dado que HU24 describe recurrencia fuera del alcance ES1; no cambia las Issues generales #70–#72. Véase [decisión M06 de horario semanal](decisiones_m06_horario_semanal_local.md). Las Issues generales #62–#72, #95–#98, DB02-09 y #123 conservan sus criterios y pendientes. Mantener `espacigo_pgdata` y secretos locales.
 

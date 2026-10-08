@@ -31,6 +31,9 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT SELECT, INSERT, UPDATE, DELETE ON public.perfil_usuario TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE (estado,resuelta_en,motivo_resolucion_codigo,retirar_en) ON public.solicitud_titular TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.verificacion TO espacigo_runtime;
+ GRANT SELECT, INSERT ON public.verificacion_historial_local TO espacigo_runtime;
+ GRANT USAGE, SELECT ON SEQUENCE public.verificacion_historial_local_id_seq TO espacigo_runtime;
+ GRANT SELECT, INSERT, UPDATE ON public.elegibilidad_verificacion_local TO espacigo_runtime;
  GRANT SELECT, INSERT, DELETE ON public.verificacion_evidencia_sintetica TO espacigo_runtime;
  GRANT SELECT ON public.categoria_espacio, public.categoria_perfil_atributos TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.espacio TO espacigo_runtime;

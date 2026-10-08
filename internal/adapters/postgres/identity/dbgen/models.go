@@ -104,6 +104,17 @@ type EjecucionBajaLocal struct {
 	Detalle           []byte             `json:"detalle"`
 }
 
+type ElegibilidadVerificacionLocal struct {
+	UsuarioID              string             `json:"usuario_id"`
+	Tipo                   string             `json:"tipo"`
+	VerificacionID         string             `json:"verificacion_id"`
+	Estado                 string             `json:"estado"`
+	ConcedidaEn            pgtype.Timestamptz `json:"concedida_en"`
+	RevocadaEn             pgtype.Timestamptz `json:"revocada_en"`
+	RevocadaPor            pgtype.UUID        `json:"revocada_por"`
+	MotivoRevocacionCodigo *string            `json:"motivo_revocacion_codigo"`
+}
+
 type Espacio struct {
 	ID              string             `json:"id"`
 	PropietarioID   string             `json:"propietario_id"`
@@ -475,20 +486,24 @@ type Usuario struct {
 }
 
 type Verificacion struct {
-	ID                   string             `json:"id"`
-	UsuarioID            string             `json:"usuario_id"`
-	Tipo                 string             `json:"tipo"`
-	Estado               string             `json:"estado"`
-	ProveedorRef         string             `json:"proveedor_ref"`
-	ReferenciaEvidencia  string             `json:"referencia_evidencia"`
-	ClaveIdempotencia    string             `json:"clave_idempotencia"`
-	ReintentoDe          pgtype.UUID        `json:"reintento_de"`
-	RevisorID            pgtype.UUID        `json:"revisor_id"`
-	MotivoCodigo         *string            `json:"motivo_codigo"`
-	CreadaEn             pgtype.Timestamptz `json:"creada_en"`
-	ResueltaEn           pgtype.Timestamptz `json:"resuelta_en"`
-	RetirarEn            pgtype.Timestamptz `json:"retirar_en"`
-	RetiradaPrivacidadEn pgtype.Timestamptz `json:"retirada_privacidad_en"`
+	ID                     string             `json:"id"`
+	UsuarioID              string             `json:"usuario_id"`
+	Tipo                   string             `json:"tipo"`
+	Estado                 string             `json:"estado"`
+	ProveedorRef           string             `json:"proveedor_ref"`
+	ReferenciaEvidencia    string             `json:"referencia_evidencia"`
+	ClaveIdempotencia      string             `json:"clave_idempotencia"`
+	ReintentoDe            pgtype.UUID        `json:"reintento_de"`
+	RevisorID              pgtype.UUID        `json:"revisor_id"`
+	MotivoCodigo           *string            `json:"motivo_codigo"`
+	CreadaEn               pgtype.Timestamptz `json:"creada_en"`
+	ResueltaEn             pgtype.Timestamptz `json:"resuelta_en"`
+	RetirarEn              pgtype.Timestamptz `json:"retirar_en"`
+	RetiradaPrivacidadEn   pgtype.Timestamptz `json:"retirada_privacidad_en"`
+	CorreccionCodigo       *string            `json:"correccion_codigo"`
+	RevocadaEn             pgtype.Timestamptz `json:"revocada_en"`
+	RevocadaPor            pgtype.UUID        `json:"revocada_por"`
+	MotivoRevocacionCodigo *string            `json:"motivo_revocacion_codigo"`
 }
 
 type VerificacionEvidenciaSintetica struct {
@@ -499,6 +514,19 @@ type VerificacionEvidenciaSintetica struct {
 	TamanoBytes    int64              `json:"tamano_bytes"`
 	Sha256         string             `json:"sha256"`
 	CreadaEn       pgtype.Timestamptz `json:"creada_en"`
+}
+
+type VerificacionHistorialLocal struct {
+	ID                int64              `json:"id"`
+	VerificacionID    string             `json:"verificacion_id"`
+	ActorID           string             `json:"actor_id"`
+	Accion            string             `json:"accion"`
+	EstadoAnterior    *string            `json:"estado_anterior"`
+	EstadoNuevo       string             `json:"estado_nuevo"`
+	MotivoCodigo      *string            `json:"motivo_codigo"`
+	CorrelacionID     string             `json:"correlacion_id"`
+	ClaveIdempotencia *string            `json:"clave_idempotencia"`
+	OcurridaEn        pgtype.Timestamptz `json:"ocurrida_en"`
 }
 
 type VersionTermino struct {

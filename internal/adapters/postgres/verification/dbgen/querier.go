@@ -15,7 +15,11 @@ type Querier interface {
 	GetVerificationByIdempotency(ctx context.Context, arg GetVerificationByIdempotencyParams) (GetVerificationByIdempotencyRow, error)
 	ListOwnVerifications(ctx context.Context, ownerID string) ([]ListOwnVerificationsRow, error)
 	ListPendingVerifications(ctx context.Context) ([]ListPendingVerificationsRow, error)
+	ListRejectedVerifications(ctx context.Context) ([]ListRejectedVerificationsRow, error)
+	ListSyntheticEligibility(ctx context.Context, ownerID string) ([]ListSyntheticEligibilityRow, error)
+	ListVerificationHistory(ctx context.Context, arg ListVerificationHistoryParams) ([]ListVerificationHistoryRow, error)
 	LockPriorVerificationForRetry(ctx context.Context, arg LockPriorVerificationForRetryParams) (LockPriorVerificationForRetryRow, error)
+	LockVerificationForRevoke(ctx context.Context, id string) (LockVerificationForRevokeRow, error)
 	ReviewVerification(ctx context.Context, arg ReviewVerificationParams) (ReviewVerificationRow, error)
 }
 

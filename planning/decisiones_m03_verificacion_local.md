@@ -27,3 +27,9 @@ Esta excepción no permite RUT, documentos, fotos, selfie, imágenes del usuario
 | Habilitar publicación/reserva por KYC/KYB | Fuera de este corte; el fixture no concede derechos de producto |
 
 Trazabilidad: Issue #44–51, HU04, CU-10–14, RQF-038–059, RQF-192–194 y RQF-219–220; Anexo B `verificacion`. El diseño no afirma cumplimiento legal ni integración productiva.
+
+## Addendum ratificado — 2026-10-08, LOCAL-KYC-01
+
+La decisión anterior de mantener la aprobación completamente fuera de elegibilidad se modifica **solo para el prototipo local sintético**: una aprobación concede elegibilidad persistente por tipo; no concede roles ni se calcula usando únicamente el caso más reciente. Casos nuevos pendientes/rechazados no revocan la concesión. Solo una acción administrativa explícita, estructurada y auditada la revoca; una nueva aprobación explícita puede restaurar el tipo. Reservas existentes e historiales no se alteran.
+
+La consulta propia de elegibilidad, la revocación y el historial son parte de la subentrega #200. No se han cableado todavía a operaciones de publicación/reserva: falta la asignación explícita de KYC/KYB por operación, presentada para decisión, y no se infiere de `use_preference`. Documentar en [decisiones LOCAL-KYC-01](decisiones_local_kyc_eligibilidad.md). #142 y los criterios generales de #45/#48–#50 siguen abiertos.

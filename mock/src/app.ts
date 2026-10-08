@@ -266,6 +266,20 @@ document.querySelector("#verification-load")!.addEventListener("click", () => vo
   const items = await request("/api/v1/verifications", "GET", undefined, true);
   document.querySelector<HTMLElement>("#verification-output")!.textContent = JSON.stringify(items, null, 2);
 }));
+document.querySelector("#verification-eligibility-load")!.addEventListener("click", () => void action(async () => {
+  const generation = sessionGeneration, account = sessionAccountID, token = sessionToken;
+  const response = await request("/api/v1/verifications/eligibility", "GET", undefined, true);
+  if (generation !== sessionGeneration || account !== sessionAccountID || token !== sessionToken) return;
+  document.querySelector<HTMLElement>("#verification-eligibility-output")!.textContent = JSON.stringify(response, null, 2);
+}));
+document.querySelector("#verification-history-load")!.addEventListener("click", () => void action(async () => {
+  const id = document.querySelector<HTMLInputElement>("#verification-history-id")!.value.trim();
+  if (!id) throw new Error("Indica el ID de tu caso.");
+  const generation = sessionGeneration, account = sessionAccountID, token = sessionToken;
+  const response = await request(`/api/v1/verifications/${encodeURIComponent(id)}/history`, "GET", undefined, true);
+  if (generation !== sessionGeneration || account !== sessionAccountID || token !== sessionToken) return;
+  document.querySelector<HTMLElement>("#verification-output")!.textContent = JSON.stringify(response, null, 2);
+}));
 const evidenceCase = document.querySelector<HTMLInputElement>("#evidence-case-id")!;
 const evidenceOutput = document.querySelector<HTMLElement>("#evidence-output")!;
 const evidenceItems = document.querySelector<HTMLElement>("#evidence-items")!;
@@ -327,7 +341,7 @@ form("review-evidence-form",async(data)=>{
 });
 form("verification-retry-form", async (data, element) => {
   const id = String(data.get("id"));
-  const item = await request(`/api/v1/verifications/${encodeURIComponent(id)}/retry`, "POST", {corrected:data.get("corrected") === "on"}, true, crypto.randomUUID());
+  const item = await request(`/api/v1/verifications/${encodeURIComponent(id)}/retry`, "POST", {correction_code:data.get("correction_code")}, true, crypto.randomUUID());
   document.querySelector<HTMLElement>("#verification-output")!.textContent = JSON.stringify(item, null, 2);
   element.reset(); resultElement.textContent = "Reintento fixture creado y en revisión.";
 });
@@ -335,11 +349,23 @@ document.querySelector("#review-load")!.addEventListener("click", () => void act
   const items = await request("/api/v1/admin/verifications", "GET", undefined, true);
   document.querySelector<HTMLElement>("#review-output")!.textContent = JSON.stringify(items, null, 2);
 }));
+document.querySelector("#review-failed-load")!.addEventListener("click", () => void action(async () => {
+  const generation=sessionGeneration, account=sessionAccountID, token=sessionToken;
+  const items=await request("/api/v1/admin/verifications/failed", "GET", undefined, true);
+  if(generation!==sessionGeneration||account!==sessionAccountID||token!==sessionToken)return;
+  document.querySelector<HTMLElement>("#review-output")!.textContent=JSON.stringify(items,null,2);
+}));
 form("review-form", async (data, element) => {
   const id = String(data.get("id")), decision = String(data.get("decision"));
   const item = await request(`/api/v1/admin/verifications/${encodeURIComponent(id)}/review`, "POST", {decision, reason_code:data.get("reason_code")}, true);
   document.querySelector<HTMLElement>("#review-output")!.textContent = JSON.stringify(item, null, 2);
   element.reset(); resultElement.textContent = "Revisión fixture registrada.";
+});
+form("verification-revoke-form", async (data, element) => {
+  const id = String(data.get("id"));
+  const item = await request(`/api/v1/admin/verifications/${encodeURIComponent(id)}/revoke`, "POST", {reason_code:data.get("reason_code")}, true, crypto.randomUUID());
+  document.querySelector<HTMLElement>("#review-output")!.textContent = JSON.stringify(item, null, 2);
+  element.reset(); resultElement.textContent = "Elegibilidad sintética revocada; las reservas existentes no se modifican.";
 });
 const spacesOutput = document.querySelector<HTMLElement>("#space-output")!;
 const spaceForm = document.querySelector<HTMLFormElement>("#space-form")!;
@@ -1055,6 +1081,20 @@ function clearBookingInboxOnSessionLoss():void{
   refreshPrivacyExportControls();
   clearSuppressionQueue();
   clearCredentialNoticeQueue();
+  document.querySelector<HTMLElement>("#verification-output")!.textContent="Inicia sesión para consultar tus casos sintéticos.";
+  document.querySelector<HTMLElement>("#verification-eligibility-output")!.textContent="Inicia sesión para consultar elegibilidad sintética.";
+  document.querySelector<HTMLInputElement>("#verification-history-id")!.value="";
+  for (const formID of ["verification-form", "verification-retry-form", "verification-revoke-form", "review-form", "review-evidence-form"]) {
+    document.querySelector<HTMLFormElement>(`#${formID}`)?.reset();
+  }
+  document.querySelector<HTMLInputElement>("#evidence-case-id")!.value="";
+  document.querySelector<HTMLElement>("#evidence-items")!.replaceChildren();
+  document.querySelector<HTMLElement>("#evidence-output")!.textContent="Inicia sesión para consultar evidencias sintéticas.";
+  document.querySelector<HTMLElement>("#review-output")!.textContent="Necesitas rol administrador.";
+  document.querySelector<HTMLElement>("#review-evidence-output")!.textContent="Necesitas rol administrador.";
+  const evidencePreview=document.querySelector<HTMLImageElement>("#evidence-preview")!;
+  evidencePreview.hidden=true; evidencePreview.removeAttribute("src");
+  if(evidenceObjectURL){URL.revokeObjectURL(evidenceObjectURL);evidenceObjectURL="";}
   sessionAccountID="";selectedReservationID="";selectedReservation=null;bookingRequestState.invalidate();resetCatalogTraversal();
   bookingInboxRevision++;
   cancellationPreview=null;cancellationPreviewReservationID="";
