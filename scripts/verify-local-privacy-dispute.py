@@ -24,6 +24,7 @@ import uuid
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 API = os.environ.get("ESPACIGO_LOCAL_API", "http://127.0.0.1:8080")
 MAILPIT = os.environ.get("ESPACIGO_LOCAL_MAILPIT", "http://127.0.0.1:8025")
+MAX_STALE_TOKEN_RETRIES = 2
 for base in (API, MAILPIT):
     if urllib.parse.urlparse(base).hostname not in {"localhost", "127.0.0.1"}:
         raise SystemExit("This verifier only accepts loopback API and Mailpit URLs")
@@ -105,14 +106,93 @@ def wait_mail(email: str, excluded_ids: set[str], purpose: str) -> dict:
     raise RuntimeError("Timed out waiting for the local verification message")
 
 
-def consume_mail_token(email: str, excluded_ids: set[str], purpose: str, endpoint: str, payload_builder) -> None:
-    message = wait_mail(email, excluded_ids, purpose)
-    text = message.get("Text", "")
-    token_id = re.search(r"^Token ID: ([0-9a-f-]+)", text, re.M)
-    token = re.search(r"^Token: ([A-Za-z0-9_-]+)", text, re.M)
-    if not token_id or not token:
-        raise RuntimeError("Local verification email did not contain the expected activation fields")
-    api("POST", endpoint, 204, payload_builder(token_id[1], token[1]))
+def consume_mail_token(state: dict, kind: str, email: str, excluded_ids: set[str], purpose: str,
+                       state_key: str, endpoint: str, payload_builder, request_fresh) -> None:
+    actor = state["actors"][kind]
+    token_states = actor.setdefault("token_recovery", {})
+    token_state = token_states.setdefault(state_key, {"discarded_mail_ids": [], "request_pending": False})
+    discarded = set(token_state.get("discarded_mail_ids", [])) | set(actor.get("discarded_token_mail_ids", []))
+    excluded = excluded_ids | discarded
+
+    for retry in range(MAX_STALE_TOKEN_RETRIES + 1):
+        try:
+            message = wait_mail(email, excluded, purpose)
+        except RuntimeError:
+            if not token_state.get("request_pending"):
+                raise
+            # A prior run may have stopped after recording the resend intent.
+            # Only retry when no fresh message arrived; the Backend still owns
+            # the rate limit and can reject the extra request safely.
+            status, _ = request_fresh()
+            if status not in (202, 204):
+                token_state["request_pending"] = False
+                save_state(state)
+                raise RuntimeError(f"Backend refused a fresh {state_key} token (HTTP {status})")
+            token_state["request_pending"] = False
+            save_state(state)
+            message = wait_mail(email, excluded, purpose)
+
+        text = message.get("Text", "")
+        token_id = re.search(r"^Token ID: ([0-9a-f-]+)", text, re.M)
+        token = re.search(r"^Token: ([A-Za-z0-9_-]+)", text, re.M)
+        if not token_id or not token:
+            raise RuntimeError("Local verification email did not contain the expected activation fields")
+        payload = payload_builder(token_id[1], token[1])
+
+        # Focused test hook: consume a recovery token with a different synthetic
+        # password, then let the normal path observe the backend's invalid_token
+        # response and prove that it requests and consumes a replacement token.
+        if (state_key == "recovery" and
+                os.environ.get("LOCAL_PRIV189_TEST_CONSUME_TOKEN_FIRST") == state_key and
+                not token_state.get("test_consumed_token")):
+            token_state["test_consumed_token"] = True
+            save_state(state)
+            consumed_payload = dict(payload)
+            alternate = password_for_test()
+            consumed_payload["new_password"] = alternate
+            consumed_payload["confirm_password"] = alternate
+            status, _ = request("POST", API + endpoint, consumed_payload)
+            if status != 204:
+                raise RuntimeError(f"Focused consumed-token setup failed (HTTP {status})")
+
+        status, body = request("POST", API + endpoint, payload)
+        if status == 204:
+            token_states.pop(state_key, None)
+            if not token_states:
+                actor.pop("token_recovery", None)
+            if retry:
+                recovery_counts = actor.setdefault("stale_token_recoveries", {})
+                recovery_counts[state_key] = recovery_counts.get(state_key, 0) + retry
+            save_state(state)
+            return retry
+        error_code = body.get("error", {}).get("code") if isinstance(body, dict) else None
+        if status != 422 or error_code != "invalid_token":
+            raise RuntimeError(f"Could not consume local {state_key} token (HTTP {status})")
+
+        mail_id = message.get("ID")
+        if mail_id:
+            discarded.add(mail_id)
+            excluded.add(mail_id)
+            actor["discarded_token_mail_ids"] = sorted(
+                set(actor.get("discarded_token_mail_ids", [])) | {mail_id}
+            )
+        token_state["discarded_mail_ids"] = sorted(discarded)
+        token_state["last_rejection"] = "invalid_token"
+        save_state(state)
+        if retry >= MAX_STALE_TOKEN_RETRIES:
+            raise RuntimeError(f"Local {state_key} token remained invalid after bounded retries")
+
+        token_state["request_pending"] = True
+        save_state(state)
+        fresh_status, _ = request_fresh()
+        if fresh_status not in (202, 204):
+            token_state["request_pending"] = False
+            save_state(state)
+            raise RuntimeError(f"Backend refused a fresh {state_key} token (HTTP {fresh_status})")
+        token_state["request_pending"] = False
+        save_state(state)
+
+    raise RuntimeError(f"Could not recover a usable {state_key} token")
 
 
 def password_for_test() -> str:
@@ -186,8 +266,17 @@ def ensure_account(state: dict, kind: str, terms_ids: list[str]) -> dict:
             status, _ = request("POST", API + "/api/v1/auth/verification/reissue", {"email": actor["email"]})
             if status != 204:
                 raise RuntimeError(f"Could not reissue local verification for {kind} (HTTP {status})")
-        consume_mail_token(actor["email"], before, "verifica tu correo", "/api/v1/auth/verification",
-                           lambda token_id, token: {"token_id": token_id, "token": token})
+
+        def request_verification():
+            return request("POST", API + "/api/v1/auth/verification/reissue", {"email": actor["email"]})
+
+        stale_retries = consume_mail_token(
+            state, kind, actor["email"], before, "verifica tu correo", "verification",
+            "/api/v1/auth/verification",
+            lambda token_id, token: {"token_id": token_id, "token": token}, request_verification,
+        )
+        if stale_retries:
+            print(f"PASS {kind} verification message discarded after invalid_token; fresh token accepted")
         result = login(actor["email"], actor["password"])
         if result:
             actor["id"] = result["account_id"]
@@ -208,10 +297,18 @@ def ensure_account(state: dict, kind: str, terms_ids: list[str]) -> dict:
         status, _ = request("POST", API + "/api/v1/auth/password/recovery", {"email": actor["email"]})
         if status != 202:
             raise RuntimeError(f"Could not start local credential recovery for {kind} (HTTP {status})")
-    consume_mail_token(actor["email"], before, "recupera tu clave", "/api/v1/auth/password/recovery/consume",
-                       lambda token_id, token: {"token_id": token_id, "token": token,
-                                               "new_password": actor["password"],
-                                               "confirm_password": actor["password"]})
+    def request_recovery():
+        return request("POST", API + "/api/v1/auth/password/recovery", {"email": actor["email"]})
+
+    stale_retries = consume_mail_token(
+        state, kind, actor["email"], before, "recupera tu clave", "recovery",
+        "/api/v1/auth/password/recovery/consume",
+        lambda token_id, token: {"token_id": token_id, "token": token,
+                                 "new_password": actor["password"],
+                                 "confirm_password": actor["password"]}, request_recovery,
+    )
+    if stale_retries:
+        print(f"PASS {kind} recovery message discarded after invalid_token; fresh token accepted")
     result = login(actor["email"], actor["password"])
     if not result:
         raise RuntimeError(f"Recovered {kind} synthetic account could not log in")
