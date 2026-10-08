@@ -981,7 +981,8 @@ paths:
       description: >-
         Publica u oculta un espacio propio. Requiere rol arrendador; activar exige KYC sintético efectivo
         de la cuenta personal y no concede ni infiere roles. Solo cambia el estado local del espacio, sin
-        abrirlo al catálogo general ni alterar reservas existentes.
+        abrirlo al catálogo general ni alterar reservas existentes. Un fixture de ensayo habilitado impide
+        transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled.
       requestBody:
         required: true
         content:

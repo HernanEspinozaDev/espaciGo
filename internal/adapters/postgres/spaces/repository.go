@@ -159,6 +159,17 @@ func (r *Repository) SetPublicationState(ctx context.Context, owner, id, state, 
 		}
 		return draft, nil
 	}
+	// Keep enabled synthetic fixtures in the existing draft-only catalog and
+	// booking flow. Lock the fixture row in the same transaction as the space
+	// transition so an enable/disable operation cannot race this decision.
+	var fixtureEnabled bool
+	err = tx.QueryRow(ctx, `SELECT habilitada FROM public.reserva_ensayo_local_fixture WHERE espacio_id=$1 FOR UPDATE`, id).Scan(&fixtureEnabled)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return spaces.Draft{}, err
+	}
+	if err == nil && fixtureEnabled {
+		return spaces.Draft{}, spaces.ErrEnabledFixture
+	}
 	if state == "activa" {
 		if draft.State != "borrador" && draft.State != "oculta" {
 			return spaces.Draft{}, spaces.ErrPublicationConflict

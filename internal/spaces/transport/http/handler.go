@@ -465,6 +465,8 @@ func serviceError(w http.ResponseWriter, e error) {
 		failure(w, 409, "eligibility_required", "Se requiere elegibilidad KYC sintética vigente para publicar.")
 	case errors.Is(e, spaces.ErrPublicationConflict):
 		failure(w, 409, "conflict", "La transición de publicación no está permitida desde el estado actual.")
+	case errors.Is(e, spaces.ErrEnabledFixture):
+		failure(w, 409, "fixture_enabled", "Deshabilita el fixture de ensayo antes de cambiar la publicación del espacio.")
 	case errors.Is(e, spaces.ErrInvalid):
 		failure(w, 422, "validation_error", "Revisa los campos obligatorios y sus límites.")
 	case errors.Is(e, spaces.ErrNotFound):

@@ -13,6 +13,7 @@ var (
 	ErrNotFound            = errors.New("spaces: draft not found")
 	ErrEligibilityRequired = errors.New("spaces: synthetic KYC eligibility required")
 	ErrPublicationConflict = errors.New("spaces: publication state conflict")
+	ErrEnabledFixture      = errors.New("spaces: enabled synthetic fixture prevents publication transition")
 )
 
 type Draft struct {

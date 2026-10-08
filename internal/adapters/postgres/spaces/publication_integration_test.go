@@ -2,6 +2,7 @@ package spacespg
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net/url"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
+	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
@@ -106,6 +109,52 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	}
 	if _, err = adminPool.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, owner, verificationID); err != nil {
 		t.Fatal(err)
+	}
+	// An enabled synthetic fixture intentionally remains in the existing
+	// draft-only catalog/reservation flow. Publication must conflict atomically.
+	renterVerification := "10000000-0000-4000-8000-000000000003"
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,resuelta_en)
+	VALUES($1,$2,'kyc','aprobada',$3,'approved-renter-kyc',$4,now())`, renterVerification, other, "fixture:"+renterVerification, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, other, renterVerification); err != nil {
+		t.Fatal(err)
+	}
+	fixtureDraft, err := svc.Create(ctx, owner, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio SET zona_horaria='UTC' WHERE id=$1`, fixtureDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, fixtureDraft.ID, owner, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.SetPublicationState(ctx, owner, fixtureDraft.ID, "activa", "fixture-publication-conflict"); err != spaces.ErrEnabledFixture {
+		t.Fatalf("enabled fixture publication error=%v", err)
+	}
+	unchanged, err := repo.GetOwn(ctx, owner, fixtureDraft.ID)
+	if err != nil || unchanged.State != "borrador" {
+		t.Fatalf("fixture state changed after rejected transition: state=%s err=%v", unchanged.State, err)
+	}
+	bookingRepo := bookingpg.New(pool)
+	catalog, err := bookingRepo.Catalog(ctx, other, booking.CatalogFilter{})
+	if err != nil || len(catalog) != 1 || catalog[0].SpaceID != fixtureDraft.ID {
+		t.Fatalf("fixture catalog after conflict: items=%+v err=%v", catalog, err)
+	}
+	quoteID, _ := (credentials.Generator{}).ID()
+	reservationID, _ := (credentials.Generator{}).ID()
+	occupancyID, _ := (credentials.Generator{}).ID()
+	now := time.Now().UTC()
+	startAt := now.Add(48 * time.Hour).Truncate(time.Minute)
+	quote, err := bookingRepo.Quote(ctx, other, fixtureDraft.ID, quoteID, startAt, startAt.Add(time.Hour), func() time.Time { return now }, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("quote after rejected publication: %v", err)
+	}
+	fingerprint := sha256.Sum256([]byte("fixture reservation"))
+	reservation, err := bookingRepo.Create(ctx, other, quote.ID, "fixture-reservation-key", fingerprint[:], reservationID, occupancyID, 15*time.Minute, func() time.Time { return now })
+	if err != nil || reservation.State != "pendiente_de_pago" {
+		t.Fatalf("reservation after rejected publication: %+v err=%v", reservation, err)
 	}
 	start := make(chan struct{})
 	type publishResult struct {

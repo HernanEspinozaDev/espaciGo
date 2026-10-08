@@ -12,6 +12,17 @@ La actualización de publicación toma el bloqueo de la cuenta activa, bloquea e
 
 ## Evidencia ejecutada
 
+### Correcciones en revisión para PR #205
+
+- La transición de publicación toma bloqueo transaccional de la fila del fixture y rechaza con 409 `fixture_enabled` si está habilitado. El estado del espacio no cambia. No se amplía el catálogo: los lectores M05 y las operaciones de cotización/reserva conservan el filtro existente `estado='borrador'`.
+- `TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions` añade un fixture habilitado, verifica el conflicto y estado borrador intacto, y completa listado de catálogo, cotización y reserva fake después del rechazo.
+- `TestOwnerExportContainsOnlyOwnOrderedPublicationHistory` abre los ZIP reales de dos titulares y verifica orden temporal/secuencial, correspondencia exclusiva al propietario y actor minimizado como `self`.
+- `TestPublicationRouteRequiresLandlordAndReturnsState` comprueba el contrato HTTP 409 `fixture_enabled`, `request_id` y `X-Request-ID`.
+- La clasificación de privacidad incluye el historial de publicación propio en el ZIP y deja su plazo independiente pendiente, sin atribuirle el de auditoría.
+- Ejecución focalizada real: `GO_TEST_RUN='TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions|TestOwnerExportContainsOnlyOwnOrderedPublicationHistory' bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/spaces ./internal/m02local` — PASS. El script creó PostGIS con almacenamiento efímero, migró ambas bases desde cero y las retiró al terminar; la integración usó el rol `espacigo_runtime` donde corresponde. No se conectó al volumen local persistente.
+- `go test ./internal/spaces/... ./internal/adapters/postgres/spaces ./internal/m02local` — PASS (pruebas unitarias; integraciones con dependencia ambiental omitidas por ausencia de `TEST_DATABASE_URL`, y ejecutadas por separado con el comando desechable anterior).
+- `go vet ./internal/spaces/... ./internal/adapters/postgres/spaces ./internal/m02local` y `git diff --check` — PASS.
+
 - `GO_TEST_RUN='TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions' bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/spaces` — PASS en PostgreSQL/PostGIS desechable, migrando desde cero y ejecutando el repositorio con `espacigo_runtime`. Incluyó: sin elegibilidad rechaza; KYB pendiente no reemplaza KYC; cuenta ajena obtiene not-found; KYC efectivo permite activar; dos publicaciones concurrentes generan una sola transición; ocultar/reactivar funciona; revocar KYC impide una nueva activación. Se comprobó historial de tres transiciones. El contenedor y su base temporal fueron retirados por el script.
 - `go test ./internal/spaces/... ./internal/adapters/postgres/spaces ./internal/dbbootstrap` — PASS para paquetes locales y handler. Sin `TEST_DATABASE_URL` el caso de integración etiqueta su skip; el comando aislado anterior sí lo ejecutó realmente.
 - `npm --prefix mock run build` — PASS (TypeScript compilado).
