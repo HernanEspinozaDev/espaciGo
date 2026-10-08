@@ -41,14 +41,54 @@ case "$command" in
     resolved="$(realpath -m -- "$registry")"
     case "$resolved" in "$ROOT_DIR"/*) echo 'Registry must be outside the repository.' >&2; exit 2;; esac
     [[ ! -L "$registry" ]] || { echo 'Registry symlinks are not accepted.' >&2; exit 2; }
+    if [[ -e "$registry" ]]; then
+      [[ -f "$registry" ]] || { echo 'Registry must be a regular file.' >&2; exit 2; }
+      existing_mode="$(stat -c '%a' "$registry")"
+      (( (8#$existing_mode & 077) == 0 )) || { echo 'Registry file must have mode 0600 or stricter.' >&2; exit 2; }
+    fi
     umask 077
     temporary="${registry}.tmp.$$"
-    trap 'rm -f -- "$temporary"' EXIT
+    merged="${temporary}.merged"
+    trap 'rm -f -- "$temporary" "$merged"' EXIT
     compose exec -T backend /api local-privacy-replay-export > "$temporary"
+    python3 - "$temporary" "$registry" "$merged" <<'PY'
+import json
+import os
+import pathlib
+import sys
+
+generated, existing, output = map(pathlib.Path, sys.argv[1:])
+new = json.loads(generated.read_text(encoding="utf-8"))
+entries = {}
+for source in (existing,):
+    if not source.exists():
+        continue
+    old = json.loads(source.read_text(encoding="utf-8"))
+    if old.get("version") != 1 or not isinstance(old.get("entries"), list):
+        raise SystemExit("Existing replay registry has an unsupported format.")
+    for entry in old["entries"]:
+        execution_id = entry.get("execution_id")
+        if not execution_id or (execution_id in entries and entries[execution_id] != entry):
+            raise SystemExit("Existing replay registry has conflicting entries.")
+        entries[execution_id] = entry
+if new.get("version") != 1 or not isinstance(new.get("entries"), list):
+    raise SystemExit("Database replay export has an unsupported format.")
+for entry in new["entries"]:
+    execution_id = entry.get("execution_id")
+    if not execution_id or (execution_id in entries and entries[execution_id] != entry):
+        raise SystemExit("Database replay export conflicts with existing registry.")
+    entries[execution_id] = entry
+new["entries"] = sorted(entries.values(), key=lambda item: (item["completed_at"], item["execution_id"]))
+with output.open("w", encoding="utf-8") as stream:
+    json.dump(new, stream, ensure_ascii=False, indent=2)
+    stream.write("\n")
+os.chmod(output, 0o600)
+PY
     chmod 0600 "$temporary"
-    mv -f -- "$temporary" "$registry"
+    mv -f -- "$merged" "$registry"
     trap - EXIT
-    echo "Replay registry exported with mode 0600: $registry"
+    rm -f -- "$temporary"
+    echo "Replay registry merged and exported with mode 0600: $registry"
     ;;
   replay)
     [[ $# -ge 3 && $# -le 4 ]] || { usage; exit 2; }

@@ -123,7 +123,12 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 	var blocked bool
 	if err := tx.QueryRow(ctx, `SELECT
 		EXISTS (SELECT 1 FROM public.reserva_pago_ensayo_operacion p WHERE p.reserva_id=$1 AND p.estado='pendiente')
-		OR EXISTS (SELECT 1 FROM public.reserva_pago_evento_aplicacion_ensayo a JOIN public.reserva_pago_evento_ensayo e ON e.id=a.evento_id WHERE e.operacion_id IN (SELECT id FROM public.reserva_pago_ensayo_operacion WHERE reserva_id=$1) AND a.estado='pendiente_conciliacion')
+		OR EXISTS (SELECT 1 FROM public.reserva_pago_fake_resultado_ensayo f JOIN public.reserva_pago_ensayo_operacion p ON p.id=f.operacion_id
+			WHERE p.reserva_id=$1 AND f.estado='resultado'
+			AND NOT EXISTS (SELECT 1 FROM public.reserva_pago_evento_ensayo e WHERE e.operacion_id=p.id AND e.proveedor_evento_id=f.proveedor_evento_id))
+		OR EXISTS (SELECT 1 FROM public.reserva_pago_evento_ensayo e JOIN public.reserva_pago_ensayo_operacion p ON p.id=e.operacion_id
+			WHERE p.reserva_id=$1 AND (NOT EXISTS (SELECT 1 FROM public.reserva_pago_evento_aplicacion_ensayo a WHERE a.evento_id=e.id)
+				OR EXISTS (SELECT 1 FROM public.reserva_pago_evento_aplicacion_ensayo a WHERE a.evento_id=e.id AND a.estado IN ('pendiente','pendiente_conciliacion'))))
 		OR EXISTS (SELECT 1 FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=$1 AND d.estado='pendiente')
 		OR EXISTS (SELECT 1 FROM public.disputa_ensayo_local d WHERE d.reserva_id=$1 AND d.estado='abierta')`, candidate.id).Scan(&blocked); err != nil {
 		return false, false, mapError(err)

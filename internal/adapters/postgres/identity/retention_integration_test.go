@@ -140,6 +140,95 @@ func TestLocalReservationRetentionDefersOpenDisputeAndRecalculatesFromClosure(t 
 	}
 }
 
+func TestLocalReservationRetentionWaitsForFakePaymentReconciliation(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "retention-payment-host@ejemplo.invalid")
+	renterID := h.register(t, "retention-payment-renter@ejemplo.invalid")
+	reservationID := "85200000-0000-4000-8000-000000000003"
+	quoteID := "85200000-0000-4000-8000-000000000002"
+	occupancyID := "85200000-0000-4000-8000-000000000004"
+	spaceID := "85200000-0000-4000-8000-000000000001"
+	operationID := "85200000-0000-4000-8000-000000000010"
+	eventID := "85200000-0000-4000-8000-000000000011"
+	providerEventID := "retention-reconcile-event"
+	deadline := h.now
+	terminalAt := deadline.AddDate(0, -24, 0)
+	seedPrivacyReviewReservation(t, h, spaceID, quoteID, reservationID, occupancyID, hostID, renterID, "cancelada_arrendatario")
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=$2,actualizada_en=$3 WHERE id=$1`, reservationID, deadline, terminalAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE id=$1`, occupancyID, terminalAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_pago_ensayo_operacion(id,reserva_id,arrendatario_id,clave_idempotencia,huella_solicitud,resultado_solicitado,estado,resultado_final,creada_en,actualizada_en)
+		VALUES($1,$2,$3,'retention-payment',decode(repeat('66',32),'hex'),'exito','vencida',NULL,$4,$4)`, operationID, reservationID, renterID, terminalAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_pago_fake_resultado_ensayo(operacion_id,estado,proveedor_evento_id,resultado,registrado_en)
+		VALUES($1,'resultado',$2,'exito_simulado',$3)`, operationID, providerEventID, terminalAt); err != nil {
+		t.Fatal(err)
+	}
+	service, err := privacy.NewService(newRuntimeIdentityRepository(t, h))
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingEvent, err := service.PurgeExpiredReservationLinks(h.ctx, deadline, 20)
+	if err != nil || missingEvent.Scanned != 1 || missingEvent.Purged != 0 || missingEvent.Deferred != 1 {
+		t.Fatalf("fake result without authenticated event was not deferred: %+v err=%v", missingEvent, err)
+	}
+	assertReservationLinksPreserved := func(stage string) {
+		t.Helper()
+		var host, renter string
+		if err := h.pool.QueryRow(h.ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local WHERE id=$1`, reservationID).Scan(&host, &renter); err != nil {
+			t.Fatalf("%s load reservation links: %v", stage, err)
+		}
+		if host != hostID || renter != renterID {
+			t.Fatalf("%s removed links before payment reconciliation: host=%q renter=%q", stage, host, renter)
+		}
+	}
+	assertReservationLinksPreserved("missing event")
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_pago_evento_ensayo(id,operacion_id,proveedor_evento_id,resultado,huella_payload,autenticado_en,recibido_en)
+		VALUES($1,$2,$3,'exito_simulado',decode(repeat('77',32),'hex'),$4,$4)`, eventID, operationID, providerEventID, terminalAt); err != nil {
+		t.Fatal(err)
+	}
+	unprocessed, err := service.PurgeExpiredReservationLinks(h.ctx, deadline, 20)
+	if err != nil || unprocessed.Purged != 0 || unprocessed.Deferred != 1 {
+		t.Fatalf("event without application was not deferred: %+v err=%v", unprocessed, err)
+	}
+	assertReservationLinksPreserved("event without application")
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_pago_evento_aplicacion_ensayo(evento_id,estado,codigo_resultado,procesado_en,creada_en)
+		VALUES($1,'pendiente_conciliacion','resultado_tardio',NULL,$2)`, eventID, terminalAt); err != nil {
+		t.Fatal(err)
+	}
+	pendingReconciliation, err := service.PurgeExpiredReservationLinks(h.ctx, deadline, 20)
+	if err != nil || pendingReconciliation.Purged != 0 || pendingReconciliation.Deferred != 1 {
+		t.Fatalf("pending reconciliation was not deferred: %+v err=%v", pendingReconciliation, err)
+	}
+	assertReservationLinksPreserved("pending reconciliation")
+	// A terminal ignored result represents an explicit completed reconciliation;
+	// once its processing row is final, retention may resume without changing the
+	// already-terminal reservation or its payment facts.
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_pago_evento_aplicacion_ensayo SET estado='ignorada',codigo_resultado='operacion_terminal',procesado_en=$2 WHERE evento_id=$1`, eventID, deadline); err != nil {
+		t.Fatal(err)
+	}
+	conciliated, err := service.PurgeExpiredReservationLinks(h.ctx, deadline, 20)
+	if err != nil || conciliated.Purged != 1 || conciliated.Deferred != 0 {
+		t.Fatalf("retention did not resume after reconciliation completed: %+v err=%v", conciliated, err)
+	}
+	var host, renter string
+	var paymentResults, processedEvents, purgeMarkers int
+	if err := h.pool.QueryRow(h.ctx, `SELECT COALESCE(r.anfitrion_id::text,''),COALESCE(r.arrendatario_id::text,''),
+		(SELECT count(*) FROM public.reserva_pago_fake_resultado_ensayo WHERE operacion_id=$2),
+		(SELECT count(*) FROM public.reserva_pago_evento_aplicacion_ensayo WHERE evento_id=$3 AND estado='ignorada' AND procesado_en IS NOT NULL),
+		(SELECT count(*) FROM public.reserva_vinculo_purgado_local WHERE reserva_id=$1)
+		FROM public.reserva_ensayo_local r WHERE r.id=$1`, reservationID, operationID, eventID).Scan(&host, &renter, &paymentResults, &processedEvents, &purgeMarkers); err != nil {
+		t.Fatal(err)
+	}
+	if host != "" || renter != "" || paymentResults != 1 || processedEvents != 1 || purgeMarkers != 1 {
+		t.Fatalf("post-reconciliation purge state links=%q/%q payment=%d processed=%d markers=%d", host, renter, paymentResults, processedEvents, purgeMarkers)
+	}
+}
+
 func TestLocalSuppressionReplayRestoresAnOlderDatabaseSnapshotIdempotently(t *testing.T) {
 	h := newAuthHarness(t)
 	targetID := h.register(t, "retention-replay-target@ejemplo.invalid")
@@ -339,7 +428,48 @@ func TestLocalSuppressionReplayAfterPgDumpRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, err := restoredService.ReplaySuppressionManifest(h.ctx, manifest, "85300000-0000-4000-8000-000000000001", adminID, h.now, noOpPrivacyCleaner{})
+	var sourceExecutionCount int
+	if err := restoredPool.QueryRow(h.ctx, `SELECT count(*) FROM public.ejecucion_baja_local`).Scan(&sourceExecutionCount); err != nil || sourceExecutionCount != 0 {
+		t.Fatalf("restored database unexpectedly contains source execution count=%d err=%v", sourceExecutionCount, err)
+	}
+	priorInfo, err := os.Stat(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	olderMtime := priorInfo.ModTime().Add(-time.Hour)
+	if err := os.Chtimes(registryPath, olderMtime, olderMtime); err != nil {
+		t.Fatal(err)
+	}
+	workerCtx, stopWorker := context.WithCancel(h.ctx)
+	workerDone := make(chan struct{})
+	go func() {
+		restoredService.RunSuppressionCleanupWorker(workerCtx, time.Hour, noOpPrivacyCleaner{}, registryPath)
+		close(workerDone)
+	}()
+	workerDeadline := time.Now().Add(5 * time.Second)
+	for {
+		updated, statErr := os.Stat(registryPath)
+		if statErr == nil && updated.ModTime().After(olderMtime) {
+			break
+		}
+		if time.Now().After(workerDeadline) {
+			stopWorker()
+			<-workerDone
+			t.Fatalf("worker did not refresh external registry after restoring older database: %v", statErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	stopWorker()
+	<-workerDone
+	registryBytes, err = os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restoredRegistry privacy.SuppressionReplayManifest
+	if err := json.Unmarshal(registryBytes, &restoredRegistry); err != nil || restoredRegistry.Version != 1 || len(restoredRegistry.Entries) != 1 || restoredRegistry.Entries[0].ExecutionID != manifest.Entries[0].ExecutionID {
+		t.Fatalf("restored database worker discarded external suppression registry: manifest=%+v err=%v", restoredRegistry, err)
+	}
+	results, err := restoredService.ReplaySuppressionManifest(h.ctx, restoredRegistry, "85300000-0000-4000-8000-000000000001", adminID, h.now, noOpPrivacyCleaner{})
 	if err != nil || len(results) != 1 || results[0].Status != "reaplicada" {
 		t.Fatalf("restored backup replay=%+v err=%v", results, err)
 	}
@@ -354,7 +484,7 @@ func TestLocalSuppressionReplayAfterPgDumpRestore(t *testing.T) {
 	if state != "desidentificado" || hash != "" || profiles != 0 {
 		t.Fatalf("restored identity did not reapply suppression: state=%s credential_present=%t profiles=%d", state, hash != "", profiles)
 	}
-	again, err := restoredService.ReplaySuppressionManifest(h.ctx, manifest, "85300000-0000-4000-8000-000000000001", adminID, h.now, noOpPrivacyCleaner{})
+	again, err := restoredService.ReplaySuppressionManifest(h.ctx, restoredRegistry, "85300000-0000-4000-8000-000000000001", adminID, h.now, noOpPrivacyCleaner{})
 	if err != nil || len(again) != 1 || again[0].Status != "reaplicada" || !again[0].Reused {
 		t.Fatalf("restored replay retry=%+v err=%v", again, err)
 	}

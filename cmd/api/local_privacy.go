@@ -37,7 +37,7 @@ func runLocalPrivacyCommand(command string, args []string) error {
 		}
 		return json.NewEncoder(os.Stdout).Encode(result)
 	case "local-privacy-replay-export":
-		manifest, err := service.ExportSuppressionReplayManifest(context.Background())
+		manifest, err := service.ExportSuppressionReplayManifestWithFile(context.Background(), os.Getenv("LOCAL_PRIVACY_REPLAY_FILE"))
 		if err != nil {
 			return err
 		}

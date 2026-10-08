@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -377,6 +379,90 @@ func (s *Service) ExportSuppressionReplayManifest(ctx context.Context) (Suppress
 	return repo.ExportCompletedSuppressions(ctx)
 }
 
+// ExportSuppressionReplayManifestWithFile merges database executions with the
+// existing external registry. This is essential after restoring an older
+// database: its export is a subset of the still-authoritative sidecar.
+func (s *Service) ExportSuppressionReplayManifestWithFile(ctx context.Context, path string) (SuppressionReplayManifest, error) {
+	manifest, err := s.ExportSuppressionReplayManifest(ctx)
+	if err != nil || path == "" {
+		return manifest, err
+	}
+	external, err := readSuppressionReplayManifest(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return manifest, nil
+	}
+	if err != nil {
+		return SuppressionReplayManifest{}, err
+	}
+	return mergeSuppressionReplayManifests(manifest, external)
+}
+
+func readSuppressionReplayManifest(path string) (SuppressionReplayManifest, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return SuppressionReplayManifest{}, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 16<<20 {
+		return SuppressionReplayManifest{}, ErrInvalid
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return SuppressionReplayManifest{}, err
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(io.LimitReader(file, 16<<20))
+	decoder.DisallowUnknownFields()
+	var manifest SuppressionReplayManifest
+	if err := decoder.Decode(&manifest); err != nil {
+		return SuppressionReplayManifest{}, ErrInvalid
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF || manifest.Version != 1 {
+		return SuppressionReplayManifest{}, ErrInvalid
+	}
+	for _, entry := range manifest.Entries {
+		if entry.ExecutionID == "" || entry.RequestID == "" || entry.AccountID == "" || entry.RequestedAt.IsZero() || entry.CompletedAt.IsZero() {
+			return SuppressionReplayManifest{}, ErrInvalid
+		}
+	}
+	return manifest, nil
+}
+
+func mergeSuppressionReplayManifests(manifests ...SuppressionReplayManifest) (SuppressionReplayManifest, error) {
+	merged := SuppressionReplayManifest{Version: 1, Entries: []SuppressionReplayEntry{}}
+	byID := make(map[string]SuppressionReplayEntry)
+	for _, manifest := range manifests {
+		if manifest.Version != 1 {
+			return SuppressionReplayManifest{}, ErrInvalid
+		}
+		for _, entry := range manifest.Entries {
+			if entry.ExecutionID == "" || entry.RequestID == "" || entry.AccountID == "" || entry.RequestedAt.IsZero() || entry.CompletedAt.IsZero() {
+				return SuppressionReplayManifest{}, ErrInvalid
+			}
+			if prior, exists := byID[entry.ExecutionID]; exists {
+				if prior.RequestID != entry.RequestID || prior.AccountID != entry.AccountID || !prior.RequestedAt.Equal(entry.RequestedAt) || !prior.CompletedAt.Equal(entry.CompletedAt) {
+					return SuppressionReplayManifest{}, ErrInvalid
+				}
+				continue
+			}
+			byID[entry.ExecutionID] = entry
+		}
+	}
+	for _, entry := range byID {
+		merged.Entries = append(merged.Entries, entry)
+	}
+	sort.Slice(merged.Entries, func(i, j int) bool {
+		if merged.Entries[i].CompletedAt.Equal(merged.Entries[j].CompletedAt) {
+			return merged.Entries[i].ExecutionID < merged.Entries[j].ExecutionID
+		}
+		return merged.Entries[i].CompletedAt.Before(merged.Entries[j].CompletedAt)
+	})
+	if len(merged.Entries) > 10000 {
+		return SuppressionReplayManifest{}, ErrInvalid
+	}
+	return merged, nil
+}
+
 // ExportSuppressionReplayManifestToFile refreshes a mode-0600 sidecar outside
 // PostgreSQL/pgdata. The atomic replacement lets a local database restore keep
 // a registry of completed synthetic suppressions to reapply.
@@ -386,7 +472,7 @@ func (s *Service) ExportSuppressionReplayManifestToFile(ctx context.Context, pat
 	}
 	suppressionRegistryWriteMu.Lock()
 	defer suppressionRegistryWriteMu.Unlock()
-	manifest, err := s.ExportSuppressionReplayManifest(ctx)
+	manifest, err := s.ExportSuppressionReplayManifestWithFile(ctx, path)
 	if err != nil {
 		return err
 	}
