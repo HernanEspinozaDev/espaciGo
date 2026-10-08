@@ -906,12 +906,12 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
   /spaces:
     get:
-      operationId: listOwnSpaceDrafts
+      operationId: listOwnSpaces
       tags: [M04 local]
-      description: Lista exclusivamente borradores cuyo propietario es la cuenta de la sesión.
+      description: Lista exclusivamente espacios propios; borradores, publicaciones activas y espacios ocultos permanecen privados fuera de los recorridos autorizados.
       responses:
         '200':
-          description: Borradores propios.
+          description: Espacios propios.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SpaceDraftList' }
@@ -942,10 +942,10 @@ paths:
     get:
       operationId: getOwnSpaceDraft
       tags: [M04 local]
-      description: Consulta borrador propio; un recurso ajeno o inexistente responde 404.
+      description: Consulta un espacio propio; un recurso ajeno o inexistente responde 404.
       responses:
         '200':
-          description: Borrador propio.
+          description: Espacio propio.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SpaceDraft' }
@@ -968,6 +968,35 @@ paths:
               schema: { $ref: '#/components/schemas/SpaceDraft' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /spaces/{spaceId}/publication:
+    parameters:
+      - name: spaceId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: setOwnSpacePublicationState
+      tags: [M04 local]
+      description: >-
+        Publica u oculta un espacio propio. Requiere rol arrendador; activar exige KYC sintético efectivo
+        de la cuenta personal y no concede ni infiere roles. Solo cambia el estado local del espacio, sin
+        abrirlo al catálogo general ni alterar reservas existentes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpacePublicationInput' }
+      responses:
+        '200':
+          description: Estado de publicación actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpaceDraft' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /spaces/{spaceId}/availability:
     parameters:
@@ -2017,9 +2046,15 @@ components:
         rate_unit: { type: string, enum: [hora, dia, mes] }
         base_price_clp: { type: integer, minimum: 5001, maximum: 9223372036854775807 }
         address: { type: string, minLength: 1, maxLength: 500 }
-        state: { type: string, enum: [borrador] }
+        state: { type: string, enum: [borrador, activa, oculta] }
         attribute_schema_version: { type: integer, minimum: 1 }
         attributes: { type: object, maxProperties: 80, description: Características declaradas y validadas por el perfil versionado. }
+    SpacePublicationInput:
+      type: object
+      additionalProperties: false
+      required: [state]
+      properties:
+        state: { type: string, enum: [activa, oculta] }
     AvailabilityConfig:
       type: object
       additionalProperties: false

@@ -77,6 +77,16 @@ func (s *Service) UpdateOwn(ctx context.Context, owner, id string, in Input) (Dr
 	return s.repo.UpdateOwn(ctx, owner, id, in)
 }
 
+// SetPublicationState changes only the owner's local listing visibility. The
+// repository revalidates KYC and serializes the transition with account
+// suppression and eligibility revocation inside one transaction.
+func (s *Service) SetPublicationState(ctx context.Context, owner, id, state, correlationID string) (Draft, error) {
+	if !validOwner(owner) || !validID(id) || (state != "activa" && state != "oculta") || strings.TrimSpace(correlationID) == "" || len(correlationID) > 120 {
+		return Draft{}, ErrInvalid
+	}
+	return s.repo.SetPublicationState(ctx, owner, id, state, correlationID)
+}
+
 func validateAttributes(profile Profile, input Input) error {
 	if err := profile.ValidateAttributes(input.Attributes); err != nil {
 		return err

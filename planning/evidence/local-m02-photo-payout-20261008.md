@@ -1,6 +1,6 @@
 # Evidencia — LOCAL-M02-01 (Issue #202)
 
-Estado: implementación propuesta para revisión; no aceptada aún. Padres #37–#43 y #185/#40 permanecen abiertos. La decisión técnica está en `planning/decisiones_m02_foto_cuenta_cobro_fake.md`.
+Estado: corte local aceptado tras PR #203 fusionado; Issue #202 cerrada y Hecho en Projects. Padres #37–#43 y #185/#40 permanecen abiertos. La decisión técnica está en `planning/decisiones_m02_foto_cuenta_cobro_fake.md`.
 
 ## Entrega
 
@@ -36,7 +36,7 @@ git diff --check
 PASS
 ```
 
-No se repitió la suite general. No se levantó el prototipo persistente ni se aplicó V30 al volumen `espacigo_pgdata`; secretos y datos persistentes quedaron intactos. El recorrido del mock queda para revisión manual con una cuenta de KYC sintético aprobado y otra cuenta distinta; no se afirma una sesión de navegador que no se ejecutó.
+Esta evidencia de PR conserva el hecho de que no se repitió la suite general. La comprobación posterior a merge se registra abajo.
 
 ## Ajustes de revisión #203
 
@@ -56,6 +56,14 @@ PASS
 ```
 
 Estas son pruebas enfocadas de los cambios solicitados; no se repitieron PostgreSQL, suites Backend ni recorrido manual de navegador, y no se tocó el volumen persistente ni los secretos.
+
+## Aceptación posterior al merge #203
+
+- Merge confirmado: `ca64f11860dfd8c60e3998cc2754b3b4915ece26`. V30 se aplicó de manera incremental; se conservaron `espacigo_pgdata`, secretos y datos anteriores.
+- Salud local confirmada después del arranque y migración. Se usaron dos cuentas sintéticas independientes: una con KYC efectivo y otra sin KYC.
+- Prueba real por API/HTTP: creación de cuenta de cobro sin KYC respondió 409 `eligibility_required`; con KYC se comprobó foto sintética (crear, consultar, reemplazar y retirar) y cuenta fake (crear, consultar, cambiar y revocar).
+- El ZIP descargado se abrió y su manifiesto/JSON incluyeron ambas secciones propias y el PNG activo; la consulta de archivo verificó la firma PNG. No hubo proveedor productivo ni movimiento de dinero.
+- La aceptación fue registrada y #202 cerrada/Hecho. #37–#43 y #185/#40 continúan abiertas por sus criterios generales.
 
 ## Recorrido manual de revisión
 

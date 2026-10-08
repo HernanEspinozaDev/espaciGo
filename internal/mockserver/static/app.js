@@ -9,6 +9,7 @@ import { BookingAvailabilityState } from "./booking-availability-state.js";
 import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
 import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExportSessionMatches } from "./privacy-export-state.js";
 import { applyM02PhotoIfCurrent, captureM02PhotoSession, deliverM02PhotoIfCurrent, m02PhotoSessionMatches } from "./m02-photo-session-state.js";
+import { publicationAction } from "./space-publication-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount } from "./suppression-review-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
@@ -16,6 +17,7 @@ let apiBase = "";
 let sessionToken = "";
 let sessionAccountID = "";
 let sessionGeneration = 0;
+let sessionRoles = [];
 let pendingPrivacyExport = null;
 let privacyExportObjectURL = "";
 let suppressionQueueRevision = 0;
@@ -111,6 +113,7 @@ form("login-form", async (data, element) => {
     clearBookingInboxOnSessionLoss();
     sessionToken = String(response.access_token);
     sessionAccountID = String(response.account_id);
+    sessionRoles = Array.isArray(response.roles) ? response.roles.map(String) : [];
     sessionGeneration++;
     resetCatalogTraversal();
     element.querySelector('[name="password"]').value = "";
@@ -140,6 +143,8 @@ form("password-change-form", async (data, element) => {
 });
 document.querySelector("#session-button").addEventListener("click", () => void action(async () => {
     const response = await request("session", "GET", undefined, true);
+    if (Array.isArray(response.roles))
+        sessionRoles = response.roles.map(String);
     document.querySelector("#session-output").textContent = JSON.stringify(response, null, 2);
     resultElement.textContent = "Sesión válida; estado y roles comprobados por la API.";
 }));
@@ -640,15 +645,41 @@ function spaceInput(data) {
     return { title: data.get("title"), description: data.get("description"), area_m2: Number(data.get("area_m2")), category_code: selectedCategory, capacity: Number(data.get("capacity")), usage_rules: data.get("usage_rules"), rate_unit: data.get("rate_unit"), base_price_clp: Number(data.get("base_price_clp")), address: data.get("address"), attribute_schema_version: currentProfile.schema_version, attributes };
 }
 async function loadSpaces() {
-    const result = await request("/api/v1/spaces", "GET", undefined, true);
+    const token = sessionToken, account = sessionAccountID, generation = sessionGeneration;
+    let result;
+    try {
+        result = await request("/api/v1/spaces", "GET", undefined, true);
+    }
+    catch (error) {
+        if (!currentSpaceSession(token, account, generation))
+            return;
+        throw error;
+    }
+    if (!currentSpaceSession(token, account, generation))
+        return;
     const items = result.items;
     spacesList.replaceChildren();
     for (const item of items) {
         const li = document.createElement("li"), button = document.createElement("button");
         button.type = "button";
-        button.textContent = `${String(item.title)} · ${String(item.state)}`;
+        button.textContent = `${String(item.state) === "borrador" ? "Editar" : "Consultar"} · ${String(item.title)} · ${String(item.state)}`;
         button.addEventListener("click", () => void action(async () => {
-            const draft = await request(`/api/v1/spaces/${encodeURIComponent(String(item.id))}`, "GET", undefined, true);
+            const opToken = sessionToken, opAccount = sessionAccountID, opGeneration = sessionGeneration;
+            let draft;
+            try {
+                draft = await request(`/api/v1/spaces/${encodeURIComponent(String(item.id))}`, "GET", undefined, true);
+            }
+            catch (error) {
+                if (!currentSpaceSession(opToken, opAccount, opGeneration))
+                    return;
+                throw error;
+            }
+            if (!currentSpaceSession(opToken, opAccount, opGeneration))
+                return;
+            if (String(draft.state) !== "borrador") {
+                spacesOutput.textContent = JSON.stringify(draft, null, 2);
+                return;
+            }
             currentDraftID = String(draft.id);
             spaceForm.querySelector('[name="draft_id"]').value = currentDraftID;
             for (const key of ["title", "description", "area_m2", "category_code", "capacity", "usage_rules", "rate_unit", "base_price_clp", "address"]) {
@@ -656,6 +687,8 @@ async function loadSpaces() {
                 field.value = String(draft[key] ?? "");
             }
             const profileLoaded = await loadAttributeProfile(String(draft.category_code), Number(draft.attribute_schema_version));
+            if (!currentSpaceSession(opToken, opAccount, opGeneration))
+                return;
             if (!profileLoaded)
                 throw new Error("No se pudo cargar el perfil guardado del borrador.");
             for (const definition of currentProfile?.attributes ?? []) {
@@ -676,10 +709,36 @@ async function loadSpaces() {
             spacesOutput.textContent = JSON.stringify(draft, null, 2);
         }));
         li.append(button);
+        const publicationSpec = publicationAction(String(item.state), sessionRoles);
+        if (publicationSpec) {
+            const publication = document.createElement("button");
+            publication.type = "button";
+            publication.textContent = publicationSpec.label;
+            publication.addEventListener("click", () => void action(async () => {
+                const opToken = sessionToken, opAccount = sessionAccountID, opGeneration = sessionGeneration;
+                const next = publicationSpec.nextState;
+                let changed;
+                try {
+                    changed = await request(`/api/v1/spaces/${encodeURIComponent(String(item.id))}/publication`, "PUT", { state: next }, true);
+                }
+                catch (error) {
+                    if (!currentSpaceSession(opToken, opAccount, opGeneration))
+                        return;
+                    throw error;
+                }
+                if (!currentSpaceSession(opToken, opAccount, opGeneration))
+                    return;
+                spacesOutput.textContent = JSON.stringify(changed, null, 2);
+                resultElement.textContent = next === "activa" ? "Espacio publicado en el alcance local; no aparece automáticamente en el catálogo público general." : "Espacio oculto; las reservas existentes no se modifican.";
+                await loadSpaces();
+            }));
+            li.append(publication);
+        }
         spacesList.append(li);
     }
     spacesOutput.textContent = JSON.stringify(result, null, 2);
 }
+function currentSpaceSession(token, account, generation) { return Boolean(token && account && sessionToken === token && sessionAccountID === account && sessionGeneration === generation); }
 document.querySelector("#spaces-load").addEventListener("click", () => void action(loadSpaces));
 document.querySelector("#space-cancel").addEventListener("click", () => { spaceForm.reset(); currentDraftID = ""; document.querySelector("#space-save").textContent = "Crear borrador"; document.querySelector("#space-cancel").hidden = true; });
 form("space-form", async (data, element) => {
@@ -1577,10 +1636,15 @@ function clearBookingInboxOnSessionLoss() {
         evidenceObjectURL = "";
     }
     sessionAccountID = "";
+    sessionRoles = [];
     selectedReservationID = "";
     selectedReservation = null;
     bookingRequestState.invalidate();
     resetCatalogTraversal();
+    currentDraftID = "";
+    spacesList.replaceChildren();
+    spacesOutput.textContent = "Inicia sesión para consultar tus espacios.";
+    spaceForm.reset();
     clearM02PhotoPreview();
     m02PhotoRetryKey = "";
     m02PhotoRemoveRetryKey = "";

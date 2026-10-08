@@ -78,12 +78,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := strings.TrimSuffix(r.URL.Path, "/")
+	publicationID := publicationSpaceID(path)
+	requiredRole := identity.Role("")
+	if publicationID != "" && r.Method == http.MethodPut {
+		requiredRole = identity.RoleLandlord
+	}
 	calendarPath := strings.Contains(path, "/availability")
 	if r.URL.RawQuery != "" && !calendarPath {
 		failure(w, 400, "invalid_request", "No se admiten parámetros de URL.")
 		return
 	}
-	principal, e := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), "", identity.UserOperation)
+	principal, e := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), requiredRole, identity.UserOperation)
 	if e != nil {
 		if errors.Is(e, identity.ErrForbidden) {
 			failure(w, 403, "forbidden", "Permiso insuficiente.")
@@ -118,6 +123,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if calendarPath {
 		h.serveCalendar(w, r, path, principal.AccountID)
+		return
+	}
+	if publicationID != "" {
+		if r.Method != http.MethodPut {
+			failure(w, 405, "method_not_allowed", "Método no permitido.")
+			return
+		}
+		var in struct {
+			State string `json:"state"`
+		}
+		if !decode(w, r, &in) {
+			return
+		}
+		item, err := h.service.SetPublicationState(r.Context(), principal.AccountID, publicationID, in.State, w.Header().Get("X-Request-ID"))
+		if err != nil {
+			serviceError(w, err)
+			return
+		}
+		write(w, 200, item)
 		return
 	}
 	if strings.Contains(path, "/price-simulations") || strings.HasSuffix(path, "/tariff") || strings.HasSuffix(path, "/tariffs") {
@@ -437,6 +461,10 @@ func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 }
 func serviceError(w http.ResponseWriter, e error) {
 	switch {
+	case errors.Is(e, spaces.ErrEligibilityRequired):
+		failure(w, 409, "eligibility_required", "Se requiere elegibilidad KYC sintética vigente para publicar.")
+	case errors.Is(e, spaces.ErrPublicationConflict):
+		failure(w, 409, "conflict", "La transición de publicación no está permitida desde el estado actual.")
 	case errors.Is(e, spaces.ErrInvalid):
 		failure(w, 422, "validation_error", "Revisa los campos obligatorios y sus límites.")
 	case errors.Is(e, spaces.ErrNotFound):
@@ -444,6 +472,18 @@ func serviceError(w http.ResponseWriter, e error) {
 	default:
 		failure(w, 500, "internal_error", "Ocurrió un error inesperado.")
 	}
+}
+
+func publicationSpaceID(path string) string {
+	const prefix, suffix = "/api/v1/spaces/", "/publication"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return ""
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	if id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
 }
 func failure(w http.ResponseWriter, status int, code, msg string) {
 	write(w, status, map[string]any{"error": map[string]string{"code": code, "message": msg, "request_id": w.Header().Get("X-Request-ID")}})
