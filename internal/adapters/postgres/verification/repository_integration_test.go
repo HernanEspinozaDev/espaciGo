@@ -167,6 +167,46 @@ VALUES('d6d6d6d6-d6d6-46d6-86d6-d6d6d6d6d6d6',$1,'kyc','en_revision','local-fixt
 	if err = pool.QueryRow(ctx, `SELECT has_table_privilege('espacigo_runtime','public.verificacion_historial_local','UPDATE'),has_table_privilege('espacigo_runtime','public.verificacion_historial_local','DELETE')`).Scan(&historyUpdate, &historyDelete); err != nil || historyUpdate || historyDelete {
 		t.Fatalf("runtime history can mutate/delete: update=%v delete=%v err=%v", historyUpdate, historyDelete, err)
 	}
+	// The shared repository used by API and ZIP must report effective eligibility,
+	// not merely the stored projection, when its owner is blocked.
+	if _, err := pool.Exec(ctx, `UPDATE public.usuario SET estado='bloqueado' WHERE id=$1`, runtimeOwner); err != nil {
+		t.Fatal(err)
+	}
+	var storedState string
+	if err := pool.QueryRow(ctx, `SELECT estado FROM public.elegibilidad_verificacion_local WHERE usuario_id=$1 AND tipo='kyc'`, runtimeOwner).Scan(&storedState); err != nil || storedState != "elegible" {
+		t.Fatalf("expected stored projection to remain eligible, state=%q err=%v", storedState, err)
+	}
+	runtimeEligibility, err = runtimeRepo.ListEligibility(ctx, runtimeOwner)
+	if err != nil || len(runtimeEligibility) != 2 || runtimeEligibility[1].Eligible {
+		t.Fatalf("blocked account effective eligibility=%+v err=%v", runtimeEligibility, err)
+	}
+
+	// A withdrawn source verification also makes the eligibility ineffective,
+	// even if a stale stored projection still says eligible.
+	retiredOwner := "f1f1f1f1-f1f1-41f1-81f1-f1f1f1f1f1f1"
+	if _, err := pool.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic-hash','activo')`, retiredOwner, retiredOwner+"@ejemplo.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	retiredCase, err := runtimeRepo.Create(ctx, verification.Case{
+		ID: "f2f2f2f2-f2f2-42f2-82f2-f2f2f2f2f2f2", OwnerID: retiredOwner, Type: "kyc", State: "en_revision", Provider: "local-fixture-v1",
+		EvidenceRef: "fixture:f3f3f3f3-f3f3-43f3-83f3-f3f3f3f3f3f3", Idempotency: "retired-source-case-01", CreatedAt: nowForMigration(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeRepo.Review(ctx, retiredCase.ID, reviewer, true, "", time.Now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE public.verificacion SET estado='retirada_privacidad',revisor_id=NULL,motivo_codigo='baja_privacidad',retirada_privacidad_en=$2 WHERE id=$1`, retiredCase.ID, nowForMigration()); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT estado FROM public.elegibilidad_verificacion_local WHERE usuario_id=$1 AND tipo='kyc'`, retiredOwner).Scan(&storedState); err != nil || storedState != "elegible" {
+		t.Fatalf("expected stale eligible source projection, state=%q err=%v", storedState, err)
+	}
+	retiredEligibility, err := runtimeRepo.ListEligibility(ctx, retiredOwner)
+	if err != nil || len(retiredEligibility) != 2 || retiredEligibility[0].Eligible {
+		t.Fatalf("retired source effective eligibility=%+v err=%v", retiredEligibility, err)
+	}
 	r := New(pool)
 	now := time.Now().UTC()
 	first := verification.Case{ID: "11111111-1111-4111-8111-111111111111", OwnerID: owner, Type: "kyb", State: "en_revision", Provider: "local-fixture-v1", EvidenceRef: "fixture:22222222-2222-4222-8222-222222222222", Idempotency: "kyb-request-0001", CreatedAt: now}

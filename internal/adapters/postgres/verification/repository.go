@@ -279,34 +279,30 @@ func (r *Repository) ListHistory(ctx context.Context, owner, id string) ([]verif
 }
 
 func (r *Repository) ListEligibility(ctx context.Context, owner string) ([]verification.Eligibility, error) {
-	rows, err := r.pool.Query(ctx, `SELECT kinds.tipo,
-       COALESCE(e.estado='elegible',false), COALESCE(e.verificacion_id::text,''),
-       e.concedida_en, e.revocada_en, COALESCE(e.motivo_revocacion_codigo,'')
-FROM (SELECT 'kyc'::text AS tipo UNION ALL SELECT 'kyb'::text) kinds
-LEFT JOIN public.elegibilidad_verificacion_local e ON e.usuario_id=$1 AND e.tipo=kinds.tipo
-ORDER BY kinds.tipo`, owner)
+	rows, err := r.queries.ListSyntheticEligibility(ctx, owner)
 	if err != nil {
 		return nil, mapDBError(err)
 	}
-	defer rows.Close()
 	items := make([]verification.Eligibility, 0, 2)
-	for rows.Next() {
-		var item verification.Eligibility
-		var granted, revoked pgtype.Timestamptz
-		if err := rows.Scan(&item.Type, &item.Eligible, &item.VerificationID, &granted, &revoked, &item.RevocationReason); err != nil {
-			return nil, mapDBError(err)
+	for _, row := range rows {
+		kind, kindOK := row.Type.(string)
+		eligible, eligibleOK := row.Eligible.(bool)
+		verificationID, verificationIDOK := row.VerificationID.(string)
+		if !kindOK || !eligibleOK || !verificationIDOK {
+			return nil, fmt.Errorf("%w: unexpected generated eligibility row types", verification.ErrInvalid)
 		}
-		if granted.Valid {
-			item.GrantedAt = granted.Time
+		item := verification.Eligibility{
+			Type: kind, Eligible: eligible, VerificationID: verificationID,
+			RevocationReason: row.RevocationReason,
 		}
-		if revoked.Valid {
-			at := revoked.Time
+		if row.GrantedAt.Valid {
+			item.GrantedAt = row.GrantedAt.Time
+		}
+		if row.RevokedAt.Valid {
+			at := row.RevokedAt.Time
 			item.RevokedAt = &at
 		}
 		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, mapDBError(err)
 	}
 	return items, nil
 }
