@@ -2,7 +2,7 @@
 
 Fecha: 2026-10-08  
 Issue: [#204](https://github.com/HernanEspinozaDev/espaciGo/issues/204) (hija de #55)  
-Base: `main` en `ca64f11860dfd8c60e3998cc2754b3b4915ece26`; implementación en `codex/local-m04-publish-kyc`.
+Base: `main` en `ca64f11860dfd8c60e3998cc2754b3b4915ece26`; implementación en `codex/local-m04-publish-kyc`, PR [#205](https://github.com/HernanEspinozaDev/espaciGo/pull/205), commit inicial `6e84c89a2ec1fd1b57ad38f841535a3607b8e2b3` (autor HernanMEC).
 
 ## Decisión y límite
 
