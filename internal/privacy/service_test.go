@@ -96,3 +96,13 @@ func TestOwnDataExportHasBoundedScopeAndNoCredentialFields(t *testing.T) {
 		}
 	}
 }
+
+func TestCompleteArchiveRefusesToReturnIdentityOnlyWhenModuleSourcesAreMissing(t *testing.T) {
+	svc, err := NewService(&memoryRepository{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ExportOwnArchive(context.Background(), "own@example.invalid"); !errors.Is(err, ErrExportUnavailable) {
+		t.Fatalf("incomplete archive error=%v, want ErrExportUnavailable", err)
+	}
+}

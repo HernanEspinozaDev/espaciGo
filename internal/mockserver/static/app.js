@@ -53,6 +53,25 @@ async function request(path, method = "GET", body, authenticated = false, idempo
     }
     return data;
 }
+async function requestArchive(path, bearer) {
+    if (!apiBase || !bearer)
+        throw new Error("Inicia sesión para descargar tus datos.");
+    const response = await fetch(`${apiBase}${path}`, { method: "GET", headers: { Accept: "application/zip", Authorization: `Bearer ${bearer}` }, mode: "cors", cache: "no-store", credentials: "omit" });
+    if (!response.ok) {
+        let message = "No se pudo preparar la exportación.";
+        try {
+            const body = await response.json();
+            message = `${body.error?.message ?? message} (HTTP ${response.status})`;
+        }
+        catch { /* generic */ }
+        if (response.status === 401 && sessionToken === bearer) {
+            sessionToken = "";
+            clearBookingInboxOnSessionLoss();
+        }
+        throw new Error(message);
+    }
+    return await response.blob();
+}
 async function action(work) {
     const buttons = [...document.querySelectorAll("button")];
     try {
@@ -214,16 +233,16 @@ document.querySelector("#privacy-export").addEventListener("click", () => void a
     const context = capturePrivacyExportContext(sessionAccountID, sessionToken, sessionGeneration);
     if (!context)
         throw new Error("Inicia sesión para exportar tus datos.");
-    await deliverPrivacyExportIfCurrent(context, () => request("/api/v1/privacy/export", "GET", undefined, true), current => privacyExportSessionMatches(current, sessionAccountID, sessionToken, sessionGeneration), data => {
-        const json = JSON.stringify(data, null, 2);
+    await deliverPrivacyExportIfCurrent(context, () => requestArchive("/api/v1/privacy/export/archive", context.sessionToken), current => privacyExportSessionMatches(current, sessionAccountID, sessionToken, sessionGeneration), blob => {
         if (privacyExportObjectURL)
             URL.revokeObjectURL(privacyExportObjectURL);
-        const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+        const url = URL.createObjectURL(blob);
         privacyExportObjectURL = url;
-        pendingPrivacyExport = { context, data, json, url };
+        pendingPrivacyExport = { context, url };
         const downloadLink = document.querySelector("#privacy-export-download");
         downloadLink.href = url;
-        resultElement.textContent = "Datos de identidad preparados. Confirma la descarga mientras mantengas esta sesión.";
+        document.querySelector("#privacy-output").textContent = "El ZIP contiene manifest.json, data.json versionado y archivos sintéticos propios disponibles. Excluye credenciales, datos personales de terceros y mensajes ajenos; sigue disponible si la supresión está bloqueada.";
+        resultElement.textContent = "ZIP preparado. Confirma la descarga mientras mantengas esta sesión.";
     });
 }));
 document.querySelector("#privacy-export-download").addEventListener("click", event => {
@@ -235,9 +254,8 @@ document.querySelector("#privacy-export-download").addEventListener("click", eve
         resultElement.textContent = "La sesión cambió; prepara de nuevo la exportación.";
         return;
     }
-    document.querySelector("#privacy-output").textContent = pending.json;
     pendingPrivacyExport = null;
-    resultElement.textContent = "Exportación local descargada. Incluye únicamente identidad modelada; no contiene credenciales ni datos de terceros.";
+    resultElement.textContent = "Exportación ZIP solicitada al navegador. Incluye datos propios implementados, manifiesto y archivos sintéticos disponibles.";
     // Keep the Blob URL alive long enough for the browser to finish its download.
     setTimeout(() => { if (privacyExportObjectURL === pending.url) {
         URL.revokeObjectURL(pending.url);

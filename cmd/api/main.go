@@ -23,6 +23,7 @@ import (
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
 	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
@@ -129,7 +130,13 @@ func run() error {
 			return errors.New("local authentication initialization failed")
 		}
 		localIdentityService = service
-		privacyService, err := privacy.NewService(repo)
+		verificationRepository := verificationpg.New(pool)
+		evidenceRoot := os.Getenv("M03_EVIDENCE_DIR")
+		evidenceStore, err := evidencefs.New(evidenceRoot)
+		if err != nil {
+			return errors.New("local private evidence storage is unavailable")
+		}
+		privacyService, err := privacy.NewService(repo, ownerexport.New(pool, evidenceStore))
 		if err != nil {
 			return errors.New("local privacy initialization failed")
 		}
@@ -141,15 +148,9 @@ func run() error {
 		}
 		disputeHandler := disputehttp.NewHandler(service, disputeService, cfg.allowedOrigins)
 		registerDisputeRoutes(mux, disputeHandler)
-		verificationRepository := verificationpg.New(pool)
 		verificationService, err := verification.NewService(verificationRepository, credentials.Generator{}, verification.LocalFixtureProvider{}, time.Now)
 		if err != nil {
 			return errors.New("local verification initialization failed")
-		}
-		evidenceRoot := os.Getenv("M03_EVIDENCE_DIR")
-		evidenceStore, err := evidencefs.New(evidenceRoot)
-		if err != nil {
-			return errors.New("local private evidence storage is unavailable")
 		}
 		privacyEvidenceCleaner = evidenceStore
 		mux.Handle("/api/v1/", identityhttp.NewHandlerWithSuppressionRegistry(service, repo, cfg.allowedOrigins, privacyService, evidenceStore, privacyReplayRegistryPath))

@@ -263,6 +263,13 @@ type Repository interface {
 	Expire(context.Context, time.Time) error
 }
 
+// ArchiveSectionRepository exposes an owner-scoped, read-only projection of
+// booking-owned facts for the local privacy archive. Implementations must omit
+// counterpart identifiers and unstructured shared text.
+type ArchiveSectionRepository interface {
+	ExportOwnArchiveSections(context.Context, string) (map[string]json.RawMessage, error)
+}
+
 // PaymentLifecycleRepository separates durable event handling from the
 // broader booking repository contract so non-payment test doubles stay small.
 type PaymentLifecycleRepository interface {

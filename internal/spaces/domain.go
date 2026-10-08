@@ -63,6 +63,12 @@ type Repository interface {
 	UpdateOwn(ctx context.Context, owner, id string, input Input) (Draft, error)
 }
 
+// ArchiveSectionRepository exports only drafts owned by the authenticated
+// account, including their saved category/profile versions.
+type ArchiveSectionRepository interface {
+	ExportOwnArchiveSections(context.Context, string) (map[string]json.RawMessage, error)
+}
+
 type Category struct {
 	Code string `json:"code"`
 	Name string `json:"name"`

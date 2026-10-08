@@ -1,10 +1,13 @@
 package postgres_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +22,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
@@ -647,6 +651,329 @@ func TestM02IdentityExportUsesAuthenticatedAccountAndExcludesCredentials(t *test
 	if otherResponse.Code != http.StatusOK || !strings.Contains(otherResponse.Body.String(), "export-other@ejemplo.invalid") || strings.Contains(otherResponse.Body.String(), "export-owner@ejemplo.invalid") {
 		t.Fatalf("second account export leaked another account: status=%d body=%s", otherResponse.Code, otherResponse.Body.String())
 	}
+}
+
+func TestLocalCompleteExportZIPIsOwnerScopedReadOnlyAndAvailableWithBlockedSuppression(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "archive-host@ejemplo.invalid")
+	h.verify(t)
+	host := h.login(t, "archive-host@ejemplo.invalid")
+	renterID := h.register(t, "archive-renter@ejemplo.invalid")
+	h.verify(t)
+	renter := h.login(t, "archive-renter@ejemplo.invalid")
+	adminID := h.register(t, "archive-admin@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES ($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	admin := h.login(t, "archive-admin@ejemplo.invalid")
+	runtimePool := newRuntimePool(t, h)
+	evidenceRoot := t.TempDir() + "/private-evidence"
+	if err := os.Mkdir(evidenceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	storage, err := evidencefs.New(evidenceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verificationRepo := verificationpg.New(runtimePool)
+	verifyService, err := verification.NewService(verificationRepo, credentials.Generator{}, verification.LocalFixtureProvider{}, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidenceService, err := verification.NewEvidenceService(verificationRepo, verificationRepo, storage, credentials.Generator{}, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range []string{hostID, renterID} {
+		item, e := verifyService.Start(h.ctx, account, "kyc", "archive-verify-"+account)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = evidenceService.Upload(h.ctx, account, item.ID); e != nil {
+			t.Fatal(e)
+		}
+	}
+	const spaceID = "81000000-0000-4000-8000-000000000001"
+	const quoteID = "81000000-0000-4000-8000-000000000002"
+	const reservationID = "81000000-0000-4000-8000-000000000003"
+	const occupancyID = "81000000-0000-4000-8000-000000000004"
+	seedPrivacyReviewReservation(t, h, spaceID, quoteID, reservationID, occupancyID, hostID, renterID, "cancelada_arrendatario")
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en) VALUES ('81000000-0000-4000-8000-000000000012',$1,1,'aprobada_host','cancelada_arrendatario',$2,'cancelada_arrendatario',$3)`, reservationID, renterID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE id=$1`, occupancyID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.simulacion_precio_privada(id,espacio_id,propietario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades_facturadas,subtotal_clp,inicio,termino,zona_horaria,creada_en) VALUES ('81000000-0000-4000-8000-000000000005',$1,$2,1,'hora',12000,'CLP',2,24000,$3,$4,'UTC',$5)`, spaceID, hostID, h.now.Add(48*time.Hour), h.now.Add(50*time.Hour), h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_pago_ensayo(id,reserva_id,resultado,clave_idempotencia,importe_clp,creada_en) VALUES ('81000000-0000-4000-8000-000000000006',$1,'exito_simulado','archive-payment',12000,$2)`, reservationID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_pago_ensayo_operacion(id,reserva_id,arrendatario_id,clave_idempotencia,huella_solicitud,resultado_solicitado,estado,resultado_final,creada_en,actualizada_en) VALUES ('81000000-0000-4000-8000-000000000013',$1,$2,'secret-idempotency-key',decode(repeat('55',32),'hex'),'exito','aplicada','exito_simulado',$3,$3)`, reservationID, renterID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_cancelacion_ensayo(id,reserva_id,arrendatario_id,clave_idempotencia,huella_solicitud,motivo,creada_en) VALUES ('81000000-0000-4000-8000-000000000007',$1,$2,'archive-cancel',decode(repeat('22',32),'hex'),'ensayo',$3)`, reservationID, renterID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_devolucion_ensayo(id,reserva_id,operacion_id,importe_clp,moneda,estado,ultimo_resultado,creada_en,actualizada_en,completada_en) VALUES ('81000000-0000-4000-8000-000000000008',$1,'81000000-0000-4000-8000-000000000009',12000,'CLP','completada','exito_simulado',$2,$2,$2)`, reservationID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_devolucion_intento_ensayo(id,devolucion_id,secuencia,resultado,creada_en) VALUES ('81000000-0000-4000-8000-000000000010','81000000-0000-4000-8000-000000000008',1,'exito_simulado',$1)`, h.now); err != nil {
+		t.Fatal(err)
+	}
+	const disputeID = "81000000-0000-4000-8000-000000000011"
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.disputa_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,abierta_por,motivo_codigo,estado,clave_idempotencia,huella_solicitud,abierta_en) VALUES ($1,$2,$3,$4,$3,'ensayo_privacidad','abierta','archive-dispute',decode(repeat('33',32),'hex'),$5)`, disputeID, reservationID, hostID, renterID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.disputa_ensayo_historial(disputa_id,estado_anterior,estado_nuevo,actor_id,motivo_codigo,ocurrida_en) VALUES ($1,NULL,'abierta',$2,'ensayo_privacidad',$3)`, disputeID, hostID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	for _, actor := range []string{hostID, renterID} {
+		key := strings.ReplaceAll(actor, "-", "")
+		if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.mensaje_reserva_ensayo(id,reserva_id,autor_id,clave_idempotencia,huella_solicitud,cuerpo,creada_en) VALUES ($1,$2,$3,$4,decode(repeat('44',32),'hex'),$5,$6)`, "82000000-0000-4000-8000-"+key[len(key)-12:], reservationID, actor, "archive-message-"+actor, "Mensaje propio de prueba "+actor, h.now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var hostSeq int64
+	if err := h.pool.QueryRow(h.ctx, `SELECT secuencia FROM public.mensaje_reserva_ensayo WHERE reserva_id=$1 AND autor_id=$2`, reservationID, hostID).Scan(&hostSeq); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_mensaje_lectura(reserva_id,participante_id,ultima_secuencia_leida,actualizada_en) VALUES ($1,$2,$3,$4)`, reservationID, hostID, hostSeq, h.now); err != nil {
+		t.Fatal(err)
+	}
+	privacyRepo := identitypg.NewIdentityRepository(runtimePool)
+	privacyService, err := privacy.NewService(privacyRepo, ownerexport.New(runtimePool, storage))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := privacyService.UpdateProfile(h.ctx, hostID, "Host Archive", ""); err != nil {
+		t.Fatal(err)
+	}
+	request, err := privacyService.RequestRight(h.ctx, hostID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedRequest, err := privacyService.RequestRight(h.ctx, hostID, "acceso", "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimePool.Exec(h.ctx, `UPDATE public.solicitud_titular SET estado='resuelta',resuelta_en=$2::timestamptz,motivo_resolucion_codigo='derecho_tramitado',retirar_en=$2::timestamptz + interval '5 years' WHERE id=$1`, resolvedRequest.ID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	assessment, err := privacyService.ReviewSuppression(h.ctx, adminID, request.ID, "archive-review", "archive-correlation", func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessment.Outcome != "bloqueada" || len(assessment.Obligations) == 0 {
+		t.Fatalf("expected blocked suppression review, got %+v", assessment)
+	}
+	api := identityhttp.NewHandler(h.service, h.repo, nil, privacyService)
+	archiveFor := func(token identity.Secret) ([]byte, http.Header) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/privacy/export/archive", nil)
+		req.RemoteAddr = "192.0.2.10:8080"
+		req.Header.Set("Authorization", "Bearer "+string(token))
+		res := httptest.NewRecorder()
+		api.ServeHTTP(res, req)
+		if res.Code != http.StatusOK {
+			t.Fatalf("archive status=%d body=%s", res.Code, res.Body.String())
+		}
+		return res.Body.Bytes(), res.Header()
+	}
+	var before string
+	if err := h.pool.QueryRow(h.ctx, `SELECT concat_ws(':',
+	 (SELECT count(*) FROM public.solicitud_titular),
+	 (SELECT count(*) FROM public.verificacion),
+	 (SELECT count(*) FROM public.verificacion_evidencia_sintetica),
+	 (SELECT count(*) FROM public.espacio),
+	 (SELECT count(*) FROM public.espacio_caracteristicas),
+	 (SELECT count(*) FROM public.tarifa_espacio),
+	 (SELECT count(*) FROM public.simulacion_precio_privada),
+	 (SELECT count(*) FROM public.cotizacion_reserva_ensayo),
+	 (SELECT count(*) FROM public.reserva_ensayo_local),
+	 (SELECT count(*) FROM public.reserva_pago_ensayo),
+	 (SELECT count(*) FROM public.reserva_devolucion_ensayo),
+	 (SELECT count(*) FROM public.disputa_ensayo_local),
+	 (SELECT count(*) FROM public.mensaje_reserva_ensayo),
+	 (SELECT count(*) FROM public.reserva_mensaje_lectura),
+	 (SELECT count(*) FROM public.evento_auditoria_local),
+	 (SELECT count(*) FROM public.outbox_evento_local))`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	hostZIP, headers := archiveFor(host.Token)
+	if headers.Get("Content-Type") != "application/zip" || !strings.Contains(headers.Get("Content-Disposition"), ".zip") {
+		t.Fatalf("bad archive headers: %v", headers)
+	}
+	readZip := func(raw []byte) map[string][]byte {
+		t.Helper()
+		z, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+		if err != nil {
+			t.Fatalf("received ZIP invalid: %v", err)
+		}
+		out := map[string][]byte{}
+		for _, f := range z.File {
+			rc, e := f.Open()
+			if e != nil {
+				t.Fatal(e)
+			}
+			body, e := io.ReadAll(rc)
+			_ = rc.Close()
+			if e != nil {
+				t.Fatal(e)
+			}
+			out[f.Name] = body
+		}
+		return out
+	}
+	hostEntries := readZip(hostZIP)
+	if len(hostEntries["manifest.json"]) == 0 || len(hostEntries["data.json"]) == 0 || len(hostEntries) < 3 {
+		t.Fatalf("ZIP lacks expected manifest/data/evidence: %v", mapKeys(hostEntries))
+	}
+	var manifest privacy.ExportManifest
+	if err := json.Unmarshal(hostEntries["manifest.json"], &manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"verifications", "synthetic_evidence", "spaces", "rates", "simulations", "quotes", "reservations", "payments", "payment_operations", "refunds", "disputes", "messages_written_by_owner", "conversation_read_cursors"} {
+		if !containsString(manifest.Sections, required) {
+			t.Errorf("manifest missing section %s: %+v", required, manifest.Sections)
+		}
+	}
+	if len(manifest.Files) != 1 {
+		t.Fatalf("host archive file manifest=%+v, expected only host evidence", manifest.Files)
+	}
+	var decoded privacy.CompleteOwnData
+	if err := json.Unmarshal(hostEntries["data.json"], &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.SchemaVersion != 1 || decoded.Identity.Account.Email != "archive-host@ejemplo.invalid" || decoded.Identity.Account.UsePreference == nil || *decoded.Identity.Account.UsePreference != "arrendar" || decoded.Identity.Profile == nil || decoded.Identity.Profile.Name != "Host Archive" || len(decoded.Identity.Roles) != 0 || len(decoded.Identity.Acceptances) == 0 || len(decoded.Identity.Requests) != 2 {
+		t.Fatalf("host identity section incomplete: %+v", decoded.Identity)
+	}
+	resolvedFound := false
+	for _, item := range decoded.Identity.Requests {
+		if item.ID == resolvedRequest.ID && item.State == "resuelta" && item.ResolvedAt != nil && item.DecisionCode != nil && *item.DecisionCode == "derecho_tramitado" {
+			resolvedFound = true
+		}
+	}
+	if !resolvedFound {
+		t.Fatalf("rights decision not present in archive: %+v", decoded.Identity.Requests)
+	}
+	hostJSON := string(hostEntries["data.json"])
+	for _, forbidden := range []string{"archive-renter@ejemplo.invalid", renterID, "archive-admin@ejemplo.invalid", adminID, "secret-idempotency-key", string(identity.CredentialHash("Synthetic#123")), string(host.Token), "password_hash", "token_hash", "provider_payload", "webhook_secret", "access_token", "Mensaje propio de prueba " + renterID} {
+		if strings.Contains(hostJSON, forbidden) {
+			t.Fatalf("host export leaked forbidden value %q", forbidden)
+		}
+	}
+	for _, expected := range []string{"Synthetic address", "Synthetic description", "last_sequence_read"} {
+		if !strings.Contains(hostJSON, expected) {
+			t.Errorf("host archive missing expected own fact %q", expected)
+		}
+	}
+	var simulations []struct {
+		Subtotal int64 `json:"subtotal_clp"`
+	}
+	if err := json.Unmarshal(decoded.Sections["simulations"], &simulations); err != nil || len(simulations) != 1 || simulations[0].Subtotal != 24000 {
+		t.Fatalf("owned price simulation missing/inaccurate: %+v err=%v", simulations, err)
+	}
+	var payments []struct {
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal(decoded.Sections["payments"], &payments); err != nil || len(payments) != 1 || payments[0].Result != "exito_simulado" {
+		t.Fatalf("fake payment result missing: %+v err=%v", payments, err)
+	}
+	var paymentOperations []struct {
+		State  string `json:"state"`
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal(decoded.Sections["payment_operations"], &paymentOperations); err != nil || len(paymentOperations) != 1 || paymentOperations[0].State != "aplicada" || paymentOperations[0].Result != "exito_simulado" {
+		t.Fatalf("participant payment operation missing: %+v err=%v", paymentOperations, err)
+	}
+	var refunds []struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(decoded.Sections["refunds"], &refunds); err != nil || len(refunds) != 1 || refunds[0].State != "completada" {
+		t.Fatalf("refund state missing: %+v err=%v", refunds, err)
+	}
+	var reservationFacts []struct {
+		History []struct {
+			To string `json:"to"`
+		} `json:"history"`
+	}
+	if err := json.Unmarshal(decoded.Sections["reservations"], &reservationFacts); err != nil || len(reservationFacts) != 1 || len(reservationFacts[0].History) != 1 || reservationFacts[0].History[0].To != "cancelada_arrendatario" {
+		t.Fatalf("reservation history missing: %+v err=%v", reservationFacts, err)
+	}
+	var disputeFacts []struct {
+		Opening string `json:"opening_reason_code"`
+	}
+	if err := json.Unmarshal(decoded.Sections["disputes"], &disputeFacts); err != nil || len(disputeFacts) != 1 || disputeFacts[0].Opening != "ensayo_privacidad" {
+		t.Fatalf("dispute fact missing: %+v err=%v", disputeFacts, err)
+	}
+	for name, body := range hostEntries {
+		if strings.HasSuffix(name, ".png") && !bytes.HasPrefix(body, []byte("\x89PNG\r\n\x1a\n")) {
+			t.Fatalf("evidence file is not a PNG: %s", name)
+		}
+	}
+	renterZIP, _ := archiveFor(renter.Token)
+	renterEntries := readZip(renterZIP)
+	renterJSON := string(renterEntries["data.json"])
+	if strings.Contains(renterJSON, "archive-host@ejemplo.invalid") || strings.Contains(renterJSON, hostID) || strings.Contains(renterJSON, "Synthetic address") || strings.Contains(renterJSON, "Synthetic description") || strings.Contains(renterJSON, "Mensaje propio de prueba "+hostID) {
+		t.Fatalf("renter export includes host personal data: %s", renterJSON)
+	}
+	for _, forbidden := range []string{"archive-admin@ejemplo.invalid", adminID, string(identity.CredentialHash("Synthetic#123")), string(host.Token), string(renter.Token), string(admin.Token), "secret-idempotency-key", "password_hash", "token_hash", "provider_payload", "webhook_secret", "access_token"} {
+		if strings.Contains(renterJSON, forbidden) {
+			t.Fatalf("renter export contains protected field/value %q", forbidden)
+		}
+	}
+	if strings.Contains(renterJSON, "Mensaje propio de prueba "+renterID) == false {
+		t.Fatal("renter-authored message missing from renter archive")
+	}
+	var renterManifest privacy.ExportManifest
+	if err := json.Unmarshal(renterEntries["manifest.json"], &renterManifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(renterManifest.Files) != 1 || renterManifest.Files[0].Name == manifest.Files[0].Name {
+		t.Fatalf("renter archive must contain only its different evidence file: %+v host=%+v", renterManifest.Files, manifest.Files)
+	}
+	var after string
+	if err := h.pool.QueryRow(h.ctx, `SELECT concat_ws(':',
+	 (SELECT count(*) FROM public.solicitud_titular),
+	 (SELECT count(*) FROM public.verificacion),
+	 (SELECT count(*) FROM public.verificacion_evidencia_sintetica),
+	 (SELECT count(*) FROM public.espacio),
+	 (SELECT count(*) FROM public.espacio_caracteristicas),
+	 (SELECT count(*) FROM public.tarifa_espacio),
+	 (SELECT count(*) FROM public.simulacion_precio_privada),
+	 (SELECT count(*) FROM public.cotizacion_reserva_ensayo),
+	 (SELECT count(*) FROM public.reserva_ensayo_local),
+	 (SELECT count(*) FROM public.reserva_pago_ensayo),
+	 (SELECT count(*) FROM public.reserva_devolucion_ensayo),
+	 (SELECT count(*) FROM public.disputa_ensayo_local),
+	 (SELECT count(*) FROM public.mensaje_reserva_ensayo),
+	 (SELECT count(*) FROM public.reserva_mensaje_lectura),
+	 (SELECT count(*) FROM public.evento_auditoria_local),
+	 (SELECT count(*) FROM public.outbox_evento_local))`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatalf("export mutated persisted records: before=%s after=%s", before, after)
+	}
+}
+
+func mapKeys(m map[string][]byte) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+func containsString(items []string, value string) bool {
+	for _, item := range items {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }
 
 func TestM02SuppressionReviewRequiresAdminAndReusesPersistedIncompleteAssessment(t *testing.T) {
