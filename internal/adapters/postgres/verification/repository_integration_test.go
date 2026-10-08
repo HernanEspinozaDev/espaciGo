@@ -23,6 +23,15 @@ import (
 
 func nowForMigration() time.Time { return time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC) }
 
+func eligibilityByType(items []verification.Eligibility, kind string) (verification.Eligibility, bool) {
+	for _, item := range items {
+		if item.Type == kind {
+			return item, true
+		}
+	}
+	return verification.Eligibility{}, false
+}
+
 func TestVerificationRepositoryOwnershipIdempotencyReviewAndRetry(t *testing.T) {
 	adminURL := os.Getenv("TEST_DATABASE_URL")
 	if adminURL == "" {
@@ -160,7 +169,8 @@ VALUES('d6d6d6d6-d6d6-46d6-86d6-d6d6d6d6d6d6',$1,'kyc','en_revision','local-fixt
 		t.Fatalf("runtime role review/eligibility/audit write: %v", err)
 	}
 	runtimeEligibility, err := runtimeRepo.ListEligibility(ctx, runtimeOwner)
-	if err != nil || len(runtimeEligibility) != 2 || !runtimeEligibility[1].Eligible {
+	runtimeKYC, runtimeKYCFound := eligibilityByType(runtimeEligibility, "kyc")
+	if err != nil || !runtimeKYCFound || !runtimeKYC.Eligible {
 		t.Fatalf("runtime eligibility=%+v err=%v", runtimeEligibility, err)
 	}
 	var historyUpdate, historyDelete bool
@@ -177,7 +187,8 @@ VALUES('d6d6d6d6-d6d6-46d6-86d6-d6d6d6d6d6d6',$1,'kyc','en_revision','local-fixt
 		t.Fatalf("expected stored projection to remain eligible, state=%q err=%v", storedState, err)
 	}
 	runtimeEligibility, err = runtimeRepo.ListEligibility(ctx, runtimeOwner)
-	if err != nil || len(runtimeEligibility) != 2 || runtimeEligibility[1].Eligible {
+	runtimeKYC, runtimeKYCFound = eligibilityByType(runtimeEligibility, "kyc")
+	if err != nil || !runtimeKYCFound || runtimeKYC.Eligible {
 		t.Fatalf("blocked account effective eligibility=%+v err=%v", runtimeEligibility, err)
 	}
 
@@ -197,14 +208,20 @@ VALUES('d6d6d6d6-d6d6-46d6-86d6-d6d6d6d6d6d6',$1,'kyc','en_revision','local-fixt
 	if _, err := runtimeRepo.Review(ctx, retiredCase.ID, reviewer, true, "", time.Now); err != nil {
 		t.Fatal(err)
 	}
+	retiredEligibility, err := runtimeRepo.ListEligibility(ctx, retiredOwner)
+	retiredKYC, retiredKYCFound := eligibilityByType(retiredEligibility, "kyc")
+	if err != nil || !retiredKYCFound || !retiredKYC.Eligible {
+		t.Fatalf("source case should grant effective KYC before withdrawal: eligibility=%+v err=%v", retiredEligibility, err)
+	}
 	if _, err := pool.Exec(ctx, `UPDATE public.verificacion SET estado='retirada_privacidad',revisor_id=NULL,motivo_codigo='baja_privacidad',retirada_privacidad_en=$2 WHERE id=$1`, retiredCase.ID, nowForMigration()); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, `SELECT estado FROM public.elegibilidad_verificacion_local WHERE usuario_id=$1 AND tipo='kyc'`, retiredOwner).Scan(&storedState); err != nil || storedState != "elegible" {
 		t.Fatalf("expected stale eligible source projection, state=%q err=%v", storedState, err)
 	}
-	retiredEligibility, err := runtimeRepo.ListEligibility(ctx, retiredOwner)
-	if err != nil || len(retiredEligibility) != 2 || retiredEligibility[0].Eligible {
+	retiredEligibility, err = runtimeRepo.ListEligibility(ctx, retiredOwner)
+	retiredKYC, retiredKYCFound = eligibilityByType(retiredEligibility, "kyc")
+	if err != nil || !retiredKYCFound || retiredKYC.Eligible {
 		t.Fatalf("retired source effective eligibility=%+v err=%v", retiredEligibility, err)
 	}
 	r := New(pool)
