@@ -2477,6 +2477,10 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE espacio_id=$1 AND intervalo && tstzrange($2,$3,'[)')`, activeSpace, stalePublishedRateStart, stalePublishedRateStart.Add(time.Hour)).Scan(&stalePublishedOccupancies); err != nil || stalePublishedReservations != 0 || stalePublishedOccupancies != 0 {
 		t.Fatalf("published stale tariff left partial reservation/occupancy=%d/%d err=%v", stalePublishedReservations, stalePublishedOccupancies, err)
 	}
+	activeSnapshot, err := svc.Get(ctx, renter, activeReservation.ID)
+	if err != nil || activeSnapshot.State != "aprobada_host" || activeSnapshot.UnitPrice != 9000 || activeSnapshot.Subtotal != 9000 || activeSnapshot.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion {
+		t.Fatalf("published reservation snapshot changed after a later tariff version: detail=%+v err=%v", activeSnapshot, err)
+	}
 	if ownerItems, e := svc.Catalog(ctx, host, officeFilter); e != nil || len(ownerItems) != 0 {
 		t.Fatalf("owner should not discover own publication: items=%+v err=%v", ownerItems, e)
 	}
