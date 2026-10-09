@@ -38,6 +38,33 @@ func TestDraftInputRequiresAllCU15FieldsAndLimits(t *testing.T) {
 	}
 }
 
+func TestPublishedContentInputValidatesPartialTitleAndPrice(t *testing.T) {
+	title := "Título editado"
+	price := int64(5001)
+	for name, input := range map[string]PublishedContentInput{
+		"title only": {Title: &title},
+		"price only": {BasePriceCLP: &price},
+		"both":       {Title: &title, BasePriceCLP: &price},
+	} {
+		if err := input.Validate(); err != nil {
+			t.Errorf("%s rejected: %v", name, err)
+		}
+	}
+	for name, input := range map[string]PublishedContentInput{
+		"empty":     {},
+		"blank":     {Title: ptrString("  ")},
+		"too long":  {Title: ptrString(strings.Repeat("x", 71))},
+		"low price": {BasePriceCLP: ptrInt64(5000)},
+	} {
+		if err := input.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s error=%v, want ErrInvalid", name, err)
+		}
+	}
+}
+
+func ptrString(value string) *string { return &value }
+func ptrInt64(value int64) *int64    { return &value }
+
 func TestDraftAreaAndPriceMatchPostgresNumericRanges(t *testing.T) {
 	for _, area := range []float64{0.01, 99999999.99} {
 		in := validInput()

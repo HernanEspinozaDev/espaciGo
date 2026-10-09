@@ -47,6 +47,26 @@ type Input struct {
 	Attributes             map[string]any `json:"attributes,omitempty"`
 }
 
+// PublishedContentInput limits edits of an existing local publication to the
+// title and base price. Nil means that field is unchanged.
+type PublishedContentInput struct {
+	Title        *string `json:"title,omitempty"`
+	BasePriceCLP *int64  `json:"base_price_clp,omitempty"`
+}
+
+func (i PublishedContentInput) Validate() error {
+	if i.Title == nil && i.BasePriceCLP == nil {
+		return ErrInvalid
+	}
+	if i.Title != nil && (strings.TrimSpace(*i.Title) == "" || len([]rune(*i.Title)) > 70) {
+		return ErrInvalid
+	}
+	if i.BasePriceCLP != nil && *i.BasePriceCLP <= 5000 {
+		return ErrInvalid
+	}
+	return nil
+}
+
 func (i Input) Validate() error {
 	areaCents := i.AreaM2 * 100
 	if strings.TrimSpace(i.Title) == "" || len([]rune(i.Title)) > 70 || len([]rune(strings.TrimSpace(i.Description))) < 100 || math.IsNaN(i.AreaM2) || math.IsInf(i.AreaM2, 0) || i.AreaM2 < 0.01 || i.AreaM2 > 99999999.99 || math.Abs(areaCents-math.Round(areaCents)) > 1e-7 || i.CategoryCode == "" || i.Capacity <= 0 || strings.TrimSpace(i.UsageRules) == "" || len([]rune(i.UsageRules)) > 250 || (i.RateUnit != "hora" && i.RateUnit != "dia" && i.RateUnit != "mes") || i.BasePriceCLP <= 5000 || strings.TrimSpace(i.Address) == "" || len([]rune(i.Address)) > 500 {
@@ -65,6 +85,7 @@ type Repository interface {
 	GetOwn(ctx context.Context, owner, id string) (Draft, error)
 	UpdateOwn(ctx context.Context, owner, id string, input Input) (Draft, error)
 	SetPublicationState(ctx context.Context, owner, id, state, correlationID string) (Draft, error)
+	UpdatePublishedOwn(ctx context.Context, owner, id string, input PublishedContentInput) (Draft, error)
 }
 
 // ArchiveSectionRepository exports only drafts owned by the authenticated

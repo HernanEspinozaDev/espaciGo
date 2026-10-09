@@ -109,6 +109,18 @@ func (m *memoryRepo) SetPublicationState(_ context.Context, owner, id, state, _ 
 	}
 	return spaces.Draft{}, spaces.ErrPublicationConflict
 }
+func (m *memoryRepo) UpdatePublishedOwn(_ context.Context, owner, id string, in spaces.PublishedContentInput) (spaces.Draft, error) {
+	if owner != m.owner || id != draftID || (m.draft.State != "activa" && m.draft.State != "oculta") {
+		return spaces.Draft{}, spaces.ErrNotFound
+	}
+	if in.Title != nil {
+		m.draft.Title = *in.Title
+	}
+	if in.BasePriceCLP != nil {
+		m.draft.BasePriceCLP = *in.BasePriceCLP
+	}
+	return m.draft, nil
+}
 func draftFromInput(in spaces.Input) spaces.Draft {
 	name := map[string]string{"oficina": "Oficina", "sala_multiproposito": "Sala o espacio multipropósito"}[in.CategoryCode]
 	return spaces.Draft{CategoryCode: in.CategoryCode, CategoryName: name, Title: in.Title, Description: in.Description, AreaM2: in.AreaM2, Capacity: in.Capacity, UsageRules: in.UsageRules, RateUnit: in.RateUnit, BasePriceCLP: in.BasePriceCLP, Address: in.Address, State: "borrador", AttributeSchemaVersion: in.AttributeSchemaVersion, Attributes: in.Attributes}
@@ -139,6 +151,10 @@ func TestPublicationRouteRequiresLandlordAndReturnsState(t *testing.T) {
 	if denied.Code != http.StatusForbidden {
 		t.Fatalf("non-landlord got %d: %s", denied.Code, denied.Body.String())
 	}
+	deniedContent := invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication-content", "user", `{"title":"Intento no autorizado"}`)
+	if deniedContent.Code != http.StatusForbidden {
+		t.Fatalf("non-landlord published-content edit got %d: %s", deniedContent.Code, deniedContent.Body.String())
+	}
 	response := invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"activa"}`)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"activa"`) {
 		t.Fatalf("publish got %d: %s", response.Code, response.Body.String())
@@ -153,6 +169,15 @@ func TestPublicationRouteRequiresLandlordAndReturnsState(t *testing.T) {
 	}
 	schemas := doc["components"].(map[string]any)["schemas"].(map[string]any)
 	assertDraftResponseSchema(t, compileOpenAPISchema(t, schemas["SpaceDraft"]), response.Body.Bytes())
+	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication-content", "landlord", `{"title":"Título actualizado","base_price_clp":9000}`)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"title":"Título actualizado"`) || !strings.Contains(response.Body.String(), `"base_price_clp":9000`) || !strings.Contains(response.Body.String(), `"state":"activa"`) {
+		t.Fatalf("published content update got %d: %s", response.Code, response.Body.String())
+	}
+	assertDraftResponseSchema(t, compileOpenAPISchema(t, schemas["SpaceDraft"]), response.Body.Bytes())
+	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication-content", "landlord", `{}`)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("empty published-content update got %d: %s", response.Code, response.Body.String())
+	}
 	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"oculta"}`)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"oculta"`) {
 		t.Fatalf("hide got %d: %s", response.Code, response.Body.String())

@@ -24,7 +24,7 @@ Los reintentos anteriores a V28 no contenían el código de corrección. La migr
 
 El 2026-10-08 se ratificó que las cuentas personales actuales requieren KYC sintético aprobado para nuevas publicaciones y reservas. KYB no sustituye KYC en este recorrido y no se requieren ambos tipos. La elegibilidad no concede roles. La solicitud de reserva revalida KYC vigente para anfitrión y arrendatario dentro de la transacción, después de bloquear ambas cuentas; aprobación y baja usan el mismo bloqueo. Una baja efectiva retira la elegibilidad en esa misma transacción, registra historial y conserva los vencimientos terminales originales.
 
-El ciclo general de publicación aún no tiene endpoint de publicación en M04. Su gate queda registrado como dependencia de LOCAL-LIST/M04; este PR no implementa ese módulo entero ni presume que el borrador esté publicado. #45/#48–#50 siguen abiertos mientras falten los criterios del módulo y la conexión del gate de publicación.
+El PR #205 implementó el endpoint local owner-only para publicar/ocultar/reactivar con el gate KYC sintético efectivo y un historial propio. Esto acepta ese tramo, no el ciclo general M04: el estado `activa` aún no se conecta al catálogo general, y edición/galería permanecen pendientes. #45/#48–#50 siguen abiertas por sus criterios restantes.
 
 ## Pendientes
 
