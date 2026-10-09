@@ -1,6 +1,6 @@
 # Backlog propuesto para cerrar el backend local
 
-Fecha inicial: 2026-10-07; conciliación actualizada tras el merge #219 el 2026-10-09. #216 LOCAL-CONT-01, #214 LOCAL-BOOK-02 y #218 LOCAL-OPS-01 fueron aceptadas por sus alcances locales; #218 quedó cerrada/Hecho en Projects. Los padres generales siguen abiertos. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
+Fecha inicial: 2026-10-07; conciliación actualizada tras los merges #219/#221 el 2026-10-09. #216 LOCAL-CONT-01, #214 LOCAL-BOOK-02 y #218 LOCAL-OPS-01 fueron aceptadas por sus alcances locales; #218 quedó cerrada/Hecho en Projects. Los padres generales siguen abiertos. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
 
 ## Convenciones
 
@@ -223,7 +223,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras el merge #219 el 2026-
 
 ### LOCAL-COMM-01 — Reseñas, moderación y avisos durables locales (Issue #220)
 
-- **Módulo/tipo/estado:** M09 / VERTICAL / En revisión, #220, hija de #95 y relacionada con #96–#102; PR #221 abierto.
+- **Módulo/tipo/estado:** M09 / VERTICAL / Hecho para LOCAL-COMM-01; #220 cerrada tras merge PR #221 (`8d3157c`), hija de #95 y relacionada con #96–#102. Los padres y criterios generales siguen abiertos.
 - **Objetivo y motivo:** #95–102, CU-35–38/49; completar reseñas/reportes y avisos durables sin cerrar padres generales.
 - **Alcance D-COMM ratificado:** una reseña por participante y reserva `finalizada`, arrendatario→espacio y anfitrión→arrendatario; nota entera 1–5 obligatoria, comentario opcional; no hay ventana adicional, edición ni nuevas reseñas en `en_disputa`; reintento idéntico reutiliza. Reseñas visibles del espacio y promedio únicamente para publicación activa, sin datos privados; reputación del arrendatario solo en vistas autenticadas autorizadas. El anfitrión reporta reseñas de su espacio con catálogo estructurado; el reporte marca `reportada` pero no oculta ni modifica promedio. Admin desestima u oculta con motivo y auditoría; ocultas no listan ni promedian; sin apelación.
 - **Avisos:** intención en transacción, deduplicación por evento/destinatario y entrega Mailpit para check-in→anfitrión, reporte→administradores autorizados, reclamo abierto→arrendatario y cancelación→ambas partes. Sin aviso por mensaje. Ocho intentos por ciclo, fallo terminal persistido y reapertura administrativa motivada; SMTP puede duplicar si el resultado es incierto tras envío.
@@ -237,16 +237,16 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras el merge #219 el 2026-
 
 ## L4 — Resolver, liquidar y administrar
 
-### LOCAL-DIS-01 — Construir resolución local de disputas
+### LOCAL-DIS-01 — Resolución administrativa local de disputas (Issue #222)
 
-- **Módulo/tipo/estado:** M10 / VERTICAL / `todo`.
-- **Objetivo y motivo:** #103–106/#108–110, CU-39–42; reclamo, descargo y resolución motivada del caso.
-- **Alcance:** estados, partes, pruebas sintéticas privadas, plazos/actor y resolución administrativa; eventos para garantía/liquidación y avisos.
-- **Fuera:** decisión jurídica automática, dinero real o política nueva deducida de un ejemplo.
-- **Dependencias:** LOCAL-OPS-01, LOCAL-COMM-01, BOOK/CORE y D-DIS/ADMIN. **Desbloquea:** LOCAL-FIN-01.
-- **Aceptación:** participantes ven solo su expediente; resolución exige autoridad y motivo; no hay decisiones simultáneas incompatibles ni movimiento duplicado; efectos de reserva trazados.
-- **Pruebas previstas:** ownership, plazos, descargo, concurrencia, replay y acceso a evidencia; finalizar parte de LOCAL-DIS-MOCK-01.
-- **Riesgo:** resolver disputa sin política ratificada o filtrar evidencia entre cuentas.
+- **Módulo/tipo/estado:** M10 / DB-BE-API-TEST-MOCK / PR de esta rama para revisión; Issue #222 pasa a `En revisión` tras publicar; hija de #106, relacionada con #103. No cierra #103/#106 ni los padres #103–110.
+- **Objetivo y motivo:** completar adjudicación sintética de reclamo/descargo siguiendo CU-39–41, RQF-159–171 y PT-07, después de LOCAL-OPS-01/#218 y LOCAL-COMM-01/#220.
+- **Alcance:** anfitrión abre según plazo vigente; participante contrario consulta y presenta texto de descargo; ambos participantes acceden a PNG sintéticos de check-in/out/recepción vinculados a la reserva; administrador tiene cola/detalle/evidencia privados y registra `acogido`/`rechazado`, motivo estructurado, actor, instante e historial; cierre transaccional/idempotente y aviso outbox a ambos. Cerrar retira solo el bloqueador `disputa_abierta` de este reclamo; la evaluación de privacidad conserva otras obligaciones. No ejecuta baja.
+- **Separación financiera ratificada:** no asignar montos ni actualizar reserva/ocupación/pagos. Garantía, deducciones, captura, liberación y devoluciones derivadas del fallo pertenecen a LOCAL-FIN-01; su importe/fuente no se simulan aquí.
+- **Fuera:** validez jurídica, proveedores/PSP, efectos financieros, reglas comerciales no aprobadas y GCP. La imagen de descargo propia y retenciones/purgas adicionales no se declaran completadas por las evidencias de operación existentes.
+- **Dependencias satisfechas para este corte:** LOCAL-OPS-01/#218, LOCAL-COMM-01/#220, identidad/roles, auditoría, outbox y almacenamiento privado local. **Desbloquea:** solo consumo posterior por LOCAL-FIN-01; #107–110 mantienen sus criterios generales.
+- **Aceptación prevista:** autorización de administrador/partes/tercero; decisión estructurada e idempotente; sin cambios financieros; historial/auditoría/avisos únicos; PostgreSQL con rol runtime y mock compilado/recorrido.
+- **Riesgo:** presentar adjudicación sintética como resolución jurídica o como saldo/garantía disponible.
 
 ### LOCAL-FIN-01 — Completar cierre económico simulado
 
