@@ -1009,7 +1009,7 @@ paths:
       operationId: updateOwnPublishedSpaceContent
       tags: [M04 local]
       description: >-
-        Modifica título y/o precio base de una publicación propia activa u oculta. Requiere titularidad y rol
+        Modifica título, descripción, capacidad, reglas de uso y/o precio base de una publicación propia activa u oculta. Requiere titularidad y rol
         arrendador. Un cambio de precio agrega una nueva versión de tarifa y conserva cotizaciones/reservas
         anteriores. No cambia el estado ni agrega el espacio al catálogo general.
       requestBody:
@@ -2091,6 +2091,9 @@ components:
       additionalProperties: false
       properties:
         title: { type: string, minLength: 1, maxLength: 70 }
+        description: { type: string, minLength: 100 }
+        capacity: { type: integer, format: int32, minimum: 1, maximum: 2147483647 }
+        usage_rules: { type: string, minLength: 1, maxLength: 250 }
         base_price_clp: { type: integer, format: int64, minimum: 5001, maximum: 9223372036854775807 }
     AvailabilityConfig:
       type: object

@@ -738,17 +738,39 @@ async function loadSpaces() {
         if ((String(item.state) === "activa" || String(item.state) === "oculta") && sessionRoles.includes("arrendador")) {
             const edit = document.createElement("form");
             edit.className = "published-content-edit";
-            const loadedTitle = String(item.title), loadedPrice = Number(item.base_price_clp);
+            const loaded = { title: String(item.title), description: String(item.description), capacity: Number(item.capacity), usage_rules: String(item.usage_rules), base_price_clp: Number(item.base_price_clp) };
             const titleLabel = document.createElement("label");
             titleLabel.textContent = "Título";
             const title = document.createElement("input");
             title.name = "title";
             title.maxLength = 70;
-            title.value = loadedTitle;
+            title.value = loaded.title;
             titleLabel.append(title);
+            const descriptionLabel = document.createElement("label");
+            descriptionLabel.textContent = "Descripción";
+            const description = document.createElement("textarea");
+            description.name = "description";
+            description.value = loaded.description;
+            descriptionLabel.append(description);
+            const capacityLabel = document.createElement("label");
+            capacityLabel.textContent = "Capacidad máxima";
+            const capacity = document.createElement("input");
+            capacity.name = "capacity";
+            capacity.type = "number";
+            capacity.min = "1";
+            capacity.step = "1";
+            capacity.value = String(loaded.capacity);
+            capacityLabel.append(capacity);
+            const rulesLabel = document.createElement("label");
+            rulesLabel.textContent = "Reglas de uso";
+            const rules = document.createElement("input");
+            rules.name = "usage_rules";
+            rules.maxLength = 250;
+            rules.value = loaded.usage_rules;
+            rulesLabel.append(rules);
             const priceLabel = document.createElement("label");
             priceLabel.textContent = "Precio base CLP";
-            const priceIsExact = Number.isSafeInteger(loadedPrice);
+            const priceIsExact = Number.isSafeInteger(loaded.base_price_clp);
             const price = document.createElement("input");
             price.name = "base_price_clp";
             price.type = "number";
@@ -760,24 +782,28 @@ async function loadSpaces() {
             priceLabel.append(price);
             const save = document.createElement("button");
             save.type = "submit";
-            save.textContent = "Actualizar título/precio";
-            edit.append(titleLabel, priceLabel);
+            save.textContent = "Actualizar campos editados";
+            edit.append(titleLabel, descriptionLabel, capacityLabel, rulesLabel, priceLabel);
             if (!priceIsExact) {
                 const priceNote = document.createElement("small");
-                priceNote.textContent = "El importe actual excede el rango entero seguro de JavaScript. Puedes editar el título o reemplazar la tarifa por un valor representable exactamente.";
+                priceNote.textContent = "El importe actual excede el rango entero seguro de JavaScript. Puedes editar título, descripción, capacidad o reglas, o reemplazar la tarifa por un valor representable exactamente.";
                 edit.append(priceNote);
             }
             edit.append(save);
             edit.addEventListener("submit", event => {
                 event.preventDefault();
                 void action(async () => {
-                    const change = publishedContentChange(loadedTitle, loadedPrice, title.value, price.value);
+                    const change = publishedContentChange(loaded, { title: title.value, description: description.value, capacity: capacity.value, usage_rules: rules.value, base_price_clp: price.value });
                     if (change.kind === "unchanged") {
                         resultElement.textContent = "No hay cambios para guardar.";
                         return;
                     }
                     if (change.kind === "unsupported-price") {
                         resultElement.textContent = "El mock solo puede actualizar importes CLP enteros entre 5.001 y 9.007.199.254.740.991, representables exactamente. Cambia el importe por uno dentro de ese rango.";
+                        return;
+                    }
+                    if (change.kind === "invalid-capacity") {
+                        resultElement.textContent = "La capacidad debe ser un entero positivo dentro del rango admitido.";
                         return;
                     }
                     const opToken = sessionToken, opAccount = sessionAccountID, opGeneration = sessionGeneration;
@@ -793,7 +819,7 @@ async function loadSpaces() {
                     if (!currentSpaceSession(opToken, opAccount, opGeneration))
                         return;
                     spacesOutput.textContent = JSON.stringify(changed, null, 2);
-                    resultElement.textContent = "Título y tarifa actualizados. El espacio conserva su estado y las reservas existentes mantienen su precio snapshot.";
+                    resultElement.textContent = "Campos actualizados. El espacio conserva su estado y las reservas existentes mantienen sus snapshots.";
                     await loadSpaces();
                 });
             });

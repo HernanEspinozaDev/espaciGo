@@ -87,9 +87,9 @@ func (s *Service) SetPublicationState(ctx context.Context, owner, id, state, cor
 	return s.repo.SetPublicationState(ctx, owner, id, state, correlationID)
 }
 
-// UpdatePublishedOwn edits only the title and/or base price of an existing
-// active/hidden publication. It does not change publication state or grant
-// eligibility; new reservations continue to apply their own KYC gate.
+// UpdatePublishedOwn edits supported content fields of an existing active/hidden
+// publication. It does not change publication state or grant eligibility; new
+// reservations continue to apply their own KYC gate.
 func (s *Service) UpdatePublishedOwn(ctx context.Context, owner, id string, input PublishedContentInput) (Draft, error) {
 	if !validOwner(owner) || !validID(id) {
 		return Draft{}, ErrNotFound

@@ -1,11 +1,11 @@
 # Backlog propuesto para cerrar el backend local
 
-Fecha inicial: 2026-10-07; conciliado con `main` #205 el 2026-10-09. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
+Fecha inicial: 2026-10-07; conciliado con `main` #207 el 2026-10-09. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
 
 ## Convenciones
 
 - `LOCAL-*` identifica paquetes de cierre. Tipo `VERTICAL` agrupa las etapas ARCH → DB → BE → API → TEST → MOCK de las tarjetas originales para evitar un PR por etapa. No sustituye la trazabilidad de esas tarjetas.
-- Reutilizar las Issues originales; crear un hijo local cuando sea necesario distinguir criterios locales de proveedores/GCP o ampliar una entrega ya cerrada. LOCAL-KYC-01 es Issue #200 y subissue de #45, relacionada con #48–#50. LOCAL-M04-PUB-01 (#204) quedó aceptada y Hecho tras el merge de #205; LOCAL-M04-EDIT-01 (#206), hija de #55, continúa la edición de publicación sin cerrar el padre. Evidencia #204: `planning/evidence/local-m04-publication-20261008.md`. No importar de nuevo el backlog Hermes.
+- Reutilizar las Issues originales; crear un hijo local cuando sea necesario distinguir criterios locales de proveedores/GCP o ampliar una entrega ya cerrada. LOCAL-KYC-01 es Issue #200 y subissue de #45, relacionada con #48–#50. LOCAL-M04-PUB-01 (#204) y LOCAL-M04-EDIT-01 (#206, hija de #55) quedaron aceptadas/Hecho tras PR #205/#207; sus recorridos y límites constan en `planning/evidence/local-m04-publication-20261008.md` y `planning/evidence/local-m04-edit-20261009.md`. No importar de nuevo el backlog Hermes.
 - LOCAL-PLAN-01, LOCAL-CORE-01 y LOCAL-AUTH-01 cuentan con entregas aceptadas (#181/#180/#182). LOCAL-BOOK-01 (#177) y LOCAL-M02-01 (#202, PR #203) también fueron aceptadas sin cerrar sus padres generales. LOCAL-KYC-01 (#200) fue aceptada tras PR #201. La subentrega LOCAL-M04-PUB-01 (#204) implementa ahora una transición local de publicación con el gate KYC; no completa LOCAL-LIST-01 ni M04, y no convierte `activa` en publicación pública general. Los padres/issues no cambian de estado automáticamente.
 - Una dependencia significa contrato/entrega aceptada y disponible en la rama base. Las puertas D-* del plan bloquean solo las operaciones que necesitan su decisión; no esperar a resolver toda la lista de decisiones para avanzar trabajo independiente.
 - Toda tarjeta VERTICAL incluye Backend/API → pruebas → tarjeta final de mock de su módulo. El mock no queda `ready` antes de existir sus APIs y pruebas necesarias.
@@ -118,9 +118,9 @@ Fecha inicial: 2026-10-07; conciliado con `main` #205 el 2026-10-09. Complementa
 
 ### LOCAL-LIST-01 — Completar ciclo local de publicaciones
 
-- **Módulo/tipo/estado:** M04 / VERTICAL / `parcial`; #204 es un slice aceptado y #206 es el corte siguiente, no completan este paquete.
+- **Módulo/tipo/estado:** M04 / VERTICAL / `parcial`; #204 y #206 son slices aceptados, no completan este paquete.
 - **Objetivo y motivo:** #52–61, CU-15–18; completar borrador → publicación local con controles de negocio.
-- **Alcance restante:** #204 cubre transición local owner-only, gate KYC e historial. #206 cubre edición propia de título/precio en estados activa/oculta y snapshots. Continúan pendientes conexión al catálogo general, galería sintética, tarifa/comisión/políticas comerciales generales; reutilizar calendario M06.
+- **Alcance restante:** #204 cubre transición local owner-only, gate KYC e historial. #206 cubre título/precio con snapshots y #208 está implementando descripción/capacidad/reglas de uso. Continúan pendientes conexión al catálogo general, galería sintética, modalidad tarifaria y políticas/comisiones generales; reutilizar calendario M06.
 - **Fuera:** publicación comercial, archivos reales sin autorización, cambiar categoría semilla o elegir frontend final.
 - **Dependencias:** LOCAL-PRIV-01, LOCAL-KYC-01, CORE y D-KYC/LIST/D-BOOK. El gate KYC sintético de publicación/solicitud personal está ratificado; #204 y #206 lo conservan en los puntos de entrada existentes. #142 queda fuera para la parte sintética local. La relación de publicaciones con descubrimiento general sigue pendiente. No cerrar #55/#52–#61 para desbloquear. **Desbloquea:** LOCAL-DISC-01 al completar contratos mínimos de oferta y acceso; #204/#206 por sí solos no bastan.
 - **Aceptación:** publicación requiere datos/estados aprobados; borradores quedan privados; despublicar corta nuevas operaciones según regla sin borrar reservas anteriores; galería conserva autorización y datos validados; snapshots anteriores sobreviven edición.
@@ -136,11 +136,22 @@ Fecha inicial: 2026-10-07; conciliado con `main` #205 el 2026-10-09. Complementa
 
 ### LOCAL-M04-EDIT-01 — Editar título y tarifa de una publicación propia (Issue #206)
 
-- **Módulo/tipo/estado:** M04 / VERTICAL DB-API-TEST-MOCK / `in_progress`, hija de #55.
+- **Módulo/tipo/estado:** M04 / VERTICAL DB-API-TEST-MOCK / aceptada y Hecho, hija de #55.
 - **Alcance:** editar título y/o precio base solo en publicación propia activa u oculta; mantener estado; cambio de precio crea nueva versión de tarifa; cotizaciones y reservas conservan snapshots. El mock ofrece edición contextual al titular.
 - **Dependencias reales:** #204/#205 publica y delimita ownership/estados; #134/#141 integra tarifa versionada y snapshots; #200/#201 mantiene gate KYC en reserva/publicación. Sin dependencia de catálogo general, galería, proveedor real o GCP.
 - **Validación focalizada:** unidad y handler/OpenAPI; build del mock; PostgreSQL desechable comprueba titularidad, estados activa/oculta, precio versionado, título sin nueva versión y snapshots inmutables. Sin migración nueva (V31 basta).
-- **Aceptación:** revisión/merge del PR de implementación; dejar #55 y demás padres M04 abiertos.
+- **Aceptación:** PR #207 merge `42e0744515baa0b9b191e3aacd03a0bd480b5370`; #206 cerrada/Hecho tras el mock posterior al merge. #55 y demás padres M04 permanecen abiertos.
+- **Evidencia:** `planning/evidence/local-m04-edit-20261009.md`; comprobación del mock activo propio con cambio de título y tarifa, reutilizando pruebas publicadas.
+
+### LOCAL-M04-EDIT-02 — Editar descripción, capacidad y reglas propias (Issue #208)
+
+- **Módulo/tipo/estado:** M04 / VERTICAL DB-API-TEST-MOCK / `in_progress`, subissue de #55.
+- **Alcance:** edición owner-only de descripción, capacidad y reglas de uso para publicaciones activa/oculta; partial update conserva estado, título y tarifa. El mock genera únicamente el body con valores cambiados.
+- **Dependencias reales:** #204/#205 y #206/#207 están fusionadas; reutiliza el modelo V5/V31 y la política de titularidad existente. Sin nueva migración, galería o conexión al catálogo general.
+- **Validación:** unitarias de límites, handler que valida body/respuesta OpenAPI, build y test enfocado del mock, integración PostgreSQL desechable con snapshots preservados.
+- **Fuera:** cambiar modalidad tarifaria (interactúa con calendario/disponibilidad), galería/archivos, ubicación/categoría/atributos, comercialización y GCP.
+- **Aceptación:** Issue #208 queda abierta/En revisión hasta merge y aceptación; #55 y #52–#61 conservan estado abierto.
+- **Evidencia:** `planning/evidence/local-m04-edit-details-20261009.md`.
 - **Evidencia:** V31 incremental; PostgreSQL desechable con `espacigo_runtime`; rechazo por ausencia/KYB/revocación; transición concurrente e historial; fixture habilitado devuelve conflicto sin romper catálogo/cotización/reserva; ZIP own-scoped; recorrido posterior al merge documentado en `planning/evidence/local-m04-publication-20261008.md`. No se amplió el catálogo general ni se ejecutó GCP.
 
 ### LOCAL-DISC-01 — Completar búsqueda y cotización de oferta local

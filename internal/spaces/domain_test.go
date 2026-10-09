@@ -40,21 +40,31 @@ func TestDraftInputRequiresAllCU15FieldsAndLimits(t *testing.T) {
 
 func TestPublishedContentInputValidatesPartialTitleAndPrice(t *testing.T) {
 	title := "Título editado"
+	description := strings.Repeat("Descripción local válida. ", 5)
+	capacity := int32(5)
+	usageRules := "Respetar el horario y no fumar"
 	price := int64(5001)
 	for name, input := range map[string]PublishedContentInput{
-		"title only": {Title: &title},
-		"price only": {BasePriceCLP: &price},
-		"both":       {Title: &title, BasePriceCLP: &price},
+		"title only":       {Title: &title},
+		"description only": {Description: &description},
+		"capacity only":    {Capacity: &capacity},
+		"rules only":       {UsageRules: &usageRules},
+		"price only":       {BasePriceCLP: &price},
+		"both":             {Title: &title, BasePriceCLP: &price},
 	} {
 		if err := input.Validate(); err != nil {
 			t.Errorf("%s rejected: %v", name, err)
 		}
 	}
 	for name, input := range map[string]PublishedContentInput{
-		"empty":     {},
-		"blank":     {Title: ptrString("  ")},
-		"too long":  {Title: ptrString(strings.Repeat("x", 71))},
-		"low price": {BasePriceCLP: ptrInt64(5000)},
+		"empty":             {},
+		"blank":             {Title: ptrString("  ")},
+		"too long":          {Title: ptrString(strings.Repeat("x", 71))},
+		"short description": {Description: ptrString("Descripción breve")},
+		"zero capacity":     {Capacity: ptrInt32(0)},
+		"blank rules":       {UsageRules: ptrString(" ")},
+		"long rules":        {UsageRules: ptrString(strings.Repeat("x", 251))},
+		"low price":         {BasePriceCLP: ptrInt64(5000)},
 	} {
 		if err := input.Validate(); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s error=%v, want ErrInvalid", name, err)
@@ -64,6 +74,7 @@ func TestPublishedContentInputValidatesPartialTitleAndPrice(t *testing.T) {
 
 func ptrString(value string) *string { return &value }
 func ptrInt64(value int64) *int64    { return &value }
+func ptrInt32(value int32) *int32    { return &value }
 
 func TestDraftAreaAndPriceMatchPostgresNumericRanges(t *testing.T) {
 	for _, area := range []float64{0.01, 99999999.99} {
