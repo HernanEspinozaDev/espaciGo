@@ -28,7 +28,7 @@ func TestValidTimeZoneUsesIANAZoneDatabase(t *testing.T) {
 			t.Errorf("rejected IANA zone %q", zone)
 		}
 	}
-	for _, zone := range []string{"", " ../etc/passwd", "America/../UTC", "not-a-zone"} {
+	for _, zone := range []string{"", " ../etc/passwd", "America/../UTC", "not-a-zone", "Local"} {
 		if validTimeZone(zone) {
 			t.Errorf("accepted invalid zone %q", zone)
 		}

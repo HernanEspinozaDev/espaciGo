@@ -742,6 +742,56 @@ async function loadSpaces() {
             li.append(publication);
         }
         if ((String(item.state) === "activa" || String(item.state) === "oculta") && sessionRoles.includes("arrendador")) {
+            const zone = typeof item.time_zone === "string" ? item.time_zone : "";
+            if (zone) {
+                const configured = document.createElement("small");
+                configured.textContent = `Zona horaria IANA: ${zone}`;
+                li.append(configured);
+            }
+            else {
+                const repair = document.createElement("form");
+                repair.className = "published-time-zone-repair";
+                const label = document.createElement("label");
+                label.textContent = "Reparar zona horaria IANA (solo si no hay reservas)";
+                const input = document.createElement("input");
+                input.name = "time_zone";
+                input.required = true;
+                input.maxLength = 100;
+                input.placeholder = "America/Santiago";
+                label.append(input);
+                const save = document.createElement("button");
+                save.type = "submit";
+                save.textContent = "Configurar zona horaria";
+                const hint = document.createElement("small");
+                hint.textContent = "No se asigna una zona automáticamente. El Backend rechazará una zona inválida o un espacio con reservas.";
+                repair.append(label, hint, save);
+                repair.addEventListener("submit", event => {
+                    event.preventDefault();
+                    void action(async () => {
+                        const chosen = input.value.trim();
+                        if (!chosen)
+                            throw new Error("Indica una zona IANA, por ejemplo America/Santiago.");
+                        const opToken = sessionToken, opAccount = sessionAccountID, opGeneration = sessionGeneration;
+                        let configured;
+                        try {
+                            configured = await request(`/api/v1/spaces/${encodeURIComponent(String(item.id))}/availability`, "PUT", { time_zone: chosen }, true);
+                        }
+                        catch (error) {
+                            if (!currentSpaceSession(opToken, opAccount, opGeneration))
+                                return;
+                            throw error;
+                        }
+                        if (!currentSpaceSession(opToken, opAccount, opGeneration))
+                            return;
+                        spacesOutput.textContent = JSON.stringify(configured, null, 2);
+                        resultElement.textContent = "Zona IANA configurada. Ya puedes publicar el espacio; las reservas existentes no se alteran.";
+                        await loadSpaces();
+                    });
+                });
+                li.append(repair);
+            }
+        }
+        if ((String(item.state) === "activa" || String(item.state) === "oculta") && sessionRoles.includes("arrendador")) {
             const edit = document.createElement("form");
             edit.className = "published-content-edit";
             const loaded = { title: String(item.title), description: String(item.description), capacity: Number(item.capacity), usage_rules: String(item.usage_rules), base_price_clp: Number(item.base_price_clp) };
@@ -1648,7 +1698,7 @@ form("booking-catalog-form", async (data) => {
     refreshCatalogControls();
     catalogResults.replaceChildren();
     if (!payload.items.length) {
-        catalogResults.textContent = "No hay espacios sintéticos habilitados para estos filtros.";
+        catalogResults.textContent = "No hay publicaciones locales activas ni fixtures de ensayo autorizados para estos filtros.";
         return;
     }
     for (const item of payload.items) {

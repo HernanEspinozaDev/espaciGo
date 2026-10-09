@@ -3,7 +3,10 @@ package spacespg
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
@@ -11,14 +14,58 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
+	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
+	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
+	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type publicationFlowAuth struct{ ownerID, renterID string }
+
+func (a publicationFlowAuth) Authorize(_ context.Context, token identity.Secret, required identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
+	var principal identity.Principal
+	switch token {
+	case "owner-token":
+		principal = identity.Principal{AccountID: a.ownerID, Roles: []identity.Role{identity.RoleLandlord, identity.RoleTenant}}
+	case "renter-token":
+		principal = identity.Principal{AccountID: a.renterID, Roles: []identity.Role{identity.RoleTenant}}
+	default:
+		return identity.Principal{}, identity.ErrUnauthorized
+	}
+	if required == identity.RoleLandlord && !containsIdentityRole(principal.Roles, identity.RoleLandlord) {
+		return identity.Principal{}, identity.ErrForbidden
+	}
+	return principal, nil
+}
+
+func containsIdentityRole(roles []identity.Role, target identity.Role) bool {
+	for _, role := range roles {
+		if role == target {
+			return true
+		}
+	}
+	return false
+}
+
+func invokePublicationAPI(handler http.Handler, method, path, token string, body []byte) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, path, strings.NewReader(string(body)))
+	request.Header.Set("Authorization", "Bearer "+token)
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
 
 func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testing.T) {
 	adminURL := os.Getenv("TEST_DATABASE_URL")
@@ -88,6 +135,12 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-missing-time-zone"); err != spaces.ErrTimeZoneRequired {
+		t.Fatalf("publication without IANA time zone error=%v", err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio SET zona_horaria='UTC' WHERE id=$1`, draft.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-no-kyc"); err != spaces.ErrEligibilityRequired {
 		t.Fatalf("publication without KYC error=%v", err)
 	}
@@ -120,6 +173,97 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if _, err = adminPool.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, other, renterVerification); err != nil {
 		t.Fatal(err)
 	}
+	// Exercise the HTTP APIs for create-without-zone -> clear publication
+	// rejection -> explicit configuration -> publication -> renter search,
+	// detail, and quote. This listing has no fixture allowlist entry.
+	apiAuth := publicationFlowAuth{ownerID: owner, renterID: other}
+	calendarService, err := occupancy.NewService(occupancypg.New(pool), credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spacesAPI := spaceshttp.NewHandler(apiAuth, svc, nil, calendarService)
+	bookingPayment, err := fakebooking.New([]byte("space-zone-publication-local-payment-key-32-bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bookingService, err := booking.NewService(bookingpg.New(pool), credentials.Generator{}, time.Now, bookingPayment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bookingAPI := bookinghttp.NewHandler(apiAuth, bookingService, nil)
+	apiDraftInput := spaces.Input{CategoryCode: "oficina", Title: "Oficina API con zona explícita", Description: strings.Repeat("Espacio sintético publicado tras configurar zona IANA. ", 2), AreaM2: 28, Capacity: 5, UsageRules: "Sin fumar", RateUnit: "hora", BasePriceCLP: 11000, Address: "Dirección sintética privada", AttributeSchemaVersion: 1, Attributes: map[string]any{}}
+	apiDraftBody, err := json.Marshal(apiDraftInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createResponse := invokePublicationAPI(spacesAPI, http.MethodPost, "/api/v1/spaces", "owner-token", apiDraftBody)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("create draft without zone response=%d body=%s", createResponse.Code, createResponse.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err = json.Unmarshal(createResponse.Body.Bytes(), &created); err != nil || created.ID == "" {
+		t.Fatalf("created draft response=%s err=%v", createResponse.Body.String(), err)
+	}
+	publicationBody := []byte(`{"state":"activa"}`)
+	missingZoneResponse := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+created.ID+"/publication", "owner-token", publicationBody)
+	var timeZoneAPIError struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if missingZoneResponse.Code != http.StatusConflict || json.Unmarshal(missingZoneResponse.Body.Bytes(), &timeZoneAPIError) != nil || timeZoneAPIError.Error.Code != "time_zone_required" || !strings.Contains(timeZoneAPIError.Error.Message, "IANA") {
+		t.Fatalf("publish without zone response=%d body=%s", missingZoneResponse.Code, missingZoneResponse.Body.String())
+	}
+	stillDraft, err := svc.GetOwn(ctx, owner, created.ID)
+	if err != nil || stillDraft.State != "borrador" || stillDraft.TimeZone != nil {
+		t.Fatalf("rejected publication changed draft: %+v err=%v", stillDraft, err)
+	}
+	zoneBody := []byte(`{"time_zone":"America/Santiago"}`)
+	configuredResponse := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+created.ID+"/availability", "owner-token", zoneBody)
+	if configuredResponse.Code != http.StatusOK || !strings.Contains(configuredResponse.Body.String(), `"time_zone":"America/Santiago"`) {
+		t.Fatalf("configure zone response=%d body=%s", configuredResponse.Code, configuredResponse.Body.String())
+	}
+	publishResponse := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+created.ID+"/publication", "owner-token", publicationBody)
+	if publishResponse.Code != http.StatusOK || !strings.Contains(publishResponse.Body.String(), `"state":"activa"`) {
+		t.Fatalf("publish configured draft response=%d body=%s", publishResponse.Code, publishResponse.Body.String())
+	}
+	searchResponse := invokePublicationAPI(bookingAPI, http.MethodGet, "/api/v1/local/booking-trial/catalog?category_code=oficina&page_size=25", "renter-token", nil)
+	if searchResponse.Code != http.StatusOK || !strings.Contains(searchResponse.Body.String(), created.ID) || strings.Contains(searchResponse.Body.String(), "Dirección sintética privada") {
+		t.Fatalf("renter search response=%d body=%s", searchResponse.Code, searchResponse.Body.String())
+	}
+	detailResponse := invokePublicationAPI(bookingAPI, http.MethodGet, "/api/v1/local/booking-trial/catalog/"+created.ID, "renter-token", nil)
+	if detailResponse.Code != http.StatusOK || !strings.Contains(detailResponse.Body.String(), "Oficina API con zona explícita") || !strings.Contains(detailResponse.Body.String(), "America/Santiago") {
+		t.Fatalf("renter detail response=%d body=%s", detailResponse.Code, detailResponse.Body.String())
+	}
+	quoteStart := time.Now().UTC().Add(48 * time.Hour).Truncate(time.Minute)
+	quoteBody, err := json.Marshal(booking.QuoteInput{SpaceID: created.ID, StartAt: quoteStart.Format(time.RFC3339), EndAt: quoteStart.Add(time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoteResponse := invokePublicationAPI(bookingAPI, http.MethodPost, "/api/v1/local/booking-trial/quotes", "renter-token", quoteBody)
+	if quoteResponse.Code != http.StatusOK || !strings.Contains(quoteResponse.Body.String(), created.ID) || !strings.Contains(quoteResponse.Body.String(), "America/Santiago") {
+		t.Fatalf("renter quote response=%d body=%s", quoteResponse.Code, quoteResponse.Body.String())
+	}
+	// A legacy hidden publication can be repaired by its owner and then
+	// activated; no default zone is inferred by the server.
+	legacyDraft, err := svc.Create(ctx, owner, apiDraftInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio SET estado='oculta' WHERE id=$1`, legacyDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	legacyZoneResponse := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+legacyDraft.ID+"/availability", "owner-token", zoneBody)
+	if legacyZoneResponse.Code != http.StatusOK {
+		t.Fatalf("repair legacy hidden publication response=%d body=%s", legacyZoneResponse.Code, legacyZoneResponse.Body.String())
+	}
+	legacyPublishResponse := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+legacyDraft.ID+"/publication", "owner-token", publicationBody)
+	if legacyPublishResponse.Code != http.StatusOK {
+		t.Fatalf("publish repaired legacy listing response=%d body=%s", legacyPublishResponse.Code, legacyPublishResponse.Body.String())
+	}
 	fixtureDraft, err := svc.Create(ctx, owner, in)
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +283,13 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	}
 	bookingRepo := bookingpg.New(pool)
 	catalog, err := bookingRepo.Catalog(ctx, other, booking.CatalogFilter{})
-	if err != nil || len(catalog) != 1 || catalog[0].SpaceID != fixtureDraft.ID {
+	foundFixture := false
+	for _, item := range catalog {
+		if item.SpaceID == fixtureDraft.ID {
+			foundFixture = true
+		}
+	}
+	if err != nil || !foundFixture {
 		t.Fatalf("fixture catalog after conflict: items=%+v err=%v", catalog, err)
 	}
 	quoteID, _ := (credentials.Generator{}).ID()
@@ -163,6 +313,28 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	}
 	if _, err = svc.SetPublicationState(ctx, owner, fixtureDraft.ID, "activa", "activate-for-edit-test"); err != nil {
 		t.Fatalf("activate non-fixture publication for edit test: %v", err)
+	}
+	// A legacy active listing with a reservation can be repaired only when its
+	// persisted zone is absent; the historical reservation snapshot is never
+	// rewritten by this endpoint.
+	zoneReplacement := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+fixtureDraft.ID+"/availability", "owner-token", zoneBody)
+	if zoneReplacement.Code != http.StatusConflict || !strings.Contains(zoneReplacement.Body.String(), `"code":"time_zone_locked"`) {
+		t.Fatalf("configured publication zone replacement response=%d body=%s", zoneReplacement.Code, zoneReplacement.Body.String())
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio SET zona_horaria=NULL WHERE id=$1`, fixtureDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	foreignRepair := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+fixtureDraft.ID+"/availability", "renter-token", zoneBody)
+	if foreignRepair.Code != http.StatusNotFound {
+		t.Fatalf("non-owner legacy repair response=%d body=%s", foreignRepair.Code, foreignRepair.Body.String())
+	}
+	protectedRepair := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+fixtureDraft.ID+"/availability", "owner-token", zoneBody)
+	if protectedRepair.Code != http.StatusConflict || !strings.Contains(protectedRepair.Body.String(), `"code":"time_zone_in_use"`) {
+		t.Fatalf("legacy listing with reservation repair response=%d body=%s", protectedRepair.Code, protectedRepair.Body.String())
+	}
+	var reservationZone string
+	if err = adminPool.QueryRow(ctx, `SELECT zona_horaria FROM public.reserva_ensayo_local WHERE espacio_id=$1`, fixtureDraft.ID).Scan(&reservationZone); err != nil || reservationZone != "UTC" {
+		t.Fatalf("legacy repair changed reservation snapshot zone=%q err=%v", reservationZone, err)
 	}
 	newTitle, newPrice := "Título publicado editado", int64(12000)
 	// Another operation changes the rate after the mock loaded the original

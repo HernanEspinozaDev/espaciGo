@@ -14,6 +14,7 @@ var (
 	ErrEligibilityRequired = errors.New("spaces: synthetic KYC eligibility required")
 	ErrPublicationConflict = errors.New("spaces: publication state conflict")
 	ErrEnabledFixture      = errors.New("spaces: enabled synthetic fixture prevents publication transition")
+	ErrTimeZoneRequired    = errors.New("spaces: valid IANA time zone required before publication")
 )
 
 type Draft struct {
@@ -29,6 +30,7 @@ type Draft struct {
 	BasePriceCLP           int64          `json:"base_price_clp"`
 	Address                string         `json:"address"`
 	State                  string         `json:"state"`
+	TimeZone               *string        `json:"time_zone,omitempty"`
 	AttributeSchemaVersion int            `json:"attribute_schema_version"`
 	Attributes             map[string]any `json:"attributes"`
 }
