@@ -2,6 +2,7 @@ package bookinghttp
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
@@ -205,6 +206,88 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(path, base+"/reservations/") {
 		parts := strings.Split(strings.TrimPrefix(path, base+"/reservations/"), "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "guarantee" {
+			if r.Method == http.MethodGet {
+				value, err := h.service.Guarantee(r.Context(), actor, parts[0])
+				if errors.Is(err, booking.ErrNotFound) {
+					if _, authErr := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), identity.RoleAdministrator, identity.UserOperation); authErr == nil {
+						value, err = h.service.GuaranteeForAdministrator(r.Context(), actor, parts[0])
+					}
+				}
+				h.reply(w, value, err)
+				return
+			}
+			if r.Method == http.MethodPost {
+				var in booking.GuaranteeOperationInput
+				if !decode(w, r, &in) {
+					return
+				}
+				requestID, err := (credentials.Generator{}).ID()
+				if err != nil {
+					fail(w, 500, "internal_error")
+					return
+				}
+				if in.Kind != "autorizacion" {
+					if _, authErr := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), identity.RoleAdministrator, identity.UserOperation); authErr != nil {
+						if errors.Is(authErr, identity.ErrForbidden) {
+							fail(w, 403, "forbidden")
+						} else {
+							w.Header().Set("WWW-Authenticate", "Bearer")
+							fail(w, 401, "unauthenticated")
+						}
+						return
+					}
+				}
+				value, err := h.service.RunGuaranteeOperation(r.Context(), actor, parts[0], in.Kind, r.Header.Get("Idempotency-Key"), in.AmountCLP, in.Outcome, requestID, in.Kind != "autorizacion")
+				if err != nil {
+					h.reply(w, nil, err)
+					return
+				}
+				write(w, http.StatusAccepted, map[string]any{"data": value, "safety_notice": booking.SafetyBanner})
+				return
+			}
+		}
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "financial-decision" && r.Method == http.MethodPost {
+			if _, authErr := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), identity.RoleAdministrator, identity.UserOperation); authErr != nil {
+				if errors.Is(authErr, identity.ErrForbidden) {
+					fail(w, 403, "forbidden")
+				} else {
+					w.Header().Set("WWW-Authenticate", "Bearer")
+					fail(w, 401, "unauthenticated")
+				}
+				return
+			}
+			var in booking.FinancialDecisionInput
+			if !decode(w, r, &in) {
+				return
+			}
+			fingerprint, _ := json.Marshal(in)
+			sum := sha256.Sum256(fingerprint)
+			value, err := h.service.DecideGuarantee(r.Context(), actor, parts[0], in, r.Header.Get("Idempotency-Key"), sum[:])
+			h.reply(w, value, err)
+			return
+		}
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "guarantee-reconcile" && r.Method == http.MethodPost {
+			if _, authErr := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), identity.RoleAdministrator, identity.UserOperation); authErr != nil {
+				if errors.Is(authErr, identity.ErrForbidden) {
+					fail(w, 403, "forbidden")
+				} else {
+				w.Header().Set("WWW-Authenticate", "Bearer")
+					fail(w, 401, "unauthenticated")
+				}
+				return
+			}
+			var in struct {
+				Kind    string `json:"kind"`
+				Outcome string `json:"outcome"`
+			}
+			if !decode(w, r, &in) {
+				return
+			}
+			value, err := h.service.ResolveGuaranteeOperation(r.Context(), actor, parts[0], in.Kind, in.Outcome)
+			h.reply(w, value, err)
+			return
+		}
 		if len(parts) == 1 && r.Method == http.MethodGet {
 			v, e := h.service.Get(r.Context(), actor, parts[0])
 			h.reply(w, v, e)

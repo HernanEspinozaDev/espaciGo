@@ -153,6 +153,13 @@ func (w *candidateWriter) Apply(ctx context.Context, opID, key string, input ope
 		if w.state != "lista_para_checkin" || !sameLocalDate(now, w.start, w.zone) {
 			return operation.Item{}, false, w.reject(ctx, operation.ErrConflict)
 		}
+		var needsGuarantee, guaranteeReady bool
+		if err := w.tx.QueryRow(ctx, `SELECT r.garantia_politica_version IS NOT NULL,COALESCE((SELECT g.estado='autorizada' FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=r.id),false) FROM public.reserva_ensayo_local r WHERE r.id=$1`, w.reservation).Scan(&needsGuarantee, &guaranteeReady); err != nil {
+			return operation.Item{}, false, w.reject(ctx, mapError(err))
+		}
+		if needsGuarantee && !guaranteeReady {
+			return operation.Item{}, false, w.reject(ctx, operation.ErrConflict)
+		}
 		var signed bool
 		if err := w.tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.contrato_ensayo_local c
 			WHERE c.reserva_id=$1 AND c.estado='firmado'

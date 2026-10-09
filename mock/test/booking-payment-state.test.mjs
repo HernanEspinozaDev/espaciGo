@@ -80,7 +80,8 @@ test("after a timeout, a refreshed paid state replaces the uncertain message and
 
   const panel=paymentPanelAfterError("pagada",payments.get("reservation-paid")!==null);
   if(panel.clearAttempt)payments.clearCompleted("reservation-paid");
-  assert.match(panel.message,/Pago fake confirmado por la API/);
+  assert.match(panel.message,/API confirmó el pago fake del arriendo/);
+  assert.match(panel.message,/autorización de garantía por separado/);
   assert.equal(panel.buttonLabel,"Enviar pago de ensayo");
   assert.equal(payments.get("reservation-paid"),null);
 });

@@ -58,13 +58,30 @@
     <button id="rights-load" type="button">Consultar mis solicitudes</button> <button id="privacy-export" type="button">Preparar ZIP de mis datos</button> <a id="privacy-export-download" href="#" download="espacigo-datos-propios.zip" hidden>Descargar ZIP preparado</a><pre id="privacy-output">Inicia sesión para preparar el ZIP versionado de tus datos propios.</pre>
     <details><summary>Baja local de solicitudes de supresión (solo administrador)</summary><p>Solo datos sintéticos del prototipo. Revalida bloqueadores bajo bloqueo, retira datos de cuenta elegibles y conserva vínculos históricos según privacidad_local_v1. El resultado indica baja con minimización y retención residual; no es supresión integral ni anonimización. Los archivos pendientes se reintentan de forma durable.</p><button id="suppression-queue-load" type="button">Cargar solicitudes pendientes</button><p id="suppression-queue-status" aria-live="polite">Requiere rol administrador.</p><div id="suppression-queue-items"></div><pre id="suppression-review-output">Requiere rol administrador.</pre><h3>Retención de históricos sintéticos</h3><p>Retira vínculos de reservas terminales cuando venció el plazo de 24 meses. Conserva los hechos históricos. También purga avisos de credenciales entregados o terminales después de 30 días; los pendientes se conservan.</p><button id="retention-purge-run" type="button">Procesar lote vencido</button><p id="retention-purge-status" aria-live="polite">Requiere rol administrador.</p><h3>Avisos de cambio de credencial (solo administrador)</h3><p>El worker intenta hasta ocho veces por ciclo. La recuperación reutiliza el evento y puede duplicar un correo si SMTP lo aceptó antes de una caída sin confirmación persistida; no se garantiza entrega exactamente una vez.</p><button id="credential-notice-load" type="button">Cargar fallos terminales</button><p id="credential-notice-status" aria-live="polite">Requiere rol administrador.</p><div id="credential-notice-items"></div><pre id="credential-notice-output">Requiere rol administrador.</pre><h3>Avisos de comunicación local</h3><p>Recuperación de fallos terminales de check-in, reporte, reclamo y cancelación.</p><button id="local-notice-load" type="button">Cargar avisos terminales</button><p id="local-notice-status" aria-live="polite">Requiere rol administrador.</p><div id="local-notice-items"></div><pre id="local-notice-output">Requiere rol administrador.</pre><h3>Reportes de reseña local</h3><button id="local-review-reports-load" type="button">Cargar reportes pendientes</button><p id="local-review-reports-status" aria-live="polite">Requiere rol administrador.</p><div id="local-review-reports-items"></div></details>
     <details><summary>Ensayo local de incidencias (solo administrador)</summary><p>Este cierre estructurado no resuelve aspectos económicos ni altera la reserva.</p><button id="local-dispute-admin-load" type="button">Cargar incidencias abiertas</button><div id="local-dispute-admin-items"></div><p id="local-dispute-admin-status" aria-live="polite">Requiere rol administrador.</p></details>
+    <details id="local-guarantee-recovery-admin-panel"><summary>Conciliar garantía fake pendiente (solo administrador)</summary><p>Consulta una reserva por su ID para recuperar una preautorización, captura o liberación incierta. Esto registra el resultado del adaptador fake; no mueve dinero real.</p><label>ID de reserva sintética <input id="local-guarantee-admin-reservation-id" type="text" autocomplete="off"></label><button id="local-guarantee-admin-load" type="button" disabled>Consultar operaciones fake</button><pre id="local-guarantee-admin-output">Requiere rol administrador.</pre><label>Operación pendiente <select id="local-guarantee-admin-kind" disabled></select></label><label>Resultado fake tardío <select id="local-guarantee-admin-outcome" disabled><option value="exito">Éxito</option><option value="rechazo">Rechazo de autorización</option></select></label><button id="local-guarantee-admin-reconcile" type="button" disabled>Conciliar operación</button></details>
     <details id="local-damage-claim-admin-panel"><summary>Resolución local de reclamos sintéticos (solo administrador)</summary>
-      <p>El administrador revisa evidencia privada y registra “acogido” o “rechazado” con motivo estructurado. Es ensayo local: sin montos, garantía, deducciones ni movimiento de fondos. Esos efectos quedan pendientes de LOCAL-FIN-01.</p>
+      <p>El administrador revisa evidencia privada y registra “acogido” o “rechazado”. LOCAL-FIN-01 agrega una decisión financiera separada: solo una captura fake confirmada aplica la deducción; no hay movimiento de fondos reales.</p>
       <button id="local-damage-admin-load" type="button" disabled>Cargar reclamos abiertos</button><p id="local-damage-admin-status" aria-live="polite">Requiere rol administrador.</p><div id="local-damage-admin-items"></div>
       <pre id="local-damage-admin-detail">Selecciona un reclamo de la cola para revisar detalle e historial.</pre><div id="local-damage-admin-evidence"></div>
       <label>Resultado <select id="local-damage-admin-outcome" disabled><option value="acogido">Acogido</option><option value="rechazado">Rechazado</option></select></label>
       <label>Motivo estructurado <select id="local-damage-admin-reason" disabled><option value="evidencia_suficiente">Evidencia suficiente</option><option value="evidencia_insuficiente">Evidencia insuficiente</option><option value="hecho_no_acreditado">Hecho no acreditado</option><option value="informacion_insuficiente">Información insuficiente</option></select></label>
       <button id="local-damage-admin-resolve" type="button" disabled>Registrar resolución local</button>
+      <section id="local-finance-admin-panel" aria-label="Decisión financiera fake de la garantía">
+        <h4>Garantía y deducción fake · separadas de la resolución</h4>
+        <p>ENSAYO LOCAL — SIN COBRO REAL. Requiere una resolución guardada. Una autorización no es un cobro; la deducción solo se aplica tras confirmar la captura.</p>
+        <button id="local-finance-admin-load" type="button" disabled>Consultar garantía de esta reserva</button>
+        <label>Deducción CLP <input id="local-finance-admin-deduction" type="number" min="0" max="50000" step="1" value="0"></label>
+        <label>Motivo de deducción <select id="local-finance-admin-reason"><option value="dano_acreditado">Daño acreditado</option><option value="faltante_acreditado">Faltante acreditado</option></select></label>
+        <label>Evidencia sintética privada del check-out <input id="local-finance-admin-evidence" type="text" readonly></label>
+        <button id="local-finance-admin-decision" type="button" disabled>Guardar decisión financiera</button>
+        <label>Resultado fake de captura/liberación <select id="local-finance-admin-outcome"><option value="exito">Éxito confirmado</option><option value="sin_respuesta">Timeout / resultado incierto</option></select></label>
+        <button id="local-finance-admin-capture" type="button" disabled>Capturar deducción decidida</button>
+        <button id="local-finance-admin-release" type="button" disabled>Liberar saldo restante</button>
+        <label>Operación pendiente <select id="local-finance-admin-reconcile-kind"></select></label>
+        <label>Resultado fake tardío <select id="local-finance-admin-reconcile-outcome"><option value="exito">Éxito</option><option value="rechazo">Rechazo de autorización</option></select></label>
+        <button id="local-finance-admin-reconcile" type="button" disabled>Conciliar operación pendiente</button>
+        <pre id="local-finance-admin-output" aria-live="polite">Selecciona un reclamo para consultar el estado financiero local.</pre>
+      </section>
     </details>
   </section>
   <section><h2>8. Verificación de identidad (M03 · sandbox sintético)</h2>
@@ -202,6 +219,26 @@ Selecciona una reserva propia pendiente de pago.</pre>
         <button id="booking-inbox-cancel" type="button" disabled>Confirmar cancelación</button>
         <label>Resultado fake de devolución <select id="booking-inbox-refund-outcome"><option value="exito">Éxito simulado</option><option value="fallo">Fallo simulado</option><option value="sin_respuesta">Sin respuesta simulada</option></select></label>
         <button id="booking-inbox-refund" type="button" disabled>Procesar / reintentar devolución fake</button>
+        <section id="local-guarantee-panel" aria-label="Garantía local de ensayo">
+          <h5>Garantía del ensayo · separada del pago del arriendo</h5>
+          <p>ENSAYO LOCAL — SIN COBRO REAL. CLP 50.000 fijos por reserva. Una autorización no significa captura ni ingreso.</p>
+          <label>Resultado fake de preautorización <select id="booking-guarantee-outcome"><option value="exito">Éxito confirmado</option><option value="rechazo">Rechazo confirmado</option><option value="sin_respuesta">Timeout / resultado incierto</option></select></label>
+          <button id="booking-guarantee-authorize" type="button" disabled>Procesar / reintentar autorización</button>
+          <label>Resultado tardío para conciliación administrativa <select id="booking-guarantee-late-outcome"><option value="exito">Éxito tardío</option><option value="rechazo">Rechazo tardío</option></select></label>
+          <label>Operación pendiente <select id="booking-guarantee-reconcile-kind"><option value="autorizacion">Autorización</option><option value="captura">Captura</option><option value="liberacion">Liberación</option></select></label>
+          <button id="booking-guarantee-reconcile" type="button" disabled>Conciliar resultado fake tardío</button>
+          <label>Resultado fake de captura/liberación <select id="booking-guarantee-operation-outcome"><option value="exito">Éxito confirmado</option><option value="sin_respuesta">Timeout / resultado incierto</option></select></label>
+          <label>Monto operación garantía CLP <input id="booking-guarantee-amount" type="number" min="0" step="1" value="50000"></label>
+          <button id="booking-guarantee-capture" type="button" disabled>Capturar deducción aprobada</button>
+          <button id="booking-guarantee-release" type="button" disabled>Liberar saldo disponible</button>
+          <label>Resultado del reclamo <select id="booking-guarantee-claim-result"><option value="acogido">Acogido</option><option value="rechazado">Rechazado</option></select></label>
+          <label>Deducción CLP <input id="booking-guarantee-deduction" type="number" min="0" max="50000" step="1" value="0"></label>
+          <label>Motivo <select id="booking-guarantee-reason"><option value="dano_acreditado">Daño acreditado</option><option value="faltante_acreditado">Faltante acreditado</option></select></label>
+          <label>ID de evidencia sintética de esta reserva <input id="booking-guarantee-evidence" type="text"></label>
+          <label>ID de reclamo resuelto <input id="booking-guarantee-claim" type="text" required></label>
+          <button id="booking-guarantee-decision" type="button" disabled>Registrar decisión financiera administrativa</button>
+          <pre id="booking-guarantee-output" aria-live="polite">Selecciona una reserva para consultar su snapshot financiero.</pre>
+        </section>
         <button id="booking-inbox-approve" type="button" disabled>Aprobar</button>
         <label>Motivo obligatorio para rechazar <input id="booking-inbox-reject-reason" type="text"></label>
         <button id="booking-inbox-reject" type="button" disabled>Rechazar</button>

@@ -263,12 +263,16 @@ FOR SHARE OF e`, renter, spaceID, booking.LocalCancellationPolicyVersion).Scan(&
 	q.ID = id
 	q.Units = units
 	q.Subtotal = amount
+	q.GuaranteePolicyVersion = ptrString(booking.LocalGuaranteePolicyVersion)
+	q.GuaranteeCurrency = ptrString("CLP")
+	guaranteeAmount := int64(50000)
+	q.GuaranteeExpectedCLP = &guaranteeAmount
 	q.StartAt = start
 	q.EndAt = end
 	q.CreatedAt = now
 	q.ExpiresAt = expires
 	retireAt := expires.AddDate(0, 0, 90)
-	_, err = tx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,creada_en,vence_en,categoria_codigo,perfil_version,perfil_valores_snapshot,politica_cancelacion_version,retirar_en) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`, id, q.SpaceID, hostID, renterID, q.RateVersion, q.RateUnit, q.UnitPrice, q.Currency, units, amount, start, end, q.TimeZone, q.Conditions, now, expires, q.CategoryCode, q.ProfileVersion, q.ProfileValues, q.CancellationPolicyVersion, retireAt)
+	_, err = tx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,creada_en,vence_en,categoria_codigo,perfil_version,perfil_valores_snapshot,politica_cancelacion_version,retirar_en,garantia_politica_version,garantia_moneda,garantia_prevista_clp) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`, id, q.SpaceID, hostID, renterID, q.RateVersion, q.RateUnit, q.UnitPrice, q.Currency, units, amount, start, end, q.TimeZone, q.Conditions, now, expires, q.CategoryCode, q.ProfileVersion, q.ProfileValues, q.CancellationPolicyVersion, retireAt, q.GuaranteePolicyVersion, q.GuaranteeCurrency, q.GuaranteeExpectedCLP)
 	if err != nil {
 		return booking.Quote{}, mapErr(err)
 	}
@@ -278,7 +282,7 @@ FOR SHARE OF e`, renter, spaceID, booking.LocalCancellationPolicyVersion).Scan(&
 	return q, nil
 }
 
-const reservationCols = `id::text,cotizacion_id::text,espacio_id::text,anfitrion_id::text,arrendatario_id::text,estado,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,politica_cancelacion_version,pago_vence_en,anfitrion_vence_en,creada_en,actualizada_en`
+const reservationCols = `id::text,cotizacion_id::text,espacio_id::text,anfitrion_id::text,arrendatario_id::text,estado,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,politica_cancelacion_version,pago_vence_en,anfitrion_vence_en,creada_en,actualizada_en,garantia_politica_version,garantia_moneda,garantia_prevista_clp`
 
 func scanReservation(row pgx.Row) (booking.Reservation, error) {
 	var v booking.Reservation
@@ -293,7 +297,7 @@ func scanReservationWithUnread(row pgx.Row) (booking.Reservation, error) {
 }
 
 func scanReservationColumns(row pgx.Row, v *booking.Reservation, withUnread bool) error {
-	columns := []any{&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.CancellationPolicyVersion, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt}
+	columns := []any{&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.CancellationPolicyVersion, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt, &v.GuaranteePolicyVersion, &v.GuaranteeCurrency, &v.GuaranteeExpectedCLP}
 	if withUnread {
 		columns = append(columns, &v.UnreadCount)
 	}
@@ -410,14 +414,19 @@ EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.espacio e ON
 		return booking.Reservation{}, booking.ErrConflict
 	}
 	var v booking.Reservation
-	err = tx.QueryRow(ctx, `INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,politica_cancelacion_version,pago_vence_en,creada_en,actualizada_en)
-SELECT $1,q.id,q.espacio_id,q.anfitrion_id,q.arrendatario_id,$4,$5,$6,'pendiente_de_pago',q.precio_unitario_clp,q.unidades,q.subtotal_clp,q.modalidad,q.moneda,q.inicio,q.termino,q.zona_horaria,q.condiciones_snapshot,q.politica_cancelacion_version,$7,$8,$8
+	err = tx.QueryRow(ctx, `INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,politica_cancelacion_version,pago_vence_en,creada_en,actualizada_en,garantia_politica_version,garantia_moneda,garantia_prevista_clp)
+SELECT $1,q.id,q.espacio_id,q.anfitrion_id,q.arrendatario_id,$4,$5,$6,'pendiente_de_pago',q.precio_unitario_clp,q.unidades,q.subtotal_clp,q.modalidad,q.moneda,q.inicio,q.termino,q.zona_horaria,q.condiciones_snapshot,q.politica_cancelacion_version,$7,$8,$8,q.garantia_politica_version,q.garantia_moneda,q.garantia_prevista_clp
 FROM public.cotizacion_reserva_ensayo q JOIN public.espacio e ON e.id=q.espacio_id AND e.propietario_id=q.anfitrion_id
 LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id AND f.arrendatario_id=q.arrendatario_id
 WHERE q.id=$2 AND q.arrendatario_id=$3 AND q.vence_en>$8 AND q.inicio>$8 AND (((f.habilitada AND e.estado='borrador')) OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa'))
-RETURNING `+reservationCols, id, quoteID, renter, key, fingerprint, occupancyID, payExpiresAt, now).Scan(&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.CancellationPolicyVersion, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt)
+RETURNING `+reservationCols, id, quoteID, renter, key, fingerprint, occupancyID, payExpiresAt, now).Scan(&v.ID, &v.QuoteID, &v.SpaceID, &v.HostID, &v.RenterID, &v.State, &v.RateUnit, &v.UnitPrice, &v.Currency, &v.Units, &v.Subtotal, &v.StartAt, &v.EndAt, &v.TimeZone, &v.Conditions, &v.CancellationPolicyVersion, &v.PayExpiresAt, &v.HostExpiresAt, &v.CreatedAt, &v.UpdatedAt, &v.GuaranteePolicyVersion, &v.GuaranteeCurrency, &v.GuaranteeExpectedCLP)
 	if err != nil {
 		return booking.Reservation{}, mapErr(err)
+	}
+	if v.GuaranteePolicyVersion != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO public.reserva_garantia_ensayo_local(reserva_id,politica_version,moneda,previsto_clp,estado,creada_en,actualizada_en) VALUES($1,$2,$3,$4,'pendiente_pago',$5,$5)`, v.ID, *v.GuaranteePolicyVersion, *v.GuaranteeCurrency, *v.GuaranteeExpectedCLP, now); err != nil {
+			return booking.Reservation{}, mapErr(err)
+		}
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,expira_en) VALUES($1,$2,$3,tstzrange($4,$5,'[)'),'retencion',true,$6)`, occupancyID, v.SpaceID, v.ID, v.StartAt, v.EndAt, v.PayExpiresAt)
 	if err != nil {
@@ -510,6 +519,15 @@ func (r *Repository) Decide(ctx context.Context, host, id, decision, reason stri
 		}
 		return booking.Reservation{}, booking.ErrConflict
 	}
+	var guaranteeRequired, guaranteeReady bool
+	if err = tx.QueryRow(ctx, `SELECT r.garantia_politica_version IS NOT NULL,
+COALESCE((SELECT g.estado='autorizada' FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=r.id),false)
+FROM public.reserva_ensayo_local r WHERE r.id=$1`, id).Scan(&guaranteeRequired, &guaranteeReady); err != nil {
+		return booking.Reservation{}, err
+	}
+	if guaranteeRequired && !guaranteeReady {
+		return booking.Reservation{}, booking.ErrConflict
+	}
 	if v.State != "pagada" || v.HostExpiresAt == nil || !now.Before(*v.HostExpiresAt) {
 		return booking.Reservation{}, booking.ErrConflict
 	}
@@ -517,6 +535,9 @@ func (r *Repository) Decide(ctx context.Context, host, id, decision, reason stri
 	historyReason := "aprobación del anfitrión en ensayo local"
 	if decision == "rechazar" {
 		next, historyReason = "rechazada_arrendador", "rechazo del anfitrión en ensayo local: "+reason
+		if err = closeGuaranteeOnCancellation(ctx, tx, id, now); err != nil {
+			return booking.Reservation{}, err
+		}
 		_, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE reserva_id=$1 AND activo`, id, now)
 		if err != nil {
 			return booking.Reservation{}, err
@@ -641,6 +662,9 @@ func (r *Repository) Cancel(ctx context.Context, renter, id, key, reason string,
 		return booking.CancellationResult{}, booking.ErrConflict
 	}
 	if err = contractspg.CancelForReservation(ctx, tx, id, renter, now); err != nil {
+		return booking.CancellationResult{}, err
+	}
+	if err = closeGuaranteeOnCancellation(ctx, tx, id, now); err != nil {
 		return booking.CancellationResult{}, err
 	}
 	var refundAmount *int64

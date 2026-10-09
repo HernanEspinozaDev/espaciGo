@@ -1,7 +1,7 @@
 /** Prefer a freshly loaded API state to the error from the preceding payment request. */
 export function paymentPanelAfterError(refreshedState, hasAttempt) {
     if (refreshedState === "pagada") {
-        return { message: "Pago fake confirmado por la API. La reserva espera la decisión del anfitrión.", buttonLabel: "Enviar pago de ensayo", clearAttempt: true };
+        return { message: "La API confirmó el pago fake del arriendo. Consulta la autorización de garantía por separado; hasta confirmarla no puede continuar el anfitrión, el contrato ni el check-in.", buttonLabel: "Enviar pago de ensayo", clearAttempt: true };
     }
     if (refreshedState === "cancelada_por_pago") {
         return { message: "La API confirmó el rechazo del pago fake; la reserva quedó cancelada.", buttonLabel: "Enviar pago de ensayo", clearAttempt: true };
