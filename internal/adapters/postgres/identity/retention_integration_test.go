@@ -1,9 +1,12 @@
 package postgres_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -15,10 +18,13 @@ import (
 	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/damageclaim"
+	damageclaimhttp "github.com/HernanEspinozaDev/espaciGo/internal/damageclaim/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/santhosh-tekuri/jsonschema/v5"
+	"gopkg.in/yaml.v3"
 )
 
 type noOpPrivacyCleaner struct{}
@@ -127,12 +133,92 @@ func TestResolvedDamageClaimPrivacyEvaluationMinimizesTextAndPurgesLinksAtRatifi
 			t.Fatalf("retained claim history still identifies an actor: %+v", transition)
 		}
 	}
+
+	// Exercise the actual administrative HTTP representation after purging links and
+	// validate it against the public OpenAPI envelope contract.
+	adminSession := h.login(t, "claim-privacy-admin@ejemplo.invalid")
+	api := damageclaimhttp.NewHandler(h.service, claims, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/local/damage-claims/"+claim.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+string(adminSession.Token))
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("admin detail after purge status=%d body=%s", response.Code, response.Body.String())
+	}
+	validateOpenAPIJSON(t, response.Body.Bytes(), "LocalDamageClaimEnvelope")
+	var wire map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &wire); err != nil {
+		t.Fatal(err)
+	}
+	data := wire["data"].(map[string]any)
+	for _, key := range []string{"reservation_id", "host_id", "renter_id", "checkout_operation_id", "checkout_evidence_id"} {
+		if value, present := data[key]; !present || value != nil {
+			t.Fatalf("purged %s should be JSON null, got present=%t value=%#v", key, present, value)
+		}
+	}
+	if data["description"] != "Texto libre retirado por baja local de privacidad." || data["state"] != "resuelta" {
+		t.Fatalf("historical outcome was not preserved: %#v", data)
+	}
+	evidence, ok := data["evidence"].([]any)
+	if !ok || len(evidence) != 0 {
+		t.Fatalf("purged evidence must be []: %#v", data["evidence"])
+	}
+	history, ok := data["history"].([]any)
+	if !ok || len(history) != len(retained.History) {
+		t.Fatalf("historical transitions were not returned as an array: %#v", data["history"])
+	}
+	for i, raw := range history {
+		item := raw.(map[string]any)
+		if actor, present := item["actor_id"]; !present || actor != nil {
+			t.Fatalf("history[%d] actor should be JSON null after unlinking: %#v", i, item)
+		}
+	}
+	for _, nestedKey := range []string{"defense", "resolution"} {
+		nested, ok := data[nestedKey].(map[string]any)
+		if !ok {
+			t.Fatalf("historical %s missing: %#v", nestedKey, data[nestedKey])
+		}
+		if actor, present := nested["actor_id"]; !present || actor != nil {
+			t.Fatalf("%s actor should be JSON null after unlinking: %#v", nestedKey, nested)
+		}
+	}
 	var transitionCount, occupancyCount int
 	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1),(SELECT count(*) FROM public.ocupacion WHERE id=$2)`, reservationID, occupancyID).Scan(&transitionCount, &occupancyCount); err != nil {
 		t.Fatal(err)
 	}
 	if transitionCount != 1 || occupancyCount != 1 {
 		t.Fatalf("historical facts were removed: transitions=%d occupancy=%d", transitionCount, occupancyCount)
+	}
+}
+
+func validateOpenAPIJSON(t *testing.T, payload []byte, schemaName string) {
+	t.Helper()
+	openapi, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "planning", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := yaml.Unmarshal(openapi, &document); err != nil {
+		t.Fatal(err)
+	}
+	documentJSON, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := jsonschema.NewCompiler()
+	if err := compiler.AddResource("openapi.json", bytes.NewReader(documentJSON)); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := compiler.Compile("openapi.json#/components/schemas/" + schemaName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(value); err != nil {
+		t.Fatalf("admin response does not match OpenAPI %s: %v", schemaName, err)
 	}
 }
 

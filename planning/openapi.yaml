@@ -2368,12 +2368,15 @@ components:
         outcome: { type: string, enum: [acogido, rechazado] }
         reason_code: { type: string, enum: [evidencia_suficiente, evidencia_insuficiente, hecho_no_acreditado, informacion_insuficiente] }
     LocalDamageClaimResolution:
+      description: >-
+        Los identificadores de actores se devuelven como null cuando la política local de
+        privacidad ya retiró el vínculo. El hecho de la resolución permanece conservado.
       type: object
       required: [outcome, reason_code, actor_id, resolved_at]
       properties:
         outcome: { type: string, enum: [acogido, rechazado] }
         reason_code: { type: string }
-        actor_id: { type: string, format: uuid }
+        actor_id: { type: [string, 'null'], format: uuid }
         resolved_at: { type: string, format: date-time }
         reused: { type: boolean }
     LocalDamageClaimEvidence:
@@ -2389,23 +2392,29 @@ components:
         created_at: { type: string, format: date-time }
         content_url: { type: string }
     LocalDamageClaimTransition:
+      description: Los actores desvinculados por privacidad se representan como null; la transición histórica se conserva.
       type: object
       required: [sequence, action, actor_id, occurred_at]
       properties:
         sequence: { type: integer, format: int64 }
         action: { type: string, enum: [reclamo_abierto, descargo_registrado, reclamo_resuelto] }
-        actor_id: { type: string, format: uuid }
+        actor_id: { type: [string, 'null'], format: uuid }
         occurred_at: { type: string, format: date-time }
     LocalDamageClaim:
+      description: >-
+        Tras vencer la retención local pueden retirarse los vínculos de reserva, participantes,
+        operación, evidencia y actores. Los identificadores requeridos se representan como null,
+        nunca como UUID vacío. evidence y history se devuelven siempre como arreglos JSON; evidence
+        puede ser [] tras purgar vínculos, mientras history conserva los hechos históricos disponibles.
       type: object
       required: [id, reservation_id, host_id, renter_id, checkout_operation_id, checkout_evidence_id, description, state, opened_at, claim_deadline_at, evidence, history]
       properties:
         id: { type: string, format: uuid }
-        reservation_id: { type: string, format: uuid }
-        host_id: { type: string, format: uuid }
-        renter_id: { type: string, format: uuid }
-        checkout_operation_id: { type: string, format: uuid }
-        checkout_evidence_id: { type: string, format: uuid }
+        reservation_id: { type: [string, 'null'], format: uuid }
+        host_id: { type: [string, 'null'], format: uuid }
+        renter_id: { type: [string, 'null'], format: uuid }
+        checkout_operation_id: { type: [string, 'null'], format: uuid }
+        checkout_evidence_id: { type: [string, 'null'], format: uuid }
         description: { type: string }
         state: { type: string, enum: [abierto, resuelta] }
         opened_at: { type: string, format: date-time }
@@ -2416,11 +2425,12 @@ components:
         evidence: { type: array, items: { $ref: '#/components/schemas/LocalDamageClaimEvidence' } }
         history: { type: array, items: { $ref: '#/components/schemas/LocalDamageClaimTransition' } }
     LocalDamageClaimDefense:
+      description: actor_id es null si el vínculo personal se retiró al vencer la retención local.
       type: object
       required: [id, actor_id, description, created_at]
       properties:
         id: { type: string, format: uuid }
-        actor_id: { type: string, format: uuid }
+        actor_id: { type: [string, 'null'], format: uuid }
         description: { type: string }
         created_at: { type: string, format: date-time }
         reused: { type: boolean }
