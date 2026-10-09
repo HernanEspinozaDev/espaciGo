@@ -1077,6 +1077,121 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	if lateResultCount != 1 || lateReleaseCount != 1 || authorizedAmount != 50000 || releasedAmount != 50000 {
 		t.Fatalf("late-result retry duplicated operations or left authorization: auth/result=%d release/result=%d amounts=%d/%d", lateResultCount, lateReleaseCount, authorizedAmount, releasedAmount)
 	}
+	// Cover the other first-success path: RunGuaranteeOperation itself begins
+	// before the reservation start and waits on the reservation row until its
+	// injected clock reaches the exact boundary. This is distinct from callback
+	// reconciliation above and must persist the authorization before release.
+	clockMu.Lock()
+	fixedNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	preWaitNow := fixedNow
+	clockMu.Unlock()
+	runLateStart := preWaitNow.Add(6*time.Hour + 45*time.Minute)
+	runLateSpace := "abababab-abab-4bab-8bab-abababababab"
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria)
+		VALUES($1,$2,'sala_multiproposito','Late authorization test',repeat('Synthetic test space. ',6),25,4,'Test access','hora',10000,'Synthetic','borrador','UTC')`, runLateSpace, host); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'sala_multiproposito',1,'{}'::jsonb)`, runLateSpace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',10000)`, runLateSpace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id) VALUES($1,$2,$3)`, runLateSpace, host, renter); err != nil {
+		t.Fatal(err)
+	}
+	runLateQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: runLateSpace, StartAt: runLateStart.Format(time.RFC3339Nano), EndAt: runLateStart.Add(time.Hour).Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatalf("quote for late RunGuaranteeOperation now=%s start=%s end=%s: %v", preWaitNow, runLateStart, runLateStart.Add(time.Hour), err)
+	}
+	runLateReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: runLateQuote.ID}, "guarantee-run-late-success")
+	if err != nil {
+		t.Fatalf("create late RunGuaranteeOperation reservation: %v", err)
+	}
+	svc.SetLocalGuaranteeOutcome(nil)
+	if _, err = svc.Pay(ctx, renter, runLateReservation.ID, "exito", "guarantee-run-late-rent"); err != nil {
+		t.Fatalf("pay before delayed authorization: %v", err)
+	}
+	lateRunLock, err := setup.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lateRunLock.Exec(ctx, `SELECT id FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, runLateReservation.ID); err != nil {
+		_ = lateRunLock.Rollback(ctx)
+		t.Fatal(err)
+	}
+	clockMu.Lock()
+	fixedNow = runLateStart.Add(-time.Minute)
+	clockMu.Unlock()
+	type lateRunResult struct {
+		operation booking.GuaranteeOperation
+		err       error
+	}
+	lateRunDone := make(chan lateRunResult, 1)
+	go func() {
+		operation, runErr := svc.RunGuaranteeOperation(ctx, renter, runLateReservation.ID, "autorizacion", "late-run-success-key", 50000, "exito", "", false)
+		lateRunDone <- lateRunResult{operation: operation, err: runErr}
+	}()
+	lateRunWaitDeadline := time.Now().Add(3 * time.Second)
+	lateRunWaiting := false
+	for time.Now().Before(lateRunWaitDeadline) {
+		if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename=current_user AND wait_event_type='Lock' AND query ILIKE '%WHERE id=$1 AND (arrendatario_id=$2 OR anfitrion_id=$2 OR $3::boolean) FOR UPDATE%')`).Scan(&lateRunWaiting); err != nil {
+			_ = lateRunLock.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if lateRunWaiting {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !lateRunWaiting {
+		_ = lateRunLock.Rollback(ctx)
+		t.Fatal("RunGuaranteeOperation did not wait on the held reservation lock")
+	}
+	clockMu.Lock()
+	fixedNow = runLateStart
+	clockMu.Unlock()
+	if err = lateRunLock.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	lateRun := <-lateRunDone
+	if lateRun.err != nil || lateRun.operation.State != "vencida" || lateRun.operation.LastResult != "resultado_tardio" {
+		t.Fatalf("first late RunGuaranteeOperation=%+v err=%v", lateRun.operation, lateRun.err)
+	}
+	var runLateAuthorized, runLateReleaseCount, runLateReleaseAmount int64
+	var runLateReservationState string
+	var runLateActiveOccupancy bool
+	if err = setup.QueryRow(ctx, `SELECT g.autorizado_clp,r.estado,EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.reserva_id=r.id AND o.activo),
+		(SELECT count(*) FROM public.reserva_garantia_operacion_ensayo_local x WHERE x.garantia_id=g.id AND x.tipo='liberacion'),
+		(SELECT COALESCE(max(x.importe_clp),0) FROM public.reserva_garantia_operacion_ensayo_local x WHERE x.garantia_id=g.id AND x.tipo='liberacion')
+		FROM public.reserva_garantia_ensayo_local g JOIN public.reserva_ensayo_local r ON r.id=g.reserva_id WHERE r.id=$1`, runLateReservation.ID).Scan(&runLateAuthorized, &runLateReservationState, &runLateActiveOccupancy, &runLateReleaseCount, &runLateReleaseAmount); err != nil {
+		t.Fatal(err)
+	}
+	if runLateAuthorized != 50000 || runLateReleaseCount != 1 || runLateReleaseAmount != 50000 || runLateReservationState != "cancelada_por_pago" || runLateActiveOccupancy {
+		t.Fatalf("late RunGuaranteeOperation effects authorized=%d release count/amount=%d/%d reservation=%s active occupancy=%v", runLateAuthorized, runLateReleaseCount, runLateReleaseAmount, runLateReservationState, runLateActiveOccupancy)
+	}
+	lateRunRetry, err := svc.RunGuaranteeOperation(ctx, renter, runLateReservation.ID, "autorizacion", "late-run-success-key", 50000, "exito", "", false)
+	if err != nil || lateRunRetry.ID != lateRun.operation.ID || lateRunRetry.State != "vencida" {
+		t.Fatalf("late RunGuaranteeOperation retry did not reuse result: %+v err=%v", lateRunRetry, err)
+	}
+	lateRunRelease, err := svc.ResolveGuaranteeOperation(ctx, adminID, runLateReservation.ID, "liberacion", "exito")
+	if err != nil || lateRunRelease.State != "confirmada" {
+		t.Fatalf("late RunGuaranteeOperation release reconciliation=%+v err=%v", lateRunRelease, err)
+	}
+	if replay, replayErr := svc.ResolveGuaranteeOperation(ctx, adminID, runLateReservation.ID, "liberacion", "exito"); replayErr != nil || replay.ID != lateRunRelease.ID || replay.State != "confirmada" {
+		t.Fatalf("late RunGuaranteeOperation release replay=%+v err=%v", replay, replayErr)
+	}
+	var runLateAuthResults, runLateReleaseResults int
+	var runLateReleased int64
+	if err = setup.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM public.reserva_garantia_resultado_fake_ensayo_local x WHERE x.operacion_id=$1),
+		(SELECT count(*) FROM public.reserva_garantia_resultado_fake_ensayo_local x WHERE x.operacion_id=$2),g.liberado_clp
+		FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=$3`, lateRun.operation.ID, lateRunRelease.ID, runLateReservation.ID).Scan(&runLateAuthResults, &runLateReleaseResults, &runLateReleased); err != nil {
+		t.Fatal(err)
+	}
+	if runLateAuthResults != 1 || runLateReleaseResults != 1 || runLateReleased != 50000 {
+		t.Fatalf("late first-success retries duplicated result/authorization release: results=%d/%d released=%d", runLateAuthResults, runLateReleaseResults, runLateReleased)
+	}
 	clockMu.Lock()
 	fixedNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	clockMu.Unlock()

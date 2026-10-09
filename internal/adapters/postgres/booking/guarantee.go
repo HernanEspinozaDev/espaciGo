@@ -292,6 +292,13 @@ func (r *Repository) RunGuaranteeOperation(ctx context.Context, actor, reservati
 			guaranteeState = "no_disponible"
 		case "vencida":
 			guaranteeState = "liberacion_pendiente"
+			authorized = 50000
+			// The fake success was processed at/after start_at. Persist the actual
+			// authorization before recording the compensating release intent; both
+			// changes commit atomically and the booking remains terminal.
+			if _, err = tx.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET estado=$2,autorizado_clp=$3,actualizada_en=$4 WHERE id=$1`, gid, guaranteeState, authorized, now); err != nil {
+				return old, false, err
+			}
 			fp, _ := json.Marshal([]any{"liberacion", int64(50000), "exito"})
 			sum := sha256.Sum256(fp)
 			_, err = tx.Exec(ctx, `INSERT INTO public.reserva_garantia_operacion_ensayo_local(id,garantia_id,tipo,clave_idempotencia,huella_solicitud,importe_clp,resultado_solicitado,estado,primer_intento_en,ultimo_resultado,completada_en,creada_en,actualizada_en)
