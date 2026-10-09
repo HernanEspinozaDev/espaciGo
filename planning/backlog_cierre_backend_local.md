@@ -223,7 +223,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras el merge #219 el 2026-
 
 ### LOCAL-COMM-01 — Reseñas, moderación y avisos durables locales (Issue #220)
 
-- **Módulo/tipo/estado:** M09 / VERTICAL / En curso, #220, hija de #95 y relacionada con #96–#102.
+- **Módulo/tipo/estado:** M09 / VERTICAL / En revisión, #220, hija de #95 y relacionada con #96–#102; PR #221 abierto.
 - **Objetivo y motivo:** #95–102, CU-35–38/49; completar reseñas/reportes y avisos durables sin cerrar padres generales.
 - **Alcance D-COMM ratificado:** una reseña por participante y reserva `finalizada`, arrendatario→espacio y anfitrión→arrendatario; nota entera 1–5 obligatoria, comentario opcional; no hay ventana adicional, edición ni nuevas reseñas en `en_disputa`; reintento idéntico reutiliza. Reseñas visibles del espacio y promedio únicamente para publicación activa, sin datos privados; reputación del arrendatario solo en vistas autenticadas autorizadas. El anfitrión reporta reseñas de su espacio con catálogo estructurado; el reporte marca `reportada` pero no oculta ni modifica promedio. Admin desestima u oculta con motivo y auditoría; ocultas no listan ni promedian; sin apelación.
 - **Avisos:** intención en transacción, deduplicación por evento/destinatario y entrega Mailpit para check-in→anfitrión, reporte→administradores autorizados, reclamo abierto→arrendatario y cancelación→ambas partes. Sin aviso por mensaje. Ocho intentos por ciclo, fallo terminal persistido y reapertura administrativa motivada; SMTP puede duplicar si el resultado es incierto tras envío.
@@ -233,6 +233,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras el merge #219 el 2026-
 - **Aceptación:** autorización por rol/participante/propietario/admin; reseñas recíprocas, promedio activo, reporte/moderación/auditoría; cuatro tipos de intención durable; fallos/reapertura y retención; exportación/baja aisladas; pruebas PostgreSQL y recorrido mock.
 - **Pruebas:** `go test` focalizado PostgreSQL con runtime, aislamiento, idempotencia, concurrencia, promedio, moderación y recuperación del outbox; recorrido mock con ambas partes y administrador.
 - **Riesgo:** filtrar datos privados o confundir aceptación SMTP con entrega exactamente una vez.
+- **Corrección previa a revisión:** V37 permite minimizar reseñas recibidas conforme a sus checks; coordina escrituras y despacho con baja; añade marca opaca para unicidad hasta el vencimiento de vínculos de reserva; recupera leases vencidos del intento 8 como terminales sin noveno envío. La integración desechable aplica V36→V37, comprueba Mailpit SMTP/API y retención del marcador.
 
 ## L4 — Resolver, liquidar y administrar
 

@@ -2,20 +2,27 @@ package reputation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
+	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	localnoticepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/localnotice"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	localnotice "github.com/HernanEspinozaDev/espaciGo/internal/localnotice"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
+	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	domain "github.com/HernanEspinozaDev/espaciGo/internal/reputation"
 	disposable "github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -58,7 +65,7 @@ func TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions(t *t
 		}
 	})
 	if _, e = migrator.Run(ctx, dbURL, "../../../../db/migrations"); e != nil {
-		t.Fatalf("migration through V36: %v", e)
+		t.Fatalf("migration through V37: %v", e)
 	}
 	if _, e = admin.Exec(ctx, `CREATE ROLE espacigo_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD 'local-comm-test'`); e != nil {
 		t.Fatal(e)
@@ -90,7 +97,7 @@ func TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions(t *t
 		t.Fatalf("runtime user=%q err=%v", runtime, e)
 	}
 	r := New(pool)
-	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	svc, e := domain.New(r, credentials.Generator{}, func() time.Time { return now })
 	if e != nil {
 		t.Fatal(e)
@@ -182,19 +189,34 @@ func TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions(t *t
 	if e = pool.QueryRow(ctx, `SELECT count(*) FROM public.evento_auditoria_local WHERE accion='reputation.review.moderate' AND recurso_id=$1`, report.ID).Scan(&audit); e != nil || audit != 1 {
 		t.Fatalf("moderation audit=%d err=%v", audit, e)
 	}
+	markerFixture := seedSuppressionRaceReservation(t, ctx, pool, 30, now)
+	markerRetireAt := now.AddDate(0, 36, 0)
+	if _, e = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=$2 WHERE id=$1`, markerFixture.reservation, markerRetireAt); e != nil {
+		t.Fatal(e)
+	}
+	markerReview, e := svc.Create(ctx, markerFixture.renter, markerFixture.reservation, "marker-review-key-0001", domain.ReviewInput{Rating: 4, Comment: "Synthetic marker test"})
+	if e != nil {
+		t.Fatalf("create marker test review: %v", e)
+	}
 	if _, e = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='en_disputa' WHERE id=$1`, reservation); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = svc.Create(ctx, renter, reservation, "review-new-in-dispute", domain.ReviewInput{Rating: 1}); !errors.Is(e, domain.ErrConflict) {
 		t.Fatalf("new review during dispute err=%v", e)
 	}
+	if _, e = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='finalizada' WHERE id=$1`, reservation); e != nil {
+		t.Fatal(e)
+	}
+	testReceivedReviewSuppression(t, ctx, pool, adminID, now, reservation, renter, host)
 	testCommunicationNoticeTriggers(t, ctx, pool, reservation, secondReservation, host, renter)
+	testMailpitLocalCommunicationDelivery(t, ctx, pool, now, adminID)
+	testNoticeDispatchSuppressionRace(t, ctx, pool, outsider, adminID, reservation, now)
 	var immutable bool
 	if e = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.resena_ensayo_local','DELETE') OR has_table_privilege(current_user,'public.reporte_resena_historial_local','UPDATE')`).Scan(&immutable); e != nil || immutable {
 		t.Fatalf("runtime can rewrite/delete reputation history: %v err=%v", immutable, e)
 	}
 	counts, e := r.PurgeExpired(ctx, now.AddDate(0, 24, 0), 10)
-	if e != nil || counts.ReviewsPurged != 3 || counts.ReportsPurged != 2 {
+	if e != nil || counts.ReviewsPurged != 4 || counts.ReportsPurged != 2 {
 		var pgErr *pgconn.PgError
 		if errors.As(e, &pgErr) {
 			t.Logf("postgres error: schema=%s table=%s column=%s constraint=%s detail=%s where=%s internal_query=%s", pgErr.SchemaName, pgErr.TableName, pgErr.ColumnName, pgErr.ConstraintName, pgErr.Detail, pgErr.Where, pgErr.InternalQuery)
@@ -206,7 +228,106 @@ func TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions(t *t
 		_ = pool.QueryRow(ctx, `SELECT has_table_privilege($1,'public.reporte_resena_ensayo_local','DELETE')`, owner).Scan(&del)
 		t.Fatalf("due retention counts=%+v err=%v security_definer=%t owner=%s owner_delete=%v", counts, e, definer, owner, del)
 	}
+	if _, e = svc.Create(ctx, markerFixture.renter, markerFixture.reservation, "marker-review-retry-key", domain.ReviewInput{Rating: 4, Comment: "Synthetic marker test"}); !errors.Is(e, domain.ErrConflict) {
+		t.Fatalf("purged review uniqueness was not retained: err=%v review=%s", e, markerReview.ID)
+	}
+	var retainedMarkers int
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM public.resena_autoria_marca_local WHERE retirar_en>$1`, now.AddDate(0, 24, 0)).Scan(&retainedMarkers); e != nil || retainedMarkers != 1 {
+		t.Fatalf("opaque authorship markers retained=%d err=%v", retainedMarkers, e)
+	}
 	testDurableNoticeRecovery(t, ctx, pool, now, reservation, adminID, host, outsider)
+	testReviewAndReportSuppressionRaces(t, ctx, pool, svc, adminID, now)
+}
+
+func TestV37BackfillsV36ReviewAuthorshipMarker(t *testing.T) {
+	baseURL := os.Getenv("TEST_DATABASE_URL")
+	if baseURL == "" {
+		t.Skip("TEST_DATABASE_URL is required for disposable PostgreSQL integration")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	admin, e := disposable.Connect(ctx, baseURL)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer admin.Close(context.Background())
+	name := fmt.Sprintf("local_comm_v37_%d", time.Now().UnixNano())
+	if _, e = admin.Exec(ctx, "CREATE DATABASE "+disposable.Identifier{name}.Sanitize()); e != nil {
+		t.Fatal(e)
+	}
+	u, e := url.Parse(baseURL)
+	if e != nil {
+		t.Fatal(e)
+	}
+	u.Path = "/" + name
+	dbURL := u.String()
+	t.Cleanup(func() {
+		c, cc := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cc()
+		if conn, err := disposable.Connect(c, baseURL); err == nil {
+			_, _ = conn.Exec(c, "DROP DATABASE "+disposable.Identifier{name}.Sanitize()+" WITH (FORCE)")
+			_ = conn.Close(c)
+		}
+	})
+	fullDir, e := filepath.Abs("../../../../db/migrations")
+	if e != nil {
+		t.Fatal(e)
+	}
+	entries, e := os.ReadDir(fullDir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	v36Dir := t.TempDir()
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "V") {
+			continue
+		}
+		versionText := strings.SplitN(strings.TrimPrefix(entry.Name(), "V"), "__", 2)[0]
+		version, parseErr := strconv.Atoi(versionText)
+		if parseErr != nil || version > 36 {
+			continue
+		}
+		if err := os.Symlink(filepath.Join(fullDir, entry.Name()), filepath.Join(v36Dir, entry.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, e = migrator.Run(ctx, dbURL, v36Dir); e != nil {
+		t.Fatalf("apply through V36: %v", e)
+	}
+	seedLocalReputationReservation(t, ctx, dbURL)
+	const renter = "11000000-0000-4000-8000-000000000002"
+	const reservation = "22000000-0000-4000-8000-000000000001"
+	const legacyReview = "77000000-0000-4000-8000-000000000091"
+	createdAt := time.Now().UTC().Truncate(time.Microsecond)
+	pool, e := pgxpool.New(ctx, dbURL)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer pool.Close()
+	if _, e = pool.Exec(ctx, `INSERT INTO public.resena_ensayo_local(id,reserva_id,espacio_id,autor_id,destinatario_tipo,destinatario_id,puntuacion,comentario,estado,creada_en,retirar_en,huella_solicitud,clave_idempotencia) VALUES($1,$2,'33000000-0000-4000-8000-000000000001',$3,'espacio',NULL,5,'legacy V36 review','publicada',$4,$4::timestamptz+interval '24 months',repeat('a',32)::bytea,'legacy-v36-review')`, legacyReview, reservation, renter, createdAt); e != nil {
+		t.Fatalf("seed V36 review: %v", e)
+	}
+	if _, e = migrator.Run(ctx, dbURL, fullDir); e != nil {
+		t.Fatalf("upgrade V36 data through V37: %v", e)
+	}
+	marker := reviewAuthorshipMarker(reservation, renter)
+	var markedAt, removeAt time.Time
+	if e = pool.QueryRow(ctx, `SELECT creada_en,retirar_en FROM public.resena_autoria_marca_local WHERE huella_autoria=$1`, marker[:]).Scan(&markedAt, &removeAt); e != nil {
+		t.Fatalf("V37 did not backfill legacy authorship marker: %v", e)
+	}
+	if !markedAt.Equal(createdAt) || !removeAt.After(createdAt.AddDate(0, 24, 0).Add(-time.Minute)) {
+		t.Fatalf("legacy marker dates=%s/%s", markedAt, removeAt)
+	}
+	if _, e = pool.Exec(ctx, `DELETE FROM public.resena_ensayo_local WHERE id=$1`, legacyReview); e != nil {
+		t.Fatal(e)
+	}
+	service, e := domain.New(New(pool), credentials.Generator{}, func() time.Time { return createdAt })
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = service.Create(ctx, renter, reservation, "legacy-v36-review-retry", domain.ReviewInput{Rating: 5, Comment: "legacy V36 review"}); !errors.Is(e, domain.ErrConflict) {
+		t.Fatalf("V37 backfilled marker did not prevent duplicate: %v", e)
+	}
 }
 
 func testCommunicationNoticeTriggers(t *testing.T, ctx context.Context, pool *pgxpool.Pool, reservation, secondReservation, host, renter string) {
@@ -339,6 +460,28 @@ func testDurableNoticeRecovery(t *testing.T, ctx context.Context, pool *pgxpool.
 	if e = pool.QueryRow(ctx, `SELECT estado,ciclo,intentos_ciclo,intentos_total FROM public.aviso_local WHERE id=$1`, noticeID).Scan(&state, &cycle, &cycleAttempts, &totalAttempts); e != nil || state != "entregada" || cycle != 2 || cycleAttempts != 1 || totalAttempts != 9 {
 		t.Fatalf("recovered state=%s cycle=%d cycle_attempts=%d total=%d err=%v", state, cycle, cycleAttempts, totalAttempts, e)
 	}
+	const strandedID = "66000000-0000-4000-8000-000000000003"
+	if _, e = pool.Exec(ctx, `INSERT INTO public.aviso_local(id,tipo_evento,agregado_tipo,agregado_id,destinatario_id,clave_deduplicacion,estado,ciclo,intentos_total,intentos_ciclo,creada_en,proximo_intento_en,lease_hasta) VALUES($1,'checkin_registrado','reserva',$2,$3,'comm-test-expired-eighth-lease','procesando',1,8,8,$4,$4,$4::timestamptz-interval '1 second')`, strandedID, reservation, adminID, clock); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = pool.Exec(ctx, `INSERT INTO public.aviso_local_ciclo(aviso_id,ciclo,estado,iniciada_en,intentos) VALUES($1,1,'pendiente',$2,8)`, strandedID, clock.Add(-time.Minute)); e != nil {
+		t.Fatal(e)
+	}
+	if claimed, err := restartedService.DispatchOne(ctx); err != nil || claimed || restartedSender.sent != 1 {
+		t.Fatalf("expired eighth lease should terminalize without another send: claimed=%t sends=%d err=%v", claimed, restartedSender.sent, err)
+	}
+	var strandedState, strandedCode, cycleState, cycleCode string
+	var terminalAt, removeAt *time.Time
+	var lease *time.Time
+	if e = pool.QueryRow(ctx, `SELECT estado,COALESCE(codigo_error,''),fallo_terminal_en,retirar_en,lease_hasta FROM public.aviso_local WHERE id=$1`, strandedID).Scan(&strandedState, &strandedCode, &terminalAt, &removeAt, &lease); e != nil {
+		t.Fatal(e)
+	}
+	if e = pool.QueryRow(ctx, `SELECT estado,COALESCE(codigo_resultado,'') FROM public.aviso_local_ciclo WHERE aviso_id=$1 AND ciclo=1`, strandedID).Scan(&cycleState, &cycleCode); e != nil {
+		t.Fatal(e)
+	}
+	if strandedState != "fallo_terminal" || strandedCode != "lease_expirado_tras_intento_8" || terminalAt == nil || !terminalAt.Equal(clock) || removeAt == nil || !removeAt.Equal(clock.Add(30*24*time.Hour)) || lease != nil || cycleState != "fallo_terminal" || cycleCode != strandedCode {
+		t.Fatalf("stranded eighth attempt not recovered: event=%s/%s/%v/%v lease=%v cycle=%s/%s", strandedState, strandedCode, terminalAt, removeAt, lease, cycleState, cycleCode)
+	}
 	const inactiveNotice = "66000000-0000-4000-8000-000000000002"
 	if _, e = pool.Exec(ctx, `INSERT INTO public.aviso_local(id,tipo_evento,agregado_tipo,agregado_id,destinatario_id,clave_deduplicacion,estado,ciclo,intentos_total,intentos_ciclo,creada_en,proximo_intento_en,fallo_terminal_en,codigo_error,retirar_en) VALUES($1,'checkin_registrado','reserva',$2,$3,'comm-test-inactive-notice','fallo_terminal',1,8,8,$4,$4,$4,'mailpit_delivery_failed',$4::timestamptz+interval '30 days')`, inactiveNotice, reservation, inactiveRecipient, clock); e != nil {
 		t.Fatal(e)
@@ -351,6 +494,328 @@ func testDurableNoticeRecovery(t *testing.T, ctx context.Context, pool *pgxpool.
 	}
 	if _, e = restartedService.Reopen(ctx, inactiveNotice, adminID, "reintento_operativo", "comm-test-inactive-reopen", "comm-reopen-inactive"); !errors.Is(e, localnotice.ErrInvalid) {
 		t.Fatalf("reopened notice for inactive recipient: %v", e)
+	}
+}
+
+func testMailpitLocalCommunicationDelivery(t *testing.T, ctx context.Context, pool *pgxpool.Pool, at time.Time, adminID string) {
+	t.Helper()
+	smtpAddr, apiURL := os.Getenv("LOCAL_SMTP_ADDR"), os.Getenv("LOCAL_MAILPIT_API")
+	var noticeID, recipient string
+	e := pool.QueryRow(ctx, `SELECT a.id::text,u.correo_original FROM public.aviso_local a JOIN public.usuario u ON u.id=a.destinatario_id WHERE a.tipo_evento='resena_reportada' AND a.destinatario_id=$1 AND a.estado='pendiente' ORDER BY a.creada_en,a.id LIMIT 1`, adminID).Scan(&noticeID, &recipient)
+	if e != nil {
+		t.Fatalf("find review-report notice for Mailpit: %v", e)
+	}
+	if _, e = pool.Exec(ctx, `UPDATE public.aviso_local SET proximo_intento_en='9999-01-01T00:00:00Z' WHERE estado='pendiente' AND id<>$1`, noticeID); e != nil {
+		t.Fatal(e)
+	}
+	if smtpAddr == "" || apiURL == "" {
+		if _, e = pool.Exec(ctx, `UPDATE public.aviso_local SET proximo_intento_en='9999-01-01T00:00:00Z' WHERE id=$1`, noticeID); e != nil {
+			t.Fatal(e)
+		}
+		t.Log("real Mailpit delivery omitted; run scripts/test-local-comm-mailpit.sh to include it")
+		return
+	}
+	sender := devauth.Mailer{Address: smtpAddr}
+	service, e := localnotice.New(localnoticepg.New(pool), sender, func() time.Time { return at })
+	if e != nil {
+		t.Fatal(e)
+	}
+	claimed, e := service.DispatchOne(ctx)
+	if e != nil || !claimed {
+		t.Fatalf("dispatch review notice to Mailpit: claimed=%t err=%v", claimed, e)
+	}
+	var state string
+	if e = pool.QueryRow(ctx, `SELECT estado FROM public.aviso_local WHERE id=$1`, noticeID).Scan(&state); e != nil || state != "entregada" {
+		t.Fatalf("Mailpit notice state=%s err=%v", state, e)
+	}
+	searchURL := strings.TrimRight(apiURL, "/") + "/api/v1/search?query=" + url.QueryEscape("to:"+recipient)
+	response, e := http.Get(searchURL)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("Mailpit search status=%s", response.Status)
+	}
+	var result struct {
+		Messages []struct {
+			ID      string
+			Subject string
+			To      []struct{ Address string }
+		} `json:"messages"`
+	}
+	if e = json.NewDecoder(response.Body).Decode(&result); e != nil {
+		t.Fatal(e)
+	}
+	for _, message := range result.Messages {
+		if !strings.Contains(message.Subject, "Reseña reportada") {
+			continue
+		}
+		for _, to := range message.To {
+			if strings.EqualFold(to.Address, recipient) {
+				return
+			}
+		}
+	}
+	t.Fatalf("Mailpit has no review-report message for %s", recipient)
+}
+
+func testReceivedReviewSuppression(t *testing.T, ctx context.Context, pool *pgxpool.Pool, adminID string, at time.Time, reservation, renter, host string) {
+	t.Helper()
+	privacyService, e := privacy.NewService(identitypg.NewIdentityRepository(pool))
+	if e != nil {
+		t.Fatal(e)
+	}
+	request, e := privacyService.RequestRight(ctx, renter, "supresion", "api")
+	if e != nil {
+		t.Fatal(e)
+	}
+	assessment, e := privacyService.ReviewSuppression(ctx, adminID, request.ID, "comm-received-review-assess", "comm-received-review", func() time.Time { return at })
+	if e != nil || assessment.Outcome != "elegible" {
+		t.Fatalf("review suppression assessment=%+v err=%v", assessment, e)
+	}
+	result, e := privacyService.ExecuteSuppression(ctx, adminID, request.ID, "comm-received-review-exec", "comm-received-review", func() time.Time { return at }, nil)
+	if e != nil || result.Status == "bloqueada" {
+		t.Fatalf("real suppression with received review: %+v err=%v", result, e)
+	}
+	var state, targetType, comment string
+	var targetID *string
+	if e = pool.QueryRow(ctx, `SELECT u.estado,r.destinatario_tipo,r.destinatario_id::text,r.comentario FROM public.usuario u JOIN public.resena_ensayo_local r ON r.reserva_id=$2 AND r.autor_id=$3 WHERE u.id=$1`, renter, reservation, host).Scan(&state, &targetType, &targetID, &comment); e != nil {
+		t.Fatal(e)
+	}
+	if state != "desidentificado" || targetType != "arrendatario_retirado" || targetID != nil || comment != "" {
+		t.Fatalf("received review minimization state=%s type=%s target=%v comment=%q", state, targetType, targetID, comment)
+	}
+}
+
+type raceFixture struct{ host, renter, space, quote, reservation, occupancy string }
+
+func seedSuppressionRaceReservation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, suffix int, at time.Time) raceFixture {
+	t.Helper()
+	id := func(group uint32, n uint64) string { return fmt.Sprintf("%08x-0000-4000-8000-%012x", group, n) }
+	f := raceFixture{
+		host: id(0x12000000, uint64(suffix*10+1)), renter: id(0x12000000, uint64(suffix*10+2)),
+		space: id(0x34000000, uint64(suffix)), quote: id(0x45000000, uint64(suffix)),
+		reservation: id(0x23000000, uint64(suffix)), occupancy: id(0x56000000, uint64(suffix)),
+	}
+	if _, e := pool.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic-hash','activo'),($3,$4,$4,'synthetic-hash','activo')`, f.host, fmt.Sprintf("comm-race-%d-host@example.invalid", suffix), f.renter, fmt.Sprintf("comm-race-%d-renter@example.invalid", suffix)); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := pool.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria,estado) VALUES($1,$2,'sala_multiproposito','Race review space',repeat('Synthetic local race fixture description. ',4),30,4,'Synthetic','hora',8000,'Synthetic address','America/Santiago','activa')`, f.space, f.host); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := pool.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',8000)`, f.space); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := pool.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'sala_multiproposito',1,'{}'::jsonb)`, f.space); e != nil {
+		t.Fatal(e)
+	}
+	start, end := at.Add(-48*time.Hour), at.Add(-24*time.Hour)
+	tx, e := pool.Begin(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, e = tx.Exec(ctx, `SET CONSTRAINTS ALL DEFERRED`); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = tx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,creada_en,vence_en,condiciones_snapshot,categoria_codigo,perfil_version,perfil_valores_snapshot) VALUES($1,$2,$3,$4,1,'hora',8000,'CLP',24,192000,$5,$6,'America/Santiago',$7,$7::timestamptz+interval '15 minutes','Synthetic terms','sala_multiproposito',1,'{}'::jsonb)`, f.quote, f.space, f.host, f.renter, start, end, at); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := tx.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,creada_en) VALUES($1,$2,$3,tstzrange($4,$5,'[)'),'reserva',true,$6)`, f.occupancy, f.space, f.reservation, start, end, at); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,pago_vence_en,creada_en,actualizada_en,condiciones_snapshot,politica_cancelacion_version,vinculos_retirar_en) VALUES($1,$2,$3,$4,$5,$6,repeat('b',32)::bytea,$7,'finalizada',8000,24,192000,'hora','CLP',$8,$9,'America/Santiago',$10,$11,$11,'Synthetic terms','local_flexible_v1',$12)`, f.reservation, f.quote, f.space, f.host, f.renter, fmt.Sprintf("comm-race-reservation-%d", suffix), f.occupancy, start, end, at.Add(time.Hour), at, at.AddDate(0, 24, 0)); e != nil {
+		t.Fatal(e)
+	}
+	if e = tx.Commit(ctx); e != nil {
+		t.Fatal(e)
+	}
+	return f
+}
+
+func prepareSuppression(t *testing.T, ctx context.Context, pool *pgxpool.Pool, adminID, subject string, at time.Time, suffix string) (*privacy.Service, privacy.RightsRequest) {
+	t.Helper()
+	s, e := privacy.NewService(identitypg.NewIdentityRepository(pool))
+	if e != nil {
+		t.Fatal(e)
+	}
+	req, e := s.RequestRight(ctx, subject, "supresion", "api")
+	if e != nil {
+		t.Fatal(e)
+	}
+	assessment, e := s.ReviewSuppression(ctx, adminID, req.ID, "comm-assess-"+suffix, "comm-corr-"+suffix, func() time.Time { return at })
+	if e != nil || assessment.Outcome != "elegible" {
+		t.Fatalf("suppression assessment=%+v err=%v", assessment, e)
+	}
+	return s, req
+}
+
+func waitForRuntimeLockWaits(t *testing.T, ctx context.Context, pool *pgxpool.Pool, minimum int) {
+	t.Helper()
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting int
+		e := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE usename=current_user AND wait_event_type='Lock' AND pid<>pg_backend_pid()`).Scan(&waiting)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if waiting >= minimum {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d PostgreSQL lock waiters", minimum)
+}
+
+func testReviewAndReportSuppressionRaces(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svc *domain.Service, adminID string, at time.Time) {
+	t.Helper()
+	createFixture := seedSuppressionRaceReservation(t, ctx, pool, 10, at)
+	privacyService, req := prepareSuppression(t, ctx, pool, adminID, createFixture.renter, at, "create-race")
+	blocker, e := pool.Begin(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = blocker.Exec(ctx, `SELECT id FROM public.usuario WHERE id=$1 FOR UPDATE`, createFixture.renter); e != nil {
+		t.Fatal(e)
+	}
+	type suppressionResult struct {
+		result privacy.SuppressionExecution
+		err    error
+	}
+	suppressed := make(chan suppressionResult, 1)
+	go func() {
+		v, err := privacyService.ExecuteSuppression(ctx, adminID, req.ID, "comm-execute-create-race", "comm-create-race", func() time.Time { return at }, nil)
+		suppressed <- suppressionResult{v, err}
+	}()
+	waitForRuntimeLockWaits(t, ctx, pool, 1)
+	created := make(chan error, 1)
+	go func() {
+		_, err := svc.Create(ctx, createFixture.renter, createFixture.reservation, "comm-review-create-race-key", domain.ReviewInput{Rating: 5})
+		created <- err
+	}()
+	waitForRuntimeLockWaits(t, ctx, pool, 2)
+	if e = blocker.Commit(ctx); e != nil {
+		t.Fatal(e)
+	}
+	if result := <-suppressed; result.err != nil || result.result.Status == "bloqueada" {
+		t.Fatalf("suppression in review race=%+v err=%v", result.result, result.err)
+	}
+	if err := <-created; !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("review inserted after suppression won lock: %v", err)
+	}
+	var count int
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM public.resena_ensayo_local WHERE reserva_id=$1`, createFixture.reservation).Scan(&count); e != nil || count != 0 {
+		t.Fatalf("racing review rows=%d err=%v", count, e)
+	}
+
+	reportFixture := seedSuppressionRaceReservation(t, ctx, pool, 20, at)
+	review, e := svc.Create(ctx, reportFixture.renter, reportFixture.reservation, "comm-report-race-review", domain.ReviewInput{Rating: 4})
+	if e != nil {
+		t.Fatal(e)
+	}
+	reportPrivacy, reportReq := prepareSuppression(t, ctx, pool, adminID, reportFixture.host, at, "report-race")
+	blocker, e = pool.Begin(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = blocker.Exec(ctx, `SELECT id FROM public.usuario WHERE id=$1 FOR UPDATE`, reportFixture.host); e != nil {
+		t.Fatal(e)
+	}
+	suppressed = make(chan suppressionResult, 1)
+	go func() {
+		v, err := reportPrivacy.ExecuteSuppression(ctx, adminID, reportReq.ID, "comm-execute-report-race", "comm-report-race", func() time.Time { return at }, nil)
+		suppressed <- suppressionResult{v, err}
+	}()
+	waitForRuntimeLockWaits(t, ctx, pool, 1)
+	reported := make(chan error, 1)
+	go func() {
+		_, err := svc.ReportReview(ctx, reportFixture.host, reportFixture.reservation, review.ID, "comm-report-race-key", "spam")
+		reported <- err
+	}()
+	waitForRuntimeLockWaits(t, ctx, pool, 2)
+	if e = blocker.Commit(ctx); e != nil {
+		t.Fatal(e)
+	}
+	if result := <-suppressed; result.err != nil || result.result.Status == "bloqueada" {
+		t.Fatalf("suppression in report race=%+v err=%v", result.result, result.err)
+	}
+	if err := <-reported; !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("report inserted after suppression won lock: %v", err)
+	}
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM public.reporte_resena_ensayo_local WHERE resena_id=$1`, review.ID).Scan(&count); e != nil || count != 0 {
+		t.Fatalf("racing report rows=%d err=%v", count, e)
+	}
+}
+
+func testNoticeDispatchSuppressionRace(t *testing.T, ctx context.Context, pool *pgxpool.Pool, subject, adminID, reservation string, at time.Time) {
+	t.Helper()
+	const noticeID = "66000000-0000-4000-8000-000000000091"
+	if _, e := pool.Exec(ctx, `INSERT INTO public.aviso_local(id,tipo_evento,agregado_tipo,agregado_id,destinatario_id,clave_deduplicacion,creada_en,proximo_intento_en) VALUES($1,'checkin_registrado','reserva',$2,$3,'comm-dispatch-race',$4,$4)`, noticeID, reservation, subject, at); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := pool.Exec(ctx, `INSERT INTO public.aviso_local_ciclo(aviso_id,ciclo,estado,iniciada_en) VALUES($1,1,'pendiente',$2)`, noticeID, at); e != nil {
+		t.Fatal(e)
+	}
+	privacyService, request := prepareSuppression(t, ctx, pool, adminID, subject, at, "dispatch-race")
+	sender := &blockingNoticeSender{entered: make(chan struct{}), release: make(chan struct{})}
+	service, e := localnotice.New(localnoticepg.New(pool), sender, func() time.Time { return at })
+	if e != nil {
+		t.Fatal(e)
+	}
+	dispatched := make(chan error, 1)
+	go func() { _, err := service.DispatchOne(ctx); dispatched <- err }()
+	select {
+	case <-sender.entered:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	suppressed := make(chan error, 1)
+	go func() {
+		_, err := privacyService.ExecuteSuppression(ctx, adminID, request.ID, "comm-execute-dispatch-race", "comm-dispatch-race", func() time.Time { return at }, nil)
+		suppressed <- err
+	}()
+	waitForRuntimeLockWaits(t, ctx, pool, 1)
+	close(sender.release)
+	if e = <-dispatched; e != nil {
+		t.Fatalf("dispatch before baja commit: %v", e)
+	}
+	if e = <-suppressed; e != nil {
+		t.Fatalf("baja after terminal dispatch: %v", e)
+	}
+	var state string
+	if e = pool.QueryRow(ctx, `SELECT estado FROM public.aviso_local WHERE id=$1`, noticeID).Scan(&state); e != nil || state != "entregada" {
+		t.Fatalf("notice state after dispatch/baja=%s err=%v", state, e)
+	}
+	const afterID = "66000000-0000-4000-8000-000000000092"
+	if _, e = pool.Exec(ctx, `INSERT INTO public.aviso_local(id,tipo_evento,agregado_tipo,agregado_id,destinatario_id,clave_deduplicacion,creada_en,proximo_intento_en) VALUES($1,'checkin_registrado','reserva',$2,$3,'comm-inactive-recipient',$4,$4)`, afterID, reservation, subject, at); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = pool.Exec(ctx, `INSERT INTO public.aviso_local_ciclo(aviso_id,ciclo,estado,iniciada_en) VALUES($1,1,'pendiente',$2)`, afterID, at); e != nil {
+		t.Fatal(e)
+	}
+	quietSender := &localNoticeTestSender{}
+	quiet, e := localnotice.New(localnoticepg.New(pool), quietSender, func() time.Time { return at })
+	if e != nil {
+		t.Fatal(e)
+	}
+	if claimed, err := quiet.DispatchOne(ctx); err != nil || claimed || quietSender.sent != 0 {
+		t.Fatalf("inactive recipient dispatch claimed=%v sends=%d err=%v", claimed, quietSender.sent, err)
+	}
+	if e = pool.QueryRow(ctx, `SELECT estado FROM public.aviso_local WHERE id=$1`, afterID).Scan(&state); e != nil || state != "cancelada" {
+		t.Fatalf("post-baja notice state=%s err=%v", state, e)
+	}
+}
+
+type blockingNoticeSender struct{ entered, release chan struct{} }
+
+func (s *blockingNoticeSender) SendLocalBookingNotice(ctx context.Context, _, _, _ string) error {
+	close(s.entered)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.release:
+		return nil
 	}
 }
 

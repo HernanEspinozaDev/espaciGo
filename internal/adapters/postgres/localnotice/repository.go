@@ -3,6 +3,8 @@ package localnotice
 import (
 	"context"
 	"errors"
+	"sort"
+	"sync"
 	"time"
 
 	domain "github.com/HernanEspinozaDev/espaciGo/internal/localnotice"
@@ -11,29 +13,66 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Repository struct{ pool *pgxpool.Pool }
+type claimedConnection struct {
+	conn *pgxpool.Conn
+	key  int64
+}
 
-func New(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
+type Repository struct {
+	pool    *pgxpool.Pool
+	mu      sync.Mutex
+	claimed map[string]claimedConnection
+}
+
+func New(pool *pgxpool.Pool) *Repository {
+	return &Repository{pool: pool, claimed: map[string]claimedConnection{}}
+}
 
 func (r *Repository) Claim(ctx context.Context, at time.Time) (domain.Notice, bool, error) {
-	tx, e := r.pool.Begin(ctx)
-	if e != nil {
-		return domain.Notice{}, false, e
-	}
-	defer func() { _ = tx.Rollback(context.Background()) }()
 	var id, recipient string
-	e = tx.QueryRow(ctx, `SELECT id::text,destinatario_id::text FROM public.aviso_local WHERE (estado='pendiente' AND proximo_intento_en<=$1) OR (estado='procesando' AND lease_hasta<=$1) ORDER BY proximo_intento_en,id LIMIT 1`, at).Scan(&id, &recipient)
+	e := r.pool.QueryRow(ctx, `SELECT id::text,destinatario_id::text FROM public.aviso_local WHERE (estado='pendiente' AND proximo_intento_en<=$1) OR (estado='procesando' AND lease_hasta<=$1) ORDER BY proximo_intento_en,id LIMIT 1`, at).Scan(&id, &recipient)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return domain.Notice{}, false, nil
 	}
 	if e != nil {
 		return domain.Notice{}, false, e
 	}
+	conn, e := r.pool.Acquire(ctx)
+	if e != nil {
+		return domain.Notice{}, false, e
+	}
+	var advisoryKey int64
+	if e = conn.QueryRow(ctx, `SELECT hashtextextended($1::text,0)`, recipient).Scan(&advisoryKey); e == nil {
+		_, e = conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, advisoryKey)
+	}
+	if e != nil {
+		conn.Release()
+		return domain.Notice{}, false, e
+	}
+	tx, e := conn.Begin(ctx)
+	if e != nil {
+		releaseNoticeConnection(conn, advisoryKey)
+		return domain.Notice{}, false, e
+	}
+	committed := false
+	retainConnection := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.Background())
+		}
+		if !retainConnection {
+			releaseNoticeConnection(conn, advisoryKey)
+		}
+	}()
 	var userState string
 	var email pgtype.Text
 	e = tx.QueryRow(ctx, `SELECT estado,correo_original FROM public.usuario WHERE id=$1 FOR UPDATE`, recipient).Scan(&userState, &email)
 	if errors.Is(e, pgx.ErrNoRows) {
-		return domain.Notice{}, false, tx.Commit(ctx)
+		if e = tx.Commit(ctx); e != nil {
+			return domain.Notice{}, false, e
+		}
+		committed = true
+		return domain.Notice{}, false, nil
 	}
 	if e != nil {
 		return domain.Notice{}, false, e
@@ -41,12 +80,18 @@ func (r *Repository) Claim(ctx context.Context, at time.Time) (domain.Notice, bo
 	var n domain.Notice
 	var state string
 	var lease *time.Time
-	e = tx.QueryRow(ctx, `SELECT id::text,tipo_evento,agregado_tipo,agregado_id::text,destinatario_id::text,estado,ciclo,intentos_ciclo,lease_hasta FROM public.aviso_local WHERE id=$1 FOR UPDATE`, id).Scan(&n.ID, &n.Type, &n.AggregateType, &n.AggregateID, &n.RecipientID, &state, &n.Cycle, &n.Attempt, &lease)
+	var nextAttempt time.Time
+	e = tx.QueryRow(ctx, `SELECT id::text,tipo_evento,agregado_tipo,agregado_id::text,destinatario_id::text,estado,ciclo,intentos_ciclo,lease_hasta,proximo_intento_en FROM public.aviso_local WHERE id=$1 FOR UPDATE`, id).Scan(&n.ID, &n.Type, &n.AggregateType, &n.AggregateID, &n.RecipientID, &state, &n.Cycle, &n.Attempt, &lease, &nextAttempt)
 	if e != nil {
 		return domain.Notice{}, false, e
 	}
-	if (state != "pendiente" && state != "procesando") || (state == "pendiente" && n.Attempt > 8) || (state == "procesando" && lease != nil && lease.After(at)) {
-		return domain.Notice{}, false, tx.Commit(ctx)
+	due := (state == "pendiente" && !nextAttempt.After(at)) || (state == "procesando" && lease != nil && !lease.After(at))
+	if (state != "pendiente" && state != "procesando") || !due {
+		if e = tx.Commit(ctx); e != nil {
+			return domain.Notice{}, false, e
+		}
+		committed = true
+		return domain.Notice{}, false, nil
 	}
 	if userState != "activo" || !email.Valid {
 		_, e = tx.Exec(ctx, `UPDATE public.aviso_local SET estado='cancelada',cancelada_en=$2,retirar_en=$2::timestamptz+interval '30 days',lease_hasta=NULL,codigo_error='destinatario_no_activo' WHERE id=$1`, id, at)
@@ -57,7 +102,29 @@ func (r *Repository) Claim(ctx context.Context, at time.Time) (domain.Notice, bo
 		if e != nil {
 			return domain.Notice{}, false, e
 		}
-		return domain.Notice{}, false, tx.Commit(ctx)
+		if e = tx.Commit(ctx); e != nil {
+			return domain.Notice{}, false, e
+		}
+		committed = true
+		return domain.Notice{}, false, nil
+	}
+	if n.Attempt >= 8 {
+		code := "limite_intentos_agotado"
+		if state == "procesando" {
+			code = "lease_expirado_tras_intento_8"
+		}
+		_, e = tx.Exec(ctx, `UPDATE public.aviso_local SET estado='fallo_terminal',fallo_terminal_en=$2,retirar_en=$2::timestamptz+interval '30 days',lease_hasta=NULL,codigo_error=$3 WHERE id=$1`, id, at, code)
+		if e == nil {
+			_, e = tx.Exec(ctx, `UPDATE public.aviso_local_ciclo SET estado='fallo_terminal',finalizada_en=$3,codigo_resultado=$4 WHERE aviso_id=$1 AND ciclo=$2 AND estado='pendiente'`, id, n.Cycle, at, code)
+		}
+		if e != nil {
+			return domain.Notice{}, false, e
+		}
+		if e = tx.Commit(ctx); e != nil {
+			return domain.Notice{}, false, e
+		}
+		committed = true
+		return domain.Notice{}, false, nil
 	}
 	n.Email = email.String
 	n.Attempt++
@@ -72,10 +139,23 @@ func (r *Repository) Claim(ctx context.Context, at time.Time) (domain.Notice, bo
 	if e = tx.Commit(ctx); e != nil {
 		return domain.Notice{}, false, e
 	}
+	committed = true
+	r.mu.Lock()
+	r.claimed[n.ID] = claimedConnection{conn: conn, key: advisoryKey}
+	r.mu.Unlock()
+	retainConnection = true
 	return n, true, nil
 }
 func (r *Repository) Finish(ctx context.Context, n domain.Notice, success bool, code string, at time.Time) error {
-	tx, e := r.pool.Begin(ctx)
+	r.mu.Lock()
+	leaseConn, ok := r.claimed[n.ID]
+	delete(r.claimed, n.ID)
+	r.mu.Unlock()
+	if !ok {
+		return domain.ErrInvalid
+	}
+	defer releaseNoticeConnection(leaseConn.conn, leaseConn.key)
+	tx, e := leaseConn.conn.Begin(ctx)
 	if e != nil {
 		return e
 	}
@@ -111,6 +191,14 @@ func (r *Repository) Finish(ctx context.Context, n domain.Notice, success bool, 
 	}
 	return tx.Commit(ctx)
 }
+
+func releaseNoticeConnection(conn *pgxpool.Conn, key int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, _ = conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, key)
+	conn.Release()
+}
+
 func (r *Repository) ListTerminal(ctx context.Context, limit int) ([]domain.TerminalNotice, error) {
 	rows, e := r.pool.Query(ctx, `SELECT id::text,tipo_evento,estado,COALESCE(codigo_error,''),ciclo,intentos_total,creada_en,COALESCE(entregada_en,fallo_terminal_en,cancelada_en) FROM public.aviso_local WHERE estado='fallo_terminal' ORDER BY fallo_terminal_en,id LIMIT $1`, limit)
 	if e != nil {
@@ -140,6 +228,18 @@ func (r *Repository) Reopen(ctx context.Context, id, admin, reason, key, correla
 	}
 	if e != nil {
 		return domain.Recovery{}, e
+	}
+	accountIDs := []string{admin, recipient}
+	sort.Strings(accountIDs)
+	lastID := ""
+	for _, accountID := range accountIDs {
+		if accountID == lastID {
+			continue
+		}
+		lastID = accountID
+		if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, accountID); e != nil {
+			return domain.Recovery{}, e
+		}
 	}
 	rows, e := tx.Query(ctx, `SELECT id FROM public.usuario WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE`, []string{admin, recipient})
 	if e != nil {

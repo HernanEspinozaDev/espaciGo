@@ -68,6 +68,15 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	var accountID string
+	// Serialize suppression with local outbox delivery. The notice worker holds
+	// the matching session advisory lock from claim through SMTP result commit.
+	var advisoryKey int64
+	if err := tx.QueryRow(ctx, `SELECT hashtextextended($1::text,0)`, subjectID).Scan(&advisoryKey); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, advisoryKey); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
 	if err := tx.QueryRow(ctx, `SELECT id::text FROM public.usuario WHERE id=$1 FOR UPDATE`, subjectID).Scan(&accountID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return privacy.SuppressionExecution{}, privacy.ErrNotFound
@@ -228,6 +237,7 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 	if _, err = tx.Exec(ctx, `UPDATE public.resena_ensayo_local
 		SET comentario=CASE WHEN autor_id=$1 OR destinatario_id=$1 THEN '' ELSE comentario END,
 		    autor_id=CASE WHEN autor_id=$1 THEN NULL ELSE autor_id END,
+		    destinatario_tipo=CASE WHEN destinatario_id=$1 THEN 'arrendatario_retirado' ELSE destinatario_tipo END,
 		    destinatario_id=CASE WHEN destinatario_id=$1 THEN NULL ELSE destinatario_id END
 		WHERE autor_id=$1 OR destinatario_id=$1`, subjectID); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
@@ -241,7 +251,7 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 	if _, err = tx.Exec(ctx, `UPDATE public.reporte_resena_historial_local SET actor_id=NULL WHERE actor_id=$1`, subjectID); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE public.aviso_local SET estado='cancelada',cancelada_en=$2,retirar_en=$2::timestamptz+interval '30 days',lease_hasta=NULL
+	if _, err = tx.Exec(ctx, `UPDATE public.aviso_local SET estado='cancelada',cancelada_en=$2,retirar_en=$2::timestamptz+interval '30 days',lease_hasta=NULL,codigo_error='destinatario_retirado'
 		WHERE destinatario_id=$1 AND estado IN ('pendiente','procesando')`, subjectID, checkedAt); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}

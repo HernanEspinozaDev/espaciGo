@@ -2,9 +2,11 @@ package reputation
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,7 +33,8 @@ func (r *Repository) CreateReview(ctx context.Context, id, actor, reservation st
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	var host, renter, space, state string
-	e = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text,espacio_id::text,estado FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&host, &renter, &space, &state)
+	var linksRetireAt *time.Time
+	e = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text,espacio_id::text,estado,vinculos_retirar_en FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&host, &renter, &space, &state, &linksRetireAt)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return domain.Review{}, domain.ErrNotFound
 	}
@@ -45,6 +48,9 @@ func (r *Repository) CreateReview(ctx context.Context, id, actor, reservation st
 		targetType, targetID = "arrendatario", renter
 	} else {
 		return domain.Review{}, domain.ErrNotFound
+	}
+	if e = lockActiveAccounts(ctx, tx, host, renter); e != nil {
+		return domain.Review{}, e
 	}
 	var old domain.Review
 	var oldHash []byte
@@ -68,7 +74,22 @@ func (r *Repository) CreateReview(ctx context.Context, id, actor, reservation st
 	if state != "finalizada" {
 		return domain.Review{}, domain.ErrConflict
 	}
+	if linksRetireAt != nil && !linksRetireAt.After(at) {
+		return domain.Review{}, domain.ErrConflict
+	}
+	marker := reviewAuthorshipMarker(reservation, actor)
+	var marked bool
+	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.resena_autoria_marca_local WHERE huella_autoria=$1 AND retirar_en>$2)`, marker[:], at).Scan(&marked); e != nil {
+		return domain.Review{}, e
+	}
+	if marked {
+		return domain.Review{}, domain.ErrConflict
+	}
 	_, e = tx.Exec(ctx, `INSERT INTO public.resena_ensayo_local(id,reserva_id,espacio_id,autor_id,destinatario_tipo,destinatario_id,puntuacion,comentario,creada_en,retirar_en,huella_solicitud,clave_idempotencia) VALUES($1,$2,$3,$4,$5,NULLIF($6,'')::uuid,$7,$8,$9,$9::timestamptz+interval '24 months',$10,$11)`, id, reservation, space, actor, targetType, targetID, in.Rating, in.Comment, at, hash, key)
+	if e != nil {
+		return domain.Review{}, mapReviewError(e)
+	}
+	_, e = tx.Exec(ctx, `INSERT INTO public.resena_autoria_marca_local(huella_autoria,creada_en,retirar_en) VALUES($1,$2,GREATEST($2::timestamptz+interval '24 months',COALESCE($3,$2::timestamptz+interval '24 months')))`, marker[:], at, linksRetireAt)
 	if e != nil {
 		return domain.Review{}, mapReviewError(e)
 	}
@@ -155,6 +176,9 @@ func (r *Repository) Report(ctx context.Context, id, actor, reservationExpected,
 	var lock string
 	e = tx.QueryRow(ctx, `SELECT id::text FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&lock)
 	if e != nil {
+		return domain.Report{}, e
+	}
+	if e = lockActiveAccounts(ctx, tx, host); e != nil {
 		return domain.Report{}, e
 	}
 	var reviewSpace, reviewState string
@@ -297,6 +321,32 @@ func mapDecision(s string) string {
 	}
 	return "desestimada"
 }
+
+func lockActiveAccounts(ctx context.Context, tx pgx.Tx, ids ...string) error {
+	ids = append([]string(nil), ids...)
+	sort.Strings(ids)
+	last := ""
+	for _, id := range ids {
+		if id == last {
+			continue
+		}
+		last = id
+		var active bool
+		err := tx.QueryRow(ctx, `SELECT estado='activo' FROM public.usuario WHERE id=$1 FOR UPDATE`, id).Scan(&active)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && !active) {
+			return domain.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func reviewAuthorshipMarker(reservation, author string) [sha256.Size]byte {
+	return sha256.Sum256([]byte(reservation + ":" + author))
+}
+
 func (r *Repository) MyRenterReputation(ctx context.Context, owner string) (domain.SpaceReviews, error) {
 	var out domain.SpaceReviews
 	out.Items = []domain.Review{}

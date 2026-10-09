@@ -87,7 +87,8 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
 	GRANT SELECT, INSERT ON public.reserva_vinculo_purgado_local TO espacigo_runtime;
 	GRANT SELECT, INSERT, UPDATE ON public.reaplicacion_baja_local TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.resena_ensayo_local TO espacigo_runtime;
- GRANT UPDATE (estado,autor_id,destinatario_id,comentario) ON public.resena_ensayo_local TO espacigo_runtime;
+ GRANT UPDATE (estado,autor_id,destinatario_tipo,destinatario_id,comentario) ON public.resena_ensayo_local TO espacigo_runtime;
+ GRANT SELECT, INSERT ON public.resena_autoria_marca_local TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.reporte_resena_ensayo_local, public.reporte_resena_historial_local TO espacigo_runtime;
  GRANT UPDATE (estado,resolver_en,resuelta_por,motivo_resolucion_codigo,retirar_en,anfitrion_id) ON public.reporte_resena_ensayo_local TO espacigo_runtime;
  GRANT UPDATE (actor_id) ON public.reporte_resena_historial_local TO espacigo_runtime;
