@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestPostgresDraftCRUDIsOwnerScopedAndOnlyDrafts(t *testing.T) {
+func TestPostgresDraftCRUDAndOwnerScope(t *testing.T) {
 	adminURL := os.Getenv("TEST_DATABASE_URL")
 	if adminURL == "" {
 		t.Skip("TEST_DATABASE_URL is required for disposable PostgreSQL integration")

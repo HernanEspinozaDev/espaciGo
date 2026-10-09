@@ -1,12 +1,12 @@
 # Backlog propuesto para cerrar el backend local
 
-Fecha inicial: 2026-10-07; conciliado con `main` #199 el 2026-10-08. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
+Fecha inicial: 2026-10-07; conciliado con `main` #203 el 2026-10-08. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
 
 ## Convenciones
 
 - `LOCAL-*` identifica paquetes de cierre. Tipo `VERTICAL` agrupa las etapas ARCH → DB → BE → API → TEST → MOCK de las tarjetas originales para evitar un PR por etapa. No sustituye la trazabilidad de esas tarjetas.
 - Reutilizar las Issues originales; crear un hijo local cuando sea necesario distinguir criterios locales de proveedores/GCP o ampliar una entrega ya cerrada. LOCAL-KYC-01 es Issue #200 y subissue de #45, relacionada con #48–#50. No importar de nuevo el backlog Hermes.
-- LOCAL-PLAN-01, LOCAL-CORE-01 y LOCAL-AUTH-01 cuentan con entregas aceptadas (#181/#180/#182). LOCAL-BOOK-01 también fue aceptada (#177). LOCAL-PRIV-01 permanece parcial con cortes #186/#192/#194/#196/#198 aceptados; #202 (LOCAL-M02-01) añade foto PNG sintética y referencia de cobro fake, sin cerrar el padre. LOCAL-KYC-01 (#200) fue aceptada y cerrada tras PR #201; KYC para nuevas reservas personales de anfitrión y arrendatario está implementado. El gate de publicación queda como dependencia explícita de LOCAL-LIST/M04, porque su endpoint aún no existe. El resto de los paquetes no cambia por sí mismo Issues ni Projects.
+- LOCAL-PLAN-01, LOCAL-CORE-01 y LOCAL-AUTH-01 cuentan con entregas aceptadas (#181/#180/#182). LOCAL-BOOK-01 (#177) y LOCAL-M02-01 (#202, PR #203) también fueron aceptadas sin cerrar sus padres generales. LOCAL-KYC-01 (#200) fue aceptada tras PR #201. La subentrega LOCAL-M04-PUB-01 (#204) implementa ahora una transición local de publicación con el gate KYC; no completa LOCAL-LIST-01 ni M04, y no convierte `activa` en publicación pública general. Los padres/issues no cambian de estado automáticamente.
 - Una dependencia significa contrato/entrega aceptada y disponible en la rama base. Las puertas D-* del plan bloquean solo las operaciones que necesitan su decisión; no esperar a resolver toda la lista de decisiones para avanzar trabajo independiente.
 - Toda tarjeta VERTICAL incluye Backend/API → pruebas → tarjeta final de mock de su módulo. El mock no queda `ready` antes de existir sus APIs y pruebas necesarias.
 - Aceptación común: código en PR revisable, comportamiento/errores documentados, permisos efectivos, evidencia del commit y sin secretos; aceptación humana y merge para `Hecho`. Conservar volumen y migraciones previas.
@@ -95,12 +95,13 @@ Fecha inicial: 2026-10-07; conciliado con `main` #199 el 2026-10-08. Complementa
 
 ### LOCAL-PRIV-M02-01 — Foto sintética y cuenta de cobro fake (Issue #202)
 
-- **Módulo/tipo/estado:** M02 / subentrega VERTICAL / `En curso`; vinculada a #37–#43, bajo seguimiento de #185/#40.
+- **Módulo/tipo/estado:** M02 / subentrega VERTICAL / `Aceptada y Hecho` tras PR #203; vinculada a #37–#43, bajo seguimiento de #185/#40.
 - **Objetivo:** añadir los dos recursos M02 faltantes que se pueden verificar localmente sin proveedor productivo.
 - **Alcance:** PNG fijo generado por Backend y guardado en storage privado; leer/reemplazar/retirar foto propia; referencia `fake-local-v1` con alta/consulta/cambio/revocación, gate KYC sintético efectivo, ZIP, baja y limpieza recuperable. Integrar controles en mock existente.
 - **Fuera:** imagen real/carga arbitraria, RUT, cuentas bancarias reales, pagos/transferencias, proveedor real, cierre de padres ni publicación M04.
 - **Dependencias:** almacenamiento privado, auth/ownership, elegibilidad local, export ZIP, baja bloqueada/worker recuperable satisfechos por entregas aceptadas; permiso de escritura sincronizado por account lock. No depende de #142 ni desbloquea M04.
 - **Aceptación:** migración incremental; privacidad de archivo; aislamiento; reintentos y concurrencia con baja; KYC requerido al crear/cambiar el payout fake; ZIP incluye datos propios; limpieza falla/reintenta; pruebas PostgreSQL desechables y mock.
+- **Evidencia de integración posterior al merge:** V30 aplicada incrementalmente sin borrar volumen; API y ZIP reales con dos cuentas sintéticas: photo PNG create/read/replace/remove, payout fake create/read/change/revoke, ambos incluidos en exportación, y `eligibility_required` al crear payout sin KYC. #202 cerrada y Projects Hecho. No cierra #37–#43 ni #185/#40.
 
 ### LOCAL-KYC-01 — Elegibilidad y ciclo de revisión sintéticos (Issue #200)
 
@@ -108,7 +109,7 @@ Fecha inicial: 2026-10-07; conciliado con `main` #199 el 2026-10-08. Complementa
 - **Objetivo y motivo:** completar en local los casos, subsanaciones y resultados fake reutilizando #47/#51; conservar la aprobación sintética por tipo y permitir revocación explícita auditada conforme a la decisión ratificada.
 - **Alcance:** V28 incremental; historial append-only; código de corrección compatible con el motivo; reintento idempotente; lista de casos pendientes y rechazados; elegibilidad `kyc`/`kyb` persistente e independiente; revocación admin bajo bloqueo de cuenta; API/OpenAPI y mock existente.
 - **Fuera:** documentos reales, RUT, proveedor, consentimiento/retención productivos de #142; no conceder roles. No implementar el ciclo general de publicación M04 ni la reserva comercial general M06 en esta Issue.
-- **Dependencias:** identidad/CORE y almacenamiento sintético ya integrados. El tipo de gate está ratificado: cuentas personales requieren KYC; KYB no lo sustituye. La transacción de nueva reserva lo verifica para anfitrión y arrendatario junto a los bloqueos de baja/aprobación. LOCAL-LIST-01 deberá conectar el gate cuando cree el endpoint general de publicar/despublicar; #142 bloquea solo proveedor/datos reales. **Desbloquea:** LOCAL-LIST-01.
+- **Dependencias:** identidad/CORE y almacenamiento sintético ya integrados. El tipo de gate está ratificado: cuentas personales requieren KYC; KYB no lo sustituye. La transacción de nueva reserva lo verifica para anfitrión y arrendatario; LOCAL-M04-PUB-01 (#204) lo conecta al cambio de estado local de borrador a activa. #142 bloquea solo proveedor/datos reales. **Habilita:** siguientes criterios de LOCAL-LIST-01, sin darlos por satisfechos.
 - **Aceptación:** aprobar concede solo el tipo indicado; casos nuevos pendientes/rechazados no remueven una concesión; revocar la retira con motivo/auditoría y no altera reservas; una aprobación nueva puede restablecer. Historial estable, aislamiento, reintento y concurrencia probados en PostgreSQL descartable; mock compilado y recorrido validado.
 - **Pendientes originales:** notificación de resultados KYC mediante contrato durable de dominio, consentimiento/cuotas M03, retención/supresión integral de expedientes y todo proveedor/dato real permanecen abiertos; no cerrar #45/#48–#50.
 - **Riesgo:** interpretar una aprobación fixture como identidad real o asignar el tipo a operaciones comerciales sin un vínculo de negocio definido.
@@ -117,14 +118,22 @@ Fecha inicial: 2026-10-07; conciliado con `main` #199 el 2026-10-08. Complementa
 
 ### LOCAL-LIST-01 — Completar ciclo local de publicaciones
 
-- **Módulo/tipo/estado:** M04 / VERTICAL / `todo`.
+- **Módulo/tipo/estado:** M04 / VERTICAL / `parcial`; #204 es un slice en curso.
 - **Objetivo y motivo:** #52–61, CU-15–18; completar borrador → publicación local con controles de negocio.
-- **Alcance:** publicar/despublicar y edición autorizada; elegibilidad; ocho categorías/perfiles versionados; galería sintética privada; tarifa/comisión/políticas versionadas conforme al owner ratificado. Reutilizar calendario M06.
+- **Alcance restante:** completar publicación/despublicación y edición autorizada; ocho categorías/perfiles versionados; galería sintética privada; tarifa/comisión/políticas versionadas conforme al owner ratificado. El slice #204 cubre la transición local owner-only, gate KYC y su historial; reutilizar calendario M06.
 - **Fuera:** publicación comercial, archivos reales sin autorización, cambiar categoría semilla o elegir frontend final.
-- **Dependencias:** LOCAL-PRIV-01, LOCAL-KYC-01, CORE y D-KYC/LIST/D-BOOK. **Desbloquea:** LOCAL-DISC-01.
+- **Dependencias:** LOCAL-PRIV-01, LOCAL-KYC-01, CORE y D-KYC/LIST/D-BOOK. #142 queda fuera para la parte sintética local; no cerrar #55/#52–#61 para desbloquear. **Desbloquea:** LOCAL-DISC-01 al completar los contratos mínimos de oferta y acceso; #204 por sí solo no basta.
 - **Aceptación:** publicación requiere datos/estados aprobados; borradores quedan privados; despublicar corta nuevas operaciones según regla sin borrar reservas anteriores; galería conserva autorización y datos validados; snapshots anteriores sobreviven edición.
 - **Pruebas previstas:** transición inválida, dueño/tercero, versión de perfil, files sintéticos, permisos y reglas de calendario; finalizar LOCAL-LIST-MOCK-01.
 - **Riesgo:** duplicar `ocupacion` o confundir una oferta local sintética con lanzamiento público.
+
+### LOCAL-M04-PUB-01 — Publicar y ocultar espacios propios con gate KYC sintético (Issue #204)
+
+- **Módulo/tipo/estado:** M04 / subentrega VERTICAL de LOCAL-LIST-01 / En curso; Issue hija de #55.
+- **Alcance:** transición de borrador/oculto a activo y activo a oculto; solo rol arrendador y titular; KYC sintético efectivo para cuentas personales, sin KYB sustituto; revalidación bajo bloqueo de cuenta/espacio; historial append-only; OpenAPI y controles en mock.
+- **Fuera:** aparición automática en catálogo general, edición de oferta activa, galería, políticas comerciales, cancelación de reservas, KYC productivo/#142 y GCP.
+- **Dependencias reales:** #200/#201, ownership/rol, V30 y la tabla `espacio` están integrados en main. #204 se implementa sobre ellos; no depende de terminar padres #185/#40 ni cierra Issues M04.
+- **Evidencia prevista:** V31 incremental, PostgreSQL desechable con rol `espacigo_runtime`, bloqueo KYC por ausencia/KYB/revocación, transiciones e historial; compilación mock y comprobación de contrato HTTP/OpenAPI. PR se mantiene sin fusionar para revisión humana.
 
 ### LOCAL-DISC-01 — Completar búsqueda y cotización de oferta local
 

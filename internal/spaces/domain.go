@@ -9,8 +9,11 @@ import (
 )
 
 var (
-	ErrInvalid  = errors.New("spaces: invalid draft")
-	ErrNotFound = errors.New("spaces: draft not found")
+	ErrInvalid             = errors.New("spaces: invalid draft")
+	ErrNotFound            = errors.New("spaces: draft not found")
+	ErrEligibilityRequired = errors.New("spaces: synthetic KYC eligibility required")
+	ErrPublicationConflict = errors.New("spaces: publication state conflict")
+	ErrEnabledFixture      = errors.New("spaces: enabled synthetic fixture prevents publication transition")
 )
 
 type Draft struct {
@@ -61,6 +64,7 @@ type Repository interface {
 	ListOwn(ctx context.Context, owner string) ([]Draft, error)
 	GetOwn(ctx context.Context, owner, id string) (Draft, error)
 	UpdateOwn(ctx context.Context, owner, id string, input Input) (Draft, error)
+	SetPublicationState(ctx context.Context, owner, id, state, correlationID string) (Draft, error)
 }
 
 // ArchiveSectionRepository exports only drafts owned by the authenticated

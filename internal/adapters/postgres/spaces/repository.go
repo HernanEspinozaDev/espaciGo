@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
+	verificationdb "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification/dbgen"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"github.com/jackc/pgx/v5"
@@ -136,7 +137,85 @@ func (r *Repository) ListOwn(ctx context.Context, owner string) ([]spaces.Draft,
 	return items, rows.Err()
 }
 func (r *Repository) GetOwn(ctx context.Context, owner, id string) (spaces.Draft, error) {
-	return scan(r.pool.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 AND e.id=$2 AND e.estado='borrador'`, owner, id))
+	return scan(r.pool.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 AND e.id=$2`, owner, id))
+}
+
+func (r *Repository) SetPublicationState(ctx context.Context, owner, id, state, correlationID string) (spaces.Draft, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return spaces.Draft{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockActiveOwner(ctx, tx, owner); err != nil {
+		return spaces.Draft{}, err
+	}
+	draft, err := scan(tx.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 AND e.id=$2 FOR UPDATE OF e`, owner, id))
+	if err != nil {
+		return spaces.Draft{}, err
+	}
+	if draft.State == state {
+		if err := tx.Commit(ctx); err != nil {
+			return spaces.Draft{}, err
+		}
+		return draft, nil
+	}
+	// Keep enabled synthetic fixtures in the existing draft-only catalog and
+	// booking flow. Lock the fixture row in the same transaction as the space
+	// transition so an enable/disable operation cannot race this decision.
+	var fixtureEnabled bool
+	err = tx.QueryRow(ctx, `SELECT habilitada FROM public.reserva_ensayo_local_fixture WHERE espacio_id=$1 FOR UPDATE`, id).Scan(&fixtureEnabled)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return spaces.Draft{}, err
+	}
+	if err == nil && fixtureEnabled {
+		return spaces.Draft{}, spaces.ErrEnabledFixture
+	}
+	if state == "activa" {
+		if draft.State != "borrador" && draft.State != "oculta" {
+			return spaces.Draft{}, spaces.ErrPublicationConflict
+		}
+		rows, err := verificationdb.New(tx).ListSyntheticEligibility(ctx, owner)
+		if err != nil {
+			return spaces.Draft{}, err
+		}
+		kycEligible := false
+		for _, row := range rows {
+			kind, kindOK := row.Type.(string)
+			eligible, eligibleOK := row.Eligible.(bool)
+			if !kindOK || !eligibleOK {
+				return spaces.Draft{}, spaces.ErrInvalid
+			}
+			if kind == "kyc" {
+				kycEligible = eligible
+				break
+			}
+		}
+		if !kycEligible {
+			return spaces.Draft{}, spaces.ErrEligibilityRequired
+		}
+	} else if state == "oculta" {
+		if draft.State != "activa" {
+			return spaces.Draft{}, spaces.ErrPublicationConflict
+		}
+	} else {
+		return spaces.Draft{}, spaces.ErrInvalid
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO public.espacio_publicacion_historial_local
+		(espacio_id,actor_id,estado_anterior,estado_nuevo,ocurrida_en,correlacion_id)
+		VALUES($1,$2,$3,$4,now(),$5)`, id, owner, draft.State, state, correlationID); err != nil {
+		return spaces.Draft{}, mapError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET estado=$3,actualizado_en=now() WHERE propietario_id=$1 AND id=$2`, owner, id, state); err != nil {
+		return spaces.Draft{}, mapError(err)
+	}
+	draft, err = scan(tx.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 AND e.id=$2`, owner, id))
+	if err != nil {
+		return spaces.Draft{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return spaces.Draft{}, err
+	}
+	return draft, nil
 }
 func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.Input) (spaces.Draft, error) {
 	tx, err := r.pool.Begin(ctx)

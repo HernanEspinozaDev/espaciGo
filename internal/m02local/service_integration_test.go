@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -235,6 +236,99 @@ func mapKeys(m map[string][]byte) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+func TestOwnerExportContainsOnlyOwnOrderedPublicationHistory(t *testing.T) {
+	ctx, pool, _ := m02TestDB(t)
+	a := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	b := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	for _, id := range []string{a, b} {
+		if _, err := pool.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'never-export-this-hash','activo')`, id, id+"@publication.test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	spaceA, spaceB := "aaaaaaaa-0000-4000-8000-000000000001", "bbbbbbbb-0000-4000-8000-000000000001"
+	for id, owner := range map[string]string{spaceA: a, spaceB: b} {
+		if _, err := pool.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado)
+		VALUES($1,$2,'oficina','Espacio sintético',repeat('Descripción sintética. ',6),20,2,'Reglas sintéticas','hora',8000,'Dirección sintética','activa')`, id, owner); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	for _, event := range []struct {
+		space, actor, from, to, correlation string
+		at                                  time.Time
+	}{
+		{spaceA, a, "borrador", "activa", "a-1", at},
+		{spaceA, a, "activa", "oculta", "a-2", at.Add(time.Minute)},
+		{spaceB, b, "borrador", "activa", "b-1", at},
+	} {
+		if _, err := pool.Exec(ctx, `INSERT INTO public.espacio_publicacion_historial_local(espacio_id,actor_id,estado_anterior,estado_nuevo,ocurrida_en,correlacion_id) VALUES($1,$2,$3,$4,$5,$6)`, event.space, event.actor, event.from, event.to, event.at, event.correlation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	privacySvc, err := privacy.NewService(identitypg.NewIdentityRepository(pool), ownerexport.New(pool, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exportHistory := func(owner string) []struct {
+		SpaceID     string `json:"space_id"`
+		From        string `json:"from_state"`
+		To          string `json:"to_state"`
+		Actor       string `json:"actor"`
+		Correlation string `json:"correlation_id"`
+	} {
+		archive, err := privacySvc.ExportOwnArchive(ctx, owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var data []byte
+		for _, f := range zr.File {
+			if f.Name == "data.json" {
+				rc, err := f.Open()
+				if err != nil {
+					t.Fatal(err)
+				}
+				data, err = io.ReadAll(rc)
+				_ = rc.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		var envelope struct {
+			Sections map[string]json.RawMessage `json:"sections"`
+		}
+		if err := json.Unmarshal(data, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		raw, ok := envelope.Sections["space_publication_history"]
+		if !ok {
+			t.Fatal("ZIP omitted space_publication_history")
+		}
+		var events []struct {
+			SpaceID     string `json:"space_id"`
+			From        string `json:"from_state"`
+			To          string `json:"to_state"`
+			Actor       string `json:"actor"`
+			Correlation string `json:"correlation_id"`
+		}
+		if err := json.Unmarshal(raw, &events); err != nil {
+			t.Fatal(err)
+		}
+		return events
+	}
+	gotA, gotB := exportHistory(a), exportHistory(b)
+	if len(gotA) != 2 || gotA[0].Correlation != "a-1" || gotA[1].Correlation != "a-2" || gotA[0].SpaceID != spaceA || gotA[1].SpaceID != spaceA || gotA[0].Actor != "self" {
+		t.Fatalf("unexpected owner A history: %+v", gotA)
+	}
+	if len(gotB) != 1 || gotB[0].Correlation != "b-1" || gotB[0].SpaceID != spaceB || gotB[0].Actor != "self" {
+		t.Fatalf("unexpected owner B history: %+v", gotB)
+	}
 }
 
 func TestPhotoWriteLosesRaceWithSuppressionAccountLock(t *testing.T) {

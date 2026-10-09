@@ -82,7 +82,7 @@
     </details>
   </section>
   <section><h2>9. Espacios propios · borradores M04</h2>
-    <p>Solo guarda y mantiene borradores privados. Este prototipo no publica, no reserva y no cobra; la aprobación KYC fixture no concede permisos comerciales.</p>
+    <p>Permite publicar u ocultar espacios propios con rol arrendador y KYC sintético efectivo. La preferencia y KYC no conceden roles. El estado activo de este corte no habilita por sí solo el catálogo general; no cancela ni modifica reservas existentes.</p>
     <form id="space-form"><label>Título <input name="title" required maxlength="70"></label>
       <label>Descripción <textarea name="description" required minlength="100"></textarea></label>
       <label>Superficie m² <input name="area_m2" type="number" min="0.01" step="0.01" required></label>
@@ -95,7 +95,7 @@
       <fieldset><legend>Características opcionales declaradas</legend><div id="space-attributes"></div></fieldset>
       <input type="hidden" name="draft_id"><button id="space-save">Crear borrador</button><button type="button" id="space-cancel" hidden>Cancelar edición</button>
     </form>
-    <button id="spaces-load" type="button">Cargar mis borradores</button>
+    <button id="spaces-load" type="button">Cargar mis espacios</button>
     <ul id="spaces-list"></ul><pre id="space-output">Inicia sesión para crear y consultar borradores.</pre>
   </section>
   <section><h2>10. Disponibilidad y bloqueos manuales · borrador propio</h2>

@@ -27,19 +27,23 @@ const draftID = "11111111-1111-4111-8111-111111111111"
 
 type fakeAuth struct{}
 
-func (fakeAuth) Authorize(_ context.Context, token identity.Secret, _ identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
+func (fakeAuth) Authorize(_ context.Context, token identity.Secret, required identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
 	if token == "" {
 		return identity.Principal{}, identity.ErrUnauthorized
 	}
 	if token == "other" {
 		return identity.Principal{AccountID: ownerB}, nil
 	}
+	if required == identity.RoleLandlord && token != "landlord" {
+		return identity.Principal{}, identity.ErrForbidden
+	}
 	return identity.Principal{AccountID: ownerA}, nil
 }
 
 type memoryRepo struct {
-	owner string
-	draft spaces.Draft
+	owner          string
+	draft          spaces.Draft
+	publicationErr error
 }
 
 func (m *memoryRepo) Categories(context.Context) ([]spaces.Category, error) {
@@ -88,6 +92,23 @@ func (m *memoryRepo) UpdateOwn(_ context.Context, owner, id string, in spaces.In
 	m.draft.ID, m.draft.State = draftID, "borrador"
 	return m.draft, nil
 }
+func (m *memoryRepo) SetPublicationState(_ context.Context, owner, id, state, _ string) (spaces.Draft, error) {
+	if m.publicationErr != nil {
+		return spaces.Draft{}, m.publicationErr
+	}
+	if owner != m.owner || id != draftID {
+		return spaces.Draft{}, spaces.ErrNotFound
+	}
+	if state == "activa" && m.draft.State == "borrador" {
+		m.draft.State = state
+		return m.draft, nil
+	}
+	if state == "oculta" && m.draft.State == "activa" {
+		m.draft.State = state
+		return m.draft, nil
+	}
+	return spaces.Draft{}, spaces.ErrPublicationConflict
+}
 func draftFromInput(in spaces.Input) spaces.Draft {
 	name := map[string]string{"oficina": "Oficina", "sala_multiproposito": "Sala o espacio multipropósito"}[in.CategoryCode]
 	return spaces.Draft{CategoryCode: in.CategoryCode, CategoryName: name, Title: in.Title, Description: in.Description, AreaM2: in.AreaM2, Capacity: in.Capacity, UsageRules: in.UsageRules, RateUnit: in.RateUnit, BasePriceCLP: in.BasePriceCLP, Address: in.Address, State: "borrador", AttributeSchemaVersion: in.AttributeSchemaVersion, Attributes: in.Attributes}
@@ -103,6 +124,56 @@ func testHandler(t *testing.T) http.Handler {
 		t.Fatal(e)
 	}
 	return NewHandler(fakeAuth{}, svc, []string{"http://localhost"})
+}
+
+func TestPublicationRouteRequiresLandlordAndReturnsState(t *testing.T) {
+	initial := draftFromInput(spaces.Input{CategoryCode: "oficina", Title: "Oficina local", Description: strings.Repeat("Espacio de prueba para publicación local. ", 3), AreaM2: 12, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "hora", BasePriceCLP: 8000, Address: "Dirección privada", AttributeSchemaVersion: 1, Attributes: map[string]any{}})
+	initial.ID = draftID
+	repo := &memoryRepo{owner: ownerA, draft: initial}
+	svc, err := spaces.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, svc, nil)
+	denied := invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "user", `{"state":"activa"}`)
+	if denied.Code != http.StatusForbidden {
+		t.Fatalf("non-landlord got %d: %s", denied.Code, denied.Body.String())
+	}
+	response := invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"activa"}`)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"activa"`) {
+		t.Fatalf("publish got %d: %s", response.Code, response.Body.String())
+	}
+	openapi, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "planning", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err = yaml.Unmarshal(openapi, &doc); err != nil {
+		t.Fatal(err)
+	}
+	schemas := doc["components"].(map[string]any)["schemas"].(map[string]any)
+	assertDraftResponseSchema(t, compileOpenAPISchema(t, schemas["SpaceDraft"]), response.Body.Bytes())
+	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"oculta"}`)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"oculta"`) {
+		t.Fatalf("hide got %d: %s", response.Code, response.Body.String())
+	}
+	assertDraftResponseSchema(t, compileOpenAPISchema(t, schemas["SpaceDraft"]), response.Body.Bytes())
+	repo.publicationErr = spaces.ErrEligibilityRequired
+	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"activa"}`)
+	var apiError struct {
+		Error struct {
+			Code      string `json:"code"`
+			RequestID string `json:"request_id"`
+		} `json:"error"`
+	}
+	if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &apiError) != nil || apiError.Error.Code != "eligibility_required" || apiError.Error.RequestID == "" || apiError.Error.RequestID != response.Header().Get("X-Request-ID") {
+		t.Fatalf("eligibility error contract got %d header=%q body=%s", response.Code, response.Header().Get("X-Request-ID"), response.Body.String())
+	}
+	repo.publicationErr = spaces.ErrEnabledFixture
+	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"oculta"}`)
+	if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &apiError) != nil || apiError.Error.Code != "fixture_enabled" || apiError.Error.RequestID == "" || apiError.Error.RequestID != response.Header().Get("X-Request-ID") {
+		t.Fatalf("enabled fixture conflict contract got %d header=%q body=%s", response.Code, response.Header().Get("X-Request-ID"), response.Body.String())
+	}
 }
 
 type fakeCalendar struct{}
