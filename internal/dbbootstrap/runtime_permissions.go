@@ -86,6 +86,16 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
 	GRANT SELECT, INSERT, DELETE ON public.m02_operacion_idempotente_local TO espacigo_runtime;
 	GRANT SELECT, INSERT ON public.reserva_vinculo_purgado_local TO espacigo_runtime;
 	GRANT SELECT, INSERT, UPDATE ON public.reaplicacion_baja_local TO espacigo_runtime;
+ GRANT SELECT, INSERT ON public.resena_ensayo_local TO espacigo_runtime;
+ GRANT UPDATE (estado,autor_id,destinatario_tipo,destinatario_id,comentario) ON public.resena_ensayo_local TO espacigo_runtime;
+ GRANT SELECT, INSERT ON public.resena_autoria_marca_local TO espacigo_runtime;
+ GRANT SELECT, INSERT ON public.reporte_resena_ensayo_local, public.reporte_resena_historial_local TO espacigo_runtime;
+ GRANT UPDATE (estado,resolver_en,resuelta_por,motivo_resolucion_codigo,retirar_en,anfitrion_id) ON public.reporte_resena_ensayo_local TO espacigo_runtime;
+ GRANT UPDATE (actor_id) ON public.reporte_resena_historial_local TO espacigo_runtime;
+ GRANT USAGE, SELECT ON SEQUENCE public.reporte_resena_historial_local_secuencia_seq TO espacigo_runtime;
+ GRANT SELECT, INSERT, UPDATE ON public.aviso_local, public.aviso_local_ciclo TO espacigo_runtime;
+ GRANT SELECT, INSERT ON public.aviso_local_recuperacion_auditoria TO espacigo_runtime;
+ GRANT EXECUTE ON FUNCTION public.purge_expired_local_communication(timestamptz,integer) TO espacigo_runtime;
 	`)
 	if err != nil {
 		return err

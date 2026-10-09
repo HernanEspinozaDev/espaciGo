@@ -31,6 +31,9 @@ let privacyExportObjectURL = "";
 let suppressionQueueRevision = 0;
 let credentialNoticeQueueRevision = 0;
 const credentialNoticeRecoveryKeys = new Map<string,string>();
+const localNoticeRecoveryKeys = new Map<string,string>();
+const reviewReportRetryKeys = new Map<string,string>();
+const reviewRetryKeys = new Map<string,string>();
 let suppressionReviewPanelState: SuppressionReviewPanelState = initialSuppressionReviewPanelState();
 const suppressionReviewKeys = new Map<string,string>();
 let termIDs: string[] = [];
@@ -78,7 +81,7 @@ async function requestArchive(path:string,bearer:string):Promise<Blob> {
 }
 async function action(work: () => Promise<void>): Promise<void> {
   const buttons = [...document.querySelectorAll<HTMLButtonElement>("button")];
-  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); }); }
+  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); }); }
   catch (error) { resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API."; }
 }
 function form(id: string, work: (data: FormData, element: HTMLFormElement) => Promise<void>): void {
@@ -283,6 +286,53 @@ async function loadCredentialNoticeQueue():Promise<void>{
   if(!items.length)document.querySelector<HTMLElement>("#credential-notice-output")!.textContent="No hay avisos terminales que requieran recuperación.";refreshCredentialNoticeControls();
 }
 document.querySelector<HTMLButtonElement>("#credential-notice-load")!.addEventListener("click",()=>void action(loadCredentialNoticeQueue));
+interface LocalTerminalNotice {event_id:string;event_type:string;state:string;error_code:string;total_attempts:number;cycle_number:number;created_at:string;terminal_at:string;}
+document.querySelector<HTMLButtonElement>("#local-review-reports-load")!.addEventListener("click",()=>void action(async()=>{
+  const revision=++reviewRequestRevision,token=sessionToken,account=sessionAccountID,generation=sessionGeneration;
+  const response=await request("/api/v1/admin/local/review-reports","GET",undefined,true);
+  if(revision!==reviewRequestRevision||token!==sessionToken||account!==sessionAccountID||generation!==sessionGeneration)return;
+  const items=bookingData<{items:LocalReviewReport[]}>(response).items??[],container=document.querySelector<HTMLElement>("#local-review-reports-items")!;container.replaceChildren();
+  for(const item of items){
+    const row=document.createElement("section"),summary=document.createElement("p"),comment=document.createElement("p"),reason=document.createElement("select");
+    summary.textContent=`Reporte ${item.id} · reseña ${item.review_id} · ${item.reason_code} · ${item.state} · ${item.created_at}`;
+    comment.textContent=item.review_comment??"Sin comentario";
+    for(const [value,label] of [["contenido_inadecuado","Contenido inadecuado"],["sin_infraccion","Sin infracción"],["duplicado","Duplicado"],["error_registro","Error de registro"]]){const option=document.createElement("option");option.value=value;option.textContent=label;reason.append(option);}
+    for(const [actionName,label] of [["hide","Ocultar"],["dismiss","Desestimar"]]){
+      const button=document.createElement("button");button.type="button";button.textContent=label;
+      button.addEventListener("click",()=>void action(async()=>{
+        const keyID=`${item.id}:${actionName}`,key=reviewReportRetryKeys.get(keyID)??crypto.randomUUID();reviewReportRetryKeys.set(keyID,key);
+        await request(`/api/v1/admin/local/review-reports/${encodeURIComponent(item.id)}/${actionName}`,"POST",{reason_code:reason.value,correlation_id:crypto.randomUUID()},true,key);
+        if(revision!==reviewRequestRevision||token!==sessionToken||account!==sessionAccountID||generation!==sessionGeneration)return;
+        reviewReportRetryKeys.delete(keyID);await document.querySelector<HTMLButtonElement>("#local-review-reports-load")!.click();
+      }));row.append(button);
+    }
+    row.prepend(comment,summary);container.append(row);
+  }
+  document.querySelector<HTMLElement>("#local-review-reports-status")!.textContent=`${items.length} reporte(s) pendientes. Ocultar excluye del listado y promedio; desestimar conserva la reseña.`;
+}));
+async function loadLocalNoticeRecoveryQueue():Promise<void>{
+  const revision=++credentialNoticeQueueRevision,token=sessionToken,account=sessionAccountID,generation=sessionGeneration;
+  const response=await request("/api/v1/admin/local/notices","GET",undefined,true);
+  if(revision!==credentialNoticeQueueRevision||token!==sessionToken||account!==sessionAccountID||generation!==sessionGeneration)return;
+  const items=bookingData<{items:LocalTerminalNotice[]}>(response).items??[],container=document.querySelector<HTMLElement>("#local-notice-items")!;container.replaceChildren();
+  for(const item of items){
+    const row=document.createElement("section"),summary=document.createElement("p"),reason=document.createElement("select"),button=document.createElement("button");
+    summary.textContent=`Aviso ${item.event_id} · ${item.event_type} · ${item.total_attempts} intentos acumulados · ciclo ${item.cycle_number} · ${item.error_code} · fallo ${item.terminal_at}`;
+    for(const [value,label] of [["smtp_restaurado","SMTP restaurado"],["reintento_operativo","Reintento operativo"]]){const option=document.createElement("option");option.value=value;option.textContent=label;reason.append(option);}
+    button.type="button";button.textContent="Reabrir ciclo de aviso";
+    button.addEventListener("click",()=>void action(async()=>{
+      const key=localNoticeRecoveryKeys.get(item.event_id)??crypto.randomUUID();localNoticeRecoveryKeys.set(item.event_id,key);
+      const result=await request(`/api/v1/admin/local/notices/${encodeURIComponent(item.event_id)}/reopen`,"POST",{reason_code:reason.value,correlation_id:crypto.randomUUID()},true,key);
+      if(revision!==credentialNoticeQueueRevision||token!==sessionToken||account!==sessionAccountID||generation!==sessionGeneration)return;
+      localNoticeRecoveryKeys.delete(item.event_id);document.querySelector<HTMLElement>("#local-notice-output")!.textContent=`Ciclo ${result.cycle} ${result.reused?"reutilizado":"reabierto"}. Máximo ocho intentos nuevos; SMTP puede duplicar tras una aceptación incierta.`;
+      await loadLocalNoticeRecoveryQueue();
+    }));row.append(summary,reason,button);container.append(row);
+  }
+  document.querySelector<HTMLElement>("#local-notice-status")!.textContent=`${items.length} aviso(s) de comunicación con fallo terminal.`;
+  if(!items.length)document.querySelector<HTMLElement>("#local-notice-output")!.textContent="No hay avisos de comunicación que requieran recuperación.";
+}
+function refreshLocalNoticeControls():void{const button=document.querySelector<HTMLButtonElement>("#local-notice-load");if(button)button.disabled=!sessionToken;}
+document.querySelector<HTMLButtonElement>("#local-notice-load")!.addEventListener("click",()=>void action(loadLocalNoticeRecoveryQueue));
 document.querySelector<HTMLButtonElement>("#privacy-export")!.addEventListener("click", () => void action(async () => {
   const context = capturePrivacyExportContext(sessionAccountID, sessionToken, sessionGeneration);
   if (!context) throw new Error("Inicia sesión para exportar tus datos.");
@@ -860,6 +910,7 @@ function clearCatalogResultsAndSelection(message:string):void {
   resetAvailabilityPicker(message);
   const results=document.querySelector<HTMLElement>("#booking-catalog-results");if(results){results.replaceChildren();results.textContent=message;}
   const detail=document.querySelector<HTMLElement>("#booking-fixture-output");if(detail)detail.textContent=message;
+  const publicReviews=document.querySelector<HTMLElement>("#booking-space-reviews");if(publicReviews)publicReviews.textContent="Selecciona una publicación activa.";
   const quote=document.querySelector<HTMLElement>("#booking-quote-output");if(quote)quote.textContent="La cotización se invalidó al cambiar la sesión.";
   const space=document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]');if(space)space.value="";
   const quoteID=document.querySelector<HTMLInputElement>('#booking-request-form [name="quote_id"]');if(quoteID)quoteID.value="";
@@ -1039,6 +1090,8 @@ type LocalDamageClaim={id:string;reservation_id:string;host_id:string;renter_id:
 type CancellationPreview={reservation_id:string;policy_version:string;eligible:boolean;deadline:string;amount_clp:number;currency:string;refund_label:string;reason_code?:string};
 type ConversationMessage={id:string;reservation_id:string;author_id:string;sequence:number;body:string;created_at:string};
 type ConversationPage={items:ConversationMessage[];older_cursor:number|null};
+type LocalReview={id:string;target_type:string;rating:number;state?:string;comment?:string;created_at:string;reused?:boolean};
+type LocalReviewReport={id:string;review_id:string;space_id:string;review_comment?:string;reason_code:string;state:string;created_at:string;resolution_reason_code?:string};
 let selectedReservationID="";
 let selectedReservation:TrialDetail|null=null;
 let selectedContract:LocalContract|null=null;
@@ -1058,6 +1111,8 @@ let disputeAdminItems:LocalDispute[]=[];
 let conversationRevision=0;
 let conversationOlderCursor:number|null=null;
 let conversationMessages:ConversationMessage[]=[];
+let reviewRequestRevision=0;
+let selectedReservationReviews:LocalReview[]=[];
 let pendingMessageKey="";
 let pendingMessageBody="";
 let cancellationPreview:CancellationPreview|null=null;
@@ -1068,6 +1123,58 @@ const hostInbox=document.querySelector<HTMLElement>("#booking-inbox-host")!;
 const conversationOutput=document.querySelector<HTMLElement>("#booking-conversation-messages")!;
 const conversationStatus=document.querySelector<HTMLElement>("#booking-conversation-status")!;
 function bookingData<T>(result:Record<string,unknown>):T{return result.data as T}
+const reservationReviewItems=document.querySelector<HTMLElement>("#booking-review-items")!;
+const reservationReviewStatus=document.querySelector<HTMLElement>("#booking-review-status")!;
+function clearReservationReviews(message="Selecciona una reserva finalizada."):void {
+  reviewRequestRevision++;selectedReservationReviews=[];reservationReviewItems.replaceChildren();reservationReviewStatus.textContent=message;
+  const button=document.querySelector<HTMLButtonElement>('#booking-review-form button[type="submit"]');if(button)button.disabled=true;
+}
+function refreshReservationReviewControls():void {
+  const button=document.querySelector<HTMLButtonElement>('#booking-review-form button[type="submit"]');
+  if(!button)return;
+  const current=selectedReservation;
+  const expectedTarget=current?.renter_id===sessionAccountID?"espacio":"arrendatario";
+  button.disabled=!sessionToken||!current||current.state!=="finalizada"||![current.host_id,current.renter_id].includes(sessionAccountID)||selectedReservationReviews.some(item=>item.target_type===expectedTarget);
+}
+async function loadReservationReviews(reservationID:string):Promise<void>{
+  const revision=++reviewRequestRevision,token=sessionToken,account=sessionAccountID,generation=sessionGeneration;
+  const response=await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/reviews`,"GET",undefined,true);
+  if(revision!==reviewRequestRevision||token!==sessionToken||account!==sessionAccountID||generation!==sessionGeneration||selectedReservationID!==reservationID)return;
+  selectedReservationReviews=bookingData<{items:LocalReview[]}>(response).items??[];reservationReviewItems.replaceChildren();
+  const expectedTarget=selectedReservation?.renter_id===account?"espacio":"arrendatario";
+  for(const item of selectedReservationReviews){
+    const article=document.createElement("article"),summary=document.createElement("p"),comment=document.createElement("p");
+    summary.textContent=`${item.target_type==="espacio"?"Reseña del arrendatario al espacio":"Reseña del anfitrión al arrendatario"} · ${item.rating}/5 · ${item.state??"publicada"} · ${new Date(item.created_at).toLocaleString("es-CL")}`;
+    comment.textContent=item.comment??"Sin comentario.";article.append(summary,comment);
+    if(account===selectedReservation?.host_id&&item.target_type==="espacio"&&item.state!=="reportada"){
+      const reason=document.createElement("select"),report=document.createElement("button");
+      for(const [value,label] of [["insultos_acoso","Insultos o acoso"],["datos_personales","Datos personales"],["spam","Spam"],["ajeno_experiencia","Ajeno a la experiencia"]]){const option=document.createElement("option");option.value=value;option.textContent=label;reason.append(option);}
+      report.type="button";report.textContent="Reportar reseña";
+      report.addEventListener("click",()=>void action(async()=>{
+        const key=reviewReportRetryKeys.get(item.id)??crypto.randomUUID();reviewReportRetryKeys.set(item.id,key);
+        const context={reservationID,account,token,generation};
+        const result=await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/reviews/${encodeURIComponent(item.id)}/report`,"POST",{reason_code:reason.value},true,key);
+        if(context.reservationID!==selectedReservationID||context.account!==sessionAccountID||context.token!==sessionToken||context.generation!==sessionGeneration)return;
+        reviewReportRetryKeys.delete(item.id);reservationReviewStatus.textContent=`Reporte ${bookingData<{state:string}>(result).state}; la reseña conserva su promedio hasta una decisión administrativa.`;await loadReservationReviews(reservationID);
+      }));article.append(reason,report);
+    }else if(account===selectedReservation?.host_id&&item.target_type==="espacio"&&item.state==="reportada"){
+      const pending=document.createElement("p");pending.textContent="Reportada; pendiente de revisión administrativa.";article.append(pending);
+    }
+    reservationReviewItems.append(article);
+  }
+  const ownReview=selectedReservationReviews.some(item=>item.target_type===expectedTarget);
+  reservationReviewStatus.textContent=selectedReservation?.state==="finalizada"?ownReview?"Tu reseña de esta reserva ya fue enviada y no se puede editar.":"Puedes enviar una reseña. Un reintento idéntico reutiliza el registro.":selectedReservation?.state==="en_disputa"?"La reserva está en disputa; no se admiten reseñas nuevas y las ya enviadas se conservan.":"Las reseñas nuevas requieren una reserva finalizada.";
+  refreshReservationReviewControls();
+}
+form("booking-review-form",async(data,element)=>{
+  const current=selectedReservation,reservationID=selectedReservationID,account=sessionAccountID,token=sessionToken,generation=sessionGeneration;
+  if(!current||current.state!=="finalizada"||![current.host_id,current.renter_id].includes(account))throw new Error("Solo un participante puede reseñar su propia reserva finalizada.");
+  const keyID=`${account}:${reservationID}`,key=reviewRetryKeys.get(keyID)??crypto.randomUUID();reviewRetryKeys.set(keyID,key);
+  const response=await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/reviews`,"POST",{rating:Number(data.get("rating")),comment:String(data.get("comment")??"")},true,key);
+  if(reservationID!==selectedReservationID||account!==sessionAccountID||token!==sessionToken||generation!==sessionGeneration)return;
+  reviewRetryKeys.delete(keyID);element.querySelector<HTMLTextAreaElement>('[name="comment"]')!.value="";
+  const item=bookingData<LocalReview>(response);reservationReviewStatus.textContent=`Reseña ${item.reused?"existente reutilizada":"enviada"}; no se puede editar.`;await loadReservationReviews(reservationID);
+});
 const catalogResults=document.querySelector<HTMLElement>("#booking-catalog-results")!;
 async function loadCatalogFilterProfile(category:string):Promise<void>{
   const token=++catalogProfileRequest;
@@ -1191,12 +1298,18 @@ form("booking-catalog-form",async data=>{
       (document.querySelector<HTMLInputElement>('#booking-request-form [name="quote_id"]')!).value="";
       (document.querySelector<HTMLInputElement>('#booking-quote-form [name="start_at"]')!).value="";
       (document.querySelector<HTMLInputElement>('#booking-quote-form [name="end_at"]')!).value="";
+      document.querySelector<HTMLElement>("#booking-space-reviews")!.textContent="Cargando reseñas de la publicación activa…";
       bookingQuoteOutput.textContent="Selecciona el intervalo y prepara una nueva cotización para este espacio.";
       const detailResult=await request(`${bookingBase}/catalog/${encodeURIComponent(item.space_id)}`,"GET",undefined,true);
       if(detailToken!==bookingCatalogRequest||!bookingQuoteState.selectionIsCurrent(selectionToken,item.space_id))return;
       bookingFixture=bookingData<BookingFixture>(detailResult);
       (document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]')!).value=bookingFixture.space_id;
       bookingFixtureOutput.textContent=`${String(detailResult.safety_notice)}\n${JSON.stringify(bookingFixture,null,2)}`;
+      const publicReviews=await request(`/api/v1/spaces/${encodeURIComponent(item.space_id)}/reviews`);
+      if(detailToken!==bookingCatalogRequest||!bookingQuoteState.selectionIsCurrent(selectionToken,item.space_id))return;
+      const summary=bookingData<{items:LocalReview[];average:number;count:number}>(publicReviews);
+      const reviewText=document.querySelector<HTMLElement>("#booking-space-reviews")!;
+      reviewText.textContent=`${summary.average.toFixed(1)}/5 · ${summary.count} reseña(s) visibles\n${summary.items.map(r=>`${r.rating}/5 · ${r.comment||"Sin comentario"}`).join("\n")||"Aún sin reseñas visibles."}`;
       void renderWeeklyHoursEditor(item.space_id);
       renderAvailabilityPicker();
     }));
@@ -1430,6 +1543,13 @@ function clearBookingInboxOnSessionLoss():void{
   refreshPrivacyExportControls();
   clearSuppressionQueue();
   clearCredentialNoticeQueue();
+  localNoticeRecoveryKeys.clear();reviewReportRetryKeys.clear();reviewRetryKeys.clear();
+  document.querySelector<HTMLElement>("#local-review-reports-items")?.replaceChildren();
+  const reportStatus=document.querySelector<HTMLElement>("#local-review-reports-status");if(reportStatus)reportStatus.textContent="Requiere rol administrador.";
+  document.querySelector<HTMLElement>("#local-notice-items")?.replaceChildren();
+  const localNoticeStatus=document.querySelector<HTMLElement>("#local-notice-status"),localNoticeOutput=document.querySelector<HTMLElement>("#local-notice-output");
+  if(localNoticeStatus)localNoticeStatus.textContent="Requiere rol administrador.";if(localNoticeOutput)localNoticeOutput.textContent="Requiere rol administrador.";
+  clearReservationReviews("Inicia sesión y selecciona una reserva propia.");
   document.querySelector<HTMLElement>("#verification-output")!.textContent="Inicia sesión para consultar tus casos sintéticos.";
   document.querySelector<HTMLElement>("#verification-eligibility-output")!.textContent="Inicia sesión para consultar elegibilidad sintética.";
   document.querySelector<HTMLInputElement>("#verification-history-id")!.value="";
@@ -1465,6 +1585,7 @@ function clearBookingInboxOnSessionLoss():void{
   clearDisputes("Inicia sesión y selecciona una reserva para consultar incidencias.");
   disputeOpenKeys.clear();
   clearAdminDisputes("Requiere rol administrador.");
+  refreshLocalNoticeControls();
   refreshBookingActions();
 }
 // Start without displaying data that may have been left in a restored browser document.
@@ -1549,6 +1670,7 @@ function refreshBookingActions():void{
   if(attempt){const outcome=document.querySelector<HTMLSelectElement>("#booking-inbox-payment-outcome");if(outcome){outcome.value=attempt.outcome;outcome.disabled=true;}pay.textContent="Consultar / reintentar pago (misma clave)";}
   else{const outcome=document.querySelector<HTMLSelectElement>("#booking-inbox-payment-outcome");if(outcome)outcome.disabled=!allowed?.canPay;pay.textContent="Enviar pago de ensayo";}
   if(selectedReservationID)pay.disabled=!allowed?.canPay||bookingPaymentState.isInFlight(selectedReservationID);
+  refreshReservationReviewControls();
 }
 function clearDisputes(message:string):void{
   disputeRevision++;localDisputes=[];
@@ -1627,7 +1749,7 @@ async function loadDisputeAdminQueue():Promise<void>{
   document.querySelector<HTMLElement>("#local-dispute-admin-status")!.textContent=`${disputeAdminItems.length} incidencia(s) abierta(s). El cierre es administrativo y no económico.`;
 }
 async function loadReservationDetail(id:string):Promise<void>{
-  bookingRequestState.select(id);selectedReservationID=id;selectedReservation=null;selectedContract=null;contractRequestRevision++;document.querySelector<HTMLElement>("#synthetic-contract-output")!.textContent="Selecciona Generar / consultar para cargar el contrato privado de ensayo.";clearDisputes("Cargando incidencia de la reserva seleccionada…");clearRentalOperations("Cargando operaciones sintéticas de la reserva…");clearDamageClaim("Cargando reclamo formal sintético…");refreshBookingActions();
+  bookingRequestState.select(id);selectedReservationID=id;selectedReservation=null;selectedContract=null;clearReservationReviews("Cargando reseñas de la reserva…");contractRequestRevision++;document.querySelector<HTMLElement>("#synthetic-contract-output")!.textContent="Selecciona Generar / consultar para cargar el contrato privado de ensayo.";clearDisputes("Cargando incidencia de la reserva seleccionada…");clearRentalOperations("Cargando operaciones sintéticas de la reserva…");clearDamageClaim("Cargando reclamo formal sintético…");refreshBookingActions();
   cancellationPreview=null;cancellationPreviewReservationID="";
   document.querySelector<HTMLElement>("#booking-inbox-cancel-preview-output")!.textContent="Consulta la opción de cancelación antes de confirmar.";
   clearConversation("Cargando mensajes de la reserva seleccionada…");
@@ -1638,6 +1760,8 @@ async function loadReservationDetail(id:string):Promise<void>{
   await loadRentalOperations(id);
   if(selectedReservationID!==id||!selectedReservation)return;
   await loadDamageClaim(id);
+  if(selectedReservationID!==id||!selectedReservation)return;
+  await loadReservationReviews(id);
   if(selectedReservationID!==id||!selectedReservation)return;
   await loadReservationDisputes(id);
   await loadConversationPage(id,null,false);

@@ -1,6 +1,6 @@
 # Backlog propuesto para cerrar el backend local
 
-Fecha inicial: 2026-10-07; conciliación actualizada tras merges #217 y #214 el 2026-10-09. #216 LOCAL-CONT-01 fue aceptada: contrato y firma sintéticos sobre reserva aprobada. LOCAL-OPS-01 (#218, hija de #88) está en curso. LOCAL-BOOK-02 (#214) también fue aceptada; los padres generales siguen abiertos. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
+Fecha inicial: 2026-10-07; conciliación actualizada tras el merge #219 el 2026-10-09. #216 LOCAL-CONT-01, #214 LOCAL-BOOK-02 y #218 LOCAL-OPS-01 fueron aceptadas por sus alcances locales; #218 quedó cerrada/Hecho en Projects. Los padres generales siguen abiertos. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
 
 ## Convenciones
 
@@ -212,7 +212,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras merges #217 y #214 el 
 
 ### LOCAL-OPS-01 — Construir entrega, recepción y devolución
 
-- **Módulo/tipo/estado:** M08/M10 intake / VERTICAL / `En curso` (#218 / PR actual).
+- **Módulo/tipo/estado:** M08/M10 intake / VERTICAL / `Hecho` para su alcance local (#218; PR #219 fusionado y aceptado 2026-10-09).
 - **Objetivo y motivo:** #88–94, CU-33–34/48; completar el uso del arriendo y sus evidencias.
 - **Alcance:** check-in/out, recepción/observaciones, evidencia PNG privada sintética, ubicación identificada de ensayo, actor/fecha y transiciones de reserva. Incluye apertura local del reclamo formal M10 por anfitrión dentro de las 24 horas desde el check-out persistido y descargo textual del arrendatario. No adjudica daños, mueve fondos ni cierra el arriendo por reloj.
 - **Fuera:** geolocalización real o política de daño/garantía no acordada; resolución de disputa pertenece a M10.
@@ -221,16 +221,19 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras merges #217 y #214 el 
 - **Pruebas previstas:** reloj bajo bloqueo, actor incorrecto, confirmaciones/objeciones, repetición y estado final; finalizar LOCAL-OPS-MOCK-01.
 - **Riesgo:** confundir la incidencia de privacidad M02 con el reclamo de daños M10, presentar un fake como resolución legal/financiera, o completar la reserva solo porque pasó la hora.
 
-### LOCAL-COMM-01 — Completar reputación y avisos durables
+### LOCAL-COMM-01 — Reseñas, moderación y avisos durables locales (Issue #220)
 
-- **Módulo/tipo/estado:** M09 / VERTICAL / `todo`.
-- **Objetivo y motivo:** #95–102, CU-35–38/49; completar reseñas/reportes y envío durable, conservando chat/cursores aceptados.
-- **Alcance:** elegibilidad y unicidad de reseña según requisito, moderación/reportes; notificaciones, entregas y reintentos mediante outbox/Mailpit; cobertura de eventos de otros módulos.
-- **Fuera:** tiempo real, push, campana interna u otras funciones sin requisito, canales externos reales.
-- **Dependencias:** LOCAL-OPS-01, AUTH/CORE y D-COMM. **Desbloquea:** LOCAL-DIS-01 y administración de contenido.
-- **Aceptación:** tercero no lee hilo ni evalúa reserva ajena; reseña cumple estado/plazo; destinatario/payload mínimos; un fallo de correo deja intención recuperable y reintento no duplica entrega confirmada.
-- **Pruebas previstas:** roles, elegibilidad, reportes, replay, workers y regresión chat/cursores; finalizar LOCAL-COMM-MOCK-01.
-- **Riesgo:** reseñar una reserva no ejecutada o considerar un SMTP directo como outbox durable.
+- **Módulo/tipo/estado:** M09 / VERTICAL / En revisión, #220, hija de #95 y relacionada con #96–#102; PR #221 abierto.
+- **Objetivo y motivo:** #95–102, CU-35–38/49; completar reseñas/reportes y avisos durables sin cerrar padres generales.
+- **Alcance D-COMM ratificado:** una reseña por participante y reserva `finalizada`, arrendatario→espacio y anfitrión→arrendatario; nota entera 1–5 obligatoria, comentario opcional; no hay ventana adicional, edición ni nuevas reseñas en `en_disputa`; reintento idéntico reutiliza. Reseñas visibles del espacio y promedio únicamente para publicación activa, sin datos privados; reputación del arrendatario solo en vistas autenticadas autorizadas. El anfitrión reporta reseñas de su espacio con catálogo estructurado; el reporte marca `reportada` pero no oculta ni modifica promedio. Admin desestima u oculta con motivo y auditoría; ocultas no listan ni promedian; sin apelación.
+- **Avisos:** intención en transacción, deduplicación por evento/destinatario y entrega Mailpit para check-in→anfitrión, reporte→administradores autorizados, reclamo abierto→arrendatario y cancelación→ambas partes. Sin aviso por mensaje. Ocho intentos por ciclo, fallo terminal persistido y reapertura administrativa motivada; SMTP puede duplicar si el resultado es incierto tras envío.
+- **Privacidad local ratificada:** exportación propia y minimización coordinada con baja; reseñas 24 meses desde creación; reportes hasta resolución y 24 meses posteriores; entregas pendientes se conservan hasta resolución y terminales 30 días. Chat conserva su tratamiento vigente. Son decisiones locales, no plazos legales.
+- **Dependencias satisfechas para el corte:** LOCAL-BOOK-02/#214 (reserva/participantes), LOCAL-CONT-01/#216, LOCAL-OPS-01/#218 (check-in, check-out, disputa, cancelación), conversación/#156/#158, identidad/auditoría/outbox/Mailpit. #79 y los padres #88–94/#103–110 conservan criterios generales y no se cierran ni bloquean este recorrido local.
+- **Fuera:** mensajería por cada mensaje, push/campana, canales externos, perfiles públicos de arrendatarios, apelaciones y criterios generales productivos.
+- **Aceptación:** autorización por rol/participante/propietario/admin; reseñas recíprocas, promedio activo, reporte/moderación/auditoría; cuatro tipos de intención durable; fallos/reapertura y retención; exportación/baja aisladas; pruebas PostgreSQL y recorrido mock.
+- **Pruebas:** `go test` focalizado PostgreSQL con runtime, aislamiento, idempotencia, concurrencia, promedio, moderación y recuperación del outbox; recorrido mock con ambas partes y administrador.
+- **Riesgo:** filtrar datos privados o confundir aceptación SMTP con entrega exactamente una vez.
+- **Corrección previa a revisión:** V37 permite minimizar reseñas recibidas conforme a sus checks; coordina escrituras/despacho con baja; recupera leases vencidos del intento 8 como terminales sin noveno envío; y conserva marca opaca de unicidad hasta que deje de estar permitida la reseña, incluida reserva sin vencimiento de vínculos. Altas de reseña/reporte ahora comparten con reclamos el orden cuentas ordenadas → reserva → reseña/reporte. La integración desechable aplica V36→V37, comprueba Mailpit SMTP/API, la carrera reseña/reclamo sin deadlock y el purgado a 25 meses con unicidad retenida.
 
 ## L4 — Resolver, liquidar y administrar
 
