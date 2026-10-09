@@ -17,8 +17,10 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
+	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	localnoticepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/localnotice"
+	"github.com/HernanEspinozaDev/espaciGo/internal/damageclaim"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	localnotice "github.com/HernanEspinozaDev/espaciGo/internal/localnotice"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
@@ -190,8 +192,7 @@ func TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions(t *t
 		t.Fatalf("moderation audit=%d err=%v", audit, e)
 	}
 	markerFixture := seedSuppressionRaceReservation(t, ctx, pool, 30, now)
-	markerRetireAt := now.AddDate(0, 36, 0)
-	if _, e = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=$2 WHERE id=$1`, markerFixture.reservation, markerRetireAt); e != nil {
+	if _, e = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=NULL WHERE id=$1`, markerFixture.reservation); e != nil {
 		t.Fatal(e)
 	}
 	markerReview, e := svc.Create(ctx, markerFixture.renter, markerFixture.reservation, "marker-review-key-0001", domain.ReviewInput{Rating: 4, Comment: "Synthetic marker test"})
@@ -215,7 +216,7 @@ func TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions(t *t
 	if e = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.resena_ensayo_local','DELETE') OR has_table_privilege(current_user,'public.reporte_resena_historial_local','UPDATE')`).Scan(&immutable); e != nil || immutable {
 		t.Fatalf("runtime can rewrite/delete reputation history: %v err=%v", immutable, e)
 	}
-	counts, e := r.PurgeExpired(ctx, now.AddDate(0, 24, 0), 10)
+	counts, e := r.PurgeExpired(ctx, now.AddDate(0, 25, 0), 10)
 	if e != nil || counts.ReviewsPurged != 4 || counts.ReportsPurged != 2 {
 		var pgErr *pgconn.PgError
 		if errors.As(e, &pgErr) {
@@ -228,15 +229,21 @@ func TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions(t *t
 		_ = pool.QueryRow(ctx, `SELECT has_table_privilege($1,'public.reporte_resena_ensayo_local','DELETE')`, owner).Scan(&del)
 		t.Fatalf("due retention counts=%+v err=%v security_definer=%t owner=%s owner_delete=%v", counts, e, definer, owner, del)
 	}
-	if _, e = svc.Create(ctx, markerFixture.renter, markerFixture.reservation, "marker-review-retry-key", domain.ReviewInput{Rating: 4, Comment: "Synthetic marker test"}); !errors.Is(e, domain.ErrConflict) {
+	futureSvc, e := domain.New(r, credentials.Generator{}, func() time.Time { return now.AddDate(0, 25, 0) })
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = futureSvc.Create(ctx, markerFixture.renter, markerFixture.reservation, "marker-review-retry-key", domain.ReviewInput{Rating: 4, Comment: "Synthetic marker test"}); !errors.Is(e, domain.ErrConflict) {
 		t.Fatalf("purged review uniqueness was not retained: err=%v review=%s", e, markerReview.ID)
 	}
-	var retainedMarkers int
-	if e = pool.QueryRow(ctx, `SELECT count(*) FROM public.resena_autoria_marca_local WHERE retirar_en>$1`, now.AddDate(0, 24, 0)).Scan(&retainedMarkers); e != nil || retainedMarkers != 1 {
-		t.Fatalf("opaque authorship markers retained=%d err=%v", retainedMarkers, e)
+	var retainedMarker bool
+	markerDigest := reviewAuthorshipMarker(markerFixture.reservation, markerFixture.renter)
+	if e = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.resena_autoria_marca_local WHERE huella_autoria=$1 AND retirar_en IS NULL)`, markerDigest[:]).Scan(&retainedMarker); e != nil || !retainedMarker {
+		t.Fatalf("eligible reservation author marker was purged: retained=%t err=%v", retainedMarker, e)
 	}
 	testDurableNoticeRecovery(t, ctx, pool, now, reservation, adminID, host, outsider)
 	testReviewAndReportSuppressionRaces(t, ctx, pool, svc, adminID, now)
+	testReviewAndClaimLockOrder(t, ctx, pool, svc, now)
 }
 
 func TestV37BackfillsV36ReviewAuthorshipMarker(t *testing.T) {
@@ -311,11 +318,12 @@ func TestV37BackfillsV36ReviewAuthorshipMarker(t *testing.T) {
 		t.Fatalf("upgrade V36 data through V37: %v", e)
 	}
 	marker := reviewAuthorshipMarker(reservation, renter)
-	var markedAt, removeAt time.Time
+	var markedAt time.Time
+	var removeAt *time.Time
 	if e = pool.QueryRow(ctx, `SELECT creada_en,retirar_en FROM public.resena_autoria_marca_local WHERE huella_autoria=$1`, marker[:]).Scan(&markedAt, &removeAt); e != nil {
 		t.Fatalf("V37 did not backfill legacy authorship marker: %v", e)
 	}
-	if !markedAt.Equal(createdAt) || !removeAt.After(createdAt.AddDate(0, 24, 0).Add(-time.Minute)) {
+	if !markedAt.Equal(createdAt) || removeAt != nil {
 		t.Fatalf("legacy marker dates=%s/%s", markedAt, removeAt)
 	}
 	if _, e = pool.Exec(ctx, `DELETE FROM public.resena_ensayo_local WHERE id=$1`, legacyReview); e != nil {
@@ -745,6 +753,70 @@ func testReviewAndReportSuppressionRaces(t *testing.T, ctx context.Context, pool
 	}
 	if e = pool.QueryRow(ctx, `SELECT count(*) FROM public.reporte_resena_ensayo_local WHERE resena_id=$1`, review.ID).Scan(&count); e != nil || count != 0 {
 		t.Fatalf("racing report rows=%d err=%v", count, e)
+	}
+}
+
+func testReviewAndClaimLockOrder(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svc *domain.Service, at time.Time) {
+	t.Helper()
+	f := seedSuppressionRaceReservation(t, ctx, pool, 40, at)
+	const operationID = "66000000-0000-4000-8000-000000000040"
+	const evidenceID = "67000000-0000-4000-8000-000000000040"
+	location := `{"source":"synthetic-fixture-v1","location_code":"santiago-demo-center-v1","latitude":-33.4489,"longitude":-70.6693}`
+	if _, err := pool.Exec(ctx, `INSERT INTO public.operacion_arriendo_ensayo_local(id,reserva_id,tipo,actor_id,ocurrio_en,zona_horaria,ubicacion_sintetica,resultado,clave_idempotencia,huella_solicitud,creada_en) VALUES($1,$2,'checkout',$3,$4,'America/Santiago',$5::jsonb,'registrada','review-claim-checkout',repeat('c',32)::bytea,$4)`, operationID, f.reservation, f.renter, at.Add(-30*time.Minute), location); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public.operacion_arriendo_evidencia_ensayo_local(id,operacion_id,fixture_code,mime_type,sha256,size_bytes,creada_en) VALUES($1,$2,'synthetic-png-v1','image/png',repeat('a',64),128,$3)`, evidenceID, operationID, at.Add(-30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	claimService, err := damageclaim.New(damageclaimpg.New(pool), func() time.Time { return at })
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Hold the later-sorted participant. Claim opening first locks the host,
+	// then waits for the renter; review creation must wait on the host before it
+	// can lock the reservation. The old reservation-first order deadlocked here.
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = blocker.Rollback(context.Background()) }()
+	if _, err = blocker.Exec(ctx, `SELECT estado FROM public.usuario WHERE id=$1 FOR UPDATE`, f.renter); err != nil {
+		t.Fatal(err)
+	}
+	claimResult := make(chan error, 1)
+	go func() {
+		_, e := claimService.Open(ctx, f.host, f.reservation, "review-claim-deadlock-key", damageclaim.Input{Description: "Synthetic concurrent claim."})
+		claimResult <- e
+	}()
+	waitForRuntimeLockWaits(t, ctx, pool, 1)
+	reviewResult := make(chan error, 1)
+	go func() {
+		_, e := svc.Create(ctx, f.renter, f.reservation, "review-claim-review-key", domain.ReviewInput{Rating: 5})
+		reviewResult <- e
+	}()
+	waitForRuntimeLockWaits(t, ctx, pool, 2)
+	if err = blocker.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err = <-claimResult:
+		if err != nil {
+			t.Fatalf("claim operation deadlocked or failed: %v", err)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("claim operation did not finish after releasing account lock")
+	}
+	select {
+	case err = <-reviewResult:
+		if !errors.Is(err, domain.ErrConflict) {
+			t.Fatalf("review should observe the claim transition, got %v", err)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("review operation did not finish after claim committed")
+	}
+	var reviewCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.resena_ensayo_local WHERE reserva_id=$1`, f.reservation).Scan(&reviewCount); err != nil || reviewCount != 0 {
+		t.Fatalf("review inserted despite claim transition: count=%d err=%v", reviewCount, err)
 	}
 }
 

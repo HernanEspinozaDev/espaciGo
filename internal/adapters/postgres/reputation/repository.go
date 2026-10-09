@@ -32,14 +32,30 @@ func (r *Repository) CreateReview(ctx context.Context, id, actor, reservation st
 		return domain.Review{}, e
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	var host, renter, space, state string
-	var linksRetireAt *time.Time
-	e = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text,espacio_id::text,estado,vinculos_retirar_en FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&host, &renter, &space, &state, &linksRetireAt)
+	// Participants are immutable; read their IDs first so all writers take
+	// ordered account locks before reservation/review locks.
+	var host, renter string
+	e = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local WHERE id=$1`, reservation).Scan(&host, &renter)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return domain.Review{}, domain.ErrNotFound
 	}
 	if e != nil {
 		return domain.Review{}, e
+	}
+	if e = lockActiveAccounts(ctx, tx, host, renter); e != nil {
+		return domain.Review{}, e
+	}
+	var lockedHost, lockedRenter, space, state string
+	var linksRetireAt *time.Time
+	e = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text,espacio_id::text,estado,vinculos_retirar_en FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&lockedHost, &lockedRenter, &space, &state, &linksRetireAt)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return domain.Review{}, domain.ErrNotFound
+	}
+	if e != nil {
+		return domain.Review{}, e
+	}
+	if host != lockedHost || renter != lockedRenter {
+		return domain.Review{}, domain.ErrConflict
 	}
 	targetType, targetID := "", ""
 	if actor == renter {
@@ -48,9 +64,6 @@ func (r *Repository) CreateReview(ctx context.Context, id, actor, reservation st
 		targetType, targetID = "arrendatario", renter
 	} else {
 		return domain.Review{}, domain.ErrNotFound
-	}
-	if e = lockActiveAccounts(ctx, tx, host, renter); e != nil {
-		return domain.Review{}, e
 	}
 	var old domain.Review
 	var oldHash []byte
@@ -79,7 +92,7 @@ func (r *Repository) CreateReview(ctx context.Context, id, actor, reservation st
 	}
 	marker := reviewAuthorshipMarker(reservation, actor)
 	var marked bool
-	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.resena_autoria_marca_local WHERE huella_autoria=$1 AND retirar_en>$2)`, marker[:], at).Scan(&marked); e != nil {
+	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.resena_autoria_marca_local WHERE huella_autoria=$1 AND (retirar_en IS NULL OR retirar_en>$2))`, marker[:], at).Scan(&marked); e != nil {
 		return domain.Review{}, e
 	}
 	if marked {
@@ -89,7 +102,7 @@ func (r *Repository) CreateReview(ctx context.Context, id, actor, reservation st
 	if e != nil {
 		return domain.Review{}, mapReviewError(e)
 	}
-	_, e = tx.Exec(ctx, `INSERT INTO public.resena_autoria_marca_local(huella_autoria,creada_en,retirar_en) VALUES($1,$2,GREATEST($2::timestamptz+interval '24 months',COALESCE($3,$2::timestamptz+interval '24 months')))`, marker[:], at, linksRetireAt)
+	_, e = tx.Exec(ctx, `INSERT INTO public.resena_autoria_marca_local(huella_autoria,creada_en,retirar_en) VALUES($1,$2,CASE WHEN $3::timestamptz IS NULL THEN NULL ELSE GREATEST($2::timestamptz+interval '24 months',$3) END)`, marker[:], at, linksRetireAt)
 	if e != nil {
 		return domain.Review{}, mapReviewError(e)
 	}
@@ -162,8 +175,8 @@ func (r *Repository) Report(ctx context.Context, id, actor, reservationExpected,
 		return domain.Report{}, e
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	var reservation, space, host, state, targetType string
-	e = tx.QueryRow(ctx, `SELECT rv.id::text,rv.espacio_id::text,rv.anfitrion_id::text,rv.estado,x.destinatario_tipo FROM public.resena_ensayo_local x JOIN public.reserva_ensayo_local rv ON rv.id=x.reserva_id WHERE x.id=$1`, review).Scan(&reservation, &space, &host, &state, &targetType)
+	var reservation, host, renter, targetType string
+	e = tx.QueryRow(ctx, `SELECT rv.id::text,rv.anfitrion_id::text,rv.arrendatario_id::text,x.destinatario_tipo FROM public.resena_ensayo_local x JOIN public.reserva_ensayo_local rv ON rv.id=x.reserva_id WHERE x.id=$1`, review).Scan(&reservation, &host, &renter, &targetType)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return domain.Report{}, domain.ErrNotFound
 	}
@@ -173,12 +186,12 @@ func (r *Repository) Report(ctx context.Context, id, actor, reservationExpected,
 	if reservation != reservationExpected || targetType != "espacio" {
 		return domain.Report{}, domain.ErrNotFound
 	}
-	var lock string
-	e = tx.QueryRow(ctx, `SELECT id::text FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&lock)
-	if e != nil {
+	if e = lockActiveAccounts(ctx, tx, host, renter); e != nil {
 		return domain.Report{}, e
 	}
-	if e = lockActiveAccounts(ctx, tx, host); e != nil {
+	var lock, space string
+	e = tx.QueryRow(ctx, `SELECT id::text,espacio_id::text FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&lock, &space)
+	if e != nil {
 		return domain.Report{}, e
 	}
 	var reviewSpace, reviewState string

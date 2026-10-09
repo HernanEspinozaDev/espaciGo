@@ -29,11 +29,12 @@ ALTER TABLE public.resena_ensayo_local
 CREATE TABLE public.resena_autoria_marca_local (
   huella_autoria bytea PRIMARY KEY CHECK (octet_length(huella_autoria)=32),
   creada_en timestamptz NOT NULL,
-  retirar_en timestamptz NOT NULL
+  retirar_en timestamptz
 );
 INSERT INTO public.resena_autoria_marca_local(huella_autoria,creada_en,retirar_en)
 SELECT sha256(convert_to(r.reserva_id::text || ':' || r.autor_id::text,'UTF8')), r.creada_en,
-       GREATEST(r.creada_en + interval '24 months',COALESCE(b.vinculos_retirar_en,r.creada_en + interval '24 months'))
+       CASE WHEN b.vinculos_retirar_en IS NULL THEN NULL
+            ELSE GREATEST(r.creada_en + interval '24 months',b.vinculos_retirar_en) END
 FROM public.resena_ensayo_local r
 JOIN public.reserva_ensayo_local b ON b.id=r.reserva_id
 WHERE r.autor_id IS NOT NULL
@@ -86,4 +87,4 @@ BEGIN
   RETURN NEXT;
 END $$;
 
-COMMENT ON TABLE public.resena_autoria_marca_local IS 'Opaque uniqueness marker only; no rating/comment/account identifier. Retained through reservation-link deadline.';
+COMMENT ON TABLE public.resena_autoria_marca_local IS 'Opaque uniqueness marker only; no rating/comment/account identifier. A NULL retirement date means the reservation still permits reviews; otherwise retained through the reservation-link deadline.';

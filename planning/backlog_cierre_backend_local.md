@@ -233,7 +233,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras el merge #219 el 2026-
 - **Aceptación:** autorización por rol/participante/propietario/admin; reseñas recíprocas, promedio activo, reporte/moderación/auditoría; cuatro tipos de intención durable; fallos/reapertura y retención; exportación/baja aisladas; pruebas PostgreSQL y recorrido mock.
 - **Pruebas:** `go test` focalizado PostgreSQL con runtime, aislamiento, idempotencia, concurrencia, promedio, moderación y recuperación del outbox; recorrido mock con ambas partes y administrador.
 - **Riesgo:** filtrar datos privados o confundir aceptación SMTP con entrega exactamente una vez.
-- **Corrección previa a revisión:** V37 permite minimizar reseñas recibidas conforme a sus checks; coordina escrituras y despacho con baja; añade marca opaca para unicidad hasta el vencimiento de vínculos de reserva; recupera leases vencidos del intento 8 como terminales sin noveno envío. La integración desechable aplica V36→V37, comprueba Mailpit SMTP/API y retención del marcador.
+- **Corrección previa a revisión:** V37 permite minimizar reseñas recibidas conforme a sus checks; coordina escrituras/despacho con baja; recupera leases vencidos del intento 8 como terminales sin noveno envío; y conserva marca opaca de unicidad hasta que deje de estar permitida la reseña, incluida reserva sin vencimiento de vínculos. Altas de reseña/reporte ahora comparten con reclamos el orden cuentas ordenadas → reserva → reseña/reporte. La integración desechable aplica V36→V37, comprueba Mailpit SMTP/API, la carrera reseña/reclamo sin deadlock y el purgado a 25 meses con unicidad retenida.
 
 ## L4 — Resolver, liquidar y administrar
 
