@@ -25,10 +25,12 @@ import (
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	localnoticepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/localnotice"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
 	operationspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/operations"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
 	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
+	reputationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/reputation"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
@@ -44,6 +46,8 @@ import (
 	galleryhttp "github.com/HernanEspinozaDev/espaciGo/internal/gallery/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/localnotice"
+	noticehttp "github.com/HernanEspinozaDev/espaciGo/internal/localnotice/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
@@ -51,6 +55,8 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/health"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/reputation"
+	reputationhttp "github.com/HernanEspinozaDev/espaciGo/internal/reputation/transport/http"
 	spacesdomain "github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
@@ -133,6 +139,7 @@ func run() error {
 	var localGalleryService *gallery.Service
 	var localContractService *contract.Service
 	var localOperationService *operation.Service
+	var localNoticeService *localnotice.Service
 	var privacyReplayRegistryPath string
 	var privacyEvidenceCleaner privacy.SyntheticEvidenceCleaner
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
@@ -244,6 +251,20 @@ func run() error {
 			}
 			bookingService.SetLocalRefundAdapter(paymentAdapter)
 			bookingService.SetLocalNoticeSender(devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")})
+			reputationService, err := reputation.New(reputationpg.New(pool), credentials.Generator{}, time.Now)
+			if err != nil {
+				return errors.New("local synthetic reputation initialization failed")
+			}
+			reputationHandler := reputationhttp.NewHandler(service, reputationService, cfg.allowedOrigins)
+			mux.Handle("GET /api/v1/spaces/{spaceID}/reviews", reputationHandler)
+			registerReputationReservationRoutes(mux, reputationHandler)
+			mux.Handle("GET /api/v1/local/reputation/me", reputationHandler)
+			localNoticeService, err = localnotice.New(localnoticepg.New(pool), devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}, time.Now)
+			if err != nil {
+				return errors.New("local durable notice initialization failed")
+			}
+			mux.Handle("/api/v1/admin/local/notices", noticehttp.NewHandler(service, localNoticeService, cfg.allowedOrigins))
+			mux.Handle("/api/v1/admin/local/notices/", noticehttp.NewHandler(service, localNoticeService, cfg.allowedOrigins))
 			localPaymentService = bookingService
 			conversationService, err := conversation.NewService(conversationpg.New(pool), credentials.Generator{}, time.Now)
 			if err != nil {
@@ -338,6 +359,21 @@ func run() error {
 	if localIdentityService != nil {
 		go localIdentityService.RunCredentialNoticeWorker(ctx, time.Second)
 	}
+	if localNoticeService != nil {
+		go localNoticeService.Run(ctx, time.Second)
+		go func() {
+			ticker := time.NewTicker(time.Hour)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					_, _ = localNoticeService.Purge(ctx, 100)
+				}
+			}
+		}()
+	}
 	if localPrivacyService != nil {
 		go localPrivacyService.RunSuppressionCleanupWorker(ctx, 10*time.Second, privacyEvidenceCleaner, privacyReplayRegistryPath)
 		if localM02Service != nil {
@@ -416,6 +452,14 @@ func registerDamageClaimRoutes(mux *http.ServeMux, handler http.Handler) {
 	mux.Handle("GET /api/v1/local/booking-trial/reservations/{reservationID}/damage-claim", handler)
 	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/damage-claim", handler)
 	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/damage-claim/defense", handler)
+}
+
+// registerReputationReservationRoutes mounts only review operations, preserving
+// the booking router's ownership of reservation detail, payment and cancellation.
+func registerReputationReservationRoutes(mux *http.ServeMux, handler http.Handler) {
+	mux.Handle("GET /api/v1/local/booking-trial/reservations/{reservationID}/reviews", handler)
+	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/reviews", handler)
+	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/reviews/{reviewID}/report", handler)
 }
 
 func checkEndpoint(target string) error {

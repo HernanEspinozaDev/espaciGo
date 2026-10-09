@@ -28,6 +28,9 @@ let privacyExportObjectURL = "";
 let suppressionQueueRevision = 0;
 let credentialNoticeQueueRevision = 0;
 const credentialNoticeRecoveryKeys = new Map();
+const localNoticeRecoveryKeys = new Map();
+const reviewReportRetryKeys = new Map();
+const reviewRetryKeys = new Map();
 let suppressionReviewPanelState = initialSuppressionReviewPanelState();
 const suppressionReviewKeys = new Map();
 let termIDs = [];
@@ -94,7 +97,7 @@ async function requestArchive(path, bearer) {
 async function action(work) {
     const buttons = [...document.querySelectorAll("button")];
     try {
-        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); });
+        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); });
     }
     catch (error) {
         resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
@@ -385,6 +388,81 @@ async function loadCredentialNoticeQueue() {
     refreshCredentialNoticeControls();
 }
 document.querySelector("#credential-notice-load").addEventListener("click", () => void action(loadCredentialNoticeQueue));
+document.querySelector("#local-review-reports-load").addEventListener("click", () => void action(async () => {
+    const revision = ++reviewRequestRevision, token = sessionToken, account = sessionAccountID, generation = sessionGeneration;
+    const response = await request("/api/v1/admin/local/review-reports", "GET", undefined, true);
+    if (revision !== reviewRequestRevision || token !== sessionToken || account !== sessionAccountID || generation !== sessionGeneration)
+        return;
+    const items = bookingData(response).items ?? [], container = document.querySelector("#local-review-reports-items");
+    container.replaceChildren();
+    for (const item of items) {
+        const row = document.createElement("section"), summary = document.createElement("p"), comment = document.createElement("p"), reason = document.createElement("select");
+        summary.textContent = `Reporte ${item.id} · reseña ${item.review_id} · ${item.reason_code} · ${item.state} · ${item.created_at}`;
+        comment.textContent = item.review_comment ?? "Sin comentario";
+        for (const [value, label] of [["contenido_inadecuado", "Contenido inadecuado"], ["sin_infraccion", "Sin infracción"], ["duplicado", "Duplicado"], ["error_registro", "Error de registro"]]) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = label;
+            reason.append(option);
+        }
+        for (const [actionName, label] of [["hide", "Ocultar"], ["dismiss", "Desestimar"]]) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = label;
+            button.addEventListener("click", () => void action(async () => {
+                const keyID = `${item.id}:${actionName}`, key = reviewReportRetryKeys.get(keyID) ?? crypto.randomUUID();
+                reviewReportRetryKeys.set(keyID, key);
+                await request(`/api/v1/admin/local/review-reports/${encodeURIComponent(item.id)}/${actionName}`, "POST", { reason_code: reason.value, correlation_id: crypto.randomUUID() }, true, key);
+                if (revision !== reviewRequestRevision || token !== sessionToken || account !== sessionAccountID || generation !== sessionGeneration)
+                    return;
+                reviewReportRetryKeys.delete(keyID);
+                await document.querySelector("#local-review-reports-load").click();
+            }));
+            row.append(button);
+        }
+        row.prepend(comment, summary);
+        container.append(row);
+    }
+    document.querySelector("#local-review-reports-status").textContent = `${items.length} reporte(s) pendientes. Ocultar excluye del listado y promedio; desestimar conserva la reseña.`;
+}));
+async function loadLocalNoticeRecoveryQueue() {
+    const revision = ++credentialNoticeQueueRevision, token = sessionToken, account = sessionAccountID, generation = sessionGeneration;
+    const response = await request("/api/v1/admin/local/notices", "GET", undefined, true);
+    if (revision !== credentialNoticeQueueRevision || token !== sessionToken || account !== sessionAccountID || generation !== sessionGeneration)
+        return;
+    const items = bookingData(response).items ?? [], container = document.querySelector("#local-notice-items");
+    container.replaceChildren();
+    for (const item of items) {
+        const row = document.createElement("section"), summary = document.createElement("p"), reason = document.createElement("select"), button = document.createElement("button");
+        summary.textContent = `Aviso ${item.event_id} · ${item.event_type} · ${item.total_attempts} intentos acumulados · ciclo ${item.cycle_number} · ${item.error_code} · fallo ${item.terminal_at}`;
+        for (const [value, label] of [["smtp_restaurado", "SMTP restaurado"], ["reintento_operativo", "Reintento operativo"]]) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = label;
+            reason.append(option);
+        }
+        button.type = "button";
+        button.textContent = "Reabrir ciclo de aviso";
+        button.addEventListener("click", () => void action(async () => {
+            const key = localNoticeRecoveryKeys.get(item.event_id) ?? crypto.randomUUID();
+            localNoticeRecoveryKeys.set(item.event_id, key);
+            const result = await request(`/api/v1/admin/local/notices/${encodeURIComponent(item.event_id)}/reopen`, "POST", { reason_code: reason.value, correlation_id: crypto.randomUUID() }, true, key);
+            if (revision !== credentialNoticeQueueRevision || token !== sessionToken || account !== sessionAccountID || generation !== sessionGeneration)
+                return;
+            localNoticeRecoveryKeys.delete(item.event_id);
+            document.querySelector("#local-notice-output").textContent = `Ciclo ${result.cycle} ${result.reused ? "reutilizado" : "reabierto"}. Máximo ocho intentos nuevos; SMTP puede duplicar tras una aceptación incierta.`;
+            await loadLocalNoticeRecoveryQueue();
+        }));
+        row.append(summary, reason, button);
+        container.append(row);
+    }
+    document.querySelector("#local-notice-status").textContent = `${items.length} aviso(s) de comunicación con fallo terminal.`;
+    if (!items.length)
+        document.querySelector("#local-notice-output").textContent = "No hay avisos de comunicación que requieran recuperación.";
+}
+function refreshLocalNoticeControls() { const button = document.querySelector("#local-notice-load"); if (button)
+    button.disabled = !sessionToken; }
+document.querySelector("#local-notice-load").addEventListener("click", () => void action(loadLocalNoticeRecoveryQueue));
 document.querySelector("#privacy-export").addEventListener("click", () => void action(async () => {
     const context = capturePrivacyExportContext(sessionAccountID, sessionToken, sessionGeneration);
     if (!context)
@@ -1246,6 +1324,9 @@ function clearCatalogResultsAndSelection(message) {
     const detail = document.querySelector("#booking-fixture-output");
     if (detail)
         detail.textContent = message;
+    const publicReviews = document.querySelector("#booking-space-reviews");
+    if (publicReviews)
+        publicReviews.textContent = "Selecciona una publicación activa.";
     const quote = document.querySelector("#booking-quote-output");
     if (quote)
         quote.textContent = "La cotización se invalidó al cambiar la sesión.";
@@ -1525,6 +1606,8 @@ let disputeAdminItems = [];
 let conversationRevision = 0;
 let conversationOlderCursor = null;
 let conversationMessages = [];
+let reviewRequestRevision = 0;
+let selectedReservationReviews = [];
 let pendingMessageKey = "";
 let pendingMessageBody = "";
 let cancellationPreview = null;
@@ -1535,6 +1618,87 @@ const hostInbox = document.querySelector("#booking-inbox-host");
 const conversationOutput = document.querySelector("#booking-conversation-messages");
 const conversationStatus = document.querySelector("#booking-conversation-status");
 function bookingData(result) { return result.data; }
+const reservationReviewItems = document.querySelector("#booking-review-items");
+const reservationReviewStatus = document.querySelector("#booking-review-status");
+function clearReservationReviews(message = "Selecciona una reserva finalizada.") {
+    reviewRequestRevision++;
+    selectedReservationReviews = [];
+    reservationReviewItems.replaceChildren();
+    reservationReviewStatus.textContent = message;
+    const button = document.querySelector('#booking-review-form button[type="submit"]');
+    if (button)
+        button.disabled = true;
+}
+function refreshReservationReviewControls() {
+    const button = document.querySelector('#booking-review-form button[type="submit"]');
+    if (!button)
+        return;
+    const current = selectedReservation;
+    const expectedTarget = current?.renter_id === sessionAccountID ? "espacio" : "arrendatario";
+    button.disabled = !sessionToken || !current || current.state !== "finalizada" || ![current.host_id, current.renter_id].includes(sessionAccountID) || selectedReservationReviews.some(item => item.target_type === expectedTarget);
+}
+async function loadReservationReviews(reservationID) {
+    const revision = ++reviewRequestRevision, token = sessionToken, account = sessionAccountID, generation = sessionGeneration;
+    const response = await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/reviews`, "GET", undefined, true);
+    if (revision !== reviewRequestRevision || token !== sessionToken || account !== sessionAccountID || generation !== sessionGeneration || selectedReservationID !== reservationID)
+        return;
+    selectedReservationReviews = bookingData(response).items ?? [];
+    reservationReviewItems.replaceChildren();
+    const expectedTarget = selectedReservation?.renter_id === account ? "espacio" : "arrendatario";
+    for (const item of selectedReservationReviews) {
+        const article = document.createElement("article"), summary = document.createElement("p"), comment = document.createElement("p");
+        summary.textContent = `${item.target_type === "espacio" ? "Reseña del arrendatario al espacio" : "Reseña del anfitrión al arrendatario"} · ${item.rating}/5 · ${item.state ?? "publicada"} · ${new Date(item.created_at).toLocaleString("es-CL")}`;
+        comment.textContent = item.comment ?? "Sin comentario.";
+        article.append(summary, comment);
+        if (account === selectedReservation?.host_id && item.target_type === "espacio" && item.state !== "reportada") {
+            const reason = document.createElement("select"), report = document.createElement("button");
+            for (const [value, label] of [["insultos_acoso", "Insultos o acoso"], ["datos_personales", "Datos personales"], ["spam", "Spam"], ["ajeno_experiencia", "Ajeno a la experiencia"]]) {
+                const option = document.createElement("option");
+                option.value = value;
+                option.textContent = label;
+                reason.append(option);
+            }
+            report.type = "button";
+            report.textContent = "Reportar reseña";
+            report.addEventListener("click", () => void action(async () => {
+                const key = reviewReportRetryKeys.get(item.id) ?? crypto.randomUUID();
+                reviewReportRetryKeys.set(item.id, key);
+                const context = { reservationID, account, token, generation };
+                const result = await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/reviews/${encodeURIComponent(item.id)}/report`, "POST", { reason_code: reason.value }, true, key);
+                if (context.reservationID !== selectedReservationID || context.account !== sessionAccountID || context.token !== sessionToken || context.generation !== sessionGeneration)
+                    return;
+                reviewReportRetryKeys.delete(item.id);
+                reservationReviewStatus.textContent = `Reporte ${bookingData(result).state}; la reseña conserva su promedio hasta una decisión administrativa.`;
+                await loadReservationReviews(reservationID);
+            }));
+            article.append(reason, report);
+        }
+        else if (account === selectedReservation?.host_id && item.target_type === "espacio" && item.state === "reportada") {
+            const pending = document.createElement("p");
+            pending.textContent = "Reportada; pendiente de revisión administrativa.";
+            article.append(pending);
+        }
+        reservationReviewItems.append(article);
+    }
+    const ownReview = selectedReservationReviews.some(item => item.target_type === expectedTarget);
+    reservationReviewStatus.textContent = selectedReservation?.state === "finalizada" ? ownReview ? "Tu reseña de esta reserva ya fue enviada y no se puede editar." : "Puedes enviar una reseña. Un reintento idéntico reutiliza el registro." : selectedReservation?.state === "en_disputa" ? "La reserva está en disputa; no se admiten reseñas nuevas y las ya enviadas se conservan." : "Las reseñas nuevas requieren una reserva finalizada.";
+    refreshReservationReviewControls();
+}
+form("booking-review-form", async (data, element) => {
+    const current = selectedReservation, reservationID = selectedReservationID, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    if (!current || current.state !== "finalizada" || ![current.host_id, current.renter_id].includes(account))
+        throw new Error("Solo un participante puede reseñar su propia reserva finalizada.");
+    const keyID = `${account}:${reservationID}`, key = reviewRetryKeys.get(keyID) ?? crypto.randomUUID();
+    reviewRetryKeys.set(keyID, key);
+    const response = await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/reviews`, "POST", { rating: Number(data.get("rating")), comment: String(data.get("comment") ?? "") }, true, key);
+    if (reservationID !== selectedReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
+        return;
+    reviewRetryKeys.delete(keyID);
+    element.querySelector('[name="comment"]').value = "";
+    const item = bookingData(response);
+    reservationReviewStatus.textContent = `Reseña ${item.reused ? "existente reutilizada" : "enviada"}; no se puede editar.`;
+    await loadReservationReviews(reservationID);
+});
 const catalogResults = document.querySelector("#booking-catalog-results");
 async function loadCatalogFilterProfile(category) {
     const token = ++catalogProfileRequest;
@@ -1732,6 +1896,7 @@ form("booking-catalog-form", async (data) => {
             (document.querySelector('#booking-request-form [name="quote_id"]')).value = "";
             (document.querySelector('#booking-quote-form [name="start_at"]')).value = "";
             (document.querySelector('#booking-quote-form [name="end_at"]')).value = "";
+            document.querySelector("#booking-space-reviews").textContent = "Cargando reseñas de la publicación activa…";
             bookingQuoteOutput.textContent = "Selecciona el intervalo y prepara una nueva cotización para este espacio.";
             const detailResult = await request(`${bookingBase}/catalog/${encodeURIComponent(item.space_id)}`, "GET", undefined, true);
             if (detailToken !== bookingCatalogRequest || !bookingQuoteState.selectionIsCurrent(selectionToken, item.space_id))
@@ -1739,6 +1904,12 @@ form("booking-catalog-form", async (data) => {
             bookingFixture = bookingData(detailResult);
             (document.querySelector('#booking-quote-form [name="space_id"]')).value = bookingFixture.space_id;
             bookingFixtureOutput.textContent = `${String(detailResult.safety_notice)}\n${JSON.stringify(bookingFixture, null, 2)}`;
+            const publicReviews = await request(`/api/v1/spaces/${encodeURIComponent(item.space_id)}/reviews`);
+            if (detailToken !== bookingCatalogRequest || !bookingQuoteState.selectionIsCurrent(selectionToken, item.space_id))
+                return;
+            const summary = bookingData(publicReviews);
+            const reviewText = document.querySelector("#booking-space-reviews");
+            reviewText.textContent = `${summary.average.toFixed(1)}/5 · ${summary.count} reseña(s) visibles\n${summary.items.map(r => `${r.rating}/5 · ${r.comment || "Sin comentario"}`).join("\n") || "Aún sin reseñas visibles."}`;
             void renderWeeklyHoursEditor(item.space_id);
             renderAvailabilityPicker();
         }));
@@ -2051,6 +2222,20 @@ function clearBookingInboxOnSessionLoss() {
     refreshPrivacyExportControls();
     clearSuppressionQueue();
     clearCredentialNoticeQueue();
+    localNoticeRecoveryKeys.clear();
+    reviewReportRetryKeys.clear();
+    reviewRetryKeys.clear();
+    document.querySelector("#local-review-reports-items")?.replaceChildren();
+    const reportStatus = document.querySelector("#local-review-reports-status");
+    if (reportStatus)
+        reportStatus.textContent = "Requiere rol administrador.";
+    document.querySelector("#local-notice-items")?.replaceChildren();
+    const localNoticeStatus = document.querySelector("#local-notice-status"), localNoticeOutput = document.querySelector("#local-notice-output");
+    if (localNoticeStatus)
+        localNoticeStatus.textContent = "Requiere rol administrador.";
+    if (localNoticeOutput)
+        localNoticeOutput.textContent = "Requiere rol administrador.";
+    clearReservationReviews("Inicia sesión y selecciona una reserva propia.");
     document.querySelector("#verification-output").textContent = "Inicia sesión para consultar tus casos sintéticos.";
     document.querySelector("#verification-eligibility-output").textContent = "Inicia sesión para consultar elegibilidad sintética.";
     document.querySelector("#verification-history-id").value = "";
@@ -2115,6 +2300,7 @@ function clearBookingInboxOnSessionLoss() {
     clearDisputes("Inicia sesión y selecciona una reserva para consultar incidencias.");
     disputeOpenKeys.clear();
     clearAdminDisputes("Requiere rol administrador.");
+    refreshLocalNoticeControls();
     refreshBookingActions();
 }
 // Start without displaying data that may have been left in a restored browser document.
@@ -2225,6 +2411,7 @@ function refreshBookingActions() {
     }
     if (selectedReservationID)
         pay.disabled = !allowed?.canPay || bookingPaymentState.isInFlight(selectedReservationID);
+    refreshReservationReviewControls();
 }
 function clearDisputes(message) {
     disputeRevision++;
@@ -2337,6 +2524,7 @@ async function loadReservationDetail(id) {
     selectedReservationID = id;
     selectedReservation = null;
     selectedContract = null;
+    clearReservationReviews("Cargando reseñas de la reserva…");
     contractRequestRevision++;
     document.querySelector("#synthetic-contract-output").textContent = "Selecciona Generar / consultar para cargar el contrato privado de ensayo.";
     clearDisputes("Cargando incidencia de la reserva seleccionada…");
@@ -2357,6 +2545,9 @@ async function loadReservationDetail(id) {
     if (selectedReservationID !== id || !selectedReservation)
         return;
     await loadDamageClaim(id);
+    if (selectedReservationID !== id || !selectedReservation)
+        return;
+    await loadReservationReviews(id);
     if (selectedReservationID !== id || !selectedReservation)
         return;
     await loadReservationDisputes(id);

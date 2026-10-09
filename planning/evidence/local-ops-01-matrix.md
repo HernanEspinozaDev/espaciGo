@@ -1,6 +1,6 @@
 # LOCAL-OPS-01 — matriz y evidencia
 
-Estado: implementación del PR #218 y correcciones focalizadas del PR #219 para revisión. Issue #218, hija de #88; Issues originales M08/M10 permanecen abiertas. No es aceptación de los criterios generales.
+Estado: LOCAL-OPS-01 (#218, hija de #88) aceptado por su alcance sintético tras el merge #219; Issue cerrada/Hecho en Projects. Issues originales M08/M10 permanecen abiertas. No es aceptación de los criterios generales.
 
 ## Requisitos y cobertura
 
@@ -41,6 +41,13 @@ Comprobaciones de esta rama, todas satisfactorias:
 - El entorno persistente se actualizó sin eliminar `espacigo_pgdata`, secretos ni datos previos. Las pruebas PostgreSQL focalizadas usaron su clúster desechable.
 
 El ciclo interactivo navegador→API se comprobó como parte de la evidencia del PR #219; el resultado anterior que decía que no se afirmaba ese recorrido queda reemplazado por el registro anterior. Las Issues generales de los padres siguen abiertas.
+
+### Aceptación posterior al merge
+
+- PR #219 se integró en `main` mediante merge `46cfd4e65823a9a62dd5f7c0483bb2b06e90e4f7` el 2026-10-09. #218 se aceptó, cerró y quedó **Hecho** en `EspaciGo — Desarrollo` tras reutilizar el recorrido sintético y verificar el entorno.
+- Sincronización de `main`: fast-forward a `46cfd4e`. `bash scripts/dev-env.sh up -d` terminó con V35 incremental y servicios saludables. `bash scripts/dev-env.sh verify-http` — PASS: readiness API/PostgreSQL, CORS/preflight, HTML/JS/CSS del mock y conexión HTTP mock→API.
+- Se conservó el volumen `espacigo_pgdata`, los secretos locales y los datos existentes. No se repitieron suites ni se realizó trabajo de GCP.
+- Límite de la aceptación: M08/M10 generales siguen parciales; avisos durables de operación, fotos del descargo, resolución, garantía/ledger, fondos y liquidación siguen pendientes. #88–94/#103–110 permanecen abiertos.
 
 ## Pendientes deliberados
 

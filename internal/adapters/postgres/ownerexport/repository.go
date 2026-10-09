@@ -205,6 +205,20 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 		return nil, nil, nil, err
 	}
 	sections["synthetic_space_gallery"] = galleryJSON
+	// Reputation export is owner-scoped. The authored comment is included only
+	// for the author; received reviews export score/state without another
+	// participant's free text or identifiers. Reports contain structured codes.
+	var reputationJSON []byte
+	if err := r.pool.QueryRow(ctx, `SELECT jsonb_build_object(
+	  'reviews_authored', COALESCE((SELECT jsonb_agg(jsonb_build_object('rating',x.puntuacion,'comment',x.comentario,'target_type',x.destinatario_tipo,'state',x.estado,'created_at',x.creada_en,'retention_until',x.retirar_en) ORDER BY x.creada_en,x.id) FROM public.resena_ensayo_local x WHERE x.autor_id=$1), '[]'::jsonb),
+	  'reviews_received', COALESCE((SELECT jsonb_agg(jsonb_build_object('rating',x.puntuacion,'target_type',x.destinatario_tipo,'state',x.estado,'created_at',x.creada_en,'retention_until',x.retirar_en) ORDER BY x.creada_en,x.id) FROM public.resena_ensayo_local x WHERE x.destinatario_id=$1), '[]'::jsonb),
+	  'reviews_for_owned_spaces', COALESCE((SELECT jsonb_agg(jsonb_build_object('rating',x.puntuacion,'state',x.estado,'created_at',x.creada_en,'retention_until',x.retirar_en) ORDER BY x.creada_en,x.id) FROM public.resena_ensayo_local x JOIN public.espacio e ON e.id=x.espacio_id WHERE e.propietario_id=$1 AND x.destinatario_tipo='espacio'), '[]'::jsonb),
+	  'reports', COALESCE((SELECT jsonb_agg(jsonb_build_object('reason_code',q.motivo_codigo,'state',q.estado,'created_at',q.creada_en,'resolved_at',q.resolver_en,'resolution_reason_code',q.motivo_resolucion_codigo,'retention_until',q.retirar_en,'history',COALESCE((SELECT jsonb_agg(jsonb_build_object('from',h.estado_anterior,'to',h.estado_nuevo,'reason_code',h.motivo_codigo,'at',h.ocurrida_en) ORDER BY h.secuencia) FROM public.reporte_resena_historial_local h WHERE h.reporte_id=q.id),'[]'::jsonb)) ORDER BY q.creada_en,q.id) FROM public.reporte_resena_ensayo_local q LEFT JOIN public.resena_ensayo_local x ON x.id=q.resena_id WHERE q.anfitrion_id=$1 OR x.autor_id=$1 OR x.destinatario_id=$1), '[]'::jsonb),
+	  'notice_delivery', COALESCE((SELECT jsonb_agg(jsonb_build_object('event_type',a.tipo_evento,'state',a.estado,'cycle',a.ciclo,'attempts',a.intentos_total,'created_at',a.creada_en,'delivered_at',a.entregada_en,'terminal_failure_at',a.fallo_terminal_en,'cancelled_at',a.cancelada_en,'retention_until',a.retirar_en,'cycles',COALESCE((SELECT jsonb_agg(jsonb_build_object('cycle',c.ciclo,'state',c.estado,'started_at',c.iniciada_en,'finished_at',c.finalizada_en,'attempts',c.intentos,'result_code',c.codigo_resultado) ORDER BY c.ciclo) FROM public.aviso_local_ciclo c WHERE c.aviso_id=a.id),'[]'::jsonb)) ORDER BY a.creada_en,a.id) FROM public.aviso_local a WHERE a.destinatario_id=$1), '[]'::jsonb)
+	)`, owner).Scan(&reputationJSON); err != nil {
+		return nil, nil, nil, err
+	}
+	sections["synthetic_reputation_and_notices"] = json.RawMessage(reputationJSON)
 	for _, reader := range []sectionReader{r.spaces, r.pricing, r.bookings, r.conversation, r.disputes} {
 		part, err := reader.ExportOwnArchiveSections(ctx, owner)
 		if err != nil {

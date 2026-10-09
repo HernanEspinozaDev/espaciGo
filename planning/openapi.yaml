@@ -2,13 +2,151 @@ openapi: 3.1.0
 info:
   title: EspaciGo API
   version: 1.0.0
-  description: 'Prototipo local M01, cortes parciales M02/M03/M04/M05 y calendario privado M06. M03 usa casos KYC/KYB sintéticos; no consulta Registro Civil/SII ni declara identidad acreditada. M04 conserva borradores privados; disponibilidad usa ocupacion M06. M05 versiona tarifas/simulaciones privadas; M06 habilita en perfil local un fixture de reserva con fake sin cobro real. M02 conserva pendientes productivos; historial y avisos durables RQF-217/218 dependen de DB02-09.'
+  description: 'Prototipo local sintético. Reseñas y avisos M09 usan la decisión D-COMM local; no son servicios productivos ni plazos legales.'
 servers:
 - url: /api/v1
   description: Base relativa versionada; el host se configura por entorno.
 security:
 - bearerAuth: []
 paths:
+  /spaces/{spaceID}/reviews:
+    get:
+      operationId: listActiveSpaceReviews
+      security: []
+      summary: Reseñas sintéticas de una publicación activa
+      parameters:
+      - in: path
+        name: spaceID
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Reseñas y promedio público minimizado
+          content: { application/json: { schema: { $ref: '#/components/schemas/LocalSpaceReviewsEnvelope' } } }
+        '404': {$ref: '#/components/responses/NotFound'}
+  /local/booking-trial/reservations/{reservationID}/reviews:
+    get:
+      operationId: listReservationReviews
+      summary: Consultar reseñas de una reserva propia
+      parameters:
+      - in: path
+        name: reservationID
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Reseñas visibles para participantes
+          content: { application/json: { schema: { $ref: '#/components/schemas/LocalReviewListEnvelope' } } }
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      operationId: createReservationReview
+      summary: Crear una reseña sintética inmutable
+      parameters:
+      - in: path
+        name: reservationID
+        required: true
+        schema: {type: string, format: uuid}
+      - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [rating]
+              properties:
+                rating: {type: integer, minimum: 1, maximum: 5}
+                comment: {type: string}
+      responses:
+        '201': {description: Reseña creada, content: {application/json: {schema: {$ref: '#/components/schemas/LocalReviewEnvelope'}}}}
+        '200': {description: Reintento idéntico reutiliza la reseña, content: {application/json: {schema: {$ref: '#/components/schemas/LocalReviewEnvelope'}}}}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /local/booking-trial/reservations/{reservationID}/reviews/{reviewID}/report:
+    post:
+      operationId: reportSpaceReview
+      summary: Reportar una reseña del espacio propio
+      parameters:
+      - {in: path, name: reservationID, required: true, schema: {type: string, format: uuid}}
+      - {in: path, name: reviewID, required: true, schema: {type: string, format: uuid}}
+      - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason_code]
+              properties:
+                reason_code: {type: string, enum: [insultos_acoso, datos_personales, spam, ajeno_experiencia]}
+      responses:
+        '201': {description: Reporte creado y reseña marcada reportada, content: {application/json: {schema: {$ref: '#/components/schemas/LocalReviewReportEnvelope'}}}}
+        '200': {description: Reintento idéntico reutiliza el reporte, content: {application/json: {schema: {$ref: '#/components/schemas/LocalReviewReportEnvelope'}}}}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /local/reputation/me:
+    get:
+      operationId: getOwnRenterReputation
+      summary: Consultar reputación propia en una vista autenticada
+      responses:
+        '200': {description: Calificaciones minimizadas recibidas por la cuenta}
+  /admin/local/review-reports:
+    get:
+      operationId: listPendingReviewReports
+      summary: Listar reportes pendientes (administrador)
+      responses:
+        '200': {description: Cola local de moderación, content: {application/json: {schema: {$ref: '#/components/schemas/LocalReviewReportListEnvelope'}}}}
+  /admin/local/review-reports/{reportID}/{action}:
+    post:
+      operationId: moderateReviewReport
+      summary: Desestimar u ocultar con motivo (administrador)
+      parameters:
+      - {in: path, name: reportID, required: true, schema: {type: string, format: uuid}}
+      - {in: path, name: action, required: true, schema: {type: string, enum: [dismiss, hide]}}
+      - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason_code, correlation_id]
+              properties:
+                reason_code: {type: string, enum: [sin_infraccion, contenido_inadecuado, duplicado, error_registro]}
+                correlation_id: {type: string, minLength: 1, maxLength: 120}
+      responses:
+        '200': {description: Decisión de moderación persistida, content: {application/json: {schema: {$ref: '#/components/schemas/LocalReviewReportEnvelope'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /admin/local/notices:
+    get:
+      operationId: listTerminalLocalNotices
+      summary: Listar avisos con fallo terminal (administrador)
+      responses:
+        '200': {description: Eventos terminales locales sin secretos ni contenido SMTP, content: {application/json: {schema: {$ref: '#/components/schemas/LocalNoticeListEnvelope'}}}}
+  /admin/local/notices/{noticeID}/reopen:
+    post:
+      operationId: reopenLocalNotice
+      summary: Reabrir un ciclo terminal con motivo estructurado
+      parameters:
+      - {in: path, name: noticeID, required: true, schema: {type: string, format: uuid}}
+      - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason_code, correlation_id]
+              properties:
+                reason_code: {type: string, enum: [smtp_restaurado, reintento_operativo]}
+                correlation_id: {type: string, minLength: 1, maxLength: 120}
+      responses:
+        '201': {description: Nuevo ciclo durable, content: {application/json: {schema: {$ref: '#/components/schemas/LocalNoticeRecoveryEnvelope'}}}}
+        '200': {description: Reintento idempotente reutilizado, content: {application/json: {schema: {$ref: '#/components/schemas/LocalNoticeRecoveryEnvelope'}}}}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
   /auth/terms:
     get:
       operationId: listLocalTerms
@@ -2034,6 +2172,108 @@ components:
         type: string
         minLength: 1
   schemas:
+    LocalReview:
+      type: object
+      required: [id, rating, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        target_type: { type: string, enum: [espacio, arrendatario] }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        state: { type: string, enum: [publicada, reportada] }
+        comment: { type: string }
+        created_at: { type: string, format: date-time }
+        reused: { type: boolean }
+    LocalReviewEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data: { $ref: '#/components/schemas/LocalReview' }
+        notice: { type: string }
+    LocalReviewListEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LocalReview' } }
+        notice: { type: string }
+    LocalSpaceReviewsEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data:
+          type: object
+          required: [items, average, count]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LocalReview' } }
+            average: { type: number, minimum: 0, maximum: 5 }
+            count: { type: integer, minimum: 0 }
+        notice: { type: string }
+    LocalReviewReport:
+      type: object
+      required: [id, review_id, space_id, reason_code, state, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        review_id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        review_comment: { type: string }
+        reason_code: { type: string, enum: [insultos_acoso, datos_personales, spam, ajeno_experiencia] }
+        state: { type: string, enum: [pendiente, desestimada, oculta] }
+        created_at: { type: string, format: date-time }
+        resolved_at: { type: string, format: date-time, nullable: true }
+        resolution_reason_code: { type: string }
+    LocalReviewReportEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data: { $ref: '#/components/schemas/LocalReviewReport' }
+        notice: { type: string }
+    LocalReviewReportListEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LocalReviewReport' } }
+        notice: { type: string }
+    LocalNoticeTerminal:
+      type: object
+      required: [event_id, event_type, state, error_code, cycle_number, total_attempts, created_at, terminal_at]
+      properties:
+        event_id: { type: string, format: uuid }
+        event_type: { type: string, enum: [checkin_registrado, resena_reportada, reclamo_abierto, reserva_cancelada] }
+        state: { type: string, enum: [fallo_terminal] }
+        error_code: { type: string }
+        cycle_number: { type: integer, minimum: 1 }
+        total_attempts: { type: integer, minimum: 8 }
+        created_at: { type: string, format: date-time }
+        terminal_at: { type: string, format: date-time }
+    LocalNoticeListEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LocalNoticeTerminal' } }
+        notice: { type: string }
+    LocalNoticeRecoveryEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data:
+          type: object
+          required: [notice_id, cycle]
+          properties:
+            notice_id: { type: string, format: uuid }
+            cycle: { type: integer, minimum: 1 }
+            reused: { type: boolean }
+        notice: { type: string }
     LocalDamageClaimInput:
       type: object
       required: [description]
