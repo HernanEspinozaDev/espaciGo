@@ -3,6 +3,7 @@ import { CalendarRequestState } from "./calendar-request.js";
 import { BookingQuoteState } from "./booking-quote-state.js";
 import { inboxActions } from "./booking-inbox-state.js";
 import { showThenMarkConversationPage } from "./conversation-read-state.js";
+import { canSendConversation } from "./conversation-state.js";
 import { contractActions, contractResponseIsCurrent } from "./contract-actions.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { actionWithButtonState } from "./action-button-state.js";
@@ -1980,7 +1981,7 @@ function refreshConversationControls() {
     if (!body || !send || !older)
         return;
     const participant = Boolean(selectedReservation && sessionAccountID && (selectedReservation.host_id === sessionAccountID || selectedReservation.renter_id === sessionAccountID));
-    const writable = participant && ["pendiente_de_pago", "pagada", "aprobada_host"].includes(selectedReservation.state);
+    const writable = canSendConversation(sessionAccountID, selectedReservation);
     body.disabled = !writable;
     send.disabled = !writable;
     older.disabled = !participant || conversationOlderCursor === null;
@@ -2207,7 +2208,7 @@ async function loadReservationDetail(id) {
     renderReservationDetail(selectedReservation);
     await loadReservationDisputes(id);
     await loadConversationPage(id, null, false);
-    conversationStatus.textContent = `Conversación local · ${selectedReservation.state}. ${["pendiente_de_pago", "pagada", "aprobada_host"].includes(selectedReservation.state) ? "Puedes enviar texto plano en este estado." : "Solo lectura: el estado de la reserva no permite enviar."}`;
+    conversationStatus.textContent = `Conversación local · ${selectedReservation.state}. ${canSendConversation(sessionAccountID, selectedReservation) ? "Puedes enviar texto plano en este estado." : "Solo lectura: el estado de la reserva no permite enviar."}`;
     refreshConversationControls();
 }
 function renderSyntheticContract(item) {
@@ -2429,7 +2430,7 @@ form("booking-conversation-form", async (data, element) => {
     if (!id || !selectedReservation)
         throw new Error("Selecciona una reserva de tu bandeja primero.");
     const body = String(data.get("body") ?? "");
-    if (!["pendiente_de_pago", "pagada", "aprobada_host"].includes(selectedReservation.state))
+    if (!canSendConversation(sessionAccountID, selectedReservation))
         throw new Error("Este estado conserva lectura y no permite enviar mensajes.");
     if (!pendingMessageKey || pendingMessageBody !== body) {
         pendingMessageKey = crypto.randomUUID();

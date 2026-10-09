@@ -59,6 +59,12 @@ func lockReservationAccounts(ctx context.Context, tx pgx.Tx, reservationID strin
 	return host, renter, nil
 }
 
+// LockReservationAccounts exposes the shared account → reservation lock order
+// to other local adapters that mutate reservation-owned records.
+func LockReservationAccounts(ctx context.Context, tx pgx.Tx, reservationID string) (string, string, error) {
+	return lockReservationAccounts(ctx, tx, reservationID)
+}
+
 const columns = `id::text,reserva_id::text,documento_id::text,version,estado,snapshot::text,encode(sha256,'hex'),creada_en,actualizada_en`
 
 func (r *Repository) Create(ctx context.Context, actor, reservationID string, clock func() time.Time) (contract.Contract, error) {
@@ -476,6 +482,36 @@ func expireLocked(ctx context.Context, tx pgx.Tx, cid, rid, actor string, now ti
 		return err
 	}
 	return event(ctx, tx, cid, actor, "vencido", "faltaban firmas al inicio de la reserva", now)
+}
+
+// ExpireForReservation applies the M07 signature deadline while the caller
+// already holds participant-account and reservation locks. It is used by a
+// new message send so a stale partial-contract state cannot accept a message
+// before a read or background sweep materializes the expiry.
+func ExpireForReservation(ctx context.Context, tx pgx.Tx, reservationID string, now time.Time) (bool, error) {
+	var reservationState string
+	var start time.Time
+	if err := tx.QueryRow(ctx, `SELECT estado,inicio FROM public.reserva_ensayo_local WHERE id=$1`, reservationID).Scan(&reservationState, &start); err != nil {
+		return false, err
+	}
+	if reservationState != "firma_parcial" || now.Before(start) {
+		return false, nil
+	}
+	var contractID, contractState string
+	err := tx.QueryRow(ctx, `SELECT id::text,estado FROM public.contrato_ensayo_local WHERE reserva_id=$1 FOR UPDATE`, reservationID).Scan(&contractID, &contractState)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, contract.ErrConflict
+	}
+	if err != nil {
+		return false, err
+	}
+	if contractState != "firma_parcial" {
+		return false, contract.ErrConflict
+	}
+	if err = expireLocked(ctx, tx, contractID, reservationID, "", now); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func event(ctx context.Context, tx pgx.Tx, id, actor, action, reason string, at time.Time) error {

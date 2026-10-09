@@ -2708,6 +2708,17 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err != nil || partialCancelContract.State != "firma_parcial" {
 		t.Fatalf("prepare one-signature cancellation: state=%s err=%v", partialCancelContract.State, err)
 	}
+	partialMessage, err := conversationService.Send(ctx, renter, partialCancelReservation.ID, "partial-contract-message", "Mensaje con firma parcial")
+	if err != nil {
+		t.Fatalf("participant message during partial signature: %v", err)
+	}
+	partialRetry, err := conversationService.Send(ctx, renter, partialCancelReservation.ID, "partial-contract-message", "Mensaje con firma parcial")
+	if err != nil || partialRetry.ID != partialMessage.ID {
+		t.Fatalf("partial-contract message retry=%+v original=%+v err=%v", partialRetry, partialMessage, err)
+	}
+	if _, err = conversationService.Send(ctx, outsider, partialCancelReservation.ID, "partial-outsider-message", "Tercero"); err != conversation.ErrNotFound {
+		t.Fatalf("third party wrote in partial-contract conversation: %v", err)
+	}
 	partialPreview, err := svc.CancellationPreview(ctx, renter, partialCancelReservation.ID)
 	if err != nil || !partialPreview.Eligible || partialPreview.AmountCLP != partialCancelReservation.Subtotal {
 		t.Fatalf("local_flexible_v1 preview after partial signature=%+v err=%v", partialPreview, err)
@@ -2722,6 +2733,12 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	}
 	if _, err = contractService.Sign(ctx, renter, partialCancelContract.ID); err != contract.ErrConflict {
 		t.Fatalf("signature after cancellation must conflict, got %v", err)
+	}
+	if _, err = conversationService.Send(ctx, renter, partialCancelReservation.ID, "partial-after-cancel", "No debe enviarse"); err != conversation.ErrConflict {
+		t.Fatalf("new message after partial-contract cancellation was accepted: %v", err)
+	}
+	if replay, replayErr := conversationService.Send(ctx, renter, partialCancelReservation.ID, "partial-contract-message", "Mensaje con firma parcial"); replayErr != nil || replay.ID != partialMessage.ID {
+		t.Fatalf("existing idempotent message retry after cancellation=%+v err=%v", replay, replayErr)
 	}
 	var partialRefunds, partialActiveOccupancies int
 	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1),(SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo)`, partialCancelReservation.ID).Scan(&partialRefunds, &partialActiveOccupancies); err != nil {
@@ -2745,6 +2762,17 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err != nil || fullCancelContract.State != "firmado" {
 		t.Fatalf("prepare completed-contract cancellation: %+v err=%v", fullCancelContract, err)
 	}
+	fullMessage, err := conversationService.Send(ctx, host, fullCancelReservation.ID, "complete-contract-message", "Mensaje con ambas firmas")
+	if err != nil {
+		t.Fatalf("participant message after both signatures: %v", err)
+	}
+	fullRetry, err := conversationService.Send(ctx, host, fullCancelReservation.ID, "complete-contract-message", "Mensaje con ambas firmas")
+	if err != nil || fullRetry.ID != fullMessage.ID {
+		t.Fatalf("complete-contract message retry=%+v original=%+v err=%v", fullRetry, fullMessage, err)
+	}
+	if _, err = conversationService.Send(ctx, outsider, fullCancelReservation.ID, "complete-outsider-message", "Tercero"); err != conversation.ErrNotFound {
+		t.Fatalf("third party wrote in fully-signed conversation: %v", err)
+	}
 	fullPreview, err := svc.CancellationPreview(ctx, renter, fullCancelReservation.ID)
 	if err != nil || !fullPreview.Eligible || fullPreview.AmountCLP != fullCancelReservation.Subtotal {
 		t.Fatalf("local_flexible_v1 preview after completed signatures=%+v err=%v", fullPreview, err)
@@ -2752,6 +2780,9 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	fullCancelled, err := svc.Cancel(ctx, renter, fullCancelReservation.ID, "cont-cancel-full", "ensayo")
 	if err != nil || fullCancelled.Reservation.State != "cancelada_arrendatario" || fullCancelled.RefundAmountCLP == nil || *fullCancelled.RefundAmountCLP != fullCancelReservation.Subtotal {
 		t.Fatalf("cancel after completed signatures=%+v err=%v", fullCancelled, err)
+	}
+	if _, err = conversationService.Send(ctx, renter, fullCancelReservation.ID, "complete-after-cancel", "No debe enviarse"); err != conversation.ErrConflict {
+		t.Fatalf("new message after fully-signed reservation cancellation was accepted: %v", err)
 	}
 	fullContractAfterCancel, err := contractService.Get(ctx, host, fullCancelContract.ID)
 	if err != nil || fullContractAfterCancel.State != "firmado" || !strings.HasPrefix(string(fullContractAfterCancel.Artifact), "%PDF-") {
@@ -2906,6 +2937,43 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	refundResult, err := svc.Refund(ctx, renter, expiryReservation.ID, *expiredDetail.RefundOperationID, "exito")
 	if err != nil || refundResult.State != "completada" || refundResult.AmountCLP != expiryReservation.Subtotal {
 		t.Fatalf("fake full refund after signature expiry: %+v err=%v", refundResult, err)
+	}
+
+	// A new message is itself a write boundary: without a prior Get/List/worker,
+	// it must materialize M07's partial-signature expiry before insertion.
+	partialMessageExpiryReservation := newReservation(2*time.Hour, "conversation-contract-expiry", true)
+	partialMessageExpiryContract, err := contractService.Create(ctx, renter, partialMessageExpiryReservation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	partialMessageExpiryContract, err = contractService.Sign(ctx, host, partialMessageExpiryContract.ID)
+	if err != nil || partialMessageExpiryContract.State != "firma_parcial" {
+		t.Fatalf("prepare conversation contract expiry: %+v err=%v", partialMessageExpiryContract, err)
+	}
+	beforeContractExpiryMessage, err := conversationService.Send(ctx, renter, partialMessageExpiryReservation.ID, "conversation-before-contract-expiry", "Mensaje antes del vencimiento")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setClock(partialMessageExpiryReservation.StartAt)
+	if _, err = conversationService.Send(ctx, host, partialMessageExpiryReservation.ID, "conversation-at-contract-expiry", "No debe insertarse"); err != conversation.ErrConflict {
+		t.Fatalf("message at partial-contract deadline should conflict: %v", err)
+	}
+	var partialMessageExpiryState, partialMessageContractState string
+	var partialMessageCount, partialMessageRefunds, partialMessageActiveOccupancies, partialMessageExpiryTransitions int
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, partialMessageExpiryReservation.ID).Scan(&partialMessageExpiryState); err != nil || partialMessageExpiryState != "cancelada_por_firma" {
+		t.Fatalf("direct send did not persist signature expiry state=%q err=%v", partialMessageExpiryState, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.contrato_ensayo_local WHERE reserva_id=$1`, partialMessageExpiryReservation.ID).Scan(&partialMessageContractState); err != nil || partialMessageContractState != "anulado" {
+		t.Fatalf("direct send did not annul partial contract state=%q err=%v", partialMessageContractState, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.mensaje_reserva_ensayo WHERE reserva_id=$1),(SELECT count(*) FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1),(SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo),(SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 AND estado_nuevo='cancelada_por_firma')`, partialMessageExpiryReservation.ID).Scan(&partialMessageCount, &partialMessageRefunds, &partialMessageActiveOccupancies, &partialMessageExpiryTransitions); err != nil || partialMessageCount != 1 || partialMessageRefunds != 1 || partialMessageActiveOccupancies != 0 || partialMessageExpiryTransitions != 1 {
+		t.Fatalf("direct expiry effects messages=%d refunds=%d occupancy=%d transitions=%d err=%v", partialMessageCount, partialMessageRefunds, partialMessageActiveOccupancies, partialMessageExpiryTransitions, err)
+	}
+	if retry, retryErr := conversationService.Send(ctx, renter, partialMessageExpiryReservation.ID, "conversation-before-contract-expiry", "Mensaje antes del vencimiento"); retryErr != nil || retry.ID != beforeContractExpiryMessage.ID {
+		t.Fatalf("existing message retry after contract expiry=%+v original=%+v err=%v", retry, beforeContractExpiryMessage, retryErr)
+	}
+	if terminalPage, listErr := conversationService.List(ctx, renter, partialMessageExpiryReservation.ID, nil, 10); listErr != nil || len(terminalPage.Items) != 1 || terminalPage.Items[0].ID != beforeContractExpiryMessage.ID {
+		t.Fatalf("expired contract conversation not preserved read-only: %+v err=%v", terminalPage, listErr)
 	}
 
 	// A signing request that starts before start_at but waits behind M06's row

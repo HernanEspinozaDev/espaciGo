@@ -1612,7 +1612,17 @@ paths:
     post:
       operationId: sendOwnLocalReservationMessage
       tags: [M09 local]
-      description: Envío idempotente solo en pendiente_de_pago, pagada y aprobada_host. No agrega notificaciones ni tiempo real.
+      description: >-
+        Envío idempotente solo para los anfitriones y arrendatarios de la reserva
+        en pendiente_de_pago, pagada, aprobada_host, firma_parcial y
+        lista_para_checkin. Los estados cancelados, rechazados o vencidos
+        conservan solo lectura. Para firma_parcial, un envío nuevo consulta el
+        reloj tras adquirir los bloqueos comunes de participantes/reserva; si
+        start_at ya llegó, materializa en la misma transacción el vencimiento
+        existente de contrato, libera la ocupación y registra la devolución fake,
+        luego responde conflicto sin insertar el mensaje. Los reintentos
+        idempotentes de mensajes ya persistidos devuelven su resultado original.
+        No agrega notificaciones ni tiempo real.
       parameters:
         - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
       requestBody:
@@ -1629,7 +1639,7 @@ paths:
         '201': { description: Mensaje persistido; replay idéntico devuelve el mismo mensaje., content: { application/json: { schema: { $ref: '#/components/schemas/LocalReservationMessageEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409': { description: Estado terminal, conflicto de operación o vencimiento de contrato procesado antes de insertar., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /local/booking-trial/reservations/{reservationId}/messages/read:
     post:
