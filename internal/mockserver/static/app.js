@@ -3,6 +3,7 @@ import { CalendarRequestState } from "./calendar-request.js";
 import { BookingQuoteState } from "./booking-quote-state.js";
 import { inboxActions } from "./booking-inbox-state.js";
 import { showThenMarkConversationPage } from "./conversation-read-state.js";
+import { contractActions, contractResponseIsCurrent } from "./contract-actions.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState } from "./booking-availability-state.js";
@@ -1506,6 +1507,8 @@ const bookingCatalogRadius = document.querySelector("#booking-catalog-radius");
 const bookingCatalogCenterSample = document.querySelector("#booking-catalog-center-sample");
 let selectedReservationID = "";
 let selectedReservation = null;
+let selectedContract = null;
+let contractRequestRevision = 0;
 let bookingInboxRevision = 0;
 let localDisputes = [];
 let disputeRevision = 0;
@@ -1803,7 +1806,7 @@ form("booking-request-form", async (data, element) => {
     await loadBookingInbox();
     resultElement.textContent = "Solicitud creada; quedó seleccionada en tu bandeja local.";
 });
-const reservationStates = { pendiente_de_pago: "Pendiente de pago", pagada: "Pagada · espera decisión del anfitrión", aprobada_host: "Aprobada por anfitrión", cancelada_por_pago: "Cancelada por rechazo del pago simulado", rechazada_arrendador: "Rechazada por anfitrión", vencida_pago: "Vencida por falta de pago", vencida_host: "Vencida por falta de decisión del anfitrión", cancelada_arrendatario: "Cancelada por arrendatario" };
+const reservationStates = { pendiente_de_pago: "Pendiente de pago", pagada: "Pagada · espera decisión del anfitrión", aprobada_host: "Aprobada por anfitrión", firma_parcial: "Contrato de ensayo esperando firmas", lista_para_checkin: "Contrato de ensayo completado", cancelada_por_firma: "Cancelada por vencimiento de firma · devolución fake pendiente", cancelada_por_pago: "Cancelada por rechazo del pago simulado", rechazada_arrendador: "Rechazada por anfitrión", vencida_pago: "Vencida por falta de pago", vencida_host: "Vencida por falta de decisión del anfitrión", cancelada_arrendatario: "Cancelada por arrendatario" };
 function reservationState(state) { return reservationStates[state] ?? state; }
 function bookingDate(value, zone) {
     try {
@@ -1927,6 +1930,8 @@ function clearBookingInboxOnSessionLoss() {
     sessionRoles = [];
     selectedReservationID = "";
     selectedReservation = null;
+    selectedContract = null;
+    contractRequestRevision++;
     bookingRequestState.invalidate();
     resetCatalogTraversal();
     currentDraftID = "";
@@ -1947,6 +1952,9 @@ function clearBookingInboxOnSessionLoss() {
     renterInbox.textContent = "Inicia sesión y actualiza tu bandeja.";
     hostInbox.textContent = "Inicia sesión y actualiza tu bandeja.";
     bookingHistoryOutput.textContent = "Inicia sesión para consultar reservas propias.";
+    const contractOutput = document.querySelector("#synthetic-contract-output");
+    if (contractOutput)
+        contractOutput.textContent = "Inicia sesión y selecciona una reserva aprobada.";
     bookingPaymentOutput.textContent = "Inicia sesión para consultar pagos de reservas propias.";
     document.querySelector("#privacy-output").textContent = "Inicia sesión para usar M02.";
     const paymentButton = document.querySelector("#booking-inbox-pay");
@@ -2032,12 +2040,25 @@ function refreshBookingActions() {
     const reject = document.querySelector("#booking-inbox-reject");
     if (!pay || !cancel || !cancelPreview || !refund || !approve || !reject)
         return;
+    const openContract = document.querySelector("#synthetic-contract-open");
+    const signContract = document.querySelector("#synthetic-contract-sign");
+    const rejectContract = document.querySelector("#synthetic-contract-reject");
+    const downloadContract = document.querySelector("#synthetic-contract-download");
+    const contractUI = selectedReservation ? contractActions({ accountID: sessionAccountID, reservationState: selectedReservation.state, reservationStart: Date.parse(selectedReservation.start_at), contractState: selectedContract?.state, signatures: selectedContract?.signatures ?? [], now: Date.now() }) : null;
+    if (openContract)
+        openContract.disabled = !sessionToken || !contractUI?.canOpen;
+    if (signContract)
+        signContract.disabled = !contractUI?.canSign;
+    if (rejectContract)
+        rejectContract.disabled = !contractUI?.canReject;
+    if (downloadContract)
+        downloadContract.disabled = !contractUI?.canDownload;
     const now = Date.now();
     const allowed = selectedReservation ? inboxActions(sessionAccountID, selectedReservation, now) : null;
     pay.disabled = !allowed?.canPay;
     cancelPreview.disabled = !allowed?.canCancel;
     cancel.disabled = !allowed?.canCancel || cancellationPreviewReservationID !== selectedReservationID || !cancellationPreview?.eligible;
-    refund.disabled = !selectedReservation || selectedReservation.renter_id !== sessionAccountID || selectedReservation.state !== "cancelada_arrendatario" || selectedReservation.refund_state !== "pendiente" || !selectedReservation.refund_operation_id;
+    refund.disabled = !selectedReservation || selectedReservation.renter_id !== sessionAccountID || !["cancelada_arrendatario", "cancelada_por_firma"].includes(selectedReservation.state) || selectedReservation.refund_state !== "pendiente" || !selectedReservation.refund_operation_id;
     approve.disabled = !allowed?.canDecide;
     const rejectReason = (document.querySelector("#booking-inbox-reject-reason")?.value ?? "").trim();
     reject.disabled = !allowed?.canDecide || !rejectReason;
@@ -2169,6 +2190,9 @@ async function loadReservationDetail(id) {
     bookingRequestState.select(id);
     selectedReservationID = id;
     selectedReservation = null;
+    selectedContract = null;
+    contractRequestRevision++;
+    document.querySelector("#synthetic-contract-output").textContent = "Selecciona Generar / consultar para cargar el contrato privado de ensayo.";
     clearDisputes("Cargando incidencia de la reserva seleccionada…");
     refreshBookingActions();
     cancellationPreview = null;
@@ -2186,6 +2210,64 @@ async function loadReservationDetail(id) {
     conversationStatus.textContent = `Conversación local · ${selectedReservation.state}. ${["pendiente_de_pago", "pagada", "aprobada_host"].includes(selectedReservation.state) ? "Puedes enviar texto plano en este estado." : "Solo lectura: el estado de la reserva no permite enviar."}`;
     refreshConversationControls();
 }
+function renderSyntheticContract(item) {
+    selectedContract = item;
+    const lines = item.signatures.map(s => `${s.role}: ${s.state}${s.reason ? ` · ${s.reason}` : ""}`).join("\n");
+    const history = item.history.map(e => `${e.sequence}. ${e.action}${e.reason ? ` · ${e.reason}` : ""} · ${new Date(e.at).toLocaleString("es-CL")}`).join("\n");
+    const deadline = selectedReservation ? `Completar antes de ${bookingDate(selectedReservation.start_at, selectedReservation.time_zone)}.` : "";
+    document.querySelector("#synthetic-contract-output").textContent = `ENSAYO SINTÉTICO LOCAL — SIN VALIDEZ JURÍDICA\nContrato v${item.version} · ${item.state} · SHA-256 ${item.sha256}\n${deadline}\nImporte snapshot: ${selectedReservation?.subtotal_clp.toLocaleString("es-CL") ?? "—"} CLP\nFirmas:\n${lines}\n\nHistorial:\n${history}`;
+    refreshBookingActions();
+}
+async function selectedContractOperation(kind) {
+    const reservationID = selectedReservationID, account = sessionAccountID, token = sessionToken, generation = sessionGeneration, revision = ++contractRequestRevision;
+    const context = { revision, reservationID, accountID: account, token, generation };
+    const isCurrent = () => contractResponseIsCurrent(context, { revision: contractRequestRevision, reservationID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration });
+    if (!reservationID || !selectedReservation || !token)
+        throw new Error("Selecciona una reserva propia aprobada e inicia sesión.");
+    let item;
+    if (kind === "open") {
+        const result = await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/contract`, "POST", undefined, true);
+        if (!isCurrent())
+            return;
+        item = bookingData(result);
+    }
+    else {
+        if (!selectedContract)
+            throw new Error("Genera o consulta primero el contrato.");
+        const path = `${bookingBase}/contracts/${encodeURIComponent(selectedContract.id)}/${kind}`;
+        const body = undefined;
+        const result = await request(path, "POST", body, true);
+        if (!isCurrent())
+            return;
+        item = bookingData(result);
+        const detail = await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}`, "GET", undefined, true);
+        if (!isCurrent())
+            return;
+        selectedReservation = bookingData(detail);
+        renderReservationDetail(selectedReservation);
+    }
+    renderSyntheticContract(item);
+}
+document.querySelector("#synthetic-contract-open").addEventListener("click", () => void action(() => selectedContractOperation("open")));
+document.querySelector("#synthetic-contract-sign").addEventListener("click", () => void action(() => selectedContractOperation("sign")));
+document.querySelector("#synthetic-contract-reject").addEventListener("click", () => void action(() => selectedContractOperation("reject")));
+document.querySelector("#synthetic-contract-download").addEventListener("click", () => void action(async () => {
+    const item = selectedContract, reservationID = selectedReservationID, account = sessionAccountID, token = sessionToken, generation = sessionGeneration, revision = ++contractRequestRevision;
+    const context = { revision, reservationID, accountID: account, token, generation };
+    if (!item || item.state !== "firmado" || !token)
+        throw new Error("El PDF solo está disponible para participantes cuando ambas firmas de ensayo están completas.");
+    const response = await fetch(`${apiBase}${bookingBase}/contracts/${encodeURIComponent(item.id)}/document`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/pdf" }, mode: "cors", cache: "no-store", credentials: "omit" });
+    if (!response.ok)
+        throw new Error(`No se pudo descargar el artefacto sintético (HTTP ${response.status}).`);
+    const blob = await response.blob();
+    if (!contractResponseIsCurrent(context, { revision: contractRequestRevision, reservationID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }))
+        return;
+    const url = URL.createObjectURL(blob), link = document.createElement("a");
+    link.href = url;
+    link.download = "contrato-ensayo-sintetico.pdf";
+    link.click();
+    URL.revokeObjectURL(url);
+}));
 async function loadBookingInbox(reloadSelected = true) {
     const revision = ++bookingInboxRevision;
     if (!sessionToken || !sessionAccountID) {

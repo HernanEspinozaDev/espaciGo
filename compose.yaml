@@ -79,6 +79,7 @@ services:
       LOCAL_BOOKING_HOST_TTL: "${LOCAL_BOOKING_HOST_TTL:-24h}"
       LOCAL_SMTP_ADDR: mailpit:1025
       LOCAL_PAYMENT_WEBHOOK_SECRET_FILE: /run/secrets/local_payment_webhook_secret
+      LOCAL_CONTRACT_ENCRYPTION_KEY_FILE: /run/secrets/local_contract_encryption_key
       LOCAL_VERIFICATION_IP_LIMIT: "${LOCAL_VERIFICATION_IP_LIMIT:-20}"
       M03_EVIDENCE_DIR: /var/lib/espacigo/private-evidence
       LOCAL_PRIVACY_REPLAY_FILE: /var/lib/espacigo/privacy-replay/completed-suppressions-v1.json
@@ -91,6 +92,7 @@ services:
     secrets:
       - runtime_password
       - local_payment_webhook_secret
+      - local_contract_encryption_key
     volumes:
       - type: bind
         source: ${LOCAL_M03_EVIDENCE_DIR:?run scripts/dev-env.sh}
@@ -172,3 +174,5 @@ secrets:
     file: ./.local/secrets/runtime_password
   local_payment_webhook_secret:
     file: ./.local/secrets/local_payment_webhook_secret
+  local_contract_encryption_key:
+    file: ./.local/secrets/local_contract_encryption_key

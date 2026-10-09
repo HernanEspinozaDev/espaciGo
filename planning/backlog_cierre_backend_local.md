@@ -1,6 +1,6 @@
 # Backlog propuesto para cerrar el backend local
 
-Fecha inicial: 2026-10-07; conciliado con `main` #213 el 2026-10-09. #210 quedó aceptada tras el ciclo mock de añadir, consultar y retirar PNG privado; #212 conectó publicaciones activas con búsqueda/detalle/cotización. LOCAL-BOOK-02 (#214, hija de #73 y relacionada con #75/#77) consolida la reserva sobre oferta activa sin fixture. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
+Fecha inicial: 2026-10-07; conciliado con `main` #215 el 2026-10-09. #210 quedó aceptada tras el ciclo mock de galería sintética; #212 conectó publicaciones activas al catálogo; #214 consolidó reserva/pago fake sobre oferta activa. LOCAL-CONT-01 (#216, hija de #80) implementa ahora contrato y firma sintéticos sobre reserva aprobada, en revisión. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
 
 ## Convenciones
 
@@ -200,13 +200,14 @@ Fecha inicial: 2026-10-07; conciliado con `main` #213 el 2026-10-09. #210 quedó
 
 ### LOCAL-CONT-01 — Construir contrato y firma simulada
 
-- **Módulo/tipo/estado:** M07 / VERTICAL / `todo`.
+- **Módulo/tipo/estado:** M07 / VERTICAL / `En revisión` (#216 / PR actual).
 - **Objetivo y motivo:** #80–87, CU-29–32; asegurar contenido y resultado antes del uso del espacio.
-- **Alcance:** plantilla/versiones, snapshot de partes/condiciones, documento sintético privado/hash, estados por firmante y firma fake; rechazo, vencimiento, callback y recuperación.
+- **Alcance del corte:** snapshot versionado desde reserva aprobada; PDF sintético privado/hash cifrado; firmas fake; rechazo terminal no cancelatorio; vencimiento transaccional M06 con liberación de ocupación y obligación fake del 100%; recuperación idempotente después de aprobación. Rutas JSON, OpenAPI y controles del mock.
 - **Fuera:** validez jurídica, firma real, proveedor o documentos personales reales.
-- **Dependencias:** LOCAL-BOOK-02, storage/eventos CORE y D-CONT/OPS. **Desbloquea:** LOCAL-OPS-01.
-- **Aceptación:** edición de perfil/tarifa no cambia contrato histórico; firmantes y acceso autorizados; callback autenticado según contrato local; finalización idempotente y transiciones de reserva válidas.
-- **Pruebas previstas:** contenido/hash, acceso de tercero, firma parcial/final/rechazo, replay y reinicio; finalizar LOCAL-CONT-MOCK-01.
+- **Dependencias:** LOCAL-BOOK-02/#214, identidad, precio y M06 pagos/devoluciones fake fusionados. Las decisiones de firma/rechazo/vencimiento fueron ratificadas en este corte. **Desbloquea:** LOCAL-OPS-01 tras aceptación.
+- **Aceptación del corte:** edición de perfil/tarifa no cambia contrato histórico; firman solo participantes; tercero no accede; firma parcial/final y rechazo registrado; inicio exacto con firma faltante cancela y crea una devolución única dentro del lock; contrato completamente firmado no vence; descarga solo tras firma total; contenido cifrado en reposo.
+- **Pendiente del padre M07:** proveedor real/sandbox y callback externo; notificaciones durables de contrato; exportación del nuevo artefacto; retención general/productiva y criterios restantes de firma legal.
+- **Pruebas ejecutadas/previsibles:** lifecycle PostgreSQL con reloj inyectado, lock/carrera, replay y ocupación/refund fake; cifrado PDF y acceso participante; acciones mock. Integración completa en DB desechable; no usar el volumen de desarrollo.
 - **Riesgo:** regenerar retrospectivamente el snapshot o representar el fake como firma legal.
 
 ### LOCAL-OPS-01 — Construir entrega, recepción y devolución

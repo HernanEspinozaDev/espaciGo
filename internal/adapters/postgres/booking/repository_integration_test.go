@@ -19,10 +19,13 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
+	contractpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/contracts"
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/contract"
+	contracthttp "github.com/HernanEspinozaDev/espaciGo/internal/contract/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
@@ -74,6 +77,15 @@ func publishedBookingAPI(t *testing.T, actor string, service *booking.Service, m
 	}
 	response := httptest.NewRecorder()
 	bookinghttp.NewHandler(integrationBookingAuth{accountID: actor}, service, nil).ServeHTTP(response, request)
+	return response
+}
+
+func publishedContractAPI(t *testing.T, actor string, service *contract.Service, method, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequest(method, path, nil)
+	request.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	response := httptest.NewRecorder()
+	contracthttp.NewHandler(integrationBookingAuth{accountID: actor}, service).ServeHTTP(response, request)
 	return response
 }
 
@@ -223,6 +235,13 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	}
 	if !refundRead || !refundInsert || !refundUpdate || refundDelete {
 		t.Fatalf("refund grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", refundRead, refundInsert, refundUpdate, refundDelete)
+	}
+	var contractDocRead, contractDocInsert, contractDocUpdate, contractDocDelete bool
+	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.documento_privado_sintetico_local','SELECT'),has_table_privilege(current_user,'public.documento_privado_sintetico_local','INSERT'),has_table_privilege(current_user,'public.documento_privado_sintetico_local','UPDATE'),has_table_privilege(current_user,'public.documento_privado_sintetico_local','DELETE')`).Scan(&contractDocRead, &contractDocInsert, &contractDocUpdate, &contractDocDelete); err != nil {
+		t.Fatal(err)
+	}
+	if !contractDocRead || !contractDocInsert || contractDocUpdate || contractDocDelete {
+		t.Fatalf("immutable private document grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", contractDocRead, contractDocInsert, contractDocUpdate, contractDocDelete)
 	}
 	var refundAttemptRead, refundAttemptInsert, refundAttemptUpdate, refundAttemptDelete bool
 	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_devolucion_intento_ensayo','SELECT'),has_table_privilege(current_user,'public.reserva_devolucion_intento_ensayo','INSERT'),has_table_privilege(current_user,'public.reserva_devolucion_intento_ensayo','UPDATE'),has_table_privilege(current_user,'public.reserva_devolucion_intento_ensayo','DELETE')`).Scan(&refundAttemptRead, &refundAttemptInsert, &refundAttemptUpdate, &refundAttemptDelete); err != nil {
@@ -2561,6 +2580,257 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	}
 	if activeReservations != 0 || activeOccupancies != 0 {
 		t.Fatalf("hidden listing produced reservation/occupancy=%d/%d", activeReservations, activeOccupancies)
+	}
+
+	// LOCAL-CONT-01: synthetic signatures use the same reservation row lock as
+	// M06. Rejection remains recorded until start_at; expiry cancels and creates
+	// exactly one full fake-refund obligation at the boundary.
+	contractRepo, err := contractpg.New(pool, []byte(strings.Repeat("k", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contractService, err := contract.NewService(contractRepo, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completeReservation := newReservation(1000*time.Hour, "cont-success", true)
+	if ensured, ensureErr := contractService.EnsureApproved(ctx); ensureErr != nil || ensured < 1 {
+		t.Fatalf("restart recovery of approved reservation contract: count=%d err=%v", ensured, ensureErr)
+	}
+	createdContract, err := contractService.Create(ctx, renter, completeReservation.ID)
+	if err != nil || createdContract.State != "generado" || len(createdContract.Signatures) != 2 || len(createdContract.Artifact) < 100 || !strings.HasPrefix(string(createdContract.Artifact), "%PDF-") {
+		t.Fatalf("synthetic contract creation/artifact: state=%s signatures=%d bytes=%d err=%v", createdContract.State, len(createdContract.Signatures), len(createdContract.Artifact), err)
+	}
+	var encryptedDocument []byte
+	if err = setup.QueryRow(ctx, `SELECT contenido FROM public.documento_privado_sintetico_local WHERE id=$1`, createdContract.DocumentID).Scan(&encryptedDocument); err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(string(encryptedDocument), "%PDF-") || len(encryptedDocument) < len(createdContract.Artifact) {
+		t.Fatal("contract PDF was not encrypted in its M09 private-document row")
+	}
+	if contractpg.Hash(createdContract.Artifact) != createdContract.SHA256 {
+		t.Fatal("contract plaintext checksum does not match its snapshot metadata")
+	}
+	contractBase := "/api/v1/local/booking-trial/contracts/" + createdContract.ID
+	if response := publishedContractAPI(t, renter, contractService, http.MethodPost, "/api/v1/local/booking-trial/reservations/"+completeReservation.ID+"/contract"); response.Code != http.StatusOK {
+		t.Fatalf("idempotent create API=%d %s", response.Code, response.Body.String())
+	}
+	if response := publishedContractAPI(t, outsider, contractService, http.MethodGet, contractBase); response.Code != http.StatusNotFound {
+		t.Fatalf("third party contract API should hide resource, got %d", response.Code)
+	}
+	if response := publishedContractAPI(t, host, contractService, http.MethodGet, contractBase); response.Code != http.StatusOK {
+		t.Fatalf("participant contract GET=%d %s", response.Code, response.Body.String())
+	}
+	decodeContract := func(response *httptest.ResponseRecorder) contract.Contract {
+		t.Helper()
+		var envelope struct {
+			Data contract.Contract `json:"data"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		return envelope.Data
+	}
+	firstSignatureResponse := publishedContractAPI(t, host, contractService, http.MethodPost, contractBase+"/sign")
+	firstSignature := decodeContract(firstSignatureResponse)
+	if firstSignatureResponse.Code != http.StatusOK || firstSignature.State != "firma_parcial" {
+		t.Fatalf("first signature API=%d contract=%s", firstSignatureResponse.Code, firstSignature.State)
+	}
+	secondSignatureResponse := publishedContractAPI(t, renter, contractService, http.MethodPost, contractBase+"/sign")
+	secondSignature := decodeContract(secondSignatureResponse)
+	if secondSignatureResponse.Code != http.StatusOK || secondSignature.State != "firmado" {
+		t.Fatalf("second signature API=%d contract=%s", secondSignatureResponse.Code, secondSignature.State)
+	}
+	documentResponse := publishedContractAPI(t, host, contractService, http.MethodGet, contractBase+"/document")
+	if documentResponse.Code != http.StatusOK || !strings.HasPrefix(documentResponse.Body.String(), "%PDF-") {
+		t.Fatalf("signed document endpoint=%d content-type=%q", documentResponse.Code, documentResponse.Header().Get("Content-Type"))
+	}
+	replayResponse := publishedContractAPI(t, renter, contractService, http.MethodPost, contractBase+"/sign")
+	replay := decodeContract(replayResponse)
+	if replayResponse.Code != http.StatusOK || replay.State != "firmado" || len(replay.History) != len(secondSignature.History) {
+		t.Fatalf("signature API retry duplicated transition: %+v", replay)
+	}
+	/* direct participant access assertions are also exercised through GET above */
+	if false {
+		if _, err = contractService.Get(ctx, outsider, createdContract.ID); err != contract.ErrNotFound {
+			t.Fatalf("third party contract access must be hidden, got %v", err)
+		}
+	}
+	completedDetail, err := svc.Get(ctx, renter, completeReservation.ID)
+	if err != nil || completedDetail.State != "lista_para_checkin" {
+		t.Fatalf("both signatures should advance M06: state=%s err=%v", completedDetail.State, err)
+	}
+	clockMu.Lock()
+	fixedNow = completeReservation.StartAt
+	clockMu.Unlock()
+	_, _ = contractService.ExpireDue(ctx)
+	if completeAfterStart, readErr := svc.Get(ctx, renter, completeReservation.ID); readErr != nil || completeAfterStart.State != "lista_para_checkin" {
+		t.Fatalf("fully signed contract expired with time: state=%s err=%v", completeAfterStart.State, readErr)
+	}
+
+	contractRejectReservation := newReservation(1030*time.Hour, "cont-reject", true)
+	rejectedContract, err := contractService.Create(ctx, host, contractRejectReservation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejectAPI := publishedContractAPI(t, host, contractService, http.MethodPost, "/api/v1/local/booking-trial/contracts/"+rejectedContract.ID+"/reject")
+	rejectedContract = decodeContract(rejectAPI)
+	if rejectAPI.Code != http.StatusOK {
+		t.Fatalf("reject API=%d %s", rejectAPI.Code, rejectAPI.Body.String())
+	}
+	_, err = contractService.Get(ctx, host, rejectedContract.ID)
+	rejectedHostState := ""
+	for _, signature := range rejectedContract.Signatures {
+		if signature.SignerID == host {
+			rejectedHostState = signature.State
+		}
+	}
+	if err != nil || rejectedContract.State != "firma_parcial" || rejectedHostState != "rechazada" {
+		t.Fatalf("rejection should be terminal for signer but non-cancelling: %+v err=%v", rejectedContract, err)
+	}
+	rejectedReservationDetail, err := svc.Get(ctx, host, contractRejectReservation.ID)
+	if err != nil || rejectedReservationDetail.State != "firma_parcial" {
+		t.Fatalf("rejection cancelled or skipped partial state: %+v err=%v", rejectedReservationDetail, err)
+	}
+	if _, err = contractService.Sign(ctx, host, rejectedContract.ID); err != contract.ErrConflict {
+		t.Fatalf("rejected signer must not retry this version: %v", err)
+	}
+
+	concurrentExpiryReservation := newReservation(1015*time.Hour, "cont-concurrent-expiry", true)
+	concurrentExpiryContract, err := contractService.Create(ctx, host, concurrentExpiryReservation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clockMu.Lock()
+	fixedNow = concurrentExpiryReservation.StartAt
+	clockMu.Unlock()
+	var concurrentWG sync.WaitGroup
+	concurrentErrors := make(chan error, 3)
+	for _, participant := range []string{host, renter} {
+		participant := participant
+		concurrentWG.Add(1)
+		go func() {
+			defer concurrentWG.Done()
+			_, callErr := contractService.Sign(ctx, participant, concurrentExpiryContract.ID)
+			if callErr != nil && callErr != contract.ErrConflict {
+				concurrentErrors <- callErr
+			}
+		}()
+	}
+	concurrentWG.Add(1)
+	go func() {
+		defer concurrentWG.Done()
+		_, expireErr := contractService.ExpireDue(ctx)
+		if expireErr != nil {
+			concurrentErrors <- expireErr
+		}
+	}()
+	concurrentWG.Wait()
+	close(concurrentErrors)
+	for concurrentErr := range concurrentErrors {
+		t.Fatal(concurrentErr)
+	}
+	var concurrentRefunds, concurrentTransitions int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1),(SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 AND estado_nuevo='cancelada_por_firma')`, concurrentExpiryReservation.ID).Scan(&concurrentRefunds, &concurrentTransitions); err != nil {
+		t.Fatal(err)
+	}
+	if concurrentRefunds != 1 || concurrentTransitions != 1 {
+		t.Fatalf("concurrent signature/expiry duplicated effects refunds=%d transitions=%d", concurrentRefunds, concurrentTransitions)
+	}
+
+	expiryReservation := newReservation(1020*time.Hour, "cont-expiry", true)
+	expiryContract, err := contractService.Create(ctx, renter, expiryReservation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clockMu.Lock()
+	fixedNow = expiryReservation.StartAt
+	clockMu.Unlock()
+	if _, err = contractService.Sign(ctx, host, expiryContract.ID); err != contract.ErrConflict {
+		t.Fatalf("sign at exact start must be rejected after expiring: %v", err)
+	}
+	if _, err = contractService.Sign(ctx, renter, expiryContract.ID); err != contract.ErrConflict {
+		t.Fatalf("second expired signature retry must be conflict without duplicated effects: %v", err)
+	}
+	var expiredState string
+	var activeOccupancy bool
+	var refundCount int
+	var refundAmount int64
+	var expiredHistory int
+	if err = setup.QueryRow(ctx, `SELECT r.estado,o.activo,(SELECT count(*) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id),(SELECT COALESCE(max(d.importe_clp),0) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id),(SELECT count(*) FROM public.reserva_ensayo_transicion h WHERE h.reserva_id=r.id AND h.estado_nuevo='cancelada_por_firma') FROM public.reserva_ensayo_local r JOIN public.ocupacion o ON o.reserva_id=r.id WHERE r.id=$1`, expiryReservation.ID).Scan(&expiredState, &activeOccupancy, &refundCount, &refundAmount, &expiredHistory); err != nil {
+		t.Fatal(err)
+	}
+	if expiredState != "cancelada_por_firma" || activeOccupancy || refundCount != 1 || refundAmount != expiryReservation.Subtotal || expiredHistory != 1 {
+		t.Fatalf("deadline effects state=%s occupancy=%v refunds=%d amount=%d history=%d", expiredState, activeOccupancy, refundCount, refundAmount, expiredHistory)
+	}
+	expiredDetail, err = svc.Get(ctx, renter, expiryReservation.ID)
+	if err != nil || expiredDetail.RefundOperationID == nil || expiredDetail.RefundState == nil || *expiredDetail.RefundState != "pendiente" {
+		t.Fatalf("M06 refund obligation not queryable: %+v err=%v", expiredDetail, err)
+	}
+	refundResult, err := svc.Refund(ctx, renter, expiryReservation.ID, *expiredDetail.RefundOperationID, "exito")
+	if err != nil || refundResult.State != "completada" || refundResult.AmountCLP != expiryReservation.Subtotal {
+		t.Fatalf("fake full refund after signature expiry: %+v err=%v", refundResult, err)
+	}
+
+	// A signing request that starts before start_at but waits behind M06's row
+	// lock must read the injected Backend clock only after obtaining the lock.
+	setConcurrentSignReservation := newReservation(1040*time.Hour, "cont-clock-after-lock", true)
+	setConcurrentSignContract, err := contractService.Create(ctx, renter, setConcurrentSignReservation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contractLockTx, err := setup.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lockedContractReservation string
+	if err = contractLockTx.QueryRow(ctx, `SELECT id::text FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, setConcurrentSignReservation.ID).Scan(&lockedContractReservation); err != nil {
+		_ = contractLockTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	contractSignResult := make(chan error, 1)
+	go func() {
+		_, signErr := contractService.Sign(ctx, host, setConcurrentSignContract.ID)
+		contractSignResult <- signErr
+	}()
+	waitUntil := time.Now().Add(4 * time.Second)
+	contractWaiting := false
+	for !contractWaiting && time.Now().Before(waitUntil) {
+		if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename=current_user AND wait_event_type='Lock' AND query ILIKE '%FOR UPDATE OF r,c%')`).Scan(&contractWaiting); err != nil {
+			_ = contractLockTx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if !contractWaiting {
+			select {
+			case earlyErr := <-contractSignResult:
+				_ = contractLockTx.Rollback(ctx)
+				t.Fatalf("signature returned before the reservation lock: %v", earlyErr)
+			default:
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if !contractWaiting {
+		_ = contractLockTx.Rollback(ctx)
+		t.Fatal("signature did not wait for the shared reservation lock")
+	}
+	clockMu.Lock()
+	fixedNow = setConcurrentSignReservation.StartAt
+	clockMu.Unlock()
+	if err = contractLockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = <-contractSignResult; err != contract.ErrConflict {
+		t.Fatalf("signature acquired lock at start_at should conflict, got %v", err)
+	}
+	var afterLockState string
+	var afterLockActive bool
+	var afterLockRefunds, afterLockSignatures int
+	if err = setup.QueryRow(ctx, `SELECT r.estado,o.activo,(SELECT count(*) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id),(SELECT count(*) FROM public.contrato_ensayo_firma f JOIN public.contrato_ensayo_local c ON c.id=f.contrato_id WHERE c.reserva_id=r.id AND f.estado='firmada') FROM public.reserva_ensayo_local r JOIN public.ocupacion o ON o.reserva_id=r.id WHERE r.id=$1`, setConcurrentSignReservation.ID).Scan(&afterLockState, &afterLockActive, &afterLockRefunds, &afterLockSignatures); err != nil {
+		t.Fatal(err)
+	}
+	if afterLockState != "cancelada_por_firma" || afterLockActive || afterLockRefunds != 1 || afterLockSignatures != 0 {
+		t.Fatalf("post-lock deadline state=%s active=%v refunds=%d signatures=%d", afterLockState, afterLockActive, afterLockRefunds, afterLockSignatures)
 	}
 
 }

@@ -3,6 +3,7 @@ import { CalendarRequestState } from "./calendar-request.js";
 import { BookingQuoteState } from "./booking-quote-state.js";
 import { inboxActions } from "./booking-inbox-state.js";
 import { showThenMarkConversationPage } from "./conversation-read-state.js";
+import { contractActions, contractResponseIsCurrent, type ContractRequestContext } from "./contract-actions.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState, type AvailabilityContext, type SelectedAvailability } from "./booking-availability-state.js";
@@ -1030,11 +1031,14 @@ const bookingCatalogCenterSample=document.querySelector<HTMLButtonElement>("#boo
 type TrialReservation={id:string;quote_id:string;space_id:string;host_id:string;renter_id:string;state:string;rate_unit:string;unit_price_clp:number;currency:string;units:number;subtotal_clp:number;start_at:string;end_at:string;time_zone:string;cancellation_policy_version:string;pay_expires_at:string;host_expires_at?:string|null;refund_id?:string;refund_operation_id?:string;refund_amount_clp?:number;refund_state?:string;refund_last_result?:string;refund_updated_at?:string;updated_at:string;unread_count:number};
 type TrialTransition={sequence:number;to:string;reason:string;at:string};
 type TrialDetail=TrialReservation&{history:TrialTransition[]};
+type LocalContract={id:string;reservation_id:string;version:number;state:string;snapshot:unknown;sha256:string;created_at:string;updated_at:string;signatures:{signer_id:string;role:string;state:string;reason?:string;updated_at:string}[];history:{sequence:number;actor_id?:string;action:string;reason?:string;at:string}[]};
 type CancellationPreview={reservation_id:string;policy_version:string;eligible:boolean;deadline:string;amount_clp:number;currency:string;refund_label:string;reason_code?:string};
 type ConversationMessage={id:string;reservation_id:string;author_id:string;sequence:number;body:string;created_at:string};
 type ConversationPage={items:ConversationMessage[];older_cursor:number|null};
 let selectedReservationID="";
 let selectedReservation:TrialDetail|null=null;
+let selectedContract:LocalContract|null=null;
+let contractRequestRevision=0;
 let bookingInboxRevision=0;
 type LocalDispute={id:string;reservation_id:string;host_id:string;renter_id:string;state:string;opening_reason_code:string;opened_at:string;close_reason_code?:string|null;closed_at?:string|null};
 let localDisputes:LocalDispute[]=[];
@@ -1242,7 +1246,7 @@ form("booking-request-form",async(data,element)=>{
   await loadBookingInbox();
   resultElement.textContent="Solicitud creada; quedó seleccionada en tu bandeja local.";
 });
-const reservationStates:Record<string,string>={pendiente_de_pago:"Pendiente de pago",pagada:"Pagada · espera decisión del anfitrión",aprobada_host:"Aprobada por anfitrión",cancelada_por_pago:"Cancelada por rechazo del pago simulado",rechazada_arrendador:"Rechazada por anfitrión",vencida_pago:"Vencida por falta de pago",vencida_host:"Vencida por falta de decisión del anfitrión",cancelada_arrendatario:"Cancelada por arrendatario"};
+const reservationStates:Record<string,string>={pendiente_de_pago:"Pendiente de pago",pagada:"Pagada · espera decisión del anfitrión",aprobada_host:"Aprobada por anfitrión",firma_parcial:"Contrato de ensayo esperando firmas",lista_para_checkin:"Contrato de ensayo completado",cancelada_por_firma:"Cancelada por vencimiento de firma · devolución fake pendiente",cancelada_por_pago:"Cancelada por rechazo del pago simulado",rechazada_arrendador:"Rechazada por anfitrión",vencida_pago:"Vencida por falta de pago",vencida_host:"Vencida por falta de decisión del anfitrión",cancelada_arrendatario:"Cancelada por arrendatario"};
 function reservationState(state:string):string{return reservationStates[state]??state}
 function bookingDate(value:string,zone:string):string{
   try{return new Intl.DateTimeFormat("es-CL",{dateStyle:"medium",timeStyle:"short",timeZone:zone}).format(new Date(value))}catch{return value}
@@ -1327,7 +1331,7 @@ function clearBookingInboxOnSessionLoss():void{
   const evidencePreview=document.querySelector<HTMLImageElement>("#evidence-preview")!;
   evidencePreview.hidden=true; evidencePreview.removeAttribute("src");
   if(evidenceObjectURL){URL.revokeObjectURL(evidenceObjectURL);evidenceObjectURL="";}
-  sessionAccountID="";sessionRoles=[];selectedReservationID="";selectedReservation=null;bookingRequestState.invalidate();resetCatalogTraversal();
+  sessionAccountID="";sessionRoles=[];selectedReservationID="";selectedReservation=null;selectedContract=null;contractRequestRevision++;bookingRequestState.invalidate();resetCatalogTraversal();
   currentDraftID=""; spacesList.replaceChildren(); spacesOutput.textContent="Inicia sesión para consultar tus espacios."; spaceForm.reset();
   clearM02PhotoPreview();m02PhotoRetryKey="";m02PhotoRemoveRetryKey="";m02PayoutRetryKey="";m02PayoutRevokeRetryKey="";
   document.querySelector<HTMLElement>("#m02-photo-output")!.textContent="Inicia sesión para consultar tu foto sintética.";
@@ -1338,6 +1342,7 @@ function clearBookingInboxOnSessionLoss():void{
   renterInbox.textContent="Inicia sesión y actualiza tu bandeja.";
   hostInbox.textContent="Inicia sesión y actualiza tu bandeja.";
   bookingHistoryOutput.textContent="Inicia sesión para consultar reservas propias.";
+  const contractOutput=document.querySelector<HTMLElement>("#synthetic-contract-output");if(contractOutput)contractOutput.textContent="Inicia sesión y selecciona una reserva aprobada.";
   bookingPaymentOutput.textContent="Inicia sesión para consultar pagos de reservas propias.";
   document.querySelector<HTMLElement>("#privacy-output")!.textContent="Inicia sesión para usar M02.";
   const paymentButton=document.querySelector<HTMLButtonElement>("#booking-inbox-pay");if(paymentButton)paymentButton.textContent="Enviar pago de ensayo";
@@ -1408,12 +1413,21 @@ function refreshBookingActions():void{
   const approve=document.querySelector<HTMLButtonElement>("#booking-inbox-approve");
   const reject=document.querySelector<HTMLButtonElement>("#booking-inbox-reject");
   if(!pay||!cancel||!cancelPreview||!refund||!approve||!reject)return;
+  const openContract=document.querySelector<HTMLButtonElement>("#synthetic-contract-open");
+  const signContract=document.querySelector<HTMLButtonElement>("#synthetic-contract-sign");
+  const rejectContract=document.querySelector<HTMLButtonElement>("#synthetic-contract-reject");
+  const downloadContract=document.querySelector<HTMLButtonElement>("#synthetic-contract-download");
+  const contractUI=selectedReservation?contractActions({accountID:sessionAccountID,reservationState:selectedReservation.state,reservationStart:Date.parse(selectedReservation.start_at),contractState:selectedContract?.state,signatures:selectedContract?.signatures??[],now:Date.now()}):null;
+  if(openContract)openContract.disabled=!sessionToken||!contractUI?.canOpen;
+  if(signContract)signContract.disabled=!contractUI?.canSign;
+  if(rejectContract)rejectContract.disabled=!contractUI?.canReject;
+  if(downloadContract)downloadContract.disabled=!contractUI?.canDownload;
   const now=Date.now();
   const allowed=selectedReservation?inboxActions(sessionAccountID,selectedReservation,now):null;
   pay.disabled=!allowed?.canPay;
   cancelPreview.disabled=!allowed?.canCancel;
   cancel.disabled=!allowed?.canCancel||cancellationPreviewReservationID!==selectedReservationID||!cancellationPreview?.eligible;
-  refund.disabled=!selectedReservation||selectedReservation.renter_id!==sessionAccountID||selectedReservation.state!=="cancelada_arrendatario"||selectedReservation.refund_state!=="pendiente"||!selectedReservation.refund_operation_id;
+  refund.disabled=!selectedReservation||selectedReservation.renter_id!==sessionAccountID||!["cancelada_arrendatario","cancelada_por_firma"].includes(selectedReservation.state)||selectedReservation.refund_state!=="pendiente"||!selectedReservation.refund_operation_id;
   approve.disabled=!allowed?.canDecide;
   const rejectReason=(document.querySelector<HTMLInputElement>("#booking-inbox-reject-reason")?.value??"").trim();
   reject.disabled=!allowed?.canDecide||!rejectReason;
@@ -1499,7 +1513,7 @@ async function loadDisputeAdminQueue():Promise<void>{
   document.querySelector<HTMLElement>("#local-dispute-admin-status")!.textContent=`${disputeAdminItems.length} incidencia(s) abierta(s). El cierre es administrativo y no económico.`;
 }
 async function loadReservationDetail(id:string):Promise<void>{
-  bookingRequestState.select(id);selectedReservationID=id;selectedReservation=null;clearDisputes("Cargando incidencia de la reserva seleccionada…");refreshBookingActions();
+  bookingRequestState.select(id);selectedReservationID=id;selectedReservation=null;selectedContract=null;contractRequestRevision++;document.querySelector<HTMLElement>("#synthetic-contract-output")!.textContent="Selecciona Generar / consultar para cargar el contrato privado de ensayo.";clearDisputes("Cargando incidencia de la reserva seleccionada…");refreshBookingActions();
   cancellationPreview=null;cancellationPreviewReservationID="";
   document.querySelector<HTMLElement>("#booking-inbox-cancel-preview-output")!.textContent="Consulta la opción de cancelación antes de confirmar.";
   clearConversation("Cargando mensajes de la reserva seleccionada…");
@@ -1512,6 +1526,50 @@ async function loadReservationDetail(id:string):Promise<void>{
   conversationStatus.textContent=`Conversación local · ${selectedReservation.state}. ${["pendiente_de_pago","pagada","aprobada_host"].includes(selectedReservation.state)?"Puedes enviar texto plano en este estado.":"Solo lectura: el estado de la reserva no permite enviar."}`;
   refreshConversationControls();
 }
+function renderSyntheticContract(item:LocalContract):void{
+  selectedContract=item;
+  const lines=item.signatures.map(s=>`${s.role}: ${s.state}${s.reason?` · ${s.reason}`:""}`).join("\n");
+  const history=item.history.map(e=>`${e.sequence}. ${e.action}${e.reason?` · ${e.reason}`:""} · ${new Date(e.at).toLocaleString("es-CL")}`).join("\n");
+  const deadline=selectedReservation?`Completar antes de ${bookingDate(selectedReservation.start_at,selectedReservation.time_zone)}.`:"";
+  document.querySelector<HTMLElement>("#synthetic-contract-output")!.textContent=`ENSAYO SINTÉTICO LOCAL — SIN VALIDEZ JURÍDICA\nContrato v${item.version} · ${item.state} · SHA-256 ${item.sha256}\n${deadline}\nImporte snapshot: ${selectedReservation?.subtotal_clp.toLocaleString("es-CL")??"—"} CLP\nFirmas:\n${lines}\n\nHistorial:\n${history}`;
+  refreshBookingActions();
+}
+async function selectedContractOperation(kind:"open"|"sign"|"reject"):Promise<void>{
+  const reservationID=selectedReservationID,account=sessionAccountID,token=sessionToken,generation=sessionGeneration,revision=++contractRequestRevision;
+  const context:ContractRequestContext={revision,reservationID,accountID:account,token,generation};
+  const isCurrent=()=>contractResponseIsCurrent(context,{revision:contractRequestRevision,reservationID:selectedReservationID,accountID:sessionAccountID,token:sessionToken,generation:sessionGeneration});
+  if(!reservationID||!selectedReservation||!token)throw new Error("Selecciona una reserva propia aprobada e inicia sesión.");
+  let item:LocalContract;
+  if(kind==="open"){
+    const result=await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/contract`,"POST",undefined,true);
+    if(!isCurrent())return;
+    item=bookingData<LocalContract>(result);
+  }else{
+    if(!selectedContract)throw new Error("Genera o consulta primero el contrato.");
+    const path=`${bookingBase}/contracts/${encodeURIComponent(selectedContract.id)}/${kind}`;
+    const body=undefined;
+    const result=await request(path,"POST",body,true);
+    if(!isCurrent())return;
+    item=bookingData<LocalContract>(result);
+    const detail=await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}`,"GET",undefined,true);
+    if(!isCurrent())return;
+    selectedReservation=bookingData<TrialDetail>(detail);renderReservationDetail(selectedReservation);
+  }
+  renderSyntheticContract(item);
+}
+document.querySelector<HTMLButtonElement>("#synthetic-contract-open")!.addEventListener("click",()=>void action(()=>selectedContractOperation("open")));
+document.querySelector<HTMLButtonElement>("#synthetic-contract-sign")!.addEventListener("click",()=>void action(()=>selectedContractOperation("sign")));
+document.querySelector<HTMLButtonElement>("#synthetic-contract-reject")!.addEventListener("click",()=>void action(()=>selectedContractOperation("reject")));
+document.querySelector<HTMLButtonElement>("#synthetic-contract-download")!.addEventListener("click",()=>void action(async()=>{
+  const item=selectedContract,reservationID=selectedReservationID,account=sessionAccountID,token=sessionToken,generation=sessionGeneration,revision=++contractRequestRevision;
+  const context:ContractRequestContext={revision,reservationID,accountID:account,token,generation};
+  if(!item||item.state!=="firmado"||!token)throw new Error("El PDF solo está disponible para participantes cuando ambas firmas de ensayo están completas.");
+  const response=await fetch(`${apiBase}${bookingBase}/contracts/${encodeURIComponent(item.id)}/document`,{headers:{Authorization:`Bearer ${token}`,Accept:"application/pdf"},mode:"cors",cache:"no-store",credentials:"omit"});
+  if(!response.ok)throw new Error(`No se pudo descargar el artefacto sintético (HTTP ${response.status}).`);
+  const blob=await response.blob();
+  if(!contractResponseIsCurrent(context,{revision:contractRequestRevision,reservationID:selectedReservationID,accountID:sessionAccountID,token:sessionToken,generation:sessionGeneration}))return;
+  const url=URL.createObjectURL(blob),link=document.createElement("a");link.href=url;link.download="contrato-ensayo-sintetico.pdf";link.click();URL.revokeObjectURL(url);
+}));
 async function loadBookingInbox(reloadSelected=true):Promise<string|null>{
   const revision=++bookingInboxRevision;
   if(!sessionToken||!sessionAccountID){clearBookingInboxOnSessionLoss();return null;}

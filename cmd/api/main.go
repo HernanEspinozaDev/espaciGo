@@ -19,6 +19,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
+	contractpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/contracts"
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
@@ -30,6 +31,8 @@ import (
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/contract"
+	contracthttp "github.com/HernanEspinozaDev/espaciGo/internal/contract/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dispute"
 	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
@@ -122,6 +125,7 @@ func run() error {
 	var localPrivacyService *privacy.Service
 	var localM02Service *m02local.Service
 	var localGalleryService *gallery.Service
+	var localContractService *contract.Service
 	var privacyReplayRegistryPath string
 	var privacyEvidenceCleaner privacy.SyntheticEvidenceCleaner
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
@@ -240,6 +244,24 @@ func run() error {
 			}
 			bookingHandler := bookinghttp.NewHandler(service, bookingService, cfg.allowedOrigins, conversationService)
 			mux.Handle("/api/v1/local/booking-trial/", bookingHandler)
+			contractKeyText, err := os.ReadFile(os.Getenv("LOCAL_CONTRACT_ENCRYPTION_KEY_FILE"))
+			if err != nil {
+				return errors.New("local contract encryption key is unavailable")
+			}
+			contractKey, err := hex.DecodeString(strings.TrimSpace(string(contractKeyText)))
+			if err != nil || len(contractKey) != 32 {
+				return errors.New("local contract encryption key is invalid")
+			}
+			contractRepo, err := contractpg.New(pool, contractKey)
+			if err != nil {
+				return errors.New("local contract repository initialization failed")
+			}
+			contractService, err := contract.NewService(contractRepo, time.Now)
+			if err != nil {
+				return errors.New("local contract rehearsal initialization failed")
+			}
+			localContractService = contractService
+			registerContractRoutes(mux, contracthttp.NewHandler(service, contractService))
 		}
 		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/yaml")
@@ -263,6 +285,23 @@ func run() error {
 	defer stop()
 	if localPaymentService != nil {
 		go localPaymentService.RunPaymentReconciler(ctx, 5*time.Second)
+	}
+	if localContractService != nil {
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			_, _ = localContractService.EnsureApproved(ctx)
+			_, _ = localContractService.ExpireDue(ctx)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					_, _ = localContractService.EnsureApproved(ctx)
+					_, _ = localContractService.ExpireDue(ctx)
+				}
+			}
+		}()
 	}
 	if localIdentityService != nil {
 		go localIdentityService.RunCredentialNoticeWorker(ctx, time.Second)
@@ -323,6 +362,14 @@ func registerDisputeRoutes(mux *http.ServeMux, handler http.Handler) {
 	mux.Handle("GET /api/v1/local/booking-trial/disputes/{dispute_id}/history", handler)
 	mux.Handle("GET /api/v1/admin/disputes", handler)
 	mux.Handle("POST /api/v1/admin/disputes/{dispute_id}/close", handler)
+}
+
+func registerContractRoutes(mux *http.ServeMux, handler http.Handler) {
+	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservation_id}/contract", handler)
+	mux.Handle("GET /api/v1/local/booking-trial/contracts/{contract_id}", handler)
+	mux.Handle("POST /api/v1/local/booking-trial/contracts/{contract_id}/sign", handler)
+	mux.Handle("POST /api/v1/local/booking-trial/contracts/{contract_id}/reject", handler)
+	mux.Handle("GET /api/v1/local/booking-trial/contracts/{contract_id}/document", handler)
 }
 
 func checkEndpoint(target string) error {

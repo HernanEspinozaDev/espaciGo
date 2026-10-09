@@ -1768,6 +1768,96 @@ paths:
               $ref: '#/components/headers/X-Request-ID'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /local/booking-trial/reservations/{reservationId}/contract:
+    parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: createOrGetSyntheticReservationContract
+      tags: [M07 local]
+      description: Crea idempotentemente una versión snapshot privada tras aprobación del anfitrión. Documento de ensayo sintético sin validez jurídica.
+      responses:
+        '200':
+          description: 'Contrato local existente o recién generado.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, notice]
+                properties:
+                  data: { $ref: '#/components/schemas/LocalSyntheticContract' }
+                  notice: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /local/booking-trial/contracts/{contractId}:
+    parameters: [{ name: contractId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: getOwnSyntheticContract
+      tags: [M07 local]
+      responses:
+        '200':
+          description: 'Estado, snapshot e historial para participantes.'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/LocalSyntheticContract' }
+                  notice: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /local/booking-trial/contracts/{contractId}/sign:
+    parameters: [{ name: contractId, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: signSyntheticContractAsParticipant
+      tags: [M07 local]
+      description: Revalida titularidad y start_at bajo bloqueo de reserva; es una firma simulada, no tiene validez jurídica.
+      responses:
+        '200':
+          description: Transición de firma persistida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/LocalSyntheticContract' }
+                  notice: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /local/booking-trial/contracts/{contractId}/reject:
+    parameters: [{ name: contractId, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: rejectSyntheticContractVersion
+      tags: [M07 local]
+      description: El rechazo es definitivo para el firmante y versión; no cancela la reserva inmediatamente.
+      responses:
+        '200':
+          description: Rechazo registrado en el historial.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/LocalSyntheticContract' }
+                  notice: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /local/booking-trial/contracts/{contractId}/document:
+    parameters: [{ name: contractId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: downloadSignedSyntheticContract
+      tags: [M07 local]
+      description: Devuelve PDF privado solo a anfitrión/arrendatario cuando ambas firmas están completas.
+      responses:
+        '200':
+          description: Artefacto PDF marcado como ensayo sin validez jurídica.
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 components:
   securitySchemes:
     bearerAuth:
@@ -1792,6 +1882,28 @@ components:
         type: string
         minLength: 1
   schemas:
+    LocalSyntheticContract:
+      type: object
+      required: [id, reservation_id, version, state, snapshot, sha256, signatures, history]
+      properties:
+        id: { type: string, format: uuid }
+        reservation_id: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        state: { type: string, enum: [generado, firma_parcial, firmado, anulado] }
+        snapshot: { type: string, format: byte, description: Snapshot JSON serializado; solo hechos de la reserva y aviso sintético. }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        signatures:
+          type: array
+          items:
+            type: object
+            required: [signer_id, role, state, updated_at]
+            properties:
+              signer_id: { type: string, format: uuid }
+              role: { type: string, enum: [anfitrion, arrendatario] }
+              state: { type: string, enum: [pendiente, firmada, rechazada] }
+              reason: { type: string }
+              updated_at: { type: string, format: date-time }
+        history: { type: array, items: { type: object, required: [sequence, action, at], properties: { sequence: { type: integer }, actor_id: { type: string, format: uuid }, action: { type: string }, reason: { type: string }, at: { type: string, format: date-time } } } }
     LocalBookingFixtureEnvelope:
       type: object
       required: [data, safety_notice]
@@ -2090,7 +2202,7 @@ components:
         space_id: { type: string, format: uuid }
         host_id: { type: string, format: uuid }
         renter_id: { type: string, format: uuid }
-        state: { type: string, enum: [pendiente_de_pago, pagada, aprobada_host, cancelada_por_pago, rechazada_arrendador, vencida_pago, vencida_host, cancelada_arrendatario] }
+        state: { type: string, enum: [pendiente_de_pago, pagada, aprobada_host, firma_parcial, lista_para_checkin, cancelada_por_firma, cancelada_por_pago, rechazada_arrendador, vencida_pago, vencida_host, cancelada_arrendatario] }
         rate_unit: { type: string, enum: [hora, dia, mes] }
         unit_price_clp: { type: integer }
         currency: { type: string, const: CLP }
