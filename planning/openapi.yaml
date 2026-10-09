@@ -2364,7 +2364,18 @@ components:
               required: [space_id, history, rental_payments, rental_payment_operations, refund, guarantee, claim]
               properties:
                 space_id: { type: string, format: uuid }
-                history: { type: array, items: { type: object, additionalProperties: true } }
+                history:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [sequence, to, at]
+                    properties:
+                      sequence: { type: integer, format: int64 }
+                      from: { type: [string, 'null'] }
+                      to: { type: string }
+                      actor_id: { type: [string, 'null'], format: uuid }
+                      at: { type: string, format: date-time }
                 rental_payments: { type: array, items: { type: object, required: [result, amount_clp, at], properties: { result: { type: string }, amount_clp: { type: integer }, at: { type: string, format: date-time } } } }
                 rental_payment_operations: { type: array, items: { type: object, required: [id, state, requested_result, created_at, updated_at], properties: { id: { type: string, format: uuid }, state: { type: string }, requested_result: { type: string }, created_at: { type: string, format: date-time }, updated_at: { type: string, format: date-time } } } }
                 refund: { type: [object, 'null'], additionalProperties: true }

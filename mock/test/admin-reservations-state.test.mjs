@@ -23,3 +23,19 @@ test('only current successful request may restore pagination controls',()=>{
   assert.equal(state.nextCursor,'');
   assert.equal(state.finish(request,'admin','token',1),false);
 });
+
+test('filter or page-size changes invalidate cursors, results request, and detail request',()=>{
+  const state=new AdminReservationsState();
+  assert.equal(state.updateCriteria('state=pagada&page_size=5'),true);
+  const list=state.begin('admin','token',1);
+  const detail=state.begin('admin','token',1);
+  state.cursor='opaque-current';state.nextCursor='opaque-next';
+  assert.equal(state.updateCriteria('state=aprobada_host&page_size=5'),true);
+  assert.equal(state.current(list,'admin','token',1),false);
+  assert.equal(state.current(detail,'admin','token',1),false);
+  assert.equal(state.cursor,'');assert.equal(state.nextCursor,'');
+  assert.equal(state.updateCriteria('state=aprobada_host&page_size=10'),true);
+  assert.equal(state.nextCursor,'');
+  const fresh=state.begin('admin','token',1);
+  assert.equal(state.current(fresh,'admin','token',1),true);
+});

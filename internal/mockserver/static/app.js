@@ -3363,7 +3363,39 @@ function clearAdminReservationView(message = "Requiere rol administrador.") {
         search.disabled = !sessionToken || !sessionRoles.includes("administrador");
 }
 function adminReservationContextCurrent(context) {
-    return adminReservationsState.current(context, sessionAccountID, sessionToken, sessionGeneration) && sessionRoles.includes("administrador");
+    return adminReservationsState.current(context, sessionAccountID, sessionToken, sessionGeneration, adminReservationCriteriaKey()) && sessionRoles.includes("administrador");
+}
+function adminReservationCriteriaKey() {
+    const form = document.querySelector("#local-admin-reservations-filter");
+    if (!form)
+        return "";
+    const data = new FormData(form), values = [];
+    for (const key of ["reservation_id", "state", "created_from", "created_to", "page_size"]) {
+        let value = String(data.get(key) ?? "").trim();
+        if (key === "reservation_id")
+            value = value.toLowerCase();
+        if ((key === "created_from" || key === "created_to") && value) {
+            const parsed = new Date(value);
+            if (!Number.isNaN(parsed.valueOf()))
+                value = parsed.toISOString();
+        }
+        values.push([key, value]);
+    }
+    return JSON.stringify(values);
+}
+function resetAdminReservationSearchForCriteria() {
+    if (!adminReservationsState.updateCriteria(adminReservationCriteriaKey()))
+        return;
+    adminReservationItems = [];
+    selectedAdminReservationID = "";
+    document.querySelector("#local-admin-reservations-items")?.replaceChildren();
+    const detail = document.querySelector("#local-admin-reservations-detail");
+    if (detail)
+        detail.textContent = "Los filtros cambiaron. Consulta para iniciar desde el principio.";
+    const status = document.querySelector("#local-admin-reservations-status");
+    if (status)
+        status.textContent = "Filtros modificados; los resultados anteriores se descartaron.";
+    refreshAdminReservationControls();
 }
 function renderAdminReservationItems() {
     const target = document.querySelector("#local-admin-reservations-items");
@@ -3382,7 +3414,8 @@ function renderAdminReservationItems() {
                 if (!adminReservationContextCurrent(context) || selectedAdminReservationID !== id)
                     return;
                 const detail = bookingData(response);
-                document.querySelector("#local-admin-reservations-detail").textContent = JSON.stringify({ notice: "ENSAYO LOCAL — CONSULTA SIN EFECTOS FINANCIEROS", reservation: { id: detail.id, host_id: detail.host_id, renter_id: detail.renter_id, state: detail.state, start_at: detail.start_at, end_at: detail.end_at, subtotal_clp: detail.subtotal_clp, currency: detail.currency, space_id: detail.space_id }, rental_payments: detail.rental_payments, rental_payment_operations: detail.rental_payment_operations, refund: detail.refund, guarantee: detail.guarantee, claim: detail.claim, history: detail.history }, null, 2);
+                const history = detail.history.map(entry => ({ sequence: entry.sequence, from: entry.from ?? null, to: entry.to, actor_id: entry.actor_id ?? null, at: entry.at }));
+                document.querySelector("#local-admin-reservations-detail").textContent = JSON.stringify({ notice: "ENSAYO LOCAL — CONSULTA SIN EFECTOS FINANCIEROS", reservation: { id: detail.id, host_id: detail.host_id, renter_id: detail.renter_id, state: detail.state, start_at: detail.start_at, end_at: detail.end_at, subtotal_clp: detail.subtotal_clp, currency: detail.currency, space_id: detail.space_id }, rental_payments: detail.rental_payments, rental_payment_operations: detail.rental_payment_operations, refund: detail.refund, guarantee: detail.guarantee, claim: detail.claim, history }, null, 2);
                 document.querySelector("#local-admin-reservations-status").textContent = "Detalle consultado; no se ejecutaron pagos, conciliaciones ni transiciones.";
             }
             finally {
@@ -3410,6 +3443,7 @@ async function loadAdminReservations(cursor = "", replace = true) {
     if (!sessionToken || !sessionRoles.includes("administrador"))
         throw new Error("La consulta de reservas requiere rol administrador.");
     const formElement = document.querySelector("#local-admin-reservations-filter"), data = new FormData(formElement), query = new URLSearchParams();
+    resetAdminReservationSearchForCriteria();
     for (const key of ["reservation_id", "state", "created_from", "created_to"]) {
         const value = String(data.get(key) ?? "").trim();
         if (value)
@@ -3443,6 +3477,8 @@ async function loadAdminReservations(cursor = "", replace = true) {
     }
 }
 document.querySelector("#local-admin-reservations-filter").addEventListener("submit", event => { event.preventDefault(); void action(() => loadAdminReservations("", true)); });
+document.querySelector("#local-admin-reservations-filter").addEventListener("input", resetAdminReservationSearchForCriteria);
+document.querySelector("#local-admin-reservations-filter").addEventListener("change", resetAdminReservationSearchForCriteria);
 document.querySelector("#local-admin-reservations-next").addEventListener("click", () => void action(async () => { const cursor = adminReservationsState.nextCursor; if (!cursor)
     return; await loadAdminReservations(cursor, true); }));
 document.querySelector("#local-admin-reservations-reset").addEventListener("click", () => void action(async () => { adminReservationsState.clear(); await loadAdminReservations("", true); }));

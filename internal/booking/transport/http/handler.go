@@ -667,5 +667,5 @@ func write(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 func fail(w http.ResponseWriter, status int, code string) {
-	write(w, status, map[string]any{"error": map[string]string{"code": code, "message": "No fue posible completar el ensayo local."}, "safety_notice": booking.SafetyBanner})
+	write(w, status, map[string]any{"error": map[string]string{"code": code, "message": "No fue posible completar el ensayo local.", "request_id": w.Header().Get("X-Request-ID")}})
 }

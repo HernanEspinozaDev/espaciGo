@@ -143,15 +143,15 @@ func (r *Repository) GetAdminReservation(ctx context.Context, actor, reservation
 		return booking.AdminReservationDetail{}, mapBookingAdminErr(err)
 	}
 	out.HostID, out.RenterID = nullableString(host), nullableString(renter)
-	out.History = []booking.Transition{}
-	history, err := tx.Query(ctx, `SELECT secuencia,estado_anterior,estado_nuevo,actor_id::text,motivo,creada_en FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 ORDER BY secuencia`, reservationID)
+	out.History = []booking.AdminTransition{}
+	history, err := tx.Query(ctx, `SELECT secuencia,estado_anterior,estado_nuevo,actor_id::text,creada_en FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 ORDER BY secuencia`, reservationID)
 	if err != nil {
 		return booking.AdminReservationDetail{}, err
 	}
 	for history.Next() {
-		var item booking.Transition
+		var item booking.AdminTransition
 		var from, actor sql.NullString
-		if err = history.Scan(&item.Sequence, &from, &item.To, &actor, &item.Reason, &item.At); err != nil {
+		if err = history.Scan(&item.Sequence, &from, &item.To, &actor, &item.At); err != nil {
 			history.Close()
 			return booking.AdminReservationDetail{}, err
 		}

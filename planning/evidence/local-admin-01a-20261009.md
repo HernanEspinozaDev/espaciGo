@@ -11,9 +11,10 @@ No se agregó migración: V40 y las tablas/contratos existentes bastan para proy
 ## Verificación ejecutada
 
 - `go test ./internal/booking/... ./internal/adapters/postgres/booking/... ./cmd/api` — pasó.
-- `GO_TEST_RUN=TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/booking` — pasó en PostgreSQL desechable (2.31 s). Incluye filtros por UUID/estado/fecha, dos páginas con cursor estable, rechazo de cursor ligado a otros filtros, detalle con historial/pago/garantía/reclamo, participantes minimizados, rechazo de cuenta sin rol, auditoría y comparación del estado/importe antes/después para confirmar que la consulta no muta negocio. El script limpia su instancia efímera; no usa el volumen de desarrollo.
+- `GO_TEST_RUN=TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/booking` — pasó en PostgreSQL desechable (2.59 s). Incluye filtros por UUID/estado/fecha, dos páginas con cursor estable, rechazo de cursor ligado a otros filtros, detalle con historial/pago/garantía/reclamo, participantes minimizados y una historia no vacía sin `reason`, rechazo de cuenta sin rol, auditoría y comparación del estado/importe antes/después para confirmar que la consulta no muta negocio. El script limpia su instancia efímera; no usa el volumen de desarrollo.
 - `go vet ./...` — pasó.
-- `cd mock && npm run build && node --test test/admin-reservations-state.test.mjs` — pasó, 2/2. Cubre descarte de respuesta al perder sesión y volver a entrar con la misma cuenta, y controles de paginación según el resultado vigente.
+- `go test ./internal/booking/transport/http ./internal/adapters/postgres/booking` — pasó; cubre el sobre común de error con `request_id` igual a `X-Request-ID` y proyección de historial sin motivos libres.
+- `cd mock && npm run build && node --test test/admin-reservations-state.test.mjs` — pasó, 3/3. Cubre descarte de respuesta al perder sesión y volver a entrar con la misma cuenta, controles de paginación y cancelación de contextos/cursor cuando cambian filtros o tamaño de página.
 - `python3` + PyYAML sobre `planning/openapi.yaml` — parseo correcto y presencia de las dos rutas admin.
 - `git diff --check` — pasó.
 - `bash scripts/dev-env.sh verify-http` — pasó: backend liveness/readiness, CORS, mock HTML/CSS/JS y API accesible desde el origen del mock.
@@ -22,16 +23,22 @@ No se ejecutó la suite global ni una migración nueva. El stack local existente
 
 ## Recorrido visual
 
-Se recargó `http://127.0.0.1:8081/` y se confirmó que el mock sirve la nueva sección “Consulta administrativa de reservas y finanzas (solo lectura)”, inicialmente cerrada, con búsqueda, filtros, paginación y detalle. La implementación usa el rol de sesión para habilitar el acceso, texto DOM seguro y limpieza al logout/cambio de cuenta; la prueba unitaria cubre respuesta tardía de una sesión anterior.
+Con la cuenta administradora sintética existente se verificó desde `http://127.0.0.1:8081/`:
 
-La consulta autenticada desde el navegador con una cuenta admin sintética queda como comprobación manual para la revisión del PR. El contrato admin, proyección PostgreSQL, permisos y datos financieros fueron ejercitados por la prueba de integración desechable con principal administrador y rol no administrador; no se afirma que se haya recorrido esa UI con credenciales persistentes.
+1. Inicio y comprobación de sesión por la API; la respuesta confirmó el rol `administrador`.
+2. Listado real de 25 reservas y consulta filtrada por estado con tamaño 1. La primera página ofreció Siguiente y la segunda mostró otro ID.
+3. Apertura del detalle desde una fila: mostró participante mínimo, estado, pagos fake, reclamo e historial ordenado; la representación del historial no incluyó motivos libres.
+4. Al cambiar estado o tamaño de página se borraron inmediatamente resultados/detalle y se deshabilitó Siguiente hasta consultar de nuevo.
+5. Logout limpió la bandeja y deshabilitó búsqueda/paginación. Las acciones fueron lecturas administrativas (con auditoría de acceso), no cambios de negocio.
+
+El Backend y el mock locales se reconstruyeron/reiniciaron sin reiniciar PostgreSQL, migrar, borrar volumen, cambiar secretos ni limpiar datos.
 
 ## Pasos de revisión manual
 
 1. Levantar/conservar el entorno existente con `bash scripts/dev-env.sh up -d backend mock-frontend`; no ejecutar `clean` ni `down --volumes`.
 2. Iniciar sesión en el mock (`http://127.0.0.1:8081/`) con una cuenta sintética que ya tenga rol administrador; abrir **Consulta administrativa de reservas y finanzas (solo lectura)**.
 3. Consultar sin filtros; probar `reservation_id`, `state`, rango de creación, páginas y nueva consulta. Abrir una reserva con datos fake y revisar historial, pago/devolución, garantía/deducción y reclamo.
-4. Confirmar que una cuenta sin rol recibe 403 en la API (cubierto por integración) y que al cambiar/perder sesión desaparecen listado, detalle y cursor.
+4. Confirmar que una cuenta sin rol recibe 403 en la API (cubierto por integración) y que al cambiar filtros/tamaño o perder sesión desaparecen listado, detalle y cursor.
 
 ## Límites
 

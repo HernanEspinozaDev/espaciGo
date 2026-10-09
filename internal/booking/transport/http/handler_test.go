@@ -665,7 +665,7 @@ func (r *adminReadRepoStub) GetAdminReservation(_ context.Context, actor, id, co
 	r.detailCalls++
 	r.actor = actor
 	r.correlation = correlation
-	return booking.AdminReservationDetail{AdminReservationSummary: booking.AdminReservationSummary{ID: id, State: "pagada"}, History: []booking.Transition{}, Payments: []booking.AdminPaymentFact{}, PaymentOperations: []booking.AdminPaymentOperation{}}, nil
+	return booking.AdminReservationDetail{AdminReservationSummary: booking.AdminReservationSummary{ID: id, State: "pagada"}, History: []booking.AdminTransition{}, Payments: []booking.AdminPaymentFact{}, PaymentOperations: []booking.AdminPaymentOperation{}}, nil
 }
 
 func TestAdminReservationReadRequiresRoleAndAcceptsScopedFilters(t *testing.T) {
@@ -698,6 +698,20 @@ func TestAdminReservationReadRequiresRoleAndAcceptsScopedFilters(t *testing.T) {
 	}
 	if bad := call(true, base+"?page_size=101"); bad.Code != http.StatusUnprocessableEntity || repo.listCalls != 1 {
 		t.Fatalf("invalid page size status=%d calls=%d", bad.Code, repo.listCalls)
+	} else {
+		var envelope struct {
+			Error struct {
+				Code      string `json:"code"`
+				Message   string `json:"message"`
+				RequestID string `json:"request_id"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(bad.Body.Bytes(), &envelope); err != nil || envelope.Error.Code != "invalid_request" || envelope.Error.Message == "" || envelope.Error.RequestID == "" || envelope.Error.RequestID != bad.Header().Get("X-Request-ID") {
+			t.Fatalf("common error/request id mismatch: header=%q error=%+v decode=%v body=%s", bad.Header().Get("X-Request-ID"), envelope.Error, err, bad.Body.String())
+		}
+		if strings.Contains(bad.Body.String(), "safety_notice") {
+			t.Fatalf("error response must follow the common Error contract: %s", bad.Body.String())
+		}
 	}
 	detail := call(true, base+"/00000000-0000-4000-8000-000000000001")
 	if detail.Code != http.StatusOK || repo.detailCalls != 1 || !strings.Contains(detail.Body.String(), `"history":[]`) {

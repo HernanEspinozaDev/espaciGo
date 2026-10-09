@@ -4093,6 +4093,22 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if adminDetail.Code != http.StatusOK || !strings.Contains(adminDetail.Body.String(), `"guarantee"`) || !strings.Contains(adminDetail.Body.String(), `"rental_payment_operations"`) || !strings.Contains(adminDetail.Body.String(), `"history"`) {
 		t.Fatalf("admin reservation detail=%d %s", adminDetail.Code, adminDetail.Body.String())
 	}
+	var minimizedAdminHistory struct {
+		Data struct {
+			History []map[string]any `json:"history"`
+		} `json:"data"`
+	}
+	if err = json.Unmarshal(adminDetail.Body.Bytes(), &minimizedAdminHistory); err != nil {
+		t.Fatal(err)
+	}
+	if len(minimizedAdminHistory.Data.History) == 0 {
+		t.Fatal("expected non-empty reservation history for the minimization assertion")
+	}
+	for _, entry := range minimizedAdminHistory.Data.History {
+		if _, exists := entry["reason"]; exists {
+			t.Fatalf("administrative history exposed a free-form reason: %+v", entry)
+		}
+	}
 	var afterAdminState, afterGuaranteeState string
 	var afterAdminUpdated time.Time
 	var afterPaymentCount, afterTransitionCount, afterAuditCount int

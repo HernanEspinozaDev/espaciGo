@@ -2249,7 +2249,26 @@ function clearAdminReservationView(message="Requiere rol administrador."):void {
   const search=document.querySelector<HTMLButtonElement>("#local-admin-reservations-search");if(search)search.disabled=!sessionToken||!sessionRoles.includes("administrador");
 }
 function adminReservationContextCurrent(context:AdminReservationContext):boolean {
-  return adminReservationsState.current(context,sessionAccountID,sessionToken,sessionGeneration)&&sessionRoles.includes("administrador");
+  return adminReservationsState.current(context,sessionAccountID,sessionToken,sessionGeneration,adminReservationCriteriaKey())&&sessionRoles.includes("administrador");
+}
+function adminReservationCriteriaKey():string {
+  const form=document.querySelector<HTMLFormElement>("#local-admin-reservations-filter");if(!form)return "";
+  const data=new FormData(form),values:Array<[string,string]>=[];
+  for(const key of ["reservation_id","state","created_from","created_to","page_size"]){
+    let value=String(data.get(key)??"").trim();
+    if(key==="reservation_id")value=value.toLowerCase();
+    if((key==="created_from"||key==="created_to")&&value){const parsed=new Date(value);if(!Number.isNaN(parsed.valueOf()))value=parsed.toISOString();}
+    values.push([key,value]);
+  }
+  return JSON.stringify(values);
+}
+function resetAdminReservationSearchForCriteria():void {
+  if(!adminReservationsState.updateCriteria(adminReservationCriteriaKey()))return;
+  adminReservationItems=[];selectedAdminReservationID="";
+  document.querySelector<HTMLElement>("#local-admin-reservations-items")?.replaceChildren();
+  const detail=document.querySelector<HTMLElement>("#local-admin-reservations-detail");if(detail)detail.textContent="Los filtros cambiaron. Consulta para iniciar desde el principio.";
+  const status=document.querySelector<HTMLElement>("#local-admin-reservations-status");if(status)status.textContent="Filtros modificados; los resultados anteriores se descartaron.";
+  refreshAdminReservationControls();
 }
 function renderAdminReservationItems():void {
   const target=document.querySelector<HTMLElement>("#local-admin-reservations-items")!;target.replaceChildren();
@@ -2263,7 +2282,8 @@ function renderAdminReservationItems():void {
         const response=await request(`/api/v1/admin/local/reservations/${encodeURIComponent(id)}`,"GET",undefined,true);
         if(!adminReservationContextCurrent(context)||selectedAdminReservationID!==id)return;
         const detail=bookingData<AdminReservationDetailView>(response);
-        document.querySelector<HTMLElement>("#local-admin-reservations-detail")!.textContent=JSON.stringify({notice:"ENSAYO LOCAL — CONSULTA SIN EFECTOS FINANCIEROS",reservation:{id:detail.id,host_id:detail.host_id,renter_id:detail.renter_id,state:detail.state,start_at:detail.start_at,end_at:detail.end_at,subtotal_clp:detail.subtotal_clp,currency:detail.currency,space_id:detail.space_id},rental_payments:detail.rental_payments,rental_payment_operations:detail.rental_payment_operations,refund:detail.refund,guarantee:detail.guarantee,claim:detail.claim,history:detail.history},null,2);
+        const history=detail.history.map(entry=>({sequence:entry.sequence,from:entry.from??null,to:entry.to,actor_id:entry.actor_id??null,at:entry.at}));
+        document.querySelector<HTMLElement>("#local-admin-reservations-detail")!.textContent=JSON.stringify({notice:"ENSAYO LOCAL — CONSULTA SIN EFECTOS FINANCIEROS",reservation:{id:detail.id,host_id:detail.host_id,renter_id:detail.renter_id,state:detail.state,start_at:detail.start_at,end_at:detail.end_at,subtotal_clp:detail.subtotal_clp,currency:detail.currency,space_id:detail.space_id},rental_payments:detail.rental_payments,rental_payment_operations:detail.rental_payment_operations,refund:detail.refund,guarantee:detail.guarantee,claim:detail.claim,history},null,2);
         document.querySelector<HTMLElement>("#local-admin-reservations-status")!.textContent="Detalle consultado; no se ejecutaron pagos, conciliaciones ni transiciones.";
       }finally{adminReservationsState.finish(context,sessionAccountID,sessionToken,sessionGeneration);refreshAdminReservationControls();}
     }));row.append(button);target.append(row);
@@ -2278,6 +2298,7 @@ function refreshAdminReservationControls():void {
 async function loadAdminReservations(cursor="",replace=true):Promise<void>{
   if(!sessionToken||!sessionRoles.includes("administrador"))throw new Error("La consulta de reservas requiere rol administrador.");
   const formElement=document.querySelector<HTMLFormElement>("#local-admin-reservations-filter")!,data=new FormData(formElement),query=new URLSearchParams();
+  resetAdminReservationSearchForCriteria();
   for(const key of ["reservation_id","state","created_from","created_to"]){const value=String(data.get(key)??"").trim();if(value)query.set(key,value);}
   const size=String(data.get("page_size")??"25");query.set("page_size",size);if(cursor)query.set("cursor",cursor);
   const context=adminReservationsState.begin(sessionAccountID,sessionToken,sessionGeneration);
@@ -2293,6 +2314,8 @@ async function loadAdminReservations(cursor="",replace=true):Promise<void>{
   }finally{adminReservationsState.finish(context,sessionAccountID,sessionToken,sessionGeneration);refreshAdminReservationControls();}
 }
 document.querySelector<HTMLFormElement>("#local-admin-reservations-filter")!.addEventListener("submit",event=>{event.preventDefault();void action(()=>loadAdminReservations("",true));});
+document.querySelector<HTMLFormElement>("#local-admin-reservations-filter")!.addEventListener("input",resetAdminReservationSearchForCriteria);
+document.querySelector<HTMLFormElement>("#local-admin-reservations-filter")!.addEventListener("change",resetAdminReservationSearchForCriteria);
 document.querySelector<HTMLButtonElement>("#local-admin-reservations-next")!.addEventListener("click",()=>void action(async()=>{const cursor=adminReservationsState.nextCursor;if(!cursor)return;await loadAdminReservations(cursor,true);}));
 document.querySelector<HTMLButtonElement>("#local-admin-reservations-reset")!.addEventListener("click",()=>void action(async()=>{adminReservationsState.clear();await loadAdminReservations("",true);}));
 

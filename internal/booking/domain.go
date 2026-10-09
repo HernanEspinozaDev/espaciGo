@@ -231,12 +231,23 @@ type AdminGuaranteeSnapshot struct {
 type AdminReservationDetail struct {
 	AdminReservationSummary
 	SpaceID           string                  `json:"space_id"`
-	History           []Transition            `json:"history"`
+	History           []AdminTransition       `json:"history"`
 	Payments          []AdminPaymentFact      `json:"rental_payments"`
 	PaymentOperations []AdminPaymentOperation `json:"rental_payment_operations"`
 	Refund            *AdminRefundFact        `json:"refund"`
 	Guarantee         *AdminGuaranteeSnapshot `json:"guarantee"`
 	Claim             *AdminClaimFact         `json:"claim"`
+}
+
+// AdminTransition is the minimized administrative projection of reservation
+// history. Free-form transition reasons may contain user-provided text and are
+// intentionally omitted from this read-only view.
+type AdminTransition struct {
+	Sequence int64     `json:"sequence"`
+	From     *string   `json:"from"`
+	To       string    `json:"to"`
+	Actor    *string   `json:"actor_id"`
+	At       time.Time `json:"at"`
 }
 type AdminReservationRepository interface {
 	ListAdminReservations(context.Context, string, string, AdminReservationFilter, int, string) (AdminReservationPage, error)
