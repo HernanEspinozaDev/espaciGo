@@ -2148,6 +2148,64 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /admin/local/damage-claims:
+    get:
+      operationId: listOpenLocalSyntheticDamageClaims
+      tags: [M10 local]
+      description: Solo administrador. Lista reclamos sintéticos abiertos y su evidencia privada para revisión local; nunca devuelve montos ni datos de pagos.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Reclamos abiertos., content: { application/json: { schema: { $ref: '#/components/schemas/LocalDamageClaimListEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/local/damage-claims/{claimID}:
+    parameters: [{ name: claimID, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: getAdminLocalSyntheticDamageClaim
+      tags: [M10 local]
+      description: Solo administrador; incluye estado, historial y evidencia privada ligada al reclamo.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Detalle de reclamo para revisión., content: { application/json: { schema: { $ref: '#/components/schemas/LocalDamageClaimEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/local/damage-claims/{claimID}/evidence/{evidenceID}:
+    parameters:
+      - { name: claimID, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: evidenceID, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getAdminLocalDamageClaimEvidence
+      tags: [M10 local]
+      description: Descarga inline solo de PNG sintéticos asociados al reclamo, con rol administrador.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: PNG sintético privado., content: { image/png: { schema: { type: string, format: binary } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/local/damage-claims/{claimID}/resolution:
+    parameters: [{ name: claimID, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: resolveLocalSyntheticDamageClaim
+      tags: [M10 local]
+      description: Solo administrador. Cierra el reclamo de forma transaccional e idempotente con resultado y motivo estructurado. No asigna montos ni mueve fondos; garantía, deducciones, captura, liberación y devoluciones quedan para LOCAL-FIN-01.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocalDamageClaimResolutionInput' }
+      responses:
+        '201': { description: Reclamo resuelto; reserva y registros financieros no se modifican., content: { application/json: { schema: { $ref: '#/components/schemas/LocalDamageClaimEnvelope' } } } }
+        '200': { description: Reintento idempotente reutilizado., content: { application/json: { schema: { $ref: '#/components/schemas/LocalDamageClaimEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
 components:
   securitySchemes:
     bearerAuth:
@@ -2292,28 +2350,87 @@ components:
       properties:
         data: { $ref: '#/components/schemas/LocalDamageClaimDefense' }
         notice: { type: string, const: "ENSAYO LOCAL — RECLAMO SINTÉTICO; SIN ADJUDICACIÓN NI MOVIMIENTO DE FONDOS" }
-    LocalDamageClaim:
+    LocalDamageClaimListEnvelope:
       type: object
-      required: [id, reservation_id, host_id, renter_id, checkout_operation_id, checkout_evidence_id, description, state, opened_at, claim_deadline_at]
+      required: [data, notice]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LocalDamageClaim' } }
+        notice: { type: string, const: "ENSAYO LOCAL — RECLAMO SINTÉTICO; SIN ADJUDICACIÓN NI MOVIMIENTO DE FONDOS" }
+    LocalDamageClaimResolutionInput:
+      type: object
+      additionalProperties: false
+      required: [outcome, reason_code]
+      properties:
+        outcome: { type: string, enum: [acogido, rechazado] }
+        reason_code: { type: string, enum: [evidencia_suficiente, evidencia_insuficiente, hecho_no_acreditado, informacion_insuficiente] }
+    LocalDamageClaimResolution:
+      description: >-
+        Los identificadores de actores se devuelven como null cuando la política local de
+        privacidad ya retiró el vínculo. El hecho de la resolución permanece conservado.
+      type: object
+      required: [outcome, reason_code, actor_id, resolved_at]
+      properties:
+        outcome: { type: string, enum: [acogido, rechazado] }
+        reason_code: { type: string }
+        actor_id: { type: [string, 'null'], format: uuid }
+        resolved_at: { type: string, format: date-time }
+        reused: { type: boolean }
+    LocalDamageClaimEvidence:
+      type: object
+      required: [id, operation, fixture_code, mime_type, sha256, size_bytes, created_at, content_url]
       properties:
         id: { type: string, format: uuid }
-        reservation_id: { type: string, format: uuid }
-        host_id: { type: string, format: uuid }
-        renter_id: { type: string, format: uuid }
-        checkout_operation_id: { type: string, format: uuid }
-        checkout_evidence_id: { type: string, format: uuid }
+        operation: { type: string, enum: [checkin, checkout, recepcion] }
+        fixture_code: { type: string, const: synthetic-png-v1 }
+        mime_type: { type: string, const: image/png }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        size_bytes: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        content_url: { type: string }
+    LocalDamageClaimTransition:
+      description: Los actores desvinculados por privacidad se representan como null; la transición histórica se conserva.
+      type: object
+      required: [sequence, action, actor_id, occurred_at]
+      properties:
+        sequence: { type: integer, format: int64 }
+        action: { type: string, enum: [reclamo_abierto, descargo_registrado, reclamo_resuelto] }
+        actor_id: { type: [string, 'null'], format: uuid }
+        occurred_at: { type: string, format: date-time }
+    LocalDamageClaim:
+      description: >-
+        Tras vencer la retención local pueden retirarse los vínculos de reserva, participantes,
+        operación, evidencia y actores. Los identificadores requeridos se representan como null,
+        nunca como UUID vacío. evidence y history se devuelven siempre como arreglos JSON; evidence
+        puede ser [] tras purgar vínculos, mientras history conserva los hechos históricos disponibles.
+      type: object
+      required: [id, reservation_id, host_id, renter_id, checkout_operation_id, checkout_evidence_id, description, state, opened_at, claim_deadline_at, evidence, history]
+      properties:
+        id: { type: string, format: uuid }
+        reservation_id: { type: [string, 'null'], format: uuid }
+        host_id: { type: [string, 'null'], format: uuid }
+        renter_id: { type: [string, 'null'], format: uuid }
+        checkout_operation_id: { type: [string, 'null'], format: uuid }
+        checkout_evidence_id: { type: [string, 'null'], format: uuid }
         description: { type: string }
-        state: { type: string, const: abierto }
+        state: { type: string, enum: [abierto, resuelta] }
         opened_at: { type: string, format: date-time }
         claim_deadline_at: { type: string, format: date-time }
         reused: { type: boolean }
         defense: { $ref: '#/components/schemas/LocalDamageClaimDefense' }
+        resolution: { $ref: '#/components/schemas/LocalDamageClaimResolution' }
+        evidence: { type: array, items: { $ref: '#/components/schemas/LocalDamageClaimEvidence' } }
+        history: { type: array, items: { $ref: '#/components/schemas/LocalDamageClaimTransition' } }
     LocalDamageClaimDefense:
+      description: actor_id es null si el vínculo personal se retiró al vencer la retención local.
       type: object
       required: [id, actor_id, description, created_at]
       properties:
         id: { type: string, format: uuid }
-        actor_id: { type: string, format: uuid }
+        actor_id: { type: [string, 'null'], format: uuid }
         description: { type: string }
         created_at: { type: string, format: date-time }
         reused: { type: boolean }

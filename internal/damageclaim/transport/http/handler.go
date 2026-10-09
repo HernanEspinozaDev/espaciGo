@@ -53,6 +53,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/api/v1/admin/local/damage-claims") {
+		h.serveAdmin(w, r, reqid)
+		return
+	}
 	principal, err := h.auth.Authorize(r.Context(), identity.Secret(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")), "", identity.UserOperation)
 	if err != nil {
 		w.Header().Set("WWW-Authenticate", "Bearer")
@@ -108,6 +112,68 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	writeError(w, 404, "not_found", reqid)
 }
+
+func (h *Handler) serveAdmin(w http.ResponseWriter, r *http.Request, requestID string) {
+	principal, err := h.auth.Authorize(r.Context(), identity.Secret(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")), identity.RoleAdministrator, identity.UserOperation)
+	if err != nil {
+		if errors.Is(err, identity.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", requestID)
+		} else {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			writeError(w, http.StatusUnauthorized, "unauthenticated", requestID)
+		}
+		return
+	}
+	const prefix = "/api/v1/admin/local/damage-claims"
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	if path == prefix && r.Method == http.MethodGet {
+		items, e := h.service.ListOpen(r.Context())
+		h.reply(w, http.StatusOK, map[string]any{"items": items}, e, requestID)
+		return
+	}
+	if !strings.HasPrefix(path, prefix+"/") {
+		writeError(w, http.StatusNotFound, "not_found", requestID)
+		return
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix+"/"), "/")
+	if len(parts) == 1 && r.Method == http.MethodGet {
+		item, e := h.service.GetAdmin(r.Context(), parts[0])
+		h.reply(w, http.StatusOK, item, e, requestID)
+		return
+	}
+	if len(parts) == 3 && parts[1] == "evidence" && r.Method == http.MethodGet {
+		evidence, content, e := h.service.AdminEvidenceContent(r.Context(), parts[0], parts[2])
+		if e != nil {
+			h.reply(w, 0, nil, e, requestID)
+			return
+		}
+		w.Header().Set("Content-Type", evidence.MIME)
+		w.Header().Set("Content-Disposition", "inline; filename=evidencia-sintetica.png")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(content)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "resolution" && r.Method == http.MethodPost {
+		var input damageclaim.ResolutionInput
+		if !decode(r, &input) {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_request", requestID)
+			return
+		}
+		if r.Header.Get("Idempotency-Key") == "" {
+			writeError(w, http.StatusUnprocessableEntity, "idempotency_key_required", requestID)
+			return
+		}
+		item, e := h.service.Resolve(r.Context(), principal.AccountID, parts[0], r.Header.Get("Idempotency-Key"), input)
+		status := http.StatusCreated
+		if item.Resolution != nil && item.Resolution.Reused {
+			status = http.StatusOK
+		}
+		h.reply(w, status, item, e, requestID)
+		return
+	}
+	writeError(w, http.StatusNotFound, "not_found", requestID)
+}
+
 func decode(r *http.Request, target any) bool {
 	d := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 	d.DisallowUnknownFields()

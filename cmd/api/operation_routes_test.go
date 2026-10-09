@@ -23,6 +23,10 @@ func TestOperationRoutesDoNotInterceptBookingRoutes(t *testing.T) {
 		{http.MethodGet, "/api/v1/local/booking-trial/reservations/11111111-1111-4111-8111-111111111111/operations", http.StatusCreated},
 		{http.MethodPost, "/api/v1/local/booking-trial/reservations/11111111-1111-4111-8111-111111111111/damage-claim", http.StatusCreated},
 		{http.MethodPost, "/api/v1/local/booking-trial/reservations/11111111-1111-4111-8111-111111111111/damage-claim/defense", http.StatusCreated},
+		{http.MethodGet, "/api/v1/admin/local/damage-claims", http.StatusCreated},
+		{http.MethodGet, "/api/v1/admin/local/damage-claims/11111111-1111-4111-8111-111111111111", http.StatusCreated},
+		{http.MethodPost, "/api/v1/admin/local/damage-claims/11111111-1111-4111-8111-111111111111/resolution", http.StatusCreated},
+		{http.MethodGet, "/api/v1/admin/local/damage-claims/11111111-1111-4111-8111-111111111111/evidence/22222222-2222-4222-8222-222222222222", http.StatusCreated},
 		{http.MethodGet, "/api/v1/local/booking-trial/reservations/11111111-1111-4111-8111-111111111111", http.StatusAccepted},
 	}
 	for _, test := range tests {

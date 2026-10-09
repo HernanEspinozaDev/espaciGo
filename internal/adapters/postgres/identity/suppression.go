@@ -54,6 +54,22 @@ func activeSuppressionObligations(ctx context.Context, tx pgx.Tx, subjectID stri
 	return out, nil
 }
 
+func appendEvidenceIDs(ctx context.Context, tx pgx.Tx, ids *[]string, query, subjectID string) error {
+	rows, err := tx.Query(ctx, query, subjectID)
+	if err != nil {
+		return suppressionError(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return suppressionError(err)
+		}
+		*ids = append(*ids, id)
+	}
+	return suppressionError(rows.Err())
+}
+
 func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, requestID, key, correlationID string, now func() time.Time) (privacy.SuppressionExecution, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -205,8 +221,30 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	galleryRows.Close()
-	removed := []string{"sesiones_y_tokens", "hash_vigente_e_historial_claves", "roles_activos", "perfil_y_preferencia", "foto_sintetica_con_limpieza_recuperable", "galeria_sintetica_privada_con_limpieza_recuperable", "referencias_cuenta_cobro_fake", "contenido_de_borradores", "fixtures_del_titular", "cotizaciones_no_convertidas", "mensajes_de_reservas_terminales_sinteticas", "simulaciones_privadas", "avisos_de_credenciales_sin_finalidad", "claves_idempotentes_m02"}
-	retained := []string{"ancla_tecnica_usuario", "metadata_minima_de_galeria_sintetica_sin_binario", "aceptaciones_terminos_5_anios", "solicitud_y_decision_5_anios", "metadata_verificacion_2_anios", "reservas_pagos_devoluciones_y_disputas_24_meses_desde_cierre", "historiales_transaccionales", "auditoria_5_anios", "copias_locales_no_eliminadas"}
+	if err = appendEvidenceIDs(ctx, tx, &evidenceIDs, `SELECT e.id::text
+		FROM public.operacion_arriendo_evidencia_ensayo_local e
+		JOIN public.operacion_arriendo_ensayo_local o ON o.id=e.operacion_id
+		JOIN public.reserva_ensayo_local r ON r.id=o.reserva_id
+		WHERE r.anfitrion_id=$1 OR r.arrendatario_id=$1 ORDER BY e.id`, subjectID); err != nil {
+		return privacy.SuppressionExecution{}, err
+	}
+	if err = appendEvidenceIDs(ctx, tx, &evidenceIDs, `SELECT c.archivo_id::text
+		FROM public.operacion_arriendo_archivo_candidato_local c
+		JOIN public.reserva_ensayo_local r ON r.id=c.reserva_id
+		WHERE r.anfitrion_id=$1 OR r.arrendatario_id=$1 ORDER BY c.archivo_id`, subjectID); err != nil {
+		return privacy.SuppressionExecution{}, err
+	}
+	uniqueEvidenceIDs := make([]string, 0, len(evidenceIDs))
+	seenEvidenceIDs := make(map[string]struct{}, len(evidenceIDs))
+	for _, id := range evidenceIDs {
+		if _, seen := seenEvidenceIDs[id]; !seen {
+			seenEvidenceIDs[id] = struct{}{}
+			uniqueEvidenceIDs = append(uniqueEvidenceIDs, id)
+		}
+	}
+	evidenceIDs = uniqueEvidenceIDs
+	removed := []string{"sesiones_y_tokens", "hash_vigente_e_historial_claves", "roles_activos", "perfil_y_preferencia", "foto_sintetica_con_limpieza_recuperable", "galeria_sintetica_privada_con_limpieza_recuperable", "referencias_cuenta_cobro_fake", "contenido_de_borradores", "fixtures_del_titular", "cotizaciones_no_convertidas", "mensajes_de_reservas_terminales_sinteticas", "simulaciones_privadas", "avisos_de_credenciales_sin_finalidad", "claves_idempotentes_m02", "texto_libre_reclamo_descargo_y_operaciones_sinteticas", "blobs_evidencia_operativa_sintetica_con_limpieza_recuperable"}
+	retained := []string{"ancla_tecnica_usuario", "metadata_minima_de_galeria_sintetica_sin_binario", "aceptaciones_terminos_5_anios", "solicitud_y_decision_5_anios", "metadata_verificacion_2_anios", "reservas_pagos_devoluciones_y_reclamos_24_meses_desde_ultimo_cierre", "historiales_transaccionales_minimizados", "auditoria_5_anios", "copias_locales_no_eliminadas"}
 	detail := suppressionDetail{Obligations: []string{}, Removed: removed, Retained: retained, Decision: "baja_elegible_privacidad_local_v1"}
 	encoded, err := json.Marshal(detail)
 	if err != nil {
@@ -249,6 +287,23 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE public.reporte_resena_historial_local SET actor_id=NULL WHERE actor_id=$1`, subjectID); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.reclamo_dano_ensayo_local
+		SET descripcion='Texto libre retirado por baja local de privacidad.'
+		WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado='resuelta'`, subjectID); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.reclamo_dano_descargo_ensayo_local d
+		SET descripcion='Texto libre retirado por baja local de privacidad.'
+		FROM public.reclamo_dano_ensayo_local c
+		WHERE d.reclamo_id=c.id AND c.estado='resuelta' AND (c.anfitrion_id=$1 OR c.arrendatario_id=$1)`, subjectID); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.operacion_arriendo_ensayo_local o
+		SET comentarios='',observacion=''
+		FROM public.reserva_ensayo_local r
+		WHERE o.reserva_id=r.id AND (r.anfitrion_id=$1 OR r.arrendatario_id=$1)`, subjectID); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE public.aviso_local SET estado='cancelada',cancelada_en=$2,retirar_en=$2::timestamptz+interval '30 days',lease_hasta=NULL,codigo_error='destinatario_retirado'
@@ -312,13 +367,16 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 	if _, err = tx.Exec(ctx, `DELETE FROM public.cotizacion_reserva_ensayo q WHERE (q.arrendatario_id=$1 OR q.anfitrion_id=$1) AND NOT EXISTS (SELECT 1 FROM public.reserva_ensayo_local r WHERE r.cotizacion_id=q.id)`, subjectID); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE public.reserva_ensayo_local r SET vinculos_retirar_en=(
+	if _, err = tx.Exec(ctx, `UPDATE public.reserva_ensayo_local r SET vinculos_retirar_en=GREATEST(COALESCE(r.vinculos_retirar_en,$2::timestamptz),(
 		SELECT GREATEST(r.actualizada_en,
 			COALESCE((SELECT max(p.actualizada_en) FROM public.reserva_pago_ensayo_operacion p WHERE p.reserva_id=r.id),r.actualizada_en),
 			COALESCE((SELECT max(d.actualizada_en) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id),r.actualizada_en),
-			COALESCE((SELECT max(x.cerrada_en) FROM public.disputa_ensayo_local x WHERE x.reserva_id=r.id),r.actualizada_en)
+			COALESCE((SELECT max(x.cerrada_en) FROM public.disputa_ensayo_local x WHERE x.reserva_id=r.id),r.actualizada_en),
+			COALESCE((SELECT max(x.resuelta_en) FROM public.reclamo_dano_resolucion_ensayo_local x JOIN public.reclamo_dano_ensayo_local c ON c.id=x.reclamo_id WHERE c.reserva_id=r.id),r.actualizada_en)
 		) + interval '24 months'
-	) WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND r.estado IN ('cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario')`, subjectID); err != nil {
+	)) WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1)
+	 AND (r.estado IN ('cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario','en_disputa')
+	      OR EXISTS (SELECT 1 FROM public.reclamo_dano_ensayo_local c WHERE c.reserva_id=r.id))`, subjectID, checkedAt); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	if _, err = tx.Exec(ctx, `WITH cancelled AS (
@@ -431,6 +489,9 @@ func (r *IdentityRepository) CompleteSuppressionFile(ctx context.Context, file p
 	}
 	if done == nil {
 		if _, err = tx.Exec(ctx, `DELETE FROM public.verificacion_evidencia_sintetica WHERE id=$1`, file.EvidenceID); err != nil {
+			return mapError(err)
+		}
+		if _, err = tx.Exec(ctx, `DELETE FROM public.operacion_arriendo_archivo_candidato_local WHERE archivo_id=$1`, file.EvidenceID); err != nil {
 			return mapError(err)
 		}
 		if _, err = tx.Exec(ctx, `UPDATE public.foto_perfil_sintetica_local SET archivo_id=NULL,mime_type=NULL,sha256=NULL,size_bytes=NULL,limpia_en=$2,proximo_intento_en=NULL,ultimo_codigo_error=NULL WHERE id=$1 AND estado='retirada_baja'`, file.EvidenceID, at.UTC()); err != nil {

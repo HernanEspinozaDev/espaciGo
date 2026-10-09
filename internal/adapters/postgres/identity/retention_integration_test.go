@@ -1,9 +1,12 @@
 package postgres_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -12,16 +15,212 @@ import (
 	"testing"
 	"time"
 
+	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/damageclaim"
+	damageclaimhttp "github.com/HernanEspinozaDev/espaciGo/internal/damageclaim/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/santhosh-tekuri/jsonschema/v5"
+	"gopkg.in/yaml.v3"
 )
 
 type noOpPrivacyCleaner struct{}
 
 func (noOpPrivacyCleaner) Delete(context.Context, string) error { return nil }
+
+func TestResolvedDamageClaimPrivacyEvaluationMinimizesTextAndPurgesLinksAtRatifiedDeadline(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "claim-privacy-host@ejemplo.invalid")
+	h.verify(t)
+	renterID := h.register(t, "claim-privacy-renter@ejemplo.invalid")
+	h.verify(t)
+	adminID := h.register(t, "claim-privacy-admin@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES ($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	spaceID, quoteID := "86000000-0000-4000-8000-000000000001", "86000000-0000-4000-8000-000000000002"
+	reservationID, occupancyID := "86000000-0000-4000-8000-000000000003", "86000000-0000-4000-8000-000000000004"
+	seedPrivacyReviewReservation(t, h, spaceID, quoteID, reservationID, occupancyID, hostID, renterID, "finalizada")
+	operationID, evidenceID := "86000000-0000-4000-8000-000000000005", "86000000-0000-4000-8000-000000000006"
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.operacion_arriendo_ensayo_local(
+		id,reserva_id,tipo,actor_id,ocurrio_en,zona_horaria,ubicacion_sintetica,comentarios,observacion,
+		resultado,clave_idempotencia,huella_solicitud,creada_en)
+		VALUES($1,$2,'checkout',$3,$4,'UTC','{"source":"synthetic-fixture-v1","location_code":"santiago-demo-center-v1","latitude":-33.45,"longitude":-70.66}'::jsonb,'comentario privado retiro','',
+		'registrada','claim-privacy-checkout',decode(repeat('11',32),'hex'),$4)`, operationID, reservationID, renterID, h.now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.operacion_arriendo_evidencia_ensayo_local(id,operacion_id,fixture_code,mime_type,sha256,size_bytes,creada_en) VALUES($1,$2,'synthetic-png-v1','image/png',repeat('a',64),16,$3)`, evidenceID, operationID, h.now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	claims, err := damageclaim.New(damageclaimpg.New(h.pool), func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := claims.Open(h.ctx, hostID, reservationID, "claim-privacy-open", damageclaim.Input{Description: "detalle privado del anfitrion"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = claims.Defend(h.ctx, renterID, reservationID, "claim-privacy-defense", damageclaim.Input{Description: "descargo privado del arrendatario"}); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := claims.Resolve(h.ctx, adminID, claim.ID, "claim-privacy-resolve", damageclaim.ResolutionInput{Outcome: "rechazado", ReasonCode: "hecho_no_acreditado"})
+	if err != nil || resolved.State != "resuelta" || resolved.Resolution == nil {
+		t.Fatalf("claim resolution=%+v err=%v", resolved, err)
+	}
+	requester, err := privacy.NewService(h.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := requester.RequestRight(h.ctx, renterID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := privacy.NewService(newRuntimeIdentityRepository(t, h))
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := runtime.ReviewSuppression(h.ctx, adminID, request.ID, "claim-privacy-review", "claim-privacy", func() time.Time { return h.now })
+	if err != nil || review.Outcome != "elegible" || len(review.Obligations) != 0 || len(review.PendingChecks) != 0 {
+		t.Fatalf("resolved claim left a false/open blocker: review=%+v err=%v", review, err)
+	}
+	execution, err := runtime.ExecuteSuppression(h.ctx, adminID, request.ID, "claim-privacy-execute", "claim-privacy", func() time.Time { return h.now }, noOpPrivacyCleaner{})
+	if err != nil || execution.Status != "completada" {
+		t.Fatalf("actual privacy execution=%+v err=%v", execution, err)
+	}
+	var claimText, defenseText, operationComments string
+	var claimState, reservationState string
+	var deadline time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT c.descripcion,d.descripcion,o.comentarios,c.estado,r.estado,r.vinculos_retirar_en
+		FROM public.reclamo_dano_ensayo_local c JOIN public.reclamo_dano_descargo_ensayo_local d ON d.reclamo_id=c.id
+		JOIN public.reserva_ensayo_local r ON r.id=c.reserva_id JOIN public.operacion_arriendo_ensayo_local o ON o.id=c.checkout_operacion_id WHERE c.id=$1`, claim.ID).
+		Scan(&claimText, &defenseText, &operationComments, &claimState, &reservationState, &deadline); err != nil {
+		t.Fatal(err)
+	}
+	wantDeadline := resolved.Resolution.ResolvedAt.AddDate(0, 24, 0)
+	if claimText != "Texto libre retirado por baja local de privacidad." || defenseText != "Texto libre retirado por baja local de privacidad." || operationComments != "" || claimState != "resuelta" || reservationState != "en_disputa" || !deadline.Equal(wantDeadline) {
+		t.Fatalf("privacy minimization/retention mismatch claim=%q defense=%q comments=%q claimState=%s reservation=%s deadline=%s want=%s", claimText, defenseText, operationComments, claimState, reservationState, deadline, wantDeadline)
+	}
+	var active bool
+	if err := h.pool.QueryRow(h.ctx, `SELECT activo FROM public.ocupacion WHERE id=$1`, occupancyID).Scan(&active); err != nil || !active {
+		t.Fatalf("suppression changed historical occupancy active=%t err=%v", active, err)
+	}
+	if purged, err := runtime.PurgeExpiredReservationLinks(h.ctx, deadline.Add(-time.Microsecond), 20); err != nil || purged.Purged != 0 {
+		t.Fatalf("links purged before 24-month deadline: result=%+v err=%v", purged, err)
+	}
+	if purged, err := runtime.PurgeExpiredReservationLinks(h.ctx, deadline, 20); err != nil || purged.Purged != 1 {
+		t.Fatalf("links were not purged at inclusive deadline: result=%+v err=%v", purged, err)
+	}
+	var linkedClaimReservation, linkedClaimHost, linkedClaimRenter, linkedCheckout, linkedEvidence, linkedOperationReservation, linkedOperationActor string
+	var retainedClaimState string
+	if err := h.pool.QueryRow(h.ctx, `SELECT COALESCE(c.reserva_id::text,''),COALESCE(c.anfitrion_id::text,''),COALESCE(c.arrendatario_id::text,''),COALESCE(c.checkout_operacion_id::text,''),COALESCE(c.checkout_evidencia_id::text,''),COALESCE(o.reserva_id::text,''),COALESCE(o.actor_id::text,''),c.estado
+		FROM public.reclamo_dano_ensayo_local c JOIN public.operacion_arriendo_ensayo_local o ON o.id=$2 WHERE c.id=$1`, claim.ID, operationID).
+		Scan(&linkedClaimReservation, &linkedClaimHost, &linkedClaimRenter, &linkedCheckout, &linkedEvidence, &linkedOperationReservation, &linkedOperationActor, &retainedClaimState); err != nil {
+		t.Fatal(err)
+	}
+	if linkedClaimReservation != "" || linkedClaimHost != "" || linkedClaimRenter != "" || linkedCheckout != "" || linkedEvidence != "" || linkedOperationReservation != "" || linkedOperationActor != "" || retainedClaimState != "resuelta" {
+		t.Fatalf("expired historical links not minimized: claim=[%q %q %q %q %q] operation=[%q %q] state=%s", linkedClaimReservation, linkedClaimHost, linkedClaimRenter, linkedCheckout, linkedEvidence, linkedOperationReservation, linkedOperationActor, retainedClaimState)
+	}
+	retained, err := claims.GetAdmin(h.ctx, claim.ID)
+	if err != nil || retained.ReservationID != "" || retained.HostID != "" || retained.RenterID != "" || retained.State != "resuelta" || retained.Description != "Texto libre retirado por baja local de privacidad." || len(retained.Evidence) != 0 || retained.Defense == nil || retained.Defense.ActorID != "" || retained.Defense.Description != "Texto libre retirado por baja local de privacidad." || retained.Resolution == nil || retained.Resolution.ActorID != "" {
+		t.Fatalf("admin historical view should remain readable but minimized: claim=%+v err=%v", retained, err)
+	}
+	for _, transition := range retained.History {
+		if transition.ActorID != "" {
+			t.Fatalf("retained claim history still identifies an actor: %+v", transition)
+		}
+	}
+
+	// Exercise the actual administrative HTTP representation after purging links and
+	// validate it against the public OpenAPI envelope contract.
+	adminSession := h.login(t, "claim-privacy-admin@ejemplo.invalid")
+	api := damageclaimhttp.NewHandler(h.service, claims, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/local/damage-claims/"+claim.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+string(adminSession.Token))
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("admin detail after purge status=%d body=%s", response.Code, response.Body.String())
+	}
+	validateOpenAPIJSON(t, response.Body.Bytes(), "LocalDamageClaimEnvelope")
+	var wire map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &wire); err != nil {
+		t.Fatal(err)
+	}
+	data := wire["data"].(map[string]any)
+	for _, key := range []string{"reservation_id", "host_id", "renter_id", "checkout_operation_id", "checkout_evidence_id"} {
+		if value, present := data[key]; !present || value != nil {
+			t.Fatalf("purged %s should be JSON null, got present=%t value=%#v", key, present, value)
+		}
+	}
+	if data["description"] != "Texto libre retirado por baja local de privacidad." || data["state"] != "resuelta" {
+		t.Fatalf("historical outcome was not preserved: %#v", data)
+	}
+	evidence, ok := data["evidence"].([]any)
+	if !ok || len(evidence) != 0 {
+		t.Fatalf("purged evidence must be []: %#v", data["evidence"])
+	}
+	history, ok := data["history"].([]any)
+	if !ok || len(history) != len(retained.History) {
+		t.Fatalf("historical transitions were not returned as an array: %#v", data["history"])
+	}
+	for i, raw := range history {
+		item := raw.(map[string]any)
+		if actor, present := item["actor_id"]; !present || actor != nil {
+			t.Fatalf("history[%d] actor should be JSON null after unlinking: %#v", i, item)
+		}
+	}
+	for _, nestedKey := range []string{"defense", "resolution"} {
+		nested, ok := data[nestedKey].(map[string]any)
+		if !ok {
+			t.Fatalf("historical %s missing: %#v", nestedKey, data[nestedKey])
+		}
+		if actor, present := nested["actor_id"]; !present || actor != nil {
+			t.Fatalf("%s actor should be JSON null after unlinking: %#v", nestedKey, nested)
+		}
+	}
+	var transitionCount, occupancyCount int
+	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1),(SELECT count(*) FROM public.ocupacion WHERE id=$2)`, reservationID, occupancyID).Scan(&transitionCount, &occupancyCount); err != nil {
+		t.Fatal(err)
+	}
+	if transitionCount != 1 || occupancyCount != 1 {
+		t.Fatalf("historical facts were removed: transitions=%d occupancy=%d", transitionCount, occupancyCount)
+	}
+}
+
+func validateOpenAPIJSON(t *testing.T, payload []byte, schemaName string) {
+	t.Helper()
+	openapi, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "planning", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := yaml.Unmarshal(openapi, &document); err != nil {
+		t.Fatal(err)
+	}
+	documentJSON, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := jsonschema.NewCompiler()
+	if err := compiler.AddResource("openapi.json", bytes.NewReader(documentJSON)); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := compiler.Compile("openapi.json#/components/schemas/" + schemaName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(value); err != nil {
+		t.Fatalf("admin response does not match OpenAPI %s: %v", schemaName, err)
+	}
+}
 
 func TestLocalReservationRetentionPurgeRespectsDeadlineAndKeepsHistoricalFacts(t *testing.T) {
 	h := newAuthHarness(t)

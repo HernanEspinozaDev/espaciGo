@@ -44,6 +44,10 @@ import (
 )
 
 type integrationBookingAuth struct{ accountID string }
+type integrationDamageClaimAuth struct {
+	accountID     string
+	administrator bool
+}
 
 type operationTestFiles struct {
 	mu    sync.Mutex
@@ -78,6 +82,16 @@ func (f *operationTestFiles) Delete(_ context.Context, id string) error {
 func (a integrationBookingAuth) Authorize(_ context.Context, raw identity.Secret, _ identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
 	if raw != "local-booking-integration-session" {
 		return identity.Principal{}, identity.ErrUnauthorized
+	}
+	return identity.Principal{AccountID: a.accountID}, nil
+}
+
+func (a integrationDamageClaimAuth) Authorize(_ context.Context, raw identity.Secret, required identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
+	if raw != "local-booking-integration-session" {
+		return identity.Principal{}, identity.ErrUnauthorized
+	}
+	if required == identity.RoleAdministrator && !a.administrator {
+		return identity.Principal{}, identity.ErrForbidden
 	}
 	return identity.Principal{AccountID: a.accountID}, nil
 }
@@ -148,6 +162,10 @@ func publishedOperationAPI(t *testing.T, actor string, service *operation.Servic
 }
 
 func publishedDamageClaimAPI(t *testing.T, actor string, service *damageclaim.Service, method, path, key string, payload any) *httptest.ResponseRecorder {
+	return publishedDamageClaimAPIAs(t, actor, false, service, method, path, key, payload)
+}
+
+func publishedDamageClaimAPIAs(t *testing.T, actor string, administrator bool, service *damageclaim.Service, method, path, key string, payload any) *httptest.ResponseRecorder {
 	t.Helper()
 	var body io.Reader
 	if payload != nil {
@@ -164,7 +182,7 @@ func publishedDamageClaimAPI(t *testing.T, actor string, service *damageclaim.Se
 		request.Header.Set("Idempotency-Key", key)
 	}
 	response := httptest.NewRecorder()
-	damageclaimhttp.NewHandler(integrationBookingAuth{accountID: actor}, service, nil).ServeHTTP(response, request)
+	damageclaimhttp.NewHandler(integrationDamageClaimAuth{accountID: actor, administrator: administrator}, service, nil).ServeHTTP(response, request)
 	return response
 }
 
@@ -355,12 +373,15 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer setup.Close(context.Background())
-	host, renter, outsider := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
-	for i, id := range []string{host, renter, outsider} {
+	host, renter, outsider, adminID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "99999999-9999-4999-8999-999999999999"
+	for i, id := range []string{host, renter, outsider, adminID} {
 		_, err = setup.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'x','activo')`, id, fmt.Sprintf("booking-%d@example.test", i))
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
 	}
 	space := "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 	_, err = setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria) VALUES($1,$2,'sala_multiproposito','Fixture de reserva',repeat('Espacio sintético autorizado. ',4),30,8,'Reglas de prueba','hora',8000,'Dirección sintética','America/Santiago')`, space, host)
@@ -2891,7 +2912,7 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if transitionCount != 2 || occupancyCount != 1 {
 		t.Fatalf("operation transitions/occupancy=%d/%d", transitionCount, occupancyCount)
 	}
-	claimService, err := damageclaim.New(damageclaimpg.New(pool), clock)
+	claimService, err := damageclaim.NewWithEvidenceStore(damageclaimpg.New(pool), operationFiles, clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2955,6 +2976,101 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	}
 	if denied := publishedDamageClaimAPI(t, outsider, claimService, http.MethodPost, operationPath+"/damage-claim/defense", "outsider-defense-01", damageclaim.Input{Description: "Tercero"}); denied.Code != http.StatusNotFound {
 		t.Fatalf("outsider defense=%d %s", denied.Code, denied.Body.String())
+	}
+	if denied := publishedDamageClaimAPIAs(t, host, false, claimService, http.MethodGet, "/api/v1/admin/local/damage-claims", "", nil); denied.Code != http.StatusForbidden {
+		t.Fatalf("participant admin queue status=%d want 403", denied.Code)
+	}
+	var participantClaim struct {
+		Data damageclaim.Claim `json:"data"`
+	}
+	if err = json.Unmarshal(claimRead.Body.Bytes(), &participantClaim); err != nil {
+		t.Fatal(err)
+	}
+	if len(participantClaim.Data.Evidence) == 0 || participantClaim.Data.Evidence[0].ContentURL == "" {
+		t.Fatalf("participant claim evidence metadata=%+v", participantClaim.Data.Evidence)
+	}
+	if denied := publishedOperationAPI(t, outsider, operationService, http.MethodGet, operationPath+"/evidence/"+participantClaim.Data.Evidence[0].ID, "", nil); denied.Code != http.StatusNotFound {
+		t.Fatalf("third-party evidence status=%d want 404", denied.Code)
+	}
+	participantEvidence := publishedOperationAPI(t, renter, operationService, http.MethodGet, operationPath+"/evidence/"+participantClaim.Data.Evidence[0].ID, "", nil)
+	if participantEvidence.Code != http.StatusOK || participantEvidence.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("participant evidence response=%d type=%q", participantEvidence.Code, participantEvidence.Header().Get("Content-Type"))
+	}
+	hostEvidence := publishedOperationAPI(t, host, operationService, http.MethodGet, operationPath+"/evidence/"+participantClaim.Data.Evidence[0].ID, "", nil)
+	if hostEvidence.Code != http.StatusOK || hostEvidence.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("host evidence response=%d type=%q", hostEvidence.Code, hostEvidence.Header().Get("Content-Type"))
+	}
+	adminQueue := publishedDamageClaimAPIAs(t, adminID, true, claimService, http.MethodGet, "/api/v1/admin/local/damage-claims", "", nil)
+	if adminQueue.Code != http.StatusOK {
+		t.Fatalf("admin claim queue=%d %s", adminQueue.Code, adminQueue.Body.String())
+	}
+	adminClaim, err := claimService.GetAdmin(ctx, claimEnvelope.Data.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adminClaim.Evidence) == 0 {
+		t.Fatal("admin review has no linked synthetic evidence")
+	}
+	adminEvidencePath := "/api/v1/admin/local/damage-claims/" + adminClaim.ID + "/evidence/" + adminClaim.Evidence[0].ID
+	adminEvidence := publishedDamageClaimAPIAs(t, adminID, true, claimService, http.MethodGet, adminEvidencePath, "", nil)
+	if adminEvidence.Code != http.StatusOK || adminEvidence.Header().Get("Content-Type") != "image/png" || adminEvidence.Body.Len() < 8 {
+		t.Fatalf("admin evidence response=%d type=%q bytes=%d", adminEvidence.Code, adminEvidence.Header().Get("Content-Type"), adminEvidence.Body.Len())
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.disputa_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,abierta_por,motivo_codigo,estado,clave_idempotencia,huella_solicitud,abierta_en) VALUES('88888888-8888-4888-8888-888888888888',$1,$2,$3,$2,'ensayo_privacidad','abierta','privacy-open-key',repeat('p',32)::bytea,$4)`, completeReservation.ID, host, renter, fixedNow); err != nil {
+		t.Fatal(err)
+	}
+	resolutionInput := damageclaim.ResolutionInput{Outcome: "rechazado", ReasonCode: "hecho_no_acreditado"}
+	type resolutionResult struct {
+		claim damageclaim.Claim
+		err   error
+	}
+	resolutionStart := make(chan struct{})
+	resolutionResults := make(chan resolutionResult, 2)
+	for range 2 {
+		go func() {
+			<-resolutionStart
+			value, resolveErr := claimService.Resolve(ctx, adminID, claimEnvelope.Data.ID, "admin-resolution-0001", resolutionInput)
+			resolutionResults <- resolutionResult{value, resolveErr}
+		}()
+	}
+	close(resolutionStart)
+	firstResolution, secondResolution := <-resolutionResults, <-resolutionResults
+	if firstResolution.err != nil || secondResolution.err != nil || firstResolution.claim.ID != secondResolution.claim.ID || firstResolution.claim.State != "resuelta" || firstResolution.claim.Resolution == nil || secondResolution.claim.Resolution == nil || firstResolution.claim.Resolution.Outcome != "rechazado" || firstResolution.claim.Reused == secondResolution.claim.Reused {
+		t.Fatalf("concurrent local resolutions: first=%+v err=%v second=%+v err=%v", firstResolution.claim, firstResolution.err, secondResolution.claim, secondResolution.err)
+	}
+	resolutionReplay := publishedDamageClaimAPIAs(t, adminID, true, claimService, http.MethodPost, "/api/v1/admin/local/damage-claims/"+claimEnvelope.Data.ID+"/resolution", "admin-resolution-0001", resolutionInput)
+	if resolutionReplay.Code != http.StatusOK {
+		t.Fatalf("resolution API replay=%d %s", resolutionReplay.Code, resolutionReplay.Body.String())
+	}
+	if _, incompatible := claimService.Resolve(ctx, adminID, claimEnvelope.Data.ID, "admin-resolution-0001", damageclaim.ResolutionInput{Outcome: "acogido", ReasonCode: "evidencia_suficiente"}); incompatible != damageclaim.ErrConflict {
+		t.Fatalf("incompatible resolution replay error=%v", incompatible)
+	}
+	var resolutionRows, auditRows, noticeRows int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reclamo_dano_resolucion_ensayo_local WHERE reclamo_id=$1`, claimEnvelope.Data.ID).Scan(&resolutionRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.evento_auditoria_local WHERE accion='local.damage_claim.resolve' AND recurso_id=$1`, claimEnvelope.Data.ID).Scan(&auditRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='reclamo_resuelto' AND agregado_id=$1`, completeReservation.ID).Scan(&noticeRows); err != nil {
+		t.Fatal(err)
+	}
+	if resolutionRows != 1 || auditRows != 1 || noticeRows != 2 {
+		t.Fatalf("resolution effects rows/audit/notices=%d/%d/%d", resolutionRows, auditRows, noticeRows)
+	}
+	var openClaim, openPrivacy bool
+	if err = setup.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reclamo_dano_ensayo_local WHERE id=$1 AND estado='abierto'),EXISTS(SELECT 1 FROM public.disputa_ensayo_local WHERE reserva_id=$2 AND estado='abierta')`, claimEnvelope.Data.ID, completeReservation.ID).Scan(&openClaim, &openPrivacy); err != nil {
+		t.Fatal(err)
+	}
+	if openClaim || !openPrivacy {
+		t.Fatalf("resolution blocker re-evaluation: claim=%v independentPrivacy=%v", openClaim, openPrivacy)
+	}
+	resolvedForRenter := publishedDamageClaimAPI(t, renter, claimService, http.MethodGet, operationPath+"/damage-claim", "", nil)
+	if resolvedForRenter.Code != http.StatusOK {
+		t.Fatalf("renter read resolved claim=%d %s", resolvedForRenter.Code, resolvedForRenter.Body.String())
+	}
+	if denied := publishedDamageClaimAPI(t, outsider, claimService, http.MethodGet, operationPath+"/damage-claim", "", nil); denied.Code != http.StatusNotFound {
+		t.Fatalf("third-party resolved claim=%d", denied.Code)
 	}
 	if err = setup.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, completeReservation.ID).Scan(&operationState); err != nil || operationState != "en_disputa" {
 		t.Fatalf("claim transition state=%q err=%v", operationState, err)

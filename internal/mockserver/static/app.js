@@ -10,6 +10,7 @@ import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState } from "./booking-availability-state.js";
 import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
 import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExportSessionMatches } from "./privacy-export-state.js";
+import { damageClaimRequestIsCurrent, finishDamageClaimAfterReload } from "./damage-claim-request-state.js";
 import { applyM02PhotoIfCurrent, captureM02PhotoSession, deliverM02PhotoIfCurrent, m02PhotoSessionMatches } from "./m02-photo-session-state.js";
 import { publicationAction } from "./space-publication-state.js";
 import { publishedContentChange } from "./published-content-state.js";
@@ -44,6 +45,8 @@ let galleryRequestRevision = 0;
 let gallerySelectedSpaceID = "";
 const galleryPreviewURLs = new Set();
 const galleryAddRetryKeys = new Map();
+const participantDamageEvidenceURLs = new Set();
+const adminDamageEvidenceURLs = new Set();
 async function request(path, method = "GET", body, authenticated = false, idempotencyKey) {
     if (!apiBase)
         throw new Error("API local aún no disponible.");
@@ -97,7 +100,7 @@ async function requestArchive(path, bearer) {
 async function action(work) {
     const buttons = [...document.querySelectorAll("button")];
     try {
-        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); });
+        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); });
     }
     catch (error) {
         resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
@@ -129,6 +132,7 @@ form("login-form", async (data, element) => {
     sessionGeneration++;
     resetCatalogTraversal();
     element.querySelector('[name="password"]').value = "";
+    refreshDamageAdminControls();
     await loadSpaceCategories();
     await loadBookingInbox();
     resultElement.textContent = "Sesión iniciada. Puedes consultarla o cerrarla.";
@@ -157,6 +161,7 @@ document.querySelector("#session-button").addEventListener("click", () => void a
     const response = await request("session", "GET", undefined, true);
     if (Array.isArray(response.roles))
         sessionRoles = response.roles.map(String);
+    refreshDamageAdminControls();
     document.querySelector("#session-output").textContent = JSON.stringify(response, null, 2);
     resultElement.textContent = "Sesión válida; estado y roles comprobados por la API.";
 }));
@@ -1589,6 +1594,7 @@ const bookingCatalogLongitude = document.querySelector("#booking-catalog-longitu
 const bookingCatalogRadius = document.querySelector("#booking-catalog-radius");
 const bookingCatalogCenterSample = document.querySelector("#booking-catalog-center-sample");
 let selectedReservationID = "";
+let reservationSelectionRevision = 0;
 let selectedReservation = null;
 let selectedContract = null;
 let contractRequestRevision = 0;
@@ -1598,6 +1604,13 @@ let rentalOperations = [];
 const rentalOperationKeys = new RentalOperationIdempotencyKeys();
 let selectedDamageClaim = null;
 let damageClaimRevision = 0;
+let damageClaimActionRevision = 0;
+let damageAdminRevision = 0;
+let damageAdminSelectionRevision = 0;
+let damageAdminResolutionRevision = 0;
+let damageAdminClaims = [];
+let selectedAdminDamageClaim = null;
+const damageAdminResolutionKeys = new Map();
 let localDisputes = [];
 let disputeRevision = 0;
 const disputeOpenKeys = new Map();
@@ -2109,6 +2122,135 @@ function clearDamageClaim(message) {
     document.querySelector("#local-damage-claim-description").value = "";
     refreshDamageClaimControls();
 }
+function revokeDamageEvidenceURLs(urls) { for (const url of urls)
+    URL.revokeObjectURL(url); urls.clear(); }
+function damageAdminSessionIsCurrent(context) { return context.revision === damageAdminRevision && context.account === sessionAccountID && context.token === sessionToken && context.generation === sessionGeneration; }
+function damageAdminSelectionIsCurrent(context) { return damageClaimRequestIsCurrent(context, { requestRevision: damageAdminResolutionRevision, selectionRevision: damageAdminSelectionRevision, selectionID: selectedAdminDamageClaim?.id ?? "", accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }); }
+function refreshDamageAdminControls() {
+    const allowed = Boolean(sessionToken && sessionRoles.includes("administrador"));
+    const load = document.querySelector("#local-damage-admin-load");
+    const outcome = document.querySelector("#local-damage-admin-outcome");
+    const reason = document.querySelector("#local-damage-admin-reason");
+    const resolve = document.querySelector("#local-damage-admin-resolve");
+    if (load)
+        load.disabled = !allowed;
+    const canResolve = allowed && selectedAdminDamageClaim?.state === "abierto";
+    if (outcome)
+        outcome.disabled = !canResolve;
+    if (reason)
+        reason.disabled = !canResolve;
+    if (resolve)
+        resolve.disabled = !canResolve;
+}
+function clearAdminDamageClaims(message) {
+    damageAdminRevision++;
+    damageAdminSelectionRevision++;
+    damageAdminResolutionRevision++;
+    damageAdminClaims = [];
+    selectedAdminDamageClaim = null;
+    damageAdminResolutionKeys.clear();
+    document.querySelector("#local-damage-admin-items")?.replaceChildren();
+    document.querySelector("#local-damage-admin-evidence")?.replaceChildren();
+    const detail = document.querySelector("#local-damage-admin-detail");
+    if (detail)
+        detail.textContent = message;
+    const status = document.querySelector("#local-damage-admin-status");
+    if (status)
+        status.textContent = message;
+    refreshDamageAdminControls();
+}
+async function loadAdminDamageEvidence(claimID, evidenceID) {
+    const context = { revision: damageAdminRevision, account: sessionAccountID, token: sessionToken, generation: sessionGeneration };
+    const path = `/api/v1/admin/local/damage-claims/${encodeURIComponent(claimID)}/evidence/${encodeURIComponent(evidenceID)}`;
+    const response = await fetch(`${apiBase}${path}`, { method: "GET", headers: { Accept: "image/png", Authorization: `Bearer ${context.token}` }, mode: "cors", cache: "no-store", credentials: "omit" });
+    if (!response.ok)
+        throw new Error(`No se pudo consultar la evidencia (HTTP ${response.status}).`);
+    const blob = await response.blob();
+    if (!damageAdminSessionIsCurrent(context) || selectedAdminDamageClaim?.id !== claimID)
+        return;
+    const url = URL.createObjectURL(blob);
+    adminDamageEvidenceURLs.add(url);
+    const image = document.createElement("img");
+    image.alt = "Evidencia sintética privada del reclamo";
+    image.width = 240;
+    image.src = url;
+    document.querySelector("#local-damage-admin-evidence").append(image);
+}
+async function loadAdminDamageClaim(claimID) {
+    const context = { revision: ++damageAdminRevision, account: sessionAccountID, token: sessionToken, generation: sessionGeneration };
+    const selectionRevision = ++damageAdminSelectionRevision;
+    const result = await request(`/api/v1/admin/local/damage-claims/${encodeURIComponent(claimID)}`, "GET", undefined, true);
+    if (!damageAdminSessionIsCurrent(context) || selectionRevision !== damageAdminSelectionRevision)
+        return;
+    const claim = bookingData(result);
+    if (claim.id !== claimID)
+        return;
+    selectedAdminDamageClaim = claim;
+    renderAdminDamageClaim(selectedAdminDamageClaim);
+}
+function renderAdminDamageClaim(claim) {
+    const detail = document.querySelector("#local-damage-admin-detail");
+    const history = (claim.history ?? []).map(entry => `#${entry.sequence} ${entry.action} · ${entry.actor_id} · ${new Date(entry.occurred_at).toLocaleString("es-CL")}`).join("\n");
+    detail.textContent = `ENSAYO LOCAL — SIN MOVIMIENTO DE FONDOS\nReclamo ${claim.id} · ${claim.state}\nReserva ${claim.reservation_id}\nAnfitrión ${claim.host_id} · arrendatario ${claim.renter_id}\nAbierto ${new Date(claim.opened_at).toLocaleString("es-CL")} · límite ${new Date(claim.claim_deadline_at).toLocaleString("es-CL")}\n\nReclamo: ${claim.description}\nDescargo: ${claim.defense?.description ?? "No registrado."}${claim.resolution ? `\nResolución ${claim.resolution.outcome} · ${claim.resolution.reason_code} · admin ${claim.resolution.actor_id} · ${new Date(claim.resolution.resolved_at).toLocaleString("es-CL")}` : ""}\n\nHistorial:\n${history || "Sin historial."}\n\nNo hay montos ni efectos financieros registrados; siguen pendientes de LOCAL-FIN-01.`;
+    const evidenceBox = document.querySelector("#local-damage-admin-evidence");
+    evidenceBox.replaceChildren();
+    revokeDamageEvidenceURLs(adminDamageEvidenceURLs);
+    for (const evidence of claim.evidence ?? []) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = `Consultar imagen sintética privada · ${evidence.operation}`;
+        button.addEventListener("click", () => void action(() => loadAdminDamageEvidence(claim.id, evidence.id)));
+        evidenceBox.append(button);
+    }
+    refreshDamageAdminControls();
+}
+async function loadAdminDamageClaims() {
+    if (!sessionRoles.includes("administrador"))
+        throw new Error("Requiere rol administrador.");
+    const context = { revision: ++damageAdminRevision, account: sessionAccountID, token: sessionToken, generation: sessionGeneration };
+    const response = await request("/api/v1/admin/local/damage-claims", "GET", undefined, true);
+    if (!damageAdminSessionIsCurrent(context))
+        return;
+    damageAdminClaims = bookingData(response).items;
+    const target = document.querySelector("#local-damage-admin-items");
+    target.replaceChildren();
+    for (const claim of damageAdminClaims) {
+        const row = document.createElement("section"), summary = document.createElement("p"), open = document.createElement("button");
+        summary.textContent = `${claim.id} · reserva ${claim.reservation_id} · ${claim.opened_at}`;
+        open.type = "button";
+        open.textContent = "Revisar evidencia e historial";
+        open.addEventListener("click", () => void action(() => loadAdminDamageClaim(claim.id)));
+        row.append(summary, open);
+        target.append(row);
+    }
+    const status = document.querySelector("#local-damage-admin-status");
+    status.textContent = `${damageAdminClaims.length} reclamo(s) abierto(s).`;
+    refreshDamageAdminControls();
+}
+async function resolveAdminDamageClaim() {
+    const claim = selectedAdminDamageClaim;
+    if (!claim || claim.state !== "abierto" || !sessionRoles.includes("administrador"))
+        throw new Error("Selecciona un reclamo abierto con rol administrador.");
+    const outcome = document.querySelector("#local-damage-admin-outcome").value;
+    const reason = document.querySelector("#local-damage-admin-reason").value;
+    if (outcome === "acogido" && reason !== "evidencia_suficiente" || outcome === "rechazado" && reason === "evidencia_suficiente")
+        throw new Error("Selecciona un motivo compatible con el resultado.");
+    const payload = { outcome, reason_code: reason }, payloadText = JSON.stringify(payload), keyName = `${claim.id}:${payloadText}`;
+    let key = damageAdminResolutionKeys.get(keyName);
+    if (!key) {
+        key = crypto.randomUUID();
+        damageAdminResolutionKeys.set(keyName, key);
+    }
+    const context = { requestRevision: ++damageAdminResolutionRevision, selectionRevision: damageAdminSelectionRevision, selectionID: claim.id, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration };
+    const result = await request(`/api/v1/admin/local/damage-claims/${encodeURIComponent(claim.id)}/resolution`, "POST", payload, true, key);
+    if (!damageAdminSelectionIsCurrent(context))
+        return;
+    const resolved = bookingData(result);
+    selectedAdminDamageClaim = resolved;
+    damageAdminResolutionKeys.delete(keyName);
+    renderAdminDamageClaim(resolved);
+    await finishDamageClaimAfterReload(context, () => loadAdminDamageClaims(), () => ({ requestRevision: damageAdminResolutionRevision, selectionRevision: damageAdminSelectionRevision, selectionID: selectedAdminDamageClaim?.id ?? "", accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }), () => { resultElement.textContent = "Resolución sintética guardada. No se asignaron montos ni se movieron fondos."; });
+}
 async function loadDamageClaim(id) {
     const revision = ++damageClaimRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
     try {
@@ -2117,7 +2259,8 @@ async function loadDamageClaim(id) {
             return;
         selectedDamageClaim = bookingData(response);
         const claim = selectedDamageClaim;
-        document.querySelector("#local-damage-claim-output").textContent = `ENSAYO LOCAL — SIN ADJUDICACIÓN NI MOVIMIENTO DE FONDOS\nEstado: ${claim.state} · abierto ${new Date(claim.opened_at).toLocaleString("es-CL")} · plazo desde el check-out: ${new Date(claim.claim_deadline_at).toLocaleString("es-CL")}\n${claim.description}\nEvidencia check-out sintética privada: ${claim.checkout_evidence_id}${claim.defense ? `\nDescargo del arrendatario (${new Date(claim.defense.created_at).toLocaleString("es-CL")}): ${claim.defense.description}` : "\nSin descargo registrado."}`;
+        const claimHistory = (claim.history ?? []).map(entry => `#${entry.sequence} ${entry.action} · ${entry.actor_id} · ${new Date(entry.occurred_at).toLocaleString("es-CL")}`).join("\n");
+        document.querySelector("#local-damage-claim-output").textContent = `ENSAYO LOCAL — SIN MOVIMIENTO DE FONDOS\nEstado: ${claim.state} · abierto ${new Date(claim.opened_at).toLocaleString("es-CL")} · plazo desde el check-out: ${new Date(claim.claim_deadline_at).toLocaleString("es-CL")}\n${claim.description}\n${claim.evidence.length} evidencia(s) PNG privada(s) sintética(s) disponibles en el historial de operaciones.${claim.defense ? `\nDescargo del arrendatario (${new Date(claim.defense.created_at).toLocaleString("es-CL")}): ${claim.defense.description}` : "\nSin descargo registrado."}${claim.resolution ? `\nResolución: ${claim.resolution.outcome} · ${claim.resolution.reason_code} · ${new Date(claim.resolution.resolved_at).toLocaleString("es-CL")}` : ""}\nHistorial:\n${claimHistory || "Sin historial."}\nLa garantía, deducciones y efectos financieros quedan pendientes de LOCAL-FIN-01.`;
     }
     catch (error) {
         if (revision !== damageClaimRevision || id !== selectedReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
@@ -2133,6 +2276,7 @@ async function loadDamageClaim(id) {
     refreshDamageClaimControls();
 }
 function renderRentalOperations() {
+    revokeDamageEvidenceURLs(participantDamageEvidenceURLs);
     const target = document.querySelector("#local-rental-operations-output");
     target.replaceChildren();
     const notice = document.createElement("p");
@@ -2153,9 +2297,36 @@ function renderRentalOperations() {
         const text = item.comments ? `Comentarios: ${item.comments}` : item.observations ? `Observación, no reclamo formal: ${item.observations}` : "Sin comentario.";
         evidence.textContent = `${text} · ${item.evidence.length} imagen sintética privada(s)${item.claim_deadline_at ? ` · plazo local de reclamo hasta ${new Date(item.claim_deadline_at).toLocaleString("es-CL", { timeZone: item.time_zone })}` : ""}`;
         article.append(title, detail, evidence);
+        for (const photo of item.evidence) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.dataset.evidenceId = photo.id;
+            button.textContent = `Consultar imagen sintética privada · ${label}`;
+            button.addEventListener("click", () => void action(() => loadParticipantDamageEvidence(item.reservation_id, photo.id)));
+            article.append(button);
+        }
         target.append(article);
     }
     refreshRentalOperationControls();
+}
+async function loadParticipantDamageEvidence(reservationID, evidenceID) {
+    const context = { revision: rentalOperationRevision, reservationID, account: sessionAccountID, token: sessionToken, generation: sessionGeneration };
+    const response = await fetch(`${apiBase}${bookingBase}/reservations/${encodeURIComponent(reservationID)}/evidence/${encodeURIComponent(evidenceID)}`, { method: "GET", headers: { Accept: "image/png", Authorization: `Bearer ${context.token}` }, mode: "cors", cache: "no-store", credentials: "omit" });
+    if (!response.ok)
+        throw new Error(`No se pudo consultar la evidencia privada (HTTP ${response.status}).`);
+    const blob = await response.blob();
+    if (context.revision !== rentalOperationRevision || context.reservationID !== selectedReservationID || context.account !== sessionAccountID || context.token !== sessionToken || context.generation !== sessionGeneration)
+        return;
+    const url = URL.createObjectURL(blob);
+    participantDamageEvidenceURLs.add(url);
+    const article = document.querySelector(`#local-rental-operations-output button[data-evidence-id="${CSS.escape(evidenceID)}"]`)?.closest("article") ?? null;
+    if (!article)
+        return;
+    const image = document.createElement("img");
+    image.alt = "Evidencia sintética privada de la reserva";
+    image.width = 240;
+    image.src = url;
+    article.append(image);
 }
 async function loadRentalOperations(id) {
     const revision = ++rentalOperationRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
@@ -2198,20 +2369,23 @@ async function recordDamageClaim(defense) {
         throw new Error("Escribe la descripción sintética requerida.");
     const payload = { description }, payloadText = JSON.stringify(payload), keyName = defense ? "damage-claim-defense" : "damage-claim-open";
     const pendingKey = rentalOperationKeys.get(id, keyName, payloadText, () => crypto.randomUUID());
-    const revision = ++damageClaimRevision, path = defense ? "damage-claim/defense" : "damage-claim";
-    const context = captureRentalOperationContext({ revision, reservationID: id, accountID: account, token, generation });
+    const revision = ++damageClaimActionRevision, path = defense ? "damage-claim/defense" : "damage-claim";
+    const context = { requestRevision: revision, selectionRevision: reservationSelectionRevision, selectionID: id, accountID: account, token, generation };
     await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/${path}`, "POST", payload, true, pendingKey);
-    if (!rentalOperationResponseIsCurrent(context, { revision: damageClaimRevision, reservationID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }))
+    const current = () => ({ requestRevision: damageClaimActionRevision, selectionRevision: reservationSelectionRevision, selectionID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration });
+    if (!damageClaimRequestIsCurrent(context, current()))
         return;
-    rentalOperationKeys.clear(id, keyName);
-    await loadBookingInbox();
-    if (id !== selectedReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
-        return;
-    document.querySelector("#local-damage-claim-description").value = "";
-    resultElement.textContent = defense ? "Descargo sintético guardado y visible para los participantes." : "Reclamo sintético abierto; reserva en disputa, sin adjudicación ni movimiento de fondos.";
+    await finishDamageClaimAfterReload(context, () => loadBookingInbox(), current, () => {
+        rentalOperationKeys.clear(id, keyName);
+        document.querySelector("#local-damage-claim-description").value = "";
+        resultElement.textContent = defense ? "Descargo sintético guardado y visible para los participantes." : "Reclamo sintético abierto; reserva en disputa, sin adjudicación ni movimiento de fondos.";
+    });
 }
 function clearBookingInboxOnSessionLoss() {
     sessionGeneration++;
+    reservationSelectionRevision++;
+    damageClaimActionRevision++;
+    damageAdminResolutionRevision++;
     clearSpaceGallery();
     if (pendingPrivacyExport)
         URL.revokeObjectURL(pendingPrivacyExport.url);
@@ -2300,6 +2474,9 @@ function clearBookingInboxOnSessionLoss() {
     clearDisputes("Inicia sesión y selecciona una reserva para consultar incidencias.");
     disputeOpenKeys.clear();
     clearAdminDisputes("Requiere rol administrador.");
+    clearAdminDamageClaims("Requiere rol administrador.");
+    revokeDamageEvidenceURLs(participantDamageEvidenceURLs);
+    revokeDamageEvidenceURLs(adminDamageEvidenceURLs);
     refreshLocalNoticeControls();
     refreshBookingActions();
 }
@@ -2520,6 +2697,8 @@ async function loadDisputeAdminQueue() {
     document.querySelector("#local-dispute-admin-status").textContent = `${disputeAdminItems.length} incidencia(s) abierta(s). El cierre es administrativo y no económico.`;
 }
 async function loadReservationDetail(id) {
+    if (selectedReservationID !== id)
+        reservationSelectionRevision++;
     bookingRequestState.select(id);
     selectedReservationID = id;
     selectedReservation = null;
@@ -2535,23 +2714,26 @@ async function loadReservationDetail(id) {
     cancellationPreviewReservationID = "";
     document.querySelector("#booking-inbox-cancel-preview-output").textContent = "Consulta la opción de cancelación antes de confirmar.";
     clearConversation("Cargando mensajes de la reserva seleccionada…");
-    const revision = ++bookingInboxRevision, requestContext = bookingRequestState.capture(sessionAccountID, sessionToken);
+    const revision = ++bookingInboxRevision, selectionRevision = reservationSelectionRevision, requestContext = bookingRequestState.capture(sessionAccountID, sessionToken);
     const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}`, "GET", undefined, true);
-    if (revision !== bookingInboxRevision || !bookingRequestState.accepts(requestContext, sessionAccountID, sessionToken))
+    const stillCurrent = () => revision === bookingInboxRevision && selectionRevision === reservationSelectionRevision && selectedReservationID === id && bookingRequestState.accepts(requestContext, sessionAccountID, sessionToken) && Boolean(sessionToken);
+    if (!stillCurrent())
         return;
     selectedReservation = bookingData(result);
     renderReservationDetail(selectedReservation);
     await loadRentalOperations(id);
-    if (selectedReservationID !== id || !selectedReservation)
+    if (!stillCurrent() || !selectedReservation)
         return;
     await loadDamageClaim(id);
-    if (selectedReservationID !== id || !selectedReservation)
+    if (!stillCurrent() || !selectedReservation)
         return;
     await loadReservationReviews(id);
-    if (selectedReservationID !== id || !selectedReservation)
+    if (!stillCurrent() || !selectedReservation)
         return;
     await loadReservationDisputes(id);
     await loadConversationPage(id, null, false);
+    if (!stillCurrent() || !selectedReservation)
+        return;
     conversationStatus.textContent = `Conversación local · ${selectedReservation.state}. ${canSendConversation(sessionAccountID, selectedReservation) ? "Puedes enviar texto plano en este estado." : "Solo lectura: el estado de la reserva no permite enviar."}`;
     refreshConversationControls();
 }
@@ -2560,6 +2742,8 @@ document.querySelector("#local-rental-checkout").addEventListener("click", () =>
 document.querySelector("#local-rental-reception").addEventListener("click", () => void action(() => recordRentalOperation("recepcion")));
 document.querySelector("#local-damage-claim-open").addEventListener("click", () => void action(() => recordDamageClaim(false)));
 document.querySelector("#local-damage-claim-defend").addEventListener("click", () => void action(() => recordDamageClaim(true)));
+document.querySelector("#local-damage-admin-load").addEventListener("click", () => void action(loadAdminDamageClaims));
+document.querySelector("#local-damage-admin-resolve").addEventListener("click", () => void action(resolveAdminDamageClaim));
 function renderSyntheticContract(item) {
     selectedContract = item;
     const lines = item.signatures.map(s => `${s.role}: ${s.state}${s.reason ? ` · ${s.reason}` : ""}`).join("\n");
@@ -2642,6 +2826,7 @@ async function loadBookingInbox(reloadSelected = true) {
         return selectedReservation?.id === current.id ? selectedReservation.state : null;
     }
     else if (selectedReservationID && reloadSelected) {
+        reservationSelectionRevision++;
         bookingRequestState.invalidate();
         selectedReservationID = "";
         selectedReservation = null;

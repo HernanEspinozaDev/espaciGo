@@ -115,6 +115,8 @@ func render(n Notice) (string, string) {
 		return "Reseña reportada (ensayo local)", "Una reseña sintética requiere revisión administrativa. Inicia sesión en el prototipo local para revisar la cola."
 	case "reclamo_abierto":
 		return "Reclamo abierto (ensayo local)", "Se abrió un reclamo sintético asociado a una reserva. Inicia sesión en el prototipo local para revisar el estado."
+	case "reclamo_resuelto":
+		return "Resolución de reclamo (ensayo local)", "Se registró una resolución sintética de un reclamo. Inicia sesión en el prototipo local para revisar el resultado. No se movieron fondos."
 	default:
 		return "Actualización de reserva (ensayo local)", "Se actualizó una reserva sintética. Inicia sesión en el prototipo local para revisar su estado."
 	}

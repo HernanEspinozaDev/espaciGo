@@ -296,7 +296,7 @@ func run() error {
 			}
 			localOperationService = operationService
 			registerOperationRoutes(mux, operationhttp.NewHandler(service, operationService, cfg.allowedOrigins))
-			claimService, err := damageclaim.New(damageclaimpg.New(pool), time.Now)
+			claimService, err := damageclaim.NewWithEvidenceStore(damageclaimpg.New(pool), evidenceStore, time.Now)
 			if err != nil {
 				return errors.New("local damage claim initialization failed")
 			}
@@ -452,6 +452,10 @@ func registerDamageClaimRoutes(mux *http.ServeMux, handler http.Handler) {
 	mux.Handle("GET /api/v1/local/booking-trial/reservations/{reservationID}/damage-claim", handler)
 	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/damage-claim", handler)
 	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/damage-claim/defense", handler)
+	mux.Handle("GET /api/v1/admin/local/damage-claims", handler)
+	mux.Handle("GET /api/v1/admin/local/damage-claims/{claimID}", handler)
+	mux.Handle("POST /api/v1/admin/local/damage-claims/{claimID}/resolution", handler)
+	mux.Handle("GET /api/v1/admin/local/damage-claims/{claimID}/evidence/{evidenceID}", handler)
 }
 
 // registerReputationReservationRoutes mounts only review operations, preserving
