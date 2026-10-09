@@ -16,6 +16,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
+	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -25,6 +26,22 @@ type deleteFaultStore struct {
 	mu        sync.Mutex
 	fail      int
 	lastPutID string
+}
+
+type pausedPutStore struct {
+	*deleteFaultStore
+	entered chan string
+	release chan struct{}
+}
+
+func (s *pausedPutStore) Put(ctx context.Context, id string, blob []byte) error {
+	s.entered <- id
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return s.deleteFaultStore.Put(ctx, id, blob)
 }
 
 func (s *deleteFaultStore) Put(ctx context.Context, id string, blob []byte) error {
@@ -139,7 +156,8 @@ func TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup(t *testing.T
 		t.Fatal(err)
 	}
 	files := &deleteFaultStore{Store: base}
-	svc, err := gallery.NewService(New(pool), files, credentials.Generator{}, time.Now)
+	repo := New(pool)
+	svc, err := gallery.NewService(repo, files, credentials.Generator{}, time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,6 +207,75 @@ func TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup(t *testing.T
 	}
 	if _, _, err = svc.Content(ctx, other, spaceA, first.ID); !errors.Is(err, gallery.ErrNotFound) {
 		t.Fatalf("foreign owner content error=%v", err)
+	}
+
+	// A candidate that is already past the cleanup age remains protected while
+	// Put is paused before creating the file; after confirmation the worker must
+	// neither leave an orphan nor delete the active image.
+	paused := &pausedPutStore{deleteFaultStore: files, entered: make(chan string, 1), release: make(chan struct{})}
+	agedService, err := gallery.NewService(repo, paused, credentials.Generator{}, func() time.Time { return time.Now().Add(-2 * time.Minute) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	added := make(chan struct {
+		photo gallery.Photo
+		err   error
+	}, 1)
+	go func() {
+		photo, _, addErr := agedService.AddSynthetic(ctx, other, spaceB, "gallery-paused-put-0001")
+		added <- struct {
+			photo gallery.Photo
+			err   error
+		}{photo, addErr}
+	}()
+	concurrentID := <-paused.entered
+	if _, getErr := base.Get(ctx, concurrentID); !errors.Is(getErr, os.ErrNotExist) {
+		t.Fatalf("paused Put unexpectedly created candidate file: %v", getErr)
+	}
+	if err = restarted.CleanRetiredOnce(ctx, 50); err != nil {
+		t.Fatalf("cleanup during producer Put: %v", err)
+	}
+	var stateDuringPut string
+	if err = adminPool.QueryRow(ctx, `SELECT estado FROM public.espacio_galeria_archivo_candidato_local WHERE archivo_id=$1`, concurrentID).Scan(&stateDuringPut); err != nil || stateDuringPut != "reservado" {
+		t.Fatalf("producer candidate state during Put=%q err=%v", stateDuringPut, err)
+	}
+	close(paused.release)
+	addResult := <-added
+	if addResult.err != nil || addResult.photo.ID != concurrentID {
+		t.Fatalf("paused producer result=%+v err=%v", addResult.photo, addResult.err)
+	}
+	if err = restarted.CleanRetiredOnce(ctx, 50); err != nil {
+		t.Fatalf("cleanup after confirmed Put: %v", err)
+	}
+	if _, _, err = agedService.Content(ctx, other, spaceB, concurrentID); err != nil {
+		t.Fatalf("confirmed photo should remain accessible after cleanup: %v", err)
+	}
+	var candidateCount int
+	if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.espacio_galeria_archivo_candidato_local WHERE archivo_id=$1`, concurrentID).Scan(&candidateCount); err != nil || candidateCount != 0 {
+		t.Fatalf("confirmed candidate row count=%d err=%v", candidateCount, err)
+	}
+
+	// A process can die after reserving and writing but before confirmation.
+	// A fresh service instance must discover and remove that abandoned file.
+	abandonedID, err := (credentials.Generator{}).ID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.ReserveCandidate(ctx, other, spaceB, abandonedID, time.Now().Add(-2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	blob, err = verification.SyntheticPNG()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = base.Put(ctx, abandonedID, blob); err != nil {
+		t.Fatal(err)
+	}
+	if err = restarted.CleanRetiredOnce(ctx, 50); err != nil {
+		t.Fatalf("restart recovery for abandoned candidate: %v", err)
+	}
+	if _, err = base.Get(ctx, abandonedID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("abandoned candidate survived restart recovery: %v", err)
 	}
 	for i := 2; i <= gallery.MaxPhotosPerSpace; i++ {
 		key := fmt.Sprintf("gallery-key-%04d", i)

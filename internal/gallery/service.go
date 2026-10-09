@@ -49,23 +49,26 @@ func (s *Service) AddSynthetic(ctx context.Context, owner, spaceID, key string) 
 	if err := s.repo.ReserveCandidate(ctx, owner, spaceID, id, item.CreatedAt); err != nil {
 		return Photo{}, false, err
 	}
-	if err := s.files.Put(ctx, id, blob); err != nil {
+	writer, err := s.repo.BeginCandidate(ctx, owner, spaceID, id)
+	if err != nil {
 		_ = s.repo.QueueCandidateCleanup(context.Background(), id, s.now().UTC())
+		return Photo{}, false, err
+	}
+	defer func() { _ = writer.Close() }()
+	if err := s.files.Put(ctx, id, blob); err != nil {
+		_ = writer.QueueCleanup(context.Background(), s.now().UTC())
 		return Photo{}, false, ErrFileStore
 	}
-	result, reused, err := s.repo.Add(ctx, owner, spaceID, item, key)
+	result, reused, err := writer.Add(ctx, item, key, s.now().UTC())
 	if err != nil {
 		// Commit errors can be ambiguous. The repository removes the candidate
 		// row atomically with a confirmed gallery insert; queueing only changes
 		// candidates still present, so a committed file is never deleted.
+		_ = writer.Close()
 		_ = s.repo.QueueCandidateCleanup(context.Background(), id, s.now().UTC())
 		return Photo{}, false, err
 	}
-	if reused {
-		_ = s.repo.QueueCandidateCleanup(context.Background(), id, s.now().UTC())
-		return result, true, nil
-	}
-	return result, false, nil
+	return result, reused, nil
 }
 
 func (s *Service) List(ctx context.Context, owner, spaceID string) ([]Photo, error) {

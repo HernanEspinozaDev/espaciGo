@@ -38,17 +38,25 @@ type Removal struct {
 
 type Repository interface {
 	ReserveCandidate(context.Context, string, string, string, time.Time) error
+	BeginCandidate(context.Context, string, string, string) (CandidateWriter, error)
 	QueueCandidateCleanup(context.Context, string, time.Time) error
 	ClaimCandidateCleanup(context.Context, int) ([]string, error)
 	CompleteCandidateCleanup(context.Context, string) error
 	FailCandidateCleanup(context.Context, string, time.Time) error
-	Add(context.Context, string, string, Photo, string) (Photo, bool, error)
 	List(context.Context, string, string) ([]Photo, error)
 	Get(context.Context, string, string, string) (Photo, error)
 	Remove(context.Context, string, string, string) (Removal, error)
 	PendingCleanup(context.Context, int) ([]string, error)
 	CompleteCleanup(context.Context, string, time.Time) error
 	FailCleanup(context.Context, string, time.Time) error
+}
+
+// CandidateWriter keeps the durable candidate row locked while bytes are
+// written and either attached to a photo or queued for cleanup.
+type CandidateWriter interface {
+	Add(context.Context, Photo, string, time.Time) (Photo, bool, error)
+	QueueCleanup(context.Context, time.Time) error
+	Close() error
 }
 
 type FileStore interface {

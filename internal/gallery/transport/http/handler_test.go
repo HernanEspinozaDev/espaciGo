@@ -64,19 +64,26 @@ type repoStub struct {
 func (r *repoStub) ReserveCandidate(context.Context, string, string, string, time.Time) error {
 	return nil
 }
+func (r *repoStub) BeginCandidate(context.Context, string, string, string) (gallery.CandidateWriter, error) {
+	return &candidateWriterStub{repo: r}, nil
+}
 func (r *repoStub) QueueCandidateCleanup(context.Context, string, time.Time) error { return nil }
 func (r *repoStub) ClaimCandidateCleanup(context.Context, int) ([]string, error)   { return nil, nil }
 func (r *repoStub) CompleteCandidateCleanup(context.Context, string) error         { return nil }
 func (r *repoStub) FailCandidateCleanup(context.Context, string, time.Time) error  { return nil }
 
-func (r *repoStub) Add(_ context.Context, _, _ string, p gallery.Photo, key string) (gallery.Photo, bool, error) {
-	if old, ok := r.idempotency[key]; ok {
+type candidateWriterStub struct{ repo *repoStub }
+
+func (w *candidateWriterStub) Add(_ context.Context, p gallery.Photo, key string, _ time.Time) (gallery.Photo, bool, error) {
+	if old, ok := w.repo.idempotency[key]; ok {
 		return old, true, nil
 	}
-	r.idempotency[key] = p
-	r.items = append(r.items, p)
+	w.repo.idempotency[key] = p
+	w.repo.items = append(w.repo.items, p)
 	return p, false, nil
 }
+func (*candidateWriterStub) QueueCleanup(context.Context, time.Time) error { return nil }
+func (*candidateWriterStub) Close() error                                  { return nil }
 func (r *repoStub) List(context.Context, string, string) ([]gallery.Photo, error) {
 	return append([]gallery.Photo{}, r.items...), nil
 }
