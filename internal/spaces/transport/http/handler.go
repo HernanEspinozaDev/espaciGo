@@ -79,8 +79,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	path := strings.TrimSuffix(r.URL.Path, "/")
 	publicationID := publicationSpaceID(path)
+	publicationContentID := publicationContentSpaceID(path)
 	requiredRole := identity.Role("")
-	if publicationID != "" && r.Method == http.MethodPut {
+	if (publicationID != "" || publicationContentID != "") && r.Method == http.MethodPut {
 		requiredRole = identity.RoleLandlord
 	}
 	calendarPath := strings.Contains(path, "/availability")
@@ -137,6 +138,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		item, err := h.service.SetPublicationState(r.Context(), principal.AccountID, publicationID, in.State, w.Header().Get("X-Request-ID"))
+		if err != nil {
+			serviceError(w, err)
+			return
+		}
+		write(w, 200, item)
+		return
+	}
+	if publicationContentID != "" {
+		if r.Method != http.MethodPut {
+			failure(w, 405, "method_not_allowed", "Método no permitido.")
+			return
+		}
+		var in spaces.PublishedContentInput
+		if !decode(w, r, &in) {
+			return
+		}
+		item, err := h.service.UpdatePublishedOwn(r.Context(), principal.AccountID, publicationContentID, in)
 		if err != nil {
 			serviceError(w, err)
 			return
@@ -478,6 +496,18 @@ func serviceError(w http.ResponseWriter, e error) {
 
 func publicationSpaceID(path string) string {
 	const prefix, suffix = "/api/v1/spaces/", "/publication"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return ""
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	if id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func publicationContentSpaceID(path string) string {
+	const prefix, suffix = "/api/v1/spaces/", "/publication-content"
 	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
 		return ""
 	}

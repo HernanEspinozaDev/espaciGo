@@ -156,6 +156,48 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if err != nil || reservation.State != "pendiente_de_pago" {
 		t.Fatalf("reservation after rejected publication: %+v err=%v", reservation, err)
 	}
+	// Once the allowlist entry is disabled, a local publication can be edited.
+	// Existing quote and reservation snapshots must remain fixed.
+	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_ensayo_local_fixture SET habilitada=false WHERE espacio_id=$1`, fixtureDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.SetPublicationState(ctx, owner, fixtureDraft.ID, "activa", "activate-for-edit-test"); err != nil {
+		t.Fatalf("activate non-fixture publication for edit test: %v", err)
+	}
+	newTitle, newPrice := "Título publicado editado", int64(12000)
+	updated, err := svc.UpdatePublishedOwn(ctx, owner, fixtureDraft.ID, spaces.PublishedContentInput{Title: &newTitle, BasePriceCLP: &newPrice})
+	if err != nil || updated.State != "activa" || updated.Title != newTitle || updated.BasePriceCLP != newPrice {
+		t.Fatalf("active listing edit=%+v err=%v", updated, err)
+	}
+	detail, err := bookingRepo.Get(ctx, other, reservation.ID)
+	if err != nil || detail.UnitPrice != 8000 || detail.Subtotal != 8000 {
+		t.Fatalf("existing reservation snapshot changed: %+v err=%v", detail.Reservation, err)
+	}
+	var quotePrice, reservationPrice int64
+	var rateVersions int
+	if err = adminPool.QueryRow(ctx, `SELECT q.precio_unitario_clp,r.precio_unitario_clp,(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$1) FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local r ON r.cotizacion_id=q.id WHERE q.id=$2`, fixtureDraft.ID, quote.ID).Scan(&quotePrice, &reservationPrice, &rateVersions); err != nil {
+		t.Fatal(err)
+	}
+	if quotePrice != 8000 || reservationPrice != 8000 || rateVersions != 2 {
+		t.Fatalf("price version/snapshots quote=%d reservation=%d versions=%d", quotePrice, reservationPrice, rateVersions)
+	}
+	if _, err = svc.SetPublicationState(ctx, owner, fixtureDraft.ID, "oculta", "hide-after-edit"); err != nil {
+		t.Fatal(err)
+	}
+	newHiddenTitle := "Título oculto editado"
+	updated, err = svc.UpdatePublishedOwn(ctx, owner, fixtureDraft.ID, spaces.PublishedContentInput{Title: &newHiddenTitle})
+	if err != nil || updated.State != "oculta" || updated.Title != newHiddenTitle || updated.BasePriceCLP != newPrice {
+		t.Fatalf("hidden listing title edit=%+v err=%v", updated, err)
+	}
+	if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$1`, fixtureDraft.ID).Scan(&rateVersions); err != nil {
+		t.Fatal(err)
+	}
+	if rateVersions != 2 {
+		t.Fatalf("title-only edit created a tariff version: count=%d", rateVersions)
+	}
+	if _, err = svc.UpdatePublishedOwn(ctx, other, fixtureDraft.ID, spaces.PublishedContentInput{Title: &newTitle}); err != spaces.ErrNotFound {
+		t.Fatalf("foreign published-content edit error=%v", err)
+	}
 	start := make(chan struct{})
 	type publishResult struct {
 		draft spaces.Draft

@@ -999,6 +999,35 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /spaces/{spaceId}/publication-content:
+    parameters:
+      - name: spaceId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: updateOwnPublishedSpaceContent
+      tags: [M04 local]
+      description: >-
+        Modifica título y/o precio base de una publicación propia activa u oculta. Requiere titularidad y rol
+        arrendador. Un cambio de precio agrega una nueva versión de tarifa y conserva cotizaciones/reservas
+        anteriores. No cambia el estado ni agrega el espacio al catálogo general.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PublishedSpaceContentInput' }
+      responses:
+        '200':
+          description: Datos vigentes de la publicación propia.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpaceDraft' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /spaces/{spaceId}/availability:
     parameters:
       - name: spaceId
@@ -2056,6 +2085,13 @@ components:
       required: [state]
       properties:
         state: { type: string, enum: [activa, oculta] }
+    PublishedSpaceContentInput:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 70 }
+        base_price_clp: { type: integer, format: int64, minimum: 5001, maximum: 9223372036854775807 }
     AvailabilityConfig:
       type: object
       additionalProperties: false

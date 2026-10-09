@@ -536,6 +536,27 @@ async function loadSpaces(): Promise<void> {
       }));
       li.append(publication);
     }
+    if ((String(item.state)==="activa"||String(item.state)==="oculta")&&sessionRoles.includes("arrendador")) {
+      const edit=document.createElement("form"); edit.className="published-content-edit";
+      const titleLabel=document.createElement("label"); titleLabel.textContent="Título";
+      const title=document.createElement("input"); title.name="title"; title.maxLength=70; title.value=String(item.title); titleLabel.append(title);
+      const priceLabel=document.createElement("label"); priceLabel.textContent="Precio base CLP";
+      const price=document.createElement("input"); price.name="base_price_clp"; price.type="number"; price.min="5001"; price.step="1"; price.value=String(item.base_price_clp); priceLabel.append(price);
+      const save=document.createElement("button"); save.type="submit"; save.textContent="Actualizar título/precio";
+      edit.append(titleLabel,priceLabel,save);
+      edit.addEventListener("submit",event=>{event.preventDefault();void action(async()=>{
+        const opToken=sessionToken,opAccount=sessionAccountID,opGeneration=sessionGeneration;
+        const body={title:title.value,base_price_clp:Number(price.value)};
+        let changed:Record<string,unknown>;
+        try { changed=await request(`/api/v1/spaces/${encodeURIComponent(String(item.id))}/publication-content`,"PUT",body,true); }
+        catch(error) { if(!currentSpaceSession(opToken,opAccount,opGeneration))return; throw error; }
+        if(!currentSpaceSession(opToken,opAccount,opGeneration))return;
+        spacesOutput.textContent=JSON.stringify(changed,null,2);
+        resultElement.textContent="Título y tarifa actualizados. El espacio conserva su estado y las reservas existentes mantienen su precio snapshot.";
+        await loadSpaces();
+      });});
+      li.append(edit);
+    }
     spacesList.append(li);
   }
   spacesOutput.textContent = JSON.stringify(result, null, 2);

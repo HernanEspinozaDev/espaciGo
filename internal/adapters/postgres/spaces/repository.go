@@ -217,6 +217,55 @@ func (r *Repository) SetPublicationState(ctx context.Context, owner, id, state, 
 	}
 	return draft, nil
 }
+
+func (r *Repository) UpdatePublishedOwn(ctx context.Context, owner, id string, in spaces.PublishedContentInput) (spaces.Draft, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return spaces.Draft{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockActiveOwner(ctx, tx, owner); err != nil {
+		return spaces.Draft{}, err
+	}
+	var oldTitle, rateUnit string
+	var oldPrice int64
+	err = tx.QueryRow(ctx, `SELECT titulo,modalidad_tarifa,precio_base_clp FROM public.espacio
+		WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta') FOR UPDATE`, owner, id).Scan(&oldTitle, &rateUnit, &oldPrice)
+	if err != nil {
+		return spaces.Draft{}, mapError(err)
+	}
+	var nextPrice any
+	if in.BasePriceCLP != nil && *in.BasePriceCLP != oldPrice {
+		var version int32
+		if err = tx.QueryRow(ctx, `SELECT COALESCE(max(version),0)+1 FROM public.tarifa_espacio WHERE espacio_id=$1`, id).Scan(&version); err != nil {
+			return spaces.Draft{}, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
+			VALUES($1,$2,$3,$4)`, id, version, rateUnit, *in.BasePriceCLP); err != nil {
+			return spaces.Draft{}, mapError(err)
+		}
+		nextPrice = *in.BasePriceCLP
+	}
+	var nextTitle any
+	if in.Title != nil && *in.Title != oldTitle {
+		nextTitle = *in.Title
+	}
+	if nextTitle != nil || nextPrice != nil {
+		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),precio_base_clp=COALESCE($4,precio_base_clp),actualizado_en=now()
+			WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta')`, owner, id, nextTitle, nextPrice); err != nil {
+			return spaces.Draft{}, mapError(err)
+		}
+	}
+	draft, err := scan(tx.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 AND e.id=$2`, owner, id))
+	if err != nil {
+		return spaces.Draft{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return spaces.Draft{}, err
+	}
+	return draft, nil
+}
+
 func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.Input) (spaces.Draft, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
