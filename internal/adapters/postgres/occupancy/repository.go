@@ -3,6 +3,7 @@ package occupancy
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
@@ -29,9 +30,33 @@ func (r *Repository) SetTimeZone(ctx context.Context, owner, spaceID, zone strin
 	if !active {
 		return domain.ErrNotFound
 	}
+	var currentZone *string
+	var state string
+	if err = tx.QueryRow(ctx, `SELECT zona_horaria,estado FROM public.espacio
+		WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, spaceID, owner).Scan(&currentZone, &state); err != nil {
+		return mapError(err)
+	}
+	if state == "activa" || state == "oculta" {
+		if currentZone != nil && strings.TrimSpace(*currentZone) != "" {
+			if *currentZone == zone {
+				return tx.Commit(ctx)
+			}
+			return domain.ErrTimezoneLocked
+		}
+		var hasReservations bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reserva_ensayo_local WHERE espacio_id=$1)`, spaceID).Scan(&hasReservations); err != nil {
+			return err
+		}
+		if hasReservations {
+			return domain.ErrTimezoneInUse
+		}
+	} else if state != "borrador" {
+		return domain.ErrNotFound
+	}
 	result, err := tx.Exec(ctx, `UPDATE public.espacio
 		SET zona_horaria=$3, actualizado_en=now()
-		WHERE id=$1 AND propietario_id=$2 AND estado='borrador'`, spaceID, owner, zone)
+		WHERE id=$1 AND propietario_id=$2 AND estado=$4
+		AND ($4='borrador' OR zona_horaria IS NULL OR btrim(zona_horaria)='')`, spaceID, owner, zone, state)
 	if err != nil {
 		return err
 	}
@@ -157,7 +182,7 @@ func (r *Repository) DeleteBlock(ctx context.Context, owner, spaceID, blockID st
 func (r *Repository) timeZone(ctx context.Context, owner, spaceID string) (string, error) {
 	var zone *string
 	err := r.pool.QueryRow(ctx, `SELECT zona_horaria FROM public.espacio
-		WHERE id=$1 AND propietario_id=$2 AND estado='borrador'`, spaceID, owner).Scan(&zone)
+		WHERE id=$1 AND propietario_id=$2 AND estado IN ('borrador','activa','oculta')`, spaceID, owner).Scan(&zone)
 	if err != nil {
 		return "", mapError(err)
 	}

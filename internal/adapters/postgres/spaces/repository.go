@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
+	"time"
+	_ "time/tzdata"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	verificationdb "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification/dbgen"
@@ -23,13 +26,13 @@ func New(pool *pgxpool.Pool, ids identity.CredentialGenerator) *Repository {
 	return &Repository{pool: pool, ids: ids}
 }
 
-const fields = `e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::float8,e.capacidad_maxima,e.reglas_uso,e.modalidad_tarifa,e.precio_base_clp,e.direccion,e.estado,COALESCE(ec.perfil_version,1),COALESCE(ec.valores,'{}'::jsonb)`
+const fields = `e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::float8,e.capacidad_maxima,e.reglas_uso,e.modalidad_tarifa,e.precio_base_clp,e.direccion,e.estado,COALESCE(ec.perfil_version,1),COALESCE(ec.valores,'{}'::jsonb),e.zona_horaria`
 const joins = ` FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo LEFT JOIN public.espacio_caracteristicas ec ON ec.espacio_id=e.id`
 
 func scan(row pgx.Row) (spaces.Draft, error) {
 	var d spaces.Draft
 	var raw []byte
-	err := row.Scan(&d.ID, &d.CategoryCode, &d.CategoryName, &d.Title, &d.Description, &d.AreaM2, &d.Capacity, &d.UsageRules, &d.RateUnit, &d.BasePriceCLP, &d.Address, &d.State, &d.AttributeSchemaVersion, &raw)
+	err := row.Scan(&d.ID, &d.CategoryCode, &d.CategoryName, &d.Title, &d.Description, &d.AreaM2, &d.Capacity, &d.UsageRules, &d.RateUnit, &d.BasePriceCLP, &d.Address, &d.State, &d.AttributeSchemaVersion, &raw, &d.TimeZone)
 	if err == nil {
 		d.Attributes = map[string]any{}
 		err = json.Unmarshal(raw, &d.Attributes)
@@ -153,6 +156,9 @@ func (r *Repository) SetPublicationState(ctx context.Context, owner, id, state, 
 	if err != nil {
 		return spaces.Draft{}, err
 	}
+	if state == "activa" && !validIANAZone(draft.TimeZone) {
+		return spaces.Draft{}, spaces.ErrTimeZoneRequired
+	}
 	if draft.State == state {
 		if err := tx.Commit(ctx); err != nil {
 			return spaces.Draft{}, err
@@ -216,6 +222,14 @@ func (r *Repository) SetPublicationState(ctx context.Context, owner, id, state, 
 		return spaces.Draft{}, err
 	}
 	return draft, nil
+}
+
+func validIANAZone(zone *string) bool {
+	if zone == nil || strings.TrimSpace(*zone) == "" || strings.TrimSpace(*zone) != *zone || *zone == "Local" || strings.Contains(*zone, "..") {
+		return false
+	}
+	_, err := time.LoadLocation(*zone)
+	return err == nil
 }
 
 func (r *Repository) UpdatePublishedOwn(ctx context.Context, owner, id string, in spaces.PublishedContentInput) (spaces.Draft, error) {

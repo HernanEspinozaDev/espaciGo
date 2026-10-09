@@ -99,7 +99,7 @@ func parseTimestamp(value string) (time.Time, error) {
 }
 
 func validTimeZone(zone string) bool {
-	if strings.TrimSpace(zone) != zone || zone == "" || strings.Contains(zone, "..") {
+	if strings.TrimSpace(zone) != zone || zone == "" || zone == "Local" || strings.Contains(zone, "..") {
 		return false
 	}
 	_, err := time.LoadLocation(zone)

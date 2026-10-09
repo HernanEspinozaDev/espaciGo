@@ -24,6 +24,28 @@ El mismo escenario pasa por los handlers HTTP existentes para listar, abrir deta
 
 La revisión manual encontró un registro sintético activo antiguo con `zona_horaria` nula (el esquema permite borradores sin zona). Se comprobó que el escaneo devolvía `500`; el catálogo/detalle/intervalos ahora excluyen espacios sin zona IANA, y la cotización queda en 404 en vez de fallar al escanear. Se añadió cobertura PostgreSQL para listado, detalle y cotización. Tras reconstruir el Backend sin cambiar el volumen, la búsqueda real del mock respondió correctamente y mostró que no había publicaciones/fixtures autorizados para esa cuenta y esos filtros. No se modificó el registro preexistente; el recorrido de publicación→cotización queda demostrado por la integración desechable con zona explícita, no por esta cuenta local.
 
+### Publicación y reparación explícita de zona IANA
+
+La publicación de un borrador ahora valida una zona IANA cargable por el Backend. Si falta o es inválida, responde `409 time_zone_required` con instrucciones claras y deja el borrador intacto para configurarlo. El titular puede configurar la zona del borrador mediante el endpoint existente de disponibilidad. Para publicaciones heredadas activas u ocultas sin zona, el mismo endpoint permite una reparación autenticada del titular, sin inferir un valor. Si una zona ya está establecida, no se reemplaza; si falta pero existe una reserva vinculada, la reparación responde `409 time_zone_in_use` y mantiene intacto el snapshot. El catálogo conserva la exclusión de espacios sin zona.
+
+La prueba PostgreSQL `TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions` atraviesa los handlers HTTP sobre la base desechable: crea por API sin zona, recibe el rechazo de publicación, confirma que el borrador continúa sin cambios, configura `America/Santiago`, publica y comprueba desde otra cuenta el catálogo, detalle y cotización del mismo espacio. También repara y publica un registro heredado oculto sin asignación automática; verifica que un tercero no puede repararlo, que no se puede sustituir una zona protegida y que una reserva preexistente bloquea la reparación sin cambiar su zona histórica.
+
+Comprobaciones enfocadas de esta corrección:
+
+```sh
+GO_TEST_RUN='TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions' \
+  bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/spaces
+GO_TEST_RUN='TestPostgresDraftAvailabilityAndManualBlocksAreOwnerScoped' \
+  bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/occupancy
+go test ./internal/spaces/... ./internal/occupancy/... ./internal/adapters/postgres/spaces ./internal/adapters/postgres/occupancy
+go vet ./internal/spaces/... ./internal/occupancy/... ./internal/adapters/postgres/spaces ./internal/adapters/postgres/occupancy
+npm --prefix mock run build
+npm --prefix mock run test:publication-state
+git diff --check
+```
+
+Resultado: todas las comprobaciones listadas terminaron con código 0. Las dos integraciones PostgreSQL usaron bases desechables. No se reinició ni modificó el volumen persistente, sus secretos o datos.
+
 Comprobaciones adicionales:
 
 ```sh

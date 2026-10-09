@@ -445,6 +445,10 @@ func calendarError(w http.ResponseWriter, err error) {
 		failure(w, 409, "occupancy_conflict", "El intervalo se superpone con una ocupación activa.")
 	case errors.Is(err, occupancy.ErrTimezoneRequired):
 		failure(w, 409, "time_zone_required", "Configura la zona horaria del espacio antes de usar el calendario.")
+	case errors.Is(err, occupancy.ErrTimezoneInUse):
+		failure(w, 409, "time_zone_in_use", "No se puede reparar la zona: el espacio ya tiene reservas y sus referencias temporales deben conservarse.")
+	case errors.Is(err, occupancy.ErrTimezoneLocked):
+		failure(w, 409, "time_zone_locked", "La zona configurada de una publicación no se reemplaza por esta ruta.")
 	default:
 		failure(w, 500, "internal_error", "Ocurrió un error inesperado.")
 	}
@@ -485,6 +489,8 @@ func serviceError(w http.ResponseWriter, e error) {
 		failure(w, 409, "conflict", "La transición de publicación no está permitida desde el estado actual.")
 	case errors.Is(e, spaces.ErrEnabledFixture):
 		failure(w, 409, "fixture_enabled", "Deshabilita el fixture de ensayo antes de cambiar la publicación del espacio.")
+	case errors.Is(e, spaces.ErrTimeZoneRequired):
+		failure(w, 409, "time_zone_required", "Configura una zona horaria IANA válida para conservar el borrador y poder publicarlo.")
 	case errors.Is(e, spaces.ErrInvalid):
 		failure(w, 422, "validation_error", "Revisa los campos obligatorios y sus límites.")
 	case errors.Is(e, spaces.ErrNotFound):

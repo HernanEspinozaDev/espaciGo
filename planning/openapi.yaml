@@ -981,7 +981,8 @@ paths:
       description: >-
         Publica u oculta un espacio propio. Requiere rol arrendador; activar exige KYC sintético efectivo
         de la cuenta personal y no concede ni infiere roles. Solo cambia el estado local del espacio, sin
-        abrirlo al catálogo general ni alterar reservas existentes. Un fixture de ensayo habilitado impide
+        abrirlo al catálogo general ni alterar reservas existentes. Publicar exige una zona IANA válida; si
+        falta, responde `time_zone_required` y conserva el borrador. Un fixture de ensayo habilitado impide
         transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled.
       requestBody:
         required: true
@@ -1111,7 +1112,10 @@ paths:
     put:
       operationId: configureOwnDraftAvailability
       tags: [M04/M06 local]
-      description: Configura una zona horaria IANA explícita para el borrador propio; no concede publicación comercial.
+      description: >-
+        Configura una zona IANA explícita para el borrador propio. Para un espacio activo u oculto heredado,
+        solo repara una zona ausente y solo si no tiene reservas; nunca reemplaza una zona existente ni
+        asigna un valor automáticamente. La autorización se limita al titular autenticado.
       requestBody:
         required: true
         content:
@@ -1126,6 +1130,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '409': { $ref: '#/components/responses/Conflict' }
     get:
       operationId: queryOwnDraftAvailability
       tags: [M04/M06 local]
@@ -1260,7 +1265,7 @@ paths:
     get:
       operationId: getOwnDraftTimeZone
       tags: [M04/M06 local]
-      description: Lee la zona horaria IANA ya configurada para el borrador propio.
+      description: Lee la zona horaria IANA configurada para un espacio propio en estado borrador, activo u oculto.
       responses:
         '200':
           description: Zona horaria del calendario.
@@ -2151,6 +2156,7 @@ components:
         base_price_clp: { type: integer, minimum: 5001, maximum: 9223372036854775807 }
         address: { type: string, minLength: 1, maxLength: 500 }
         state: { type: string, enum: [borrador, activa, oculta] }
+        time_zone: { type: string, nullable: true, maxLength: 100, description: Zona IANA propia; puede ser nula en datos heredados pendientes de reparación. }
         attribute_schema_version: { type: integer, minimum: 1 }
         attributes: { type: object, maxProperties: 80, description: Características declaradas y validadas por el perfil versionado. }
     SyntheticSpaceGalleryPhoto:

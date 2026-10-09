@@ -216,6 +216,11 @@ func TestPublicationRouteRequiresLandlordAndReturnsState(t *testing.T) {
 	if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &apiError) != nil || apiError.Error.Code != "fixture_enabled" || apiError.Error.RequestID == "" || apiError.Error.RequestID != response.Header().Get("X-Request-ID") {
 		t.Fatalf("enabled fixture conflict contract got %d header=%q body=%s", response.Code, response.Header().Get("X-Request-ID"), response.Body.String())
 	}
+	repo.publicationErr = spaces.ErrTimeZoneRequired
+	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"activa"}`)
+	if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &apiError) != nil || apiError.Error.Code != "time_zone_required" || !strings.Contains(response.Body.String(), "IANA") || apiError.Error.RequestID == "" || apiError.Error.RequestID != response.Header().Get("X-Request-ID") {
+		t.Fatalf("missing time zone error contract got %d header=%q body=%s", response.Code, response.Header().Get("X-Request-ID"), response.Body.String())
+	}
 }
 
 type fakeCalendar struct{}

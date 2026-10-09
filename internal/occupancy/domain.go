@@ -11,6 +11,8 @@ var (
 	ErrNotFound         = errors.New("occupancy: resource not found")
 	ErrConflict         = errors.New("occupancy: interval overlaps an active occupancy")
 	ErrTimezoneRequired = errors.New("occupancy: space timezone is not configured")
+	ErrTimezoneInUse    = errors.New("occupancy: existing reservations prevent time zone repair")
+	ErrTimezoneLocked   = errors.New("occupancy: configured publication time zone cannot be replaced")
 )
 
 type Block struct {
