@@ -1541,8 +1541,12 @@ paths:
       operationId: cancelLocalTrialReservation
       tags: [M06 local]
       description: >-
-        Conserva cancelación pre-pago sin devolución. Para pagada/aprobada_host,
-        solo el arrendatario titular puede cancelar estrictamente antes del inicio.
+        Conserva cancelación pre-pago sin devolución. Para pagada, aprobada_host,
+        firma_parcial o lista_para_checkin, solo el arrendatario titular puede
+        cancelar estrictamente antes del inicio mediante local_flexible_v1.
+        La cancelación y las firmas comparten el bloqueo de reserva: una versión
+        parcialmente firmada se anula; una versión ya firmada queda como hecho
+        histórico y la reserva puede cancelarse con devolución fake.
         La transacción cancela, libera ocupacion, agrega historial y una obligación
         de devolución fake por el subtotal pagado. La respuesta no confirma que la
         devolución haya sido procesada. Política local_flexible_v1 solo para fixtures.

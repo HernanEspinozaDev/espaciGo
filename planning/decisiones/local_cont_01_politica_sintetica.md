@@ -15,6 +15,14 @@ ES1 CU-30 y HU33 indican registrar el rechazo de una parte, conservar el contrat
 - Un rechazo no libera la ocupación de inmediato. El contrato queda parcial y el vencimiento aplica en `start_at`.
 - Toda pantalla, respuesta de ensayo y PDF identifica `ENSAYO SINTÉTICO LOCAL — SIN VALIDEZ JURÍDICA`.
 
+## Integración con cancelación `local_flexible_v1`
+
+El arrendatario conserva el derecho local ratificado de cancelar antes de `start_at` cuando la reserva está `pagada`, `aprobada_host`, `firma_parcial` o `lista_para_checkin`. El importe simulado sigue limitado al 100 % efectivamente confirmado, sin comisión. Firma y cancelación bloquean primero la misma fila de reserva y consultan el reloj tras adquirir el bloqueo.
+
+Si se cancela después de una firma parcial, la versión incompleta pasa a `anulado`, registra la cancelación en su historial y rechaza firmas posteriores. Si ya estaba completamente firmada, conserva firmas y documento como hechos históricos; la reserva igualmente se cancela y libera su ocupación. En ambos casos solo la transacción ganadora puede crear la devolución. En `start_at` o después, el arrendatario no puede cancelar; si faltan firmas, el vencimiento cancela y crea una obligación única. Si ambas firmas se completaron, ese vencimiento no afecta la reserva.
+
+La evaluación de supresión trata `firma_parcial` y `lista_para_checkin` como `reserva_activa`, además de los estados activos previos. Una devolución pendiente conserva su bloqueador independiente.
+
 ## Ownership y protección local
 
 M07 guarda snapshot, firmas e historial en `contrato_ensayo_*`. M09 posee `documento_privado_sintetico_local` para metadata y bytes; su fila se inserta en la transacción que crea el contrato. El PDF se cifra con AES-256-GCM usando el secreto local persistente `local_contract_encryption_key`, creado por `scripts/dev-env.sh config`; conservar ese archivo para poder abrir documentos ya emitidos. El API solo entrega texto/metadata a participantes y descifra el PDF al descargarlo después de ambas firmas. M06 conserva reservas, ocupaciones, transición e importe de devolución.

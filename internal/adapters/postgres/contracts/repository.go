@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -32,6 +33,32 @@ func New(pool *pgxpool.Pool, key []byte) (*Repository, error) {
 	return &Repository{pool: pool, key: append([]byte(nil), key...)}, nil
 }
 
+// lockReservationAccounts establishes the shared lock order used by M06
+// mutations and privacy execution: participant accounts, reservation, then
+// contract/signatures. Expiry workers also take participant locks so they do
+// not invert order against a concurrent cancellation.
+func lockReservationAccounts(ctx context.Context, tx pgx.Tx, reservationID string) (string, string, error) {
+	var host, renter string
+	if err := tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local WHERE id=$1`, reservationID).Scan(&host, &renter); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", contract.ErrNotFound
+		}
+		return "", "", err
+	}
+	ids := []string{host, renter}
+	sort.Strings(ids)
+	for i, id := range ids {
+		if i > 0 && id == ids[i-1] {
+			continue
+		}
+		var locked string
+		if err := tx.QueryRow(ctx, `SELECT id::text FROM public.usuario WHERE id=$1 FOR UPDATE`, id).Scan(&locked); err != nil {
+			return "", "", err
+		}
+	}
+	return host, renter, nil
+}
+
 const columns = `id::text,reserva_id::text,documento_id::text,version,estado,snapshot::text,encode(sha256,'hex'),creada_en,actualizada_en`
 
 func (r *Repository) Create(ctx context.Context, actor, reservationID string, clock func() time.Time) (contract.Contract, error) {
@@ -40,6 +67,9 @@ func (r *Repository) Create(ctx context.Context, actor, reservationID string, cl
 		return contract.Contract{}, err
 	}
 	defer tx.Rollback(ctx)
+	if _, _, err = lockReservationAccounts(ctx, tx, reservationID); err != nil {
+		return contract.Contract{}, err
+	}
 	var state, host, renter string
 	var start, end time.Time
 	var subtotal int64
@@ -126,7 +156,27 @@ func (r *Repository) transition(ctx context.Context, actor, id, action, reason s
 	defer tx.Rollback(ctx)
 	var reservation, contractState, reservationState, host, renter string
 	var start time.Time
-	err = tx.QueryRow(ctx, `SELECT c.reserva_id::text,c.estado,r.estado,r.anfitrion_id::text,r.arrendatario_id::text,r.inicio FROM public.contrato_ensayo_local c JOIN public.reserva_ensayo_local r ON r.id=c.reserva_id WHERE c.id=$1 FOR UPDATE OF r,c`, id).Scan(&reservation, &contractState, &reservationState, &host, &renter, &start)
+	err = tx.QueryRow(ctx, `SELECT reserva_id::text FROM public.contrato_ensayo_local WHERE id=$1`, id).Scan(&reservation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return contract.Contract{}, contract.ErrNotFound
+	}
+	if err != nil {
+		return contract.Contract{}, err
+	}
+	if _, _, err = lockReservationAccounts(ctx, tx, reservation); err != nil {
+		return contract.Contract{}, err
+	}
+	// Every M06/M07 operation locks the reservation before the contract. Avoid
+	// a join-level FOR UPDATE whose row acquisition order could invert against
+	// cancellation (reservation then contract).
+	err = tx.QueryRow(ctx, `SELECT estado,anfitrion_id::text,arrendatario_id::text,inicio FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&reservationState, &host, &renter, &start)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return contract.Contract{}, contract.ErrNotFound
+	}
+	if err != nil {
+		return contract.Contract{}, err
+	}
+	err = tx.QueryRow(ctx, `SELECT estado FROM public.contrato_ensayo_local WHERE id=$1 AND reserva_id=$2 FOR UPDATE`, id, reservation).Scan(&contractState)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return contract.Contract{}, contract.ErrNotFound
 	}
@@ -244,6 +294,10 @@ func (r *Repository) ExpireDue(ctx context.Context, clock func() time.Time) (int
 		if e != nil {
 			return n, e
 		}
+		if _, _, e = lockReservationAccounts(ctx, tx, p.r); e != nil {
+			_ = tx.Rollback(ctx)
+			return n, e
+		}
 		var state string
 		var start time.Time
 		e = tx.QueryRow(ctx, `SELECT estado,inicio FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, p.r).Scan(&state, &start)
@@ -297,6 +351,10 @@ func (r *Repository) ExpireDue(ctx context.Context, clock func() time.Time) (int
 	for _, rid := range missing {
 		tx, e := r.pool.Begin(ctx)
 		if e != nil {
+			return n, e
+		}
+		if _, _, e = lockReservationAccounts(ctx, tx, rid); e != nil {
+			_ = tx.Rollback(ctx)
 			return n, e
 		}
 		var state string
@@ -427,6 +485,25 @@ func event(ctx context.Context, tx pgx.Tx, id, actor, action, reason string, at 
 func bookingEvent(ctx context.Context, tx pgx.Tx, id, from, to, actor, reason string, at time.Time) error {
 	_, err := tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en) SELECT gen_random_uuid(),$1,COALESCE(MAX(secuencia),0)+1,$2,$3,NULLIF($4,'')::uuid,$5,$6 FROM public.reserva_ensayo_transicion WHERE reserva_id=$1`, id, from, to, actor, reason, at)
 	return err
+}
+
+// CancelForReservation coordinates M06's local_flexible_v1 cancellation with
+// M07 while the caller holds the reservation row lock. Incomplete contracts
+// become terminal before another signer can proceed; a fully signed contract
+// remains a historical signed artifact.
+func CancelForReservation(ctx context.Context, tx pgx.Tx, reservationID, actor string, at time.Time) error {
+	var id, state string
+	err := tx.QueryRow(ctx, `SELECT id::text,estado FROM public.contrato_ensayo_local WHERE reserva_id=$1 FOR UPDATE`, reservationID).Scan(&id, &state)
+	if errors.Is(err, pgx.ErrNoRows) || state == "anulado" || state == "firmado" {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.contrato_ensayo_local SET estado='anulado',actualizada_en=$2 WHERE id=$1`, id, at); err != nil {
+		return err
+	}
+	return event(ctx, tx, id, actor, "reserva_cancelada", "local_flexible_v1", at)
 }
 
 type rowQuerier interface {

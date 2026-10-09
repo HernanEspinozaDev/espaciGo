@@ -85,7 +85,7 @@ func publishedContractAPI(t *testing.T, actor string, service *contract.Service,
 	request := httptest.NewRequest(method, path, nil)
 	request.Header.Set("Authorization", "Bearer local-booking-integration-session")
 	response := httptest.NewRecorder()
-	contracthttp.NewHandler(integrationBookingAuth{accountID: actor}, service).ServeHTTP(response, request)
+	contracthttp.NewHandler(integrationBookingAuth{accountID: actor}, service, []string{"http://localhost:8081"}).ServeHTTP(response, request)
 	return response
 }
 
@@ -2696,6 +2696,142 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		t.Fatalf("rejected signer must not retry this version: %v", err)
 	}
 
+	// local_flexible_v1 remains available before start_at after one signature.
+	// M06 cancellation and M07 terminalization share the reservation lock and
+	// transaction so the other participant cannot sign after cancellation.
+	partialCancelReservation := newReservation(1050*time.Hour, "cont-cancel-partial", true)
+	partialCancelContract, err := contractService.Create(ctx, renter, partialCancelReservation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	partialCancelContract, err = contractService.Sign(ctx, host, partialCancelContract.ID)
+	if err != nil || partialCancelContract.State != "firma_parcial" {
+		t.Fatalf("prepare one-signature cancellation: state=%s err=%v", partialCancelContract.State, err)
+	}
+	partialPreview, err := svc.CancellationPreview(ctx, renter, partialCancelReservation.ID)
+	if err != nil || !partialPreview.Eligible || partialPreview.AmountCLP != partialCancelReservation.Subtotal {
+		t.Fatalf("local_flexible_v1 preview after partial signature=%+v err=%v", partialPreview, err)
+	}
+	partialCancelled, err := svc.Cancel(ctx, renter, partialCancelReservation.ID, "cont-cancel-partial", "ensayo")
+	if err != nil || partialCancelled.Reservation.State != "cancelada_arrendatario" || partialCancelled.RefundAmountCLP == nil || *partialCancelled.RefundAmountCLP != partialCancelReservation.Subtotal {
+		t.Fatalf("cancel after partial signature=%+v err=%v", partialCancelled, err)
+	}
+	partialContractAfterCancel, err := contractService.Get(ctx, host, partialCancelContract.ID)
+	if err != nil || partialContractAfterCancel.State != "anulado" {
+		t.Fatalf("partial contract must become terminal on cancellation: %+v err=%v", partialContractAfterCancel, err)
+	}
+	if _, err = contractService.Sign(ctx, renter, partialCancelContract.ID); err != contract.ErrConflict {
+		t.Fatalf("signature after cancellation must conflict, got %v", err)
+	}
+	var partialRefunds, partialActiveOccupancies int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1),(SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo)`, partialCancelReservation.ID).Scan(&partialRefunds, &partialActiveOccupancies); err != nil {
+		t.Fatal(err)
+	}
+	if partialRefunds != 1 || partialActiveOccupancies != 0 {
+		t.Fatalf("partial cancellation duplicate effects refunds=%d active occupancy=%d", partialRefunds, partialActiveOccupancies)
+	}
+
+	// A completed contract remains a signed historical artifact, but its
+	// approved reservation still follows local_flexible_v1 before start_at.
+	fullCancelReservation := newReservation(1051*time.Hour, "cont-cancel-full", true)
+	fullCancelContract, err := contractService.Create(ctx, host, fullCancelReservation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = contractService.Sign(ctx, host, fullCancelContract.ID); err != nil {
+		t.Fatal(err)
+	}
+	fullCancelContract, err = contractService.Sign(ctx, renter, fullCancelContract.ID)
+	if err != nil || fullCancelContract.State != "firmado" {
+		t.Fatalf("prepare completed-contract cancellation: %+v err=%v", fullCancelContract, err)
+	}
+	fullPreview, err := svc.CancellationPreview(ctx, renter, fullCancelReservation.ID)
+	if err != nil || !fullPreview.Eligible || fullPreview.AmountCLP != fullCancelReservation.Subtotal {
+		t.Fatalf("local_flexible_v1 preview after completed signatures=%+v err=%v", fullPreview, err)
+	}
+	fullCancelled, err := svc.Cancel(ctx, renter, fullCancelReservation.ID, "cont-cancel-full", "ensayo")
+	if err != nil || fullCancelled.Reservation.State != "cancelada_arrendatario" || fullCancelled.RefundAmountCLP == nil || *fullCancelled.RefundAmountCLP != fullCancelReservation.Subtotal {
+		t.Fatalf("cancel after completed signatures=%+v err=%v", fullCancelled, err)
+	}
+	fullContractAfterCancel, err := contractService.Get(ctx, host, fullCancelContract.ID)
+	if err != nil || fullContractAfterCancel.State != "firmado" || !strings.HasPrefix(string(fullContractAfterCancel.Artifact), "%PDF-") {
+		t.Fatalf("completed contract snapshot should remain historically signed: %+v err=%v", fullContractAfterCancel, err)
+	}
+	if _, err = contractService.Sign(ctx, renter, fullCancelContract.ID); err != nil {
+		t.Fatalf("idempotent signature retry on already fully signed version=%v", err)
+	}
+	var fullRefunds, fullActiveOccupancies int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1),(SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo)`, fullCancelReservation.ID).Scan(&fullRefunds, &fullActiveOccupancies); err != nil {
+		t.Fatal(err)
+	}
+	if fullRefunds != 1 || fullActiveOccupancies != 0 {
+		t.Fatalf("completed cancellation duplicate effects refunds=%d active occupancy=%d", fullRefunds, fullActiveOccupancies)
+	}
+
+	// Run the pending signature and local_flexible_v1 cancellation at the same
+	// barrier. They must serialize on the reservation row; either cancellation
+	// annuls the partial contract first, or signature completes first and the
+	// cancellation preserves its now-complete historical artifact. Both orders
+	// produce one refund and release occupancy exactly once.
+	raceContractReservation := newReservation(1052*time.Hour, "cont-cancel-sign-race", true)
+	raceContract, err := contractService.Create(ctx, renter, raceContractReservation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = contractService.Sign(ctx, host, raceContract.ID); err != nil {
+		t.Fatal(err)
+	}
+	type cancelSignOutcome struct {
+		name string
+		err  error
+	}
+	raceGate := make(chan struct{})
+	raceResults := make(chan cancelSignOutcome, 2)
+	go func() {
+		<-raceGate
+		_, cancelErr := svc.Cancel(ctx, renter, raceContractReservation.ID, "cont-cancel-sign-race", "ensayo")
+		raceResults <- cancelSignOutcome{"cancel", cancelErr}
+	}()
+	go func() {
+		<-raceGate
+		_, signErr := contractService.Sign(ctx, renter, raceContract.ID)
+		raceResults <- cancelSignOutcome{"sign", signErr}
+	}()
+	close(raceGate)
+	var raceCancelErr, raceSignErr error
+	for range 2 {
+		outcome := <-raceResults
+		if outcome.name == "cancel" {
+			raceCancelErr = outcome.err
+		} else {
+			raceSignErr = outcome.err
+		}
+	}
+	if raceCancelErr != nil || raceSignErr != nil && raceSignErr != contract.ErrConflict {
+		t.Fatalf("cancel/sign lock race cancel=%v sign=%v", raceCancelErr, raceSignErr)
+	}
+	var raceRefunds, raceOccupancies, raceSigned int
+	var raceContractState, raceReservationState string
+	if err = setup.QueryRow(ctx, `SELECT r.estado,c.estado,(SELECT count(*) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id),(SELECT count(*) FROM public.ocupacion o WHERE o.reserva_id=r.id AND o.activo),(SELECT count(*) FROM public.contrato_ensayo_firma f WHERE f.contrato_id=c.id AND f.estado='firmada') FROM public.reserva_ensayo_local r JOIN public.contrato_ensayo_local c ON c.reserva_id=r.id WHERE r.id=$1`, raceContractReservation.ID).Scan(&raceReservationState, &raceContractState, &raceRefunds, &raceOccupancies, &raceSigned); err != nil {
+		t.Fatal(err)
+	}
+	if raceReservationState != "cancelada_arrendatario" || raceRefunds != 1 || raceOccupancies != 0 {
+		t.Fatalf("serialized cancellation result reservation=%s contract=%s refunds=%d occupancy=%d", raceReservationState, raceContractState, raceRefunds, raceOccupancies)
+	}
+	if raceSignErr == nil && (raceContractState != "firmado" || raceSigned != 2) {
+		t.Fatalf("signature-first order lost completed contract: contract=%s signatures=%d", raceContractState, raceSigned)
+	}
+	if raceSignErr == contract.ErrConflict && (raceContractState != "anulado" || raceSigned != 1) {
+		t.Fatalf("cancellation-first order allowed a later signature: contract=%s signatures=%d", raceContractState, raceSigned)
+	}
+	replayRaceCancel, err := svc.Cancel(ctx, renter, raceContractReservation.ID, "cont-cancel-sign-race", "ensayo")
+	if err != nil || !replayRaceCancel.Replayed {
+		t.Fatalf("cancellation replay after signature race=%+v err=%v", replayRaceCancel, err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1`, raceContractReservation.ID).Scan(&raceRefunds); err != nil || raceRefunds != 1 {
+		t.Fatalf("cancel/sign race replay duplicated refund: count=%d err=%v", raceRefunds, err)
+	}
+
 	concurrentExpiryReservation := newReservation(1015*time.Hour, "cont-concurrent-expiry", true)
 	concurrentExpiryContract, err := contractService.Create(ctx, host, concurrentExpiryReservation.ID)
 	if err != nil {
@@ -2796,7 +2932,7 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	waitUntil := time.Now().Add(4 * time.Second)
 	contractWaiting := false
 	for !contractWaiting && time.Now().Before(waitUntil) {
-		if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename=current_user AND wait_event_type='Lock' AND query ILIKE '%FOR UPDATE OF r,c%')`).Scan(&contractWaiting); err != nil {
+		if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename=current_user AND wait_event_type='Lock' AND query ILIKE '%FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE%')`).Scan(&contractWaiting); err != nil {
 			_ = contractLockTx.Rollback(ctx)
 			t.Fatal(err)
 		}

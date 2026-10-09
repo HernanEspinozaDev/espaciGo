@@ -48,7 +48,7 @@ CREATE TABLE public.contrato_ensayo_historial (
     contrato_id uuid NOT NULL REFERENCES public.contrato_ensayo_local(id) ON DELETE RESTRICT,
     secuencia bigint NOT NULL CHECK(secuencia > 0),
     actor_id uuid REFERENCES public.usuario(id) ON DELETE RESTRICT,
-    accion text NOT NULL CHECK (accion IN ('generado','firmado','rechazado','firmado_completo','vencido','reserva_terminal')),
+    accion text NOT NULL CHECK (accion IN ('generado','firmado','rechazado','firmado_completo','vencido','reserva_terminal','reserva_cancelada')),
     motivo text NOT NULL DEFAULT '',
     creada_en timestamptz NOT NULL,
     UNIQUE(contrato_id,secuencia)

@@ -16,6 +16,14 @@ test("la reserva completamente firmada conserva descarga aunque llegue start_at"
   assert.deepEqual(contractActions(state), { canOpen: true, canSign: false, canReject: false, canDownload: true });
 });
 
+test("una reserva cancelada no permite acciones de contrato pendientes",()=>{
+  for (const reservationState of ["cancelada_arrendatario","cancelada_por_firma"]) {
+    const state={accountID:"host",reservationState,reservationStart:100,now:99,contractState:"anulado",signatures:[{signer_id:"host",state:"pendiente"}]};
+    assert.equal(contractActions(state).canSign,false);
+    assert.equal(contractActions(state).canReject,false);
+  }
+});
+
 test("descarta respuesta tardía al cambiar selección, cuenta o sesión",()=>{
   const request={revision:2,reservationID:"reservation-a",accountID:"account-a",token:"session-a1",generation:4};
   assert.equal(contractResponseIsCurrent(request,{...request}),true);

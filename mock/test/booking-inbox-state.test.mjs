@@ -21,8 +21,8 @@ test("only the host can decide a paid reservation before its deadline", () => {
   assert.equal(inboxActions("host", paid, Date.parse(paid.host_expires_at)).canDecide, false);
 });
 
-test("renter may request cancellation of paid or approved bookings only before start", () => {
-  for (const state of ["pagada", "aprobada_host"]) {
+test("renter may request local_flexible_v1 cancellation before start through both contract states", () => {
+  for (const state of ["pagada", "aprobada_host", "firma_parcial", "lista_para_checkin"]) {
     const item = {...reservation,state};
     assert.equal(inboxActions("renter", item, now).canCancel, true);
     assert.equal(inboxActions("host", item, now).canCancel, false);

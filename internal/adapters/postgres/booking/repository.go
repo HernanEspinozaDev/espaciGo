@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking/expiry"
+	contractspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/contracts"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"github.com/jackc/pgx/v5"
@@ -576,7 +577,7 @@ FROM public.reserva_ensayo_local r WHERE r.id=$1 AND r.arrendatario_id=$2`, id, 
 		preview.Eligible = now.Before(payDeadline)
 		preview.ReasonCode = "sin_devolucion"
 		preview.AmountCLP = 0
-	case "pagada", "aprobada_host":
+	case "pagada", "aprobada_host", "firma_parcial", "lista_para_checkin":
 		preview.Eligible = now.Before(preview.Deadline) && preview.AmountCLP > 0
 		if preview.Eligible {
 			preview.ReasonCode = "devolucion_simulada_completa"
@@ -639,12 +640,15 @@ func (r *Repository) Cancel(ctx context.Context, renter, id, key, reason string,
 	if v.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion {
 		return booking.CancellationResult{}, booking.ErrConflict
 	}
+	if err = contractspg.CancelForReservation(ctx, tx, id, renter, now); err != nil {
+		return booking.CancellationResult{}, err
+	}
 	var refundAmount *int64
 	if v.State == "pendiente_de_pago" {
 		if !now.Before(v.PayExpiresAt) {
 			return booking.CancellationResult{}, booking.ErrConflict
 		}
-	} else if v.State == "pagada" || v.State == "aprobada_host" {
+	} else if v.State == "pagada" || v.State == "aprobada_host" || v.State == "firma_parcial" || v.State == "lista_para_checkin" {
 		if !now.Before(v.StartAt) {
 			return booking.CancellationResult{}, booking.ErrConflict
 		}

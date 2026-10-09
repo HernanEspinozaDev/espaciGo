@@ -19,15 +19,37 @@ type Authenticator interface {
 type Handler struct {
 	auth    Authenticator
 	service *contract.Service
+	origins map[string]struct{}
 }
 
-func NewHandler(auth Authenticator, service *contract.Service) http.Handler {
-	return &Handler{auth: auth, service: service}
+func NewHandler(auth Authenticator, service *contract.Service, allowedOrigins []string) http.Handler {
+	origins := make(map[string]struct{}, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		if origin != "" {
+			origins[origin] = struct{}{}
+		}
+	}
+	return &Handler{auth: auth, service: service, origins: origins}
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Prototype-Safety", contract.SafetyNotice)
+	w.Header().Add("Vary", "Origin")
+	if origin := r.Header.Get("Origin"); origin != "" {
+		if _, allowed := h.origins[origin]; !allowed {
+			writeError(w, http.StatusForbidden, "origin_denied")
+			return
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-Prototype-Safety")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
+	}
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	rid, _ := (credentials.Generator{}).ID()
 	w.Header().Set("X-Request-ID", rid)
 	p, err := h.auth.Authorize(r.Context(), identity.Secret(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")), "", identity.UserOperation)

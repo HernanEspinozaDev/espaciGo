@@ -1410,7 +1410,7 @@ func seedPrivacyReviewReservation(t *testing.T, h *authHarness, spaceID, quoteID
 		id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,
 		estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,
 		pago_vence_en,creada_en,actualizada_en,condiciones_snapshot,politica_cancelacion_version,ocupacion_id
-	) VALUES ($1,$2,$3,$4,$5,'synthetic-key',decode(repeat('11',32),'hex'),$6,12000,1,12000,'hora','CLP',$7,$8,'UTC',$9,$10,$10,'synthetic use conditions','local_flexible_v1',$11)`, reservationID, quoteID, spaceID, hostID, renterID, state, start, end, h.now.Add(time.Hour), h.now, occupancyID); err != nil {
+	) VALUES ($1,$2,$3,$4,$5,'synthetic-key-'||$1::uuid::text,decode(repeat('11',32),'hex'),$6,12000,1,12000,'hora','CLP',$7,$8,'UTC',$9,$10,$10,'synthetic use conditions','local_flexible_v1',$11)`, reservationID, quoteID, spaceID, hostID, renterID, state, start, end, h.now.Add(time.Hour), h.now, occupancyID); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(h.ctx); err != nil {
@@ -1500,6 +1500,38 @@ func TestM02SuppressionReviewListsOnlyLiveReservationAndPaymentObligations(t *te
 	var targetState string
 	if err := h.pool.QueryRow(h.ctx, `SELECT estado FROM public.usuario WHERE id=$1`, terminalRequester).Scan(&targetState); err != nil || targetState != "activo" {
 		t.Fatalf("blocked account was modified: state=%q err=%v", targetState, err)
+	}
+}
+
+func TestSuppressionTreatsSignedContractReservationStatesAsActive(t *testing.T) {
+	h := newAuthHarness(t)
+	adminID := h.register(t, "privacy-contract-admin@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	service, err := privacy.NewService(h.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, state := range []string{"firma_parcial", "lista_para_checkin"} {
+		prefix := []string{"7200", "7300"}[i]
+		requester := h.register(t, "privacy-contract-"+state+"@ejemplo.invalid")
+		h.verify(t)
+		request, requestErr := service.RequestRight(h.ctx, requester, "supresion", "web")
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		seedPrivacyReviewReservation(t, h,
+			prefix+"0000-0000-4000-8000-000000000001",
+			prefix+"0000-0000-4000-8000-000000000002",
+			prefix+"0000-0000-4000-8000-000000000003",
+			prefix+"0000-0000-4000-8000-000000000004",
+			requester, adminID, state)
+		result, reviewErr := h.repo.ReviewSuppression(h.ctx, adminID, request.ID, "review-"+state, "correlation-"+state, func() time.Time { return h.now })
+		if reviewErr != nil || result.Outcome != "bloqueada" || !reflect.DeepEqual(result.Obligations, []string{"reserva_activa"}) {
+			t.Fatalf("contract reservation state %s did not block suppression: %+v err=%v", state, result, reviewErr)
+		}
 	}
 }
 

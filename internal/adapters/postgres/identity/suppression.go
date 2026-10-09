@@ -33,7 +33,7 @@ func activeSuppressionObligations(ctx context.Context, tx pgx.Tx, subjectID stri
 	out := make([]string, 0, 3)
 	var found bool
 	queries := []struct{ code, sql string }{
-		{"reserva_activa", `SELECT EXISTS (SELECT 1 FROM public.reserva_ensayo_local WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado IN ('pendiente_de_pago','pagada','aprobada_host'))`},
+		{"reserva_activa", `SELECT EXISTS (SELECT 1 FROM public.reserva_ensayo_local WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado IN ('pendiente_de_pago','pagada','aprobada_host','firma_parcial','lista_para_checkin'))`},
 		{"pago_o_devolucion_pendiente", `SELECT EXISTS (
 		 SELECT 1 FROM public.reserva_pago_ensayo_operacion p JOIN public.reserva_ensayo_local r ON r.id=p.reserva_id WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND p.estado='pendiente'
 		 UNION ALL SELECT 1 FROM public.reserva_pago_evento_aplicacion_ensayo a JOIN public.reserva_pago_evento_ensayo e ON e.id=a.evento_id JOIN public.reserva_pago_ensayo_operacion p ON p.id=e.operacion_id JOIN public.reserva_ensayo_local r ON r.id=p.reserva_id WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND a.estado='pendiente_conciliacion'

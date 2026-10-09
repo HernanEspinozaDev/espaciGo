@@ -261,7 +261,7 @@ func run() error {
 				return errors.New("local contract rehearsal initialization failed")
 			}
 			localContractService = contractService
-			registerContractRoutes(mux, contracthttp.NewHandler(service, contractService))
+			registerContractRoutes(mux, contracthttp.NewHandler(service, contractService, cfg.allowedOrigins))
 		}
 		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/yaml")

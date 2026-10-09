@@ -13,7 +13,8 @@ export function contractResponseIsCurrent(start:ContractRequestContext,current:C
 export function contractActions(state: ContractUIState): { canOpen: boolean; canSign: boolean; canReject: boolean; canDownload: boolean } {
   const own = state.signatures.find(signature => signature.signer_id === state.accountID);
   const beforeStart = state.now < state.reservationStart;
-  const actionable = beforeStart && Boolean(own && own.state === "pendiente") && !["firmado", "anulado"].includes(state.contractState ?? "");
+  const cancellableReservation = ["aprobada_host", "firma_parcial", "lista_para_checkin"].includes(state.reservationState);
+  const actionable = cancellableReservation && beforeStart && Boolean(own && own.state === "pendiente") && !["firmado", "anulado"].includes(state.contractState ?? "");
   return {
     canOpen: ["aprobada_host", "firma_parcial", "lista_para_checkin"].includes(state.reservationState),
     canSign: actionable,
