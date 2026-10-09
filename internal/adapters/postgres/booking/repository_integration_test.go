@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,15 +22,21 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	contractpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/contracts"
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
+	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
+	operationspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/operations"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/contract"
 	contracthttp "github.com/HernanEspinozaDev/espaciGo/internal/contract/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
+	"github.com/HernanEspinozaDev/espaciGo/internal/damageclaim"
+	damageclaimhttp "github.com/HernanEspinozaDev/espaciGo/internal/damageclaim/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
+	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
+	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -37,6 +44,36 @@ import (
 )
 
 type integrationBookingAuth struct{ accountID string }
+
+type operationTestFiles struct {
+	mu    sync.Mutex
+	files map[string][]byte
+}
+
+func (f *operationTestFiles) Put(_ context.Context, id string, blob []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.files == nil {
+		f.files = map[string][]byte{}
+	}
+	f.files[id] = append([]byte(nil), blob...)
+	return nil
+}
+func (f *operationTestFiles) Get(_ context.Context, id string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	blob, ok := f.files[id]
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return append([]byte(nil), blob...), nil
+}
+func (f *operationTestFiles) Delete(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.files, id)
+	return nil
+}
 
 func (a integrationBookingAuth) Authorize(_ context.Context, raw identity.Secret, _ identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
 	if raw != "local-booking-integration-session" {
@@ -86,6 +123,48 @@ func publishedContractAPI(t *testing.T, actor string, service *contract.Service,
 	request.Header.Set("Authorization", "Bearer local-booking-integration-session")
 	response := httptest.NewRecorder()
 	contracthttp.NewHandler(integrationBookingAuth{accountID: actor}, service, []string{"http://localhost:8081"}).ServeHTTP(response, request)
+	return response
+}
+
+func publishedOperationAPI(t *testing.T, actor string, service *operation.Service, method, path, key string, payload any) *httptest.ResponseRecorder {
+	t.Helper()
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = strings.NewReader(string(encoded))
+	}
+	request := httptest.NewRequest(method, path, body)
+	request.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	request.Header.Set("Content-Type", "application/json")
+	if key != "" {
+		request.Header.Set("Idempotency-Key", key)
+	}
+	response := httptest.NewRecorder()
+	operationhttp.NewHandler(integrationBookingAuth{accountID: actor}, service, nil).ServeHTTP(response, request)
+	return response
+}
+
+func publishedDamageClaimAPI(t *testing.T, actor string, service *damageclaim.Service, method, path, key string, payload any) *httptest.ResponseRecorder {
+	t.Helper()
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = strings.NewReader(string(encoded))
+	}
+	request := httptest.NewRequest(method, path, body)
+	request.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	request.Header.Set("Content-Type", "application/json")
+	if key != "" {
+		request.Header.Set("Idempotency-Key", key)
+	}
+	response := httptest.NewRecorder()
+	damageclaimhttp.NewHandler(integrationBookingAuth{accountID: actor}, service, nil).ServeHTTP(response, request)
 	return response
 }
 
@@ -2666,6 +2745,281 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	_, _ = contractService.ExpireDue(ctx)
 	if completeAfterStart, readErr := svc.Get(ctx, renter, completeReservation.ID); readErr != nil || completeAfterStart.State != "lista_para_checkin" {
 		t.Fatalf("fully signed contract expired with time: state=%s err=%v", completeAfterStart.State, readErr)
+	}
+
+	// LOCAL-OPS-01: the use/return evidence belongs to this reservation and its
+	// participants. Check-in validates the IANA start date and both signatures;
+	// check-out persists the 24-hour claim deadline; host receipt is independent
+	// and never shortens that period or settles money.
+	operationFiles := &operationTestFiles{}
+	operationService, err := operation.NewService(operationspg.New(pool), operationFiles, credentials.Generator{}, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationPath := "/api/v1/local/booking-trial/reservations/" + completeReservation.ID
+	clockMu.Lock()
+	fixedNow = completeReservation.StartAt.AddDate(0, 0, 1)
+	clockMu.Unlock()
+	wrongDay := publishedOperationAPI(t, renter, operationService, http.MethodPost, operationPath+"/check-in", "wrong-day-0001", operation.Input{Comments: "día incorrecto"})
+	if wrongDay.Code != http.StatusConflict {
+		t.Fatalf("check-in on a later local day=%d %s", wrongDay.Code, wrongDay.Body.String())
+	}
+	if detail, detailErr := svc.Get(ctx, renter, completeReservation.ID); detailErr != nil || detail.State != "lista_para_checkin" {
+		t.Fatalf("wrong-day check-in changed booking: state=%s err=%v", detail.State, detailErr)
+	}
+	clockMu.Lock()
+	fixedNow = completeReservation.StartAt
+	clockMu.Unlock()
+	if denied := publishedOperationAPI(t, host, operationService, http.MethodPost, operationPath+"/check-in", "host-checkin-0001", operation.Input{}); denied.Code != http.StatusNotFound {
+		t.Fatalf("host check-in status=%d, want hidden 404", denied.Code)
+	}
+	if denied := publishedOperationAPI(t, outsider, operationService, http.MethodGet, operationPath+"/operations", "", nil); denied.Code != http.StatusNotFound {
+		t.Fatalf("outsider operations status=%d, want 404", denied.Code)
+	}
+	type opResult struct {
+		item   operation.Item
+		reused bool
+		err    error
+	}
+	barrier := make(chan struct{})
+	opResults := make(chan opResult, 2)
+	for range 2 {
+		go func() {
+			<-barrier
+			item, callErr := operationService.Record(ctx, renter, completeReservation.ID, "checkin-race-key", operation.Input{Kind: operation.CheckIn, Comments: "Llaves recibidas"})
+			opResults <- opResult{item, item.Reused, callErr}
+		}()
+	}
+	close(barrier)
+	first, second := <-opResults, <-opResults
+	if first.err != nil || second.err != nil || first.item.ID != second.item.ID || first.reused == second.reused {
+		t.Fatalf("concurrent check-in retries: first item=%+v reused=%v err=%v; second item=%+v reused=%v err=%v", first.item, first.reused, first.err, second.item, second.reused, second.err)
+	}
+	if detail, detailErr := svc.Get(ctx, renter, completeReservation.ID); detailErr != nil || detail.State != "en_curso" {
+		t.Fatalf("check-in state=%s err=%v", detail.State, detailErr)
+	}
+	clockMu.Lock()
+	fixedNow = completeReservation.EndAt.Add(time.Hour)
+	clockMu.Unlock()
+	checkOut := publishedOperationAPI(t, renter, operationService, http.MethodPost, operationPath+"/check-out", "checkout-key-0001", operation.Input{Comments: "Espacio desocupado"})
+	if checkOut.Code != http.StatusCreated {
+		t.Fatalf("check-out API=%d %s", checkOut.Code, checkOut.Body.String())
+	}
+	var checkoutEnvelope struct {
+		Data operation.Item `json:"data"`
+	}
+	if err = json.Unmarshal(checkOut.Body.Bytes(), &checkoutEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if checkoutEnvelope.Data.ClaimDeadlineAt == nil || !checkoutEnvelope.Data.ClaimDeadlineAt.Equal(checkoutEnvelope.Data.OccurredAt.Add(24*time.Hour)) || len(checkoutEnvelope.Data.Evidence) != 1 {
+		t.Fatalf("check-out deadline/evidence=%+v", checkoutEnvelope.Data)
+	}
+	clockMu.Lock()
+	receiptAt := fixedNow.Add(time.Hour)
+	fixedNow = receiptAt
+	clockMu.Unlock()
+	receipt := publishedOperationAPI(t, host, operationService, http.MethodPost, operationPath+"/reception", "receipt-key-0001", operation.Input{Observations: "Observación sintética del anfitrión"})
+	if receipt.Code != http.StatusCreated {
+		t.Fatalf("host receipt API=%d %s", receipt.Code, receipt.Body.String())
+	}
+	var receiptEnvelope struct {
+		Data operation.Item `json:"data"`
+	}
+	if err = json.Unmarshal(receipt.Body.Bytes(), &receiptEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if receiptEnvelope.Data.Result != "recepcion_con_observaciones" || receiptEnvelope.Data.ClaimDeadlineAt != nil {
+		t.Fatalf("receipt result=%+v", receiptEnvelope.Data)
+	}
+	if replay := publishedOperationAPI(t, host, operationService, http.MethodPost, operationPath+"/reception", "receipt-key-0001", operation.Input{Observations: "Observación sintética del anfitrión"}); replay.Code != http.StatusOK {
+		t.Fatalf("receipt replay=%d %s", replay.Code, replay.Body.String())
+	}
+	operationsResponse := publishedOperationAPI(t, renter, operationService, http.MethodGet, operationPath+"/operations", "", nil)
+	if operationsResponse.Code != http.StatusOK {
+		t.Fatalf("participant operations list=%d %s", operationsResponse.Code, operationsResponse.Body.String())
+	}
+	var listed struct {
+		Data struct {
+			Items []operation.Item `json:"items"`
+		} `json:"data"`
+	}
+	if err = json.Unmarshal(operationsResponse.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Data.Items) != 3 || listed.Data.Items[0].Kind != operation.CheckIn || listed.Data.Items[1].Kind != operation.CheckOut || listed.Data.Items[2].Kind != operation.Receipt || listed.Data.Items[2].Sequence <= listed.Data.Items[1].Sequence {
+		t.Fatalf("operation history order=%+v", listed.Data.Items)
+	}
+	if denied := publishedOperationAPI(t, outsider, operationService, http.MethodGet, operationPath+"/evidence/"+listed.Data.Items[0].Evidence[0].ID, "", nil); denied.Code != http.StatusNotFound {
+		t.Fatalf("outsider evidence status=%d, want 404", denied.Code)
+	}
+	evidenceURL := listed.Data.Items[0].Evidence[0].ID
+	evidenceResponse := publishedOperationAPI(t, host, operationService, http.MethodGet, operationPath+"/evidence/"+evidenceURL, "", nil)
+	if evidenceResponse.Code != http.StatusOK || evidenceResponse.Header().Get("Content-Type") != "image/png" || len(evidenceResponse.Body.Bytes()) < 8 {
+		t.Fatalf("participant private evidence response=%d type=%q bytes=%d", evidenceResponse.Code, evidenceResponse.Header().Get("Content-Type"), evidenceResponse.Body.Len())
+	}
+	var operationState string
+	if err = setup.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, completeReservation.ID).Scan(&operationState); err != nil || operationState != "finalizada" {
+		t.Fatalf("final booking state=%q err=%v", operationState, err)
+	}
+	var transitionCount, occupancyCount int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 AND estado_nuevo IN ('en_curso','finalizada')`, completeReservation.ID).Scan(&transitionCount); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo`, completeReservation.ID).Scan(&occupancyCount); err != nil {
+		t.Fatal(err)
+	}
+	if transitionCount != 2 || occupancyCount != 1 {
+		t.Fatalf("operation transitions/occupancy=%d/%d", transitionCount, occupancyCount)
+	}
+	claimService, err := damageclaim.New(damageclaimpg.New(pool), clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if denied := publishedDamageClaimAPI(t, renter, claimService, http.MethodPost, operationPath+"/damage-claim", "renter-claim-0001", damageclaim.Input{Description: "No soy quien abre el reclamo."}); denied.Code != http.StatusNotFound {
+		t.Fatalf("renter opening formal claim=%d %s", denied.Code, denied.Body.String())
+	}
+	if denied := publishedDamageClaimAPI(t, outsider, claimService, http.MethodGet, operationPath+"/damage-claim", "", nil); denied.Code != http.StatusNotFound {
+		t.Fatalf("outsider claim lookup=%d %s", denied.Code, denied.Body.String())
+	}
+	var moneyBefore int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_pago_ensayo WHERE reserva_id=$1)+(SELECT count(*) FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1)`, completeReservation.ID).Scan(&moneyBefore); err != nil {
+		t.Fatal(err)
+	}
+	type claimResult struct {
+		value damageclaim.Claim
+		err   error
+	}
+	claimBarrier := make(chan struct{})
+	claimResults := make(chan claimResult, 2)
+	for range 2 {
+		go func() {
+			<-claimBarrier
+			value, openErr := claimService.Open(ctx, host, completeReservation.ID, "host-claim-0001", damageclaim.Input{Description: "Observación sintética de daño para ensayo."})
+			claimResults <- claimResult{value, openErr}
+		}()
+	}
+	close(claimBarrier)
+	claimFirst, claimSecond := <-claimResults, <-claimResults
+	if claimFirst.err != nil || claimSecond.err != nil || claimFirst.value.ID != claimSecond.value.ID || claimFirst.value.Reused == claimSecond.value.Reused {
+		t.Fatalf("concurrent claim retries: first=%+v err=%v second=%+v err=%v", claimFirst.value, claimFirst.err, claimSecond.value, claimSecond.err)
+	}
+	claimResponse := publishedDamageClaimAPI(t, host, claimService, http.MethodPost, operationPath+"/damage-claim", "host-claim-0001", damageclaim.Input{Description: "Observación sintética de daño para ensayo."})
+	if claimResponse.Code != http.StatusOK {
+		t.Fatalf("formal claim API replay=%d %s", claimResponse.Code, claimResponse.Body.String())
+	}
+	var claimEnvelope struct {
+		Data damageclaim.Claim `json:"data"`
+	}
+	if err = json.Unmarshal(claimResponse.Body.Bytes(), &claimEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if checkoutEnvelope.Data.ClaimDeadlineAt == nil || claimEnvelope.Data.CheckoutEvidenceID != listed.Data.Items[1].Evidence[0].ID || !claimEnvelope.Data.ClaimDeadlineAt.Equal(*checkoutEnvelope.Data.ClaimDeadlineAt) {
+		t.Fatalf("claim reference/deadline=%+v", claimEnvelope.Data)
+	}
+	if replay := publishedDamageClaimAPI(t, host, claimService, http.MethodPost, operationPath+"/damage-claim", "host-claim-0001", damageclaim.Input{Description: "Observación sintética de daño para ensayo."}); replay.Code != http.StatusOK {
+		t.Fatalf("claim idempotent replay=%d %s", replay.Code, replay.Body.String())
+	}
+	claimRead := publishedDamageClaimAPI(t, renter, claimService, http.MethodGet, operationPath+"/damage-claim", "", nil)
+	if claimRead.Code != http.StatusOK {
+		t.Fatalf("renter claim read=%d %s", claimRead.Code, claimRead.Body.String())
+	}
+	defense := publishedDamageClaimAPI(t, renter, claimService, http.MethodPost, operationPath+"/damage-claim/defense", "renter-defense-0001", damageclaim.Input{Description: "Descargo sintético del arrendatario."})
+	if defense.Code != http.StatusCreated {
+		t.Fatalf("renter defense=%d %s", defense.Code, defense.Body.String())
+	}
+	if replay := publishedDamageClaimAPI(t, renter, claimService, http.MethodPost, operationPath+"/damage-claim/defense", "renter-defense-0001", damageclaim.Input{Description: "Descargo sintético del arrendatario."}); replay.Code != http.StatusOK {
+		t.Fatalf("defense idempotent replay=%d %s", replay.Code, replay.Body.String())
+	}
+	if denied := publishedDamageClaimAPI(t, outsider, claimService, http.MethodPost, operationPath+"/damage-claim/defense", "outsider-defense-01", damageclaim.Input{Description: "Tercero"}); denied.Code != http.StatusNotFound {
+		t.Fatalf("outsider defense=%d %s", denied.Code, denied.Body.String())
+	}
+	if err = setup.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, completeReservation.ID).Scan(&operationState); err != nil || operationState != "en_disputa" {
+		t.Fatalf("claim transition state=%q err=%v", operationState, err)
+	}
+	var moneyAfter int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_pago_ensayo WHERE reserva_id=$1)+(SELECT count(*) FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1)`, completeReservation.ID).Scan(&moneyAfter); err != nil {
+		t.Fatal(err)
+	}
+	if moneyAfter != moneyBefore {
+		t.Fatalf("opening/defending damage claim changed fake money rows: %d -> %d", moneyBefore, moneyAfter)
+	}
+	// A request started before the deadline but held on the reservation lock
+	// must read the injected clock after acquiring it and reject at the exact
+	// persisted checkout boundary without a partial claim/state transition.
+	deadlineReservation := newReservation(1200*time.Hour, "ops-claim-deadline", true)
+	deadlineContract, contractErr := contractService.Create(ctx, renter, deadlineReservation.ID)
+	if contractErr != nil {
+		t.Fatal(contractErr)
+	}
+	if _, contractErr = contractService.Sign(ctx, host, deadlineContract.ID); contractErr != nil {
+		t.Fatal(contractErr)
+	}
+	if _, contractErr = contractService.Sign(ctx, renter, deadlineContract.ID); contractErr != nil {
+		t.Fatal(contractErr)
+	}
+	clockMu.Lock()
+	fixedNow = deadlineReservation.StartAt
+	clockMu.Unlock()
+	if _, err = operationService.Record(ctx, renter, deadlineReservation.ID, "deadline-checkin", operation.Input{Kind: operation.CheckIn}); err != nil {
+		t.Fatalf("deadline test check-in: %v", err)
+	}
+	clockMu.Lock()
+	fixedNow = deadlineReservation.EndAt.Add(time.Hour)
+	clockMu.Unlock()
+	deadlineCheckout, err := operationService.Record(ctx, renter, deadlineReservation.ID, "deadline-checkout", operation.Input{Kind: operation.CheckOut})
+	if err != nil || deadlineCheckout.ClaimDeadlineAt == nil {
+		t.Fatalf("deadline test checkout=%+v err=%v", deadlineCheckout, err)
+	}
+	claimLock, err := setup.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deadlineReservationLockID string
+	if err = claimLock.QueryRow(ctx, `SELECT id::text FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, deadlineReservation.ID).Scan(&deadlineReservationLockID); err != nil {
+		_ = claimLock.Rollback(ctx)
+		t.Fatal(err)
+	}
+	clockMu.Lock()
+	fixedNow = deadlineCheckout.ClaimDeadlineAt.Add(-time.Minute)
+	clockMu.Unlock()
+	lockedClaimResult := make(chan error, 1)
+	go func() {
+		_, claimErr := claimService.Open(ctx, host, deadlineReservation.ID, "late-claim-lock-key", damageclaim.Input{Description: "No debe cruzar el plazo bajo espera."})
+		lockedClaimResult <- claimErr
+	}()
+	deadlineWaiting := false
+	for i := 0; i < 100; i++ {
+		if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename=current_user AND wait_event_type='Lock' AND query ILIKE '%FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE%')`).Scan(&deadlineWaiting); err != nil {
+			_ = claimLock.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if deadlineWaiting {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !deadlineWaiting {
+		_ = claimLock.Rollback(ctx)
+		t.Fatal("damage claim request did not wait for reservation lock")
+	}
+	clockMu.Lock()
+	fixedNow = *deadlineCheckout.ClaimDeadlineAt
+	clockMu.Unlock()
+	if err = claimLock.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if lateErr := <-lockedClaimResult; lateErr != damageclaim.ErrConflict {
+		t.Fatalf("claim at persisted 24h boundary err=%v", lateErr)
+	}
+	var lateClaimCount int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1`, deadlineReservation.ID).Scan(&lateClaimCount); err != nil {
+		t.Fatal(err)
+	}
+	if lateClaimCount != 0 {
+		t.Fatalf("late concurrent claim inserted %d row(s)", lateClaimCount)
+	}
+	if detail, detailErr := svc.Get(ctx, renter, deadlineReservation.ID); detailErr != nil || detail.State != "finalizada" {
+		t.Fatalf("late claim changed reservation: %s err=%v", detail.State, detailErr)
 	}
 
 	contractRejectReservation := newReservation(1030*time.Hour, "cont-reject", true)

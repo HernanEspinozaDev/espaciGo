@@ -163,6 +163,25 @@
           <button id="synthetic-contract-download" type="button" disabled>Descargar PDF de ensayo firmado</button>
           <pre id="synthetic-contract-output">Selecciona una reserva aprobada para generar o consultar su contrato.</pre>
         </section>
+        <section id="local-rental-operations" aria-labelledby="local-rental-operations-title">
+          <h5 id="local-rental-operations-title">Entrega, uso y devolución sintéticos</h5>
+          <p>ENSAYO LOCAL — SIN VALIDEZ PROBATORIA REAL. La API genera y guarda una imagen PNG sintética privada por operación. La ubicación es un centro de ensayo explícito; no se consulta la ubicación del dispositivo.</p>
+          <label>Comentarios de check-in / check-out <input id="local-rental-comments" type="text" maxlength="2000"></label>
+          <button id="local-rental-checkin" type="button" disabled>Registrar check-in</button>
+          <button id="local-rental-checkout" type="button" disabled>Registrar check-out</button>
+          <label>Observación de recepción <input id="local-rental-observations" type="text" maxlength="2000"></label>
+          <button id="local-rental-reception" type="button" disabled>Confirmar recepción / registrar observación</button>
+          <p>Una observación no crea ni resuelve un reclamo formal. La recepción no liquida pagos ni acorta el plazo de reclamo, que parte del check-out persistido.</p>
+          <pre id="local-rental-operations-output" aria-live="polite">Selecciona una reserva propia.</pre>
+          <section id="local-damage-claim-panel" aria-label="Reclamo formal sintético por daños">
+            <h6>Reclamo formal por daños · M10 local</h6>
+            <p>Solo el anfitrión puede abrirlo antes de 24 horas desde el check-out. La reserva pasa a disputa; no se adjudican daños ni se mueven fondos. El arrendatario puede añadir un descargo. La evidencia referenciada es la imagen sintética privada del check-out.</p>
+            <label>Descripción sintética del reclamo o descargo <textarea id="local-damage-claim-description" rows="3" maxlength="2000"></textarea></label>
+            <button id="local-damage-claim-open" type="button" disabled>Abrir reclamo formal</button>
+            <button id="local-damage-claim-defend" type="button" disabled>Registrar descargo</button>
+            <pre id="local-damage-claim-output" aria-live="polite">El reclamo formal se consulta por participante.</pre>
+          </section>
+        </section>
         <label>Resultado fake <select id="booking-inbox-payment-outcome"><option value="exito">Éxito simulado</option><option value="rechazo">Rechazo simulado</option><option value="sin_respuesta">Sin respuesta simulada</option></select></label>
         <button id="booking-inbox-pay" type="button" disabled>Enviar pago de ensayo</button>
         <pre id="booking-payment-output" aria-live="polite">ENSAYO LOCAL — SIN COBRO REAL

@@ -1872,6 +1872,144 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /local/booking-trial/reservations/{reservationID}/check-in:
+    parameters: [{ name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: recordSyntheticCheckIn
+      tags: [M08 local]
+      description: Solo el arrendatario, con ambas firmas completas y en la fecha local de inicio del espacio. El servidor crea una evidencia PNG sintética privada y registra hora/ubicación de ensayo.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocalRentalOperationInput' }
+      responses:
+        '201': { description: Check-in registrado con evidencia sintética., content: { application/json: { schema: { $ref: '#/components/schemas/LocalRentalOperationEnvelope' } } } }
+        '200': { description: Reintento idempotente; devuelve el registro existente., content: { application/json: { schema: { $ref: '#/components/schemas/LocalRentalOperationEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations/{reservationID}/check-out:
+    parameters: [{ name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: recordSyntheticCheckOut
+      tags: [M08 local]
+      description: Solo el arrendatario sobre una reserva en curso. El servidor genera evidencia privada y persiste el instante que inicia las 24 horas locales para reclamos.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocalRentalOperationInput' }
+      responses:
+        '201': { description: Check-out registrado; plazo derivado del instante persistido., content: { application/json: { schema: { $ref: '#/components/schemas/LocalRentalOperationEnvelope' } } } }
+        '200': { description: Reintento idempotente., content: { application/json: { schema: { $ref: '#/components/schemas/LocalRentalOperationEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations/{reservationID}/reception:
+    parameters: [{ name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: recordSyntheticHostReception
+      tags: [M08 local]
+      description: El anfitrión registra recepción y, opcionalmente, observaciones sobre una reserva finalizada. No crea por sí misma un reclamo formal ni liquida fondos ni modifica el plazo que parte del check-out.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocalRentalOperationInput' }
+      responses:
+        '201': { description: Recepción/observación registrada con evidencia sintética., content: { application/json: { schema: { $ref: '#/components/schemas/LocalRentalOperationEnvelope' } } } }
+        '200': { description: Reintento idempotente., content: { application/json: { schema: { $ref: '#/components/schemas/LocalRentalOperationEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations/{reservationID}/operations:
+    parameters: [{ name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: listSyntheticRentalOperations
+      tags: [M08 local]
+      description: Historial secuencial de check-in, check-out y recepción, solo para participantes.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Historial propio de la reserva., content: { application/json: { schema: { $ref: '#/components/schemas/LocalRentalOperationListEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /local/booking-trial/reservations/{reservationID}/evidence/{evidenceID}:
+    parameters:
+      - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: evidenceID, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: downloadSyntheticRentalOperationEvidence
+      tags: [M08 local]
+      description: Descarga de imagen PNG sintética privada; solo anfitrión o arrendatario de la reserva.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: PNG generado por el Backend., content: { image/png: { schema: { type: string, format: binary } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /local/booking-trial/reservations/{reservationID}/damage-claim:
+    parameters: [{ name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: getOwnSyntheticDamageClaim
+      tags: [M10 local]
+      description: Solo los participantes; devuelve el reclamo formal local separado de la observación de recepción y de la incidencia de privacidad.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Reclamo y descargo existentes., content: { application/json: { schema: { $ref: '#/components/schemas/LocalDamageClaimEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: openSyntheticHostDamageClaim
+      tags: [M10 local]
+      description: Solo el anfitrión, antes de 24 horas desde el check-out persistido. Pasa la reserva a en_disputa; no adjudica responsabilidad ni mueve fondos. Reutiliza la evidencia sintética privada del check-out.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocalDamageClaimInput' }
+      responses:
+        '201': { description: Reclamo sintético abierto y transición persistida., content: { application/json: { schema: { $ref: '#/components/schemas/LocalDamageClaimEnvelope' } } } }
+        '200': { description: Reintento idempotente., content: { application/json: { schema: { $ref: '#/components/schemas/LocalDamageClaimEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations/{reservationID}/damage-claim/defense:
+    parameters: [{ name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: submitSyntheticDamageClaimDefense
+      tags: [M10 local]
+      description: Solo el arrendatario, mientras exista reclamo abierto. Este slice conserva el texto sintético; la evidencia propia de descargo y la revisión/resolución completa de M10 permanecen pendientes.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocalDamageClaimInput' }
+      responses:
+        '201': { description: Descargo sintético registrado., content: { application/json: { schema: { $ref: '#/components/schemas/LocalDamageClaimDefenseEnvelope' } } } }
+        '200': { description: Reintento idempotente., content: { application/json: { schema: { $ref: '#/components/schemas/LocalDamageClaimDefenseEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
 components:
   securitySchemes:
     bearerAuth:
@@ -1896,6 +2034,109 @@ components:
         type: string
         minLength: 1
   schemas:
+    LocalDamageClaimInput:
+      type: object
+      required: [description]
+      additionalProperties: false
+      properties:
+        description: { type: string, minLength: 1, description: Texto sintético del reclamo o descargo. }
+    LocalDamageClaimEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data: { $ref: '#/components/schemas/LocalDamageClaim' }
+        notice: { type: string, const: "ENSAYO LOCAL — RECLAMO SINTÉTICO; SIN ADJUDICACIÓN NI MOVIMIENTO DE FONDOS" }
+    LocalDamageClaimDefenseEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data: { $ref: '#/components/schemas/LocalDamageClaimDefense' }
+        notice: { type: string, const: "ENSAYO LOCAL — RECLAMO SINTÉTICO; SIN ADJUDICACIÓN NI MOVIMIENTO DE FONDOS" }
+    LocalDamageClaim:
+      type: object
+      required: [id, reservation_id, host_id, renter_id, checkout_operation_id, checkout_evidence_id, description, state, opened_at, claim_deadline_at]
+      properties:
+        id: { type: string, format: uuid }
+        reservation_id: { type: string, format: uuid }
+        host_id: { type: string, format: uuid }
+        renter_id: { type: string, format: uuid }
+        checkout_operation_id: { type: string, format: uuid }
+        checkout_evidence_id: { type: string, format: uuid }
+        description: { type: string }
+        state: { type: string, const: abierto }
+        opened_at: { type: string, format: date-time }
+        claim_deadline_at: { type: string, format: date-time }
+        reused: { type: boolean }
+        defense: { $ref: '#/components/schemas/LocalDamageClaimDefense' }
+    LocalDamageClaimDefense:
+      type: object
+      required: [id, actor_id, description, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        actor_id: { type: string, format: uuid }
+        description: { type: string }
+        created_at: { type: string, format: date-time }
+        reused: { type: boolean }
+    LocalRentalOperationInput:
+      type: object
+      additionalProperties: false
+      properties:
+        comments: { type: string, description: Comentario sintético opcional de check-in o check-out. }
+        observations: { type: string, description: Observación opcional de recepción; no equivale a reclamo formal. }
+    LocalRentalOperationEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data: { $ref: '#/components/schemas/LocalRentalOperation' }
+        notice: { type: string, const: "ENSAYO LOCAL — EVIDENCIA SINTÉTICA; SIN VALIDEZ PROBATORIA REAL" }
+    LocalRentalOperationListEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/LocalRentalOperation' } }
+        notice: { type: string, const: "ENSAYO LOCAL — EVIDENCIA SINTÉTICA; SIN VALIDEZ PROBATORIA REAL" }
+    LocalRentalOperation:
+      type: object
+      required: [id, reservation_id, kind, actor_id, occurred_at, time_zone, synthetic_location, result, sequence, evidence]
+      properties:
+        id: { type: string, format: uuid }
+        reservation_id: { type: string, format: uuid }
+        kind: { type: string, enum: [checkin, checkout, recepcion] }
+        actor_id: { type: string, format: uuid }
+        occurred_at: { type: string, format: date-time }
+        time_zone: { type: string }
+        synthetic_location:
+          type: object
+          required: [source, location_code, latitude, longitude]
+          properties:
+            source: { type: string, const: synthetic-fixture-v1 }
+            location_code: { type: string, const: santiago-demo-center-v1 }
+            latitude: { type: number, const: -33.456 }
+            longitude: { type: number, const: -70.6693 }
+        comments: { type: string }
+        observations: { type: string }
+        result: { type: string, enum: [registrada, recepcion_conforme, recepcion_con_observaciones] }
+        claim_deadline_at: { type: string, format: date-time, description: Check-out registrado más 24 horas; basado en instante persistido. }
+        sequence: { type: integer, minimum: 1 }
+        reused: { type: boolean }
+        evidence:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [id, fixture_code, mime_type, sha256, size_bytes, created_at]
+            properties:
+              id: { type: string, format: uuid }
+              content_url: { type: string }
+              fixture_code: { type: string, const: synthetic-png-v1 }
+              mime_type: { type: string, const: image/png }
+              sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+              size_bytes: { type: integer, minimum: 1, maximum: 1048576 }
+              created_at: { type: string, format: date-time }
     LocalSyntheticContract:
       type: object
       required: [id, reservation_id, version, state, snapshot, sha256, signatures, history]

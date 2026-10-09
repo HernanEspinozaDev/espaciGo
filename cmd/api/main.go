@@ -21,10 +21,12 @@ import (
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
 	contractpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/contracts"
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
+	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
+	operationspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/operations"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
 	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
@@ -34,6 +36,8 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/contract"
 	contracthttp "github.com/HernanEspinozaDev/espaciGo/internal/contract/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
+	"github.com/HernanEspinozaDev/espaciGo/internal/damageclaim"
+	damageclaimhttp "github.com/HernanEspinozaDev/espaciGo/internal/damageclaim/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dispute"
 	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
@@ -42,6 +46,8 @@ import (
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
+	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/health"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
@@ -126,6 +132,7 @@ func run() error {
 	var localM02Service *m02local.Service
 	var localGalleryService *gallery.Service
 	var localContractService *contract.Service
+	var localOperationService *operation.Service
 	var privacyReplayRegistryPath string
 	var privacyEvidenceCleaner privacy.SyntheticEvidenceCleaner
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
@@ -262,6 +269,17 @@ func run() error {
 			}
 			localContractService = contractService
 			registerContractRoutes(mux, contracthttp.NewHandler(service, contractService, cfg.allowedOrigins))
+			operationService, err := operation.NewService(operationspg.New(pool), evidenceStore, credentials.Generator{}, time.Now)
+			if err != nil {
+				return errors.New("local rental operation initialization failed")
+			}
+			localOperationService = operationService
+			registerOperationRoutes(mux, operationhttp.NewHandler(service, operationService, cfg.allowedOrigins))
+			claimService, err := damageclaim.New(damageclaimpg.New(pool), time.Now)
+			if err != nil {
+				return errors.New("local damage claim initialization failed")
+			}
+			registerDamageClaimRoutes(mux, damageclaimhttp.NewHandler(service, claimService, cfg.allowedOrigins))
 		}
 		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/yaml")
@@ -299,6 +317,20 @@ func run() error {
 				case <-ticker.C:
 					_, _ = localContractService.EnsureApproved(ctx)
 					_, _ = localContractService.ExpireDue(ctx)
+				}
+			}
+		}()
+	}
+	if localOperationService != nil {
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					_ = localOperationService.CleanRetiredOnce(ctx, 50)
 				}
 			}
 		}()
@@ -370,6 +402,20 @@ func registerContractRoutes(mux *http.ServeMux, handler http.Handler) {
 	mux.Handle("POST /api/v1/local/booking-trial/contracts/{contract_id}/sign", handler)
 	mux.Handle("POST /api/v1/local/booking-trial/contracts/{contract_id}/reject", handler)
 	mux.Handle("GET /api/v1/local/booking-trial/contracts/{contract_id}/document", handler)
+}
+
+func registerOperationRoutes(mux *http.ServeMux, handler http.Handler) {
+	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/check-in", handler)
+	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/check-out", handler)
+	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/reception", handler)
+	mux.Handle("GET /api/v1/local/booking-trial/reservations/{reservationID}/operations", handler)
+	mux.Handle("GET /api/v1/local/booking-trial/reservations/{reservationID}/evidence/{evidenceID}", handler)
+}
+
+func registerDamageClaimRoutes(mux *http.ServeMux, handler http.Handler) {
+	mux.Handle("GET /api/v1/local/booking-trial/reservations/{reservationID}/damage-claim", handler)
+	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/damage-claim", handler)
+	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/damage-claim/defense", handler)
 }
 
 func checkEndpoint(target string) error {

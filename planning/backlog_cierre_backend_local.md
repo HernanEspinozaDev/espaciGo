@@ -1,6 +1,6 @@
 # Backlog propuesto para cerrar el backend local
 
-Fecha inicial: 2026-10-07; conciliado con `main` #215 el 2026-10-09. #210 quedó aceptada tras el ciclo mock de galería sintética; #212 conectó publicaciones activas al catálogo; #214 consolidó reserva/pago fake sobre oferta activa. LOCAL-CONT-01 (#216, hija de #80) implementa ahora contrato y firma sintéticos sobre reserva aprobada, en revisión. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
+Fecha inicial: 2026-10-07; conciliación actualizada tras merges #217 y #214 el 2026-10-09. #216 LOCAL-CONT-01 fue aceptada: contrato y firma sintéticos sobre reserva aprobada. LOCAL-OPS-01 (#218, hija de #88) está en curso. LOCAL-BOOK-02 (#214) también fue aceptada; los padres generales siguen abiertos. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
 
 ## Convenciones
 
@@ -200,11 +200,11 @@ Fecha inicial: 2026-10-07; conciliado con `main` #215 el 2026-10-09. #210 quedó
 
 ### LOCAL-CONT-01 — Construir contrato y firma simulada
 
-- **Módulo/tipo/estado:** M07 / VERTICAL / `En revisión` (#216 / PR actual).
+- **Módulo/tipo/estado:** M07 / VERTICAL / `Aceptado` (#216 / PR #217 fusionado).
 - **Objetivo y motivo:** #80–87, CU-29–32; asegurar contenido y resultado antes del uso del espacio.
 - **Alcance del corte:** snapshot versionado desde reserva aprobada; PDF sintético privado/hash cifrado; firmas fake; rechazo terminal no cancelatorio; vencimiento transaccional M06 con liberación de ocupación y obligación fake del 100%; recuperación idempotente después de aprobación. Rutas JSON, OpenAPI y controles del mock.
 - **Fuera:** validez jurídica, firma real, proveedor o documentos personales reales.
-- **Dependencias:** LOCAL-BOOK-02/#214, identidad, precio y M06 pagos/devoluciones fake fusionados. Las decisiones de firma/rechazo/vencimiento fueron ratificadas en este corte. **Desbloquea:** LOCAL-OPS-01 tras aceptación.
+- **Dependencias:** LOCAL-BOOK-02/#214, identidad, precio y M06 pagos/devoluciones fake fusionados. Las decisiones de firma/rechazo/vencimiento fueron ratificadas en este corte. LOCAL-OPS-01/#218 quedó habilitada tras aceptación.
 - **Aceptación del corte:** edición de perfil/tarifa no cambia contrato histórico; firman solo participantes; tercero no accede; firma parcial/final y rechazo registrado; inicio exacto con firma faltante cancela y crea una devolución única dentro del lock; contrato completamente firmado no vence; descarga solo tras firma total; contenido cifrado en reposo.
 - **Pendiente del padre M07:** proveedor real/sandbox y callback externo; notificaciones durables de contrato; exportación del nuevo artefacto; retención general/productiva y criterios restantes de firma legal.
 - **Pruebas ejecutadas/previsibles:** lifecycle PostgreSQL con reloj inyectado, lock/carrera, replay y ocupación/refund fake; cifrado PDF y acceso participante; acciones mock. Integración completa en DB desechable; no usar el volumen de desarrollo.
@@ -212,14 +212,14 @@ Fecha inicial: 2026-10-07; conciliado con `main` #215 el 2026-10-09. #210 quedó
 
 ### LOCAL-OPS-01 — Construir entrega, recepción y devolución
 
-- **Módulo/tipo/estado:** M08 / VERTICAL / `todo`.
+- **Módulo/tipo/estado:** M08/M10 intake / VERTICAL / `En curso` (#218 / PR actual).
 - **Objetivo y motivo:** #88–94, CU-33–34/48; completar el uso del arriendo y sus evidencias.
-- **Alcance:** check-in/out, confirmación/objeción, evidencia sintética y ventanas aprobadas; actor, fecha y transiciones de reserva. No cerrar el arriendo solo porque pasó la hora si requiere confirmaciones.
+- **Alcance:** check-in/out, recepción/observaciones, evidencia PNG privada sintética, ubicación identificada de ensayo, actor/fecha y transiciones de reserva. Incluye apertura local del reclamo formal M10 por anfitrión dentro de las 24 horas desde el check-out persistido y descargo textual del arrendatario. No adjudica daños, mueve fondos ni cierra el arriendo por reloj.
 - **Fuera:** geolocalización real o política de daño/garantía no acordada; resolución de disputa pertenece a M10.
-- **Dependencias:** LOCAL-CONT-01, BOOK/CORE y D-CONT/OPS. **Desbloquea:** LOCAL-COMM-01 y LOCAL-DIS-01.
-- **Aceptación:** acciones por participante/estado/plazo; evidencia privada; reintentos conservan resultado; objeción inicia el recorrido autorizado sin inventar adjudicación automática.
+- **Dependencias:** LOCAL-CONT-01/#216 aceptado, BOOK/CORE y decisión D-CONT/OPS; decisión de reclamante/ventana ya ratificada. **Desbloquea:** LOCAL-COMM-01 y el siguiente corte de evidencias/resolución LOCAL-DIS-01.
+- **Aceptación:** acciones por participante/estado/fecha; firma completa requerida para check-in; evidencia privada generada por Backend; idempotencia/reintentos; check-out inicia el plazo persistido; recepción no acorta plazo; observación separada del reclamo formal; apertura y descargo se autorizan por rol y ventana, sin resolución automática.
 - **Pruebas previstas:** reloj bajo bloqueo, actor incorrecto, confirmaciones/objeciones, repetición y estado final; finalizar LOCAL-OPS-MOCK-01.
-- **Riesgo:** concluir una reserva por tiempo sin cumplir confirmación o perder pruebas de entrega.
+- **Riesgo:** confundir la incidencia de privacidad M02 con el reclamo de daños M10, presentar un fake como resolución legal/financiera, o completar la reserva solo porque pasó la hora.
 
 ### LOCAL-COMM-01 — Completar reputación y avisos durables
 
@@ -328,7 +328,7 @@ Estas tarjetas son tareas de aceptación incluidas en el paquete vertical, prefe
 | LOCAL-DISC-MOCK-01 / M05 / #68 | LOCAL-DISC-01 | Buscar oferta publicada con filtros/precio/intervalo/proximidad, paginar, consultar detalle/horarios y cotizar selección; cambios de filtros/espacio invalidan resultados anteriores. |
 | LOCAL-BOOK-MOCK-01 / M06 / #79 | LOCAL-BOOK-02 | Solicitar, consultar bandejas/detalle/historial, pago fake/timeout/retry, aprobar/rechazar, vencer y cancelar/refund según política; mismo resultado tras reintento. |
 | LOCAL-CONT-MOCK-01 / M07 / #87 | LOCAL-CONT-01 | Consultar documento privado/versionado y firmantes, firmar/rechazar simuladamente, mostrar estado parcial/final/vencido y conflictos; tercero sin acceso. |
-| LOCAL-OPS-MOCK-01 / M08 / #94 | LOCAL-OPS-01 | Check-in, confirmación/objeción, evidencia sintética, check-out/devolución, fechas/roles y estado; repetición y acción fuera de ventana muestran resultado/error correcto. |
+| LOCAL-OPS-MOCK-01 / M08 / #94 | LOCAL-OPS-01 | Check-in/out, recepción/observación, reclamo formal y descargo sintético, evidencia, fechas/roles y estado; repetición y plazo vencido muestran resultado/error correcto. |
 | LOCAL-COMM-MOCK-01 / M09 / #102 | LOCAL-COMM-01 | Hilo/lectura existente, publicar/consultar reseña elegible, reportar/moderar con rol adecuado y comprobar avisos por Mailpit/estado de entrega autorizado. No añadir un centro de notificaciones. |
 | LOCAL-DIS-MOCK-01 / M10 / #110 | LOCAL-DIS-01 y LOCAL-FIN-01 | Reclamo/descargo/evidencia, resolución motivada, movimientos/garantía/liquidación simulada, reintento y documento fiscal marcado sintético; permisos de partes y revisor. |
 | LOCAL-ADMIN-MOCK-01 / M11 / #118 | LOCAL-ADMIN-01 | Consultar cuentas/reservas/pagos/disputas, acciones administrativas permitidas, moderación, reportes/exportación mínima y auditoría/correlación; negar rol insuficiente. |
