@@ -1045,6 +1045,18 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	if err != nil || lateAuth.State != "vencida" {
 		t.Fatalf("late authorization was not durably reconciled as expired: %+v err=%v", lateAuth, err)
 	}
+	var lateAuthorizedBeforeRelease int64
+	var latePendingReleaseCount int
+	var latePendingReleaseAmount int64
+	if err = setup.QueryRow(ctx, `SELECT g.autorizado_clp,
+		(SELECT count(*) FROM public.reserva_garantia_operacion_ensayo_local x WHERE x.garantia_id=g.id AND x.tipo='liberacion' AND x.estado='pendiente'),
+		(SELECT COALESCE(max(x.importe_clp),0) FROM public.reserva_garantia_operacion_ensayo_local x WHERE x.garantia_id=g.id AND x.tipo='liberacion' AND x.estado='pendiente')
+		FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=$1`, lateReservation.ID).Scan(&lateAuthorizedBeforeRelease, &latePendingReleaseCount, &latePendingReleaseAmount); err != nil {
+		t.Fatal(err)
+	}
+	if lateAuthorizedBeforeRelease != 50000 || latePendingReleaseCount != 1 || latePendingReleaseAmount != 50000 {
+		t.Fatalf("late authorization was not persisted before its single compensating release: authorized=%d release rows=%d amount=%d", lateAuthorizedBeforeRelease, latePendingReleaseCount, latePendingReleaseAmount)
+	}
 	if err = setup.QueryRow(ctx, `SELECT r.estado,EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.reserva_id=r.id AND o.activo) FROM public.reserva_ensayo_local r WHERE r.id=$1`, lateReservation.ID).Scan(&bookingState, &guaranteeActiveOccupancy); err != nil || bookingState != "cancelada_por_pago" || guaranteeActiveOccupancy {
 		t.Fatalf("late authorization reactivated reservation or hold: booking=%s occupancy=%v err=%v", bookingState, guaranteeActiveOccupancy, err)
 	}
@@ -1542,6 +1554,85 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_ensayo WHERE reserva_id=$1 AND resultado='devolucion_simulada'`, hostDeadlineReservation.ID).Scan(&simulatedRefund); err != nil || simulatedRefund != 1 {
 		t.Fatalf("host expiry simulated refund count=%d err=%v", simulatedRefund, err)
 	}
+	hostExpiredGuarantee, err := svc.Guarantee(ctx, renter, hostDeadlineReservation.ID)
+	if err != nil || hostExpiredGuarantee.State != "liberacion_pendiente" || len(hostExpiredGuarantee.Operations) != 2 || hostExpiredGuarantee.Operations[1].Kind != "liberacion" || hostExpiredGuarantee.Operations[1].State != "pendiente" || hostExpiredGuarantee.Operations[1].AmountCLP != 50000 {
+		t.Fatalf("host expiry did not persist a full guarantee release obligation: %+v err=%v", hostExpiredGuarantee, err)
+	}
+	hostReleaseRetry, err := svc.RunGuaranteeOperation(ctx, adminID, hostDeadlineReservation.ID, "liberacion", "host-expiry-release:"+hostDeadlineReservation.ID, 50000, "exito", "", true)
+	if err != nil || hostReleaseRetry.ID != hostExpiredGuarantee.Operations[1].ID || hostReleaseRetry.State != "pendiente" {
+		t.Fatalf("host-expiry release retry did not reuse durable intent: %+v err=%v", hostReleaseRetry, err)
+	}
+	releasedAtHostExpiry, err := svc.ResolveGuaranteeOperation(ctx, adminID, hostDeadlineReservation.ID, "liberacion", "exito")
+	if err != nil || releasedAtHostExpiry.State != "confirmada" {
+		t.Fatalf("host-expiry guarantee release reconciliation: %+v err=%v", releasedAtHostExpiry, err)
+	}
+	if replay, replayErr := svc.ResolveGuaranteeOperation(ctx, adminID, hostDeadlineReservation.ID, "liberacion", "exito"); replayErr != nil || replay.ID != releasedAtHostExpiry.ID || replay.State != "confirmada" {
+		t.Fatalf("host-expiry release retry changed persisted result: %+v err=%v", replay, replayErr)
+	}
+	var hostReleaseCount, hostReleaseResultCount int
+	if err = pool.QueryRow(ctx, `SELECT count(DISTINCT o.id),count(DISTINCT x.id)
+		FROM public.reserva_garantia_operacion_ensayo_local o JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id
+		LEFT JOIN public.reserva_garantia_resultado_fake_ensayo_local x ON x.operacion_id=o.id
+		WHERE g.reserva_id=$1 AND o.tipo='liberacion'`, hostDeadlineReservation.ID).Scan(&hostReleaseCount, &hostReleaseResultCount); err != nil {
+		t.Fatal(err)
+	}
+	if hostReleaseCount != 1 || hostReleaseResultCount != 1 {
+		t.Fatalf("host-expiry release retry duplicated effects: operations=%d fake results=%d", hostReleaseCount, hostReleaseResultCount)
+	}
+	// An authorization whose fake result timed out remains reconcilable when
+	// the host deadline expires. A late success is recorded and compensated,
+	// without reopening either the booking or its occupancy.
+	setClock(baseNow)
+	uncertainHostStart := start.Add(40 * time.Hour)
+	uncertainHostQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: uncertainHostStart.Format(time.RFC3339), EndAt: uncertainHostStart.Add(time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uncertainHostReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: uncertainHostQuote.ID}, "host-deadline-uncertain-auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetLocalGuaranteeOutcome(func() string { return "sin_respuesta" })
+	_, timeoutErr := svc.Pay(ctx, renter, uncertainHostReservation.ID, "exito", "host-deadline-uncertain-rent")
+	if !errors.Is(timeoutErr, booking.ErrSimulatedNoResponse) {
+		t.Fatalf("expected uncertain guarantee authorization at payment, got %v", timeoutErr)
+	}
+	uncertainHostPaid, err := svc.Get(ctx, renter, uncertainHostReservation.ID)
+	if err != nil || uncertainHostPaid.HostExpiresAt == nil {
+		t.Fatalf("uncertain guarantee booking snapshot=%+v err=%v", uncertainHostPaid, err)
+	}
+	setClock(*uncertainHostPaid.HostExpiresAt)
+	if err = repo.Expire(ctx, *uncertainHostPaid.HostExpiresAt); err != nil {
+		t.Fatalf("expire booking with uncertain guarantee authorization: %v", err)
+	}
+	uncertainSnapshot, err := svc.Guarantee(ctx, renter, uncertainHostReservation.ID)
+	if err != nil || uncertainSnapshot.State != "por_conciliar" || len(uncertainSnapshot.Operations) != 1 || uncertainSnapshot.Operations[0].State != "por_conciliar" {
+		t.Fatalf("host expiry discarded uncertain guarantee authorization: %+v err=%v", uncertainSnapshot, err)
+	}
+	lateHostAuthorization, err := svc.ResolveGuaranteeOperation(ctx, adminID, uncertainHostReservation.ID, "autorizacion", "exito")
+	if err != nil || lateHostAuthorization.State != "vencida" {
+		t.Fatalf("late host-expiry authorization reconciliation=%+v err=%v", lateHostAuthorization, err)
+	}
+	lateHostSnapshot, err := svc.Guarantee(ctx, renter, uncertainHostReservation.ID)
+	if err != nil || lateHostSnapshot.AuthorizedCLP != 50000 || lateHostSnapshot.State != "liberacion_pendiente" || len(lateHostSnapshot.Operations) != 2 || lateHostSnapshot.Operations[1].Kind != "liberacion" || lateHostSnapshot.Operations[1].AmountCLP != 50000 {
+		t.Fatalf("late authorization was not durably compensated after host expiry: %+v err=%v", lateHostSnapshot, err)
+	}
+	if _, err = svc.ResolveGuaranteeOperation(ctx, adminID, uncertainHostReservation.ID, "liberacion", "exito"); err != nil {
+		t.Fatalf("late host-expiry guarantee release: %v", err)
+	}
+	if _, err = svc.ResolveGuaranteeOperation(ctx, adminID, uncertainHostReservation.ID, "autorizacion", "exito"); err != nil {
+		t.Fatalf("late host-expiry authorization retry: %v", err)
+	}
+	var uncertainReleaseOps, uncertainReleaseResults int
+	var uncertainBookingState string
+	if err = pool.QueryRow(ctx, `SELECT r.estado,(SELECT count(*) FROM public.reserva_garantia_operacion_ensayo_local x WHERE x.garantia_id=g.id AND x.tipo='liberacion'),(SELECT count(*) FROM public.reserva_garantia_resultado_fake_ensayo_local x JOIN public.reserva_garantia_operacion_ensayo_local o ON o.id=x.operacion_id WHERE o.garantia_id=g.id AND o.tipo='liberacion') FROM public.reserva_garantia_ensayo_local g JOIN public.reserva_ensayo_local r ON r.id=g.reserva_id WHERE r.id=$1`, uncertainHostReservation.ID).Scan(&uncertainBookingState, &uncertainReleaseOps, &uncertainReleaseResults); err != nil {
+		t.Fatal(err)
+	}
+	if uncertainBookingState != "vencida_host" || uncertainReleaseOps != 1 || uncertainReleaseResults != 1 {
+		t.Fatalf("host-expiry reconciliation duplicated or revived state: reservation=%s release operations/results=%d/%d", uncertainBookingState, uncertainReleaseOps, uncertainReleaseResults)
+	}
+	svc.SetLocalGuaranteeOutcome(func() string { return "exito" })
+	setClock(baseNow)
 	// Hold the reservation lock in another transaction. Start Send before the
 	// payment deadline, wait until PostgreSQL confirms it is blocked on that
 	// row, then advance the injected clock to the boundary before releasing it.
@@ -3411,6 +3502,18 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		t.Fatalf("resolve financial claim: %v", err)
 	}
 	financePath := "/api/v1/local/booking-trial/reservations/" + financeReservation.ID + "/financial-decision"
+	// A valid resolution on another reservation must not authorize this
+	// reservation's decision, even when its outcome would otherwise be valid.
+	foreignClaimDecision := booking.FinancialDecisionInput{ClaimID: claimEnvelope.Data.ID, Outcome: "rechazado", DeductionCLP: 0}
+	if _, foreignErr := svc.DecideGuarantee(ctx, adminID, financeReservation.ID, foreignClaimDecision, "foreign-claim-decision", []byte("foreign-claim")); foreignErr != booking.ErrConflict {
+		t.Fatalf("financial decision accepted resolved claim from another reservation: %v", foreignErr)
+	}
+	// Likewise, evidence attached to another participant's reservation cannot
+	// be used to substantiate a deduction for this one.
+	foreignEvidenceDecision := booking.FinancialDecisionInput{ClaimID: financeClaim.ID, Outcome: "acogido", DeductionCLP: 12000, ReasonCode: "dano_acreditado", EvidenceID: participantClaim.Data.Evidence[0].ID}
+	if _, foreignErr := svc.DecideGuarantee(ctx, adminID, financeReservation.ID, foreignEvidenceDecision, "foreign-evidence-decision", []byte("foreign-evidence")); foreignErr != booking.ErrInvalid {
+		t.Fatalf("financial decision accepted evidence from another reservation: %v", foreignErr)
+	}
 	tooMuch := booking.FinancialDecisionInput{ClaimID: financeClaim.ID, Outcome: "acogido", DeductionCLP: 50001, ReasonCode: "dano_acreditado", EvidenceID: financeCheckout.Evidence[0].ID}
 	if overLimit := publishedBookingAPI(t, adminID, svc, http.MethodPost, financePath, "finance-over-limit", tooMuch, true); overLimit.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("deduction above authorization status=%d body=%s", overLimit.Code, overLimit.Body.String())

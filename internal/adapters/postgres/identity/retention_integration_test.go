@@ -428,6 +428,90 @@ func TestLocalReservationRetentionWaitsForFakePaymentReconciliation(t *testing.T
 	}
 }
 
+func TestLocalReservationRetentionDefersGuaranteeAndFinancialDecisionObligations(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "retention-guarantee-host@ejemplo.invalid")
+	renterID := h.register(t, "retention-guarantee-renter@ejemplo.invalid")
+	adminID := h.register(t, "retention-guarantee-admin@ejemplo.invalid")
+	reservationID := "85300000-0000-4000-8000-000000000003"
+	quoteID := "85300000-0000-4000-8000-000000000002"
+	occupancyID := "85300000-0000-4000-8000-000000000004"
+	spaceID := "85300000-0000-4000-8000-000000000001"
+	seedPrivacyReviewReservation(t, h, spaceID, quoteID, reservationID, occupancyID, hostID, renterID, "cancelada_arrendatario")
+	purgeAt := h.now.AddDate(0, 24, 0)
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=$2,actualizada_en=$3 WHERE id=$1`, reservationID, purgeAt, h.now); err != nil {
+		t.Fatal(err)
+	}
+	guaranteeID := "85300000-0000-4000-8000-000000000010"
+	authorizationID := "85300000-0000-4000-8000-000000000011"
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_garantia_ensayo_local(id,reserva_id,politica_version,moneda,previsto_clp,estado,creada_en,actualizada_en)
+		VALUES($1,$2,'garantia_local_fija_v1','CLP',50000,'pendiente_autorizacion',$3,$3)`, guaranteeID, reservationID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_garantia_operacion_ensayo_local(id,garantia_id,tipo,clave_idempotencia,huella_solicitud,importe_clp,resultado_solicitado,estado,primer_intento_en,vence_en,creada_en,actualizada_en)
+		VALUES($1,$2,'autorizacion','retention-pending-auth',decode(repeat('88',32),'hex'),50000,'sin_respuesta','pendiente',$3,$3,$3,$3)`, authorizationID, guaranteeID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	service, err := privacy.NewService(newRuntimeIdentityRepository(t, h))
+	if err != nil {
+		t.Fatal(err)
+	}
+	guaranteeBlocked, err := service.PurgeExpiredReservationLinks(h.ctx, purgeAt, 20)
+	if err != nil || guaranteeBlocked.Purged != 0 || guaranteeBlocked.Deferred != 1 {
+		t.Fatalf("pending guarantee did not defer link purge: %+v err=%v", guaranteeBlocked, err)
+	}
+	assertLinks := func(stage string) {
+		t.Helper()
+		var host, renter string
+		if err := h.pool.QueryRow(h.ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local WHERE id=$1`, reservationID).Scan(&host, &renter); err != nil {
+			t.Fatalf("%s read links: %v", stage, err)
+		}
+		if host != hostID || renter != renterID {
+			t.Fatalf("%s purged links while obligation remained: host=%q renter=%q", stage, host, renter)
+		}
+	}
+	assertLinks("guarantee pending")
+	if _, err = h.pool.Exec(h.ctx, `UPDATE public.reserva_garantia_operacion_ensayo_local SET estado='vencida',ultimo_resultado='cancelada',completada_en=$2,actualizada_en=$2 WHERE id=$1`, authorizationID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.pool.Exec(h.ctx, `UPDATE public.reserva_garantia_ensayo_local SET estado='cancelada',actualizada_en=$2 WHERE id=$1`, guaranteeID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	checkoutID, evidenceID := "85300000-0000-4000-8000-000000000012", "85300000-0000-4000-8000-000000000013"
+	claimID := "85300000-0000-4000-8000-000000000014"
+	if _, err = h.pool.Exec(h.ctx, `INSERT INTO public.operacion_arriendo_ensayo_local(id,reserva_id,tipo,actor_id,ocurrio_en,zona_horaria,ubicacion_sintetica,comentarios,observacion,resultado,clave_idempotencia,huella_solicitud,creada_en)
+		VALUES($1,$2,'checkout',$3,$4,'UTC','{"source":"synthetic-fixture-v1","location_code":"santiago-demo-center-v1","latitude":-33.45,"longitude":-70.66}'::jsonb,'','', 'registrada','retention-checkout-01',decode(repeat('99',32),'hex'),$4)`, checkoutID, reservationID, renterID, h.now.Add(-48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.pool.Exec(h.ctx, `INSERT INTO public.operacion_arriendo_evidencia_ensayo_local(id,operacion_id,fixture_code,mime_type,sha256,size_bytes,creada_en) VALUES($1,$2,'synthetic-png-v1','image/png',repeat('b',64),16,$3)`, evidenceID, checkoutID, h.now.Add(-48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.pool.Exec(h.ctx, `INSERT INTO public.reclamo_dano_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,checkout_operacion_id,checkout_evidencia_id,descripcion,estado,clave_idempotencia,huella_solicitud,abierto_en,plazo_reclamo_hasta)
+		VALUES($1,$2,$3,$4,$5,$6,'synthetic claim','resuelta','retention-claim-01',decode(repeat('aa',32),'hex'),$7::timestamptz,$7::timestamptz+interval '24 hours')`, claimID, reservationID, hostID, renterID, checkoutID, evidenceID, h.now.Add(-72*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.pool.Exec(h.ctx, `INSERT INTO public.reclamo_dano_resolucion_ensayo_local(reclamo_id,resultado,motivo_codigo,administrador_id,resuelta_en,clave_idempotencia,huella_solicitud)
+		VALUES($1,'rechazado','hecho_no_acreditado',$2,$3,'retention-resolution-01',decode(repeat('ab',32),'hex'))`, claimID, adminID, h.now.Add(-48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.pool.Exec(h.ctx, `INSERT INTO public.reserva_decision_financiera_ensayo_local(id,garantia_id,reserva_id,reclamo_id,resultado_reclamo,deduccion_clp,motivo_codigo,administrador_id,clave_idempotencia,huella_solicitud,estado,creada_en,actualizada_en)
+		VALUES('85300000-0000-4000-8000-000000000015',$1,$2,$3,'rechazado',0,'sin_deduccion',$4,'retention-finance-01',decode(repeat('ac',32),'hex'),'pendiente',$5,$5)`, guaranteeID, reservationID, claimID, adminID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	decisionBlocked, err := service.PurgeExpiredReservationLinks(h.ctx, purgeAt, 20)
+	if err != nil || decisionBlocked.Purged != 0 || decisionBlocked.Deferred != 1 {
+		t.Fatalf("pending financial decision did not defer link purge: %+v err=%v", decisionBlocked, err)
+	}
+	assertLinks("financial decision pending")
+	if _, err = h.pool.Exec(h.ctx, `UPDATE public.reserva_decision_financiera_ensayo_local SET estado='sin_deduccion',actualizada_en=$2 WHERE reserva_id=$1`, reservationID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	cleared, err := service.PurgeExpiredReservationLinks(h.ctx, purgeAt, 20)
+	if err != nil || cleared.Purged != 1 || cleared.Deferred != 0 {
+		t.Fatalf("resolved local financial obligations did not allow purge: %+v err=%v", cleared, err)
+	}
+}
+
 func TestLocalSuppressionReplayRestoresAnOlderDatabaseSnapshotIdempotently(t *testing.T) {
 	h := newAuthHarness(t)
 	targetID := h.register(t, "retention-replay-target@ejemplo.invalid")

@@ -401,14 +401,22 @@ func (r *Repository) DecideGuarantee(ctx context.Context, admin, reservationID s
 	}
 	if input.ClaimID != "" {
 		var outcome string
-		err = tx.QueryRow(ctx, `SELECT resultado FROM public.reclamo_dano_resolucion_ensayo_local WHERE reclamo_id=$1`, input.ClaimID).Scan(&outcome)
+		err = tx.QueryRow(ctx, `SELECT x.resultado
+		FROM public.reclamo_dano_resolucion_ensayo_local x
+		JOIN public.reclamo_dano_ensayo_local c ON c.id=x.reclamo_id
+		WHERE x.reclamo_id=$1 AND c.reserva_id=$2`, input.ClaimID, reservationID).Scan(&outcome)
 		if err != nil || outcome != input.Outcome {
 			return existing, false, booking.ErrConflict
 		}
 	}
 	if input.EvidenceID != "" {
 		var ok bool
-		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.operacion_arriendo_evidencia_ensayo_local e JOIN public.operacion_arriendo_ensayo_local o ON o.id=e.operacion_id WHERE e.id=$1 AND o.reserva_id=$2)`, input.EvidenceID, reservationID).Scan(&ok)
+		err = tx.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM public.operacion_arriendo_evidencia_ensayo_local e
+			JOIN public.operacion_arriendo_ensayo_local o ON o.id=e.operacion_id
+			JOIN public.reserva_ensayo_local r ON r.id=o.reserva_id
+			WHERE e.id=$1 AND r.id=$2
+		)`, input.EvidenceID, reservationID).Scan(&ok)
 		if err != nil {
 			return existing, false, err
 		}
@@ -527,6 +535,11 @@ func (r *Repository) ResolveGuaranteeOperation(ctx context.Context, admin, reser
 		authorized = 50000
 		if late {
 			gs = "liberacion_pendiente"
+			// Persist the late authorization before creating its compensating
+			// release intent. Both writes remain atomic in this transaction.
+			if _, err = tx.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET estado=$2,autorizado_clp=$3,actualizada_en=$4 WHERE id=$1`, gid, gs, authorized, now); err != nil {
+				return op, err
+			}
 			// A late authorization is never allowed to revive the booking. Persist
 			// its compensating release as a separate durable fake operation.
 			fp, _ := json.Marshal([]any{"liberacion", int64(50000), "exito"})
