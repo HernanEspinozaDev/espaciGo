@@ -2161,6 +2161,150 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		t.Fatalf("approval/cancel race final state=%s active=%v refunds=%d cancel history=%d", boundaryState, boundaryOccupancy, boundaryRefunds, refundAttempts)
 	}
 
+	// Published M04 spaces join M05 discovery without becoming fixtures. Keep
+	// the renter/host pair and existing fixture catalog intact, and verify that
+	// active listing requires effective owner KYC while drafts/hidden offers
+	// remain private.
+	createPublishedSpace := func(owner, title, state string, price int64) string {
+		t.Helper()
+		id, idErr := (credentials.Generator{}).ID()
+		if idErr != nil {
+			t.Fatal(idErr)
+		}
+		if _, e := setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria)
+			VALUES($1,$2,'oficina',$3,repeat('Publicación sintética para M05. ',4),24,4,'Reglas públicas de ensayo','hora',$4,'Dirección privada que no debe filtrarse',$5,'America/Santiago')`, id, owner, title, price, state); e != nil {
+			t.Fatal(e)
+		}
+		if _, e := setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'oficina',1,'{}')`, id); e != nil {
+			t.Fatal(e)
+		}
+		if _, e := setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',$2)`, id, price); e != nil {
+			t.Fatal(e)
+		}
+		return id
+	}
+	activeSpace := createPublishedSpace(host, "Oficina publicada elegible", "activa", 9000)
+	// A disabled fixture grant must not shadow the normal published-catalog
+	// path, and the joined space must still appear only once.
+	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,false)`, activeSpace, host, renter); err != nil {
+		t.Fatal(err)
+	}
+	hiddenSpace := createPublishedSpace(host, "Oficina oculta", "oculta", 7000)
+	noKYCActiveSpace := createPublishedSpace(outsider, "Oficina sin elegibilidad", "activa", 6000)
+	officeFilter := booking.CatalogFilter{CategoryCode: "oficina"}
+	publicItems, err := svc.Catalog(ctx, renter, officeFilter)
+	if err != nil || len(publicItems) != 1 || publicItems[0].SpaceID != activeSpace || publicItems[0].Price != 9000 {
+		t.Fatalf("active eligible catalog=%+v err=%v", publicItems, err)
+	}
+	if _, err = svc.CatalogDetail(ctx, renter, hiddenSpace); err != booking.ErrNotFound {
+		t.Fatalf("hidden publication detail error=%v", err)
+	}
+	if _, err = svc.CatalogDetail(ctx, renter, noKYCActiveSpace); err != booking.ErrNotFound {
+		t.Fatalf("publication without effective host KYC detail error=%v", err)
+	}
+	activeJSON, err := json.Marshal(publicItems[0])
+	if err != nil || strings.Contains(string(activeJSON), "Dirección privada") || strings.Contains(string(activeJSON), "propietario_id") || strings.Contains(string(activeJSON), host) {
+		t.Fatalf("published catalog leaked private address/owner: %s err=%v", activeJSON, err)
+	}
+	searchStart, searchEnd = fixedNow.Add(72*time.Hour), fixedNow.Add(73*time.Hour)
+	var quotesBeforeSearch, occupanciesBeforeSearch, quotesAfterSearch, occupanciesAfterSearch int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.cotizacion_reserva_ensayo),(SELECT count(*) FROM public.ocupacion)`).Scan(&quotesBeforeSearch, &occupanciesBeforeSearch); err != nil {
+		t.Fatal(err)
+	}
+	minimumTotal, maximumTotal := int64(9000), int64(9000)
+	pricedItems, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "oficina", StartAt: &searchStart, EndAt: &searchEnd, MinTotalCLP: &minimumTotal, MaxTotalCLP: &maximumTotal})
+	if err != nil || len(pricedItems) != 1 || pricedItems[0].SpaceID != activeSpace || pricedItems[0].EstimatedTotal == nil || *pricedItems[0].EstimatedTotal != 9000 {
+		t.Fatalf("published catalog price filter=%+v err=%v", pricedItems, err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.cotizacion_reserva_ensayo),(SELECT count(*) FROM public.ocupacion)`).Scan(&quotesAfterSearch, &occupanciesAfterSearch); err != nil {
+		t.Fatal(err)
+	}
+	if quotesAfterSearch != quotesBeforeSearch || occupanciesAfterSearch != occupanciesBeforeSearch {
+		t.Fatalf("catalog query mutated quotes/occupancies: before=%d/%d after=%d/%d", quotesBeforeSearch, occupanciesBeforeSearch, quotesAfterSearch, occupanciesAfterSearch)
+	}
+	activeQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: activeSpace, StartAt: searchStart.UTC().Format(time.RFC3339), EndAt: searchEnd.UTC().Format(time.RFC3339)})
+	if err != nil || activeQuote.SpaceID != activeSpace || activeQuote.UnitPrice != 9000 || activeQuote.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion {
+		t.Fatalf("published-space quote=%+v err=%v", activeQuote, err)
+	}
+	activeReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: activeQuote.ID}, "published-space-reservation")
+	if err != nil || activeReservation.SpaceID != activeSpace || activeReservation.State != "pendiente_de_pago" {
+		t.Fatalf("published-space reservation=%+v err=%v", activeReservation, err)
+	}
+	if ownerItems, e := svc.Catalog(ctx, host, officeFilter); e != nil || len(ownerItems) != 0 {
+		t.Fatalf("owner should not discover own publication: items=%+v err=%v", ownerItems, e)
+	}
+	// Exercise the existing HTTP endpoints consumed by the mock for the same
+	// published listing: search, safe detail, then a quote for that selection.
+	handler = bookinghttp.NewHandler(integrationBookingAuth{accountID: renter}, svc, nil)
+	apiRequest := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog?category_code=oficina&page_size=5", nil)
+	apiRequest.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	apiResponse := httptest.NewRecorder()
+	handler.ServeHTTP(apiResponse, apiRequest)
+	if apiResponse.Code != http.StatusOK || !strings.Contains(apiResponse.Body.String(), activeSpace) || strings.Contains(apiResponse.Body.String(), "Dirección privada") || strings.Contains(apiResponse.Body.String(), host) {
+		t.Fatalf("published catalog HTTP response=%d body=%s", apiResponse.Code, apiResponse.Body.String())
+	}
+	apiRequest = httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog/"+activeSpace, nil)
+	apiRequest.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	apiResponse = httptest.NewRecorder()
+	handler.ServeHTTP(apiResponse, apiRequest)
+	if apiResponse.Code != http.StatusOK || !strings.Contains(apiResponse.Body.String(), "Oficina publicada elegible") || strings.Contains(apiResponse.Body.String(), "Dirección privada") {
+		t.Fatalf("published detail HTTP response=%d body=%s", apiResponse.Code, apiResponse.Body.String())
+	}
+	apiQuoteStart := fixedNow.Add(96 * time.Hour)
+	apiQuoteBody, err := json.Marshal(booking.QuoteInput{SpaceID: activeSpace, StartAt: apiQuoteStart.UTC().Format(time.RFC3339), EndAt: apiQuoteStart.Add(time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apiRequest = httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/quotes", strings.NewReader(string(apiQuoteBody)))
+	apiRequest.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	apiRequest.Header.Set("Content-Type", "application/json")
+	apiResponse = httptest.NewRecorder()
+	handler.ServeHTTP(apiResponse, apiRequest)
+	var quoteEnvelope struct {
+		Data booking.Quote `json:"data"`
+	}
+	if err = json.Unmarshal(apiResponse.Body.Bytes(), &quoteEnvelope); err != nil || apiResponse.Code != http.StatusOK || quoteEnvelope.Data.SpaceID != activeSpace {
+		t.Fatalf("published quote HTTP response=%d quote=%+v body=%s err=%v", apiResponse.Code, quoteEnvelope.Data, apiResponse.Body.String(), err)
+	}
+	staleListingStart := fixedNow.Add(120 * time.Hour)
+	staleListingQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: activeSpace, StartAt: staleListingStart.UTC().Format(time.RFC3339), EndAt: staleListingStart.Add(time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `UPDATE public.espacio SET estado='oculta' WHERE id=$1`, activeSpace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Request(ctx, renter, booking.RequestInput{QuoteID: staleListingQuote.ID}, "hidden-after-quote"); err != booking.ErrConflict {
+		t.Fatalf("reservation after publication was hidden should conflict, got %v", err)
+	}
+	if _, err = setup.Exec(ctx, `UPDATE public.espacio SET estado='activa' WHERE id=$1`, activeSpace); err != nil {
+		t.Fatal(err)
+	}
+	var staleListingReservations, staleListingOccupancies int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, staleListingQuote.ID).Scan(&staleListingReservations); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE espacio_id=$1 AND intervalo && tstzrange($2,$3,'[)')`, activeSpace, staleListingStart, staleListingStart.Add(time.Hour)).Scan(&staleListingOccupancies); err != nil {
+		t.Fatal(err)
+	}
+	if staleListingReservations != 0 || staleListingOccupancies != 0 {
+		t.Fatalf("hidden listing request left partial reservation/occupancy=%d/%d", staleListingReservations, staleListingOccupancies)
+	}
+	stalePublicQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: hiddenSpace, StartAt: fixedNow.Add(80 * time.Hour).UTC().Format(time.RFC3339), EndAt: fixedNow.Add(81 * time.Hour).UTC().Format(time.RFC3339)})
+	if err != booking.ErrNotFound {
+		t.Fatalf("hidden space must not be quotable, quote=%+v err=%v", stalePublicQuote, err)
+	}
+	var activeReservations int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE espacio_id=$1`, hiddenSpace).Scan(&activeReservations); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE espacio_id=$1 AND activo`, hiddenSpace).Scan(&activeOccupancies); err != nil {
+		t.Fatal(err)
+	}
+	if activeReservations != 0 || activeOccupancies != 0 {
+		t.Fatalf("hidden listing produced reservation/occupancy=%d/%d", activeReservations, activeOccupancies)
+	}
+
 }
 
 func timePtr(value time.Time) *time.Time { return &value }

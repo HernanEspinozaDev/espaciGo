@@ -34,3 +34,11 @@ Issue hija #210 de #56, relacionada con el cierre parcial de #55. PR #211 abiert
 ## Dependencias y pendientes
 
 Storage privado #47/#143, ZIP/baja #202/#203 y ownership/publicación #204/#205 están integrados. #208/#209 no bloqueaba el corte. La galería se mantiene privada y su metadata no recibe un plazo nuevo. #55/#56, #52–#61 y las Issues generales de M04 permanecen abiertas. No se ejecutó trabajo de GCP.
+
+## Aceptación posterior al merge #211 — 2026-10-09
+
+- Merge confirmado en `main`: `47b04cf71a1e2a6b362f401e3708aea1713938e2`. `main` se actualizó por fast-forward.
+- `scripts/dev-env.sh up` aplicó V33 mediante el servicio de migración existente. `schema_migrations` confirma V32 checksum `803d2026c722795b0c008cc9ab81ac9fa796642dc83505161d614d7df0b3f994` y V33 checksum `f3b0d590ba5b92d4483c0e173a6de758f6f3b7d69bff3923950bca5bb9ee0425`; `scripts/dev-env.sh verify-http` pasó. Se conservaron `espacigo_pgdata`, secretos y datos anteriores; no se ejecutó limpieza.
+- Recorrido real del mock con anfitrión sintético existente: generar una imagen en “Galería sintética”, consultar contenido PNG verificado por API autenticada, retirar y confirmar `0 de 10 imágenes sintéticas activas`. El archivo de prueba quedó retirado por el mecanismo normal de la aplicación.
+- #210 se cerró y quedó **Hecho** en Projects para este slice. #52–#61 y #62–#68 siguen abiertas por sus criterios generales.
+- Siguiente subentrega: #212 LOCAL-M05-DISC-01, hija de #65 y `En curso` en Projects. La brecha concreta era que búsqueda/detalle M05 consumían fixtures expresamente habilitados, no publicaciones M04 activas y elegibles. #212 reutiliza tarifa/snapshot, filtros/paginación, disponibilidad y reserva existentes; mantiene borradores/ocultos privados y no expone dirección, coordenadas, propietario ni galería. Evidencia del avance: `local-m05-published-catalog-20261009.md`.

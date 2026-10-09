@@ -1137,7 +1137,7 @@ form("booking-catalog-form",async data=>{
   catalogNextCursor=payload.next_cursor??"";
   catalogPagination.finish(pageToken,catalogNextCursor);refreshCatalogControls();
   catalogResults.replaceChildren();
-  if(!payload.items.length){catalogResults.textContent="No hay espacios sintéticos habilitados para estos filtros.";return;}
+  if(!payload.items.length){catalogResults.textContent="No hay publicaciones locales activas ni fixtures de ensayo autorizados para estos filtros.";return;}
   for(const item of payload.items){
     const card=document.createElement("article");
     const title=document.createElement("h3");title.textContent=`${item.title} · ${item.category_name}`;

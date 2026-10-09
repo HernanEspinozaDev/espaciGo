@@ -1648,7 +1648,7 @@ form("booking-catalog-form", async (data) => {
     refreshCatalogControls();
     catalogResults.replaceChildren();
     if (!payload.items.length) {
-        catalogResults.textContent = "No hay espacios sintéticos habilitados para estos filtros.";
+        catalogResults.textContent = "No hay publicaciones locales activas ni fixtures de ensayo autorizados para estos filtros.";
         return;
     }
     for (const item of payload.items) {

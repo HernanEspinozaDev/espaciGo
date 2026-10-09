@@ -1,6 +1,6 @@
 # Backlog propuesto para cerrar el backend local
 
-Fecha inicial: 2026-10-07; conciliado con `main` #209 el 2026-10-09. #208 quedó aceptada tras la edición individual de descripción, capacidad y reglas. #210 es el corte siguiente de galería sintética privada. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
+Fecha inicial: 2026-10-07; conciliado con `main` #211 el 2026-10-09. #210 quedó aceptada tras el ciclo mock de añadir, consultar y retirar PNG privado. #212 es la siguiente subentrega para descubrir publicaciones activas en M05. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
 
 ## Convenciones
 
@@ -120,7 +120,7 @@ Fecha inicial: 2026-10-07; conciliado con `main` #209 el 2026-10-09. #208 quedó
 
 - **Módulo/tipo/estado:** M04 / VERTICAL / `parcial`; #204 y #206 son slices aceptados, no completan este paquete.
 - **Objetivo y motivo:** #52–61, CU-15–18; completar borrador → publicación local con controles de negocio.
-- **Alcance restante:** #204 cubre transición local owner-only, gate KYC e historial. #206 cubre título/precio con snapshots y #208 está implementando descripción/capacidad/reglas de uso. Continúan pendientes conexión al catálogo general, galería sintética, modalidad tarifaria y políticas/comisiones generales; reutilizar calendario M06.
+- **Alcance restante:** #204 cubre transición local owner-only, gate KYC e historial. #206 cubre título/precio con snapshots, #208 edición de descripción/capacidad/reglas y #210 galería privada sintética; esos slices están aceptados. Continúan pendientes conexión al catálogo general, modalidad tarifaria y políticas/comisiones generales; reutilizar calendario M06.
 - **Fuera:** publicación comercial, archivos reales sin autorización, cambiar categoría semilla o elegir frontend final.
 - **Dependencias:** LOCAL-PRIV-01, LOCAL-KYC-01, CORE y D-KYC/LIST/D-BOOK. El gate KYC sintético de publicación/solicitud personal está ratificado; #204 y #206 lo conservan en los puntos de entrada existentes. #142 queda fuera para la parte sintética local. La relación de publicaciones con descubrimiento general sigue pendiente. No cerrar #55/#52–#61 para desbloquear. **Desbloquea:** LOCAL-DISC-01 al completar contratos mínimos de oferta y acceso; #204/#206 por sí solos no bastan.
 - **Aceptación:** publicación requiere datos/estados aprobados; borradores quedan privados; despublicar corta nuevas operaciones según regla sin borrar reservas anteriores; galería conserva autorización y datos validados; snapshots anteriores sobreviven edición.
@@ -155,13 +155,22 @@ Fecha inicial: 2026-10-07; conciliado con `main` #209 el 2026-10-09. #208 quedó
 
 ### LOCAL-M04-GALLERY-01 — Administrar galería sintética privada (Issue #210)
 
-- **Módulo/tipo/estado:** M04 / VERTICAL DB-API-TEST-MOCK / en curso, hija de #56.
+- **Módulo/tipo/estado:** M04 / VERTICAL DB-API-TEST-MOCK / aceptada y Hecho tras PR #211, hija de #56.
 - **Alcance:** Backend genera solo `synthetic-png-v1`; titular lista, consulta, añade idempotentemente y retira hasta 10 imágenes de sus espacios. Archivos quedan fuera del repositorio y de rutas públicas. Incluye limpieza recuperable, ZIP propio y coordinación con la baja existente. La galería no se expone al catálogo general.
 - **Dependencias reales:** storage privado #47/#143, baja/exportación #202/#203 y ownership/publicación #204/#205 integrados. La edición de contenido #208/#209 no es dependencia funcional. No espera a cerrar #55/#56 ni al catálogo general.
 - **Fuera:** archivos arbitrarios/reales, moderación, URL pública, plazo nuevo de retención, proveedor productivo y GCP.
 - **Validación:** PostgreSQL desechable cubre límite/idempotencia/competencia, ownership y limpieza recuperable; integración de exportación/baja cubre inclusión del PNG propio y limpieza coordinada; build y pruebas enfocadas del mock. PR actual añade evidencia y recorrido mínimo propietario.
-- **Criterio para cerrar:** PR de esta entrega fusionado y ciclo de titular (añadir, consultar PNG, retirar) aceptado. Las Issues generales M04 permanecen abiertas.
-- **Evidencia:** V31 incremental; PostgreSQL desechable con `espacigo_runtime`; rechazo por ausencia/KYB/revocación; transición concurrente e historial; fixture habilitado devuelve conflicto sin romper catálogo/cotización/reserva; ZIP own-scoped; recorrido posterior al merge documentado en `planning/evidence/local-m04-publication-20261008.md`. No se amplió el catálogo general ni se ejecutó GCP.
+- **Aceptación:** PR #211 integrado en `47b04cf`; V33 incremental, health/mock health y endpoints HTTP verificados. El mock permitió generar PNG, consultarlo desde API autenticada y retirarlo; galería quedó en 0/10. #210 cerrada y Hecho; padres M04 siguen abiertos.
+- **Evidencia:** `planning/evidence/local-m04-gallery-20261008.md`: PostgreSQL descartable con `espacigo_runtime` (candidato antiguo bloqueado durante Put, foto confirmada accesible, recuperación tras reinicio), checksums V32/V33, verify-http y smoke del mock. Se conservaron volumen/secretos y no se ejecutó GCP.
+
+### LOCAL-M05-DISC-01 — Descubrir publicaciones locales activas (Issue #212)
+
+- **Módulo/tipo/estado:** M05 / subentrega VERTICAL DB-API-TEST-MOCK / En curso, hija de #65; no completa M05 ni M04.
+- **Alcance:** extender catálogo/detalle existente para incluir espacios `activa` con KYC sintético efectivo, además de conservar fixtures explícitos; borrar/ocultar/no elegible permanece excluido. Reusar filtros, precio estimado, disponibilidad, zona, paginación, cotización snapshot y reserva; no exponer dirección, coordenadas, titular ni galería privada.
+- **Dependencias reales:** #200/#201, #204/#205, #206/#207, #208/#209, #210/#211 y slices M05/M06 de filtro, geografía, paginación, selector e integridad están fusionados. No exige completar #55/#56/#62–68 ni proveedores/GCP.
+- **Fuera:** tarifas/comisiones generales, promociones, galería pública, modificación/cancelación de reservas por ocultación o cambio de elegibilidad, pagos reales y rendimiento cloud.
+- **Aceptación:** borradores/ocultos/no elegibles no aparecen; detalle no filtra datos privados; catálogo no crea cotización/ocupación; filtros y paginación se conservan; cotización ligada al espacio y reserva revalida snapshots/eligibilidad/disponibilidad. Pruebas PostgreSQL de visibilidad/ownership y recorrido mock búsqueda→detalle→cotización.
+- **Estado operativo:** Issue #212 abierta y `En curso` en Project; parent issue #65. #55/#56/#62–68 permanecen abiertas.
 
 ### LOCAL-DISC-01 — Completar búsqueda y cotización de oferta local
 

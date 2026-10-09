@@ -55,11 +55,15 @@ func (r *Repository) weeklyHours(ctx context.Context, db rowQuerier, spaceID, ho
 	var err error
 	if hostID == "" {
 		err = db.QueryRow(ctx, `SELECT e.id::text,e.zona_horaria,COALESCE(h.activo,false),t.modalidad
-FROM public.reserva_ensayo_local_fixture f
-JOIN public.espacio e ON e.id=f.espacio_id AND e.propietario_id=f.anfitrion_id AND e.estado='borrador'
+FROM public.espacio e
+LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id
 JOIN LATERAL(SELECT modalidad FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
 LEFT JOIN public.espacio_horario_semanal h ON h.espacio_id=e.id
-	WHERE f.espacio_id=$1 AND f.habilitada`, spaceID).Scan(&out.SpaceID, &zone, &out.Enabled, &rateUnit)
+WHERE e.id=$1 AND ((f.habilitada AND e.estado='borrador') OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND EXISTS(
+    SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
+    JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada'
+    JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo'
+    WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible')))`, spaceID).Scan(&out.SpaceID, &zone, &out.Enabled, &rateUnit)
 	} else {
 		err = db.QueryRow(ctx, `SELECT e.id::text,e.zona_horaria,COALESCE(h.activo,false),t.modalidad
 FROM public.reserva_ensayo_local_fixture f

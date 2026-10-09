@@ -82,7 +82,7 @@
     </details>
   </section>
   <section><h2>9. Espacios propios · borradores M04</h2>
-    <p>Permite publicar u ocultar espacios propios con rol arrendador y KYC sintético efectivo. La preferencia y KYC no conceden roles. El estado activo de este corte no habilita por sí solo el catálogo general; no cancela ni modifica reservas existentes.</p>
+    <p>Permite publicar u ocultar espacios propios con rol arrendador y KYC sintético efectivo. La preferencia y KYC no conceden roles. Las publicaciones activas y elegibles pueden aparecer en el catálogo local; ocultarlas o cambiar elegibilidad no cancela ni modifica reservas existentes.</p>
     <form id="space-form"><label>Título <input name="title" required maxlength="70"></label>
       <label>Descripción <textarea name="description" required minlength="100"></textarea></label>
       <label>Superficie m² <input name="area_m2" type="number" min="0.01" step="0.01" required></label>
@@ -120,7 +120,7 @@
     <pre id="price-simulation-output">No se ha guardado ninguna simulación.</pre>
   </section>
   <section id="booking-trial"><h2>12. Catálogo sintético y reserva local · M05/M06</h2>
-    <p><strong>ENSAYO LOCAL — SIN COBRO REAL.</strong> Solo aparecen fixtures sintéticos explícitamente habilitados para una de las cuentas participantes. Los demás borradores siguen privados. No hay publicación ni permisos comerciales derivados de KYC sintético.</p>
+    <p><strong>ENSAYO LOCAL — SIN COBRO REAL.</strong> Aparecen publicaciones propias activas con KYC sintético efectivo y fixtures habilitados explícitamente para una de sus cuentas participantes. Los borradores y espacios ocultos siguen privados. El KYC sintético no concede roles.</p>
     <form id="booking-catalog-form"><label>Categoría <select id="booking-catalog-category" name="category_code"><option value="">Todas las categorías</option><option value="oficina">Oficina</option><option value="sala_multiproposito">Sala/multipropósito</option><option value="bodega">Bodega</option><option value="estacionamiento">Estacionamiento</option><option value="local_flexible">Local flexible</option><option value="stand">Stand</option><option value="quincho">Quincho</option><option value="parcela_eventos">Parcela/eventos</option></select></label>
       <fieldset><legend>Características de la categoría seleccionada</legend><div id="booking-catalog-profile-filters">Selecciona una categoría para cargar sus filtros tipados.</div></fieldset>
       <fieldset><legend>Cercanía a un centro sintético</legend><label><input id="booking-catalog-nearby-enabled" type="checkbox"> Filtrar por distancia directa</label><div><label>Latitud <input id="booking-catalog-latitude" name="latitude" type="number" min="-90" max="90" step="any" disabled></label><label>Longitud <input id="booking-catalog-longitude" name="longitude" type="number" min="-180" max="180" step="any" disabled></label><button id="booking-catalog-center-sample" type="button">Cargar centro sintético de ejemplo</button></div><label>Radio <select id="booking-catalog-radius" name="radius_km" disabled><option value="1">1 km</option><option value="3">3 km</option><option value="5" selected>5 km</option><option value="10">10 km</option><option value="25">25 km</option></select></label><small>Distancia directa aproximada; no es ruta por carretera. Sin ubicación del navegador ni geocodificación.</small></fieldset>
