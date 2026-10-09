@@ -118,18 +118,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(blob)
 	case photoID != "" && !content && r.Method == http.MethodGet:
-		items, err := h.service.List(r.Context(), principal.AccountID, spaceID)
+		item, err := h.service.Metadata(r.Context(), principal.AccountID, spaceID, photoID)
 		if err != nil {
 			galleryError(w, err)
 			return
 		}
-		for _, item := range items {
-			if item.ID == photoID {
-				write(w, 200, item)
-				return
-			}
-		}
-		failure(w, 404, "not_found", "Recurso no encontrado.")
+		write(w, 200, item)
 	case photoID != "" && !content && r.Method == http.MethodDelete:
 		result, err := h.service.Remove(r.Context(), principal.AccountID, spaceID, photoID)
 		if err != nil {
@@ -182,6 +176,8 @@ func galleryError(w http.ResponseWriter, err error) {
 		failure(w, 422, "validation_error", "Revisa la clave de idempotencia.")
 	case errors.Is(err, gallery.ErrLimit):
 		failure(w, 409, "gallery_limit", "El espacio ya tiene el máximo de 10 imágenes activas.")
+	case errors.Is(err, gallery.ErrCandidateUnavailable):
+		failure(w, 409, "gallery_operation_pending", "La operación de imagen requiere limpieza o recuperación; vuelve a intentarlo.")
 	case errors.Is(err, gallery.ErrNotFound):
 		failure(w, 404, "not_found", "Espacio o imagen no encontrados.")
 	case errors.Is(err, gallery.ErrFileStore):

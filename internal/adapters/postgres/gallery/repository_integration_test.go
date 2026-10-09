@@ -22,8 +22,31 @@ import (
 
 type deleteFaultStore struct {
 	*evidencefs.Store
-	mu   sync.Mutex
-	fail int
+	mu        sync.Mutex
+	fail      int
+	lastPutID string
+}
+
+func (s *deleteFaultStore) Put(ctx context.Context, id string, blob []byte) error {
+	if err := s.Store.Put(ctx, id, blob); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.lastPutID = id
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *deleteFaultStore) failNextDelete() {
+	s.mu.Lock()
+	s.fail++
+	s.mu.Unlock()
+}
+
+func (s *deleteFaultStore) lastPut() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastPutID
 }
 
 func (s *deleteFaultStore) Delete(ctx context.Context, id string) error {
@@ -128,6 +151,35 @@ func TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup(t *testing.T
 	if err != nil || !reused || retry.ID != first.ID {
 		t.Fatalf("idempotent add=%+v reused=%v err=%v", retry, reused, err)
 	}
+	retryCandidate := files.lastPut()
+	files.failNextDelete()
+	if err = svc.CleanRetiredOnce(ctx, 50); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = base.Get(ctx, retryCandidate); err != nil {
+		t.Fatalf("failed deletion after idempotent retry should preserve candidate file: %v", err)
+	}
+	var candidateState string
+	if err = adminPool.QueryRow(ctx, `SELECT estado FROM public.espacio_galeria_archivo_candidato_local WHERE archivo_id=$1`, retryCandidate).Scan(&candidateState); err != nil || candidateState != "pendiente_limpieza" {
+		t.Fatalf("retry candidate cleanup state=%q err=%v", candidateState, err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio_galeria_archivo_candidato_local SET proximo_intento_en=clock_timestamp() WHERE archivo_id=$1`, retryCandidate); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := gallery.NewService(New(pool), files, credentials.Generator{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restarted.CleanRetiredOnce(ctx, 50); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = base.Get(ctx, retryCandidate); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("idempotent retry candidate was not removed after recovery: %v", err)
+	}
+	metadata, err := svc.Metadata(ctx, owner, spaceA, strings.ToUpper(first.ID))
+	if err != nil || metadata.ID != first.ID {
+		t.Fatalf("uppercase UUID metadata=%+v err=%v", metadata, err)
+	}
 	_, blob, err := svc.Content(ctx, owner, spaceA, first.ID)
 	if err != nil || len(blob) < 8 || !strings.HasPrefix(string(blob[:8]), "\x89PNG\r\n\x1a\n") {
 		t.Fatalf("own PNG content unavailable: len=%d err=%v", len(blob), err)
@@ -148,8 +200,29 @@ func TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup(t *testing.T
 	if err != nil || len(items) != gallery.MaxPhotosPerSpace {
 		t.Fatalf("gallery items=%d err=%v", len(items), err)
 	}
+	files.failNextDelete()
 	if _, _, err = svc.AddSynthetic(ctx, owner, spaceA, "gallery-key-0011"); !errors.Is(err, gallery.ErrLimit) {
 		t.Fatalf("gallery limit error=%v", err)
+	}
+	rejectedCandidate := files.lastPut()
+	var pendingCandidates int
+	if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.espacio_galeria_archivo_candidato_local WHERE archivo_id=$1 AND estado='pendiente_limpieza'`, rejectedCandidate).Scan(&pendingCandidates); err != nil || pendingCandidates != 1 {
+		t.Fatalf("rejected candidate cleanup count=%d err=%v", pendingCandidates, err)
+	}
+	if err = svc.CleanRetiredOnce(ctx, 50); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = base.Get(ctx, rejectedCandidate); err != nil {
+		t.Fatalf("failed deletion after rejected add should remain retryable: %v", err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio_galeria_archivo_candidato_local SET proximo_intento_en=clock_timestamp() WHERE archivo_id=$1`, rejectedCandidate); err != nil {
+		t.Fatal(err)
+	}
+	if err = restarted.CleanRetiredOnce(ctx, 50); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = base.Get(ctx, rejectedCandidate); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected candidate was not removed after recovery: %v", err)
 	}
 	removed, err := svc.Remove(ctx, owner, spaceA, first.ID)
 	if err != nil || !removed.Removed || removed.Reused {

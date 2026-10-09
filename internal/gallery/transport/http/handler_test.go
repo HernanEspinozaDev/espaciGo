@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -60,6 +61,14 @@ type repoStub struct {
 	idempotency map[string]gallery.Photo
 }
 
+func (r *repoStub) ReserveCandidate(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (r *repoStub) QueueCandidateCleanup(context.Context, string, time.Time) error { return nil }
+func (r *repoStub) ClaimCandidateCleanup(context.Context, int) ([]string, error)   { return nil, nil }
+func (r *repoStub) CompleteCandidateCleanup(context.Context, string) error         { return nil }
+func (r *repoStub) FailCandidateCleanup(context.Context, string, time.Time) error  { return nil }
+
 func (r *repoStub) Add(_ context.Context, _, _ string, p gallery.Photo, key string) (gallery.Photo, bool, error) {
 	if old, ok := r.idempotency[key]; ok {
 		return old, true, nil
@@ -73,7 +82,7 @@ func (r *repoStub) List(context.Context, string, string) ([]gallery.Photo, error
 }
 func (r *repoStub) Get(_ context.Context, _, _, id string) (gallery.Photo, error) {
 	for _, p := range r.items {
-		if p.ID == id {
+		if strings.EqualFold(p.ID, id) {
 			return p, nil
 		}
 	}
@@ -124,6 +133,13 @@ func TestAssembledRouterKeepsSpaceRoutesAndChecksGalleryErrors(t *testing.T) {
 	mux.ServeHTTP(content, contentRequest)
 	if content.Code != 200 || content.Header().Get("Content-Type") != "image/png" || !bytes.HasPrefix(content.Body.Bytes(), []byte("\x89PNG\r\n\x1a\n")) {
 		t.Fatalf("private PNG content status=%d type=%s", content.Code, content.Header().Get("Content-Type"))
+	}
+	metadataRequest := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+testSpace+"/gallery/"+strings.ToUpper(testPhoto), nil)
+	metadataRequest.Header.Set("Authorization", "Bearer synthetic-test-token")
+	metadata := httptest.NewRecorder()
+	mux.ServeHTTP(metadata, metadataRequest)
+	if metadata.Code != http.StatusOK || !bytes.Contains(metadata.Body.Bytes(), []byte(testPhoto)) {
+		t.Fatalf("uppercase UUID metadata status=%d body=%s", metadata.Code, metadata.Body.String())
 	}
 	existing := httptest.NewRecorder()
 	mux.ServeHTTP(existing, httptest.NewRequest(http.MethodPut, "/api/v1/spaces/"+testSpace+"/publication", nil))

@@ -17,6 +17,103 @@ func New(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
 
 const activePhotoColumns = `id::text,fixture_code,mime_type,sha256,size_bytes,creada_en`
 
+func (r *Repository) ReserveCandidate(ctx context.Context, owner, spaceID, fileID string, at time.Time) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return gallery.ErrNotFound
+	}
+	var exists bool
+	err = tx.QueryRow(ctx, `SELECT true FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, spaceID, owner).Scan(&exists)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return gallery.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var used bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.espacio_galeria_sintetica_local WHERE id=$1 OR archivo_id=$1)`, fileID).Scan(&used); err != nil {
+		return err
+	}
+	if used {
+		return gallery.ErrInvalid
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.espacio_galeria_archivo_candidato_local(archivo_id,propietario_id,espacio_id,estado,creada_en)
+		VALUES($1,$2,$3,'reservado',$4)`, fileID, owner, spaceID, at.UTC())
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) QueueCandidateCleanup(ctx context.Context, fileID string, at time.Time) error {
+	_, err := r.pool.Exec(ctx, `UPDATE public.espacio_galeria_archivo_candidato_local
+		SET estado='pendiente_limpieza',proximo_intento_en=$2,ultimo_codigo_error=CASE WHEN estado='reservado' THEN 'alta_no_confirmada' ELSE ultimo_codigo_error END
+		WHERE archivo_id=$1 AND estado='reservado'`, fileID, at.UTC())
+	return err
+}
+
+func (r *Repository) ClaimCandidateCleanup(ctx context.Context, limit int) ([]string, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	rows, err := tx.Query(ctx, `WITH claimable AS (
+		SELECT archivo_id FROM public.espacio_galeria_archivo_candidato_local
+		WHERE (estado='pendiente_limpieza' AND proximo_intento_en<=clock_timestamp())
+		   OR (estado='reservado' AND creada_en<=clock_timestamp()-interval '1 minute')
+		   OR (estado='limpiando' AND proximo_intento_en<=clock_timestamp())
+		ORDER BY COALESCE(proximo_intento_en,creada_en),archivo_id
+		FOR UPDATE SKIP LOCKED LIMIT $1
+	)
+	UPDATE public.espacio_galeria_archivo_candidato_local c
+	SET estado='limpiando',proximo_intento_en=clock_timestamp()+interval '2 minutes'
+	FROM claimable x WHERE c.archivo_id=x.archivo_id
+	RETURNING c.archivo_id::text`, limit)
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+func (r *Repository) CompleteCandidateCleanup(ctx context.Context, fileID string) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM public.espacio_galeria_archivo_candidato_local WHERE archivo_id=$1 AND estado='limpiando'`, fileID)
+	return err
+}
+
+func (r *Repository) FailCandidateCleanup(ctx context.Context, fileID string, at time.Time) error {
+	_, err := r.pool.Exec(ctx, `UPDATE public.espacio_galeria_archivo_candidato_local
+		SET estado='pendiente_limpieza',intentos_limpieza=intentos_limpieza+1,
+		proximo_intento_en=$2::timestamptz+LEAST(interval '5 minutes',interval '5 seconds'*(intentos_limpieza+1)),ultimo_codigo_error='archivo_sintetico_no_eliminado'
+		WHERE archivo_id=$1 AND estado='limpiando'`, fileID, at.UTC())
+	return err
+}
+
 func scanPhoto(row pgx.Row) (gallery.Photo, error) {
 	var item gallery.Photo
 	err := row.Scan(&item.ID, &item.Fixture, &item.MIME, &item.SHA256, &item.Size, &item.CreatedAt)
@@ -44,6 +141,14 @@ func (r *Repository) Add(ctx context.Context, owner, spaceID string, item galler
 	if err != nil {
 		return gallery.Photo{}, false, err
 	}
+	var candidateState string
+	err = tx.QueryRow(ctx, `SELECT estado FROM public.espacio_galeria_archivo_candidato_local WHERE archivo_id=$1 AND propietario_id=$2 AND espacio_id=$3 FOR UPDATE`, item.ID, owner, spaceID).Scan(&candidateState)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && candidateState != "reservado") {
+		return gallery.Photo{}, false, gallery.ErrCandidateUnavailable
+	}
+	if err != nil {
+		return gallery.Photo{}, false, err
+	}
 	prior, err := scanPhoto(tx.QueryRow(ctx, `SELECT `+activePhotoColumns+` FROM public.espacio_galeria_sintetica_local WHERE espacio_id=$1 AND propietario_id=$2 AND clave_idempotencia=$3`, spaceID, owner, key))
 	if err == nil {
 		if err = tx.Commit(ctx); err != nil {
@@ -65,6 +170,13 @@ func (r *Repository) Add(ctx context.Context, owner, spaceID string, item galler
 		VALUES($1,$2,$3,$1,$4,$5,$6,$7,'activa',$8,$9)`, item.ID, spaceID, owner, item.Fixture, item.MIME, item.SHA256, item.Size, item.CreatedAt.UTC(), key)
 	if err != nil {
 		return gallery.Photo{}, false, err
+	}
+	result, err := tx.Exec(ctx, `DELETE FROM public.espacio_galeria_archivo_candidato_local WHERE archivo_id=$1 AND estado='reservado'`, item.ID)
+	if err != nil {
+		return gallery.Photo{}, false, err
+	}
+	if result.RowsAffected() != 1 {
+		return gallery.Photo{}, false, gallery.ErrCandidateUnavailable
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return gallery.Photo{}, false, err

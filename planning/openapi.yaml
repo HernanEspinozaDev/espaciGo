@@ -1055,7 +1055,7 @@ paths:
       tags: [M04 local]
       description: >-
         El Backend genera exclusivamente el PNG fijo synthetic-png-v1 y guarda el objeto fuera del repositorio y rutas públicas.
-        No recibe bytes del cliente. Requiere rol arrendador, propiedad del espacio y clave de idempotencia; máximo 10 fotos activas.
+        No recibe bytes del cliente. Registra primero un candidato de limpieza durable; la inserción exitosa consume esa reserva en la misma transacción. Requiere rol arrendador, propiedad del espacio y clave de idempotencia; máximo 10 fotos activas.
       parameters:
         - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 128 } }
       responses:

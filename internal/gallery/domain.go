@@ -14,10 +14,11 @@ const MaxPhotosPerSpace = 10
 const SyntheticFixture = "synthetic-png-v1"
 
 var (
-	ErrInvalid   = errors.New("gallery: invalid request")
-	ErrNotFound  = errors.New("gallery: not found")
-	ErrLimit     = errors.New("gallery: photo limit reached")
-	ErrFileStore = errors.New("gallery: private file unavailable")
+	ErrInvalid              = errors.New("gallery: invalid request")
+	ErrNotFound             = errors.New("gallery: not found")
+	ErrLimit                = errors.New("gallery: photo limit reached")
+	ErrFileStore            = errors.New("gallery: private file unavailable")
+	ErrCandidateUnavailable = errors.New("gallery: file candidate is being cleaned")
 )
 
 type Photo struct {
@@ -36,6 +37,11 @@ type Removal struct {
 }
 
 type Repository interface {
+	ReserveCandidate(context.Context, string, string, string, time.Time) error
+	QueueCandidateCleanup(context.Context, string, time.Time) error
+	ClaimCandidateCleanup(context.Context, int) ([]string, error)
+	CompleteCandidateCleanup(context.Context, string) error
+	FailCandidateCleanup(context.Context, string, time.Time) error
 	Add(context.Context, string, string, Photo, string) (Photo, bool, error)
 	List(context.Context, string, string) ([]Photo, error)
 	Get(context.Context, string, string, string) (Photo, error)

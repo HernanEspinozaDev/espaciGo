@@ -25,9 +25,9 @@ func NewService(repo Repository, files FileStore, ids IDGenerator, now func() ti
 	return &Service{repo: repo, files: files, ids: ids, now: now}, nil
 }
 
-// AddSynthetic creates a fixed server-side PNG and persists owner-scoped metadata.
-// The file is removed if the database rejects the operation or an idempotent
-// retry resolves to a previous photo.
+// AddSynthetic creates a durable candidate record before writing the fixed
+// server-side PNG. Rejections and reused idempotency results leave a durable
+// cleanup job; successful gallery metadata consumes that candidate atomically.
 func (s *Service) AddSynthetic(ctx context.Context, owner, spaceID, key string) (Photo, bool, error) {
 	key = strings.TrimSpace(key)
 	if !validUUID(owner) || !validUUID(spaceID) || len(key) < 8 || len(key) > 128 {
@@ -46,23 +46,25 @@ func (s *Service) AddSynthetic(ctx context.Context, owner, spaceID, key string) 
 	}
 	digest := sha256.Sum256(blob)
 	item := Photo{ID: id, Fixture: SyntheticFixture, MIME: "image/png", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(blob)), CreatedAt: s.now().UTC()}
+	if err := s.repo.ReserveCandidate(ctx, owner, spaceID, id, item.CreatedAt); err != nil {
+		return Photo{}, false, err
+	}
 	if err := s.files.Put(ctx, id, blob); err != nil {
+		_ = s.repo.QueueCandidateCleanup(context.Background(), id, s.now().UTC())
 		return Photo{}, false, ErrFileStore
 	}
-	created := false
-	defer func() {
-		if !created {
-			_ = s.files.Delete(context.Background(), id)
-		}
-	}()
 	result, reused, err := s.repo.Add(ctx, owner, spaceID, item, key)
 	if err != nil {
+		// Commit errors can be ambiguous. The repository removes the candidate
+		// row atomically with a confirmed gallery insert; queueing only changes
+		// candidates still present, so a committed file is never deleted.
+		_ = s.repo.QueueCandidateCleanup(context.Background(), id, s.now().UTC())
 		return Photo{}, false, err
 	}
 	if reused {
+		_ = s.repo.QueueCandidateCleanup(context.Background(), id, s.now().UTC())
 		return result, true, nil
 	}
-	created = true
 	return result, false, nil
 }
 
@@ -74,10 +76,7 @@ func (s *Service) List(ctx context.Context, owner, spaceID string) ([]Photo, err
 }
 
 func (s *Service) Content(ctx context.Context, owner, spaceID, photoID string) (Photo, []byte, error) {
-	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
-		return Photo{}, nil, ErrNotFound
-	}
-	item, err := s.repo.Get(ctx, owner, spaceID, photoID)
+	item, err := s.Metadata(ctx, owner, spaceID, photoID)
 	if err != nil {
 		return Photo{}, nil, err
 	}
@@ -92,6 +91,17 @@ func (s *Service) Content(ctx context.Context, owner, spaceID, photoID string) (
 	return item, blob, nil
 }
 
+func (s *Service) Metadata(ctx context.Context, owner, spaceID, photoID string) (Photo, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Photo{}, ErrNotFound
+	}
+	item, err := s.repo.Get(ctx, owner, spaceID, photoID)
+	if err != nil {
+		return Photo{}, err
+	}
+	return item, nil
+}
+
 func (s *Service) Remove(ctx context.Context, owner, spaceID, photoID string) (Removal, error) {
 	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
 		return Removal{}, ErrNotFound
@@ -99,8 +109,8 @@ func (s *Service) Remove(ctx context.Context, owner, spaceID, photoID string) (R
 	return s.repo.Remove(ctx, owner, spaceID, photoID)
 }
 
-// CleanRetiredOnce is safe to repeat. Suppression has its own durable file-job
-// worker; concurrent deletes of the same content are idempotent at the store.
+// CleanRetiredOnce drains withdrawn photos and files that never became photos.
+// Both paths are durable, retryable and safe across Backend restarts.
 func (s *Service) CleanRetiredOnce(ctx context.Context, limit int) error {
 	if limit < 1 || limit > 500 {
 		return ErrInvalid
@@ -117,6 +127,21 @@ func (s *Service) CleanRetiredOnce(ctx context.Context, limit int) error {
 			continue
 		}
 		if err := s.repo.CompleteCleanup(ctx, id, s.now().UTC()); err != nil {
+			return err
+		}
+	}
+	candidates, err := s.repo.ClaimCandidateCleanup(ctx, limit)
+	if err != nil {
+		return err
+	}
+	for _, id := range candidates {
+		if err := s.files.Delete(ctx, id); err != nil {
+			if markErr := s.repo.FailCandidateCleanup(ctx, id, s.now().UTC()); markErr != nil {
+				return markErr
+			}
+			continue
+		}
+		if err := s.repo.CompleteCandidateCleanup(ctx, id); err != nil {
 			return err
 		}
 	}
