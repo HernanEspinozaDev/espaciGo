@@ -160,6 +160,51 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 	historyRows.Close()
 	payoutJSON, _ := json.Marshal(map[string]any{"accounts": payouts, "history": hist})
 	sections["synthetic_payout_accounts"] = payoutJSON
+	type galleryPhotoRecord struct {
+		ID      string    `json:"id"`
+		SpaceID string    `json:"space_id"`
+		Fixture string    `json:"fixture_code"`
+		MIME    string    `json:"mime_type"`
+		SHA     string    `json:"sha256"`
+		Size    int64     `json:"size_bytes"`
+		Created time.Time `json:"created_at"`
+		Archive string    `json:"archive_file,omitempty"`
+	}
+	galleryRows, err := r.pool.Query(ctx, `SELECT id::text,espacio_id::text,fixture_code,mime_type,sha256,size_bytes,creada_en FROM public.espacio_galeria_sintetica_local WHERE propietario_id=$1 AND estado='activa' AND archivo_id IS NOT NULL ORDER BY espacio_id,creada_en,id`, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	galleryRecords := []galleryPhotoRecord{}
+	galleryFiles := []privacy.ExportFile{}
+	galleryExclusions := []string{}
+	for galleryRows.Next() {
+		var item galleryPhotoRecord
+		if err := galleryRows.Scan(&item.ID, &item.SpaceID, &item.Fixture, &item.MIME, &item.SHA, &item.Size, &item.Created); err != nil {
+			galleryRows.Close()
+			return nil, nil, nil, err
+		}
+		if r.files != nil {
+			if content, e := r.files.Get(ctx, item.ID); e == nil {
+				item.Archive = "files/spaces/" + item.SpaceID + "/gallery/" + item.ID + ".png"
+				galleryFiles = append(galleryFiles, privacy.ExportFile{Name: item.Archive, MediaType: item.MIME, Description: "Imagen sintética propia de galería", Content: content})
+			} else {
+				galleryExclusions = append(galleryExclusions, "imagen de galería sintética "+item.ID+" sin archivo privado disponible; omitida del ZIP")
+			}
+		} else {
+			galleryExclusions = append(galleryExclusions, "storage privado no disponible; imagen de galería sintética omitida del ZIP")
+		}
+		galleryRecords = append(galleryRecords, item)
+	}
+	if err := galleryRows.Err(); err != nil {
+		galleryRows.Close()
+		return nil, nil, nil, err
+	}
+	galleryRows.Close()
+	galleryJSON, err := json.Marshal(map[string]any{"items": galleryRecords})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["synthetic_space_gallery"] = galleryJSON
 	for _, reader := range []sectionReader{r.spaces, r.pricing, r.bookings, r.conversation, r.disputes} {
 		part, err := reader.ExportOwnArchiveSections(ctx, owner)
 		if err != nil {
@@ -208,6 +253,8 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 	}
 	sections["verification_history"] = historyJSON
 	files := append([]privacy.ExportFile{}, photoFiles...)
+	files = append(files, galleryFiles...)
+	photoExclusions = append(photoExclusions, galleryExclusions...)
 	exclusionCounts := 0
 	evidenceItems := []evidenceRecord{}
 	for _, item := range cases {

@@ -23,3 +23,7 @@ Estado: implementación en curso en `codex/local-m04-edit-details`; revisión pe
 ## Decisiones y pendientes
 
 Se deja fuera cambiar modalidad tarifaria porque interactúa con el selector/calendario y el comportamiento disponible ya vigente. Galería/archivos también queda aparte: este corte no amplía la autorización sintética previa de evidencia a imágenes de espacios. No hay cambio de requisitos generales ni GCP. #208 se aceptará solo por estos criterios; #55 y #52–#61 permanecen abiertos.
+
+## Aceptación posterior a PR #209
+
+La revisión del PR #209 fue aprobada y fusionada en `main` (`b2fcb06b753fa436778b761830c11116c1f1d61e`). La comprobación del mock guardó descripción, capacidad y reglas en peticiones independientes. Tras volver a cargar los datos desde la API, los tres valores persistían; título, tarifa de 12.000 CLP y estado `activa` permanecían iguales. La comprobación fue breve y reutilizó las pruebas publicadas, sin ejecutar la suite completa. #208 se cerró y quedó Hecho por este alcance; #52–#61 y los demás criterios generales de M04 siguen abiertos.

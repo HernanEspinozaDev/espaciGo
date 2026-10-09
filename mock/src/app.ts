@@ -11,6 +11,7 @@ import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExpo
 import { applyM02PhotoIfCurrent, captureM02PhotoSession, deliverM02PhotoIfCurrent, m02PhotoSessionMatches } from "./m02-photo-session-state.js";
 import { publicationAction } from "./space-publication-state.js";
 import { publishedContentChange } from "./published-content-state.js";
+import { galleryContextMatches, type GalleryContext } from "./gallery-session-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount, type SuppressionReviewPanelState } from "./suppression-review-state.js";
 
 interface MockConfig { apiReadyURL: string; }
@@ -36,6 +37,10 @@ let m02PhotoRetryKey = "";
 let m02PhotoRemoveRetryKey = "";
 let m02PayoutRetryKey = "";
 let m02PayoutRevokeRetryKey = "";
+let galleryRequestRevision = 0;
+let gallerySelectedSpaceID = "";
+const galleryPreviewURLs = new Set<string>();
+const galleryAddRetryKeys = new Map<string,string>();
 
 async function request(path: string, method = "GET", body?: unknown, authenticated = false, idempotencyKey?: string): Promise<Record<string, unknown>> {
   if (!apiBase) throw new Error("API local aún no disponible.");
@@ -429,6 +434,7 @@ form("verification-revoke-form", async (data, element) => {
 const spacesOutput = document.querySelector<HTMLElement>("#space-output")!;
 const spaceForm = document.querySelector<HTMLFormElement>("#space-form")!;
 const spacesList = document.querySelector<HTMLElement>("#spaces-list")!;
+const spaceGalleryPanel = document.querySelector<HTMLElement>("#space-gallery-panel")!;
 let currentDraftID = "";
 type AttributeDefinition = {code:string;label:string;order:number;description?:string;type:string;unit?:string;options?:string[];minimum?:number;maximum?:number;step?:number};
 type AttributeProfile = {category_code:string;schema_version:number;attributes:AttributeDefinition[]};
@@ -573,11 +579,87 @@ async function loadSpaces(): Promise<void> {
       });});
       li.append(edit);
     }
+    if(sessionRoles.includes("arrendador")) {
+      const galleryButton=document.createElement("button"); galleryButton.type="button"; galleryButton.textContent=`Galería sintética · ${String(item.title)}`;
+      galleryButton.addEventListener("click",()=>void action(()=>loadSpaceGallery(String(item.id),String(item.title))));
+      li.append(galleryButton);
+    }
     spacesList.append(li);
   }
   spacesOutput.textContent = JSON.stringify(result, null, 2);
 }
 function currentSpaceSession(token:string,account:string,generation:number):boolean{return Boolean(token&&account&&sessionToken===token&&sessionAccountID===account&&sessionGeneration===generation);}
+function clearSpaceGallery():void {
+  galleryRequestRevision++; gallerySelectedSpaceID=""; galleryAddRetryKeys.clear();
+  for(const url of galleryPreviewURLs)URL.revokeObjectURL(url); galleryPreviewURLs.clear();
+  spaceGalleryPanel.replaceChildren();
+  spaceGalleryPanel.textContent="Inicia sesión y selecciona la galería de uno de tus espacios.";
+}
+function currentGalleryContext(ctx:GalleryContext):boolean {
+  return galleryContextMatches(ctx,{token:sessionToken,accountID:sessionAccountID,generation:sessionGeneration,spaceID:gallerySelectedSpaceID,revision:galleryRequestRevision});
+}
+async function loadSpaceGallery(spaceID:string,title:string):Promise<void> {
+  const token=sessionToken,accountID=sessionAccountID,generation=sessionGeneration;
+  galleryRequestRevision++; gallerySelectedSpaceID=spaceID;
+  const ctx:GalleryContext={token,accountID,generation,spaceID,revision:galleryRequestRevision};
+  for(const url of galleryPreviewURLs)URL.revokeObjectURL(url); galleryPreviewURLs.clear();
+  spaceGalleryPanel.replaceChildren();
+  const heading=document.createElement("h3"); heading.textContent=`Galería sintética · ${title}`;
+  const notice=document.createElement("p"); notice.textContent="El Backend genera un PNG fijo; no se cargan imágenes reales ni archivos del cliente. Máximo 10 imágenes. Esta vista privada no publica la galería en el catálogo.";
+  const status=document.createElement("p"); status.textContent="Consultando galería propia…";
+  const add=document.createElement("button"); add.type="button"; add.textContent="Generar imagen sintética";
+  const list=document.createElement("ul");
+  spaceGalleryPanel.append(heading,notice,add,status,list);
+  const retryKeyID=`${accountID}:${generation}:${spaceID}`;
+  add.addEventListener("click",()=>void action(async()=>{
+    if(!currentGalleryContext(ctx))return;
+    let key=galleryAddRetryKeys.get(retryKeyID); if(!key){key=crypto.randomUUID();galleryAddRetryKeys.set(retryKeyID,key);}
+    let response:Record<string,unknown>;
+    try{response=await request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/gallery`,"POST",undefined,true,key);}
+    catch(error){if(!currentGalleryContext(ctx))return;throw error;}
+    if(!currentGalleryContext(ctx))return;
+    galleryAddRetryKeys.delete(retryKeyID); status.textContent=`Imagen sintética guardada${response.reused===true?" (reintento idempotente)":""}.`;
+    await loadSpaceGallery(spaceID,title);
+  }));
+  try {
+    const result=await request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/gallery`,"GET",undefined,true);
+    if(!currentGalleryContext(ctx))return;
+    const items=(result.items as Array<Record<string,unknown>>)||[];
+    add.disabled=items.length>=10;
+    status.textContent=`${items.length} de 10 imágenes sintéticas activas.`;
+    if(items.length===0){const empty=document.createElement("li");empty.textContent="Aún no hay imágenes en esta galería.";list.append(empty);}
+    for(const item of items){
+      const li=document.createElement("li"),meta=document.createElement("span");
+      meta.textContent=`PNG sintético · ${String(item.id)} · ${String(item.created_at)}`;
+      const previewBox=document.createElement("div");
+      const show=document.createElement("button");show.type="button";show.textContent="Consultar imagen";
+      show.addEventListener("click",()=>void action(async()=>{
+        if(!currentGalleryContext(ctx))return;
+        let response:Response,blob:Blob;
+        try {
+          response=await fetch(`${apiBase}/api/v1/spaces/${encodeURIComponent(spaceID)}/gallery/${encodeURIComponent(String(item.id))}/content`,{headers:{Accept:"image/png",Authorization:`Bearer ${token}`},mode:"cors",cache:"no-store",credentials:"omit"});
+          blob=await response.blob();
+        } catch(error){if(!currentGalleryContext(ctx))return;throw error;}
+        if(!currentGalleryContext(ctx))return;
+        if(!response.ok)throw new Error(`No se pudo consultar la imagen (HTTP ${response.status}).`);
+        if(response.headers.get("Content-Type")?.split(";")[0]!=="image/png")throw new Error("La API devolvió un formato distinto de PNG.");
+        const url=URL.createObjectURL(blob); galleryPreviewURLs.add(url);
+        const image=document.createElement("img");image.alt="Imagen sintética privada del espacio";image.width=160;image.src=url;
+        previewBox.replaceChildren(image);status.textContent="Contenido PNG verificado desde la API autenticada.";
+      }));
+      const remove=document.createElement("button");remove.type="button";remove.textContent="Retirar imagen";
+      remove.addEventListener("click",()=>void action(async()=>{
+        if(!currentGalleryContext(ctx))return;
+        try{await request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/gallery/${encodeURIComponent(String(item.id))}`,"DELETE",undefined,true);}
+        catch(error){if(!currentGalleryContext(ctx))return;throw error;}
+        if(!currentGalleryContext(ctx))return;
+        status.textContent="Imagen retirada; el archivo privado queda en cola de limpieza recuperable.";
+        await loadSpaceGallery(spaceID,title);
+      }));
+      li.append(meta,show,remove,previewBox);list.append(li);
+    }
+  } catch(error){if(!currentGalleryContext(ctx))return;throw error;}
+}
 document.querySelector("#spaces-load")!.addEventListener("click", () => void action(loadSpaces));
 document.querySelector("#space-cancel")!.addEventListener("click", () => { spaceForm.reset(); currentDraftID = ""; document.querySelector<HTMLButtonElement>("#space-save")!.textContent = "Crear borrador"; document.querySelector<HTMLButtonElement>("#space-cancel")!.hidden = true; });
 form("space-form", async (data, element) => {
@@ -1198,6 +1280,7 @@ function clearConversation(message:string):void{
 }
 function clearBookingInboxOnSessionLoss():void{
   sessionGeneration++;
+  clearSpaceGallery();
   if(pendingPrivacyExport)URL.revokeObjectURL(pendingPrivacyExport.url);
   if(privacyExportObjectURL)URL.revokeObjectURL(privacyExportObjectURL);
   privacyExportObjectURL="";

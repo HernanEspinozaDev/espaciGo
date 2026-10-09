@@ -1028,6 +1028,80 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /spaces/{spaceId}/gallery:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: listOwnSyntheticSpaceGallery
+      tags: [M04 local]
+      description: Lista únicamente las imágenes sintéticas activas del espacio propio. No las expone al catálogo general.
+      responses:
+        '200':
+          description: Galería sintética propia y límite vigente.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, max_photos, synthetic]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/SyntheticSpaceGalleryPhoto' } }
+                  max_photos: { type: integer, const: 10 }
+                  synthetic: { type: boolean, const: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createSyntheticOwnSpaceGalleryPhoto
+      tags: [M04 local]
+      description: >-
+        El Backend genera exclusivamente el PNG fijo synthetic-png-v1 y guarda el objeto fuera del repositorio y rutas públicas.
+        No recibe bytes del cliente. Requiere rol arrendador, propiedad del espacio y clave de idempotencia; máximo 10 fotos activas.
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 128 } }
+      responses:
+        '200': { description: Resultado reutilizado de un reintento idempotente., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticSpaceGalleryPhotoEnvelope' } } } }
+        '201': { description: PNG sintético guardado., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticSpaceGalleryPhotoEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '503': { description: Storage privado temporalmente no disponible., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /spaces/{spaceId}/gallery/{photoId}:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: photoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getOwnSyntheticSpaceGalleryPhoto
+      tags: [M04 local]
+      responses:
+        '200': { description: Metadatos de una imagen activa propia., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticSpaceGalleryPhoto' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: removeOwnSyntheticSpaceGalleryPhoto
+      tags: [M04 local]
+      description: Retira la imagen propia y encola limpieza recuperable del archivo privado.
+      responses:
+        '200': { description: Resultado idempotente de la retirada., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticSpaceGalleryRemoval' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /spaces/{spaceId}/gallery/{photoId}/content:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: photoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getOwnSyntheticSpaceGalleryPhotoContent
+      tags: [M04 local]
+      description: Autoriza de nuevo al titular en cada consulta; responde PNG privado sin URL persistente.
+      responses:
+        '200': { description: Contenido PNG sintético., content: { image/png: { schema: { type: string, format: binary } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { description: Storage privado temporalmente no disponible., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /spaces/{spaceId}/availability:
     parameters:
       - name: spaceId
@@ -2079,6 +2153,31 @@ components:
         state: { type: string, enum: [borrador, activa, oculta] }
         attribute_schema_version: { type: integer, minimum: 1 }
         attributes: { type: object, maxProperties: 80, description: Características declaradas y validadas por el perfil versionado. }
+    SyntheticSpaceGalleryPhoto:
+      type: object
+      additionalProperties: false
+      required: [id, fixture_code, mime_type, sha256, size_bytes, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        fixture_code: { type: string, const: synthetic-png-v1 }
+        mime_type: { type: string, const: image/png }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        size_bytes: { type: integer, minimum: 1, maximum: 1048576 }
+        created_at: { type: string, format: date-time }
+    SyntheticSpaceGalleryPhotoEnvelope:
+      type: object
+      required: [photo, reused, synthetic]
+      properties:
+        photo: { $ref: '#/components/schemas/SyntheticSpaceGalleryPhoto' }
+        reused: { type: boolean }
+        synthetic: { type: boolean, const: true }
+    SyntheticSpaceGalleryRemoval:
+      type: object
+      required: [photo_id, removed, reused]
+      properties:
+        photo_id: { type: string, format: uuid }
+        removed: { type: boolean, const: true }
+        reused: { type: boolean }
     SpacePublicationInput:
       type: object
       additionalProperties: false

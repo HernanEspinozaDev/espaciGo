@@ -177,8 +177,25 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	photoRows.Close()
-	removed := []string{"sesiones_y_tokens", "hash_vigente_e_historial_claves", "roles_activos", "perfil_y_preferencia", "foto_sintetica_con_limpieza_recuperable", "referencias_cuenta_cobro_fake", "contenido_de_borradores", "fixtures_del_titular", "cotizaciones_no_convertidas", "mensajes_de_reservas_terminales_sinteticas", "simulaciones_privadas", "avisos_de_credenciales_sin_finalidad", "claves_idempotentes_m02"}
-	retained := []string{"ancla_tecnica_usuario", "aceptaciones_terminos_5_anios", "solicitud_y_decision_5_anios", "metadata_verificacion_2_anios", "reservas_pagos_devoluciones_y_disputas_24_meses_desde_cierre", "historiales_transaccionales", "auditoria_5_anios", "copias_locales_no_eliminadas"}
+	galleryRows, err := tx.Query(ctx, `SELECT archivo_id::text FROM public.espacio_galeria_sintetica_local WHERE propietario_id=$1 AND archivo_id IS NOT NULL ORDER BY id`, subjectID)
+	if err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	for galleryRows.Next() {
+		var id string
+		if err := galleryRows.Scan(&id); err != nil {
+			galleryRows.Close()
+			return privacy.SuppressionExecution{}, suppressionError(err)
+		}
+		evidenceIDs = append(evidenceIDs, id)
+	}
+	if err := galleryRows.Err(); err != nil {
+		galleryRows.Close()
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	galleryRows.Close()
+	removed := []string{"sesiones_y_tokens", "hash_vigente_e_historial_claves", "roles_activos", "perfil_y_preferencia", "foto_sintetica_con_limpieza_recuperable", "galeria_sintetica_privada_con_limpieza_recuperable", "referencias_cuenta_cobro_fake", "contenido_de_borradores", "fixtures_del_titular", "cotizaciones_no_convertidas", "mensajes_de_reservas_terminales_sinteticas", "simulaciones_privadas", "avisos_de_credenciales_sin_finalidad", "claves_idempotentes_m02"}
+	retained := []string{"ancla_tecnica_usuario", "metadata_minima_de_galeria_sintetica_sin_binario", "aceptaciones_terminos_5_anios", "solicitud_y_decision_5_anios", "metadata_verificacion_2_anios", "reservas_pagos_devoluciones_y_disputas_24_meses_desde_cierre", "historiales_transaccionales", "auditoria_5_anios", "copias_locales_no_eliminadas"}
 	detail := suppressionDetail{Obligations: []string{}, Removed: removed, Retained: retained, Decision: "baja_elegible_privacidad_local_v1"}
 	encoded, err := json.Marshal(detail)
 	if err != nil {
@@ -193,6 +210,9 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		}
 	}
 	if _, err = tx.Exec(ctx, `UPDATE public.foto_perfil_sintetica_local SET estado='retirada_baja',retirada_en=COALESCE(retirada_en,$2),proximo_intento_en=CASE WHEN archivo_id IS NULL THEN NULL ELSE $2 END WHERE usuario_id=$1 AND estado<>'retirada_baja'`, subjectID, checkedAt); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio_galeria_sintetica_local SET estado='retirada_baja',retirada_en=COALESCE(retirada_en,$2),proximo_intento_en=CASE WHEN archivo_id IS NULL THEN NULL ELSE $2 END WHERE propietario_id=$1 AND estado<>'retirada_baja'`, subjectID, checkedAt); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE public.cuenta_cobro_sintetica_local SET estado='retirada_baja',referencia_ficticia=NULL,revocada_en=COALESCE(revocada_en,$2),actualizada_en=$2 WHERE usuario_id=$1 AND estado IN ('activa','reemplazada','revocada')`, subjectID, checkedAt); err != nil {
@@ -376,6 +396,9 @@ func (r *IdentityRepository) CompleteSuppressionFile(ctx context.Context, file p
 			return mapError(err)
 		}
 		if _, err = tx.Exec(ctx, `UPDATE public.foto_perfil_sintetica_local SET archivo_id=NULL,mime_type=NULL,sha256=NULL,size_bytes=NULL,limpia_en=$2,proximo_intento_en=NULL,ultimo_codigo_error=NULL WHERE id=$1 AND estado='retirada_baja'`, file.EvidenceID, at.UTC()); err != nil {
+			return mapError(err)
+		}
+		if _, err = tx.Exec(ctx, `UPDATE public.espacio_galeria_sintetica_local SET archivo_id=NULL,limpia_en=$2,proximo_intento_en=NULL,ultimo_codigo_error=NULL WHERE id=$1 AND estado='retirada_baja'`, file.EvidenceID, at.UTC()); err != nil {
 			return mapError(err)
 		}
 		if _, err = tx.Exec(ctx, `UPDATE public.baja_archivo_pendiente_local SET completada_en=$3,ultimo_codigo_error=NULL WHERE ejecucion_id=$1 AND evidencia_id=$2`, file.ExecutionID, file.EvidenceID, at.UTC()); err != nil {

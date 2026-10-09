@@ -23,6 +23,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
+	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
@@ -30,6 +31,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	disputedomain "github.com/HernanEspinozaDev/espaciGo/internal/dispute"
 	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
@@ -1787,6 +1789,46 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	if err := store.Put(h.ctx, photoID, []byte("synthetic profile png")); err != nil {
 		t.Fatal(err)
 	}
+	galleryService, err := gallery.NewService(gallerypg.New(h.pool), store, credentials.Generator{}, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	galleryPhoto, reused, err := galleryService.AddSynthetic(h.ctx, targetID, spaceID, "suppression-gallery-key")
+	if err != nil || reused {
+		t.Fatalf("create synthetic space gallery photo reused=%v err=%v", reused, err)
+	}
+	exportService, err := privacy.NewService(h.repo, ownerexport.New(h.pool, store))
+	if err != nil {
+		t.Fatal(err)
+	}
+	archiveBytes, err := exportService.ExportOwnArchive(h.ctx, targetID)
+	if err != nil {
+		t.Fatalf("owner ZIP before suppression: %v", err)
+	}
+	archiveReader, err := zip.NewReader(bytes.NewReader(archiveBytes), int64(len(archiveBytes)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	galleryArchivePath := "files/spaces/" + spaceID + "/gallery/" + galleryPhoto.ID + ".png"
+	var galleryArchived bool
+	for _, file := range archiveReader.File {
+		if file.Name != galleryArchivePath {
+			continue
+		}
+		f, e := file.Open()
+		if e != nil {
+			t.Fatal(e)
+		}
+		content, e := io.ReadAll(f)
+		_ = f.Close()
+		if e != nil || !bytes.HasPrefix(content, []byte("\x89PNG\r\n\x1a\n")) {
+			t.Fatalf("exported gallery content invalid: %v", e)
+		}
+		galleryArchived = true
+	}
+	if !galleryArchived {
+		t.Fatalf("owner ZIP omitted own synthetic gallery image %s", galleryArchivePath)
+	}
 	runtimeRepo := newRuntimeIdentityRepository(t, h)
 	privacyService, err := privacy.NewService(runtimeRepo)
 	if err != nil {
@@ -1876,6 +1918,9 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	if _, err := store.Get(h.ctx, evidenceID); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("synthetic blob remains after recovery: %v", err)
 	}
+	if _, err := store.Get(h.ctx, galleryPhoto.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("suppressed gallery blob remains after recovery: %v", err)
+	}
 	var evidenceRows, jobCompleted int
 	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.verificacion_evidencia_sintetica WHERE id=$1),(SELECT count(*) FROM public.baja_archivo_pendiente_local WHERE evidencia_id=$1 AND completada_en IS NOT NULL)`, evidenceID).Scan(&evidenceRows, &jobCompleted); err != nil {
 		t.Fatal(err)
@@ -1890,6 +1935,14 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	}
 	if photoFile != nil || photoCleaned == nil {
 		t.Fatalf("suppressed photo cleanup state file=%v cleaned=%v", photoFile, photoCleaned)
+	}
+	var galleryFile *string
+	var galleryCleaned *time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT archivo_id::text,limpia_en FROM public.espacio_galeria_sintetica_local WHERE id=$1`, galleryPhoto.ID).Scan(&galleryFile, &galleryCleaned); err != nil {
+		t.Fatal(err)
+	}
+	if galleryFile != nil || galleryCleaned == nil {
+		t.Fatalf("suppressed gallery cleanup state file=%v cleaned=%v", galleryFile, galleryCleaned)
 	}
 	var payoutState string
 	var payoutReference *string
