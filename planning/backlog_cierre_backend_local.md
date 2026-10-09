@@ -1,12 +1,12 @@
 # Backlog propuesto para cerrar el backend local
 
-Fecha inicial: 2026-10-07; conciliado con `main` #211 el 2026-10-09. #210 quedó aceptada tras el ciclo mock de añadir, consultar y retirar PNG privado. #212 es la siguiente subentrega para descubrir publicaciones activas en M05. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
+Fecha inicial: 2026-10-07; conciliado con `main` #213 el 2026-10-09. #210 quedó aceptada tras el ciclo mock de añadir, consultar y retirar PNG privado; #212 conectó publicaciones activas con búsqueda/detalle/cotización. LOCAL-BOOK-02 (#214, hija de #73 y relacionada con #75/#77) consolida la reserva sobre oferta activa sin fixture. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
 
 ## Convenciones
 
 - `LOCAL-*` identifica paquetes de cierre. Tipo `VERTICAL` agrupa las etapas ARCH → DB → BE → API → TEST → MOCK de las tarjetas originales para evitar un PR por etapa. No sustituye la trazabilidad de esas tarjetas.
 - Reutilizar las Issues originales; crear un hijo local cuando sea necesario distinguir criterios locales de proveedores/GCP o ampliar una entrega ya cerrada. LOCAL-KYC-01 es Issue #200 y subissue de #45, relacionada con #48–#50. LOCAL-M04-PUB-01 (#204), EDIT-01 (#206) y EDIT-02 (#208) quedaron aceptadas tras PR #205/#207/#209; sus recorridos y límites constan en `planning/evidence/local-m04-publication-20261008.md`, `planning/evidence/local-m04-edit-20261009.md` y `planning/evidence/local-m04-edit-details-20261009.md`. LOCAL-M04-GALLERY-01 (#210, hija de #56) cubre ahora la galería sintética privada. No importar de nuevo el backlog Hermes.
-- LOCAL-PLAN-01, LOCAL-CORE-01 y LOCAL-AUTH-01 cuentan con entregas aceptadas (#181/#180/#182). LOCAL-BOOK-01 (#177) y LOCAL-M02-01 (#202, PR #203) también fueron aceptadas sin cerrar sus padres generales. LOCAL-KYC-01 (#200) fue aceptada tras PR #201. LOCAL-M04-PUB-01 (#204), EDIT-01 (#206) y EDIT-02 (#208) son slices aceptados; #209 confirma descripción/capacidad/reglas. LOCAL-M04-GALLERY-01 (#210) continúa como vertical privado/sintético y tampoco completa M04 ni conecta `activa` al catálogo general. Los padres/issues no cambian de estado automáticamente.
+- LOCAL-PLAN-01, LOCAL-CORE-01 y LOCAL-AUTH-01 cuentan con entregas aceptadas (#181/#180/#182). LOCAL-BOOK-01 (#177) y LOCAL-M02-01 (#202, PR #203) también fueron aceptadas sin cerrar sus padres generales. LOCAL-KYC-01 (#200) fue aceptada tras PR #201. LOCAL-M04-PUB-01 (#204), EDIT-01 (#206) y EDIT-02 (#208) son slices aceptados; #209 confirma descripción/capacidad/reglas. LOCAL-M04-GALLERY-01 (#210) cubre galería privada; LOCAL-M05-DISC-01 (#212) integra publicaciones activas al catálogo. LOCAL-BOOK-02 (#214) reúne el ciclo de reserva/pago fake sobre ofertas activas; #73/#75/#77 permanecen abiertas por alcance general. Los padres/issues no cambian de estado automáticamente.
 - Una dependencia significa contrato/entrega aceptada y disponible en la rama base. Las puertas D-* del plan bloquean solo las operaciones que necesitan su decisión; no esperar a resolver toda la lista de decisiones para avanzar trabajo independiente.
 - Toda tarjeta VERTICAL incluye Backend/API → pruebas → tarjeta final de mock de su módulo. El mock no queda `ready` antes de existir sus APIs y pruebas necesarias.
 - Aceptación común: código en PR revisable, comportamiento/errores documentados, permisos efectivos, evidencia del commit y sin secretos; aceptación humana y merge para `Hecho`. Conservar volumen y migraciones previas.
@@ -165,12 +165,12 @@ Fecha inicial: 2026-10-07; conciliado con `main` #211 el 2026-10-09. #210 quedó
 
 ### LOCAL-M05-DISC-01 — Descubrir publicaciones locales activas (Issue #212)
 
-- **Módulo/tipo/estado:** M05 / subentrega VERTICAL DB-API-TEST-MOCK / En curso, hija de #65; no completa M05 ni M04.
+- **Módulo/tipo/estado:** M05 / subentrega VERTICAL DB-API-TEST-MOCK / aceptada como slice (#212, PR #213), hija de #65; no completa M05 ni M04.
 - **Alcance:** extender catálogo/detalle existente para incluir espacios `activa` con KYC sintético efectivo, además de conservar fixtures explícitos; borrar/ocultar/no elegible permanece excluido. Reusar filtros, precio estimado, disponibilidad, zona, paginación, cotización snapshot y reserva; no exponer dirección, coordenadas, titular ni galería privada.
 - **Dependencias reales:** #200/#201, #204/#205, #206/#207, #208/#209, #210/#211 y slices M05/M06 de filtro, geografía, paginación, selector e integridad están fusionados. No exige completar #55/#56/#62–68 ni proveedores/GCP.
 - **Fuera:** tarifas/comisiones generales, promociones, galería pública, modificación/cancelación de reservas por ocultación o cambio de elegibilidad, pagos reales y rendimiento cloud.
 - **Aceptación:** borradores/ocultos/no elegibles no aparecen; detalle no filtra datos privados; catálogo no crea cotización/ocupación; filtros y paginación se conservan; cotización ligada al espacio y reserva revalida snapshots/eligibilidad/disponibilidad. Pruebas PostgreSQL de visibilidad/ownership y recorrido mock búsqueda→detalle→cotización.
-- **Estado operativo:** Issue #212 abierta y `En curso` en Project; parent issue #65. #55/#56/#62–68 permanecen abiertas.
+- **Estado operativo:** Issue #212 cerrada y Hecho por su alcance aceptado; parent #65 y #55/#56/#62–68 permanecen abiertos.
 
 ### LOCAL-DISC-01 — Completar búsqueda y cotización de oferta local
 
@@ -183,15 +183,17 @@ Fecha inicial: 2026-10-07; conciliado con `main` #211 el 2026-10-09. #210 quedó
 - **Pruebas previstas:** filtros combinados, atributos ausentes, redondeo, fronteras DST, precio/radio inclusivo, páginas y cambio de estado/tarifa; finalizar LOCAL-DISC-MOCK-01.
 - **Riesgo:** permitir reserva de precio estimado obsoleto o declarar estable un catálogo que cambia entre páginas.
 
-### LOCAL-BOOK-02 — Completar dominio local general de reservas
+### LOCAL-BOOK-02 — Consolidar reservas locales sobre publicaciones activas (Issue #214)
 
-- **Módulo/tipo/estado:** M06 / VERTICAL / `todo`.
+- **Módulo/tipo/estado:** M06 / VERTICAL / en implementación; hija de #73 y relacionada con #75/#77. La subentrega cubre el recorrido no-fixture.
 - **Objetivo y motivo:** #69/#73/#75/#77/#79, CU-22–28/47/51; ciclo general con pago fake/durable ya aceptado.
-- **Alcance:** reglas de elegibilidad y cotización, reserva/ocupación atómica, solicitud/aprobación/rechazo, vencimientos y cancelación/refund local; contratos de transición para M07/M08/M10; inbox/conciliación se reutilizan.
+- **Alcance:** reutilizar elegibilidad/snapshot, reserva/ocupación atómica, solicitud/aprobación/rechazo, vencimientos y cancelación/refund `local_flexible_v1` sobre publicación activa sin habilitador de fixture; registrar puntos de integración futura con M07/M08/M10; inbox/conciliación se reutilizan.
 - **Fuera:** proveedor real/sandbox #76/#78, políticas financieras nuevas no ratificadas o custodiar fondos.
-- **Dependencias:** LOCAL-DISC-01, AUTH/CORE y D-BOOK. **Desbloquea:** LOCAL-CONT-01 y operación posterior.
-- **Aceptación:** mismos servicios atienden oferta general local; estados/actores/plazos trazados; cambios de tarifa/elegibilidad y reloj revalidados bajo bloqueo; eventos tardíos no reactivan reserva; reintento no cobra ni devuelve dos veces.
-- **Pruebas previstas:** concurrencia, autorización, timeout/reinicio, adyacencia, transiciones y callbacks; finalizar LOCAL-BOOK-MOCK-01. Reutilizar evidencia válida de #170–176.
+- **Dependencias:** publicación/detalle/cotización de #212, AUTH/CORE y `local_flexible_v1` ratificada; #74 fake durable aceptada. Satisfechas para este alcance. Proveedor real sigue aislado en #76/#78.
+- **Criterios satisfechos en este slice:** API de publicación activa no-fixture; snapshots de tarifa/política; reintentos idempotentes de solicitud/pago/refund; aprobación/rechazo; historial y aislamiento; expiración, cancelación/refund; cambios oculto/KYC/tarifa antes de solicitar sin filas parciales; recorrido mock de dos participantes.
+- **Criterios pendientes de los padres:** conciliación general, proveedor/sandbox real, aceptación amplia de #79, políticas generales y criterios restantes de #73/#75/#77. No declarar completos esos Issues ni M06.
+- **Contratos futuros:** M07 consume reserva aprobada y snapshots por contrato versionado e idempotente; M08 ejecuta check-in/out sobre la misma reserva sin autocompletar por reloj; M10 vincula disputas a reserva y conserva pagos/refunds fake como hechos, no como ledger. Ningún consumidor muta snapshots ni crea ocupaciones alternativas. Los nuevos eventos/transiciones se definen al implementar esos módulos; aquí quedan registrados los puntos de integración.
+- **Pruebas previstas:** reutilizar cobertura previa y añadir recorrido API de publicación activa, transiciones y regresiones de tarifa/elegibilidad en PostgreSQL desechable; verificar el mock con las dos cuentas.
 - **Riesgo:** doble ocupación, dinero simulado no trazado o dependencia circular entre reserva y módulos posteriores.
 
 ## L3 — Ejecutar el arriendo

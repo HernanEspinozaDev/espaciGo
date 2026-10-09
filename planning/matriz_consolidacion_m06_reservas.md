@@ -52,3 +52,9 @@ El usuario ratificó durante esta entrega la regla `local_flexible_v1`, exclusiv
 PR #170 fue aprobado y fusionado en `main` el 2026-10-06 (merge `b9d337435252129f489ef990c2086854d9bc9b6f`). Se actualizó el checkout con fast-forward. `scripts/dev-env.sh up` aplicó V20 sobre el volumen existente sin borrarlo; `schema_migrations` registra `V000020__m06_local_flexible_cancellation.sql`. La comprobación posterior se limitó a API ready, HTTP 200 del mock, servicios saludables y presencia de `espacigo_pgdata`/secretos. No se repitieron las suites ya ejecutadas en la entrega.
 
 La subentrega #74 de eventos fake durables se implementó en una rama separada y quedó en revisión el 2026-10-07. Evidencia: [`evidence/m06-booking-payment-inbox-20261007.md`](evidence/m06-booking-payment-inbox-20261007.md) y diseño [`m06_local_payment_inbox.md`](m06_local_payment_inbox.md). No se aplicó V21 al volumen persistente. #74 permanece abierta hasta aceptación; proveedor real/sandbox, credenciales y contrato quedan pendientes. #76/#78/#79 conservan Bloqueado y las Issues generales mantienen sus criterios incompletos.
+
+## LOCAL-BOOK-02 — publicación activa y reserva no-fixture (#214)
+
+La Issue #214, hija de #73 y relacionada con #75/#77, se creó después de conciliar los criterios y dependencias de este cuadro. El slice integra la ruta activa de #212 con solicitud, pago fake/durable, aprobación/rechazo, detalle e historial, vencimientos y `local_flexible_v1`. La prueba PostgreSQL de [`evidence/local-book-02-20261009.md`](evidence/local-book-02-20261009.md) cubre revalidación transaccional de ocultación/KYC/tarifa, sin mutación parcial. El mock se recorrió con anfitrión y arrendatario sintéticos separados.
+
+El alcance local demostrable de #73/#75/#77 mejora, pero los tres Issues permanecen abiertos; no se declaran completos los criterios generales, proveedor real/sandbox (#76/#78), ni #79.

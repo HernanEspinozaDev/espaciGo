@@ -861,7 +861,7 @@ function clearCatalogResultsAndSelection(message:string):void {
   const space=document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]');if(space)space.value="";
   const quoteID=document.querySelector<HTMLInputElement>('#booking-request-form [name="quote_id"]');if(quoteID)quoteID.value="";
 }
-function resetCatalogTraversal():void { bookingCatalogRequest++;catalogPagination.invalidate();catalogNextCursor="";catalogRequestCursor="";catalogLoading=false;clearCatalogResultsAndSelection("Inicia sesión y busca fixtures sintéticos autorizados para esta cuenta.");refreshCatalogControls(); }
+function resetCatalogTraversal():void { bookingCatalogRequest++;catalogPagination.invalidate();catalogNextCursor="";catalogRequestCursor="";catalogLoading=false;clearCatalogResultsAndSelection("Inicia sesión y busca publicaciones activas y fixtures autorizados para esta cuenta.");refreshCatalogControls(); }
 function invalidateCatalogSelection(message:string):void { bookingQuoteState.beginSearch();bookingAvailabilityState.invalidate();bookingFixture=null;clearWeeklyHoursEditor();resetAvailabilityPicker(message);(document.querySelector<HTMLInputElement>('#booking-quote-form [name="space_id"]')!).value="";(document.querySelector<HTMLInputElement>('#booking-request-form [name="quote_id"]')!).value="";bookingQuoteOutput.textContent=message; }
 const bookingFixtureOutput=document.querySelector<HTMLElement>("#booking-fixture-output")!;
 const bookingQuoteOutput=document.querySelector<HTMLElement>("#booking-quote-output")!;
