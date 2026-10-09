@@ -22,6 +22,8 @@ GO_TEST_RUN='TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry' \
 Resultado: PASS. El escenario agrega una publicación activa con KYC vigente, una publicación oculta y una activa sin KYC; además conserva una fila de fixture deshabilitada sobre el espacio publicado para comprobar que no lo oculta ni genera duplicados. Comprueba búsqueda/detalle y ausencia de datos privados, cotización/reserva del espacio seleccionado, aislamiento del propietario, y que ocultos/no elegibles no generen cotizaciones, reservas ni ocupaciones.
 El mismo escenario pasa por los handlers HTTP existentes para listar, abrir detalle seguro y cotizar el ID seleccionado; el mock consume esas rutas y no mantiene una implementación de búsqueda paralela.
 
+La revisión manual encontró un registro sintético activo antiguo con `zona_horaria` nula (el esquema permite borradores sin zona). Se comprobó que el escaneo devolvía `500`; el catálogo/detalle/intervalos ahora excluyen espacios sin zona IANA, y la cotización queda en 404 en vez de fallar al escanear. Se añadió cobertura PostgreSQL para listado, detalle y cotización. Tras reconstruir el Backend sin cambiar el volumen, la búsqueda real del mock respondió correctamente y mostró que no había publicaciones/fixtures autorizados para esa cuenta y esos filtros. No se modificó el registro preexistente; el recorrido de publicación→cotización queda demostrado por la integración desechable con zona explícita, no por esta cuenta local.
+
 Comprobaciones adicionales:
 
 ```sh

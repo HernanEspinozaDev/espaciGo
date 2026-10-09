@@ -2191,6 +2191,10 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	}
 	hiddenSpace := createPublishedSpace(host, "Oficina oculta", "oculta", 7000)
 	noKYCActiveSpace := createPublishedSpace(outsider, "Oficina sin elegibilidad", "activa", 6000)
+	unconfiguredTimeZoneSpace := createPublishedSpace(host, "Publicación sin zona horaria", "activa", 6500)
+	if _, err = setup.Exec(ctx, `UPDATE public.espacio SET zona_horaria=NULL WHERE id=$1`, unconfiguredTimeZoneSpace); err != nil {
+		t.Fatal(err)
+	}
 	officeFilter := booking.CatalogFilter{CategoryCode: "oficina"}
 	publicItems, err := svc.Catalog(ctx, renter, officeFilter)
 	if err != nil || len(publicItems) != 1 || publicItems[0].SpaceID != activeSpace || publicItems[0].Price != 9000 {
@@ -2201,6 +2205,12 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	}
 	if _, err = svc.CatalogDetail(ctx, renter, noKYCActiveSpace); err != booking.ErrNotFound {
 		t.Fatalf("publication without effective host KYC detail error=%v", err)
+	}
+	if _, err = svc.CatalogDetail(ctx, renter, unconfiguredTimeZoneSpace); err != booking.ErrNotFound {
+		t.Fatalf("publication without an IANA time zone must stay undiscoverable: %v", err)
+	}
+	if _, err = svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: unconfiguredTimeZoneSpace, StartAt: fixedNow.Add(72 * time.Hour).UTC().Format(time.RFC3339), EndAt: fixedNow.Add(73 * time.Hour).UTC().Format(time.RFC3339)}); err != booking.ErrNotFound {
+		t.Fatalf("publication without an IANA time zone must not be quotable: %v", err)
 	}
 	activeJSON, err := json.Marshal(publicItems[0])
 	if err != nil || strings.Contains(string(activeJSON), "Dirección privada") || strings.Contains(string(activeJSON), "propietario_id") || strings.Contains(string(activeJSON), host) {
@@ -2249,6 +2259,13 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	handler.ServeHTTP(apiResponse, apiRequest)
 	if apiResponse.Code != http.StatusOK || !strings.Contains(apiResponse.Body.String(), "Oficina publicada elegible") || strings.Contains(apiResponse.Body.String(), "Dirección privada") {
 		t.Fatalf("published detail HTTP response=%d body=%s", apiResponse.Code, apiResponse.Body.String())
+	}
+	apiRequest = httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog/"+unconfiguredTimeZoneSpace, nil)
+	apiRequest.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	apiResponse = httptest.NewRecorder()
+	handler.ServeHTTP(apiResponse, apiRequest)
+	if apiResponse.Code != http.StatusNotFound {
+		t.Fatalf("publication without an IANA time zone HTTP detail=%d body=%s", apiResponse.Code, apiResponse.Body.String())
 	}
 	apiQuoteStart := fixedNow.Add(96 * time.Hour)
 	apiQuoteBody, err := json.Marshal(booking.QuoteInput{SpaceID: activeSpace, StartAt: apiQuoteStart.UTC().Format(time.RFC3339), EndAt: apiQuoteStart.Add(time.Hour).UTC().Format(time.RFC3339)})

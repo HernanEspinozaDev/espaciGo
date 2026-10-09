@@ -73,6 +73,7 @@ WHERE (((f.habilitada AND e.estado='borrador') AND (f.anfitrion_id=$1 OR f.arren
 AND ($2::text='' OR e.categoria_codigo=$2)
 AND ($3::timestamptz IS NULL OR NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($3,$4,'[)')))
 AND ($5::integer IS NULL OR (c.perfil_version=$5 AND c.valores @> $6::jsonb))
+AND e.zona_horaria IS NOT NULL
 AND ($7::double precision IS NULL OR (g.punto IS NOT NULL
  AND ST_DWithin(g.punto,ST_SetSRID(ST_MakePoint($8::double precision,$7::double precision),4326)::geography,$9::double precision*1000.0+0.000001)
  AND ST_Distance(g.punto,ST_SetSRID(ST_MakePoint($8::double precision,$7::double precision),4326)::geography)<=$9::double precision*1000.0+0.000001))
@@ -122,7 +123,7 @@ JOIN public.categoria_espacio k ON k.codigo=e.categoria_codigo AND k.activa
 JOIN public.espacio_caracteristicas c ON c.espacio_id=e.id AND c.categoria_codigo=e.categoria_codigo
 JOIN public.categoria_perfil_atributos p ON p.categoria_codigo=c.categoria_codigo AND p.version=c.perfil_version
 JOIN LATERAL(SELECT modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
-WHERE e.id=$1 AND (((f.habilitada AND e.estado='borrador') AND (f.anfitrion_id=$2 OR f.arrendatario_id=$2))
+WHERE e.id=$1 AND e.zona_horaria IS NOT NULL AND (((f.habilitada AND e.estado='borrador') AND (f.anfitrion_id=$2 OR f.arrendatario_id=$2))
  OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$2 AND EXISTS(
        SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
        JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada'
@@ -137,7 +138,7 @@ func (r *Repository) AvailableIntervals(ctx context.Context, actor, spaceID stri
 	var authorized bool
 	if err := r.pool.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM public.espacio e LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id
-		WHERE e.id=$1 AND (((f.habilitada AND e.estado='borrador') AND (f.anfitrion_id=$2 OR f.arrendatario_id=$2))
+		WHERE e.id=$1 AND e.zona_horaria IS NOT NULL AND (((f.habilitada AND e.estado='borrador') AND (f.anfitrion_id=$2 OR f.arrendatario_id=$2))
 		OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$2 AND EXISTS(
 			SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
 			JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada'
@@ -220,7 +221,7 @@ FROM public.espacio e
 LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id
 JOIN public.espacio_caracteristicas c ON c.espacio_id=e.id AND c.categoria_codigo=e.categoria_codigo
 JOIN LATERAL(SELECT version,modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
-WHERE e.id=$2 AND (((f.habilitada AND e.estado='borrador') AND f.arrendatario_id=$1)
+WHERE e.id=$2 AND e.zona_horaria IS NOT NULL AND (((f.habilitada AND e.estado='borrador') AND f.arrendatario_id=$1)
  OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$1 AND EXISTS(
        SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
        JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada'
