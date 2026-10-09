@@ -15,7 +15,7 @@ import { publicationAction } from "./space-publication-state.js";
 import { publishedContentChange } from "./published-content-state.js";
 import { galleryContextMatches } from "./gallery-session-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount } from "./suppression-review-state.js";
-import { captureRentalOperationContext, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
+import { captureRentalOperationContext, finishRentalOperationAfterReload, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -2013,9 +2013,10 @@ async function recordRentalOperation(kind) {
     await loadBookingInbox();
     if (id !== selectedReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
         return;
-    await loadRentalOperations(id);
-    field.value = "";
-    resultElement.textContent = "Operación sintética registrada. Estado, evidencia e historial actualizados desde la API.";
+    await finishRentalOperationAfterReload(context, () => loadRentalOperations(id), () => ({ revision: rentalOperationRevision, reservationID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }), () => {
+        field.value = "";
+        resultElement.textContent = "Operación sintética registrada. Estado, evidencia e historial actualizados desde la API.";
+    });
 }
 async function recordDamageClaim(defense) {
     const id = selectedReservationID, reservation = selectedReservation, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;

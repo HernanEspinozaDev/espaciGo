@@ -162,7 +162,7 @@ WHERE reserva_id=$1 AND autor_id=$2 AND clave_idempotencia=$3`, reservationID, a
 		}
 		return conversation.Message{}, conversation.ErrConflict
 	}
-	if state != "pendiente_de_pago" && state != "pagada" && state != "aprobada_host" && state != "firma_parcial" && state != "lista_para_checkin" {
+	if state != "pendiente_de_pago" && state != "pagada" && state != "aprobada_host" && state != "firma_parcial" && state != "lista_para_checkin" && state != "en_curso" && state != "en_disputa" {
 		return conversation.Message{}, conversation.ErrConflict
 	}
 	item, err := scanMessage(tx.QueryRow(ctx, `INSERT INTO public.mensaje_reserva_ensayo

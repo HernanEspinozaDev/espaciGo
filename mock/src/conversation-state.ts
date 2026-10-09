@@ -10,6 +10,8 @@ const writableStates = new Set([
   "aprobada_host",
   "firma_parcial",
   "lista_para_checkin",
+  "en_curso",
+  "en_disputa",
 ]);
 
 export function canSendConversation(actorID: string, reservation: ConversationReservation | null): boolean {

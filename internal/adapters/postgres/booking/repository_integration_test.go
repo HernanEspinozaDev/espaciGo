@@ -2798,6 +2798,23 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if detail, detailErr := svc.Get(ctx, renter, completeReservation.ID); detailErr != nil || detail.State != "en_curso" {
 		t.Fatalf("check-in state=%s err=%v", detail.State, detailErr)
 	}
+	messageDuringUse, err := conversationService.Send(ctx, renter, completeReservation.ID, "message-after-checkin-renter", "Ya ingresé al espacio de ensayo.")
+	if err != nil {
+		t.Fatalf("renter message after check-in: %v", err)
+	}
+	messageDuringUseReplay, err := conversationService.Send(ctx, renter, completeReservation.ID, "message-after-checkin-renter", "Ya ingresé al espacio de ensayo.")
+	if err != nil || messageDuringUseReplay.ID != messageDuringUse.ID {
+		t.Fatalf("message after check-in idempotency: original=%+v replay=%+v err=%v", messageDuringUse, messageDuringUseReplay, err)
+	}
+	if _, err = conversationService.Send(ctx, host, completeReservation.ID, "message-after-checkin-host", "Gracias por confirmar la llegada."); err != nil {
+		t.Fatalf("host message during active use: %v", err)
+	}
+	if _, err = conversationService.Send(ctx, outsider, completeReservation.ID, "message-after-checkin-outsider", "No autorizado."); err != conversation.ErrNotFound {
+		t.Fatalf("third-party message during active use err=%v", err)
+	}
+	if page, pageErr := conversationService.List(ctx, renter, completeReservation.ID, nil, 10); pageErr != nil || len(page.Items) != 2 {
+		t.Fatalf("messages after check-in page=%+v err=%v", page, pageErr)
+	}
 	clockMu.Lock()
 	fixedNow = completeReservation.EndAt.Add(time.Hour)
 	clockMu.Unlock()
@@ -2821,6 +2838,9 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	receipt := publishedOperationAPI(t, host, operationService, http.MethodPost, operationPath+"/reception", "receipt-key-0001", operation.Input{Observations: "Observación sintética del anfitrión"})
 	if receipt.Code != http.StatusCreated {
 		t.Fatalf("host receipt API=%d %s", receipt.Code, receipt.Body.String())
+	}
+	if _, err = conversationService.Send(ctx, renter, completeReservation.ID, "message-after-checkout", "El espacio ya quedó desocupado."); err != conversation.ErrConflict {
+		t.Fatalf("new message after checkout must be read-only: %v", err)
 	}
 	var receiptEnvelope struct {
 		Data operation.Item `json:"data"`
@@ -2922,6 +2942,9 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	claimRead := publishedDamageClaimAPI(t, renter, claimService, http.MethodGet, operationPath+"/damage-claim", "", nil)
 	if claimRead.Code != http.StatusOK {
 		t.Fatalf("renter claim read=%d %s", claimRead.Code, claimRead.Body.String())
+	}
+	if _, err = conversationService.Send(ctx, renter, completeReservation.ID, "message-open-claim", "Estoy disponible para aclarar la observación."); err != nil {
+		t.Fatalf("participant message during open damage claim: %v", err)
 	}
 	defense := publishedDamageClaimAPI(t, renter, claimService, http.MethodPost, operationPath+"/damage-claim/defense", "renter-defense-0001", damageclaim.Input{Description: "Descargo sintético del arrendatario."})
 	if defense.Code != http.StatusCreated {

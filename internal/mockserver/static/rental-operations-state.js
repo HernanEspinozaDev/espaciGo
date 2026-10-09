@@ -10,6 +10,9 @@ export function rentalOperationControls(accountID, reservation, operations, hasC
 }
 export function captureRentalOperationContext(value) { return { ...value }; }
 export function rentalOperationResponseIsCurrent(context, current) { return context.revision === current.revision && context.reservationID === current.reservationID && context.accountID === current.accountID && context.token === current.token && context.generation === current.generation && Boolean(context.token); }
+export function rentalOperationOwnerIsCurrent(context, current) { return context.reservationID === current.reservationID && context.accountID === current.accountID && context.token === current.token && context.generation === current.generation && Boolean(context.token); }
+export async function finishRentalOperationAfterReload(context, reload, current, onSuccess) { await reload(); if (!rentalOperationOwnerIsCurrent(context, current()))
+    return false; onSuccess(); return true; }
 export class RentalOperationIdempotencyKeys {
     values = new Map();
     get(reservationID, action, payload, generate) { const id = `${reservationID}:${action}`, prior = this.values.get(id); if (prior?.payload === payload)

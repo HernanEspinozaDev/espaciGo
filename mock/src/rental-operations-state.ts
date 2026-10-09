@@ -21,6 +21,8 @@ export function rentalOperationControls(accountID:string,reservation:RentalReser
 }
 export function captureRentalOperationContext(value:RentalOperationCurrent):RentalOperationContext{return {...value};}
 export function rentalOperationResponseIsCurrent(context:RentalOperationContext,current:RentalOperationCurrent):boolean{return context.revision===current.revision&&context.reservationID===current.reservationID&&context.accountID===current.accountID&&context.token===current.token&&context.generation===current.generation&&Boolean(context.token);}
+export function rentalOperationOwnerIsCurrent(context:RentalOperationContext,current:RentalOperationCurrent):boolean{return context.reservationID===current.reservationID&&context.accountID===current.accountID&&context.token===current.token&&context.generation===current.generation&&Boolean(context.token);}
+export async function finishRentalOperationAfterReload(context:RentalOperationContext,reload:()=>Promise<unknown>,current:()=>RentalOperationCurrent,onSuccess:()=>void):Promise<boolean>{await reload();if(!rentalOperationOwnerIsCurrent(context,current()))return false;onSuccess();return true;}
 export class RentalOperationIdempotencyKeys {
   private values=new Map<string,{key:string;payload:string}>();
   get(reservationID:string,action:string,payload:string,generate:()=>string):string{const id=`${reservationID}:${action}`,prior=this.values.get(id);if(prior?.payload===payload)return prior.key;const next={key:generate(),payload};this.values.set(id,next);return next.key;}

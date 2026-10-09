@@ -1,6 +1,6 @@
 # LOCAL-OPS-01 — matriz y evidencia
 
-Estado: implementación del PR #218 para revisión. Issue #218, hija de #88; Issues originales M08/M10 permanecen abiertas. No es aceptación de los criterios generales.
+Estado: implementación del PR #218 y correcciones focalizadas del PR #219 para revisión. Issue #218, hija de #88; Issues originales M08/M10 permanecen abiertas. No es aceptación de los criterios generales.
 
 ## Requisitos y cobertura
 
@@ -32,7 +32,15 @@ Comprobaciones de esta rama, todas satisfactorias:
 - `python3 -c 'import yaml; yaml.safe_load(open("planning/openapi.yaml")); print("OpenAPI YAML parse: PASS")'` — PASS.
 - `git diff --check` — PASS.
 
-La prueba PostgreSQL crea un clúster de prueba desechable mediante el script y no se conectó a `espacigo_pgdata`. El mock se compiló y la lógica de su panel tiene cobertura automatizada; no se afirma un recorrido interactivo navegador→servidor en el entorno persistente antes del merge. Pasos manuales para HernanEspinozaDev están arriba; el router/API y el ciclo completo se recorren en la integración PostgreSQL con ambos participantes y un tercero.
+### Correcciones y recorrido del PR #219 (2026-10-09)
+
+- La conversación permite enviar a los dos participantes en `en_curso` y `en_disputa`; la verificación Backend conserva idempotencia, 404 a terceros y solo lectura para estados terminales. La integración PostgreSQL del ciclo incluye mensajes de anfitrión y arrendatario después del check-in, reintento con la misma clave, tercero rechazado, nuevo envío rechazado después del check-out y envío permitido durante el reclamo abierto.
+- `cd mock && npm run test:rental-operations` — PASS, compila el TypeScript y ejecuta 8 pruebas; incluye el estado de conversación `en_curso`, selección de otra reserva durante la última recarga, logout/relogin durante esa espera y el caso válido cuando solo avanza la revisión interna de la bandeja.
+- `GO_TEST_RUN='^TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry$' bash scripts/test-m06-local-booking-postgres.sh` — PASS en PostgreSQL desechable. `go vet ./internal/conversation/... ./internal/adapters/postgres/conversation` y `git diff --check` — PASS.
+- Recorrido verificado por navegador contra API/PostgreSQL local con las dos cuentas sintéticas existentes: firma pendiente completada → check-in (reserva `en_curso`) → mensaje del arrendatario → check-out (`finalizada`, plazo calculado desde la hora persistida) → recepción/observación del anfitrión sin liquidación → reclamo formal sintético del anfitrión (`en_disputa`) → descargo del arrendatario visible para participantes. La conversación dejó de aceptar mensajes al quedar `finalizada` y volvió a ser escribible al quedar abierta la disputa, según el contrato acordado. Evidencia e imágenes fueron sintéticas; no hubo fondos ni decisiones sobre daños.
+- El entorno persistente se actualizó sin eliminar `espacigo_pgdata`, secretos ni datos previos. Las pruebas PostgreSQL focalizadas usaron su clúster desechable.
+
+El ciclo interactivo navegador→API se comprobó como parte de la evidencia del PR #219; el resultado anterior que decía que no se afirmaba ese recorrido queda reemplazado por el registro anterior. Las Issues generales de los padres siguen abiertas.
 
 ## Pendientes deliberados
 

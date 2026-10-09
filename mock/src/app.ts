@@ -15,7 +15,7 @@ import { publicationAction } from "./space-publication-state.js";
 import { publishedContentChange } from "./published-content-state.js";
 import { galleryContextMatches, type GalleryContext } from "./gallery-session-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount, type SuppressionReviewPanelState } from "./suppression-review-state.js";
-import { captureRentalOperationContext, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
+import { captureRentalOperationContext, finishRentalOperationAfterReload, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
 
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
@@ -1398,9 +1398,10 @@ async function recordRentalOperation(kind:"checkin"|"checkout"|"recepcion"):Prom
   rentalOperationKeys.clear(id,kind);
   await loadBookingInbox();
   if(id!==selectedReservationID||account!==sessionAccountID||token!==sessionToken||generation!==sessionGeneration)return;
-  await loadRentalOperations(id);
-  field.value="";
-  resultElement.textContent="Operación sintética registrada. Estado, evidencia e historial actualizados desde la API.";
+  await finishRentalOperationAfterReload(context,()=>loadRentalOperations(id),()=>({revision:rentalOperationRevision,reservationID:selectedReservationID,accountID:sessionAccountID,token:sessionToken,generation:sessionGeneration}),()=>{
+    field.value="";
+    resultElement.textContent="Operación sintética registrada. Estado, evidencia e historial actualizados desde la API.";
+  });
 }
 async function recordDamageClaim(defense:boolean):Promise<void>{
   const id=selectedReservationID,reservation=selectedReservation,account=sessionAccountID,token=sessionToken,generation=sessionGeneration;
