@@ -165,9 +165,15 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 		t.Fatalf("activate non-fixture publication for edit test: %v", err)
 	}
 	newTitle, newPrice := "Título publicado editado", int64(12000)
-	updated, err := svc.UpdatePublishedOwn(ctx, owner, fixtureDraft.ID, spaces.PublishedContentInput{Title: &newTitle, BasePriceCLP: &newPrice})
+	// Another operation changes the rate after the mock loaded the original
+	// 8,000 CLP. A stale form submits only its changed title, never the old rate.
+	updated, err := svc.UpdatePublishedOwn(ctx, owner, fixtureDraft.ID, spaces.PublishedContentInput{BasePriceCLP: &newPrice})
+	if err != nil || updated.State != "activa" || updated.Title != fixtureDraft.Title || updated.BasePriceCLP != newPrice {
+		t.Fatalf("concurrent rate update=%+v err=%v", updated, err)
+	}
+	updated, err = svc.UpdatePublishedOwn(ctx, owner, fixtureDraft.ID, spaces.PublishedContentInput{Title: &newTitle})
 	if err != nil || updated.State != "activa" || updated.Title != newTitle || updated.BasePriceCLP != newPrice {
-		t.Fatalf("active listing edit=%+v err=%v", updated, err)
+		t.Fatalf("stale title-only listing edit=%+v err=%v", updated, err)
 	}
 	detail, err := bookingRepo.Get(ctx, other, reservation.ID)
 	if err != nil || detail.UnitPrice != 8000 || detail.Subtotal != 8000 {

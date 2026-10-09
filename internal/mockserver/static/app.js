@@ -10,6 +10,7 @@ import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymen
 import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExportSessionMatches } from "./privacy-export-state.js";
 import { applyM02PhotoIfCurrent, captureM02PhotoSession, deliverM02PhotoIfCurrent, m02PhotoSessionMatches } from "./m02-photo-session-state.js";
 import { publicationAction } from "./space-publication-state.js";
+import { publishedContentChange } from "./published-content-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount } from "./suppression-review-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
@@ -737,34 +738,52 @@ async function loadSpaces() {
         if ((String(item.state) === "activa" || String(item.state) === "oculta") && sessionRoles.includes("arrendador")) {
             const edit = document.createElement("form");
             edit.className = "published-content-edit";
+            const loadedTitle = String(item.title), loadedPrice = Number(item.base_price_clp);
             const titleLabel = document.createElement("label");
             titleLabel.textContent = "Título";
             const title = document.createElement("input");
             title.name = "title";
             title.maxLength = 70;
-            title.value = String(item.title);
+            title.value = loadedTitle;
             titleLabel.append(title);
             const priceLabel = document.createElement("label");
             priceLabel.textContent = "Precio base CLP";
+            const priceIsExact = Number.isSafeInteger(loadedPrice);
             const price = document.createElement("input");
             price.name = "base_price_clp";
             price.type = "number";
             price.min = "5001";
             price.step = "1";
-            price.value = String(item.base_price_clp);
+            price.value = priceIsExact ? String(item.base_price_clp) : "";
+            if (!priceIsExact)
+                price.placeholder = "Fuera de rango exacto en este mock";
             priceLabel.append(price);
             const save = document.createElement("button");
             save.type = "submit";
             save.textContent = "Actualizar título/precio";
-            edit.append(titleLabel, priceLabel, save);
+            edit.append(titleLabel, priceLabel);
+            if (!priceIsExact) {
+                const priceNote = document.createElement("small");
+                priceNote.textContent = "El importe actual excede el rango entero seguro de JavaScript. Puedes editar el título o reemplazar la tarifa por un valor representable exactamente.";
+                edit.append(priceNote);
+            }
+            edit.append(save);
             edit.addEventListener("submit", event => {
                 event.preventDefault();
                 void action(async () => {
+                    const change = publishedContentChange(loadedTitle, loadedPrice, title.value, price.value);
+                    if (change.kind === "unchanged") {
+                        resultElement.textContent = "No hay cambios para guardar.";
+                        return;
+                    }
+                    if (change.kind === "unsupported-price") {
+                        resultElement.textContent = "El mock solo puede actualizar importes CLP enteros entre 5.001 y 9.007.199.254.740.991, representables exactamente. Cambia el importe por uno dentro de ese rango.";
+                        return;
+                    }
                     const opToken = sessionToken, opAccount = sessionAccountID, opGeneration = sessionGeneration;
-                    const body = { title: title.value, base_price_clp: Number(price.value) };
                     let changed;
                     try {
-                        changed = await request(`/api/v1/spaces/${encodeURIComponent(String(item.id))}/publication-content`, "PUT", body, true);
+                        changed = await request(`/api/v1/spaces/${encodeURIComponent(String(item.id))}/publication-content`, "PUT", change.body, true);
                     }
                     catch (error) {
                         if (!currentSpaceSession(opToken, opAccount, opGeneration))
