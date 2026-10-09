@@ -2,6 +2,8 @@
 
 Fecha de revisión: 2026-10-07. Código observado: `main`, commit `1d79b9af38c4c0d2a85b15e7fbc4c89d56cd2345`, merge del PR #176.
 
+> **Línea base histórica (2026-10-07), no estado actual.** Las afirmaciones de esta revisión sobre módulos aún no implementados describen ese checkout. Desde entonces se aceptaron LOCAL-CONT-01 (#216, PR #217) y otras entregas; para el estado conciliado vigente, consulta [matriz](matriz_cierre_backend_local.md), [plan](plan_cierre_backend_local.md) y [backlog](backlog_cierre_backend_local.md). LOCAL-OPS-01 (#218) implementa en su PR actual el corte sintético M08/M10 y sigue pendiente de aceptación.
+
 **Actualización de prioridad por instrucción del usuario:** completar M01–M11 en local antes de proponer GCP. El [plan de cierre local](plan_cierre_backend_local.md) y su backlog sustituyen la secuencia recomendada aquí. La comparación cloud de este documento se conserva como referencia; no es un backlog autorizado ni habilita pruebas o despliegues.
 
 Este documento es una evaluación y propuesta de cierre. No cambia requisitos, estados de Issues, dependencias, infraestructura ni criterios de aceptación. No se ejecutaron pruebas, contenedores, migraciones ni consultas a la base de desarrollo durante esta revisión. Los resultados previos se atribuyen a sus evidencias publicadas; leer una prueba no equivale a volver a ejecutarla.

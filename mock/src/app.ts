@@ -15,6 +15,7 @@ import { publicationAction } from "./space-publication-state.js";
 import { publishedContentChange } from "./published-content-state.js";
 import { galleryContextMatches, type GalleryContext } from "./gallery-session-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount, type SuppressionReviewPanelState } from "./suppression-review-state.js";
+import { captureRentalOperationContext, finishRentalOperationAfterReload, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
 
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
@@ -77,7 +78,7 @@ async function requestArchive(path:string,bearer:string):Promise<Blob> {
 }
 async function action(work: () => Promise<void>): Promise<void> {
   const buttons = [...document.querySelectorAll<HTMLButtonElement>("button")];
-  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); }); }
+  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); }); }
   catch (error) { resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API."; }
 }
 function form(id: string, work: (data: FormData, element: HTMLFormElement) => Promise<void>): void {
@@ -1033,6 +1034,8 @@ type TrialReservation={id:string;quote_id:string;space_id:string;host_id:string;
 type TrialTransition={sequence:number;to:string;reason:string;at:string};
 type TrialDetail=TrialReservation&{history:TrialTransition[]};
 type LocalContract={id:string;reservation_id:string;version:number;state:string;snapshot:unknown;sha256:string;created_at:string;updated_at:string;signatures:{signer_id:string;role:string;state:string;reason?:string;updated_at:string}[];history:{sequence:number;actor_id?:string;action:string;reason?:string;at:string}[]};
+type LocalRentalOperation={id:string;reservation_id:string;kind:"checkin"|"checkout"|"recepcion";actor_id:string;occurred_at:string;time_zone:string;synthetic_location:{source:string;location_code:string;latitude:number;longitude:number};comments?:string;observations?:string;result:string;claim_deadline_at?:string;sequence:number;evidence:{id:string;fixture_code:string;mime_type:string;sha256:string;size_bytes:number;created_at:string;content_url?:string}[]};
+type LocalDamageClaim={id:string;reservation_id:string;host_id:string;renter_id:string;checkout_operation_id:string;checkout_evidence_id:string;description:string;state:"abierto";opened_at:string;claim_deadline_at:string;reused?:boolean;defense?:{id:string;actor_id:string;description:string;created_at:string}};
 type CancellationPreview={reservation_id:string;policy_version:string;eligible:boolean;deadline:string;amount_clp:number;currency:string;refund_label:string;reason_code?:string};
 type ConversationMessage={id:string;reservation_id:string;author_id:string;sequence:number;body:string;created_at:string};
 type ConversationPage={items:ConversationMessage[];older_cursor:number|null};
@@ -1041,6 +1044,11 @@ let selectedReservation:TrialDetail|null=null;
 let selectedContract:LocalContract|null=null;
 let contractRequestRevision=0;
 let bookingInboxRevision=0;
+let rentalOperationRevision=0;
+let rentalOperations:LocalRentalOperation[]=[];
+const rentalOperationKeys=new RentalOperationIdempotencyKeys();
+let selectedDamageClaim:LocalDamageClaim|null=null;
+let damageClaimRevision=0;
 type LocalDispute={id:string;reservation_id:string;host_id:string;renter_id:string;state:string;opening_reason_code:string;opened_at:string;close_reason_code?:string|null;closed_at?:string|null};
 let localDisputes:LocalDispute[]=[];
 let disputeRevision=0;
@@ -1308,6 +1316,110 @@ function clearConversation(message:string):void{
   older.hidden=true;older.disabled=true;
   refreshConversationControls();
 }
+function clearRentalOperations(message:string):void{
+  rentalOperationRevision++;rentalOperations=[];
+  document.querySelector<HTMLElement>("#local-rental-operations-output")!.textContent=message;
+  document.querySelector<HTMLInputElement>("#local-rental-comments")!.value="";
+  document.querySelector<HTMLInputElement>("#local-rental-observations")!.value="";
+  refreshRentalOperationControls();
+}
+function refreshRentalOperationControls():void{
+  const checkin=document.querySelector<HTMLButtonElement>("#local-rental-checkin");
+  const checkout=document.querySelector<HTMLButtonElement>("#local-rental-checkout");
+  const reception=document.querySelector<HTMLButtonElement>("#local-rental-reception");
+  if(!checkin||!checkout||!reception)return;
+  const controls=rentalOperationControls(sessionAccountID,selectedReservation,rentalOperations,Boolean(selectedDamageClaim),selectedDamageClaim,Boolean(sessionToken));
+  checkin.disabled=!controls.canCheckIn;checkout.disabled=!controls.canCheckOut;reception.disabled=!controls.canReceive;
+  refreshDamageClaimControls();
+}
+function refreshDamageClaimControls():void{
+  const open=document.querySelector<HTMLButtonElement>("#local-damage-claim-open"),defend=document.querySelector<HTMLButtonElement>("#local-damage-claim-defend");
+  if(!open||!defend)return;
+  const controls=rentalOperationControls(sessionAccountID,selectedReservation,rentalOperations,Boolean(selectedDamageClaim),selectedDamageClaim,Boolean(sessionToken));
+  open.disabled=!controls.canOpenClaim;defend.disabled=!controls.canDefend;
+}
+function clearDamageClaim(message:string):void{
+  damageClaimRevision++;selectedDamageClaim=null;
+  document.querySelector<HTMLElement>("#local-damage-claim-output")!.textContent=message;
+  document.querySelector<HTMLTextAreaElement>("#local-damage-claim-description")!.value="";
+  refreshDamageClaimControls();
+}
+async function loadDamageClaim(id:string):Promise<void>{
+  const revision=++damageClaimRevision,account=sessionAccountID,token=sessionToken,generation=sessionGeneration;
+  try{
+    const response=await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/damage-claim`,"GET",undefined,true);
+    if(revision!==damageClaimRevision||id!==selectedReservationID||account!==sessionAccountID||token!==sessionToken||generation!==sessionGeneration)return;
+    selectedDamageClaim=bookingData<LocalDamageClaim>(response);
+    const claim=selectedDamageClaim;
+    document.querySelector<HTMLElement>("#local-damage-claim-output")!.textContent=`ENSAYO LOCAL — SIN ADJUDICACIÓN NI MOVIMIENTO DE FONDOS\nEstado: ${claim.state} · abierto ${new Date(claim.opened_at).toLocaleString("es-CL")} · plazo desde el check-out: ${new Date(claim.claim_deadline_at).toLocaleString("es-CL")}\n${claim.description}\nEvidencia check-out sintética privada: ${claim.checkout_evidence_id}${claim.defense?`\nDescargo del arrendatario (${new Date(claim.defense.created_at).toLocaleString("es-CL")}): ${claim.defense.description}`:"\nSin descargo registrado."}`;
+  }catch(error){
+    if(revision!==damageClaimRevision||id!==selectedReservationID||account!==sessionAccountID||token!==sessionToken||generation!==sessionGeneration)return;
+    if(error instanceof Error&&error.message.includes("HTTP 404")){selectedDamageClaim=null;document.querySelector<HTMLElement>("#local-damage-claim-output")!.textContent="No hay reclamo formal sintético abierto para esta reserva.";}
+    else {document.querySelector<HTMLElement>("#local-damage-claim-output")!.textContent=error instanceof Error?error.message:"No se pudo consultar el reclamo.";}
+  }
+  refreshDamageClaimControls();
+}
+function renderRentalOperations():void{
+  const target=document.querySelector<HTMLElement>("#local-rental-operations-output")!;
+  target.replaceChildren();
+  const notice=document.createElement("p");notice.textContent="ENSAYO LOCAL — EVIDENCIA SINTÉTICA; SIN VALIDEZ PROBATORIA REAL";target.append(notice);
+  if(!rentalOperations.length){const empty=document.createElement("p");empty.textContent="No hay operaciones de entrega o devolución registradas.";target.append(empty);refreshRentalOperationControls();return;}
+  for(const item of rentalOperations){
+    const article=document.createElement("article"),title=document.createElement("h6"),detail=document.createElement("p"),evidence=document.createElement("p");
+    const label=item.kind==="checkin"?"Check-in":item.kind==="checkout"?"Check-out":"Recepción del anfitrión";
+    title.textContent=`#${item.sequence} · ${label} · ${item.result}`;
+    detail.textContent=`${new Date(item.occurred_at).toLocaleString("es-CL",{timeZone:item.time_zone})} (${item.time_zone}) · ${item.synthetic_location.location_code} · actor ${item.actor_id}`;
+    const text=item.comments?`Comentarios: ${item.comments}`:item.observations?`Observación, no reclamo formal: ${item.observations}`:"Sin comentario.";
+    evidence.textContent=`${text} · ${item.evidence.length} imagen sintética privada(s)${item.claim_deadline_at?` · plazo local de reclamo hasta ${new Date(item.claim_deadline_at).toLocaleString("es-CL",{timeZone:item.time_zone})}`:""}`;
+    article.append(title,detail,evidence);target.append(article);
+  }
+  refreshRentalOperationControls();
+}
+async function loadRentalOperations(id:string):Promise<void>{
+  const revision=++rentalOperationRevision,account=sessionAccountID,token=sessionToken,generation=sessionGeneration;
+  const context=captureRentalOperationContext({revision,reservationID:id,accountID:account,token,generation});
+  const result=await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/operations`,"GET",undefined,true);
+  if(!rentalOperationResponseIsCurrent(context,{revision:rentalOperationRevision,reservationID:selectedReservationID,accountID:sessionAccountID,token:sessionToken,generation:sessionGeneration}))return;
+  rentalOperations=bookingData<{items:LocalRentalOperation[]}>(result).items;
+  renderRentalOperations();
+}
+async function recordRentalOperation(kind:"checkin"|"checkout"|"recepcion"):Promise<void>{
+  const id=selectedReservationID,reservation=selectedReservation,account=sessionAccountID,token=sessionToken,generation=sessionGeneration;
+  if(!id||!reservation||!token)throw new Error("Selecciona una reserva propia e inicia sesión.");
+  const field=kind==="recepcion"?document.querySelector<HTMLInputElement>("#local-rental-observations")!:document.querySelector<HTMLInputElement>("#local-rental-comments")!;
+  const payload=kind==="recepcion"?{observations:field.value.trim()}:{comments:field.value.trim()};
+  const payloadText=JSON.stringify(payload);
+  const pendingKey=rentalOperationKeys.get(id,kind,payloadText,()=>crypto.randomUUID());
+  const revision=++rentalOperationRevision;
+  const context=captureRentalOperationContext({revision,reservationID:id,accountID:account,token,generation});
+  const pathKind=kind==="checkin"?"check-in":kind==="checkout"?"check-out":"reception";
+  await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/${pathKind}`,"POST",payload,true,pendingKey);
+  if(!rentalOperationResponseIsCurrent(context,{revision:rentalOperationRevision,reservationID:selectedReservationID,accountID:sessionAccountID,token:sessionToken,generation:sessionGeneration}))return;
+  rentalOperationKeys.clear(id,kind);
+  await loadBookingInbox();
+  if(id!==selectedReservationID||account!==sessionAccountID||token!==sessionToken||generation!==sessionGeneration)return;
+  await finishRentalOperationAfterReload(context,()=>loadRentalOperations(id),()=>({revision:rentalOperationRevision,reservationID:selectedReservationID,accountID:sessionAccountID,token:sessionToken,generation:sessionGeneration}),()=>{
+    field.value="";
+    resultElement.textContent="Operación sintética registrada. Estado, evidencia e historial actualizados desde la API.";
+  });
+}
+async function recordDamageClaim(defense:boolean):Promise<void>{
+  const id=selectedReservationID,reservation=selectedReservation,account=sessionAccountID,token=sessionToken,generation=sessionGeneration;
+  if(!id||!reservation||!token)throw new Error("Selecciona una reserva propia e inicia sesión.");
+  const description=document.querySelector<HTMLTextAreaElement>("#local-damage-claim-description")!.value.trim();
+  if(!description)throw new Error("Escribe la descripción sintética requerida.");
+  const payload={description},payloadText=JSON.stringify(payload),keyName=defense?"damage-claim-defense":"damage-claim-open";
+  const pendingKey=rentalOperationKeys.get(id,keyName,payloadText,()=>crypto.randomUUID());
+  const revision=++damageClaimRevision,path=defense?"damage-claim/defense":"damage-claim";
+  const context=captureRentalOperationContext({revision,reservationID:id,accountID:account,token,generation});
+  await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/${path}`,"POST",payload,true,pendingKey);
+  if(!rentalOperationResponseIsCurrent(context,{revision:damageClaimRevision,reservationID:selectedReservationID,accountID:sessionAccountID,token:sessionToken,generation:sessionGeneration}))return;
+  rentalOperationKeys.clear(id,keyName);
+  await loadBookingInbox();
+  if(id!==selectedReservationID||account!==sessionAccountID||token!==sessionToken||generation!==sessionGeneration)return;
+  document.querySelector<HTMLTextAreaElement>("#local-damage-claim-description")!.value="";
+  resultElement.textContent=defense?"Descargo sintético guardado y visible para los participantes.":"Reclamo sintético abierto; reserva en disputa, sin adjudicación ni movimiento de fondos.";
+}
 function clearBookingInboxOnSessionLoss():void{
   sessionGeneration++;
   clearSpaceGallery();
@@ -1343,6 +1455,7 @@ function clearBookingInboxOnSessionLoss():void{
   renterInbox.textContent="Inicia sesión y actualiza tu bandeja.";
   hostInbox.textContent="Inicia sesión y actualiza tu bandeja.";
   bookingHistoryOutput.textContent="Inicia sesión para consultar reservas propias.";
+  rentalOperationKeys.clearAll();clearRentalOperations("Inicia sesión y selecciona una reserva propia.");clearDamageClaim("Inicia sesión para consultar reclamos sintéticos propios.");
   const contractOutput=document.querySelector<HTMLElement>("#synthetic-contract-output");if(contractOutput)contractOutput.textContent="Inicia sesión y selecciona una reserva aprobada.";
   bookingPaymentOutput.textContent="Inicia sesión para consultar pagos de reservas propias.";
   document.querySelector<HTMLElement>("#privacy-output")!.textContent="Inicia sesión para usar M02.";
@@ -1514,7 +1627,7 @@ async function loadDisputeAdminQueue():Promise<void>{
   document.querySelector<HTMLElement>("#local-dispute-admin-status")!.textContent=`${disputeAdminItems.length} incidencia(s) abierta(s). El cierre es administrativo y no económico.`;
 }
 async function loadReservationDetail(id:string):Promise<void>{
-  bookingRequestState.select(id);selectedReservationID=id;selectedReservation=null;selectedContract=null;contractRequestRevision++;document.querySelector<HTMLElement>("#synthetic-contract-output")!.textContent="Selecciona Generar / consultar para cargar el contrato privado de ensayo.";clearDisputes("Cargando incidencia de la reserva seleccionada…");refreshBookingActions();
+  bookingRequestState.select(id);selectedReservationID=id;selectedReservation=null;selectedContract=null;contractRequestRevision++;document.querySelector<HTMLElement>("#synthetic-contract-output")!.textContent="Selecciona Generar / consultar para cargar el contrato privado de ensayo.";clearDisputes("Cargando incidencia de la reserva seleccionada…");clearRentalOperations("Cargando operaciones sintéticas de la reserva…");clearDamageClaim("Cargando reclamo formal sintético…");refreshBookingActions();
   cancellationPreview=null;cancellationPreviewReservationID="";
   document.querySelector<HTMLElement>("#booking-inbox-cancel-preview-output")!.textContent="Consulta la opción de cancelación antes de confirmar.";
   clearConversation("Cargando mensajes de la reserva seleccionada…");
@@ -1522,11 +1635,20 @@ async function loadReservationDetail(id:string):Promise<void>{
   const result=await request(`${bookingBase}/reservations/${encodeURIComponent(id)}`,"GET",undefined,true);
   if(revision!==bookingInboxRevision||!bookingRequestState.accepts(requestContext,sessionAccountID,sessionToken))return;
   selectedReservation=bookingData<TrialDetail>(result);renderReservationDetail(selectedReservation);
+  await loadRentalOperations(id);
+  if(selectedReservationID!==id||!selectedReservation)return;
+  await loadDamageClaim(id);
+  if(selectedReservationID!==id||!selectedReservation)return;
   await loadReservationDisputes(id);
   await loadConversationPage(id,null,false);
   conversationStatus.textContent=`Conversación local · ${selectedReservation.state}. ${canSendConversation(sessionAccountID,selectedReservation)?"Puedes enviar texto plano en este estado.":"Solo lectura: el estado de la reserva no permite enviar."}`;
   refreshConversationControls();
 }
+document.querySelector<HTMLButtonElement>("#local-rental-checkin")!.addEventListener("click",()=>void action(()=>recordRentalOperation("checkin")));
+document.querySelector<HTMLButtonElement>("#local-rental-checkout")!.addEventListener("click",()=>void action(()=>recordRentalOperation("checkout")));
+document.querySelector<HTMLButtonElement>("#local-rental-reception")!.addEventListener("click",()=>void action(()=>recordRentalOperation("recepcion")));
+document.querySelector<HTMLButtonElement>("#local-damage-claim-open")!.addEventListener("click",()=>void action(()=>recordDamageClaim(false)));
+document.querySelector<HTMLButtonElement>("#local-damage-claim-defend")!.addEventListener("click",()=>void action(()=>recordDamageClaim(true)));
 function renderSyntheticContract(item:LocalContract):void{
   selectedContract=item;
   const lines=item.signatures.map(s=>`${s.role}: ${s.state}${s.reason?` · ${s.reason}`:""}`).join("\n");

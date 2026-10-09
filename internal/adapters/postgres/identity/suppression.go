@@ -33,13 +33,15 @@ func activeSuppressionObligations(ctx context.Context, tx pgx.Tx, subjectID stri
 	out := make([]string, 0, 3)
 	var found bool
 	queries := []struct{ code, sql string }{
-		{"reserva_activa", `SELECT EXISTS (SELECT 1 FROM public.reserva_ensayo_local WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado IN ('pendiente_de_pago','pagada','aprobada_host','firma_parcial','lista_para_checkin'))`},
+		{"reserva_activa", `SELECT EXISTS (SELECT 1 FROM public.reserva_ensayo_local WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado IN ('pendiente_de_pago','pagada','aprobada_host','firma_parcial','lista_para_checkin','en_curso'))`},
 		{"pago_o_devolucion_pendiente", `SELECT EXISTS (
 		 SELECT 1 FROM public.reserva_pago_ensayo_operacion p JOIN public.reserva_ensayo_local r ON r.id=p.reserva_id WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND p.estado='pendiente'
 		 UNION ALL SELECT 1 FROM public.reserva_pago_evento_aplicacion_ensayo a JOIN public.reserva_pago_evento_ensayo e ON e.id=a.evento_id JOIN public.reserva_pago_ensayo_operacion p ON p.id=e.operacion_id JOIN public.reserva_ensayo_local r ON r.id=p.reserva_id WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND a.estado='pendiente_conciliacion'
 		 UNION ALL SELECT 1 FROM public.reserva_pago_fake_resultado_ensayo f JOIN public.reserva_pago_ensayo_operacion p ON p.id=f.operacion_id JOIN public.reserva_ensayo_local r ON r.id=p.reserva_id WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND p.estado='vencida' AND f.estado='resultado' AND NOT EXISTS (SELECT 1 FROM public.reserva_pago_evento_ensayo e WHERE e.operacion_id=p.id AND e.proveedor_evento_id=f.proveedor_evento_id)
 		 UNION ALL SELECT 1 FROM public.reserva_devolucion_ensayo d JOIN public.reserva_ensayo_local r ON r.id=d.reserva_id WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND d.estado='pendiente')`},
-		{"disputa_abierta", `SELECT EXISTS (SELECT 1 FROM public.disputa_ensayo_local WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado='abierta')`},
+		{"disputa_abierta", `SELECT EXISTS (
+		 SELECT 1 FROM public.disputa_ensayo_local WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado='abierta'
+		 UNION ALL SELECT 1 FROM public.reclamo_dano_ensayo_local WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado='abierto')`},
 	}
 	for _, item := range queries {
 		if err := tx.QueryRow(ctx, item.sql, subjectID).Scan(&found); err != nil {

@@ -1478,7 +1478,7 @@ func TestM02SuppressionReviewListsOnlyLiveReservationAndPaymentObligations(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedPrivacyReviewReservation(t, h, "71000000-0000-4000-8000-000000000001", "71000000-0000-4000-8000-000000000002", "71000000-0000-4000-8000-000000000003", "71000000-0000-4000-8000-000000000004", terminalRequester, adminID, "cancelada_arrendatario")
+	seedPrivacyReviewReservation(t, h, "71000000-0000-4000-8000-000000000001", "71000000-0000-4000-8000-000000000002", "71000000-0000-4000-8000-000000000003", "71000000-0000-4000-8000-000000000004", terminalRequester, adminID, "finalizada")
 	terminalResult, err := h.repo.ReviewSuppression(h.ctx, adminID, terminalRequest.ID, "terminal-history", "test-correlation-terminal", func() time.Time { return h.now })
 	if err != nil {
 		t.Fatal(err)
@@ -1486,7 +1486,20 @@ func TestM02SuppressionReviewListsOnlyLiveReservationAndPaymentObligations(t *te
 	if terminalResult.Outcome != "elegible" || len(terminalResult.Obligations) != 0 {
 		t.Fatalf("terminal history alone should not be an obligation: %+v", terminalResult)
 	}
-	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.disputa_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,abierta_por,motivo_codigo,estado,clave_idempotencia,huella_solicitud,abierta_en) VALUES('71000000-0000-4000-8000-000000000005','71000000-0000-4000-8000-000000000003',$1,$2,$1,'ensayo_privacidad','abierta','dispute-blocker',decode(repeat('33',32),'hex'),$3)`, terminalRequester, adminID, h.now); err != nil {
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.operacion_arriendo_ensayo_local(id,reserva_id,tipo,actor_id,ocurrio_en,zona_horaria,ubicacion_sintetica,resultado,clave_idempotencia,huella_solicitud,creada_en)
+	 VALUES('71000000-0000-4000-8000-000000000005','71000000-0000-4000-8000-000000000003','checkout',$1,$2,'America/Santiago',
+	 '{"source":"synthetic-fixture-v1","location_code":"santiago-demo-center-v1","latitude":-33.456,"longitude":-70.6693}'::jsonb,'registrada','privacy-checkout',decode(repeat('44',32),'hex'),$2)`, adminID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.operacion_arriendo_evidencia_ensayo_local(id,operacion_id,fixture_code,mime_type,sha256,size_bytes,creada_en)
+	 VALUES('71000000-0000-4000-8000-000000000006','71000000-0000-4000-8000-000000000005','synthetic-png-v1','image/png',repeat('a',64),128,$1)`, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reclamo_dano_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,checkout_operacion_id,checkout_evidencia_id,descripcion,estado,clave_idempotencia,huella_solicitud,abierto_en,plazo_reclamo_hasta)
+	 VALUES('71000000-0000-4000-8000-000000000007','71000000-0000-4000-8000-000000000003',$1,$2,'71000000-0000-4000-8000-000000000005','71000000-0000-4000-8000-000000000006','reclamo sintético','abierto','privacy-claim',decode(repeat('55',32),'hex'),$3::timestamptz,$3::timestamptz+interval '24 hours')`, terminalRequester, adminID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_ensayo_local SET estado='en_disputa' WHERE id='71000000-0000-4000-8000-000000000003'`); err != nil {
 		t.Fatal(err)
 	}
 	blockedDispute, err := h.repo.ExecuteSuppression(h.ctx, adminID, terminalRequest.ID, "execute-blocked-dispute", "execute-dispute", func() time.Time { return h.now })

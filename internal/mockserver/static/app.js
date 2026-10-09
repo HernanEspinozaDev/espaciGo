@@ -15,6 +15,7 @@ import { publicationAction } from "./space-publication-state.js";
 import { publishedContentChange } from "./published-content-state.js";
 import { galleryContextMatches } from "./gallery-session-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount } from "./suppression-review-state.js";
+import { captureRentalOperationContext, finishRentalOperationAfterReload, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -93,7 +94,7 @@ async function requestArchive(path, bearer) {
 async function action(work) {
     const buttons = [...document.querySelectorAll("button")];
     try {
-        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); });
+        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); });
     }
     catch (error) {
         resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
@@ -1511,6 +1512,11 @@ let selectedReservation = null;
 let selectedContract = null;
 let contractRequestRevision = 0;
 let bookingInboxRevision = 0;
+let rentalOperationRevision = 0;
+let rentalOperations = [];
+const rentalOperationKeys = new RentalOperationIdempotencyKeys();
+let selectedDamageClaim = null;
+let damageClaimRevision = 0;
 let localDisputes = [];
 let disputeRevision = 0;
 const disputeOpenKeys = new Map();
@@ -1897,6 +1903,142 @@ function clearConversation(message) {
     older.disabled = true;
     refreshConversationControls();
 }
+function clearRentalOperations(message) {
+    rentalOperationRevision++;
+    rentalOperations = [];
+    document.querySelector("#local-rental-operations-output").textContent = message;
+    document.querySelector("#local-rental-comments").value = "";
+    document.querySelector("#local-rental-observations").value = "";
+    refreshRentalOperationControls();
+}
+function refreshRentalOperationControls() {
+    const checkin = document.querySelector("#local-rental-checkin");
+    const checkout = document.querySelector("#local-rental-checkout");
+    const reception = document.querySelector("#local-rental-reception");
+    if (!checkin || !checkout || !reception)
+        return;
+    const controls = rentalOperationControls(sessionAccountID, selectedReservation, rentalOperations, Boolean(selectedDamageClaim), selectedDamageClaim, Boolean(sessionToken));
+    checkin.disabled = !controls.canCheckIn;
+    checkout.disabled = !controls.canCheckOut;
+    reception.disabled = !controls.canReceive;
+    refreshDamageClaimControls();
+}
+function refreshDamageClaimControls() {
+    const open = document.querySelector("#local-damage-claim-open"), defend = document.querySelector("#local-damage-claim-defend");
+    if (!open || !defend)
+        return;
+    const controls = rentalOperationControls(sessionAccountID, selectedReservation, rentalOperations, Boolean(selectedDamageClaim), selectedDamageClaim, Boolean(sessionToken));
+    open.disabled = !controls.canOpenClaim;
+    defend.disabled = !controls.canDefend;
+}
+function clearDamageClaim(message) {
+    damageClaimRevision++;
+    selectedDamageClaim = null;
+    document.querySelector("#local-damage-claim-output").textContent = message;
+    document.querySelector("#local-damage-claim-description").value = "";
+    refreshDamageClaimControls();
+}
+async function loadDamageClaim(id) {
+    const revision = ++damageClaimRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    try {
+        const response = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/damage-claim`, "GET", undefined, true);
+        if (revision !== damageClaimRevision || id !== selectedReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
+            return;
+        selectedDamageClaim = bookingData(response);
+        const claim = selectedDamageClaim;
+        document.querySelector("#local-damage-claim-output").textContent = `ENSAYO LOCAL — SIN ADJUDICACIÓN NI MOVIMIENTO DE FONDOS\nEstado: ${claim.state} · abierto ${new Date(claim.opened_at).toLocaleString("es-CL")} · plazo desde el check-out: ${new Date(claim.claim_deadline_at).toLocaleString("es-CL")}\n${claim.description}\nEvidencia check-out sintética privada: ${claim.checkout_evidence_id}${claim.defense ? `\nDescargo del arrendatario (${new Date(claim.defense.created_at).toLocaleString("es-CL")}): ${claim.defense.description}` : "\nSin descargo registrado."}`;
+    }
+    catch (error) {
+        if (revision !== damageClaimRevision || id !== selectedReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
+            return;
+        if (error instanceof Error && error.message.includes("HTTP 404")) {
+            selectedDamageClaim = null;
+            document.querySelector("#local-damage-claim-output").textContent = "No hay reclamo formal sintético abierto para esta reserva.";
+        }
+        else {
+            document.querySelector("#local-damage-claim-output").textContent = error instanceof Error ? error.message : "No se pudo consultar el reclamo.";
+        }
+    }
+    refreshDamageClaimControls();
+}
+function renderRentalOperations() {
+    const target = document.querySelector("#local-rental-operations-output");
+    target.replaceChildren();
+    const notice = document.createElement("p");
+    notice.textContent = "ENSAYO LOCAL — EVIDENCIA SINTÉTICA; SIN VALIDEZ PROBATORIA REAL";
+    target.append(notice);
+    if (!rentalOperations.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "No hay operaciones de entrega o devolución registradas.";
+        target.append(empty);
+        refreshRentalOperationControls();
+        return;
+    }
+    for (const item of rentalOperations) {
+        const article = document.createElement("article"), title = document.createElement("h6"), detail = document.createElement("p"), evidence = document.createElement("p");
+        const label = item.kind === "checkin" ? "Check-in" : item.kind === "checkout" ? "Check-out" : "Recepción del anfitrión";
+        title.textContent = `#${item.sequence} · ${label} · ${item.result}`;
+        detail.textContent = `${new Date(item.occurred_at).toLocaleString("es-CL", { timeZone: item.time_zone })} (${item.time_zone}) · ${item.synthetic_location.location_code} · actor ${item.actor_id}`;
+        const text = item.comments ? `Comentarios: ${item.comments}` : item.observations ? `Observación, no reclamo formal: ${item.observations}` : "Sin comentario.";
+        evidence.textContent = `${text} · ${item.evidence.length} imagen sintética privada(s)${item.claim_deadline_at ? ` · plazo local de reclamo hasta ${new Date(item.claim_deadline_at).toLocaleString("es-CL", { timeZone: item.time_zone })}` : ""}`;
+        article.append(title, detail, evidence);
+        target.append(article);
+    }
+    refreshRentalOperationControls();
+}
+async function loadRentalOperations(id) {
+    const revision = ++rentalOperationRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    const context = captureRentalOperationContext({ revision, reservationID: id, accountID: account, token, generation });
+    const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/operations`, "GET", undefined, true);
+    if (!rentalOperationResponseIsCurrent(context, { revision: rentalOperationRevision, reservationID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }))
+        return;
+    rentalOperations = bookingData(result).items;
+    renderRentalOperations();
+}
+async function recordRentalOperation(kind) {
+    const id = selectedReservationID, reservation = selectedReservation, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    if (!id || !reservation || !token)
+        throw new Error("Selecciona una reserva propia e inicia sesión.");
+    const field = kind === "recepcion" ? document.querySelector("#local-rental-observations") : document.querySelector("#local-rental-comments");
+    const payload = kind === "recepcion" ? { observations: field.value.trim() } : { comments: field.value.trim() };
+    const payloadText = JSON.stringify(payload);
+    const pendingKey = rentalOperationKeys.get(id, kind, payloadText, () => crypto.randomUUID());
+    const revision = ++rentalOperationRevision;
+    const context = captureRentalOperationContext({ revision, reservationID: id, accountID: account, token, generation });
+    const pathKind = kind === "checkin" ? "check-in" : kind === "checkout" ? "check-out" : "reception";
+    await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/${pathKind}`, "POST", payload, true, pendingKey);
+    if (!rentalOperationResponseIsCurrent(context, { revision: rentalOperationRevision, reservationID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }))
+        return;
+    rentalOperationKeys.clear(id, kind);
+    await loadBookingInbox();
+    if (id !== selectedReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
+        return;
+    await finishRentalOperationAfterReload(context, () => loadRentalOperations(id), () => ({ revision: rentalOperationRevision, reservationID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }), () => {
+        field.value = "";
+        resultElement.textContent = "Operación sintética registrada. Estado, evidencia e historial actualizados desde la API.";
+    });
+}
+async function recordDamageClaim(defense) {
+    const id = selectedReservationID, reservation = selectedReservation, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    if (!id || !reservation || !token)
+        throw new Error("Selecciona una reserva propia e inicia sesión.");
+    const description = document.querySelector("#local-damage-claim-description").value.trim();
+    if (!description)
+        throw new Error("Escribe la descripción sintética requerida.");
+    const payload = { description }, payloadText = JSON.stringify(payload), keyName = defense ? "damage-claim-defense" : "damage-claim-open";
+    const pendingKey = rentalOperationKeys.get(id, keyName, payloadText, () => crypto.randomUUID());
+    const revision = ++damageClaimRevision, path = defense ? "damage-claim/defense" : "damage-claim";
+    const context = captureRentalOperationContext({ revision, reservationID: id, accountID: account, token, generation });
+    await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/${path}`, "POST", payload, true, pendingKey);
+    if (!rentalOperationResponseIsCurrent(context, { revision: damageClaimRevision, reservationID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }))
+        return;
+    rentalOperationKeys.clear(id, keyName);
+    await loadBookingInbox();
+    if (id !== selectedReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
+        return;
+    document.querySelector("#local-damage-claim-description").value = "";
+    resultElement.textContent = defense ? "Descargo sintético guardado y visible para los participantes." : "Reclamo sintético abierto; reserva en disputa, sin adjudicación ni movimiento de fondos.";
+}
 function clearBookingInboxOnSessionLoss() {
     sessionGeneration++;
     clearSpaceGallery();
@@ -1953,6 +2095,9 @@ function clearBookingInboxOnSessionLoss() {
     renterInbox.textContent = "Inicia sesión y actualiza tu bandeja.";
     hostInbox.textContent = "Inicia sesión y actualiza tu bandeja.";
     bookingHistoryOutput.textContent = "Inicia sesión para consultar reservas propias.";
+    rentalOperationKeys.clearAll();
+    clearRentalOperations("Inicia sesión y selecciona una reserva propia.");
+    clearDamageClaim("Inicia sesión para consultar reclamos sintéticos propios.");
     const contractOutput = document.querySelector("#synthetic-contract-output");
     if (contractOutput)
         contractOutput.textContent = "Inicia sesión y selecciona una reserva aprobada.";
@@ -2195,6 +2340,8 @@ async function loadReservationDetail(id) {
     contractRequestRevision++;
     document.querySelector("#synthetic-contract-output").textContent = "Selecciona Generar / consultar para cargar el contrato privado de ensayo.";
     clearDisputes("Cargando incidencia de la reserva seleccionada…");
+    clearRentalOperations("Cargando operaciones sintéticas de la reserva…");
+    clearDamageClaim("Cargando reclamo formal sintético…");
     refreshBookingActions();
     cancellationPreview = null;
     cancellationPreviewReservationID = "";
@@ -2206,11 +2353,22 @@ async function loadReservationDetail(id) {
         return;
     selectedReservation = bookingData(result);
     renderReservationDetail(selectedReservation);
+    await loadRentalOperations(id);
+    if (selectedReservationID !== id || !selectedReservation)
+        return;
+    await loadDamageClaim(id);
+    if (selectedReservationID !== id || !selectedReservation)
+        return;
     await loadReservationDisputes(id);
     await loadConversationPage(id, null, false);
     conversationStatus.textContent = `Conversación local · ${selectedReservation.state}. ${canSendConversation(sessionAccountID, selectedReservation) ? "Puedes enviar texto plano en este estado." : "Solo lectura: el estado de la reserva no permite enviar."}`;
     refreshConversationControls();
 }
+document.querySelector("#local-rental-checkin").addEventListener("click", () => void action(() => recordRentalOperation("checkin")));
+document.querySelector("#local-rental-checkout").addEventListener("click", () => void action(() => recordRentalOperation("checkout")));
+document.querySelector("#local-rental-reception").addEventListener("click", () => void action(() => recordRentalOperation("recepcion")));
+document.querySelector("#local-damage-claim-open").addEventListener("click", () => void action(() => recordDamageClaim(false)));
+document.querySelector("#local-damage-claim-defend").addEventListener("click", () => void action(() => recordDamageClaim(true)));
 function renderSyntheticContract(item) {
     selectedContract = item;
     const lines = item.signatures.map(s => `${s.role}: ${s.state}${s.reason ? ` · ${s.reason}` : ""}`).join("\n");
