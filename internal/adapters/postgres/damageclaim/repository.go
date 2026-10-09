@@ -116,7 +116,7 @@ func (r *Repository) Get(ctx context.Context, actor, reservation string) (damage
 }
 
 func (r *Repository) GetAdmin(ctx context.Context, claimID string) (damageclaim.Claim, error) {
-	claim, err := scanClaim(r.pool.QueryRow(ctx, `SELECT id::text,reserva_id::text,anfitrion_id::text,arrendatario_id::text,checkout_operacion_id::text,checkout_evidencia_id::text,descripcion,estado,abierto_en,plazo_reclamo_hasta FROM public.reclamo_dano_ensayo_local WHERE id=$1`, claimID))
+	claim, err := scanClaim(r.pool.QueryRow(ctx, `SELECT id::text,COALESCE(reserva_id::text,''),COALESCE(anfitrion_id::text,''),COALESCE(arrendatario_id::text,''),COALESCE(checkout_operacion_id::text,''),COALESCE(checkout_evidencia_id::text,''),descripcion,estado,abierto_en,plazo_reclamo_hasta FROM public.reclamo_dano_ensayo_local WHERE id=$1`, claimID))
 	if err != nil {
 		return damageclaim.Claim{}, err
 	}
@@ -137,7 +137,7 @@ func (r *Repository) attachClaimDetails(ctx context.Context, claim damageclaim.C
 	claim.OpenedAt = claim.OpenedAt.UTC()
 	claim.ClaimDeadlineAt = claim.ClaimDeadlineAt.UTC()
 	claim.History = make([]damageclaim.Transition, 0)
-	rows, err := r.pool.Query(ctx, `SELECT secuencia,accion,actor_id::text,ocurrida_en FROM public.reclamo_dano_historial_ensayo_local WHERE reclamo_id=$1 ORDER BY secuencia`, claim.ID)
+	rows, err := r.pool.Query(ctx, `SELECT secuencia,accion,COALESCE(actor_id::text,''),ocurrida_en FROM public.reclamo_dano_historial_ensayo_local WHERE reclamo_id=$1 ORDER BY secuencia`, claim.ID)
 	if err != nil {
 		return damageclaim.Claim{}, mapError(err)
 	}
@@ -156,7 +156,7 @@ func (r *Repository) attachClaimDetails(ctx context.Context, claim damageclaim.C
 	}
 	rows.Close()
 	var defense damageclaim.Defense
-	err = r.pool.QueryRow(ctx, `SELECT id::text,actor_id::text,descripcion,creado_en FROM public.reclamo_dano_descargo_ensayo_local WHERE reclamo_id=$1`, claim.ID).Scan(&defense.ID, &defense.ActorID, &defense.Description, &defense.CreatedAt)
+	err = r.pool.QueryRow(ctx, `SELECT id::text,COALESCE(actor_id::text,''),descripcion,creado_en FROM public.reclamo_dano_descargo_ensayo_local WHERE reclamo_id=$1`, claim.ID).Scan(&defense.ID, &defense.ActorID, &defense.Description, &defense.CreatedAt)
 	if err == nil {
 		defense.CreatedAt = defense.CreatedAt.UTC()
 		claim.Defense = &defense
@@ -164,7 +164,7 @@ func (r *Repository) attachClaimDetails(ctx context.Context, claim damageclaim.C
 		return damageclaim.Claim{}, mapError(err)
 	}
 	var resolution damageclaim.Resolution
-	err = r.pool.QueryRow(ctx, `SELECT resultado,motivo_codigo,administrador_id::text,resuelta_en FROM public.reclamo_dano_resolucion_ensayo_local WHERE reclamo_id=$1`, claim.ID).Scan(&resolution.Outcome, &resolution.ReasonCode, &resolution.ActorID, &resolution.ResolvedAt)
+	err = r.pool.QueryRow(ctx, `SELECT resultado,motivo_codigo,COALESCE(administrador_id::text,''),resuelta_en FROM public.reclamo_dano_resolucion_ensayo_local WHERE reclamo_id=$1`, claim.ID).Scan(&resolution.Outcome, &resolution.ReasonCode, &resolution.ActorID, &resolution.ResolvedAt)
 	if err == nil {
 		resolution.ResolvedAt = resolution.ResolvedAt.UTC()
 		claim.Resolution = &resolution
@@ -172,6 +172,9 @@ func (r *Repository) attachClaimDetails(ctx context.Context, claim damageclaim.C
 		return damageclaim.Claim{}, mapError(err)
 	}
 	claim.Evidence = make([]damageclaim.ClaimEvidence, 0)
+	if claim.ReservationID == "" {
+		return claim, nil
+	}
 	evidenceRows, err := r.pool.Query(ctx, `SELECT e.id::text,o.tipo,e.fixture_code,e.mime_type,e.sha256,e.size_bytes,e.creada_en
 		FROM public.operacion_arriendo_ensayo_local o JOIN public.operacion_arriendo_evidencia_ensayo_local e ON e.operacion_id=o.id
 		WHERE o.reserva_id=$1 ORDER BY CASE o.tipo WHEN 'checkin' THEN 1 WHEN 'checkout' THEN 2 ELSE 3 END,e.id`, claim.ReservationID)
@@ -308,6 +311,9 @@ func (r *Repository) Resolve(ctx context.Context, admin, claimID, key string, in
 	}
 	if updated.RowsAffected() != 1 {
 		return damageclaim.Claim{}, damageclaim.ErrConflict
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=GREATEST(COALESCE(vinculos_retirar_en,$2::timestamptz),$2::timestamptz+interval '24 months') WHERE id=$1`, reservation, now); err != nil {
+		return damageclaim.Claim{}, mapError(err)
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO public.reclamo_dano_historial_ensayo_local(reclamo_id,accion,actor_id,ocurrida_en) VALUES($1,'reclamo_resuelto',$2,$3)`, claimID, admin, now); err != nil {
 		return damageclaim.Claim{}, mapError(err)

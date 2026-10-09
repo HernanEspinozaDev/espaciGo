@@ -10,6 +10,7 @@ import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState } from "./booking-availability-state.js";
 import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
 import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExportSessionMatches } from "./privacy-export-state.js";
+import { damageClaimRequestIsCurrent, finishDamageClaimAfterReload } from "./damage-claim-request-state.js";
 import { applyM02PhotoIfCurrent, captureM02PhotoSession, deliverM02PhotoIfCurrent, m02PhotoSessionMatches } from "./m02-photo-session-state.js";
 import { publicationAction } from "./space-publication-state.js";
 import { publishedContentChange } from "./published-content-state.js";
@@ -1593,6 +1594,7 @@ const bookingCatalogLongitude = document.querySelector("#booking-catalog-longitu
 const bookingCatalogRadius = document.querySelector("#booking-catalog-radius");
 const bookingCatalogCenterSample = document.querySelector("#booking-catalog-center-sample");
 let selectedReservationID = "";
+let reservationSelectionRevision = 0;
 let selectedReservation = null;
 let selectedContract = null;
 let contractRequestRevision = 0;
@@ -1602,7 +1604,10 @@ let rentalOperations = [];
 const rentalOperationKeys = new RentalOperationIdempotencyKeys();
 let selectedDamageClaim = null;
 let damageClaimRevision = 0;
+let damageClaimActionRevision = 0;
 let damageAdminRevision = 0;
+let damageAdminSelectionRevision = 0;
+let damageAdminResolutionRevision = 0;
 let damageAdminClaims = [];
 let selectedAdminDamageClaim = null;
 const damageAdminResolutionKeys = new Map();
@@ -2120,6 +2125,7 @@ function clearDamageClaim(message) {
 function revokeDamageEvidenceURLs(urls) { for (const url of urls)
     URL.revokeObjectURL(url); urls.clear(); }
 function damageAdminSessionIsCurrent(context) { return context.revision === damageAdminRevision && context.account === sessionAccountID && context.token === sessionToken && context.generation === sessionGeneration; }
+function damageAdminSelectionIsCurrent(context) { return damageClaimRequestIsCurrent(context, { requestRevision: damageAdminResolutionRevision, selectionRevision: damageAdminSelectionRevision, selectionID: selectedAdminDamageClaim?.id ?? "", accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }); }
 function refreshDamageAdminControls() {
     const allowed = Boolean(sessionToken && sessionRoles.includes("administrador"));
     const load = document.querySelector("#local-damage-admin-load");
@@ -2138,6 +2144,8 @@ function refreshDamageAdminControls() {
 }
 function clearAdminDamageClaims(message) {
     damageAdminRevision++;
+    damageAdminSelectionRevision++;
+    damageAdminResolutionRevision++;
     damageAdminClaims = [];
     selectedAdminDamageClaim = null;
     damageAdminResolutionKeys.clear();
@@ -2170,10 +2178,14 @@ async function loadAdminDamageEvidence(claimID, evidenceID) {
 }
 async function loadAdminDamageClaim(claimID) {
     const context = { revision: ++damageAdminRevision, account: sessionAccountID, token: sessionToken, generation: sessionGeneration };
+    const selectionRevision = ++damageAdminSelectionRevision;
     const result = await request(`/api/v1/admin/local/damage-claims/${encodeURIComponent(claimID)}`, "GET", undefined, true);
-    if (!damageAdminSessionIsCurrent(context))
+    if (!damageAdminSessionIsCurrent(context) || selectionRevision !== damageAdminSelectionRevision)
         return;
-    selectedAdminDamageClaim = bookingData(result);
+    const claim = bookingData(result);
+    if (claim.id !== claimID)
+        return;
+    selectedAdminDamageClaim = claim;
     renderAdminDamageClaim(selectedAdminDamageClaim);
 }
 function renderAdminDamageClaim(claim) {
@@ -2229,18 +2241,15 @@ async function resolveAdminDamageClaim() {
         key = crypto.randomUUID();
         damageAdminResolutionKeys.set(keyName, key);
     }
-    const context = { revision: damageAdminRevision, account: sessionAccountID, token: sessionToken, generation: sessionGeneration };
+    const context = { requestRevision: ++damageAdminResolutionRevision, selectionRevision: damageAdminSelectionRevision, selectionID: claim.id, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration };
     const result = await request(`/api/v1/admin/local/damage-claims/${encodeURIComponent(claim.id)}/resolution`, "POST", payload, true, key);
-    if (!damageAdminSessionIsCurrent(context) || selectedAdminDamageClaim?.id !== claim.id)
+    if (!damageAdminSelectionIsCurrent(context))
         return;
     const resolved = bookingData(result);
     selectedAdminDamageClaim = resolved;
     damageAdminResolutionKeys.delete(keyName);
     renderAdminDamageClaim(resolved);
-    await loadAdminDamageClaims();
-    if (sessionAccountID === context.account && sessionToken === context.token && sessionGeneration === context.generation)
-        await loadAdminDamageClaim(claim.id);
-    resultElement.textContent = "Resolución sintética guardada. No se asignaron montos ni se movieron fondos.";
+    await finishDamageClaimAfterReload(context, () => loadAdminDamageClaims(), () => ({ requestRevision: damageAdminResolutionRevision, selectionRevision: damageAdminSelectionRevision, selectionID: selectedAdminDamageClaim?.id ?? "", accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }), () => { resultElement.textContent = "Resolución sintética guardada. No se asignaron montos ni se movieron fondos."; });
 }
 async function loadDamageClaim(id) {
     const revision = ++damageClaimRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
@@ -2360,20 +2369,23 @@ async function recordDamageClaim(defense) {
         throw new Error("Escribe la descripción sintética requerida.");
     const payload = { description }, payloadText = JSON.stringify(payload), keyName = defense ? "damage-claim-defense" : "damage-claim-open";
     const pendingKey = rentalOperationKeys.get(id, keyName, payloadText, () => crypto.randomUUID());
-    const revision = ++damageClaimRevision, path = defense ? "damage-claim/defense" : "damage-claim";
-    const context = captureRentalOperationContext({ revision, reservationID: id, accountID: account, token, generation });
+    const revision = ++damageClaimActionRevision, path = defense ? "damage-claim/defense" : "damage-claim";
+    const context = { requestRevision: revision, selectionRevision: reservationSelectionRevision, selectionID: id, accountID: account, token, generation };
     await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/${path}`, "POST", payload, true, pendingKey);
-    if (!rentalOperationResponseIsCurrent(context, { revision: damageClaimRevision, reservationID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }))
+    const current = () => ({ requestRevision: damageClaimActionRevision, selectionRevision: reservationSelectionRevision, selectionID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration });
+    if (!damageClaimRequestIsCurrent(context, current()))
         return;
-    rentalOperationKeys.clear(id, keyName);
-    await loadBookingInbox();
-    if (id !== selectedReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
-        return;
-    document.querySelector("#local-damage-claim-description").value = "";
-    resultElement.textContent = defense ? "Descargo sintético guardado y visible para los participantes." : "Reclamo sintético abierto; reserva en disputa, sin adjudicación ni movimiento de fondos.";
+    await finishDamageClaimAfterReload(context, () => loadBookingInbox(), current, () => {
+        rentalOperationKeys.clear(id, keyName);
+        document.querySelector("#local-damage-claim-description").value = "";
+        resultElement.textContent = defense ? "Descargo sintético guardado y visible para los participantes." : "Reclamo sintético abierto; reserva en disputa, sin adjudicación ni movimiento de fondos.";
+    });
 }
 function clearBookingInboxOnSessionLoss() {
     sessionGeneration++;
+    reservationSelectionRevision++;
+    damageClaimActionRevision++;
+    damageAdminResolutionRevision++;
     clearSpaceGallery();
     if (pendingPrivacyExport)
         URL.revokeObjectURL(pendingPrivacyExport.url);
@@ -2685,6 +2697,8 @@ async function loadDisputeAdminQueue() {
     document.querySelector("#local-dispute-admin-status").textContent = `${disputeAdminItems.length} incidencia(s) abierta(s). El cierre es administrativo y no económico.`;
 }
 async function loadReservationDetail(id) {
+    if (selectedReservationID !== id)
+        reservationSelectionRevision++;
     bookingRequestState.select(id);
     selectedReservationID = id;
     selectedReservation = null;
@@ -2700,23 +2714,26 @@ async function loadReservationDetail(id) {
     cancellationPreviewReservationID = "";
     document.querySelector("#booking-inbox-cancel-preview-output").textContent = "Consulta la opción de cancelación antes de confirmar.";
     clearConversation("Cargando mensajes de la reserva seleccionada…");
-    const revision = ++bookingInboxRevision, requestContext = bookingRequestState.capture(sessionAccountID, sessionToken);
+    const revision = ++bookingInboxRevision, selectionRevision = reservationSelectionRevision, requestContext = bookingRequestState.capture(sessionAccountID, sessionToken);
     const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}`, "GET", undefined, true);
-    if (revision !== bookingInboxRevision || !bookingRequestState.accepts(requestContext, sessionAccountID, sessionToken))
+    const stillCurrent = () => revision === bookingInboxRevision && selectionRevision === reservationSelectionRevision && selectedReservationID === id && bookingRequestState.accepts(requestContext, sessionAccountID, sessionToken) && Boolean(sessionToken);
+    if (!stillCurrent())
         return;
     selectedReservation = bookingData(result);
     renderReservationDetail(selectedReservation);
     await loadRentalOperations(id);
-    if (selectedReservationID !== id || !selectedReservation)
+    if (!stillCurrent() || !selectedReservation)
         return;
     await loadDamageClaim(id);
-    if (selectedReservationID !== id || !selectedReservation)
+    if (!stillCurrent() || !selectedReservation)
         return;
     await loadReservationReviews(id);
-    if (selectedReservationID !== id || !selectedReservation)
+    if (!stillCurrent() || !selectedReservation)
         return;
     await loadReservationDisputes(id);
     await loadConversationPage(id, null, false);
+    if (!stillCurrent() || !selectedReservation)
+        return;
     conversationStatus.textContent = `Conversación local · ${selectedReservation.state}. ${canSendConversation(sessionAccountID, selectedReservation) ? "Puedes enviar texto plano en este estado." : "Solo lectura: el estado de la reserva no permite enviar."}`;
     refreshConversationControls();
 }
@@ -2809,6 +2826,7 @@ async function loadBookingInbox(reloadSelected = true) {
         return selectedReservation?.id === current.id ? selectedReservation.state : null;
     }
     else if (selectedReservationID && reloadSelected) {
+        reservationSelectionRevision++;
         bookingRequestState.invalidate();
         selectedReservationID = "";
         selectedReservation = null;

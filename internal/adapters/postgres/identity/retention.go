@@ -26,7 +26,8 @@ func (r *IdentityRepository) PurgeExpiredReservationLinks(ctx context.Context, n
 	}
 	rows, err := r.pool.Query(ctx, `SELECT r.id::text,COALESCE(r.anfitrion_id::text,''),COALESCE(r.arrendatario_id::text,''),r.vinculos_retirar_en
 		FROM public.reserva_ensayo_local r
-		WHERE r.estado IN `+terminalReservationStates+`
+		WHERE (r.estado IN `+terminalReservationStates+` OR (r.estado='en_disputa' AND EXISTS (
+			SELECT 1 FROM public.reclamo_dano_ensayo_local c WHERE c.reserva_id=r.id AND c.estado='resuelta')))
 		  AND NOT EXISTS (SELECT 1 FROM public.reserva_vinculo_purgado_local x WHERE x.reserva_id=r.id)
 		  AND r.vinculos_retirar_en <= $1
 		ORDER BY r.vinculos_retirar_en,r.id LIMIT $2`, now.UTC(), limit)
@@ -90,7 +91,7 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 		}
 		return false, false, mapError(err)
 	}
-	if state != "cancelada_por_pago" && state != "rechazada_arrendador" && state != "vencida_pago" && state != "vencida_host" && state != "cancelada_arrendatario" {
+	if state != "cancelada_por_pago" && state != "rechazada_arrendador" && state != "vencida_pago" && state != "vencida_host" && state != "cancelada_arrendatario" && state != "en_disputa" {
 		return false, false, tx.Commit(ctx)
 	}
 	currentHost, currentRenter := "", ""
@@ -107,7 +108,8 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 	if err := tx.QueryRow(ctx, `SELECT GREATEST(r.actualizada_en,
 		COALESCE((SELECT max(p.actualizada_en) FROM public.reserva_pago_ensayo_operacion p WHERE p.reserva_id=r.id),r.actualizada_en),
 		COALESCE((SELECT max(d.actualizada_en) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id),r.actualizada_en),
-		COALESCE((SELECT max(x.cerrada_en) FROM public.disputa_ensayo_local x WHERE x.reserva_id=r.id),r.actualizada_en)
+		COALESCE((SELECT max(x.cerrada_en) FROM public.disputa_ensayo_local x WHERE x.reserva_id=r.id),r.actualizada_en),
+		COALESCE((SELECT max(x.resuelta_en) FROM public.reclamo_dano_resolucion_ensayo_local x JOIN public.reclamo_dano_ensayo_local c ON c.id=x.reclamo_id WHERE c.reserva_id=r.id),r.actualizada_en)
 		)+interval '24 months' FROM public.reserva_ensayo_local r WHERE r.id=$1`, candidate.id).Scan(&deadline); err != nil {
 		return false, false, mapError(err)
 	}
@@ -130,13 +132,15 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 			WHERE p.reserva_id=$1 AND (NOT EXISTS (SELECT 1 FROM public.reserva_pago_evento_aplicacion_ensayo a WHERE a.evento_id=e.id)
 				OR EXISTS (SELECT 1 FROM public.reserva_pago_evento_aplicacion_ensayo a WHERE a.evento_id=e.id AND a.estado IN ('pendiente','pendiente_conciliacion'))))
 		OR EXISTS (SELECT 1 FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=$1 AND d.estado='pendiente')
-		OR EXISTS (SELECT 1 FROM public.disputa_ensayo_local d WHERE d.reserva_id=$1 AND d.estado='abierta')`, candidate.id).Scan(&blocked); err != nil {
+		OR EXISTS (SELECT 1 FROM public.disputa_ensayo_local d WHERE d.reserva_id=$1 AND d.estado='abierta')
+		OR EXISTS (SELECT 1 FROM public.reclamo_dano_ensayo_local c WHERE c.reserva_id=$1 AND c.estado='abierto')
+		OR EXISTS (SELECT 1 FROM public.operacion_arriendo_archivo_candidato_local c WHERE c.reserva_id=$1 AND c.estado IN ('reservado','pendiente_limpieza','limpiando'))`, candidate.id).Scan(&blocked); err != nil {
 		return false, false, mapError(err)
 	}
 	if blocked {
 		return false, true, tx.Commit(ctx)
 	}
-	fields := []string{"reserva.anfitrion_id", "reserva.arrendatario_id", "cotizacion.anfitrion_id", "cotizacion.arrendatario_id", "pago.arrendatario_id", "cancelacion.arrendatario_id", "disputa.participantes_y_actores", "historial_transicion.actor_id", "historial_disputa.actor_id", "mensaje.autor_id", "fixture.participantes", "cursor_lectura"}
+	fields := []string{"reserva.anfitrion_id", "reserva.arrendatario_id", "cotizacion.anfitrion_id", "cotizacion.arrendatario_id", "pago.arrendatario_id", "cancelacion.arrendatario_id", "disputa.participantes_y_actores", "reclamo.participantes_y_evidencia", "descargo.actor_id", "reclamo_historial.actor_id", "resolucion.administrador_id", "operacion.reserva_y_actor", "operacion_historial.reserva_y_actor", "historial_transicion.actor_id", "historial_disputa.actor_id", "mensaje.autor_id", "fixture.participantes", "cursor_lectura"}
 	statements := []struct {
 		sql  string
 		args []any
@@ -144,6 +148,13 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 		{`UPDATE public.cotizacion_reserva_ensayo q SET anfitrion_id=NULL,arrendatario_id=NULL WHERE q.id=(SELECT cotizacion_id FROM public.reserva_ensayo_local WHERE id=$1)`, []any{candidate.id}},
 		{`UPDATE public.reserva_pago_ensayo_operacion SET arrendatario_id=NULL WHERE reserva_id=$1`, []any{candidate.id}},
 		{`UPDATE public.reserva_cancelacion_ensayo SET arrendatario_id=NULL WHERE reserva_id=$1`, []any{candidate.id}},
+		{`UPDATE public.reclamo_dano_descargo_ensayo_local SET actor_id=NULL WHERE reclamo_id IN (SELECT id FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1) AND actor_id IN ($2::uuid,$3::uuid)`, []any{candidate.id, nullableUUID(currentHost), nullableUUID(currentRenter)}},
+		{`UPDATE public.reclamo_dano_historial_ensayo_local SET actor_id=NULL WHERE reclamo_id IN (SELECT id FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1) AND actor_id IN ($2::uuid,$3::uuid)`, []any{candidate.id, nullableUUID(currentHost), nullableUUID(currentRenter)}},
+		{`UPDATE public.reclamo_dano_resolucion_ensayo_local SET administrador_id=NULL WHERE reclamo_id IN (SELECT id FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1) AND administrador_id IN ($2::uuid,$3::uuid)`, []any{candidate.id, nullableUUID(currentHost), nullableUUID(currentRenter)}},
+		{`UPDATE public.reclamo_dano_ensayo_local SET reserva_id=NULL,anfitrion_id=NULL,arrendatario_id=NULL,checkout_operacion_id=NULL,checkout_evidencia_id=NULL WHERE reserva_id=$1`, []any{candidate.id}},
+		{`UPDATE public.operacion_arriendo_historial_ensayo_local SET reserva_id=NULL,actor_id=CASE WHEN actor_id IN ($2::uuid,$3::uuid) THEN NULL ELSE actor_id END WHERE reserva_id=$1`, []any{candidate.id, nullableUUID(currentHost), nullableUUID(currentRenter)}},
+		{`UPDATE public.operacion_arriendo_ensayo_local SET reserva_id=NULL,actor_id=NULL WHERE reserva_id=$1`, []any{candidate.id}},
+		{`UPDATE public.operacion_arriendo_archivo_candidato_local SET reserva_id=NULL,actor_id=NULL WHERE reserva_id=$1`, []any{candidate.id}},
 		{`UPDATE public.disputa_ensayo_local SET anfitrion_id=NULL,arrendatario_id=NULL,abierta_por=NULL,cerrada_por=CASE WHEN cerrada_por IN ($2::uuid,$3::uuid) THEN NULL ELSE cerrada_por END WHERE reserva_id=$1`, []any{candidate.id, nullableUUID(currentHost), nullableUUID(currentRenter)}},
 		{`UPDATE public.disputa_ensayo_historial SET actor_id=NULL WHERE actor_id IN ($2::uuid,$3::uuid) AND disputa_id IN (SELECT id FROM public.disputa_ensayo_local WHERE reserva_id=$1)`, []any{candidate.id, nullableUUID(currentHost), nullableUUID(currentRenter)}},
 		{`UPDATE public.reserva_ensayo_transicion SET actor_id=NULL WHERE actor_id IN ($2::uuid,$3::uuid) AND reserva_id=$1`, []any{candidate.id, nullableUUID(currentHost), nullableUUID(currentRenter)}},
