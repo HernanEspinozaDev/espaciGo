@@ -5,7 +5,8 @@ Issue de subentrega: [#156](https://github.com/HernanEspinozaDev/espaciGo/issues
 ## Contrato de este prototipo
 
 - La conversación se identifica por `reserva_id`; el Backend consulta el anfitrión, arrendatario y estado de esa fila antes de listar o insertar. Un tercero recibe `404` y no obtiene información sobre la existencia del hilo.
-- Lectura solo para participantes, también después de cancelación, rechazo o vencimiento. Envío solamente en `pendiente_de_pago`, `pagada` y `aprobada_host`. Una transición simultánea serializa con el envío mediante el bloqueo de la fila de reserva.
+- Lectura solo para participantes, también después de cancelación, rechazo o vencimiento. Envío para anfitrión y arrendatario en `pendiente_de_pago`, `pagada`, `aprobada_host`, `firma_parcial` y `lista_para_checkin`; estados cancelados, rechazados o vencidos quedan de solo lectura. Envío, firma, cancelación y vencimiento comparten orden de locks: cuentas participantes, reserva y después contrato.
+- Si un mensaje nuevo llega en `firma_parcial` a `start_at` o después, el Backend procesa el vencimiento bajo esos locks antes de insertar: cancela/libera, anula el contrato parcial y registra la obligación de devolución fake en la misma transacción; el envío responde conflicto y no agrega mensaje. Un retry idempotente de un mensaje existente recupera ese mensaje persistido sin repetir efectos.
 - El estado `aprobada_host` no cierra la conversación al terminar el intervalo. Este corte no modela el fin del arriendo ni disputas.
 - El mensaje es texto plano de 1–2.000 puntos de código Unicode, sin adjuntos ni edición. El mock usa nodos DOM y `textContent`; el texto nunca se inserta como HTML.
 - `Idempotency-Key` se limita por reserva y autor. Un retry con cuerpo idéntico devuelve el mismo mensaje; reutilizar la clave con cuerpo distinto da `409`.

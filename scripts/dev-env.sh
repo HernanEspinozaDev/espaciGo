@@ -16,7 +16,7 @@ ensure_secrets() {
   umask 077
   mkdir -p "$SECRETS_DIR"
   chmod 0700 "$SECRETS_DIR"
-  for name in db_admin_password runtime_password local_payment_webhook_secret; do
+  for name in db_admin_password runtime_password local_payment_webhook_secret local_contract_encryption_key; do
     path="$SECRETS_DIR/$name"
     if [[ ! -s "$path" ]]; then
       rm -f -- "$path"
@@ -116,7 +116,7 @@ case "$command" in
     ;;
   clean)
     compose down --volumes --remove-orphans
-    rm -f -- "$SECRETS_DIR/db_admin_password" "$SECRETS_DIR/runtime_password" "$SECRETS_DIR/local_payment_webhook_secret"
+    rm -f -- "$SECRETS_DIR/db_admin_password" "$SECRETS_DIR/runtime_password" "$SECRETS_DIR/local_payment_webhook_secret" "$SECRETS_DIR/local_contract_encryption_key"
     rmdir "$SECRETS_DIR" 2>/dev/null || true
     rmdir "$ROOT_DIR/.local" 2>/dev/null || true
     ;;

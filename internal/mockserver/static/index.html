@@ -154,6 +154,15 @@
         <pre id="local-dispute-output" aria-live="polite">Selecciona una reserva de tu bandeja.</pre>
       </section>
       <div id="booking-inbox-actions">
+        <section id="synthetic-contract-panel" aria-labelledby="synthetic-contract-title">
+          <h5 id="synthetic-contract-title">Contrato de ensayo sintético</h5>
+          <p>ENSAYO SINTÉTICO LOCAL — SIN VALIDEZ JURÍDICA. Solo firman las partes de esta reserva.</p>
+          <button id="synthetic-contract-open" type="button" disabled>Generar / consultar contrato</button>
+          <button id="synthetic-contract-sign" type="button" disabled>Firmar en ensayo</button>
+          <button id="synthetic-contract-reject" type="button" disabled>Rechazar versión</button>
+          <button id="synthetic-contract-download" type="button" disabled>Descargar PDF de ensayo firmado</button>
+          <pre id="synthetic-contract-output">Selecciona una reserva aprobada para generar o consultar su contrato.</pre>
+        </section>
         <label>Resultado fake <select id="booking-inbox-payment-outcome"><option value="exito">Éxito simulado</option><option value="rechazo">Rechazo simulado</option><option value="sin_respuesta">Sin respuesta simulada</option></select></label>
         <button id="booking-inbox-pay" type="button" disabled>Enviar pago de ensayo</button>
         <pre id="booking-payment-output" aria-live="polite">ENSAYO LOCAL — SIN COBRO REAL

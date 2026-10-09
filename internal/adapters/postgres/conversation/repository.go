@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking/expiry"
+	contractspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/contracts"
+	"github.com/HernanEspinozaDev/espaciGo/internal/contract"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -99,6 +101,12 @@ func (r *Repository) Send(ctx context.Context, actor, reservationID, key, body s
 		return conversation.Message{}, err
 	}
 	defer tx.Rollback(ctx)
+	if _, _, err = contractspg.LockReservationAccounts(ctx, tx, reservationID); err != nil {
+		if errors.Is(err, contract.ErrNotFound) {
+			return conversation.Message{}, conversation.ErrNotFound
+		}
+		return conversation.Message{}, err
+	}
 	var state string
 	err = tx.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local
 WHERE id=$1 AND (anfitrion_id=$2 OR arrendatario_id=$2) FOR UPDATE`, reservationID, actor).Scan(&state)
@@ -138,7 +146,23 @@ WHERE reserva_id=$1 AND autor_id=$2 AND clave_idempotencia=$3`, reservationID, a
 		}
 		return conversation.Message{}, conversation.ErrConflict
 	}
-	if state != "pendiente_de_pago" && state != "pagada" && state != "aprobada_host" {
+	contractExpired, err := contractspg.ExpireForReservation(ctx, tx, reservationID, createdAt)
+	if err != nil {
+		if errors.Is(err, contract.ErrConflict) {
+			return conversation.Message{}, conversation.ErrConflict
+		}
+		if errors.Is(err, contract.ErrNotFound) {
+			return conversation.Message{}, conversation.ErrNotFound
+		}
+		return conversation.Message{}, err
+	}
+	if contractExpired {
+		if err = tx.Commit(ctx); err != nil {
+			return conversation.Message{}, err
+		}
+		return conversation.Message{}, conversation.ErrConflict
+	}
+	if state != "pendiente_de_pago" && state != "pagada" && state != "aprobada_host" && state != "firma_parcial" && state != "lista_para_checkin" {
 		return conversation.Message{}, conversation.ErrConflict
 	}
 	item, err := scanMessage(tx.QueryRow(ctx, `INSERT INTO public.mensaje_reserva_ensayo
