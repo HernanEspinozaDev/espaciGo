@@ -4044,6 +4044,76 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		t.Fatalf("post-lock deadline state=%s active=%v refunds=%d signatures=%d", afterLockState, afterLockActive, afterLockRefunds, afterLockSignatures)
 	}
 
+	// LOCAL-ADMIN-01A read-only projection: admin-only filters/cursor and
+	// transaction-level audit, without running expiry/reconciliation or changing
+	// reservation/payment/occupancy/guarantee business state.
+	adminReadReservation := newReservation(1200*time.Hour, "admin-read-only", true)
+	var beforeAdminState, beforeGuaranteeState string
+	var beforeAdminUpdated time.Time
+	var beforePaymentCount, beforeTransitionCount, beforeAuditCount int
+	if err = setup.QueryRow(ctx, `SELECT r.estado,r.actualizada_en,g.estado,(SELECT count(*) FROM public.reserva_pago_ensayo p WHERE p.reserva_id=r.id),(SELECT count(*) FROM public.reserva_ensayo_transicion h WHERE h.reserva_id=r.id),(SELECT count(*) FROM public.evento_auditoria_local a WHERE a.recurso_id=r.id AND a.accion LIKE 'booking.admin.reservations.%') FROM public.reserva_ensayo_local r JOIN public.reserva_garantia_ensayo_local g ON g.reserva_id=r.id WHERE r.id=$1`, adminReadReservation.ID).Scan(&beforeAdminState, &beforeAdminUpdated, &beforeGuaranteeState, &beforePaymentCount, &beforeTransitionCount, &beforeAuditCount); err != nil {
+		t.Fatal(err)
+	}
+	adminList := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/reservations?page_size=1&reservation_id="+adminReadReservation.ID+"&state=aprobada_host", "", nil, true)
+	if adminList.Code != http.StatusOK {
+		t.Fatalf("admin reservation list=%d %s", adminList.Code, adminList.Body.String())
+	}
+	var adminPage struct {
+		Data booking.AdminReservationPage `json:"data"`
+	}
+	if err = json.Unmarshal(adminList.Body.Bytes(), &adminPage); err != nil || len(adminPage.Data.Items) != 1 || adminPage.Data.Items[0].ID != adminReadReservation.ID || adminPage.Data.NextCursor != "" {
+		t.Fatalf("filtered admin page=%+v err=%v body=%s", adminPage, err, adminList.Body.String())
+	}
+	firstAdminPage := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/reservations?page_size=1", "", nil, true)
+	var cursorPage struct {
+		Data booking.AdminReservationPage `json:"data"`
+	}
+	if firstAdminPage.Code != http.StatusOK || json.Unmarshal(firstAdminPage.Body.Bytes(), &cursorPage) != nil || len(cursorPage.Data.Items) != 1 || cursorPage.Data.NextCursor == "" {
+		t.Fatalf("first cursor page=%d body=%s", firstAdminPage.Code, firstAdminPage.Body.String())
+	}
+	secondAdminPage := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/reservations?page_size=1&cursor="+url.QueryEscape(cursorPage.Data.NextCursor), "", nil, true)
+	var cursorPage2 struct {
+		Data booking.AdminReservationPage `json:"data"`
+	}
+	if secondAdminPage.Code != http.StatusOK || json.Unmarshal(secondAdminPage.Body.Bytes(), &cursorPage2) != nil || len(cursorPage2.Data.Items) != 1 || cursorPage2.Data.Items[0].ID == cursorPage.Data.Items[0].ID {
+		t.Fatalf("second cursor page=%d body=%s", secondAdminPage.Code, secondAdminPage.Body.String())
+	}
+	changedFilterCursor := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/reservations?page_size=1&state=pagada&cursor="+url.QueryEscape(cursorPage.Data.NextCursor), "", nil, true)
+	if changedFilterCursor.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("cursor reused with changed filter status=%d body=%s", changedFilterCursor.Code, changedFilterCursor.Body.String())
+	}
+	filteredByDate := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/reservations?created_from="+url.QueryEscape(adminReadReservation.CreatedAt.Add(-time.Second).Format(time.RFC3339))+"&created_to="+url.QueryEscape(adminReadReservation.CreatedAt.Add(time.Second).Format(time.RFC3339))+"&page_size=1", "", nil, true)
+	if filteredByDate.Code != http.StatusOK || !strings.Contains(filteredByDate.Body.String(), adminReadReservation.ID) {
+		t.Fatalf("admin date filter=%d %s", filteredByDate.Code, filteredByDate.Body.String())
+	}
+	if denied := publishedBookingAPI(t, host, svc, http.MethodGet, "/api/v1/admin/local/reservations", "", nil, false); denied.Code != http.StatusForbidden {
+		t.Fatalf("non-admin reservations status=%d %s", denied.Code, denied.Body.String())
+	}
+	adminDetail := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/reservations/"+adminReadReservation.ID, "", nil, true)
+	if adminDetail.Code != http.StatusOK || !strings.Contains(adminDetail.Body.String(), `"guarantee"`) || !strings.Contains(adminDetail.Body.String(), `"rental_payment_operations"`) || !strings.Contains(adminDetail.Body.String(), `"history"`) {
+		t.Fatalf("admin reservation detail=%d %s", adminDetail.Code, adminDetail.Body.String())
+	}
+	var afterAdminState, afterGuaranteeState string
+	var afterAdminUpdated time.Time
+	var afterPaymentCount, afterTransitionCount, afterAuditCount int
+	if err = setup.QueryRow(ctx, `SELECT r.estado,r.actualizada_en,g.estado,(SELECT count(*) FROM public.reserva_pago_ensayo p WHERE p.reserva_id=r.id),(SELECT count(*) FROM public.reserva_ensayo_transicion h WHERE h.reserva_id=r.id),(SELECT count(*) FROM public.evento_auditoria_local a WHERE a.recurso_id=r.id AND a.accion LIKE 'booking.admin.reservations.%') FROM public.reserva_ensayo_local r JOIN public.reserva_garantia_ensayo_local g ON g.reserva_id=r.id WHERE r.id=$1`, adminReadReservation.ID).Scan(&afterAdminState, &afterAdminUpdated, &afterGuaranteeState, &afterPaymentCount, &afterTransitionCount, &afterAuditCount); err != nil {
+		t.Fatal(err)
+	}
+	if afterAdminState != beforeAdminState || !afterAdminUpdated.Equal(beforeAdminUpdated) || afterGuaranteeState != beforeGuaranteeState || afterPaymentCount != beforePaymentCount || afterTransitionCount != beforeTransitionCount || afterAuditCount != beforeAuditCount+1 {
+		t.Fatalf("read changed business state or audit count: before=%s/%s/%d/%d/%d after=%s/%s/%d/%d/%d", beforeAdminState, beforeGuaranteeState, beforePaymentCount, beforeTransitionCount, beforeAuditCount, afterAdminState, afterGuaranteeState, afterPaymentCount, afterTransitionCount, afterAuditCount)
+	}
+	minimizedReservation := newReservation(1300*time.Hour, "admin-minimized", true)
+	if _, err = setup.Exec(ctx, `UPDATE public.reserva_ensayo_local SET anfitrion_id=NULL,arrendatario_id=NULL WHERE id=$1`, minimizedReservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_vinculo_purgado_local(reserva_id,vencio_en,purgado_en,campos_retirados) VALUES($1,$2,$2,ARRAY['anfitrion_id','arrendatario_id'])`, minimizedReservation.ID, fixedNow); err != nil {
+		t.Fatal(err)
+	}
+	minimizedDetail := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/reservations/"+minimizedReservation.ID, "", nil, true)
+	if minimizedDetail.Code != http.StatusOK || !strings.Contains(minimizedDetail.Body.String(), `"host_id":null`) || !strings.Contains(minimizedDetail.Body.String(), `"renter_id":null`) {
+		t.Fatalf("minimized historic row=%d %s", minimizedDetail.Code, minimizedDetail.Body.String())
+	}
+
 }
 
 func timePtr(value time.Time) *time.Time { return &value }

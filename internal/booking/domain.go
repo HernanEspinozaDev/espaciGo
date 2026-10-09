@@ -156,6 +156,92 @@ type Detail struct {
 	Reservation `json:",inline"`
 	History     []Transition `json:"history"`
 }
+
+// AdminReservationSummary is a purpose-limited, read-only projection. Participant
+// identifiers are nullable because privacy retention can unlink them.
+type AdminReservationSummary struct {
+	ID        string    `json:"id"`
+	HostID    *string   `json:"host_id"`
+	RenterID  *string   `json:"renter_id"`
+	State     string    `json:"state"`
+	StartAt   time.Time `json:"start_at"`
+	EndAt     time.Time `json:"end_at"`
+	Subtotal  int64     `json:"subtotal_clp"`
+	Currency  string    `json:"currency"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+type AdminReservationFilter struct {
+	ID          string
+	State       string
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
+}
+type AdminReservationPage struct {
+	Items      []AdminReservationSummary `json:"items"`
+	NextCursor string                    `json:"next_cursor,omitempty"`
+}
+type AdminPaymentFact struct {
+	Result    string    `json:"result"`
+	AmountCLP int64     `json:"amount_clp"`
+	At        time.Time `json:"at"`
+}
+type AdminPaymentOperation struct {
+	ID        string    `json:"id"`
+	State     string    `json:"state"`
+	Requested string    `json:"requested_result"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+type AdminRefundFact struct {
+	AmountCLP  int64     `json:"amount_clp"`
+	Currency   string    `json:"currency"`
+	State      string    `json:"state"`
+	LastResult *string   `json:"last_result"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+type AdminClaimFact struct {
+	ID         string     `json:"id"`
+	State      string     `json:"state"`
+	OpenedAt   time.Time  `json:"opened_at"`
+	ResolvedAt *time.Time `json:"resolved_at"`
+	Outcome    *string    `json:"outcome"`
+}
+type AdminFinancialDecision struct {
+	Outcome      string    `json:"outcome"`
+	DeductionCLP int64     `json:"deduction_clp"`
+	ReasonCode   string    `json:"reason_code"`
+	State        string    `json:"state"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+type AdminGuaranteeSnapshot struct {
+	PolicyVersion         string                  `json:"policy_version"`
+	Currency              string                  `json:"currency"`
+	ExpectedCLP           int64                   `json:"expected_clp"`
+	AuthorizedCLP         int64                   `json:"authorized_clp"`
+	CapturedCLP           int64                   `json:"captured_clp"`
+	ReleasedCLP           int64                   `json:"released_clp"`
+	State                 string                  `json:"state"`
+	AuthorizationDeadline *time.Time              `json:"authorization_deadline,omitempty"`
+	Operations            []GuaranteeOperation    `json:"operations"`
+	Decision              *AdminFinancialDecision `json:"financial_decision,omitempty"`
+}
+type AdminReservationDetail struct {
+	AdminReservationSummary
+	SpaceID           string                  `json:"space_id"`
+	History           []Transition            `json:"history"`
+	Payments          []AdminPaymentFact      `json:"rental_payments"`
+	PaymentOperations []AdminPaymentOperation `json:"rental_payment_operations"`
+	Refund            *AdminRefundFact        `json:"refund"`
+	Guarantee         *AdminGuaranteeSnapshot `json:"guarantee"`
+	Claim             *AdminClaimFact         `json:"claim"`
+}
+type AdminReservationRepository interface {
+	ListAdminReservations(context.Context, string, string, AdminReservationFilter, int, string) (AdminReservationPage, error)
+	GetAdminReservation(context.Context, string, string, string) (AdminReservationDetail, error)
+}
 type RequestInput struct {
 	QuoteID string `json:"quote_id"`
 }

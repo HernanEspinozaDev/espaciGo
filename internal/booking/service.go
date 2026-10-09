@@ -90,6 +90,22 @@ func (s *Service) GuaranteeForAdministrator(ctx context.Context, administrator, 
 	return repo.GuaranteeForAdministrator(ctx, reservationID)
 }
 
+func (s *Service) ListAdminReservations(ctx context.Context, administrator, correlation string, filter AdminReservationFilter, pageSize int, cursor string) (AdminReservationPage, error) {
+	repo, ok := s.repo.(AdminReservationRepository)
+	if !ok || !uuid.MatchString(administrator) || pageSize < 1 || pageSize > 100 || strings.TrimSpace(correlation) == "" || len(correlation) > 120 {
+		return AdminReservationPage{}, ErrInvalid
+	}
+	return repo.ListAdminReservations(ctx, administrator, correlation, filter, pageSize, cursor)
+}
+
+func (s *Service) GetAdminReservation(ctx context.Context, administrator, reservationID, correlation string) (AdminReservationDetail, error) {
+	repo, ok := s.repo.(AdminReservationRepository)
+	if !ok || !uuid.MatchString(administrator) || !uuid.MatchString(reservationID) || strings.TrimSpace(correlation) == "" || len(correlation) > 120 {
+		return AdminReservationDetail{}, ErrNotFound
+	}
+	return repo.GetAdminReservation(ctx, administrator, reservationID, correlation)
+}
+
 func (s *Service) RunGuaranteeOperation(ctx context.Context, actor, reservationID, kind, key string, amount int64, outcome, requestID string, administrator bool) (GuaranteeOperation, error) {
 	repo, ok := s.repo.(GuaranteeLifecycleRepository)
 	if !ok || !uuid.MatchString(actor) || !uuid.MatchString(reservationID) || strings.TrimSpace(key) == "" || len(key) > 200 {

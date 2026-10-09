@@ -17,6 +17,7 @@ import { publishedContentChange } from "./published-content-state.js";
 import { galleryContextMatches } from "./gallery-session-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount } from "./suppression-review-state.js";
 import { captureRentalOperationContext, finishRentalOperationAfterReload, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
+import { AdminReservationsState } from "./admin-reservations-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -47,6 +48,9 @@ const galleryPreviewURLs = new Set();
 const galleryAddRetryKeys = new Map();
 const participantDamageEvidenceURLs = new Set();
 const adminDamageEvidenceURLs = new Set();
+const adminReservationsState = new AdminReservationsState();
+let adminReservationItems = [];
+let selectedAdminReservationID = "";
 async function request(path, method = "GET", body, authenticated = false, idempotencyKey) {
     if (!apiBase)
         throw new Error("API local aún no disponible.");
@@ -100,7 +104,7 @@ async function requestArchive(path, bearer) {
 async function action(work) {
     const buttons = [...document.querySelectorAll("button")];
     try {
-        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); refreshStandaloneGuaranteeControls(); });
+        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); refreshStandaloneGuaranteeControls(); refreshAdminReservationControls(); });
     }
     catch (error) {
         resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
@@ -133,6 +137,7 @@ form("login-form", async (data, element) => {
     resetCatalogTraversal();
     element.querySelector('[name="password"]').value = "";
     refreshDamageAdminControls();
+    refreshAdminReservationControls();
     await loadSpaceCategories();
     await loadBookingInbox();
     resultElement.textContent = "Sesión iniciada. Puedes consultarla o cerrarla.";
@@ -2779,6 +2784,7 @@ function clearBookingInboxOnSessionLoss() {
     contractRequestRevision++;
     bookingRequestState.invalidate();
     resetCatalogTraversal();
+    clearAdminReservationView("La sesión terminó; inicia sesión con rol administrador para volver a consultar.");
     currentDraftID = "";
     spacesList.replaceChildren();
     spacesOutput.textContent = "Inicia sesión para consultar tus espacios.";
@@ -3333,6 +3339,113 @@ form("booking-conversation-form", async (data, element) => {
     await loadConversationPage(id, null, false);
     resultElement.textContent = "Mensaje sintético guardado en la conversación de la reserva.";
 });
+function clearAdminReservationView(message = "Requiere rol administrador.") {
+    adminReservationsState.clear();
+    adminReservationItems = [];
+    selectedAdminReservationID = "";
+    document.querySelector("#local-admin-reservations-filter")?.reset();
+    const list = document.querySelector("#local-admin-reservations-items");
+    list?.replaceChildren();
+    const detail = document.querySelector("#local-admin-reservations-detail");
+    if (detail)
+        detail.textContent = message;
+    const status = document.querySelector("#local-admin-reservations-status");
+    if (status)
+        status.textContent = message;
+    const next = document.querySelector("#local-admin-reservations-next");
+    if (next)
+        next.disabled = true;
+    const reset = document.querySelector("#local-admin-reservations-reset");
+    if (reset)
+        reset.disabled = !sessionToken || !sessionRoles.includes("administrador");
+    const search = document.querySelector("#local-admin-reservations-search");
+    if (search)
+        search.disabled = !sessionToken || !sessionRoles.includes("administrador");
+}
+function adminReservationContextCurrent(context) {
+    return adminReservationsState.current(context, sessionAccountID, sessionToken, sessionGeneration) && sessionRoles.includes("administrador");
+}
+function renderAdminReservationItems() {
+    const target = document.querySelector("#local-admin-reservations-items");
+    target.replaceChildren();
+    for (const raw of adminReservationItems) {
+        const item = raw;
+        const row = document.createElement("p"), button = document.createElement("button");
+        button.type = "button";
+        button.textContent = `${item.id} · ${item.state} · ${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} · ${item.start_at}–${item.end_at}`;
+        button.addEventListener("click", () => void action(async () => {
+            const id = item.id, context = adminReservationsState.begin(sessionAccountID, sessionToken, sessionGeneration);
+            selectedAdminReservationID = id;
+            document.querySelector("#local-admin-reservations-detail").textContent = "Consultando detalle administrativo de solo lectura…";
+            try {
+                const response = await request(`/api/v1/admin/local/reservations/${encodeURIComponent(id)}`, "GET", undefined, true);
+                if (!adminReservationContextCurrent(context) || selectedAdminReservationID !== id)
+                    return;
+                const detail = bookingData(response);
+                document.querySelector("#local-admin-reservations-detail").textContent = JSON.stringify({ notice: "ENSAYO LOCAL — CONSULTA SIN EFECTOS FINANCIEROS", reservation: { id: detail.id, host_id: detail.host_id, renter_id: detail.renter_id, state: detail.state, start_at: detail.start_at, end_at: detail.end_at, subtotal_clp: detail.subtotal_clp, currency: detail.currency, space_id: detail.space_id }, rental_payments: detail.rental_payments, rental_payment_operations: detail.rental_payment_operations, refund: detail.refund, guarantee: detail.guarantee, claim: detail.claim, history: detail.history }, null, 2);
+                document.querySelector("#local-admin-reservations-status").textContent = "Detalle consultado; no se ejecutaron pagos, conciliaciones ni transiciones.";
+            }
+            finally {
+                adminReservationsState.finish(context, sessionAccountID, sessionToken, sessionGeneration);
+                refreshAdminReservationControls();
+            }
+        }));
+        row.append(button);
+        target.append(row);
+    }
+}
+function refreshAdminReservationControls() {
+    const allowed = Boolean(sessionToken && sessionRoles.includes("administrador"));
+    const search = document.querySelector("#local-admin-reservations-search");
+    if (search)
+        search.disabled = !allowed || adminReservationsState.loading;
+    const next = document.querySelector("#local-admin-reservations-next");
+    if (next)
+        next.disabled = !allowed || adminReservationsState.loading || !adminReservationsState.nextCursor;
+    const reset = document.querySelector("#local-admin-reservations-reset");
+    if (reset)
+        reset.disabled = !allowed || adminReservationsState.loading;
+}
+async function loadAdminReservations(cursor = "", replace = true) {
+    if (!sessionToken || !sessionRoles.includes("administrador"))
+        throw new Error("La consulta de reservas requiere rol administrador.");
+    const formElement = document.querySelector("#local-admin-reservations-filter"), data = new FormData(formElement), query = new URLSearchParams();
+    for (const key of ["reservation_id", "state", "created_from", "created_to"]) {
+        const value = String(data.get(key) ?? "").trim();
+        if (value)
+            query.set(key, value);
+    }
+    const size = String(data.get("page_size") ?? "25");
+    query.set("page_size", size);
+    if (cursor)
+        query.set("cursor", cursor);
+    const context = adminReservationsState.begin(sessionAccountID, sessionToken, sessionGeneration);
+    selectedAdminReservationID = "";
+    document.querySelector("#local-admin-reservations-detail").textContent = "Selecciona una reserva para consultar su historial y finanzas.";
+    document.querySelector("#local-admin-reservations-status").textContent = "Consultando…";
+    refreshAdminReservationControls();
+    try {
+        const response = await request(`/api/v1/admin/local/reservations?${query.toString()}`, "GET", undefined, true);
+        if (!adminReservationContextCurrent(context))
+            return;
+        const page = bookingData(response);
+        if (replace)
+            adminReservationItems = [];
+        adminReservationItems = page.items;
+        adminReservationsState.cursor = cursor;
+        adminReservationsState.nextCursor = page.next_cursor ?? "";
+        renderAdminReservationItems();
+        document.querySelector("#local-admin-reservations-status").textContent = `${page.items.length} reserva(s) en esta página. Conteo total no disponible.`;
+    }
+    finally {
+        adminReservationsState.finish(context, sessionAccountID, sessionToken, sessionGeneration);
+        refreshAdminReservationControls();
+    }
+}
+document.querySelector("#local-admin-reservations-filter").addEventListener("submit", event => { event.preventDefault(); void action(() => loadAdminReservations("", true)); });
+document.querySelector("#local-admin-reservations-next").addEventListener("click", () => void action(async () => { const cursor = adminReservationsState.nextCursor; if (!cursor)
+    return; await loadAdminReservations(cursor, true); }));
+document.querySelector("#local-admin-reservations-reset").addEventListener("click", () => void action(async () => { adminReservationsState.clear(); await loadAdminReservations("", true); }));
 async function initialize() {
     try {
         const config = await (await fetch("/config.json", { cache: "no-store" })).json();

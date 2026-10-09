@@ -67,7 +67,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	const base = "/api/v1/local/booking-trial"
 	path := strings.TrimSuffix(r.URL.Path, "/")
-	if r.URL.RawQuery != "" && path != base+"/catalog" && !strings.HasSuffix(path, "/messages") && !strings.HasSuffix(path, "/availability-options") {
+	if r.URL.RawQuery != "" && path != base+"/catalog" && path != "/api/v1/admin/local/reservations" && !strings.HasSuffix(path, "/messages") && !strings.HasSuffix(path, "/availability-options") {
 		fail(w, 400, "invalid_request")
 		return
 	}
@@ -109,6 +109,42 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := principal.AccountID
+	if path == "/api/v1/admin/local/reservations" || strings.HasPrefix(path, "/api/v1/admin/local/reservations/") {
+		admin, authErr := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), identity.RoleAdministrator, identity.UserOperation)
+		if authErr != nil {
+			if errors.Is(authErr, identity.ErrForbidden) {
+				fail(w, http.StatusForbidden, "forbidden")
+			} else {
+				w.Header().Set("WWW-Authenticate", "Bearer")
+				fail(w, http.StatusUnauthorized, "unauthenticated")
+			}
+			return
+		}
+		correlation := w.Header().Get("X-Request-ID")
+		if path == "/api/v1/admin/local/reservations" && r.Method == http.MethodGet {
+			filter, pageSize, cursor, ok := adminReservationParams(r.URL.Query())
+			if !ok {
+				fail(w, http.StatusUnprocessableEntity, "invalid_request")
+				return
+			}
+			page, err := h.service.ListAdminReservations(r.Context(), admin.AccountID, correlation, filter, pageSize, cursor)
+			h.reply(w, page, err)
+			return
+		}
+		const detailPrefix = "/api/v1/admin/local/reservations/"
+		if strings.HasPrefix(path, detailPrefix) && r.Method == http.MethodGet {
+			id := strings.TrimPrefix(path, detailPrefix)
+			if strings.Contains(id, "/") || id == "" || r.URL.RawQuery != "" {
+				fail(w, http.StatusUnprocessableEntity, "invalid_request")
+				return
+			}
+			value, err := h.service.GetAdminReservation(r.Context(), admin.AccountID, id, correlation)
+			h.reply(w, value, err)
+			return
+		}
+		fail(w, http.StatusNotFound, "not_found")
+		return
+	}
 	if path == base+"/fixture" && r.Method == http.MethodGet {
 		v, e := h.service.Fixture(r.Context(), actor)
 		h.reply(w, v, e)
@@ -272,7 +308,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if errors.Is(authErr, identity.ErrForbidden) {
 					fail(w, 403, "forbidden")
 				} else {
-				w.Header().Set("WWW-Authenticate", "Bearer")
+					w.Header().Set("WWW-Authenticate", "Bearer")
 					fail(w, 401, "unauthenticated")
 				}
 				return
@@ -527,6 +563,48 @@ func availabilityOptionsParams(query url.Values) (string, int, bool) {
 		return "", 0, false
 	}
 	return query.Get("date"), duration, true
+}
+
+func adminReservationParams(query url.Values) (booking.AdminReservationFilter, int, string, bool) {
+	filter := booking.AdminReservationFilter{}
+	allowed := map[string]bool{"reservation_id": true, "state": true, "created_from": true, "created_to": true, "page_size": true, "cursor": true}
+	for key, values := range query {
+		if !allowed[key] || len(values) != 1 {
+			return filter, 0, "", false
+		}
+	}
+	filter.ID = strings.TrimSpace(query.Get("reservation_id"))
+	filter.State = strings.TrimSpace(query.Get("state"))
+	validStates := map[string]bool{"pendiente_de_pago": true, "pagada": true, "aprobada_host": true, "firma_parcial": true, "lista_para_checkin": true, "en_curso": true, "finalizada": true, "en_disputa": true, "cancelada_por_pago": true, "rechazada_arrendador": true, "vencida_pago": true, "vencida_host": true, "cancelada_arrendatario": true, "cancelada_por_firma": true}
+	if filter.State != "" && !validStates[filter.State] {
+		return filter, 0, "", false
+	}
+	for key, target := range map[string]**time.Time{"created_from": &filter.CreatedFrom, "created_to": &filter.CreatedTo} {
+		if raw := query.Get(key); raw != "" {
+			parsed, err := time.Parse(time.RFC3339, raw)
+			if err != nil {
+				return filter, 0, "", false
+			}
+			utc := parsed.UTC()
+			*target = &utc
+		}
+	}
+	if filter.CreatedFrom != nil && filter.CreatedTo != nil && !filter.CreatedTo.After(*filter.CreatedFrom) {
+		return filter, 0, "", false
+	}
+	pageSize := 25
+	if raw := query.Get("page_size"); raw != "" {
+		size, err := strconv.Atoi(raw)
+		if err != nil || size < 1 || size > 100 {
+			return filter, 0, "", false
+		}
+		pageSize = size
+	}
+	cursor := query.Get("cursor")
+	if len(cursor) > 4096 {
+		return filter, 0, "", false
+	}
+	return filter, pageSize, cursor, true
 }
 
 func (h *Handler) reply(w http.ResponseWriter, v any, err error) {
