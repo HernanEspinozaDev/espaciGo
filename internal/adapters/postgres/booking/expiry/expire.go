@@ -2,6 +2,8 @@ package expiry
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -66,5 +68,64 @@ FROM public.reserva_ensayo_transicion WHERE reserva_id=$1`, reservationID, state
 			return false, err
 		}
 	}
+	if next == "vencida_host" {
+		if err = closeGuaranteeForHostExpiry(ctx, tx, reservationID, now); err != nil {
+			return false, err
+		}
+	}
 	return true, nil
+}
+
+// closeGuaranteeForHostExpiry records the guarantee release obligation in the
+// same transaction as the host-expiry transition. An uncertain authorization
+// stays available for reconciliation; a late success will create its release
+// only after it is recorded as authorized.
+func closeGuaranteeForHostExpiry(ctx context.Context, tx pgx.Tx, reservationID string, now time.Time) error {
+	var guaranteeID, state string
+	var authorized, captured, released int64
+	err := tx.QueryRow(ctx, `SELECT id::text,estado,autorizado_clp,capturado_clp,liberado_clp
+		FROM public.reserva_garantia_ensayo_local WHERE reserva_id=$1 FOR UPDATE`, reservationID).
+		Scan(&guaranteeID, &state, &authorized, &captured, &released)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	remaining := authorized - captured - released
+	if remaining > 0 && (state == "autorizada" || state == "parcialmente_capturada" || state == "liberacion_pendiente" || state == "liberacion_por_conciliar") {
+		key := "host-expiry-release:" + reservationID
+		fingerprint, _ := json.Marshal([]any{"liberacion", remaining, "exito"})
+		sum := sha256.Sum256(fingerprint)
+		_, err = tx.Exec(ctx, `INSERT INTO public.reserva_garantia_operacion_ensayo_local(
+			id,garantia_id,tipo,clave_idempotencia,huella_solicitud,importe_clp,resultado_solicitado,estado,
+			primer_intento_en,ultimo_resultado,completada_en,creada_en,actualizada_en)
+			VALUES(gen_random_uuid(),$1,'liberacion',$2,$3,$4,'exito','pendiente',$5,NULL,NULL,$5,$5)
+			ON CONFLICT(garantia_id,tipo) DO NOTHING`, guaranteeID, key, sum[:], remaining, now)
+		if err != nil {
+			return err
+		}
+		var opState string
+		if err = tx.QueryRow(ctx, `SELECT estado FROM public.reserva_garantia_operacion_ensayo_local WHERE garantia_id=$1 AND tipo='liberacion' FOR UPDATE`, guaranteeID).Scan(&opState); err != nil {
+			return err
+		}
+		switch opState {
+		case "pendiente":
+			state = "liberacion_pendiente"
+		case "por_conciliar":
+			state = "liberacion_por_conciliar"
+		case "confirmada":
+			if authorized-captured-released == 0 {
+				state = "liberada"
+			} else {
+				state = "parcialmente_capturada"
+			}
+		}
+	} else if state == "pendiente_pago" || state == "pendiente_autorizacion" || state == "por_conciliar" {
+		// Keep a pending or uncertain authorization outstanding for its durable
+		// callback/reconciliation path; do not convert it into a release.
+		state = "por_conciliar"
+	}
+	_, err = tx.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET estado=$2,actualizada_en=$3 WHERE id=$1`, guaranteeID, state, now)
+	return err
 }

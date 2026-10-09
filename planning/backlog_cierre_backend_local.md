@@ -248,15 +248,16 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras los merges #219/#221 e
 - **Aceptación prevista:** autorización de administrador/partes/tercero; decisión estructurada e idempotente; sin cambios financieros; historial/auditoría/avisos únicos; PostgreSQL con rol runtime y mock compilado/recorrido.
 - **Riesgo:** presentar adjudicación sintética como resolución jurídica o como saldo/garantía disponible.
 
-### LOCAL-FIN-01 — Completar cierre económico simulado
+### LOCAL-FIN-01 — Garantía y deducciones fake del cierre local (Issue #224)
 
-- **Módulo/tipo/estado:** M10 e integración M06 / DB-BE-API-TEST / `todo`.
+- **Módulo/tipo/estado:** M06/M10 / DB-BE-API-TEST-MOCK / implementación en PR para revisión; Issue hija de #185/#40 y relacionada con #103/#107–110. El corte local no cierra criterios generales.
 - **Objetivo y motivo:** #107/#108–110 y criterios financieros de CU-39–42/47; separar movimiento observado fake de una mera transición de reserva.
-- **Alcance:** garantía, ledger/movimientos, comisión y liquidación; refund/compensación bajo reglas aprobadas, evidencia conciliable fake y documento tributario sintético inequívoco; todo con persistencia e idempotencia.
-- **Fuera:** emitir documentos legales, dinero real, Escrow/custodia o contabilidad validada.
+- **Alcance ratificado 2026-10-09:** exclusivamente cuentas sintéticas y reservas fake. `garantia_local_fija_v1` = CLP 50.000 por reserva nueva; política/moneda/monto quedan en snapshot de cotización y reserva. Autorización, captura, liberación y devolución son obligaciones distintas y persistidas; autorización no es cobro ni ingreso. Tras pago fake confirmado, preautorización separada/idempotente con vencimiento min(15 min desde primer intento, inicio); pending impide aprobar, firmar y check-in. Rechazo o vencimiento cancela, libera ocupación y genera devolución fake completa del arriendo confirmado. Timeout se concilia sobre misma operación; autorización tardía no reactiva y crea liberación compensatoria pendiente. Deducción administrativa inmutable 0..autorizado; reclamo rechazado exige 0; positiva exige motivo `dano_acreditado`/`faltante_acreditado` y evidencia sintética de la reserva. Captura confirmada antes de marcar aplicada; luego liberar saldo. Sin reclamo, liberar tras 24 h desde checkout; reclamo abierto suspende. Cancelar reserva cierra/libera autorización sin borrar obligaciones inciertas. Todos los inciertos bloquean baja.
+- **Fuera:** proveedor real/sandbox, liquidación al anfitrión, comisión, boleta, fondos reales/custodia y completar M06/M10 generales. Los hechos V40 se exportan con alcance propio y se incluyen en bloqueadores de privacidad.
 - **Dependencias:** LOCAL-DIS-01, BOOK, snapshots LIST y D-BOOK/D-DIS. **Desbloquea:** LOCAL-ADMIN-01 y validación completa M10.
-- **Aceptación:** sumas coherentes y snapshot de reglas; intentos/resultados observados, no saldo inferido de estado; reintentos/fallos conservan una operación; cierre no pierde trazabilidad; documento marcado simulado.
-- **Pruebas previstas:** importes, redondeo, disputa/garantía, timeout y resultado tardío, deduplicación y reconexión; terminar LOCAL-DIS-MOCK-01 tras este paquete.
+- **Dependencias:** LOCAL-DIS-01/#222 aceptado, LOCAL-BOOK-01/#177 y BOOK-02/#214, snapshots de tarifa/listado, LOCAL-CONT-01/#216 y LOCAL-OPS-01/#218. No depende del proveedor real #76/#78. **Desbloquea:** solo cierre económico local fake; no cerrar #103/#107–110 ni desbloquear liquidación/proveedor.
+- **Aceptación:** snapshot CLP fijo sin retroactividad; operaciones fake idempotentes/durables; gates transaccionales; importes enteros exactos; reintentos/fallos/resultado tardío no duplican; cierre no pierde trazabilidad y bloqueadores de baja consideran toda incertidumbre. No registrar garantía autorizada como ingreso.
+- **Pruebas previstas:** límites (0, 1, 50.000 y >50.000), reclamo aceptado/rechazado, rechazo/vencimiento/timeouts, resultado tardío, cierre 24 h, cancelación, carreras, reinicio/conciliación y autorización runtime; mock de solicitud a cierre.
 - **Riesgo:** confundir comisión con fondos de terceros o simular liquidación como pago confirmado real.
 
 ### LOCAL-ADMIN-01 — Completar gobierno y administración

@@ -251,6 +251,14 @@ func run() error {
 			}
 			bookingService.SetLocalRefundAdapter(paymentAdapter)
 			bookingService.SetLocalNoticeSender(devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")})
+			guaranteeOutcome := strings.TrimSpace(os.Getenv("LOCAL_GUARANTEE_FAKE_OUTCOME"))
+			bookingService.SetLocalGuaranteeOutcome(nil) // The mock explicitly starts the independent authorization after rent payment.
+			if guaranteeOutcome != "" && guaranteeOutcome != "exito" && guaranteeOutcome != "rechazo" && guaranteeOutcome != "sin_respuesta" {
+				return errors.New("invalid local guarantee fake outcome")
+			}
+			if guaranteeOutcome != "" {
+				bookingService.SetLocalGuaranteeOutcome(func() string { return guaranteeOutcome })
+			}
 			reputationService, err := reputation.New(reputationpg.New(pool), credentials.Generator{}, time.Now)
 			if err != nil {
 				return errors.New("local synthetic reputation initialization failed")
@@ -324,6 +332,7 @@ func run() error {
 	defer stop()
 	if localPaymentService != nil {
 		go localPaymentService.RunPaymentReconciler(ctx, 5*time.Second)
+		go localPaymentService.RunGuaranteeReconciler(ctx, 5*time.Second)
 	}
 	if localContractService != nil {
 		go func() {

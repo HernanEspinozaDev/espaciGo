@@ -106,6 +106,9 @@ type Quote struct {
 	ProfileVersion            int             `json:"profile_version"`
 	ProfileValues             json.RawMessage `json:"profile_values"`
 	CancellationPolicyVersion string          `json:"cancellation_policy_version"`
+	GuaranteePolicyVersion    *string         `json:"guarantee_policy_version,omitempty"`
+	GuaranteeCurrency         *string         `json:"guarantee_currency,omitempty"`
+	GuaranteeExpectedCLP      *int64          `json:"guarantee_expected_clp,omitempty"`
 	CreatedAt                 time.Time       `json:"created_at"`
 	ExpiresAt                 time.Time       `json:"expires_at"`
 }
@@ -126,6 +129,9 @@ type Reservation struct {
 	TimeZone                  string     `json:"time_zone"`
 	Conditions                string     `json:"conditions"`
 	CancellationPolicyVersion string     `json:"cancellation_policy_version"`
+	GuaranteePolicyVersion    *string    `json:"guarantee_policy_version,omitempty"`
+	GuaranteeCurrency         *string    `json:"guarantee_currency,omitempty"`
+	GuaranteeExpectedCLP      *int64     `json:"guarantee_expected_clp,omitempty"`
 	RefundID                  *string    `json:"refund_id,omitempty"`
 	RefundOperationID         *string    `json:"refund_operation_id,omitempty"`
 	RefundAmountCLP           *int64     `json:"refund_amount_clp,omitempty"`
@@ -203,6 +209,79 @@ type CancellationInput struct {
 
 type RefundInput struct {
 	Outcome string `json:"outcome"`
+}
+
+const LocalGuaranteePolicyVersion = "garantia_local_fija_v1"
+
+type GuaranteeSnapshot struct {
+	PolicyVersion         string               `json:"policy_version"`
+	Currency              string               `json:"currency"`
+	ExpectedCLP           int64                `json:"expected_clp"`
+	AuthorizedCLP         int64                `json:"authorized_clp"`
+	CapturedCLP           int64                `json:"captured_clp"`
+	ReleasedCLP           int64                `json:"released_clp"`
+	State                 string               `json:"state"`
+	AuthorizationDeadline *time.Time           `json:"authorization_deadline,omitempty"`
+	Operations            []GuaranteeOperation `json:"operations"`
+	Decision              *FinancialDecision   `json:"financial_decision,omitempty"`
+}
+
+type GuaranteeOperation struct {
+	ID         string    `json:"id"`
+	Kind       string    `json:"kind"`
+	AmountCLP  int64     `json:"amount_clp"`
+	State      string    `json:"state"`
+	LastResult string    `json:"last_result,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type FinancialDecisionInput struct {
+	ClaimID      string `json:"claim_id"`
+	Outcome      string `json:"outcome"`
+	DeductionCLP int64  `json:"deduction_clp"`
+	ReasonCode   string `json:"reason_code"`
+	EvidenceID   string `json:"evidence_id,omitempty"`
+}
+
+type FinancialDecision struct {
+	ID           string    `json:"id"`
+	ClaimID      string    `json:"claim_id,omitempty"`
+	Outcome      string    `json:"outcome"`
+	DeductionCLP int64     `json:"deduction_clp"`
+	ReasonCode   string    `json:"reason_code"`
+	EvidenceID   *string   `json:"evidence_id,omitempty"`
+	State        string    `json:"state"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Reused       bool      `json:"reused,omitempty"`
+}
+
+type FinancialEvent struct {
+	EventID     string `json:"event_id"`
+	OperationID string `json:"operation_id"`
+	Outcome     string `json:"outcome"`
+	Signature   string `json:"-"`
+}
+
+type FinancialEventReceipt struct {
+	Accepted bool `json:"accepted"`
+	Reused   bool `json:"reused"`
+}
+
+type GuaranteeOperationInput struct {
+	Kind      string `json:"kind"`
+	AmountCLP int64  `json:"amount_clp"`
+	Outcome   string `json:"outcome"`
+}
+
+type GuaranteeLifecycleRepository interface {
+	Guarantee(context.Context, string, string) (GuaranteeSnapshot, error)
+	GuaranteeForAdministrator(context.Context, string) (GuaranteeSnapshot, error)
+	RunGuaranteeOperation(context.Context, string, string, string, string, int64, string, string, bool, func() time.Time) (GuaranteeOperation, bool, error)
+	DecideGuarantee(context.Context, string, string, FinancialDecisionInput, string, []byte, func() time.Time) (FinancialDecision, bool, error)
+	ResolveGuaranteeOperation(context.Context, string, string, string, string, func() time.Time) (GuaranteeOperation, error)
+	ExpireDueGuarantees(context.Context, func() time.Time) error
 }
 
 type CancellationPreview struct {

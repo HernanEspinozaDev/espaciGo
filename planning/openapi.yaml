@@ -1594,6 +1594,72 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations/{reservationId}/guarantee:
+    parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: getOwnSyntheticReservationGuarantee
+      tags: [M10 local]
+      description: Devuelve snapshot fijo de CLP 50.000, autorización/captura/liberación separadas y operaciones fake. Solo participantes de la reserva o administrador autorizado; la respuesta nunca incluye datos privados de las partes.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Estado financiero local y operaciones durables., content: { application/json: { schema: { $ref: '#/components/schemas/LocalGuaranteeEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: executeLocalSyntheticGuaranteeOperation
+      tags: [M10 local]
+      description: Arrendatario ejecuta autorización fake luego del pago confirmado. Administrador registra captura o liberación. La misma operación/tipo se reutiliza idempotentemente; timeout queda pendiente para conciliación. Rechazo confirmado solo aplica a autorización; captura/liberación admiten éxito o timeout. La liberación automática de una reserva sin reclamo usa el check-out persistido + 24 horas. Nunca representa movimiento de dinero real.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [kind, amount_clp, outcome], properties: { kind: { type: string, enum: [autorizacion, captura, liberacion] }, amount_clp: { type: integer, minimum: 0, maximum: 50000 }, outcome: { type: string, enum: [exito, rechazo, sin_respuesta], description: Rechazo confirmado solo se admite en autorización. } } }
+      responses:
+        '202': { description: Operación fake persistida., content: { application/json: { schema: { $ref: '#/components/schemas/LocalGuaranteeOperationEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations/{reservationId}/guarantee-reconcile:
+    post:
+      operationId: reconcileLocalGuaranteeFakeResult
+      tags: [M10 local]
+      description: Solo administrador; persiste/deduplica un resultado fake tardío de autorización, captura o liberación. Rechazo solo es válido para autorización. Una autorización tardía no reactiva la reserva y crea su liberación compensatoria pendiente.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [kind, outcome], properties: { kind: { type: string, enum: [autorizacion, captura, liberacion] }, outcome: { type: string, enum: [exito, rechazo], description: Rechazo solo se admite para autorización. } } }
+      responses:
+        '200': { description: Resultado fake reconciliado o reutilizado., content: { application/json: { schema: { $ref: '#/components/schemas/LocalGuaranteeOperationEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /local/booking-trial/reservations/{reservationId}/financial-decision:
+    post:
+      operationId: recordAdminLocalFinancialDecision
+      tags: [M10 local]
+      description: Solo administrador; decisión inmutable separada del resultado histórico M10. Deducción 0..importe autorizado; reclamo rechazado exige cero. Una deducción positiva exige motivo estructurado y evidencia sintética de esta reserva. La captura debe confirmarse antes de marcar aplicada.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }, { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [claim_id, outcome, deduction_clp, reason_code], properties: { claim_id: { type: string, format: uuid }, outcome: { type: string, enum: [acogido, rechazado] }, deduction_clp: { type: integer, minimum: 0, maximum: 50000, description: El Backend limita el importe a la autorización fake confirmada. }, reason_code: { type: string, enum: [dano_acreditado, faltante_acreditado, sin_deduccion] }, evidence_id: { type: string, format: uuid } } }
+      responses:
+        '200': { description: Decisión persistida e idempotente., content: { application/json: { schema: { $ref: '#/components/schemas/LocalFinancialDecisionEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /local/booking-trial/payment-events:
     post:
       operationId: receiveAuthenticatedLocalPaymentEvent
@@ -2625,7 +2691,7 @@ components:
         data: { $ref: '#/components/schemas/LocalBookingQuote' }
     LocalBookingQuote:
       type: object
-      required: [id, space_id, rate_version, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, category_code, profile_version, profile_values, cancellation_policy_version, created_at, expires_at]
+      required: [id, space_id, rate_version, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, category_code, profile_version, profile_values, cancellation_policy_version, guarantee_policy_version, guarantee_currency, guarantee_expected_clp, created_at, expires_at]
       properties:
         id: { type: string, format: uuid }
         space_id: { type: string, format: uuid }
@@ -2643,6 +2709,9 @@ components:
         profile_version: { type: integer, minimum: 1 }
         profile_values: { type: object }
         cancellation_policy_version: { type: string, const: local_flexible_v1, description: Política local snapshot del fixture sintético; no es política comercial. }
+        guarantee_policy_version: { type: string, const: garantia_local_fija_v1 }
+        guarantee_currency: { type: string, const: CLP }
+        guarantee_expected_clp: { type: integer, const: 50000, description: Snapshot exclusivo para nuevas cotizaciones del prototipo. No es un pago ni modifica reservas históricas. }
         created_at: { type: string, format: date-time }
         expires_at: { type: string, format: date-time }
     LocalBookingReservationEnvelope:
@@ -2814,7 +2883,7 @@ components:
         space_id: { type: string, format: uuid }
         host_id: { type: string, format: uuid }
         renter_id: { type: string, format: uuid }
-        state: { type: string, enum: [pendiente_de_pago, pagada, aprobada_host, firma_parcial, lista_para_checkin, cancelada_por_firma, cancelada_por_pago, rechazada_arrendador, vencida_pago, vencida_host, cancelada_arrendatario] }
+        state: { type: string, enum: [pendiente_de_pago, pagada, aprobada_host, firma_parcial, lista_para_checkin, en_curso, finalizada, en_disputa, cancelada_por_firma, cancelada_por_pago, rechazada_arrendador, vencida_pago, vencida_host, cancelada_arrendatario] }
         rate_unit: { type: string, enum: [hora, dia, mes] }
         unit_price_clp: { type: integer }
         currency: { type: string, const: CLP }
@@ -2825,6 +2894,9 @@ components:
         time_zone: { type: string }
         conditions: { type: string }
         cancellation_policy_version: { type: string, const: local_flexible_v1, description: Snapshot local tomado desde la cotización. }
+        guarantee_policy_version: { type: [string, 'null'], enum: [garantia_local_fija_v1, null] }
+        guarantee_currency: { type: [string, 'null'], enum: [CLP, null] }
+        guarantee_expected_clp: { type: [integer, 'null'], enum: [50000, null], description: Ausente/null únicamente para reservas históricas previas a V40. }
         refund_id: { type: string, format: uuid }
         refund_operation_id: { type: string, format: uuid }
         refund_amount_clp: { type: integer, minimum: 1 }
@@ -2836,6 +2908,62 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         unread_count: { type: integer, minimum: 0 }
+    LocalGuaranteeEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: 'ENSAYO LOCAL — SIN COBRO REAL' }
+        data: { $ref: '#/components/schemas/LocalGuarantee' }
+    LocalGuaranteeOperationEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: 'ENSAYO LOCAL — SIN COBRO REAL' }
+        data: { $ref: '#/components/schemas/LocalGuaranteeOperation' }
+    LocalFinancialDecisionEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: 'ENSAYO LOCAL — SIN COBRO REAL' }
+        data: { $ref: '#/components/schemas/LocalFinancialDecision' }
+    LocalGuarantee:
+      type: object
+      required: [policy_version, currency, expected_clp, authorized_clp, captured_clp, released_clp, state, operations]
+      properties:
+        policy_version: { type: string, const: garantia_local_fija_v1 }
+        currency: { type: string, const: CLP }
+        expected_clp: { type: integer, const: 50000 }
+        authorized_clp: { type: integer, minimum: 0, maximum: 50000 }
+        captured_clp: { type: integer, minimum: 0, maximum: 50000 }
+        released_clp: { type: integer, minimum: 0, maximum: 50000 }
+        state: { type: string, enum: [pendiente_pago, pendiente_autorizacion, autorizada, no_disponible, por_conciliar, captura_pendiente, captura_por_conciliar, parcialmente_capturada, liberacion_pendiente, liberacion_por_conciliar, liberada, cancelada] }
+        authorization_deadline: { type: string, format: date-time }
+        operations: { type: array, items: { $ref: '#/components/schemas/LocalGuaranteeOperation' } }
+        financial_decision: { $ref: '#/components/schemas/LocalFinancialDecision' }
+    LocalGuaranteeOperation:
+      type: object
+      required: [id, kind, amount_clp, state, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [autorizacion, captura, liberacion] }
+        amount_clp: { type: integer, minimum: 0 }
+        state: { type: string, enum: [pendiente, por_conciliar, confirmada, rechazada, vencida] }
+        last_result: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    LocalFinancialDecision:
+      type: object
+      required: [id, outcome, deduction_clp, reason_code, state, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        claim_id: { type: string, format: uuid }
+        outcome: { type: string, enum: [acogido, rechazado] }
+        deduction_clp: { type: integer, minimum: 0, maximum: 50000 }
+        reason_code: { type: string, enum: [dano_acreditado, faltante_acreditado, sin_deduccion] }
+        evidence_id: { type: string, format: uuid }
+        state: { type: string, enum: [pendiente, por_conciliar, aplicada, sin_deduccion] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     SpaceCategory:
       type: object
       required: [code, name]

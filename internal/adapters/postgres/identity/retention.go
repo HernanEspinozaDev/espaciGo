@@ -132,6 +132,17 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 			WHERE p.reserva_id=$1 AND (NOT EXISTS (SELECT 1 FROM public.reserva_pago_evento_aplicacion_ensayo a WHERE a.evento_id=e.id)
 				OR EXISTS (SELECT 1 FROM public.reserva_pago_evento_aplicacion_ensayo a WHERE a.evento_id=e.id AND a.estado IN ('pendiente','pendiente_conciliacion'))))
 		OR EXISTS (SELECT 1 FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=$1 AND d.estado='pendiente')
+		OR EXISTS (SELECT 1 FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=$1 AND (
+			g.estado IN ('pendiente_pago','pendiente_autorizacion','por_conciliar','captura_pendiente','captura_por_conciliar','liberacion_pendiente','liberacion_por_conciliar')
+			OR g.autorizado_clp > g.capturado_clp + g.liberado_clp))
+		OR EXISTS (SELECT 1 FROM public.reserva_garantia_operacion_ensayo_local o JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id
+			WHERE g.reserva_id=$1 AND o.estado IN ('pendiente','por_conciliar'))
+		OR EXISTS (SELECT 1 FROM public.reserva_garantia_evento_aplicacion_ensayo_local a
+			JOIN public.reserva_garantia_evento_ensayo_local e ON e.id=a.evento_id
+			JOIN public.reserva_garantia_operacion_ensayo_local o ON o.id=e.operacion_id
+			JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id
+			WHERE g.reserva_id=$1 AND a.estado IN ('pendiente','por_conciliar'))
+		OR EXISTS (SELECT 1 FROM public.reserva_decision_financiera_ensayo_local d WHERE d.reserva_id=$1 AND d.estado IN ('pendiente','por_conciliar'))
 		OR EXISTS (SELECT 1 FROM public.disputa_ensayo_local d WHERE d.reserva_id=$1 AND d.estado='abierta')
 		OR EXISTS (SELECT 1 FROM public.reclamo_dano_ensayo_local c WHERE c.reserva_id=$1 AND c.estado='abierto')
 		OR EXISTS (SELECT 1 FROM public.operacion_arriendo_archivo_candidato_local c WHERE c.reserva_id=$1 AND c.estado IN ('reservado','pendiente_limpieza','limpiando'))`, candidate.id).Scan(&blocked); err != nil {

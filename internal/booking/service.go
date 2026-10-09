@@ -25,6 +25,7 @@ type Service struct {
 	payment                   LocalPaymentAdapter
 	refund                    LocalRefundAdapter
 	notices                   LocalNoticeSender
+	guaranteeOutcome          func() string
 	now                       func() time.Time
 	quoteTTL, payTTL, hostTTL time.Duration
 	catalogCursorKey          [32]byte
@@ -35,6 +36,138 @@ type Service struct {
 // provided by this service.
 func (s *Service) SetLocalRefundAdapter(adapter LocalRefundAdapter) { s.refund = adapter }
 func (s *Service) SetLocalNoticeSender(sender LocalNoticeSender)    { s.notices = sender }
+func (s *Service) SetLocalGuaranteeOutcome(outcome func() string)   { s.guaranteeOutcome = outcome }
+
+func (s *Service) ensureGuaranteeAuthorization(ctx context.Context, renter string, reservation Reservation) error {
+	if reservation.GuaranteePolicyVersion == nil {
+		return nil
+	}
+	if s.guaranteeOutcome == nil {
+		return nil
+	}
+	repo, ok := s.repo.(GuaranteeLifecycleRepository)
+	if !ok {
+		return ErrInvalid
+	}
+	key := "garantia-autorizacion:" + reservation.ID
+	requestID, err := s.ids.ID()
+	if err != nil {
+		return err
+	}
+	outcome := s.guaranteeOutcome()
+	value, _, err := repo.RunGuaranteeOperation(ctx, renter, reservation.ID, "autorizacion", key, 50000, outcome, requestID, false, s.now)
+	if err != nil {
+		return err
+	}
+	if value.State == "por_conciliar" || value.State == "pendiente" {
+		return ErrSimulatedNoResponse
+	}
+	if value.State != "confirmada" {
+		return ErrConflict
+	}
+	return nil
+}
+
+func (s *Service) Guarantee(ctx context.Context, actor, reservationID string) (GuaranteeSnapshot, error) {
+	repo, ok := s.repo.(GuaranteeLifecycleRepository)
+	if !ok || !uuid.MatchString(actor) || !uuid.MatchString(reservationID) {
+		return GuaranteeSnapshot{}, ErrNotFound
+	}
+	if err := repo.ExpireDueGuarantees(ctx, s.now); err != nil {
+		return GuaranteeSnapshot{}, err
+	}
+	return repo.Guarantee(ctx, actor, reservationID)
+}
+
+func (s *Service) GuaranteeForAdministrator(ctx context.Context, administrator, reservationID string) (GuaranteeSnapshot, error) {
+	repo, ok := s.repo.(GuaranteeLifecycleRepository)
+	if !ok || !uuid.MatchString(administrator) || !uuid.MatchString(reservationID) {
+		return GuaranteeSnapshot{}, ErrNotFound
+	}
+	if err := repo.ExpireDueGuarantees(ctx, s.now); err != nil {
+		return GuaranteeSnapshot{}, err
+	}
+	return repo.GuaranteeForAdministrator(ctx, reservationID)
+}
+
+func (s *Service) RunGuaranteeOperation(ctx context.Context, actor, reservationID, kind, key string, amount int64, outcome, requestID string, administrator bool) (GuaranteeOperation, error) {
+	repo, ok := s.repo.(GuaranteeLifecycleRepository)
+	if !ok || !uuid.MatchString(actor) || !uuid.MatchString(reservationID) || strings.TrimSpace(key) == "" || len(key) > 200 {
+		return GuaranteeOperation{}, ErrInvalid
+	}
+	if kind != "autorizacion" && kind != "captura" && kind != "liberacion" {
+		return GuaranteeOperation{}, ErrInvalid
+	}
+	if kind != "autorizacion" && outcome == "rechazo" {
+		return GuaranteeOperation{}, ErrInvalid
+	}
+	if kind == "autorizacion" && amount != 50000 {
+		return GuaranteeOperation{}, ErrInvalid
+	}
+	if outcome != "exito" && outcome != "rechazo" && outcome != "sin_respuesta" {
+		return GuaranteeOperation{}, ErrInvalid
+	}
+	if amount < 0 {
+		return GuaranteeOperation{}, ErrInvalid
+	}
+	if err := repo.ExpireDueGuarantees(ctx, s.now); err != nil {
+		return GuaranteeOperation{}, err
+	}
+	id, err := s.ids.ID()
+	if err != nil {
+		return GuaranteeOperation{}, err
+	}
+	if kind == "autorizacion" && administrator || kind != "autorizacion" && !administrator {
+		return GuaranteeOperation{}, ErrNotFound
+	}
+	value, _, err := repo.RunGuaranteeOperation(ctx, actor, reservationID, kind, key, amount, outcome, id, administrator, s.now)
+	return value, err
+}
+
+func (s *Service) DecideGuarantee(ctx context.Context, admin, reservationID string, input FinancialDecisionInput, key string, fingerprint []byte) (FinancialDecision, error) {
+	repo, ok := s.repo.(GuaranteeLifecycleRepository)
+	if !ok || !uuid.MatchString(admin) || !uuid.MatchString(reservationID) || strings.TrimSpace(key) == "" {
+		return FinancialDecision{}, ErrInvalid
+	}
+	if input.ClaimID == "" {
+		return FinancialDecision{}, ErrInvalid
+	}
+	value, _, err := repo.DecideGuarantee(ctx, admin, reservationID, input, key, fingerprint, s.now)
+	return value, err
+}
+
+func (s *Service) ResolveGuaranteeOperation(ctx context.Context, admin, reservationID, kind, outcome string) (GuaranteeOperation, error) {
+	repo, ok := s.repo.(GuaranteeLifecycleRepository)
+	if !ok || !uuid.MatchString(admin) || !uuid.MatchString(reservationID) || (outcome != "exito" && outcome != "rechazo") || kind != "autorizacion" && outcome == "rechazo" {
+		return GuaranteeOperation{}, ErrInvalid
+	}
+	return repo.ResolveGuaranteeOperation(ctx, admin, reservationID, kind, outcome, s.now)
+}
+
+func (s *Service) ReconcileGuarantees(ctx context.Context) error {
+	repo, ok := s.repo.(GuaranteeLifecycleRepository)
+	if !ok {
+		return nil
+	}
+	return repo.ExpireDueGuarantees(ctx, s.now)
+}
+
+func (s *Service) RunGuaranteeReconciler(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	_ = s.ReconcileGuarantees(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = s.ReconcileGuarantees(ctx)
+		}
+	}
+}
 
 func NewService(repo Repository, ids identity.CredentialGenerator, now func() time.Time, payment LocalPaymentAdapter) (*Service, error) {
 	return NewServiceWithTTLs(repo, ids, now, payment, 15*time.Minute, 15*time.Minute, 24*time.Hour)
@@ -43,7 +176,7 @@ func NewServiceWithTTLs(repo Repository, ids identity.CredentialGenerator, now f
 	if repo == nil || ids == nil || now == nil || payment == nil || quoteTTL < time.Minute || quoteTTL > time.Hour || payTTL < time.Minute || payTTL > time.Hour || hostTTL < time.Hour || hostTTL > 72*time.Hour {
 		return nil, ErrInvalid
 	}
-	s := &Service{repo: repo, ids: ids, payment: payment, now: now, quoteTTL: quoteTTL, payTTL: payTTL, hostTTL: hostTTL}
+	s := &Service{repo: repo, ids: ids, payment: payment, now: now, quoteTTL: quoteTTL, payTTL: payTTL, hostTTL: hostTTL, guaranteeOutcome: func() string { return "exito" }}
 	if _, err := rand.Read(s.catalogCursorKey[:]); err != nil {
 		return nil, err
 	}
@@ -559,6 +692,11 @@ func (s *Service) Pay(ctx context.Context, renter, id, outcome, key string) (Res
 		if readErr != nil {
 			return Reservation{}, readErr
 		}
+		if current.State == "pagada" {
+			if guaranteeErr := s.ensureGuaranteeAuthorization(ctx, renter, current.Reservation); guaranteeErr != nil {
+				return current.Reservation, guaranteeErr
+			}
+		}
 		return current.Reservation, nil
 	}
 	var event *PaymentEvent
@@ -628,6 +766,11 @@ func (s *Service) Pay(ctx context.Context, renter, id, outcome, key string) (Res
 	}
 	if current.State != "pagada" && current.State != "cancelada_por_pago" {
 		return current.Reservation, ErrConflict
+	}
+	if current.State == "pagada" {
+		if guaranteeErr := s.ensureGuaranteeAuthorization(ctx, renter, current.Reservation); guaranteeErr != nil {
+			return current.Reservation, guaranteeErr
+		}
 	}
 	return current.Reservation, nil
 }

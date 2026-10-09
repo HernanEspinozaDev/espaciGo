@@ -43,7 +43,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type integrationBookingAuth struct{ accountID string }
+type integrationBookingAuth struct {
+	accountID     string
+	administrator bool
+}
 type integrationDamageClaimAuth struct {
 	accountID     string
 	administrator bool
@@ -79,11 +82,18 @@ func (f *operationTestFiles) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (a integrationBookingAuth) Authorize(_ context.Context, raw identity.Secret, _ identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
+func (a integrationBookingAuth) Authorize(_ context.Context, raw identity.Secret, required identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
 	if raw != "local-booking-integration-session" {
 		return identity.Principal{}, identity.ErrUnauthorized
 	}
-	return identity.Principal{AccountID: a.accountID}, nil
+	if required == identity.RoleAdministrator && !a.administrator {
+		return identity.Principal{}, identity.ErrForbidden
+	}
+	principal := identity.Principal{AccountID: a.accountID}
+	if a.administrator {
+		principal.Roles = []identity.Role{identity.RoleAdministrator}
+	}
+	return principal, nil
 }
 
 func (a integrationDamageClaimAuth) Authorize(_ context.Context, raw identity.Secret, required identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
@@ -110,7 +120,7 @@ func newTestPaymentAdapter(t *testing.T) *fakebooking.Adapter {
 	return adapter
 }
 
-func publishedBookingAPI(t *testing.T, actor string, service *booking.Service, method, path, idempotencyKey string, payload any) *httptest.ResponseRecorder {
+func publishedBookingAPI(t *testing.T, actor string, service *booking.Service, method, path, idempotencyKey string, payload any, administrators ...bool) *httptest.ResponseRecorder {
 	t.Helper()
 	var body strings.Reader
 	if payload != nil {
@@ -127,7 +137,8 @@ func publishedBookingAPI(t *testing.T, actor string, service *booking.Service, m
 		request.Header.Set("Idempotency-Key", idempotencyKey)
 	}
 	response := httptest.NewRecorder()
-	bookinghttp.NewHandler(integrationBookingAuth{accountID: actor}, service, nil).ServeHTTP(response, request)
+	isAdmin := len(administrators) > 0 && administrators[0]
+	bookinghttp.NewHandler(integrationBookingAuth{accountID: actor, administrator: isAdmin}, service, nil).ServeHTTP(response, request)
 	return response
 }
 
@@ -346,6 +357,20 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	}
 	if !refundAttemptRead || !refundAttemptInsert || refundAttemptUpdate || refundAttemptDelete {
 		t.Fatalf("refund attempt grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", refundAttemptRead, refundAttemptInsert, refundAttemptUpdate, refundAttemptDelete)
+	}
+	var guaranteeRead, guaranteeInsert, guaranteeUpdate, guaranteeDelete bool
+	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_garantia_ensayo_local','SELECT'),has_table_privilege(current_user,'public.reserva_garantia_ensayo_local','INSERT'),has_table_privilege(current_user,'public.reserva_garantia_ensayo_local','UPDATE'),has_table_privilege(current_user,'public.reserva_garantia_ensayo_local','DELETE')`).Scan(&guaranteeRead, &guaranteeInsert, &guaranteeUpdate, &guaranteeDelete); err != nil {
+		t.Fatal(err)
+	}
+	if !guaranteeRead || !guaranteeInsert || !guaranteeUpdate || guaranteeDelete {
+		t.Fatalf("runtime guarantee grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", guaranteeRead, guaranteeInsert, guaranteeUpdate, guaranteeDelete)
+	}
+	var financeHistoryRead, financeHistoryInsert, financeHistoryUpdate, financeHistoryDelete bool
+	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_finanzas_historial_ensayo_local','SELECT'),has_table_privilege(current_user,'public.reserva_finanzas_historial_ensayo_local','INSERT'),has_table_privilege(current_user,'public.reserva_finanzas_historial_ensayo_local','UPDATE'),has_table_privilege(current_user,'public.reserva_finanzas_historial_ensayo_local','DELETE')`).Scan(&financeHistoryRead, &financeHistoryInsert, &financeHistoryUpdate, &financeHistoryDelete); err != nil {
+		t.Fatal(err)
+	}
+	if !financeHistoryRead || !financeHistoryInsert || financeHistoryUpdate || financeHistoryDelete {
+		t.Fatalf("runtime finance history grants SELECT/INSERT/UPDATE/DELETE=%v/%v/%v/%v", financeHistoryRead, financeHistoryInsert, financeHistoryUpdate, financeHistoryDelete)
 	}
 	var messagesRead, messagesInsert, messagesUpdate, messagesDelete bool
 	if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.mensaje_reserva_ensayo','SELECT'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','INSERT'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','UPDATE'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','DELETE')`).Scan(&messagesRead, &messagesInsert, &messagesUpdate, &messagesDelete); err != nil {
@@ -838,7 +863,7 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	if err != nil {
 		t.Fatal(err)
 	}
-	if quote.Units != 2 || quote.Subtotal != 16000 || quote.TimeZone != "America/Santiago" || quote.Conditions != "Reglas de prueba" || !quote.ExpiresAt.Equal(fixedNow.Add(15*time.Minute)) {
+	if quote.Units != 2 || quote.Subtotal != 16000 || quote.TimeZone != "America/Santiago" || quote.Conditions != "Reglas de prueba" || !quote.ExpiresAt.Equal(fixedNow.Add(15*time.Minute)) || quote.GuaranteePolicyVersion == nil || *quote.GuaranteePolicyVersion != booking.LocalGuaranteePolicyVersion || quote.GuaranteeCurrency == nil || *quote.GuaranteeCurrency != "CLP" || quote.GuaranteeExpectedCLP == nil || *quote.GuaranteeExpectedCLP != 50000 {
 		t.Fatalf("quote snapshot mismatch: %+v", quote)
 	}
 	input := booking.RequestInput{QuoteID: quote.ID}
@@ -860,6 +885,9 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	}
 	if results[0].Conditions != "Reglas de prueba" {
 		t.Fatalf("reservation did not preserve conditions snapshot: %q", results[0].Conditions)
+	}
+	if results[0].GuaranteePolicyVersion == nil || *results[0].GuaranteePolicyVersion != booking.LocalGuaranteePolicyVersion || results[0].GuaranteeExpectedCLP == nil || *results[0].GuaranteeExpectedCLP != 50000 {
+		t.Fatalf("reservation lost guarantee snapshot: %+v", results[0])
 	}
 	conversationService, err := conversation.NewService(conversationpg.New(pool), credentials.Generator{}, clock)
 	if err != nil {
@@ -932,6 +960,273 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	if _, err = svc.Pay(ctx, renter, results[0].ID, "exito", "payment-one"); err != nil {
 		t.Fatal(err)
 	}
+	guarantee, err := svc.Guarantee(ctx, renter, results[0].ID)
+	if err != nil || guarantee.State != "autorizada" || guarantee.ExpectedCLP != 50000 || guarantee.AuthorizedCLP != 50000 || guarantee.CapturedCLP != 0 || guarantee.ReleasedCLP != 0 || len(guarantee.Operations) != 1 || guarantee.Operations[0].Kind != "autorizacion" || guarantee.Operations[0].State != "confirmada" {
+		t.Fatalf("rent payment did not produce one separate fake authorization: %+v err=%v", guarantee, err)
+	}
+	if _, err = svc.Pay(ctx, renter, results[0].ID, "exito", "payment-one"); err != nil {
+		t.Fatalf("rent idempotent retry did not reuse guarantee operation: %v", err)
+	}
+	guarantee, err = svc.Guarantee(ctx, renter, results[0].ID)
+	if err != nil || len(guarantee.Operations) != 1 {
+		t.Fatalf("rent retry duplicated guarantee authorization: %+v err=%v", guarantee, err)
+	}
+	// Timeout holds the same durable authorization intent. The Backend process
+	// can restart without losing its first-attempt deadline or idempotency key.
+	lateStart := fixedNow.Add(6 * time.Hour)
+	lateQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: secondSpace, StartAt: lateStart.Format(time.RFC3339), EndAt: lateStart.Add(time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lateReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: lateQuote.ID}, "guarantee-timeout-reservation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetLocalGuaranteeOutcome(nil)
+	if _, err = svc.Pay(ctx, renter, lateReservation.ID, "exito", "guarantee-timeout-rent"); err != nil {
+		t.Fatalf("rent payment before guarantee timeout: %v", err)
+	}
+	if _, err = svc.Decide(ctx, host, lateReservation.ID, "aprobar", ""); err != booking.ErrConflict {
+		t.Fatalf("host approval bypassed unresolved guarantee: %v", err)
+	}
+	var timedOps [2]booking.GuaranteeOperation
+	var timedErrs [2]error
+	var timedWG sync.WaitGroup
+	for i := range timedOps {
+		timedWG.Add(1)
+		go func(i int) {
+			defer timedWG.Done()
+			timedOps[i], timedErrs[i] = svc.RunGuaranteeOperation(ctx, renter, lateReservation.ID, "autorizacion", "same-guarantee-timeout", 50000, "sin_respuesta", "", false)
+		}(i)
+	}
+	timedWG.Wait()
+	for _, runErr := range timedErrs {
+		if runErr != nil {
+			t.Fatalf("concurrent guarantee timeout retry: %v", runErr)
+		}
+	}
+	if timedOps[0].ID != timedOps[1].ID || timedOps[0].State != "por_conciliar" || timedOps[1].State != "por_conciliar" {
+		t.Fatalf("concurrent guarantee retries did not reuse pending operation: %+v / %+v", timedOps[0], timedOps[1])
+	}
+	if _, conflict := svc.RunGuaranteeOperation(ctx, renter, lateReservation.ID, "autorizacion", "same-guarantee-timeout", 50000, "exito", "", false); conflict != booking.ErrConflict {
+		t.Fatalf("guarantee retry with incompatible outcome=%v", conflict)
+	}
+	var persistedStart time.Time
+	if err = setup.QueryRow(ctx, `SELECT primer_intento_en FROM public.reserva_garantia_operacion_ensayo_local WHERE id=$1`, timedOps[0].ID).Scan(&persistedStart); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := booking.NewService(repo, credentials.Generator{}, clock, paymentAdapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveredGuarantee, err := restarted.Guarantee(ctx, renter, lateReservation.ID)
+	if err != nil || len(recoveredGuarantee.Operations) != 1 || !recoveredGuarantee.Operations[0].CreatedAt.Equal(persistedStart) || recoveredGuarantee.Operations[0].State != "por_conciliar" {
+		t.Fatalf("guarantee intent did not survive Backend reconstruction: %+v err=%v", recoveredGuarantee, err)
+	}
+	if recoveredGuarantee.AuthorizationDeadline == nil || !recoveredGuarantee.AuthorizationDeadline.Equal(persistedStart.Add(15*time.Minute)) {
+		t.Fatalf("authorization deadline not persisted from first attempt: %+v", recoveredGuarantee.AuthorizationDeadline)
+	}
+	clockMu.Lock()
+	fixedNow = *recoveredGuarantee.AuthorizationDeadline
+	clockMu.Unlock()
+	if err = restarted.ReconcileGuarantees(ctx); err != nil {
+		t.Fatalf("expire unresolved guarantee: %v", err)
+	}
+	var guaranteeExpiredState, guaranteeOperationState, bookingState string
+	var guaranteeActiveOccupancy bool
+	var rentRefund int64
+	if err = setup.QueryRow(ctx, `SELECT g.estado,o.estado,r.estado,EXISTS(SELECT 1 FROM public.ocupacion o2 WHERE o2.reserva_id=r.id AND o2.activo),d.importe_clp FROM public.reserva_garantia_ensayo_local g JOIN public.reserva_garantia_operacion_ensayo_local o ON o.garantia_id=g.id AND o.tipo='autorizacion' JOIN public.reserva_ensayo_local r ON r.id=g.reserva_id LEFT JOIN public.reserva_devolucion_ensayo d ON d.reserva_id=r.id WHERE r.id=$1`, lateReservation.ID).Scan(&guaranteeExpiredState, &guaranteeOperationState, &bookingState, &guaranteeActiveOccupancy, &rentRefund); err != nil {
+		t.Fatal(err)
+	}
+	if guaranteeExpiredState != "por_conciliar" || guaranteeOperationState != "por_conciliar" || bookingState != "cancelada_por_pago" || guaranteeActiveOccupancy || rentRefund != lateReservation.Subtotal {
+		t.Fatalf("authorization timeout failed atomic cancel/release/refund while preserving reconciliation block: guarantee=%s operation=%s booking=%s occupancy=%v refund=%d expected=%d", guaranteeExpiredState, guaranteeOperationState, bookingState, guaranteeActiveOccupancy, rentRefund, lateReservation.Subtotal)
+	}
+	lateAuth, err := restarted.ResolveGuaranteeOperation(ctx, outsider, lateReservation.ID, "autorizacion", "exito")
+	if err != nil || lateAuth.State != "vencida" {
+		t.Fatalf("late authorization was not durably reconciled as expired: %+v err=%v", lateAuth, err)
+	}
+	var lateAuthorizedBeforeRelease int64
+	var latePendingReleaseCount int
+	var latePendingReleaseAmount int64
+	if err = setup.QueryRow(ctx, `SELECT g.autorizado_clp,
+		(SELECT count(*) FROM public.reserva_garantia_operacion_ensayo_local x WHERE x.garantia_id=g.id AND x.tipo='liberacion' AND x.estado='pendiente'),
+		(SELECT COALESCE(max(x.importe_clp),0) FROM public.reserva_garantia_operacion_ensayo_local x WHERE x.garantia_id=g.id AND x.tipo='liberacion' AND x.estado='pendiente')
+		FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=$1`, lateReservation.ID).Scan(&lateAuthorizedBeforeRelease, &latePendingReleaseCount, &latePendingReleaseAmount); err != nil {
+		t.Fatal(err)
+	}
+	if lateAuthorizedBeforeRelease != 50000 || latePendingReleaseCount != 1 || latePendingReleaseAmount != 50000 {
+		t.Fatalf("late authorization was not persisted before its single compensating release: authorized=%d release rows=%d amount=%d", lateAuthorizedBeforeRelease, latePendingReleaseCount, latePendingReleaseAmount)
+	}
+	if err = setup.QueryRow(ctx, `SELECT r.estado,EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.reserva_id=r.id AND o.activo) FROM public.reserva_ensayo_local r WHERE r.id=$1`, lateReservation.ID).Scan(&bookingState, &guaranteeActiveOccupancy); err != nil || bookingState != "cancelada_por_pago" || guaranteeActiveOccupancy {
+		t.Fatalf("late authorization reactivated reservation or hold: booking=%s occupancy=%v err=%v", bookingState, guaranteeActiveOccupancy, err)
+	}
+	// A late authorization gets its own release operation; resolving it is
+	// idempotent and never reactivates the cancelled reservation.
+	lateRelease, err := restarted.ResolveGuaranteeOperation(ctx, outsider, lateReservation.ID, "liberacion", "exito")
+	if err != nil || lateRelease.State != "confirmada" {
+		t.Fatalf("late guarantee authorization was not released: %+v err=%v", lateRelease, err)
+	}
+	if _, err = restarted.ResolveGuaranteeOperation(ctx, outsider, lateReservation.ID, "autorizacion", "exito"); err != nil {
+		t.Fatalf("late authorization replay: %v", err)
+	}
+	var lateResultCount, lateReleaseCount int
+	var authorizedAmount, releasedAmount int64
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_garantia_resultado_fake_ensayo_local WHERE operacion_id=$1),(SELECT count(*) FROM public.reserva_garantia_resultado_fake_ensayo_local WHERE operacion_id=$2),g.autorizado_clp,g.liberado_clp FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=$3`, timedOps[0].ID, lateRelease.ID, lateReservation.ID).Scan(&lateResultCount, &lateReleaseCount, &authorizedAmount, &releasedAmount); err != nil {
+		t.Fatal(err)
+	}
+	if lateResultCount != 1 || lateReleaseCount != 1 || authorizedAmount != 50000 || releasedAmount != 50000 {
+		t.Fatalf("late-result retry duplicated operations or left authorization: auth/result=%d release/result=%d amounts=%d/%d", lateResultCount, lateReleaseCount, authorizedAmount, releasedAmount)
+	}
+	// Cover the other first-success path: RunGuaranteeOperation itself begins
+	// before the reservation start and waits on the reservation row until its
+	// injected clock reaches the exact boundary. This is distinct from callback
+	// reconciliation above and must persist the authorization before release.
+	clockMu.Lock()
+	fixedNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	preWaitNow := fixedNow
+	clockMu.Unlock()
+	runLateStart := preWaitNow.Add(6*time.Hour + 45*time.Minute)
+	runLateSpace := "abababab-abab-4bab-8bab-abababababab"
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria)
+		VALUES($1,$2,'sala_multiproposito','Late authorization test',repeat('Synthetic test space. ',6),25,4,'Test access','hora',10000,'Synthetic','borrador','UTC')`, runLateSpace, host); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'sala_multiproposito',1,'{}'::jsonb)`, runLateSpace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',10000)`, runLateSpace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id) VALUES($1,$2,$3)`, runLateSpace, host, renter); err != nil {
+		t.Fatal(err)
+	}
+	runLateQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: runLateSpace, StartAt: runLateStart.Format(time.RFC3339Nano), EndAt: runLateStart.Add(time.Hour).Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatalf("quote for late RunGuaranteeOperation now=%s start=%s end=%s: %v", preWaitNow, runLateStart, runLateStart.Add(time.Hour), err)
+	}
+	runLateReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: runLateQuote.ID}, "guarantee-run-late-success")
+	if err != nil {
+		t.Fatalf("create late RunGuaranteeOperation reservation: %v", err)
+	}
+	svc.SetLocalGuaranteeOutcome(nil)
+	if _, err = svc.Pay(ctx, renter, runLateReservation.ID, "exito", "guarantee-run-late-rent"); err != nil {
+		t.Fatalf("pay before delayed authorization: %v", err)
+	}
+	lateRunLock, err := setup.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lateRunLock.Exec(ctx, `SELECT id FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, runLateReservation.ID); err != nil {
+		_ = lateRunLock.Rollback(ctx)
+		t.Fatal(err)
+	}
+	clockMu.Lock()
+	fixedNow = runLateStart.Add(-time.Minute)
+	clockMu.Unlock()
+	type lateRunResult struct {
+		operation booking.GuaranteeOperation
+		err       error
+	}
+	lateRunDone := make(chan lateRunResult, 1)
+	go func() {
+		operation, runErr := svc.RunGuaranteeOperation(ctx, renter, runLateReservation.ID, "autorizacion", "late-run-success-key", 50000, "exito", "", false)
+		lateRunDone <- lateRunResult{operation: operation, err: runErr}
+	}()
+	lateRunWaitDeadline := time.Now().Add(3 * time.Second)
+	lateRunWaiting := false
+	for time.Now().Before(lateRunWaitDeadline) {
+		if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename=current_user AND wait_event_type='Lock' AND query ILIKE '%WHERE id=$1 AND (arrendatario_id=$2 OR anfitrion_id=$2 OR $3::boolean) FOR UPDATE%')`).Scan(&lateRunWaiting); err != nil {
+			_ = lateRunLock.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if lateRunWaiting {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !lateRunWaiting {
+		_ = lateRunLock.Rollback(ctx)
+		t.Fatal("RunGuaranteeOperation did not wait on the held reservation lock")
+	}
+	clockMu.Lock()
+	fixedNow = runLateStart
+	clockMu.Unlock()
+	if err = lateRunLock.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	lateRun := <-lateRunDone
+	if lateRun.err != nil || lateRun.operation.State != "vencida" || lateRun.operation.LastResult != "resultado_tardio" {
+		t.Fatalf("first late RunGuaranteeOperation=%+v err=%v", lateRun.operation, lateRun.err)
+	}
+	var runLateAuthorized, runLateReleaseCount, runLateReleaseAmount int64
+	var runLateReservationState string
+	var runLateActiveOccupancy bool
+	if err = setup.QueryRow(ctx, `SELECT g.autorizado_clp,r.estado,EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.reserva_id=r.id AND o.activo),
+		(SELECT count(*) FROM public.reserva_garantia_operacion_ensayo_local x WHERE x.garantia_id=g.id AND x.tipo='liberacion'),
+		(SELECT COALESCE(max(x.importe_clp),0) FROM public.reserva_garantia_operacion_ensayo_local x WHERE x.garantia_id=g.id AND x.tipo='liberacion')
+		FROM public.reserva_garantia_ensayo_local g JOIN public.reserva_ensayo_local r ON r.id=g.reserva_id WHERE r.id=$1`, runLateReservation.ID).Scan(&runLateAuthorized, &runLateReservationState, &runLateActiveOccupancy, &runLateReleaseCount, &runLateReleaseAmount); err != nil {
+		t.Fatal(err)
+	}
+	if runLateAuthorized != 50000 || runLateReleaseCount != 1 || runLateReleaseAmount != 50000 || runLateReservationState != "cancelada_por_pago" || runLateActiveOccupancy {
+		t.Fatalf("late RunGuaranteeOperation effects authorized=%d release count/amount=%d/%d reservation=%s active occupancy=%v", runLateAuthorized, runLateReleaseCount, runLateReleaseAmount, runLateReservationState, runLateActiveOccupancy)
+	}
+	lateRunRetry, err := svc.RunGuaranteeOperation(ctx, renter, runLateReservation.ID, "autorizacion", "late-run-success-key", 50000, "exito", "", false)
+	if err != nil || lateRunRetry.ID != lateRun.operation.ID || lateRunRetry.State != "vencida" {
+		t.Fatalf("late RunGuaranteeOperation retry did not reuse result: %+v err=%v", lateRunRetry, err)
+	}
+	lateRunRelease, err := svc.ResolveGuaranteeOperation(ctx, adminID, runLateReservation.ID, "liberacion", "exito")
+	if err != nil || lateRunRelease.State != "confirmada" {
+		t.Fatalf("late RunGuaranteeOperation release reconciliation=%+v err=%v", lateRunRelease, err)
+	}
+	if replay, replayErr := svc.ResolveGuaranteeOperation(ctx, adminID, runLateReservation.ID, "liberacion", "exito"); replayErr != nil || replay.ID != lateRunRelease.ID || replay.State != "confirmada" {
+		t.Fatalf("late RunGuaranteeOperation release replay=%+v err=%v", replay, replayErr)
+	}
+	var runLateAuthResults, runLateReleaseResults int
+	var runLateReleased int64
+	if err = setup.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM public.reserva_garantia_resultado_fake_ensayo_local x WHERE x.operacion_id=$1),
+		(SELECT count(*) FROM public.reserva_garantia_resultado_fake_ensayo_local x WHERE x.operacion_id=$2),g.liberado_clp
+		FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=$3`, lateRun.operation.ID, lateRunRelease.ID, runLateReservation.ID).Scan(&runLateAuthResults, &runLateReleaseResults, &runLateReleased); err != nil {
+		t.Fatal(err)
+	}
+	if runLateAuthResults != 1 || runLateReleaseResults != 1 || runLateReleased != 50000 {
+		t.Fatalf("late first-success retries duplicated result/authorization release: results=%d/%d released=%d", runLateAuthResults, runLateReleaseResults, runLateReleased)
+	}
+	clockMu.Lock()
+	fixedNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	clockMu.Unlock()
+	// A confirmed authorization rejection follows the same atomic rental
+	// refund and occupancy release path as an authorization deadline.
+	rejectedStart := fixedNow.Add(20 * time.Hour)
+	rejectedQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: secondSpace, StartAt: rejectedStart.Format(time.RFC3339), EndAt: rejectedStart.Add(time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejectedReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: rejectedQuote.ID}, "guarantee-reject-reservation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetLocalGuaranteeOutcome(nil)
+	if _, err = svc.Pay(ctx, renter, rejectedReservation.ID, "exito", "guarantee-reject-rent"); err != nil {
+		t.Fatalf("rent payment before guarantee rejection: %v", err)
+	}
+	rejectedAuth, err := svc.RunGuaranteeOperation(ctx, renter, rejectedReservation.ID, "autorizacion", "guarantee-reject-auth", 50000, "rechazo", "", false)
+	if err != nil || rejectedAuth.State != "rechazada" {
+		t.Fatalf("confirmed guarantee rejection=%+v err=%v", rejectedAuth, err)
+	}
+	var rejectedBookingState, rejectedGuaranteeState string
+	var rejectedOccupancy bool
+	var rejectedRefund int64
+	if err = setup.QueryRow(ctx, `SELECT r.estado,g.estado,EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.reserva_id=r.id AND o.activo),d.importe_clp FROM public.reserva_ensayo_local r JOIN public.reserva_garantia_ensayo_local g ON g.reserva_id=r.id LEFT JOIN public.reserva_devolucion_ensayo d ON d.reserva_id=r.id WHERE r.id=$1`, rejectedReservation.ID).Scan(&rejectedBookingState, &rejectedGuaranteeState, &rejectedOccupancy, &rejectedRefund); err != nil {
+		t.Fatal(err)
+	}
+	if rejectedBookingState != "cancelada_por_pago" || rejectedGuaranteeState != "no_disponible" || rejectedOccupancy || rejectedRefund != rejectedReservation.Subtotal {
+		t.Fatalf("confirmed rejection failed cancel/refund: booking=%s guarantee=%s occupancy=%v refund=%d expected=%d", rejectedBookingState, rejectedGuaranteeState, rejectedOccupancy, rejectedRefund, rejectedReservation.Subtotal)
+	}
+	clockMu.Lock()
+	fixedNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	clockMu.Unlock()
+	svc.SetLocalGuaranteeOutcome(func() string { return "exito" })
 	if _, err = conversationService.Send(ctx, renter, results[0].ID, "paid-message", "Mensaje en pagada"); err != nil {
 		t.Fatalf("paid conversation rejected message: %v", err)
 	}
@@ -1374,6 +1669,85 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_pago_ensayo WHERE reserva_id=$1 AND resultado='devolucion_simulada'`, hostDeadlineReservation.ID).Scan(&simulatedRefund); err != nil || simulatedRefund != 1 {
 		t.Fatalf("host expiry simulated refund count=%d err=%v", simulatedRefund, err)
 	}
+	hostExpiredGuarantee, err := svc.Guarantee(ctx, renter, hostDeadlineReservation.ID)
+	if err != nil || hostExpiredGuarantee.State != "liberacion_pendiente" || len(hostExpiredGuarantee.Operations) != 2 || hostExpiredGuarantee.Operations[1].Kind != "liberacion" || hostExpiredGuarantee.Operations[1].State != "pendiente" || hostExpiredGuarantee.Operations[1].AmountCLP != 50000 {
+		t.Fatalf("host expiry did not persist a full guarantee release obligation: %+v err=%v", hostExpiredGuarantee, err)
+	}
+	hostReleaseRetry, err := svc.RunGuaranteeOperation(ctx, adminID, hostDeadlineReservation.ID, "liberacion", "host-expiry-release:"+hostDeadlineReservation.ID, 50000, "exito", "", true)
+	if err != nil || hostReleaseRetry.ID != hostExpiredGuarantee.Operations[1].ID || hostReleaseRetry.State != "pendiente" {
+		t.Fatalf("host-expiry release retry did not reuse durable intent: %+v err=%v", hostReleaseRetry, err)
+	}
+	releasedAtHostExpiry, err := svc.ResolveGuaranteeOperation(ctx, adminID, hostDeadlineReservation.ID, "liberacion", "exito")
+	if err != nil || releasedAtHostExpiry.State != "confirmada" {
+		t.Fatalf("host-expiry guarantee release reconciliation: %+v err=%v", releasedAtHostExpiry, err)
+	}
+	if replay, replayErr := svc.ResolveGuaranteeOperation(ctx, adminID, hostDeadlineReservation.ID, "liberacion", "exito"); replayErr != nil || replay.ID != releasedAtHostExpiry.ID || replay.State != "confirmada" {
+		t.Fatalf("host-expiry release retry changed persisted result: %+v err=%v", replay, replayErr)
+	}
+	var hostReleaseCount, hostReleaseResultCount int
+	if err = pool.QueryRow(ctx, `SELECT count(DISTINCT o.id),count(DISTINCT x.id)
+		FROM public.reserva_garantia_operacion_ensayo_local o JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id
+		LEFT JOIN public.reserva_garantia_resultado_fake_ensayo_local x ON x.operacion_id=o.id
+		WHERE g.reserva_id=$1 AND o.tipo='liberacion'`, hostDeadlineReservation.ID).Scan(&hostReleaseCount, &hostReleaseResultCount); err != nil {
+		t.Fatal(err)
+	}
+	if hostReleaseCount != 1 || hostReleaseResultCount != 1 {
+		t.Fatalf("host-expiry release retry duplicated effects: operations=%d fake results=%d", hostReleaseCount, hostReleaseResultCount)
+	}
+	// An authorization whose fake result timed out remains reconcilable when
+	// the host deadline expires. A late success is recorded and compensated,
+	// without reopening either the booking or its occupancy.
+	setClock(baseNow)
+	uncertainHostStart := start.Add(40 * time.Hour)
+	uncertainHostQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: uncertainHostStart.Format(time.RFC3339), EndAt: uncertainHostStart.Add(time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uncertainHostReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: uncertainHostQuote.ID}, "host-deadline-uncertain-auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetLocalGuaranteeOutcome(func() string { return "sin_respuesta" })
+	_, timeoutErr := svc.Pay(ctx, renter, uncertainHostReservation.ID, "exito", "host-deadline-uncertain-rent")
+	if !errors.Is(timeoutErr, booking.ErrSimulatedNoResponse) {
+		t.Fatalf("expected uncertain guarantee authorization at payment, got %v", timeoutErr)
+	}
+	uncertainHostPaid, err := svc.Get(ctx, renter, uncertainHostReservation.ID)
+	if err != nil || uncertainHostPaid.HostExpiresAt == nil {
+		t.Fatalf("uncertain guarantee booking snapshot=%+v err=%v", uncertainHostPaid, err)
+	}
+	setClock(*uncertainHostPaid.HostExpiresAt)
+	if err = repo.Expire(ctx, *uncertainHostPaid.HostExpiresAt); err != nil {
+		t.Fatalf("expire booking with uncertain guarantee authorization: %v", err)
+	}
+	uncertainSnapshot, err := svc.Guarantee(ctx, renter, uncertainHostReservation.ID)
+	if err != nil || uncertainSnapshot.State != "por_conciliar" || len(uncertainSnapshot.Operations) != 1 || uncertainSnapshot.Operations[0].State != "por_conciliar" {
+		t.Fatalf("host expiry discarded uncertain guarantee authorization: %+v err=%v", uncertainSnapshot, err)
+	}
+	lateHostAuthorization, err := svc.ResolveGuaranteeOperation(ctx, adminID, uncertainHostReservation.ID, "autorizacion", "exito")
+	if err != nil || lateHostAuthorization.State != "vencida" {
+		t.Fatalf("late host-expiry authorization reconciliation=%+v err=%v", lateHostAuthorization, err)
+	}
+	lateHostSnapshot, err := svc.Guarantee(ctx, renter, uncertainHostReservation.ID)
+	if err != nil || lateHostSnapshot.AuthorizedCLP != 50000 || lateHostSnapshot.State != "liberacion_pendiente" || len(lateHostSnapshot.Operations) != 2 || lateHostSnapshot.Operations[1].Kind != "liberacion" || lateHostSnapshot.Operations[1].AmountCLP != 50000 {
+		t.Fatalf("late authorization was not durably compensated after host expiry: %+v err=%v", lateHostSnapshot, err)
+	}
+	if _, err = svc.ResolveGuaranteeOperation(ctx, adminID, uncertainHostReservation.ID, "liberacion", "exito"); err != nil {
+		t.Fatalf("late host-expiry guarantee release: %v", err)
+	}
+	if _, err = svc.ResolveGuaranteeOperation(ctx, adminID, uncertainHostReservation.ID, "autorizacion", "exito"); err != nil {
+		t.Fatalf("late host-expiry authorization retry: %v", err)
+	}
+	var uncertainReleaseOps, uncertainReleaseResults int
+	var uncertainBookingState string
+	if err = pool.QueryRow(ctx, `SELECT r.estado,(SELECT count(*) FROM public.reserva_garantia_operacion_ensayo_local x WHERE x.garantia_id=g.id AND x.tipo='liberacion'),(SELECT count(*) FROM public.reserva_garantia_resultado_fake_ensayo_local x JOIN public.reserva_garantia_operacion_ensayo_local o ON o.id=x.operacion_id WHERE o.garantia_id=g.id AND o.tipo='liberacion') FROM public.reserva_garantia_ensayo_local g JOIN public.reserva_ensayo_local r ON r.id=g.reserva_id WHERE r.id=$1`, uncertainHostReservation.ID).Scan(&uncertainBookingState, &uncertainReleaseOps, &uncertainReleaseResults); err != nil {
+		t.Fatal(err)
+	}
+	if uncertainBookingState != "vencida_host" || uncertainReleaseOps != 1 || uncertainReleaseResults != 1 {
+		t.Fatalf("host-expiry reconciliation duplicated or revived state: reservation=%s release operations/results=%d/%d", uncertainBookingState, uncertainReleaseOps, uncertainReleaseResults)
+	}
+	svc.SetLocalGuaranteeOutcome(func() string { return "exito" })
+	setClock(baseNow)
 	// Hold the reservation lock in another transaction. Start Send before the
 	// payment deadline, wait until PostgreSQL confirms it is blocked on that
 	// row, then advance the injected clock to the boundary before releasing it.
@@ -3045,6 +3419,19 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if _, incompatible := claimService.Resolve(ctx, adminID, claimEnvelope.Data.ID, "admin-resolution-0001", damageclaim.ResolutionInput{Outcome: "acogido", ReasonCode: "evidencia_suficiente"}); incompatible != damageclaim.ErrConflict {
 		t.Fatalf("incompatible resolution replay error=%v", incompatible)
 	}
+	financialPath := "/api/v1/local/booking-trial/reservations/" + completeReservation.ID + "/financial-decision"
+	financialInput := booking.FinancialDecisionInput{ClaimID: claimEnvelope.Data.ID, Outcome: "rechazado", DeductionCLP: 0}
+	if denied := publishedBookingAPI(t, renter, svc, http.MethodPost, financialPath, "finance-rejected-claim-renter", financialInput); denied.Code != http.StatusForbidden {
+		t.Fatalf("renter registered financial decision: %d %s", denied.Code, denied.Body.String())
+	}
+	financeResponse := publishedBookingAPI(t, adminID, svc, http.MethodPost, financialPath, "finance-rejected-claim-admin", financialInput, true)
+	if financeResponse.Code != http.StatusOK {
+		t.Fatalf("admin zero-deduction decision=%d %s", financeResponse.Code, financeResponse.Body.String())
+	}
+	guaranteeAfterDecision, err := svc.Guarantee(ctx, renter, completeReservation.ID)
+	if err != nil || guaranteeAfterDecision.Decision == nil || guaranteeAfterDecision.Decision.Outcome != "rechazado" || guaranteeAfterDecision.Decision.DeductionCLP != 0 || guaranteeAfterDecision.Decision.State != "sin_deduccion" || guaranteeAfterDecision.CapturedCLP != 0 {
+		t.Fatalf("rejected claim did not require zero separate deduction: %+v err=%v", guaranteeAfterDecision, err)
+	}
 	var resolutionRows, auditRows, noticeRows int
 	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reclamo_dano_resolucion_ensayo_local WHERE reclamo_id=$1`, claimEnvelope.Data.ID).Scan(&resolutionRows); err != nil {
 		t.Fatal(err)
@@ -3159,6 +3546,133 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	}
 	if detail, detailErr := svc.Get(ctx, renter, deadlineReservation.ID); detailErr != nil || detail.State != "finalizada" {
 		t.Fatalf("late claim changed reservation: %s err=%v", detail.State, detailErr)
+	}
+	if err = svc.ReconcileGuarantees(ctx); err != nil {
+		t.Fatalf("automatic no-claim guarantee release: %v", err)
+	}
+	autoReleasedGuarantee, err := svc.Guarantee(ctx, renter, deadlineReservation.ID)
+	if err != nil || autoReleasedGuarantee.State != "liberada" || autoReleasedGuarantee.AuthorizedCLP != 50000 || autoReleasedGuarantee.ReleasedCLP != 50000 || autoReleasedGuarantee.CapturedCLP != 0 || len(autoReleasedGuarantee.Operations) != 2 || autoReleasedGuarantee.Operations[1].Kind != "liberacion" || autoReleasedGuarantee.Operations[1].State != "confirmada" {
+		t.Fatalf("24-hour no-claim release snapshot=%+v err=%v", autoReleasedGuarantee, err)
+	}
+
+	// A claim suspends the 24-hour release. Once an acogido decision is
+	// persisted, the fake captures only the authorized deduction and releases
+	// the exact remainder.
+	financeReservation := newReservation(30*time.Hour, "finance-capture", true)
+	financeContract, err := contractService.Create(ctx, host, financeReservation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = contractService.Sign(ctx, host, financeContract.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = contractService.Sign(ctx, renter, financeContract.ID); err != nil {
+		t.Fatal(err)
+	}
+	clockMu.Lock()
+	fixedNow = financeReservation.StartAt
+	clockMu.Unlock()
+	if _, err = operationService.Record(ctx, renter, financeReservation.ID, "finance-checkin", operation.Input{Kind: operation.CheckIn}); err != nil {
+		t.Fatalf("financial test check-in: %v", err)
+	}
+	clockMu.Lock()
+	fixedNow = financeReservation.EndAt.Add(time.Hour)
+	clockMu.Unlock()
+	financeCheckout, err := operationService.Record(ctx, renter, financeReservation.ID, "finance-checkout", operation.Input{Kind: operation.CheckOut})
+	if err != nil || len(financeCheckout.Evidence) == 0 {
+		t.Fatalf("financial test checkout=%+v err=%v", financeCheckout, err)
+	}
+	clockMu.Lock()
+	fixedNow = financeCheckout.OccurredAt.Add(time.Hour)
+	clockMu.Unlock()
+	financeClaim, err := claimService.Open(ctx, host, financeReservation.ID, "finance-claim", damageclaim.Input{Description: "Daño sintético respaldado por evidencia."})
+	if err != nil {
+		t.Fatalf("open financial claim: %v", err)
+	}
+	financeGuaranteePath := "/api/v1/local/booking-trial/reservations/" + financeReservation.ID + "/guarantee"
+	if _, adminGuaranteeErr := svc.GuaranteeForAdministrator(ctx, adminID, financeReservation.ID); adminGuaranteeErr != nil {
+		t.Fatalf("admin guarantee repository/service: %v", adminGuaranteeErr)
+	}
+	if adminView := publishedBookingAPI(t, adminID, svc, http.MethodGet, financeGuaranteePath, "", nil, true); adminView.Code != http.StatusOK {
+		t.Fatalf("admin financial review could not read guarantee: %d %s", adminView.Code, adminView.Body.String())
+	}
+	if outsiderView := publishedBookingAPI(t, outsider, svc, http.MethodGet, financeGuaranteePath, "", nil); outsiderView.Code != http.StatusNotFound {
+		t.Fatalf("third party read guarantee snapshot: %d %s", outsiderView.Code, outsiderView.Body.String())
+	}
+	clockMu.Lock()
+	fixedNow = financeCheckout.OccurredAt.Add(24 * time.Hour)
+	clockMu.Unlock()
+	if err = svc.ReconcileGuarantees(ctx); err != nil {
+		t.Fatalf("reconcile while financial claim open: %v", err)
+	}
+	openClaimGuarantee, err := svc.Guarantee(ctx, renter, financeReservation.ID)
+	if err != nil || openClaimGuarantee.State != "autorizada" || openClaimGuarantee.ReleasedCLP != 0 {
+		t.Fatalf("open claim did not suspend automatic release: %+v err=%v", openClaimGuarantee, err)
+	}
+	var openClaimReleaseOps int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_garantia_operacion_ensayo_local o JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id WHERE g.reserva_id=$1 AND o.tipo='liberacion'`, financeReservation.ID).Scan(&openClaimReleaseOps); err != nil || openClaimReleaseOps != 0 {
+		t.Fatalf("automatic release created during open claim: rows=%d err=%v", openClaimReleaseOps, err)
+	}
+	if _, err = claimService.Resolve(ctx, adminID, financeClaim.ID, "finance-claim-resolution", damageclaim.ResolutionInput{Outcome: "acogido", ReasonCode: "evidencia_suficiente"}); err != nil {
+		t.Fatalf("resolve financial claim: %v", err)
+	}
+	financePath := "/api/v1/local/booking-trial/reservations/" + financeReservation.ID + "/financial-decision"
+	// A valid resolution on another reservation must not authorize this
+	// reservation's decision, even when its outcome would otherwise be valid.
+	foreignClaimDecision := booking.FinancialDecisionInput{ClaimID: claimEnvelope.Data.ID, Outcome: "rechazado", DeductionCLP: 0}
+	if _, foreignErr := svc.DecideGuarantee(ctx, adminID, financeReservation.ID, foreignClaimDecision, "foreign-claim-decision", []byte("foreign-claim")); foreignErr != booking.ErrConflict {
+		t.Fatalf("financial decision accepted resolved claim from another reservation: %v", foreignErr)
+	}
+	// Likewise, evidence attached to another participant's reservation cannot
+	// be used to substantiate a deduction for this one.
+	foreignEvidenceDecision := booking.FinancialDecisionInput{ClaimID: financeClaim.ID, Outcome: "acogido", DeductionCLP: 12000, ReasonCode: "dano_acreditado", EvidenceID: participantClaim.Data.Evidence[0].ID}
+	if _, foreignErr := svc.DecideGuarantee(ctx, adminID, financeReservation.ID, foreignEvidenceDecision, "foreign-evidence-decision", []byte("foreign-evidence")); foreignErr != booking.ErrInvalid {
+		t.Fatalf("financial decision accepted evidence from another reservation: %v", foreignErr)
+	}
+	tooMuch := booking.FinancialDecisionInput{ClaimID: financeClaim.ID, Outcome: "acogido", DeductionCLP: 50001, ReasonCode: "dano_acreditado", EvidenceID: financeCheckout.Evidence[0].ID}
+	if overLimit := publishedBookingAPI(t, adminID, svc, http.MethodPost, financePath, "finance-over-limit", tooMuch, true); overLimit.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("deduction above authorization status=%d body=%s", overLimit.Code, overLimit.Body.String())
+	}
+	financeInput := booking.FinancialDecisionInput{ClaimID: financeClaim.ID, Outcome: "acogido", DeductionCLP: 12000, ReasonCode: "dano_acreditado", EvidenceID: financeCheckout.Evidence[0].ID}
+	financeResponse = publishedBookingAPI(t, adminID, svc, http.MethodPost, financePath, "finance-capture-decision", financeInput, true)
+	if financeResponse.Code != http.StatusOK {
+		_, diagnostic := svc.DecideGuarantee(ctx, adminID, financeReservation.ID, financeInput, "diagnostic-finance-decision", []byte("diagnostic"))
+		t.Fatalf("financial decision API=%d %s repository=%v", financeResponse.Code, financeResponse.Body.String(), diagnostic)
+	}
+	if replay := publishedBookingAPI(t, adminID, svc, http.MethodPost, financePath, "finance-capture-decision", financeInput, true); replay.Code != http.StatusOK {
+		t.Fatalf("financial decision idempotent retry=%d %s", replay.Code, replay.Body.String())
+	}
+	changedFinance := financeInput
+	changedFinance.DeductionCLP++
+	if conflict := publishedBookingAPI(t, adminID, svc, http.MethodPost, financePath, "finance-capture-decision", changedFinance, true); conflict.Code != http.StatusConflict {
+		t.Fatalf("financial decision key accepted changed content: %d %s", conflict.Code, conflict.Body.String())
+	}
+	captureTimeout := publishedBookingAPI(t, adminID, svc, http.MethodPost, financeGuaranteePath, "finance-capture-op", booking.GuaranteeOperationInput{Kind: "captura", AmountCLP: 12000, Outcome: "sin_respuesta"}, true)
+	if captureTimeout.Code != http.StatusAccepted {
+		t.Fatalf("capture timeout API=%d %s", captureTimeout.Code, captureTimeout.Body.String())
+	}
+	pendingCapture, err := svc.Guarantee(ctx, renter, financeReservation.ID)
+	if err != nil || pendingCapture.CapturedCLP != 0 || pendingCapture.Decision == nil || pendingCapture.Decision.State != "pendiente" {
+		t.Fatalf("uncertain capture was reported applied: %+v err=%v", pendingCapture, err)
+	}
+	if _, err = svc.ResolveGuaranteeOperation(ctx, adminID, financeReservation.ID, "captura", "exito"); err != nil {
+		t.Fatalf("reconcile capture success: %v", err)
+	}
+	wrongRelease := publishedBookingAPI(t, adminID, svc, http.MethodPost, financeGuaranteePath, "finance-release-wrong", booking.GuaranteeOperationInput{Kind: "liberacion", AmountCLP: 38001, Outcome: "exito"}, true)
+	if wrongRelease.Code != http.StatusConflict {
+		t.Fatalf("release amount above remaining balance status=%d body=%s", wrongRelease.Code, wrongRelease.Body.String())
+	}
+	releaseBalance := publishedBookingAPI(t, adminID, svc, http.MethodPost, financeGuaranteePath, "finance-release-balance", booking.GuaranteeOperationInput{Kind: "liberacion", AmountCLP: 38000, Outcome: "exito"}, true)
+	if releaseBalance.Code != http.StatusAccepted {
+		t.Fatalf("release remaining balance status=%d body=%s", releaseBalance.Code, releaseBalance.Body.String())
+	}
+	releaseReplay := publishedBookingAPI(t, adminID, svc, http.MethodPost, financeGuaranteePath, "finance-release-balance", booking.GuaranteeOperationInput{Kind: "liberacion", AmountCLP: 38000, Outcome: "exito"}, true)
+	if releaseReplay.Code != http.StatusAccepted {
+		t.Fatalf("release idempotent retry=%d %s", releaseReplay.Code, releaseReplay.Body.String())
+	}
+	settledGuarantee, err := svc.Guarantee(ctx, renter, financeReservation.ID)
+	if err != nil || settledGuarantee.State != "liberada" || settledGuarantee.AuthorizedCLP != 50000 || settledGuarantee.CapturedCLP != 12000 || settledGuarantee.ReleasedCLP != 38000 || settledGuarantee.Decision == nil || settledGuarantee.Decision.State != "aplicada" {
+		t.Fatalf("deduction capture/remainder release snapshot=%+v err=%v", settledGuarantee, err)
 	}
 
 	contractRejectReservation := newReservation(1030*time.Hour, "cont-reject", true)

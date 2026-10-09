@@ -100,7 +100,7 @@ async function requestArchive(path, bearer) {
 async function action(work) {
     const buttons = [...document.querySelectorAll("button")];
     try {
-        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); });
+        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); refreshStandaloneGuaranteeControls(); });
     }
     catch (error) {
         resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
@@ -1610,6 +1610,12 @@ let damageAdminSelectionRevision = 0;
 let damageAdminResolutionRevision = 0;
 let damageAdminClaims = [];
 let selectedAdminDamageClaim = null;
+let selectedAdminGuarantee = null;
+let adminGuaranteeRevision = 0;
+let selectedStandaloneAdminGuarantee = null;
+let standaloneGuaranteeReservationID = "";
+let standaloneGuaranteeRevision = 0;
+const adminGuaranteeRetryKeys = new Map();
 const damageAdminResolutionKeys = new Map();
 let localDisputes = [];
 let disputeRevision = 0;
@@ -1621,6 +1627,8 @@ let conversationOlderCursor = null;
 let conversationMessages = [];
 let reviewRequestRevision = 0;
 let selectedReservationReviews = [];
+let selectedGuarantee = null;
+const guaranteeRetryKeys = new Map();
 let pendingMessageKey = "";
 let pendingMessageBody = "";
 let cancellationPreview = null;
@@ -1997,7 +2005,7 @@ form("booking-request-form", async (data, element) => {
     await loadBookingInbox();
     resultElement.textContent = "Solicitud creada; quedó seleccionada en tu bandeja local.";
 });
-const reservationStates = { pendiente_de_pago: "Pendiente de pago", pagada: "Pagada · espera decisión del anfitrión", aprobada_host: "Aprobada por anfitrión", firma_parcial: "Contrato de ensayo esperando firmas", lista_para_checkin: "Contrato de ensayo completado", cancelada_por_firma: "Cancelada por vencimiento de firma · devolución fake pendiente", cancelada_por_pago: "Cancelada por rechazo del pago simulado", rechazada_arrendador: "Rechazada por anfitrión", vencida_pago: "Vencida por falta de pago", vencida_host: "Vencida por falta de decisión del anfitrión", cancelada_arrendatario: "Cancelada por arrendatario" };
+const reservationStates = { pendiente_de_pago: "Pendiente de pago", pagada: "Pago del arriendo confirmado · falta confirmar garantía", aprobada_host: "Aprobada por anfitrión", firma_parcial: "Contrato de ensayo esperando firmas", lista_para_checkin: "Contrato de ensayo completado", en_curso: "En curso", finalizada: "Finalizada", en_disputa: "En disputa", cancelada_por_firma: "Cancelada por vencimiento de firma · devolución fake pendiente", cancelada_por_pago: "Cancelada por resultado fake de pago/garantía · ocupación liberada", rechazada_arrendador: "Rechazada por anfitrión", vencida_pago: "Vencida por falta de pago", vencida_host: "Vencida por falta de decisión del anfitrión", cancelada_arrendatario: "Cancelada por arrendatario" };
 function reservationState(state) { return reservationStates[state] ?? state; }
 function bookingDate(value, zone) {
     try {
@@ -2046,7 +2054,8 @@ function renderReservationDetail(item) {
     const deadline = ["pendiente_de_pago", "vencida_pago"].includes(item.state) ? `Vencimiento de pago: ${bookingDate(item.pay_expires_at, item.time_zone)}${item.state === "vencida_pago" ? " (vencido)" : ""}` : ["pagada", "vencida_host"].includes(item.state) && item.host_expires_at ? `Vencimiento de respuesta del anfitrión: ${bookingDate(item.host_expires_at, item.time_zone)}${item.state === "vencida_host" ? " (vencido)" : ""}` : "Sin vencimiento pendiente.";
     const history = item.history.map(entry => `${entry.sequence}. ${reservationState(entry.to)} · ${bookingDate(entry.at, item.time_zone)} · ${entry.reason}`).join("\n");
     const refund = item.refund_state ? `\nDevolución simulada: ${item.refund_state} · ${(item.refund_amount_clp ?? 0).toLocaleString("es-CL")} ${item.currency} · ${item.refund_last_result ?? "sin intento"} · operación ${item.refund_operation_id}` : "";
-    bookingHistoryOutput.textContent = `ENSAYO LOCAL — SIN COBRO REAL\nEspacio: ${item.space_id}\nPrecio: ${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} (${item.units} × ${item.unit_price_clp.toLocaleString("es-CL")} por ${item.rate_unit})\nIntervalo: ${bookingDate(item.start_at, item.time_zone)}–${bookingDate(item.end_at, item.time_zone)} (${item.time_zone})\nPolítica snapshot: ${item.cancellation_policy_version}\nEstado: ${reservationState(item.state)}\n${deadline}${refund}\n\nHistorial:\n${history || "Sin transiciones."}`;
+    const guaranteeSnapshot = item.guarantee_policy_version ? `\nGarantía snapshot: ${item.guarantee_policy_version} · ${item.guarantee_expected_clp?.toLocaleString("es-CL")} ${item.guarantee_currency} previstos; no equivale a cobro.` : "";
+    bookingHistoryOutput.textContent = `ENSAYO LOCAL — SIN COBRO REAL\nEspacio: ${item.space_id}\nPrecio: ${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} (${item.units} × ${item.unit_price_clp.toLocaleString("es-CL")} por ${item.rate_unit})\nIntervalo: ${bookingDate(item.start_at, item.time_zone)}–${bookingDate(item.end_at, item.time_zone)} (${item.time_zone})\nPolítica snapshot: ${item.cancellation_policy_version}${guaranteeSnapshot}\nEstado: ${reservationState(item.state)}\n${deadline}${refund}\n\nHistorial:\n${history || "Sin transiciones."}`;
     renderPaymentStatus(item);
     refreshBookingActions();
 }
@@ -2054,9 +2063,9 @@ function renderPaymentStatus(item) {
     const attempt = bookingPaymentState.get(item.id);
     let status = "Selecciona una reserva pendiente de pago para iniciar el ensayo local.";
     if (item.state === "pagada")
-        status = "Pago fake confirmado. La reserva espera la decisión del anfitrión.";
+        status = "Pago fake del arriendo confirmado. Consulta la preautorización de garantía por separado; hasta confirmarla no puede continuar el anfitrión, el contrato ni el check-in.";
     else if (item.state === "cancelada_por_pago")
-        status = "El fake rechazó el pago. La reserva quedó cancelada y su ocupación liberada.";
+        status = "La API confirmó la cancelación asociada a un resultado fake de pago o garantía. La ocupación quedó liberada y la devolución del arriendo se consulta por separado.";
     else if (item.state === "vencida_pago")
         status = "El plazo de pago venció. No se iniciará otro intento.";
     else if (item.state === "pendiente_de_pago" && attempt)
@@ -2074,6 +2083,123 @@ function renderPaymentStatus(item) {
         outcome.disabled = item.state !== "pendiente_de_pago" || Boolean(attempt) || item.renter_id !== sessionAccountID;
     }
 }
+function refreshGuaranteeControls() {
+    const item = selectedReservation, admin = sessionRoles.includes("administrador"), renter = item?.renter_id === sessionAccountID;
+    const auth = document.querySelector("#booking-guarantee-authorize");
+    if (auth)
+        auth.disabled = !sessionToken || !item || !renter || item.state !== "pagada" || selectedGuarantee?.state === "autorizada";
+    const recoverable = selectedGuarantee?.operations.filter(op => ["pendiente", "por_conciliar"].includes(op.state) || op.kind === "autorizacion" && op.state === "vencida" && op.last_result === "autorizacion_vencida") ?? [];
+    const reconcileKind = document.querySelector("#booking-guarantee-reconcile-kind");
+    if (reconcileKind) {
+        const previous = reconcileKind.value;
+        reconcileKind.replaceChildren();
+        for (const op of recoverable) {
+            const option = document.createElement("option");
+            option.value = op.kind;
+            option.textContent = `${op.kind} · ${op.state}${op.last_result ? ` · ${op.last_result}` : ""}`;
+            reconcileKind.append(option);
+        }
+        if (recoverable.some(op => op.kind === previous))
+            reconcileKind.value = previous;
+    }
+    const reconcile = document.querySelector("#booking-guarantee-reconcile");
+    if (reconcile)
+        reconcile.disabled = !sessionToken || !admin || !item || recoverable.length === 0;
+    const decision = document.querySelector("#booking-guarantee-decision");
+    if (decision)
+        decision.disabled = !sessionToken || !admin || !item || !selectedGuarantee || selectedGuarantee.authorized_clp === 0 || Boolean(selectedGuarantee.financial_decision);
+    const capture = document.querySelector("#booking-guarantee-capture");
+    if (capture)
+        capture.disabled = !sessionToken || !admin || !item || !selectedGuarantee?.financial_decision || selectedGuarantee.financial_decision.deduction_clp <= 0 || selectedGuarantee.financial_decision.state !== "pendiente";
+    const release = document.querySelector("#booking-guarantee-release");
+    if (release)
+        release.disabled = !sessionToken || !admin || !item || !selectedGuarantee || !["autorizada", "parcialmente_capturada", "liberacion_pendiente", "liberacion_por_conciliar"].includes(selectedGuarantee.state);
+}
+async function loadReservationGuarantee(id) {
+    const selection = reservationSelectionRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    const output = document.querySelector("#booking-guarantee-output");
+    selectedGuarantee = null;
+    output.textContent = "Consultando el snapshot de garantía…";
+    refreshGuaranteeControls();
+    try {
+        const response = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/guarantee`, "GET", undefined, true);
+        if (id !== selectedReservationID || selection !== reservationSelectionRevision || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || !token)
+            return;
+        selectedGuarantee = bookingData(response);
+        const operations = selectedGuarantee.operations.map(op => `${op.kind}: ${op.state} · ${op.amount_clp.toLocaleString("es-CL")} CLP · ${op.last_result ?? "sin resultado"} · actualizado ${new Date(op.updated_at).toLocaleString("es-CL")}`).join("\n") || "Sin operaciones.";
+        const deadline = selectedGuarantee.authorization_deadline ? `\nVencimiento de la autorización: ${new Date(selectedGuarantee.authorization_deadline).toLocaleString("es-CL")}` : "";
+        output.textContent = `ENSAYO LOCAL — SIN COBRO REAL\nPolítica: ${selectedGuarantee.policy_version}\nMonto previsto: ${selectedGuarantee.expected_clp.toLocaleString("es-CL")} ${selectedGuarantee.currency}\nAutorizado: ${selectedGuarantee.authorized_clp.toLocaleString("es-CL")} · Capturado: ${selectedGuarantee.captured_clp.toLocaleString("es-CL")} · Liberado: ${selectedGuarantee.released_clp.toLocaleString("es-CL")}\nEstado: ${selectedGuarantee.state}${deadline}\nOperaciones:\n${operations}\nDecisión financiera: ${selectedGuarantee.financial_decision ? `${selectedGuarantee.financial_decision.outcome}, deducción ${selectedGuarantee.financial_decision.deduction_clp.toLocaleString("es-CL")} CLP · ${selectedGuarantee.financial_decision.state}` : "sin decisión"}\nLa autorización no es un cobro. El pago del arriendo se mantiene separado.`;
+    }
+    catch (error) {
+        if (id === selectedReservationID && selection === reservationSelectionRevision && token === sessionToken)
+            output.textContent = `No se pudo consultar la garantía: ${error instanceof Error ? error.message : "error"}`;
+    }
+    refreshGuaranteeControls();
+    refreshBookingActions();
+    refreshRentalOperationControls();
+}
+async function runGuaranteeAction(kind) {
+    const item = selectedReservation, id = selectedReservationID;
+    if (!item || !id)
+        throw new Error("Selecciona una reserva propia.");
+    const selection = reservationSelectionRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    const outcome = document.querySelector(kind === "autorizacion" ? "#booking-guarantee-outcome" : "#booking-guarantee-operation-outcome").value;
+    const amount = kind === "autorizacion" ? 50000 : Number(document.querySelector("#booking-guarantee-amount").value);
+    const keyID = `${id}:${kind}`, key = guaranteeRetryKeys.get(keyID) ?? crypto.randomUUID();
+    guaranteeRetryKeys.set(keyID, key);
+    try {
+        await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/guarantee`, "POST", { kind, amount_clp: amount, outcome }, true, key);
+    }
+    catch (error) {
+        if (id === selectedReservationID && selection === reservationSelectionRevision && token === sessionToken && account === sessionAccountID && generation === sessionGeneration)
+            await loadReservationGuarantee(id);
+        throw error;
+    }
+    if (id !== selectedReservationID || selection !== reservationSelectionRevision || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || !token)
+        return;
+    await loadBookingInbox();
+    if (id !== selectedReservationID || selection !== reservationSelectionRevision || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || !token)
+        return;
+    const operation = selectedGuarantee?.operations.find(op => op.kind === kind);
+    if (operation && ["confirmada", "rechazada", "vencida"].includes(operation.state))
+        guaranteeRetryKeys.delete(keyID);
+    resultElement.textContent = "Garantía actualizada desde el Backend; los importes se muestran separados del pago del arriendo.";
+}
+document.querySelector("#booking-guarantee-authorize").addEventListener("click", () => void action(() => runGuaranteeAction("autorizacion")));
+document.querySelector("#booking-guarantee-capture").addEventListener("click", () => void action(() => runGuaranteeAction("captura")));
+document.querySelector("#booking-guarantee-release").addEventListener("click", () => void action(() => runGuaranteeAction("liberacion")));
+document.querySelector("#booking-guarantee-reconcile").addEventListener("click", () => void action(async () => {
+    const item = selectedReservation, id = selectedReservationID;
+    if (!item || !id || !sessionRoles.includes("administrador"))
+        throw new Error("Requiere una reserva y una sesión administradora.");
+    const selection = reservationSelectionRevision, token = sessionToken, account = sessionAccountID, generation = sessionGeneration;
+    const kind = document.querySelector("#booking-guarantee-reconcile-kind").value;
+    const outcome = document.querySelector("#booking-guarantee-late-outcome").value;
+    await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/guarantee-reconcile`, "POST", { kind, outcome }, true);
+    if (id !== selectedReservationID || selection !== reservationSelectionRevision || token !== sessionToken || account !== sessionAccountID || generation !== sessionGeneration || !token)
+        return;
+    await loadBookingInbox();
+    if (id !== selectedReservationID || token !== sessionToken || generation !== sessionGeneration)
+        return;
+    resultElement.textContent = "Resultado fake conciliado; la reserva no se reactiva y captura/liberación conservan sus importes separados.";
+}));
+document.querySelector("#booking-guarantee-decision").addEventListener("click", () => void action(async () => {
+    const item = selectedReservation, id = selectedReservationID;
+    if (!item || !id || !sessionRoles.includes("administrador"))
+        throw new Error("Requiere una sesión administradora.");
+    const selection = reservationSelectionRevision, token = sessionToken, account = sessionAccountID, generation = sessionGeneration;
+    const deduction = Number(document.querySelector("#booking-guarantee-deduction").value);
+    const body = { claim_id: document.querySelector("#booking-guarantee-claim").value.trim(), outcome: document.querySelector("#booking-guarantee-claim-result").value, deduction_clp: deduction, reason_code: document.querySelector("#booking-guarantee-reason").value, evidence_id: document.querySelector("#booking-guarantee-evidence").value.trim() };
+    const keyID = `${id}:decision`, key = guaranteeRetryKeys.get(keyID) ?? crypto.randomUUID();
+    guaranteeRetryKeys.set(keyID, key);
+    await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/financial-decision`, "POST", body, true, key);
+    if (id !== selectedReservationID || selection !== reservationSelectionRevision || token !== sessionToken || account !== sessionAccountID || generation !== sessionGeneration || !token)
+        return;
+    await loadBookingInbox();
+    if (id !== selectedReservationID || token !== sessionToken || generation !== sessionGeneration)
+        return;
+    resultElement.textContent = "Decisión financiera registrada. La deducción no se considera aplicada hasta confirmar su captura fake.";
+}));
 function clearConversation(message) {
     conversationRevision++;
     conversationOlderCursor = null;
@@ -2102,7 +2228,8 @@ function refreshRentalOperationControls() {
     if (!checkin || !checkout || !reception)
         return;
     const controls = rentalOperationControls(sessionAccountID, selectedReservation, rentalOperations, Boolean(selectedDamageClaim), selectedDamageClaim, Boolean(sessionToken));
-    checkin.disabled = !controls.canCheckIn;
+    const guaranteeReady = !selectedReservation?.guarantee_policy_version || selectedGuarantee?.state === "autorizada";
+    checkin.disabled = !controls.canCheckIn || !guaranteeReady;
     checkout.disabled = !controls.canCheckOut;
     reception.disabled = !controls.canReceive;
     refreshDamageClaimControls();
@@ -2141,23 +2268,142 @@ function refreshDamageAdminControls() {
         reason.disabled = !canResolve;
     if (resolve)
         resolve.disabled = !canResolve;
+    const canReviewFinance = allowed && Boolean(selectedAdminDamageClaim);
+    const financeLoad = document.querySelector("#local-finance-admin-load");
+    if (financeLoad)
+        financeLoad.disabled = !canReviewFinance;
+    const financeDecision = document.querySelector("#local-finance-admin-decision");
+    if (financeDecision)
+        financeDecision.disabled = !canReviewFinance || !selectedAdminDamageClaim?.resolution || Boolean(selectedAdminGuarantee?.financial_decision);
+    const financeCapture = document.querySelector("#local-finance-admin-capture");
+    if (financeCapture)
+        financeCapture.disabled = !canReviewFinance || !selectedAdminGuarantee?.financial_decision || selectedAdminGuarantee.financial_decision.deduction_clp <= 0 || selectedAdminGuarantee.financial_decision.state !== "pendiente";
+    const financeRelease = document.querySelector("#local-finance-admin-release");
+    if (financeRelease)
+        financeRelease.disabled = !canReviewFinance || !selectedAdminGuarantee || !["autorizada", "parcialmente_capturada", "liberacion_pendiente", "liberacion_por_conciliar"].includes(selectedAdminGuarantee.state);
+    const pending = selectedAdminGuarantee?.operations.filter(op => ["pendiente", "por_conciliar"].includes(op.state) || op.kind === "autorizacion" && op.state === "vencida" && op.last_result === "autorizacion_vencida") ?? [];
+    const financeReconcileKind = document.querySelector("#local-finance-admin-reconcile-kind");
+    if (financeReconcileKind) {
+        const previous = financeReconcileKind.value;
+        financeReconcileKind.replaceChildren();
+        for (const op of pending) {
+            const option = document.createElement("option");
+            option.value = op.kind;
+            option.textContent = `${op.kind} · ${op.state}`;
+            financeReconcileKind.append(option);
+        }
+        if (pending.some(op => op.kind === previous))
+            financeReconcileKind.value = previous;
+    }
+    const financeReconcile = document.querySelector("#local-finance-admin-reconcile");
+    if (financeReconcile)
+        financeReconcile.disabled = !canReviewFinance || pending.length === 0;
+}
+function refreshStandaloneGuaranteeControls() {
+    const allowed = Boolean(sessionToken && sessionRoles.includes("administrador"));
+    const load = document.querySelector("#local-guarantee-admin-load");
+    if (load)
+        load.disabled = !allowed;
+    const operations = selectedStandaloneAdminGuarantee?.operations.filter(op => ["pendiente", "por_conciliar"].includes(op.state) || op.kind === "autorizacion" && op.state === "vencida" && op.last_result === "autorizacion_vencida") ?? [];
+    const kind = document.querySelector("#local-guarantee-admin-kind");
+    if (kind) {
+        const previous = kind.value;
+        kind.replaceChildren();
+        for (const op of operations) {
+            const option = document.createElement("option");
+            option.value = op.kind;
+            option.textContent = `${op.kind} · ${op.state} · ${op.last_result ?? "sin resultado"}`;
+            kind.append(option);
+        }
+        if (operations.some(op => op.kind === previous))
+            kind.value = previous;
+        kind.disabled = !allowed || operations.length === 0;
+    }
+    const outcome = document.querySelector("#local-guarantee-admin-outcome");
+    if (outcome) {
+        const isAuth = kind?.value === "autorizacion";
+        const allowedValues = isAuth ? ["exito", "rechazo"] : ["exito"];
+        for (const option of [...outcome.options])
+            option.hidden = !allowedValues.includes(option.value);
+        if (!allowedValues.includes(outcome.value))
+            outcome.value = "exito";
+        outcome.disabled = !allowed || operations.length === 0;
+    }
+    const reconcile = document.querySelector("#local-guarantee-admin-reconcile");
+    if (reconcile)
+        reconcile.disabled = !allowed || !standaloneGuaranteeReservationID || operations.length === 0;
+}
+function renderStandaloneGuarantee(value) {
+    const output = document.querySelector("#local-guarantee-admin-output");
+    const operations = value.operations.map(op => `${op.kind}: ${op.state} · ${op.amount_clp.toLocaleString("es-CL")} CLP · ${op.last_result ?? "sin resultado"}`).join("\n") || "Sin operaciones pendientes.";
+    output.textContent = `ENSAYO LOCAL — SIN COBRO REAL\nReserva ${standaloneGuaranteeReservationID}\n${value.policy_version} · ${value.expected_clp.toLocaleString("es-CL")} ${value.currency}\nAutorizado ${value.authorized_clp.toLocaleString("es-CL")} · capturado ${value.captured_clp.toLocaleString("es-CL")} · liberado ${value.released_clp.toLocaleString("es-CL")}\n${operations}\nLa autorización no equivale a un cobro.`;
+    refreshStandaloneGuaranteeControls();
+}
+async function loadStandaloneAdminGuarantee() {
+    const field = document.querySelector("#local-guarantee-admin-reservation-id"), id = field.value.trim();
+    if (!id)
+        throw new Error("Ingresa el ID de la reserva sintética.");
+    const revision = ++standaloneGuaranteeRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    selectedStandaloneAdminGuarantee = null;
+    standaloneGuaranteeReservationID = id;
+    const output = document.querySelector("#local-guarantee-admin-output");
+    output.textContent = "Consultando operaciones fake…";
+    refreshStandaloneGuaranteeControls();
+    const result = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/guarantee`, "GET", undefined, true);
+    if (revision !== standaloneGuaranteeRevision || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || !token || !sessionRoles.includes("administrador") || field.value.trim() !== id)
+        return;
+    selectedStandaloneAdminGuarantee = bookingData(result);
+    renderStandaloneGuarantee(selectedStandaloneAdminGuarantee);
+}
+async function reconcileStandaloneAdminGuarantee() {
+    const value = selectedStandaloneAdminGuarantee, id = standaloneGuaranteeReservationID;
+    if (!value || !id || !sessionRoles.includes("administrador"))
+        throw new Error("Consulta una reserva con una sesión administradora.");
+    const kind = document.querySelector("#local-guarantee-admin-kind").value, outcome = document.querySelector("#local-guarantee-admin-outcome").value;
+    if (kind !== "autorizacion" && outcome !== "exito")
+        throw new Error("Solo la autorización admite rechazo; captura y liberación requieren confirmar éxito.");
+    const revision = ++standaloneGuaranteeRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/guarantee-reconcile`, "POST", { kind, outcome }, true);
+    if (revision !== standaloneGuaranteeRevision || id !== standaloneGuaranteeReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || !token || !sessionRoles.includes("administrador"))
+        return;
+    await loadStandaloneAdminGuarantee();
+    if (id === standaloneGuaranteeReservationID && account === sessionAccountID && token === sessionToken && generation === sessionGeneration && sessionRoles.includes("administrador"))
+        resultElement.textContent = "Resultado fake conciliado; cualquier efecto pendiente sigue separado del pago del arriendo.";
 }
 function clearAdminDamageClaims(message) {
     damageAdminRevision++;
     damageAdminSelectionRevision++;
     damageAdminResolutionRevision++;
+    adminGuaranteeRevision++;
     damageAdminClaims = [];
     selectedAdminDamageClaim = null;
+    selectedAdminGuarantee = null;
     damageAdminResolutionKeys.clear();
+    adminGuaranteeRetryKeys.clear();
     document.querySelector("#local-damage-admin-items")?.replaceChildren();
     document.querySelector("#local-damage-admin-evidence")?.replaceChildren();
     const detail = document.querySelector("#local-damage-admin-detail");
     if (detail)
         detail.textContent = message;
+    const financeOutput = document.querySelector("#local-finance-admin-output");
+    if (financeOutput)
+        financeOutput.textContent = message;
     const status = document.querySelector("#local-damage-admin-status");
     if (status)
         status.textContent = message;
     refreshDamageAdminControls();
+}
+function clearStandaloneAdminGuarantee(message) {
+    standaloneGuaranteeRevision++;
+    selectedStandaloneAdminGuarantee = null;
+    standaloneGuaranteeReservationID = "";
+    const field = document.querySelector("#local-guarantee-admin-reservation-id");
+    if (field)
+        field.value = "";
+    const output = document.querySelector("#local-guarantee-admin-output");
+    if (output)
+        output.textContent = message;
+    refreshStandaloneGuaranteeControls();
 }
 async function loadAdminDamageEvidence(claimID, evidenceID) {
     const context = { revision: damageAdminRevision, account: sessionAccountID, token: sessionToken, generation: sessionGeneration };
@@ -2191,7 +2437,7 @@ async function loadAdminDamageClaim(claimID) {
 function renderAdminDamageClaim(claim) {
     const detail = document.querySelector("#local-damage-admin-detail");
     const history = (claim.history ?? []).map(entry => `#${entry.sequence} ${entry.action} · ${entry.actor_id} · ${new Date(entry.occurred_at).toLocaleString("es-CL")}`).join("\n");
-    detail.textContent = `ENSAYO LOCAL — SIN MOVIMIENTO DE FONDOS\nReclamo ${claim.id} · ${claim.state}\nReserva ${claim.reservation_id}\nAnfitrión ${claim.host_id} · arrendatario ${claim.renter_id}\nAbierto ${new Date(claim.opened_at).toLocaleString("es-CL")} · límite ${new Date(claim.claim_deadline_at).toLocaleString("es-CL")}\n\nReclamo: ${claim.description}\nDescargo: ${claim.defense?.description ?? "No registrado."}${claim.resolution ? `\nResolución ${claim.resolution.outcome} · ${claim.resolution.reason_code} · admin ${claim.resolution.actor_id} · ${new Date(claim.resolution.resolved_at).toLocaleString("es-CL")}` : ""}\n\nHistorial:\n${history || "Sin historial."}\n\nNo hay montos ni efectos financieros registrados; siguen pendientes de LOCAL-FIN-01.`;
+    detail.textContent = `ENSAYO LOCAL — SIN MOVIMIENTO DE FONDOS\nReclamo ${claim.id} · ${claim.state}\nReserva ${claim.reservation_id}\nAnfitrión ${claim.host_id} · arrendatario ${claim.renter_id}\nAbierto ${new Date(claim.opened_at).toLocaleString("es-CL")} · límite ${new Date(claim.claim_deadline_at).toLocaleString("es-CL")}\n\nReclamo: ${claim.description}\nDescargo: ${claim.defense?.description ?? "No registrado."}${claim.resolution ? `\nResolución ${claim.resolution.outcome} · ${claim.resolution.reason_code} · admin ${claim.resolution.actor_id} · ${new Date(claim.resolution.resolved_at).toLocaleString("es-CL")}` : ""}\n\nHistorial:\n${history || "Sin historial."}\n\nLa decisión financiera es independiente. La garantía autorizada no es un cobro; captura y liberación se confirman por separado y solo en ensayo fake.`;
     const evidenceBox = document.querySelector("#local-damage-admin-evidence");
     evidenceBox.replaceChildren();
     revokeDamageEvidenceURLs(adminDamageEvidenceURLs);
@@ -2202,8 +2448,99 @@ function renderAdminDamageClaim(claim) {
         button.addEventListener("click", () => void action(() => loadAdminDamageEvidence(claim.id, evidence.id)));
         evidenceBox.append(button);
     }
+    const evidenceField = document.querySelector("#local-finance-admin-evidence");
+    if (evidenceField)
+        evidenceField.value = claim.checkout_evidence_id ?? "";
+    refreshDamageAdminControls();
+    void loadAdminGuarantee(claim);
+}
+async function loadAdminGuarantee(claim) {
+    if (!sessionToken || !sessionRoles.includes("administrador"))
+        return;
+    const revision = ++adminGuaranteeRevision, claimID = claim.id, selection = damageAdminSelectionRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    selectedAdminGuarantee = null;
+    const output = document.querySelector("#local-finance-admin-output");
+    output.textContent = "Consultando el snapshot financiero de la reserva…";
+    refreshDamageAdminControls();
+    try {
+        const response = await request(`${bookingBase}/reservations/${encodeURIComponent(claim.reservation_id)}/guarantee`, "GET", undefined, true);
+        if (revision !== adminGuaranteeRevision || selectedAdminDamageClaim?.id !== claimID || selection !== damageAdminSelectionRevision || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || !token)
+            return;
+        selectedAdminGuarantee = bookingData(response);
+        const operations = selectedAdminGuarantee.operations.map(op => `${op.kind}: ${op.state} · ${op.amount_clp.toLocaleString("es-CL")} CLP · ${op.last_result ?? "sin resultado"}`).join("\n") || "Sin operaciones.";
+        output.textContent = `ENSAYO LOCAL — SIN COBRO REAL\n${selectedAdminGuarantee.policy_version} · previsto ${selectedAdminGuarantee.expected_clp.toLocaleString("es-CL")} ${selectedAdminGuarantee.currency}\nAutorizado ${selectedAdminGuarantee.authorized_clp.toLocaleString("es-CL")} · capturado ${selectedAdminGuarantee.captured_clp.toLocaleString("es-CL")} · liberado ${selectedAdminGuarantee.released_clp.toLocaleString("es-CL")}\nEstado: ${selectedAdminGuarantee.state}\nDecisión: ${selectedAdminGuarantee.financial_decision ? `${selectedAdminGuarantee.financial_decision.outcome} · ${selectedAdminGuarantee.financial_decision.deduction_clp.toLocaleString("es-CL")} CLP · ${selectedAdminGuarantee.financial_decision.state}` : "sin decisión"}\nOperaciones:\n${operations}\nLa autorización no equivale a dinero cobrado; se mantiene separado el pago del arriendo.`;
+    }
+    catch (error) {
+        if (revision === adminGuaranteeRevision && selectedAdminDamageClaim?.id === claimID && token === sessionToken)
+            output.textContent = `No se pudo consultar el estado financiero: ${error instanceof Error ? error.message : "error"}`;
+    }
     refreshDamageAdminControls();
 }
+async function saveAdminFinancialDecision() {
+    const claim = selectedAdminDamageClaim;
+    if (!claim || !claim.resolution || !sessionRoles.includes("administrador"))
+        throw new Error("Resuelve el reclamo y mantén una sesión administradora.");
+    const deduction = Number(document.querySelector("#local-finance-admin-deduction").value);
+    if (!Number.isSafeInteger(deduction) || deduction < 0 || deduction > 50000)
+        throw new Error("La deducción debe ser un entero CLP entre 0 y 50.000.");
+    if (claim.resolution.outcome === "rechazado" && deduction !== 0)
+        throw new Error("Un reclamo rechazado exige deducción cero.");
+    const reason = deduction === 0 ? "sin_deduccion" : document.querySelector("#local-finance-admin-reason").value;
+    const body = { claim_id: claim.id, outcome: claim.resolution.outcome, deduction_clp: deduction, reason_code: reason, evidence_id: deduction === 0 ? "" : claim.checkout_evidence_id };
+    const keyID = `${claim.reservation_id}:decision`, key = adminGuaranteeRetryKeys.get(keyID) ?? crypto.randomUUID();
+    adminGuaranteeRetryKeys.set(keyID, key);
+    const revision = ++adminGuaranteeRevision, selection = damageAdminSelectionRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    await request(`${bookingBase}/reservations/${encodeURIComponent(claim.reservation_id)}/financial-decision`, "POST", body, true, key);
+    if (revision !== adminGuaranteeRevision || selectedAdminDamageClaim?.id !== claim.id || selection !== damageAdminSelectionRevision || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || !token)
+        return;
+    await loadAdminGuarantee(claim);
+    if (selectedAdminDamageClaim?.id !== claim.id || selection !== damageAdminSelectionRevision || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || !token)
+        return;
+    resultElement.textContent = "Decisión guardada. Solo una captura fake confirmada la marcará aplicada; una autorización no es ingreso.";
+}
+async function runAdminGuaranteeOperation(kind) {
+    const claim = selectedAdminDamageClaim, guarantee = selectedAdminGuarantee;
+    if (!claim || !guarantee || !sessionRoles.includes("administrador"))
+        throw new Error("Selecciona un reclamo y consulta su garantía.");
+    const amount = kind === "captura" ? guarantee.financial_decision?.deduction_clp ?? 0 : guarantee.authorized_clp - guarantee.captured_clp - guarantee.released_clp;
+    if (amount <= 0)
+        throw new Error("El importe de la operación debe ser positivo.");
+    const outcome = document.querySelector("#local-finance-admin-outcome").value;
+    const keyID = `${claim.reservation_id}:${kind}`, key = adminGuaranteeRetryKeys.get(keyID) ?? crypto.randomUUID();
+    adminGuaranteeRetryKeys.set(keyID, key);
+    const revision = ++adminGuaranteeRevision, selection = damageAdminSelectionRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    await request(`${bookingBase}/reservations/${encodeURIComponent(claim.reservation_id)}/guarantee`, "POST", { kind, amount_clp: amount, outcome }, true, key);
+    if (revision !== adminGuaranteeRevision || selectedAdminDamageClaim?.id !== claim.id || selection !== damageAdminSelectionRevision || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || !token)
+        return;
+    await loadAdminGuarantee(claim);
+    if (selectedAdminDamageClaim?.id !== claim.id || selection !== damageAdminSelectionRevision || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || !token)
+        return;
+    resultElement.textContent = outcome === "sin_respuesta" ? "Operación incierta guardada. Reintenta la conciliación de la misma operación; no se crea otra captura ni liberación." : "Operación fake guardada; el snapshot se actualizó desde el Backend.";
+}
+async function reconcileAdminGuarantee() {
+    const claim = selectedAdminDamageClaim;
+    if (!claim || !selectedAdminGuarantee || !sessionRoles.includes("administrador"))
+        throw new Error("Selecciona un reclamo y consulta su garantía.");
+    const kind = document.querySelector("#local-finance-admin-reconcile-kind").value, outcome = document.querySelector("#local-finance-admin-reconcile-outcome").value;
+    if (kind !== "autorizacion" && outcome !== "exito")
+        throw new Error("Capturas y liberaciones solo se confirman mediante un resultado fake de éxito.");
+    const revision = ++adminGuaranteeRevision, selection = damageAdminSelectionRevision, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    await request(`${bookingBase}/reservations/${encodeURIComponent(claim.reservation_id)}/guarantee-reconcile`, "POST", { kind, outcome }, true);
+    if (revision !== adminGuaranteeRevision || selectedAdminDamageClaim?.id !== claim.id || selection !== damageAdminSelectionRevision || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || !token)
+        return;
+    await loadAdminGuarantee(claim);
+    if (selectedAdminDamageClaim?.id !== claim.id || selection !== damageAdminSelectionRevision || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || !token)
+        return;
+    resultElement.textContent = "Resultado fake persistido y conciliado. La reserva no se reactiva por un resultado tardío.";
+}
+document.querySelector("#local-finance-admin-load").addEventListener("click", () => void action(async () => { if (!selectedAdminDamageClaim)
+    throw new Error("Selecciona un reclamo primero."); await loadAdminGuarantee(selectedAdminDamageClaim); }));
+document.querySelector("#local-finance-admin-decision").addEventListener("click", () => void action(saveAdminFinancialDecision));
+document.querySelector("#local-finance-admin-capture").addEventListener("click", () => void action(() => runAdminGuaranteeOperation("captura")));
+document.querySelector("#local-finance-admin-release").addEventListener("click", () => void action(() => runAdminGuaranteeOperation("liberacion")));
+document.querySelector("#local-finance-admin-reconcile").addEventListener("click", () => void action(reconcileAdminGuarantee));
+document.querySelector("#local-guarantee-admin-load").addEventListener("click", () => void action(loadStandaloneAdminGuarantee));
+document.querySelector("#local-guarantee-admin-reconcile").addEventListener("click", () => void action(reconcileStandaloneAdminGuarantee));
 async function loadAdminDamageClaims() {
     if (!sessionRoles.includes("administrador"))
         throw new Error("Requiere rol administrador.");
@@ -2260,7 +2597,7 @@ async function loadDamageClaim(id) {
         selectedDamageClaim = bookingData(response);
         const claim = selectedDamageClaim;
         const claimHistory = (claim.history ?? []).map(entry => `#${entry.sequence} ${entry.action} · ${entry.actor_id} · ${new Date(entry.occurred_at).toLocaleString("es-CL")}`).join("\n");
-        document.querySelector("#local-damage-claim-output").textContent = `ENSAYO LOCAL — SIN MOVIMIENTO DE FONDOS\nEstado: ${claim.state} · abierto ${new Date(claim.opened_at).toLocaleString("es-CL")} · plazo desde el check-out: ${new Date(claim.claim_deadline_at).toLocaleString("es-CL")}\n${claim.description}\n${claim.evidence.length} evidencia(s) PNG privada(s) sintética(s) disponibles en el historial de operaciones.${claim.defense ? `\nDescargo del arrendatario (${new Date(claim.defense.created_at).toLocaleString("es-CL")}): ${claim.defense.description}` : "\nSin descargo registrado."}${claim.resolution ? `\nResolución: ${claim.resolution.outcome} · ${claim.resolution.reason_code} · ${new Date(claim.resolution.resolved_at).toLocaleString("es-CL")}` : ""}\nHistorial:\n${claimHistory || "Sin historial."}\nLa garantía, deducciones y efectos financieros quedan pendientes de LOCAL-FIN-01.`;
+        document.querySelector("#local-damage-claim-output").textContent = `ENSAYO LOCAL — SIN MOVIMIENTO DE FONDOS\nEstado: ${claim.state} · abierto ${new Date(claim.opened_at).toLocaleString("es-CL")} · plazo desde el check-out: ${new Date(claim.claim_deadline_at).toLocaleString("es-CL")}\n${claim.description}\n${claim.evidence.length} evidencia(s) PNG privada(s) sintética(s) disponibles en el historial de operaciones.${claim.defense ? `\nDescargo del arrendatario (${new Date(claim.defense.created_at).toLocaleString("es-CL")}): ${claim.defense.description}` : "\nSin descargo registrado."}${claim.resolution ? `\nResolución: ${claim.resolution.outcome} · ${claim.resolution.reason_code} · ${new Date(claim.resolution.resolved_at).toLocaleString("es-CL")}` : ""}\nHistorial:\n${claimHistory || "Sin historial."}\nLa garantía y cualquier deducción se muestran por separado en la revisión financiera administrativa; no implican fondos reales.`;
     }
     catch (error) {
         if (revision !== damageClaimRevision || id !== selectedReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
@@ -2410,6 +2747,12 @@ function clearBookingInboxOnSessionLoss() {
     if (localNoticeOutput)
         localNoticeOutput.textContent = "Requiere rol administrador.";
     clearReservationReviews("Inicia sesión y selecciona una reserva propia.");
+    selectedGuarantee = null;
+    guaranteeRetryKeys.clear();
+    const guaranteeOutput = document.querySelector("#booking-guarantee-output");
+    if (guaranteeOutput)
+        guaranteeOutput.textContent = "Inicia sesión para consultar la garantía local.";
+    refreshGuaranteeControls();
     document.querySelector("#verification-output").textContent = "Inicia sesión para consultar tus casos sintéticos.";
     document.querySelector("#verification-eligibility-output").textContent = "Inicia sesión para consultar elegibilidad sintética.";
     document.querySelector("#verification-history-id").value = "";
@@ -2475,6 +2818,7 @@ function clearBookingInboxOnSessionLoss() {
     disputeOpenKeys.clear();
     clearAdminDisputes("Requiere rol administrador.");
     clearAdminDamageClaims("Requiere rol administrador.");
+    clearStandaloneAdminGuarantee("Requiere rol administrador.");
     revokeDamageEvidenceURLs(participantDamageEvidenceURLs);
     revokeDamageEvidenceURLs(adminDamageEvidenceURLs);
     refreshLocalNoticeControls();
@@ -2554,12 +2898,13 @@ function refreshBookingActions() {
     const rejectContract = document.querySelector("#synthetic-contract-reject");
     const downloadContract = document.querySelector("#synthetic-contract-download");
     const contractUI = selectedReservation ? contractActions({ accountID: sessionAccountID, reservationState: selectedReservation.state, reservationStart: Date.parse(selectedReservation.start_at), contractState: selectedContract?.state, signatures: selectedContract?.signatures ?? [], now: Date.now() }) : null;
+    const guaranteeReady = !selectedReservation?.guarantee_policy_version || selectedGuarantee?.state === "autorizada";
     if (openContract)
         openContract.disabled = !sessionToken || !contractUI?.canOpen;
     if (signContract)
-        signContract.disabled = !contractUI?.canSign;
+        signContract.disabled = !contractUI?.canSign || !guaranteeReady;
     if (rejectContract)
-        rejectContract.disabled = !contractUI?.canReject;
+        rejectContract.disabled = !contractUI?.canReject || !guaranteeReady;
     if (downloadContract)
         downloadContract.disabled = !contractUI?.canDownload;
     const now = Date.now();
@@ -2568,9 +2913,9 @@ function refreshBookingActions() {
     cancelPreview.disabled = !allowed?.canCancel;
     cancel.disabled = !allowed?.canCancel || cancellationPreviewReservationID !== selectedReservationID || !cancellationPreview?.eligible;
     refund.disabled = !selectedReservation || selectedReservation.renter_id !== sessionAccountID || !["cancelada_arrendatario", "cancelada_por_firma"].includes(selectedReservation.state) || selectedReservation.refund_state !== "pendiente" || !selectedReservation.refund_operation_id;
-    approve.disabled = !allowed?.canDecide;
+    approve.disabled = !allowed?.canDecide || !guaranteeReady;
     const rejectReason = (document.querySelector("#booking-inbox-reject-reason")?.value ?? "").trim();
-    reject.disabled = !allowed?.canDecide || !rejectReason;
+    reject.disabled = !allowed?.canDecide || !rejectReason || !guaranteeReady;
     const attempt = selectedReservationID ? bookingPaymentState.get(selectedReservationID) : null;
     if (attempt) {
         const outcome = document.querySelector("#booking-inbox-payment-outcome");
@@ -2710,6 +3055,9 @@ async function loadReservationDetail(id) {
     clearRentalOperations("Cargando operaciones sintéticas de la reserva…");
     clearDamageClaim("Cargando reclamo formal sintético…");
     refreshBookingActions();
+    selectedGuarantee = null;
+    document.querySelector("#booking-guarantee-output").textContent = "Cargando snapshot de garantía…";
+    refreshGuaranteeControls();
     cancellationPreview = null;
     cancellationPreviewReservationID = "";
     document.querySelector("#booking-inbox-cancel-preview-output").textContent = "Consulta la opción de cancelación antes de confirmar.";
@@ -2721,6 +3069,9 @@ async function loadReservationDetail(id) {
         return;
     selectedReservation = bookingData(result);
     renderReservationDetail(selectedReservation);
+    await loadReservationGuarantee(id);
+    if (!stillCurrent() || !selectedReservation)
+        return;
     await loadRentalOperations(id);
     if (!stillCurrent() || !selectedReservation)
         return;
@@ -2887,8 +3238,11 @@ document.querySelector("#booking-inbox-pay").addEventListener("click", () => voi
         await loadBookingInbox();
         if (!bookingRequestState.accepts(context, sessionAccountID, sessionToken))
             return;
-        if (selectedReservation)
+        if (selectedReservation) {
             renderPaymentStatus(selectedReservation);
+            if (selectedReservation.state === "pagada" && selectedGuarantee)
+                await runGuaranteeAction("autorizacion");
+        }
     }
     else {
         if (!bookingRequestState.accepts(context, sessionAccountID, sessionToken))

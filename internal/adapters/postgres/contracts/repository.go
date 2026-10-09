@@ -102,6 +102,13 @@ func (r *Repository) Create(ctx context.Context, actor, reservationID string, cl
 	if state != "aprobada_host" {
 		return contract.Contract{}, contract.ErrConflict
 	}
+	var needsGuarantee, guaranteeReady bool
+	if err = tx.QueryRow(ctx, `SELECT r.garantia_politica_version IS NOT NULL,COALESCE((SELECT g.estado='autorizada' FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=r.id),false) FROM public.reserva_ensayo_local r WHERE r.id=$1`, reservationID).Scan(&needsGuarantee, &guaranteeReady); err != nil {
+		return contract.Contract{}, err
+	}
+	if needsGuarantee && !guaranteeReady {
+		return contract.Contract{}, contract.ErrConflict
+	}
 	now := clock().UTC()
 	if !now.Before(start) {
 		return contract.Contract{}, contract.ErrConflict
@@ -203,6 +210,13 @@ func (r *Repository) transition(ctx context.Context, actor, id, action, reason s
 		return load(ctx, r.pool, id, r.key)
 	}
 	if contractState == "anulado" || strings.HasPrefix(reservationState, "cancelada_") {
+		return contract.Contract{}, contract.ErrConflict
+	}
+	var needsGuarantee, guaranteeReady bool
+	if err = tx.QueryRow(ctx, `SELECT r.garantia_politica_version IS NOT NULL,COALESCE((SELECT g.estado='autorizada' FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=r.id),false) FROM public.reserva_ensayo_local r WHERE r.id=$1`, reservation).Scan(&needsGuarantee, &guaranteeReady); err != nil {
+		return contract.Contract{}, err
+	}
+	if needsGuarantee && !guaranteeReady {
 		return contract.Contract{}, contract.ErrConflict
 	}
 	if !now.Before(start) {
@@ -393,6 +407,9 @@ func expireApprovedWithoutContract(ctx context.Context, tx pgx.Tx, rid string, n
 	if _, err := tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='cancelada_por_firma',actualizada_en=$2 WHERE id=$1`, rid, now); err != nil {
 		return err
 	}
+	if err := closeGuaranteeAfterCancellation(ctx, tx, rid, now); err != nil {
+		return err
+	}
 	if err := bookingEvent(ctx, tx, rid, "aprobada_host", "cancelada_por_firma", "", "vencimiento sin firmas antes del inicio", now); err != nil {
 		return err
 	}
@@ -466,6 +483,9 @@ func expireLocked(ctx context.Context, tx pgx.Tx, cid, rid, actor string, now ti
 	if _, err := tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='cancelada_por_firma',actualizada_en=$2 WHERE id=$1`, rid, now); err != nil {
 		return err
 	}
+	if err := closeGuaranteeAfterCancellation(ctx, tx, rid, now); err != nil {
+		return err
+	}
 	if err := bookingEvent(ctx, tx, rid, state, "cancelada_por_firma", actor, "vencimiento de firmas del contrato de ensayo", now); err != nil {
 		return err
 	}
@@ -482,6 +502,39 @@ func expireLocked(ctx context.Context, tx pgx.Tx, cid, rid, actor string, now ti
 		return err
 	}
 	return event(ctx, tx, cid, actor, "vencido", "faltaban firmas al inicio de la reserva", now)
+}
+
+// closeGuaranteeAfterCancellation records a durable fake release intent in
+// the same transaction as contract expiry. Uncertain authorization remains
+// reconcilable and is never treated as collected money.
+func closeGuaranteeAfterCancellation(ctx context.Context, tx pgx.Tx, reservationID string, now time.Time) error {
+	var id, state string
+	var authorized, captured, released int64
+	err := tx.QueryRow(ctx, `SELECT id::text,estado,autorizado_clp,capturado_clp,liberado_clp FROM public.reserva_garantia_ensayo_local WHERE reserva_id=$1 FOR UPDATE`, reservationID).
+		Scan(&id, &state, &authorized, &captured, &released)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if state != "autorizada" && state != "parcialmente_capturada" {
+		return nil
+	}
+	amount := authorized - captured - released
+	if amount <= 0 {
+		return nil
+	}
+	fingerprint, _ := json.Marshal([]any{"liberacion", amount, "exito"})
+	sum := sha256.Sum256(fingerprint)
+	_, err = tx.Exec(ctx, `INSERT INTO public.reserva_garantia_operacion_ensayo_local(id,garantia_id,tipo,clave_idempotencia,huella_solicitud,importe_clp,resultado_solicitado,estado,primer_intento_en,creada_en,actualizada_en)
+VALUES(gen_random_uuid(),$1,'liberacion',$2,$3,$4,'exito','pendiente',$5,$5,$5)
+ON CONFLICT(garantia_id,tipo) DO NOTHING`, id, "cancelacion-firma:"+reservationID, sum[:], amount, now)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET estado='liberacion_pendiente',actualizada_en=$2 WHERE id=$1`, id, now)
+	return err
 }
 
 // ExpireForReservation applies the M07 signature deadline while the caller
