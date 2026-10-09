@@ -227,10 +227,11 @@ func (r *Repository) UpdatePublishedOwn(ctx context.Context, owner, id string, i
 	if err := lockActiveOwner(ctx, tx, owner); err != nil {
 		return spaces.Draft{}, err
 	}
-	var oldTitle, rateUnit string
+	var oldTitle, oldDescription, oldUsageRules, rateUnit string
+	var oldCapacity int32
 	var oldPrice int64
-	err = tx.QueryRow(ctx, `SELECT titulo,modalidad_tarifa,precio_base_clp FROM public.espacio
-		WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta') FOR UPDATE`, owner, id).Scan(&oldTitle, &rateUnit, &oldPrice)
+	err = tx.QueryRow(ctx, `SELECT titulo,descripcion,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp FROM public.espacio
+		WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta') FOR UPDATE`, owner, id).Scan(&oldTitle, &oldDescription, &oldCapacity, &oldUsageRules, &rateUnit, &oldPrice)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
@@ -250,9 +251,21 @@ func (r *Repository) UpdatePublishedOwn(ctx context.Context, owner, id string, i
 	if in.Title != nil && *in.Title != oldTitle {
 		nextTitle = *in.Title
 	}
-	if nextTitle != nil || nextPrice != nil {
-		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),precio_base_clp=COALESCE($4,precio_base_clp),actualizado_en=now()
-			WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta')`, owner, id, nextTitle, nextPrice); err != nil {
+	var nextDescription any
+	if in.Description != nil && *in.Description != oldDescription {
+		nextDescription = *in.Description
+	}
+	var nextCapacity any
+	if in.Capacity != nil && *in.Capacity != oldCapacity {
+		nextCapacity = *in.Capacity
+	}
+	var nextUsageRules any
+	if in.UsageRules != nil && *in.UsageRules != oldUsageRules {
+		nextUsageRules = *in.UsageRules
+	}
+	if nextTitle != nil || nextDescription != nil || nextCapacity != nil || nextUsageRules != nil || nextPrice != nil {
+		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),descripcion=COALESCE($4,descripcion),capacidad_maxima=COALESCE($5,capacidad_maxima),reglas_uso=COALESCE($6,reglas_uso),precio_base_clp=COALESCE($7,precio_base_clp),actualizado_en=now()
+			WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta')`, owner, id, nextTitle, nextDescription, nextCapacity, nextUsageRules, nextPrice); err != nil {
 			return spaces.Draft{}, mapError(err)
 		}
 	}

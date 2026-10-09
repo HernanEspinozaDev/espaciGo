@@ -116,6 +116,15 @@ func (m *memoryRepo) UpdatePublishedOwn(_ context.Context, owner, id string, in 
 	if in.Title != nil {
 		m.draft.Title = *in.Title
 	}
+	if in.Description != nil {
+		m.draft.Description = *in.Description
+	}
+	if in.Capacity != nil {
+		m.draft.Capacity = *in.Capacity
+	}
+	if in.UsageRules != nil {
+		m.draft.UsageRules = *in.UsageRules
+	}
 	if in.BasePriceCLP != nil {
 		m.draft.BasePriceCLP = *in.BasePriceCLP
 	}
@@ -172,6 +181,14 @@ func TestPublicationRouteRequiresLandlordAndReturnsState(t *testing.T) {
 	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication-content", "landlord", `{"title":"Título actualizado","base_price_clp":9000}`)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"title":"Título actualizado"`) || !strings.Contains(response.Body.String(), `"base_price_clp":9000`) || !strings.Contains(response.Body.String(), `"state":"activa"`) {
 		t.Fatalf("published content update got %d: %s", response.Code, response.Body.String())
+	}
+	assertDraftResponseSchema(t, compileOpenAPISchema(t, schemas["SpaceDraft"]), response.Body.Bytes())
+	description, capacity, usageRules := strings.Repeat("Descripción pública local actualizada. ", 4), int32(5), "Respetar los horarios y no fumar"
+	detailsBody, _ := json.Marshal(spaces.PublishedContentInput{Description: &description, Capacity: &capacity, UsageRules: &usageRules})
+	assertJSONSchema(t, compileOpenAPISchema(t, schemas["PublishedSpaceContentInput"]), detailsBody, "PublishedSpaceContentInput")
+	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication-content", "landlord", string(detailsBody))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"capacity":5`) || !strings.Contains(response.Body.String(), `"usage_rules":"Respetar los horarios y no fumar"`) {
+		t.Fatalf("published details update got %d: %s", response.Code, response.Body.String())
 	}
 	assertDraftResponseSchema(t, compileOpenAPISchema(t, schemas["SpaceDraft"]), response.Body.Bytes())
 	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication-content", "landlord", `{}`)

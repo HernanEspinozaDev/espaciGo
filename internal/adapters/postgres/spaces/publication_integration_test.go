@@ -175,6 +175,13 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if err != nil || updated.State != "activa" || updated.Title != newTitle || updated.BasePriceCLP != newPrice {
 		t.Fatalf("stale title-only listing edit=%+v err=%v", updated, err)
 	}
+	newDescription := "Descripción sintética nueva para validar la edición de los datos propios que se muestran en la publicación local."
+	newCapacity := int32(6)
+	newRules := "Respetar los horarios y dejar el espacio limpio"
+	updated, err = svc.UpdatePublishedOwn(ctx, owner, fixtureDraft.ID, spaces.PublishedContentInput{Description: &newDescription, Capacity: &newCapacity, UsageRules: &newRules})
+	if err != nil || updated.State != "activa" || updated.Description != newDescription || updated.Capacity != newCapacity || updated.UsageRules != newRules || updated.BasePriceCLP != newPrice {
+		t.Fatalf("active details edit=%+v err=%v", updated, err)
+	}
 	detail, err := bookingRepo.Get(ctx, other, reservation.ID)
 	if err != nil || detail.UnitPrice != 8000 || detail.Subtotal != 8000 {
 		t.Fatalf("existing reservation snapshot changed: %+v err=%v", detail.Reservation, err)

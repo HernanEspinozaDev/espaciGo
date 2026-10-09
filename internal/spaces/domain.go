@@ -47,18 +47,30 @@ type Input struct {
 	Attributes             map[string]any `json:"attributes,omitempty"`
 }
 
-// PublishedContentInput limits edits of an existing local publication to the
-// title and base price. Nil means that field is unchanged.
+// PublishedContentInput limits edits of an existing local publication to
+// supported listing details. Nil means that field is unchanged.
 type PublishedContentInput struct {
 	Title        *string `json:"title,omitempty"`
+	Description  *string `json:"description,omitempty"`
+	Capacity     *int32  `json:"capacity,omitempty"`
+	UsageRules   *string `json:"usage_rules,omitempty"`
 	BasePriceCLP *int64  `json:"base_price_clp,omitempty"`
 }
 
 func (i PublishedContentInput) Validate() error {
-	if i.Title == nil && i.BasePriceCLP == nil {
+	if i.Title == nil && i.Description == nil && i.Capacity == nil && i.UsageRules == nil && i.BasePriceCLP == nil {
 		return ErrInvalid
 	}
 	if i.Title != nil && (strings.TrimSpace(*i.Title) == "" || len([]rune(*i.Title)) > 70) {
+		return ErrInvalid
+	}
+	if i.Description != nil && len([]rune(strings.TrimSpace(*i.Description))) < 100 {
+		return ErrInvalid
+	}
+	if i.Capacity != nil && *i.Capacity <= 0 {
+		return ErrInvalid
+	}
+	if i.UsageRules != nil && (strings.TrimSpace(*i.UsageRules) == "" || len([]rune(*i.UsageRules)) > 250) {
 		return ErrInvalid
 	}
 	if i.BasePriceCLP != nil && *i.BasePriceCLP <= 5000 {
