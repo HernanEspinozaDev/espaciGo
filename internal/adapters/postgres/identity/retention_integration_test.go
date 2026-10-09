@@ -119,8 +119,13 @@ func TestResolvedDamageClaimPrivacyEvaluationMinimizesTextAndPurgesLinksAtRatifi
 		t.Fatalf("expired historical links not minimized: claim=[%q %q %q %q %q] operation=[%q %q] state=%s", linkedClaimReservation, linkedClaimHost, linkedClaimRenter, linkedCheckout, linkedEvidence, linkedOperationReservation, linkedOperationActor, retainedClaimState)
 	}
 	retained, err := claims.GetAdmin(h.ctx, claim.ID)
-	if err != nil || retained.ReservationID != "" || retained.HostID != "" || retained.RenterID != "" || retained.State != "resuelta" || retained.Description != "Texto libre retirado por baja local de privacidad." || len(retained.Evidence) != 0 {
+	if err != nil || retained.ReservationID != "" || retained.HostID != "" || retained.RenterID != "" || retained.State != "resuelta" || retained.Description != "Texto libre retirado por baja local de privacidad." || len(retained.Evidence) != 0 || retained.Defense == nil || retained.Defense.ActorID != "" || retained.Defense.Description != "Texto libre retirado por baja local de privacidad." || retained.Resolution == nil || retained.Resolution.ActorID != "" {
 		t.Fatalf("admin historical view should remain readable but minimized: claim=%+v err=%v", retained, err)
+	}
+	for _, transition := range retained.History {
+		if transition.ActorID != "" {
+			t.Fatalf("retained claim history still identifies an actor: %+v", transition)
+		}
 	}
 	var transitionCount, occupancyCount int
 	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1),(SELECT count(*) FROM public.ocupacion WHERE id=$2)`, reservationID, occupancyID).Scan(&transitionCount, &occupancyCount); err != nil {
