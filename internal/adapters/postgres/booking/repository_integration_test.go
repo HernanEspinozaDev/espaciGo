@@ -20,12 +20,14 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
+	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
+	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -52,6 +54,27 @@ func newTestPaymentAdapter(t *testing.T) *fakebooking.Adapter {
 		t.Fatal(err)
 	}
 	return adapter
+}
+
+func publishedBookingAPI(t *testing.T, actor string, service *booking.Service, method, path, idempotencyKey string, payload any) *httptest.ResponseRecorder {
+	t.Helper()
+	var body strings.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = *strings.NewReader(string(encoded))
+	}
+	request := httptest.NewRequest(method, path, &body)
+	request.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	request.Header.Set("Content-Type", "application/json")
+	if idempotencyKey != "" {
+		request.Header.Set("Idempotency-Key", idempotencyKey)
+	}
+	response := httptest.NewRecorder()
+	bookinghttp.NewHandler(integrationBookingAuth{accountID: actor}, service, nil).ServeHTTP(response, request)
+	return response
 }
 
 func (r *localNoticeRecorder) SendLocalBookingNotice(_ context.Context, recipient, _, _ string) error {
@@ -2236,9 +2259,223 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err != nil || activeQuote.SpaceID != activeSpace || activeQuote.UnitPrice != 9000 || activeQuote.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion {
 		t.Fatalf("published-space quote=%+v err=%v", activeQuote, err)
 	}
-	activeReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: activeQuote.ID}, "published-space-reservation")
-	if err != nil || activeReservation.SpaceID != activeSpace || activeReservation.State != "pendiente_de_pago" {
-		t.Fatalf("published-space reservation=%+v err=%v", activeReservation, err)
+	activeCreate := publishedBookingAPI(t, renter, svc, http.MethodPost, "/api/v1/local/booking-trial/reservations", "published-space-reservation", booking.RequestInput{QuoteID: activeQuote.ID})
+	if activeCreate.Code != http.StatusCreated {
+		t.Fatalf("published-space reservation API status=%d body=%s", activeCreate.Code, activeCreate.Body.String())
+	}
+	var activeEnvelope struct {
+		Data booking.Reservation `json:"data"`
+	}
+	if err = json.Unmarshal(activeCreate.Body.Bytes(), &activeEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	activeReservation := activeEnvelope.Data
+	if activeReservation.SpaceID != activeSpace || activeReservation.State != "pendiente_de_pago" || activeReservation.UnitPrice != 9000 || activeReservation.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion {
+		t.Fatalf("published-space reservation snapshot=%+v", activeReservation)
+	}
+	// The normal published-offer path (its fixture row is explicitly disabled)
+	// must preserve the same actor/state/history contract as the original booking
+	// path. The renter pays once; the host approves; both participants can read
+	// the terminal detail and history while a third party sees only 404.
+	activeRetry := publishedBookingAPI(t, renter, svc, http.MethodPost, "/api/v1/local/booking-trial/reservations", "published-space-reservation", booking.RequestInput{QuoteID: activeQuote.ID})
+	var activeRetryEnvelope struct {
+		Data booking.Reservation `json:"data"`
+	}
+	if activeRetry.Code != http.StatusCreated || json.Unmarshal(activeRetry.Body.Bytes(), &activeRetryEnvelope) != nil || activeRetryEnvelope.Data.ID != activeReservation.ID {
+		t.Fatalf("published-space idempotent request status=%d body=%s", activeRetry.Code, activeRetry.Body.String())
+	}
+	apiPayment := publishedBookingAPI(t, renter, svc, http.MethodPost, "/api/v1/local/booking-trial/reservations/"+activeReservation.ID+"/payment", "published-space-payment", booking.PaymentInput{Outcome: "exito"})
+	if apiPayment.Code != http.StatusOK {
+		t.Fatalf("published-space fake payment API status=%d body=%s", apiPayment.Code, apiPayment.Body.String())
+	}
+	apiPaymentRetry := publishedBookingAPI(t, renter, svc, http.MethodPost, "/api/v1/local/booking-trial/reservations/"+activeReservation.ID+"/payment", "published-space-payment", booking.PaymentInput{Outcome: "exito"})
+	if apiPaymentRetry.Code != http.StatusOK {
+		t.Fatalf("published-space idempotent payment API status=%d body=%s", apiPaymentRetry.Code, apiPaymentRetry.Body.String())
+	}
+	apiApproval := publishedBookingAPI(t, host, svc, http.MethodPost, "/api/v1/local/booking-trial/reservations/"+activeReservation.ID+"/decision", "", booking.DecisionInput{Decision: "aprobar"})
+	if apiApproval.Code != http.StatusOK {
+		t.Fatalf("published-space host decision API status=%d body=%s", apiApproval.Code, apiApproval.Body.String())
+	}
+	for _, participant := range []string{renter, host} {
+		detailResponse := publishedBookingAPI(t, participant, svc, http.MethodGet, "/api/v1/local/booking-trial/reservations/"+activeReservation.ID, "", nil)
+		var detailEnvelope struct {
+			Data booking.Detail `json:"data"`
+		}
+		if detailResponse.Code != http.StatusOK || json.Unmarshal(detailResponse.Body.Bytes(), &detailEnvelope) != nil || detailEnvelope.Data.State != "aprobada_host" || len(detailEnvelope.Data.History) != 3 || detailEnvelope.Data.History[0].To != "pendiente_de_pago" || detailEnvelope.Data.History[1].To != "pagada" || detailEnvelope.Data.History[2].To != "aprobada_host" {
+			t.Fatalf("published-space participant detail actor=%s status=%d body=%s detail=%+v", participant, detailResponse.Code, detailResponse.Body.String(), detailEnvelope.Data)
+		}
+		listResponse := publishedBookingAPI(t, participant, svc, http.MethodGet, "/api/v1/local/booking-trial/reservations", "", nil)
+		if listResponse.Code != http.StatusOK || !strings.Contains(listResponse.Body.String(), activeReservation.ID) {
+			t.Fatalf("published-space participant list actor=%s status=%d body=%s", participant, listResponse.Code, listResponse.Body.String())
+		}
+	}
+	if outsiderDetail := publishedBookingAPI(t, outsider, svc, http.MethodGet, "/api/v1/local/booking-trial/reservations/"+activeReservation.ID, "", nil); outsiderDetail.Code != http.StatusNotFound {
+		t.Fatalf("published-space reservation exposed to third party status=%d body=%s", outsiderDetail.Code, outsiderDetail.Body.String())
+	}
+	// Run the alternate host decision on the same non-fixture publication.
+	// A rejected request keeps the quoted commercial snapshot but releases the
+	// single shared occupancy row and records the actor transition.
+	rejectStart := fixedNow.Add(200 * time.Hour)
+	rejectQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: activeSpace, StartAt: rejectStart.UTC().Format(time.RFC3339), EndAt: rejectStart.Add(time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil || rejectQuote.UnitPrice != 9000 {
+		t.Fatalf("quote for published rejection flow=%+v err=%v", rejectQuote, err)
+	}
+	rejectReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: rejectQuote.ID}, "published-rejection-request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Pay(ctx, renter, rejectReservation.ID, "exito", "published-rejection-payment"); err != nil {
+		t.Fatalf("fake payment for rejection flow: %v", err)
+	}
+	rejectedResponse := publishedBookingAPI(t, host, svc, http.MethodPost, "/api/v1/local/booking-trial/reservations/"+rejectReservation.ID+"/decision", "", booking.DecisionInput{Decision: "rechazar", Reason: "No compatible con el uso del espacio"})
+	if rejectedResponse.Code != http.StatusOK {
+		t.Fatalf("published-space host rejection API status=%d body=%s", rejectedResponse.Code, rejectedResponse.Body.String())
+	}
+	for _, participant := range []string{host, renter} {
+		detail, getErr := svc.Get(ctx, participant, rejectReservation.ID)
+		if getErr != nil || detail.State != "rechazada_arrendador" || len(detail.History) != 3 || detail.History[2].Actor == nil || *detail.History[2].Actor != host || !strings.Contains(detail.History[2].Reason, "No compatible") {
+			t.Fatalf("published-space rejection detail actor=%s detail=%+v err=%v", participant, detail, getErr)
+		}
+	}
+	var rejectedActiveOccupancy int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo`, rejectReservation.ID).Scan(&rejectedActiveOccupancy); err != nil || rejectedActiveOccupancy != 0 {
+		t.Fatalf("published rejection retained occupancy=%d err=%v", rejectedActiveOccupancy, err)
+	}
+	// A timeout is resolved by the already durable fake operation. At the
+	// exact payment deadline, a normal participant read runs the existing
+	// expiry mechanism and appends the terminal transition once.
+	expiryStart := fixedNow.Add(300 * time.Hour)
+	expiryQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: activeSpace, StartAt: expiryStart.UTC().Format(time.RFC3339), EndAt: expiryStart.Add(time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeExpiryReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: expiryQuote.ID}, "published-expiry-request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Pay(ctx, renter, activeExpiryReservation.ID, "sin_respuesta", "published-expiry-payment"); !errors.Is(err, booking.ErrSimulatedNoResponse) {
+		t.Fatalf("published-space timeout result=%v", err)
+	}
+	clockMu.Lock()
+	fixedNow = activeExpiryReservation.PayExpiresAt
+	clockMu.Unlock()
+	expiredResponse := publishedBookingAPI(t, host, svc, http.MethodGet, "/api/v1/local/booking-trial/reservations/"+activeExpiryReservation.ID, "", nil)
+	var expiredEnvelope struct {
+		Data booking.Detail `json:"data"`
+	}
+	if expiredResponse.Code != http.StatusOK || json.Unmarshal(expiredResponse.Body.Bytes(), &expiredEnvelope) != nil || expiredEnvelope.Data.State != "vencida_pago" || len(expiredEnvelope.Data.History) != 2 || expiredEnvelope.Data.History[1].To != "vencida_pago" {
+		t.Fatalf("published-space expiration API status=%d body=%s detail=%+v", expiredResponse.Code, expiredResponse.Body.String(), expiredEnvelope.Data)
+	}
+	clockMu.Lock()
+	fixedNow = fixedNow.Add(time.Minute)
+	clockMu.Unlock()
+	if _, err = svc.Get(ctx, renter, activeExpiryReservation.ID); err != nil {
+		t.Fatalf("expired published reservation should remain readable by renter: %v", err)
+	}
+	var expiredActiveOccupancy int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo`, activeExpiryReservation.ID).Scan(&expiredActiveOccupancy); err != nil || expiredActiveOccupancy != 0 {
+		t.Fatalf("published expiry retained occupancy=%d err=%v", expiredActiveOccupancy, err)
+	}
+	// A paid active-publication booking can be cancelled before its interval
+	// under local_flexible_v1. The obligation equals only the confirmed fake
+	// amount; timeout/retry and a repeated success keep one operation/result.
+	publishedCancelStart := fixedNow.Add(48 * time.Hour)
+	publishedCancelQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: activeSpace, StartAt: publishedCancelStart.UTC().Format(time.RFC3339), EndAt: publishedCancelStart.Add(time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil || publishedCancelQuote.UnitPrice != 9000 || publishedCancelQuote.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion {
+		t.Fatalf("published cancellation quote snapshot=%+v err=%v", publishedCancelQuote, err)
+	}
+	publishedCancelReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: publishedCancelQuote.ID}, "published-cancel-request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Pay(ctx, renter, publishedCancelReservation.ID, "exito", "published-cancel-payment"); err != nil {
+		t.Fatal(err)
+	}
+	previewResponse := publishedBookingAPI(t, renter, svc, http.MethodGet, "/api/v1/local/booking-trial/reservations/"+publishedCancelReservation.ID+"/cancellation-preview", "", nil)
+	if previewResponse.Code != http.StatusOK || !strings.Contains(previewResponse.Body.String(), "local_flexible_v1") || !strings.Contains(previewResponse.Body.String(), "Devolución simulada — sin movimiento de dinero") {
+		t.Fatalf("published cancellation preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
+	}
+	cancelResponse := publishedBookingAPI(t, renter, svc, http.MethodPost, "/api/v1/local/booking-trial/reservations/"+publishedCancelReservation.ID+"/cancel", "published-cancel-confirm", booking.CancellationInput{Reason: "Cambio de planes"})
+	if cancelResponse.Code != http.StatusOK {
+		t.Fatalf("published cancellation API status=%d body=%s", cancelResponse.Code, cancelResponse.Body.String())
+	}
+	cancelDetail, err := svc.Get(ctx, renter, publishedCancelReservation.ID)
+	if err != nil || cancelDetail.State != "cancelada_arrendatario" || cancelDetail.RefundState == nil || *cancelDetail.RefundState != "pendiente" {
+		t.Fatalf("published cancellation persisted detail=%+v err=%v", cancelDetail, err)
+	}
+	publishedRefundOperation := *cancelDetail.RefundOperationID
+	refundTimeout := publishedBookingAPI(t, renter, svc, http.MethodPost, "/api/v1/local/booking-trial/reservations/"+publishedCancelReservation.ID+"/refund", publishedRefundOperation, booking.RefundInput{Outcome: "sin_respuesta"})
+	if refundTimeout.Code != http.StatusGatewayTimeout {
+		t.Fatalf("published fake refund timeout status=%d body=%s", refundTimeout.Code, refundTimeout.Body.String())
+	}
+	refundSuccess := publishedBookingAPI(t, renter, svc, http.MethodPost, "/api/v1/local/booking-trial/reservations/"+publishedCancelReservation.ID+"/refund", publishedRefundOperation, booking.RefundInput{Outcome: "exito"})
+	if refundSuccess.Code != http.StatusOK {
+		t.Fatalf("published fake refund success status=%d body=%s", refundSuccess.Code, refundSuccess.Body.String())
+	}
+	refundReplay := publishedBookingAPI(t, renter, svc, http.MethodPost, "/api/v1/local/booking-trial/reservations/"+publishedCancelReservation.ID+"/refund", publishedRefundOperation, booking.RefundInput{Outcome: "exito"})
+	if refundReplay.Code != http.StatusOK {
+		t.Fatalf("published fake refund replay status=%d body=%s", refundReplay.Code, refundReplay.Body.String())
+	}
+	cancelHostDetail, err := svc.Get(ctx, host, publishedCancelReservation.ID)
+	if err != nil || cancelHostDetail.State != "cancelada_arrendatario" || cancelHostDetail.RefundState == nil || *cancelHostDetail.RefundState != "completada" || cancelHostDetail.RefundAmountCLP == nil || *cancelHostDetail.RefundAmountCLP != publishedCancelReservation.Subtotal {
+		t.Fatalf("host cannot observe completed published refund detail=%+v err=%v", cancelHostDetail, err)
+	}
+	var publishedRefunds, publishedRefundAttempts, publishedCancelOccupancy int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1),(SELECT count(*) FROM public.reserva_devolucion_intento_ensayo i JOIN public.reserva_devolucion_ensayo d ON d.id=i.devolucion_id WHERE d.reserva_id=$1),(SELECT count(*) FROM public.ocupacion WHERE reserva_id=$1 AND activo)`, publishedCancelReservation.ID).Scan(&publishedRefunds, &publishedRefundAttempts, &publishedCancelOccupancy); err != nil || publishedRefunds != 1 || publishedRefundAttempts != 2 || publishedCancelOccupancy != 0 {
+		t.Fatalf("published refund idempotency rows=%d attempts=%d occupancy=%d err=%v", publishedRefunds, publishedRefundAttempts, publishedCancelOccupancy, err)
+	}
+	// Revoke an approved host case through the same synthetic verification
+	// service used by the API, after quoting but before reserving. A quote does
+	// not freeze commercial eligibility: the guarded request must reject and
+	// leave neither a reservation nor a hold.
+	revokedStart := fixedNow.Add(500 * time.Hour)
+	revokedQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: activeSpace, StartAt: revokedStart.UTC().Format(time.RFC3339), EndAt: revokedStart.Add(time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verificationService, err := verification.NewService(verificationpg.New(pool), credentials.Generator{}, verification.LocalFixtureProvider{}, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = verificationService.Revoke(ctx, hostKYC, outsider, "revision_fixture_actualizada", "published-host-kyc-revocation", "local-book-02:published-host-revocation"); err != nil {
+		t.Fatalf("revoke host KYC after published quote: %v", err)
+	}
+	if staleEligibility := publishedBookingAPI(t, renter, svc, http.MethodPost, "/api/v1/local/booking-trial/reservations", "published-revoked-kyc-request", booking.RequestInput{QuoteID: revokedQuote.ID}); staleEligibility.Code != http.StatusConflict {
+		t.Fatalf("published reservation after host KYC revocation status=%d body=%s", staleEligibility.Code, staleEligibility.Body.String())
+	}
+	var revokedReservations, revokedOccupancies int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, revokedQuote.ID).Scan(&revokedReservations); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE espacio_id=$1 AND intervalo && tstzrange($2,$3,'[)')`, activeSpace, revokedStart, revokedStart.Add(time.Hour)).Scan(&revokedOccupancies); err != nil || revokedReservations != 0 || revokedOccupancies != 0 {
+		t.Fatalf("revoked eligibility left partial reservation/occupancy=%d/%d err=%v", revokedReservations, revokedOccupancies, err)
+	}
+	// Restore eligibility only for this disposable test so the following tariff
+	// regression isolates the stale-price rule. Existing reservation snapshots
+	// above remain untouched.
+	if _, err = setup.Exec(ctx, `UPDATE public.verificacion SET estado='aprobada',revocada_en=NULL,revocada_por=NULL,motivo_revocacion_codigo=NULL WHERE id=$1`, hostKYC); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `UPDATE public.elegibilidad_verificacion_local SET estado='elegible',revocada_en=NULL,revocada_por=NULL,motivo_revocacion_codigo=NULL WHERE usuario_id=$1 AND tipo='kyc'`, host); err != nil {
+		t.Fatal(err)
+	}
+	stalePublishedRateStart := fixedNow.Add(600 * time.Hour)
+	stalePublishedRateQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: activeSpace, StartAt: stalePublishedRateStart.UTC().Format(time.RFC3339), EndAt: stalePublishedRateStart.Add(time.Hour).UTC().Format(time.RFC3339)})
+	if err != nil || stalePublishedRateQuote.UnitPrice != 9000 {
+		t.Fatalf("published stale-rate setup quote=%+v err=%v", stalePublishedRateQuote, err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,2,'hora',9500)`, activeSpace); err != nil {
+		t.Fatal(err)
+	}
+	if stalePublishedRate := publishedBookingAPI(t, renter, svc, http.MethodPost, "/api/v1/local/booking-trial/reservations", "published-stale-rate-request", booking.RequestInput{QuoteID: stalePublishedRateQuote.ID}); stalePublishedRate.Code != http.StatusConflict {
+		t.Fatalf("published reservation with stale tariff status=%d body=%s", stalePublishedRate.Code, stalePublishedRate.Body.String())
+	}
+	var stalePublishedReservations, stalePublishedOccupancies int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, stalePublishedRateQuote.ID).Scan(&stalePublishedReservations); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE espacio_id=$1 AND intervalo && tstzrange($2,$3,'[)')`, activeSpace, stalePublishedRateStart, stalePublishedRateStart.Add(time.Hour)).Scan(&stalePublishedOccupancies); err != nil || stalePublishedReservations != 0 || stalePublishedOccupancies != 0 {
+		t.Fatalf("published stale tariff left partial reservation/occupancy=%d/%d err=%v", stalePublishedReservations, stalePublishedOccupancies, err)
 	}
 	if ownerItems, e := svc.Catalog(ctx, host, officeFilter); e != nil || len(ownerItems) != 0 {
 		t.Fatalf("owner should not discover own publication: items=%+v err=%v", ownerItems, e)

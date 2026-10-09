@@ -1253,7 +1253,7 @@ function clearCatalogResultsAndSelection(message) {
     if (quoteID)
         quoteID.value = "";
 }
-function resetCatalogTraversal() { bookingCatalogRequest++; catalogPagination.invalidate(); catalogNextCursor = ""; catalogRequestCursor = ""; catalogLoading = false; clearCatalogResultsAndSelection("Inicia sesión y busca fixtures sintéticos autorizados para esta cuenta."); refreshCatalogControls(); }
+function resetCatalogTraversal() { bookingCatalogRequest++; catalogPagination.invalidate(); catalogNextCursor = ""; catalogRequestCursor = ""; catalogLoading = false; clearCatalogResultsAndSelection("Inicia sesión y busca publicaciones activas y fixtures autorizados para esta cuenta."); refreshCatalogControls(); }
 function invalidateCatalogSelection(message) { bookingQuoteState.beginSearch(); bookingAvailabilityState.invalidate(); bookingFixture = null; clearWeeklyHoursEditor(); resetAvailabilityPicker(message); (document.querySelector('#booking-quote-form [name="space_id"]')).value = ""; (document.querySelector('#booking-request-form [name="quote_id"]')).value = ""; bookingQuoteOutput.textContent = message; }
 const bookingFixtureOutput = document.querySelector("#booking-fixture-output");
 const bookingQuoteOutput = document.querySelector("#booking-quote-output");
