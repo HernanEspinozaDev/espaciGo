@@ -21,6 +21,7 @@ import (
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
+	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
@@ -32,6 +33,8 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dispute"
 	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
+	galleryhttp "github.com/HernanEspinozaDev/espaciGo/internal/gallery/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
@@ -118,6 +121,7 @@ func run() error {
 	var localIdentityService *identity.AuthenticationService
 	var localPrivacyService *privacy.Service
 	var localM02Service *m02local.Service
+	var localGalleryService *gallery.Service
 	var privacyReplayRegistryPath string
 	var privacyEvidenceCleaner privacy.SyntheticEvidenceCleaner
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
@@ -189,6 +193,15 @@ func run() error {
 		spacesHandler := spaceshttp.NewHandlerWithPricing(service, spacesService, cfg.allowedOrigins, calendarService, pricingService)
 		mux.Handle("/api/v1/spaces", spacesHandler)
 		mux.Handle("/api/v1/spaces/", spacesHandler)
+		galleryService, err := gallery.NewService(gallerypg.New(pool), evidenceStore, credentials.Generator{}, time.Now)
+		if err != nil {
+			return errors.New("local synthetic gallery initialization failed")
+		}
+		localGalleryService = galleryService
+		galleryHandler := galleryhttp.NewHandler(service, galleryService, cfg.allowedOrigins)
+		mux.Handle("/api/v1/spaces/{spaceID}/gallery", galleryHandler)
+		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}", galleryHandler)
+		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/content", galleryHandler)
 		if os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {
 			quoteTTL, err := localTrialDuration("LOCAL_BOOKING_QUOTE_TTL", 15*time.Minute)
 			if err != nil {
@@ -271,6 +284,20 @@ func run() error {
 			}()
 		}
 		go localPrivacyService.RunReservationRetentionWorker(ctx, time.Hour, 100)
+	}
+	if localGalleryService != nil {
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					_ = localGalleryService.CleanRetiredOnce(ctx, 50)
+				}
+			}
+		}()
 	}
 	select {
 	case err := <-serverErrors:

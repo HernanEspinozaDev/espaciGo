@@ -6,6 +6,7 @@
     "build": "tsc --project tsconfig.json",
     "test:payment-flow": "npm run build && node --test test/booking-payment-state.test.mjs",
     "test:publication-state": "npm run build && node --test test/space-publication-state.test.mjs",
+    "test:gallery-session": "npm run build && node --test test/gallery-session-state.test.mjs",
     "test:profile-races": "npm run build && node --test test/profile-request.test.mjs test/m02-photo-session-state.test.mjs test/booking-quote-state.test.mjs test/booking-inbox-state.test.mjs test/conversation-read-state.test.mjs test/catalog-pagination-state.test.mjs test/booking-availability-state.test.mjs"
   },
   "devDependencies": {
