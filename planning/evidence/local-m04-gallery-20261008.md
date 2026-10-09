@@ -1,6 +1,6 @@
 # LOCAL-M04-GALLERY-01 — galería sintética privada de espacios propios
 
-Issue hija #210 de #56, relacionada con el cierre parcial de #55. Estado: implementación propuesta para revisión; no completa M04 ni publica espacios en el catálogo general.
+Issue hija #210 de #56, relacionada con el cierre parcial de #55. PR #211 abierto para revisión, commit inicial `f900cda` (la revisión puede añadir commits). No completa M04 ni publica espacios en el catálogo general.
 
 ## Contrato del corte
 
