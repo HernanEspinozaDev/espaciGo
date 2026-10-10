@@ -32,6 +32,19 @@ func lockActiveAccounts(ctx context.Context, tx pgx.Tx, ids ...string) error {
 	return nil
 }
 
+func requireUnblockedAccounts(ctx context.Context, tx pgx.Tx, ids ...string) error {
+	for _, id := range ids {
+		var blocked bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id=$1)`, id).Scan(&blocked); err != nil {
+			return err
+		}
+		if blocked {
+			return booking.ErrConflict
+		}
+	}
+	return nil
+}
+
 // requireLocalKYCEligibility is evaluated only after the participant account
 // rows are locked. Verification approval and privacy suppression take the
 // same account lock, so eligibility cannot be revoked between this check and

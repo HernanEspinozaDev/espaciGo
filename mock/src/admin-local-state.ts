@@ -1,0 +1,3 @@
+export interface AdminLocalContext { account:string; token:string; generation:number; revision:number; }
+export function captureAdminLocalContext(account:string,token:string,generation:number,revision:number):AdminLocalContext{return{account,token,generation,revision};}
+export function adminLocalContextMatches(context:AdminLocalContext,current:{account:string;token:string;generation:number;revision:number;isAdmin:boolean}):boolean{return Boolean(context.token&&current.isAdmin&&context.account===current.account&&context.token===current.token&&context.generation===current.generation&&context.revision===current.revision);}

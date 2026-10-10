@@ -51,6 +51,9 @@ func (r *IdentityRepository) WithLockedAccount(ctx context.Context, lookup ident
 	if err != nil {
 		return mapError(err)
 	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id=$1)`, account.ID).Scan(&account.AdministrativeBlocked); err != nil {
+		return err
+	}
 	// Only expose methods that operate on the transaction's generated queries.
 	unit := &authenticationTransaction{&IdentityRepository{queries: q}}
 	if err := fn(account, unit); err != nil {

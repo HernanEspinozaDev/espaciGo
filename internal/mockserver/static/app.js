@@ -20,6 +20,7 @@ import { captureRentalOperationContext, finishRentalOperationAfterReload, rental
 import { AdminReservationsState } from "./admin-reservations-state.js";
 import { AdminAuditState } from "./admin-audit-state.js";
 import { consumeAdminAuditExportResponse } from "./admin-audit-export-state.js";
+import { adminLocalContextMatches, captureAdminLocalContext } from "./admin-local-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -27,6 +28,8 @@ let sessionToken = "";
 let sessionAccountID = "";
 let sessionGeneration = 0;
 let sessionRoles = [];
+let sessionRestrictedMode = false;
+let adminLocalRevision = 0;
 let pendingPrivacyExport = null;
 let privacyExportObjectURL = "";
 let suppressionQueueRevision = 0;
@@ -75,6 +78,7 @@ async function request(path, method = "GET", body, authenticated = false, idempo
     if (!response.ok) {
         if (authenticated && response.status === 401 && sessionToken === requestSessionToken) {
             sessionToken = "";
+            sessionRestrictedMode = false;
             clearBookingInboxOnSessionLoss();
         }
         if (authenticated && path === "password/change" && response.status === 503 && sessionToken === requestSessionToken) {
@@ -108,7 +112,7 @@ async function requestArchive(path, bearer) {
 async function action(work) {
     const buttons = [...document.querySelectorAll("button")];
     try {
-        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); refreshStandaloneGuaranteeControls(); refreshAdminReservationControls(); refreshAdminAuditControls(); });
+        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); refreshStandaloneGuaranteeControls(); refreshAdminReservationControls(); refreshAdminAuditControls(); refreshAdminLocalControls(); });
     }
     catch (error) {
         resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
@@ -137,14 +141,16 @@ form("login-form", async (data, element) => {
     sessionToken = String(response.access_token);
     sessionAccountID = String(response.account_id);
     sessionRoles = Array.isArray(response.roles) ? response.roles.map(String) : [];
+    sessionRestrictedMode = response.restricted_mode === true;
     sessionGeneration++;
     resetCatalogTraversal();
     element.querySelector('[name="password"]').value = "";
     refreshDamageAdminControls();
     refreshAdminReservationControls();
-    await loadSpaceCategories();
+    if (!sessionRestrictedMode)
+        await loadSpaceCategories();
     await loadBookingInbox();
-    resultElement.textContent = "Sesión iniciada. Puedes consultarla o cerrarla.";
+    resultElement.textContent = sessionRestrictedMode ? "Sesión restringida. Solo puedes consultar y completar operaciones permitidas de reservas existentes." : "Sesión iniciada. Puedes consultarla o cerrarla.";
 });
 form("recovery-request-form", async (data, element) => {
     await request("password/recovery", "POST", { email: data.get("email") });
@@ -170,13 +176,16 @@ document.querySelector("#session-button").addEventListener("click", () => void a
     const response = await request("session", "GET", undefined, true);
     if (Array.isArray(response.roles))
         sessionRoles = response.roles.map(String);
+    sessionRestrictedMode = response.restricted_mode === true;
     refreshDamageAdminControls();
+    refreshAdminLocalControls();
     document.querySelector("#session-output").textContent = JSON.stringify(response, null, 2);
     resultElement.textContent = "Sesión válida; estado y roles comprobados por la API.";
 }));
 document.querySelector("#logout-button").addEventListener("click", () => void action(async () => {
     await request("logout", "POST", undefined, true);
     sessionToken = "";
+    sessionRestrictedMode = false;
     resetCatalogTraversal();
     clearBookingInboxOnSessionLoss();
     document.querySelector("#session-output").textContent = "Sesión cerrada.";
@@ -2729,6 +2738,7 @@ async function recordDamageClaim(defense) {
 }
 function clearBookingInboxOnSessionLoss() {
     sessionGeneration++;
+    sessionRestrictedMode = false;
     reservationSelectionRevision++;
     damageClaimActionRevision++;
     damageAdminResolutionRevision++;
@@ -2790,6 +2800,7 @@ function clearBookingInboxOnSessionLoss() {
     resetCatalogTraversal();
     clearAdminReservationView("La sesión terminó; inicia sesión con rol administrador para volver a consultar.");
     clearAdminAuditView("La sesión terminó; inicia sesión con rol administrador para volver a consultar.");
+    clearAdminLocalView("La sesión terminó; inicia sesión con rol administrador para volver a consultar.");
     currentDraftID = "";
     spacesList.replaceChildren();
     spacesOutput.textContent = "Inicia sesión para consultar tus espacios.";
@@ -3628,6 +3639,47 @@ document.querySelector("#local-admin-audit-next").addEventListener("click", () =
     await loadAdminAudit(cursor); }));
 document.querySelector("#local-admin-audit-export").addEventListener("click", () => void action(exportAdminAudit));
 document.querySelector("#local-admin-audit-reset").addEventListener("click", () => void action(async () => { adminAuditState.clear(); await loadAdminAudit(); }));
+function currentAdminLocalContext(context) { return adminLocalContextMatches(context, { account: sessionAccountID, token: sessionToken, generation: sessionGeneration, revision: adminLocalRevision, isAdmin: sessionRoles.includes("administrador") }); }
+function refreshAdminLocalControls() { const allowed = Boolean(sessionToken && sessionRoles.includes("administrador") && !sessionRestrictedMode); for (const id of ["#local-admin-account-id", "#local-admin-block-reason", "#local-admin-unblock-reason", "#local-admin-report-from", "#local-admin-report-until", "#local-admin-report-timezone"]) {
+    const input = document.querySelector(id);
+    if (input)
+        input.disabled = !allowed;
+} for (const id of ["#local-admin-account-block", "#local-admin-account-unblock", "#local-admin-report-reservations", "#local-admin-report-finance"]) {
+    const button = document.querySelector(id);
+    if (button)
+        button.disabled = !allowed;
+} }
+function clearAdminLocalView(message = "Requiere rol administrador.") { adminLocalRevision++; const field = document.querySelector("#local-admin-account-id"); if (field)
+    field.value = ""; for (const id of ["#local-admin-report-from", "#local-admin-report-until"]) {
+    const input = document.querySelector(id);
+    if (input)
+        input.value = "";
+} const zone = document.querySelector("#local-admin-report-timezone"); if (zone)
+    zone.value = "America/Santiago"; const output = document.querySelector("#local-admin-governance-output"); if (output)
+    output.textContent = message; refreshAdminLocalControls(); }
+async function runAdminLocalRequest(path, method = "GET", body) { if (!sessionToken || !sessionRoles.includes("administrador") || sessionRestrictedMode)
+    throw new Error("Esta operación requiere una sesión administradora activa."); const context = captureAdminLocalContext(sessionAccountID, sessionToken, sessionGeneration, ++adminLocalRevision), output = document.querySelector("#local-admin-governance-output"); output.textContent = "Consultando API administrativa local…"; refreshAdminLocalControls(); try {
+    const data = await request(path, method, body, true);
+    if (!currentAdminLocalContext(context))
+        return;
+    output.textContent = JSON.stringify(data.data ?? data, null, 2);
+}
+finally {
+    if (currentAdminLocalContext(context))
+        refreshAdminLocalControls();
+} }
+document.querySelector("#local-admin-account-block").addEventListener("click", () => void action(async () => { const id = document.querySelector("#local-admin-account-id").value.trim(), reason = document.querySelector("#local-admin-block-reason").value; if (!id)
+    throw new Error("Indica el UUID sintético de la cuenta."); await runAdminLocalRequest(`/api/v1/admin/local/accounts/${encodeURIComponent(id)}/block`, "POST", { reason_code: reason }); }));
+document.querySelector("#local-admin-account-unblock").addEventListener("click", () => void action(async () => { const id = document.querySelector("#local-admin-account-id").value.trim(), reason = document.querySelector("#local-admin-unblock-reason").value; if (!id)
+    throw new Error("Indica el UUID sintético de la cuenta."); await runAdminLocalRequest(`/api/v1/admin/local/accounts/${encodeURIComponent(id)}/unblock`, "POST", { reason_code: reason }); }));
+async function runLocalAdminReport(kind) { const from = document.querySelector("#local-admin-report-from").value.trim(), until = document.querySelector("#local-admin-report-until").value.trim(), timezone = document.querySelector("#local-admin-report-timezone").value.trim(); if (!from || !until || !timezone)
+    throw new Error("Completa fechas RFC3339 y zona IANA."); const query = new URLSearchParams({ from, until, timezone }); await runAdminLocalRequest(`/api/v1/admin/local/reports/${kind}?${query.toString()}`); }
+document.querySelector("#local-admin-report-reservations").addEventListener("click", () => void action(() => runLocalAdminReport("reservations")));
+document.querySelector("#local-admin-report-finance").addEventListener("click", () => void action(() => runLocalAdminReport("finance")));
+for (const id of ["#local-admin-account-id", "#local-admin-report-from", "#local-admin-report-until", "#local-admin-report-timezone"]) {
+    document.querySelector(id).addEventListener("input", () => { adminLocalRevision++; document.querySelector("#local-admin-governance-output").textContent = "Los criterios cambiaron; respuesta anterior invalidada."; });
+}
+refreshAdminLocalControls();
 async function initialize() {
     try {
         const config = await (await fetch("/config.json", { cache: "no-store" })).json();

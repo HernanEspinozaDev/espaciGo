@@ -33,6 +33,8 @@ import (
 	reputationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/reputation"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adminlocal"
+	adminlocalhttp "github.com/HernanEspinozaDev/espaciGo/internal/adminlocal/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/contract"
@@ -279,6 +281,13 @@ func run() error {
 				return errors.New("local booking conversation initialization failed")
 			}
 			bookingHandler := bookinghttp.NewHandler(service, bookingService, cfg.allowedOrigins, conversationService)
+			adminLocalService, err := adminlocal.New(pool, time.Now)
+			if err != nil {
+				return errors.New("local administration service initialization failed")
+			}
+			adminLocalHandler := adminlocalhttp.NewHandler(service, adminLocalService, cfg.allowedOrigins)
+			mux.Handle("/api/v1/admin/local/accounts/", adminLocalHandler)
+			mux.Handle("/api/v1/admin/local/reports/", adminLocalHandler)
 			mux.Handle("/api/v1/local/booking-trial/", bookingHandler)
 			mux.Handle("/api/v1/admin/local/reservations", bookingHandler)
 			mux.Handle("/api/v1/admin/local/reservations/", bookingHandler)
@@ -321,7 +330,7 @@ func run() error {
 	}
 	server := &http.Server{
 		Addr:              cfg.httpAddr,
-		Handler:           mux,
+		Handler:           identityhttp.RestrictedAccountMiddleware(localIdentityService, mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

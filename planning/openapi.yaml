@@ -2267,6 +2267,70 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /admin/local/accounts/{accountID}/block:
+    post:
+      operationId: blockLocalAccount
+      tags: [LOCAL-ADMIN-01C]
+      summary: Bloquear cuenta para el prototipo local
+      description: Solo administrador activo. Registra motivo y auditoría, invalida sesiones/tokens normales y conserva reservas/obligaciones. El usuario podrá autenticarse luego en modo restringido.
+      parameters:
+        - { name: accountID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalBlockInput' } } }
+      responses:
+        '200': { description: Bloqueo aplicado atómicamente., content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalBlockEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /admin/local/accounts/{accountID}/unblock:
+    post:
+      operationId: unblockLocalAccount
+      tags: [LOCAL-ADMIN-01C]
+      summary: Desbloquear cuenta local
+      description: Elimina solo el estado actual de bloqueo y conserva historial/auditoría. Revoca también la sesión restringida para exigir un nuevo inicio de sesión.
+      parameters:
+        - { name: accountID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalUnblockInput' } } }
+      responses:
+        '200': { description: Cuenta habilitada para nueva autenticación., content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalBlockEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /admin/local/reports/reservations:
+    get:
+      operationId: getAdminLocalReservationsReport
+      tags: [LOCAL-ADMIN-01C]
+      summary: Contar reservas creadas en periodo por su estado vigente
+      description: Administrador activo; lectura y auditoría por petición. No representa estados históricos ni muta reservas.
+      parameters:
+        - { name: from, in: query, required: true, description: Inclusivo; RFC3339 con offset compatible con timezone; el instante de salida se normaliza a UTC., schema: { type: string, format: date-time } }
+        - { name: until, in: query, required: true, description: Exclusivo; RFC3339 con offset compatible con timezone; máximo 31 días calendario; el instante de salida se normaliza a UTC., schema: { type: string, format: date-time } }
+        - { name: timezone, in: query, required: true, description: Zona IANA que valida los offsets y el límite calendario., schema: { type: string, example: America/Santiago } }
+      responses:
+        '200': { description: Conteos por estado vigente con aviso de ensayo., content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalReservationsReportEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /admin/local/reports/finance:
+    get:
+      operationId: getAdminLocalFinanceReport
+      tags: [LOCAL-ADMIN-01C]
+      summary: Consultar hechos financieros fake y obligaciones pendientes
+      description: Categorías separadas, sin garantía como ingreso, sin duplicar reintentos y sin conciliar; periodo obligatorio de hasta 31 días calendario.
+      parameters:
+        - { name: from, in: query, required: true, description: Inclusivo; RFC3339 con offset compatible con timezone; el instante de salida se normaliza a UTC., schema: { type: string, format: date-time } }
+        - { name: until, in: query, required: true, description: Exclusivo; RFC3339 con offset compatible con timezone; máximo 31 días calendario; el instante de salida se normaliza a UTC., schema: { type: string, format: date-time } }
+        - { name: timezone, in: query, required: true, schema: { type: string, example: America/Santiago } }
+      responses:
+        '200': { description: Movimientos confirmados separados de obligaciones al instante de generación., content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalFinanceReportEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /admin/local/reservations:
     get:
       operationId: listAdminLocalReservations
@@ -2381,6 +2445,84 @@ components:
         type: string
         minLength: 1
   schemas:
+    AdminLocalBlockInput:
+      type: object
+      additionalProperties: false
+      required: [reason_code]
+      properties:
+        reason_code: { type: string, enum: [riesgo_seguridad, uso_indebido, revision_administrativa] }
+    AdminLocalUnblockInput:
+      type: object
+      additionalProperties: false
+      required: [reason_code]
+      properties:
+        reason_code: { type: string, enum: [revision_concluida, error_bloqueo, riesgo_resuelto] }
+    AdminLocalBlock:
+      type: object
+      required: [account_id, blocked, changed_at]
+      properties:
+        account_id: { type: string, format: uuid }
+        blocked: { type: boolean }
+        changed_at: { type: string, format: date-time }
+    AdminLocalBlockEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data: { $ref: '#/components/schemas/AdminLocalBlock' }
+        notice: { type: string, const: 'ENSAYO LOCAL — SIN MOVIMIENTOS REALES' }
+    AdminLocalReportPeriod:
+      type: object
+      required: [from, until, timezone]
+      properties:
+        from: { type: string, format: date-time, description: Inclusivo y normalizado UTC. }
+        until: { type: string, format: date-time, description: Exclusivo y normalizado UTC. }
+        timezone: { type: string, description: Zona IANA usada para validar el límite de 31 días calendario. }
+    AdminLocalReservationsReport:
+      type: object
+      required: [generated_at, period, currency, notice, items]
+      properties:
+        generated_at: { type: string, format: date-time }
+        period: { $ref: '#/components/schemas/AdminLocalReportPeriod' }
+        currency: { type: string, const: CLP }
+        notice: { type: string, const: 'ENSAYO LOCAL — SIN MOVIMIENTOS REALES' }
+        items:
+          type: array
+          items:
+            type: object
+            required: [state, count]
+            properties:
+              state: { type: string }
+              count: { type: integer, minimum: 0 }
+    AdminLocalFinanceLine:
+      type: object
+      required: [kind, state, count, amount_clp]
+      properties:
+        kind: { type: string, enum: [cobro_arriendo, devolucion, garantia_autorizada, garantia_capturada, garantia_liberada] }
+        state: { type: string }
+        count: { type: integer, minimum: 0 }
+        amount_clp: { type: integer, minimum: 0 }
+    AdminLocalFinanceReport:
+      type: object
+      required: [generated_at, period, currency, notice, confirmed_movements, pending_obligations]
+      properties:
+        generated_at: { type: string, format: date-time }
+        period: { $ref: '#/components/schemas/AdminLocalReportPeriod' }
+        currency: { type: string, const: CLP }
+        notice: { type: string, const: 'ENSAYO LOCAL — SIN MOVIMIENTOS REALES' }
+        confirmed_movements: { type: array, items: { $ref: '#/components/schemas/AdminLocalFinanceLine' } }
+        pending_obligations: { type: array, items: { $ref: '#/components/schemas/AdminLocalFinanceLine' } }
+    AdminLocalReservationsReportEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data: { $ref: '#/components/schemas/AdminLocalReservationsReport' }
+        notice: { type: string, const: 'ENSAYO LOCAL — SIN MOVIMIENTOS REALES' }
+    AdminLocalFinanceReportEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data: { $ref: '#/components/schemas/AdminLocalFinanceReport' }
+        notice: { type: string, const: 'ENSAYO LOCAL — SIN MOVIMIENTOS REALES' }
     AdminLocalAuditFilter:
       type: object
       required: [from, until]
@@ -3785,6 +3927,7 @@ components:
       - access_token
       - token_type
       - expires_at
+      - restricted_mode
       properties:
         account_id: *id010
         roles:
@@ -3803,12 +3946,16 @@ components:
           const: Bearer
         expires_at: &id013
           $ref: '#/components/schemas/UtcTimestamp'
+        restricted_mode:
+          type: boolean
+          description: true si el Backend permite únicamente acceso restringido a reservas existentes.
     SessionResponse:
       type: object
       additionalProperties: false
       required:
       - account_id
       - roles
+      - restricted_mode
       properties:
         account_id: *id010
         roles:
@@ -3819,6 +3966,9 @@ components:
             - arrendatario
             - arrendador
             - administrador
+        restricted_mode:
+          type: boolean
+          description: La cuenta sigue bloqueada administrativamente y requiere operaciones de reserva existentes.
     TermsResponse:
       type: object
       additionalProperties: false

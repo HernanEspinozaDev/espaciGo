@@ -209,6 +209,9 @@ func (r *Repository) Quote(ctx context.Context, renter, spaceID, id string, star
 	if err := lockActiveAccounts(ctx, tx, renter, quoteHost); err != nil {
 		return booking.Quote{}, err
 	}
+	if err := requireUnblockedAccounts(ctx, tx, renter, quoteHost); err != nil {
+		return booking.Quote{}, err
+	}
 	now := clock().UTC()
 	if !start.After(now) {
 		return booking.Quote{}, booking.ErrInvalid
@@ -341,6 +344,9 @@ func (r *Repository) Create(ctx context.Context, renter, quoteID, key string, fi
 		return booking.Reservation{}, mapErr(err)
 	}
 	if err = lockActiveAccounts(ctx, tx, renter, quoteHost); err != nil {
+		return booking.Reservation{}, err
+	}
+	if err = requireUnblockedAccounts(ctx, tx, renter, quoteHost); err != nil {
 		return booking.Reservation{}, err
 	}
 	if err = requireLocalKYCEligibility(ctx, tx, renter, quoteHost); err != nil {

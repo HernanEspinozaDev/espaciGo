@@ -497,7 +497,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Explicit transport serialization; Secret remains redacted in all other formatting.
-		h.write(w, 200, map[string]any{"account_id": result.AccountID, "roles": result.Roles, "access_token": string(result.Token), "token_type": "Bearer", "expires_at": result.ExpiresAt.UTC()})
+		h.write(w, 200, map[string]any{"account_id": result.AccountID, "roles": result.Roles, "access_token": string(result.Token), "token_type": "Bearer", "expires_at": result.ExpiresAt.UTC(), "restricted_mode": result.RestrictedMode})
 	case "/api/v1/auth/session", "/api/v1/auth/logout":
 		parts := strings.Fields(r.Header.Get("Authorization"))
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
@@ -511,7 +511,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.URL.Path == "/api/v1/auth/session" {
-			h.write(w, 200, map[string]any{"account_id": principal.AccountID, "roles": principal.Roles})
+			h.write(w, 200, map[string]any{"account_id": principal.AccountID, "roles": principal.Roles, "restricted_mode": principal.RestrictedMode})
 			return
 		}
 		if err := h.service.Logout(r.Context(), token); err != nil {
