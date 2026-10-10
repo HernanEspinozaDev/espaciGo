@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -105,6 +106,45 @@ func (s *Service) GetAdminReservation(ctx context.Context, administrator, reserv
 	}
 	return repo.GetAdminReservation(ctx, administrator, reservationID, correlation)
 }
+
+func (s *Service) ListAdminAudit(ctx context.Context, administrator, correlation string, filter AdminAuditFilter, pageSize int, cursor string) (AdminAuditPage, error) {
+	repo, ok := s.repo.(AdminAuditRepository)
+	if !ok || !uuid.MatchString(administrator) || pageSize < 1 || pageSize > 100 || strings.TrimSpace(correlation) == "" || len(correlation) > 120 {
+		return AdminAuditPage{}, ErrInvalid
+	}
+	if !validAdminAuditFilter(filter) {
+		return AdminAuditPage{}, ErrInvalid
+	}
+	return repo.ListAdminAudit(ctx, administrator, correlation, filter, pageSize, cursor)
+}
+
+func (s *Service) ExportAdminAudit(ctx context.Context, administrator, correlation string, filter AdminAuditFilter) (AdminAuditExport, error) {
+	repo, ok := s.repo.(AdminAuditRepository)
+	if !ok || !uuid.MatchString(administrator) || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || !validAdminAuditFilter(filter) {
+		return AdminAuditExport{}, ErrInvalid
+	}
+	return repo.ExportAdminAudit(ctx, administrator, correlation, filter)
+}
+
+func (s *Service) RecordAdminAuditAttempt(ctx context.Context, administrator, correlation, action, result, reason string) error {
+	repo, ok := s.repo.(AdminAuditRepository)
+	if !ok || !uuid.MatchString(administrator) || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || (action != "admin.audit.events.list" && action != "admin.audit.events.export") || (result != "exito" && result != "rechazo") || !safeAuditFilter.MatchString(reason) {
+		return ErrInvalid
+	}
+	return repo.RecordAdminAuditAttempt(ctx, administrator, correlation, action, result, reason)
+}
+
+func validAdminAuditFilter(filter AdminAuditFilter) bool {
+	return !filter.From.IsZero() && !filter.Until.IsZero() && filter.Until.After(filter.From) && filter.Until.Sub(filter.From) <= 31*24*time.Hour &&
+		(filter.ActorID == "" || uuid.MatchString(filter.ActorID)) &&
+		(filter.ResourceID == "" || auditUUID.MatchString(filter.ResourceID)) &&
+		(filter.ResourceType == "" || safeAuditFilter.MatchString(filter.ResourceType)) &&
+		(filter.Action == "" || safeAuditFilter.MatchString(filter.Action)) &&
+		(filter.Result == "" || filter.Result == "exito" || filter.Result == "rechazo")
+}
+
+var safeAuditFilter = regexp.MustCompile(`^[a-zA-Z0-9_.:-]{1,60}$`)
+var auditUUID = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 func (s *Service) RunGuaranteeOperation(ctx context.Context, actor, reservationID, kind, key string, amount int64, outcome, requestID string, administrator bool) (GuaranteeOperation, error) {
 	repo, ok := s.repo.(GuaranteeLifecycleRepository)

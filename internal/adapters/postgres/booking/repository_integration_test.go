@@ -4109,6 +4109,87 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 			t.Fatalf("administrative history exposed a free-form reason: %+v", entry)
 		}
 	}
+
+	// LOCAL-ADMIN-01B: real PostgreSQL list/export over the existing append-only
+	// ledger. Include tied timestamps to exercise the UUID tiebreaker and verify
+	// each access event is outside its own fixed high-water traversal.
+	auditAt := time.Now().UTC().Truncate(time.Microsecond).Add(-10 * time.Minute)
+	for range 2 {
+		_, err = setup.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en,detalle_codigos) VALUES(gen_random_uuid(),$1,'test_resource',$2,'test.audit.local','exito','structured_reason','test-correlation',$3::timestamptz,$3::timestamptz+interval '5 years','{"obligations_detected":[],"pending_checks":[]}')`, adminID, adminReadReservation.ID, auditAt.Add(time.Minute))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	auditFrom, auditUntil := auditAt.Add(-time.Hour), auditAt.Add(time.Hour)
+	auditQuery := "from=" + url.QueryEscape(auditFrom.Format(time.RFC3339Nano)) + "&until=" + url.QueryEscape(auditUntil.Format(time.RFC3339Nano))
+	auditFilterQuery := auditQuery + "&actor_id=" + adminID + "&resource_type=test_resource&resource_id=" + adminReadReservation.ID + "&action=test.audit.local&result=exito"
+	auditList := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/audit-events?"+auditFilterQuery+"&page_size=1", "", nil, true)
+	var auditFirst struct {
+		Data booking.AdminAuditPage `json:"data"`
+	}
+	if auditList.Code != http.StatusOK || json.Unmarshal(auditList.Body.Bytes(), &auditFirst) != nil || len(auditFirst.Data.Items) != 1 || auditFirst.Data.NextCursor == "" {
+		t.Fatalf("audit first page=%d %s", auditList.Code, auditList.Body.String())
+	}
+	var accessAuditResult, accessAuditResource, accessAuditAction string
+	var accessAuditResourceID string
+	if err = setup.QueryRow(ctx, `SELECT resultado,recurso_tipo,recurso_id::text,accion FROM public.evento_auditoria_local WHERE correlacion_id=$1`, auditList.Header().Get("X-Request-ID")).Scan(&accessAuditResult, &accessAuditResource, &accessAuditResourceID, &accessAuditAction); err != nil || accessAuditResult != "exito" || accessAuditResource != "coleccion_eventos_auditoria_local" || accessAuditResourceID != auditCollectionID || accessAuditAction != "admin.audit.events.list" {
+		t.Fatalf("list access audit=%s/%s/%s/%s err=%v", accessAuditResult, accessAuditResource, accessAuditResourceID, accessAuditAction, err)
+	}
+	auditNext := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/audit-events?"+auditFilterQuery+"&page_size=1&cursor="+url.QueryEscape(auditFirst.Data.NextCursor), "", nil, true)
+	var auditSecond struct {
+		Data booking.AdminAuditPage `json:"data"`
+	}
+	if auditNext.Code != http.StatusOK || json.Unmarshal(auditNext.Body.Bytes(), &auditSecond) != nil || len(auditSecond.Data.Items) != 1 || auditSecond.Data.Items[0].ID == auditFirst.Data.Items[0].ID || auditSecond.Data.NextCursor != "" {
+		t.Fatalf("audit second page=%d %s", auditNext.Code, auditNext.Body.String())
+	}
+	if !auditFirst.Data.Items[0].OccurredAt.Equal(auditSecond.Data.Items[0].OccurredAt) {
+		t.Fatal("same-time cursor pagination should preserve tied timestamp group")
+	}
+	changedAuditCursor := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/audit-events?"+strings.Replace(auditFilterQuery, "action=test.audit.local", "action=other", 1)+"&page_size=1&cursor="+url.QueryEscape(auditFirst.Data.NextCursor), "", nil, true)
+	if changedAuditCursor.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("audit cursor accepted changed filter: %d %s", changedAuditCursor.Code, changedAuditCursor.Body.String())
+	}
+	auditExport := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/audit-events/export?"+auditQuery+"&resource_type=test_resource&action=test.audit.local", "", nil, true)
+	var exportedAudit booking.AdminAuditExport
+	if auditExport.Code != http.StatusOK || json.Unmarshal(auditExport.Body.Bytes(), &exportedAudit) != nil || exportedAudit.Version != 1 || len(exportedAudit.Events) != 2 || auditExport.Header().Get("Content-Disposition") == "" {
+		t.Fatalf("audit export=%d events=%d body=%s", auditExport.Code, len(exportedAudit.Events), auditExport.Body.String())
+	}
+	if exportedAudit.Events[0].OccurredAt.Before(exportedAudit.Events[1].OccurredAt) {
+		t.Fatal("audit export is not in descending occurred_at order")
+	}
+	if strings.Contains(auditExport.Body.String(), "detail_codes") || strings.Contains(auditExport.Body.String(), "payload") || strings.Contains(auditExport.Body.String(), "password_hash") {
+		t.Fatalf("audit export includes fields outside the minimized projection: %s", auditExport.Body.String())
+	}
+	allAuditExport := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/audit-events/export?"+auditQuery, "", nil, true)
+	if allAuditExport.Code != http.StatusOK || strings.Contains(allAuditExport.Body.String(), `"correlation_id":"`+allAuditExport.Header().Get("X-Request-ID")+`"`) {
+		t.Fatalf("export included its own access event: status=%d correlation=%s body=%s", allAuditExport.Code, allAuditExport.Header().Get("X-Request-ID"), allAuditExport.Body.String())
+	}
+	if deniedAudit := publishedBookingAPI(t, host, svc, http.MethodGet, "/api/v1/admin/local/audit-events?"+auditQuery, "", nil, false); deniedAudit.Code != http.StatusForbidden {
+		t.Fatalf("non-admin audit list=%d %s", deniedAudit.Code, deniedAudit.Body.String())
+	} else {
+		var deniedResult, deniedResource, deniedActor string
+		if err = setup.QueryRow(ctx, `SELECT resultado,recurso_tipo,actor_id::text FROM public.evento_auditoria_local WHERE correlacion_id=$1`, deniedAudit.Header().Get("X-Request-ID")).Scan(&deniedResult, &deniedResource, &deniedActor); err != nil || deniedResult != "rechazo" || deniedResource != "coleccion_eventos_auditoria_local" || deniedActor != host {
+			t.Fatalf("denied access audit=%s/%s/%s err=%v", deniedResult, deniedResource, deniedActor, err)
+		}
+	}
+	invalidAudit := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/audit-events?from="+url.QueryEscape(auditFrom.Format(time.RFC3339Nano))+"&until="+url.QueryEscape(auditFrom.Add(32*24*time.Hour).Format(time.RFC3339Nano)), "", nil, true)
+	var invalidResult, invalidReason string
+	if invalidAudit.Code != http.StatusUnprocessableEntity || setup.QueryRow(ctx, `SELECT resultado,motivo_codigo FROM public.evento_auditoria_local WHERE correlacion_id=$1`, invalidAudit.Header().Get("X-Request-ID")).Scan(&invalidResult, &invalidReason) != nil || invalidResult != "rechazo" || invalidReason != "filtros_invalidos" {
+		t.Fatalf("invalid filter access not rejected/audited: status=%d result=%s reason=%s", invalidAudit.Code, invalidResult, invalidReason)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en) SELECT gen_random_uuid(),$1,'overflow_resource','00000000-0000-0000-0000-000000000000','test.audit.overflow','exito','overflow','overflow-test',statement_timestamp(),statement_timestamp()+interval '5 years' FROM generate_series(1,10001)`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	overflowQuery := "from=" + url.QueryEscape(time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano)) + "&until=" + url.QueryEscape(time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano)) + "&resource_type=overflow_resource"
+	overflowExport := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/audit-events/export?"+overflowQuery, "", nil, true)
+	if overflowExport.Code != http.StatusUnprocessableEntity || !strings.Contains(overflowExport.Body.String(), `"code":"export_limit_exceeded"`) {
+		t.Fatalf("oversize audit export status=%d body=%s", overflowExport.Code, overflowExport.Body.String())
+	}
+	var overflowLogged int
+	var overflowResult, overflowReason string
+	if err = setup.QueryRow(ctx, `SELECT count(*),min(resultado),min(motivo_codigo) FROM public.evento_auditoria_local WHERE accion='admin.audit.events.export' AND correlacion_id=$1`, overflowExport.Header().Get("X-Request-ID")).Scan(&overflowLogged, &overflowResult, &overflowReason); err != nil || overflowLogged != 1 || overflowResult != "rechazo" || overflowReason != "limite_exportacion" {
+		t.Fatalf("overflow access audit count=%d result=%s reason=%s err=%v", overflowLogged, overflowResult, overflowReason, err)
+	}
 	var afterAdminState, afterGuaranteeState string
 	var afterAdminUpdated time.Time
 	var afterPaymentCount, afterTransitionCount, afterAuditCount int

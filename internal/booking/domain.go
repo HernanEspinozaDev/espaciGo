@@ -17,6 +17,7 @@ var (
 	ErrUnauthenticatedPaymentEvent = errors.New("booking: unauthenticated payment event")
 	ErrSimulatedNoResponse         = errors.New("booking: fake payment timed out without a response")
 	ErrSimulatedRefundNoResponse   = errors.New("booking: fake refund timed out without a response")
+	ErrAdminAuditExportLimit       = errors.New("booking: audit export exceeds limit")
 )
 
 const SafetyBanner = "ENSAYO LOCAL — SIN COBRO REAL"
@@ -252,6 +253,43 @@ type AdminTransition struct {
 type AdminReservationRepository interface {
 	ListAdminReservations(context.Context, string, string, AdminReservationFilter, int, string) (AdminReservationPage, error)
 	GetAdminReservation(context.Context, string, string, string) (AdminReservationDetail, error)
+}
+
+// AdminAuditEntry is a strictly minimized projection of the append-only local audit stream.
+type AdminAuditEntry struct {
+	ID            string    `json:"id"`
+	OccurredAt    time.Time `json:"occurred_at"`
+	ActorID       *string   `json:"actor_id"`
+	ResourceType  string    `json:"resource_type"`
+	ResourceID    string    `json:"resource_id"`
+	Action        string    `json:"action"`
+	Result        string    `json:"result"`
+	ReasonCode    string    `json:"reason_code"`
+	CorrelationID string    `json:"correlation_id"`
+}
+type AdminAuditFilter struct {
+	From         time.Time `json:"from"`
+	Until        time.Time `json:"until"`
+	ActorID      string    `json:"actor_id,omitempty"`
+	ResourceType string    `json:"resource_type,omitempty"`
+	ResourceID   string    `json:"resource_id,omitempty"`
+	Action       string    `json:"action,omitempty"`
+	Result       string    `json:"result,omitempty"`
+}
+type AdminAuditPage struct {
+	Items      []AdminAuditEntry `json:"items"`
+	NextCursor string            `json:"next_cursor,omitempty"`
+}
+type AdminAuditExport struct {
+	Version     int               `json:"version"`
+	GeneratedAt time.Time         `json:"generated_at"`
+	Filters     AdminAuditFilter  `json:"filters"`
+	Events      []AdminAuditEntry `json:"events"`
+}
+type AdminAuditRepository interface {
+	ListAdminAudit(context.Context, string, string, AdminAuditFilter, int, string) (AdminAuditPage, error)
+	ExportAdminAudit(context.Context, string, string, AdminAuditFilter) (AdminAuditExport, error)
+	RecordAdminAuditAttempt(context.Context, string, string, string, string, string) error
 }
 type RequestInput struct {
 	QuoteID string `json:"quote_id"`

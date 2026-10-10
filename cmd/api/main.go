@@ -282,6 +282,8 @@ func run() error {
 			mux.Handle("/api/v1/local/booking-trial/", bookingHandler)
 			mux.Handle("/api/v1/admin/local/reservations", bookingHandler)
 			mux.Handle("/api/v1/admin/local/reservations/", bookingHandler)
+			mux.Handle("/api/v1/admin/local/audit-events", bookingHandler)
+			mux.Handle("/api/v1/admin/local/audit-events/export", bookingHandler)
 			contractKeyText, err := os.ReadFile(os.Getenv("LOCAL_CONTRACT_ENCRYPTION_KEY_FILE"))
 			if err != nil {
 				return errors.New("local contract encryption key is unavailable")

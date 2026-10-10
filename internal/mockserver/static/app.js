@@ -18,6 +18,7 @@ import { galleryContextMatches } from "./gallery-session-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount } from "./suppression-review-state.js";
 import { captureRentalOperationContext, finishRentalOperationAfterReload, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
 import { AdminReservationsState } from "./admin-reservations-state.js";
+import { AdminAuditState } from "./admin-audit-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -51,6 +52,8 @@ const adminDamageEvidenceURLs = new Set();
 const adminReservationsState = new AdminReservationsState();
 let adminReservationItems = [];
 let selectedAdminReservationID = "";
+const adminAuditState = new AdminAuditState();
+let adminAuditItems = [];
 async function request(path, method = "GET", body, authenticated = false, idempotencyKey) {
     if (!apiBase)
         throw new Error("API local aún no disponible.");
@@ -104,7 +107,7 @@ async function requestArchive(path, bearer) {
 async function action(work) {
     const buttons = [...document.querySelectorAll("button")];
     try {
-        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); refreshStandaloneGuaranteeControls(); refreshAdminReservationControls(); });
+        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); refreshStandaloneGuaranteeControls(); refreshAdminReservationControls(); refreshAdminAuditControls(); });
     }
     catch (error) {
         resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
@@ -2785,6 +2788,7 @@ function clearBookingInboxOnSessionLoss() {
     bookingRequestState.invalidate();
     resetCatalogTraversal();
     clearAdminReservationView("La sesión terminó; inicia sesión con rol administrador para volver a consultar.");
+    clearAdminAuditView("La sesión terminó; inicia sesión con rol administrador para volver a consultar.");
     currentDraftID = "";
     spacesList.replaceChildren();
     spacesOutput.textContent = "Inicia sesión para consultar tus espacios.";
@@ -3482,6 +3486,142 @@ document.querySelector("#local-admin-reservations-filter").addEventListener("cha
 document.querySelector("#local-admin-reservations-next").addEventListener("click", () => void action(async () => { const cursor = adminReservationsState.nextCursor; if (!cursor)
     return; await loadAdminReservations(cursor, true); }));
 document.querySelector("#local-admin-reservations-reset").addEventListener("click", () => void action(async () => { adminReservationsState.clear(); await loadAdminReservations("", true); }));
+function clearAdminAuditView(message = "Requiere rol administrador.") {
+    adminAuditState.clear();
+    adminAuditItems = [];
+    document.querySelector("#local-admin-audit-filter")?.reset();
+    const output = document.querySelector("#local-admin-audit-items");
+    if (output)
+        output.textContent = "";
+    const status = document.querySelector("#local-admin-audit-status");
+    if (status)
+        status.textContent = message;
+    for (const selector of ["#local-admin-audit-next", "#local-admin-audit-search", "#local-admin-audit-export", "#local-admin-audit-reset"]) {
+        const button = document.querySelector(selector);
+        if (button)
+            button.disabled = true;
+    }
+}
+function adminAuditCriteriaKey() {
+    const formElement = document.querySelector("#local-admin-audit-filter");
+    if (!formElement)
+        return "";
+    const data = new FormData(formElement), fields = [];
+    for (const key of ["from", "until", "actor_id", "resource_type", "resource_id", "action", "result", "page_size"]) {
+        let value = String(data.get(key) ?? "").trim();
+        if ((key === "from" || key === "until") && value) {
+            const date = new Date(value);
+            if (!Number.isNaN(date.valueOf()))
+                value = date.toISOString();
+        }
+        if (key === "actor_id" || key === "resource_id")
+            value = value.toLowerCase();
+        fields.push([key, value]);
+    }
+    return JSON.stringify(fields);
+}
+function currentAdminAuditContext(context) { return adminAuditState.current(context, sessionAccountID, sessionToken, sessionGeneration, adminAuditCriteriaKey()) && sessionRoles.includes("administrador"); }
+function resetAdminAuditForCriteria() {
+    if (!adminAuditState.updateCriteria(adminAuditCriteriaKey()))
+        return;
+    adminAuditItems = [];
+    const output = document.querySelector("#local-admin-audit-items");
+    if (output)
+        output.textContent = "";
+    const status = document.querySelector("#local-admin-audit-status");
+    if (status)
+        status.textContent = "Los criterios cambiaron; resultados y cursores anteriores descartados.";
+    refreshAdminAuditControls();
+}
+function auditQuery(includePage, cursor = "") {
+    const values = new FormData(document.querySelector("#local-admin-audit-filter")), query = new URLSearchParams();
+    for (const key of ["from", "until", "actor_id", "resource_type", "resource_id", "action", "result"]) {
+        const raw = String(values.get(key) ?? "").trim();
+        if (!raw)
+            continue;
+        const value = (key === "from" || key === "until") ? new Date(raw).toISOString() : raw;
+        query.set(key, value);
+    }
+    if (includePage) {
+        query.set("page_size", String(values.get("page_size") ?? "25"));
+        if (cursor)
+            query.set("cursor", cursor);
+    }
+    return query;
+}
+function renderAdminAuditItems() { const output = document.querySelector("#local-admin-audit-items"); output.textContent = JSON.stringify(adminAuditItems.map(item => ({ id: item.id, occurred_at: item.occurred_at, actor_id: item.actor_id ?? null, resource_type: item.resource_type, resource_id: item.resource_id, action: item.action, result: item.result, reason_code: item.reason_code, correlation_id: item.correlation_id })), null, 2); }
+function refreshAdminAuditControls() { const allowed = Boolean(sessionToken && sessionRoles.includes("administrador")); const busy = adminAuditState.loading; for (const selector of ["#local-admin-audit-search", "#local-admin-audit-export", "#local-admin-audit-reset"]) {
+    const button = document.querySelector(selector);
+    if (button)
+        button.disabled = !allowed || busy;
+} const next = document.querySelector("#local-admin-audit-next"); if (next)
+    next.disabled = !allowed || busy || !adminAuditState.nextCursor; }
+async function loadAdminAudit(cursor = "") {
+    if (!sessionToken || !sessionRoles.includes("administrador"))
+        throw new Error("La consulta de auditoría requiere rol administrador.");
+    resetAdminAuditForCriteria();
+    const criteria = adminAuditCriteriaKey(), query = auditQuery(true, cursor), context = adminAuditState.begin(sessionAccountID, sessionToken, sessionGeneration);
+    const status = document.querySelector("#local-admin-audit-status");
+    status.textContent = "Consultando eventos minimizados…";
+    refreshAdminAuditControls();
+    try {
+        const response = await request(`/api/v1/admin/local/audit-events?${query.toString()}`, "GET", undefined, true);
+        if (!currentAdminAuditContext(context))
+            return;
+        const page = bookingData(response);
+        adminAuditItems = page.items;
+        adminAuditState.cursor = cursor;
+        adminAuditState.nextCursor = page.next_cursor ?? "";
+        renderAdminAuditItems();
+        status.textContent = `${page.items.length} evento(s) en esta página; no se muestran payloads ni texto libre.`;
+    }
+    finally {
+        adminAuditState.finish(context, sessionAccountID, sessionToken, sessionGeneration, criteria);
+        refreshAdminAuditControls();
+    }
+}
+async function exportAdminAudit() {
+    if (!sessionToken || !sessionRoles.includes("administrador"))
+        throw new Error("La exportación de auditoría requiere rol administrador.");
+    resetAdminAuditForCriteria();
+    const criteria = adminAuditCriteriaKey(), context = adminAuditState.begin(sessionAccountID, sessionToken, sessionGeneration), status = document.querySelector("#local-admin-audit-status");
+    status.textContent = "Preparando JSON minimizado…";
+    refreshAdminAuditControls();
+    try {
+        const response = await fetch(`${apiBase}/api/v1/admin/local/audit-events/export?${auditQuery(false).toString()}`, { method: "GET", headers: { Accept: "application/json", Authorization: `Bearer ${context.token}` }, mode: "cors", cache: "no-store", credentials: "omit" });
+        if (!response.ok) {
+            let code = "unknown";
+            try {
+                const body = await response.json();
+                code = body.error?.code ?? code;
+            }
+            catch { /* response may be unavailable */ }
+            if (!currentAdminAuditContext(context))
+                return;
+            throw new Error(`No se pudo exportar auditoría (HTTP ${response.status}, ${code}).`);
+        }
+        const blob = await response.blob();
+        if (!currentAdminAuditContext(context))
+            return;
+        const url = URL.createObjectURL(blob), link = document.createElement("a");
+        link.href = url;
+        link.download = "audit-local-v1.json";
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        status.textContent = "JSON versionado descargado; consulta completa, minimizada y sin cambios al ledger.";
+    }
+    finally {
+        adminAuditState.finish(context, sessionAccountID, sessionToken, sessionGeneration, criteria);
+        refreshAdminAuditControls();
+    }
+}
+document.querySelector("#local-admin-audit-filter").addEventListener("submit", event => { event.preventDefault(); void action(() => loadAdminAudit()); });
+document.querySelector("#local-admin-audit-filter").addEventListener("input", resetAdminAuditForCriteria);
+document.querySelector("#local-admin-audit-filter").addEventListener("change", resetAdminAuditForCriteria);
+document.querySelector("#local-admin-audit-next").addEventListener("click", () => void action(async () => { const cursor = adminAuditState.nextCursor; if (cursor)
+    await loadAdminAudit(cursor); }));
+document.querySelector("#local-admin-audit-export").addEventListener("click", () => void action(exportAdminAudit));
+document.querySelector("#local-admin-audit-reset").addEventListener("click", () => void action(async () => { adminAuditState.clear(); await loadAdminAudit(); }));
 async function initialize() {
     try {
         const config = await (await fetch("/config.json", { cache: "no-store" })).json();

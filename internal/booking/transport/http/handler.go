@@ -67,7 +67,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	const base = "/api/v1/local/booking-trial"
 	path := strings.TrimSuffix(r.URL.Path, "/")
-	if r.URL.RawQuery != "" && path != base+"/catalog" && path != "/api/v1/admin/local/reservations" && !strings.HasSuffix(path, "/messages") && !strings.HasSuffix(path, "/availability-options") {
+	if r.URL.RawQuery != "" && path != base+"/catalog" && path != "/api/v1/admin/local/reservations" && path != "/api/v1/admin/local/audit-events" && path != "/api/v1/admin/local/audit-events/export" && !strings.HasSuffix(path, "/messages") && !strings.HasSuffix(path, "/availability-options") {
 		fail(w, 400, "invalid_request")
 		return
 	}
@@ -109,10 +109,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := principal.AccountID
-	if path == "/api/v1/admin/local/reservations" || strings.HasPrefix(path, "/api/v1/admin/local/reservations/") {
+	if path == "/api/v1/admin/local/audit-events" || path == "/api/v1/admin/local/audit-events/export" || path == "/api/v1/admin/local/reservations" || strings.HasPrefix(path, "/api/v1/admin/local/reservations/") {
 		admin, authErr := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), identity.RoleAdministrator, identity.UserOperation)
 		if authErr != nil {
 			if errors.Is(authErr, identity.ErrForbidden) {
+				if path == "/api/v1/admin/local/audit-events" || path == "/api/v1/admin/local/audit-events/export" {
+					action := "admin.audit.events.list"
+					if strings.HasSuffix(path, "/export") {
+						action = "admin.audit.events.export"
+					}
+					if logErr := h.service.RecordAdminAuditAttempt(r.Context(), actor, w.Header().Get("X-Request-ID"), action, "rechazo", "rol_denegado"); logErr != nil {
+						fail(w, http.StatusInternalServerError, "internal_error")
+						return
+					}
+				}
 				fail(w, http.StatusForbidden, "forbidden")
 			} else {
 				w.Header().Set("WWW-Authenticate", "Bearer")
@@ -121,6 +131,57 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		correlation := w.Header().Get("X-Request-ID")
+		if path == "/api/v1/admin/local/audit-events" && r.Method == http.MethodGet {
+			filter, pageSize, cursor, ok := adminAuditParams(r.URL.Query(), false)
+			if !ok {
+				if auditErr := h.service.RecordAdminAuditAttempt(r.Context(), admin.AccountID, correlation, "admin.audit.events.list", "rechazo", "filtros_invalidos"); auditErr != nil {
+					fail(w, http.StatusInternalServerError, "internal_error")
+					return
+				}
+				fail(w, http.StatusUnprocessableEntity, "invalid_request")
+				return
+			}
+			page, auditErr := h.service.ListAdminAudit(r.Context(), admin.AccountID, correlation, filter, pageSize, cursor)
+			if errors.Is(auditErr, booking.ErrInvalid) {
+				if logErr := h.service.RecordAdminAuditAttempt(r.Context(), admin.AccountID, correlation, "admin.audit.events.list", "rechazo", "filtros_invalidos"); logErr != nil {
+					fail(w, http.StatusInternalServerError, "internal_error")
+					return
+				}
+			}
+			h.reply(w, page, auditErr)
+			return
+		}
+		if path == "/api/v1/admin/local/audit-events/export" && r.Method == http.MethodGet {
+			filter, _, _, ok := adminAuditParams(r.URL.Query(), true)
+			if !ok {
+				if auditErr := h.service.RecordAdminAuditAttempt(r.Context(), admin.AccountID, correlation, "admin.audit.events.export", "rechazo", "filtros_invalidos"); auditErr != nil {
+					fail(w, http.StatusInternalServerError, "internal_error")
+					return
+				}
+				fail(w, http.StatusUnprocessableEntity, "invalid_request")
+				return
+			}
+			archive, auditErr := h.service.ExportAdminAudit(r.Context(), admin.AccountID, correlation, filter)
+			if errors.Is(auditErr, booking.ErrInvalid) {
+				if logErr := h.service.RecordAdminAuditAttempt(r.Context(), admin.AccountID, correlation, "admin.audit.events.export", "rechazo", "filtros_invalidos"); logErr != nil {
+					fail(w, http.StatusInternalServerError, "internal_error")
+					return
+				}
+			}
+			if errors.Is(auditErr, booking.ErrAdminAuditExportLimit) {
+				fail(w, http.StatusUnprocessableEntity, "export_limit_exceeded")
+				return
+			}
+			if auditErr != nil {
+				h.reply(w, nil, auditErr)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Header().Set("Content-Disposition", `attachment; filename="audit-local-v1.json"`)
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(archive)
+			return
+		}
 		if path == "/api/v1/admin/local/reservations" && r.Method == http.MethodGet {
 			filter, pageSize, cursor, ok := adminReservationParams(r.URL.Query())
 			if !ok {
@@ -607,6 +668,50 @@ func adminReservationParams(query url.Values) (booking.AdminReservationFilter, i
 	return filter, pageSize, cursor, true
 }
 
+func adminAuditParams(query url.Values, export bool) (booking.AdminAuditFilter, int, string, bool) {
+	filter := booking.AdminAuditFilter{}
+	allowed := map[string]bool{"from": true, "until": true, "actor_id": true, "resource_type": true, "resource_id": true, "action": true, "result": true}
+	if !export {
+		allowed["page_size"] = true
+		allowed["cursor"] = true
+	}
+	for key, values := range query {
+		if !allowed[key] || len(values) != 1 || values[0] == "" {
+			return filter, 0, "", false
+		}
+	}
+	from, e1 := time.Parse(time.RFC3339Nano, query.Get("from"))
+	until, e2 := time.Parse(time.RFC3339Nano, query.Get("until"))
+	if e1 != nil || e2 != nil {
+		return filter, 0, "", false
+	}
+	filter.From, filter.Until = from.UTC(), until.UTC()
+	if !filter.Until.After(filter.From) || filter.Until.Sub(filter.From) > 31*24*time.Hour {
+		return filter, 0, "", false
+	}
+	filter.ActorID = strings.TrimSpace(query.Get("actor_id"))
+	filter.ResourceType = strings.TrimSpace(query.Get("resource_type"))
+	filter.ResourceID = strings.TrimSpace(query.Get("resource_id"))
+	filter.Action = strings.TrimSpace(query.Get("action"))
+	filter.Result = strings.TrimSpace(query.Get("result"))
+	if filter.Result != "" && filter.Result != "exito" && filter.Result != "rechazo" {
+		return filter, 0, "", false
+	}
+	size := 25
+	if raw := query.Get("page_size"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			return filter, 0, "", false
+		}
+		size = parsed
+	}
+	cursor := query.Get("cursor")
+	if len(cursor) > 4096 {
+		return filter, 0, "", false
+	}
+	return filter, size, cursor, true
+}
+
 func (h *Handler) reply(w http.ResponseWriter, v any, err error) {
 	if err != nil {
 		if errors.Is(err, booking.ErrSimulatedNoResponse) {
@@ -624,6 +729,8 @@ func (h *Handler) reply(w http.ResponseWriter, v any, err error) {
 			fail(w, 404, "not_found")
 		case errors.Is(err, booking.ErrConflict):
 			fail(w, 409, "conflict")
+		case errors.Is(err, booking.ErrAdminAuditExportLimit):
+			fail(w, 422, "export_limit_exceeded")
 		default:
 			fail(w, 500, "internal_error")
 		}

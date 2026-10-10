@@ -668,6 +668,103 @@ func (r *adminReadRepoStub) GetAdminReservation(_ context.Context, actor, id, co
 	return booking.AdminReservationDetail{AdminReservationSummary: booking.AdminReservationSummary{ID: id, State: "pagada"}, History: []booking.AdminTransition{}, Payments: []booking.AdminPaymentFact{}, PaymentOperations: []booking.AdminPaymentOperation{}}, nil
 }
 
+type adminAuditRepoStub struct {
+	repoStub
+	listCalls, exportCalls                            int
+	actor, correlation                                string
+	filter                                            booking.AdminAuditFilter
+	size                                              int
+	cursor                                            string
+	exportErr                                         error
+	attempts                                          int
+	lastAuditResult, lastAuditReason, lastAuditAction string
+}
+
+func (r *adminAuditRepoStub) RecordAdminAuditAttempt(_ context.Context, actor, correlation, action, result, reason string) error {
+	r.attempts++
+	r.actor, r.correlation, r.lastAuditAction, r.lastAuditResult, r.lastAuditReason = actor, correlation, action, result, reason
+	return nil
+}
+
+func (r *adminAuditRepoStub) ListAdminAudit(_ context.Context, actor, correlation string, filter booking.AdminAuditFilter, size int, cursor string) (booking.AdminAuditPage, error) {
+	r.listCalls++
+	r.actor = actor
+	r.correlation = correlation
+	r.filter = filter
+	r.size = size
+	r.cursor = cursor
+	actorID := renterID
+	return booking.AdminAuditPage{Items: []booking.AdminAuditEntry{{ID: "00000000-0000-4000-8000-000000000002", OccurredAt: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC), ActorID: &actorID, ResourceType: "reserva", ResourceID: "00000000-0000-4000-8000-000000000003", Action: "privacy.suppression.review", Result: "exito", ReasonCode: "consulta", CorrelationID: "req-1"}}, NextCursor: "cursor-next"}, nil
+}
+func (r *adminAuditRepoStub) ExportAdminAudit(_ context.Context, actor, correlation string, filter booking.AdminAuditFilter) (booking.AdminAuditExport, error) {
+	r.exportCalls++
+	r.actor = actor
+	r.correlation = correlation
+	r.filter = filter
+	return booking.AdminAuditExport{Version: 1, GeneratedAt: time.Date(2030, 1, 2, 0, 0, 0, 0, time.UTC), Filters: filter, Events: []booking.AdminAuditEntry{}}, r.exportErr
+}
+
+func TestAdminAuditQueryAndExportRequireAdministratorAndScopedFilters(t *testing.T) {
+	repo := &adminAuditRepoStub{}
+	service, err := booking.NewService(repo, credentials.Generator{}, time.Now, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(admin bool, target string) *httptest.ResponseRecorder {
+		t.Helper()
+		handler := NewHandler(adminReadAuthStub{administrator: admin}, service, nil)
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.Header.Set("Authorization", "Bearer admin-read-session")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+	base := "/api/v1/admin/local/audit-events"
+	from, to := "2030-01-01T00:00:00-03:00", "2030-01-31T00:00:00-03:00"
+	query := "?from=" + url.QueryEscape(from) + "&until=" + url.QueryEscape(to) + "&resource_type=reserva&page_size=10"
+	if denied := call(false, base+query); denied.Code != http.StatusForbidden || repo.listCalls != 0 || repo.attempts != 1 || repo.lastAuditReason != "rol_denegado" {
+		t.Fatalf("non-admin audit status=%d calls=%d", denied.Code, repo.listCalls)
+	}
+	got := call(true, base+query)
+	if got.Code != http.StatusOK || repo.listCalls != 1 || repo.size != 10 || repo.filter.From.Location() != time.UTC || repo.filter.From.Hour() != 3 || repo.filter.ResourceType != "reserva" || repo.actor != renterID {
+		t.Fatalf("audit list=%d repo=%+v body=%s", got.Code, repo, got.Body.String())
+	}
+	if !strings.Contains(got.Body.String(), `"next_cursor":"cursor-next"`) || strings.Contains(got.Body.String(), "payload") {
+		t.Fatalf("minimized page/cursor mismatch: %s", got.Body.String())
+	}
+	if bad := call(true, base+"?from="+url.QueryEscape(from)+"&until="+url.QueryEscape("2030-02-02T00:00:00-03:00")); bad.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("period >31d status=%d", bad.Code)
+	}
+	if repo.attempts != 2 || repo.lastAuditResult != "rechazo" || repo.lastAuditReason != "filtros_invalidos" {
+		t.Fatalf("invalid admin query was not audited once: %+v", repo)
+	}
+	exported := call(true, base+"/export?from="+url.QueryEscape(from)+"&until="+url.QueryEscape(to)+"&result=exito")
+	if exported.Code != http.StatusOK || repo.exportCalls != 1 || exported.Header().Get("Content-Disposition") == "" || !strings.Contains(exported.Body.String(), `"version":1`) {
+		t.Fatalf("audit export=%d calls=%d headers=%v body=%s", exported.Code, repo.exportCalls, exported.Header(), exported.Body.String())
+	}
+	limitRepo := &adminAuditRepoStub{exportErr: booking.ErrAdminAuditExportLimit}
+	limitService, _ := booking.NewService(limitRepo, credentials.Generator{}, time.Now, paymentStub{})
+	limitHandler := NewHandler(adminReadAuthStub{administrator: true}, limitService, nil)
+	req := httptest.NewRequest(http.MethodGet, base+"/export?from="+url.QueryEscape(from)+"&until="+url.QueryEscape(to), nil)
+	req.Header.Set("Authorization", "Bearer admin-read-session")
+	limitResponse := httptest.NewRecorder()
+	limitHandler.ServeHTTP(limitResponse, req)
+	var envelope struct {
+		Error struct {
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			RequestID string `json:"request_id"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(limitResponse.Body.Bytes(), &envelope)
+	if limitResponse.Code != http.StatusUnprocessableEntity || !strings.Contains(limitResponse.Body.String(), `"code":"export_limit_exceeded"`) || limitResponse.Header().Get("X-Request-ID") == "" || !strings.Contains(limitResponse.Body.String(), limitResponse.Header().Get("X-Request-ID")) {
+		t.Fatalf("limit error envelope mismatch: %d %s", limitResponse.Code, limitResponse.Body.String())
+	}
+	if envelope.Error.Code != "export_limit_exceeded" || envelope.Error.Message == "" || envelope.Error.RequestID != limitResponse.Header().Get("X-Request-ID") {
+		t.Fatalf("common error contract mismatch: %+v header=%q", envelope.Error, limitResponse.Header().Get("X-Request-ID"))
+	}
+}
+
 func TestAdminReservationReadRequiresRoleAndAcceptsScopedFilters(t *testing.T) {
 	repo := &adminReadRepoStub{}
 	service, err := booking.NewService(repo, credentials.Generator{}, time.Now, paymentStub{})

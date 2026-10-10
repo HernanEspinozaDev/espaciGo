@@ -4,7 +4,7 @@ Fecha: 2026-10-09. Issue operativa: [#226](https://github.com/HernanEspinozaDev/
 
 ## Alcance y dependencias
 
-Entrega acotada de consulta administrativa M11 (#111–#118), con API read-only para listar y consultar reservas locales y sus hechos financieros/históricos mínimos. Dependencias reutilizadas e integradas: LOCAL-CORE-01/#180 (sesión, rol y auditoría), LOCAL-BOOK-02/#214 (reservas y snapshots), LOCAL-DIS-01/#222 (reclamo y resolución) y LOCAL-FIN-01/#224 (garantía/deducción fake). Project 1 conserva estas cuatro dependencias como Hecho y #226 como En curso. #185/#40 se relacionan solo por minimización y consulta de históricos retenidos; no se consideran dependencia técnica de este slice. #111–#118, #185/#40 y LOCAL-CORE-02 mantienen su estado/criterios generales; este corte no los cierra ni desbloquea.
+Entrega acotada de consulta administrativa M11 (#111–#118), con API read-only para listar y consultar reservas locales y sus hechos financieros/históricos mínimos. Dependencias reutilizadas e integradas: LOCAL-CORE-01/#180 (sesión, rol y auditoría), LOCAL-BOOK-02/#214 (reservas y snapshots), LOCAL-DIS-01/#222 (reclamo y resolución) y LOCAL-FIN-01/#224 (garantía/deducción fake). Al abrirse este PR, Project 1 conservaba estas cuatro dependencias como Hecho y #226 como En curso; tras la aceptación posterior al merge, #226 quedó Hecho. #185/#40 se relacionan solo por minimización y consulta de históricos retenidos; no se consideran dependencia técnica de este slice. #111–#118, #185/#40 y LOCAL-CORE-02 mantienen su estado/criterios generales; este corte no los cierra ni desbloquea.
 
 No se agregó migración: V40 y las tablas/contratos existentes bastan para proyectar el listado, pagos fake, devolución, garantía, decisión y reclamo. Las lecturas no procesan vencimientos, no concilian, no llaman adaptadores ni cambian reservas, importes u ocupaciones. Una petición exitosa escribe únicamente un evento mínimo de auditoría para la consulta, no uno por fila. Campos de participantes retirados se proyectan `null`; no se reconstruyen. Mensajes, documentos, contactos, credenciales, tokens, evidencia privada y payloads no forman parte de la respuesta.
 
@@ -43,3 +43,10 @@ El Backend y el mock locales se reconstruyeron/reiniciaron sin reiniciar Postgre
 ## Límites
 
 Este PR implementa solo la subentrega 01A. No resuelve gobierno de cuentas, consultas/reportes M11 restantes, outbox/continuidad completa, retención productiva ni los criterios amplios de #185/#40. No desbloquea LOCAL-CORE-02 ni declara M11 o LOCAL-ADMIN-01 completos. Las observaciones sobre operaciones inciertas son proyecciones de estado; no las concilian.
+
+## Aceptación posterior al merge
+
+- PR #227 se integró en `main` mediante `473ca60b1402eeea43e8fa78663415d0ba8943bd` el 2026-10-10 UTC. Issue #226 se aceptó y cerró únicamente para LOCAL-ADMIN-01A; Project 1 quedó `Hecho`.
+- Después de sincronizar `main`, se reconstruyeron solo Backend y mock con `scripts/dev-env.sh up --no-deps -d backend mock-frontend`; `bash scripts/dev-env.sh verify-http` pasó. No había migración nueva; PostgreSQL, `espacigo_pgdata`, secretos y datos no se reiniciaron ni alteraron.
+- Smoke posterior: la ruta administrativa sin sesión responde 401, incluye `WWW-Authenticate: Bearer` y devuelve un `request_id` coincidente con `X-Request-ID`. El acceso positivo como administrador y el recorrido visual se reutilizan de la evidencia de revisión publicada arriba; no se repitieron suites ni el navegador autenticado.
+- #111–#118, #185/#40 y LOCAL-CORE-02 mantienen sus criterios/estado. LOCAL-ADMIN-01 y M11 siguen parciales.

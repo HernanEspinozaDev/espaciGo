@@ -73,7 +73,7 @@ func (r *Repository) ListAdminReservations(ctx context.Context, actor, correlati
 		return booking.AdminReservationPage{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err = insertAdminReadAudit(ctx, tx, actor, actor, "booking.admin.reservations.list", correlation); err != nil {
+	if err = insertAdminReadAudit(ctx, tx, actor, "coleccion_reservas_ensayo_local", auditCollectionID, "booking.admin.reservations.list", correlation); err != nil {
 		return booking.AdminReservationPage{}, err
 	}
 	query := `SELECT id::text,anfitrion_id::text,arrendatario_id::text,estado,inicio,termino,subtotal_clp,moneda,creada_en,actualizada_en FROM public.reserva_ensayo_local WHERE ($1='' OR id::text=lower($1)) AND ($2='' OR estado=$2) AND ($3::timestamptz IS NULL OR creada_en >= $3) AND ($4::timestamptz IS NULL OR creada_en < $4) AND ($5::timestamptz IS NULL OR (creada_en,id)<($5,$6::uuid)) ORDER BY creada_en DESC,id DESC LIMIT $7`
@@ -132,7 +132,7 @@ func (r *Repository) GetAdminReservation(ctx context.Context, actor, reservation
 		return booking.AdminReservationDetail{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err = insertAdminReadAudit(ctx, tx, actor, reservationID, "booking.admin.reservations.read", correlation); err != nil {
+	if err = insertAdminReadAudit(ctx, tx, actor, "reserva_ensayo_local", reservationID, "booking.admin.reservations.read", correlation); err != nil {
 		return booking.AdminReservationDetail{}, err
 	}
 	var out booking.AdminReservationDetail
@@ -233,11 +233,11 @@ func (r *Repository) GetAdminReservation(ctx context.Context, actor, reservation
 	return out, nil
 }
 
-func insertAdminReadAudit(ctx context.Context, tx pgx.Tx, actor, resource, action, correlation string) error {
+func insertAdminReadAudit(ctx context.Context, tx pgx.Tx, actor, resourceType, resource, action, correlation string) error {
 	if resource == "" || correlation == "" || len(correlation) > 120 {
 		return booking.ErrInvalid
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en) VALUES(gen_random_uuid(),$1,'reserva_ensayo_local',$2,$3,'exito','consulta_administrativa',$4,now(),now()+interval '5 years')`, actor, resource, action, correlation)
+	_, err := tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en) VALUES(gen_random_uuid(),$1,$2,$3,$4,'exito','consulta_administrativa',$5,statement_timestamp(),statement_timestamp()+interval '5 years')`, actor, resourceType, resource, action, correlation)
 	return err
 }
 
