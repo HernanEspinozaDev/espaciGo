@@ -273,13 +273,23 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras los merges #219/#221 e
 
 ### LOCAL-ADMIN-01A — Consulta administrativa local de reservas y finanzas (Issue #226)
 
-- **Módulo/tipo/estado:** M11 / VERTICAL DB-BE-API-TEST-MOCK / `en curso`; subentrega acotada de LOCAL-ADMIN-01, no aceptación del padre.
+- **Módulo/tipo/estado:** M11 / VERTICAL DB-BE-API-TEST-MOCK / `aceptada y Hecho` para esta subentrega tras PR #227; subentrega acotada de LOCAL-ADMIN-01, no aceptación del padre.
 - **Objetivo y motivo:** proporcionar una bandeja de consulta para reserva, participantes mínimos, estado/historial, pago/devolución fake, garantía, deducción y reclamo, reutilizando los ownerships existentes.
 - **Alcance:** filtros por ID/estado/fecha de creación; cursor estable versionado y ligado a cuenta/filtros; default 25, máximo 100, sin conteo. Sólo rol administrador en Backend. Proyección privada y minimizada; una auditoría estructurada por solicitud de lista/detalle, correlacionada y sin guardar respuestas. Mock que limpia selección, detalle y cursores al cambiar/perder sesión. Lecturas sin vencimiento materializado, conciliación, pagos ni transiciones.
 - **Fuera:** gobierno/moderación general, acciones financieras, historial de mensajes/documentos, proveedor real y GCP. No desbloquea LOCAL-CORE-02 ni cierra #111–118.
 - **Dependencias satisfechas para esta subentrega:** LOCAL-CORE-01/#180 (sesión/roles/auditoría), LOCAL-DIS-01/#222 (reclamo/resolución mínima), LOCAL-FIN-01/#224 (garantía/deducción fake) y LOCAL-BOOK-02/#214 (reservas/snapshots/historial). Padres #185/#40 y criterios generales M11 permanecen abiertos; no son una dependencia técnica para la vista acotada, aunque siguen siendo gates de privacidad/módulo completo.
 - **Criterios:** administrador puede listar/abrir; filtros y cursor sin duplicados con datos estables; identificadores retirados son null; terceros reciben 403; respuesta excluye contacto, credenciales, documentos y contenido privado; cada lectura exitosa genera un evento mínimo de auditoría; ninguna lectura muta estados/importes; el mock descarta respuestas atrasadas después de cambio/logout/relogin.
 - **Pruebas/evidencia:** unitarias de autorización/parámetros/cursor y sesión mock; integración PostgreSQL desechable con rol runtime, auditoría, historial minimizado y conteos/estado antes-después; pasos de navegador documentados en `planning/evidence/local-admin-01a-20261009.md`.
+
+### LOCAL-ADMIN-01B — Consulta y exportación mínima de auditoría local (Issue #228)
+
+- **Módulo/tipo/estado:** M11 / VERTICAL DB-BE-API-TEST-MOCK / en curso; subentrega acotada, no aceptación de LOCAL-ADMIN-01 ni #111–#118.
+- **Objetivo:** permitir inspección local del ledger ya existente sin ampliar su cobertura de productores ni modificar/borrar eventos.
+- **Contrato:** administrador activo obligatorio en Backend; periodo RFC3339 requerido desde inclusivo/hasta exclusivo normalizado UTC y máximo 31 días; filtros exactos opcionales por actor UUID, tipo/ID recurso, acción y resultado; lista por `ocurrido_en DESC, id DESC`, 25 por defecto y 100 máximo, cursor URL-safe ligado a cuenta/filtros/tamaño/corte; exportación JSON v1 con máximo 10.000, sin truncamiento. Proyección única: ID, fecha, actor técnico nullable, recurso, acción, resultado, motivo estructurado y correlación. Un evento mínimo por petición administrativa autenticada; scope de lectura/exportación se fija antes de su evento de acceso.
+- **Persistencia/retención:** reusa `evento_auditoria_local`, V22/V23+ y grants append-only existentes. No requiere DDL; conserva retención de cinco años y no añade UPDATE/DELETE.
+- **Dependencias satisfechas para este corte:** #180 roles/auditoría local y #226 lectura admin integrados; el ledger existente permite lectura con rol `espacigo_runtime`. #111–#114 son relacionadas y contienen criterios generales de gobierno, modelado transversal, outbox y durabilidad aún abiertos; no se declara su dependencia completa ni se desbloquean padres.
+- **Fuera:** nuevos productores transversales, búsqueda textual, mutaciones, purga, outbox general, inmutabilidad productiva y GCP. LOCAL-CORE-02, #111–#118 y los padres M11 siguen abiertos.
+- **Evidencia:** [`local-admin-01b-20261009.md`](evidence/local-admin-01b-20261009.md); contraste de productores/cobertura, integración PostgreSQL desechable, OpenAPI y estado del mock.
 
 ### LOCAL-CORE-02 — Consolidar continuidad del trabajo durable
 
