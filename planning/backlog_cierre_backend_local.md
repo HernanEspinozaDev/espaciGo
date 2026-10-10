@@ -347,16 +347,18 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 - **Fuera:** nuevos productores transversales, búsqueda textual, mutaciones, purga, outbox general, inmutabilidad productiva y GCP. LOCAL-CORE-02 y #111–#118 siguen abiertos. #230 cubrió el tramo local de DIS-TEST/DIS-MOCK; la Issue nativa #111 conserva su dependencia abierta de #110, mientras LOCAL-ADMIN-ARCH-01/#232 permite avanzar el diseño local con #230 aceptada.
 - **Evidencia:** [`local-admin-01b-20261009.md`](evidence/local-admin-01b-20261009.md); contraste de productores/cobertura, integración PostgreSQL desechable, OpenAPI, pruebas mock y smoke HTTP posterior al merge.
 
-### LOCAL-CORE-02 — Consolidar continuidad del trabajo durable
+### LOCAL-CORE-02 — Consolidar continuidad del trabajo durable (Issue #240)
 
-- **Módulo/tipo/estado:** transversal / BE-TEST / `todo`.
+- **Módulo/tipo/estado:** transversal / BE-TEST / **en revisión** en PR de esta rama; subentrega local, no aceptación de LOCAL-ADMIN-01/M11 ni de los padres generales.
 - **Objetivo y motivo:** RNF de continuidad/idempotencia y contratos M11; verificar pagos, firmas, notificaciones y auditoría integrados.
 - **Alcance:** leases/reintentos/checkpoints, recuperación tras interrupción, deduplicación y diagnósticos mínimos; correlación sin PII. Pruebas con varios workers locales si el contrato lo requiere.
 - **Fuera:** escalado GCP, HA cloud, WAF o infraestructura productiva.
-- **Dependencias:** LOCAL-ADMIN-01 y workers de módulos anteriores. **Desbloquea:** LOCAL-QA-02.
+- **Dependencias locales satisfechas para este corte:** LOCAL-QA-01/#238 quedó aceptada/Cerrada/Hecho tras PR #239; los productores locales ya implementados están integrados en `main` y su cobertura obligatoria está en el runner. Se reutilizan los cortes locales aceptados de identidad/privacidad, reservas/pagos/garantía/liquidación, comunicación, galería y administración. LOCAL-ADMIN-01 solo está satisfecho para esos contratos operativos reutilizados; M11 y #111–#118 permanecen abiertos por criterios generales. Los padres #109/#110, #185/#40 y demás Issues generales mantienen sus dependencias nativas y estado propios; este corte no los cierra ni los desbloquea artificialmente. **Desbloquea localmente:** LOCAL-QA-02 tras aceptación de #240.
 - **Aceptación:** trabajo pendiente recuperable; worker detenido no retiene lease indefinidamente; dos workers no finalizan dos veces; errores/correlación permiten diagnosticar sin filtrar secretos.
 - **Pruebas previstas:** interrupciones antes/después de cada persistencia/efecto, expiración de lease, replay y continuidad local.
 - **Riesgo:** efecto externo simulado realizado pero no persistido o retry ilimitado sin política.
+- **Brechas verificadas y cubiertas:** las dos familias de aviso recuperan un lease vencido tras reinicio antes de confirmar el resultado; los avisos de reserva también recuperan el octavo lease sin un noveno envío y mantienen deduplicación/reapertura; los reintentos de pagos, garantía y liquidación consultan la operación fake persistida y no inician efectos nuevos al recuperar resultados; cleanup de archivos y baja conservan candidatos/trabajo pendiente recuperable. El caso añadido se limita a leases no terminales reclamados y abandonados antes del efecto.
+- **Límites explícitos:** Mailpit/SMTP puede entregar dos veces si el proceso cae después de aceptar el mensaje y antes de persistir `entregada`; no se ofrece semántica exactly-once. Proveedor real, infraestructura cloud y observabilidad productiva quedan fuera. Las operaciones de dinero real no están implementadas.
 
 ## L5 — Aceptación final local
 
