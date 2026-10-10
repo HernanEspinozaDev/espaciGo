@@ -256,6 +256,16 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras los merges #219/#221 e
 - **Fuera:** proveedor real/sandbox, liquidación al anfitrión, comisión, boleta, fondos reales/custodia y completar M06/M10 generales. Los hechos V40 se exportan con alcance propio y se incluyen en bloqueadores de privacidad.
 - **Dependencias:** LOCAL-DIS-01, BOOK, snapshots LIST y D-BOOK/D-DIS. **Desbloquea:** LOCAL-ADMIN-01 y validación completa M10.
 - **Dependencias:** LOCAL-DIS-01/#222 aceptado, LOCAL-BOOK-01/#177 y BOOK-02/#214, snapshots de tarifa/listado, LOCAL-CONT-01/#216 y LOCAL-OPS-01/#218. No depende del proveedor real #76/#78. **Desbloquea:** solo cierre económico local fake; no cerrar #103/#107–110 ni desbloquear liquidación/proveedor.
+
+### LOCAL-DIS-TEST-MOCK-01 — Consolidación de pruebas de disputa y mock financiero (Issue #230)
+
+- **Módulo/tipo/estado:** M10 / VERTICAL TEST-API-MOCK / `En revisión` durante PR de implementación; subentrega bajo #109 DIS-TEST-01 y #110 DIS-MOCK-01, no cierre de M10.
+- **Propósito:** conciliar criterios originales de #109/#110 con LOCAL-DIS-01 y LOCAL-FIN-01; verificar evidencia/descargo, resolución admin y decisiones financieras fake mediante resultados persistidos, no solo proyecciones.
+- **Alcance local:** recorrido de anfitrión, arrendatario y administrador independientes; resolución y evidencia privada; límite de deducción al monto autorizado; captura/liberación fake, timeout/conciliación e historial observado; autorización, concurrencia e idempotencia ya cubiertas por pruebas aceptadas, añadiendo solo el contraste de proyección/resultado/historial que faltaba.
+- **Dependencias satisfechas para este corte:** LOCAL-DIS-01 (#222/#223), LOCAL-FIN-01 (#224/#225, V40), CORE-TEST-01 (#24) y CORE-ENV-01 (#25). Los endpoints del alcance de DIS-API-01 (#108) están disponibles; los criterios generales de #108 siguen abiertos.
+- **Matriz de criterios:** [`evidence/local-dis-test-mock-20261009.md`](evidence/local-dis-test-mock-20261009.md). La fila test del #109 queda completa solo dentro del fake local: valores observados, reintentos/terminales y audit trail. #110 queda parcial porque no hay payout/liquidación al anfitrión, comisión ni documento/boleta fixture.
+- **Pendientes fuera del corte:** credenciales, contrato y sandbox de proveedor auténtico; liquidación, comisión y documento fiscal requieren regla/modelo y siguen pendientes aunque exista proveedor. No representar garantía autorizada como ingreso ni inventar dichos artefactos. No GCP.
+- **Trazabilidad:** conservar #109/#110 abiertas hasta revisión; #108 general abierta; #111 queda bloqueada hasta satisfacer #110 completo. Tras la aceptación de la subentrega se podrá continuar el alcance local de #111 con dependencias explícitas, sin cerrar #109/#110 si persisten sus criterios generales.
 - **Aceptación:** snapshot CLP fijo sin retroactividad; operaciones fake idempotentes/durables; gates transaccionales; importes enteros exactos; reintentos/fallos/resultado tardío no duplican; cierre no pierde trazabilidad y bloqueadores de baja consideran toda incertidumbre. No registrar garantía autorizada como ingreso.
 - **Pruebas/evidencia:** límites (0, 1, 50.000 y >50.000), reclamo aceptado/rechazado, rechazo/vencimiento/timeouts, resultado tardío, cierre 24 h, cancelación, carreras, reinicio/conciliación y rol runtime están cubiertos por la integración desechable publicada y sus pruebas focalizadas; evidencia de aceptación/migración V40 y HTTP posterior al merge: [`local-fin-01-20261009.md`](evidence/local-fin-01-20261009.md). El recorrido de negocio se verifica por integración API; no se afirma automatización de navegador sobre los datos persistentes.
 - **Riesgo:** confundir comisión con fondos de terceros o simular liquidación como pago confirmado real.
@@ -283,13 +293,13 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras los merges #219/#221 e
 
 ### LOCAL-ADMIN-01B — Consulta y exportación mínima de auditoría local (Issue #228)
 
-- **Módulo/tipo/estado:** M11 / VERTICAL DB-BE-API-TEST-MOCK / en curso; subentrega acotada, no aceptación de LOCAL-ADMIN-01 ni #111–#118.
+- **Módulo/tipo/estado:** M11 / VERTICAL DB-BE-API-TEST-MOCK / aceptada y Hecho tras PR #229 (merge `994c91f`); subentrega acotada, no aceptación de LOCAL-ADMIN-01 ni #111–#118.
 - **Objetivo:** permitir inspección local del ledger ya existente sin ampliar su cobertura de productores ni modificar/borrar eventos.
 - **Contrato:** administrador activo obligatorio en Backend; periodo RFC3339 requerido desde inclusivo/hasta exclusivo normalizado UTC y máximo 31 días; filtros exactos opcionales por actor UUID, tipo/ID recurso, acción y resultado; lista por `ocurrido_en DESC, id DESC`, 25 por defecto y 100 máximo, cursor URL-safe ligado a cuenta/filtros/tamaño/corte; exportación JSON v1 con máximo 10.000, sin truncamiento. Proyección única: ID, fecha, actor técnico nullable, recurso, acción, resultado, motivo estructurado y correlación. Un evento mínimo por petición administrativa autenticada; scope de lectura/exportación se fija antes de su evento de acceso.
 - **Persistencia/retención:** reusa `evento_auditoria_local`, V22/V23+ y grants append-only existentes. No requiere DDL; conserva retención de cinco años y no añade UPDATE/DELETE.
 - **Dependencias satisfechas para este corte:** #180 roles/auditoría local y #226 lectura admin integrados; el ledger existente permite lectura con rol `espacigo_runtime`. #111–#114 son relacionadas y contienen criterios generales de gobierno, modelado transversal, outbox y durabilidad aún abiertos; no se declara su dependencia completa ni se desbloquean padres.
-- **Fuera:** nuevos productores transversales, búsqueda textual, mutaciones, purga, outbox general, inmutabilidad productiva y GCP. LOCAL-CORE-02, #111–#118 y los padres M11 siguen abiertos.
-- **Evidencia:** [`local-admin-01b-20261009.md`](evidence/local-admin-01b-20261009.md); contraste de productores/cobertura, integración PostgreSQL desechable, OpenAPI y estado del mock.
+- **Fuera:** nuevos productores transversales, búsqueda textual, mutaciones, purga, outbox general, inmutabilidad productiva y GCP. LOCAL-CORE-02, #111–#118 y los padres M11 siguen abiertos. Siguiente bloqueo de la cadena: DIS-TEST-01/#109 → DIS-MOCK-01/#110 antes de ADMIN-ARCH-01/#111.
+- **Evidencia:** [`local-admin-01b-20261009.md`](evidence/local-admin-01b-20261009.md); contraste de productores/cobertura, integración PostgreSQL desechable, OpenAPI, pruebas mock y smoke HTTP posterior al merge.
 
 ### LOCAL-CORE-02 — Consolidar continuidad del trabajo durable
 
@@ -354,7 +364,7 @@ Estas tarjetas son tareas de aceptación incluidas en el paquete vertical, prefe
 | LOCAL-CONT-MOCK-01 / M07 / #87 | LOCAL-CONT-01 | Consultar documento privado/versionado y firmantes, firmar/rechazar simuladamente, mostrar estado parcial/final/vencido y conflictos; tercero sin acceso. |
 | LOCAL-OPS-MOCK-01 / M08 / #94 | LOCAL-OPS-01 | Check-in/out, recepción/observación, reclamo formal y descargo sintético, evidencia, fechas/roles y estado; repetición y plazo vencido muestran resultado/error correcto. |
 | LOCAL-COMM-MOCK-01 / M09 / #102 | LOCAL-COMM-01 | Hilo/lectura existente, publicar/consultar reseña elegible, reportar/moderar con rol adecuado y comprobar avisos por Mailpit/estado de entrega autorizado. No añadir un centro de notificaciones. |
-| LOCAL-DIS-MOCK-01 / M10 / #110 | LOCAL-DIS-01 y LOCAL-FIN-01 | Reclamo/descargo/evidencia, resolución motivada, movimientos/garantía/liquidación simulada, reintento y documento fiscal marcado sintético; permisos de partes y revisor. |
+| LOCAL-DIS-TEST-MOCK-01 / M10 / #230, bajo #109/#110 | LOCAL-DIS-01/#222–223, LOCAL-FIN-01/#224–225, #24, #25 | Verificar resultados fake observados, historial, resolución/evidencia/descargo, deducción dentro de garantía, conciliación e integración de mock. Proveedor real/sandbox y payout/boleta/liquidación comercial no se simulan; #109/#110 permanecen abiertos por aceptación y criterios incompletos. |
 | LOCAL-ADMIN-MOCK-01 / M11 / #118 | LOCAL-ADMIN-01 | Consultar cuentas/reservas/pagos/disputas, acciones administrativas permitidas, moderación, reportes/exportación mínima y auditoría/correlación; negar rol insuficiente. |
 
 No crear un mock antes de que existan sus operaciones Backend/API. Se pueden usar secciones del mock existente, sin routing complejo, layouts ni componentes de producción.

@@ -3674,6 +3674,50 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err != nil || settledGuarantee.State != "liberada" || settledGuarantee.AuthorizedCLP != 50000 || settledGuarantee.CapturedCLP != 12000 || settledGuarantee.ReleasedCLP != 38000 || settledGuarantee.Decision == nil || settledGuarantee.Decision.State != "aplicada" {
 		t.Fatalf("deduction capture/remainder release snapshot=%+v err=%v", settledGuarantee, err)
 	}
+	// The administrative API must expose the immutable quote projection
+	// separately from confirmed fake outcomes and operation history. The
+	// authorization is a hold, not rent income; only provider-result rows and
+	// confirmed capture/release values are observed outcomes.
+	adminGuaranteeResponse := publishedBookingAPI(t, adminID, svc, http.MethodGet, financeGuaranteePath, "", nil, true)
+	if adminGuaranteeResponse.Code != http.StatusOK {
+		t.Fatalf("admin observed guarantee API=%d %s", adminGuaranteeResponse.Code, adminGuaranteeResponse.Body.String())
+	}
+	var observedEnvelope struct {
+		Data booking.GuaranteeSnapshot `json:"data"`
+	}
+	if err = json.Unmarshal(adminGuaranteeResponse.Body.Bytes(), &observedEnvelope); err != nil {
+		t.Fatalf("decode admin observed guarantee response: %v", err)
+	}
+	observed := observedEnvelope.Data
+	if observed.PolicyVersion != booking.LocalGuaranteePolicyVersion || observed.ExpectedCLP != 50000 || observed.AuthorizedCLP != 50000 || observed.CapturedCLP != 12000 || observed.ReleasedCLP != 38000 || observed.Decision == nil || observed.Decision.State != "aplicada" || len(observed.Operations) != 3 {
+		t.Fatalf("admin projection/observed values were conflated or incomplete: %+v", observed)
+	}
+	wantOperations := map[string]int64{"autorizacion": 50000, "captura": 12000, "liberacion": 38000}
+	for _, op := range observed.Operations {
+		if want, ok := wantOperations[op.Kind]; !ok || op.AmountCLP != want || op.State != "confirmada" || op.LastResult != "exito_simulado" {
+			t.Fatalf("admin fake operation did not expose its confirmed observation: %+v", op)
+		}
+		delete(wantOperations, op.Kind)
+	}
+	if len(wantOperations) != 0 {
+		t.Fatalf("admin observed operations missing kinds: %v", wantOperations)
+	}
+	var pendingHistoryRows, authorizationHistoryRows, decisionHistoryRows, captureHistoryRows, releaseHistoryRows, fakeResultRows int
+	if err = setup.QueryRow(ctx, `SELECT
+		count(*) FILTER (WHERE tipo='operacion_pendiente_conciliacion'),
+		count(*) FILTER (WHERE tipo='garantia_autorizada'),
+		count(*) FILTER (WHERE tipo='decision_financiera_registrada'),
+		count(*) FILTER (WHERE tipo='garantia_capturada'),
+		count(*) FILTER (WHERE tipo='garantia_liberada')
+		FROM public.reserva_finanzas_historial_ensayo_local WHERE reserva_id=$1`, financeReservation.ID).Scan(&pendingHistoryRows, &authorizationHistoryRows, &decisionHistoryRows, &captureHistoryRows, &releaseHistoryRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_garantia_resultado_fake_ensayo_local x JOIN public.reserva_garantia_operacion_ensayo_local o ON o.id=x.operacion_id JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id WHERE g.reserva_id=$1`, financeReservation.ID).Scan(&fakeResultRows); err != nil {
+		t.Fatal(err)
+	}
+	if pendingHistoryRows != 0 || authorizationHistoryRows != 1 || decisionHistoryRows != 1 || captureHistoryRows != 2 || releaseHistoryRows != 1 || fakeResultRows != 3 {
+		t.Fatalf("financial history pending/auth/decision/capture/release and fake result rows=%d/%d/%d/%d/%d/%d, want one confirmed authorization/decision/release, the capture attempt plus its reconciliation, and one recorded result per operation", pendingHistoryRows, authorizationHistoryRows, decisionHistoryRows, captureHistoryRows, releaseHistoryRows, fakeResultRows)
+	}
 
 	contractRejectReservation := newReservation(1030*time.Hour, "cont-reject", true)
 	rejectedContract, err := contractService.Create(ctx, host, contractRejectReservation.ID)
