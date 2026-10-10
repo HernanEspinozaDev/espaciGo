@@ -1,6 +1,6 @@
 # LOCAL-ADMIN-01B — consulta y exportación de auditoría local
 
-Issue de subentrega: [#228](https://github.com/HernanEspinozaDev/espaciGo/issues/228). PR de implementación: pendiente de publicación.
+Issue de subentrega: [#228](https://github.com/HernanEspinozaDev/espaciGo/issues/228). PR de implementación: [#229](https://github.com/HernanEspinozaDev/espaciGo/pull/229), commit inicial `76621b1` (rama `codex/local-admin-01b`), abierto para revisión de HernanEspinozaDev.
 
 ## Alcance y decisiones conservadas
 
@@ -44,6 +44,7 @@ Validación completada en la rama del PR. El harness PostgreSQL creó y retiró 
 
 ```sh
 go test ./internal/booking/transport/http ./internal/adapters/postgres/booking ./cmd/api
+go vet ./internal/booking/transport/http ./internal/adapters/postgres/booking ./cmd/api
 GO_TEST_RUN='^TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry$' bash scripts/test-m06-local-booking-postgres.sh ./internal/adapters/postgres/booking
 cd mock && npm run build && node --test test/admin-audit-state.test.mjs
 git diff --check
@@ -55,6 +56,7 @@ git diff --check
 - Parseo YAML de `planning/openapi.yaml`: pasó como OpenAPI 3.1.0.
 - `scripts/dev-env.sh up backend mock-frontend`: reconstruyó API/mock y esperó salud; base/volumen y secretos se conservaron, sin migración nueva. `scripts/dev-env.sh verify-http`: todas las comprobaciones HTTP/CORS/readiness/mock pasaron.
 - Recorrido HTTP local con la cuenta administradora sintética ya guardada fuera del repo: login → consulta de 98 eventos en 21 páginas de 5 → exportación JSON v1 de 103 eventos. Se comprobaron los nueve campos permitidos, el encabezado de descarga y la exclusión del evento de la exportación actual. El recorrido registró las lecturas en auditoría; no alteró estados/importes de negocio. La diferencia de filas refleja eventos de acceso generados entre el listado paginado y la exportación posterior.
+- `go vet ./internal/booking/transport/http ./internal/adapters/postgres/booking ./cmd/api`: pasó.
 - `git diff --check`: pasó.
 
 ## Pendientes
