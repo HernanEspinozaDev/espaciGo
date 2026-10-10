@@ -2234,6 +2234,10 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if _, err = raceTx.Exec(ctx, `SELECT id FROM public.espacio WHERE id=$1 FOR UPDATE`, space); err != nil {
 		t.Fatal(err)
 	}
+	var blockerPID int
+	if err = raceTx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockerPID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = raceTx.Exec(ctx, `UPDATE public.espacio_horario_semanal_tramo SET apertura_minuto=16*60,cierre_minuto=17*60 WHERE espacio_id=$1 AND dia_iso=4`, space); err != nil {
 		t.Fatal(err)
 	}
@@ -2242,10 +2246,11 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		_, requestErr := svc.Request(ctx, renter, booking.RequestInput{QuoteID: raceQuote.ID}, "weekly-hours-concurrent-change")
 		raceResult <- requestErr
 	}()
-	weeklyLockDeadline := time.Now().Add(3 * time.Second)
+	weeklyLockDeadline := time.Now().Add(10 * time.Second)
 	requestWaitingOnSpace := false
 	for time.Now().Before(weeklyLockDeadline) {
-		if err = setup.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query ILIKE '%public.espacio%')`).Scan(&requestWaitingOnSpace); err != nil {
+		if err = setup.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity a
+			WHERE a.datname=current_database() AND $1=ANY(pg_blocking_pids(a.pid)))`, blockerPID).Scan(&requestWaitingOnSpace); err != nil {
 			t.Fatal(err)
 		}
 		if requestWaitingOnSpace {

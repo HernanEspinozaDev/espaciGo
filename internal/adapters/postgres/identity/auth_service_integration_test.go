@@ -236,9 +236,6 @@ END $$`); err != nil {
 	}
 	t.Cleanup(func() {
 		runtimePool.Close()
-		if _, err := h.pool.Exec(h.ctx, `DROP OWNED BY espacigo_runtime; DROP ROLE IF EXISTS espacigo_runtime`); err != nil {
-			t.Errorf("clean up disposable runtime role: %v", err)
-		}
 	})
 	return runtimePool
 }

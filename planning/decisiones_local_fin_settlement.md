@@ -1,6 +1,6 @@
 # LOCAL-FIN-SETTLEMENT-01 — política de ensayo local
 
-**Issue:** #236, hija funcional vinculada a #109 y #110. **Estado:** implementación en PR separado; pendiente de revisión/aceptación. Solo cuentas, reservas y operaciones sintéticas locales.
+**Issue:** #236, hija funcional vinculada a #109 y #110. **Estado:** aceptada/Hecho en Projects tras PR #237 y aplicación incremental de V44/V45. Solo cuentas, reservas y operaciones sintéticas locales; las Issues generales #109/#110 mantienen su propio estado.
 
 ## Reglas ratificadas
 

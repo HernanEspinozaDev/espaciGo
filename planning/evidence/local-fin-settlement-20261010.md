@@ -1,6 +1,6 @@
 # Evidencia — LOCAL-FIN-SETTLEMENT-01 (#236)
 
-**Estado:** listo para revisión en [PR #237](https://github.com/HernanEspinozaDev/espaciGo/pull/237); el ajuste final de minimización del ledger y su prueba están en `54a55a3`. No fusionado ni aceptado. Baseline integrado #235 / `5c6be649967b794f862bf2457eaacd18e104448b`. Project 1 incluye #236 en `En revisión`.
+**Estado actual:** aceptada/Hecho por su alcance fake local tras el merge de [PR #237](https://github.com/HernanEspinozaDev/espaciGo/pull/237), merge `09f03f60061ebd3dacb679661ad0180e5901b054`. La descripción inicial de esta evidencia registra la revisión previa al merge; la aceptación posterior se anota al final. Project 1 registra #236 como `Hecho`.
 
 ## Recorrido implementado
 
@@ -35,3 +35,10 @@
 
 - Prueba ejecutada tras el último ajuste: `GO_TEST_RUN='TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay' bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/booking` — PASS en PostgreSQL/PostGIS desechable, incluyendo el recorrido de timeout, conciliación, purga de retención y comprobación de permisos de columna del rol runtime.
 - `git diff --check` — PASS. No se ejecutaron suites ajenas al cambio ni se usó la base persistente o secretos locales.
+
+## Aceptación y comprobación posterior al merge (2026-10-10)
+
+- `git fetch`/fast-forward a `main` confirmó el merge `09f03f60061ebd3dacb679661ad0180e5901b054`; los servicios locales se actualizaron sin ejecutar `clean`, borrar `espacigo_pgdata` ni regenerar secretos.
+- `scripts/dev-env.sh up` aplicó V44/V45 incrementalmente. Las filas de migración 44 y 45 están presentes; el volumen `espacigo_pgdata` siguió montado.
+- `scripts/dev-env.sh verify-http` PASS: liveness/readiness de backend y PostgreSQL, CORS/preflight y recursos del mock.
+- #236 quedó aceptada, cerrada y `Hecho` en Project 1 por la liquidación y comprobante fake local. #109/#110 siguen abiertas por criterios generales, proveedor real/sandbox, comisión productiva y documento fiscal válido.

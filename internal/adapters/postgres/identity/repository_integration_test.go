@@ -155,6 +155,12 @@ func newIdentityTestPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 		if _, err := admin.Exec(cleanupCtx, "DROP DATABASE IF EXISTS "+pgx.Identifier{databaseName}.Sanitize()); err != nil {
 			t.Errorf("drop disposable test database: %v", err)
 		}
+		// The runtime role is shared by integration tests but its grants are
+		// scoped to this disposable database. Drop the database first so no
+		// permission dependencies remain when removing the cluster role.
+		if _, err := admin.Exec(cleanupCtx, `DROP ROLE IF EXISTS espacigo_runtime`); err != nil {
+			t.Errorf("drop disposable runtime role after database cleanup: %v", err)
+		}
 	})
 
 	if _, err := migrator.Run(setupCtx, testURL, migrationDir); err != nil {

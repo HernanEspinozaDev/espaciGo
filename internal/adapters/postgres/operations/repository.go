@@ -21,18 +21,47 @@ type Repository struct{ pool *pgxpool.Pool }
 func New(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
 
 func (r *Repository) ReserveCandidate(ctx context.Context, actor, reservation, kind, fileID string, at time.Time) error {
-	var allowed bool
-	if err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reserva_ensayo_local
-		WHERE id=$1 AND $2 IN (anfitrion_id::text,arrendatario_id::text))`, reservation, actor).Scan(&allowed); err != nil {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
 		return mapError(err)
 	}
-	if !allowed {
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	var host, renter string
+	if err := tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text
+		FROM public.reserva_ensayo_local WHERE id=$1`, reservation).Scan(&host, &renter); err != nil {
+		return mapError(err)
+	}
+	if actor != host && actor != renter {
 		return operation.ErrNotFound
 	}
-	_, err := r.pool.Exec(ctx, `INSERT INTO public.operacion_arriendo_archivo_candidato_local
+	ids := []string{host, renter}
+	sort.Strings(ids)
+	for i, id := range ids {
+		if i > 0 && ids[i-1] == id {
+			continue
+		}
+		var accountState string
+		if err := tx.QueryRow(ctx, `SELECT estado FROM public.usuario WHERE id=$1 FOR UPDATE`, id).Scan(&accountState); err != nil {
+			return mapError(err)
+		}
+		if accountState != "activo" {
+			return operation.ErrConflict
+		}
+	}
+	var lockedHost, lockedRenter string
+	if err := tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text
+		FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&lockedHost, &lockedRenter); err != nil {
+		return mapError(err)
+	}
+	if lockedHost != host || lockedRenter != renter || actor != lockedHost && actor != lockedRenter {
+		return operation.ErrNotFound
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO public.operacion_arriendo_archivo_candidato_local
 		(archivo_id,reserva_id,actor_id,tipo,estado,creada_en,proximo_intento_en)
-		VALUES($1,$2,$3,$4,'reservado',$5,$5)`, fileID, reservation, actor, kind, at.UTC())
-	return mapError(err)
+		VALUES($1,$2,$3,$4,'reservado',$5,$5)`, fileID, reservation, actor, kind, at.UTC()); err != nil {
+		return mapError(err)
+	}
+	return mapError(tx.Commit(ctx))
 }
 
 func (r *Repository) QueueCandidateCleanup(ctx context.Context, fileID string, at time.Time) error {

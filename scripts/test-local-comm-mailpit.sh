@@ -13,11 +13,34 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/espacigo-comm-test.XXXXXX")"
 SOCKET_DIR="$TMP_DIR/socket"
 mkdir -m 0777 "$SOCKET_DIR"
 cleanup() {
-  docker rm -f "$DB" "$MAILPIT" >/dev/null 2>&1 || true
-  docker network rm "$NETWORK" >/dev/null 2>&1 || true
-  python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1],ignore_errors=True)' "$TMP_DIR"
+  local status=$?
+  trap - EXIT INT TERM
+  docker rm -f "$DB" "$MAILPIT" >/dev/null 2>&1 || status=1
+  docker network rm "$NETWORK" >/dev/null 2>&1 || status=1
+  docker run --rm --network none --user 0:0 \
+    --mount "type=bind,src=$SOCKET_DIR,dst=/socket" \
+    --entrypoint /bin/sh "$PG_IMAGE" -c 'find /socket -mindepth 1 -maxdepth 1 -delete' >/dev/null 2>&1 || status=1
+  rmdir "$SOCKET_DIR" 2>/dev/null || status=1
+  rmdir "$TMP_DIR" 2>/dev/null || status=1
+  for container in "$DB" "$MAILPIT"; do
+    if docker inspect "$container" >/dev/null 2>&1; then
+      printf 'temporary test container survived cleanup: %s\n' "$container" >&2
+      status=1
+    fi
+  done
+  if docker network inspect "$NETWORK" >/dev/null 2>&1; then
+    printf 'temporary test network survived cleanup\n' >&2
+    status=1
+  fi
+  if [[ -e "$TMP_DIR" ]]; then
+    printf 'temporary test directory survived cleanup: %s\n' "$TMP_DIR" >&2
+    status=1
+  fi
+  exit "$status"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 docker network create "$NETWORK" >/dev/null
 docker run -d --name "$DB" --network none --mount "type=bind,src=$SOCKET_DIR,dst=/var/run/postgresql" \
@@ -41,8 +64,30 @@ for _ in $(seq 1 120); do
 done
 python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:$MAILPIT_PORT/api/v1/info',timeout=2).read()" >/dev/null
 
-TEST_DATABASE_URL="postgres://postgres@localhost/postgres?host=$SOCKET_DIR" \
-LOCAL_SMTP_ADDR="127.0.0.1:$SMTP_PORT" \
-LOCAL_MAILPIT_API="http://127.0.0.1:$MAILPIT_PORT" \
-GO_TEST_RUN='TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions|TestV37BackfillsV36ReviewAuthorshipMarker' \
-  go test -p 1 -count=1 -v ./internal/adapters/postgres/reputation
+export TEST_DATABASE_URL="postgres://postgres@localhost/postgres?host=$SOCKET_DIR"
+export LOCAL_SMTP_ADDR="127.0.0.1:$SMTP_PORT"
+export LOCAL_MAILPIT_API="http://127.0.0.1:$MAILPIT_PORT"
+TEST_PACKAGES=("$@")
+if ((${#TEST_PACKAGES[@]} == 0)); then
+  TEST_PACKAGES=(./internal/adapters/postgres/reputation)
+fi
+COUNT="${GO_TEST_COUNT:-1}"
+if ! [[ "$COUNT" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'GO_TEST_COUNT must be a positive integer\n' >&2
+  exit 2
+fi
+if [[ "${LOCAL_QA_GO_JSON:-0}" == 1 ]]; then
+  TEST_FLAGS=()
+  if [[ -n "${GO_TEST_RUN:-}" ]]; then
+    TEST_FLAGS+=(-run "$GO_TEST_RUN")
+  fi
+  go test -p 1 -count="$COUNT" -json "${TEST_FLAGS[@]}" "${TEST_PACKAGES[@]}"
+else
+  TEST_FLAGS=()
+  if [[ -n "${GO_TEST_RUN:-}" ]]; then
+    TEST_FLAGS+=(-run "$GO_TEST_RUN")
+  else
+    TEST_FLAGS+=(-run 'TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions|TestV37BackfillsV36ReviewAuthorshipMarker')
+  fi
+  go test -p 1 -count="$COUNT" -v "${TEST_FLAGS[@]}" "${TEST_PACKAGES[@]}"
+fi
