@@ -1,6 +1,6 @@
 # Backlog propuesto para cerrar el backend local
 
-Fecha inicial: 2026-10-07; conciliación actualizada tras los merges #219/#221 el 2026-10-09. #216 LOCAL-CONT-01, #214 LOCAL-BOOK-02 y #218 LOCAL-OPS-01 fueron aceptadas por sus alcances locales; #218 quedó cerrada/Hecho en Projects. Los padres generales siguen abiertos. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
+Fecha inicial: 2026-10-07; conciliación actualizada tras el merge #234 el 2026-10-10. #216 LOCAL-CONT-01, #214 LOCAL-BOOK-02 y #218 LOCAL-OPS-01 fueron aceptadas por sus alcances locales; #218 quedó cerrada/Hecho en Projects. Los padres generales siguen abiertos. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
 
 ## Convenciones
 
@@ -269,27 +269,52 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras los merges #219/#221 e
 
 ### LOCAL-ADMIN-ARCH-01 — Diseño de permisos, auditoría y outbox local (Issue #232)
 
-- **Módulo/tipo/estado:** M11 / ARCH / en curso; subentrega hija de #111. El padre #111 sigue abierto/bloqueado por la dependencia original #110; #230 está aceptada/Hecho tras PR #231.
+- **Módulo/tipo/estado:** M11 / ARCH / diseño aceptado y Issue cerrada por su alcance tras PR #234; hija de #111. El campo de Projects requiere sincronización cuando se recupere acceso a su API GraphQL. El padre #111 sigue abierto/bloqueado por la dependencia original #110; #230 está aceptada/Hecho tras PR #231.
 - **Propósito:** definir la matriz de permisos administrativos, gobierno de cuenta, productores de auditoría, contrato outbox y división mínima de brechas para culminar M11.
 - **Diseño:** [`diseno_local_admin_arch_01.md`](diseno_local_admin_arch_01.md). Reutiliza #180, #226, #228 y los contratos/ownership existentes. Distingue `evento_auditoria_local`, outbox de credenciales, `aviso_local` y el inbox fake de pagos; no duplica los mecanismos específicos.
 - **Dependencias de la subentrega local:** #230 aceptada; CORE-ARCH #19, CORE-DB #20/#21, CORE-BE #22, CORE-API #23, CORE-TEST #24 y CORE-ENV #25 cerrados. #109/#110 y #111–#118 mantienen sus criterios y vínculos generales.
 - **Brechas mínimas que se reutilizarán:** #112 diseño de contrato/eventos; #113 persistencia/grants si el outbox común se justifica; #114 publicación durable y cobertura de acciones privilegiadas; #115 gobierno de cuentas/reportes; #116 contratos API; #117 pruebas aisladas; #118 mock. Es la descomposición existente; no se crean Issues duplicadas por etapa.
 - **Decisiones ratificadas para prototipo local:** CU-43 admite autenticación restringida, con API allow-list y sin nuevas operaciones comerciales/admin; CU-45 permite dos reportes agregados solo lectura bajo el límite temporal definido. Estas reglas no completan los criterios generales. RNF-043 conserva cinco años de auditoría; RNF-017 productivo, proveedor real y GCP quedan fuera.
-- **Estado:** #232 contiene el diseño ratificado y sigue abierta En revisión; #233 es la subentrega local En curso/Projects. El vínculo de bloqueo por #232 se retiró cuando CU-43/CU-45 quedaron ratificadas. Ni el diseño ni #233 cierran #111 ni completan M11; #112–#118 conservan sus criterios y dependencias.
+- **Estado:** #232 queda cerrada porque matriz de permisos, inventario de auditoría/outbox y división de brechas están documentados y ratificados. #233 queda aceptada/cerrada únicamente por su corte local tras PR #234. La sincronización del campo Projects de ambas Issues sigue pendiente: la API GraphQL no permitió listar/editar el proyecto y no se afirma que el tablero se actualizara. Ni el diseño ni #233 cierran #111 ni completan M11; #112–#118 conservan sus criterios y dependencias.
 - **Aceptación:** snapshot CLP fijo sin retroactividad; operaciones fake idempotentes/durables; gates transaccionales; importes enteros exactos; reintentos/fallos/resultado tardío no duplican; cierre no pierde trazabilidad y bloqueadores de baja consideran toda incertidumbre. No registrar garantía autorizada como ingreso.
 - **Pruebas/evidencia:** límites (0, 1, 50.000 y >50.000), reclamo aceptado/rechazado, rechazo/vencimiento/timeouts, resultado tardío, cierre 24 h, cancelación, carreras, reinicio/conciliación y rol runtime están cubiertos por la integración desechable publicada y sus pruebas focalizadas; evidencia de aceptación/migración V40 y HTTP posterior al merge: [`local-fin-01-20261009.md`](evidence/local-fin-01-20261009.md). El recorrido de negocio se verifica por integración API; no se afirma automatización de navegador sobre los datos persistentes.
 - **Riesgo:** confundir comisión con fondos de terceros o simular liquidación como pago confirmado real.
 
 ### LOCAL-ADMIN-01C — Bloqueo restringido de cuentas y reportes fake (Issue #233)
 
-- **Módulo/tipo/estado:** M11 / VERTICAL DB-BE-API-TEST-MOCK / en curso; hija de #111 y ligada al diseño #232. #111–#118 permanecen abiertos por criterios generales.
+- **Módulo/tipo/estado:** M11 / VERTICAL DB-BE-API-TEST-MOCK / aceptada y cerrada solo por LOCAL-ADMIN-01C tras PR #234; hija de #111 y trazada al diseño #232. El campo Projects debe sincronizarse cuando vuelva a estar accesible. #111–#118 permanecen abiertos por criterios generales.
 - **Objetivo y motivo:** ejecutar la parte local ratificada de CU-43 y el catálogo parcial de CU-45, sin pretender cubrir el gobierno administrativo completo.
 - **Alcance:** migración V41 para estado actual de bloqueo e historial; bloqueo/desbloqueo admin auditado; revocar sesiones y tokens anteriores; permitir nueva autenticación en modo restringido con allow-list de rutas reales de reservas propias y operaciones que cada módulo ya permita; impedir publicación/cotización/reserva y administración. Reportes read-only de reservas por estado actual y hechos financieros fake confirmados/obligaciones pendientes, con periodo IANA inclusivo/exclusivo de hasta 31 días, CLP y sin datos personales. Mock integrado, OpenAPI y pruebas focalizadas. PR #234 corrige las rutas reales de evidencia/historial, CORS en errores, el mensaje 403 del mock y el tratamiento V42 de exportación/baja; el plazo del historial queda pendiente de ratificación.
 - **Fuera:** cancelaciones/fondos por bloqueo; permisos nuevos de reserva; roles por preferencia; KPI generales, comisión/liquidación/boleta, outbox general, proveedor real y GCP.
 - **Dependencias:** diseño y decisiones CU-43/CU-45 ratificadas en #232; identidad/sesiones/auditoría #180; reserva, contrato, mensajes, disputas y finanzas fake existentes. No depende de cerrar #110 ni los padres PRIV/M06/M10; no desbloquea #112–#118 ni LOCAL-CORE-02.
-- **Aceptación:** la API hace cumplir allow-list y ownership en cada llamada; bloqueos concurrentes con altas se coordinan por bloqueo de cuenta; desbloquear exige sesión nueva; los reportes no reconcilian ni mutan; eventos confirmados y pendientes quedan separados sin contar autorizaciones como ingreso ni reintentos como operaciones nuevas.
-- **Pruebas/evidencia:** integración PostgreSQL desechable con cuenta bloqueada y no bloqueada, sesión/tokens revocados, reportes por rol, límites calendario DST, auditoría, reintento de pago y conteos cotejados con ledger; ver [`local-admin-01c-20261009.md`](evidence/local-admin-01c-20261009.md).
+- **Aceptación:** PR #234 fusionado en `main` (`cfdbcc1`). La API hace cumplir allow-list y ownership en cada llamada; bloqueos concurrentes con altas se coordinan por bloqueo de cuenta; desbloquear exige sesión nueva; los reportes no reconcilian ni mutan; eventos confirmados y pendientes quedan separados sin contar autorizaciones como ingreso ni reintentos como operaciones nuevas.
+- **Pruebas/evidencia:** comprobación posterior al merge aplicó V41/V42 incrementalmente, comprobó salud HTTP y conservó volumen/secretos; integraciones PostgreSQL desechables verificaron cuenta bloqueada, sesión restringida, consultas propias/terceros, desbloqueo y ambos reportes. Ver [`local-admin-01c-20261009.md`](evidence/local-admin-01c-20261009.md).
 - **Riesgo:** permitir que el middleware de UI sustituya la autorización Backend, o interpretar el reporte de estado vigente como historial de estados.
+
+### LOCAL-ADMIN-01D — Cobertura financiera del ledger y conciliación de #112–#114
+
+- **Módulo/tipo/estado:** M11 / DB-BE-TEST / en PR para revisión; parte de #112–#114, hija funcional trazable a #111. No crea Issue duplicada ni cierra #112/#113/#114.
+- **Objetivo:** conciliar los criterios nativos de diseño de auditoría/outbox (#112), persistencia (#113) y productor Backend (#114) con los schemas y productores ya aceptados en `main`, corrigiendo los descriptores obsoletos de publicación M04, contrato M07 y garantía fake M10.
+- **Matriz de criterios:** consultar [`diseno_local_admin_arch_01.md`](diseno_local_admin_arch_01.md), [`matriz_cierre_backend_local.md`](matriz_cierre_backend_local.md), [`trazabilidad_requisitos_backend_local.md`](trazabilidad_requisitos_backend_local.md) y la evidencia específica del PR. Cada requisito se marca aceptado localmente, brecha funcional, brecha de evidencia, decisión pendiente o integración externa.
+- **Cobertura finita del cambio:** `local.finance.decision`, `local.finance.guarantee.operation` (solo captura/liberación admin) y `local.finance.guarantee.reconcile`. La autorización iniciada por el arrendatario, los vencimientos y otros hechos del dominio conservan el historial de su owner. Eventos mínimos, append-only, dentro de la transacción dueña, sin importes, texto libre ni respuesta del fake; replay no duplica. Reutiliza auditoría y retención vigente de cinco años, solo para auditoría.
+- **Persistencia:** V43 extiende el constraint de acciones que pueden usar clave idempotente. No crea outbox genérico ni cambia grants existentes; `espacigo_runtime` ya inserta el ledger y no puede actualizar/borrar filas.
+- **Decisión de outbox:** no hay en la línea base actual un nuevo consumidor que justifique evento compartido; credenciales (#198/#199), avisos de ensayo (#220) y eventos entrantes de pago fake (#74) mantienen schemas/workers/retenciones distintos. No heredar plazo común. Si aparece un productor futuro, primero debe demostrar finalidad, owner, consumer, dedupe, recuperación y retención.
+- **Fuera:** outbox/event bus genérico, cambio de retenciones especializadas, promover campañas/NPS, nuevos reportes, exactly-once, inmutabilidad productiva RNF-017, proveedores reales, BigQuery y GCP.
+- **Dependencias satisfechas para el slice:** #180 audit/roles; #224 operations fake; #228 consulta/export del ledger; V40 y runtime grants. #110 sigue como dependencia nativa abierta del padre #111; no se altera el grafo para habilitar este corte local.
+- **Validación:** integración PostgreSQL desechable con `espacigo_runtime`; confirmar decisión + captura + liberación + conciliación con actor/recurso/código/correlación, vencimiento de auditoría a cinco años, reintentos sin duplicados, ausencia de monto/payload y rollback si falla la inserción de auditoría. Reutilizar la aceptación de workers existentes; no repetir flujos no afectados.
+- **Estado general:** #112 puede aceptar la decisión local de diseño una vez revisada; #113/#114 permanecen abiertos por criterios generales y posibles futuros productores. M11/LOCAL-ADMIN-01 no se declara completo.
+
+### Conciliación de criterios #112–#114
+
+| Criterio | Clasificación vigente | Referencia |
+|---|---|---|
+| Auditoría append-only, proyección mínima, consulta/exportación y retención de 5 años | Aceptado localmente como base/consulta; cobertura de productores se evalúa por acción | #180/#228 y V22+; RNF-043 solo aplica a auditoría. |
+| Acciones administrativas existentes de credenciales, baja, KYC, moderación, reclamos, gobierno y lecturas | Aceptado localmente en productores específicos; reutilizar historial de cada owner | Inventario en `diseno_local_admin_arch_01.md`; evidencia previa por corte. |
+| Decisión financiera, captura/liberación y conciliación fake ejecutadas por administrador | Brecha funcional; implementada en esta PR, pendiente de aceptación humana | V43 + `guarantee.go`; PostgreSQL desechable. |
+| Outbox universal con lease/dedup/orden y publicador único | Decisión resuelta para la línea base actual: no se justifica por productores/consumidores autorizados | Outboxes e inbox especializados ya persisten su ciclo y su retención. No migrar a tabla común solo por homonimia con el backlog. |
+| Campañas/promociones/NPS y sus payloads/retención | Decisión pendiente/diferido por MAP-07 | No crear productores ni cambiar Projects a Listo. |
+| Fallos/restarts/reintentos de los workers especializados existentes | Aceptado localmente con sus tests previos; brecha de evidencia solo si se modifica un worker | #198/#220/#74. Esta PR no los cambia. |
+| Pub/Sub, BigQuery, bloqueo de almacenamiento/inmutabilidad y proveedores externos | Integración externa | No se prueba ni despliega como parte de LOCAL-1. |
 
 ### LOCAL-ADMIN-01 — Completar gobierno y administración
 

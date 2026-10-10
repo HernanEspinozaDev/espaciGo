@@ -1,6 +1,6 @@
 # LOCAL-ADMIN-01C — bloqueo restringido y reportes locales
 
-Estado: **implementación para revisión**, vinculada a la Issue hija #233 de #111. No es una aceptación humana ni cierra M11. La matriz de cierre queda actualizada en `matriz_cierre_backend_local.md`.
+Estado: **aceptada para este alcance local** tras el merge del PR #234 en `main` (`cfdbcc1`), vinculada a la Issue hija #233 de #111. No cierra M11. La matriz de cierre queda actualizada en `matriz_cierre_backend_local.md`.
 
 ## Alcance y trazabilidad
 
@@ -35,3 +35,10 @@ Estado: **implementación para revisión**, vinculada a la Issue hija #233 de #1
 ## Pendientes explícitos
 
 CU-45 queda aceptado solo en los dos reportes locales descritos. Continúan abiertos #111–#118 por los criterios transversales de permisos, productores de auditoría, outbox común, administración y reportes generales. No se declara completo M11 ni se desbloquea LOCAL-CORE-02. Los padres #109/#110, #185/#40 y las obligaciones de proveedor real siguen abiertos. No se incorpora GCP.
+
+## Comprobación posterior al merge — 2026-10-10
+
+- PR #234 quedó integrado en `main` con merge `cfdbcc1941de58c4db07b554560c877cd01ea1ea`. `bash scripts/dev-env.sh up -d` aplicó V41/V42 de forma incremental; `schema_migrations` confirmó ambas versiones. `bash scripts/dev-env.sh verify-http` pasó (9 comprobaciones de salud, CORS/preflight y recursos del mock).
+- Recorrido focalizado con autenticación/router reales y PostgreSQL desechable, reutilizando el harness publicado: `GO_TEST_RUN='^(TestLocalAdminBlockRevokesSessionsAndAllowsOnlyRestrictedLogin|TestLocalDisputeBlocksBothParticipantsUntilAdministratorCloses)$' bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/identity` — PASS. Verificó bloqueo y revocación, inicio restringido, consulta de evidencia/historial propios, 404 para recursos ajenos, rechazo de nuevas cotización/reserva, ambos reportes locales (reservas y finanzas fake), desbloqueo, invalidación de la sesión restringida y nuevo login normal.
+- El volumen `espacigo_pgdata` conservó su nombre y fecha de creación (`2026-10-05T01:49:09-03:00`). Los cuatro secretos locales permanecen presentes con modo `600`; no se imprimió su contenido. No se ejecutó `clean`, no se borraron datos y no hubo trabajo de GCP.
+- #233 se cerró por este corte local. #232 se cerró porque su matriz de permisos, inventario audit/outbox y descomposición de brechas quedaron documentados y ratificados; ninguno de ambos cierres completa #111–#118 ni M11. La retención del historial de bloqueos permanece pendiente de ratificación. Se intentó sincronizar ambos campos a Hecho en Projects: `gh project list --owner HernanEspinozaDev` devolvió `unknown owner type` y las consultas de Project del usuario autenticado devolvieron `GraphQL: API rate limit already exceeded`; por ello no se afirma que el tablero haya sido actualizado.
