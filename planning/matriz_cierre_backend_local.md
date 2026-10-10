@@ -57,8 +57,8 @@ La matriz de ownership autorizada contiene 43 entidades. La línea base previa a
 | 22 | `evento_proveedor` / M06 | Parcial: inbox de evento fake autenticado/deduplicado; no contrato ni callback de proveedor real. |
 | 23 | `movimiento_financiero` / M10 | Sin modelo/ledger financiero. |
 | 24 | `garantia` / M10 | Parcial local: V40 aporta snapshot y operaciones fake de autorización/captura/liberación; no es custodia ni proveedor de garantía real. |
-| 25 | `liquidacion` / M10 | Sin modelo de conciliación/liquidación. |
-| 26 | `documento_tributario` / M10 | Sin modelo; emisión y reglas fiscales fuera del fake local. |
+| 25 | `liquidacion` / M10 | Parcial local, pendiente de aceptación: V44 `reserva_liquidacion_ensayo_local` conserva intención, política/monto snapshot, resultado fake, reconciliación y auditoría; no mueve dinero real. |
+| 26 | `documento_tributario` / M10 | Parcial de ensayo pendiente de aceptación: `reserva_comprobante_ensayo_local` produce JSON `comprobante_ensayo` con aviso no fiscal; no es documento tributario ni folio válido. |
 | 27 | `contrato` / M07 | Parcial: contrato snapshot versionado y artefacto privado sintético en `contrato_ensayo_local`; proveedor/retención general pendientes. |
 | 28 | `firma_contrato` / M07 | Parcial: `contrato_ensayo_firma` y su historial conservan firma/rechazo fake; firma legal/proveedor pendientes. |
 | 29 | `operacion_arriendo` / M08 | Parcial en PR #218: check-in/out/recepción sintéticos en `operacion_arriendo_ensayo_local`; criterios de aviso y operación general pendientes. |
@@ -107,3 +107,8 @@ Las tablas locales adicionales —perfiles versionados, simulación privada, fix
 Issue hija #177 bajo #77, añadida al Project con HernanMEC. Mantiene abiertas las relaciones generales #77 → #75 → #73 → #65.
 
 El commit `aa06d3759312623830d172d1eabd6c07feeb42b8` añade la integración seleccionada: dos reservas persistidas adyacentes, `23P01` directo con runtime y traducción a HTTP 409 sin filas parciales. Resultado y límites en [`evidence/local-book-01-20261007.md`](evidence/local-book-01-20261007.md). No se ejecutó prueba GCP. La integración usa únicamente una instancia PostgreSQL desechable; la base `espacigo_pgdata` y sus secretos no participan.
+
+
+## LOCAL-FIN-SETTLEMENT-01 (#236) — implementación en revisión
+
+#236 se añadió al Project 1 y está `En revisión` por PR #237. V44/V45 incluyen política local versionada 0 bps, intención fake persistente, resultado separado, historial, comprobante y el bloqueador de baja/purga previo a la intención. DB, servicio, rutas/OpenAPI y mock se revisan en ese PR. Evidencia PostgreSQL desechable: [`local-fin-settlement-20261010.md`](evidence/local-fin-settlement-20261010.md). #109/#110, comisión productiva, proveedor real/sandbox, documento fiscal y demás M10 permanecen abiertos. MAP-07 difiere campañas/promociones/NPS (RQF-183/RQF-236, RNF-018/026/029 donde aplica, CU-52/HU26–27; HU24/HU29 sin RF autorizado); no se marcan satisfechos.

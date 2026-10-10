@@ -515,7 +515,7 @@ paths:
                   outcome: { type: string, enum: [bloqueada, elegible, revision_incompleta] }
                   obligations_detected:
                     type: array
-                    items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente, disputa_abierta] }
+                    items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente, disputa_abierta, liquidacion_pendiente] }
                   pending_checks:
                     type: array
                     description: fuente_disputas_no_modelada solo puede aparecer al reproducir evaluaciones históricas guardadas antes de V24.
@@ -563,7 +563,7 @@ paths:
                   decision_code: { type: string, enum: [supresion_bloqueada_por_obligaciones, baja_elegible_privacidad_local_v1] }
                   obligations_detected:
                     type: array
-                    items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente, disputa_abierta] }
+                    items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente, disputa_abierta, liquidacion_pendiente] }
                   removed: { type: array, items: { type: string } }
                   retained: { type: array, items: { type: string } }
                   pending_files: { type: integer, minimum: 0 }
@@ -1594,6 +1594,65 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations/{reservationId}/settlement:
+    parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: getOwnLocalSettlement
+      tags: [M10 local]
+      description: Consulta de solo lectura para participantes; un administrador activo también puede consultar desde su bandeja administrativa. No inicia la transferencia.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Estado e importes separados de la liquidación fake., content: { application/json: { schema: { $ref: '#/components/schemas/LocalSettlementEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: requestLocalFakeSettlement
+      tags: [M10 local]
+      description: Solo el anfitrión. Persiste una única intención después del check-out + 24 horas y de verificar obligaciones; reintentos reutilizan la misma clave. Timeout queda pendiente y no se presenta como pagado. No incluye garantía ni captura por daños.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [outcome], properties: { outcome: { type: string, enum: [exito, rechazo, sin_respuesta] } } }
+      responses:
+        '202': { description: Resultado fake persistido o incierto para la misma operación., content: { application/json: { schema: { $ref: '#/components/schemas/LocalSettlementEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/reservations/{reservationId}/settlement-reconcile:
+    parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: reconcileLocalFakeSettlement
+      tags: [M10 local]
+      description: Solo administrador; resuelve una operación incierta persistida sin iniciar una segunda transferencia.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [outcome], properties: { outcome: { type: string, enum: [exito, rechazo] } } }
+      responses:
+        '200': { description: Resultado persistido, conciliado una sola vez., content: { application/json: { schema: { $ref: '#/components/schemas/LocalSettlementEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /local/booking-trial/reservations/{reservationId}/receipt:
+    parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: getOwnLocalSettlementReceipt
+      tags: [M10 local]
+      description: Solo participantes; comprobante JSON de ensayo generado únicamente para una liquidación confirmada. Sin validez fiscal ni movimientos reales.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Comprobante versionado de ensayo., content: { application/json: { schema: { $ref: '#/components/schemas/LocalSettlementReceiptEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /local/booking-trial/reservations/{reservationId}/guarantee:
     parameters: [{ name: reservationId, in: path, required: true, schema: { type: string, format: uuid } }]
     get:
@@ -3017,7 +3076,7 @@ components:
         data: { $ref: '#/components/schemas/LocalBookingQuote' }
     LocalBookingQuote:
       type: object
-      required: [id, space_id, rate_version, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, category_code, profile_version, profile_values, cancellation_policy_version, guarantee_policy_version, guarantee_currency, guarantee_expected_clp, created_at, expires_at]
+      required: [id, space_id, rate_version, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, conditions, category_code, profile_version, profile_values, cancellation_policy_version, guarantee_policy_version, guarantee_currency, guarantee_expected_clp, settlement_policy_version, settlement_commission_bps, created_at, expires_at]
       properties:
         id: { type: string, format: uuid }
         space_id: { type: string, format: uuid }
@@ -3038,6 +3097,8 @@ components:
         guarantee_policy_version: { type: string, const: garantia_local_fija_v1 }
         guarantee_currency: { type: string, const: CLP }
         guarantee_expected_clp: { type: integer, const: 50000, description: Snapshot exclusivo para nuevas cotizaciones del prototipo. No es un pago ni modifica reservas históricas. }
+        settlement_policy_version: { type: string, const: liquidacion_local_0pct_v1 }
+        settlement_commission_bps: { type: integer, const: 0, description: Comisión parametrizada del ensayo local; no decisión comercial productiva. }
         created_at: { type: string, format: date-time }
         expires_at: { type: string, format: date-time }
     LocalBookingReservationEnvelope:
@@ -3223,6 +3284,8 @@ components:
         guarantee_policy_version: { type: [string, 'null'], enum: [garantia_local_fija_v1, null] }
         guarantee_currency: { type: [string, 'null'], enum: [CLP, null] }
         guarantee_expected_clp: { type: [integer, 'null'], enum: [50000, null], description: Ausente/null únicamente para reservas históricas previas a V40. }
+        settlement_policy_version: { type: [string, 'null'], enum: [liquidacion_local_0pct_v1, null], description: Ausente/null únicamente para reservas históricas previas a V44. }
+        settlement_commission_bps: { type: [integer, 'null'], enum: [0, null], description: Snapshot local; no asignado retroactivamente a reservas históricas. }
         refund_id: { type: string, format: uuid }
         refund_operation_id: { type: string, format: uuid }
         refund_amount_clp: { type: integer, minimum: 1 }
@@ -3240,6 +3303,53 @@ components:
       properties:
         safety_notice: { type: string, const: 'ENSAYO LOCAL — SIN COBRO REAL' }
         data: { $ref: '#/components/schemas/LocalGuarantee' }
+    LocalSettlementEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: 'ENSAYO LOCAL — SIN VALIDEZ FISCAL — SIN MOVIMIENTOS REALES' }
+        data: { $ref: '#/components/schemas/LocalSettlement' }
+    LocalSettlementReceiptEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        safety_notice: { type: string, const: 'ENSAYO LOCAL — SIN VALIDEZ FISCAL — SIN MOVIMIENTOS REALES' }
+        data: { $ref: '#/components/schemas/LocalSettlementReceipt' }
+    LocalSettlement:
+      type: object
+      required: [id, reservation_id, policy_version, currency, gross_rent_clp, confirmed_refunds_clp, commission_bps, commission_clp, transfer_clp, state, operation_id, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        reservation_id: { type: string, format: uuid }
+        policy_version: { type: string, const: liquidacion_local_0pct_v1 }
+        currency: { type: string, const: CLP }
+        gross_rent_clp: { type: integer, minimum: 0 }
+        confirmed_refunds_clp: { type: integer, minimum: 0 }
+        commission_bps: { type: integer, minimum: 0, maximum: 10000 }
+        commission_clp: { type: integer, minimum: 0 }
+        transfer_clp: { type: integer, minimum: 0 }
+        state: { type: string, enum: [pendiente, por_conciliar, liquidada, rechazada] }
+        operation_id: { type: string, format: uuid }
+        last_result: { type: string, enum: [exito_simulado, rechazo_simulado, sin_respuesta_simulada] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        reused: { type: boolean }
+    LocalSettlementReceipt:
+      type: object
+      required: [version, kind, banner, receipt_id, reservation_id, policy_version, currency, gross_rent_clp, confirmed_refunds_clp, commission_clp, transfer_clp, confirmed_at]
+      properties:
+        version: { type: integer, const: 1 }
+        kind: { type: string, const: comprobante_ensayo }
+        banner: { type: string, const: 'ENSAYO LOCAL — SIN VALIDEZ FISCAL — SIN MOVIMIENTOS REALES' }
+        receipt_id: { type: string, format: uuid, description: Identificador técnico interno sin folio fiscal. }
+        reservation_id: { type: string, format: uuid }
+        policy_version: { type: string, const: liquidacion_local_0pct_v1 }
+        currency: { type: string, const: CLP }
+        gross_rent_clp: { type: integer, minimum: 0 }
+        confirmed_refunds_clp: { type: integer, minimum: 0 }
+        commission_clp: { type: integer, minimum: 0 }
+        transfer_clp: { type: integer, minimum: 0 }
+        confirmed_at: { type: string, format: date-time }
     LocalGuaranteeOperationEnvelope:
       type: object
       required: [data, safety_notice]

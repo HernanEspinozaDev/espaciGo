@@ -22,6 +22,7 @@ import { AdminAuditState } from "./admin-audit-state.js";
 import { consumeAdminAuditExportResponse } from "./admin-audit-export-state.js";
 import { adminLocalContextMatches, captureAdminLocalContext } from "./admin-local-state.js";
 import { apiErrorMessage } from "./api-error.js";
+import { LocalSettlementState } from "./local-settlement-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -59,6 +60,8 @@ let adminReservationItems = [];
 let selectedAdminReservationID = "";
 const adminAuditState = new AdminAuditState();
 let adminAuditItems = [];
+let adminSettlementRevision = 0;
+let selectedAdminSettlement = null;
 async function request(path, method = "GET", body, authenticated = false, idempotencyKey) {
     if (!apiBase)
         throw new Error("API local aún no disponible.");
@@ -112,7 +115,7 @@ async function requestArchive(path, bearer) {
 async function action(work) {
     const buttons = [...document.querySelectorAll("button")];
     try {
-        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); refreshStandaloneGuaranteeControls(); refreshAdminReservationControls(); refreshAdminAuditControls(); refreshAdminLocalControls(); });
+        await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); refreshStandaloneGuaranteeControls(); refreshSettlementControls(); refreshAdminReservationControls(); refreshAdminAuditControls(); refreshAdminLocalControls(); });
     }
     catch (error) {
         resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API.";
@@ -1647,6 +1650,156 @@ let reviewRequestRevision = 0;
 let selectedReservationReviews = [];
 let selectedGuarantee = null;
 const guaranteeRetryKeys = new Map();
+const localSettlementState = new LocalSettlementState();
+let selectedSettlement = null;
+let settlementRevision = 0;
+function settlementCurrent(context) { return localSettlementState.accepts(context, { reservationID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }); }
+function refreshSettlementControls() {
+    const hostStart = document.querySelector("#local-settlement-start"), load = document.querySelector("#local-settlement-load"), reconcile = document.querySelector("#local-settlement-reconcile"), receipt = document.querySelector("#local-settlement-receipt");
+    if (!hostStart || !load || !reconcile || !receipt)
+        return;
+    const item = selectedReservation, participant = Boolean(item && sessionAccountID && (item.host_id === sessionAccountID || item.renter_id === sessionAccountID));
+    const pending = Boolean(selectedSettlement && (selectedSettlement.state === "pendiente" || selectedSettlement.state === "por_conciliar"));
+    const existing = Boolean(item && selectedSettlement?.reservation_id === item.id), retryable = Boolean(item && localSettlementState.get(item.id));
+    hostStart.disabled = !sessionToken || !item || item.host_id !== sessionAccountID || item.state !== "finalizada" || existing && !retryable || localSettlementState.isInFlight(item.id);
+    const outcome = document.querySelector("#local-settlement-outcome");
+    if (outcome)
+        outcome.disabled = existing;
+    load.disabled = !sessionToken || !participant || !item;
+    reconcile.disabled = !sessionToken || !sessionRoles.includes("administrador") || !selectedSettlement || selectedSettlement.state !== "por_conciliar" || localSettlementState.isInFlight(selectedSettlement.reservation_id);
+    receipt.disabled = !sessionToken || !participant || !selectedSettlement || selectedSettlement.state !== "liquidada";
+}
+function clearSettlement(message) {
+    settlementRevision++;
+    localSettlementState.clear();
+    selectedSettlement = null;
+    const output = document.querySelector("#local-settlement-output");
+    if (output)
+        output.textContent = message;
+    const outcome = document.querySelector("#local-settlement-outcome");
+    if (outcome) {
+        outcome.value = "exito";
+        outcome.disabled = false;
+    }
+    const reconcileOutcome = document.querySelector("#local-settlement-reconcile-outcome");
+    if (reconcileOutcome)
+        reconcileOutcome.value = "exito";
+    refreshSettlementControls();
+}
+function renderSettlement(value, message) {
+    selectedSettlement = value;
+    const output = document.querySelector("#local-settlement-output");
+    if (!value) {
+        output.textContent = message ?? "Aún no existe una liquidación para esta reserva. La consulta no inicia transferencias.";
+        refreshSettlementControls();
+        return;
+    }
+    const stateLabel = { pendiente: "pendiente de resultado", por_conciliar: "resultado incierto; requiere conciliación", liquidada: "liquidación fake confirmada", rechazada: "transferencia fake rechazada" };
+    output.textContent = `${value.policy_version} · ${stateLabel[value.state] ?? value.state}${value.reused ? " · resultado persistido reutilizado" : ""}\nArriendo confirmado: ${value.gross_rent_clp.toLocaleString("es-CL")} CLP\nDevoluciones confirmadas: ${value.confirmed_refunds_clp.toLocaleString("es-CL")} CLP\nComisión local ${value.commission_bps} bps: ${value.commission_clp.toLocaleString("es-CL")} CLP\nTransferencia fake: ${value.transfer_clp.toLocaleString("es-CL")} CLP\nResultado: ${value.last_result ?? "pendiente"}\nActualizada: ${new Date(value.updated_at).toLocaleString("es-CL")}\nENSAYO LOCAL — SIN VALIDEZ FISCAL — SIN MOVIMIENTOS REALES${message ? `\n${message}` : ""}`;
+    refreshSettlementControls();
+}
+async function loadSettlement(reservationID = selectedReservationID) {
+    if (!reservationID || !sessionToken)
+        throw new Error("Inicia sesión y selecciona una reserva propia.");
+    const context = localSettlementState.capture(reservationID, sessionAccountID, sessionToken, sessionGeneration), revision = ++settlementRevision;
+    try {
+        const response = await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/settlement`, "GET", undefined, true);
+        if (revision !== settlementRevision || !settlementCurrent(context))
+            return;
+        renderSettlement(bookingData(response));
+    }
+    catch (error) {
+        if (revision !== settlementRevision || !settlementCurrent(context))
+            return;
+        if (error instanceof Error && /HTTP 404|not_found/i.test(error.message)) {
+            renderSettlement(null, "No existe liquidación. Consultar no crea operaciones.");
+            return;
+        }
+        throw error;
+    }
+}
+async function startLocalSettlement() {
+    const item = selectedReservation;
+    if (!item || selectedReservationID !== item.id)
+        throw new Error("Selecciona una reserva propia finalizada.");
+    const requested = (document.querySelector("#local-settlement-outcome")).value;
+    const attempt = localSettlementState.begin(item.id, requested, () => crypto.randomUUID());
+    if (!attempt)
+        throw new Error("La operación de liquidación ya está en curso.");
+    const context = localSettlementState.capture(item.id, sessionAccountID, sessionToken, sessionGeneration), revision = ++settlementRevision;
+    refreshSettlementControls();
+    try {
+        let response;
+        try {
+            response = await request(`${bookingBase}/reservations/${encodeURIComponent(item.id)}/settlement`, "POST", { outcome: attempt.outcome }, true, attempt.idempotencyKey);
+        }
+        catch (error) {
+            localSettlementState.finish(item.id, false);
+            if (revision !== settlementRevision || !settlementCurrent(context))
+                return;
+            await loadSettlement(item.id);
+            if (!settlementCurrent(context))
+                return;
+            if (selectedSettlement && (selectedSettlement.state === "liquidada" || selectedSettlement.state === "rechazada")) {
+                localSettlementState.finish(item.id, true);
+                renderSettlement(selectedSettlement, "El estado terminal confirmado por la API prevalece sobre el error de transporte.");
+                return;
+            }
+            const message = error instanceof Error ? error.message : "No se recibió respuesta del Backend.";
+            if (/HTTP (401|403|404|409|422),/.test(message)) {
+                localSettlementState.finish(item.id, true);
+                throw error;
+            }
+            throw new Error(`Resultado incierto; la misma clave quedó conservada para consultar o reintentar. ${message}`);
+        }
+        if (revision !== settlementRevision || !settlementCurrent(context))
+            return;
+        const value = bookingData(response);
+        renderSettlement(value, value.state === "por_conciliar" ? "Resultado incierto; usa conciliación administrativa sobre esta misma operación." : undefined);
+        localSettlementState.finish(item.id, value.state === "liquidada" || value.state === "rechazada");
+        if (settlementCurrent(context))
+            await loadBookingInbox();
+    }
+    finally {
+        if (revision === settlementRevision) {
+            localSettlementState.finish(item.id, false);
+            refreshSettlementControls();
+        }
+    }
+}
+async function reconcileLocalSettlement() {
+    const item = selectedReservation, value = selectedSettlement;
+    if (!item || !value || value.reservation_id !== item.id || value.state !== "por_conciliar")
+        throw new Error("Selecciona una liquidación incierta para conciliar.");
+    const context = localSettlementState.capture(item.id, sessionAccountID, sessionToken, sessionGeneration), revision = ++settlementRevision;
+    const outcome = (document.querySelector("#local-settlement-reconcile-outcome")).value;
+    const response = await request(`${bookingBase}/reservations/${encodeURIComponent(item.id)}/settlement-reconcile`, "POST", { outcome }, true);
+    if (revision !== settlementRevision || !settlementCurrent(context))
+        return;
+    const updated = bookingData(response);
+    renderSettlement(updated, "Conciliación del resultado persistido; no se creó otra transferencia.");
+    if (settlementCurrent(context))
+        await loadBookingInbox();
+}
+async function downloadLocalReceipt() {
+    const item = selectedReservation;
+    if (!item)
+        throw new Error("Selecciona una reserva propia.");
+    const context = localSettlementState.capture(item.id, sessionAccountID, sessionToken, sessionGeneration), revision = ++settlementRevision;
+    const response = await request(`${bookingBase}/reservations/${encodeURIComponent(item.id)}/receipt`, "GET", undefined, true);
+    if (revision !== settlementRevision || !settlementCurrent(context))
+        return;
+    const receipt = bookingData(response), blob = new Blob([JSON.stringify(receipt, null, 2)], { type: "application/json" }), url = URL.createObjectURL(blob), link = document.createElement("a");
+    link.href = url;
+    link.download = `comprobante-ensayo-${receipt.receipt_id}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    document.querySelector("#local-settlement-output").textContent = `${receipt.banner}\nComprobante_ensayo v${receipt.version} · ${receipt.transfer_clp.toLocaleString("es-CL")} ${receipt.currency} · ${new Date(receipt.confirmed_at).toLocaleString("es-CL")}\nDescarga JSON generada solo desde una liquidación fake confirmada.`;
+}
+document.querySelector("#local-settlement-start").addEventListener("click", () => void action(startLocalSettlement));
+document.querySelector("#local-settlement-load").addEventListener("click", () => void action(() => loadSettlement()));
+document.querySelector("#local-settlement-reconcile").addEventListener("click", () => void action(reconcileLocalSettlement));
+document.querySelector("#local-settlement-receipt").addEventListener("click", () => void action(downloadLocalReceipt));
 let pendingMessageKey = "";
 let pendingMessageBody = "";
 let cancellationPreview = null;
@@ -2766,6 +2919,7 @@ function clearBookingInboxOnSessionLoss() {
     if (localNoticeOutput)
         localNoticeOutput.textContent = "Requiere rol administrador.";
     clearReservationReviews("Inicia sesión y selecciona una reserva propia.");
+    clearSettlement("La sesión terminó; inicia sesión para consultar la liquidación de una reserva propia.");
     selectedGuarantee = null;
     guaranteeRetryKeys.clear();
     const guaranteeOutput = document.querySelector("#booking-guarantee-output");
@@ -3064,8 +3218,10 @@ async function loadDisputeAdminQueue() {
     document.querySelector("#local-dispute-admin-status").textContent = `${disputeAdminItems.length} incidencia(s) abierta(s). El cierre es administrativo y no económico.`;
 }
 async function loadReservationDetail(id) {
-    if (selectedReservationID !== id)
+    if (selectedReservationID !== id) {
         reservationSelectionRevision++;
+        clearSettlement("Selecciona una reserva propia para consultar la liquidación y el comprobante de ensayo.");
+    }
     bookingRequestState.select(id);
     selectedReservationID = id;
     selectedReservation = null;
@@ -3105,6 +3261,15 @@ async function loadReservationDetail(id) {
         return;
     await loadReservationDisputes(id);
     await loadConversationPage(id, null, false);
+    if (!stillCurrent() || !selectedReservation)
+        return;
+    try {
+        await loadSettlement(id);
+    }
+    catch (error) {
+        if (stillCurrent())
+            document.querySelector("#local-settlement-output").textContent = error instanceof Error ? error.message : "No se pudo consultar la liquidación.";
+    }
     if (!stillCurrent() || !selectedReservation)
         return;
     conversationStatus.textContent = `Conversación local · ${selectedReservation.state}. ${canSendConversation(sessionAccountID, selectedReservation) ? "Puedes enviar texto plano en este estado." : "Solo lectura: el estado de la reserva no permite enviar."}`;
@@ -3203,6 +3368,7 @@ async function loadBookingInbox(reloadSelected = true) {
         bookingRequestState.invalidate();
         selectedReservationID = "";
         selectedReservation = null;
+        clearSettlement("La reserva seleccionada ya no está en tu bandeja.");
         clearDisputes("La reserva seleccionada ya no está en tu bandeja.");
         bookingHistoryOutput.textContent = "La reserva seleccionada ya no está en tu bandeja.";
         bookingPaymentOutput.textContent = "Selecciona una reserva propia para consultar el pago.";
@@ -3359,6 +3525,7 @@ function clearAdminReservationView(message = "Requiere rol administrador.") {
     adminReservationsState.clear();
     adminReservationItems = [];
     selectedAdminReservationID = "";
+    clearAdminSettlement(message);
     document.querySelector("#local-admin-reservations-filter")?.reset();
     const list = document.querySelector("#local-admin-reservations-items");
     list?.replaceChildren();
@@ -3404,6 +3571,7 @@ function resetAdminReservationSearchForCriteria() {
         return;
     adminReservationItems = [];
     selectedAdminReservationID = "";
+    clearAdminSettlement("Los filtros cambiaron; vuelve a seleccionar una reserva.");
     document.querySelector("#local-admin-reservations-items")?.replaceChildren();
     const detail = document.querySelector("#local-admin-reservations-detail");
     if (detail)
@@ -3424,6 +3592,7 @@ function renderAdminReservationItems() {
         button.addEventListener("click", () => void action(async () => {
             const id = item.id, context = adminReservationsState.begin(sessionAccountID, sessionToken, sessionGeneration);
             selectedAdminReservationID = id;
+            clearAdminSettlement("Consultando detalle administrativo; selecciona consultar liquidación para ver su estado.");
             document.querySelector("#local-admin-reservations-detail").textContent = "Consultando detalle administrativo de solo lectura…";
             try {
                 const response = await request(`/api/v1/admin/local/reservations/${encodeURIComponent(id)}`, "GET", undefined, true);
@@ -3454,7 +3623,48 @@ function refreshAdminReservationControls() {
     const reset = document.querySelector("#local-admin-reservations-reset");
     if (reset)
         reset.disabled = !allowed || adminReservationsState.loading;
+    const settlementLoad = document.querySelector("#local-admin-settlement-load");
+    if (settlementLoad)
+        settlementLoad.disabled = !allowed || !selectedAdminReservationID || adminReservationsState.loading;
+    const settlementResolve = document.querySelector("#local-admin-settlement-reconcile");
+    if (settlementResolve)
+        settlementResolve.disabled = !allowed || !selectedAdminSettlement || selectedAdminSettlement.state !== "por_conciliar" || !selectedAdminReservationID || adminReservationsState.loading;
 }
+function clearAdminSettlement(message) { adminSettlementRevision++; selectedAdminSettlement = null; const output = document.querySelector("#local-admin-settlement-output"); if (output)
+    output.textContent = message; refreshAdminReservationControls(); }
+function renderAdminSettlement(value, message) {
+    selectedAdminSettlement = value;
+    const output = document.querySelector("#local-admin-settlement-output");
+    if (!value) {
+        output.textContent = message ?? "Esta reserva no tiene liquidación fake registrada.";
+        refreshAdminReservationControls();
+        return;
+    }
+    output.textContent = `${value.policy_version} · ${value.state}${value.reused ? " · resultado persistido reutilizado" : ""}\nArriendo confirmado: ${value.gross_rent_clp.toLocaleString("es-CL")} CLP · devoluciones confirmadas: ${value.confirmed_refunds_clp.toLocaleString("es-CL")} CLP\nComisión local: ${value.commission_bps} bps / ${value.commission_clp.toLocaleString("es-CL")} CLP · transferencia fake: ${value.transfer_clp.toLocaleString("es-CL")} CLP\nResultado: ${value.last_result ?? "pendiente"} · ${new Date(value.updated_at).toLocaleString("es-CL")}\nENSAYO LOCAL — SIN VALIDEZ FISCAL — SIN MOVIMIENTOS REALES${message ? `\n${message}` : ""}`;
+    refreshAdminReservationControls();
+}
+async function loadAdminSettlement() {
+    const reservationID = selectedAdminReservationID;
+    if (!reservationID || !sessionToken || !sessionRoles.includes("administrador"))
+        throw new Error("Selecciona una reserva y autentícate como administrador.");
+    const context = { reservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }, revision = ++adminSettlementRevision;
+    const response = await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/settlement`, "GET", undefined, true);
+    if (revision !== adminSettlementRevision || selectedAdminReservationID !== context.reservationID || sessionAccountID !== context.accountID || sessionToken !== context.token || sessionGeneration !== context.generation || !sessionRoles.includes("administrador"))
+        return;
+    renderAdminSettlement(bookingData(response));
+}
+async function resolveAdminSettlement() {
+    const value = selectedAdminSettlement, reservationID = selectedAdminReservationID;
+    if (!value || value.reservation_id !== reservationID || value.state !== "por_conciliar")
+        throw new Error("Consulta primero una liquidación con resultado incierto.");
+    const context = { reservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration }, revision = ++adminSettlementRevision, outcome = (document.querySelector("#local-admin-settlement-outcome")).value;
+    const response = await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/settlement-reconcile`, "POST", { outcome }, true);
+    if (revision !== adminSettlementRevision || selectedAdminReservationID !== context.reservationID || sessionAccountID !== context.accountID || sessionToken !== context.token || sessionGeneration !== context.generation || !sessionRoles.includes("administrador"))
+        return;
+    renderAdminSettlement(bookingData(response), "Resultado fake terminal aplicado a la misma operación; no inicia otro pago.");
+}
+document.querySelector("#local-admin-settlement-load").addEventListener("click", () => void action(loadAdminSettlement));
+document.querySelector("#local-admin-settlement-reconcile").addEventListener("click", () => void action(resolveAdminSettlement));
 async function loadAdminReservations(cursor = "", replace = true) {
     if (!sessionToken || !sessionRoles.includes("administrador"))
         throw new Error("La consulta de reservas requiere rol administrador.");
@@ -3471,6 +3681,7 @@ async function loadAdminReservations(cursor = "", replace = true) {
         query.set("cursor", cursor);
     const context = adminReservationsState.begin(sessionAccountID, sessionToken, sessionGeneration);
     selectedAdminReservationID = "";
+    clearAdminSettlement("Selecciona una reserva y consulta como administrador.");
     document.querySelector("#local-admin-reservations-detail").textContent = "Selecciona una reserva para consultar su historial y finanzas.";
     document.querySelector("#local-admin-reservations-status").textContent = "Consultando…";
     refreshAdminReservationControls();

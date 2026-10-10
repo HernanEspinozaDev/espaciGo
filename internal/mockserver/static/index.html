@@ -61,6 +61,7 @@
       <p>Solo administrador. Esta vista consulta instantáneas y no inicia pagos, concilia operaciones ni cambia estados. Los resultados son de ensayo local.</p>
       <form id="local-admin-reservations-filter"><label>ID de reserva <input name="reservation_id" autocomplete="off"></label><label>Estado <input name="state" autocomplete="off"></label><label>Creada desde (RFC3339) <input name="created_from" placeholder="2026-01-01T00:00:00Z"></label><label>Hasta exclusivo (RFC3339) <input name="created_to" placeholder="2026-02-01T00:00:00Z"></label><label>Tamaño <input name="page_size" type="number" min="1" max="100" value="25"></label><button type="submit" id="local-admin-reservations-search" disabled>Consultar reservas</button></form>
       <button id="local-admin-reservations-next" type="button" disabled>Siguiente</button><button id="local-admin-reservations-reset" type="button" disabled>Nueva consulta</button><p id="local-admin-reservations-status" aria-live="polite">Requiere rol administrador.</p><div id="local-admin-reservations-items"></div><pre id="local-admin-reservations-detail">Selecciona una reserva para consultar sus hechos financieros e historial.</pre>
+      <section aria-label="Conciliación administrativa de liquidación fake"><h5>Liquidación fake</h5><p>Solo permite consultar o conciliar el resultado incierto ya persistido. ENSAYO LOCAL — SIN VALIDEZ FISCAL — SIN MOVIMIENTOS REALES.</p><button id="local-admin-settlement-load" type="button" disabled>Consultar liquidación de la reserva seleccionada</button><label>Resultado tardío del fake <select id="local-admin-settlement-outcome"><option value="exito">Éxito</option><option value="rechazo">Rechazo</option></select></label><button id="local-admin-settlement-reconcile" type="button" disabled>Conciliar resultado incierto</button><pre id="local-admin-settlement-output">Selecciona una reserva y consulta como administrador.</pre></section>
     </details>
     <details id="local-admin-audit-panel"><summary>Consulta y exportación de auditoría local (solo lectura)</summary>
       <p>ENSAYO LOCAL — Acceso exclusivo de administrador. Periodo obligatorio de hasta 31 días UTC. La exportación contiene eventos minimizados y no cambia registros.</p>
@@ -264,6 +265,17 @@ Selecciona una reserva propia pendiente de pago.</pre>
           <label>ID de reclamo resuelto <input id="booking-guarantee-claim" type="text" required></label>
           <button id="booking-guarantee-decision" type="button" disabled>Registrar decisión financiera administrativa</button>
           <pre id="booking-guarantee-output" aria-live="polite">Selecciona una reserva para consultar su snapshot financiero.</pre>
+        </section>
+        <section id="local-settlement-panel" aria-label="Liquidación fake y comprobante de ensayo">
+          <h5>Liquidación al anfitrión · ensayo local</h5>
+          <p><strong>ENSAYO LOCAL — SIN VALIDEZ FISCAL — SIN MOVIMIENTOS REALES</strong>. No incluye garantía, capturas por daños ni liberaciones. Solo una reserva finalizada, check-out + 24 horas y obligaciones reconciliadas.</p>
+          <label>Resultado de transferencia fake <select id="local-settlement-outcome"><option value="exito">Éxito</option><option value="rechazo">Rechazo confirmado</option><option value="sin_respuesta">Timeout / resultado incierto</option></select></label>
+          <button id="local-settlement-start" type="button" disabled>Iniciar / reintentar liquidación como anfitrión</button>
+          <button id="local-settlement-load" type="button" disabled>Consultar liquidación</button>
+          <label>Resultado tardío para el fake <select id="local-settlement-reconcile-outcome"><option value="exito">Éxito</option><option value="rechazo">Rechazo</option></select></label>
+          <button id="local-settlement-reconcile" type="button" disabled>Conciliar como administrador</button>
+          <button id="local-settlement-receipt" type="button" disabled>Descargar comprobante_ensayo JSON</button>
+          <pre id="local-settlement-output" aria-live="polite">Selecciona una reserva propia; la consulta no inicia transferencias.</pre>
         </section>
         <button id="booking-inbox-approve" type="button" disabled>Aprobar</button>
         <label>Motivo obligatorio para rechazar <input id="booking-inbox-reject-reason" type="text"></label>

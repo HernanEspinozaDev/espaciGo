@@ -252,6 +252,7 @@ func run() error {
 				return errors.New("local booking trial initialization failed")
 			}
 			bookingService.SetLocalRefundAdapter(paymentAdapter)
+			bookingService.SetLocalSettlementAdapter(paymentAdapter)
 			bookingService.SetLocalNoticeSender(devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")})
 			guaranteeOutcome := strings.TrimSpace(os.Getenv("LOCAL_GUARANTEE_FAKE_OUTCOME"))
 			bookingService.SetLocalGuaranteeOutcome(nil) // The mock explicitly starts the independent authorization after rent payment.
@@ -346,6 +347,7 @@ func run() error {
 	if localPaymentService != nil {
 		go localPaymentService.RunPaymentReconciler(ctx, 5*time.Second)
 		go localPaymentService.RunGuaranteeReconciler(ctx, 5*time.Second)
+		go localPaymentService.RunSettlementReconciler(ctx, 5*time.Second)
 	}
 	if localContractService != nil {
 		go func() {
