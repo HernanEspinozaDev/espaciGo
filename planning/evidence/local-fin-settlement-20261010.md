@@ -1,6 +1,6 @@
 # Evidencia — LOCAL-FIN-SETTLEMENT-01 (#236)
 
-**Estado:** listo para revisión en [PR #237](https://github.com/HernanEspinozaDev/espaciGo/pull/237), commit `373a518c25c94447ffbc654450c4ab1213223736`. No fusionado ni aceptado. Baseline integrado #235 / `5c6be649967b794f862bf2457eaacd18e104448b`. Project 1 incluye #236 en `En revisión`.
+**Estado:** listo para revisión en [PR #237](https://github.com/HernanEspinozaDev/espaciGo/pull/237); la corrección de privacidad/concurrencia y sus pruebas están en `a7b8ba224fa3c4942b145ca5536b35a64475b69f`. No fusionado ni aceptado. Baseline integrado #235 / `5c6be649967b794f862bf2457eaacd18e104448b`. Project 1 incluye #236 en `En revisión`.
 
 ## Recorrido implementado
 
