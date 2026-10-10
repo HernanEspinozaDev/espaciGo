@@ -3722,6 +3722,22 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		t.Fatalf("deduction above authorization status=%d body=%s", overLimit.Code, overLimit.Body.String())
 	}
 	financeInput := booking.FinancialDecisionInput{ClaimID: financeClaim.ID, Outcome: "acogido", DeductionCLP: 12000, ReasonCode: "dano_acreditado", EvidenceID: financeCheckout.Evidence[0].ID}
+	if _, err = setup.Exec(ctx, `CREATE FUNCTION public.fail_test_financial_audit_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.accion='local.finance.decision' THEN RAISE EXCEPTION 'injected financial audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER fail_test_financial_audit_insert BEFORE INSERT ON public.evento_auditoria_local FOR EACH ROW EXECUTE FUNCTION public.fail_test_financial_audit_insert()`); err != nil {
+		t.Fatal(err)
+	}
+	if _, auditFailure := svc.DecideGuarantee(ctx, adminID, financeReservation.ID, financeInput, "finance-audit-atomic-failure", []byte("finance-audit-atomic-failure")); auditFailure == nil {
+		t.Fatal("financial decision succeeded although its required audit insert failed")
+	}
+	if _, err = setup.Exec(ctx, `DROP TRIGGER fail_test_financial_audit_insert ON public.evento_auditoria_local; DROP FUNCTION public.fail_test_financial_audit_insert()`); err != nil {
+		t.Fatal(err)
+	}
+	var failedDecisionRows, failedDecisionHistory, failedDecisionAudit int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_decision_financiera_ensayo_local WHERE reserva_id=$1),(SELECT count(*) FROM public.reserva_finanzas_historial_ensayo_local WHERE reserva_id=$1 AND tipo='decision_financiera_registrada'),(SELECT count(*) FROM public.evento_auditoria_local WHERE recurso_id=$1 AND accion='local.finance.decision')`, financeReservation.ID).Scan(&failedDecisionRows, &failedDecisionHistory, &failedDecisionAudit); err != nil {
+		t.Fatal(err)
+	}
+	if failedDecisionRows != 0 || failedDecisionHistory != 0 || failedDecisionAudit != 0 {
+		t.Fatalf("audit failure left partial financial decision rows/history/audit=%d/%d/%d", failedDecisionRows, failedDecisionHistory, failedDecisionAudit)
+	}
 	financeResponse = publishedBookingAPI(t, adminID, svc, http.MethodPost, financePath, "finance-capture-decision", financeInput, true)
 	if financeResponse.Code != http.StatusOK {
 		_, diagnostic := svc.DecideGuarantee(ctx, adminID, financeReservation.ID, financeInput, "diagnostic-finance-decision", []byte("diagnostic"))
@@ -3805,6 +3821,21 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	}
 	if pendingHistoryRows != 0 || authorizationHistoryRows != 1 || decisionHistoryRows != 1 || captureHistoryRows != 2 || releaseHistoryRows != 1 || fakeResultRows != 3 {
 		t.Fatalf("financial history pending/auth/decision/capture/release and fake result rows=%d/%d/%d/%d/%d/%d, want one confirmed authorization/decision/release, the capture attempt plus its reconciliation, and one recorded result per operation", pendingHistoryRows, authorizationHistoryRows, decisionHistoryRows, captureHistoryRows, releaseHistoryRows, fakeResultRows)
+	}
+	var decisionAudits, operationAudits, reconcileAudits, adminActors, safeDetails, structuredReasons, hashedCorrelations int
+	if err = setup.QueryRow(ctx, `SELECT
+		count(*) FILTER (WHERE accion='local.finance.decision'),
+		count(*) FILTER (WHERE accion='local.finance.guarantee.operation'),
+		count(*) FILTER (WHERE accion='local.finance.guarantee.reconcile'),
+		count(*) FILTER (WHERE actor_id=$2),
+		count(*) FILTER (WHERE detalle_codigos='{"obligations_detected":[],"pending_checks":[]}'::jsonb AND retirar_en=ocurrido_en+interval '5 years'),
+		count(*) FILTER (WHERE motivo_codigo IN ('dano_acreditado','garantia_captura','reconciliacion_garantia_captura','garantia_liberacion')),
+		count(*) FILTER (WHERE clave_idempotencia ~ '^local-fin:[0-9a-f]{64}$' AND correlacion_id=clave_idempotencia)
+		FROM public.evento_auditoria_local WHERE recurso_tipo='reserva' AND recurso_id=$1`, financeReservation.ID, adminID).Scan(&decisionAudits, &operationAudits, &reconcileAudits, &adminActors, &safeDetails, &structuredReasons, &hashedCorrelations); err != nil {
+		t.Fatal(err)
+	}
+	if decisionAudits != 1 || operationAudits != 2 || reconcileAudits != 1 || adminActors != 4 || safeDetails != 4 || structuredReasons != 4 || hashedCorrelations != 4 {
+		t.Fatalf("financial audit decisions/operations/reconciliation/admin/minimal/reason/hash=%d/%d/%d/%d/%d/%d/%d, want 1/2/1/4/4/4/4 despite API and worker retries", decisionAudits, operationAudits, reconcileAudits, adminActors, safeDetails, structuredReasons, hashedCorrelations)
 	}
 
 	contractRejectReservation := newReservation(1030*time.Hour, "cont-reject", true)
