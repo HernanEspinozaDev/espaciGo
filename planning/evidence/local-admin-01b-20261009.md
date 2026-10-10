@@ -1,6 +1,6 @@
 # LOCAL-ADMIN-01B — consulta y exportación de auditoría local
 
-Issue de subentrega: [#228](https://github.com/HernanEspinozaDev/espaciGo/issues/228). PR de implementación: [#229](https://github.com/HernanEspinozaDev/espaciGo/pull/229), commit inicial `76621b1` (rama `codex/local-admin-01b`), abierto para revisión de HernanEspinozaDev.
+Issue de subentrega: [#228](https://github.com/HernanEspinozaDev/espaciGo/issues/228). PR de implementación: [#229](https://github.com/HernanEspinozaDev/espaciGo/pull/229), cabeza final `2dba542` en `codex/local-admin-01b`, fusionado el 2026-10-10 (merge `994c91f`). Issue #228 aceptada, cerrada y Hecho en Project 1 para este corte.
 
 ## Alcance y decisiones conservadas
 
@@ -40,7 +40,7 @@ Reservas/transiciones, contrato/firma, operación de arriendo, conversación, in
 
 ## Validación
 
-Validación completada en la rama del PR. El harness PostgreSQL creó y retiró una base desechable migrada desde cero; no apuntó a `espacigo_pgdata`.
+Validación completada en la rama del PR. El harness PostgreSQL creó y retiró una base desechable migrada desde cero; no apuntó a `espacigo_pgdata`. Posterior al merge se sincronizó `main` a `994c91f`; Backend y mock se reconstruyeron con `scripts/dev-env.sh up backend mock-frontend`, los chequeos HTTP documentados pasaron y el contenedor PostgreSQL continuó montando el volumen `espacigo_pgdata`. No hay migración nueva ni se borraron volumen, secretos o datos.
 
 ```sh
 go test ./internal/booking/transport/http ./internal/adapters/postgres/booking ./cmd/api
@@ -64,3 +64,11 @@ git diff --check
 - El mock permite filtros, páginas y descarga; su estado asíncrono tiene pruebas enfocadas. El recorrido con administrador se ejecutó contra las APIs reales desde el cliente local; la automatización no valida una descarga visual del archivo en el navegador.
 - No hay exportación de toda la actividad de cuenta ni reconstrucción de productores que no escriben al ledger.
 - #111–#118 continúan abiertos; no se cierra M11 ni LOCAL-CORE-02. Sin proveedor real, GCP o inmutabilidad productiva.
+
+## Aceptación posterior al merge
+
+El 2026-10-10 se confirmó el merge de PR #229. `scripts/dev-env.sh verify-http` pasó para liveness/readiness, CORS/preflight y HTML/configuración/módulos/CSS del mock. El volumen persistente `espacigo_pgdata` permaneció montado; no se ejecutó limpieza ni se modificaron secretos. La consulta de esquema no se utilizó como evidencia: no era necesaria para este corte sin DDL nuevo. Issue #228 se cerró y marcó Hecho únicamente por LOCAL-ADMIN-01B.
+
+## Siguiente brecha de LOCAL-ADMIN
+
+LOCAL-ADMIN-01/M11 sigue parcial. La siguiente brecha de la cadena se registra en LOCAL-DIS-TEST-MOCK-01/#230: compara #109/#110 con LOCAL-DIS-01/#222 y LOCAL-FIN-01/#224, añade el contraste de resultados fake observados y ejecuta el recorrido de mock con cuentas separadas. Su estado operativo es En revisión mientras se revisa el PR. Tras aceptar esta subentrega podrá abordarse el alcance local de #111 ADMIN-ARCH-01; esto no cierra #109/#110 ni satisface sus criterios generales de liquidación/documento ni proveedor real. #111–#118, #185/#40 y LOCAL-CORE-02 permanecen abiertos/bloqueados según dependencias reales.
