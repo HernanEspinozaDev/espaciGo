@@ -11,10 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
 	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/damageclaim"
@@ -783,4 +785,139 @@ func adminConnExecGrant(databaseURL string) error {
 		return err
 	}
 	return nil
+}
+
+func TestSuppressionAndRetentionPreserveUnstartedSettlementObligation(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "settlement-obligation-host@ejemplo.invalid")
+	h.verify(t)
+	renterID := h.register(t, "settlement-obligation-renter@ejemplo.invalid")
+	h.verify(t)
+	adminID := h.register(t, "settlement-obligation-admin@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, "INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador')", adminID); err != nil {
+		t.Fatal(err)
+	}
+	spaceID := "87200000-0000-4000-8000-000000000001"
+	quoteID := "87200000-0000-4000-8000-000000000002"
+	reservationID := "87200000-0000-4000-8000-000000000003"
+	occupancyID := "87200000-0000-4000-8000-000000000004"
+	seedPrivacyReviewReservation(t, h, spaceID, quoteID, reservationID, occupancyID, hostID, renterID, "finalizada")
+	checkoutID := "87200000-0000-4000-8000-000000000005"
+	if _, err := h.pool.Exec(h.ctx, "UPDATE public.cotizacion_reserva_ensayo SET liquidacion_politica_version='liquidacion_local_0pct_v1',liquidacion_comision_bps=0 WHERE id=$1", quoteID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, "UPDATE public.reserva_ensayo_local SET liquidacion_politica_version='liquidacion_local_0pct_v1',liquidacion_comision_bps=0 WHERE id=$1", reservationID); err != nil {
+		t.Fatal(err)
+	}
+	checkoutSQL := "INSERT INTO public.operacion_arriendo_ensayo_local(id,reserva_id,tipo,actor_id,ocurrio_en,zona_horaria,ubicacion_sintetica,resultado,clave_idempotencia,huella_solicitud,creada_en) VALUES($1,$2,'checkout',$3,$4,'UTC','{\"source\":\"synthetic-fixture-v1\",\"location_code\":\"santiago-demo-center-v1\",\"latitude\":-33.45,\"longitude\":-70.66}'::jsonb,'registrada','settlement-checkout',decode(repeat('11',32),'hex'),$4)"
+	if _, err := h.pool.Exec(h.ctx, checkoutSQL, checkoutID, reservationID, renterID, h.now.Add(-25*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, "INSERT INTO public.reserva_pago_ensayo(id,reserva_id,resultado,clave_idempotencia,creada_en,importe_clp) VALUES('87200000-0000-4000-8000-000000000006',$1,'exito_simulado','confirmed-rent',$2,12000)", reservationID, h.now.Add(-30*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	requester, err := privacy.NewService(h.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := requester.RequestRight(h.ctx, hostID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := h.repo.ReviewSuppression(h.ctx, adminID, request.ID, "unstarted-settlement-review", "unstarted-settlement", func() time.Time { return h.now })
+	if err != nil || review.Outcome != "bloqueada" || !reflect.DeepEqual(review.Obligations, []string{"liquidacion_pendiente"}) {
+		t.Fatalf("unstarted settlement was not detected: review=%+v err=%v", review, err)
+	}
+	execution, err := h.repo.ExecuteSuppression(h.ctx, adminID, request.ID, "unstarted-settlement-execute", "unstarted-settlement", func() time.Time { return h.now })
+	if err != nil || execution.Status != "bloqueada" || !reflect.DeepEqual(execution.Obligations, []string{"liquidacion_pendiente"}) {
+		t.Fatalf("suppression execution must recheck missing intent: execution=%+v err=%v", execution, err)
+	}
+	deadline := h.now.AddDate(2, 0, 0)
+	if _, err := h.pool.Exec(h.ctx, "UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=$2 WHERE id=$1", reservationID, deadline); err != nil {
+		t.Fatal(err)
+	}
+	runtime := newRuntimeIdentityRepository(t, h)
+	purger, err := privacy.NewService(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	purged, err := purger.PurgeExpiredReservationLinks(h.ctx, deadline, 20)
+	if err != nil || purged.Purged != 0 || purged.Deferred != 1 {
+		t.Fatalf("purgator must preserve identifiers before settlement intent: result=%+v err=%v", purged, err)
+	}
+	var host, renter string
+	var markers, intents int
+	var accountState string
+	if err := h.pool.QueryRow(h.ctx, "SELECT COALESCE(r.anfitrion_id::text,''),COALESCE(r.arrendatario_id::text,''),(SELECT count(*) FROM public.reserva_vinculo_purgado_local WHERE reserva_id=$1),(SELECT count(*) FROM public.reserva_liquidacion_ensayo_local WHERE reserva_id=$1),u.estado FROM public.reserva_ensayo_local r JOIN public.usuario u ON u.id=r.anfitrion_id WHERE r.id=$1", reservationID).Scan(&host, &renter, &markers, &intents, &accountState); err != nil {
+		t.Fatal(err)
+	}
+	if host != hostID || renter != renterID || markers != 0 || intents != 0 || accountState != "activo" {
+		t.Fatalf("missing-intent obligation lost identifiers or created effects: host=%q renter=%q markers=%d intents=%d account=%s", host, renter, markers, intents, accountState)
+	}
+	// Preserved links still allow the due operation to be initiated.
+	repo := bookingpg.New(h.pool)
+	fingerprint := make([]byte, 32)
+	for i := range fingerprint {
+		fingerprint[i] = 7
+	}
+	settlement, reused, err := repo.BeginSettlement(h.ctx, hostID, reservationID, "unstarted-settlement-key", fingerprint, "87200000-0000-4000-8000-000000000007", "87200000-0000-4000-8000-000000000008", "exito", func() time.Time { return h.now })
+	if err != nil || reused || settlement.State != "pendiente" || settlement.TransferCLP != 12000 {
+		t.Fatalf("preserved settlement could not begin: settlement=%+v reused=%v err=%v", settlement, reused, err)
+	}
+}
+
+func TestLocalSettlementHistoryActorLinksAreUnlinkedAtRetention(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "settlement-history-host@ejemplo.invalid")
+	renterID := h.register(t, "settlement-history-renter@ejemplo.invalid")
+	reservationID := "87300000-0000-4000-8000-000000000003"
+	quoteID := "87300000-0000-4000-8000-000000000002"
+	occupancyID := "87300000-0000-4000-8000-000000000004"
+	seedPrivacyReviewReservation(t, h, "87300000-0000-4000-8000-000000000001", quoteID, reservationID, occupancyID, hostID, renterID, "finalizada")
+	deadline := h.now.AddDate(2, 0, 0)
+	settlementID := "87300000-0000-4000-8000-000000000005"
+	operationID := "87300000-0000-4000-8000-000000000006"
+	if _, err := h.pool.Exec(h.ctx, "UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=$2 WHERE id=$1", reservationID, deadline); err != nil {
+		t.Fatal(err)
+	}
+	settlementSQL := "INSERT INTO public.reserva_liquidacion_ensayo_local(id,reserva_id,anfitrion_id,politica_version,moneda,arriendo_confirmado_clp,devoluciones_confirmadas_clp,comision_bps,comision_clp,transferencia_clp,estado,clave_idempotencia,huella_solicitud,creada_en,actualizada_en,completada_en) VALUES($1,$2,$3,'liquidacion_local_0pct_v1','CLP',12000,0,0,0,12000,'liquidada','history-settlement',decode(repeat('22',32),'hex'),$4,$4,$4)"
+	if _, err := h.pool.Exec(h.ctx, settlementSQL, settlementID, reservationID, hostID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, "INSERT INTO public.reserva_liquidacion_operacion_ensayo_local(id,liquidacion_id,resultado_solicitado,creada_en,actualizada_en) VALUES($1,$2,'exito',$3,$3)", operationID, settlementID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, "INSERT INTO public.reserva_liquidacion_historial_ensayo_local(liquidacion_id,accion,actor_id,codigo,ocurrida_en) VALUES($1,'liquidacion_confirmada',$2,'fake_confirmed',$3)", settlementID, hostID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, "INSERT INTO public.reserva_finanzas_historial_ensayo_local(reserva_id,tipo,actor_id,detalle_codigo,ocurrida_en) VALUES($1,'liquidacion_confirmada',$2,'fake_confirmed',$3)", reservationID, renterID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	runtime := newRuntimeIdentityRepository(t, h)
+	service, err := privacy.NewService(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.PurgeExpiredReservationLinks(h.ctx, deadline, 20)
+	if err != nil || result.Purged != 1 || result.Deferred != 0 {
+		t.Fatalf("purge completed settlement history: result=%+v err=%v", result, err)
+	}
+	var settlementActor, financeActor, action, code string
+	var preservedAmount int64
+	var settlementAt, financeAt time.Time
+	readSQL := "SELECT COALESCE(h.actor_id::text,''),COALESCE(f.actor_id::text,''),h.accion,h.codigo,s.transferencia_clp,h.ocurrida_en,f.ocurrida_en FROM public.reserva_liquidacion_historial_ensayo_local h JOIN public.reserva_liquidacion_ensayo_local s ON s.id=h.liquidacion_id JOIN public.reserva_finanzas_historial_ensayo_local f ON f.reserva_id=s.reserva_id AND f.tipo='liquidacion_confirmada' WHERE s.reserva_id=$1"
+	if err := h.pool.QueryRow(h.ctx, readSQL, reservationID).Scan(&settlementActor, &financeActor, &action, &code, &preservedAmount, &settlementAt, &financeAt); err != nil {
+		t.Fatal(err)
+	}
+	if settlementActor != "" || financeActor != "" || action != "liquidacion_confirmada" || code != "fake_confirmed" || preservedAmount != 12000 || !settlementAt.Equal(h.now) || !financeAt.Equal(h.now) {
+		t.Fatalf("actor links/facts retention mismatch: actors=%q/%q action=%q code=%q amount=%d times=%s/%s", settlementActor, financeActor, action, code, preservedAmount, settlementAt, financeAt)
+	}
+	var tableUpdate, tableDelete, columnUpdate, financeUpdate bool
+	if err := h.pool.QueryRow(h.ctx, "SELECT has_table_privilege('espacigo_runtime','public.reserva_liquidacion_historial_ensayo_local','UPDATE'),has_table_privilege('espacigo_runtime','public.reserva_liquidacion_historial_ensayo_local','DELETE'),has_column_privilege('espacigo_runtime','public.reserva_liquidacion_historial_ensayo_local','actor_id','UPDATE'),has_table_privilege('espacigo_runtime','public.reserva_finanzas_historial_ensayo_local','UPDATE')").Scan(&tableUpdate, &tableDelete, &columnUpdate, &financeUpdate); err != nil {
+		t.Fatal(err)
+	}
+	if tableUpdate || tableDelete || !columnUpdate || financeUpdate {
+		t.Fatalf("history permission scope update/delete/actor-column/finance-update=%t/%t/%t/%t", tableUpdate, tableDelete, columnUpdate, financeUpdate)
+	}
 }

@@ -515,7 +515,7 @@ paths:
                   outcome: { type: string, enum: [bloqueada, elegible, revision_incompleta] }
                   obligations_detected:
                     type: array
-                    items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente, disputa_abierta] }
+                    items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente, disputa_abierta, liquidacion_pendiente] }
                   pending_checks:
                     type: array
                     description: fuente_disputas_no_modelada solo puede aparecer al reproducir evaluaciones históricas guardadas antes de V24.
@@ -563,7 +563,7 @@ paths:
                   decision_code: { type: string, enum: [supresion_bloqueada_por_obligaciones, baja_elegible_privacidad_local_v1] }
                   obligations_detected:
                     type: array
-                    items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente, disputa_abierta] }
+                    items: { type: string, enum: [reserva_activa, pago_o_devolucion_pendiente, disputa_abierta, liquidacion_pendiente] }
                   removed: { type: array, items: { type: string } }
                   retained: { type: array, items: { type: string } }
                   pending_files: { type: integer, minimum: 0 }

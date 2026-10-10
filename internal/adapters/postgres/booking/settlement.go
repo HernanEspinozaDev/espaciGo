@@ -366,6 +366,15 @@ func (r *Repository) SaveFakeSettlementResult(ctx context.Context, event booking
 	if oldID != event.EventID || oldResult != event.Outcome {
 		return booking.SettlementEvent{}, false, booking.ErrConflict
 	}
+	if state == "liquidada" || state == "rechazada" {
+		// A concurrent request may have persisted the same fake result and
+		// applied it before this worker acquired the reservation lock. Reuse
+		// the durable event in that case; mismatched events were rejected above.
+		if err = tx.Commit(ctx); err != nil {
+			return booking.SettlementEvent{}, false, err
+		}
+		return booking.SettlementEvent{EventID: oldID, OperationID: event.OperationID, Outcome: oldResult}, false, nil
+	}
 	if state != "pendiente" && state != "por_conciliar" {
 		return booking.SettlementEvent{}, false, booking.ErrConflict
 	}

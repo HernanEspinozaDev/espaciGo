@@ -10,6 +10,7 @@
 - Se persiste una única intención/operación antes de llamar al adaptador local. Éxito, rechazo, timeout, reinicio y reintentos reutilizan la operación. Timeout permanece `por_conciliar`; no representa pago. Reconciliación administrativa resuelve el resultado persistido y no inicia otra transferencia. SMTP/proveedor externo no se integra.
 - Solo un éxito fake confirmado genera `comprobante_ensayo` JSON versionado con `ENSAYO LOCAL — SIN VALIDEZ FISCAL — SIN MOVIMIENTOS REALES`. Puede contener un UUID técnico interno; no folio fiscal, RUT ni elementos visuales de boleta. No sustituye un documento fiscal válido.
 - La exportación propia incluye snapshots, liquidaciones, historial y comprobantes. La baja queda bloqueada ante liquidación pendiente o incierta. Los hechos financieros cerrados mantienen el tratamiento local ratificado de 24 meses desde el último cierre financiero; la retención física/restauración más allá de ese alcance sigue según la matriz. No se afirma anonimización.
+- Una reserva finalizada con snapshot local y saldo de arriendo confirmado positivo bloquea baja y purga aunque todavía no tenga intención de liquidación. Así se preservan los vínculos necesarios para iniciar la operación; reservas anteriores sin snapshot no reciben regla retroactiva. Al vencer retención, el worker desliga los identificadores de actor del historial de liquidación y del ledger financiero relacionado, conservando hechos mínimos; runtime solo actualiza la columna `actor_id`.
 
 ## Fuera de esta decisión
 

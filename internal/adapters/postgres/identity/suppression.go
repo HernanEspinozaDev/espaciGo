@@ -46,6 +46,19 @@ func activeSuppressionObligations(ctx context.Context, tx pgx.Tx, subjectID stri
 		{"disputa_abierta", `SELECT EXISTS (
 		 SELECT 1 FROM public.disputa_ensayo_local WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado='abierta'
 		 UNION ALL SELECT 1 FROM public.reclamo_dano_ensayo_local WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado='abierto')`},
+		// A finalized reservation with a new-settlement snapshot and a positive
+		// confirmed rent balance remains an obligation even before the host has
+		// created the durable transfer intent. Suppression must not erase the
+		// participant links needed to finish that operation.
+		{"liquidacion_pendiente", `SELECT EXISTS (
+		 SELECT 1 FROM public.reserva_ensayo_local r
+		 WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1)
+		   AND r.estado='finalizada'
+		   AND r.liquidacion_politica_version='liquidacion_local_0pct_v1'
+		   AND EXISTS (SELECT 1 FROM public.operacion_arriendo_ensayo_local checkout WHERE checkout.reserva_id=r.id AND checkout.tipo='checkout')
+		   AND COALESCE((SELECT sum(p.importe_clp) FROM public.reserva_pago_ensayo p WHERE p.reserva_id=r.id AND p.resultado='exito_simulado'),0)
+		       > COALESCE((SELECT sum(d.importe_clp) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id AND d.estado='completada'),0)
+		   AND NOT EXISTS (SELECT 1 FROM public.reserva_liquidacion_ensayo_local s WHERE s.reserva_id=r.id))`},
 	}
 	for _, item := range queries {
 		if err := tx.QueryRow(ctx, item.sql, subjectID).Scan(&found); err != nil {

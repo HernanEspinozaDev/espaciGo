@@ -2,6 +2,7 @@ package bookingpg
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +26,32 @@ import (
 )
 
 type localSettlementAPITestAuth struct{ host, renter, administrator string }
+
+type gatedSettlementAdapter struct {
+	inner   booking.LocalSettlementAdapter
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (a *gatedSettlementAdapter) StartTransfer(ctx context.Context, operationID, requested string) (*booking.SettlementEvent, error) {
+	a.once.Do(func() { close(a.entered) })
+	select {
+	case <-a.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return a.inner.StartTransfer(ctx, operationID, requested)
+}
+func (a *gatedSettlementAdapter) LookupTransfer(ctx context.Context, value booking.Settlement) (*booking.SettlementEvent, error) {
+	return a.inner.LookupTransfer(ctx, value)
+}
+func (a *gatedSettlementAdapter) VerifyTransferEvent(event booking.SettlementEvent) bool {
+	return a.inner.VerifyTransferEvent(event)
+}
+func (a *gatedSettlementAdapter) ResolveTransfer(ctx context.Context, operationID, outcome string) (booking.SettlementEvent, error) {
+	return a.inner.ResolveTransfer(ctx, operationID, outcome)
+}
 
 func (a localSettlementAPITestAuth) Authorize(_ context.Context, raw identity.Secret, role identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
 	accounts := map[identity.Secret]string{"settlement-host-session": a.host, "settlement-renter-session": a.renter, "settlement-admin-session": a.administrator}
@@ -399,5 +427,63 @@ func TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay(t *testing
 	}
 	if receiptMutable || historyMutable {
 		t.Fatalf("runtime can mutate immutable receipt/history: %v/%v", receiptMutable, historyMutable)
+	}
+
+	// Gate a request after its fake-result lookup returned empty. Another caller
+	// persists and confirms the same event before the first request resumes.
+	id5, q5, o5 := "eeeeeeee-1111-4111-8111-111111111111", "eeeeeeee-2222-4222-8222-222222222222", "eeeeeeee-3333-4333-8333-333333333333"
+	seedFinalizedSettlementReservation(t, ctx, setup, host, renter, id5, q5, o5, base, base.Add(-25*time.Hour), 104*time.Hour)
+	baseAdapter, err := fakebooking.NewWithStore([]byte("stable-test-settlement-event-key-with-at-least-32-bytes"), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gated := &gatedSettlementAdapter{inner: baseAdapter, entered: make(chan struct{}), release: make(chan struct{})}
+	concurrentService, err := booking.NewServiceWithTTLs(repo, credentials.Generator{}, clock, baseAdapter, time.Minute, time.Minute, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	concurrentService.SetLocalSettlementAdapter(gated)
+	type settlementCall struct {
+		value booking.Settlement
+		err   error
+	}
+	startCall := make(chan settlementCall, 1)
+	go func() {
+		value, startErr := concurrentService.StartSettlement(ctx, host, id5, "settlement-race-key", "exito")
+		startCall <- settlementCall{value: value, err: startErr}
+	}()
+	select {
+	case <-gated.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first transfer did not reach the deterministic post-query gate")
+	}
+	intent, err := repo.SettlementForAdministrator(ctx, id5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := baseAdapter.StartTransfer(ctx, intent.OperationID, "exito")
+	if err != nil || event == nil {
+		t.Fatalf("concurrent fake result registration event=%+v err=%v", event, err)
+	}
+	fingerprint := sha256.Sum256([]byte(event.EventID + "\n" + event.OperationID + "\n" + event.Outcome))
+	confirmed, _, err := repo.ApplySettlementResult(ctx, host, *event, fingerprint[:], clock)
+	if err != nil || confirmed.State != "liquidada" {
+		t.Fatalf("concurrent fake result confirmation=%+v err=%v", confirmed, err)
+	}
+	close(gated.release)
+	call5 := <-startCall
+	if call5.err != nil || call5.value.State != "liquidada" || !call5.value.Reused || call5.value.TransferCLP != confirmed.TransferCLP {
+		t.Fatalf("racing request did not reuse persisted confirmation: value=%+v err=%v", call5.value, call5.err)
+	}
+	conflictingEvent := *baseAdapter.SignSettlementEvent(intent.OperationID, "rechazo_simulado")
+	if _, _, err = repo.SaveFakeSettlementResult(ctx, conflictingEvent, clockNow); !errors.Is(err, booking.ErrConflict) {
+		t.Fatalf("different concurrent fake result must conflict, err=%v", err)
+	}
+	var raceReceipts, raceFinals int
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_comprobante_ensayo_local c JOIN public.reserva_liquidacion_ensayo_local s ON s.id=c.liquidacion_id WHERE s.reserva_id=$1),(SELECT count(*) FROM public.reserva_liquidacion_historial_ensayo_local h JOIN public.reserva_liquidacion_ensayo_local s ON s.id=h.liquidacion_id WHERE s.reserva_id=$1 AND h.accion='liquidacion_confirmada')`, id5).Scan(&raceReceipts, &raceFinals); err != nil {
+		t.Fatal(err)
+	}
+	if raceReceipts != 1 || raceFinals != 1 {
+		t.Fatalf("racing confirmation duplicated effects receipt/history=%d/%d", raceReceipts, raceFinals)
 	}
 }
