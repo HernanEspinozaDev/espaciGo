@@ -1,6 +1,6 @@
 # LOCAL-DIS-TEST-MOCK-01 — validación local de disputas y garantía fake
 
-Issue hija: [#230](https://github.com/HernanEspinozaDev/espaciGo/issues/230), bajo DIS-TEST-01 [#109](https://github.com/HernanEspinozaDev/espaciGo/issues/109) y DIS-MOCK-01 [#110](https://github.com/HernanEspinozaDev/espaciGo/issues/110). PR de esta entrega: se publica en esta misma rama para revisión. Esta matriz compara los criterios originales; no cambia sus textos ni acredita aceptación hasta el merge/revisión.
+Issue hija: [#230](https://github.com/HernanEspinozaDev/espaciGo/issues/230), bajo DIS-TEST-01 [#109](https://github.com/HernanEspinozaDev/espaciGo/issues/109) y DIS-MOCK-01 [#110](https://github.com/HernanEspinozaDev/espaciGo/issues/110). PR [#231](https://github.com/HernanEspinozaDev/espaciGo/pull/231), commit `edb947a`, rama `codex/local-dis-test-mock`, solicitado a HernanEspinozaDev y En revisión. Esta matriz compara los criterios originales; no cambia sus textos ni acredita aceptación hasta el merge/revisión.
 
 ## Conciliación de los criterios originales
 
