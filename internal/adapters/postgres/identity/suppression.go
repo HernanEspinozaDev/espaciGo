@@ -41,7 +41,8 @@ func activeSuppressionObligations(ctx context.Context, tx pgx.Tx, subjectID stri
 		 UNION ALL SELECT 1 FROM public.reserva_devolucion_ensayo d JOIN public.reserva_ensayo_local r ON r.id=d.reserva_id WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND d.estado='pendiente'
 		 UNION ALL SELECT 1 FROM public.reserva_garantia_ensayo_local g JOIN public.reserva_ensayo_local r ON r.id=g.reserva_id WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND g.estado IN ('pendiente_autorizacion','autorizada','por_conciliar','captura_pendiente','captura_por_conciliar','parcialmente_capturada','liberacion_pendiente','liberacion_por_conciliar')
 		 UNION ALL SELECT 1 FROM public.reserva_garantia_operacion_ensayo_local o JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id JOIN public.reserva_ensayo_local r ON r.id=g.reserva_id WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND o.estado IN ('pendiente','por_conciliar')
-		 UNION ALL SELECT 1 FROM public.reserva_decision_financiera_ensayo_local d JOIN public.reserva_ensayo_local r ON r.id=d.reserva_id WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND d.estado IN ('pendiente','por_conciliar'))`},
+		 UNION ALL SELECT 1 FROM public.reserva_decision_financiera_ensayo_local d JOIN public.reserva_ensayo_local r ON r.id=d.reserva_id WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND d.estado IN ('pendiente','por_conciliar')
+		 UNION ALL SELECT 1 FROM public.reserva_liquidacion_ensayo_local s JOIN public.reserva_ensayo_local r ON r.id=s.reserva_id WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1) AND s.estado IN ('pendiente','por_conciliar'))`},
 		{"disputa_abierta", `SELECT EXISTS (
 		 SELECT 1 FROM public.disputa_ensayo_local WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado='abierta'
 		 UNION ALL SELECT 1 FROM public.reclamo_dano_ensayo_local WHERE (anfitrion_id=$1 OR arrendatario_id=$1) AND estado='abierto')`},
@@ -388,6 +389,7 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 			COALESCE((SELECT max(d.actualizada_en) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id),r.actualizada_en),
 			COALESCE((SELECT max(x.cerrada_en) FROM public.disputa_ensayo_local x WHERE x.reserva_id=r.id),r.actualizada_en),
 			COALESCE((SELECT max(x.resuelta_en) FROM public.reclamo_dano_resolucion_ensayo_local x JOIN public.reclamo_dano_ensayo_local c ON c.id=x.reclamo_id WHERE c.reserva_id=r.id),r.actualizada_en)
+		,COALESCE((SELECT max(s.actualizada_en) FROM public.reserva_liquidacion_ensayo_local s WHERE s.reserva_id=r.id),r.actualizada_en)
 		) + interval '24 months'
 	)) WHERE (r.anfitrion_id=$1 OR r.arrendatario_id=$1)
 	 AND (r.estado IN ('cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario','en_disputa')

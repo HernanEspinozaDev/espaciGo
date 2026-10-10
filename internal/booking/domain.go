@@ -21,7 +21,9 @@ var (
 )
 
 const SafetyBanner = "ENSAYO LOCAL — SIN COBRO REAL"
+const LocalSettlementBanner = "ENSAYO LOCAL — SIN VALIDEZ FISCAL — SIN MOVIMIENTOS REALES"
 const LocalCancellationPolicyVersion = "local_flexible_v1"
+const LocalSettlementPolicyVersion = "liquidacion_local_0pct_v1"
 
 type Fixture struct {
 	SpaceID  string `json:"space_id"`
@@ -110,6 +112,8 @@ type Quote struct {
 	GuaranteePolicyVersion    *string         `json:"guarantee_policy_version,omitempty"`
 	GuaranteeCurrency         *string         `json:"guarantee_currency,omitempty"`
 	GuaranteeExpectedCLP      *int64          `json:"guarantee_expected_clp,omitempty"`
+	SettlementPolicyVersion   *string         `json:"settlement_policy_version,omitempty"`
+	SettlementCommissionBPS   *int            `json:"settlement_commission_bps,omitempty"`
 	CreatedAt                 time.Time       `json:"created_at"`
 	ExpiresAt                 time.Time       `json:"expires_at"`
 }
@@ -133,6 +137,8 @@ type Reservation struct {
 	GuaranteePolicyVersion    *string    `json:"guarantee_policy_version,omitempty"`
 	GuaranteeCurrency         *string    `json:"guarantee_currency,omitempty"`
 	GuaranteeExpectedCLP      *int64     `json:"guarantee_expected_clp,omitempty"`
+	SettlementPolicyVersion   *string    `json:"settlement_policy_version,omitempty"`
+	SettlementCommissionBPS   *int       `json:"settlement_commission_bps,omitempty"`
 	RefundID                  *string    `json:"refund_id,omitempty"`
 	RefundOperationID         *string    `json:"refund_operation_id,omitempty"`
 	RefundAmountCLP           *int64     `json:"refund_amount_clp,omitempty"`
@@ -417,6 +423,72 @@ type GuaranteeLifecycleRepository interface {
 	DecideGuarantee(context.Context, string, string, FinancialDecisionInput, string, []byte, func() time.Time) (FinancialDecision, bool, error)
 	ResolveGuaranteeOperation(context.Context, string, string, string, string, func() time.Time) (GuaranteeOperation, error)
 	ExpireDueGuarantees(context.Context, func() time.Time) error
+}
+
+type Settlement struct {
+	ID                  string    `json:"id"`
+	ReservationID       string    `json:"reservation_id"`
+	HostID              string    `json:"-"`
+	PolicyVersion       string    `json:"policy_version"`
+	Currency            string    `json:"currency"`
+	GrossRentCLP        int64     `json:"gross_rent_clp"`
+	ConfirmedRefundsCLP int64     `json:"confirmed_refunds_clp"`
+	CommissionBPS       int       `json:"commission_bps"`
+	CommissionCLP       int64     `json:"commission_clp"`
+	TransferCLP         int64     `json:"transfer_clp"`
+	State               string    `json:"state"`
+	OperationID         string    `json:"operation_id"`
+	RequestedOutcome    string    `json:"-"`
+	LastResult          string    `json:"last_result,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+	Reused              bool      `json:"reused,omitempty"`
+}
+
+type LocalReceipt struct {
+	Version       int       `json:"version"`
+	Kind          string    `json:"kind"`
+	Banner        string    `json:"banner"`
+	ReceiptID     string    `json:"receipt_id"`
+	ReservationID string    `json:"reservation_id"`
+	PolicyVersion string    `json:"policy_version"`
+	Currency      string    `json:"currency"`
+	GrossRentCLP  int64     `json:"gross_rent_clp"`
+	RefundsCLP    int64     `json:"confirmed_refunds_clp"`
+	CommissionCLP int64     `json:"commission_clp"`
+	TransferCLP   int64     `json:"transfer_clp"`
+	ConfirmedAt   time.Time `json:"confirmed_at"`
+}
+
+type SettlementEvent struct {
+	EventID     string `json:"event_id"`
+	OperationID string `json:"operation_id"`
+	Outcome     string `json:"outcome"`
+	Signature   string `json:"-"`
+}
+
+type SettlementLifecycleRepository interface {
+	BeginSettlement(context.Context, string, string, string, []byte, string, string, string, func() time.Time) (Settlement, bool, error)
+	ApplySettlementResult(context.Context, string, SettlementEvent, []byte, func() time.Time) (Settlement, bool, error)
+	MarkSettlementUncertain(context.Context, string, string, func() time.Time) error
+	Settlement(context.Context, string, string) (Settlement, error)
+	SettlementForAdministrator(context.Context, string) (Settlement, error)
+	Receipt(context.Context, string, string) (LocalReceipt, error)
+	PendingSettlements(context.Context, int) ([]Settlement, error)
+}
+
+type SettlementResultStore interface {
+	SaveFakeSettlementResult(context.Context, SettlementEvent, time.Time) (SettlementEvent, bool, error)
+	RecordFakeSettlementTimeout(context.Context, string, time.Time) error
+	FindFakeSettlementResult(context.Context, string) (*SettlementEvent, error)
+	ResolveFakeSettlementResult(context.Context, string, string, time.Time) (SettlementEvent, error)
+}
+
+type LocalSettlementAdapter interface {
+	StartTransfer(context.Context, string, string) (*SettlementEvent, error)
+	LookupTransfer(context.Context, Settlement) (*SettlementEvent, error)
+	VerifyTransferEvent(SettlementEvent) bool
+	ResolveTransfer(context.Context, string, string) (SettlementEvent, error)
 }
 
 type CancellationPreview struct {

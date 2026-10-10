@@ -27,6 +27,7 @@ type Service struct {
 	refund                    LocalRefundAdapter
 	notices                   LocalNoticeSender
 	guaranteeOutcome          func() string
+	settlement                LocalSettlementAdapter
 	now                       func() time.Time
 	quoteTTL, payTTL, hostTTL time.Duration
 	catalogCursorKey          [32]byte
@@ -35,9 +36,171 @@ type Service struct {
 // SetLocalRefundAdapter and SetLocalNoticeSender are used only by the local
 // prototype wiring. No production payment or durable-notification adapter is
 // provided by this service.
-func (s *Service) SetLocalRefundAdapter(adapter LocalRefundAdapter) { s.refund = adapter }
-func (s *Service) SetLocalNoticeSender(sender LocalNoticeSender)    { s.notices = sender }
-func (s *Service) SetLocalGuaranteeOutcome(outcome func() string)   { s.guaranteeOutcome = outcome }
+func (s *Service) SetLocalRefundAdapter(adapter LocalRefundAdapter)         { s.refund = adapter }
+func (s *Service) SetLocalNoticeSender(sender LocalNoticeSender)            { s.notices = sender }
+func (s *Service) SetLocalGuaranteeOutcome(outcome func() string)           { s.guaranteeOutcome = outcome }
+func (s *Service) SetLocalSettlementAdapter(adapter LocalSettlementAdapter) { s.settlement = adapter }
+
+func (s *Service) StartSettlement(ctx context.Context, host, reservationID, key, outcome string) (Settlement, error) {
+	repo, ok := s.repo.(SettlementLifecycleRepository)
+	if !ok || s.settlement == nil || !uuid.MatchString(host) || !uuid.MatchString(reservationID) || strings.TrimSpace(key) == "" || len(key) > 200 || (outcome != "exito" && outcome != "rechazo" && outcome != "sin_respuesta") {
+		return Settlement{}, ErrInvalid
+	}
+	fingerprint := sha256.Sum256([]byte("liquidacion_local\x00" + outcome))
+	settlementID, err := s.ids.ID()
+	if err != nil {
+		return Settlement{}, err
+	}
+	operationID, err := s.ids.ID()
+	if err != nil {
+		return Settlement{}, err
+	}
+	value, _, err := repo.BeginSettlement(ctx, host, reservationID, key, fingerprint[:], settlementID, operationID, outcome, s.now)
+	if err != nil {
+		return Settlement{}, err
+	}
+	return s.finishSettlementAttempt(ctx, repo, host, value)
+}
+
+func (s *Service) finishSettlementAttempt(ctx context.Context, repo SettlementLifecycleRepository, actor string, value Settlement) (Settlement, error) {
+	if value.State == "liquidada" || value.State == "rechazada" {
+		value.Reused = true
+		return value, nil
+	}
+	event, err := s.settlement.LookupTransfer(ctx, value)
+	if errors.Is(err, ErrSimulatedNoResponse) {
+		if markErr := repo.MarkSettlementUncertain(ctx, actor, value.ReservationID, s.now); markErr != nil {
+			return Settlement{}, markErr
+		}
+		current, readErr := repo.Settlement(ctx, actor, value.ReservationID)
+		if readErr != nil {
+			return Settlement{}, readErr
+		}
+		return current, ErrSimulatedNoResponse
+	}
+	if err != nil {
+		return Settlement{}, err
+	}
+	if event == nil {
+		event, err = s.settlement.StartTransfer(ctx, value.OperationID, value.RequestedOutcome)
+		if errors.Is(err, ErrSimulatedNoResponse) {
+			if markErr := repo.MarkSettlementUncertain(ctx, actor, value.ReservationID, s.now); markErr != nil {
+				return Settlement{}, markErr
+			}
+			current, readErr := repo.Settlement(ctx, actor, value.ReservationID)
+			if readErr != nil {
+				return Settlement{}, readErr
+			}
+			return current, ErrSimulatedNoResponse
+		}
+		if err != nil {
+			return Settlement{}, err
+		}
+	}
+	return s.applySettlementEvent(ctx, repo, actor, *event)
+}
+
+func (s *Service) applySettlementEvent(ctx context.Context, repo SettlementLifecycleRepository, actor string, event SettlementEvent) (Settlement, error) {
+	if !s.settlement.VerifyTransferEvent(event) {
+		return Settlement{}, ErrUnauthenticatedPaymentEvent
+	}
+	fingerprint := sha256.Sum256([]byte(event.EventID + "\n" + event.OperationID + "\n" + event.Outcome))
+	value, _, err := repo.ApplySettlementResult(ctx, actor, event, fingerprint[:], s.now)
+	return value, err
+}
+
+func (s *Service) GetSettlement(ctx context.Context, actor, reservationID string) (Settlement, error) {
+	repo, ok := s.repo.(SettlementLifecycleRepository)
+	if !ok || !uuid.MatchString(actor) || !uuid.MatchString(reservationID) {
+		return Settlement{}, ErrNotFound
+	}
+	return repo.Settlement(ctx, actor, reservationID)
+}
+
+func (s *Service) GetSettlementForAdministrator(ctx context.Context, reservationID string) (Settlement, error) {
+	repo, ok := s.repo.(SettlementLifecycleRepository)
+	if !ok || !uuid.MatchString(reservationID) {
+		return Settlement{}, ErrNotFound
+	}
+	return repo.SettlementForAdministrator(ctx, reservationID)
+}
+
+func (s *Service) GetLocalReceipt(ctx context.Context, actor, reservationID string) (LocalReceipt, error) {
+	repo, ok := s.repo.(SettlementLifecycleRepository)
+	if !ok || !uuid.MatchString(actor) || !uuid.MatchString(reservationID) {
+		return LocalReceipt{}, ErrNotFound
+	}
+	return repo.Receipt(ctx, actor, reservationID)
+}
+
+func (s *Service) ResolveSettlement(ctx context.Context, admin, reservationID, outcome string) (Settlement, error) {
+	repo, ok := s.repo.(SettlementLifecycleRepository)
+	if !ok || s.settlement == nil || !uuid.MatchString(admin) || !uuid.MatchString(reservationID) || (outcome != "exito" && outcome != "rechazo") {
+		return Settlement{}, ErrInvalid
+	}
+	value, err := repo.SettlementForAdministrator(ctx, reservationID)
+	if err != nil {
+		return Settlement{}, err
+	}
+	event, err := s.settlement.ResolveTransfer(ctx, value.OperationID, outcome)
+	if err != nil {
+		return Settlement{}, err
+	}
+	return s.applySettlementEvent(ctx, repo, admin, event)
+}
+
+func (s *Service) ReconcileSettlements(ctx context.Context) error {
+	repo, ok := s.repo.(SettlementLifecycleRepository)
+	if !ok || s.settlement == nil {
+		return nil
+	}
+	values, err := repo.PendingSettlements(ctx, 100)
+	if err != nil {
+		return err
+	}
+	for _, value := range values {
+		event, lookupErr := s.settlement.LookupTransfer(ctx, value)
+		if errors.Is(lookupErr, ErrSimulatedNoResponse) {
+			continue
+		}
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if event == nil {
+			event, lookupErr = s.settlement.StartTransfer(ctx, value.OperationID, value.RequestedOutcome)
+			if errors.Is(lookupErr, ErrSimulatedNoResponse) {
+				if markErr := repo.MarkSettlementUncertain(ctx, value.HostID, value.ReservationID, s.now); markErr != nil {
+					return markErr
+				}
+				continue
+			}
+			if lookupErr != nil {
+				return lookupErr
+			}
+		}
+		if _, lookupErr = s.applySettlementEvent(ctx, repo, value.HostID, *event); lookupErr != nil && !errors.Is(lookupErr, ErrConflict) {
+			return lookupErr
+		}
+	}
+	return nil
+}
+
+func (s *Service) RunSettlementReconciler(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	_ = s.ReconcileSettlements(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = s.ReconcileSettlements(ctx)
+		}
+	}
+}
 
 func (s *Service) ensureGuaranteeAuthorization(ctx context.Context, renter string, reservation Reservation) error {
 	if reservation.GuaranteePolicyVersion == nil {

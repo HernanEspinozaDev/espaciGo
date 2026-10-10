@@ -303,6 +303,70 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(path, base+"/reservations/") {
 		parts := strings.Split(strings.TrimPrefix(path, base+"/reservations/"), "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "settlement" {
+			if r.Method == http.MethodGet {
+				value, getErr := h.service.GetSettlement(r.Context(), actor, parts[0])
+				if errors.Is(getErr, booking.ErrNotFound) {
+					if _, authErr := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), identity.RoleAdministrator, identity.UserOperation); authErr == nil {
+						value, getErr = h.service.GetSettlementForAdministrator(r.Context(), parts[0])
+					}
+				}
+				h.reply(w, value, getErr)
+				return
+			}
+			if r.Method == http.MethodPost {
+				var in struct {
+					Outcome string `json:"outcome"`
+				}
+				if !decode(w, r, &in) {
+					return
+				}
+				value, runErr := h.service.StartSettlement(r.Context(), actor, parts[0], r.Header.Get("Idempotency-Key"), in.Outcome)
+				if errors.Is(runErr, booking.ErrSimulatedNoResponse) {
+					write(w, http.StatusAccepted, map[string]any{"data": value, "safety_notice": booking.LocalSettlementBanner, "message": "La transferencia fake sigue incierta; reintenta con la misma clave o concilia la misma operación."})
+					return
+				}
+				if runErr != nil {
+					h.reply(w, nil, runErr)
+					return
+				}
+				write(w, http.StatusAccepted, map[string]any{"data": value, "safety_notice": booking.LocalSettlementBanner})
+				return
+			}
+		}
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "settlement-reconcile" && r.Method == http.MethodPost {
+			if _, authErr := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), identity.RoleAdministrator, identity.UserOperation); authErr != nil {
+				if errors.Is(authErr, identity.ErrForbidden) {
+					fail(w, 403, "forbidden")
+				} else {
+					w.Header().Set("WWW-Authenticate", "Bearer")
+					fail(w, 401, "unauthenticated")
+				}
+				return
+			}
+			var in struct {
+				Outcome string `json:"outcome"`
+			}
+			if !decode(w, r, &in) {
+				return
+			}
+			value, resolveErr := h.service.ResolveSettlement(r.Context(), actor, parts[0], in.Outcome)
+			if resolveErr != nil {
+				h.reply(w, nil, resolveErr)
+				return
+			}
+			write(w, http.StatusOK, map[string]any{"data": value, "safety_notice": booking.LocalSettlementBanner})
+			return
+		}
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "receipt" && r.Method == http.MethodGet {
+			value, receiptErr := h.service.GetLocalReceipt(r.Context(), actor, parts[0])
+			if receiptErr != nil {
+				h.reply(w, nil, receiptErr)
+				return
+			}
+			write(w, http.StatusOK, map[string]any{"data": value, "safety_notice": booking.LocalSettlementBanner})
+			return
+		}
 		if len(parts) == 2 && parts[0] != "" && parts[1] == "guarantee" {
 			if r.Method == http.MethodGet {
 				value, err := h.service.Guarantee(r.Context(), actor, parts[0])

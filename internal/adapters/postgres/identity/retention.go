@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const terminalReservationStates = `('cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario')`
+const terminalReservationStates = `('finalizada','cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario')`
 
 type reservationRetentionCandidate struct {
 	id, host, renter string
@@ -91,7 +91,7 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 		}
 		return false, false, mapError(err)
 	}
-	if state != "cancelada_por_pago" && state != "rechazada_arrendador" && state != "vencida_pago" && state != "vencida_host" && state != "cancelada_arrendatario" && state != "en_disputa" {
+	if state != "finalizada" && state != "cancelada_por_pago" && state != "rechazada_arrendador" && state != "vencida_pago" && state != "vencida_host" && state != "cancelada_arrendatario" && state != "en_disputa" {
 		return false, false, tx.Commit(ctx)
 	}
 	currentHost, currentRenter := "", ""
@@ -110,6 +110,7 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 		COALESCE((SELECT max(d.actualizada_en) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id),r.actualizada_en),
 		COALESCE((SELECT max(x.cerrada_en) FROM public.disputa_ensayo_local x WHERE x.reserva_id=r.id),r.actualizada_en),
 		COALESCE((SELECT max(x.resuelta_en) FROM public.reclamo_dano_resolucion_ensayo_local x JOIN public.reclamo_dano_ensayo_local c ON c.id=x.reclamo_id WHERE c.reserva_id=r.id),r.actualizada_en)
+		,COALESCE((SELECT max(s.actualizada_en) FROM public.reserva_liquidacion_ensayo_local s WHERE s.reserva_id=r.id),r.actualizada_en)
 		)+interval '24 months' FROM public.reserva_ensayo_local r WHERE r.id=$1`, candidate.id).Scan(&deadline); err != nil {
 		return false, false, mapError(err)
 	}
@@ -143,6 +144,7 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 			JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id
 			WHERE g.reserva_id=$1 AND a.estado IN ('pendiente','por_conciliar'))
 		OR EXISTS (SELECT 1 FROM public.reserva_decision_financiera_ensayo_local d WHERE d.reserva_id=$1 AND d.estado IN ('pendiente','por_conciliar'))
+		OR EXISTS (SELECT 1 FROM public.reserva_liquidacion_ensayo_local s WHERE s.reserva_id=$1 AND s.estado IN ('pendiente','por_conciliar'))
 		OR EXISTS (SELECT 1 FROM public.disputa_ensayo_local d WHERE d.reserva_id=$1 AND d.estado='abierta')
 		OR EXISTS (SELECT 1 FROM public.reclamo_dano_ensayo_local c WHERE c.reserva_id=$1 AND c.estado='abierto')
 		OR EXISTS (SELECT 1 FROM public.operacion_arriendo_archivo_candidato_local c WHERE c.reserva_id=$1 AND c.estado IN ('reservado','pendiente_limpieza','limpiando'))`, candidate.id).Scan(&blocked); err != nil {
@@ -159,6 +161,7 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 		{`UPDATE public.cotizacion_reserva_ensayo q SET anfitrion_id=NULL,arrendatario_id=NULL WHERE q.id=(SELECT cotizacion_id FROM public.reserva_ensayo_local WHERE id=$1)`, []any{candidate.id}},
 		{`UPDATE public.reserva_pago_ensayo_operacion SET arrendatario_id=NULL WHERE reserva_id=$1`, []any{candidate.id}},
 		{`UPDATE public.reserva_cancelacion_ensayo SET arrendatario_id=NULL WHERE reserva_id=$1`, []any{candidate.id}},
+		{`UPDATE public.reserva_liquidacion_ensayo_local SET anfitrion_id=NULL WHERE reserva_id=$1`, []any{candidate.id}},
 		{`UPDATE public.reclamo_dano_descargo_ensayo_local SET actor_id=NULL WHERE reclamo_id IN (SELECT id FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1)`, []any{candidate.id}},
 		{`UPDATE public.reclamo_dano_historial_ensayo_local SET actor_id=NULL WHERE reclamo_id IN (SELECT id FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1)`, []any{candidate.id}},
 		{`UPDATE public.reclamo_dano_resolucion_ensayo_local SET administrador_id=NULL WHERE reclamo_id IN (SELECT id FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1)`, []any{candidate.id}},
