@@ -3,6 +3,7 @@ package bookingpg
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"time"
@@ -10,6 +11,28 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/jackc/pgx/v5"
 )
+
+// appendFinancialAdminAudit records only the privileged action envelope. The
+// owning financial tables retain fake outcomes and amounts; audit stores no
+// amount, free text, provider payload, or requested fake result. The caller
+// holds the reservation/guarantee locks and commits this row with the domain
+// mutation.
+func appendFinancialAdminAudit(ctx context.Context, tx pgx.Tx, actor, reservationID, action, reason, idempotency string, at time.Time) error {
+	if actor == "" || reservationID == "" || idempotency == "" {
+		return booking.ErrInvalid
+	}
+	sum := sha256.Sum256([]byte(action + "\x00" + reservationID + "\x00" + idempotency))
+	key := "local-fin:" + hex.EncodeToString(sum[:])
+	correlation := key
+	_, err := tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(
+		id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,
+		ocurrido_en,retirar_en,clave_idempotencia,detalle_codigos)
+		VALUES(gen_random_uuid(),$1::uuid,'reserva',$2::uuid,$3,'exito',$4,$5,$6::timestamptz,$6::timestamptz + interval '5 years',$7,
+		'{"obligations_detected":[],"pending_checks":[]}')
+		ON CONFLICT (recurso_id,accion,clave_idempotencia) WHERE clave_idempotencia IS NOT NULL DO NOTHING`,
+		actor, reservationID, action, reason, correlation, at.UTC(), key)
+	return err
+}
 
 // closeGuaranteeOnCancellation never treats an authorization as a capture.
 // Uncertain authorization remains pending for reconciliation; a confirmed
@@ -341,6 +364,12 @@ VALUES(gen_random_uuid(),$1,'liberacion',$2,$3,50000,'exito','pendiente',$4,NULL
 	if err != nil {
 		return old, false, err
 	}
+	if administrator && kind != "autorizacion" {
+		reason := "garantia_" + kind
+		if err = appendFinancialAdminAudit(ctx, tx, actor, reservationID, "local.finance.guarantee.operation", reason, key, now); err != nil {
+			return old, false, err
+		}
+	}
 	if kind == "autorizacion" && (lateAuthorization || state == "rechazada") && v.State == "pagada" {
 		reason := "cancelación por resultado de garantía al inicio; ocupación liberada"
 		if state == "rechazada" {
@@ -447,6 +476,9 @@ func (r *Repository) DecideGuarantee(ctx context.Context, admin, reservationID s
 		if err != nil {
 			return existing, false, err
 		}
+	}
+	if err = appendFinancialAdminAudit(ctx, tx, admin, reservationID, "local.finance.decision", input.ReasonCode, key, now); err != nil {
+		return existing, false, err
 	}
 	_ = state
 	result := booking.FinancialDecision{ID: id, ClaimID: input.ClaimID, Outcome: input.Outcome, DeductionCLP: input.DeductionCLP, ReasonCode: input.ReasonCode, State: "pendiente", CreatedAt: now, UpdatedAt: now}
@@ -616,6 +648,9 @@ func (r *Repository) ResolveGuaranteeOperation(ctx context.Context, admin, reser
 		return op, err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO public.reserva_finanzas_historial_ensayo_local(reserva_id,tipo,actor_id,detalle_codigo,ocurrida_en) VALUES($1,$2,$3,$4,$5)`, reservationID, guaranteeHistoryType(kind, finalState), admin, lastResult, now); err != nil {
+		return op, err
+	}
+	if err = appendFinancialAdminAudit(ctx, tx, admin, reservationID, "local.finance.guarantee.reconcile", "reconciliacion_garantia_"+kind, op.ID+":"+outcome, now); err != nil {
 		return op, err
 	}
 	op.State, op.LastResult, op.UpdatedAt = finalState, lastResult, now
