@@ -19,6 +19,7 @@ import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSu
 import { captureRentalOperationContext, finishRentalOperationAfterReload, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
 import { AdminReservationsState, type AdminReservationContext } from "./admin-reservations-state.js";
 import { AdminAuditState, type AdminAuditContext } from "./admin-audit-state.js";
+import { consumeAdminAuditExportResponse } from "./admin-audit-export-state.js";
 
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
@@ -2338,6 +2339,7 @@ function adminAuditCriteriaKey():string {
   return JSON.stringify(fields);
 }
 function currentAdminAuditContext(context:AdminAuditContext):boolean {return adminAuditState.current(context,sessionAccountID,sessionToken,sessionGeneration,adminAuditCriteriaKey())&&sessionRoles.includes("administrador");}
+function currentAdminAuditSession(context:AdminAuditContext):boolean{return Boolean(context.token)&&context.accountID===sessionAccountID&&context.token===sessionToken&&context.generation===sessionGeneration;}
 function resetAdminAuditForCriteria():void {
   if(!adminAuditState.updateCriteria(adminAuditCriteriaKey()))return;
   adminAuditItems=[];const output=document.querySelector<HTMLElement>("#local-admin-audit-items");if(output)output.textContent="";
@@ -2362,7 +2364,7 @@ async function loadAdminAudit(cursor=""):Promise<void>{
 async function exportAdminAudit():Promise<void>{
   if(!sessionToken||!sessionRoles.includes("administrador"))throw new Error("La exportación de auditoría requiere rol administrador.");
   resetAdminAuditForCriteria();const criteria=adminAuditCriteriaKey(),context=adminAuditState.begin(sessionAccountID,sessionToken,sessionGeneration),status=document.querySelector<HTMLElement>("#local-admin-audit-status")!;status.textContent="Preparando JSON minimizado…";refreshAdminAuditControls();
-  try{const response=await fetch(`${apiBase}/api/v1/admin/local/audit-events/export?${auditQuery(false).toString()}`,{method:"GET",headers:{Accept:"application/json",Authorization:`Bearer ${context.token}`},mode:"cors",cache:"no-store",credentials:"omit"});if(!response.ok){let code="unknown";try{const body=await response.json() as APIError;code=body.error?.code??code;}catch{/* response may be unavailable */}if(!currentAdminAuditContext(context))return;throw new Error(`No se pudo exportar auditoría (HTTP ${response.status}, ${code}).`);}const blob=await response.blob();if(!currentAdminAuditContext(context))return;const url=URL.createObjectURL(blob),link=document.createElement("a");link.href=url;link.download="audit-local-v1.json";link.click();setTimeout(()=>URL.revokeObjectURL(url),60_000);status.textContent="JSON versionado descargado; consulta completa, minimizada y sin cambios al ledger.";}
+  try{const response=await fetch(`${apiBase}/api/v1/admin/local/audit-events/export?${auditQuery(false).toString()}`,{method:"GET",headers:{Accept:"application/json",Authorization:`Bearer ${context.token}`},mode:"cors",cache:"no-store",credentials:"omit"});const outcome=await consumeAdminAuditExportResponse(response,adminAuditState,context,currentAdminAuditContext,()=>{if(!currentAdminAuditSession(context))return;sessionToken="";clearBookingInboxOnSessionLoss();},async()=>{if(!currentAdminAuditContext(context))return;clearAdminAuditView("Acceso administrativo actualizado; esta sesión puede continuar en operaciones permitidas.");sessionRoles=sessionRoles.filter(role=>role!=="administrador");refreshAdminAuditControls();try{const updated=await request("session","GET",undefined,true);if(currentAdminAuditSession(context)&&Array.isArray(updated.roles)){sessionRoles=updated.roles.map(String);refreshAdminAuditControls();}}catch{/* Keep the session for allowed operations; administrative controls stay disabled. */}});if(outcome.kind==="stale"||outcome.kind==="unauthorized")return;if(outcome.kind==="forbidden")return;if(outcome.kind==="failed")throw new Error(`No se pudo exportar auditoría (HTTP ${outcome.status}, ${outcome.code}).`);if(!currentAdminAuditContext(context))return;const url=URL.createObjectURL(outcome.blob),link=document.createElement("a");link.href=url;link.download="audit-local-v1.json";link.click();setTimeout(()=>URL.revokeObjectURL(url),60_000);status.textContent="JSON versionado descargado; consulta completa, minimizada y sin cambios al ledger.";}
   finally{adminAuditState.finish(context,sessionAccountID,sessionToken,sessionGeneration,criteria);refreshAdminAuditControls();}
 }
 document.querySelector<HTMLFormElement>("#local-admin-audit-filter")!.addEventListener("submit",event=>{event.preventDefault();void action(()=>loadAdminAudit());});

@@ -19,6 +19,7 @@ import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSu
 import { captureRentalOperationContext, finishRentalOperationAfterReload, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
 import { AdminReservationsState } from "./admin-reservations-state.js";
 import { AdminAuditState } from "./admin-audit-state.js";
+import { consumeAdminAuditExportResponse } from "./admin-audit-export-state.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -3521,6 +3522,7 @@ function adminAuditCriteriaKey() {
     return JSON.stringify(fields);
 }
 function currentAdminAuditContext(context) { return adminAuditState.current(context, sessionAccountID, sessionToken, sessionGeneration, adminAuditCriteriaKey()) && sessionRoles.includes("administrador"); }
+function currentAdminAuditSession(context) { return Boolean(context.token) && context.accountID === sessionAccountID && context.token === sessionToken && context.generation === sessionGeneration; }
 function resetAdminAuditForCriteria() {
     if (!adminAuditState.updateCriteria(adminAuditCriteriaKey()))
         return;
@@ -3589,21 +3591,25 @@ async function exportAdminAudit() {
     refreshAdminAuditControls();
     try {
         const response = await fetch(`${apiBase}/api/v1/admin/local/audit-events/export?${auditQuery(false).toString()}`, { method: "GET", headers: { Accept: "application/json", Authorization: `Bearer ${context.token}` }, mode: "cors", cache: "no-store", credentials: "omit" });
-        if (!response.ok) {
-            let code = "unknown";
-            try {
-                const body = await response.json();
-                code = body.error?.code ?? code;
+        const outcome = await consumeAdminAuditExportResponse(response, adminAuditState, context, currentAdminAuditContext, () => { if (!currentAdminAuditSession(context))
+            return; sessionToken = ""; clearBookingInboxOnSessionLoss(); }, async () => { if (!currentAdminAuditContext(context))
+            return; clearAdminAuditView("Acceso administrativo actualizado; esta sesión puede continuar en operaciones permitidas."); sessionRoles = sessionRoles.filter(role => role !== "administrador"); refreshAdminAuditControls(); try {
+            const updated = await request("session", "GET", undefined, true);
+            if (currentAdminAuditSession(context) && Array.isArray(updated.roles)) {
+                sessionRoles = updated.roles.map(String);
+                refreshAdminAuditControls();
             }
-            catch { /* response may be unavailable */ }
-            if (!currentAdminAuditContext(context))
-                return;
-            throw new Error(`No se pudo exportar auditoría (HTTP ${response.status}, ${code}).`);
         }
-        const blob = await response.blob();
+        catch { /* Keep the session for allowed operations; administrative controls stay disabled. */ } });
+        if (outcome.kind === "stale" || outcome.kind === "unauthorized")
+            return;
+        if (outcome.kind === "forbidden")
+            return;
+        if (outcome.kind === "failed")
+            throw new Error(`No se pudo exportar auditoría (HTTP ${outcome.status}, ${outcome.code}).`);
         if (!currentAdminAuditContext(context))
             return;
-        const url = URL.createObjectURL(blob), link = document.createElement("a");
+        const url = URL.createObjectURL(outcome.blob), link = document.createElement("a");
         link.href = url;
         link.download = "audit-local-v1.json";
         link.click();
