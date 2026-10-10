@@ -1,6 +1,6 @@
 # Backlog propuesto para cerrar el backend local
 
-Fecha inicial: 2026-10-07; conciliación actualizada tras el merge #234 el 2026-10-10. #216 LOCAL-CONT-01, #214 LOCAL-BOOK-02 y #218 LOCAL-OPS-01 fueron aceptadas por sus alcances locales; #218 quedó cerrada/Hecho en Projects. Los padres generales siguen abiertos. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
+Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación de #236 el 2026-10-10. #216 LOCAL-CONT-01, #214 LOCAL-BOOK-02, #218 LOCAL-OPS-01 y #236 LOCAL-FIN-SETTLEMENT-01 fueron aceptadas por sus alcances locales. Los padres generales siguen abiertos. LOCAL-QA-01 es la Issue #238 y está en curso. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
 
 ## Convenciones
 
@@ -62,13 +62,13 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras el merge #234 el 2026-
 
 ### LOCAL-QA-01 — Unificar ejecución reproducible de pruebas locales
 
-- **Módulo/tipo/estado:** transversal / TEST / `todo`.
+- **Módulo/tipo/estado:** transversal / TEST / `En curso` (Issue #238, Project 1).
 - **Objetivo y motivo:** completar CORE-TEST-01 con ejecución real, evitando suites verdes con integraciones omitidas.
-- **Alcance:** un comando para DB desechable, migración y rol runtime; Go/contratos/mock e integraciones exigidas; fixtures deterministas; reporte de pruebas ejecutadas/omitidas; limpieza verificable. Reutilizar scripts actuales.
+- **Alcance:** `scripts/test-local-qa.sh` reutiliza los runners existentes: instala dependencias fijadas, compila y prueba el mock, ejecuta `go test ./...` sin DSN de desarrollo, `go vet ./...`, y corre cada paquete con integraciones obligatorias en contenedores propios PostgreSQL/PostGIS y Mailpit. `scripts/local-required-integrations.txt` fija pruebas requeridas; `check_local_qa_results.py` falla si una falta, fue omitida/`SKIP` o falla. Limpieza verifica contenedor, red y archivos temporales. Se documenta y repite el fallo histórico de check-in.
 - **Fuera:** pruebas cloud, sandbox, ejecutar suite completa por edición documental o umbral arbitrario de cobertura.
 - **Dependencias:** LOCAL-CORE-01. **Desbloquea:** gates de entregas y LOCAL-QA-02/03.
-- **Aceptación:** falta de DSN/servicio requerido falla el gate, no lo convierte en éxito por `Skip`; comando reproducible documentado; ninguna limpieza toca la DB persistente de desarrollo.
-- **Pruebas previstas:** comprobar preparación, fallo por precondición ausente y limpieza; futuras suites del proyecto.
+- **Aceptación:** una integración obligatoria ausente, omitida/`SKIP` o fallida produce código distinto de cero; el entorno por paquete se aísla para impedir colisiones de roles y permisos; los temporales se limpian incluso al fallar; `espacigo_pgdata`, secretos y GCP quedan fuera. Evidencia en `planning/evidence/local-qa-01-20261010.md`.
+- **Pruebas ejecutadas para este corte:** pruebas del parser para resultado exitoso, omitido, faltante y skip opcional; suite Go/mock; validación PostgreSQL/Mailpit y repetición controlada de check-in, según evidencia. No sustituye LOCAL-QA-03 ni acepta LOCAL-1 integral.
 - **Riesgo:** utilizar el DSN de desarrollo por defecto o contabilizar un parseo YAML como validación del contrato.
 
 ### LOCAL-AUTH-01 — Completar identidad y credenciales
@@ -269,13 +269,13 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras el merge #234 el 2026-
 
 ### LOCAL-ADMIN-ARCH-01 — Diseño de permisos, auditoría y outbox local (Issue #232)
 
-- **Módulo/tipo/estado:** M11 / ARCH / diseño aceptado y Issue cerrada por su alcance tras PR #234; hija de #111. El campo de Projects requiere sincronización cuando se recupere acceso a su API GraphQL. El padre #111 sigue abierto/bloqueado por la dependencia original #110; #230 está aceptada/Hecho tras PR #231.
+- **Módulo/tipo/estado:** M11 / ARCH / diseño aceptado y Issue cerrada por su alcance tras PR #234; hija de #111. La Issue de diseño y su Project están sincronizados tras la aceptación de #233; el padre #111 sigue abierto/bloqueado por la dependencia original #110; #230 está aceptada/Hecho tras PR #231.
 - **Propósito:** definir la matriz de permisos administrativos, gobierno de cuenta, productores de auditoría, contrato outbox y división mínima de brechas para culminar M11.
 - **Diseño:** [`diseno_local_admin_arch_01.md`](diseno_local_admin_arch_01.md). Reutiliza #180, #226, #228 y los contratos/ownership existentes. Distingue `evento_auditoria_local`, outbox de credenciales, `aviso_local` y el inbox fake de pagos; no duplica los mecanismos específicos.
 - **Dependencias de la subentrega local:** #230 aceptada; CORE-ARCH #19, CORE-DB #20/#21, CORE-BE #22, CORE-API #23, CORE-TEST #24 y CORE-ENV #25 cerrados. #109/#110 y #111–#118 mantienen sus criterios y vínculos generales.
 - **Brechas mínimas que se reutilizarán:** #112 diseño de contrato/eventos; #113 persistencia/grants si el outbox común se justifica; #114 publicación durable y cobertura de acciones privilegiadas; #115 gobierno de cuentas/reportes; #116 contratos API; #117 pruebas aisladas; #118 mock. Es la descomposición existente; no se crean Issues duplicadas por etapa.
 - **Decisiones ratificadas para prototipo local:** CU-43 admite autenticación restringida, con API allow-list y sin nuevas operaciones comerciales/admin; CU-45 permite dos reportes agregados solo lectura bajo el límite temporal definido. Estas reglas no completan los criterios generales. RNF-043 conserva cinco años de auditoría; RNF-017 productivo, proveedor real y GCP quedan fuera.
-- **Estado:** #232 queda cerrada porque matriz de permisos, inventario de auditoría/outbox y división de brechas están documentados y ratificados. #233 queda aceptada/cerrada únicamente por su corte local tras PR #234. La sincronización del campo Projects de ambas Issues sigue pendiente: la API GraphQL no permitió listar/editar el proyecto y no se afirma que el tablero se actualizara. Ni el diseño ni #233 cierran #111 ni completan M11; #112–#118 conservan sus criterios y dependencias.
+- **Estado:** #232 queda cerrada porque matriz de permisos, inventario de auditoría/outbox y división de brechas están documentados y ratificados. #233 queda aceptada/cerrada únicamente por su corte local tras PR #234. Las Issues #232 y #233 quedaron sincronizadas en Projects tras su aceptación y merge. Ni el diseño ni #233 cierran #111 ni completan M11; #112–#118 conservan sus criterios y dependencias.
 - **Aceptación:** snapshot CLP fijo sin retroactividad; operaciones fake idempotentes/durables; gates transaccionales; importes enteros exactos; reintentos/fallos/resultado tardío no duplican; cierre no pierde trazabilidad y bloqueadores de baja consideran toda incertidumbre. No registrar garantía autorizada como ingreso.
 - **Pruebas/evidencia:** límites (0, 1, 50.000 y >50.000), reclamo aceptado/rechazado, rechazo/vencimiento/timeouts, resultado tardío, cierre 24 h, cancelación, carreras, reinicio/conciliación y rol runtime están cubiertos por la integración desechable publicada y sus pruebas focalizadas; evidencia de aceptación/migración V40 y HTTP posterior al merge: [`local-fin-01-20261009.md`](evidence/local-fin-01-20261009.md). El recorrido de negocio se verifica por integración API; no se afirma automatización de navegador sobre los datos persistentes.
 - **Riesgo:** confundir comisión con fondos de terceros o simular liquidación como pago confirmado real.

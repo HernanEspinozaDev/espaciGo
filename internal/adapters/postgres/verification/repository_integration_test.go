@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -67,7 +68,14 @@ func TestVerificationRepositoryOwnershipIdempotencyReviewAndRetry(t *testing.T) 
 		t.Fatal(err)
 	}
 	for _, file := range migrationFiles {
-		if file.Name() == "V000028__local_kyc_eligibility_and_history.sql" || file.Name() == "V000029__local_privacy_kyc_eligibility.sql" {
+		if file.IsDir() || len(file.Name()) < 8 || file.Name()[0] != 'V' || filepath.Ext(file.Name()) != ".sql" {
+			continue
+		}
+		version, parseErr := strconv.Atoi(file.Name()[1:7])
+		if parseErr != nil {
+			t.Fatalf("invalid migration filename %s: %v", file.Name(), parseErr)
+		}
+		if version > 27 {
 			continue
 		}
 		contents, readErr := os.ReadFile(filepath.Join(migrationRoot, file.Name()))
