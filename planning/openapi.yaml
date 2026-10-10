@@ -2214,6 +2214,38 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /admin/local/reservations:
+    get:
+      operationId: listAdminLocalReservations
+      tags: [LOCAL-ADMIN-01A]
+      summary: Consultar reservas sintéticas para administración
+      description: Solo administrador. Filtros por ID, estado y fecha de creación (RFC3339; desde inclusivo/hasta exclusivo). Orden creada_en DESC e ID DESC. Cursor opaco vinculado a cuenta/filtros. No concilia ni modifica datos de negocio; audita una consulta por petición.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: reservation_id, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: state, in: query, required: false, schema: { type: string } }
+        - { name: created_from, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: created_to, in: query, required: false, description: Hasta exclusivo, schema: { type: string, format: date-time } }
+        - { name: page_size, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { name: cursor, in: query, required: false, schema: { type: string, maxLength: 4096 } }
+      responses:
+        '200': { description: Página sin conteo total., content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalReservationPageEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /admin/local/reservations/{reservationID}:
+    parameters: [{ name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      operationId: getAdminLocalReservation
+      tags: [LOCAL-ADMIN-01A]
+      summary: Consultar historial y finanzas de una reserva sintética
+      description: Solo administrador. Respuesta mínima con identificadores de participantes solo mientras sigan vinculados; no expone contacto, credenciales, documentos, mensajes ni payloads privados. Una lectura no inicia operaciones ni procesa vencimientos.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Estado, historial, pago fake, devolución, garantía, deducción y estado relacionado del reclamo., content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalReservationDetailEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /admin/local/damage-claims:
     get:
       operationId: listOpenLocalSyntheticDamageClaims
@@ -2296,6 +2328,60 @@ components:
         type: string
         minLength: 1
   schemas:
+    AdminLocalReservationSummary:
+      type: object
+      required: [id, host_id, renter_id, state, start_at, end_at, subtotal_clp, currency, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        host_id: { type: [string, 'null'], format: uuid, description: null tras retirar vínculo por retención }
+        renter_id: { type: [string, 'null'], format: uuid, description: null tras retirar vínculo por retención }
+        state: { type: string }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        subtotal_clp: { type: integer, format: int64 }
+        currency: { type: string, enum: [CLP] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AdminLocalReservationPageEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/AdminLocalReservationSummary' } }
+            next_cursor: { type: string }
+        safety_notice: { type: string }
+    AdminLocalReservationDetailEnvelope:
+      type: object
+      required: [data, safety_notice]
+      properties:
+        data:
+          allOf:
+            - $ref: '#/components/schemas/AdminLocalReservationSummary'
+            - type: object
+              required: [space_id, history, rental_payments, rental_payment_operations, refund, guarantee, claim]
+              properties:
+                space_id: { type: string, format: uuid }
+                history:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [sequence, to, at]
+                    properties:
+                      sequence: { type: integer, format: int64 }
+                      from: { type: [string, 'null'] }
+                      to: { type: string }
+                      actor_id: { type: [string, 'null'], format: uuid }
+                      at: { type: string, format: date-time }
+                rental_payments: { type: array, items: { type: object, required: [result, amount_clp, at], properties: { result: { type: string }, amount_clp: { type: integer }, at: { type: string, format: date-time } } } }
+                rental_payment_operations: { type: array, items: { type: object, required: [id, state, requested_result, created_at, updated_at], properties: { id: { type: string, format: uuid }, state: { type: string }, requested_result: { type: string }, created_at: { type: string, format: date-time }, updated_at: { type: string, format: date-time } } } }
+                refund: { type: [object, 'null'], additionalProperties: true }
+                guarantee: { type: [object, 'null'], additionalProperties: true }
+                claim: { type: [object, 'null'], additionalProperties: true }
+        safety_notice: { type: string }
     LocalReview:
       type: object
       required: [id, rating, created_at]

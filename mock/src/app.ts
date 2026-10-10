@@ -17,6 +17,7 @@ import { publishedContentChange } from "./published-content-state.js";
 import { galleryContextMatches, type GalleryContext } from "./gallery-session-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount, type SuppressionReviewPanelState } from "./suppression-review-state.js";
 import { captureRentalOperationContext, finishRentalOperationAfterReload, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
+import { AdminReservationsState, type AdminReservationContext } from "./admin-reservations-state.js";
 
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
@@ -50,6 +51,9 @@ const galleryPreviewURLs = new Set<string>();
 const galleryAddRetryKeys = new Map<string,string>();
 const participantDamageEvidenceURLs = new Set<string>();
 const adminDamageEvidenceURLs = new Set<string>();
+const adminReservationsState = new AdminReservationsState();
+let adminReservationItems: Array<Record<string,unknown>>=[];
+let selectedAdminReservationID="";
 
 async function request(path: string, method = "GET", body?: unknown, authenticated = false, idempotencyKey?: string): Promise<Record<string, unknown>> {
   if (!apiBase) throw new Error("API local aún no disponible.");
@@ -84,7 +88,7 @@ async function requestArchive(path:string,bearer:string):Promise<Blob> {
 }
 async function action(work: () => Promise<void>): Promise<void> {
   const buttons = [...document.querySelectorAll<HTMLButtonElement>("button")];
-  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); refreshStandaloneGuaranteeControls(); }); }
+  try { await actionWithButtonState(buttons, work, () => { refreshCalendarControls(); refreshBookingActions(); refreshConversationControls(); refreshRentalOperationControls(); refreshCatalogControls(); refreshPrivacyExportControls(); refreshDisputeControls(); refreshCredentialNoticeControls(); refreshLocalNoticeControls(); refreshDamageAdminControls(); refreshStandaloneGuaranteeControls(); refreshAdminReservationControls(); }); }
   catch (error) { resultElement.textContent = error instanceof Error ? error.message : "No se pudo conectar con la API."; }
 }
 function form(id: string, work: (data: FormData, element: HTMLFormElement) => Promise<void>): void {
@@ -106,7 +110,7 @@ form("login-form", async (data, element) => {
   const response = await request("login", "POST", {email: data.get("email"), password: data.get("password")});
   clearBookingInboxOnSessionLoss();
   sessionToken = String(response.access_token); sessionAccountID = String(response.account_id); sessionRoles = Array.isArray(response.roles) ? response.roles.map(String) : []; sessionGeneration++; resetCatalogTraversal(); element.querySelector<HTMLInputElement>('[name="password"]')!.value = "";
-  refreshDamageAdminControls();
+  refreshDamageAdminControls();refreshAdminReservationControls();
   await loadSpaceCategories();
   await loadBookingInbox();
   resultElement.textContent = "Sesión iniciada. Puedes consultarla o cerrarla.";
@@ -1860,6 +1864,7 @@ function clearBookingInboxOnSessionLoss():void{
   evidencePreview.hidden=true; evidencePreview.removeAttribute("src");
   if(evidenceObjectURL){URL.revokeObjectURL(evidenceObjectURL);evidenceObjectURL="";}
   sessionAccountID="";sessionRoles=[];selectedReservationID="";selectedReservation=null;selectedContract=null;contractRequestRevision++;bookingRequestState.invalidate();resetCatalogTraversal();
+  clearAdminReservationView("La sesión terminó; inicia sesión con rol administrador para volver a consultar.");
   currentDraftID=""; spacesList.replaceChildren(); spacesOutput.textContent="Inicia sesión para consultar tus espacios."; spaceForm.reset();
   clearM02PhotoPreview();m02PhotoRetryKey="";m02PhotoRemoveRetryKey="";m02PayoutRetryKey="";m02PayoutRevokeRetryKey="";
   document.querySelector<HTMLElement>("#m02-photo-output")!.textContent="Inicia sesión para consultar tu foto sintética.";
@@ -2231,6 +2236,88 @@ form("booking-conversation-form",async(data,element)=>{
   await loadConversationPage(id,null,false);
   resultElement.textContent="Mensaje sintético guardado en la conversación de la reserva.";
 });
+
+type AdminReservationDetailView = Record<string,unknown> & {id:string;state:string;host_id:string|null;renter_id:string|null;history:Array<Record<string,unknown>>;rental_payments:Array<Record<string,unknown>>;rental_payment_operations:Array<Record<string,unknown>>;refund:Record<string,unknown>|null;guarantee:Record<string,unknown>|null;claim:Record<string,unknown>|null};
+function clearAdminReservationView(message="Requiere rol administrador."):void {
+  adminReservationsState.clear();adminReservationItems=[];selectedAdminReservationID="";
+  document.querySelector<HTMLFormElement>("#local-admin-reservations-filter")?.reset();
+  const list=document.querySelector<HTMLElement>("#local-admin-reservations-items");list?.replaceChildren();
+  const detail=document.querySelector<HTMLElement>("#local-admin-reservations-detail");if(detail)detail.textContent=message;
+  const status=document.querySelector<HTMLElement>("#local-admin-reservations-status");if(status)status.textContent=message;
+  const next=document.querySelector<HTMLButtonElement>("#local-admin-reservations-next");if(next)next.disabled=true;
+  const reset=document.querySelector<HTMLButtonElement>("#local-admin-reservations-reset");if(reset)reset.disabled=!sessionToken||!sessionRoles.includes("administrador");
+  const search=document.querySelector<HTMLButtonElement>("#local-admin-reservations-search");if(search)search.disabled=!sessionToken||!sessionRoles.includes("administrador");
+}
+function adminReservationContextCurrent(context:AdminReservationContext):boolean {
+  return adminReservationsState.current(context,sessionAccountID,sessionToken,sessionGeneration,adminReservationCriteriaKey())&&sessionRoles.includes("administrador");
+}
+function adminReservationCriteriaKey():string {
+  const form=document.querySelector<HTMLFormElement>("#local-admin-reservations-filter");if(!form)return "";
+  const data=new FormData(form),values:Array<[string,string]>=[];
+  for(const key of ["reservation_id","state","created_from","created_to","page_size"]){
+    let value=String(data.get(key)??"").trim();
+    if(key==="reservation_id")value=value.toLowerCase();
+    if((key==="created_from"||key==="created_to")&&value){const parsed=new Date(value);if(!Number.isNaN(parsed.valueOf()))value=parsed.toISOString();}
+    values.push([key,value]);
+  }
+  return JSON.stringify(values);
+}
+function resetAdminReservationSearchForCriteria():void {
+  if(!adminReservationsState.updateCriteria(adminReservationCriteriaKey()))return;
+  adminReservationItems=[];selectedAdminReservationID="";
+  document.querySelector<HTMLElement>("#local-admin-reservations-items")?.replaceChildren();
+  const detail=document.querySelector<HTMLElement>("#local-admin-reservations-detail");if(detail)detail.textContent="Los filtros cambiaron. Consulta para iniciar desde el principio.";
+  const status=document.querySelector<HTMLElement>("#local-admin-reservations-status");if(status)status.textContent="Filtros modificados; los resultados anteriores se descartaron.";
+  refreshAdminReservationControls();
+}
+function renderAdminReservationItems():void {
+  const target=document.querySelector<HTMLElement>("#local-admin-reservations-items")!;target.replaceChildren();
+  for(const raw of adminReservationItems){
+    const item=raw as {id:string;state:string;start_at:string;end_at:string;subtotal_clp:number;currency:string;host_id:string|null;renter_id:string|null};
+    const row=document.createElement("p"),button=document.createElement("button");button.type="button";button.textContent=`${item.id} · ${item.state} · ${item.subtotal_clp.toLocaleString("es-CL")} ${item.currency} · ${item.start_at}–${item.end_at}`;
+    button.addEventListener("click",()=>void action(async()=>{
+      const id=item.id,context=adminReservationsState.begin(sessionAccountID,sessionToken,sessionGeneration);selectedAdminReservationID=id;
+      document.querySelector<HTMLElement>("#local-admin-reservations-detail")!.textContent="Consultando detalle administrativo de solo lectura…";
+      try{
+        const response=await request(`/api/v1/admin/local/reservations/${encodeURIComponent(id)}`,"GET",undefined,true);
+        if(!adminReservationContextCurrent(context)||selectedAdminReservationID!==id)return;
+        const detail=bookingData<AdminReservationDetailView>(response);
+        const history=detail.history.map(entry=>({sequence:entry.sequence,from:entry.from??null,to:entry.to,actor_id:entry.actor_id??null,at:entry.at}));
+        document.querySelector<HTMLElement>("#local-admin-reservations-detail")!.textContent=JSON.stringify({notice:"ENSAYO LOCAL — CONSULTA SIN EFECTOS FINANCIEROS",reservation:{id:detail.id,host_id:detail.host_id,renter_id:detail.renter_id,state:detail.state,start_at:detail.start_at,end_at:detail.end_at,subtotal_clp:detail.subtotal_clp,currency:detail.currency,space_id:detail.space_id},rental_payments:detail.rental_payments,rental_payment_operations:detail.rental_payment_operations,refund:detail.refund,guarantee:detail.guarantee,claim:detail.claim,history},null,2);
+        document.querySelector<HTMLElement>("#local-admin-reservations-status")!.textContent="Detalle consultado; no se ejecutaron pagos, conciliaciones ni transiciones.";
+      }finally{adminReservationsState.finish(context,sessionAccountID,sessionToken,sessionGeneration);refreshAdminReservationControls();}
+    }));row.append(button);target.append(row);
+  }
+}
+function refreshAdminReservationControls():void {
+  const allowed=Boolean(sessionToken&&sessionRoles.includes("administrador"));
+  const search=document.querySelector<HTMLButtonElement>("#local-admin-reservations-search");if(search)search.disabled=!allowed||adminReservationsState.loading;
+  const next=document.querySelector<HTMLButtonElement>("#local-admin-reservations-next");if(next)next.disabled=!allowed||adminReservationsState.loading||!adminReservationsState.nextCursor;
+  const reset=document.querySelector<HTMLButtonElement>("#local-admin-reservations-reset");if(reset)reset.disabled=!allowed||adminReservationsState.loading;
+}
+async function loadAdminReservations(cursor="",replace=true):Promise<void>{
+  if(!sessionToken||!sessionRoles.includes("administrador"))throw new Error("La consulta de reservas requiere rol administrador.");
+  const formElement=document.querySelector<HTMLFormElement>("#local-admin-reservations-filter")!,data=new FormData(formElement),query=new URLSearchParams();
+  resetAdminReservationSearchForCriteria();
+  for(const key of ["reservation_id","state","created_from","created_to"]){const value=String(data.get(key)??"").trim();if(value)query.set(key,value);}
+  const size=String(data.get("page_size")??"25");query.set("page_size",size);if(cursor)query.set("cursor",cursor);
+  const context=adminReservationsState.begin(sessionAccountID,sessionToken,sessionGeneration);
+  selectedAdminReservationID="";document.querySelector<HTMLElement>("#local-admin-reservations-detail")!.textContent="Selecciona una reserva para consultar su historial y finanzas.";
+  document.querySelector<HTMLElement>("#local-admin-reservations-status")!.textContent="Consultando…";refreshAdminReservationControls();
+  try{
+    const response=await request(`/api/v1/admin/local/reservations?${query.toString()}`,"GET",undefined,true);
+    if(!adminReservationContextCurrent(context))return;
+    const page=bookingData<{items:Array<Record<string,unknown>>;next_cursor?:string}>(response);
+    if(replace)adminReservationItems=[];adminReservationItems=page.items;
+    adminReservationsState.cursor=cursor;adminReservationsState.nextCursor=page.next_cursor??"";
+    renderAdminReservationItems();document.querySelector<HTMLElement>("#local-admin-reservations-status")!.textContent=`${page.items.length} reserva(s) en esta página. Conteo total no disponible.`;
+  }finally{adminReservationsState.finish(context,sessionAccountID,sessionToken,sessionGeneration);refreshAdminReservationControls();}
+}
+document.querySelector<HTMLFormElement>("#local-admin-reservations-filter")!.addEventListener("submit",event=>{event.preventDefault();void action(()=>loadAdminReservations("",true));});
+document.querySelector<HTMLFormElement>("#local-admin-reservations-filter")!.addEventListener("input",resetAdminReservationSearchForCriteria);
+document.querySelector<HTMLFormElement>("#local-admin-reservations-filter")!.addEventListener("change",resetAdminReservationSearchForCriteria);
+document.querySelector<HTMLButtonElement>("#local-admin-reservations-next")!.addEventListener("click",()=>void action(async()=>{const cursor=adminReservationsState.nextCursor;if(!cursor)return;await loadAdminReservations(cursor,true);}));
+document.querySelector<HTMLButtonElement>("#local-admin-reservations-reset")!.addEventListener("click",()=>void action(async()=>{adminReservationsState.clear();await loadAdminReservations("",true);}));
 
 async function initialize(): Promise<void> {
   try {

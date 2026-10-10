@@ -250,14 +250,14 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras los merges #219/#221 e
 
 ### LOCAL-FIN-01 — Garantía y deducciones fake del cierre local (Issue #224)
 
-- **Módulo/tipo/estado:** M06/M10 / DB-BE-API-TEST-MOCK / implementación en PR para revisión; Issue hija de #185/#40 y relacionada con #103/#107–110. El corte local no cierra criterios generales.
+- **Módulo/tipo/estado:** M06/M10 / DB-BE-API-TEST-MOCK / aceptada tras PR #225 fusionado el 2026-10-09; #224 cerrada/Hecho. Issue hija de #185/#40 y relacionada con #103/#107–110. El corte local no cierra criterios generales.
 - **Objetivo y motivo:** #107/#108–110 y criterios financieros de CU-39–42/47; separar movimiento observado fake de una mera transición de reserva.
 - **Alcance ratificado 2026-10-09:** exclusivamente cuentas sintéticas y reservas fake. `garantia_local_fija_v1` = CLP 50.000 por reserva nueva; política/moneda/monto quedan en snapshot de cotización y reserva. Autorización, captura, liberación y devolución son obligaciones distintas y persistidas; autorización no es cobro ni ingreso. Tras pago fake confirmado, preautorización separada/idempotente con vencimiento min(15 min desde primer intento, inicio); pending impide aprobar, firmar y check-in. Rechazo o vencimiento cancela, libera ocupación y genera devolución fake completa del arriendo confirmado. Timeout se concilia sobre misma operación; autorización tardía no reactiva y crea liberación compensatoria pendiente. Deducción administrativa inmutable 0..autorizado; reclamo rechazado exige 0; positiva exige motivo `dano_acreditado`/`faltante_acreditado` y evidencia sintética de la reserva. Captura confirmada antes de marcar aplicada; luego liberar saldo. Sin reclamo, liberar tras 24 h desde checkout; reclamo abierto suspende. Cancelar reserva cierra/libera autorización sin borrar obligaciones inciertas. Todos los inciertos bloquean baja.
 - **Fuera:** proveedor real/sandbox, liquidación al anfitrión, comisión, boleta, fondos reales/custodia y completar M06/M10 generales. Los hechos V40 se exportan con alcance propio y se incluyen en bloqueadores de privacidad.
 - **Dependencias:** LOCAL-DIS-01, BOOK, snapshots LIST y D-BOOK/D-DIS. **Desbloquea:** LOCAL-ADMIN-01 y validación completa M10.
 - **Dependencias:** LOCAL-DIS-01/#222 aceptado, LOCAL-BOOK-01/#177 y BOOK-02/#214, snapshots de tarifa/listado, LOCAL-CONT-01/#216 y LOCAL-OPS-01/#218. No depende del proveedor real #76/#78. **Desbloquea:** solo cierre económico local fake; no cerrar #103/#107–110 ni desbloquear liquidación/proveedor.
 - **Aceptación:** snapshot CLP fijo sin retroactividad; operaciones fake idempotentes/durables; gates transaccionales; importes enteros exactos; reintentos/fallos/resultado tardío no duplican; cierre no pierde trazabilidad y bloqueadores de baja consideran toda incertidumbre. No registrar garantía autorizada como ingreso.
-- **Pruebas previstas:** límites (0, 1, 50.000 y >50.000), reclamo aceptado/rechazado, rechazo/vencimiento/timeouts, resultado tardío, cierre 24 h, cancelación, carreras, reinicio/conciliación y autorización runtime; mock de solicitud a cierre.
+- **Pruebas/evidencia:** límites (0, 1, 50.000 y >50.000), reclamo aceptado/rechazado, rechazo/vencimiento/timeouts, resultado tardío, cierre 24 h, cancelación, carreras, reinicio/conciliación y rol runtime están cubiertos por la integración desechable publicada y sus pruebas focalizadas; evidencia de aceptación/migración V40 y HTTP posterior al merge: [`local-fin-01-20261009.md`](evidence/local-fin-01-20261009.md). El recorrido de negocio se verifica por integración API; no se afirma automatización de navegador sobre los datos persistentes.
 - **Riesgo:** confundir comisión con fondos de terceros o simular liquidación como pago confirmado real.
 
 ### LOCAL-ADMIN-01 — Completar gobierno y administración
@@ -270,6 +270,16 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras los merges #219/#221 e
 - **Aceptación:** cada función administrativa requiere permiso y motivo cuando corresponde; transiciones válidas; exportación minimizada; auditoría registra actor/recurso/correlación sin secretos; actor sin permiso recibe rechazo.
 - **Pruebas previstas:** matriz por rol, alcance de consultas, acciones concurrentes, auditoría/append y exportación; finalizar LOCAL-ADMIN-MOCK-01.
 - **Riesgo:** un rol administrativo con acceso indiscriminado o auditoría modificable por el rol runtime.
+
+### LOCAL-ADMIN-01A — Consulta administrativa local de reservas y finanzas (Issue #226)
+
+- **Módulo/tipo/estado:** M11 / VERTICAL DB-BE-API-TEST-MOCK / `en curso`; subentrega acotada de LOCAL-ADMIN-01, no aceptación del padre.
+- **Objetivo y motivo:** proporcionar una bandeja de consulta para reserva, participantes mínimos, estado/historial, pago/devolución fake, garantía, deducción y reclamo, reutilizando los ownerships existentes.
+- **Alcance:** filtros por ID/estado/fecha de creación; cursor estable versionado y ligado a cuenta/filtros; default 25, máximo 100, sin conteo. Sólo rol administrador en Backend. Proyección privada y minimizada; una auditoría estructurada por solicitud de lista/detalle, correlacionada y sin guardar respuestas. Mock que limpia selección, detalle y cursores al cambiar/perder sesión. Lecturas sin vencimiento materializado, conciliación, pagos ni transiciones.
+- **Fuera:** gobierno/moderación general, acciones financieras, historial de mensajes/documentos, proveedor real y GCP. No desbloquea LOCAL-CORE-02 ni cierra #111–118.
+- **Dependencias satisfechas para esta subentrega:** LOCAL-CORE-01/#180 (sesión/roles/auditoría), LOCAL-DIS-01/#222 (reclamo/resolución mínima), LOCAL-FIN-01/#224 (garantía/deducción fake) y LOCAL-BOOK-02/#214 (reservas/snapshots/historial). Padres #185/#40 y criterios generales M11 permanecen abiertos; no son una dependencia técnica para la vista acotada, aunque siguen siendo gates de privacidad/módulo completo.
+- **Criterios:** administrador puede listar/abrir; filtros y cursor sin duplicados con datos estables; identificadores retirados son null; terceros reciben 403; respuesta excluye contacto, credenciales, documentos y contenido privado; cada lectura exitosa genera un evento mínimo de auditoría; ninguna lectura muta estados/importes; el mock descarta respuestas atrasadas después de cambio/logout/relogin.
+- **Pruebas/evidencia:** unitarias de autorización/parámetros/cursor y sesión mock; integración PostgreSQL desechable con rol runtime, auditoría, historial minimizado y conteos/estado antes-después; pasos de navegador documentados en `planning/evidence/local-admin-01a-20261009.md`.
 
 ### LOCAL-CORE-02 — Consolidar continuidad del trabajo durable
 

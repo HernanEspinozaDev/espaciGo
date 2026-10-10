@@ -630,3 +630,104 @@ func TestLocalBookingDecisionAndCancellationConflictsMatchHTTPContract(t *testin
 		t.Fatalf("cancellation conflict status=%d body=%s", cancelConflict.Code, cancelConflict.Body)
 	}
 }
+
+type adminReadAuthStub struct{ administrator bool }
+
+func (a adminReadAuthStub) Authorize(_ context.Context, raw identity.Secret, required identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
+	if raw != "admin-read-session" {
+		return identity.Principal{}, identity.ErrUnauthorized
+	}
+	if required == identity.RoleAdministrator && !a.administrator {
+		return identity.Principal{}, identity.ErrForbidden
+	}
+	return identity.Principal{AccountID: renterID}, nil
+}
+
+type adminReadRepoStub struct {
+	repoStub
+	listCalls, detailCalls int
+	actor, correlation     string
+	filter                 booking.AdminReservationFilter
+	size                   int
+	cursor                 string
+}
+
+func (r *adminReadRepoStub) ListAdminReservations(_ context.Context, actor, correlation string, filter booking.AdminReservationFilter, size int, cursor string) (booking.AdminReservationPage, error) {
+	r.listCalls++
+	r.actor = actor
+	r.correlation = correlation
+	r.filter = filter
+	r.size = size
+	r.cursor = cursor
+	return booking.AdminReservationPage{Items: []booking.AdminReservationSummary{{ID: "00000000-0000-4000-8000-000000000001", State: "pagada", Currency: "CLP"}}, NextCursor: "opaque-next"}, nil
+}
+func (r *adminReadRepoStub) GetAdminReservation(_ context.Context, actor, id, correlation string) (booking.AdminReservationDetail, error) {
+	r.detailCalls++
+	r.actor = actor
+	r.correlation = correlation
+	return booking.AdminReservationDetail{AdminReservationSummary: booking.AdminReservationSummary{ID: id, State: "pagada"}, History: []booking.AdminTransition{}, Payments: []booking.AdminPaymentFact{}, PaymentOperations: []booking.AdminPaymentOperation{}}, nil
+}
+
+func TestAdminReservationReadRequiresRoleAndAcceptsScopedFilters(t *testing.T) {
+	repo := &adminReadRepoStub{}
+	service, err := booking.NewService(repo, credentials.Generator{}, time.Now, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/v1/admin/local/reservations"
+	call := func(admin bool, target string) *httptest.ResponseRecorder {
+		t.Helper()
+		handler := NewHandler(adminReadAuthStub{administrator: admin}, service, nil)
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.Header.Set("Authorization", "Bearer admin-read-session")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+	denied := call(false, base)
+	if denied.Code != http.StatusForbidden || repo.listCalls != 0 {
+		t.Fatalf("non-admin list status=%d calls=%d", denied.Code, repo.listCalls)
+	}
+	from, to := "2030-01-01T00:00:00Z", "2030-02-01T00:00:00Z"
+	got := call(true, base+"?reservation_id=00000000-0000-4000-8000-000000000001&state=pagada&created_from="+url.QueryEscape(from)+"&created_to="+url.QueryEscape(to)+"&page_size=25")
+	if got.Code != http.StatusOK || repo.listCalls != 1 || repo.size != 25 || repo.filter.State != "pagada" || repo.filter.ID == "" || repo.filter.CreatedFrom == nil || repo.filter.CreatedTo == nil || repo.correlation == "" {
+		t.Fatalf("admin list status=%d calls=%d repo=%+v body=%s", got.Code, repo.listCalls, repo, got.Body.String())
+	}
+	if !strings.Contains(got.Body.String(), `"next_cursor":"opaque-next"`) {
+		t.Fatalf("missing opaque cursor: %s", got.Body.String())
+	}
+	if bad := call(true, base+"?page_size=101"); bad.Code != http.StatusUnprocessableEntity || repo.listCalls != 1 {
+		t.Fatalf("invalid page size status=%d calls=%d", bad.Code, repo.listCalls)
+	} else {
+		var envelope struct {
+			Error struct {
+				Code      string `json:"code"`
+				Message   string `json:"message"`
+				RequestID string `json:"request_id"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(bad.Body.Bytes(), &envelope); err != nil || envelope.Error.Code != "invalid_request" || envelope.Error.Message == "" || envelope.Error.RequestID == "" || envelope.Error.RequestID != bad.Header().Get("X-Request-ID") {
+			t.Fatalf("common error/request id mismatch: header=%q error=%+v decode=%v body=%s", bad.Header().Get("X-Request-ID"), envelope.Error, err, bad.Body.String())
+		}
+		if strings.Contains(bad.Body.String(), "safety_notice") {
+			t.Fatalf("error response must follow the common Error contract: %s", bad.Body.String())
+		}
+	}
+	detail := call(true, base+"/00000000-0000-4000-8000-000000000001")
+	if detail.Code != http.StatusOK || repo.detailCalls != 1 || !strings.Contains(detail.Body.String(), `"history":[]`) {
+		t.Fatalf("detail status=%d calls=%d body=%s", detail.Code, repo.detailCalls, detail.Body.String())
+	}
+}
+
+func TestAdminReservationFilterUsesInclusiveFromExclusiveTo(t *testing.T) {
+	values := url.Values{"created_from": {"2030-01-01T00:00:00-03:00"}, "created_to": {"2030-02-01T00:00:00Z"}}
+	filter, size, cursor, ok := adminReservationParams(values)
+	if !ok || size != 25 || cursor != "" || filter.CreatedFrom == nil || filter.CreatedFrom.Location() != time.UTC || filter.CreatedTo == nil || !filter.CreatedTo.After(*filter.CreatedFrom) {
+		t.Fatalf("parsed admin filter=%+v size=%d cursor=%q ok=%t", filter, size, cursor, ok)
+	}
+	for _, query := range []url.Values{{"page_size": {"0"}}, {"state": {"unknown"}}, {"created_from": {"yesterday"}}, {"unexpected": {"x"}}, {"page_size": {"25", "50"}}} {
+		if _, _, _, valid := adminReservationParams(query); valid {
+			t.Errorf("accepted invalid admin filter %v", query)
+		}
+	}
+}

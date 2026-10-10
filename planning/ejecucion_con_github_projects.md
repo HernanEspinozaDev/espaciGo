@@ -1,10 +1,12 @@
 # Continuar EspaciGo desde un PC con GitHub Projects
 
-## Instrucción vigente — backend local completo, 2026-10-07
+## Instrucción vigente — backend local completo, conciliada 2026-10-09
 
 Seguir [plan_cierre_backend_local.md](plan_cierre_backend_local.md), [backlog_cierre_backend_local.md](backlog_cierre_backend_local.md) y [prompt_cierre_backend_local.md](prompt_cierre_backend_local.md). El objetivo es completar el alcance local M01–M11 y aceptar LOCAL-1 antes de proponer cualquier prueba/despliegue GCP. Los paquetes son planificación: contrastar Issues, PRs y evidencias actuales antes de trasladarlos a Projects.
 
 Priorizar entregas verticales y reutilizar código aceptado; no crear otra función de ensayo sin relación con una brecha de cierre. Una revisión por entrega, pruebas enfocadas durante el trabajo y gate consolidado al finalizar. HernanMEC desarrolla/publica; HernanEspinozaDev revisa/fusiona. Conservar volumen, secretos y datos locales. Las condiciones y exclusiones del plan vigente prevalecen sobre los snapshots siguientes.
+
+Estado conciliado al 2026-10-09: PR #225 está fusionado y LOCAL-FIN-01/#224 quedó aceptada únicamente por garantía/deducción fake; V40 se aplica de forma incremental. La subentrega vigente LOCAL-ADMIN-01A es Issue #226, en `codex/local-admin-01a`, relacionada con #185/#40 únicamente por minimización/lectura de históricos; su seguimiento general pertenece a #111–#118. Reutiliza #180, #222, #224 y #214. El alcance consulta reservas y finanzas en modo lectura con auditoría mínima; no cierra LOCAL-ADMIN-01, no desbloquea LOCAL-CORE-02 y no cambia los estados generales #111–#118. Los cinco cambios locales previos de planificación/evidencia sobre #224 se conservan en esta rama y se incluyen en la siguiente entrega, sin sobrescribir contenido ajeno.
 
 ## Estrategia anterior — prototipo local, 2026-10-06 (histórico)
 
