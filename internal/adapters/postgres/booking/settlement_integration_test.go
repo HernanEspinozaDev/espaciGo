@@ -541,6 +541,18 @@ func TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay(t *testing
 	if len(financeBefore) != 3 {
 		t.Fatalf("timeout and reconciliation finance facts=%+v", financeBefore)
 	}
+	var uncertainFinanceFound bool
+	for _, fact := range financeBefore {
+		if fact.typ == "operacion_pendiente_conciliacion" && fact.code == "liquidacion_fake_incierta" {
+			uncertainFinanceFound = true
+			if fact.actor != host {
+				t.Fatalf("uncertain settlement ledger actor before purge=%q want host=%q", fact.actor, host)
+			}
+		}
+	}
+	if !uncertainFinanceFound {
+		t.Fatalf("uncertain settlement ledger fact missing: %+v", financeBefore)
+	}
 	var historyBefore []ledgerFact
 	rows, err := pool.Query(ctx, `SELECT accion,codigo,COALESCE(actor_id::text,''),ocurrida_en FROM public.reserva_liquidacion_historial_ensayo_local WHERE liquidacion_id=$1 ORDER BY secuencia`, settlementKey)
 	if err != nil {
