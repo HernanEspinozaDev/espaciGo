@@ -246,8 +246,8 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		}
 	}
 	evidenceIDs = uniqueEvidenceIDs
-	removed := []string{"sesiones_y_tokens", "hash_vigente_e_historial_claves", "roles_activos", "perfil_y_preferencia", "foto_sintetica_con_limpieza_recuperable", "galeria_sintetica_privada_con_limpieza_recuperable", "referencias_cuenta_cobro_fake", "contenido_de_borradores", "fixtures_del_titular", "cotizaciones_no_convertidas", "mensajes_de_reservas_terminales_sinteticas", "simulaciones_privadas", "avisos_de_credenciales_sin_finalidad", "claves_idempotentes_m02", "texto_libre_reclamo_descargo_y_operaciones_sinteticas", "blobs_evidencia_operativa_sintetica_con_limpieza_recuperable"}
-	retained := []string{"ancla_tecnica_usuario", "metadata_minima_de_galeria_sintetica_sin_binario", "aceptaciones_terminos_5_anios", "solicitud_y_decision_5_anios", "metadata_verificacion_2_anios", "reservas_pagos_devoluciones_y_reclamos_24_meses_desde_ultimo_cierre", "historiales_transaccionales_minimizados", "auditoria_5_anios", "copias_locales_no_eliminadas"}
+	removed := []string{"sesiones_y_tokens", "hash_vigente_e_historial_claves", "roles_activos", "perfil_y_preferencia", "foto_sintetica_con_limpieza_recuperable", "galeria_sintetica_privada_con_limpieza_recuperable", "referencias_cuenta_cobro_fake", "contenido_de_borradores", "fixtures_del_titular", "cotizaciones_no_convertidas", "mensajes_de_reservas_terminales_sinteticas", "simulaciones_privadas", "avisos_de_credenciales_sin_finalidad", "claves_idempotentes_m02", "texto_libre_reclamo_descargo_y_operaciones_sinteticas", "blobs_evidencia_operativa_sintetica_con_limpieza_recuperable", "estado_vigente_bloqueo_administrativo_del_titular"}
+	retained := []string{"ancla_tecnica_usuario", "metadata_minima_de_galeria_sintetica_sin_binario", "aceptaciones_terminos_5_anios", "solicitud_y_decision_5_anios", "metadata_verificacion_2_anios", "reservas_pagos_devoluciones_y_reclamos_24_meses_desde_ultimo_cierre", "historiales_transaccionales_minimizados", "historial_bloqueo_cuenta_motivo_fecha_sin_actor_personal_plazo_pendiente_de_ratificacion", "auditoria_5_anios", "copias_locales_no_eliminadas"}
 	detail := suppressionDetail{Obligations: []string{}, Removed: removed, Retained: retained, Decision: "baja_elegible_privacidad_local_v1"}
 	encoded, err := json.Marshal(detail)
 	if err != nil {
@@ -339,6 +339,18 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		if _, err = tx.Exec(ctx, statement, subjectID); err != nil {
 			return privacy.SuppressionExecution{}, suppressionError(err)
 		}
+	}
+	// Blocking is current administrative state, not a privacy-retention record;
+	// the account's inactivity is the effective gate after suppression. Preserve
+	// the structured history while removing any actor link to the retired account.
+	if _, err = tx.Exec(ctx, `DELETE FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id=$1`, subjectID); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.bloqueo_cuenta_administrativo_local SET bloqueada_por=NULL WHERE bloqueada_por=$1`, subjectID); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.bloqueo_cuenta_historial_local SET actor_id=NULL WHERE actor_id=$1`, subjectID); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	// Keep a terminal case's original resolution/deadline. Pending cases are
 	// closed by the privacy action and retain from that terminal event instead.

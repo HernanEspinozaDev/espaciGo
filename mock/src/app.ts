@@ -21,6 +21,7 @@ import { AdminReservationsState, type AdminReservationContext } from "./admin-re
 import { AdminAuditState, type AdminAuditContext } from "./admin-audit-state.js";
 import { consumeAdminAuditExportResponse } from "./admin-audit-export-state.js";
 import { adminLocalContextMatches, captureAdminLocalContext, type AdminLocalContext } from "./admin-local-state.js";
+import { apiErrorMessage } from "./api-error.js";
 
 interface MockConfig { apiReadyURL: string; }
 interface APIError { error?: { code: string; message: string; request_id: string }; }
@@ -82,8 +83,7 @@ async function request(path: string, method = "GET", body?: unknown, authenticat
       clearBookingInboxOnSessionLoss();
     }
     if (authenticated && path === "password/change" && response.status === 503 && sessionToken === requestSessionToken) { sessionToken = ""; clearBookingInboxOnSessionLoss(); }
-    const error = data as APIError;
-    throw new Error(`${error.error?.message ?? "Error de API"} (HTTP ${response.status}, ${error.error?.code ?? "unknown"})`);
+    throw new Error(apiErrorMessage(data as APIError, response.status));
   }
   return data;
 }

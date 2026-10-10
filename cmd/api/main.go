@@ -330,7 +330,7 @@ func run() error {
 	}
 	server := &http.Server{
 		Addr:              cfg.httpAddr,
-		Handler:           identityhttp.RestrictedAccountMiddleware(localIdentityService, mux),
+		Handler:           identityhttp.RestrictedAccountMiddleware(localIdentityService, mux, cfg.allowedOrigins...),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

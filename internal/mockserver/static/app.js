@@ -21,6 +21,7 @@ import { AdminReservationsState } from "./admin-reservations-state.js";
 import { AdminAuditState } from "./admin-audit-state.js";
 import { consumeAdminAuditExportResponse } from "./admin-audit-export-state.js";
 import { adminLocalContextMatches, captureAdminLocalContext } from "./admin-local-state.js";
+import { apiErrorMessage } from "./api-error.js";
 const statusElement = document.querySelector("#api-status");
 const resultElement = document.querySelector("#result");
 let apiBase = "";
@@ -85,8 +86,7 @@ async function request(path, method = "GET", body, authenticated = false, idempo
             sessionToken = "";
             clearBookingInboxOnSessionLoss();
         }
-        const error = data;
-        throw new Error(`${error.error?.message ?? "Error de API"} (HTTP ${response.status}, ${error.error?.code ?? "unknown"})`);
+        throw new Error(apiErrorMessage(data, response.status));
     }
     return data;
 }

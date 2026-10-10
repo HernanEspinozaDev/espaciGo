@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,15 +27,19 @@ import (
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	operationspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/operations"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adminlocal"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	disputedomain "github.com/HernanEspinozaDev/espaciGo/internal/dispute"
 	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
+	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
@@ -672,6 +678,18 @@ func TestLocalCompleteExportZIPIsOwnerScopedReadOnlyAndAvailableWithBlockedSuppr
 	}
 	admin := h.login(t, "archive-admin@ejemplo.invalid")
 	runtimePool := newRuntimePool(t, h)
+	blockService, err := adminlocal.New(runtimePool, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := blockService.BlockAccount(h.ctx, adminID, hostID, "riesgo_seguridad", "archive-block-own"); err != nil {
+		t.Fatal(err)
+	}
+	h.now = h.now.Add(time.Second)
+	if _, err := blockService.UnblockAccount(h.ctx, adminID, hostID, "revision_concluida", "archive-unblock-own"); err != nil {
+		t.Fatal(err)
+	}
+	host = h.login(t, "archive-host@ejemplo.invalid")
 	evidenceRoot := t.TempDir() + "/private-evidence"
 	if err := os.Mkdir(evidenceRoot, 0o700); err != nil {
 		t.Fatal(err)
@@ -839,7 +857,7 @@ func TestLocalCompleteExportZIPIsOwnerScopedReadOnlyAndAvailableWithBlockedSuppr
 	if err := json.Unmarshal(hostEntries["manifest.json"], &manifest); err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"verifications", "verification_eligibility", "verification_history", "synthetic_evidence", "spaces", "rates", "simulations", "quotes", "reservations", "payments", "payment_operations", "refunds", "disputes", "messages_written_by_owner", "conversation_read_cursors"} {
+	for _, required := range []string{"verifications", "verification_eligibility", "verification_history", "synthetic_evidence", "administrative_account_block", "spaces", "rates", "simulations", "quotes", "reservations", "payments", "payment_operations", "refunds", "disputes", "messages_written_by_owner", "conversation_read_cursors"} {
 		if !containsString(manifest.Sections, required) {
 			t.Errorf("manifest missing section %s: %+v", required, manifest.Sections)
 		}
@@ -850,6 +868,19 @@ func TestLocalCompleteExportZIPIsOwnerScopedReadOnlyAndAvailableWithBlockedSuppr
 	var decoded privacy.CompleteOwnData
 	if err := json.Unmarshal(hostEntries["data.json"], &decoded); err != nil {
 		t.Fatal(err)
+	}
+	var exportedBlock struct {
+		Current any `json:"current_block"`
+		History []struct {
+			Action string `json:"action"`
+			Actor  string `json:"actor_kind"`
+		} `json:"history"`
+	}
+	if err := json.Unmarshal(decoded.Sections["administrative_account_block"], &exportedBlock); err != nil || exportedBlock.Current != nil || len(exportedBlock.History) != 2 || exportedBlock.History[0].Action != "bloquear" || exportedBlock.History[1].Action != "desbloquear" || exportedBlock.History[0].Actor != "administrator" {
+		t.Fatalf("ZIP administrative block section is missing/minimally malformed: %+v err=%v", exportedBlock, err)
+	}
+	if strings.Contains(string(decoded.Sections["administrative_account_block"]), adminID) {
+		t.Fatal("ZIP administrative block history leaked the administrator UUID")
 	}
 	var exportedEligibility []verification.Eligibility
 	if err := json.Unmarshal(decoded.Sections["verification_eligibility"], &exportedEligibility); err != nil || len(exportedEligibility) != 2 || exportedEligibility[0].Eligible || exportedEligibility[1].Eligible {
@@ -1246,6 +1277,134 @@ func TestLocalDisputeBlocksBothParticipantsUntilAdministratorCloses(t *testing.T
 	}
 	if historyResponse.Code != http.StatusOK || json.Unmarshal(historyResponse.Body.Bytes(), &history) != nil || len(history.Items) != 2 || history.Items[0].NewState != "abierta" || history.Items[1].NewState != "cerrada" || history.Items[0].Sequence >= history.Items[1].Sequence {
 		t.Fatalf("history status=%d body=%s parsed=%+v", historyResponse.Code, historyResponse.Body.String(), history)
+	}
+	// Assemble the same method/path routes used by cmd/api and wrap the real
+	// authentication service in the restricted-account middleware. Evidence
+	// lookup remains owner-scoped in the operation repository; dispute history
+	// remains participant-scoped in its module.
+	const operationID = "73000000-0000-4000-8000-000000000001"
+	const evidenceID = "73000000-0000-4000-8000-000000000002"
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.operacion_arriendo_ensayo_local (
+		id,reserva_id,tipo,actor_id,ocurrio_en,zona_horaria,ubicacion_sintetica,resultado,clave_idempotencia,huella_solicitud,creada_en
+	) VALUES ($1,$2,'checkout',$3,$4,'UTC','{"source":"synthetic-fixture-v1","location_code":"santiago-demo-center-v1","latitude":-33.45,"longitude":-70.66}'::jsonb,'registrada','restricted-evidence',decode(repeat('33',32),'hex'),$4)`, operationID, reservationID, renterID, h.now); err != nil {
+		t.Fatalf("seed own synthetic operation: %v", err)
+	}
+	primaryBlob := []byte("PNG!")
+	primaryDigest := sha256.Sum256(primaryBlob)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.operacion_arriendo_evidencia_ensayo_local(id,operacion_id,fixture_code,mime_type,sha256,size_bytes,creada_en) VALUES($1,$2,'synthetic-png-v1','image/png',$3,4,$4)`, evidenceID, operationID, hex.EncodeToString(primaryDigest[:]), h.now); err != nil {
+		t.Fatalf("seed own synthetic evidence: %v", err)
+	}
+	evidenceRoot := t.TempDir() + "/restricted-operation-evidence"
+	if err := os.Mkdir(evidenceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	privateFiles, err := evidencefs.New(evidenceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := privateFiles.Put(h.ctx, evidenceID, primaryBlob); err != nil {
+		t.Fatal(err)
+	}
+	thirdRenterID := h.register(t, "dispute-third-renter@ejemplo.invalid")
+	h.verify(t)
+	const thirdSpaceID = "74000000-0000-4000-8000-000000000001"
+	const thirdQuoteID = "74000000-0000-4000-8000-000000000002"
+	const thirdReservationID = "74000000-0000-4000-8000-000000000003"
+	const thirdOccupancyID = "74000000-0000-4000-8000-000000000004"
+	seedPrivacyReviewReservation(t, h, thirdSpaceID, thirdQuoteID, thirdReservationID, thirdOccupancyID, otherHostID, thirdRenterID, "cancelada_arrendatario")
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE id=$1`, thirdOccupancyID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	thirdDisputeResponse := call(http.MethodPost, "/api/v1/local/booking-trial/reservations/"+thirdReservationID+"/disputes", outsider.Token, "third-party-dispute", `{"reason_code":"ensayo_privacidad"}`)
+	if thirdDisputeResponse.Code != http.StatusCreated {
+		t.Fatalf("seed a real third-party dispute through API: status=%d body=%s", thirdDisputeResponse.Code, thirdDisputeResponse.Body.String())
+	}
+	var thirdDispute disputedomain.Dispute
+	if err := json.Unmarshal(thirdDisputeResponse.Body.Bytes(), &thirdDispute); err != nil {
+		t.Fatal(err)
+	}
+	const thirdOperationID = "74000000-0000-4000-8000-000000000005"
+	const thirdEvidenceID = "74000000-0000-4000-8000-000000000006"
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.operacion_arriendo_ensayo_local (
+		id,reserva_id,tipo,actor_id,ocurrio_en,zona_horaria,ubicacion_sintetica,resultado,clave_idempotencia,huella_solicitud,creada_en
+	) VALUES ($1,$2,'checkout',$3,$4,'UTC','{"source":"synthetic-fixture-v1","location_code":"santiago-demo-center-v1","latitude":-33.45,"longitude":-70.66}'::jsonb,'registrada','third-evidence',decode(repeat('44',32),'hex'),$4)`, thirdOperationID, thirdReservationID, thirdRenterID, h.now); err != nil {
+		t.Fatalf("seed third-party operation: %v", err)
+	}
+	thirdBlob := []byte("OWN?")
+	thirdDigest := sha256.Sum256(thirdBlob)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.operacion_arriendo_evidencia_ensayo_local(id,operacion_id,fixture_code,mime_type,sha256,size_bytes,creada_en) VALUES($1,$2,'synthetic-png-v1','image/png',$3,4,$4)`, thirdEvidenceID, thirdOperationID, hex.EncodeToString(thirdDigest[:]), h.now); err != nil {
+		t.Fatalf("seed third-party evidence: %v", err)
+	}
+	if err := privateFiles.Put(h.ctx, thirdEvidenceID, thirdBlob); err != nil {
+		t.Fatal(err)
+	}
+	operationService, err := operation.NewService(operationspg.New(runtimePool), privateFiles, &authTestGenerator{}, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationHandler := operationhttp.NewHandler(h.service, operationService, nil)
+	restrictedMux := http.NewServeMux()
+	restrictedMux.Handle("GET /api/v1/local/booking-trial/disputes/{dispute_id}/history", api)
+	restrictedMux.Handle("GET /api/v1/local/booking-trial/reservations/{reservationID}/evidence/{evidenceID}", operationHandler)
+	for _, route := range []string{"POST /api/v1/local/booking-trial/reservations", "POST /api/v1/local/booking-trial/quotes"} {
+		restrictedMux.Handle(route, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Errorf("restricted account reached blocked route %s", route)
+		}))
+	}
+	restrictedAPI := identityhttp.RestrictedAccountMiddleware(h.service, restrictedMux, "http://localhost:8081")
+	adminLocal, err := adminlocal.New(runtimePool, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminLocal.BlockAccount(h.ctx, adminID, hostID, "revision_administrativa", "restricted-route-test-block"); err != nil {
+		t.Fatalf("block participant for router test: %v", err)
+	}
+	restrictedHost, err := h.service.Login(h.ctx, identity.LoginInput{Email: "dispute-host@ejemplo.invalid", Password: "Synthetic#123"})
+	if err != nil || !restrictedHost.RestrictedMode {
+		t.Fatalf("restricted login=%+v err=%v", restrictedHost, err)
+	}
+	restrictedCall := func(method, path string, token identity.Secret) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("Authorization", "Bearer "+string(token))
+		response := httptest.NewRecorder()
+		restrictedAPI.ServeHTTP(response, req)
+		return response
+	}
+	ownHistory := restrictedCall(http.MethodGet, historyPath, restrictedHost.Token)
+	var ownHistoryBody struct {
+		Items []disputedomain.Transition `json:"items"`
+	}
+	if ownHistory.Code != http.StatusOK || json.Unmarshal(ownHistory.Body.Bytes(), &ownHistoryBody) != nil || len(ownHistoryBody.Items) != 2 || ownHistoryBody.Items[1].NewState != "cerrada" {
+		t.Fatalf("blocked participant could not query own dispute history: status=%d body=%s", ownHistory.Code, ownHistory.Body.String())
+	}
+	ownEvidence := restrictedCall(http.MethodGet, "/api/v1/local/booking-trial/reservations/"+reservationID+"/evidence/"+evidenceID, restrictedHost.Token)
+	if ownEvidence.Code != http.StatusOK || ownEvidence.Body.String() != "PNG!" {
+		t.Fatalf("blocked participant could not query own evidence: status=%d body=%q", ownEvidence.Code, ownEvidence.Body.String())
+	}
+	thirdPartyHistory := restrictedCall(http.MethodGet, "/api/v1/local/booking-trial/disputes/"+thirdDispute.ID+"/history", restrictedHost.Token)
+	if thirdPartyHistory.Code != http.StatusNotFound {
+		t.Fatalf("restricted participant accessed third-party history: status=%d body=%s", thirdPartyHistory.Code, thirdPartyHistory.Body.String())
+	}
+	thirdPartyEvidence := restrictedCall(http.MethodGet, "/api/v1/local/booking-trial/reservations/"+thirdReservationID+"/evidence/"+thirdEvidenceID, restrictedHost.Token)
+	if thirdPartyEvidence.Code != http.StatusNotFound {
+		t.Fatalf("restricted participant accessed third-party evidence: status=%d body=%s", thirdPartyEvidence.Code, thirdPartyEvidence.Body.String())
+	}
+	for _, path := range []string{"/api/v1/local/booking-trial/quotes", "/api/v1/local/booking-trial/reservations"} {
+		newOperation := restrictedCall(http.MethodPost, path, restrictedHost.Token)
+		if newOperation.Code != http.StatusForbidden || !strings.Contains(newOperation.Body.String(), "reservas existentes") {
+			t.Fatalf("new operation %s was not rejected with readable 403: status=%d body=%s", path, newOperation.Code, newOperation.Body.String())
+		}
+	}
+	if _, err := adminLocal.UnblockAccount(h.ctx, adminID, hostID, "revision_concluida", "restricted-route-test-unblock"); err != nil {
+		t.Fatalf("unblock participant after router test: %v", err)
+	}
+	if afterUnblock := restrictedCall(http.MethodGet, historyPath, restrictedHost.Token); afterUnblock.Code != http.StatusUnauthorized {
+		t.Fatalf("unblock retained restricted token instead of requiring new login: status=%d body=%s", afterUnblock.Code, afterUnblock.Body.String())
+	}
+	normalHost, err := h.service.Login(h.ctx, identity.LoginInput{Email: "dispute-host@ejemplo.invalid", Password: "Synthetic#123"})
+	if err != nil || normalHost.RestrictedMode {
+		t.Fatalf("post-unblock login mode=%v err=%v", normalHost.RestrictedMode, err)
 	}
 	for _, request := range []privacy.RightsRequest{hostRequest, renterRequest} {
 		review, err := privacyService.ReviewSuppression(h.ctx, adminID, request.ID, "dispute-closed-"+request.ID, "dispute-test", func() time.Time { return h.now })

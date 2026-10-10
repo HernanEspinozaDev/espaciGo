@@ -1,6 +1,7 @@
 package postgres_test
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -8,9 +9,12 @@ import (
 	"testing"
 	"time"
 
+	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adminlocal"
 	adminlocalhttp "github.com/HernanEspinozaDev/espaciGo/internal/adminlocal/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 )
 
 func TestLocalAdminBlockRevokesSessionsAndAllowsOnlyRestrictedLogin(t *testing.T) {
@@ -152,5 +156,91 @@ func TestAdminBlockSharesAccountLockAndPreventsLaterReservationGate(t *testing.T
 	}
 	if !blocked {
 		t.Fatal("new reservation gate did not observe the committed block")
+	}
+}
+
+func TestSuppressionExportsAndMinimizesAdministrativeAccountBlock(t *testing.T) {
+	h := newAuthHarness(t)
+	actorID := h.register(t, "block-history-actor@ejemplo.invalid")
+	h.verify(t)
+	executorID := h.register(t, "block-history-executor@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador'),($2,'administrador')`, actorID, executorID); err != nil {
+		t.Fatal(err)
+	}
+	targetID := h.register(t, "block-history-target@ejemplo.invalid")
+	h.verify(t)
+	runtimePool := newRuntimePool(t, h)
+	adminService, err := adminlocal.New(runtimePool, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adminService.BlockAccount(h.ctx, actorID, targetID, "riesgo_seguridad", "block-history-target"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adminService.BlockAccount(h.ctx, executorID, actorID, "revision_administrativa", "block-history-subject"); err != nil {
+		t.Fatal(err)
+	}
+	complete := ownerexport.New(runtimePool, nil)
+	sections, _, _, err := complete.ExportAdditionalOwnData(h.ctx, actorID)
+	if err != nil {
+		t.Fatalf("export administrative block data: %v", err)
+	}
+	type export struct {
+		Current *struct {
+			Reason string `json:"reason_code"`
+		} `json:"current_block"`
+		History []struct {
+			Action string `json:"action"`
+			Actor  string `json:"actor_kind"`
+		} `json:"history"`
+	}
+	var exported export
+	if err := json.Unmarshal(sections["administrative_account_block"], &exported); err != nil || exported.Current == nil || exported.Current.Reason != "revision_administrativa" || len(exported.History) != 1 || exported.History[0].Action != "bloquear" || exported.History[0].Actor != "administrator" {
+		t.Fatalf("own block export was not minimized or complete: %+v err=%v raw=%s", exported, err, sections["administrative_account_block"])
+	}
+	if strings.Contains(string(sections["administrative_account_block"]), executorID) {
+		t.Fatal("own export contains a third-party administrator UUID")
+	}
+	privacyService, err := privacy.NewService(identitypg.NewIdentityRepository(runtimePool), complete)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := privacyService.RequestRight(h.ctx, actorID, "supresion", "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment, err := privacyService.ReviewSuppression(h.ctx, executorID, request.ID, "block-history-review", "block-history-review", func() time.Time { return h.now })
+	if err != nil || assessment.Outcome != "elegible" {
+		t.Fatalf("block history prevented otherwise eligible suppression: result=%+v err=%v", assessment, err)
+	}
+	result, err := privacyService.ExecuteSuppression(h.ctx, executorID, request.ID, "block-history-execute", "block-history-execute", func() time.Time { return h.now }, noOpPrivacyCleaner{})
+	if err != nil || result.Status != "completada" {
+		t.Fatalf("suppression with block history result=%+v err=%v", result, err)
+	}
+	if !containsString(result.Retained, "historial_bloqueo_cuenta_motivo_fecha_sin_actor_personal_plazo_pendiente_de_ratificacion") {
+		t.Fatalf("suppression did not disclose the retained history/pending retention decision: %+v", result.Retained)
+	}
+	if !containsString(result.Removed, "estado_vigente_bloqueo_administrativo_del_titular") {
+		t.Fatalf("suppression did not disclose the removed current block state: %+v", result.Removed)
+	}
+	var currentBlocks, subjectHistory, anonymizedActorHistory, anonymizedCurrentActor int
+	if err := h.pool.QueryRow(h.ctx, `SELECT
+		(SELECT count(*) FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id=$1),
+		(SELECT count(*) FROM public.bloqueo_cuenta_historial_local WHERE cuenta_id=$1),
+		(SELECT count(*) FROM public.bloqueo_cuenta_historial_local WHERE cuenta_id=$2 AND actor_id IS NULL),
+		(SELECT count(*) FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id=$2 AND bloqueada_por IS NULL)`, actorID, targetID).Scan(&currentBlocks, &subjectHistory, &anonymizedActorHistory, &anonymizedCurrentActor); err != nil {
+		t.Fatal(err)
+	}
+	if currentBlocks != 0 || subjectHistory != 1 || anonymizedActorHistory != 1 || anonymizedCurrentActor != 1 {
+		t.Fatalf("suppression block treatment current=%d subject_history=%d anonymized_actor_history=%d anonymized_current_actor=%d", currentBlocks, subjectHistory, anonymizedActorHistory, anonymizedCurrentActor)
+	}
+	sections, _, _, err = complete.ExportAdditionalOwnData(h.ctx, actorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exported = export{}
+	if err := json.Unmarshal(sections["administrative_account_block"], &exported); err != nil || exported.Current != nil || len(exported.History) != 1 || exported.History[0].Actor != "administrator" {
+		t.Fatalf("post-suppression export lost minimized block history: %+v err=%v raw=%s", exported, err, sections["administrative_account_block"])
 	}
 }

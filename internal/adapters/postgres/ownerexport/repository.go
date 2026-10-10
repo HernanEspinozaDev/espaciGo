@@ -76,6 +76,14 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 		return nil, nil, nil, privacy.ErrInvalid
 	}
 	sections := map[string]json.RawMessage{}
+	var blockJSON []byte
+	if err := r.pool.QueryRow(ctx, `SELECT jsonb_build_object(
+	  'current_block', (SELECT jsonb_build_object('reason_code',b.motivo_codigo,'blocked_at',b.bloqueada_en) FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=$1),
+	  'history', COALESCE((SELECT jsonb_agg(jsonb_build_object('action',h.accion,'reason_code',h.motivo_codigo,'occurred_at',h.ocurrida_en,'actor_kind',CASE WHEN h.actor_id IS NULL THEN NULL WHEN h.actor_id=$1 THEN 'self' ELSE 'administrator' END) ORDER BY h.ocurrida_en,h.id) FROM public.bloqueo_cuenta_historial_local h WHERE h.cuenta_id=$1),'[]'::jsonb)
+	)`, owner).Scan(&blockJSON); err != nil {
+		return nil, nil, nil, err
+	}
+	sections["administrative_account_block"] = json.RawMessage(blockJSON)
 	type photoRecord struct {
 		ID      string    `json:"id"`
 		State   string    `json:"state"`
