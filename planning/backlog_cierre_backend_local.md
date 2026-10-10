@@ -364,13 +364,15 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-QA-02 — Verificar evolución y recuperación de datos
 
-- **Módulo/tipo/estado:** transversal / DB-TEST / `todo`.
+- **Módulo/tipo/estado:** transversal / DB-TEST / **en curso**, Issue #242 en Project 1.
 - **Objetivo y motivo:** cierre DB de todos los módulos y RNF locales de integridad/continuidad.
 - **Alcance:** migración vacía/repetida, upgrade con datos representativos, checksums, backup/restore en otra DB, metadata/blobs privados y permisos restaurados; conciliación final de entidades.
 - **Fuera:** probar sobre/borrar el volumen de desarrollo o medir RPO/RTO de GCP.
 - **Dependencias:** LOCAL-QA-01 y LOCAL-CORE-02. **Desbloquea:** LOCAL-QA-03.
 - **Aceptación:** datos/hashes/relaciones coinciden después de restaurar; cambios conservan snapshots; migraciones aplicadas intactas; resultados y límites de la restauración documentados.
-- **Pruebas previstas:** exclusivamente entornos desechables identificados; secuencia completa y actualización con fixture previo.
+- **Evidencia reutilizada:** runner de LOCAL-QA-01 para migración vacía/repetida, checksum y gate de integraciones; `TestVerificationRepositoryOwnershipIdempotencyReviewAndRetry` y `TestV37BackfillsV36ReviewAuthorshipMarker` para upgrade con datos previos; `TestLocalSuppressionReplayAfterPgDumpRestore` para dump/restore separado y replay idempotente del registro externo antes de exponer la base.
+- **Brecha de evidencia cubierta por #242:** `TestDurableFakePaymentInboxDeduplicatesTimeoutAndRecoversAfterRestart` comprueba snapshots de cotización/reserva, relaciones con espacio/ocupación y permisos del rol runtime después de restaurar un custom dump a otra base; `TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup` copia y restaura conjuntamente metadata SQL y blobs privados a otra carpeta, comprueba titularidad, relación y permisos. Ambas siguen dentro del runner obligatorio.
+- **Pruebas previstas:** exclusivamente entornos desechables identificados; runner integral al cerrar la entrega, con repetición solo de los paquetes afectados durante desarrollo.
 - **Riesgo:** respaldar solo SQL y perder blobs o usar una base restaurada como prueba de conservación en desarrollo.
 
 ### LOCAL-QA-03 — Ejecutar aceptación integral M01–M11

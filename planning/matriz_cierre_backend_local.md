@@ -1,6 +1,6 @@
 # Matriz inicial de cierre del backend local
 
-Fecha de conciliación: 2026-10-10. Línea base actual: PR #239 merge `c6769e3c73643a6f555e50125f18efdae599285a`; LOCAL-QA-01/#238 está aceptada, cerrada y Hecho en Project 1 mediante evidencia ya publicada (no se repitió su runner por el merge). PR #237/V44/V45 y los cortes locales previos conservan su aceptación por sus alcances documentados. Los padres generales permanecen abiertos. Esta matriz forma parte del cierre LOCAL-1; las trazas por ID se actualizan dentro de entregas verticales.
+Fecha de conciliación: 2026-10-10. Línea base actual: PR #241 merge `f9200fc200b2b11d76f9e15266c6807ea07c970e`; LOCAL-QA-01/#238 y LOCAL-CORE-02/#240 están aceptadas, cerradas y Hecho solo por sus alcances. La evidencia QA-01 se reutilizó tras los merges; QA-02/#242 está en revisión con el runner integral y las pruebas adicionales de restauración aislada ya ejecutados. PR #237/V44/V45 y los cortes locales previos conservan su aceptación por sus alcances documentados. Los padres generales permanecen abiertos. Esta matriz forma parte del cierre LOCAL-1; las trazas por ID se actualizan dentro de entregas verticales.
 
 ## Lectura
 
@@ -117,6 +117,10 @@ PR #237 fusionado como `09f03f60061ebd3dacb679661ad0180e5901b054`; V44/V45 aplic
 
 PR #239 merge `c6769e3c73643a6f555e50125f18efdae599285a`; Issue #238 cerrada y Hecho en Project 1. [`local-qa-01-20261010.md`](evidence/local-qa-01-20261010.md) registra el comando, suite completa, 76 integraciones obligatorias sin omisiones y cinco repeticiones estables del recorrido PostgreSQL de check-in. No se repitió esa corrida únicamente por el merge. LOCAL-QA-01 no equivale a LOCAL-QA-03 ni al cierre LOCAL-1.
 
-## LOCAL-CORE-02 (#240) — continuidad de trabajo durable, en revisión
+## LOCAL-CORE-02 (#240) — continuidad de trabajo durable, aceptado localmente
 
-La matriz de [`local-core-02-20261010.md`](evidence/local-core-02-20261010.md) distingue cobertura ya aceptada, pruebas vigentes reutilizadas y dos huecos de recuperación de lease no terminal ahora cubiertos. LOCAL-QA-01/#238 y los workers locales existentes son dependencias satisfechas para este slice. M11/#111–#118, #109/#110, #185/#40 y otros padres no se declaran completos ni cerrados. LOCAL-QA-02 queda habilitada localmente solo después de aceptar este corte; LOCAL-QA-03 sigue dependiendo además de QA-02 y de toda la aceptación de módulos.
+PR #241 se fusionó como `f9200fc200b2b11d76f9e15266c6807ea07c970e`; #240 quedó aceptada/cerrada/Hecho únicamente por este slice. La evidencia de [`local-core-02-20261010.md`](evidence/local-core-02-20261010.md) y sus integraciones se reutiliza sin repetirlas por el merge. M11/#111–#118, #109/#110, #185/#40 y los demás padres conservan sus criterios incompletos y permanecen abiertos. LOCAL-QA-02/#242 está habilitada y en curso.
+
+## LOCAL-QA-02 (#242) — actualización y restauración aisladas, en curso
+
+Se reutilizan migraciones vacía/repetida y checksum del runner QA-01; upgrade representativo de verificación/reputación; y el restore aislado con reaplicación idempotente del registro externo de bajas. Este corte agrega restore de snapshots/relaciones de cotización, reserva y ocupación con permisos runtime, y restore coordinado de metadata/blob privado de galería con aislamiento por titular. Evidencia de implementación/pruebas enfocadas: [`local-qa-02-20261010.md`](evidence/local-qa-02-20261010.md). Cierre sujeto a ejecutar el gate local integral y documentar todos los resultados; ningún ensayo usa `espacigo_pgdata` ni toca secretos. LOCAL-QA-03 sigue bloqueada hasta aceptar #242 y las demás dependencias funcionales.
