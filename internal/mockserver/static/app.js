@@ -3591,7 +3591,7 @@ async function exportAdminAudit() {
     refreshAdminAuditControls();
     try {
         const response = await fetch(`${apiBase}/api/v1/admin/local/audit-events/export?${auditQuery(false).toString()}`, { method: "GET", headers: { Accept: "application/json", Authorization: `Bearer ${context.token}` }, mode: "cors", cache: "no-store", credentials: "omit" });
-        const outcome = await consumeAdminAuditExportResponse(response, adminAuditState, context, currentAdminAuditContext, () => { if (!currentAdminAuditSession(context))
+        const outcome = await consumeAdminAuditExportResponse(response, adminAuditState, context, currentAdminAuditContext, currentAdminAuditSession, () => { if (!currentAdminAuditSession(context))
             return; sessionToken = ""; clearBookingInboxOnSessionLoss(); }, async () => { if (!currentAdminAuditContext(context))
             return; clearAdminAuditView("Acceso administrativo actualizado; esta sesión puede continuar en operaciones permitidas."); sessionRoles = sessionRoles.filter(role => role !== "administrador"); refreshAdminAuditControls(); try {
             const updated = await request("session", "GET", undefined, true);
