@@ -468,6 +468,34 @@ func testDurableNoticeRecovery(t *testing.T, ctx context.Context, pool *pgxpool.
 	if e = pool.QueryRow(ctx, `SELECT estado,ciclo,intentos_ciclo,intentos_total FROM public.aviso_local WHERE id=$1`, noticeID).Scan(&state, &cycle, &cycleAttempts, &totalAttempts); e != nil || state != "entregada" || cycle != 2 || cycleAttempts != 1 || totalAttempts != 9 {
 		t.Fatalf("recovered state=%s cycle=%d cycle_attempts=%d total=%d err=%v", state, cycle, cycleAttempts, totalAttempts, e)
 	}
+	const crashedID = "66000000-0000-4000-8000-000000000004"
+	// This persisted processing row represents a worker that stopped after
+	// claiming attempt one but before recording an SMTP result. A restarted
+	// worker must reclaim the expired lease and finish the same event.
+	if _, e = pool.Exec(ctx, `INSERT INTO public.aviso_local(id,tipo_evento,agregado_tipo,agregado_id,destinatario_id,clave_deduplicacion,estado,ciclo,intentos_total,intentos_ciclo,creada_en,proximo_intento_en,lease_hasta) VALUES($1,'checkin_registrado','reserva',$2,$3,'comm-test-crash-before-result','procesando',1,1,1,$4,$4,$4::timestamptz-interval '1 second')`, crashedID, reservation, adminID, clock); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = pool.Exec(ctx, `INSERT INTO public.aviso_local_ciclo(aviso_id,ciclo,estado,iniciada_en,intentos) VALUES($1,1,'pendiente',$2,1)`, crashedID, clock.Add(-time.Minute)); e != nil {
+		t.Fatal(e)
+	}
+	leaseRecoveryService, e := localnotice.New(localnoticepg.New(pool), restartedSender, func() time.Time { return clock })
+	if e != nil {
+		t.Fatal(e)
+	}
+	if claimed, err := leaseRecoveryService.DispatchOne(ctx); err != nil || !claimed {
+		t.Fatalf("expired nonterminal lease recovery claimed=%t err=%v", claimed, err)
+	}
+	if claimed, err := leaseRecoveryService.DispatchOne(ctx); err != nil || claimed {
+		t.Fatalf("completed notice was not deduplicated on replay: claimed=%t err=%v", claimed, err)
+	}
+	var recoveredState string
+	var recoveredAttempts int
+	if e = pool.QueryRow(ctx, `SELECT estado,intentos_total FROM public.aviso_local WHERE id=$1`, crashedID).Scan(&recoveredState, &recoveredAttempts); e != nil || recoveredState != "entregada" || recoveredAttempts != 2 {
+		t.Fatalf("expired nonterminal lease result state=%s attempts=%d err=%v", recoveredState, recoveredAttempts, e)
+	}
+	if restartedSender.sent != 2 {
+		t.Fatalf("one recovered event caused unexpected send count %d", restartedSender.sent)
+	}
 	const strandedID = "66000000-0000-4000-8000-000000000003"
 	if _, e = pool.Exec(ctx, `INSERT INTO public.aviso_local(id,tipo_evento,agregado_tipo,agregado_id,destinatario_id,clave_deduplicacion,estado,ciclo,intentos_total,intentos_ciclo,creada_en,proximo_intento_en,lease_hasta) VALUES($1,'checkin_registrado','reserva',$2,$3,'comm-test-expired-eighth-lease','procesando',1,8,8,$4,$4,$4::timestamptz-interval '1 second')`, strandedID, reservation, adminID, clock); e != nil {
 		t.Fatal(e)
@@ -475,7 +503,7 @@ func testDurableNoticeRecovery(t *testing.T, ctx context.Context, pool *pgxpool.
 	if _, e = pool.Exec(ctx, `INSERT INTO public.aviso_local_ciclo(aviso_id,ciclo,estado,iniciada_en,intentos) VALUES($1,1,'pendiente',$2,8)`, strandedID, clock.Add(-time.Minute)); e != nil {
 		t.Fatal(e)
 	}
-	if claimed, err := restartedService.DispatchOne(ctx); err != nil || claimed || restartedSender.sent != 1 {
+	if claimed, err := restartedService.DispatchOne(ctx); err != nil || claimed || restartedSender.sent != 2 {
 		t.Fatalf("expired eighth lease should terminalize without another send: claimed=%t sends=%d err=%v", claimed, restartedSender.sent, err)
 	}
 	var strandedState, strandedCode, cycleState, cycleCode string

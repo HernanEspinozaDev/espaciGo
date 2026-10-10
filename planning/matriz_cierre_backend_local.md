@@ -1,6 +1,6 @@
 # Matriz inicial de cierre del backend local
 
-Fecha de conciliación: 2026-10-10. Línea base para esta entrega: PR #237 merge `09f03f60061ebd3dacb679661ad0180e5901b054`; V44/V45 aplicadas incrementalmente. #236 quedó aceptada/cerrada/Hecho por su alcance fake local; el estado de Project está sincronizado. Los cortes locales previos se aceptan únicamente por sus alcances documentados; los padres generales permanecen abiertos. LOCAL-QA-01/#238 está en curso en la rama de esta entrega. Esta matriz forma parte del cierre LOCAL-1; las trazas por ID se actualizan dentro de entregas verticales.
+Fecha de conciliación: 2026-10-10. Línea base actual: PR #239 merge `c6769e3c73643a6f555e50125f18efdae599285a`; LOCAL-QA-01/#238 está aceptada, cerrada y Hecho en Project 1 mediante evidencia ya publicada (no se repitió su runner por el merge). PR #237/V44/V45 y los cortes locales previos conservan su aceptación por sus alcances documentados. Los padres generales permanecen abiertos. Esta matriz forma parte del cierre LOCAL-1; las trazas por ID se actualizan dentro de entregas verticales.
 
 ## Lectura
 
@@ -113,6 +113,10 @@ El commit `aa06d3759312623830d172d1eabd6c07feeb42b8` añade la integración sele
 
 PR #237 fusionado como `09f03f60061ebd3dacb679661ad0180e5901b054`; V44/V45 aplicadas incrementalmente al entorno local conservando `espacigo_pgdata`, secretos y datos. La comprobación posterior al merge confirmó DB/backend/mock/mailpit saludables, migraciones 44/45 y `scripts/dev-env.sh verify-http`. #236 aceptada, cerrada y Hecho en Project 1 por su alcance fake local. Evidencia funcional PostgreSQL previa reutilizada en [`local-fin-settlement-20261010.md`](evidence/local-fin-settlement-20261010.md). #109/#110 siguen abiertas; proveedor real/sandbox, comisión productiva y documento fiscal siguen fuera. MAP-07 difiere campañas/promociones/NPS; no se marcan satisfechos.
 
-## LOCAL-QA-01 (#238) — runner reproducible en revisión
+## LOCAL-QA-01 (#238) — aceptada
 
-Issue #238 está en curso. [`local-qa-01-20261010.md`](evidence/local-qa-01-20261010.md) registra el comando, suite completa, 76 integraciones obligatorias sin omisiones y cinco repeticiones estables del recorrido PostgreSQL de check-in. Esta entrega no equivale a LOCAL-QA-03 ni al cierre LOCAL-1; LOCAL-CORE-02, #109/#110 y criterios generales siguen con su estado propio.
+PR #239 merge `c6769e3c73643a6f555e50125f18efdae599285a`; Issue #238 cerrada y Hecho en Project 1. [`local-qa-01-20261010.md`](evidence/local-qa-01-20261010.md) registra el comando, suite completa, 76 integraciones obligatorias sin omisiones y cinco repeticiones estables del recorrido PostgreSQL de check-in. No se repitió esa corrida únicamente por el merge. LOCAL-QA-01 no equivale a LOCAL-QA-03 ni al cierre LOCAL-1.
+
+## LOCAL-CORE-02 (#240) — continuidad de trabajo durable, en revisión
+
+La matriz de [`local-core-02-20261010.md`](evidence/local-core-02-20261010.md) distingue cobertura ya aceptada, pruebas vigentes reutilizadas y dos huecos de recuperación de lease no terminal ahora cubiertos. LOCAL-QA-01/#238 y los workers locales existentes son dependencias satisfechas para este slice. M11/#111–#118, #109/#110, #185/#40 y otros padres no se declaran completos ni cerrados. LOCAL-QA-02 queda habilitada localmente solo después de aceptar este corte; LOCAL-QA-03 sigue dependiendo además de QA-02 y de toda la aceptación de módulos.

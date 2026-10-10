@@ -3387,3 +3387,54 @@ func TestCredentialNoticeMailpitDeliverySmoke(t *testing.T) {
 		t.Fatalf("Mailpit cleanup returned %s", deleted.Status)
 	}
 }
+
+func TestCredentialNoticeExpiredLeaseRecoversAfterBackendRestart(t *testing.T) {
+	h := newAuthHarness(t)
+	accountID := h.register(t, "credential-lease-restart@ejemplo.invalid")
+	h.verify(t)
+	login := h.login(t, "credential-lease-restart@ejemplo.invalid")
+	if err := h.service.ChangePassword(h.ctx, identity.ChangePasswordInput{SessionToken: string(login.Token), CurrentPassword: "Synthetic#123", Password: "Changed#234", Confirmation: "Changed#234"}); err != nil {
+		t.Fatal(err)
+	}
+	var eventID string
+	if err := h.pool.QueryRow(h.ctx, `SELECT id::text FROM public.outbox_evento_local WHERE agregado_id=$1 AND tipo='identidad.credencial_cambiada'`, accountID).Scan(&eventID); err != nil {
+		t.Fatal(err)
+	}
+
+	leaseUntil := h.now.Add(time.Minute)
+	claimed, err := h.repo.ClaimCredentialNotice(h.ctx, h.now, leaseUntil)
+	if err != nil || claimed.ID != eventID || claimed.Attempts != 1 || !claimed.LeaseUntil.Equal(leaseUntil) {
+		t.Fatalf("initial durable claim=%+v err=%v", claimed, err)
+	}
+	if _, err := h.repo.ClaimCredentialNotice(h.ctx, h.now, leaseUntil.Add(time.Minute)); !errors.Is(err, identity.ErrNotFound) {
+		t.Fatalf("second worker claimed a live lease: %v", err)
+	}
+	// Model process loss after the database committed the lease but before
+	// sending or completing the event. A new service instance sees only DB state.
+	h.now = leaseUntil
+	restarted, err := identity.NewAuthenticationService(h.repo, authTestHasher{}, h.mail, h.limiter, &authTestGenerator{}, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.DispatchOneCredentialNotice(h.ctx); err != nil {
+		t.Fatalf("dispatch after lease expiry/restart: %v", err)
+	}
+	if err := restarted.DispatchOneCredentialNotice(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	var code string
+	var attempts int
+	var deliveredAt *time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT entregada_en,COALESCE(codigo_fallo_terminal,''),intentos FROM public.outbox_evento_local WHERE id=$1`, eventID).Scan(&deliveredAt, &code, &attempts); err != nil {
+		t.Fatal(err)
+	}
+	if deliveredAt == nil || attempts != 2 || code != "" {
+		t.Fatalf("recovered event delivered=%v attempts=%d terminal_code=%q", deliveredAt, attempts, code)
+	}
+	h.mail.mu.Lock()
+	sends := h.mail.changes
+	h.mail.mu.Unlock()
+	if sends != 1 {
+		t.Fatalf("expired pre-send lease caused %d deliveries, want one", sends)
+	}
+}
