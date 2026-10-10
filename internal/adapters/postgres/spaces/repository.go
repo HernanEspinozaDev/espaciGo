@@ -50,6 +50,13 @@ func lockActiveOwner(ctx context.Context, tx pgx.Tx, owner string) error {
 	if !active {
 		return spaces.ErrNotFound
 	}
+	var blocked bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id=$1)`, owner).Scan(&blocked); err != nil {
+		return err
+	}
+	if blocked {
+		return spaces.ErrPublicationConflict
+	}
 	return nil
 }
 func (r *Repository) Categories(ctx context.Context) ([]spaces.Category, error) {

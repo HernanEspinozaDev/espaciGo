@@ -1,0 +1,2 @@
+export function captureAdminLocalContext(account, token, generation, revision) { return { account, token, generation, revision }; }
+export function adminLocalContextMatches(context, current) { return Boolean(context.token && current.isAdmin && context.account === current.account && context.token === current.token && context.generation === current.generation && context.revision === current.revision); }

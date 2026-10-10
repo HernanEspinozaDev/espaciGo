@@ -25,6 +25,7 @@ import (
 	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
 	operationspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/operations"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adminlocal"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/contract"
@@ -2311,6 +2312,93 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 			return approved
 		}
 		return paid
+	}
+	// Focused administrative report contract and aggregation checks run before
+	// the broader reservation lifecycle below. The report period includes only
+	// the synthetic rows created at this injected instant.
+	clockMu.Lock()
+	fixedNow = time.Date(2032, 2, 1, 13, 0, 0, 0, time.UTC)
+	reportClock := fixedNow
+	clockMu.Unlock()
+	reportReservation := newReservation(1200*time.Hour, "admin-report-ledger", true)
+	if _, err = svc.Pay(ctx, renter, reportReservation.ID, "exito", "pay-admin-report-ledger"); err != nil {
+		t.Fatalf("retry report fixture payment idempotently: %v", err)
+	}
+	adminLocalService, adminLocalErr := adminlocal.New(pool, func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return fixedNow
+	})
+	if adminLocalErr != nil {
+		t.Fatal(adminLocalErr)
+	}
+	reportPeriod := adminlocal.Period{From: reportClock.Add(-time.Second), Until: reportClock.Add(time.Second), TimeZone: "UTC"}
+	reservationReport, reportErr := adminLocalService.ReservationReport(ctx, adminID, "admin-report-reservations", reportPeriod)
+	if reportErr != nil || reservationReport.Currency != "CLP" || reservationReport.Notice != adminlocal.SafetyNotice || reservationReport.Period.From.Location() != time.UTC || reservationReport.Period.Until.Location() != time.UTC {
+		t.Fatalf("reservation report contract=%+v err=%v", reservationReport, reportErr)
+	}
+	var expectedReportStates int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM (SELECT estado FROM public.reserva_ensayo_local WHERE creada_en >= $1 AND creada_en < $2 GROUP BY estado) grouped`, reportPeriod.From, reportPeriod.Until).Scan(&expectedReportStates); err != nil || len(reservationReport.Items) != expectedReportStates {
+		t.Fatalf("reservation report states=%d expected groups=%d err=%v", len(reservationReport.Items), expectedReportStates, err)
+	}
+	var expectedRentCount, expectedRentAmount int64
+	if err = setup.QueryRow(ctx, `SELECT count(*),COALESCE(sum(importe_clp),0)::bigint FROM public.reserva_pago_ensayo WHERE resultado='exito_simulado' AND creada_en >= $1 AND creada_en < $2`, reportPeriod.From, reportPeriod.Until).Scan(&expectedRentCount, &expectedRentAmount); err != nil {
+		t.Fatal(err)
+	}
+	financeReport, reportErr := adminLocalService.FinanceReport(ctx, adminID, "admin-report-finance", reportPeriod)
+	if reportErr != nil || financeReport.Currency != "CLP" || financeReport.Notice != adminlocal.SafetyNotice || financeReport.Period.From.Location() != time.UTC || financeReport.Period.Until.Location() != time.UTC {
+		t.Fatalf("finance report contract=%+v err=%v", financeReport, reportErr)
+	}
+	var reportedRentCount, reportedRentAmount int64
+	for _, line := range financeReport.Confirmed {
+		if line.Kind == "cobro_arriendo" {
+			reportedRentCount, reportedRentAmount = line.Count, line.AmountCLP
+		}
+	}
+	if reportedRentCount != expectedRentCount || reportedRentAmount != expectedRentAmount || reportedRentCount == 0 || reportedRentAmount == 0 {
+		t.Fatalf("finance report rent count/amount=%d/%d want %d/%d", reportedRentCount, reportedRentAmount, expectedRentCount, expectedRentAmount)
+	}
+	uncertainStart := reportClock.Add(1300 * time.Hour)
+	uncertainQuote, quoteErr := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: uncertainStart.Format(time.RFC3339Nano), EndAt: uncertainStart.Add(time.Hour).Format(time.RFC3339Nano)})
+	if quoteErr != nil {
+		t.Fatalf("quote unresolved-payment report fixture: %v", quoteErr)
+	}
+	uncertainReservation, requestErr := svc.Request(ctx, renter, booking.RequestInput{QuoteID: uncertainQuote.ID}, "admin-report-unresolved")
+	if requestErr != nil {
+		t.Fatalf("create unresolved-payment report fixture: %v", requestErr)
+	}
+	if _, paymentErr := svc.Pay(ctx, renter, uncertainReservation.ID, "sin_respuesta", "pay-admin-report-unresolved"); !errors.Is(paymentErr, booking.ErrSimulatedNoResponse) {
+		t.Fatalf("expected fake timeout for pending report fixture, got %v", paymentErr)
+	}
+	var uncertainOperationID string
+	if err = setup.QueryRow(ctx, `SELECT id::text FROM public.reserva_pago_ensayo_operacion WHERE reserva_id=$1`, uncertainReservation.ID).Scan(&uncertainOperationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `UPDATE public.reserva_pago_ensayo_operacion SET estado='vencida' WHERE id=$1`, uncertainOperationID); err != nil {
+		t.Fatalf("mark timed-out payment intent expired for report fixture: %v", err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_pago_fake_resultado_ensayo(operacion_id,estado,proveedor_evento_id,resultado,registrado_en) VALUES($1,'resultado',$2,'exito_simulado',$3)`, uncertainOperationID, "admin-report-late-result-"+uncertainOperationID, reportClock); err != nil {
+		t.Fatalf("seed persisted result awaiting event reconciliation: %v", err)
+	}
+	financeReport, reportErr = adminLocalService.FinanceReport(ctx, adminID, "admin-report-finance-unresolved", reportPeriod)
+	if reportErr != nil {
+		t.Fatalf("query pending event/result without reconciling: %v", reportErr)
+	}
+	var pendingPaymentCount, pendingPaymentAmount int64
+	for _, line := range financeReport.Pending {
+		if line.Kind == "cobro_arriendo" && line.State == "pendiente_conciliacion" {
+			pendingPaymentCount, pendingPaymentAmount = line.Count, line.AmountCLP
+		}
+	}
+	if pendingPaymentCount != 1 || pendingPaymentAmount != uncertainReservation.Subtotal {
+		var opState, fakeState, fakeResult string
+		_ = setup.QueryRow(ctx, `SELECT o.estado,f.estado,COALESCE(f.resultado,'') FROM public.reserva_pago_ensayo_operacion o JOIN public.reserva_pago_fake_resultado_ensayo f ON f.operacion_id=o.id WHERE o.id=$1`, uncertainOperationID).Scan(&opState, &fakeState, &fakeResult)
+		t.Fatalf("unresolved payment omitted or misreported: count=%d amount=%d expected=%d operation=%s fake=%s/%s lines=%+v", pendingPaymentCount, pendingPaymentAmount, uncertainReservation.Subtotal, opState, fakeState, fakeResult, financeReport.Pending)
+	}
+	var unresolvedOperationState string
+	var unresolvedEventCount int
+	if err = setup.QueryRow(ctx, `SELECT o.estado,(SELECT count(*) FROM public.reserva_pago_evento_ensayo e WHERE e.operacion_id=o.id) FROM public.reserva_pago_ensayo_operacion o WHERE o.id=$1`, uncertainOperationID).Scan(&unresolvedOperationState, &unresolvedEventCount); err != nil || unresolvedOperationState != "vencida" || unresolvedEventCount != 0 {
+		t.Fatalf("read-only report altered unresolved payment: state=%q events=%d err=%v", unresolvedOperationState, unresolvedEventCount, err)
 	}
 	// A quote keeps its policy snapshot if the fixture's future default changes
 	// before request creation; the default is restored for later cases.

@@ -40,16 +40,17 @@ const (
 func RegistrationRoles() []Role { return []Role{RoleTenant} }
 
 type Account struct {
-	ID              string
-	Email           string
-	NormalizedEmail string
-	PasswordHash    Secret
-	UsePreference   string
-	State           AccountState
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	FailedAttempts  int
-	BlockedUntil    *time.Time
+	ID                    string
+	Email                 string
+	NormalizedEmail       string
+	PasswordHash          Secret
+	UsePreference         string
+	State                 AccountState
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	FailedAttempts        int
+	BlockedUntil          *time.Time
+	AdministrativeBlocked bool
 }
 
 // Secret prevents accidental disclosure in formatting and structured logs.

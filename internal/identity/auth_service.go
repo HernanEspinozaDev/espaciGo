@@ -30,6 +30,7 @@ var (
 	ErrPasswordConfirm           = errors.New("La repetición de la contraseña nueva no coincide")
 	ErrCredentialNoticeState     = errors.New("identity: credential notice is not recoverable")
 	ErrCredentialNoticeRecipient = errors.New("identity: credential notice recipient is inactive")
+	ErrRestrictedMode            = errors.New("identity: operation unavailable in restricted account mode")
 )
 
 const (
@@ -642,22 +643,23 @@ type LoginInput struct {
 	ClientSummary string
 }
 type LoginResult struct {
-	AccountID string
-	Roles     []Role
-	Token     Secret
-	ExpiresAt time.Time
+	AccountID      string
+	Roles          []Role
+	Token          Secret
+	ExpiresAt      time.Time
+	RestrictedMode bool
 }
 
 func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (LoginResult, error) {
 	if ValidateEmail(input.Email) != nil {
 		return LoginResult{}, ErrCredentials
 	}
-	now := s.now()
 	var result LoginResult
 	var denied error
 	var alertEmail string
 	var alertUntil time.Time
 	err := s.repo.WithLockedAccount(ctx, AccountLookup{Email: NormalizeEmail(input.Email)}, func(account Account, tx AuthenticationTransaction) error {
+		now := s.now().UTC() // evaluate lockout and session validity after account lock
 		state, attempts, blocked := account.State, account.FailedAttempts, account.BlockedUntil
 		if blocked != nil && now.Before(*blocked) {
 			denied = &LoginBlockedError{*blocked}
@@ -721,7 +723,7 @@ func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (Lo
 		if err := tx.SaveLoginState(ctx, account.ID, AccountActive, 0, nil); err != nil {
 			return err
 		}
-		result = LoginResult{AccountID: account.ID, Roles: roles, Token: raw, ExpiresAt: session.ExpiresAt}
+		result = LoginResult{AccountID: account.ID, Roles: roles, Token: raw, ExpiresAt: session.ExpiresAt, RestrictedMode: account.AdministrativeBlocked}
 		return nil
 	})
 	if errors.Is(err, ErrNotFound) {
@@ -747,19 +749,33 @@ const (
 )
 
 type Principal struct {
-	AccountID string
-	Roles     []Role
+	AccountID      string
+	Roles          []Role
+	RestrictedMode bool
+}
+
+type restrictedAccessContextKey struct{}
+
+// WithRestrictedReservationAccess marks a request already screened by the
+// transport allow-list. Domain handlers still perform their ordinary session,
+// role, participant, state, deadline and idempotency checks.
+func WithRestrictedReservationAccess(ctx context.Context, accountID string) context.Context {
+	return context.WithValue(ctx, restrictedAccessContextKey{}, accountID)
+}
+
+func HasRestrictedReservationAccess(ctx context.Context, accountID string) bool {
+	return accountID != "" && ctx.Value(restrictedAccessContextKey{}) == accountID
 }
 
 func (s *AuthenticationService) Authorize(ctx context.Context, raw Secret, required Role, activity ActivityKind) (Principal, error) {
 	if raw == "" || activity < UserOperation || activity > TokenRenewal {
 		return Principal{}, ErrUnauthorized
 	}
-	now := s.now()
 	hash := CredentialHash(raw)
 	var result Principal
 	var denied error
 	err := s.repo.WithLockedAccount(ctx, AccountLookup{SessionHash: hash}, func(account Account, tx AuthenticationTransaction) error {
+		now := s.now().UTC() // revalidate expiry/revocation after waiting for the account lock
 		if account.State != AccountActive || (account.BlockedUntil != nil && now.Before(*account.BlockedUntil)) {
 			denied = ErrUnauthorized
 			return nil
@@ -770,6 +786,14 @@ func (s *AuthenticationService) Authorize(ctx context.Context, raw Secret, requi
 		}
 		if session.AccountID != account.ID || now.Before(session.CreatedAt) || !session.ActiveAt(now) {
 			denied = ErrUnauthorized
+			return nil
+		}
+		if account.AdministrativeBlocked && activity == UserOperation && !HasRestrictedReservationAccess(ctx, account.ID) {
+			denied = ErrRestrictedMode
+			return nil
+		}
+		if account.AdministrativeBlocked && required == RoleAdministrator {
+			denied = ErrRestrictedMode
 			return nil
 		}
 		roles, err := tx.Roles(ctx, account.ID)
@@ -796,7 +820,7 @@ func (s *AuthenticationService) Authorize(ctx context.Context, raw Secret, requi
 				return nil
 			}
 		}
-		result = Principal{AccountID: account.ID, Roles: roles}
+		result = Principal{AccountID: account.ID, Roles: roles, RestrictedMode: account.AdministrativeBlocked}
 		return nil
 	})
 	if errors.Is(err, ErrNotFound) {
