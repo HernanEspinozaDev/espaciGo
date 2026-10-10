@@ -21,6 +21,34 @@ func TestRootServesStaticMockPage(t *testing.T) {
 	}
 }
 
+func TestRootDescribesImplementedLocalSlicesWithoutCallingThemMissing(t *testing.T) {
+	handler := NewHandler("http://localhost:8080/health/ready")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	page := response.Body.String()
+	for _, want := range []string{
+		"id=\"register-form\"", "id=\"privacy-export\"", "id=\"m02-photo-create\"",
+		"id=\"verification-form\"", "id=\"space-form\"", "id=\"booking-trial\"",
+		"id=\"synthetic-contract-panel\"", "id=\"local-rental-operations\"",
+		"id=\"booking-conversation\"", "id=\"local-damage-claim-panel\"",
+		"id=\"local-admin-audit-panel\"", "La aprobación KYC registra elegibilidad sintética/local",
+		"exportación", "proveedores reales", "supresión integral",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("mock page is missing expected local flow or scope statement %q", want)
+		}
+	}
+	for _, stale := range []string{
+		"foto, exportación de dominios aún no implementados",
+		"El acceso comercial depende del mapeo de producto aún pendiente",
+	} {
+		if strings.Contains(page, stale) {
+			t.Errorf("mock page still contains stale implementation claim %q", stale)
+		}
+	}
+}
+
 func TestConfigEndpointReturnsConfiguredAPIReadyURL(t *testing.T) {
 	wantURL := "http://localhost:8080/health/ready"
 	handler := NewHandler(wantURL)

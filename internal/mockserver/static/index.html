@@ -123,7 +123,7 @@
       <button id="evidence-upload" type="button">Crear fixture privado</button><button id="evidence-load" type="button">Consultar evidencias</button><button id="evidence-invalid" type="button">Probar rechazo 422</button></div>
     <pre id="evidence-output">No se han consultado fixtures.</pre><div id="evidence-items"></div><img id="evidence-preview" alt="Vista previa de fixture sintético" hidden>
     <details><summary>Herramientas locales de revisión administrativa</summary>
-      <p>Solo usuarios con rol administrador pueden consultar o resolver. Rechazar requiere motivo codificado. La aprobación registra elegibilidad sintética/local por tipo; no equivale a identidad real ni altera roles. El acceso comercial depende del mapeo de producto aún pendiente.</p>
+      <p>Solo usuarios con rol administrador pueden consultar o resolver. Rechazar requiere motivo codificado. La aprobación KYC registra elegibilidad sintética/local para nuevas publicaciones y reservas de cuentas personales; KYB no sustituye KYC y la elegibilidad no altera roles. No equivale a identidad real ni habilita documentos o proveedores productivos.</p>
       <button id="review-load" type="button">Cargar cola de revisión</button>
       <button id="review-failed-load" type="button">Consultar rechazos/subsanaciones</button>
       <form id="review-form"><label>ID de caso pendiente <input name="id" required></label><label>Decisión <select name="decision"><option value="aprobada">Aprobar fixture</option><option value="rechazada">Rechazar fixture</option></select></label><label>Motivo (obligatorio al rechazar) <select name="reason_code"><option value="">Sin motivo</option><option value="documento_vencido">Documento vencido (fixture)</option><option value="antecedentes_incompletos">Antecedentes incompletos (fixture)</option><option value="inicio_actividades_no_confirmado">Inicio de actividades no confirmado (fixture)</option></select></label><button>Resolver caso</button></form>
@@ -295,5 +295,5 @@ Selecciona una reserva propia pendiente de pago.</pre>
     </section>
   </section>
   <p id="result" role="status" aria-live="polite">Completa los pasos en orden.</p>
-  <p>Al cambiar la contraseña se revocan todas las sesiones; vuelve a iniciar sesión. No es el frontend definitivo. Historial y entrega durable de avisos siguen pendientes de DB02-09. KYC real, foto, exportación de dominios aún no implementados, purga de vínculos al vencer y supresión productiva siguen pendientes.</p>
+  <p>Al cambiar la contraseña se revocan todas las sesiones; vuelve a iniciar sesión. Este mock cubre recorridos sintéticos locales de identidad, perfil/foto privada, exportación, KYC, publicación, catálogo, reserva, contrato, operación, comunicación, disputa y administración en sus alcances aceptados. No es el frontend definitivo. Siguen fuera o pendientes los proveedores reales, documentos de identidad y fiscales reales, los criterios generales de los módulos, la supresión integral y la retención productiva.</p>
 </main></body></html>

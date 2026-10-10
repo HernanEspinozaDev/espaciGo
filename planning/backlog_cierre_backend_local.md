@@ -349,11 +349,11 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-CORE-02 — Consolidar continuidad del trabajo durable (Issue #240)
 
-- **Módulo/tipo/estado:** transversal / BE-TEST / **en revisión** en PR de esta rama; subentrega local, no aceptación de LOCAL-ADMIN-01/M11 ni de los padres generales.
+- **Módulo/tipo/estado:** transversal / BE-TEST / **aceptada**, Issue #240 cerrada/Hecho tras PR #241; subentrega local, no aceptación de LOCAL-ADMIN-01/M11 ni de los padres generales.
 - **Objetivo y motivo:** RNF de continuidad/idempotencia y contratos M11; verificar pagos, firmas, notificaciones y auditoría integrados.
 - **Alcance:** leases/reintentos/checkpoints, recuperación tras interrupción, deduplicación y diagnósticos mínimos; correlación sin PII. Pruebas con varios workers locales si el contrato lo requiere.
 - **Fuera:** escalado GCP, HA cloud, WAF o infraestructura productiva.
-- **Dependencias locales satisfechas para este corte:** LOCAL-QA-01/#238 quedó aceptada/Cerrada/Hecho tras PR #239; los productores locales ya implementados están integrados en `main` y su cobertura obligatoria está en el runner. Se reutilizan los cortes locales aceptados de identidad/privacidad, reservas/pagos/garantía/liquidación, comunicación, galería y administración. LOCAL-ADMIN-01 solo está satisfecho para esos contratos operativos reutilizados; M11 y #111–#118 permanecen abiertos por criterios generales. Los padres #109/#110, #185/#40 y demás Issues generales mantienen sus dependencias nativas y estado propios; este corte no los cierra ni los desbloquea artificialmente. **Desbloquea localmente:** LOCAL-QA-02 tras aceptación de #240.
+- **Dependencias locales satisfechas para este corte:** LOCAL-QA-01/#238 quedó aceptada/Cerrada/Hecho tras PR #239; los productores locales ya implementados están integrados en `main` y su cobertura obligatoria está en el runner. Se reutilizan los cortes locales aceptados de identidad/privacidad, reservas/pagos/garantía/liquidación, comunicación, galería y administración. LOCAL-ADMIN-01 solo está satisfecho para esos contratos operativos reutilizados; M11 y #111–#118 permanecen abiertos por criterios generales. Los padres #109/#110, #185/#40 y demás Issues generales mantienen sus dependencias nativas y estado propios; este corte no los cierra ni los desbloquea artificialmente. **Desbloqueó localmente:** LOCAL-QA-02, aceptada posteriormente mediante #242/PR #243.
 - **Aceptación:** trabajo pendiente recuperable; worker detenido no retiene lease indefinidamente; dos workers no finalizan dos veces; errores/correlación permiten diagnosticar sin filtrar secretos.
 - **Pruebas previstas:** interrupciones antes/después de cada persistencia/efecto, expiración de lease, replay y continuidad local.
 - **Riesgo:** efecto externo simulado realizado pero no persistido o retry ilimitado sin política.
@@ -364,24 +364,24 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-QA-02 — Verificar evolución y recuperación de datos
 
-- **Módulo/tipo/estado:** transversal / DB-TEST / **en curso**, Issue #242 en Project 1.
+- **Módulo/tipo/estado:** transversal / DB-TEST / **aceptada**, Issue #242 cerrada y Hecho tras PR #243.
 - **Objetivo y motivo:** cierre DB de todos los módulos y RNF locales de integridad/continuidad.
 - **Alcance:** migración vacía/repetida, upgrade con datos representativos, checksums, backup/restore en otra DB, metadata/blobs privados y permisos restaurados; conciliación final de entidades.
 - **Fuera:** probar sobre/borrar el volumen de desarrollo o medir RPO/RTO de GCP.
-- **Dependencias:** LOCAL-QA-01 y LOCAL-CORE-02. **Desbloquea:** LOCAL-QA-03.
+- **Dependencias:** LOCAL-QA-01 y LOCAL-CORE-02. PR #243 integró la entrega y habilitó LOCAL-QA-03/#244.
 - **Aceptación:** datos/hashes/relaciones coinciden después de restaurar; cambios conservan snapshots; migraciones aplicadas intactas; resultados y límites de la restauración documentados.
 - **Evidencia reutilizada:** runner de LOCAL-QA-01 para migración vacía/repetida, checksum y gate de integraciones; `TestVerificationRepositoryOwnershipIdempotencyReviewAndRetry` y `TestV37BackfillsV36ReviewAuthorshipMarker` para upgrade con datos previos; `TestLocalSuppressionReplayAfterPgDumpRestore` para dump/restore separado y replay idempotente del registro externo antes de exponer la base.
 - **Brecha de evidencia cubierta por #242:** `TestDurableFakePaymentInboxDeduplicatesTimeoutAndRecoversAfterRestart` comprueba snapshots de cotización/reserva, relaciones con espacio/ocupación y permisos del rol runtime después de restaurar un custom dump a otra base; `TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup` copia y restaura conjuntamente metadata SQL y blobs privados a otra carpeta, comprueba titularidad, relación y permisos. Ambas siguen dentro del runner obligatorio.
-- **Pruebas previstas:** exclusivamente entornos desechables identificados; runner integral al cerrar la entrega, con repetición solo de los paquetes afectados durante desarrollo.
+- **Aceptación:** PR #243 merge `65e5a08`; #242 aceptada/Cerrada/Hecho solo por restauración aislada SQL+blobs y criterios enumerados en su evidencia. Volumen y secretos preservados.
 - **Riesgo:** respaldar solo SQL y perder blobs o usar una base restaurada como prueba de conservación en desarrollo.
 
-### LOCAL-QA-03 — Ejecutar aceptación integral M01–M11
+### LOCAL-QA-03 — Ejecutar aceptación integral M01–M11 (Issue #244)
 
-- **Módulo/tipo/estado:** transversal / TEST-MOCK / `todo`.
+- **Módulo/tipo/estado:** transversal / TEST-MOCK / **en curso**, Issue #244 en Project 1.
 - **Objetivo y motivo:** demostrar LOCAL-1, casos originales aplicables y RNF verificables localmente.
 - **Alcance:** unitarias/integración/contratos; recorrido completo feliz y alternativos; roles/tercero; concurrencia, expiración, errores y fakes; límites/consultas con dataset/máquina declarados; mocks finales de módulos completos.
 - **Fuera:** GCP, sandbox, SLA extrapolado o nueva UI.
-- **Dependencias:** LOCAL-QA-02, todos los paquetes funcionales y once tarjetas finales MOCK. **Desbloquea:** LOCAL-CLOSE-01.
+- **Dependencias:** LOCAL-QA-01/#238, LOCAL-CORE-02/#240 y LOCAL-QA-02/#242 aceptadas; paquetes funcionales locales aceptados por sus alcances y su evidencia MOCK/API. Los criterios generales #109/#110, #111–#118, #185/#40 y otros padres siguen abiertos y no se cierran artificialmente. **Desbloquea:** preparar una propuesta de LOCAL-CLOSE-01 cuando se complete QA-03; no declara LOCAL-1 aceptada.
 - **Aceptación:** integraciones exigidas sin omisiones; cuenta → publicación → reserva/pago → firma → operación → reputación o disputa → liquidación, más privacidad/admin, reproducibles; fallos críticos resueltos y evidencia por commit.
 - **Pruebas previstas:** comando consolidado y recorridos visuales mínimos; repetir solo lo necesario por correcciones y una regresión final.
 - **Riesgo:** dar por completo el backend porque pasa una suite que no ejecutó un módulo o su integración.

@@ -1,12 +1,12 @@
 # Continuar EspaciGo desde un PC con GitHub Projects
 
-## Instrucción vigente — backend local completo, conciliada 2026-10-09
+## Instrucción vigente — backend local completo, conciliada 2026-10-10
 
 Seguir [plan_cierre_backend_local.md](plan_cierre_backend_local.md), [backlog_cierre_backend_local.md](backlog_cierre_backend_local.md) y [prompt_cierre_backend_local.md](prompt_cierre_backend_local.md). El objetivo es completar el alcance local M01–M11 y aceptar LOCAL-1 antes de proponer cualquier prueba/despliegue GCP. Los paquetes son planificación: contrastar Issues, PRs y evidencias actuales antes de trasladarlos a Projects.
 
 Priorizar entregas verticales y reutilizar código aceptado; no crear otra función de ensayo sin relación con una brecha de cierre. Una revisión por entrega, pruebas enfocadas durante el trabajo y gate consolidado al finalizar. HernanMEC desarrolla/publica; HernanEspinozaDev revisa/fusiona. Conservar volumen, secretos y datos locales. Las condiciones y exclusiones del plan vigente prevalecen sobre los snapshots siguientes.
 
-Estado conciliado al 2026-10-10: PR #239 (`c6769e3c73643a6f555e50125f18efdae599285a`) integró LOCAL-QA-01/#238, aceptada/Cerrada/Hecho. PR #241 (`f9200fc200b2b11d76f9e15266c6807ea07c970e`) integró LOCAL-CORE-02/#240, también aceptada/Cerrada/Hecho exclusivamente por continuidad de workers. Sus pruebas PostgreSQL se reutilizan. LOCAL-QA-02/#242 está en curso en `codex/local-qa-02`: se agregan verificaciones aisladas de restauración de snapshots/relaciones y archivos privados; migración vacía/repetida, upgrade representativo y replay del registro externo de bajas ya tienen evidencia vigente. Los cortes admin/finanzas aceptados no completan LOCAL-ADMIN-01/M11 ni los padres generales. #109/#110, #111–#118 y #185/#40 conservan criterios abiertos. Se conserva volumen y secretos; no se realiza GCP.
+Estado conciliado al 2026-10-10: PR #239 (`c6769e3c73643a6f555e50125f18efdae599285a`) integró LOCAL-QA-01/#238; PR #241 (`f9200fc200b2b11d76f9e15266c6807ea07c970e`) integró LOCAL-CORE-02/#240; y PR #243 (`65e5a0850c3e04710db5c022b21102a2a8726c5a`) integró LOCAL-QA-02/#242. Las tres Issues están aceptadas/Cerradas/Hecho únicamente por sus alcances. QA-03/#244 está en curso en `codex/local-qa-03`, reutiliza sus pruebas/evidencias y concilia cobertura integral M01–M11 antes de proponer un cierre. Los cortes admin/finanzas aceptados no completan LOCAL-ADMIN-01/M11 ni los padres generales. #109/#110, #111–#118 y #185/#40 conservan criterios abiertos. Se conserva volumen y secretos; no se realiza GCP.
 
 ## Estrategia anterior — prototipo local, 2026-10-06 (histórico)
 
