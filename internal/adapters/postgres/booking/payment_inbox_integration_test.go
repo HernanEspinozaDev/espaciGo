@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -868,5 +870,62 @@ VALUES(gen_random_uuid(),$1,1,NULL,'pendiente_de_pago',$2,'solicitud sintética'
 	}
 	if timeoutResultRows != 1 || timeoutPayments != 0 {
 		t.Fatalf("timeout replay persisted timeout/payment rows=%d/%d", timeoutResultRows, timeoutPayments)
+	}
+
+	// Verify the representative quote/reservation snapshot and occupancy
+	// relationships survive a real custom-format PostgreSQL backup restored into
+	// another disposable database. Runtime permissions are explicitly reapplied.
+	restorePaymentSnapshot(t, ctx, admin, dbURLParsed, dbURL, quoteHTTP, reservationHTTP, occupancyHTTP, spaceID, host, renter)
+}
+
+func restorePaymentSnapshot(t *testing.T, ctx context.Context, admin *pgx.Conn, sourceURL *url.URL, databaseURL, quoteID, reservationID, occupancyID, spaceID, host, renter string) {
+	t.Helper()
+	restoreDB := fmt.Sprintf("payment_restore_%d", time.Now().UnixNano())
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{restoreDB}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(t.TempDir(), "booking-source.dump")
+	if output, err := exec.CommandContext(ctx, "pg_dump", "--format=custom", "--no-owner", "--no-privileges", "--file", backup, "--dbname", databaseURL).CombinedOutput(); err != nil {
+		t.Fatalf("dump isolated booking database: %v %s", err, output)
+	}
+	restoreURL := *sourceURL
+	restoreURL.Path = "/" + restoreDB
+	if output, err := exec.CommandContext(ctx, "pg_restore", "--exit-on-error", "--no-owner", "--no-privileges", "--dbname", restoreURL.String(), backup).CombinedOutput(); err != nil {
+		t.Fatalf("restore isolated booking database: %v %s", err, output)
+	}
+	bootstrap, err := pgx.Connect(ctx, restoreURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = dbbootstrap.GrantRuntimePermissions(ctx, bootstrap); err != nil {
+		_ = bootstrap.Close(ctx)
+		t.Fatalf("reapply runtime permissions to restored booking database: %v", err)
+	}
+	_ = bootstrap.Close(ctx)
+	runtimeURL := restoreURL
+	runtimeURL.User = url.UserPassword("espacigo_runtime", "payment-inbox-test")
+	runtimePool, err := pgxpool.New(ctx, runtimeURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		runtimePool.Close()
+		if _, dropErr := admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+pgx.Identifier{restoreDB}.Sanitize()+" WITH (FORCE)"); dropErr != nil {
+			t.Errorf("drop restored disposable booking database: %v", dropErr)
+		}
+	}()
+	var matches, quoteReadable, reservationReadable, quoteDelete, transitionDelete bool
+	var restoredState string
+	err = runtimePool.QueryRow(ctx, `SELECT
+ q.espacio_id=$4 AND q.anfitrion_id=$5 AND q.arrendatario_id=$6 AND q.tarifa_version=1 AND q.modalidad='hora' AND q.precio_unitario_clp=8000 AND q.moneda='CLP' AND q.unidades=1 AND q.subtotal_clp=8000 AND q.zona_horaria='America/Santiago' AND q.condiciones_snapshot='Reglas fake' AND q.categoria_codigo='sala_multiproposito' AND q.perfil_version=1 AND q.perfil_valores_snapshot='{}'::jsonb
+ AND r.cotizacion_id=q.id AND r.espacio_id=q.espacio_id AND r.anfitrion_id=q.anfitrion_id AND r.arrendatario_id=q.arrendatario_id AND r.ocupacion_id=$3 AND r.precio_unitario_clp=q.precio_unitario_clp AND r.subtotal_clp=q.subtotal_clp AND r.unidades=q.unidades AND r.modalidad=q.modalidad AND r.moneda=q.moneda AND r.inicio=q.inicio AND r.termino=q.termino AND r.zona_horaria=q.zona_horaria AND r.condiciones_snapshot=q.condiciones_snapshot AND r.politica_cancelacion_version='local_flexible_v1'
+ AND o.id=r.ocupacion_id AND o.reserva_id=r.id AND o.espacio_id=r.espacio_id AND o.intervalo=tstzrange(q.inicio,q.termino,'[)')
+ ,r.estado,has_table_privilege(current_user,'public.cotizacion_reserva_ensayo','SELECT'),has_table_privilege(current_user,'public.reserva_ensayo_local','SELECT'),has_table_privilege(current_user,'public.cotizacion_reserva_ensayo','DELETE'),has_table_privilege(current_user,'public.reserva_ensayo_transicion','DELETE')
+		FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local r ON r.cotizacion_id=q.id JOIN public.ocupacion o ON o.id=r.ocupacion_id WHERE q.id=$1 AND r.id=$2 AND o.id=$3`, quoteID, reservationID, occupancyID, spaceID, host, renter).Scan(&matches, &restoredState, &quoteReadable, &reservationReadable, &quoteDelete, &transitionDelete)
+	if err != nil {
+		t.Fatalf("query restored booking snapshots as runtime: %v", err)
+	}
+	if !matches || restoredState != "pagada" || !quoteReadable || !reservationReadable || !quoteDelete || transitionDelete {
+		t.Fatalf("restored snapshot/relations/state/runtime permissions match=%v state=%s quote_read=%v reservation_read=%v quote_privacy_delete=%v transition_delete=%v", matches, restoredState, quoteReadable, reservationReadable, quoteDelete, transitionDelete)
 	}
 }

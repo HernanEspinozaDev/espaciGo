@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -372,4 +374,107 @@ func TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup(t *testing.T
 	if _, err = svc.List(ctx, other, spaceB); err != nil {
 		t.Fatalf("owner cannot query own empty gallery: %v", err)
 	}
+
+	// A valid SQL dump alone is insufficient for private gallery content. Restore
+	// the database and the private file root together into a second disposable
+	// environment, then exercise metadata/content through the runtime role.
+	restoreDB := fmt.Sprintf("gallery_restore_%d", time.Now().UnixNano())
+	if _, err = admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{restoreDB}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+pgx.Identifier{restoreDB}.Sanitize()+" WITH (FORCE)")
+	})
+	restoreURL := *u
+	restoreURL.Path = "/" + restoreDB
+	backup := filepath.Join(t.TempDir(), "gallery-source.dump")
+	if output, dumpErr := exec.CommandContext(ctx, "pg_dump", "--format=custom", "--no-owner", "--no-privileges", "--file", backup, "--dbname", u.String()).CombinedOutput(); dumpErr != nil {
+		t.Fatalf("dump isolated gallery database: %v %s", dumpErr, output)
+	}
+	if output, restoreErr := exec.CommandContext(ctx, "pg_restore", "--exit-on-error", "--no-owner", "--no-privileges", "--dbname", restoreURL.String(), backup).CombinedOutput(); restoreErr != nil {
+		t.Fatalf("restore isolated gallery database: %v %s", restoreErr, output)
+	}
+	restoreRoot := filepath.Join(t.TempDir(), "private-gallery-restore")
+	if err = copyPrivateTree(root, restoreRoot); err != nil {
+		t.Fatalf("copy isolated private gallery files: %v", err)
+	}
+	restoreBootstrap, err := pgx.Connect(ctx, restoreURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = dbbootstrap.GrantRuntimePermissions(ctx, restoreBootstrap); err != nil {
+		_ = restoreBootstrap.Close(ctx)
+		t.Fatalf("reapply runtime grants in restored gallery database: %v", err)
+	}
+	_ = restoreBootstrap.Close(ctx)
+	restoreRuntimeURL := restoreURL
+	restoreRuntimeURL.User = url.UserPassword("espacigo_runtime", "runtime-test-only")
+	restoredPool, err := pgxpool.New(ctx, restoreRuntimeURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restoredPool.Close()
+	restoredFiles, err := evidencefs.New(restoreRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredGallery, err := gallery.NewService(New(restoredPool), restoredFiles, credentials.Generator{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredItems, err := restoredGallery.List(ctx, owner, spaceA)
+	if err != nil || len(restoredItems) != gallery.MaxPhotosPerSpace {
+		t.Fatalf("restored private gallery relationships count=%d err=%v", len(restoredItems), err)
+	}
+	_, restoredBlob, err := restoredGallery.Content(ctx, owner, spaceA, restoredItems[0].ID)
+	if err != nil || len(restoredBlob) < 8 || string(restoredBlob[:8]) != "\x89PNG\r\n\x1a\n" {
+		t.Fatalf("restored private gallery content len=%d err=%v", len(restoredBlob), err)
+	}
+	if _, _, err = restoredGallery.Content(ctx, other, spaceA, restoredItems[0].ID); !errors.Is(err, gallery.ErrNotFound) {
+		t.Fatalf("restored gallery exposed another owner's file: %v", err)
+	}
+	var relationOK, canDelete bool
+	if err = restoredPool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.espacio_galeria_sintetica_local g JOIN public.espacio e ON e.id=g.espacio_id AND e.propietario_id=g.propietario_id WHERE g.id=$1 AND g.propietario_id=$2),has_table_privilege(current_user,'public.espacio_galeria_sintetica_local','DELETE')`, restoredItems[0].ID, owner).Scan(&relationOK, &canDelete); err != nil {
+		t.Fatal(err)
+	}
+	if !relationOK || canDelete {
+		t.Fatalf("restored relationship/runtime permissions relation=%v delete=%v", relationOK, canDelete)
+	}
+}
+
+func copyPrivateTree(source, destination string) error {
+	if err := os.MkdirAll(destination, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(destination, 0o700); err != nil {
+		return err
+	}
+	return filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil || rel == "." {
+			return err
+		}
+		target := filepath.Join(destination, rel)
+		if entry.IsDir() {
+			if err := os.MkdirAll(target, 0o700); err != nil {
+				return err
+			}
+			return os.Chmod(target, 0o700)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("unexpected non-regular private file %s", rel)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o600)
+	})
 }
