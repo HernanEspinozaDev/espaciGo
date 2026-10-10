@@ -172,7 +172,8 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 			WHERE liquidacion_id IN (SELECT id FROM public.reserva_liquidacion_ensayo_local WHERE reserva_id=$1)
 			AND actor_id IN ($2::uuid,$3::uuid)`, []any{candidate.id, nullableUUID(currentHost), nullableUUID(currentRenter)}},
 		{`UPDATE public.reserva_finanzas_historial_ensayo_local SET actor_id=NULL WHERE reserva_id=$1
-			AND tipo IN ('liquidacion_solicitada','liquidacion_confirmada','liquidacion_rechazada')
+			AND (tipo IN ('liquidacion_solicitada','liquidacion_confirmada','liquidacion_rechazada')
+				OR (tipo='operacion_pendiente_conciliacion' AND detalle_codigo='liquidacion_fake_incierta'))
 			AND actor_id IN ($2::uuid,$3::uuid)`, []any{candidate.id, nullableUUID(currentHost), nullableUUID(currentRenter)}},
 		{`UPDATE public.reclamo_dano_descargo_ensayo_local SET actor_id=NULL WHERE reclamo_id IN (SELECT id FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1)`, []any{candidate.id}},
 		{`UPDATE public.reclamo_dano_historial_ensayo_local SET actor_id=NULL WHERE reclamo_id IN (SELECT id FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1)`, []any{candidate.id}},

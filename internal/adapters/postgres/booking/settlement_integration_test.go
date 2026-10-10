@@ -16,11 +16,13 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
+	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
+	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -485,5 +487,161 @@ func TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay(t *testing
 	}
 	if raceReceipts != 1 || raceFinals != 1 {
 		t.Fatalf("racing confirmation duplicated effects receipt/history=%d/%d", raceReceipts, raceFinals)
+	}
+
+	// The timeout -> successful administrative reconciliation must retain its
+	// durable facts while unlinking participant identities when reservation
+	// retention expires. The finance-ledger permission remains column-scoped.
+	var settlementKey string
+	if err = pool.QueryRow(ctx, `SELECT id::text FROM public.reserva_liquidacion_ensayo_local WHERE reserva_id=$1`, id2).Scan(&settlementKey); err != nil {
+		t.Fatal(err)
+	}
+	var factsBefore struct {
+		policy, currency, state, result      string
+		gross, refunds, commission, transfer int64
+		updated, completed                   time.Time
+		host                                 string
+	}
+	if err = pool.QueryRow(ctx, `SELECT politica_version,moneda::text,estado,ultimo_resultado,arriendo_confirmado_clp,devoluciones_confirmadas_clp,comision_clp,transferencia_clp,actualizada_en,completada_en::timestamptz,COALESCE(anfitrion_id::text,'')
+		FROM public.reserva_liquidacion_ensayo_local WHERE id=$1`, settlementKey).Scan(&factsBefore.policy, &factsBefore.currency, &factsBefore.state, &factsBefore.result, &factsBefore.gross, &factsBefore.refunds, &factsBefore.commission, &factsBefore.transfer, &factsBefore.updated, &factsBefore.completed, &factsBefore.host); err != nil {
+		t.Fatal(err)
+	}
+	if factsBefore.state != "liquidada" || factsBefore.result != "exito_simulado" || factsBefore.gross != 10000 || factsBefore.transfer != 10000 || factsBefore.host != host {
+		t.Fatalf("unexpected reconciled settlement facts before purge: %+v", factsBefore)
+	}
+	type ledgerFact struct {
+		typ, code, actor string
+		at               time.Time
+	}
+	loadFinanceLedger := func() []ledgerFact {
+		t.Helper()
+		rows, queryErr := pool.Query(ctx, `SELECT tipo,detalle_codigo,COALESCE(actor_id::text,''),ocurrida_en
+			FROM public.reserva_finanzas_historial_ensayo_local WHERE reserva_id=$1
+			AND (tipo IN ('liquidacion_solicitada','liquidacion_confirmada','liquidacion_rechazada')
+				OR (tipo='operacion_pendiente_conciliacion' AND detalle_codigo='liquidacion_fake_incierta'))
+			ORDER BY ocurrida_en,tipo`, id2)
+		if queryErr != nil {
+			t.Fatal(queryErr)
+		}
+		defer rows.Close()
+		var facts []ledgerFact
+		for rows.Next() {
+			var fact ledgerFact
+			if scanErr := rows.Scan(&fact.typ, &fact.code, &fact.actor, &fact.at); scanErr != nil {
+				t.Fatal(scanErr)
+			}
+			facts = append(facts, fact)
+		}
+		if queryErr = rows.Err(); queryErr != nil {
+			t.Fatal(queryErr)
+		}
+		return facts
+	}
+	financeBefore := loadFinanceLedger()
+	if len(financeBefore) != 3 {
+		t.Fatalf("timeout and reconciliation finance facts=%+v", financeBefore)
+	}
+	var historyBefore []ledgerFact
+	rows, err := pool.Query(ctx, `SELECT accion,codigo,COALESCE(actor_id::text,''),ocurrida_en FROM public.reserva_liquidacion_historial_ensayo_local WHERE liquidacion_id=$1 ORDER BY secuencia`, settlementKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var fact ledgerFact
+		if err = rows.Scan(&fact.typ, &fact.code, &fact.actor, &fact.at); err != nil {
+			t.Fatal(err)
+		}
+		historyBefore = append(historyBefore, fact)
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(historyBefore) != 3 {
+		t.Fatalf("timeout and reconciliation settlement history=%+v", historyBefore)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=(SELECT actualizada_en + interval '24 months' FROM public.reserva_liquidacion_ensayo_local WHERE reserva_id=$1) WHERE id=$1`, id2); err != nil {
+		t.Fatal(err)
+	}
+	var purgeAt time.Time
+	if err = pool.QueryRow(ctx, `SELECT vinculos_retirar_en FROM public.reserva_ensayo_local WHERE id=$1`, id2).Scan(&purgeAt); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the other completed fixtures outside this focused retention window.
+	for _, reservationID := range []string{id1, id3, id4, id5} {
+		if _, err = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=$2 WHERE id=$1`, reservationID, purgeAt.Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	privacyService, err := privacy.NewService(identitypg.NewIdentityRepository(pool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	purged, err := privacyService.PurgeExpiredReservationLinks(ctx, purgeAt, 20)
+	if err != nil || purged.Purged != 1 || purged.Deferred != 0 {
+		t.Fatalf("timeout/reconcile settlement purge=%+v err=%v", purged, err)
+	}
+	var factsAfter struct {
+		policy, currency, state, result      string
+		gross, refunds, commission, transfer int64
+		updated, completed                   time.Time
+		host                                 string
+	}
+	if err = pool.QueryRow(ctx, `SELECT politica_version,moneda::text,estado,ultimo_resultado,arriendo_confirmado_clp,devoluciones_confirmadas_clp,comision_clp,transferencia_clp,actualizada_en,completada_en::timestamptz,COALESCE(anfitrion_id::text,'')
+		FROM public.reserva_liquidacion_ensayo_local WHERE id=$1`, settlementKey).Scan(&factsAfter.policy, &factsAfter.currency, &factsAfter.state, &factsAfter.result, &factsAfter.gross, &factsAfter.refunds, &factsAfter.commission, &factsAfter.transfer, &factsAfter.updated, &factsAfter.completed, &factsAfter.host); err != nil {
+		t.Fatal(err)
+	}
+	var actorColumnUpdate, otherColumnUpdate, tableUpdate bool
+	if err = pool.QueryRow(ctx, `SELECT has_column_privilege(current_user,'public.reserva_finanzas_historial_ensayo_local','actor_id','UPDATE'),
+		has_column_privilege(current_user,'public.reserva_finanzas_historial_ensayo_local','detalle_codigo','UPDATE'),
+		has_table_privilege(current_user,'public.reserva_finanzas_historial_ensayo_local','UPDATE')`).Scan(&actorColumnUpdate, &otherColumnUpdate, &tableUpdate); err != nil {
+		t.Fatal(err)
+	}
+	if !actorColumnUpdate || otherColumnUpdate || tableUpdate {
+		t.Fatalf("runtime ledger permissions are broader than actor_id: actor=%v other_column=%v table=%v", actorColumnUpdate, otherColumnUpdate, tableUpdate)
+	}
+	if factsAfter.policy != factsBefore.policy || factsAfter.currency != factsBefore.currency || factsAfter.state != factsBefore.state || factsAfter.result != factsBefore.result || factsAfter.gross != factsBefore.gross || factsAfter.refunds != factsBefore.refunds || factsAfter.commission != factsBefore.commission || factsAfter.transfer != factsBefore.transfer || !factsAfter.updated.Equal(factsBefore.updated) || !factsAfter.completed.Equal(factsBefore.completed) || factsAfter.host != "" {
+		t.Fatalf("purge changed settlement facts or retained participant: before=%+v after=%+v", factsBefore, factsAfter)
+	}
+	financeAfter := loadFinanceLedger()
+	if len(financeAfter) != len(financeBefore) {
+		t.Fatalf("purge changed finance ledger cardinality: before=%+v after=%+v", financeBefore, financeAfter)
+	}
+	for i := range financeBefore {
+		wantActor := financeBefore[i].actor
+		if wantActor == host || wantActor == renter {
+			wantActor = ""
+		}
+		if financeAfter[i].typ != financeBefore[i].typ || financeAfter[i].code != financeBefore[i].code || !financeAfter[i].at.Equal(financeBefore[i].at) || financeAfter[i].actor != wantActor {
+			t.Fatalf("finance ledger fact %d changed beyond participant unlink: before=%+v after=%+v", i, financeBefore[i], financeAfter[i])
+		}
+	}
+	rows, err = pool.Query(ctx, `SELECT accion,codigo,COALESCE(actor_id::text,''),ocurrida_en FROM public.reserva_liquidacion_historial_ensayo_local WHERE liquidacion_id=$1 ORDER BY secuencia`, settlementKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var historyAfter []ledgerFact
+	for rows.Next() {
+		var fact ledgerFact
+		if err = rows.Scan(&fact.typ, &fact.code, &fact.actor, &fact.at); err != nil {
+			t.Fatal(err)
+		}
+		historyAfter = append(historyAfter, fact)
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(historyAfter) != len(historyBefore) {
+		t.Fatalf("purge changed settlement history cardinality: before=%+v after=%+v", historyBefore, historyAfter)
+	}
+	for i := range historyBefore {
+		wantActor := historyBefore[i].actor
+		if wantActor == host || wantActor == renter {
+			wantActor = ""
+		}
+		if historyAfter[i].typ != historyBefore[i].typ || historyAfter[i].code != historyBefore[i].code || !historyAfter[i].at.Equal(historyBefore[i].at) || historyAfter[i].actor != wantActor {
+			t.Fatalf("settlement history fact %d changed beyond participant unlink: before=%+v after=%+v", i, historyBefore[i], historyAfter[i])
+		}
 	}
 }
