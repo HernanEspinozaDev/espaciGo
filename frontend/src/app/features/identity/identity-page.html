@@ -1,0 +1,177 @@
+<main class="identity-page page-width" id="contenido">
+  <section class="identity-card" aria-labelledby="identity-title">
+    <p class="eyebrow">ESPACIGO · CUENTA LOCAL DE ENSAYO</p>
+
+    @if (mode === 'login') {
+      <h1 id="identity-title">Inicia sesión</h1>
+      <p class="intro">Accede con la cuenta que registraste en EspaciGo.</p>
+      <form (submit)="onLogin($event)" novalidate>
+        <div class="field">
+          <label for="login-email">Correo electrónico</label>
+          <input id="login-email" type="email" autocomplete="username" inputmode="email" [formField]="loginForm.email" [attr.aria-invalid]="loginForm.email().touched() && loginForm.email().errors().length > 0" aria-describedby="login-email-error" />
+          @if (loginForm.email().touched() && loginForm.email().errors().length) {
+            <span class="field-error" id="login-email-error">{{ loginForm.email().errors()[0].message }}</span>
+          }
+        </div>
+        <div class="field">
+          <label for="login-password">Contraseña</label>
+          <input id="login-password" type="password" autocomplete="current-password" [formField]="loginForm.password" [attr.aria-invalid]="loginForm.password().touched() && loginForm.password().errors().length > 0" aria-describedby="login-password-error" />
+          @if (loginForm.password().touched() && loginForm.password().errors().length) {
+            <span class="field-error" id="login-password-error">{{ loginForm.password().errors()[0].message }}</span>
+          }
+        </div>
+        @if (errorMessage()) { <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p> }
+        @if (successMessage()) { <p class="form-alert is-success" role="status">{{ successMessage() }}</p> }
+        <button class="primary-button" type="submit" [disabled]="busy()">{{ busy() ? 'Verificando…' : 'Iniciar sesión' }}</button>
+      </form>
+      <nav class="form-links" aria-label="Ayuda para acceder">
+        <a routerLink="/recuperar-acceso">¿Olvidaste tu contraseña?</a>
+        <a routerLink="/verificar-correo">Verificar o reenviar correo</a>
+        <a routerLink="/registro">Crear cuenta</a>
+      </nav>
+    }
+
+    @if (mode === 'register') {
+      <h1 id="identity-title">Crea tu cuenta</h1>
+      <p class="intro">La preferencia inicial organiza el recorrido; Go asigna los permisos por separado.</p>
+      @if (termsState() === 'loading') { <p class="loading-note" role="status">Cargando versiones desde Go…</p> }
+      @if (termsState() === 'error') {
+        <p class="form-alert is-error" role="alert">No pudimos cargar las versiones de términos desde Go. Intenta recargar la página.</p>
+      }
+      <form (submit)="onRegister($event)" novalidate>
+        <div class="field">
+          <label for="register-email">Correo electrónico</label>
+          <input id="register-email" type="email" autocomplete="email" inputmode="email" [formField]="registerForm.email" [attr.aria-invalid]="registerForm.email().touched() && registerForm.email().errors().length > 0" aria-describedby="register-email-error" />
+          @if (registerForm.email().touched() && registerForm.email().errors().length) {
+            <span class="field-error" id="register-email-error">{{ registerForm.email().errors()[0].message }}</span>
+          }
+        </div>
+        <div class="field">
+          <label for="register-password">Contraseña</label>
+          <input id="register-password" type="password" autocomplete="new-password" [formField]="registerForm.password" [attr.aria-invalid]="registerForm.password().touched() && registerForm.password().errors().length > 0" aria-describedby="password-policy register-password-error" />
+          <span class="field-hint" id="password-policy">Mínimo 8 caracteres, una mayúscula, un número y un símbolo; máximo 72 bytes UTF-8.</span>
+          @if (!successMessage() && registerForm.password().touched() && registerForm.password().errors().length) {
+            <span class="field-error" id="register-password-error">{{ registerForm.password().errors()[0].message }}</span>
+          }
+        </div>
+        <div class="field">
+          <label for="register-confirm">Repite la contraseña</label>
+          <input id="register-confirm" type="password" autocomplete="new-password" [formField]="registerForm.confirmPassword" [attr.aria-invalid]="registerForm.confirmPassword().touched() && registerForm.confirmPassword().errors().length > 0" aria-describedby="register-confirm-error" />
+          @if (!successMessage() && registerForm.confirmPassword().touched() && registerForm.confirmPassword().errors().length) {
+            <span class="field-error" id="register-confirm-error">{{ registerForm.confirmPassword().errors()[0].message }}</span>
+          }
+        </div>
+        <fieldset class="preference-fieldset">
+          <legend>¿Qué te interesa hacer primero?</legend>
+          <div class="choice-grid">
+            <label class="choice-card"><input type="radio" value="arrendar" [formField]="registerForm.usePreference" /> <span>Arrendar un espacio</span></label>
+            <label class="choice-card"><input type="radio" value="ofrecer" [formField]="registerForm.usePreference" /> <span>Ofrecer un espacio</span></label>
+          </div>
+          @if (registerForm.usePreference().touched() && registerForm.usePreference().errors().length) {
+            <span class="field-error">{{ registerForm.usePreference().errors()[0].message }}</span>
+          }
+          <span class="field-hint">Esto no concede ni cambia roles.</span>
+        </fieldset>
+
+        @if (termsState() === 'ready') {
+          <fieldset class="terms-fieldset">
+            <legend>Versiones sintéticas de ensayo</legend>
+            <p class="field-hint">Go entrega los identificadores y hashes versionados, pero no el texto legal. Estas confirmaciones son solo para la prueba local; no representan aceptación legal.</p>
+            @for (item of termVersions(); track item.id) {
+              <label class="check-row"><input type="checkbox" [formField]="registerForm.acceptTerms" /> <span>Continuar con términos {{ item.code }} · SHA-256 {{ item.sha256.slice(0, 12) }}…</span></label>
+            }
+            @for (item of privacyVersions(); track item.id) {
+              <label class="check-row"><input type="checkbox" [formField]="registerForm.acceptPrivacy" /> <span>Continuar con privacidad {{ item.code }} · SHA-256 {{ item.sha256.slice(0, 12) }}…</span></label>
+            }
+            @if (registerForm.acceptTerms().touched() && registerForm.acceptTerms().errors().length) {
+              <span class="field-error">{{ registerForm.acceptTerms().errors()[0].message }}</span>
+            }
+            @if (registerForm.acceptPrivacy().touched() && registerForm.acceptPrivacy().errors().length) {
+              <span class="field-error">{{ registerForm.acceptPrivacy().errors()[0].message }}</span>
+            }
+          </fieldset>
+        }
+        @if (errorMessage()) { <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p> }
+        @if (successMessage()) { <p class="form-alert is-success" role="status">{{ successMessage() }}</p> }
+        <button class="primary-button" type="submit" [disabled]="busy() || termsState() !== 'ready'">{{ busy() ? 'Creando cuenta…' : 'Crear cuenta' }}</button>
+      </form>
+      <p class="bottom-link">¿Ya tienes cuenta? <a routerLink="/acceso">Inicia sesión</a></p>
+    }
+
+    @if (mode === 'verify') {
+      <h1 id="identity-title">Verifica tu correo</h1>
+      <p class="intro">El API envía un código a Mailpit. Copia aquí el identificador y el token del mensaje; no los pongas en una URL.</p>
+      <form (submit)="onVerify($event)" novalidate>
+        <div class="field"><label for="verify-id">Identificador del correo</label><input id="verify-id" autocomplete="off" [formField]="tokenForm.tokenId" aria-describedby="verify-id-error" />@if (!successMessage() && tokenForm.tokenId().touched() && tokenForm.tokenId().errors().length) { <span class="field-error" id="verify-id-error">{{ tokenForm.tokenId().errors()[0].message }}</span> }</div>
+        <div class="field"><label for="verify-token">Código de verificación</label><input id="verify-token" type="password" autocomplete="off" [formField]="tokenForm.token" aria-describedby="verify-token-error" />@if (!successMessage() && tokenForm.token().touched() && tokenForm.token().errors().length) { <span class="field-error" id="verify-token-error">{{ tokenForm.token().errors()[0].message }}</span> }</div>
+        @if (errorMessage()) { <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p> }
+        @if (successMessage()) { <p class="form-alert is-success" role="status">{{ successMessage() }}</p> }
+        <button class="primary-button" type="submit" [disabled]="busy()">{{ busy() ? 'Verificando…' : 'Verificar correo' }}</button>
+      </form>
+      <section class="secondary-action" aria-labelledby="reissue-title">
+        <h2 id="reissue-title">¿No recibiste el correo?</h2>
+        <form (submit)="onReissue($event)" novalidate>
+          <div class="field"><label for="reissue-email">Correo registrado</label><input id="reissue-email" type="email" autocomplete="email" inputmode="email" [formField]="emailForm.email" aria-describedby="reissue-error" />@if (emailForm.email().touched() && emailForm.email().errors().length) { <span class="field-error" id="reissue-error">{{ emailForm.email().errors()[0].message }}</span> }</div>
+          <button class="secondary-button" type="submit" [disabled]="busy()">Reenviar verificación</button>
+        </form>
+      </section>
+    }
+
+    @if (mode === 'recovery') {
+      <h1 id="identity-title">Recupera tu acceso</h1>
+      <p class="intro">Go responde de forma genérica para proteger la existencia de las cuentas.</p>
+      <form (submit)="onRecover($event)" novalidate>
+        <div class="field"><label for="recovery-email">Correo electrónico</label><input id="recovery-email" type="email" autocomplete="email" inputmode="email" [formField]="emailForm.email" aria-describedby="recovery-email-error" />@if (emailForm.email().touched() && emailForm.email().errors().length) { <span class="field-error" id="recovery-email-error">{{ emailForm.email().errors()[0].message }}</span> }</div>
+        <button class="secondary-button" type="submit" [disabled]="busy()">Enviar instrucciones</button>
+      </form>
+      <section class="secondary-action" aria-labelledby="consume-title">
+        <h2 id="consume-title">Ya recibí el correo</h2>
+        <p class="field-hint">Copia el identificador y el token desde Mailpit. El token se envía solo en el cuerpo de la solicitud.</p>
+        <form (submit)="onConsumeRecovery($event)" novalidate>
+          <div class="field"><label for="recovery-id">Identificador del correo</label><input id="recovery-id" autocomplete="off" [formField]="recoveryForm.tokenId" aria-describedby="recovery-id-error" />@if (!successMessage() && recoveryForm.tokenId().touched() && recoveryForm.tokenId().errors().length) { <span class="field-error" id="recovery-id-error">{{ recoveryForm.tokenId().errors()[0].message }}</span> }</div>
+          <div class="field"><label for="recovery-token">Token de recuperación</label><input id="recovery-token" type="password" autocomplete="off" [formField]="recoveryForm.token" aria-describedby="recovery-token-error" />@if (!successMessage() && recoveryForm.token().touched() && recoveryForm.token().errors().length) { <span class="field-error" id="recovery-token-error">{{ recoveryForm.token().errors()[0].message }}</span> }</div>
+          <div class="field"><label for="recovery-password">Nueva contraseña</label><input id="recovery-password" type="password" autocomplete="new-password" [formField]="recoveryForm.newPassword" aria-describedby="password-policy recovery-password-error" /><span class="field-hint" id="recovery-password-hint">Mínimo 8 caracteres, mayúscula, número y símbolo.</span>@if (!successMessage() && recoveryForm.newPassword().touched() && recoveryForm.newPassword().errors().length) { <span class="field-error" id="recovery-password-error">{{ recoveryForm.newPassword().errors()[0].message }}</span> }</div>
+          <div class="field"><label for="recovery-confirm">Repite la nueva contraseña</label><input id="recovery-confirm" type="password" autocomplete="new-password" [formField]="recoveryForm.confirmPassword" aria-describedby="recovery-confirm-error" />@if (!successMessage() && recoveryForm.confirmPassword().touched() && recoveryForm.confirmPassword().errors().length) { <span class="field-error" id="recovery-confirm-error">{{ recoveryForm.confirmPassword().errors()[0].message }}</span> }</div>
+          @if (errorMessage()) { <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p> }
+          @if (successMessage()) { <p class="form-alert is-success" role="status">{{ successMessage() }}</p> }
+          <button class="primary-button" type="submit" [disabled]="busy()">{{ busy() ? 'Actualizando…' : 'Cambiar contraseña' }}</button>
+        </form>
+      </section>
+      <p class="bottom-link"><a routerLink="/acceso">Volver al acceso</a></p>
+    }
+
+    @if (mode === 'change-password') {
+      <h1 id="identity-title">Cambia tu contraseña</h1>
+      <p class="intro">Go revocará todas las sesiones al confirmar el cambio; tendrás que iniciar sesión otra vez.</p>
+      <form (submit)="onChangePassword($event)" novalidate>
+        <div class="field"><label for="current-password">Contraseña actual</label><input id="current-password" type="password" autocomplete="current-password" [formField]="changeForm.currentPassword" aria-describedby="current-password-error" />@if (changeForm.currentPassword().touched() && changeForm.currentPassword().errors().length) { <span class="field-error" id="current-password-error">{{ changeForm.currentPassword().errors()[0].message }}</span> }</div>
+        <div class="field"><label for="new-password">Nueva contraseña</label><input id="new-password" type="password" autocomplete="new-password" [formField]="changeForm.newPassword" aria-describedby="password-policy new-password-error" /><span class="field-hint" id="password-policy">Mínimo 8 caracteres, una mayúscula, un número y un símbolo; máximo 72 bytes UTF-8.</span>@if (changeForm.newPassword().touched() && changeForm.newPassword().errors().length) { <span class="field-error" id="new-password-error">{{ changeForm.newPassword().errors()[0].message }}</span> }</div>
+        <div class="field"><label for="change-confirm">Repite la nueva contraseña</label><input id="change-confirm" type="password" autocomplete="new-password" [formField]="changeForm.confirmPassword" aria-describedby="change-confirm-error" />@if (changeForm.confirmPassword().touched() && changeForm.confirmPassword().errors().length) { <span class="field-error" id="change-confirm-error">{{ changeForm.confirmPassword().errors()[0].message }}</span> }</div>
+        @if (errorMessage()) { <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p> }
+        @if (successMessage()) { <p class="form-alert is-success" role="status">{{ successMessage() }}</p> }
+        <button class="primary-button" type="submit" [disabled]="busy()">{{ busy() ? 'Actualizando…' : 'Cambiar contraseña y cerrar sesiones' }}</button>
+      </form>
+    }
+
+    @if (mode === 'account' && session(); as currentSession) {
+      <h1 id="identity-title">Tu sesión</h1>
+      <p class="intro">Roles y restricciones confirmados por Go para esta sesión.</p>
+      <section class="session-summary" aria-label="Capacidades confirmadas">
+        <h2>Roles</h2>
+        <ul class="role-list">@for (role of currentSession.roles; track role) { <li>{{ getRoleLabel(role) }}</li> }</ul>
+        <p><strong>Modo restringido:</strong> {{ currentSession.restricted_mode ? 'Sí, confirmado por Go' : 'No' }}</p>
+        @if (currentSession.restricted_mode) {
+          <p class="restricted-copy">Go permite a esta cuenta únicamente operaciones sobre reservas existentes. La preferencia elegida al registrarte no altera los roles ni este estado.</p>
+        } @else {
+          <p class="restricted-copy">La navegación por rol refleja únicamente los roles devueltos por Go. Algunas áreas siguen pendientes de los cortes FE-03, FE-06 y FE-11.</p>
+        }
+      </section>
+      <nav class="account-links" aria-label="Seguridad de la cuenta">
+        <a routerLink="/mi-cuenta/seguridad">Cambiar contraseña</a>
+        @if (currentSession.roles.includes('arrendatario') && !currentSession.restricted_mode) { <a routerLink="/explorar">Explorar espacios <span>Disponible en FE-03</span></a> }
+        @if (currentSession.roles.includes('arrendador') && !currentSession.restricted_mode) { <a routerLink="/panel-anfitrion">Panel de anfitrión <span>Disponible en FE-06</span></a> }
+        @if (currentSession.roles.includes('administrador') && !currentSession.restricted_mode) { <a routerLink="/administracion">Administración <span>Disponible en FE-11</span></a> }
+      </nav>
+    }
+  </section>
+</main>

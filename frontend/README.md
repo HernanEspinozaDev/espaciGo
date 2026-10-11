@@ -1,6 +1,6 @@
 # EspaciGo Angular
 
-Frontend independiente del backend Go y del mock de transición. Este primer corte cubre FE-00 y FE-01: contrato generado, shell responsivo, páginas informativas de categorías y una comprobación real de readiness. No implementa aún cuentas, catálogo, reservas ni otras capacidades marcadas para cortes posteriores.
+Frontend independiente del backend Go y del mock de transición. Cubre FE-00/FE-01 y el corte FE-02 de identidad: contrato generado, shell responsivo, páginas informativas, comprobación real de readiness, registro y sesión conectados a Go. Catálogo, reservas y demás capacidades quedan para sus cortes; los destinos visibles no implican que estén implementados.
 
 ## Herramientas fijadas
 
@@ -23,7 +23,7 @@ Se comprobó el generador `typescript-angular` de OpenAPI Generator, pero el eje
 
 El SDK conserva `int64` JSON como `number`; por ello, no se deben presentar o usar como valores exactos importes fuera del rango seguro de JavaScript. FE-00 deja esta limitación explícita para resolver el decodificador de números JSON sin pérdida antes de los flujos financieros. El corte actual no consume ni transforma importes.
 
-El SDK conserva el contrato Bearer, pero todavía no hay sesión ni interceptores de autenticación en FE-01. Los archivos binarios están tipados como `Blob | File`; su descarga autenticada, manejo de URL temporal y aislamiento entre sesiones quedan para el corte de privacidad que consume esas operaciones.
+FE-02 reutiliza el SDK para identidad y mantiene Bearer solo en memoria. El adaptador pasa explícitamente Authorization a las operaciones protegidas; una prueba de transporte cubre la configuración del SDK generado. Los archivos binarios están tipados como `Blob | File`; su descarga autenticada, manejo de URL temporal y aislamiento entre sesiones quedan para el corte de privacidad que consume esas operaciones.
 
 ## Servidor local
 
@@ -39,4 +39,8 @@ El frontend se publica en `http://localhost:4200` (override `LOCAL_ANGULAR_PORT`
 
 ## Alcance visible
 
-`/`, `/categorias` y `/como-funciona` contienen solo información del producto y son prerenderizadas. `/explorar` y `/acceso` muestran claramente que el catálogo requiere sesión (FE-03) y que la identidad llegará en FE-02. No se muestran fichas, disponibilidad, precios ni acciones no respaldadas por una sesión o por el contrato actual.
+`/`, `/categorias` y `/como-funciona` contienen solo información del producto y son prerenderizadas. Las páginas de identidad y cuenta son CSR/noindex. `/explorar` y las áreas de anfitrión/administración requieren la sesión, roles y modo restringido que confirma Go; sus funciones posteriores siguen pendientes. El registro distingue la preferencia inicial de los roles autorizados. No se muestran fichas, disponibilidad, precios ni acciones no respaldadas por una sesión o por el contrato actual.
+
+## Identidad (FE-02)
+
+Las pantallas `/acceso`, `/registro`, `/verificar-correo`, `/recuperar-acceso`, `/mi-cuenta` y `/mi-cuenta/seguridad` consumen operaciones `/auth/*` de Go. Tokens de verificación/recuperación se envían solo en el cuerpo del formulario; Bearer nunca se persiste en localStorage/sessionStorage ni se coloca en URLs o logs. Los requisitos locales de términos son metadatos versionados/hash, no texto legal.
