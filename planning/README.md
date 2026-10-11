@@ -4,11 +4,11 @@
 
 Este directorio contiene la línea base evolutiva para construir EspaciGo con prioridad en **Base de Datos → Backend → API → pruebas → validación visual con frontend mock**. Es planificación, no evidencia de implementación. La interfaz definitiva queda fuera de alcance y se decidirá cuando el backend y la persistencia hayan avanzado.
 
-## Prioridad vigente — cierre LOCAL-1 pendiente de consolidación, actualizado 2026-10-11
+## Prioridad vigente — LOCAL-DOCKER, actualizado 2026-10-11
 
-El [plan de cierre del backend local](plan_cierre_backend_local.md), el [backlog de cierre](backlog_cierre_backend_local.md) y la [matriz conciliada](matriz_cierre_backend_local.md) están actualizados a `main` #264/V52. La [guía de arranque local](guia_arranque_local.md) conserva los pasos seguros del volumen persistente y apunta a la evidencia integral vigente. La conciliación final encontró una brecha local de exportación contractual y decisiones pendientes sobre la entidad `documento` de MAP-02 y la retención; #246 continúa abierta y LOCAL-1 no se presenta para aceptación todavía.
+LOCAL-1 fue aceptado explícitamente por el propietario y #246 quedó registrado como Hecho. DOCKER-01/#268 fue aceptado tras PR #271, integrado en `main` (`e074d78`). El corte vigente DOCKER-02/#269 prueba una instalación vacía con proyecto, imágenes, puertos, volumen, secretos y directorios aislados, además del recorrido sintético integral sobre Compose. Véanse el [plan de cierre](plan_cierre_backend_local.md), el [backlog](backlog_cierre_backend_local.md), la [matriz conciliada](matriz_cierre_backend_local.md) y [`local_docker.md`](local_docker.md).
 
-La matriz y evidencia final están en [`matriz_cierre_backend_local.md`](matriz_cierre_backend_local.md), [`evidence/local-close-01-matrix-20261011.md`](evidence/local-close-01-matrix-20261011.md) y [`evidence/local-close-01-final-20261011.md`](evidence/local-close-01-final-20261011.md). QA-01/#238, CORE-02/#240, QA-02/#242 y QA-03/#244 están aceptadas por sus alcances. La conciliación posterior a PR #264/V52 detectó que el ZIP de titular omite contratos sintéticos propios y dejó pendiente la equivalencia local de `documento` y decisiones de retención sin plazo ratificado; #246 permanece abierta y LOCAL-1 aún no se presenta para aceptación. Véase [`guia_arranque_local.md`](guia_arranque_local.md).
+La evidencia del corte Docker está en [`evidence/local-docker-01-20261011.md`](evidence/local-docker-01-20261011.md) y [`evidence/local-docker-02-20261011.md`](evidence/local-docker-02-20261011.md). La última documenta los límites de la prueba manual del vencimiento y el resultado de la integración con reloj sustituible. DOCKER-03/#270 no comienza hasta que DOCKER-02 sea aceptado.
 
 **Completar todo el alcance local antes de proponer pruebas o despliegue GCP.** No ejecutar esa fase como parte del cierre. Se reutilizan capacidades aceptadas y adaptadores fake explícitos; el resultado no acredita integraciones reales ni cierre global del producto.
 
@@ -17,7 +17,7 @@ La matriz y evidencia final están en [`matriz_cierre_backend_local.md`](matriz_
 | Documento | Contenido |
 | --- | --- |
 | [Plan de cierre local](plan_cierre_backend_local.md) | Objetivo actual M01–M11, hitos L0–L5, decisiones, pruebas locales y definición LOCAL-1; GCP queda para después. |
-| [Guía de arranque local](guia_arranque_local.md) | Levantar/verificar entorno persistente sin borrar volumen/secretos; baseline #264/V52 y límites vigentes de LOCAL-1. |
+| [Guía de arranque local](guia_arranque_local.md) | Levantar/verificar el entorno persistente y los límites actuales de LOCAL-1; comandos para el Compose aislado en `local_docker.md`. |
 | [Trazabilidad de requisitos Backend](trazabilidad_requisitos_backend_local.md) | Cruce ES1 RQF/RNF/CU/HU con la conciliación final; los estados históricos remiten a la matriz vigente. |
 | [Backlog de cierre local](backlog_cierre_backend_local.md) | Paquetes propuestos, trazabilidad a Issues, aceptación y once tarjetas finales de mock; no son cambios operativos del Project. |
 | [Prompt de cierre local](prompt_cierre_backend_local.md) | Instrucción para la ejecución posterior, con cuentas GitHub, primera entrega y condición de parada. |

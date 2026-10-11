@@ -2,6 +2,8 @@ Actualización 2026-10-11 — aceptación final LOCAL-1
 
 El propietario aceptó LOCAL-1 por el alcance sintético ratificado. #246 está cerrada y Hecho en Projects; esto no cierra los Issues padre ni resuelve requisitos productivos o diferidos. La evidencia de código/migraciones y recorrido continúa siendo la publicada para #266 y V53/V54; no se repitió la regresión únicamente por la aceptación. La fase posterior se limita a LOCAL-DOCKER (#267): DOCKER-01 #268, DOCKER-02 #269 y DOCKER-03 #270, descritos en [`local_docker.md`](local_docker.md).
 
+Estado de la fase posterior: DOCKER-01/#268 aceptada tras PR #271 (`e074d78`). DOCKER-02/#269 se presenta mediante PR #272, con evidencia de instalación desde volumen vacío y recorrido en [`evidence/local-docker-02-20261011.md`](evidence/local-docker-02-20261011.md). DOCKER-03/#270 espera la aceptación de DOCKER-02.
+
 # Matriz conciliada de cierre del backend local
 
 Conciliación final post-merge: 2026-10-11, `main` PR #266 merge `0a47cafc24f0570b53e19c7d81d7ed8a806b50a1`; código funcional validado `03e9c77fb08815b63f2c8d8b3cc96ffe635ca491`. V53/V54 están aplicadas incrementalmente al volumen persistente; salud, checksums, grants runtime y exportación bilateral se comprobaron tras el merge. Los slices #256–#263 y QA-01/02/03 mantienen sus aceptaciones por alcance. No quedan brechas funcionales locales obligatorias identificadas para LOCAL-1. #246 fue aceptada explícitamente y está cerrada/Hecho en Projects.

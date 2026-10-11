@@ -97,6 +97,18 @@ if [[ -e "$runtime_reject_state" || -e "$docker_call_log" ]]; then
   exit 1
 fi
 
+image_prefix_reject_state="$TEST_ROOT/image-prefix-rejected"
+if LOCAL_DOCKER_STATE_DIR="$image_prefix_reject_state" LOCAL_DOCKER_IMAGE_PREFIX=espacigo-local \
+  DOCKER_CALL_LOG="$docker_call_log" PATH="$FAKE_BIN:$PATH" \
+  "$ROOT_DIR/scripts/local-docker-stack.sh" config >/dev/null 2>&1; then
+  echo 'FAIL: isolated stack accepted the development image prefix' >&2
+  exit 1
+fi
+if [[ -e "$image_prefix_reject_state" || -e "$docker_call_log" ]]; then
+  echo 'FAIL: development image-prefix rejection created files or invoked Docker' >&2
+  exit 1
+fi
+
 isolated_json="$TEST_ROOT/isolated-compose.json"
 ISOLATED_STATE_DIR="$TEST_ROOT/isolated"
 LOCAL_DOCKER_STATE_DIR="$ISOLATED_STATE_DIR" \
@@ -149,6 +161,21 @@ check(isolated["volumes"]["pgdata"]["name"].startswith("espacigo_docker01_test_p
       "isolated PostgreSQL volume name")
 check(dev["volumes"]["pgdata"]["name"] == "espacigo_pgdata",
       "development volume name remains espacigo_pgdata")
+project_name = isolated["name"]
+check(isolated["services"]["backend"]["image"] == project_name + "-api:dev",
+      "isolated API image tag is project-specific")
+check(isolated["services"]["migrate"]["image"] == project_name + "-api:dev",
+      "isolated migrator image tag is project-specific")
+check(isolated["services"]["mock-frontend"]["image"] == project_name + "-mock:dev",
+      "isolated mock image tag is project-specific")
+check(isolated["services"]["database"]["image"] == project_name + "-database:dev",
+      "isolated database image tag is project-specific")
+check(dev["services"]["backend"]["image"] == "espacigo-local-api:dev",
+      "development API image tag remains stable")
+check(dev["services"]["mock-frontend"]["image"] == "espacigo-local-mock:dev",
+      "development mock image tag remains stable")
+check(dev["services"]["database"]["image"] == "espacigo-local-database:dev",
+      "development database image tag remains stable")
 
 def host_port(service):
     ports = service["ports"]
@@ -188,6 +215,7 @@ for service in ("backend", "migrate"):
     check(tls is not None and str(pathlib.Path(tls["source"]).resolve()).startswith(isolated_root + "/database-tls"),
           "private TLS material path for " + service)
 print("PASS: isolated Compose project, ports, volume, secrets, TLS/private directories, and runtime/migrator roles")
+print("PASS: isolated image tags are project-specific and development tags remain unchanged")
 print("PASS: ordinary development project, volume, and ports remain unchanged")
 print("PASS: mock has API-only network access and no database credentials/secrets")
 PY
