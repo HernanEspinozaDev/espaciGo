@@ -50,3 +50,7 @@ La regresión integral LOCAL-1 queda reservada hasta cerrar las brechas locales 
 - Eliminación de publicación (RQF-091/092) no forma parte de este PR. La política local de conservación se ratificó en #258; su implementación sigue pendiente para ese corte.
 - La galería del mock vuelve a consultar el detalle del espacio (portada persistida) y las imágenes tras agregar o retirar una imagen, y refresca el listado propio. La respuesta solo se aplica si siguen vigentes sesión, selección y revisión de la galería.
 - Pruebas enfocadas: elegir A y agregar B conserva A; retirar B conserva A; retirar A elimina la portada en galería y listado. `npm --prefix mock run test:gallery-cover` compila TypeScript y ejecuta estos casos más las protecciones existentes de sesión/selección.
+
+## Aceptación y comprobación posterior al merge
+
+El propietario aceptó #256 por RQF-077 y RQF-198. PR #260 se fusionó en `main` como `38c3e1300b6d3f843238f4ee6b8758bfe3b71913`; #256 quedó cerrada y Hecho únicamente por esos criterios. Después se sincronizó `main` y `./scripts/dev-env.sh up` aplicó V49 incrementalmente. La comprobación local por API usó un borrador propio: generó/seleccionó la portada y consultó su persistencia; al retirar el PNG, la portada quedó vacía. Cambió y restauró la modalidad con versiones nuevas; no había snapshots de reserva en ese borrador. No se borraron datos, volumen ni secretos. Health/readiness/HTTP fueron reutilizados de la evidencia ya vigente. #246 y los pendientes generales M04/M05 permanecen abiertos.

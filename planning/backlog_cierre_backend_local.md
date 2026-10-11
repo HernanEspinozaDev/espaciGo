@@ -120,7 +120,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada al 2026-10-11 tras PR #254 
 
 - **Módulo/tipo/estado:** M04 / VERTICAL / `parcial`; #204 y #206 son slices aceptados, no completan este paquete.
 - **Objetivo y motivo:** #52–61, CU-15–18; completar borrador → publicación local con controles de negocio.
-- **Alcance restante conciliado al 2026-10-11:** los cortes aceptados cubren publicación activa consumida por catálogo (#212), título/descripción/capacidad/reglas/precio, calendario y galería sintética. Permanecen RQF-077 (selección de portada), RQF-091/092 (eliminar publicación y bloquearlo cuando haya reservas futuras pendientes) y RQF-198 (editar modalidad tarifaria); ver matriz final por ID. No volver a planificar como brecha la conexión catálogo ni la tarifa inicial ya integradas.
+- **Alcance restante conciliado al 2026-10-11:** los cortes aceptados cubren publicación activa consumida por catálogo (#212), título/descripción/capacidad/reglas/precio, calendario y galería sintética. RQF-077 y RQF-198 quedaron aceptados localmente por #256/PR #260. Permanece RQF-091/092 (eliminar publicación con comprobación transaccional de bloqueadores y preservación histórica), que corresponde a #258. No volver a planificar como brecha la conexión catálogo ni la tarifa inicial ya integradas.
 - **Fuera:** archivos/documentos reales, geocodificación comercial, proveedor y frontend definitivo. Los criterios RQF anteriores siguen locales salvo exclusión específica.
 - **Dependencias:** LOCAL-PRIV-01, LOCAL-KYC-01, CORE y D-KYC/LIST/D-BOOK. El gate KYC sintético de publicación/solicitud personal está ratificado; #204 y #206 lo conservan en los puntos de entrada existentes. #142 queda fuera para la parte sintética local. La relación de publicaciones con descubrimiento general sigue pendiente. No cerrar #55/#52–#61 para desbloquear. **Desbloquea:** LOCAL-DISC-01 al completar contratos mínimos de oferta y acceso; #204/#206 por sí solos no bastan.
 - **Aceptación:** publicación requiere datos/estados aprobados; borradores quedan privados; despublicar corta nuevas operaciones según regla sin borrar reservas anteriores; galería conserva autorización y datos validados; snapshots anteriores sobreviven edición.
@@ -165,16 +165,16 @@ Fecha inicial: 2026-10-07; conciliación actualizada al 2026-10-11 tras PR #254 
 
 ### LOCAL-M04-COVER-RATE-01 — Seleccionar portada y cambiar modalidad (Issue #256)
 
-- **Módulo/tipo/estado:** M04 / VERTICAL DB-BE-API-TEST-MOCK / en curso tras PR #255; hija de #246 y trazada a #55/#56, RQF-077 y RQF-198. No completa #55/#56 ni LOCAL-1.
+- **Módulo/tipo/estado:** M04 / VERTICAL DB-BE-API-TEST-MOCK / aceptada, cerrada y Hecho únicamente por RQF-077/198 tras PR #260; hija de #246 y trazada a #55/#56. No completa #55/#56 ni LOCAL-1.
 - **Alcance verificable:** elegir/consultar portada solo entre PNG sintéticos activos de la galería del mismo titular/espacio; mantener privada la imagen; limpiar selección atómicamente al retirar la foto y ejecutar baja. Cambiar modalidad hora/día/mes en borrador, publicación activa u oculta con nueva versión inmutable; cotizaciones, reservas, contratos y simulaciones anteriores conservan su snapshot. Rechazar cambio incompatible con horario semanal activo con 409 sin cambiar tarifa; permitirlo después de desactivarlo.
 - **Dependencias satisfechas:** publicación/ownership y KYC local (#204/#205), edición (#206–#209), galería (#210/#211), calendario semanal M06 y snapshots. V19 exige desactivar horario semanal antes de dejar `hora`; se conserva y se expone como conflicto claro.
 - **Fuera:** exponer archivo privado en catálogo, asignar modalidad retroactiva, reescribir reservas, cambiar ocupaciones, proveedores y GCP.
-- **Validación:** PostgreSQL desechable cubre publicación, modalidad activa/oculta, incompatibilidad, snapshots, portada, ownership y retiro; handler/OpenAPI y build/tests del mock. V49 no se aplica al volumen persistente antes de revisión/aceptación.
+- **Validación:** PostgreSQL desechable cubre publicación, modalidad activa/oculta, incompatibilidad, snapshots, portada, ownership y retiro; handler/OpenAPI y build/tests del mock. **Aceptación:** PR #260 fusionado (`38c3e1300b6d3f843238f4ee6b8758bfe3b71913`); V49 aplicado incrementalmente tras aprobación; smoke de API confirmó portada persistida/retirada y cambio/restauración de modalidad preservando snapshots. #256 cerrada/Hecho por esos criterios solamente.
 
 ### LOCAL-M05-SEARCH-GAPS-01 — Búsqueda textual y filtros locales restantes (Issue #257)
 
-- **Estado:** Listo después de M04-COVER-RATE-01; hija de #246, trazada a #65/#62–#68 y RQF-094/095/099/102.
-- **Criterios:** texto en campos públicos permitidos; mapa mock solo con ubicaciones sintéticas, sin divulgar coordenadas privadas; superficie mínima inclusiva combinable con filtros existentes; acción restablece todos los criterios/paginación/selección y descarta respuestas tardías. API/OpenAPI, PostgreSQL desechable, mock y evidencia. Sin geocodificación real ni GCP.
+- **Estado:** En revisión mediante [PR #261](https://github.com/HernanEspinozaDev/espaciGo/pull/261), commit probado `6b244fa7ca4e8a2134be7b21e1b2e66c57a5a746`; posterior a M04-COVER-RATE-01; hija de #246, trazada a #65/#62–#68 y RQF-094/095/099/102.
+- **Criterios:** texto literal e insensible a mayúsculas en título/descripción/categoría públicos, nunca dirección/contacto; plano mock usa solo posiciones relativas de coordenadas sintéticas habilitadas y no devuelve lat/lon; superficie mínima inclusiva se combina con filtros mediante AND; limpiar criterios reinicia controles/cursor/selección/cotización/mapa e invalida respuestas tardías. API/OpenAPI, PostgreSQL desechable, mock y evidencia; sin geocodificación real ni GCP. Evidencia: `planning/evidence/local-m05-search-gaps-20261011.md`; no aceptada antes de review/merge.
 
 ### LOCAL-M04-PUBLICATION-DELETE-01 — Conservación histórica (Issue #258)
 

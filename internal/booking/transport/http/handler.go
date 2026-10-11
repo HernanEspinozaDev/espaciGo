@@ -598,11 +598,18 @@ func (h *Handler) replyConversation(w http.ResponseWriter, value any, err error)
 
 func catalogFilter(query url.Values) (booking.CatalogFilter, bool) {
 	for key, values := range query {
-		if (key != "category_code" && key != "start_at" && key != "end_at" && key != "min_total_clp" && key != "max_total_clp" && key != "profile_version" && key != "attributes" && key != "latitude" && key != "longitude" && key != "radius_km" && key != "page_size" && key != "cursor") || len(values) != 1 || (values[0] == "" && key != "latitude" && key != "longitude" && key != "radius_km") {
+		if (key != "category_code" && key != "q" && key != "min_area_m2" && key != "start_at" && key != "end_at" && key != "min_total_clp" && key != "max_total_clp" && key != "profile_version" && key != "attributes" && key != "latitude" && key != "longitude" && key != "radius_km" && key != "page_size" && key != "cursor") || len(values) != 1 || (values[0] == "" && key != "latitude" && key != "longitude" && key != "radius_km") {
 			return booking.CatalogFilter{}, false
 		}
 	}
-	filter := booking.CatalogFilter{CategoryCode: query.Get("category_code")}
+	filter := booking.CatalogFilter{CategoryCode: query.Get("category_code"), SearchText: query.Get("q")}
+	if raw := query.Get("min_area_m2"); raw != "" {
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return booking.CatalogFilter{}, false
+		}
+		filter.MinAreaM2 = &value
+	}
 	startRaw, endRaw := query.Get("start_at"), query.Get("end_at")
 	if (startRaw == "") != (endRaw == "") {
 		return booking.CatalogFilter{}, false

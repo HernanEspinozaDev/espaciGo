@@ -1,6 +1,7 @@
 package bookingpg
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -42,6 +43,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/santhosh-tekuri/jsonschema/v5"
+	"gopkg.in/yaml.v3"
 )
 
 type integrationBookingAuth struct {
@@ -742,12 +745,27 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 		t.Fatalf("geographic catalog search wrote booking state: quotes %d->%d reservations %d->%d occupancies %d->%d", geoQuotesBefore, geoQuotesAfter, geoReservationsBefore, geoReservationsAfter, geoOccupanciesBefore, geoOccupanciesAfter)
 	}
 	detailItem, err := svc.CatalogDetail(ctx, renter, secondSpace)
-	if err != nil || detailItem.CategoryCode != "bodega" || detailItem.CategoryName != "Bodega" || detailItem.ProfileVersion != 1 || !hasAttributes(detailItem.Attributes, map[string]any{"altura_util_m": 3.2, "carro_carga_disponible": false}) {
+	if err != nil || detailItem.CategoryCode != "bodega" || detailItem.CategoryName != "Bodega" || detailItem.ProfileVersion != 1 || detailItem.AreaM2 <= 0 || !hasAttributes(detailItem.Attributes, map[string]any{"altura_util_m": 3.2, "carro_carga_disponible": false}) {
 		t.Fatalf("selected fixture detail=%+v err=%v", detailItem, err)
 	}
 	filtered, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "bodega"})
-	if err != nil || len(filtered) != 1 || filtered[0].SpaceID != secondSpace {
+	if err != nil || len(filtered) != 1 || filtered[0].SpaceID != secondSpace || filtered[0].AreaM2 != detailItem.AreaM2 {
 		t.Fatalf("category filter=%+v err=%v", filtered, err)
+	}
+	detailHandler := bookinghttp.NewHandler(integrationBookingAuth{accountID: renter}, svc, nil)
+	detailRequest := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog/"+secondSpace, nil)
+	detailRequest.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	detailResponse := httptest.NewRecorder()
+	detailHandler.ServeHTTP(detailResponse, detailRequest)
+	if detailResponse.Code != http.StatusOK {
+		t.Fatalf("catalog detail HTTP status=%d body=%s", detailResponse.Code, detailResponse.Body.String())
+	}
+	validateBookingOpenAPIJSON(t, detailResponse.Body.Bytes(), "LocalCatalogDetailEnvelope")
+	var detailEnvelope struct {
+		Data booking.CatalogItem `json:"data"`
+	}
+	if err = json.Unmarshal(detailResponse.Body.Bytes(), &detailEnvelope); err != nil || detailEnvelope.Data.AreaM2 != filtered[0].AreaM2 {
+		t.Fatalf("catalog search/detail surface mismatch: search=%v detail=%v body=%s err=%v", filtered[0].AreaM2, detailEnvelope.Data.AreaM2, detailResponse.Body.String(), err)
 	}
 	when := fixedNow.Add(30 * time.Minute)
 	until := when.Add(time.Hour)
@@ -2834,6 +2852,43 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err != nil || len(publicItems) != 1 || publicItems[0].SpaceID != activeSpace || publicItems[0].Price != 9000 {
 		t.Fatalf("active eligible catalog=%+v err=%v", publicItems, err)
 	}
+	// LOCAL-M05-SEARCH-GAPS-01: literal public-field text and inclusive surface
+	// filtering compose with category while explicit enabled fixtures alone
+	// contribute normalized map positions. Private addresses are never searched
+	// or returned as map coordinates.
+	minimumFixtureArea := 40.0
+	fixtureItems, err := svc.Catalog(ctx, renter, booking.CatalogFilter{
+		CategoryCode: "bodega", SearchText: "  BODEGA   sintética ", MinAreaM2: &minimumFixtureArea,
+	})
+	if err != nil || len(fixtureItems) != 1 || fixtureItems[0].SpaceID != secondSpace || fixtureItems[0].AreaM2 != 40 || fixtureItems[0].MapPosition == nil {
+		t.Fatalf("synthetic map/search/minimum-area filter=%+v err=%v", fixtureItems, err)
+	}
+	fixtureJSON, err := json.Marshal(fixtureItems[0])
+	if err != nil || strings.Contains(string(fixtureJSON), "-70.6693") || strings.Contains(string(fixtureJSON), "-33.456") || strings.Contains(string(fixtureJSON), "Dirección sintética") || strings.Contains(string(fixtureJSON), "latitude") || strings.Contains(string(fixtureJSON), "longitude") {
+		t.Fatalf("catalog exposed raw synthetic coordinates or private address: %s err=%v", fixtureJSON, err)
+	}
+	minimumPublishedArea := 24.0
+	matchingPublished, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "oficina", SearchText: "OFICINA PUBLICADA ELEGIBLE", MinAreaM2: &minimumPublishedArea})
+	if err != nil || len(matchingPublished) != 1 || matchingPublished[0].SpaceID != activeSpace {
+		t.Fatalf("case-insensitive text and inclusive area filter=%+v err=%v", matchingPublished, err)
+	}
+	abovePublishedArea := 24.01
+	tooLarge, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "oficina", SearchText: "oficina publicada elegible", MinAreaM2: &abovePublishedArea})
+	if err != nil || len(tooLarge) != 0 {
+		t.Fatalf("minimum area must be inclusive and exclude area below threshold: %+v err=%v", tooLarge, err)
+	}
+	privateAddressSearch, err := svc.Catalog(ctx, renter, booking.CatalogFilter{SearchText: "Dirección privada"})
+	if err != nil || len(privateAddressSearch) != 0 {
+		t.Fatalf("private address must not be searchable: %+v err=%v", privateAddressSearch, err)
+	}
+	wildcardSearch, err := svc.Catalog(ctx, renter, booking.CatalogFilter{SearchText: "%"})
+	if err != nil || len(wildcardSearch) != 0 {
+		t.Fatalf("search percent must be literal rather than a SQL wildcard: %+v err=%v", wildcardSearch, err)
+	}
+	noTextMatches, err := svc.Catalog(ctx, renter, booking.CatalogFilter{SearchText: "texto sin coincidencias"})
+	if err != nil || len(noTextMatches) != 0 {
+		t.Fatalf("empty text search results=%+v err=%v", noTextMatches, err)
+	}
 	if _, err = svc.CatalogDetail(ctx, renter, hiddenSpace); err != booking.ErrNotFound {
 		t.Fatalf("hidden publication detail error=%v", err)
 	}
@@ -3098,12 +3153,26 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	// Exercise the existing HTTP endpoints consumed by the mock for the same
 	// published listing: search, safe detail, then a quote for that selection.
 	handler = bookinghttp.NewHandler(integrationBookingAuth{accountID: renter}, svc, nil)
-	apiRequest := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog?category_code=oficina&page_size=5", nil)
+	apiRequest := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog?category_code=oficina&q=OFICINA%20PUBLICADA%20ELEGIBLE&min_area_m2=24&page_size=5", nil)
 	apiRequest.Header.Set("Authorization", "Bearer local-booking-integration-session")
 	apiResponse := httptest.NewRecorder()
 	handler.ServeHTTP(apiResponse, apiRequest)
 	if apiResponse.Code != http.StatusOK || !strings.Contains(apiResponse.Body.String(), activeSpace) || strings.Contains(apiResponse.Body.String(), "Dirección privada") || strings.Contains(apiResponse.Body.String(), host) {
 		t.Fatalf("published catalog HTTP response=%d body=%s", apiResponse.Code, apiResponse.Body.String())
+	}
+	apiRequest = httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog?category_code=bodega&q=BODEGA%20sint%C3%A9tica&min_area_m2=40&page_size=5", nil)
+	apiRequest.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	apiResponse = httptest.NewRecorder()
+	handler.ServeHTTP(apiResponse, apiRequest)
+	if apiResponse.Code != http.StatusOK || !strings.Contains(apiResponse.Body.String(), secondSpace) || !strings.Contains(apiResponse.Body.String(), `"map_position"`) || strings.Contains(apiResponse.Body.String(), `"latitude"`) || strings.Contains(apiResponse.Body.String(), `"longitude"`) || strings.Contains(apiResponse.Body.String(), "-70.6693") || strings.Contains(apiResponse.Body.String(), "Dirección privada") {
+		t.Fatalf("synthetic-map catalog HTTP response=%d body=%s", apiResponse.Code, apiResponse.Body.String())
+	}
+	apiRequest = httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog?min_area_m2=0.001", nil)
+	apiRequest.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	apiResponse = httptest.NewRecorder()
+	handler.ServeHTTP(apiResponse, apiRequest)
+	if apiResponse.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid minimum-area HTTP status=%d body=%s", apiResponse.Code, apiResponse.Body.String())
 	}
 	apiRequest = httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog/"+activeSpace, nil)
 	apiRequest.Header.Set("Authorization", "Bearer local-booking-integration-session")
@@ -4446,6 +4515,37 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		t.Fatalf("minimized historic row=%d %s", minimizedDetail.Code, minimizedDetail.Body.String())
 	}
 
+}
+
+func validateBookingOpenAPIJSON(t *testing.T, payload []byte, schemaName string) {
+	t.Helper()
+	openapi, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "planning", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := yaml.Unmarshal(openapi, &document); err != nil {
+		t.Fatal(err)
+	}
+	documentJSON, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := jsonschema.NewCompiler()
+	if err := compiler.AddResource("openapi.json", bytes.NewReader(documentJSON)); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := compiler.Compile("openapi.json#/components/schemas/" + schemaName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(value); err != nil {
+		t.Fatalf("booking response does not match OpenAPI %s: %v", schemaName, err)
+	}
 }
 
 func timePtr(value time.Time) *time.Time { return &value }
