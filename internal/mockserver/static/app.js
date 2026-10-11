@@ -3959,17 +3959,16 @@ document.querySelector("#local-admin-audit-next").addEventListener("click", () =
 document.querySelector("#local-admin-audit-export").addEventListener("click", () => void action(exportAdminAudit));
 document.querySelector("#local-admin-audit-reset").addEventListener("click", () => void action(async () => { adminAuditState.clear(); await loadAdminAudit(); }));
 function currentAdminLocalContext(context) { return adminLocalContextMatches(context, { account: sessionAccountID, token: sessionToken, generation: sessionGeneration, revision: adminLocalRevision, isAdmin: sessionRoles.includes("administrador") }); }
-function refreshAdminLocalControls() { const allowed = Boolean(sessionToken && sessionRoles.includes("administrador") && !sessionRestrictedMode); for (const id of ["#local-admin-account-id", "#local-admin-block-reason", "#local-admin-unblock-reason", "#local-admin-report-from", "#local-admin-report-until", "#local-admin-report-timezone"]) {
+function refreshAdminLocalControls() { const allowed = Boolean(sessionToken && sessionRoles.includes("administrador") && !sessionRestrictedMode); for (const id of ["#local-admin-account-id", "#local-admin-block-reason", "#local-admin-unblock-reason", "#local-admin-report-from", "#local-admin-report-until", "#local-admin-report-timezone", "#local-admin-space-id"]) {
     const input = document.querySelector(id);
     if (input)
         input.disabled = !allowed;
-} for (const id of ["#local-admin-account-block", "#local-admin-account-unblock", "#local-admin-report-reservations", "#local-admin-report-finance"]) {
+} for (const id of ["#local-admin-account-search", "#local-admin-account-block", "#local-admin-account-unblock", "#local-admin-report-reservations", "#local-admin-report-finance", "#local-admin-report-disputes", "#local-admin-publications-list", "#local-admin-publication-read"]) {
     const button = document.querySelector(id);
     if (button)
         button.disabled = !allowed;
 } }
-function clearAdminLocalView(message = "Requiere rol administrador.") { adminLocalRevision++; const field = document.querySelector("#local-admin-account-id"); if (field)
-    field.value = ""; for (const id of ["#local-admin-report-from", "#local-admin-report-until"]) {
+function clearAdminLocalView(message = "Requiere rol administrador.") { adminLocalRevision++; for (const id of ["#local-admin-account-id", "#local-admin-space-id", "#local-admin-report-from", "#local-admin-report-until"]) {
     const input = document.querySelector(id);
     if (input)
         input.value = "";
@@ -3987,6 +3986,8 @@ finally {
     if (currentAdminLocalContext(context))
         refreshAdminLocalControls();
 } }
+document.querySelector("#local-admin-account-search").addEventListener("click", () => void action(async () => { const id = document.querySelector("#local-admin-account-id").value.trim(); if (!id)
+    throw new Error("Indica el UUID técnico de la cuenta."); await runAdminLocalRequest(`/api/v1/admin/local/accounts/${encodeURIComponent(id)}`); }));
 document.querySelector("#local-admin-account-block").addEventListener("click", () => void action(async () => { const id = document.querySelector("#local-admin-account-id").value.trim(), reason = document.querySelector("#local-admin-block-reason").value; if (!id)
     throw new Error("Indica el UUID sintético de la cuenta."); await runAdminLocalRequest(`/api/v1/admin/local/accounts/${encodeURIComponent(id)}/block`, "POST", { reason_code: reason }); }));
 document.querySelector("#local-admin-account-unblock").addEventListener("click", () => void action(async () => { const id = document.querySelector("#local-admin-account-id").value.trim(), reason = document.querySelector("#local-admin-unblock-reason").value; if (!id)
@@ -3995,7 +3996,11 @@ async function runLocalAdminReport(kind) { const from = document.querySelector("
     throw new Error("Completa fechas RFC3339 y zona IANA."); const query = new URLSearchParams({ from, until, timezone }); await runAdminLocalRequest(`/api/v1/admin/local/reports/${kind}?${query.toString()}`); }
 document.querySelector("#local-admin-report-reservations").addEventListener("click", () => void action(() => runLocalAdminReport("reservations")));
 document.querySelector("#local-admin-report-finance").addEventListener("click", () => void action(() => runLocalAdminReport("finance")));
-for (const id of ["#local-admin-account-id", "#local-admin-report-from", "#local-admin-report-until", "#local-admin-report-timezone"]) {
+document.querySelector("#local-admin-report-disputes").addEventListener("click", () => void action(() => runLocalAdminReport("disputes")));
+document.querySelector("#local-admin-publications-list").addEventListener("click", () => void action(() => runAdminLocalRequest("/api/v1/admin/local/published-spaces")));
+document.querySelector("#local-admin-publication-read").addEventListener("click", () => void action(async () => { const id = document.querySelector("#local-admin-space-id").value.trim(); if (!id)
+    throw new Error("Indica el UUID de una publicación."); await runAdminLocalRequest(`/api/v1/admin/local/published-spaces/${encodeURIComponent(id)}`); }));
+for (const id of ["#local-admin-account-id", "#local-admin-space-id", "#local-admin-report-from", "#local-admin-report-until", "#local-admin-report-timezone"]) {
     document.querySelector(id).addEventListener("input", () => { adminLocalRevision++; document.querySelector("#local-admin-governance-output").textContent = "Los criterios cambiaron; respuesta anterior invalidada."; });
 }
 refreshAdminLocalControls();

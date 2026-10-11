@@ -73,6 +73,43 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := strings.TrimSuffix(r.URL.Path, "/")
+	if r.Method == http.MethodGet && strings.HasPrefix(path, "/api/v1/admin/local/accounts/") {
+		accountID := strings.TrimPrefix(path, "/api/v1/admin/local/accounts/")
+		if strings.Contains(accountID, "/") || accountID == "" {
+			fail(w, 404, "not_found", id)
+			return
+		}
+		value, e := h.service.LookupAccount(r.Context(), principal.AccountID, accountID, id)
+		if e != nil {
+			replyServiceError(w, e, id)
+			return
+		}
+		write(w, 200, map[string]any{"data": value})
+		return
+	}
+	if r.Method == http.MethodGet && path == "/api/v1/admin/local/published-spaces" {
+		value, e := h.service.ListPublishedSpaces(r.Context(), principal.AccountID, id)
+		if e != nil {
+			replyServiceError(w, e, id)
+			return
+		}
+		write(w, 200, map[string]any{"data": value})
+		return
+	}
+	if r.Method == http.MethodGet && strings.HasPrefix(path, "/api/v1/admin/local/published-spaces/") {
+		spaceID := strings.TrimPrefix(path, "/api/v1/admin/local/published-spaces/")
+		if strings.Contains(spaceID, "/") || spaceID == "" {
+			fail(w, 404, "not_found", id)
+			return
+		}
+		value, e := h.service.GetPublishedSpace(r.Context(), principal.AccountID, spaceID, id)
+		if e != nil {
+			replyServiceError(w, e, id)
+			return
+		}
+		write(w, 200, map[string]any{"data": value})
+		return
+	}
 	if r.Method == http.MethodPost && strings.HasPrefix(path, "/api/v1/admin/local/accounts/") {
 		parts := strings.Split(strings.TrimPrefix(path, "/api/v1/admin/local/accounts/"), "/")
 		if len(parts) != 2 || (parts[1] != "block" && parts[1] != "unblock") {
@@ -103,7 +140,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, 405, "method_not_allowed", id)
 		return
 	}
-	if path != "/api/v1/admin/local/reports/reservations" && path != "/api/v1/admin/local/reports/finance" {
+	if path != "/api/v1/admin/local/reports/reservations" && path != "/api/v1/admin/local/reports/finance" && path != "/api/v1/admin/local/reports/disputes" {
 		fail(w, 404, "not_found", id)
 		return
 	}
@@ -114,6 +151,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if path == "/api/v1/admin/local/reports/reservations" {
 		value, e := h.service.ReservationReport(r.Context(), principal.AccountID, id, period)
+		if e != nil {
+			replyServiceError(w, e, id)
+			return
+		}
+		write(w, 200, map[string]any{"data": value, "notice": adminlocal.SafetyNotice})
+		return
+	}
+	if path == "/api/v1/admin/local/reports/disputes" {
+		value, e := h.service.DisputesReport(r.Context(), principal.AccountID, id, period)
 		if e != nil {
 			replyServiceError(w, e, id)
 			return

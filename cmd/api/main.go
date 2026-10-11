@@ -289,6 +289,8 @@ func run() error {
 			adminLocalHandler := adminlocalhttp.NewHandler(service, adminLocalService, cfg.allowedOrigins)
 			mux.Handle("/api/v1/admin/local/accounts/", adminLocalHandler)
 			mux.Handle("/api/v1/admin/local/reports/", adminLocalHandler)
+			mux.Handle("/api/v1/admin/local/published-spaces", adminLocalHandler)
+			mux.Handle("/api/v1/admin/local/published-spaces/", adminLocalHandler)
 			mux.Handle("/api/v1/local/booking-trial/", bookingHandler)
 			mux.Handle("/api/v1/admin/local/reservations", bookingHandler)
 			mux.Handle("/api/v1/admin/local/reservations/", bookingHandler)

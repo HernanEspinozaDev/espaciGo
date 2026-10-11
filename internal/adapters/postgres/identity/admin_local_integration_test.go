@@ -116,6 +116,110 @@ func TestLocalAdminBlockRevokesSessionsAndAllowsOnlyRestrictedLogin(t *testing.T
 	}
 }
 
+func TestLocalAdminAccountPublicationAndDisputeQueriesAreMinimalAndAudited(t *testing.T) {
+	h := newAuthHarness(t)
+	adminID := h.register(t, "admin-query@ejemplo.invalid")
+	h.verify(t)
+	ownerID := h.register(t, "publication-owner-query@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	spaceID := "c7000000-0000-4000-8000-000000000001"
+	draftID := "c7000000-0000-4000-8000-000000000002"
+	seedSpace := func(id, state, title, address string) {
+		t.Helper()
+		if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria,estado)
+			VALUES($1,$2,'oficina',$3,repeat('Contenido sintético público de prueba. ',4),20,4,'Uso autorizado','hora',8000,$4,'America/Santiago',$5)`, id, ownerID, title, address, state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedSpace(spaceID, "activa", "Sala sintética publicada", "DIRECCION_PRIVADA_NO_EXPONER")
+	seedSpace(draftID, "borrador", "Borrador privado", "OTRA_DIRECCION_PRIVADA")
+	runtimePool := newRuntimePool(t, h)
+	service, err := adminlocal.New(runtimePool, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := adminlocalhttp.NewHandler(h.service, service, nil)
+	adminSession := h.login(t, "admin-query@ejemplo.invalid")
+	call := func(path string, actor identity.LoginResult) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+string(actor.Token))
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		return response
+	}
+	accountResponse := call("/api/v1/admin/local/accounts/"+ownerID, adminSession)
+	if accountResponse.Code != http.StatusOK {
+		t.Fatalf("account lookup HTTP status=%d body=%s", accountResponse.Code, accountResponse.Body.String())
+	}
+	validateOpenAPIJSON(t, accountResponse.Body.Bytes(), "AdminLocalAccountEnvelope")
+	if strings.Contains(accountResponse.Body.String(), "publication-owner-query@ejemplo.invalid") || strings.Contains(accountResponse.Body.String(), "hash_clave") {
+		t.Fatalf("account lookup exposed contact or credentials: %s", accountResponse.Body.String())
+	}
+	nonAdmin := h.login(t, "publication-owner-query@ejemplo.invalid")
+	if denied := call("/api/v1/admin/local/accounts/"+ownerID, nonAdmin); denied.Code != http.StatusForbidden {
+		t.Fatalf("non-admin account lookup status=%d body=%s", denied.Code, denied.Body.String())
+	}
+	if denied := call("/api/v1/admin/local/published-spaces", nonAdmin); denied.Code != http.StatusForbidden {
+		t.Fatalf("non-admin published list status=%d body=%s", denied.Code, denied.Body.String())
+	}
+	if denied := call("/api/v1/admin/local/published-spaces/"+spaceID, nonAdmin); denied.Code != http.StatusForbidden {
+		t.Fatalf("non-admin published detail status=%d body=%s", denied.Code, denied.Body.String())
+	}
+	deniedDisputes := call("/api/v1/admin/local/reports/disputes?from="+h.now.Add(-time.Hour).UTC().Format(time.RFC3339)+"&until="+h.now.UTC().Format(time.RFC3339)+"&timezone=UTC", nonAdmin)
+	if deniedDisputes.Code != http.StatusForbidden {
+		t.Fatalf("non-admin dispute report status=%d body=%s", deniedDisputes.Code, deniedDisputes.Body.String())
+	}
+	spacesResponse := call("/api/v1/admin/local/published-spaces", adminSession)
+	if spacesResponse.Code != http.StatusOK {
+		t.Fatalf("published spaces HTTP status=%d body=%s", spacesResponse.Code, spacesResponse.Body.String())
+	}
+	validateOpenAPIJSON(t, spacesResponse.Body.Bytes(), "AdminLocalPublishedSpacesEnvelope")
+	if !strings.Contains(spacesResponse.Body.String(), spaceID) || strings.Contains(spacesResponse.Body.String(), draftID) || strings.Contains(spacesResponse.Body.String(), "DIRECCION_PRIVADA_NO_EXPONER") {
+		t.Fatalf("published list leaked private/draft data: %s", spacesResponse.Body.String())
+	}
+	spaceResponse := call("/api/v1/admin/local/published-spaces/"+spaceID, adminSession)
+	if spaceResponse.Code != http.StatusOK {
+		t.Fatalf("published detail HTTP status=%d body=%s", spaceResponse.Code, spaceResponse.Body.String())
+	}
+	validateOpenAPIJSON(t, spaceResponse.Body.Bytes(), "AdminLocalPublishedSpaceEnvelope")
+	if strings.Contains(spaceResponse.Body.String(), "DIRECCION_PRIVADA_NO_EXPONER") || strings.Contains(spaceResponse.Body.String(), "publicación no activa") {
+		t.Fatalf("published detail leaked private data: %s", spaceResponse.Body.String())
+	}
+	period := "from=" + h.now.Add(-time.Hour).UTC().Format(time.RFC3339) + "&until=" + h.now.Add(time.Hour).UTC().Format(time.RFC3339) + "&timezone=UTC"
+	disputesResponse := call("/api/v1/admin/local/reports/disputes?"+period, adminSession)
+	if disputesResponse.Code != http.StatusOK {
+		t.Fatalf("disputes report HTTP status=%d body=%s", disputesResponse.Code, disputesResponse.Body.String())
+	}
+	validateOpenAPIJSON(t, disputesResponse.Body.Bytes(), "AdminLocalDisputesReportEnvelope")
+	var grouped struct {
+		Data struct {
+			Items []adminlocal.DisputeStateCount `json:"items"`
+		} `json:"data"`
+	}
+	if err = json.Unmarshal(disputesResponse.Body.Bytes(), &grouped); err != nil || len(grouped.Data.Items) != 0 {
+		t.Fatalf("empty synthetic dispute report=%+v err=%v", grouped, err)
+	}
+	var lookupAudit, listAudit, detailAudit, reportAudit int
+	if err = h.pool.QueryRow(h.ctx, `SELECT
+		(SELECT count(*) FROM public.evento_auditoria_local WHERE accion='admin.accounts.lookup' AND recurso_id=$1),
+		(SELECT count(*) FROM public.evento_auditoria_local WHERE accion='admin.publications.list' AND recurso_tipo='coleccion_publicaciones_locales'),
+		(SELECT count(*) FROM public.evento_auditoria_local WHERE accion='admin.publications.read' AND recurso_id=$2),
+		(SELECT count(*) FROM public.evento_auditoria_local WHERE accion='admin.reports.disputes' AND recurso_tipo='coleccion_reclamos_dano_ensayo_local')`, ownerID, spaceID).Scan(&lookupAudit, &listAudit, &detailAudit, &reportAudit); err != nil {
+		t.Fatal(err)
+	}
+	if lookupAudit != 1 || listAudit != 1 || detailAudit != 1 || reportAudit != 1 {
+		t.Fatalf("expected one minimal audit per successful request; counts=%d/%d/%d/%d", lookupAudit, listAudit, detailAudit, reportAudit)
+	}
+	var unchanged string
+	if err = h.pool.QueryRow(h.ctx, `SELECT estado FROM public.espacio WHERE id=$1`, spaceID).Scan(&unchanged); err != nil || unchanged != "activa" {
+		t.Fatalf("read-only publication query changed business state=%q err=%v", unchanged, err)
+	}
+}
+
 func TestAdminBlockSharesAccountLockAndPreventsLaterReservationGate(t *testing.T) {
 	h := newAuthHarness(t)
 	adminID := h.register(t, "admin-race@ejemplo.invalid")
