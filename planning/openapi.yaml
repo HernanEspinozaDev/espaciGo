@@ -578,14 +578,15 @@ paths:
         '503': { description: 'La ejecución se completó, pero el registro local externo requiere resincronización; repetir la misma clave no duplica la baja.' }
   /privacy/retention/purge:
     post:
-      operationId: purgeExpiredLocalSyntheticReservationLinks
+      operationId: purgeExpiredLocalPrivacyData
       tags: [M02 local]
       description: >-
-        Operación administrativa local por lotes. Procesa únicamente hechos de
-        reservas sintéticas terminales cuya retención de 24 meses ya venció,
-        revalidando pagos, devoluciones y disputas bajo bloqueo. Conserva los
-        hechos históricos y retira solo vínculos personales; no declara
-        supresión integral ni anonimización.
+        Operación administrativa local por lotes. Procesa clases sintéticas con
+        plazos ratificados e independientes: vínculos de reservas terminales,
+        metadata/evidencia de verificación, cotizaciones no convertidas,
+        aceptaciones de términos y solicitudes de derechos. El retiro de
+        archivos privados usa leases recuperables y no elimina metadata antes
+        de confirmar el borrado. No declara supresión integral ni anonimización.
       responses:
         '200':
           description: Conteos estructurados del lote procesado.
@@ -599,6 +600,13 @@ paths:
                   purged: { type: integer, minimum: 0 }
                   deferred: { type: integer, minimum: 0 }
                   outbox_events_purged: { type: integer, minimum: 0 }
+                  terms_purged: { type: integer, minimum: 0 }
+                  rights_purged: { type: integer, minimum: 0 }
+                  quotes_purged: { type: integer, minimum: 0 }
+                  verifications_purged: { type: integer, minimum: 0 }
+                  evidence_files_queued: { type: integer, minimum: 0 }
+                  evidence_files_removed: { type: integer, minimum: 0 }
+                  evidence_files_deferred: { type: integer, minimum: 0 }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: Se requiere rol administrador. }
         '503': { description: Servicio local de privacidad no disponible. }
@@ -3718,7 +3726,7 @@ components:
     SyntheticEvidence:
       type: object
       additionalProperties: false
-      required: [id, verification_id, fixture_code, mime_type, size_bytes, sha256, created_at]
+      required: [id, verification_id, fixture_code, mime_type, size_bytes, sha256, created_at, file_available]
       properties:
         id: { type: string, format: uuid }
         verification_id: { type: string, format: uuid }
@@ -3727,6 +3735,7 @@ components:
         size_bytes: { type: integer, minimum: 1, maximum: 1048576 }
         sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
         created_at: { type: string, format: date-time }
+        file_available: { type: boolean, description: Falso cuando el archivo fue retirado por vencimiento y solo se conserva metadata temporal. }
     SyntheticEvidenceList:
       type: object
       additionalProperties: false

@@ -68,6 +68,7 @@ type evidenceRecord struct {
 	SizeBytes      int64     `json:"size_bytes"`
 	SHA256         string    `json:"sha256"`
 	CreatedAt      time.Time `json:"created_at"`
+	FileAvailable  bool      `json:"file_available"`
 	ArchiveFile    string    `json:"archive_file,omitempty"`
 }
 
@@ -285,13 +286,13 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 			return nil, nil, nil, err
 		}
 		for _, evidence := range stored {
-			entry := evidenceRecord{ID: evidence.ID, VerificationID: evidence.VerificationID, FixtureCode: evidence.FixtureCode, MIMEType: evidence.MIMEType, SizeBytes: evidence.SizeBytes, SHA256: evidence.SHA256, CreatedAt: evidence.CreatedAt}
-			if r.files == nil {
+			entry := evidenceRecord{ID: evidence.ID, VerificationID: evidence.VerificationID, FixtureCode: evidence.FixtureCode, MIMEType: evidence.MIMEType, SizeBytes: evidence.SizeBytes, SHA256: evidence.SHA256, CreatedAt: evidence.CreatedAt, FileAvailable: evidence.FileAvailable}
+			if r.files == nil || !evidence.FileAvailable || evidence.FileID == "" {
 				exclusionCounts++
 				evidenceItems = append(evidenceItems, entry)
 				continue
 			}
-			content, readErr := r.files.Get(ctx, evidence.ID)
+			content, readErr := r.files.Get(ctx, evidence.FileID)
 			if readErr != nil {
 				exclusionCounts++
 				evidenceItems = append(evidenceItems, entry)

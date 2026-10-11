@@ -260,7 +260,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.serviceError(w, err)
 			return
 		}
-		result, err := h.privacy.PurgeExpiredReservationLinks(r.Context(), h.now().UTC(), 100)
+		var result privacy.RetentionPurgeResult
+		var err error
+		if h.evidenceCleaner != nil {
+			result, err = h.privacy.PurgeExpiredLocalRetentions(r.Context(), h.now().UTC(), 100, h.evidenceCleaner)
+		} else {
+			result, err = h.privacy.PurgeExpiredReservationLinks(r.Context(), h.now().UTC(), 100)
+		}
 		if err != nil {
 			h.privacyError(w, err)
 			return
@@ -270,7 +276,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.serviceError(w, err)
 			return
 		}
-		h.write(w, http.StatusOK, map[string]any{"scanned": result.Scanned, "purged": result.Purged, "deferred": result.Deferred, "outbox_events_purged": outboxPurged})
+		h.write(w, http.StatusOK, map[string]any{
+			"scanned": result.Scanned, "purged": result.Purged, "deferred": result.Deferred,
+			"outbox_events_purged": outboxPurged, "terms_purged": result.TermsPurged,
+			"rights_purged": result.RightsPurged, "quotes_purged": result.QuotesPurged,
+			"verifications_purged":    result.VerificationsPurged,
+			"evidence_files_queued":   result.EvidenceFilesQueued,
+			"evidence_files_removed":  result.EvidenceFilesRemoved,
+			"evidence_files_deferred": result.EvidenceFilesDeferred,
+		})
 		return
 	}
 	if r.URL.Path == suppressionQueuePath {

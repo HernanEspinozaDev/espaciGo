@@ -1,15 +1,19 @@
 package migrator
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
+	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -44,6 +48,104 @@ func TestRunnerAppliesFromEmptyAndRepeatIsNoop(t *testing.T) {
 		}
 		if rows != 1 || historyRows != 1 {
 			t.Fatalf("repeat changed state: probe rows=%d history rows=%d", rows, historyRows)
+		}
+	})
+}
+
+func TestUpgradeFromV46BackfillsVerificationEvidenceFileReferences(t *testing.T) {
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		_, sourceFile, _, ok := runtime.Caller(0)
+		if !ok {
+			t.Fatal("resolve migration test source path")
+		}
+		sourceDir := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "db", "migrations"))
+		migrations, err := DiscoverMigrations(sourceDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		v46Dir := t.TempDir()
+		for _, migration := range migrations {
+			if migration.Version > 46 {
+				continue
+			}
+			if err := os.WriteFile(filepath.Join(v46Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if result, err := Run(ctx, databaseURL, v46Dir); err != nil || len(result.Applied) != 46 || result.Applied[len(result.Applied)-1] != 46 {
+			t.Fatalf("apply V1-V46: applied=%v err=%v", result.Applied, err)
+		}
+
+		ownerID, reviewerID := "a4700000-0000-4000-8000-000000000001", "a4700000-0000-4000-8000-000000000002"
+		caseID, evidenceID := "a4700000-0000-4000-8000-000000000003", "a4700000-0000-4000-8000-000000000004"
+		resolvedAt := time.Date(2024, 3, 10, 14, 15, 16, 0, time.UTC)
+		conn := connectTestDB(t, ctx, databaseURL)
+		for _, user := range []struct{ id, email string }{{ownerID, "retention-owner@example.invalid"}, {reviewerID, "retention-reviewer@example.invalid"}} {
+			if _, err := conn.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'test-hash','activo')`, user.id, user.email); err != nil {
+				_ = conn.Close(context.Background())
+				t.Fatal(err)
+			}
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,resuelta_en)
+			VALUES($1,$2,'kyc','aprobada',$3,'upgrade-v46-retention-1',$4,$5)`, caseID, ownerID, "fixture:"+caseID, reviewerID, resolvedAt); err != nil {
+			_ = conn.Close(context.Background())
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO public.verificacion_evidencia_sintetica(id,verificacion_id,codigo_fixture,mime_type,tamano_bytes,sha256,creada_en)
+			VALUES($1,$2,'synthetic-png-v1','image/png',16,repeat('a',64),$3)`, evidenceID, caseID, resolvedAt.Add(-time.Hour)); err != nil {
+			_ = conn.Close(context.Background())
+			t.Fatal(err)
+		}
+		if err := conn.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+
+		blob, err := verification.SyntheticPNG()
+		if err != nil {
+			t.Fatal(err)
+		}
+		privateRoot := t.TempDir()
+		if err := os.Chmod(privateRoot, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		store, err := evidencefs.New(privateRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Put(ctx, evidenceID, blob); err != nil {
+			t.Fatal(err)
+		}
+
+		v47, err := os.ReadFile(filepath.Join(sourceDir, "V000047__local_privacy_retention_purgers.sql"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(v46Dir, "V000047__local_privacy_retention_purgers.sql"), v47, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		result, err := Run(ctx, databaseURL, v46Dir)
+		if err != nil || len(result.Applied) != 1 || result.Applied[0] != 47 {
+			t.Fatalf("upgrade from V46: applied=%v err=%v", result.Applied, err)
+		}
+
+		conn = connectTestDB(t, ctx, databaseURL)
+		defer conn.Close(context.Background())
+		var fileID string
+		var removeAt time.Time
+		var removedAt *time.Time
+		var constraintValidated bool
+		if err := conn.QueryRow(ctx, `SELECT archivo_id::text,retirar_archivo_en,archivo_retirado_en FROM public.verificacion_evidencia_sintetica WHERE id=$1`, evidenceID).Scan(&fileID, &removeAt, &removedAt); err != nil {
+			t.Fatal(err)
+		}
+		if fileID != evidenceID || !removeAt.Equal(resolvedAt.AddDate(0, 0, 90)) || removedAt != nil {
+			t.Fatalf("backfilled evidence reference/deadline changed: file_id=%q remove_at=%s removed_at=%v", fileID, removeAt, removedAt)
+		}
+		if err := conn.QueryRow(ctx, `SELECT convalidated FROM pg_constraint WHERE conname='verificacion_evidencia_archivo_retencion_ck'`).Scan(&constraintValidated); err != nil || !constraintValidated {
+			t.Fatalf("retention constraint validation=%v err=%v", constraintValidated, err)
+		}
+		storedBlob, err := store.Get(ctx, evidenceID)
+		if err != nil || !bytes.Equal(storedBlob, blob) {
+			t.Fatalf("migration changed/deleted existing private file: bytes_match=%v err=%v", bytes.Equal(storedBlob, blob), err)
 		}
 	})
 }

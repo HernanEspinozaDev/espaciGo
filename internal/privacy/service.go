@@ -75,6 +75,7 @@ type SuppressionExecution struct {
 type SuppressionFile struct {
 	ExecutionID string
 	EvidenceID  string
+	StorageID   string
 }
 
 // SuppressionReplayEntry is the minimum outside-database record needed to
@@ -94,9 +95,16 @@ type SuppressionReplayManifest struct {
 }
 
 type RetentionPurgeResult struct {
-	Scanned  int `json:"scanned"`
-	Purged   int `json:"purged"`
-	Deferred int `json:"deferred"`
+	Scanned               int `json:"scanned"`
+	Purged                int `json:"purged"`
+	Deferred              int `json:"deferred"`
+	TermsPurged           int `json:"terms_purged"`
+	RightsPurged          int `json:"rights_purged"`
+	QuotesPurged          int `json:"quotes_purged"`
+	VerificationsPurged   int `json:"verifications_purged"`
+	EvidenceFilesQueued   int `json:"evidence_files_queued"`
+	EvidenceFilesRemoved  int `json:"evidence_files_removed"`
+	EvidenceFilesDeferred int `json:"evidence_files_deferred"`
 }
 
 type SuppressionReplayResult struct {
@@ -111,6 +119,13 @@ type LocalPrivacyOperationsRepository interface {
 	ExportCompletedSuppressions(context.Context) (SuppressionReplayManifest, error)
 	PrepareSuppressionReplay(context.Context, SuppressionReplayEntry, string, string, time.Time) (requestID, operationKey, status string, reused bool, err error)
 	FinishSuppressionReplay(context.Context, SuppressionReplayEntry, string, string, string, time.Time) error
+}
+
+type LocalRetentionRepository interface {
+	PrepareExpiredLocalRetentions(context.Context, time.Time, int) (RetentionPurgeResult, error)
+	ClaimExpiredVerificationFiles(context.Context, time.Time, int) ([]SuppressionFile, error)
+	CompleteExpiredVerificationFile(context.Context, SuppressionFile, time.Time) error
+	FailExpiredVerificationFile(context.Context, SuppressionFile, time.Time) error
 }
 
 type SuppressionExecutionRepository interface {
@@ -410,7 +425,11 @@ func (s *Service) ExecuteSuppression(ctx context.Context, actorID, requestID, ke
 		return result, err
 	}
 	for _, file := range files {
-		if err := cleaner.Delete(ctx, file.EvidenceID); err != nil {
+		storageID := file.StorageID
+		if storageID == "" {
+			storageID = file.EvidenceID
+		}
+		if err := cleaner.Delete(ctx, storageID); err != nil {
 			_ = repo.FailSuppressionFile(ctx, file, now().UTC())
 			continue
 		}
@@ -501,6 +520,27 @@ func (s *Service) RunReservationRetentionWorker(ctx context.Context, interval ti
 	}
 }
 
+func (s *Service) RunLocalRetentionWorker(ctx context.Context, interval time.Duration, batchSize int, cleaner SyntheticEvidenceCleaner) {
+	if interval <= 0 {
+		interval = time.Hour
+	}
+	if batchSize <= 0 || batchSize > 500 {
+		batchSize = 100
+	}
+	process := func() { _, _ = s.PurgeExpiredLocalRetentions(ctx, time.Now().UTC(), batchSize, cleaner) }
+	process()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			process()
+		}
+	}
+}
+
 // PurgeExpiredReservationLinks performs one bounded local-retention pass. The
 // repository rechecks deadlines and obligations while holding the participant
 // account locks and reservation row lock.
@@ -510,6 +550,58 @@ func (s *Service) PurgeExpiredReservationLinks(ctx context.Context, now time.Tim
 		return RetentionPurgeResult{}, ErrInvalid
 	}
 	return repo.PurgeExpiredReservationLinks(ctx, now.UTC(), limit)
+}
+
+// PurgeExpiredLocalRetentions applies only the independently ratified local
+// deadlines. Blob deletion runs outside PostgreSQL but is backed by a durable
+// lease/job; metadata is not removed until the file reference is cleared.
+func (s *Service) PurgeExpiredLocalRetentions(ctx context.Context, now time.Time, limit int, cleaner SyntheticEvidenceCleaner) (RetentionPurgeResult, error) {
+	repo, ok := s.repo.(LocalRetentionRepository)
+	reservationRepo, supportsReservations := s.repo.(LocalPrivacyOperationsRepository)
+	if !ok || !supportsReservations || cleaner == nil || limit < 1 || limit > 500 {
+		return RetentionPurgeResult{}, ErrInvalid
+	}
+	at := now.UTC()
+	result, err := reservationRepo.PurgeExpiredReservationLinks(ctx, at, limit)
+	if err != nil {
+		return result, err
+	}
+	rows, err := repo.PrepareExpiredLocalRetentions(ctx, at, limit)
+	if err != nil {
+		return result, err
+	}
+	addRetentionCounts(&result, rows)
+	files, err := repo.ClaimExpiredVerificationFiles(ctx, at, limit)
+	if err != nil {
+		return result, err
+	}
+	for _, file := range files {
+		if err := cleaner.Delete(ctx, file.StorageID); err != nil {
+			result.EvidenceFilesDeferred++
+			if saveErr := repo.FailExpiredVerificationFile(ctx, file, at); saveErr != nil {
+				return result, saveErr
+			}
+			continue
+		}
+		if err := repo.CompleteExpiredVerificationFile(ctx, file, at); err != nil {
+			return result, err
+		}
+		result.EvidenceFilesRemoved++
+	}
+	finalized, err := repo.PrepareExpiredLocalRetentions(ctx, at, limit)
+	if err != nil {
+		return result, err
+	}
+	addRetentionCounts(&result, finalized)
+	return result, nil
+}
+
+func addRetentionCounts(dst *RetentionPurgeResult, src RetentionPurgeResult) {
+	dst.TermsPurged += src.TermsPurged
+	dst.RightsPurged += src.RightsPurged
+	dst.QuotesPurged += src.QuotesPurged
+	dst.VerificationsPurged += src.VerificationsPurged
+	dst.EvidenceFilesQueued += src.EvidenceFilesQueued
 }
 
 func (s *Service) ExportSuppressionReplayManifest(ctx context.Context) (SuppressionReplayManifest, error) {

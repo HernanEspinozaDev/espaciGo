@@ -17,6 +17,10 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT SELECT, INSERT, UPDATE ON public.outbox_evento_local TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.outbox_evento_ciclo_local TO espacigo_runtime;
  GRANT EXECUTE ON FUNCTION public.purge_expired_local_credential_notices(timestamptz,integer) TO espacigo_runtime;
+ GRANT EXECUTE ON FUNCTION public.purge_expired_local_privacy_rows(timestamptz,integer) TO espacigo_runtime;
+ GRANT EXECUTE ON FUNCTION public.claim_expired_local_verification_files(timestamptz,integer) TO espacigo_runtime;
+ GRANT EXECUTE ON FUNCTION public.complete_expired_local_verification_file(uuid,timestamptz) TO espacigo_runtime;
+ GRANT EXECUTE ON FUNCTION public.fail_expired_local_verification_file(uuid,timestamptz) TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.evento_auditoria_local TO espacigo_runtime;
  GRANT SELECT, INSERT, DELETE ON public.bloqueo_cuenta_administrativo_local TO espacigo_runtime;
  GRANT UPDATE (bloqueada_por) ON public.bloqueo_cuenta_administrativo_local TO espacigo_runtime;
