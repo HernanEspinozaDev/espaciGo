@@ -109,13 +109,13 @@ func (r repoStub) Catalog(context.Context, string, booking.CatalogFilter) ([]boo
 		})
 		return items, nil
 	}
-	return []booking.CatalogItem{{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "America/Santiago", ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`), DistanceMeters: r.distanceMeters}}, nil
+	return []booking.CatalogItem{{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, AreaM2: 30, RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "America/Santiago", ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`), DistanceMeters: r.distanceMeters}}, nil
 }
 func (repoStub) CatalogProfile(ctx context.Context, category string, version int) (spaces.Profile, error) {
 	return spaces.Profile{CategoryCode: category, SchemaVersion: version, Attributes: []spaces.AttributeDefinition{{Code: "proyector", Type: "boolean"}}}, nil
 }
 func (r repoStub) CatalogDetail(context.Context, string, string) (booking.CatalogItem, error) {
-	return booking.CatalogItem{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, RateUnit: r.fixture.RateUnit, TimeZone: r.fixture.TimeZone, ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`)}, nil
+	return booking.CatalogItem{SpaceID: r.fixture.SpaceID, CategoryCode: "sala_multiproposito", CategoryName: "Sala o espacio multipropósito", Title: r.fixture.Title, AreaM2: 30, RateUnit: r.fixture.RateUnit, TimeZone: r.fixture.TimeZone, ProfileVersion: 1, Profile: json.RawMessage(`{"schema_version":1}`), Attributes: json.RawMessage(`{}`)}, nil
 }
 func (repoStub) AvailableIntervals(_ context.Context, _ string, _ string, intervals []booking.AvailableInterval) ([]bool, error) {
 	free := make([]bool, len(intervals))
@@ -393,6 +393,8 @@ func TestWeeklyHoursHTTPReadsAndReplacesOwnerScheduleStrictly(t *testing.T) {
 
 func TestCatalogSearchParsesTypedFiltersAndRequiresIntervalForPrice(t *testing.T) {
 	values := url.Values{
+		"q":               {"  BODEGA   norte "},
+		"min_area_m2":     {"12.50"},
 		"category_code":   {"sala_multiproposito"},
 		"profile_version": {"1"},
 		"attributes":      {`{"proyector":false}`},
@@ -404,7 +406,7 @@ func TestCatalogSearchParsesTypedFiltersAndRequiresIntervalForPrice(t *testing.T
 		"radius_km":       {"5"},
 	}
 	filter, ok := catalogFilter(values)
-	if !ok || filter.ProfileVersion != 1 || filter.Attributes["proyector"] != false || filter.MinTotalCLP == nil || *filter.MinTotalCLP != 8000 || filter.Latitude == nil || *filter.Latitude != -33.456 || filter.Longitude == nil || *filter.Longitude != -70.6693 || filter.RadiusKM == nil || *filter.RadiusKM != 5 {
+	if !ok || filter.SearchText != "  BODEGA   norte " || filter.MinAreaM2 == nil || *filter.MinAreaM2 != 12.5 || filter.ProfileVersion != 1 || filter.Attributes["proyector"] != false || filter.MinTotalCLP == nil || *filter.MinTotalCLP != 8000 || filter.Latitude == nil || *filter.Latitude != -33.456 || filter.Longitude == nil || *filter.Longitude != -70.6693 || filter.RadiusKM == nil || *filter.RadiusKM != 5 {
 		t.Fatalf("catalog filter parse=%+v ok=%v", filter, ok)
 	}
 	if _, ok := catalogFilter(url.Values{"min_total_clp": {"8000"}}); !ok {
@@ -415,6 +417,9 @@ func TestCatalogSearchParsesTypedFiltersAndRequiresIntervalForPrice(t *testing.T
 	}
 	if _, ok := catalogFilter(url.Values{"attributes": {`{"proyector":false}`, `{"proyector":true}`}}); ok {
 		t.Fatal("duplicate attributes query parameter accepted")
+	}
+	if _, ok := catalogFilter(url.Values{"min_area_m2": {"invalid"}}); ok {
+		t.Fatal("invalid minimum area accepted")
 	}
 
 	service, err := booking.NewService(repoStub{fixture: booking.Fixture{SpaceID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", Title: "Espacio sintético", OwnerID: renterID, RenterID: renterID, RateUnit: "hora", Price: 8000, Currency: "CLP", TimeZone: "America/Santiago"}}, credentials.Generator{}, time.Now, paymentStub{})
@@ -429,6 +434,14 @@ func TestCatalogSearchParsesTypedFiltersAndRequiresIntervalForPrice(t *testing.T
 	}
 	if _, err = service.Catalog(context.Background(), renterID, booking.CatalogFilter{CategoryCode: "sala_multiproposito", ProfileVersion: 1, Attributes: map[string]any{"proyector": "false"}}); err != booking.ErrInvalid {
 		t.Fatalf("wrong typed boolean filter error=%v", err)
+	}
+	for _, invalidArea := range []float64{0, 1.234, 100000000} {
+		if _, err = service.Catalog(context.Background(), renterID, booking.CatalogFilter{MinAreaM2: &invalidArea}); err != booking.ErrInvalid {
+			t.Errorf("invalid minimum area %v error=%v", invalidArea, err)
+		}
+	}
+	if _, err = service.Catalog(context.Background(), renterID, booking.CatalogFilter{SearchText: strings.Repeat(" ", 121)}); err != booking.ErrInvalid {
+		t.Fatalf("raw overlength search containing only whitespace error=%v", err)
 	}
 }
 
@@ -496,7 +509,7 @@ func TestCatalogPaginationKeysetAndCursorBinding(t *testing.T) {
 		name, actor string
 		size        int
 		filter      booking.CatalogFilter
-	}{{"account", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", 5, filter}, {"page size", renterID, 4, filter}, {"filters", renterID, 5, booking.CatalogFilter{Latitude: floatPtrLocal(-33.5), Longitude: filter.Longitude, RadiusKM: filter.RadiusKM}}} {
+	}{{"account", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", 5, filter}, {"page size", renterID, 4, filter}, {"filters", renterID, 5, booking.CatalogFilter{Latitude: floatPtrLocal(-33.5), Longitude: filter.Longitude, RadiusKM: filter.RadiusKM}}, {"text", renterID, 5, booking.CatalogFilter{SearchText: "bodega"}}, {"minimum area", renterID, 5, booking.CatalogFilter{MinAreaM2: floatPtrLocal(40)}}} {
 		if _, e := service.CatalogPage(context.Background(), tc.actor, tc.filter, tc.size, first.NextCursor); e != booking.ErrInvalid {
 			t.Errorf("%s cursor reuse error=%v", tc.name, e)
 		}

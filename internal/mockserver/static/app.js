@@ -6,6 +6,8 @@ import { showThenMarkConversationPage } from "./conversation-read-state.js";
 import { canSendConversation } from "./conversation-state.js";
 import { contractActions, contractInviteResponseIsCurrent, contractResponseIsCurrent } from "./contract-actions.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
+import { clearCatalogFilters } from "./catalog-filter-actions.js";
+import { SyntheticMapViewport } from "./synthetic-map-state.js";
 import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState } from "./booking-availability-state.js";
 import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
@@ -1366,6 +1368,7 @@ let catalogNextCursor = "";
 let catalogRequestCursor = "";
 let catalogLoading = false;
 const catalogPagination = new CatalogPaginationState();
+const catalogMapViewport = new SyntheticMapViewport();
 let catalogProfileRequest = 0;
 let catalogFilterProfile = null;
 const bookingQuoteState = new BookingQuoteState();
@@ -1405,6 +1408,8 @@ function clearCatalogResultsAndSelection(message) {
     const quoteID = document.querySelector('#booking-request-form [name="quote_id"]');
     if (quoteID)
         quoteID.value = "";
+    catalogMapViewport.reset();
+    renderCatalogMap([]);
 }
 function resetCatalogTraversal() { bookingCatalogRequest++; catalogPagination.invalidate(); catalogNextCursor = ""; catalogRequestCursor = ""; catalogLoading = false; clearCatalogResultsAndSelection("Inicia sesión y busca publicaciones activas y fixtures autorizados para esta cuenta."); refreshCatalogControls(); }
 function invalidateCatalogSelection(message) { bookingQuoteState.beginSearch(); bookingAvailabilityState.invalidate(); bookingFixture = null; clearWeeklyHoursEditor(); resetAvailabilityPicker(message); (document.querySelector('#booking-quote-form [name="space_id"]')).value = ""; (document.querySelector('#booking-request-form [name="quote_id"]')).value = ""; bookingQuoteOutput.textContent = message; }
@@ -1935,6 +1940,58 @@ form("booking-review-form", async (data, element) => {
     await loadReservationReviews(reservationID);
 });
 const catalogResults = document.querySelector("#booking-catalog-results");
+const catalogMap = document.querySelector("#booking-catalog-map");
+const svgNS = "http://www.w3.org/2000/svg";
+function svgNode(tag, attributes = {}) {
+    const element = document.createElementNS(svgNS, tag);
+    for (const [name, value] of Object.entries(attributes))
+        element.setAttribute(name, value);
+    return element;
+}
+function renderCatalogMap(items) {
+    catalogMap.replaceChildren();
+    const located = items.filter(item => item.map_position && Number.isFinite(item.map_position.x) && Number.isFinite(item.map_position.y));
+    if (!located.length) {
+        catalogMap.textContent = "No hay ubicaciones sintéticas autorizadas en esta página.";
+        return;
+    }
+    const controls = document.createElement("div");
+    controls.className = "map-controls";
+    const caption = document.createElement("span");
+    caption.textContent = `${located.length} ubicación(es) sintética(s) · acercamiento ${catalogMapViewport.zoom.toFixed(1)}×`;
+    const addControl = (label, change) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.addEventListener("click", () => { change(); renderCatalogMap(items); }); controls.append(button); };
+    addControl("Acercar", () => catalogMapViewport.zoomBy(1.5));
+    addControl("Alejar", () => catalogMapViewport.zoomBy(1 / 1.5));
+    addControl("←", () => catalogMapViewport.panBy(-10, 0));
+    addControl("→", () => catalogMapViewport.panBy(10, 0));
+    addControl("↑", () => catalogMapViewport.panBy(0, -10));
+    addControl("↓", () => catalogMapViewport.panBy(0, 10));
+    addControl("Restablecer mapa", () => catalogMapViewport.reset());
+    const svg = svgNode("svg", { viewBox: "0 0 100 100", role: "img", "aria-label": "Plano esquemático de ubicaciones sintéticas de la página actual" });
+    svg.append(svgNode("rect", { x: "0", y: "0", width: "100", height: "100", fill: "#eef4f1" }));
+    for (let mark = 20; mark < 100; mark += 20) {
+        svg.append(svgNode("line", { x1: String(mark), y1: "0", x2: String(mark), y2: "100", class: "map-grid" }), svgNode("line", { x1: "0", y1: String(mark), x2: "100", y2: String(mark), class: "map-grid" }));
+    }
+    const pins = svgNode("g", { transform: `translate(${catalogMapViewport.panX} ${catalogMapViewport.panY}) translate(50 50) scale(${catalogMapViewport.zoom}) translate(-50 -50)` });
+    for (const item of located) {
+        const point = catalogMapViewport.project(item.map_position);
+        if (point.x < 0 || point.x > 100 || point.y < 0 || point.y > 100)
+            continue;
+        const pin = svgNode("g", { class: "map-pin", tabindex: "0", role: "button", "aria-label": `${item.title}, ${item.base_price_clp.toLocaleString("es-CL")} ${item.currency} por ${item.rate_unit}` });
+        pin.append(svgNode("circle", { cx: String(item.map_position.x), cy: String(item.map_position.y), r: String(2.7 / catalogMapViewport.zoom) }));
+        const title = svgNode("text", { x: String(item.map_position.x + 2.4 / catalogMapViewport.zoom), y: String(item.map_position.y) });
+        title.textContent = `${item.title} · ${item.base_price_clp.toLocaleString("es-CL")} CLP/${item.rate_unit}`;
+        pin.append(title);
+        pin.addEventListener("click", () => void action(() => selectCatalogSpace(item)));
+        pin.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            void action(() => selectCatalogSpace(item));
+        } });
+        pins.append(pin);
+    }
+    svg.append(pins);
+    catalogMap.append(controls, caption, svg);
+}
 async function loadCatalogFilterProfile(category) {
     const token = ++catalogProfileRequest;
     catalogFilterProfile = null;
@@ -2002,6 +2059,33 @@ bookingCatalogCenterSample.addEventListener("click", () => {
     bookingCatalogLatitude.dispatchEvent(new Event("input", { bubbles: true }));
     bookingCatalogLongitude.dispatchEvent(new Event("input", { bubbles: true }));
 });
+async function selectCatalogSpace(item) {
+    const detailToken = ++bookingCatalogRequest;
+    const selectionToken = bookingQuoteState.beginSelection(item.space_id);
+    bookingFixture = null;
+    clearWeeklyHoursEditor();
+    resetAvailabilityPicker("Cambiando espacio; las opciones anteriores quedaron invalidadas.");
+    (document.querySelector('#booking-quote-form [name="space_id"]')).value = "";
+    (document.querySelector('#booking-request-form [name="quote_id"]')).value = "";
+    (document.querySelector('#booking-quote-form [name="start_at"]')).value = "";
+    (document.querySelector('#booking-quote-form [name="end_at"]')).value = "";
+    document.querySelector("#booking-space-reviews").textContent = "Cargando reseñas de la publicación activa…";
+    bookingQuoteOutput.textContent = "Selecciona el intervalo y prepara una nueva cotización para este espacio.";
+    const detailResult = await request(`${bookingBase}/catalog/${encodeURIComponent(item.space_id)}`, "GET", undefined, true);
+    if (detailToken !== bookingCatalogRequest || !bookingQuoteState.selectionIsCurrent(selectionToken, item.space_id))
+        return;
+    bookingFixture = bookingData(detailResult);
+    (document.querySelector('#booking-quote-form [name="space_id"]')).value = bookingFixture.space_id;
+    bookingFixtureOutput.textContent = `${String(detailResult.safety_notice)}\n${JSON.stringify(bookingFixture, null, 2)}`;
+    const publicReviews = await request(`/api/v1/spaces/${encodeURIComponent(item.space_id)}/reviews`);
+    if (detailToken !== bookingCatalogRequest || !bookingQuoteState.selectionIsCurrent(selectionToken, item.space_id))
+        return;
+    const summary = bookingData(publicReviews);
+    const reviewText = document.querySelector("#booking-space-reviews");
+    reviewText.textContent = `${summary.average.toFixed(1)}/5 · ${summary.count} reseña(s) visibles\n${summary.items.map(r => `${r.rating}/5 · ${r.comment || "Sin comentario"}`).join("\n") || "Aún sin reseñas visibles."}`;
+    void renderWeeklyHoursEditor(item.space_id);
+    renderAvailabilityPicker();
+}
 form("booking-catalog-form", async (data) => {
     const token = ++bookingCatalogRequest;
     const requestSession = sessionToken, requestAccount = sessionAccountID;
@@ -2012,6 +2096,12 @@ form("booking-catalog-form", async (data) => {
     catalogLoading = false;
     refreshCatalogControls();
     const query = new URLSearchParams();
+    const searchText = String(data.get("q") ?? "").trim().replace(/\s+/g, " ");
+    const minArea = String(data.get("min_area_m2") ?? "");
+    if (searchText)
+        query.set("q", searchText);
+    if (minArea)
+        query.set("min_area_m2", minArea);
     const category = String(data.get("category_code") ?? "");
     if (category)
         query.set("category_code", category);
@@ -2105,9 +2195,10 @@ form("booking-catalog-form", async (data) => {
     catalogNextCursor = payload.next_cursor ?? "";
     catalogPagination.finish(pageToken, catalogNextCursor);
     refreshCatalogControls();
+    renderCatalogMap(payload.items);
     catalogResults.replaceChildren();
     if (!payload.items.length) {
-        catalogResults.textContent = "No hay publicaciones locales activas ni fixtures de ensayo autorizados para estos filtros.";
+        catalogResults.textContent = searchText ? `No se encontraron resultados para “${searchText}”; intente con otra palabra clave.` : "No hay publicaciones locales activas ni fixtures de ensayo autorizados para estos filtros.";
         return;
     }
     for (const item of payload.items) {
@@ -2117,41 +2208,29 @@ form("booking-catalog-form", async (data) => {
         const estimated = item.estimated_total_clp === undefined ? "" : ` · Estimación total ${item.estimated_total_clp.toLocaleString("es-CL")} ${item.currency}`;
         const distance = item.distance_km === undefined ? "" : ` · Distancia directa aprox. ${item.distance_km.toFixed(1)} km (no ruta vial)`;
         const meta = document.createElement("p");
-        meta.textContent = `Tarifa ${item.base_price_clp} ${item.currency}/${item.rate_unit} · ${item.time_zone}${estimated}${distance}${item.available === undefined ? "" : item.available ? " · disponible" : " · no disponible"}`;
+        meta.textContent = `${item.area_m2} m² · Tarifa ${item.base_price_clp} ${item.currency}/${item.rate_unit} · ${item.time_zone}${estimated}${distance}${item.available === undefined ? "" : item.available ? " · disponible" : " · no disponible"}`;
         const details = document.createElement("button");
         details.type = "button";
         details.textContent = "Ver detalle y preparar cotización";
-        details.addEventListener("click", () => void action(async () => {
-            const detailToken = ++bookingCatalogRequest;
-            const selectionToken = bookingQuoteState.beginSelection(item.space_id);
-            bookingFixture = null;
-            clearWeeklyHoursEditor();
-            resetAvailabilityPicker("Cambiando espacio; las opciones anteriores quedaron invalidadas.");
-            (document.querySelector('#booking-quote-form [name="space_id"]')).value = "";
-            (document.querySelector('#booking-request-form [name="quote_id"]')).value = "";
-            (document.querySelector('#booking-quote-form [name="start_at"]')).value = "";
-            (document.querySelector('#booking-quote-form [name="end_at"]')).value = "";
-            document.querySelector("#booking-space-reviews").textContent = "Cargando reseñas de la publicación activa…";
-            bookingQuoteOutput.textContent = "Selecciona el intervalo y prepara una nueva cotización para este espacio.";
-            const detailResult = await request(`${bookingBase}/catalog/${encodeURIComponent(item.space_id)}`, "GET", undefined, true);
-            if (detailToken !== bookingCatalogRequest || !bookingQuoteState.selectionIsCurrent(selectionToken, item.space_id))
-                return;
-            bookingFixture = bookingData(detailResult);
-            (document.querySelector('#booking-quote-form [name="space_id"]')).value = bookingFixture.space_id;
-            bookingFixtureOutput.textContent = `${String(detailResult.safety_notice)}\n${JSON.stringify(bookingFixture, null, 2)}`;
-            const publicReviews = await request(`/api/v1/spaces/${encodeURIComponent(item.space_id)}/reviews`);
-            if (detailToken !== bookingCatalogRequest || !bookingQuoteState.selectionIsCurrent(selectionToken, item.space_id))
-                return;
-            const summary = bookingData(publicReviews);
-            const reviewText = document.querySelector("#booking-space-reviews");
-            reviewText.textContent = `${summary.average.toFixed(1)}/5 · ${summary.count} reseña(s) visibles\n${summary.items.map(r => `${r.rating}/5 · ${r.comment || "Sin comentario"}`).join("\n") || "Aún sin reseñas visibles."}`;
-            void renderWeeklyHoursEditor(item.space_id);
-            renderAvailabilityPicker();
-        }));
+        details.addEventListener("click", () => void action(() => selectCatalogSpace(item)));
         card.append(title, meta, details);
         catalogResults.append(card);
     }
 });
+document.querySelector("#booking-catalog-clear").addEventListener("click", () => void action(async () => {
+    const catalogForm = document.querySelector("#booking-catalog-form");
+    clearCatalogFilters({
+        invalidatePending: () => { bookingCatalogRequest++; },
+        resetControls: () => catalogForm.reset(),
+        clearProfile: () => { catalogProfileRequest++; catalogFilterProfile = null; bookingCatalogProfileFilters.replaceChildren(); bookingCatalogProfileFilters.textContent = "Selecciona una categoría para cargar sus filtros tipados."; },
+        clearCursors: () => { catalogRequestCursor = ""; catalogNextCursor = ""; catalogLoading = false; catalogPagination.invalidate(); refreshCatalogControls(); },
+        clearSelection: () => invalidateCatalogSelection("Filtros limpiados; selección, disponibilidad y cotización anterior invalidadas."),
+        resetMap: () => { catalogMapViewport.reset(); renderCatalogMap([]); },
+    });
+    bookingCatalogNearbyEnabled.dispatchEvent(new Event("change"));
+    resetCatalogTraversal();
+    catalogForm.requestSubmit();
+}));
 document.querySelector("#booking-catalog-form").addEventListener("input", () => {
     bookingCatalogRequest++;
     catalogPagination.invalidate();

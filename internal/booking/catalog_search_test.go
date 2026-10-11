@@ -1,6 +1,8 @@
 package booking
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -42,5 +44,42 @@ func TestCatalogCursorFingerprintCanonicalizesEquivalentTimesAndMapKeys(t *testi
 	}
 	if a != b {
 		t.Fatalf("equivalent filters fingerprint differs: %s %s", a, b)
+	}
+}
+
+func TestCatalogCursorFingerprintBindsSearchTextAndMinimumArea(t *testing.T) {
+	area := 42.5
+	a, err := catalogFilterFingerprint(CatalogFilter{SearchText: "  bodega   Norte ", MinAreaM2: &area}, 5, "category")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := catalogFilterFingerprint(CatalogFilter{SearchText: "bodega Norte", MinAreaM2: &area}, 5, "category")
+	if err != nil || a != b {
+		t.Fatalf("whitespace-normalized search fingerprints differ: %q %q err=%v", a, b, err)
+	}
+	otherArea := 42.51
+	c, err := catalogFilterFingerprint(CatalogFilter{SearchText: "bodega Norte", MinAreaM2: &otherArea}, 5, "category")
+	if err != nil || a == c {
+		t.Fatalf("minimum area did not change cursor binding: %q %q err=%v", a, c, err)
+	}
+	d, err := catalogFilterFingerprint(CatalogFilter{SearchText: "bodega sur", MinAreaM2: &area}, 5, "category")
+	if err != nil || a == d {
+		t.Fatalf("search text did not change cursor binding: %q %q err=%v", a, d, err)
+	}
+}
+
+func TestSyntheticMapPositionsAreRelativeAndDoNotExposeCoordinates(t *testing.T) {
+	items := []CatalogItem{
+		{SpaceID: "a", HasMapPoint: true, MapLongitude: -70.67, MapLatitude: -33.45},
+		{SpaceID: "b", HasMapPoint: true, MapLongitude: -70.66, MapLatitude: -33.46},
+		{SpaceID: "c"},
+	}
+	assignSyntheticMapPositions(items)
+	if items[0].MapPosition == nil || items[0].MapPosition.X != 0 || items[0].MapPosition.Y != 0 || items[1].MapPosition == nil || items[1].MapPosition.X != 100 || items[1].MapPosition.Y != 100 || items[2].MapPosition != nil {
+		t.Fatalf("synthetic map positions=%+v", items)
+	}
+	raw, err := json.Marshal(items)
+	if err != nil || strings.Contains(string(raw), "latitude") || strings.Contains(string(raw), "longitude") || strings.Contains(string(raw), "MapLongitude") || strings.Contains(string(raw), "-70.67") {
+		t.Fatalf("serialized synthetic map exposed stored coordinates: %s err=%v", raw, err)
 	}
 }

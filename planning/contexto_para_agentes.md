@@ -1,8 +1,8 @@
 # Contexto operativo para agentes de desarrollo
 
-## Actualización vigente posterior a PR #255 — 2026-10-11
+## Actualización vigente posterior a PR #260 — 2026-10-11
 
-PR #255 está fusionado en `main` (`036718dfd80549d0aae415a1d404d07419cacbec`) y su conciliación actualiza la matriz LOCAL-CLOSE-01, pero el propietario mantiene #246 abierta y no ha aceptado LOCAL-1. Las brechas obligatorias se organizaron en Issues hijas #256–#259: PR #260 cubre M04/RQF-077 y RQF-198; después búsqueda/filtros M05 (#257); la política de eliminación histórica de M04 (#258) fue ratificada el 2026-10-11 y queda Listo tras #257; luego estado `cerrada` tras liquidación fake (#259), posterior a #258. No repetir regresión integral antes de resolverlas. Usar PostgreSQL desechable, no aplicar migraciones nuevas al volumen persistente antes de revisión y no realizar GCP. Véanse `evidence/local-close-01-matrix-20261011.md` y las Issues.
+PR #260 está fusionado en `main` (`38c3e1300b6d3f843238f4ee6b8758bfe3b71913`) y #256 fue aceptada/Cerrada/Hecho solo por portada y modalidad. El propietario mantiene #246 abierta y no ha aceptado LOCAL-1. La brecha M05 #257 (búsqueda textual pública, mapa sintético sin divulgar coordenadas, superficie mínima inclusiva y limpiar filtros) está en revisión mediante su PR actual. V49 se aplicó incrementalmente al volumen persistente y portada/modalidad tuvieron smoke API. #258 (eliminación/conservación histórica) fue ratificada y depende de #257; #259 (estado `cerrada` tras liquidación fake) depende de #258. No repetir la regresión integral antes de resolver estas brechas. Usar PostgreSQL desechable para pruebas, conservar volumen y secretos y no realizar GCP. Véanse matriz/evidencias e Issues.
 
 ## Estrategia vigente — cierre backend local, conciliada con main #243 (2026-10-10)
 

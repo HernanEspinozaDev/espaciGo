@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
@@ -412,6 +414,18 @@ func (s *Service) Catalog(ctx context.Context, actor string, filter CatalogFilte
 	if !uuid.MatchString(actor) || (filter.CategoryCode != "" && !validCategory(filter.CategoryCode)) {
 		return nil, ErrInvalid
 	}
+	if utf8.RuneCountInString(filter.SearchText) > 120 {
+		return nil, ErrInvalid
+	}
+	filter.SearchText = strings.Join(strings.Fields(filter.SearchText), " ")
+	for _, char := range filter.SearchText {
+		if unicode.IsControl(char) {
+			return nil, ErrInvalid
+		}
+	}
+	if filter.MinAreaM2 != nil && (math.IsNaN(*filter.MinAreaM2) || math.IsInf(*filter.MinAreaM2, 0) || *filter.MinAreaM2 < 0.01 || *filter.MinAreaM2 > 99999999.99 || math.Abs(*filter.MinAreaM2*100-math.Round(*filter.MinAreaM2*100)) > 1e-7) {
+		return nil, ErrInvalid
+	}
 	if (filter.StartAt == nil) != (filter.EndAt == nil) {
 		return nil, ErrInvalid
 	}
@@ -495,6 +509,7 @@ func (s *Service) Catalog(ctx context.Context, actor string, filter CatalogFilte
 			filtered = append(filtered, item)
 		}
 	}
+	assignSyntheticMapPositions(filtered)
 	if nearby {
 		for i := range filtered {
 			distance := math.Round(filtered[i].DistanceMeters/100) / 10
@@ -508,6 +523,36 @@ func (s *Service) Catalog(ctx context.Context, actor string, filter CatalogFilte
 		sort.Slice(filtered, func(i, j int) bool { return compareCatalog(filtered[i], filtered[j], "price") < 0 })
 	}
 	return filtered, nil
+}
+
+func assignSyntheticMapPositions(items []CatalogItem) {
+	minLon, maxLon, minLat, maxLat := math.Inf(1), math.Inf(-1), math.Inf(1), math.Inf(-1)
+	for _, item := range items {
+		if !item.HasMapPoint {
+			continue
+		}
+		minLon = math.Min(minLon, item.MapLongitude)
+		maxLon = math.Max(maxLon, item.MapLongitude)
+		minLat = math.Min(minLat, item.MapLatitude)
+		maxLat = math.Max(maxLat, item.MapLatitude)
+	}
+	if math.IsInf(minLon, 1) {
+		return
+	}
+	lonSpan, latSpan := maxLon-minLon, maxLat-minLat
+	for i := range items {
+		if !items[i].HasMapPoint {
+			continue
+		}
+		x, y := 50.0, 50.0
+		if lonSpan > 0 {
+			x = (items[i].MapLongitude - minLon) / lonSpan * 100
+		}
+		if latSpan > 0 {
+			y = (maxLat - items[i].MapLatitude) / latSpan * 100
+		}
+		items[i].MapPosition = &MapPosition{X: x, Y: y}
+	}
 }
 
 type catalogCursor struct {
@@ -597,6 +642,8 @@ func catalogFilterFingerprint(f CatalogFilter, n int, mode string) (string, erro
 	}
 	canonical := struct {
 		Category   string         `json:"category"`
+		SearchText string         `json:"search_text,omitempty"`
+		MinAreaM2  *float64       `json:"min_area_m2,omitempty"`
 		Start      string         `json:"start,omitempty"`
 		End        string         `json:"end,omitempty"`
 		Min        *int64         `json:"min,omitempty"`
@@ -608,7 +655,7 @@ func catalogFilterFingerprint(f CatalogFilter, n int, mode string) (string, erro
 		Radius     *int           `json:"radius,omitempty"`
 		PageSize   int            `json:"page_size"`
 		Mode       string         `json:"mode"`
-	}{Category: f.CategoryCode, Profile: f.ProfileVersion, Attributes: attributes, Min: f.MinTotalCLP, Max: f.MaxTotalCLP, Lat: f.Latitude, Lon: f.Longitude, Radius: f.RadiusKM, PageSize: n, Mode: mode}
+	}{Category: f.CategoryCode, SearchText: strings.Join(strings.Fields(f.SearchText), " "), MinAreaM2: f.MinAreaM2, Profile: f.ProfileVersion, Attributes: attributes, Min: f.MinTotalCLP, Max: f.MaxTotalCLP, Lat: f.Latitude, Lon: f.Longitude, Radius: f.RadiusKM, PageSize: n, Mode: mode}
 	if f.StartAt != nil {
 		canonical.Start = f.StartAt.UTC().Format(time.RFC3339Nano)
 		canonical.End = f.EndAt.UTC().Format(time.RFC3339Nano)

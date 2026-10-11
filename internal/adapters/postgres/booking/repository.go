@@ -58,13 +58,14 @@ func (r *Repository) Catalog(ctx context.Context, actor string, filter booking.C
 	rows, err := r.pool.Query(ctx, `SELECT e.id::text,e.categoria_codigo,k.nombre,e.titulo,e.descripcion,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,c.perfil_version,p.perfil,c.valores,
 CASE WHEN $3::timestamptz IS NULL THEN NULL ELSE NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($3,$4,'[)')) END,
 CASE WHEN $7::double precision IS NULL THEN NULL ELSE ST_Distance(g.punto,ST_SetSRID(ST_MakePoint($8::double precision,$7::double precision),4326)::geography) END,k.orden
+ ,e.superficie_m2,CASE WHEN g.punto IS NULL THEN NULL ELSE ST_X(g.punto::geometry) END,CASE WHEN g.punto IS NULL THEN NULL ELSE ST_Y(g.punto::geometry) END
 FROM public.espacio e
 LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id
 JOIN public.categoria_espacio k ON k.codigo=e.categoria_codigo AND k.activa
 JOIN public.espacio_caracteristicas c ON c.espacio_id=e.id AND c.categoria_codigo=e.categoria_codigo
 JOIN public.categoria_perfil_atributos p ON p.categoria_codigo=c.categoria_codigo AND p.version=c.perfil_version
 JOIN LATERAL(SELECT modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
-LEFT JOIN public.reserva_ensayo_local_ubicacion_sintetica g ON g.espacio_id=e.id AND g.es_sintetica
+LEFT JOIN public.reserva_ensayo_local_ubicacion_sintetica g ON g.espacio_id=e.id AND f.habilitada AND g.es_sintetica
 WHERE (((f.habilitada AND e.estado='borrador') AND (f.anfitrion_id=$1 OR f.arrendatario_id=$1))
    OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$1 AND EXISTS(
        SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
@@ -78,7 +79,9 @@ AND e.zona_horaria IS NOT NULL
 AND ($7::double precision IS NULL OR (g.punto IS NOT NULL
  AND ST_DWithin(g.punto,ST_SetSRID(ST_MakePoint($8::double precision,$7::double precision),4326)::geography,$9::double precision*1000.0+0.000001)
  AND ST_Distance(g.punto,ST_SetSRID(ST_MakePoint($8::double precision,$7::double precision),4326)::geography)<=$9::double precision*1000.0+0.000001))
-ORDER BY k.orden,e.titulo,e.id`, actor, filter.CategoryCode, filter.StartAt, filter.EndAt, profileVersion, attributeJSON, latitude, longitude, radius)
+AND ($10::text='' OR strpos(lower(concat_ws(' ',e.titulo,e.descripcion,k.nombre)),lower($10))>0)
+AND ($11::numeric IS NULL OR e.superficie_m2 >= $11::numeric)
+ORDER BY k.orden,e.titulo,e.id`, actor, filter.CategoryCode, filter.StartAt, filter.EndAt, profileVersion, attributeJSON, latitude, longitude, radius, filter.SearchText, filter.MinAreaM2)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +91,8 @@ ORDER BY k.orden,e.titulo,e.id`, actor, filter.CategoryCode, filter.StartAt, fil
 		var v booking.CatalogItem
 		var available sql.NullBool
 		var distanceMeters sql.NullFloat64
-		if err = rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.RateUnit, &v.Price, &v.Currency, &v.TimeZone, &v.ProfileVersion, &v.Profile, &v.Attributes, &available, &distanceMeters, &v.CategoryOrder); err != nil {
+		var mapLongitude, mapLatitude sql.NullFloat64
+		if err = rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.RateUnit, &v.Price, &v.Currency, &v.TimeZone, &v.ProfileVersion, &v.Profile, &v.Attributes, &available, &distanceMeters, &v.CategoryOrder, &v.AreaM2, &mapLongitude, &mapLatitude); err != nil {
 			return nil, err
 		}
 		if available.Valid {
@@ -97,6 +101,10 @@ ORDER BY k.orden,e.titulo,e.id`, actor, filter.CategoryCode, filter.StartAt, fil
 		}
 		if distanceMeters.Valid {
 			v.DistanceMeters = distanceMeters.Float64
+		}
+		if mapLongitude.Valid && mapLatitude.Valid {
+			v.HasMapPoint = true
+			v.MapLongitude, v.MapLatitude = mapLongitude.Float64, mapLatitude.Float64
 		}
 		out = append(out, v)
 	}

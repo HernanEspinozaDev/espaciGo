@@ -55,6 +55,18 @@ type CatalogItem struct {
 	DistanceKind   string          `json:"distance_kind,omitempty"`
 	DistanceMeters float64         `json:"-"`
 	CategoryOrder  int             `json:"-"`
+	AreaM2         float64         `json:"area_m2"`
+	MapLongitude   float64         `json:"-"`
+	MapLatitude    float64         `json:"-"`
+	HasMapPoint    bool            `json:"-"`
+	MapPosition    *MapPosition    `json:"map_position,omitempty"`
+}
+
+// MapPosition is a normalized synthetic plotting position. It is deliberately
+// not a latitude/longitude pair and does not reveal the stored point.
+type MapPosition struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
 
 type CatalogPage struct {
@@ -63,6 +75,8 @@ type CatalogPage struct {
 }
 type CatalogFilter struct {
 	CategoryCode   string
+	SearchText     string
+	MinAreaM2      *float64
 	StartAt        *time.Time
 	EndAt          *time.Time
 	MinTotalCLP    *int64

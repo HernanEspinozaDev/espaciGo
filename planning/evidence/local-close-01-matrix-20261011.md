@@ -1,6 +1,6 @@
 # LOCAL-CLOSE-01 — matriz final de requisitos y brechas locales
 
-Fecha de conciliación: 2026-10-11. `main` integrado hasta PR #255, merge `036718dfd80549d0aae415a1d404d07419cacbec`. QA-03/#244 y las subentregas #247–#255 están aceptadas únicamente por sus cortes; #246 queda **En curso** y el propietario no ha aceptado LOCAL-1. La regresión integral existente se conserva como evidencia y no se repite hasta resolver las brechas locales que siguen. Este documento no declara LOCAL-1 terminado.
+Fecha de conciliación: 2026-10-11. `main` integra PR #260, merge `38c3e1300b6d3f843238f4ee6b8758bfe3b71913`; #256 está aceptada/Cerrada/Hecho solo por RQF-077/198. #257 está En revisión; #246 queda abierta y el propietario no ha aceptado LOCAL-1. La regresión integral existente se conserva como evidencia y no se repite hasta resolver las brechas restantes. Este documento no declara LOCAL-1 terminado.
 
 ## Regla de clasificación
 
@@ -19,25 +19,25 @@ La revisión requisito → handler/servicio → mock del 2026-10-11 encontró lo
 
 | ID | Brecha concreta observada | Trazabilidad / dependencia | Clasificación |
 |---|---|---|---|
-| RQF-077 | La galería sintética permite generar, listar, consultar y retirar PNG; la subentrega #256 agrega seleccionar y persistir una portada sintética privada propia. | M04, #55/#56; galería aceptada #210; implementación #256 pendiente de revisión/aceptación. | En implementación; no aceptar el criterio antes de fusionar y recorrerlo. |
+| RQF-077 | Portada sintética privada seleccionable/consultable por titular; retiro coherente al quitar la imagen; no aparece en catálogo. | M04, #55/#56; #256/PR #260 fusionada y smoke API posterior al merge. | Aceptado localmente por el alcance #256; padres M04 siguen abiertos. |
 | RQF-091, RQF-092 | No existe operación autenticada de eliminación permanente de una publicación ni su precondición transaccional. La regla local de conservación histórica ya fue ratificada el 2026-10-11; falta implementar y probar el corte. | M04, #52–#61; #258, Listo tras #257. | Pendiente funcional local. |
-| RQF-094 | La búsqueda de catálogo no acepta texto libre ni busca publicaciones por texto; solo admite filtros estructurados. | M05, #62–#68; subentrega #257. | Pendiente funcional local. |
-| RQF-095 | El mock muestra distancia numérica, pero no presenta mapa interactivo con ubicaciones sintéticas. No se requiere geocodificación ni ubicación del navegador para cerrar esta brecha local. | M05, #62–#68; subentrega #257 reutiliza coordenadas sintéticas autorizadas. | Pendiente funcional local. |
-| RQF-099 | El catálogo no recibe ni aplica un filtro de superficie mínima (`area_m2`), aunque la superficie se guarda en el espacio. | M05, #62–#68; #257 agrega filtro y control. | Pendiente funcional local. |
-| RQF-102 | No hay acción del mock para limpiar de una vez los filtros de búsqueda; “Volver al inicio” solo reinicia la paginación. | M05, #62–#68; #257 restablece criterios y cursores. | Pendiente funcional local. |
+| RQF-094 | Búsqueda literal insensible a mayúsculas en título, descripción y categoría pública; no consulta contacto ni dirección. | M05, #62–#68; implementación y pruebas de #257. | En revisión; no aceptar antes de merge. |
+| RQF-095 | Plano esquemático mock con posiciones x/y relativas derivadas solo de ubicaciones sintéticas habilitadas; API no divulga lat/lon. | M05, #62–#68; implementación y prueba PostgreSQL/API de #257. | En revisión; no aceptar antes de merge. |
+| RQF-099 | `min_area_m2` inclusivo combinado mediante AND con categoría y demás filtros. | M05, #62–#68; implementación PostgreSQL/API de #257 con frontera exacta y exclusión superior. | En revisión; no aceptar antes de merge. |
+| RQF-102 | Botón limpia criterios, perfil, cursor, selección/cotización y mapa; invalida respuestas tardías antes de reiniciar. | M05, #62–#68; pruebas enfocadas mock de #257. | En revisión; no aceptar antes de merge. |
 | RQF-177 | Tras liquidación fake confirmada, la operación queda `liquidada`, pero la reserva conserva `finalizada`; no se registra la transición requerida a `cerrada`. | M10, #109/#110; subentrega #259. | Pendiente funcional local. |
-| RQF-198 | La subentrega #256 permite versionar modalidad hora/día/mes en espacio propio borrador, activo u oculto; horario semanal activo impide cambio incompatible. Cotizaciones y reservas históricas retienen su snapshot. | M04, #55/#52–#61; implementación #256 pendiente de revisión/aceptación. | En implementación; no aceptar el criterio antes de fusionar y recorrerlo. |
+| RQF-198 | Modalidad hora/día/mes versionada para espacio propio borrador/activo/oculto; calendario semanal incompatible exige desactivación; snapshots previos no cambian. | M04, #55/#52–#61; #256/PR #260 integrada y smoke local posterior al merge. | Aceptado localmente por el alcance #256; criterios generales M04 continúan abiertos. |
 
 ## Subentregas ordenadas de brechas obligatorias
 
-1. **#256 M04 — portada y modalidad tarifaria:** en curso; V49 agrega referencia de portada a imagen propia activa y exige compatibilidad con horario semanal. Snapshots existentes permanecen inmutables.
-2. **#257 M05 — búsqueda textual, mapa sintético, superficie mínima y limpiar filtros:** Listo después de aceptar #256.
+1. **#256 M04 — portada y modalidad tarifaria:** aceptada/Cerrada/Hecho por RQF-077/198; V49 agrega referencia de portada privada y exige compatibilidad con horario semanal, preservando snapshots.
+2. **#257 M05 — búsqueda textual, mapa sintético, superficie mínima y limpiar filtros:** En revisión; véase evidencia `local-m05-search-gaps-20261011.md`.
 3. **#258 M04 — eliminación y conservación histórica:** Listo tras #257; propietario ratificó el 2026-10-11 la verificación transaccional de bloqueadores, preservación de snapshots/hechos, no cascada, fechas originales y limpieza durable recuperable, acotada a esa publicación. Implementar y probar conforme a [la Issue](https://github.com/HernanEspinozaDev/espaciGo/issues/258).
 4. **#259 M10/M06 — cerrar reserva tras liquidación fake:** Listo después de #258; requiere obligaciones resueltas e idempotencia.
 
 Las Issues son hijas de #246 y preservan referencias a padres originales. #246 permanece abierta hasta la aceptación explícita de LOCAL-1.
 
-RQF-077 y RQF-198 se implementan en la subentrega #256 descrita en [su evidencia](local-m04-cover-rate-20261011.md); los demás criterios anteriores continúan pendientes. Ninguna parte de #256 se considera aceptada antes de la revisión y el merge. El alcance productivo o expresamente diferido se separa abajo.
+RQF-077 y RQF-198 se aceptaron localmente por #256, descritos en [su evidencia](local-m04-cover-rate-20261011.md). RQF-094/095/099/102 están en revisión mediante #257 y no se consideran aceptados antes de su merge. El alcance productivo o expresamente diferido se separa abajo.
 
 ## Matriz RQF/CU por criterio
 
@@ -52,14 +52,14 @@ RQF-077 y RQF-198 se implementan en la subentrega #256 descrita en [su evidencia
 | **M03** RQF-038, 041, 045–046, 054–059, 192–193, 219–220; CU-10–14 | **Satisfecho con evidencia** para casos y resultados sintéticos | Ownership, revisión manual, rechazo/reintento, elegibilidad por tipo, historial, revocación y gates locales: `local-kyc-01-20261008.md`, PR #201/QA-03. |
 | M03 RQF-047/194 | **Aceptado localmente (#247)** | V46 añade aviso durable Mailpit de resultado KYC/KYB; las pruebas de productor/entrega publicadas en #251 se reutilizan. |
 | M03 RQF-039–040, 042–044, 048–053; #142 | **Exclusión expresamente ratificada para este prototipo** / **integración externa** | No documentos/RUT personales, OCR, Registro Civil/SII ni proveedor real. Casos sintéticos y su elegibilidad local sí existen; #142 conserva lo productivo. |
-| **M04** RQF-060–076, 078–090, 093, 195–197, 221–226; CU-15–18 | **Satisfecho con evidencia** para los criterios identificados de publicación local | Borrador, ocho categorías, atributos/perfiles, tarifa inicial, zona, edición de campos admitidos, reglas de horario, publicar/ocultar/reactivar, historial y galería sintética: evidencias M04/QA-03. Excepciones: RQF-077, RQF-091/092 y RQF-198 son pendientes locales (tabla anterior). RQF-080 es geocodificación excluida. |
+| **M04** RQF-060–076, 078–090, 093, 195–197, 221–226; CU-15–18 | **Satisfecho con evidencia** para los criterios identificados de publicación local | Borrador, ocho categorías, atributos/perfiles, tarifa inicial, zona, edición de campos admitidos, reglas de horario, publicar/ocultar/reactivar, historial y galería sintética: evidencias M04/QA-03. Excepción local pendiente: RQF-091/092 (tabla anterior). RQF-077/198 se aceptaron solo por #256. RQF-080 es geocodificación excluida. |
 | M04 RQF-080 | **Exclusión expresamente ratificada para este prototipo** | No geocodificación de dirección privada. Las coordenadas se cargan solo como ubicación sintética explícita de fixtures autorizados (M05-LOCAL). |
 | **M05** RQF-096–098, 100–101, 103–107; CU-19–21 | **Satisfecho con evidencia** para el alcance de catálogo aceptado | Oferta publicada, tarjetas, filtros categoría/atributos/precio/geo, disponibilidad, paginación, selector, detalle y recotización con datos vigentes: `local-m05-published-catalog-20261009.md`, QA-03. RQF-094/095/099/102 permanecen como brechas funcionales locales; no se afirma rendimiento/escala productiva. |
 | **M06** RQF-108–120, 123–129, 199–200, 227–230; CU-22–28/47/51 | **Satisfecho con evidencia** para flujo fake local | Ocupación transaccional, snapshots/idempotencia, inbox autenticado, rechazo/vencimiento, aprobación, cancelación y devolución `local_flexible_v1`; garantía y settlement según cortes aceptados. QA-03 `TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry`, `local-book-02-20261009.md`, `local-fin-01-20261009.md`, `local-fin-settlement-20261010.md`. |
 | M06 RQF-121/122/201 | **Aceptado localmente (#247)** | V46 emite avisos durables para el pago confirmado/rechazado y la solicitud pagada; la garantía rechazada no crea un aviso de pago rechazado. Pruebas enfocadas de Mailpit publicadas en #251. |
 | M06 RQF-114–118 y reembolsos | **Satisfecho con evidencia** en adaptador fake; **integración externa** pendiente | Las reglas y estados fake son reproducibles; PSP, sandbox, credenciales y movimientos reales no lo son. Mantener #76/#78 abiertos; #69/#73/#75/#77/#79 retienen otros criterios generales. |
 | M10 RQF-177 | **Pendiente funcional local** | La liquidación fake se confirma, pero la reserva no pasa de `finalizada` a `cerrada` con historial en la misma operación confirmada. |
-| M04 RQF-198 | **Pendiente funcional local** | La edición de tarifa no permite cambiar su modalidad; véase detalle en la lista de brechas. |
+| M04 RQF-198 | **Aceptado localmente (#256)** | Modalidad versionada para espacio propio y horario semanal compatible; cotizaciones/reservas previas conservan snapshots. PR #260 y smoke API posterior al merge, V49 incremental. |
 | **M07** RQF-130–132, 136–138, 140–142, 202; CU-29–32 | **Satisfecho con evidencia** para contrato sintético | Snapshot, artefacto privado, firmas/rechazo de ambos titulares, vencimiento/ocupación y devolución local; `local-cont-01-matrix.md`, QA-03. No tiene validez jurídica. |
 | M07 RQF-134/135/139 | **Aceptado localmente (#247)** | V46 envía invitación local a cada firmante y aviso durable al completar firmas. El enlace lleva solo el ID de recurso y exige autenticación/autorización. Prueba de respuesta tardía y Mailpit publicada en #251. |
 | M07 RQF-131/133 y validez de firma | **Exclusión expresamente ratificada** / **integración externa** | Datos legales reales, proveedor/callback de firma y efecto jurídico permanecen fuera; no se confunde con los avisos locales pendientes. |
