@@ -26,14 +26,18 @@ func New(pool *pgxpool.Pool, ids identity.CredentialGenerator) *Repository {
 	return &Repository{pool: pool, ids: ids}
 }
 
-const fields = `e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::float8,e.capacidad_maxima,e.reglas_uso,e.modalidad_tarifa,e.precio_base_clp,e.direccion,e.estado,COALESCE(ec.perfil_version,1),COALESCE(ec.valores,'{}'::jsonb),e.zona_horaria`
+const fields = `e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::float8,e.capacidad_maxima,e.reglas_uso,e.modalidad_tarifa,e.precio_base_clp,e.direccion,e.estado,COALESCE(ec.perfil_version,1),COALESCE(ec.valores,'{}'::jsonb),e.zona_horaria,COALESCE(e.portada_foto_id::text,'')`
 const joins = ` FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo LEFT JOIN public.espacio_caracteristicas ec ON ec.espacio_id=e.id`
 
 func scan(row pgx.Row) (spaces.Draft, error) {
 	var d spaces.Draft
 	var raw []byte
-	err := row.Scan(&d.ID, &d.CategoryCode, &d.CategoryName, &d.Title, &d.Description, &d.AreaM2, &d.Capacity, &d.UsageRules, &d.RateUnit, &d.BasePriceCLP, &d.Address, &d.State, &d.AttributeSchemaVersion, &raw, &d.TimeZone)
+	var coverPhotoID string
+	err := row.Scan(&d.ID, &d.CategoryCode, &d.CategoryName, &d.Title, &d.Description, &d.AreaM2, &d.Capacity, &d.UsageRules, &d.RateUnit, &d.BasePriceCLP, &d.Address, &d.State, &d.AttributeSchemaVersion, &raw, &d.TimeZone, &coverPhotoID)
 	if err == nil {
+		if coverPhotoID != "" {
+			d.CoverPhotoID = &coverPhotoID
+		}
 		d.Attributes = map[string]any{}
 		err = json.Unmarshal(raw, &d.Attributes)
 	}

@@ -6,6 +6,8 @@ Actualización funcional (2026-10-09): tras los merges #211/#213, `main` integra
 
 Actualización conciliada al 2026-10-11: PR #245 (`74b10dbe655d4f6ae3957a6de81f895ab887e57d`) integra LOCAL-QA-03 y PR #254 (`1b57df27f6991833cc73f3bdf7479a5ecea2c704`) integra LOCAL-CLOSE-01D. #244 y #250 fueron aceptadas/cerradas/Hecho únicamente por sus alcances; #246 sigue abierta hasta la aceptación final del propietario. La matriz se actualizó tras aceptar #250 y ejecutar el runner integral actualizado; véase [`evidence/local-close-01-matrix-20261011.md`](evidence/local-close-01-matrix-20261011.md) y la nueva evidencia final LOCAL-CLOSE-01. #185/#40, #109/#110 y #111–#118 conservan criterios generales incompletos.
 
+Actualización posterior al merge #255 (2026-10-11): `main` quedó en `036718dfd80549d0aae415a1d404d07419cacbec`; la conciliación de LOCAL-CLOSE-01/#246 documenta brechas obligatorias sin que el propietario haya aceptado LOCAL-1. La ejecución sigue en cuatro subentregas trazadas: #256 M04 RQF-077/198 (PR abierto para revisión); #257 M05 RQF-094/095/099/102 (Listo, posterior); #258 M04 RQF-091/092 (política de conservación ratificada el 2026-10-11; Listo tras #257); #259 RQF-177 (Listo después de #258). El PR #260 documenta portada sintética propia y tarifa versionada compatible con calendario; conserva snapshots. No repetir la regresión integral hasta resolver esas brechas. No hacer GCP.
+
 **Objetivo autorizado:** terminar el alcance funcional local de M01–M11, con PostgreSQL, Backend, API, pruebas y un mock mínimo por módulo. GCP se propondrá únicamente después de aceptar ese cierre. Este plan fue inicialmente documental; esta instrucción habilita el desarrollo por entregas verticales.
 
 ## 1. Autoridad y documentos de trabajo

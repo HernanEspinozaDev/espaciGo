@@ -278,6 +278,9 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 	if _, err = tx.Exec(ctx, `UPDATE public.foto_perfil_sintetica_local SET estado='retirada_baja',retirada_en=COALESCE(retirada_en,$2),proximo_intento_en=CASE WHEN archivo_id IS NULL THEN NULL ELSE $2 END WHERE usuario_id=$1 AND estado<>'retirada_baja'`, subjectID, checkedAt); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=NULL WHERE propietario_id=$1`, subjectID); err != nil {
+		return SuppressionResult{}, err
+	}
 	if _, err = tx.Exec(ctx, `UPDATE public.espacio_galeria_sintetica_local SET estado='retirada_baja',retirada_en=COALESCE(retirada_en,$2),proximo_intento_en=CASE WHEN archivo_id IS NULL THEN NULL ELSE $2 END WHERE propietario_id=$1 AND estado<>'retirada_baja'`, subjectID, checkedAt); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}

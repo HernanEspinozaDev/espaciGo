@@ -15,6 +15,7 @@ import { applyM02PhotoIfCurrent, captureM02PhotoSession, deliverM02PhotoIfCurren
 import { publicationAction } from "./space-publication-state.js";
 import { publishedContentChange } from "./published-content-state.js";
 import { galleryContextMatches } from "./gallery-session-state.js";
+import { isSelectedCover, loadOwnGalleryView, ownSpaceCoverLabel } from "./gallery-cover-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount } from "./suppression-review-state.js";
 import { captureRentalOperationContext, finishRentalOperationAfterReload, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
 import { AdminReservationsState } from "./admin-reservations-state.js";
@@ -1005,8 +1006,10 @@ async function loadSpaces() {
             const galleryButton = document.createElement("button");
             galleryButton.type = "button";
             galleryButton.textContent = `Galería sintética · ${String(item.title)}`;
-            galleryButton.addEventListener("click", () => void action(() => loadSpaceGallery(String(item.id), String(item.title))));
-            li.append(galleryButton);
+            galleryButton.addEventListener("click", () => void action(() => loadSpaceGallery(String(item.id), String(item.title), String(item.cover_photo_id ?? ""))));
+            const coverStatus = document.createElement("small");
+            coverStatus.textContent = ownSpaceCoverLabel(item.cover_photo_id);
+            li.append(galleryButton, coverStatus);
         }
         spacesList.append(li);
     }
@@ -1026,7 +1029,7 @@ function clearSpaceGallery() {
 function currentGalleryContext(ctx) {
     return galleryContextMatches(ctx, { token: sessionToken, accountID: sessionAccountID, generation: sessionGeneration, spaceID: gallerySelectedSpaceID, revision: galleryRequestRevision });
 }
-async function loadSpaceGallery(spaceID, title) {
+async function loadSpaceGallery(spaceID, title, coverPhotoID = "") {
     const token = sessionToken, accountID = sessionAccountID, generation = sessionGeneration;
     galleryRequestRevision++;
     gallerySelectedSpaceID = spaceID;
@@ -1038,7 +1041,7 @@ async function loadSpaceGallery(spaceID, title) {
     const heading = document.createElement("h3");
     heading.textContent = `Galería sintética · ${title}`;
     const notice = document.createElement("p");
-    notice.textContent = "El Backend genera un PNG fijo; no se cargan imágenes reales ni archivos del cliente. Máximo 10 imágenes. Esta vista privada no publica la galería en el catálogo.";
+    notice.textContent = "El Backend genera PNG fijos; no se cargan imágenes reales ni archivos del cliente. Máximo 10 imágenes. La galería es privada.";
     const status = document.createElement("p");
     status.textContent = "Consultando galería propia…";
     const add = document.createElement("button");
@@ -1067,14 +1070,15 @@ async function loadSpaceGallery(spaceID, title) {
         if (!currentGalleryContext(ctx))
             return;
         galleryAddRetryKeys.delete(retryKeyID);
-        status.textContent = `Imagen sintética guardada${response.reused === true ? " (reintento idempotente)" : ""}.`;
-        await loadSpaceGallery(spaceID, title);
+        await refreshSpaceGallery(spaceID, title, ctx, `Imagen sintética guardada${response.reused === true ? " (reintento idempotente)" : ""}.`);
     }));
     try {
-        const result = await request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/gallery`, "GET", undefined, true);
+        const view = await loadOwnGalleryView(() => request(`/api/v1/spaces/${encodeURIComponent(spaceID)}`, "GET", undefined, true), () => request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/gallery`, "GET", undefined, true));
         if (!currentGalleryContext(ctx))
             return;
-        const items = result.items || [];
+        coverPhotoID = view.coverPhotoID;
+        notice.textContent = `El Backend genera PNG fijos; no se cargan imágenes reales ni archivos del cliente. Máximo 10 imágenes. La galería es privada. ${ownSpaceCoverLabel(coverPhotoID)}.`;
+        const items = view.photos;
         add.disabled = items.length >= 10;
         status.textContent = `${items.length} de 10 imágenes sintéticas activas.`;
         if (items.length === 0) {
@@ -1133,10 +1137,29 @@ async function loadSpaceGallery(spaceID, title) {
                 }
                 if (!currentGalleryContext(ctx))
                     return;
-                status.textContent = "Imagen retirada; el archivo privado queda en cola de limpieza recuperable.";
-                await loadSpaceGallery(spaceID, title);
+                await refreshSpaceGallery(spaceID, title, ctx, "Imagen retirada; el archivo privado queda en cola de limpieza recuperable.");
             }));
-            li.append(meta, show, remove, previewBox);
+            const cover = document.createElement("button");
+            cover.type = "button";
+            cover.textContent = isSelectedCover(String(item.id), coverPhotoID) ? "Portada actual" : "Usar como portada";
+            cover.disabled = isSelectedCover(String(item.id), coverPhotoID);
+            cover.addEventListener("click", () => void action(async () => {
+                if (!currentGalleryContext(ctx))
+                    return;
+                try {
+                    await request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/cover`, "PUT", { photo_id: String(item.id) }, true);
+                }
+                catch (error) {
+                    if (!currentGalleryContext(ctx))
+                        return;
+                    throw error;
+                }
+                if (!currentGalleryContext(ctx))
+                    return;
+                status.textContent = "Portada sintética guardada para este espacio.";
+                await refreshSpaceGallery(spaceID, title, ctx, "Portada sintética guardada y consultada desde la API.");
+            }));
+            li.append(meta, show, cover, remove, previewBox);
             list.append(li);
         }
     }
@@ -1145,6 +1168,13 @@ async function loadSpaceGallery(spaceID, title) {
             return;
         throw error;
     }
+}
+async function refreshSpaceGallery(spaceID, title, ctx, notice) {
+    await loadSpaces();
+    if (!currentGalleryContext(ctx))
+        return;
+    resultElement.textContent = notice;
+    await loadSpaceGallery(spaceID, title);
 }
 document.querySelector("#spaces-load").addEventListener("click", () => void action(loadSpaces));
 document.querySelector("#space-cancel").addEventListener("click", () => { spaceForm.reset(); currentDraftID = ""; document.querySelector("#space-save").textContent = "Crear borrador"; document.querySelector("#space-cancel").hidden = true; });
@@ -1170,7 +1200,7 @@ const priceRateForm = document.querySelector("#price-rate-form");
 const priceRateOutput = document.querySelector("#price-rate-output");
 const priceSimulationOutput = document.querySelector("#price-simulation-output");
 function pricePath(suffix) { if (!calendarSpace.value)
-    throw new Error("Selecciona uno de tus borradores."); return `/api/v1/spaces/${encodeURIComponent(calendarSpace.value)}/${suffix}`; }
+    throw new Error("Selecciona uno de tus espacios propios."); return `/api/v1/spaces/${encodeURIComponent(calendarSpace.value)}/${suffix}`; }
 document.querySelector("#price-load").addEventListener("click", () => void action(async () => {
     const spaceID = calendarSpace.value, selection = calendarRequestState.snapshot();
     const [rate, history] = await Promise.all([request(pricePath("tariff"), "GET", undefined, true), request(pricePath("tariffs"), "GET", undefined, true)]);
@@ -1225,7 +1255,7 @@ async function loadCalendarSpaces() {
     const result = await request("/api/v1/spaces", "GET", undefined, true);
     const items = result.items;
     const selected = calendarSpace.value;
-    calendarSpace.replaceChildren(new Option("Selecciona un borrador", ""));
+    calendarSpace.replaceChildren(new Option("Selecciona un espacio propio", ""));
     for (const item of items)
         calendarSpace.add(new Option(String(item.title), String(item.id)));
     if ([...calendarSpace.options].some(option => option.value === selected))

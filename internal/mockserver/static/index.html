@@ -159,15 +159,15 @@
   </section>
   <section><h2>10. Disponibilidad y bloqueos manuales · borrador propio</h2>
     <p>Configura una zona IANA por espacio. Los intervalos se envían como instantes RFC 3339 y se muestran en la zona seleccionada. Solo se administran bloqueos manuales; no hay recurrencia, reservas ni publicación.</p>
-    <label>Espacio propio <select id="calendar-space"><option value="">Carga tus borradores</option></select></label>
-    <button id="calendar-spaces-load" type="button">Cargar mis borradores</button>
+    <label>Espacio propio <select id="calendar-space"><option value="">Carga tus espacios</option></select></label>
+    <button id="calendar-spaces-load" type="button">Cargar mis espacios</button>
     <form id="calendar-config-form"><label>Zona horaria IANA <input name="time_zone" required placeholder="America/Santiago"></label><button>Guardar zona horaria</button></form>
     <form id="calendar-query-form"><label>Desde (hora local) <input name="from" type="datetime-local" required></label><label>Hasta (hora local) <input name="to" type="datetime-local" required></label><button>Consultar disponibilidad y bloqueos</button></form>
     <form id="calendar-block-form"><label>Inicio (hora local) <input name="start_at" type="datetime-local" required></label><label>Término (hora local) <input name="end_at" type="datetime-local" required></label><label>Motivo <input name="reason" required maxlength="500"></label><button>Crear bloqueo manual</button></form>
-    <ul id="calendar-blocks"></ul><pre id="calendar-output">Selecciona un borrador e inicia sesión.</pre>
+    <ul id="calendar-blocks"></ul><pre id="calendar-output">Selecciona uno de tus espacios e inicia sesión.</pre>
   </section>
-  <section><h2>11. Tarifa versionada y simulación privada · borrador propio</h2>
-    <p><strong>SIMULACIÓN PRIVADA.</strong> Solo calcula el precio base del borrador propio en CLP. No retiene disponibilidad, no confirma reservas y no publica el borrador. Usa la zona IANA guardada y comprobada por M06.</p>
+  <section><h2>11. Tarifa versionada y simulación privada · espacio propio</h2>
+    <p>El titular puede cambiar la modalidad y el precio en un espacio propio borrador, activo u oculto. Cada cambio efectivo crea una versión; cotizaciones y reservas existentes conservan su snapshot. El horario semanal solo es compatible con tarifa por hora: desactívalo antes de cambiar a día/mes. <strong>SIMULACIÓN PRIVADA.</strong> No retiene disponibilidad ni confirma reservas.</p>
     <button id="price-load" type="button">Consultar tarifa e historial</button>
     <form id="price-rate-form"><label>Modalidad <select name="rate_unit"><option value="hora">Por hora</option><option value="dia">Por día</option><option value="mes">Por mes</option></select></label>
       <label>Precio base CLP <input name="base_price" type="number" min="5001" step="1" required></label><button>Guardar nueva versión de tarifa</button></form>

@@ -36,6 +36,12 @@ type Removal struct {
 	Reused  bool   `json:"reused"`
 }
 
+type Cover struct {
+	SpaceID  string `json:"space_id"`
+	PhotoID  string `json:"photo_id"`
+	Selected bool   `json:"selected"`
+}
+
 type Repository interface {
 	ReserveCandidate(context.Context, string, string, string, time.Time) error
 	BeginCandidate(context.Context, string, string, string) (CandidateWriter, error)
@@ -46,6 +52,7 @@ type Repository interface {
 	List(context.Context, string, string) ([]Photo, error)
 	Get(context.Context, string, string, string) (Photo, error)
 	Remove(context.Context, string, string, string) (Removal, error)
+	SelectCover(context.Context, string, string, string) (Cover, error)
 	PendingCleanup(context.Context, int) ([]string, error)
 	CompleteCleanup(context.Context, string, time.Time) error
 	FailCleanup(context.Context, string, time.Time) error

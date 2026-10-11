@@ -301,6 +301,9 @@ func (r *Repository) Remove(ctx context.Context, owner, spaceID, photoID string)
 	}
 	reused := state != "activa"
 	if !reused {
+		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=NULL,actualizado_en=clock_timestamp() WHERE id=$1 AND propietario_id=$2 AND portada_foto_id=$3`, spaceID, owner, photoID); err != nil {
+			return gallery.Removal{}, err
+		}
 		if _, err = tx.Exec(ctx, `UPDATE public.espacio_galeria_sintetica_local SET estado='retirada',retirada_en=clock_timestamp(),proximo_intento_en=clock_timestamp() WHERE id=$1 AND estado='activa'`, photoID); err != nil {
 			return gallery.Removal{}, err
 		}
@@ -309,6 +312,43 @@ func (r *Repository) Remove(ctx context.Context, owner, spaceID, photoID string)
 		return gallery.Removal{}, err
 	}
 	return gallery.Removal{PhotoID: photoID, Removed: true, Reused: reused}, nil
+}
+
+func (r *Repository) SelectCover(ctx context.Context, owner, spaceID, photoID string) (gallery.Cover, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return gallery.Cover{}, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return gallery.Cover{}, err
+	}
+	if !active {
+		return gallery.Cover{}, gallery.ErrNotFound
+	}
+	var exists bool
+	if err = tx.QueryRow(ctx, `SELECT true FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, spaceID, owner).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+		return gallery.Cover{}, gallery.ErrNotFound
+	} else if err != nil {
+		return gallery.Cover{}, err
+	}
+	var photoState string
+	if err = tx.QueryRow(ctx, `SELECT estado FROM public.espacio_galeria_sintetica_local WHERE id=$1 AND espacio_id=$2 AND propietario_id=$3 AND archivo_id IS NOT NULL FOR UPDATE`, photoID, spaceID, owner).Scan(&photoState); errors.Is(err, pgx.ErrNoRows) {
+		return gallery.Cover{}, gallery.ErrNotFound
+	} else if err != nil {
+		return gallery.Cover{}, err
+	}
+	if photoState != "activa" {
+		return gallery.Cover{}, gallery.ErrNotFound
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=$3,actualizado_en=clock_timestamp() WHERE id=$1 AND propietario_id=$2`, spaceID, owner, photoID); err != nil {
+		return gallery.Cover{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return gallery.Cover{}, err
+	}
+	return gallery.Cover{SpaceID: spaceID, PhotoID: photoID, Selected: true}, nil
 }
 
 func (r *Repository) PendingCleanup(ctx context.Context, limit int) ([]string, error) {
