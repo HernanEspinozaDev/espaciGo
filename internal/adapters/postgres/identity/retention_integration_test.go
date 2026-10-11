@@ -133,6 +133,7 @@ func TestSyntheticDamageDefenseEvidenceParticipantAdminExportIsolation(t *testin
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create defense evidence status=%d body=%s", created.Code, created.Body.String())
 	}
+	validateOpenAPIJSON(t, created.Body.Bytes(), "LocalRentalOperationEnvelope")
 	var createdEnvelope struct {
 		Data operation.Item `json:"data"`
 	}
@@ -149,6 +150,7 @@ func TestSyntheticDamageDefenseEvidenceParticipantAdminExportIsolation(t *testin
 	retry.Header.Set("Idempotency-Key", "defense-evidence-create-001")
 	retried := httptest.NewRecorder()
 	operationHandler.ServeHTTP(retried, retry)
+	validateOpenAPIJSON(t, retried.Body.Bytes(), "LocalRentalOperationEnvelope")
 	var retriedEnvelope struct {
 		Data operation.Item `json:"data"`
 	}
@@ -301,6 +303,36 @@ func TestSyntheticDamageDefenseEvidenceRetentionUsesRecoverableCleanup(t *testin
 	}
 	if _, err = f.store.Get(h.ctx, item.Evidence[0].ID); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("retention left private blob err=%v", err)
+	}
+	operationsHandler := operationhttp.NewHandler(h.service, f.operations, nil)
+	renterSession := h.login(t, "defense-evidence-2-renter@ejemplo.invalid")
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/reservations/"+f.reservation+"/operations", nil)
+	listRequest.Header.Set("Authorization", "Bearer "+string(renterSession.Token))
+	listResponse := httptest.NewRecorder()
+	operationsHandler.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("post-cleanup operations HTTP status=%d body=%s", listResponse.Code, listResponse.Body.String())
+	}
+	validateOpenAPIJSON(t, listResponse.Body.Bytes(), "LocalRentalOperationListEnvelope")
+	var operationList struct {
+		Data struct {
+			Items []operation.Item `json:"items"`
+		} `json:"data"`
+	}
+	if err = json.Unmarshal(listResponse.Body.Bytes(), &operationList); err != nil {
+		t.Fatal(err)
+	}
+	foundRetired := false
+	for _, listed := range operationList.Data.Items {
+		if listed.Kind == operation.DefenseEvidence {
+			foundRetired = true
+			if listed.Evidence == nil || len(listed.Evidence) != 0 {
+				t.Fatalf("retired operation evidence must remain as an empty list: %+v", listed.Evidence)
+			}
+		}
+	}
+	if !foundRetired {
+		t.Fatalf("post-cleanup operations omitted the retained defense operation")
 	}
 	second, err := purger.PurgeExpiredReservationLinks(h.ctx, deadline, 20)
 	if err != nil || second.Purged != 1 {

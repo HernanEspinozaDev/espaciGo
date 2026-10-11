@@ -2943,7 +2943,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         reservation_id: { type: string, format: uuid }
-        kind: { type: string, enum: [checkin, checkout, recepcion] }
+        kind: { type: string, enum: [checkin, checkout, recepcion, descargo] }
         actor_id: { type: string, format: uuid }
         occurred_at: { type: string, format: date-time }
         time_zone: { type: string }
@@ -2963,7 +2963,6 @@ components:
         reused: { type: boolean }
         evidence:
           type: array
-          minItems: 1
           items:
             type: object
             required: [id, fixture_code, mime_type, sha256, size_bytes, created_at]
