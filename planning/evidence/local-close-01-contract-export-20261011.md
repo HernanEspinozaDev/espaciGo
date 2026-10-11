@@ -1,6 +1,6 @@
 # LOCAL-CLOSE-01E — exportación contractual y conservación sintética
 
-Fecha: 2026-10-11. Rama `codex/local-close-01-contract-export`; base `main` #265, `6358b26cc891977b8503f96bece033d34ebc631b`. Commit funcional probado: `db01c00332741e8e55f9ae44ad7725caba3ef94f`. Alcance LOCAL-1 sintético; #246 permanece abierta hasta aceptación explícita.
+Fecha: 2026-10-11. Rama `codex/local-close-01-contract-export`; base `main` #265, `6358b26cc891977b8503f96bece033d34ebc631b`. Commit funcional probado: `03e9c77fb08815b63f2c8d8b3cc96ffe635ca491`. Alcance LOCAL-1 sintético; #246 permanece abierta hasta aceptación explícita.
 
 ### Corrección adicional del purgador (PR #266)
 
@@ -9,11 +9,17 @@ El purgador ahora recalcula el plazo efectivo con el último cierre relacionado 
 Pruebas focalizadas en PostgreSQL desechable:
 
 ```sh
-GO_TEST_RUN='^TestLocal(ContractRetentionRevalidatesRecentlyClosedDisputeOutsideFirstBatch|PublicationHistoryBatchSkipsBlockedDeletionAndPurgesSameEligibleSet|ContractRetentionDefersObligationsAndRecoversAfterRollback)$' \
+GO_TEST_RUN='^TestLocal(ContractRetentionRevalidatesRecentlyClosedDisputeOutsideFirstBatch|PublicationHistoryBatchSkipsBlockedDeletionAndPurgesSameEligibleSet|ContractRetentionDefersObligationsAndRecoversAfterRollback|SignatureExpiryRetentionSchedulesNullDeadlineDefersAndPurgesIdempotently)$' \
   bash scripts/test-local-comm-mailpit.sh ./internal/adapters/postgres/identity
 ```
 
-Resultado: PASS en las tres pruebas. La primera coloca una reserva con fecha almacenada vencida detrás de otra reserva en el primer lote; al llegar al segundo lote, el cierre reciente de una disputa actualiza el vencimiento a `cerrada_en + 24 meses calendario` y conserva contrato/PDF. La segunda usa `p_limit=1`: una eliminación antigua con pago pendiente queda intacta y no consume el lote; la eliminación posterior elegible retira ambos historiales, mientras ambas filas del espacio bloqueado permanecen. El manifiesto de integraciones obligatorias incluye las dos regresiones nuevas.
+Resultado: PASS en las tres pruebas previas. La primera coloca una reserva con fecha almacenada vencida detrás de otra reserva en el primer lote; al llegar al segundo lote, el cierre reciente de una disputa actualiza el vencimiento a `cerrada_en + 24 meses calendario` y conserva contrato/PDF. La segunda usa `p_limit=1`: una eliminación antigua con pago pendiente queda intacta y no consume el lote; la eliminación posterior elegible retira ambos historiales, mientras ambas filas del espacio bloqueado permanecen. La regresión de firma vencida está documentada a continuación. El manifiesto de integraciones obligatorias incluye las cuatro pruebas. La actualización de V52→V54 se ejecutó en migrador desechable.
+
+### V54 — retención por vencimiento de firmas
+
+V53 permanece intacta. V54 añade `cancelada_por_firma` a la programación e índice de vencimientos de vínculos, y repara fechas nulas heredadas. El purgador también admite `vinculos_retirar_en IS NULL`: vuelve a leer la fecha después de bloquear participantes y reserva, calcula y persiste el plazo efectivo antes de decidir si elimina. La purga de vínculos reconoce el mismo estado terminal.
+
+`TestLocalSignatureExpiryRetentionSchedulesNullDeadlineDefersAndPurgesIdempotently` verifica programación a 24 meses calendario, conservación antes del plazo, reparación de una fecha nula vencida, aplazamiento por devolución pendiente, extensión desde el cierre posterior de la devolución y retirada final de contrato, PDF y vínculos. Repetir ambas purgas no duplica efectos. La prueba incremental V52→V54 verifica además la inclusión del estado en el índice.
 
 ## Decisiones ratificadas e implementadas
 
@@ -43,19 +49,19 @@ go test ./internal/adapters/postgres/contracts ./internal/adapters/postgres/owne
   ./internal/privacy ./internal/dbbootstrap ./internal/migrator ./cmd/api
 ```
 
-Resultados: ambas pruebas de exportación/retención y la actualización V52→V53 pasaron. La exportación se validó como ZIP real: cuenta anfitriona y arrendataria reciben solo su parte autorizada; un tercero no accede; la respuesta incluye JSON minimizado y PDF válido disponible, omite secretos/IDs ajenos, y con PDF retirado informa el estado en el manifiesto sin reconstituir archivo. Los plazos se mantienen ante exportación. La prueba de purga cubre estado previo al vencimiento, obligación pendiente, permisos runtime, rollback/reintento y retirada de archivo/referencias después de resolver la obligación.
+Resultados: ambas pruebas de exportación/retención y la actualización V52→V54 pasaron. La exportación se validó como ZIP real: cuenta anfitriona y arrendataria reciben solo su parte autorizada; un tercero no accede; la respuesta incluye JSON minimizado y PDF válido disponible, omite secretos/IDs ajenos, y con PDF retirado informa el estado en el manifiesto sin reconstituir archivo. Los plazos se mantienen ante exportación. La prueba de purga cubre estado previo al vencimiento, obligación pendiente, permisos runtime, rollback/reintento y retirada de archivo/referencias después de resolver la obligación.
 
-La regresión integral final se ejecutó en el commit corregido `db01c00332741e8e55f9ae44ad7725caba3ef94f`:
+La regresión integral final se ejecutó en el commit corregido `03e9c77fb08815b63f2c8d8b3cc96ffe635ca491`:
 
 ```sh
 bash scripts/test-local-qa.sh
 ```
 
-Resultado: **PASS**. 100/100 pruebas mock; gate 4/4; `go test -p 1 ./...`; `go vet ./...`; 88/88 integraciones obligatorias, con 126 eventos de pruebas Go; cero integraciones omitidas o `SKIP`; check-in estable 5/5. El runner también verificó la limpieza de sus contenedores/red/directorio temporales. El commit ya está en `scripts/local-required-integrations.txt` para estas integraciones.
+Resultado: **PASS**. 100/100 pruebas mock; gate 4/4; `go test -p 1 ./...`; `go vet ./...`; 89/89 integraciones obligatorias, con 127 eventos de pruebas Go; cero integraciones omitidas o `SKIP`; check-in estable 5/5. El runner también verificó la limpieza de sus contenedores/red/directorio temporales. El commit ya está en `scripts/local-required-integrations.txt` para estas integraciones.
 
 ## Protección de datos de desarrollo
 
-V53 se migró desde V52 solo en PostgreSQL desechable. No se aplicó al volumen persistente `espacigo_pgdata`; no se borraron volúmenes, datos sintéticos o archivos de secretos, ni se regeneraron secretos. No se ejecutó ni preparó trabajo de GCP.
+V53/V54 se migraron desde V52 solo en PostgreSQL desechable. No se aplicaron al volumen persistente `espacigo_pgdata`; no se borraron volúmenes, datos sintéticos o archivos de secretos, ni se regeneraron secretos. No se ejecutó ni preparó trabajo de GCP.
 
 ## Cierre LOCAL-1
 

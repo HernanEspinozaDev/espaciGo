@@ -1,6 +1,6 @@
 # Clasificación de referencias, archivos y derivados para supresión local
 
-Actualizado: 2026-10-11 para LOCAL-CLOSE-01E, basado en `main` #265 + commit `db01c00`; alcance: cuentas, archivos y operaciones sintéticas locales. Los plazos de contratos e historiales de publicación/eliminación fueron ratificados expresamente para este prototipo en esta entrega. Esta clasificación no es política productiva ni afirmación de anonimización.
+Actualizado: 2026-10-11 para LOCAL-CLOSE-01E, basado en `main` #265 + commit `03e9c77`; alcance: cuentas, archivos y operaciones sintéticas locales. Los plazos de contratos e historiales de publicación/eliminación fueron ratificados expresamente para este prototipo en esta entrega. Esta clasificación no es política productiva ni afirmación de anonimización.
 
 ## Conciliación vigente: #265 más LOCAL-CLOSE-01E
 

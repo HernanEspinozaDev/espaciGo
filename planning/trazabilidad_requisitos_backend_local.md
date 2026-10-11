@@ -2,13 +2,13 @@
 
 Esta tabla preserva los IDs de ES1 y establece el cruce RQF/RNF ↔ HU/CU ↔ módulo ↔ Issues/evidencia. El estado es una **clasificación de auditoría por módulo**, no una declaración de que cada criterio individual haya sido probado: los estados `parcial` y `pendiente` apuntan a la brecha concreta en `matriz_cierre_backend_local.md`. Requisitos sin HU/CU asociado se mantienen con `—`; no se inventa una relación.
 
-Fuentes congeladas: `referencias/ES1/B_requerimientos_funcionales.md`, `C_requerimientos_no_funcionales.md`, `D_casos_de_uso.md`, `E_historias_de_usuario.md`. Base integrada #265 (`6358b26`), más candidato LOCAL-CLOSE-01E `db01c00`/V53 al 2026-10-11.
+Fuentes congeladas: `referencias/ES1/B_requerimientos_funcionales.md`, `C_requerimientos_no_funcionales.md`, `D_casos_de_uso.md`, `E_historias_de_usuario.md`. Base integrada #265 (`6358b26`), más candidato LOCAL-CLOSE-01E `03e9c77`/V53-V54 al 2026-10-11.
 
 La tabla RQF conserva snapshots intermedios y celdas agregadas por módulo. Para el estado actual prevalecen la matriz por requisito de `evidence/local-close-01-matrix-20261011.md` y el crosswalk de 43 entidades/DB02 de `matriz_cierre_backend_local.md`. No interpretar “Parcial” antiguo como una brecha actual sin contrastar evidencia.
 
 ### Conciliación final posterior a #265 / LOCAL-CLOSE-01E
 
-- La regresión integral y las pruebas de esta entrega pasaron en el commit candidato `db01c00332741e8e55f9ae44ad7725caba3ef94f` (short `db01c00`), basado en `main` #265. Runner: 100/100 mock, 4/4 gate, `go test -p 1 ./...`, `go vet ./...`, 88/88 integraciones obligatorias, cero omitidas/SKIP, 5/5 check-in estable. V52→V53 se validó desde V52 en PostgreSQL desechable. Ninguna base persistente fue migrada.
+- La regresión integral y las pruebas de esta entrega pasaron en el commit candidato `03e9c77fb08815b63f2c8d8b3cc96ffe635ca491` (short `03e9c77`), basado en `main` #265. Runner: 100/100 mock, 4/4 gate, `go test -p 1 ./...`, `go vet ./...`, 89/89 integraciones obligatorias, cero omitidas/SKIP, 5/5 check-in estable. V52→V54 se validó desde V52 en PostgreSQL desechable. Ninguna base persistente fue migrada.
 - RQF-077/198, RQF-094/095/099/102, RQF-091/092 y RQF-177 mantienen sus slices aceptados (#256–#263) sin cerrar padres. LOCAL-CLOSE-01E completa exportación contractual y retención sintética.
 - DB02-02 queda ratificado como adaptación de owner-stores por dominio para LOCAL-1: un propietario por documento, autorización, almacenamiento privado y cleanup recuperable. No se crea almacén global ni se editan fuentes académicas congeladas.
 - DB02-05 queda implementado para los grupos ratificados: contrato/firma/PDF 24 meses calendario desde último cierre terminal relacionado; historial de publicación/eliminación 24 meses desde eliminación definitiva; obligaciones pendientes difieren purga. Lecturas, reintentos y exportaciones no reinician fecha.
