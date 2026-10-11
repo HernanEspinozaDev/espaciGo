@@ -6,6 +6,18 @@ export function captureAdminLocalSession(context:AdminLocalContext):AdminLocalSe
 export function adminLocalSessionMatches(context:AdminLocalSessionContext,current:{account:string;token:string;generation:number}):boolean{return Boolean(context.token&&context.account===current.account&&context.token===current.token&&context.generation===current.generation);}
 export function adminLocalContextMatches(context:AdminLocalContext,current:{account:string;token:string;generation:number;revision:number;isAdmin:boolean}):boolean{return Boolean(context.token&&current.isAdmin&&context.account===current.account&&context.token===current.token&&context.generation===current.generation&&context.revision===current.revision);}
 export function isAdminLocalForbiddenError(error:unknown):boolean{return error instanceof Error&&/\(HTTP 403(?:,|\))/.test(error.message);}
+export function applyAdminLocalSessionSnapshot(
+  context:AdminLocalSessionContext,
+  current:()=>{account:string;token:string;generation:number},
+  snapshot:AdminLocalSessionSnapshot,
+  applySession:(snapshot:AdminLocalSessionSnapshot)=>void,
+  clearView:(message:string)=>void,
+):boolean{
+  if(!adminLocalSessionMatches(context,current()))return false;
+  applySession(snapshot);
+  if(!snapshot.roles.includes("administrador")||snapshot.restrictedMode)clearView("El acceso administrativo ya no está disponible para esta sesión.");
+  return true;
+}
 
 export async function handleAdminLocalForbidden(
   context:AdminLocalSessionContext,
@@ -25,10 +37,6 @@ export async function handleAdminLocalForbidden(
     clearView("No se pudieron actualizar los permisos; la sesión continúa disponible para operaciones permitidas.");
     return "refreshed";
   }
-  if(!adminLocalSessionMatches(context,current()))return "stale";
-  applySession(snapshot);
-  if(!snapshot.roles.includes("administrador")||snapshot.restrictedMode){
-    clearView("El acceso administrativo ya no está disponible para esta sesión.");
-  }
+  if(!applyAdminLocalSessionSnapshot(context,current,snapshot,applySession,clearView))return "stale";
   return "refreshed";
 }

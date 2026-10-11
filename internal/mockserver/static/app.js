@@ -20,7 +20,7 @@ import { captureRentalOperationContext, finishRentalOperationAfterReload, rental
 import { AdminReservationsState } from "./admin-reservations-state.js";
 import { AdminAuditState } from "./admin-audit-state.js";
 import { consumeAdminAuditExportResponse } from "./admin-audit-export-state.js";
-import { adminLocalContextMatches, adminLocalSessionMatches, captureAdminLocalContext, captureAdminLocalSession, handleAdminLocalForbidden, isAdminLocalForbiddenError } from "./admin-local-state.js";
+import { adminLocalContextMatches, adminLocalSessionMatches, applyAdminLocalSessionSnapshot, captureAdminLocalContext, captureAdminLocalSession, handleAdminLocalForbidden, isAdminLocalForbiddenError } from "./admin-local-state.js";
 import { apiErrorMessage } from "./api-error.js";
 import { LocalSettlementState } from "./local-settlement-state.js";
 const statusElement = document.querySelector("#api-status");
@@ -179,14 +179,24 @@ form("password-change-form", async (data, element) => {
     resultElement.textContent = "Contraseña actualizada. Inicia sesión otra vez; el aviso quedó en cola para el buzón de desarrollo.";
 });
 document.querySelector("#session-button").addEventListener("click", () => void action(async () => {
+    const context = captureAdminLocalSession(captureAdminLocalContext(sessionAccountID, sessionToken, sessionGeneration, adminLocalRevision));
     const response = await request("session", "GET", undefined, true);
-    if (Array.isArray(response.roles))
-        sessionRoles = response.roles.map(String);
-    sessionRestrictedMode = response.restricted_mode === true;
-    refreshDamageAdminControls();
-    refreshAdminLocalControls();
+    const snapshot = {
+        roles: Array.isArray(response.roles) ? response.roles.map(String) : [],
+        restrictedMode: response.restricted_mode === true,
+    };
+    const applied = applyAdminLocalSessionSnapshot(context, () => ({ account: sessionAccountID, token: sessionToken, generation: sessionGeneration }), snapshot, value => {
+        sessionRoles = value.roles;
+        sessionRestrictedMode = value.restrictedMode;
+        refreshDamageAdminControls();
+        refreshAdminLocalControls();
+    }, message => clearAdminLocalView(message));
+    if (!applied)
+        return;
     document.querySelector("#session-output").textContent = JSON.stringify(response, null, 2);
-    resultElement.textContent = "Sesión válida; estado y roles comprobados por la API.";
+    resultElement.textContent = !snapshot.roles.includes("administrador") || snapshot.restrictedMode
+        ? "Sesión válida; el acceso administrativo ya no está disponible. La sesión sigue activa para operaciones permitidas."
+        : "Sesión válida; estado y roles comprobados por la API.";
 }));
 document.querySelector("#logout-button").addEventListener("click", () => void action(async () => {
     await request("logout", "POST", undefined, true);

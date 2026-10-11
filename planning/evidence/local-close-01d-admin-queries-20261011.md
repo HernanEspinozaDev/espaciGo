@@ -31,8 +31,11 @@ No se ejecutó todavía la regresión integral LOCAL-1. El usuario indicó reser
 - Un 403 de una consulta administrativa vigente limpia resultados y criterios e invalida respuestas pendientes, aunque la revisión de filtros haya cambiado. La vigencia de autorización se verifica por cuenta, token y generación; los datos de resultado conservan además su revisión/filtros.
 - El mock conserva la sesión al recibir el 403, oculta temporalmente el acceso administrativo y vuelve a consultar `/session`. Aplica roles/modo restringido solo si la cuenta, token y generación siguen siendo los mismos. Si el backend confirma que falta el rol administrador o que la sesión está restringida, vuelve a limpiar los resultados administrativos; la sesión sigue disponible para operaciones permitidas.
 - Las pruebas simulan 403 después de cambiar filtros, pérdida de rol, modo restringido, un 403 tardío de sesión anterior y una consulta de roles tardía tras logout/relogin. Una respuesta anterior no limpia ni modifica la nueva sesión.
+- La acción manual «Consultar sesión» captura cuenta, token y generación antes de la petición y comprueba que continúan vigentes antes de aplicar roles/modo restringido o mostrar la respuesta. Los cambios de filtros no invalidan esa comprobación de sesión.
+- Si la API confirma pérdida del rol administrador o modo restringido, se conserva el token/sesión para operaciones permitidas, pero se limpia la vista administrativa y aumenta su revisión para descartar respuestas pendientes.
+- Las pruebas enfocadas cubren consulta manual con pérdida de rol, consulta manual con modo restringido y respuesta manual tardía tras logout/login de la misma cuenta con token y generación nuevos. El resultado tardío no aplica roles ni limpia la sesión nueva.
 - `npm --prefix mock run build` — PASS.
-- `node --test mock/test/admin-local-state.test.mjs mock/test/admin-local-access.test.mjs` — PASS (8 pruebas enfocadas).
+- `node --test mock/test/admin-local-state.test.mjs mock/test/admin-local-access.test.mjs` — PASS (11 pruebas enfocadas, incluidas las tres de consulta manual).
 - `git diff --check` — PASS.
 
 No se ejecutaron suites Backend ni la regresión integral LOCAL-1. #250 permanece En revisión y #246 abierta.

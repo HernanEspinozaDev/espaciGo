@@ -3,6 +3,14 @@ export function captureAdminLocalSession(context) { return { account: context.ac
 export function adminLocalSessionMatches(context, current) { return Boolean(context.token && context.account === current.account && context.token === current.token && context.generation === current.generation); }
 export function adminLocalContextMatches(context, current) { return Boolean(context.token && current.isAdmin && context.account === current.account && context.token === current.token && context.generation === current.generation && context.revision === current.revision); }
 export function isAdminLocalForbiddenError(error) { return error instanceof Error && /\(HTTP 403(?:,|\))/.test(error.message); }
+export function applyAdminLocalSessionSnapshot(context, current, snapshot, applySession, clearView) {
+    if (!adminLocalSessionMatches(context, current()))
+        return false;
+    applySession(snapshot);
+    if (!snapshot.roles.includes("administrador") || snapshot.restrictedMode)
+        clearView("El acceso administrativo ya no está disponible para esta sesión.");
+    return true;
+}
 export async function handleAdminLocalForbidden(context, current, clearView, refreshSession, applySession) {
     if (!adminLocalSessionMatches(context, current()))
         return "stale";
@@ -21,11 +29,7 @@ export async function handleAdminLocalForbidden(context, current, clearView, ref
         clearView("No se pudieron actualizar los permisos; la sesión continúa disponible para operaciones permitidas.");
         return "refreshed";
     }
-    if (!adminLocalSessionMatches(context, current()))
+    if (!applyAdminLocalSessionSnapshot(context, current, snapshot, applySession, clearView))
         return "stale";
-    applySession(snapshot);
-    if (!snapshot.roles.includes("administrador") || snapshot.restrictedMode) {
-        clearView("El acceso administrativo ya no está disponible para esta sesión.");
-    }
     return "refreshed";
 }
