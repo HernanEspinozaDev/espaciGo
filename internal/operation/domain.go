@@ -22,6 +22,7 @@ const (
 	CheckIn                = "checkin"
 	CheckOut               = "checkout"
 	Receipt                = "recepcion"
+	DefenseEvidence        = "descargo"
 	SafetyNotice           = "ENSAYO LOCAL — EVIDENCIA SINTÉTICA; SIN VALIDEZ PROBATORIA REAL"
 	CandidateRecoveryDelay = 5 * time.Minute
 )

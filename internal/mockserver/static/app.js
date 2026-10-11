@@ -10,7 +10,7 @@ import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState } from "./booking-availability-state.js";
 import { BookingPaymentState, BookingRequestState, executePaymentAttempt, paymentPanelAfterError } from "./booking-payment-state.js";
 import { capturePrivacyExportContext, deliverPrivacyExportIfCurrent, privacyExportSessionMatches } from "./privacy-export-state.js";
-import { damageClaimRequestIsCurrent, finishDamageClaimAfterReload } from "./damage-claim-request-state.js";
+import { createOrRecoverDamageDefenseEvidence, damageClaimRequestIsCurrent, finishDamageClaimAfterReload } from "./damage-claim-request-state.js";
 import { applyM02PhotoIfCurrent, captureM02PhotoSession, deliverM02PhotoIfCurrent, m02PhotoSessionMatches } from "./m02-photo-session-state.js";
 import { publicationAction } from "./space-publication-state.js";
 import { publishedContentChange } from "./published-content-state.js";
@@ -2417,7 +2417,9 @@ function refreshDamageClaimControls() {
 function clearDamageClaim(message) {
     damageClaimRevision++;
     selectedDamageClaim = null;
+    revokeDamageEvidenceURLs(participantDamageEvidenceURLs);
     document.querySelector("#local-damage-claim-output").textContent = message;
+    document.querySelector("#local-damage-claim-defense-evidence")?.replaceChildren();
     document.querySelector("#local-damage-claim-description").value = "";
     refreshDamageClaimControls();
 }
@@ -2770,6 +2772,7 @@ async function loadDamageClaim(id) {
         const claim = selectedDamageClaim;
         const claimHistory = (claim.history ?? []).map(entry => `#${entry.sequence} ${entry.action} · ${entry.actor_id} · ${new Date(entry.occurred_at).toLocaleString("es-CL")}`).join("\n");
         document.querySelector("#local-damage-claim-output").textContent = `ENSAYO LOCAL — SIN MOVIMIENTO DE FONDOS\nEstado: ${claim.state} · abierto ${new Date(claim.opened_at).toLocaleString("es-CL")} · plazo desde el check-out: ${new Date(claim.claim_deadline_at).toLocaleString("es-CL")}\n${claim.description}\n${claim.evidence.length} evidencia(s) PNG privada(s) sintética(s) disponibles en el historial de operaciones.${claim.defense ? `\nDescargo del arrendatario (${new Date(claim.defense.created_at).toLocaleString("es-CL")}): ${claim.defense.description}` : "\nSin descargo registrado."}${claim.resolution ? `\nResolución: ${claim.resolution.outcome} · ${claim.resolution.reason_code} · ${new Date(claim.resolution.resolved_at).toLocaleString("es-CL")}` : ""}\nHistorial:\n${claimHistory || "Sin historial."}\nLa garantía y cualquier deducción se muestran por separado en la revisión financiera administrativa; no implican fondos reales.`;
+        renderDamageDefenseEvidence(claim);
     }
     catch (error) {
         if (revision !== damageClaimRevision || id !== selectedReservationID || account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
@@ -2783,6 +2786,67 @@ async function loadDamageClaim(id) {
         }
     }
     refreshDamageClaimControls();
+}
+function renderDamageDefenseEvidence(claim) {
+    const target = document.querySelector("#local-damage-claim-defense-evidence");
+    if (!target)
+        return;
+    target.replaceChildren();
+    const items = claim.defense?.evidence ?? [];
+    if (!items.length) {
+        const status = document.createElement("p");
+        status.textContent = "Sin evidencia sintética adjunta al descargo.";
+        target.append(status);
+        if (claim.state === "abierto" && claim.defense?.actor_id === sessionAccountID) {
+            const recover = document.createElement("button");
+            recover.type = "button";
+            recover.textContent = "Crear o recuperar evidencia del descargo";
+            recover.addEventListener("click", () => void action(() => createOrRecoverSelectedDefenseEvidence(claim)));
+            target.append(recover);
+        }
+        return;
+    }
+    for (const evidence of items) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "Consultar evidencia privada del descargo";
+        button.addEventListener("click", () => void action(() => loadDamageDefenseEvidence(claim.reservation_id, claim.id, evidence.id)));
+        target.append(button);
+    }
+}
+async function createOrRecoverSelectedDefenseEvidence(claim) {
+    const id = selectedReservationID, account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    if (!id || id !== claim.reservation_id || !token || claim.id !== selectedDamageClaim?.id || claim.state !== "abierto" || claim.defense?.actor_id !== account)
+        throw new Error("Selecciona el descargo abierto de tu reserva para crear o recuperar su evidencia.");
+    const context = { requestRevision: ++damageClaimActionRevision, selectionRevision: reservationSelectionRevision, selectionID: id, accountID: account, token, generation };
+    const current = () => ({ requestRevision: damageClaimActionRevision, selectionRevision: reservationSelectionRevision, selectionID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration });
+    await createOrRecoverDamageDefenseEvidence(context, async () => {
+        const response = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/operations`, "GET", undefined, true);
+        return bookingData(response).items.some(item => item.kind === "descargo");
+    }, async () => {
+        const evidenceKeyName = "damage-claim-defense-evidence", evidencePayload = "server-generated-png-v1";
+        const evidenceKey = rentalOperationKeys.get(id, evidenceKeyName, evidencePayload, () => crypto.randomUUID());
+        return request(`${bookingBase}/reservations/${encodeURIComponent(id)}/damage-claim/defense/evidence`, "POST", {}, true, evidenceKey);
+    }, async () => { await loadBookingInbox(); }, current, () => {
+        rentalOperationKeys.clear(id, "damage-claim-defense-evidence");
+        resultElement.textContent = "Evidencia privada del descargo confirmada y actualizada desde la API.";
+    });
+}
+async function loadDamageDefenseEvidence(reservationID, claimID, evidenceID) {
+    const context = { revision: damageClaimRevision, selectionRevision: reservationSelectionRevision, selectionID: reservationID, account: sessionAccountID, token: sessionToken, generation: sessionGeneration };
+    const response = await fetch(`${apiBase}${bookingBase}/reservations/${encodeURIComponent(reservationID)}/evidence/${encodeURIComponent(evidenceID)}`, { method: "GET", headers: { Accept: "image/png", Authorization: `Bearer ${context.token}` }, mode: "cors", cache: "no-store", credentials: "omit" });
+    if (!response.ok)
+        throw new Error(`No se pudo consultar la evidencia privada (HTTP ${response.status}).`);
+    const blob = await response.blob();
+    if (context.revision !== damageClaimRevision || context.selectionRevision !== reservationSelectionRevision || context.selectionID !== selectedReservationID || selectedDamageClaim?.id !== claimID || context.account !== sessionAccountID || context.token !== sessionToken || context.generation !== sessionGeneration || !sessionToken)
+        return;
+    const url = URL.createObjectURL(blob);
+    participantDamageEvidenceURLs.add(url);
+    const image = document.createElement("img");
+    image.alt = "Evidencia sintética privada del descargo";
+    image.width = 240;
+    image.src = url;
+    document.querySelector("#local-damage-claim-defense-evidence")?.append(image);
 }
 function renderRentalOperations() {
     revokeDamageEvidenceURLs(participantDamageEvidenceURLs);
@@ -2800,7 +2864,7 @@ function renderRentalOperations() {
     }
     for (const item of rentalOperations) {
         const article = document.createElement("article"), title = document.createElement("h6"), detail = document.createElement("p"), evidence = document.createElement("p");
-        const label = item.kind === "checkin" ? "Check-in" : item.kind === "checkout" ? "Check-out" : "Recepción del anfitrión";
+        const label = item.kind === "checkin" ? "Check-in" : item.kind === "checkout" ? "Check-out" : item.kind === "descargo" ? "Evidencia del descargo" : "Recepción del anfitrión";
         title.textContent = `#${item.sequence} · ${label} · ${item.result}`;
         detail.textContent = `${new Date(item.occurred_at).toLocaleString("es-CL", { timeZone: item.time_zone })} (${item.time_zone}) · ${item.synthetic_location.location_code} · actor ${item.actor_id}`;
         const text = item.comments ? `Comentarios: ${item.comments}` : item.observations ? `Observación, no reclamo formal: ${item.observations}` : "Sin comentario.";
@@ -2884,11 +2948,26 @@ async function recordDamageClaim(defense) {
     const current = () => ({ requestRevision: damageClaimActionRevision, selectionRevision: reservationSelectionRevision, selectionID: selectedReservationID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration });
     if (!damageClaimRequestIsCurrent(context, current()))
         return;
-    await finishDamageClaimAfterReload(context, () => loadBookingInbox(), current, () => {
+    const success = () => {
         rentalOperationKeys.clear(id, keyName);
+        if (defense)
+            rentalOperationKeys.clear(id, "damage-claim-defense-evidence");
         document.querySelector("#local-damage-claim-description").value = "";
-        resultElement.textContent = defense ? "Descargo sintético guardado y visible para los participantes." : "Reclamo sintético abierto; reserva en disputa, sin adjudicación ni movimiento de fondos.";
-    });
+        resultElement.textContent = defense ? "Descargo sintético con evidencia privada generado por el Backend." : "Reclamo sintético abierto; reserva en disputa, sin adjudicación ni movimiento de fondos.";
+    };
+    if (defense) {
+        await createOrRecoverDamageDefenseEvidence(context, async () => {
+            const response = await request(`${bookingBase}/reservations/${encodeURIComponent(id)}/operations`, "GET", undefined, true);
+            return bookingData(response).items.some(item => item.kind === "descargo");
+        }, async () => {
+            const evidenceKeyName = "damage-claim-defense-evidence", evidencePayload = "server-generated-png-v1";
+            const evidenceKey = rentalOperationKeys.get(id, evidenceKeyName, evidencePayload, () => crypto.randomUUID());
+            return request(`${bookingBase}/reservations/${encodeURIComponent(id)}/damage-claim/defense/evidence`, `POST`, {}, true, evidenceKey);
+        }, async () => { await loadBookingInbox(); }, current, success);
+    }
+    else {
+        await finishDamageClaimAfterReload(context, () => loadBookingInbox(), current, success);
+    }
 }
 function clearBookingInboxOnSessionLoss() {
     sessionGeneration++;

@@ -159,6 +159,13 @@ func (r *Repository) attachClaimDetails(ctx context.Context, claim damageclaim.C
 	err = r.pool.QueryRow(ctx, `SELECT id::text,COALESCE(actor_id::text,''),descripcion,creado_en FROM public.reclamo_dano_descargo_ensayo_local WHERE reclamo_id=$1`, claim.ID).Scan(&defense.ID, &defense.ActorID, &defense.Description, &defense.CreatedAt)
 	if err == nil {
 		defense.CreatedAt = defense.CreatedAt.UTC()
+		defense.Evidence = make([]damageclaim.ClaimEvidence, 0)
+		if claim.ReservationID != "" && defense.ActorID != "" {
+			defense.Evidence, err = r.defenseEvidence(ctx, claim.ID, claim.ReservationID, admin)
+			if err != nil {
+				return damageclaim.Claim{}, err
+			}
+		}
 		claim.Defense = &defense
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return damageclaim.Claim{}, mapError(err)
@@ -177,7 +184,7 @@ func (r *Repository) attachClaimDetails(ctx context.Context, claim damageclaim.C
 	}
 	evidenceRows, err := r.pool.Query(ctx, `SELECT e.id::text,o.tipo,e.fixture_code,e.mime_type,e.sha256,e.size_bytes,e.creada_en
 		FROM public.operacion_arriendo_ensayo_local o JOIN public.operacion_arriendo_evidencia_ensayo_local e ON e.operacion_id=o.id
-		WHERE o.reserva_id=$1 ORDER BY CASE o.tipo WHEN 'checkin' THEN 1 WHEN 'checkout' THEN 2 ELSE 3 END,e.id`, claim.ReservationID)
+		WHERE o.reserva_id=$1 AND e.archivo_retirado_en IS NULL ORDER BY CASE o.tipo WHEN 'checkin' THEN 1 WHEN 'checkout' THEN 2 WHEN 'descargo' THEN 3 ELSE 4 END,e.id`, claim.ReservationID)
 	if err != nil {
 		return damageclaim.Claim{}, mapError(err)
 	}
@@ -201,6 +208,34 @@ func (r *Repository) attachClaimDetails(ctx context.Context, claim damageclaim.C
 	}
 	evidenceRows.Close()
 	return claim, nil
+}
+
+func (r *Repository) defenseEvidence(ctx context.Context, claimID, reservation string, admin bool) ([]damageclaim.ClaimEvidence, error) {
+	rows, err := r.pool.Query(ctx, `SELECT e.id::text,o.tipo,e.fixture_code,e.mime_type,e.sha256,e.size_bytes,e.creada_en
+		FROM public.reclamo_dano_ensayo_local c
+		JOIN public.reclamo_dano_descargo_ensayo_local d ON d.reclamo_id=c.id
+		JOIN public.operacion_arriendo_ensayo_local o ON o.reserva_id=c.reserva_id AND o.tipo='descargo' AND o.actor_id=d.actor_id
+		JOIN public.operacion_arriendo_evidencia_ensayo_local e ON e.operacion_id=o.id AND e.archivo_retirado_en IS NULL
+		WHERE c.id=$1 AND c.reserva_id=$2 ORDER BY e.creada_en,e.id`, claimID, reservation)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	items := make([]damageclaim.ClaimEvidence, 0)
+	for rows.Next() {
+		var item damageclaim.ClaimEvidence
+		if err := rows.Scan(&item.ID, &item.Operation, &item.Fixture, &item.MIME, &item.SHA256, &item.SizeBytes, &item.CreatedAt); err != nil {
+			return nil, mapError(err)
+		}
+		item.CreatedAt = item.CreatedAt.UTC()
+		if admin {
+			item.ContentURL = "/api/v1/admin/local/damage-claims/" + claimID + "/evidence/" + item.ID
+		} else {
+			item.ContentURL = "/api/v1/local/booking-trial/reservations/" + reservation + "/evidence/" + item.ID
+		}
+		items = append(items, item)
+	}
+	return items, mapError(rows.Err())
 }
 
 func (r *Repository) ListOpen(ctx context.Context) ([]damageclaim.Claim, error) {
@@ -237,7 +272,7 @@ func (r *Repository) AdminEvidence(ctx context.Context, claimID, evidenceID stri
 	var item damageclaim.ClaimEvidence
 	err := r.pool.QueryRow(ctx, `SELECT e.id::text,o.tipo,e.fixture_code,e.mime_type,e.sha256,e.size_bytes,e.creada_en
 		FROM public.reclamo_dano_ensayo_local c JOIN public.operacion_arriendo_ensayo_local o ON o.reserva_id=c.reserva_id
-		JOIN public.operacion_arriendo_evidencia_ensayo_local e ON e.operacion_id=o.id WHERE c.id=$1 AND e.id=$2`, claimID, evidenceID).Scan(&item.ID, &item.Operation, &item.Fixture, &item.MIME, &item.SHA256, &item.SizeBytes, &item.CreatedAt)
+		JOIN public.operacion_arriendo_evidencia_ensayo_local e ON e.operacion_id=o.id WHERE c.id=$1 AND e.id=$2 AND e.archivo_retirado_en IS NULL`, claimID, evidenceID).Scan(&item.ID, &item.Operation, &item.Fixture, &item.MIME, &item.SHA256, &item.SizeBytes, &item.CreatedAt)
 	if err != nil {
 		return damageclaim.ClaimEvidence{}, mapError(err)
 	}

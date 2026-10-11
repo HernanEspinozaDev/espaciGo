@@ -83,6 +83,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.record(w, r, principal.AccountID, reservationID, operation.Receipt, requestID)
 		return
 	}
+	if len(parts) == 9 && parts[6] == "damage-claim" && parts[7] == "defense" && parts[8] == "evidence" && r.Method == http.MethodPost {
+		h.record(w, r, principal.AccountID, reservationID, operation.DefenseEvidence, requestID)
+		return
+	}
 	if len(parts) == 8 && parts[6] == "evidence" && r.Method == http.MethodGet {
 		item, content, e := h.service.EvidenceContent(r.Context(), principal.AccountID, reservationID, parts[7])
 		if e != nil {

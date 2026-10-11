@@ -159,6 +159,29 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 	if blocked {
 		return false, true, tx.Commit(ctx)
 	}
+	// Reservation evidence lives outside PostgreSQL. Retire its blobs through
+	// the operation module's existing durable cleanup worker before unlinking
+	// the reservation/participants; keep the minimal evidence facts in place.
+	if _, err := tx.Exec(ctx, `UPDATE public.operacion_arriendo_evidencia_ensayo_local e
+		SET retirar_archivo_en=COALESCE(e.retirar_archivo_en,$2)
+		FROM public.operacion_arriendo_ensayo_local o
+		WHERE o.id=e.operacion_id AND o.reserva_id=$1 AND o.tipo='descargo' AND e.archivo_retirado_en IS NULL`, candidate.id, deadline); err != nil {
+		return false, false, mapError(err)
+	}
+	queued, err := tx.Exec(ctx, `INSERT INTO public.operacion_arriendo_archivo_candidato_local
+		(archivo_id,reserva_id,actor_id,tipo,estado,creada_en,proximo_intento_en,ultimo_codigo_error)
+		SELECT e.id,r.id,o.actor_id,o.tipo,'pendiente_limpieza',e.creada_en,$2,'retencion_vencida'
+		FROM public.operacion_arriendo_evidencia_ensayo_local e
+		JOIN public.operacion_arriendo_ensayo_local o ON o.id=e.operacion_id
+		JOIN public.reserva_ensayo_local r ON r.id=o.reserva_id
+		WHERE r.id=$1 AND o.tipo='descargo' AND e.archivo_retirado_en IS NULL
+		ON CONFLICT (archivo_id) DO NOTHING`, candidate.id, now)
+	if err != nil {
+		return false, false, mapError(err)
+	}
+	if queued.RowsAffected() > 0 {
+		return false, true, tx.Commit(ctx)
+	}
 	fields := []string{"reserva.anfitrion_id", "reserva.arrendatario_id", "cotizacion.anfitrion_id", "cotizacion.arrendatario_id", "pago.arrendatario_id", "cancelacion.arrendatario_id", "disputa.participantes_y_actores", "reclamo.participantes_y_evidencia", "descargo.actor_id", "reclamo_historial.actor_id", "resolucion.administrador_id", "operacion.reserva_y_actor", "operacion_historial.reserva_y_actor", "historial_transicion.actor_id", "historial_disputa.actor_id", "liquidacion_historial.actor_id", "finanzas_historial.liquidacion_actor_id", "mensaje.autor_id", "fixture.participantes", "cursor_lectura"}
 	statements := []struct {
 		sql  string

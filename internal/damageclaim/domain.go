@@ -128,21 +128,23 @@ func (transition Transition) MarshalJSON() ([]byte, error) {
 }
 
 type Defense struct {
-	ID          string    `json:"id"`
-	ActorID     string    `json:"actor_id"`
-	Description string    `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
-	Reused      bool      `json:"reused,omitempty"`
+	ID          string          `json:"id"`
+	ActorID     string          `json:"actor_id"`
+	Description string          `json:"description"`
+	CreatedAt   time.Time       `json:"created_at"`
+	Reused      bool            `json:"reused,omitempty"`
+	Evidence    []ClaimEvidence `json:"evidence"`
 }
 
 func (defense Defense) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		ID          string    `json:"id"`
-		ActorID     *string   `json:"actor_id"`
-		Description string    `json:"description"`
-		CreatedAt   time.Time `json:"created_at"`
-		Reused      bool      `json:"reused,omitempty"`
-	}{defense.ID, nullableIdentifier(defense.ActorID), defense.Description, defense.CreatedAt, defense.Reused})
+		ID          string          `json:"id"`
+		ActorID     *string         `json:"actor_id"`
+		Description string          `json:"description"`
+		CreatedAt   time.Time       `json:"created_at"`
+		Reused      bool            `json:"reused,omitempty"`
+		Evidence    []ClaimEvidence `json:"evidence"`
+	}{defense.ID, nullableIdentifier(defense.ActorID), defense.Description, defense.CreatedAt, defense.Reused, nonNilEvidence(defense.Evidence)})
 }
 
 type Input struct {

@@ -2230,6 +2230,27 @@ paths:
         '200': { description: PNG generado por el Backend., content: { image/png: { schema: { type: string, format: binary } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /local/booking-trial/reservations/{reservationID}/damage-claim/defense/evidence:
+    parameters: [{ name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: createSyntheticDamageClaimDefenseEvidence
+      tags: [M10 local]
+      description: Solo el arrendatario titular de un descargo existente en reclamo abierto. Genera en Backend una imagen PNG sintética privada; no acepta archivos del cliente. Idempotente por reserva y clave. Su archivo sigue la retención de vínculos de reserva ratificada de 24 meses y la limpieza por baja.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        '201': { description: Evidencia PNG sintética generada por Backend., content: { application/json: { schema: { $ref: '#/components/schemas/LocalRentalOperationEnvelope' } } } }
+        '200': { description: Reintento idempotente., content: { application/json: { schema: { $ref: '#/components/schemas/LocalRentalOperationEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /local/booking-trial/reservations/{reservationID}/damage-claim:
     parameters: [{ name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }]
     get:
@@ -2265,7 +2286,7 @@ paths:
     post:
       operationId: submitSyntheticDamageClaimDefense
       tags: [M10 local]
-      description: Solo el arrendatario, mientras exista reclamo abierto. Este slice conserva el texto sintético; la evidencia propia de descargo y la revisión/resolución completa de M10 permanecen pendientes.
+      description: Solo el arrendatario, mientras exista reclamo abierto. Registra texto sintético; la evidencia privada se genera mediante createSyntheticDamageClaimDefenseEvidence y no acepta archivos del cliente.
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
@@ -2843,7 +2864,7 @@ components:
       required: [id, operation, fixture_code, mime_type, sha256, size_bytes, created_at, content_url]
       properties:
         id: { type: string, format: uuid }
-        operation: { type: string, enum: [checkin, checkout, recepcion] }
+        operation: { type: string, enum: [checkin, checkout, recepcion, descargo] }
         fixture_code: { type: string, const: synthetic-png-v1 }
         mime_type: { type: string, const: image/png }
         sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
@@ -2886,13 +2907,14 @@ components:
     LocalDamageClaimDefense:
       description: actor_id es null si el vínculo personal se retiró al vencer la retención local.
       type: object
-      required: [id, actor_id, description, created_at]
+      required: [id, actor_id, description, created_at, evidence]
       properties:
         id: { type: string, format: uuid }
         actor_id: { type: [string, 'null'], format: uuid }
         description: { type: string }
         created_at: { type: string, format: date-time }
         reused: { type: boolean }
+        evidence: { type: array, items: { $ref: '#/components/schemas/LocalDamageClaimEvidence' } }
     LocalRentalOperationInput:
       type: object
       additionalProperties: false
@@ -2921,7 +2943,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         reservation_id: { type: string, format: uuid }
-        kind: { type: string, enum: [checkin, checkout, recepcion] }
+        kind: { type: string, enum: [checkin, checkout, recepcion, descargo] }
         actor_id: { type: string, format: uuid }
         occurred_at: { type: string, format: date-time }
         time_zone: { type: string }
@@ -2941,7 +2963,6 @@ components:
         reused: { type: boolean }
         evidence:
           type: array
-          minItems: 1
           items:
             type: object
             required: [id, fixture_code, mime_type, sha256, size_bytes, created_at]

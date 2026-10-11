@@ -229,11 +229,12 @@
           <pre id="local-rental-operations-output" aria-live="polite">Selecciona una reserva propia.</pre>
           <section id="local-damage-claim-panel" aria-label="Reclamo formal sintético por daños">
             <h6>Reclamo formal por daños · M10 local</h6>
-            <p>Solo el anfitrión puede abrirlo antes de 24 horas desde el check-out. La reserva pasa a disputa; no se adjudican daños ni se mueven fondos. El arrendatario puede añadir un descargo. La evidencia referenciada es la imagen sintética privada del check-out.</p>
+            <p>Solo el anfitrión puede abrirlo antes de 24 horas desde el check-out. La reserva pasa a disputa; no se adjudican daños ni se mueven fondos. El arrendatario puede registrar un descargo con una imagen PNG sintética generada en el Backend y privada para los participantes y el administrador autorizado.</p>
             <label>Descripción sintética del reclamo o descargo <textarea id="local-damage-claim-description" rows="3" maxlength="2000"></textarea></label>
             <button id="local-damage-claim-open" type="button" disabled>Abrir reclamo formal</button>
             <button id="local-damage-claim-defend" type="button" disabled>Registrar descargo</button>
             <pre id="local-damage-claim-output" aria-live="polite">El reclamo formal se consulta por participante.</pre>
+            <div id="local-damage-claim-defense-evidence" aria-label="Evidencia sintética privada del descargo"></div>
           </section>
         </section>
         <label>Resultado fake <select id="booking-inbox-payment-outcome"><option value="exito">Éxito simulado</option><option value="rechazo">Rechazo simulado</option><option value="sin_respuesta">Sin respuesta simulada</option></select></label>

@@ -85,6 +85,70 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 		return nil, nil, nil, err
 	}
 	sections["administrative_account_block"] = json.RawMessage(blockJSON)
+	// Export only the signed-in owner's own damage-claim defense and its
+	// server-generated attachment. Counterparty IDs, contacts and evidence are
+	// not included in this projection.
+	type defenseEvidenceRecord struct {
+		Description   string    `json:"description"`
+		CreatedAt     time.Time `json:"created_at"`
+		EvidenceID    string    `json:"evidence_id,omitempty"`
+		Fixture       string    `json:"fixture_code,omitempty"`
+		MIME          string    `json:"mime_type,omitempty"`
+		SHA           string    `json:"sha256,omitempty"`
+		Size          int64     `json:"size_bytes,omitempty"`
+		Archive       string    `json:"archive_file,omitempty"`
+		FileAvailable bool      `json:"file_available"`
+	}
+	defenseRows, err := r.pool.Query(ctx, `SELECT d.descripcion,d.creado_en,e.id::text,e.fixture_code,e.mime_type,e.sha256,e.size_bytes
+		FROM public.reclamo_dano_descargo_ensayo_local d
+		JOIN public.reclamo_dano_ensayo_local c ON c.id=d.reclamo_id
+		LEFT JOIN public.operacion_arriendo_ensayo_local o ON o.reserva_id=c.reserva_id AND o.tipo='descargo' AND o.actor_id=d.actor_id
+		LEFT JOIN public.operacion_arriendo_evidencia_ensayo_local e ON e.operacion_id=o.id AND e.archivo_retirado_en IS NULL
+		WHERE d.actor_id=$1 ORDER BY d.creado_en,c.id,e.id`, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defenses := []defenseEvidenceRecord{}
+	defenseFiles := []privacy.ExportFile{}
+	defenseExclusions := []string{}
+	for defenseRows.Next() {
+		var item defenseEvidenceRecord
+		var evidenceID, fixture, mime, sha *string
+		var size *int64
+		if err := defenseRows.Scan(&item.Description, &item.CreatedAt, &evidenceID, &fixture, &mime, &sha, &size); err != nil {
+			defenseRows.Close()
+			return nil, nil, nil, err
+		}
+		if evidenceID != nil {
+			item.EvidenceID = *evidenceID
+			item.Fixture = *fixture
+			item.MIME = *mime
+			item.SHA = *sha
+			item.Size = *size
+		}
+		if item.EvidenceID != "" && r.files != nil {
+			if content, readErr := r.files.Get(ctx, item.EvidenceID); readErr == nil {
+				item.FileAvailable = true
+				item.Archive = "files/damage-claim-defense/" + item.EvidenceID + ".png"
+				defenseFiles = append(defenseFiles, privacy.ExportFile{Name: item.Archive, MediaType: "image/png", Description: "Evidencia sintética propia de descargo", Content: content})
+			} else {
+				defenseExclusions = append(defenseExclusions, "evidencia de descargo "+item.EvidenceID+" sin archivo disponible; omitida del ZIP")
+			}
+		} else if item.EvidenceID != "" {
+			defenseExclusions = append(defenseExclusions, "storage privado no disponible; evidencia de descargo omitida del ZIP")
+		}
+		defenses = append(defenses, item)
+	}
+	if err := defenseRows.Err(); err != nil {
+		defenseRows.Close()
+		return nil, nil, nil, err
+	}
+	defenseRows.Close()
+	defenseJSON, err := json.Marshal(map[string]any{"items": defenses})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["synthetic_damage_claim_defenses"] = defenseJSON
 	type photoRecord struct {
 		ID      string    `json:"id"`
 		State   string    `json:"state"`
@@ -277,7 +341,9 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 	sections["verification_history"] = historyJSON
 	files := append([]privacy.ExportFile{}, photoFiles...)
 	files = append(files, galleryFiles...)
+	files = append(files, defenseFiles...)
 	photoExclusions = append(photoExclusions, galleryExclusions...)
+	photoExclusions = append(photoExclusions, defenseExclusions...)
 	exclusionCounts := 0
 	evidenceItems := []evidenceRecord{}
 	for _, item := range cases {
