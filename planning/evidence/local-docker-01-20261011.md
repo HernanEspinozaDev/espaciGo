@@ -1,6 +1,6 @@
 # DOCKER-01 — evidencia enfocada de empaquetado y configuración
 
-Fecha: 2026-10-11. Commit comprobado: `78571291d3fe31e33ea856470fcf2927e8143a31` (DOCKER-01). Cuenta GitHub efectiva verificada: `HernanMEC`. LOCAL-1 fue aceptado explícitamente por el propietario dentro del alcance sintético ratificado; #246 está cerrada y Hecho en Projects. Este corte inicia LOCAL-DOCKER y no modifica el comportamiento de negocio.
+Fecha: 2026-10-11. Código validado en commit `9cc3657c75175b7ebbf1d3122c14a9280eb702d3`; este archivo de evidencia se publica en el commit siguiente. Cuenta GitHub efectiva verificada: `HernanMEC`. LOCAL-1 fue aceptado explícitamente por el propietario dentro del alcance sintético ratificado; #246 está cerrada y Hecho en Projects. Este corte inicia LOCAL-DOCKER y no modifica el comportamiento de negocio.
 
 ## Cambios incluidos
 
