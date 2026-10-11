@@ -42,3 +42,24 @@ La integración amplía `TestLocalBookingTrialPostgresLifecycleAndConcurrentRetr
 Se reconstruyó y arrancó el stack mediante `./scripts/dev-env.sh up`, conservando `espacigo_pgdata`, secretos y datos. Los servicios quedaron healthy y la página sirvió los nuevos controles de búsqueda, superficie, mapa sintético y limpieza. No se autenticó una cuenta desde el navegador en esta comprobación; la interacción del botón, el orden de invalidación y el viewport están cubiertos por las pruebas enfocadas del mock, mientras la API real y el repositorio se verificaron en PostgreSQL desechable.
 
 La regresión integral LOCAL-1 se reserva para cuando #258 y #259 estén integradas. #246 permanece abierta; los criterios generales M04/M05 tampoco quedan completos por este corte.
+
+## Ajustes de revisión en PR #261 (2026-10-11)
+
+- Se corrigió `CatalogDetail` para seleccionar y devolver `espacio.superficie_m2`. La integración PostgreSQL compara `area_m2` del resultado de búsqueda con el detalle autenticado del mismo espacio; además consulta el endpoint HTTP y valida el JSON recibido contra `LocalCatalogDetailEnvelope` de OpenAPI.
+- `SyntheticMapViewport.zoomBy` ahora recorta `panX/panY` al rango válido para el nuevo zoom. La prueba acercar → desplazar → alejar verifica que, al volver a zoom 1, el desplazamiento queda en cero y reaparecen ambos pines sin pulsar “Restablecer mapa”.
+
+Comprobaciones enfocadas posteriores a estos cambios:
+
+```text
+GO_TEST_RUN='^TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry$' \
+  bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/booking
+PASS en PostgreSQL/PostGIS desechable con rol runtime.
+
+npm --prefix mock run test:search-filters
+PASS TypeScript build y 8 pruebas del mock; 0 fallos.
+
+go test ./internal/booking ./internal/booking/transport/http ./internal/openapicontract -count=1
+PASS
+```
+
+No se ejecutó la regresión integral LOCAL-1. #257 permanece abierta/en revisión y #246 sigue abierta.

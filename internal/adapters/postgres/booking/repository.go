@@ -125,7 +125,7 @@ func (r *Repository) CatalogProfile(ctx context.Context, category string, versio
 
 func (r *Repository) CatalogDetail(ctx context.Context, actor, spaceID string) (booking.CatalogItem, error) {
 	var v booking.CatalogItem
-	err := r.pool.QueryRow(ctx, `SELECT e.id::text,e.categoria_codigo,k.nombre,e.titulo,e.descripcion,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,c.perfil_version,p.perfil,c.valores
+	err := r.pool.QueryRow(ctx, `SELECT e.id::text,e.categoria_codigo,k.nombre,e.titulo,e.descripcion,e.superficie_m2,t.modalidad,t.precio_base_clp,t.moneda,e.zona_horaria,c.perfil_version,p.perfil,c.valores
 FROM public.espacio e
 LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id
 JOIN public.categoria_espacio k ON k.codigo=e.categoria_codigo AND k.activa
@@ -137,7 +137,7 @@ WHERE e.id=$1 AND e.zona_horaria IS NOT NULL AND (((f.habilitada AND e.estado='b
        SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
        JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada'
        JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo'
-       WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible')))`, spaceID, actor).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.RateUnit, &v.Price, &v.Currency, &v.TimeZone, &v.ProfileVersion, &v.Profile, &v.Attributes)
+       WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible')))`, spaceID, actor).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.Price, &v.Currency, &v.TimeZone, &v.ProfileVersion, &v.Profile, &v.Attributes)
 	return v, mapErr(err)
 }
 

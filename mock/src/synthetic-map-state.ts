@@ -14,13 +14,21 @@ export class SyntheticMapViewport {
   zoomBy(factor: number): void {
     if (!Number.isFinite(factor) || factor <= 0) return;
     this.zoom = Math.min(4, Math.max(1, this.zoom * factor));
+    this.clampPan();
   }
 
   panBy(dx: number, dy: number): void {
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    this.panX += dx;
+    this.panY += dy;
+    this.clampPan();
+  }
+
+  private clampPan(): void {
     const extent = Math.max(0, (this.zoom - 1) * 50);
-    this.panX = Math.min(extent, Math.max(-extent, this.panX + dx));
-    this.panY = Math.min(extent, Math.max(-extent, this.panY + dy));
+    const clamp = (value: number): number => extent === 0 ? 0 : Math.min(extent, Math.max(-extent, value));
+    this.panX = clamp(this.panX);
+    this.panY = clamp(this.panY);
   }
 
   project(position: SyntheticMapPosition): SyntheticMapPosition {

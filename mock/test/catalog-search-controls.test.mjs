@@ -39,3 +39,20 @@ test("el plano sintético permite acercar, desplazar, filtrar pines fuera de vis
   assert.deepEqual(map.project(west), west);
   assert.equal(map.zoom, 1);
 });
+
+test("acercar, desplazar y alejar vuelve a mostrar los pines al reducir el zoom", () => {
+  const map = new SyntheticMapViewport();
+  const west = { x: 0, y: 50 }, east = { x: 100, y: 50 };
+  map.zoomBy(2);
+  map.panBy(-50, 0);
+  assert.equal(map.zoom, 2);
+  assert.equal(map.panX, -50);
+  assert.equal(map.isVisible(west), false);
+  assert.equal(map.isVisible(east), true);
+
+  map.zoomBy(0.5);
+  assert.equal(map.zoom, 1);
+  assert.equal(map.panX, 0, "pan is clamped to the zero extent at zoom 1");
+  assert.equal(map.isVisible(west), true);
+  assert.equal(map.isVisible(east), true, "the pins return without a manual reset");
+});

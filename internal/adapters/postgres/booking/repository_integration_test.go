@@ -1,6 +1,7 @@
 package bookingpg
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -42,6 +43,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/santhosh-tekuri/jsonschema/v5"
+	"gopkg.in/yaml.v3"
 )
 
 type integrationBookingAuth struct {
@@ -742,12 +745,27 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 		t.Fatalf("geographic catalog search wrote booking state: quotes %d->%d reservations %d->%d occupancies %d->%d", geoQuotesBefore, geoQuotesAfter, geoReservationsBefore, geoReservationsAfter, geoOccupanciesBefore, geoOccupanciesAfter)
 	}
 	detailItem, err := svc.CatalogDetail(ctx, renter, secondSpace)
-	if err != nil || detailItem.CategoryCode != "bodega" || detailItem.CategoryName != "Bodega" || detailItem.ProfileVersion != 1 || !hasAttributes(detailItem.Attributes, map[string]any{"altura_util_m": 3.2, "carro_carga_disponible": false}) {
+	if err != nil || detailItem.CategoryCode != "bodega" || detailItem.CategoryName != "Bodega" || detailItem.ProfileVersion != 1 || detailItem.AreaM2 <= 0 || !hasAttributes(detailItem.Attributes, map[string]any{"altura_util_m": 3.2, "carro_carga_disponible": false}) {
 		t.Fatalf("selected fixture detail=%+v err=%v", detailItem, err)
 	}
 	filtered, err := svc.Catalog(ctx, renter, booking.CatalogFilter{CategoryCode: "bodega"})
-	if err != nil || len(filtered) != 1 || filtered[0].SpaceID != secondSpace {
+	if err != nil || len(filtered) != 1 || filtered[0].SpaceID != secondSpace || filtered[0].AreaM2 != detailItem.AreaM2 {
 		t.Fatalf("category filter=%+v err=%v", filtered, err)
+	}
+	detailHandler := bookinghttp.NewHandler(integrationBookingAuth{accountID: renter}, svc, nil)
+	detailRequest := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/catalog/"+secondSpace, nil)
+	detailRequest.Header.Set("Authorization", "Bearer local-booking-integration-session")
+	detailResponse := httptest.NewRecorder()
+	detailHandler.ServeHTTP(detailResponse, detailRequest)
+	if detailResponse.Code != http.StatusOK {
+		t.Fatalf("catalog detail HTTP status=%d body=%s", detailResponse.Code, detailResponse.Body.String())
+	}
+	validateBookingOpenAPIJSON(t, detailResponse.Body.Bytes(), "LocalCatalogDetailEnvelope")
+	var detailEnvelope struct {
+		Data booking.CatalogItem `json:"data"`
+	}
+	if err = json.Unmarshal(detailResponse.Body.Bytes(), &detailEnvelope); err != nil || detailEnvelope.Data.AreaM2 != filtered[0].AreaM2 {
+		t.Fatalf("catalog search/detail surface mismatch: search=%v detail=%v body=%s err=%v", filtered[0].AreaM2, detailEnvelope.Data.AreaM2, detailResponse.Body.String(), err)
 	}
 	when := fixedNow.Add(30 * time.Minute)
 	until := when.Add(time.Hour)
@@ -4497,6 +4515,37 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		t.Fatalf("minimized historic row=%d %s", minimizedDetail.Code, minimizedDetail.Body.String())
 	}
 
+}
+
+func validateBookingOpenAPIJSON(t *testing.T, payload []byte, schemaName string) {
+	t.Helper()
+	openapi, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "planning", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := yaml.Unmarshal(openapi, &document); err != nil {
+		t.Fatal(err)
+	}
+	documentJSON, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := jsonschema.NewCompiler()
+	if err := compiler.AddResource("openapi.json", bytes.NewReader(documentJSON)); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := compiler.Compile("openapi.json#/components/schemas/" + schemaName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(value); err != nil {
+		t.Fatalf("booking response does not match OpenAPI %s: %v", schemaName, err)
+	}
 }
 
 func timePtr(value time.Time) *time.Time { return &value }
