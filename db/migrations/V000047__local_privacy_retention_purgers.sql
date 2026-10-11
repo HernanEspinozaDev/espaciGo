@@ -4,11 +4,7 @@
 ALTER TABLE public.verificacion_evidencia_sintetica
     ADD COLUMN archivo_id uuid,
     ADD COLUMN retirar_archivo_en timestamptz,
-    ADD COLUMN archivo_retirado_en timestamptz,
-    ADD CONSTRAINT verificacion_evidencia_archivo_retencion_ck CHECK (
-        (archivo_id IS NULL AND archivo_retirado_en IS NOT NULL)
-        OR (archivo_id IS NOT NULL AND archivo_retirado_en IS NULL)
-    );
+    ADD COLUMN archivo_retirado_en timestamptz;
 
 UPDATE public.verificacion_evidencia_sintetica e
 SET archivo_id=e.id,
@@ -17,6 +13,17 @@ SET archivo_id=e.id,
       WHEN v.resuelta_en IS NOT NULL THEN v.resuelta_en + interval '90 days'
       ELSE NULL END
 FROM public.verificacion v WHERE v.id=e.verificacion_id;
+
+-- Existing evidence rows receive their storage reference and deadline before
+-- the invariant is installed. Validate it explicitly so upgrades from V46 do
+-- not fail while legacy rows are still being backfilled.
+ALTER TABLE public.verificacion_evidencia_sintetica
+    ADD CONSTRAINT verificacion_evidencia_archivo_retencion_ck CHECK (
+        (archivo_id IS NULL AND archivo_retirado_en IS NOT NULL)
+        OR (archivo_id IS NOT NULL AND archivo_retirado_en IS NULL)
+    ) NOT VALID;
+ALTER TABLE public.verificacion_evidencia_sintetica
+    VALIDATE CONSTRAINT verificacion_evidencia_archivo_retencion_ck;
 
 CREATE INDEX verificacion_evidencia_archivo_retencion_idx
     ON public.verificacion_evidencia_sintetica(retirar_archivo_en,id)
