@@ -15,6 +15,7 @@ import { applyM02PhotoIfCurrent, captureM02PhotoSession, deliverM02PhotoIfCurren
 import { publicationAction } from "./space-publication-state.js";
 import { publishedContentChange } from "./published-content-state.js";
 import { galleryContextMatches } from "./gallery-session-state.js";
+import { isSelectedCover, loadOwnGalleryView, ownSpaceCoverLabel } from "./gallery-cover-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount } from "./suppression-review-state.js";
 import { captureRentalOperationContext, finishRentalOperationAfterReload, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
 import { AdminReservationsState } from "./admin-reservations-state.js";
@@ -1006,7 +1007,9 @@ async function loadSpaces() {
             galleryButton.type = "button";
             galleryButton.textContent = `Galería sintética · ${String(item.title)}`;
             galleryButton.addEventListener("click", () => void action(() => loadSpaceGallery(String(item.id), String(item.title), String(item.cover_photo_id ?? ""))));
-            li.append(galleryButton);
+            const coverStatus = document.createElement("small");
+            coverStatus.textContent = ownSpaceCoverLabel(item.cover_photo_id);
+            li.append(galleryButton, coverStatus);
         }
         spacesList.append(li);
     }
@@ -1038,7 +1041,7 @@ async function loadSpaceGallery(spaceID, title, coverPhotoID = "") {
     const heading = document.createElement("h3");
     heading.textContent = `Galería sintética · ${title}`;
     const notice = document.createElement("p");
-    notice.textContent = `El Backend genera PNG fijos; no se cargan imágenes reales ni archivos del cliente. Máximo 10 imágenes. La galería es privada. Portada seleccionada: ${coverPhotoID || "ninguna"}.`;
+    notice.textContent = "El Backend genera PNG fijos; no se cargan imágenes reales ni archivos del cliente. Máximo 10 imágenes. La galería es privada.";
     const status = document.createElement("p");
     status.textContent = "Consultando galería propia…";
     const add = document.createElement("button");
@@ -1067,14 +1070,15 @@ async function loadSpaceGallery(spaceID, title, coverPhotoID = "") {
         if (!currentGalleryContext(ctx))
             return;
         galleryAddRetryKeys.delete(retryKeyID);
-        status.textContent = `Imagen sintética guardada${response.reused === true ? " (reintento idempotente)" : ""}.`;
-        await loadSpaceGallery(spaceID, title);
+        await refreshSpaceGallery(spaceID, title, ctx, `Imagen sintética guardada${response.reused === true ? " (reintento idempotente)" : ""}.`);
     }));
     try {
-        const result = await request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/gallery`, "GET", undefined, true);
+        const view = await loadOwnGalleryView(() => request(`/api/v1/spaces/${encodeURIComponent(spaceID)}`, "GET", undefined, true), () => request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/gallery`, "GET", undefined, true));
         if (!currentGalleryContext(ctx))
             return;
-        const items = result.items || [];
+        coverPhotoID = view.coverPhotoID;
+        notice.textContent = `El Backend genera PNG fijos; no se cargan imágenes reales ni archivos del cliente. Máximo 10 imágenes. La galería es privada. ${ownSpaceCoverLabel(coverPhotoID)}.`;
+        const items = view.photos;
         add.disabled = items.length >= 10;
         status.textContent = `${items.length} de 10 imágenes sintéticas activas.`;
         if (items.length === 0) {
@@ -1133,13 +1137,12 @@ async function loadSpaceGallery(spaceID, title, coverPhotoID = "") {
                 }
                 if (!currentGalleryContext(ctx))
                     return;
-                status.textContent = "Imagen retirada; el archivo privado queda en cola de limpieza recuperable.";
-                await loadSpaceGallery(spaceID, title);
+                await refreshSpaceGallery(spaceID, title, ctx, "Imagen retirada; el archivo privado queda en cola de limpieza recuperable.");
             }));
             const cover = document.createElement("button");
             cover.type = "button";
-            cover.textContent = String(item.id) === coverPhotoID ? "Portada actual" : "Usar como portada";
-            cover.disabled = String(item.id) === coverPhotoID;
+            cover.textContent = isSelectedCover(String(item.id), coverPhotoID) ? "Portada actual" : "Usar como portada";
+            cover.disabled = isSelectedCover(String(item.id), coverPhotoID);
             cover.addEventListener("click", () => void action(async () => {
                 if (!currentGalleryContext(ctx))
                     return;
@@ -1154,9 +1157,7 @@ async function loadSpaceGallery(spaceID, title, coverPhotoID = "") {
                 if (!currentGalleryContext(ctx))
                     return;
                 status.textContent = "Portada sintética guardada para este espacio.";
-                await loadSpaces();
-                if (currentGalleryContext(ctx))
-                    await loadSpaceGallery(spaceID, title, String(item.id));
+                await refreshSpaceGallery(spaceID, title, ctx, "Portada sintética guardada y consultada desde la API.");
             }));
             li.append(meta, show, cover, remove, previewBox);
             list.append(li);
@@ -1167,6 +1168,13 @@ async function loadSpaceGallery(spaceID, title, coverPhotoID = "") {
             return;
         throw error;
     }
+}
+async function refreshSpaceGallery(spaceID, title, ctx, notice) {
+    await loadSpaces();
+    if (!currentGalleryContext(ctx))
+        return;
+    resultElement.textContent = notice;
+    await loadSpaceGallery(spaceID, title);
 }
 document.querySelector("#spaces-load").addEventListener("click", () => void action(loadSpaces));
 document.querySelector("#space-cancel").addEventListener("click", () => { spaceForm.reset(); currentDraftID = ""; document.querySelector("#space-save").textContent = "Crear borrador"; document.querySelector("#space-cancel").hidden = true; });

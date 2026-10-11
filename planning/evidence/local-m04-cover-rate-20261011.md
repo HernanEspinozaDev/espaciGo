@@ -1,6 +1,6 @@
 # LOCAL-M04-COVER-RATE-01 — evidencia de implementación
 
-Estado al 2026-10-11: PR #256 preparado para revisión; no fusionado ni aceptado. #246 permanece abierta y LOCAL-1 no está cerrado.
+Estado al 2026-10-11: Issue #256 está en revisión mediante el PR #260; el PR no está fusionado ni aceptado. #246 permanece abierta y LOCAL-1 no está cerrado.
 
 ## Criterios del corte
 
@@ -29,6 +29,9 @@ PASS
 npm --prefix mock run build
 PASS
 
+npm --prefix mock run test:gallery-cover
+5 passed, 0 failed (3 portada + 2 protecciones de sesión/selección)
+
 node --test mock/test/gallery-session-state.test.mjs mock/test/space-publication-state.test.mjs
 3 passed, 0 failed
 
@@ -44,4 +47,6 @@ La regresión integral LOCAL-1 queda reservada hasta cerrar las brechas locales 
 - La portada seleccionada es una referencia al PNG privado sintético, no publica la imagen ni incluye coordenadas, dirección o URL pública en el catálogo.
 - Horario semanal solo es compatible con tarifa horaria. El dueño debe desactivar el horario antes de cambiar a día o mes; tarifas diaria/mensual conservan sus reglas existentes.
 - La versión actual de tarifa cambia para operaciones futuras; snapshots de cotizaciones y reservas se mantienen intactos.
-- Eliminación de publicación (RQF-091/092) no forma parte de este PR. La propuesta concreta de conservación histórica está en la Issue #258 y espera ratificación antes de implementar.
+- Eliminación de publicación (RQF-091/092) no forma parte de este PR. La política local de conservación se ratificó en #258; su implementación sigue pendiente para ese corte.
+- La galería del mock vuelve a consultar el detalle del espacio (portada persistida) y las imágenes tras agregar o retirar una imagen, y refresca el listado propio. La respuesta solo se aplica si siguen vigentes sesión, selección y revisión de la galería.
+- Pruebas enfocadas: elegir A y agregar B conserva A; retirar B conserva A; retirar A elimina la portada en galería y listado. `npm --prefix mock run test:gallery-cover` compila TypeScript y ejecuta estos casos más las protecciones existentes de sesión/selección.

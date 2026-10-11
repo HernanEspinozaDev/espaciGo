@@ -15,6 +15,7 @@ import { applyM02PhotoIfCurrent, captureM02PhotoSession, deliverM02PhotoIfCurren
 import { publicationAction } from "./space-publication-state.js";
 import { publishedContentChange } from "./published-content-state.js";
 import { galleryContextMatches, type GalleryContext } from "./gallery-session-state.js";
+import { isSelectedCover, loadOwnGalleryView, ownSpaceCoverLabel } from "./gallery-cover-state.js";
 import { clearSuppressionReviewPanelState, formatSuppressionExecution, initialSuppressionReviewPanelState, withSuppressionEvaluation, withSuppressionQueueCount, type SuppressionReviewPanelState } from "./suppression-review-state.js";
 import { captureRentalOperationContext, finishRentalOperationAfterReload, rentalOperationControls, rentalOperationResponseIsCurrent, RentalOperationIdempotencyKeys } from "./rental-operations-state.js";
 import { AdminReservationsState, type AdminReservationContext } from "./admin-reservations-state.js";
@@ -695,7 +696,8 @@ async function loadSpaces(): Promise<void> {
     if(sessionRoles.includes("arrendador")) {
       const galleryButton=document.createElement("button"); galleryButton.type="button"; galleryButton.textContent=`Galería sintética · ${String(item.title)}`;
       galleryButton.addEventListener("click",()=>void action(()=>loadSpaceGallery(String(item.id),String(item.title),String(item.cover_photo_id??""))));
-      li.append(galleryButton);
+      const coverStatus=document.createElement("small"); coverStatus.textContent=ownSpaceCoverLabel(item.cover_photo_id);
+      li.append(galleryButton,coverStatus);
     }
     spacesList.append(li);
   }
@@ -718,7 +720,7 @@ async function loadSpaceGallery(spaceID:string,title:string,coverPhotoID=""):Pro
   for(const url of galleryPreviewURLs)URL.revokeObjectURL(url); galleryPreviewURLs.clear();
   spaceGalleryPanel.replaceChildren();
   const heading=document.createElement("h3"); heading.textContent=`Galería sintética · ${title}`;
-  const notice=document.createElement("p"); notice.textContent=`El Backend genera PNG fijos; no se cargan imágenes reales ni archivos del cliente. Máximo 10 imágenes. La galería es privada. Portada seleccionada: ${coverPhotoID||"ninguna"}.`;
+  const notice=document.createElement("p"); notice.textContent="El Backend genera PNG fijos; no se cargan imágenes reales ni archivos del cliente. Máximo 10 imágenes. La galería es privada.";
   const status=document.createElement("p"); status.textContent="Consultando galería propia…";
   const add=document.createElement("button"); add.type="button"; add.textContent="Generar imagen sintética";
   const list=document.createElement("ul");
@@ -731,13 +733,18 @@ async function loadSpaceGallery(spaceID:string,title:string,coverPhotoID=""):Pro
     try{response=await request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/gallery`,"POST",undefined,true,key);}
     catch(error){if(!currentGalleryContext(ctx))return;throw error;}
     if(!currentGalleryContext(ctx))return;
-    galleryAddRetryKeys.delete(retryKeyID); status.textContent=`Imagen sintética guardada${response.reused===true?" (reintento idempotente)":""}.`;
-    await loadSpaceGallery(spaceID,title);
+    galleryAddRetryKeys.delete(retryKeyID);
+    await refreshSpaceGallery(spaceID,title,ctx,`Imagen sintética guardada${response.reused===true?" (reintento idempotente)":""}.`);
   }));
   try {
-    const result=await request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/gallery`,"GET",undefined,true);
+    const view=await loadOwnGalleryView<Record<string,unknown>>(
+      ()=>request(`/api/v1/spaces/${encodeURIComponent(spaceID)}`,"GET",undefined,true),
+      ()=>request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/gallery`,"GET",undefined,true),
+    );
     if(!currentGalleryContext(ctx))return;
-    const items=(result.items as Array<Record<string,unknown>>)||[];
+    coverPhotoID=view.coverPhotoID;
+    notice.textContent=`El Backend genera PNG fijos; no se cargan imágenes reales ni archivos del cliente. Máximo 10 imágenes. La galería es privada. ${ownSpaceCoverLabel(coverPhotoID)}.`;
+    const items=view.photos;
     add.disabled=items.length>=10;
     status.textContent=`${items.length} de 10 imágenes sintéticas activas.`;
     if(items.length===0){const empty=document.createElement("li");empty.textContent="Aún no hay imágenes en esta galería.";list.append(empty);}
@@ -766,24 +773,28 @@ async function loadSpaceGallery(spaceID:string,title:string,coverPhotoID=""):Pro
         try{await request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/gallery/${encodeURIComponent(String(item.id))}`,"DELETE",undefined,true);}
         catch(error){if(!currentGalleryContext(ctx))return;throw error;}
         if(!currentGalleryContext(ctx))return;
-        status.textContent="Imagen retirada; el archivo privado queda en cola de limpieza recuperable.";
-        await loadSpaceGallery(spaceID,title);
+        await refreshSpaceGallery(spaceID,title,ctx,"Imagen retirada; el archivo privado queda en cola de limpieza recuperable.");
       }));
       const cover=document.createElement("button");cover.type="button";
-      cover.textContent=String(item.id)===coverPhotoID?"Portada actual":"Usar como portada";
-      cover.disabled=String(item.id)===coverPhotoID;
+      cover.textContent=isSelectedCover(String(item.id),coverPhotoID)?"Portada actual":"Usar como portada";
+      cover.disabled=isSelectedCover(String(item.id),coverPhotoID);
       cover.addEventListener("click",()=>void action(async()=>{
         if(!currentGalleryContext(ctx))return;
         try{await request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/cover`,"PUT",{photo_id:String(item.id)},true);}
         catch(error){if(!currentGalleryContext(ctx))return;throw error;}
         if(!currentGalleryContext(ctx))return;
         status.textContent="Portada sintética guardada para este espacio.";
-        await loadSpaces();
-        if(currentGalleryContext(ctx))await loadSpaceGallery(spaceID,title,String(item.id));
+        await refreshSpaceGallery(spaceID,title,ctx,"Portada sintética guardada y consultada desde la API.");
       }));
       li.append(meta,show,cover,remove,previewBox);list.append(li);
     }
   } catch(error){if(!currentGalleryContext(ctx))return;throw error;}
+}
+async function refreshSpaceGallery(spaceID:string,title:string,ctx:GalleryContext,notice:string):Promise<void> {
+  await loadSpaces();
+  if(!currentGalleryContext(ctx))return;
+  resultElement.textContent=notice;
+  await loadSpaceGallery(spaceID,title);
 }
 document.querySelector("#spaces-load")!.addEventListener("click", () => void action(loadSpaces));
 document.querySelector("#space-cancel")!.addEventListener("click", () => { spaceForm.reset(); currentDraftID = ""; document.querySelector<HTMLButtonElement>("#space-save")!.textContent = "Crear borrador"; document.querySelector<HTMLButtonElement>("#space-cancel")!.hidden = true; });
