@@ -608,7 +608,7 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='finalizada',inicio=inicio-interval '4 days',termino=termino-interval '4 days',creada_en=creada_en-interval '4 days',actualizada_en=clock_timestamp()-interval '3 days' WHERE id=$1`, reservation.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET estado='liberada',liberado_clp=50000,actualizada_en=clock_timestamp() WHERE reserva_id=$1`, reservation.ID); err != nil {
+	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET estado='parcialmente_capturada',autorizado_clp=50000,capturado_clp=12000,liberado_clp=38000,actualizada_en=clock_timestamp() WHERE reserva_id=$1`, reservation.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_pago_ensayo(id,reserva_id,resultado,clave_idempotencia,creada_en) VALUES('90000000-0000-4000-8000-000000000003',$1,'exito_simulado','delete-test-payment',clock_timestamp())`, reservation.ID); err != nil {
@@ -626,6 +626,56 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	}
 	if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_liquidacion_ensayo_local(id,reserva_id,anfitrion_id,politica_version,moneda,arriendo_confirmado_clp,devoluciones_confirmadas_clp,comision_bps,comision_clp,transferencia_clp,estado,clave_idempotencia,huella_solicitud,creada_en,actualizada_en,completada_en)
 		VALUES('90000000-0000-4000-8000-000000000004',$1,$2,'liquidacion_local_0pct_v1','CLP',8000,0,0,0,8000,'liquidada','delete-test-settlement',decode(repeat('cd',32),'hex'),clock_timestamp()-interval '24 hours',clock_timestamp()-interval '24 hours',clock_timestamp()-interval '24 hours')`, reservation.ID, owner); err != nil {
+		t.Fatal(err)
+	}
+	// A confirmed deduction and confirmed release of the remainder leave no
+	// guarantee obligation even though the summary state remains partial.
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.operacion_arriendo_evidencia_ensayo_local(id,operacion_id,fixture_code,mime_type,sha256,size_bytes,creada_en)
+		VALUES('90000000-0000-4000-8000-000000000006','90000000-0000-4000-8000-000000000002','synthetic-png-v1','image/png',repeat('a',64),128,clock_timestamp())`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.reclamo_dano_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,checkout_operacion_id,checkout_evidencia_id,descripcion,estado,clave_idempotencia,huella_solicitud,abierto_en,plazo_reclamo_hasta)
+		VALUES('90000000-0000-4000-8000-000000000007',$1,$2,$3,'90000000-0000-4000-8000-000000000002','90000000-0000-4000-8000-000000000006','Daño sintético','resuelta','delete-claim-key',decode(repeat('ef',32),'hex'),clock_timestamp()-interval '48 hours',clock_timestamp()-interval '24 hours')`, reservation.ID, owner, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_garantia_operacion_ensayo_local(id,garantia_id,tipo,clave_idempotencia,huella_solicitud,importe_clp,resultado_solicitado,estado,primer_intento_en,ultimo_resultado,completada_en,creada_en,actualizada_en)
+		SELECT '90000000-0000-4000-8000-000000000008',id,'autorizacion','delete-auth',decode(repeat('a1',32),'hex'),50000,'exito','confirmada',clock_timestamp()-interval '48 hours','exito_simulado',clock_timestamp()-interval '48 hours',clock_timestamp()-interval '48 hours',clock_timestamp()-interval '48 hours' FROM public.reserva_garantia_ensayo_local WHERE reserva_id=$1`, reservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_garantia_operacion_ensayo_local(id,garantia_id,tipo,clave_idempotencia,huella_solicitud,importe_clp,resultado_solicitado,estado,primer_intento_en,ultimo_resultado,completada_en,creada_en,actualizada_en)
+		SELECT '90000000-0000-4000-8000-000000000009',id,'captura','delete-capture',decode(repeat('a2',32),'hex'),12000,'exito','confirmada',clock_timestamp()-interval '24 hours','exito_simulado',clock_timestamp()-interval '24 hours',clock_timestamp()-interval '24 hours',clock_timestamp()-interval '24 hours' FROM public.reserva_garantia_ensayo_local WHERE reserva_id=$1`, reservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_garantia_operacion_ensayo_local(id,garantia_id,tipo,clave_idempotencia,huella_solicitud,importe_clp,resultado_solicitado,estado,primer_intento_en,ultimo_resultado,completada_en,creada_en,actualizada_en)
+		SELECT '90000000-0000-4000-8000-000000000010',id,'liberacion','delete-release',decode(repeat('a3',32),'hex'),38000,'exito','confirmada',clock_timestamp()-interval '24 hours','exito_simulado',clock_timestamp()-interval '24 hours',clock_timestamp()-interval '24 hours',clock_timestamp()-interval '24 hours' FROM public.reserva_garantia_ensayo_local WHERE reserva_id=$1`, reservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.reclamo_dano_resolucion_ensayo_local(reclamo_id,resultado,motivo_codigo,administrador_id,resuelta_en,clave_idempotencia,huella_solicitud)
+		VALUES('90000000-0000-4000-8000-000000000007','acogido','evidencia_suficiente',$1,clock_timestamp()-interval '24 hours','delete-claim-resolve',decode(repeat('ef',32),'hex'))`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_decision_financiera_ensayo_local(garantia_id,reserva_id,reclamo_id,resultado_reclamo,deduccion_clp,motivo_codigo,evidencia_id,administrador_id,clave_idempotencia,huella_solicitud,estado,creada_en,actualizada_en)
+		SELECT g.id,$1,'90000000-0000-4000-8000-000000000007','acogido',12000,'dano_acreditado','90000000-0000-4000-8000-000000000006',$2,'delete-finance-decision',decode(repeat('ee',32),'hex'),'aplicada',clock_timestamp()-interval '24 hours',clock_timestamp()-interval '24 hours' FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=$1`, reservation.ID, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_garantia_operacion_ensayo_local SET estado='por_conciliar' WHERE id='90000000-0000-4000-8000-000000000010'`); err != nil {
+		t.Fatal(err)
+	}
+	pendingGuaranteeReconciliation := invokePublicationAPI(spacesAPI, http.MethodDelete, "/api/v1/spaces/"+fixtureDraft.ID, "owner-token", nil)
+	if pendingGuaranteeReconciliation.Code != http.StatusConflict || !strings.Contains(pendingGuaranteeReconciliation.Body.String(), "publication_delete_blocked") {
+		t.Fatalf("delete with fully allocated but unreconciled guarantee operation status=%d body=%s", pendingGuaranteeReconciliation.Code, pendingGuaranteeReconciliation.Body.String())
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_garantia_operacion_ensayo_local SET estado='confirmada' WHERE id='90000000-0000-4000-8000-000000000010'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET liberado_clp=0,actualizada_en=clock_timestamp() WHERE reserva_id=$1`, reservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	remainingGuaranteeBlock := invokePublicationAPI(spacesAPI, http.MethodDelete, "/api/v1/spaces/"+fixtureDraft.ID, "owner-token", nil)
+	if remainingGuaranteeBlock.Code != http.StatusConflict || !strings.Contains(remainingGuaranteeBlock.Body.String(), "publication_delete_blocked") {
+		t.Fatalf("delete with unallocated guarantee balance status=%d body=%s", remainingGuaranteeBlock.Code, remainingGuaranteeBlock.Body.String())
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET liberado_clp=38000,actualizada_en=clock_timestamp() WHERE reserva_id=$1`, reservation.ID); err != nil {
 		t.Fatal(err)
 	}
 	// Eligible retirement queues private bytes durably. A transient unlink
