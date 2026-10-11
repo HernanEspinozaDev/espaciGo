@@ -8,6 +8,7 @@ LOCAL_DOCKER_API_PORT="${LOCAL_DOCKER_API_PORT:-18080}"
 LOCAL_DOCKER_MOCK_PORT="${LOCAL_DOCKER_MOCK_PORT:-18081}"
 LOCAL_DOCKER_MAILPIT_PORT="${LOCAL_DOCKER_MAILPIT_PORT:-18025}"
 LOCAL_DOCKER_PGDATA_VOLUME="${LOCAL_DOCKER_PGDATA_VOLUME:-espacigo_docker01_pgdata}"
+LOCAL_DOCKER_STATE_DIR="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).expanduser().resolve(strict=False))' "$LOCAL_DOCKER_STATE_DIR")"
 
 if [[ "${LOCAL_DATABASE_RUNTIME_USER:-espacigo_runtime}" != "espacigo_runtime" ]]; then
   printf 'isolated managed stack requires runtime user espacigo_runtime\n' >&2
