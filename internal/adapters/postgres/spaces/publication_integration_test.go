@@ -658,6 +658,16 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 		SELECT g.id,$1,'90000000-0000-4000-8000-000000000007','acogido',12000,'dano_acreditado','90000000-0000-4000-8000-000000000006',$2,'delete-finance-decision',decode(repeat('ee',32),'hex'),'aplicada',clock_timestamp()-interval '24 hours',clock_timestamp()-interval '24 hours' FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=$1`, reservation.ID, adminID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_garantia_operacion_ensayo_local SET estado='por_conciliar' WHERE id='90000000-0000-4000-8000-000000000010'`); err != nil {
+		t.Fatal(err)
+	}
+	pendingGuaranteeReconciliation := invokePublicationAPI(spacesAPI, http.MethodDelete, "/api/v1/spaces/"+fixtureDraft.ID, "owner-token", nil)
+	if pendingGuaranteeReconciliation.Code != http.StatusConflict || !strings.Contains(pendingGuaranteeReconciliation.Body.String(), "publication_delete_blocked") {
+		t.Fatalf("delete with fully allocated but unreconciled guarantee operation status=%d body=%s", pendingGuaranteeReconciliation.Code, pendingGuaranteeReconciliation.Body.String())
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_garantia_operacion_ensayo_local SET estado='confirmada' WHERE id='90000000-0000-4000-8000-000000000010'`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET liberado_clp=0,actualizada_en=clock_timestamp() WHERE reserva_id=$1`, reservation.ID); err != nil {
 		t.Fatal(err)
 	}
