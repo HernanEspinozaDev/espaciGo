@@ -1,8 +1,8 @@
 # Contexto operativo para agentes de desarrollo
 
-## Actualización vigente posterior a PR #260 — 2026-10-11
+## Actualización vigente posterior a PR #261 — 2026-10-11
 
-PR #260 está fusionado en `main` (`38c3e1300b6d3f843238f4ee6b8758bfe3b71913`) y #256 fue aceptada/Cerrada/Hecho solo por portada y modalidad. El propietario mantiene #246 abierta y no ha aceptado LOCAL-1. La brecha M05 #257 (búsqueda textual pública, mapa sintético sin divulgar coordenadas, superficie mínima inclusiva y limpiar filtros) está en revisión mediante [PR #261](https://github.com/HernanEspinozaDev/espaciGo/pull/261), commit probado `6b244fa7ca4e8a2134be7b21e1b2e66c57a5a746`. V49 se aplicó incrementalmente al volumen persistente y portada/modalidad tuvieron smoke API. #258 (eliminación/conservación histórica) fue ratificada y depende de #257; #259 (estado `cerrada` tras liquidación fake) depende de #258. No repetir la regresión integral antes de resolver estas brechas. Usar PostgreSQL desechable para pruebas, conservar volumen y secretos y no realizar GCP. Véanse matriz/evidencias e Issues.
+PR #260 se fusionó en `main` (`38c3e1300b6d3f843238f4ee6b8758bfe3b71913`) y #256 fue aceptada/Cerrada/Hecho por portada y modalidad. Después, PR #261 se fusionó en `main` (`d5f8668da7747270115c5191dfb81de6af5d13ba`); #257 fue aceptada/Cerrada/Hecho por búsqueda textual, mapa sintético, superficie y limpiar filtros. La smoke posterior al merge confirmó búsqueda, detalle y mapa. El propietario mantiene #246 abierta y no ha aceptado LOCAL-1. #258 implementa ahora la eliminación con conservación histórica ratificada en `codex/local-m04-publication-delete-01`; #259 (estado `cerrada` tras liquidación fake) sigue después de #258. No repetir la regresión integral hasta resolver ambas brechas. Usar PostgreSQL desechable para pruebas, conservar volumen y secretos y no realizar GCP. Véanse matriz/evidencias e Issues.
 
 ## Estrategia vigente — cierre backend local, conciliada con main #243 (2026-10-10)
 

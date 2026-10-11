@@ -84,6 +84,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if (publicationID != "" || publicationContentID != "") && r.Method == http.MethodPut {
 		requiredRole = identity.RoleLandlord
 	}
+	deleteSpaceID := ownSpaceID(path)
+	if deleteSpaceID != "" && r.Method == http.MethodDelete {
+		requiredRole = identity.RoleLandlord
+	}
 	if strings.HasSuffix(path, "/tariff") || strings.HasSuffix(path, "/tariffs") || strings.Contains(path, "/price-simulations") {
 		requiredRole = identity.RoleLandlord
 	}
@@ -158,6 +162,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		item, err := h.service.UpdatePublishedOwn(r.Context(), principal.AccountID, publicationContentID, in)
+		if err != nil {
+			serviceError(w, err)
+			return
+		}
+		write(w, 200, item)
+		return
+	}
+	if deleteSpaceID != "" && r.Method == http.MethodDelete {
+		item, err := h.service.DeleteOwn(r.Context(), principal.AccountID, deleteSpaceID, w.Header().Get("X-Request-ID"))
 		if err != nil {
 			serviceError(w, err)
 			return
@@ -492,6 +505,8 @@ func serviceError(w http.ResponseWriter, e error) {
 		failure(w, 409, "eligibility_required", "Se requiere elegibilidad KYC sintética vigente para publicar.")
 	case errors.Is(e, spaces.ErrPublicationConflict):
 		failure(w, 409, "conflict", "La transición de publicación no está permitida desde el estado actual.")
+	case errors.Is(e, spaces.ErrDeleteBlocked):
+		failure(w, 409, "publication_delete_blocked", "La publicación conserva reservas u obligaciones abiertas y no puede retirarse todavía.")
 	case errors.Is(e, spaces.ErrEnabledFixture):
 		failure(w, 409, "fixture_enabled", "Deshabilita el fixture de ensayo antes de cambiar la publicación del espacio.")
 	case errors.Is(e, spaces.ErrTimeZoneRequired):
@@ -523,6 +538,18 @@ func publicationContentSpaceID(path string) string {
 		return ""
 	}
 	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	if id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func ownSpaceID(path string) string {
+	const prefix = "/api/v1/spaces/"
+	if !strings.HasPrefix(path, prefix) {
+		return ""
+	}
+	id := strings.TrimPrefix(path, prefix)
 	if id == "" || strings.Contains(id, "/") {
 		return ""
 	}

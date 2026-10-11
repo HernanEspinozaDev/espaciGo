@@ -31,7 +31,7 @@ func (r *Repository) ReserveCandidate(ctx context.Context, owner, spaceID, fileI
 		return gallery.ErrNotFound
 	}
 	var exists bool
-	err = tx.QueryRow(ctx, `SELECT true FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, spaceID, owner).Scan(&exists)
+	err = tx.QueryRow(ctx, `SELECT true FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado<>'eliminada' FOR UPDATE`, spaceID, owner).Scan(&exists)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return gallery.ErrNotFound
 	}
@@ -82,7 +82,7 @@ func (r *Repository) BeginCandidate(ctx context.Context, owner, spaceID, fileID 
 		return nil, gallery.ErrNotFound
 	}
 	var exists bool
-	if err = tx.QueryRow(ctx, `SELECT true FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, spaceID, owner).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+	if err = tx.QueryRow(ctx, `SELECT true FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado<>'eliminada' FOR UPDATE`, spaceID, owner).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
 		return nil, gallery.ErrNotFound
 	} else if err != nil {
 		return nil, err
@@ -237,7 +237,7 @@ func scanPhoto(row pgx.Row) (gallery.Photo, error) {
 
 func (r *Repository) List(ctx context.Context, owner, spaceID string) ([]gallery.Photo, error) {
 	var exists bool
-	if err := r.pool.QueryRow(ctx, `SELECT true FROM public.espacio s JOIN public.usuario u ON u.id=s.propietario_id AND u.estado='activo' WHERE s.id=$1 AND s.propietario_id=$2`, spaceID, owner).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+	if err := r.pool.QueryRow(ctx, `SELECT true FROM public.espacio s JOIN public.usuario u ON u.id=s.propietario_id AND u.estado='activo' WHERE s.id=$1 AND s.propietario_id=$2 AND s.estado<>'eliminada'`, spaceID, owner).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
 		return nil, gallery.ErrNotFound
 	} else if err != nil {
 		return nil, err
@@ -284,7 +284,7 @@ func (r *Repository) Remove(ctx context.Context, owner, spaceID, photoID string)
 		return gallery.Removal{}, gallery.ErrNotFound
 	}
 	var spaceState string
-	err = tx.QueryRow(ctx, `SELECT estado FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, spaceID, owner).Scan(&spaceState)
+	err = tx.QueryRow(ctx, `SELECT estado FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado<>'eliminada' FOR UPDATE`, spaceID, owner).Scan(&spaceState)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return gallery.Removal{}, gallery.ErrNotFound
 	}
@@ -328,7 +328,7 @@ func (r *Repository) SelectCover(ctx context.Context, owner, spaceID, photoID st
 		return gallery.Cover{}, gallery.ErrNotFound
 	}
 	var exists bool
-	if err = tx.QueryRow(ctx, `SELECT true FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, spaceID, owner).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+	if err = tx.QueryRow(ctx, `SELECT true FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado<>'eliminada' FOR UPDATE`, spaceID, owner).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
 		return gallery.Cover{}, gallery.ErrNotFound
 	} else if err != nil {
 		return gallery.Cover{}, err

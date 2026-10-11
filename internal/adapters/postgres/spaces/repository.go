@@ -135,7 +135,7 @@ func (r *Repository) Create(ctx context.Context, owner string, in spaces.Input) 
 	return d, nil
 }
 func (r *Repository) ListOwn(ctx context.Context, owner string) ([]spaces.Draft, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 ORDER BY e.actualizado_en DESC,e.id`, owner)
+	rows, err := r.pool.Query(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 AND e.estado<>'eliminada' ORDER BY e.actualizado_en DESC,e.id`, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,133 @@ func (r *Repository) ListOwn(ctx context.Context, owner string) ([]spaces.Draft,
 	return items, rows.Err()
 }
 func (r *Repository) GetOwn(ctx context.Context, owner, id string) (spaces.Draft, error) {
-	return scan(r.pool.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 AND e.id=$2`, owner, id))
+	return scan(r.pool.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 AND e.id=$2 AND e.estado<>'eliminada'`, owner, id))
+}
+
+func (r *Repository) DeleteOwn(ctx context.Context, owner, id, correlationID string) (spaces.Deletion, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return spaces.Deletion{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err = lockActiveOwner(ctx, tx, owner); err != nil {
+		return spaces.Deletion{}, err
+	}
+	var state string
+	err = tx.QueryRow(ctx, `SELECT estado FROM public.espacio WHERE propietario_id=$1 AND id=$2 FOR UPDATE`, owner, id).Scan(&state)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return spaces.Deletion{}, spaces.ErrNotFound
+	}
+	if err != nil {
+		return spaces.Deletion{}, err
+	}
+	var prior spaces.Deletion
+	var summary []byte
+	err = tx.QueryRow(ctx, `SELECT espacio_id::text,ocurrida_en,archivos_pendientes,resumen FROM public.espacio_eliminacion_historial_local WHERE espacio_id=$1 AND actor_id=$2`, id, owner).
+		Scan(&prior.SpaceID, &prior.OccurredAt, &prior.FilesPending, &summary)
+	if err == nil {
+		if err = json.Unmarshal(summary, &prior); err != nil {
+			return spaces.Deletion{}, err
+		}
+		prior.SpaceID = id
+		prior.State = "eliminada"
+		prior.Reused = true
+		if err = tx.Commit(ctx); err != nil {
+			return spaces.Deletion{}, err
+		}
+		return prior, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return spaces.Deletion{}, err
+	}
+	if state != "activa" && state != "oculta" {
+		return spaces.Deletion{}, spaces.ErrPublicationConflict
+	}
+	// The space row lock serializes this check with quote/reservation creation.
+	// Use the database clock only after both owner and space locks are held.
+	var now time.Time
+	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+		return spaces.Deletion{}, err
+	}
+	var blocked bool
+	err = tx.QueryRow(ctx, `SELECT
+		EXISTS(SELECT 1 FROM public.reserva_ensayo_local r WHERE r.espacio_id=$1
+		  AND r.estado NOT IN ('finalizada','cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario','cancelada_por_firma','cerrada'))
+		OR EXISTS(SELECT 1 FROM public.reserva_ensayo_local r WHERE r.espacio_id=$1 AND r.estado='finalizada'
+		  AND ((SELECT max(o.ocurrio_en) FROM public.operacion_arriendo_ensayo_local o WHERE o.reserva_id=r.id AND o.tipo='checkout') IS NULL
+		       OR $2 < (SELECT max(o.ocurrio_en) + interval '24 hours' FROM public.operacion_arriendo_ensayo_local o WHERE o.reserva_id=r.id AND o.tipo='checkout')
+		       OR NOT EXISTS(SELECT 1 FROM public.reserva_liquidacion_ensayo_local l WHERE l.reserva_id=r.id AND l.estado='liquidada')
+		       OR EXISTS(SELECT 1 FROM public.reclamo_dano_ensayo_local c WHERE c.reserva_id=r.id AND c.estado='abierto')))
+		OR EXISTS(SELECT 1 FROM public.reclamo_dano_ensayo_local c JOIN public.reserva_ensayo_local r ON r.id=c.reserva_id WHERE r.espacio_id=$1 AND c.estado='abierto')
+		OR EXISTS(SELECT 1 FROM public.disputa_ensayo_local d JOIN public.reserva_ensayo_local r ON r.id=d.reserva_id WHERE r.espacio_id=$1 AND d.estado='abierta')
+		OR EXISTS(SELECT 1 FROM public.reserva_devolucion_ensayo d JOIN public.reserva_ensayo_local r ON r.id=d.reserva_id WHERE r.espacio_id=$1 AND d.estado='pendiente')
+		OR EXISTS(SELECT 1 FROM public.reserva_pago_ensayo_operacion o JOIN public.reserva_ensayo_local r ON r.id=o.reserva_id WHERE r.espacio_id=$1 AND o.estado IN ('pendiente','por_conciliar'))
+		OR EXISTS(SELECT 1 FROM public.reserva_pago_evento_aplicacion_ensayo a JOIN public.reserva_pago_evento_ensayo e ON e.id=a.evento_id JOIN public.reserva_pago_ensayo_operacion o ON o.id=e.operacion_id JOIN public.reserva_ensayo_local r ON r.id=o.reserva_id WHERE r.espacio_id=$1 AND a.estado IN ('pendiente','pendiente_conciliacion'))
+		OR EXISTS(SELECT 1 FROM public.reserva_garantia_ensayo_local g JOIN public.reserva_ensayo_local r ON r.id=g.reserva_id WHERE r.espacio_id=$1 AND g.estado NOT IN ('liberada','cancelada','no_disponible'))
+		OR EXISTS(SELECT 1 FROM public.reserva_garantia_operacion_ensayo_local o JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id JOIN public.reserva_ensayo_local r ON r.id=g.reserva_id WHERE r.espacio_id=$1 AND o.estado IN ('pendiente','por_conciliar'))
+		OR EXISTS(SELECT 1 FROM public.reserva_garantia_evento_aplicacion_ensayo_local a JOIN public.reserva_garantia_evento_ensayo_local e ON e.id=a.evento_id JOIN public.reserva_garantia_operacion_ensayo_local o ON o.id=e.operacion_id JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id JOIN public.reserva_ensayo_local r ON r.id=g.reserva_id WHERE r.espacio_id=$1 AND a.estado IN ('pendiente','por_conciliar'))
+		OR EXISTS(SELECT 1 FROM public.reserva_decision_financiera_ensayo_local d JOIN public.reserva_ensayo_local r ON r.id=d.reserva_id WHERE r.espacio_id=$1 AND d.estado IN ('pendiente','por_conciliar'))
+		OR EXISTS(SELECT 1 FROM public.reserva_liquidacion_ensayo_local l JOIN public.reserva_ensayo_local r ON r.id=l.reserva_id WHERE r.espacio_id=$1 AND l.estado<>'liquidada')`, id, now).Scan(&blocked)
+	if err != nil {
+		return spaces.Deletion{}, err
+	}
+	if blocked {
+		return spaces.Deletion{}, spaces.ErrDeleteBlocked
+	}
+	var fixtureEnabled bool
+	err = tx.QueryRow(ctx, `SELECT habilitada FROM public.reserva_ensayo_local_fixture WHERE espacio_id=$1 FOR UPDATE`, id).Scan(&fixtureEnabled)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return spaces.Deletion{}, err
+	}
+	if err == nil && fixtureEnabled {
+		return spaces.Deletion{}, spaces.ErrDeleteBlocked
+	}
+	var filesPending int
+	if err = tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.espacio_galeria_sintetica_local WHERE espacio_id=$1 AND archivo_id IS NOT NULL AND estado<>'activa') + (SELECT count(*) FROM public.espacio_galeria_sintetica_local WHERE espacio_id=$1 AND estado='activa' AND archivo_id IS NOT NULL) + (SELECT count(*) FROM public.espacio_galeria_archivo_candidato_local WHERE espacio_id=$1)`, id).Scan(&filesPending); err != nil {
+		return spaces.Deletion{}, err
+	}
+	// Retire gallery metadata and queue bytes for the already durable cleanup worker.
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio_galeria_sintetica_local SET estado='retirada',retirada_en=$2,proximo_intento_en=$2,ultimo_codigo_error='publicacion_eliminada' WHERE espacio_id=$1 AND estado='activa'`, id, now); err != nil {
+		return spaces.Deletion{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio_galeria_archivo_candidato_local SET estado='pendiente_limpieza',proximo_intento_en=$2,ultimo_codigo_error='publicacion_eliminada' WHERE espacio_id=$1 AND estado='reservado'`, id, now); err != nil {
+		return spaces.Deletion{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=NULL WHERE id=$1`, id); err != nil {
+		return spaces.Deletion{}, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM public.reserva_ensayo_local_fixture WHERE espacio_id=$1 AND NOT habilitada`, id); err != nil {
+		return spaces.Deletion{}, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM public.espacio_horario_semanal WHERE espacio_id=$1`, id); err != nil {
+		return spaces.Deletion{}, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM public.espacio_caracteristicas WHERE espacio_id=$1`, id); err != nil {
+		return spaces.Deletion{}, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM public.simulacion_precio_privada WHERE espacio_id=$1`, id); err != nil {
+		return spaces.Deletion{}, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM public.tarifa_espacio t WHERE espacio_id=$1 AND NOT EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q WHERE q.espacio_id=t.espacio_id AND q.tarifa_version=t.version)`, id); err != nil {
+		return spaces.Deletion{}, err
+	}
+	removed := []string{"catalogo", "contenido_publicacion", "atributos", "horario_semanal", "simulaciones_privadas", "fixture_deshabilitado"}
+	preserved := []string{"espacio_tecnico", "reservas_y_ocupaciones", "cotizaciones_y_snapshots", "contratos_pagos_reclamos_e_historiales", "tarifas_referenciadas", "historial_publicacion", "galeria_en_limpieza_durable"}
+	result := spaces.Deletion{SpaceID: id, State: "eliminada", OccurredAt: now.UTC(), Removed: removed, Preserved: preserved, FilesPending: filesPending}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return spaces.Deletion{}, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO public.espacio_eliminacion_historial_local(espacio_id,actor_id,ocurrida_en,correlacion_id,archivos_pendientes,resumen) VALUES($1,$2,$3,$4,$5,$6::jsonb)`, id, owner, now, correlationID, filesPending, encoded); err != nil {
+		return spaces.Deletion{}, mapError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET estado='eliminada',titulo='Publicación retirada',descripcion='Contenido retirado. Los hechos históricos y los snapshots necesarios se conservan según la política local ratificada.',superficie_m2=0.01,capacidad_maxima=1,reglas_uso='Retirado',modalidad_tarifa='hora',precio_base_clp=5001,direccion='Retirada',zona_horaria=NULL,actualizado_en=$2 WHERE id=$1`, id, now); err != nil {
+		return spaces.Deletion{}, mapError(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return spaces.Deletion{}, err
+	}
+	return result, nil
 }
 
 func (r *Repository) SetPublicationState(ctx context.Context, owner, id, state, correlationID string) (spaces.Draft, error) {

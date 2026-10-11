@@ -4,23 +4,28 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
+	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
 	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
+	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
@@ -30,6 +35,19 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type publicationDeleteFiles struct {
+	*evidencefs.Store
+	failNext bool
+}
+
+func (f *publicationDeleteFiles) Delete(ctx context.Context, id string) error {
+	if f.failNext {
+		f.failNext = false
+		return fmt.Errorf("temporary synthetic file deletion failure")
+	}
+	return f.Store.Delete(ctx, id)
+}
 
 type publicationFlowAuth struct{ ownerID, renterID string }
 
@@ -67,6 +85,25 @@ func invokePublicationAPI(handler http.Handler, method, path, token string, body
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response
+}
+
+func waitForAccountLockWaiters(t *testing.T, ctx context.Context, pool *pgxpool.Pool, count int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting int
+		err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+			WHERE datname=current_database() AND wait_event_type='Lock'
+			AND query LIKE '%SELECT estado FROM public.usuario WHERE id=$1 FOR UPDATE%'`).Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waiting >= count {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d account-lock waiter(s)", count)
 }
 
 func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testing.T) {
@@ -253,6 +290,50 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if quoteResponse.Code != http.StatusOK || !strings.Contains(quoteResponse.Body.String(), created.ID) || !strings.Contains(quoteResponse.Body.String(), "America/Santiago") {
 		t.Fatalf("renter quote response=%d body=%s", quoteResponse.Code, quoteResponse.Body.String())
 	}
+	// A deletion that wins the shared account-lock queue must prevent a
+	// reservation from being created from an earlier quote. Both operations
+	// serialize on the landlord account and the space row; the losing booking
+	// request must revalidate publication state after the deletion commits.
+	var raceQuoteEnvelope struct {
+		Data booking.Quote `json:"data"`
+	}
+	if err = json.Unmarshal(quoteResponse.Body.Bytes(), &raceQuoteEnvelope); err != nil || raceQuoteEnvelope.Data.ID == "" {
+		t.Fatalf("decode quote for deletion race: quote=%+v err=%v", raceQuoteEnvelope.Data, err)
+	}
+	raceQuote := raceQuoteEnvelope.Data
+	accountBlocker, err := adminPool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = accountBlocker.Exec(ctx, `SELECT estado FROM public.usuario WHERE id=$1 FOR UPDATE`, owner); err != nil {
+		_ = accountBlocker.Rollback(ctx)
+		t.Fatal(err)
+	}
+	deleteRace := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		deleteRace <- invokePublicationAPI(spacesAPI, http.MethodDelete, "/api/v1/spaces/"+created.ID, "owner-token", nil)
+	}()
+	waitForAccountLockWaiters(t, ctx, adminPool, 1)
+	requestRace := make(chan error, 1)
+	go func() {
+		_, requestErr := bookingService.Request(ctx, other, booking.RequestInput{QuoteID: raceQuote.ID}, "retirement-booking-race")
+		requestRace <- requestErr
+	}()
+	waitForAccountLockWaiters(t, ctx, adminPool, 2)
+	if err = accountBlocker.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	deleteRaceResponse := <-deleteRace
+	if deleteRaceResponse.Code != http.StatusOK || !strings.Contains(deleteRaceResponse.Body.String(), `"state":"eliminada"`) {
+		t.Fatalf("delete won concurrent reservation race status=%d body=%s", deleteRaceResponse.Code, deleteRaceResponse.Body.String())
+	}
+	if requestErr := <-requestRace; !errors.Is(requestErr, booking.ErrConflict) {
+		t.Fatalf("reservation from quote after retirement error=%v, want conflict", requestErr)
+	}
+	var racedReservations int
+	if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, raceQuote.ID).Scan(&racedReservations); err != nil || racedReservations != 0 {
+		t.Fatalf("retirement race created a reservation: count=%d err=%v", racedReservations, err)
+	}
 	// A legacy hidden publication can be repaired by its owner and then
 	// activated; no default zone is inferred by the server.
 	legacyDraft, err := svc.Create(ctx, owner, apiDraftInput)
@@ -286,6 +367,16 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	unchanged, err := repo.GetOwn(ctx, owner, fixtureDraft.ID)
 	if err != nil || unchanged.State != "borrador" {
 		t.Fatalf("fixture state changed after rejected transition: state=%s err=%v", unchanged.State, err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio SET estado='activa' WHERE id=$1`, fixtureDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	enabledFixtureDelete := invokePublicationAPI(spacesAPI, http.MethodDelete, "/api/v1/spaces/"+fixtureDraft.ID, "owner-token", nil)
+	if enabledFixtureDelete.Code != http.StatusConflict || !strings.Contains(enabledFixtureDelete.Body.String(), "publication_delete_blocked") {
+		t.Fatalf("delete enabled fixture status=%d body=%s", enabledFixtureDelete.Code, enabledFixtureDelete.Body.String())
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio SET estado='borrador' WHERE id=$1`, fixtureDraft.ID); err != nil {
+		t.Fatal(err)
 	}
 	bookingRepo := bookingpg.New(pool)
 	catalog, err := bookingRepo.Catalog(ctx, other, booking.CatalogFilter{})
@@ -471,5 +562,193 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	}
 	if _, err = svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-after-revoke"); err != spaces.ErrEligibilityRequired {
 		t.Fatalf("revoked KYC publication error=%v", err)
+	}
+	// A pending reservation is an atomic blocker: the failed request must keep
+	// the offer, rate snapshots, and booking history available.
+	unauthorizedDelete := invokePublicationAPI(spacesAPI, http.MethodDelete, "/api/v1/spaces/"+fixtureDraft.ID, "renter-token", nil)
+	if unauthorizedDelete.Code != http.StatusForbidden {
+		t.Fatalf("non-owner publication delete status=%d body=%s", unauthorizedDelete.Code, unauthorizedDelete.Body.String())
+	}
+	blockedDelete := invokePublicationAPI(spacesAPI, http.MethodDelete, "/api/v1/spaces/"+fixtureDraft.ID, "owner-token", nil)
+	if blockedDelete.Code != http.StatusConflict || !strings.Contains(blockedDelete.Body.String(), "publication_delete_blocked") {
+		t.Fatalf("delete with pending booking status=%d body=%s", blockedDelete.Code, blockedDelete.Body.String())
+	}
+	stillPublished, err := repo.GetOwn(ctx, owner, fixtureDraft.ID)
+	if err != nil || stillPublished.State != "oculta" {
+		t.Fatalf("blocked delete modified publication: %+v err=%v", stillPublished, err)
+	}
+	if _, err = bookingRepo.Get(ctx, other, reservation.ID); err != nil {
+		t.Fatalf("blocked delete removed reservation snapshot: %v", err)
+	}
+	// Even after the booking becomes terminal, an authorized guarantee that has
+	// not yet been released remains an independent financial blocker.
+	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='cancelada_por_pago' WHERE id=$1`, reservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=clock_timestamp() WHERE id=(SELECT ocupacion_id FROM public.reserva_ensayo_local WHERE id=$1)`, reservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	guaranteeUpdate, guaranteeErr := adminPool.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET autorizado_clp=50000,estado='liberacion_pendiente',actualizada_en=clock_timestamp() WHERE reserva_id=$1`, reservation.ID)
+	if guaranteeErr != nil || guaranteeUpdate.RowsAffected() != 1 {
+		t.Fatalf("prepare pending guarantee release rows=%v err=%v", guaranteeUpdate, guaranteeErr)
+	}
+	financialBlock := invokePublicationAPI(spacesAPI, http.MethodDelete, "/api/v1/spaces/"+fixtureDraft.ID, "owner-token", nil)
+	if financialBlock.Code != http.StatusConflict || !strings.Contains(financialBlock.Body.String(), "publication_delete_blocked") {
+		t.Fatalf("delete with pending guarantee release status=%d body=%s", financialBlock.Code, financialBlock.Body.String())
+	}
+	if _, err = bookingRepo.Get(ctx, other, reservation.ID); err != nil {
+		t.Fatalf("blocked deletion removed terminal historical reservation: %v", err)
+	}
+	// Resolve the financial blocker and make this reservation terminal, with a
+	// persisted check-out older than the 24-hour claim window and a confirmed
+	// fake settlement. The successful deletion must preserve these snapshots.
+	if _, err = adminPool.Exec(ctx, `UPDATE public.cotizacion_reserva_ensayo SET inicio=inicio-interval '4 days',termino=termino-interval '4 days',creada_en=creada_en-interval '4 days',vence_en=vence_en-interval '4 days' WHERE id=(SELECT cotizacion_id FROM public.reserva_ensayo_local WHERE id=$1)`, reservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='finalizada',inicio=inicio-interval '4 days',termino=termino-interval '4 days',creada_en=creada_en-interval '4 days',actualizada_en=clock_timestamp()-interval '3 days' WHERE id=$1`, reservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET estado='liberada',liberado_clp=50000,actualizada_en=clock_timestamp() WHERE reserva_id=$1`, reservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_pago_ensayo(id,reserva_id,resultado,clave_idempotencia,creada_en) VALUES('90000000-0000-4000-8000-000000000003',$1,'exito_simulado','delete-test-payment',clock_timestamp())`, reservation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en) VALUES('90000000-0000-4000-8000-000000000005',$1,(SELECT COALESCE(max(secuencia),0)+1 FROM public.reserva_ensayo_transicion WHERE reserva_id=$1),'cancelada_por_pago','finalizada',$2,'ensayo_terminal_para_prueba_de_eliminacion',clock_timestamp())`, reservation.ID, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.operacion_arriendo_ensayo_local(id,reserva_id,tipo,actor_id,ocurrio_en,zona_horaria,ubicacion_sintetica,resultado,clave_idempotencia,huella_solicitud,creada_en)
+		VALUES('90000000-0000-4000-8000-000000000002',$1,'checkout',$2,clock_timestamp()-interval '48 hours','UTC','{"source":"synthetic-fixture-v1","location_code":"santiago-demo-center-v1","latitude":-33.45,"longitude":-70.66}'::jsonb,'registrada','delete-test-checkout',decode(repeat('ab',32),'hex'),clock_timestamp()-interval '48 hours')`, reservation.ID, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.operacion_arriendo_historial_ensayo_local(reserva_id,operacion_id,accion,actor_id,ocurrida_en) VALUES($1,'90000000-0000-4000-8000-000000000002','checkout_registrado',$2,clock_timestamp()-interval '48 hours')`, reservation.ID, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_liquidacion_ensayo_local(id,reserva_id,anfitrion_id,politica_version,moneda,arriendo_confirmado_clp,devoluciones_confirmadas_clp,comision_bps,comision_clp,transferencia_clp,estado,clave_idempotencia,huella_solicitud,creada_en,actualizada_en,completada_en)
+		VALUES('90000000-0000-4000-8000-000000000004',$1,$2,'liquidacion_local_0pct_v1','CLP',8000,0,0,0,8000,'liquidada','delete-test-settlement',decode(repeat('cd',32),'hex'),clock_timestamp()-interval '24 hours',clock_timestamp()-interval '24 hours',clock_timestamp()-interval '24 hours')`, reservation.ID, owner); err != nil {
+		t.Fatal(err)
+	}
+	// Eligible retirement queues private bytes durably. A transient unlink
+	// failure is recorded and the existing worker completes it on retry.
+	root, err := os.MkdirTemp("", "espacigo-publication-delete-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+	if err = os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	baseFiles, err := evidencefs.New(filepath.Clean(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := &publicationDeleteFiles{Store: baseFiles, failNext: true}
+	galleryService, err := gallery.NewService(gallerypg.New(pool), files, credentials.Generator{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	photo, _, err := galleryService.AddSynthetic(ctx, owner, fixtureDraft.ID, "delete-gallery-photo-01")
+	if err != nil {
+		t.Fatalf("add delete fixture photo: %v", err)
+	}
+	if _, err = galleryService.SelectCover(ctx, owner, fixtureDraft.ID, photo.ID); err != nil {
+		t.Fatal(err)
+	}
+	deleted := invokePublicationAPI(spacesAPI, http.MethodDelete, "/api/v1/spaces/"+fixtureDraft.ID, "owner-token", nil)
+	if deleted.Code != http.StatusOK || !strings.Contains(deleted.Body.String(), `"state":"eliminada"`) || !strings.Contains(deleted.Body.String(), `"files_pending_cleanup":1`) {
+		t.Fatalf("delete eligible publication status=%d body=%s", deleted.Code, deleted.Body.String())
+	}
+	if _, err = repo.GetOwn(ctx, owner, fixtureDraft.ID); err != spaces.ErrNotFound {
+		t.Fatalf("deleted offer remains owner-visible: %v", err)
+	}
+	deletedCatalog := invokePublicationAPI(bookingAPI, http.MethodGet, "/api/v1/local/booking-trial/catalog?category_code=oficina&page_size=25", "renter-token", nil)
+	if deletedCatalog.Code != http.StatusOK || strings.Contains(deletedCatalog.Body.String(), fixtureDraft.ID) {
+		t.Fatalf("deleted offer remains in catalog status=%d body=%s", deletedCatalog.Code, deletedCatalog.Body.String())
+	}
+	deletedDetail := invokePublicationAPI(bookingAPI, http.MethodGet, "/api/v1/local/booking-trial/catalog/"+fixtureDraft.ID, "renter-token", nil)
+	if deletedDetail.Code != http.StatusNotFound {
+		t.Fatalf("deleted offer detail status=%d body=%s", deletedDetail.Code, deletedDetail.Body.String())
+	}
+	items, err := repo.ListOwn(ctx, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.ID == fixtureDraft.ID {
+			t.Fatal("deleted offer appears in owner list")
+		}
+	}
+	var storedState, photoState string
+	var storedCover *string
+	var fileID *string
+	var summary []byte
+	var histories int
+	if err = adminPool.QueryRow(ctx, `SELECT s.estado,s.portada_foto_id::text,g.estado,g.archivo_id::text,h.resumen,(SELECT count(*) FROM public.espacio_eliminacion_historial_local WHERE espacio_id=s.id) FROM public.espacio s JOIN public.espacio_galeria_sintetica_local g ON g.espacio_id=s.id JOIN public.espacio_eliminacion_historial_local h ON h.espacio_id=s.id WHERE s.id=$1`, fixtureDraft.ID).Scan(&storedState, &storedCover, &photoState, &fileID, &summary, &histories); err != nil {
+		t.Fatal(err)
+	}
+	if storedState != "eliminada" || storedCover != nil || photoState != "retirada" || fileID == nil || histories != 1 {
+		t.Fatalf("retirement persistence state=%s cover=%v photo=%s file=%v history=%d", storedState, storedCover, photoState, fileID, histories)
+	}
+	photoPath := filepath.Join(root, photo.ID+".png")
+	if _, err = os.Stat(photoPath); err != nil {
+		t.Fatalf("private file should remain until worker: %v", err)
+	}
+	clock := time.Now().Add(-time.Hour)
+	retryGallery, err := gallery.NewService(gallerypg.New(pool), files, credentials.Generator{}, func() time.Time { return clock })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = retryGallery.CleanRetiredOnce(ctx, 20); err != nil {
+		t.Fatal(err)
+	}
+	if err = adminPool.QueryRow(ctx, `SELECT ultimo_codigo_error FROM public.espacio_galeria_sintetica_local WHERE id=$1`, photo.ID).Scan(new(string)); err != nil {
+		t.Fatalf("failed cleanup should remain durable: %v", err)
+	}
+	if _, err = os.Stat(photoPath); err != nil {
+		t.Fatalf("failed cleanup removed file unexpectedly: %v", err)
+	}
+	if err = retryGallery.CleanRetiredOnce(ctx, 20); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(photoPath); !os.IsNotExist(err) {
+		t.Fatalf("retry did not remove retired file: %v", err)
+	}
+	if err = adminPool.QueryRow(ctx, `SELECT archivo_id FROM public.espacio_galeria_sintetica_local WHERE id=$1`, photo.ID).Scan(&fileID); err != nil || fileID != nil {
+		t.Fatalf("cleanup did not clear file reference: file=%v err=%v", fileID, err)
+	}
+	firstReceipt, err := svc.DeleteOwn(ctx, owner, fixtureDraft.ID, "retry-delete-first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondReceipt, err := svc.DeleteOwn(ctx, owner, fixtureDraft.ID, "retry-delete-second")
+	if err != nil || !secondReceipt.Reused || secondReceipt.SpaceID != firstReceipt.SpaceID || len(secondReceipt.Preserved) != len(firstReceipt.Preserved) {
+		t.Fatalf("delete replay=%+v first=%+v err=%v", secondReceipt, firstReceipt, err)
+	}
+	if _, err = svc.DeleteOwn(ctx, other, fixtureDraft.ID, "foreign-delete"); err != spaces.ErrNotFound {
+		t.Fatalf("foreign delete error=%v", err)
+	}
+	if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.espacio_publicacion_historial_local WHERE espacio_id=$1`, fixtureDraft.ID).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("publication history not preserved count=%d err=%v", count, err)
+	}
+	archiveSections, err := repo.ExportOwnArchiveSections(ctx, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deletionEvents []map[string]any
+	if err = json.Unmarshal(archiveSections["space_deletion_history"], &deletionEvents); err != nil {
+		t.Fatalf("owner ZIP deletion history=%s err=%v", archiveSections["space_deletion_history"], err)
+	}
+	foundFixtureDeletion := false
+	for _, event := range deletionEvents {
+		if event["space_id"] == fixtureDraft.ID && event["actor"] == "self" {
+			foundFixtureDeletion = true
+		}
+	}
+	if !foundFixtureDeletion {
+		t.Fatalf("owner ZIP omitted deletion for retired fixture: %s", archiveSections["space_deletion_history"])
+	}
+	retained, err := bookingRepo.Get(ctx, other, reservation.ID)
+	if err != nil || retained.UnitPrice != 8000 || retained.Subtotal != 8000 || retained.State != "finalizada" || len(retained.History) < 2 || retained.History[len(retained.History)-1].To != "finalizada" {
+		t.Fatalf("deleted publication history/snapshot unavailable: detail=%+v err=%v", retained, err)
 	}
 }
