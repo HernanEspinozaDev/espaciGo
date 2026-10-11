@@ -1,10 +1,10 @@
 # Continuar EspaciGo desde un PC con GitHub Projects
 
-## Actualización vigente — 2026-10-11, posterior a PR #264
+## Actualización vigente — 2026-10-11, DOCKER-03 en paralelo
 
-`main` integra PR #264 (`6164ba0a929bd088e94a8914287f3bffe7899f94`) después de #262/V50 y #263/V51. #258 se aceptó/Cerrada/Hecho por RQF-091/092 y #259 por RQF-177; ambas por sus slices, no por los Issues padre. V50/V51 se aplicaron incrementalmente, servicios están saludables y `scripts/dev-env.sh verify-http` pasó. La matriz y la evidencia runner están en `evidence/local-close-01-matrix-20261011.md` y `evidence/local-close-01-final-20261011.md`. La revisión documental final encontró que el ZIP omite contrato/firmas/PDF propios y que faltan ratificar plazos de retención de contrato e historiales de espacio; #246 sigue OPEN, no solicitar LOCAL-1 todavía.
+LOCAL-1 fue aceptado explícitamente; #246 está Hecho y sus padres productivos/exclusiones siguen abiertos. `main` incluye el cierre documental LOCAL-CLOSE-01 (#265), DOCKER-01 (#268, PR #271) y DOCKER-02 (#269, PR #272). #269 sigue abierta únicamente por su paso pendiente después del plazo: liquidación fake, estado `cerrada`, historial, comprobante e idempotencia. El propietario autorizó comenzar DOCKER-03/#270 en paralelo, sin adelantar ni cerrar #269; su PR #273 está En revisión. Esta entrega usa instancias PostgreSQL/PostGIS, volúmenes, secretos, CA, puertos y archivos privados separados; mantiene el entorno de desarrollo. Evidencia reproducible: [`evidence/local-docker-03-20261011.md`](evidence/local-docker-03-20261011.md). Sin GCP.
 
-La primera corrida encontró DELETE directo excesivo sobre tarifas históricas. V52 lo restringe mediante una función que solo elimina tarifas no referenciadas después del tombstone. El test focalizado y el runner completo pasaron en #264 (`056205d`); el código probado coincide con el integrado y V52 está aplicada incrementalmente al volumen. #246 sigue abierta hasta la aceptación explícita de LOCAL-1. Conservar volumen/secrets y usar instancias desechables para pruebas; sin GCP.
+La matriz/evidencia LOCAL-1 permanecen en `evidence/local-close-01-matrix-20261011.md` y `evidence/local-close-01-final-20261011.md`; V50–V54 se aplicaron y validaron de forma incremental antes de la aceptación. Para DOCKER-02, la evidencia de instalación limpia permanece en [`evidence/local-docker-02-20261011.md`](evidence/local-docker-02-20261011.md). No repetir sus pruebas por este corte ni usar `espacigo_pgdata` como entorno de prueba.
 
 ## Instrucción histórica — backend local completo, conciliada 2026-10-10
 

@@ -1,6 +1,6 @@
 Actualización 2026-10-11 — aceptación LOCAL-1 y fase LOCAL-DOCKER
 
-Actualización posterior a PR #271 — DOCKER-01/#268 fue aceptada por su alcance, cerrada/Hecho y su código quedó en `main` (`e074d78`). DOCKER-02/#269 está en revisión mediante PR #272: se arrancó el stack aislado desde un volumen ausente, se aplicaron V1–V54 y se validaron permisos, salud, recorrido mock/API/PostgreSQL y correo sintético Mailpit. Evidencia en [`evidence/local-docker-02-20261011.md`](evidence/local-docker-02-20261011.md). DOCKER-03/#270 espera la aceptación de #269. No se inició GCP.
+Snapshot histórico posterior a PR #271 (antes de la autorización paralela): DOCKER-01/#268 fue aceptada por su alcance, cerrada/Hecho y su código quedó en `main` (`e074d78`). DOCKER-02/#269 está en revisión mediante PR #272: se arrancó el stack aislado desde un volumen ausente, se aplicaron V1–V54 y se validaron permisos, salud, recorrido mock/API/PostgreSQL y correo sintético Mailpit. Evidencia en [`evidence/local-docker-02-20261011.md`](evidence/local-docker-02-20261011.md). El estado vigente de DOCKER-03 se registra abajo. Sin GCP.
 
 El propietario aceptó explícitamente LOCAL-1 por el alcance sintético ratificado. La Issue #246 se registró como aceptada, cerrada y Hecho en Projects; los padres con criterios productivos o exclusiones ratificadas permanecen abiertos. Evidencia: [`evidence/local-close-01-post-merge-20261011.md`](evidence/local-close-01-post-merge-20261011.md) y el comentario de aceptación en #246.
 
@@ -11,6 +11,8 @@ DOCKER-01 desacopla los targets Docker de API y mock, parametriza conexión/TLS,
 # Plan de cierre del desarrollo local del backend
 
 Fecha inicial: 2026-10-07. Línea base conciliada para LOCAL-QA-01: PR #237 merge `09f03f60061ebd3dacb679661ad0180e5901b054` (2026-10-10), aceptación local de #236 registrada y V44/V45 aplicadas incrementalmente al volumen de desarrollo. Las líneas base anteriores se conservan en el historial de Git.
+
+Actualización LOCAL-DOCKER del 2026-10-11: el propietario autorizó empezar DOCKER-03/#270 en paralelo a DOCKER-02/#269. #269 permanece abierta hasta verificar liquidación fake después de 24 horas, cierre, historial, comprobante e idempotencia. PR #273 está En revisión. DOCKER-03 validó recuperación real de un lease tras reinicio, conexión TLS a PostgreSQL/PostGIS alternativo, separación admin/runtime y restore aislado con archivos privados y gate de reaplicación del sidecar externo. Evidencia y límites: [`local-docker-03-20261011.md`](evidence/local-docker-03-20261011.md). El sidecar de esa instalación limpia no contenía bajas previas; un replay no vacío se valida con su prueba de integración PostgreSQL indicada allí. No se altera el volumen ni los secretos de desarrollo; sin GCP.
 
 Actualización funcional (2026-10-09): tras los merges #211/#213, `main` integra publicación local y su conexión a búsqueda/detalle/cotización. #212 quedó aceptada como slice sin cerrar M04/M05. LOCAL-BOOK-02 (#214, hija de #73 y relacionada con #75/#77) consolida reserva, pago fake y decisión sobre una publicación activa sin fixture habilitado, reutilizando eventos durables, snapshots, ocupación y `local_flexible_v1`. Evidencia: [LOCAL-BOOK-02](evidence/local-book-02-20261009.md). Los padres siguen abiertos por criterios generales y proveedor real.
 
