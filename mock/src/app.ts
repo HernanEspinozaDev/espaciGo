@@ -20,7 +20,7 @@ import { captureRentalOperationContext, finishRentalOperationAfterReload, rental
 import { AdminReservationsState, type AdminReservationContext } from "./admin-reservations-state.js";
 import { AdminAuditState, type AdminAuditContext } from "./admin-audit-state.js";
 import { consumeAdminAuditExportResponse } from "./admin-audit-export-state.js";
-import { adminLocalContextMatches, captureAdminLocalContext, type AdminLocalContext } from "./admin-local-state.js";
+import { adminLocalContextMatches, adminLocalSessionMatches, applyAdminLocalSessionSnapshot, captureAdminLocalContext, captureAdminLocalSession, handleAdminLocalForbidden, isAdminLocalForbiddenError, type AdminLocalContext, type AdminLocalSessionContext, type AdminLocalSessionSnapshot } from "./admin-local-state.js";
 import { apiErrorMessage } from "./api-error.js";
 import { LocalSettlementState, type SettlementRequestContext } from "./local-settlement-state.js";
 
@@ -69,6 +69,8 @@ let selectedAdminSettlement:LocalSettlement|null=null;
 async function request(path: string, method = "GET", body?: unknown, authenticated = false, idempotencyKey?: string): Promise<Record<string, unknown>> {
   if (!apiBase) throw new Error("API local aún no disponible.");
   const requestSessionToken = authenticated ? sessionToken : "";
+  const requestSessionAccount = authenticated ? sessionAccountID : "";
+  const requestSessionGeneration = authenticated ? sessionGeneration : 0;
   const headers: Record<string,string> = {Accept: "application/json"};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (authenticated) {
@@ -80,7 +82,7 @@ async function request(path: string, method = "GET", body?: unknown, authenticat
   const response = await fetch(endpoint, {method, headers, body: body === undefined ? undefined : JSON.stringify(body), mode: "cors", cache: "no-store", credentials: "omit"});
   const data = response.status === 204 ? {} : await response.json() as Record<string,unknown> & APIError;
   if (!response.ok) {
-    if (authenticated && response.status === 401 && sessionToken === requestSessionToken) {
+    if (authenticated && response.status === 401 && sessionToken === requestSessionToken && sessionAccountID === requestSessionAccount && sessionGeneration === requestSessionGeneration) {
       sessionToken = "";
       sessionRestrictedMode=false;
       clearBookingInboxOnSessionLoss();
@@ -141,13 +143,23 @@ form("password-change-form", async (data, element) => {
   resultElement.textContent = "Contraseña actualizada. Inicia sesión otra vez; el aviso quedó en cola para el buzón de desarrollo.";
 });
 document.querySelector("#session-button")!.addEventListener("click", () => void action(async () => {
+  const context = captureAdminLocalSession(captureAdminLocalContext(sessionAccountID, sessionToken, sessionGeneration, adminLocalRevision));
   const response = await request("session", "GET", undefined, true);
-  if (Array.isArray(response.roles)) sessionRoles = response.roles.map(String);
-  sessionRestrictedMode=response.restricted_mode===true;
-  refreshDamageAdminControls();
-  refreshAdminLocalControls();
+  const snapshot: AdminLocalSessionSnapshot = {
+    roles: Array.isArray(response.roles) ? response.roles.map(String) : [],
+    restrictedMode: response.restricted_mode === true,
+  };
+  const applied = applyAdminLocalSessionSnapshot(context, () => ({account:sessionAccountID, token:sessionToken, generation:sessionGeneration}), snapshot, value => {
+    sessionRoles = value.roles;
+    sessionRestrictedMode = value.restrictedMode;
+    refreshDamageAdminControls();
+    refreshAdminLocalControls();
+  }, message => clearAdminLocalView(message));
+  if (!applied) return;
   document.querySelector("#session-output")!.textContent = JSON.stringify(response, null, 2);
-  resultElement.textContent = "Sesión válida; estado y roles comprobados por la API.";
+  resultElement.textContent = !snapshot.roles.includes("administrador") || snapshot.restrictedMode
+    ? "Sesión válida; el acceso administrativo ya no está disponible. La sesión sigue activa para operaciones permitidas."
+    : "Sesión válida; estado y roles comprobados por la API.";
 }));
 document.querySelector("#logout-button")!.addEventListener("click", () => void action(async () => {
   await request("logout", "POST", undefined, true); sessionToken = "";sessionRestrictedMode=false; resetCatalogTraversal();
@@ -2585,15 +2597,22 @@ document.querySelector<HTMLButtonElement>("#local-admin-audit-export")!.addEvent
 document.querySelector<HTMLButtonElement>("#local-admin-audit-reset")!.addEventListener("click",()=>void action(async()=>{adminAuditState.clear();await loadAdminAudit();}));
 
 function currentAdminLocalContext(context:AdminLocalContext):boolean{return adminLocalContextMatches(context,{account:sessionAccountID,token:sessionToken,generation:sessionGeneration,revision:adminLocalRevision,isAdmin:sessionRoles.includes("administrador")});}
-function refreshAdminLocalControls():void{const allowed=Boolean(sessionToken&&sessionRoles.includes("administrador")&&!sessionRestrictedMode);for(const id of ["#local-admin-account-id","#local-admin-block-reason","#local-admin-unblock-reason","#local-admin-report-from","#local-admin-report-until","#local-admin-report-timezone"]){const input=document.querySelector<HTMLInputElement|HTMLSelectElement>(id);if(input)input.disabled=!allowed;}for(const id of ["#local-admin-account-block","#local-admin-account-unblock","#local-admin-report-reservations","#local-admin-report-finance"]){const button=document.querySelector<HTMLButtonElement>(id);if(button)button.disabled=!allowed;}}
-function clearAdminLocalView(message="Requiere rol administrador."):void{adminLocalRevision++;const field=document.querySelector<HTMLInputElement>("#local-admin-account-id");if(field)field.value="";for(const id of ["#local-admin-report-from","#local-admin-report-until"]){const input=document.querySelector<HTMLInputElement>(id);if(input)input.value="";}const zone=document.querySelector<HTMLInputElement>("#local-admin-report-timezone");if(zone)zone.value="America/Santiago";const output=document.querySelector<HTMLElement>("#local-admin-governance-output");if(output)output.textContent=message;refreshAdminLocalControls();}
-async function runAdminLocalRequest(path:string,method="GET",body?:unknown):Promise<void>{if(!sessionToken||!sessionRoles.includes("administrador")||sessionRestrictedMode)throw new Error("Esta operación requiere una sesión administradora activa.");const context=captureAdminLocalContext(sessionAccountID,sessionToken,sessionGeneration,++adminLocalRevision),output=document.querySelector<HTMLElement>("#local-admin-governance-output")!;output.textContent="Consultando API administrativa local…";refreshAdminLocalControls();try{const data=await request(path,method,body,true);if(!currentAdminLocalContext(context))return;output.textContent=JSON.stringify(data.data??data,null,2);}finally{if(currentAdminLocalContext(context))refreshAdminLocalControls();}}
+function currentAdminLocalSession(context:AdminLocalSessionContext):boolean{return adminLocalSessionMatches(context,{account:sessionAccountID,token:sessionToken,generation:sessionGeneration});}
+function refreshAdminLocalControls():void{const allowed=Boolean(sessionToken&&sessionRoles.includes("administrador")&&!sessionRestrictedMode);for(const id of ["#local-admin-account-id","#local-admin-block-reason","#local-admin-unblock-reason","#local-admin-report-from","#local-admin-report-until","#local-admin-report-timezone","#local-admin-space-id"]){const input=document.querySelector<HTMLInputElement|HTMLSelectElement>(id);if(input)input.disabled=!allowed;}for(const id of ["#local-admin-account-search","#local-admin-account-block","#local-admin-account-unblock","#local-admin-report-reservations","#local-admin-report-finance","#local-admin-report-disputes","#local-admin-publications-list","#local-admin-publication-read"]){const button=document.querySelector<HTMLButtonElement>(id);if(button)button.disabled=!allowed;}}
+function clearAdminLocalView(message="Requiere rol administrador."):void{adminLocalRevision++;for(const id of ["#local-admin-account-id","#local-admin-space-id","#local-admin-report-from","#local-admin-report-until"]){const input=document.querySelector<HTMLInputElement>(id);if(input)input.value="";}const zone=document.querySelector<HTMLInputElement>("#local-admin-report-timezone");if(zone)zone.value="America/Santiago";const output=document.querySelector<HTMLElement>("#local-admin-governance-output");if(output)output.textContent=message;refreshAdminLocalControls();}
+async function refreshAdminLocalSessionSnapshot(token:string):Promise<AdminLocalSessionSnapshot>{if(sessionToken!==token)throw new Error("La sesión cambió antes de actualizar los permisos.");const data=await request("session","GET",undefined,true);return{roles:Array.isArray(data.roles)?data.roles.map(String):[],restrictedMode:data.restricted_mode===true};}
+async function refreshAdminLocalAfterForbidden(context:AdminLocalContext):Promise<void>{const sessionContext=captureAdminLocalSession(context);await handleAdminLocalForbidden(sessionContext,()=>({account:sessionAccountID,token:sessionToken,generation:sessionGeneration,roles:sessionRoles,restrictedMode:sessionRestrictedMode}),(message)=>clearAdminLocalView(message),refreshAdminLocalSessionSnapshot,(snapshot)=>{if(!currentAdminLocalSession(sessionContext))return;sessionRoles=snapshot.roles;sessionRestrictedMode=snapshot.restrictedMode;refreshAdminLocalControls();});}
+async function runAdminLocalRequest(path:string,method="GET",body?:unknown):Promise<void>{if(!sessionToken||!sessionRoles.includes("administrador")||sessionRestrictedMode)throw new Error("Esta operación requiere una sesión administradora activa.");const context=captureAdminLocalContext(sessionAccountID,sessionToken,sessionGeneration,++adminLocalRevision),output=document.querySelector<HTMLElement>("#local-admin-governance-output")!;output.textContent="Consultando API administrativa local…";refreshAdminLocalControls();try{const data=await request(path,method,body,true);if(!currentAdminLocalContext(context))return;output.textContent=JSON.stringify(data.data??data,null,2);}catch(error){if(!isAdminLocalForbiddenError(error))throw error;await refreshAdminLocalAfterForbidden(context);}finally{if(currentAdminLocalContext(context))refreshAdminLocalControls();}}
+document.querySelector<HTMLButtonElement>("#local-admin-account-search")!.addEventListener("click",()=>void action(async()=>{const id=document.querySelector<HTMLInputElement>("#local-admin-account-id")!.value.trim();if(!id)throw new Error("Indica el UUID técnico de la cuenta.");await runAdminLocalRequest(`/api/v1/admin/local/accounts/${encodeURIComponent(id)}`);}));
 document.querySelector<HTMLButtonElement>("#local-admin-account-block")!.addEventListener("click",()=>void action(async()=>{const id=document.querySelector<HTMLInputElement>("#local-admin-account-id")!.value.trim(),reason=document.querySelector<HTMLSelectElement>("#local-admin-block-reason")!.value;if(!id)throw new Error("Indica el UUID sintético de la cuenta.");await runAdminLocalRequest(`/api/v1/admin/local/accounts/${encodeURIComponent(id)}/block`,"POST",{reason_code:reason});}));
 document.querySelector<HTMLButtonElement>("#local-admin-account-unblock")!.addEventListener("click",()=>void action(async()=>{const id=document.querySelector<HTMLInputElement>("#local-admin-account-id")!.value.trim(),reason=document.querySelector<HTMLSelectElement>("#local-admin-unblock-reason")!.value;if(!id)throw new Error("Indica el UUID sintético de la cuenta.");await runAdminLocalRequest(`/api/v1/admin/local/accounts/${encodeURIComponent(id)}/unblock`,"POST",{reason_code:reason});}));
-async function runLocalAdminReport(kind:"reservations"|"finance"):Promise<void>{const from=document.querySelector<HTMLInputElement>("#local-admin-report-from")!.value.trim(),until=document.querySelector<HTMLInputElement>("#local-admin-report-until")!.value.trim(),timezone=document.querySelector<HTMLInputElement>("#local-admin-report-timezone")!.value.trim();if(!from||!until||!timezone)throw new Error("Completa fechas RFC3339 y zona IANA.");const query=new URLSearchParams({from,until,timezone});await runAdminLocalRequest(`/api/v1/admin/local/reports/${kind}?${query.toString()}`);}
+async function runLocalAdminReport(kind:"reservations"|"finance"|"disputes"):Promise<void>{const from=document.querySelector<HTMLInputElement>("#local-admin-report-from")!.value.trim(),until=document.querySelector<HTMLInputElement>("#local-admin-report-until")!.value.trim(),timezone=document.querySelector<HTMLInputElement>("#local-admin-report-timezone")!.value.trim();if(!from||!until||!timezone)throw new Error("Completa fechas RFC3339 y zona IANA.");const query=new URLSearchParams({from,until,timezone});await runAdminLocalRequest(`/api/v1/admin/local/reports/${kind}?${query.toString()}`);}
 document.querySelector<HTMLButtonElement>("#local-admin-report-reservations")!.addEventListener("click",()=>void action(()=>runLocalAdminReport("reservations")));
 document.querySelector<HTMLButtonElement>("#local-admin-report-finance")!.addEventListener("click",()=>void action(()=>runLocalAdminReport("finance")));
-for(const id of ["#local-admin-account-id","#local-admin-report-from","#local-admin-report-until","#local-admin-report-timezone"]){document.querySelector<HTMLInputElement>(id)!.addEventListener("input",()=>{adminLocalRevision++;document.querySelector<HTMLElement>("#local-admin-governance-output")!.textContent="Los criterios cambiaron; respuesta anterior invalidada.";});}
+document.querySelector<HTMLButtonElement>("#local-admin-report-disputes")!.addEventListener("click",()=>void action(()=>runLocalAdminReport("disputes")));
+document.querySelector<HTMLButtonElement>("#local-admin-publications-list")!.addEventListener("click",()=>void action(()=>runAdminLocalRequest("/api/v1/admin/local/published-spaces")));
+document.querySelector<HTMLButtonElement>("#local-admin-publication-read")!.addEventListener("click",()=>void action(async()=>{const id=document.querySelector<HTMLInputElement>("#local-admin-space-id")!.value.trim();if(!id)throw new Error("Indica el UUID de una publicación.");await runAdminLocalRequest(`/api/v1/admin/local/published-spaces/${encodeURIComponent(id)}`);}));
+for(const id of ["#local-admin-account-id","#local-admin-space-id","#local-admin-report-from","#local-admin-report-until","#local-admin-report-timezone"]){document.querySelector<HTMLInputElement>(id)!.addEventListener("input",()=>{adminLocalRevision++;document.querySelector<HTMLElement>("#local-admin-governance-output")!.textContent="Los criterios cambiaron; respuesta anterior invalidada.";});}
 refreshAdminLocalControls();
 
 async function initialize(): Promise<void> {

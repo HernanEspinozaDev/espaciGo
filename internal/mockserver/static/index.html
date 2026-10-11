@@ -71,6 +71,7 @@
     <details id="local-admin-governance-panel"><summary>Bloqueo de cuenta y reportes de gestión locales (solo administrador)</summary>
       <p>El bloqueo revoca sesiones anteriores. El titular puede iniciar una sesión restringida para terminar operaciones permitidas de reservas existentes; no puede publicar, cotizar ni reservar. Desbloquear exige un nuevo inicio de sesión. No se cancelan reservas ni se mueven fondos.</p>
       <label>ID sintético de cuenta <input id="local-admin-account-id" autocomplete="off"></label>
+      <button id="local-admin-account-search" type="button" disabled>Buscar cuenta por UUID</button>
       <label>Motivo para bloquear <select id="local-admin-block-reason"><option value="riesgo_seguridad">Riesgo de seguridad</option><option value="uso_indebido">Uso indebido</option><option value="revision_administrativa">Revisión administrativa</option></select></label>
       <button id="local-admin-account-block" type="button" disabled>Bloquear cuenta</button>
       <label>Motivo para desbloquear <select id="local-admin-unblock-reason"><option value="revision_concluida">Revisión concluida</option><option value="error_bloqueo">Bloqueo erróneo</option><option value="riesgo_resuelto">Riesgo resuelto</option></select></label>
@@ -82,6 +83,11 @@
       <label>Zona IANA <input id="local-admin-report-timezone" value="America/Santiago" autocomplete="off"></label>
       <button id="local-admin-report-reservations" type="button" disabled>Reservas por estado actual</button>
       <button id="local-admin-report-finance" type="button" disabled>Finanzas fake</button>
+      <button id="local-admin-report-disputes" type="button" disabled>Disputas por estado vigente</button>
+      <h3>Publicaciones locales activas</h3>
+      <button id="local-admin-publications-list" type="button" disabled>Listar espacios publicados</button>
+      <label>ID de publicación activa <input id="local-admin-space-id" autocomplete="off"></label>
+      <button id="local-admin-publication-read" type="button" disabled>Consultar publicación</button>
       <pre id="local-admin-governance-output">Requiere rol administrador.</pre>
     </details>
     <details><summary>Ensayo local de incidencias (solo administrador)</summary><p>Este cierre estructurado no resuelve aspectos económicos ni altera la reserva.</p><button id="local-dispute-admin-load" type="button">Cargar incidencias abiertas</button><div id="local-dispute-admin-items"></div><p id="local-dispute-admin-status" aria-live="polite">Requiere rol administrador.</p></details>

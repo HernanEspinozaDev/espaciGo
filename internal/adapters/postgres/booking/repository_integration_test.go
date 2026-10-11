@@ -3714,6 +3714,24 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err != nil {
 		t.Fatalf("open financial claim: %v", err)
 	}
+	claimReportPeriod := adminlocal.Period{From: financeClaim.OpenedAt.Add(-time.Second), Until: financeClaim.OpenedAt.Add(time.Second), TimeZone: "UTC"}
+	disputeReport, reportErr := adminLocalService.DisputesReport(ctx, adminID, "admin-report-disputes-open", claimReportPeriod)
+	if reportErr != nil || disputeReport.Notice != adminlocal.SafetyNotice || disputeReport.Period.From.Location() != time.UTC {
+		t.Fatalf("dispute report contract=%+v err=%v", disputeReport, reportErr)
+	}
+	var expectedOpenDisputes int64
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reclamo_dano_ensayo_local WHERE abierto_en >= $1 AND abierto_en < $2 AND estado='abierto'`, claimReportPeriod.From, claimReportPeriod.Until).Scan(&expectedOpenDisputes); err != nil {
+		t.Fatal(err)
+	}
+	var reportedOpenDisputes int64
+	for _, item := range disputeReport.Items {
+		if item.State == "abierto" {
+			reportedOpenDisputes = item.Count
+		}
+	}
+	if expectedOpenDisputes == 0 || reportedOpenDisputes != expectedOpenDisputes {
+		t.Fatalf("open dispute aggregation=%+v reported=%d expected=%d", disputeReport.Items, reportedOpenDisputes, expectedOpenDisputes)
+	}
 	financeGuaranteePath := "/api/v1/local/booking-trial/reservations/" + financeReservation.ID + "/guarantee"
 	if _, adminGuaranteeErr := svc.GuaranteeForAdministrator(ctx, adminID, financeReservation.ID); adminGuaranteeErr != nil {
 		t.Fatalf("admin guarantee repository/service: %v", adminGuaranteeErr)
@@ -3740,6 +3758,23 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	}
 	if _, err = claimService.Resolve(ctx, adminID, financeClaim.ID, "finance-claim-resolution", damageclaim.ResolutionInput{Outcome: "acogido", ReasonCode: "evidencia_suficiente"}); err != nil {
 		t.Fatalf("resolve financial claim: %v", err)
+	}
+	disputeReport, reportErr = adminLocalService.DisputesReport(ctx, adminID, "admin-report-disputes-resolved", claimReportPeriod)
+	if reportErr != nil {
+		t.Fatalf("query resolved dispute report: %v", reportErr)
+	}
+	var expectedResolvedDisputes int64
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reclamo_dano_ensayo_local WHERE abierto_en >= $1 AND abierto_en < $2 AND estado='resuelta'`, claimReportPeriod.From, claimReportPeriod.Until).Scan(&expectedResolvedDisputes); err != nil {
+		t.Fatal(err)
+	}
+	var reportedResolvedDisputes int64
+	for _, item := range disputeReport.Items {
+		if item.State == "resuelta" {
+			reportedResolvedDisputes = item.Count
+		}
+	}
+	if expectedResolvedDisputes == 0 || reportedResolvedDisputes != expectedResolvedDisputes {
+		t.Fatalf("resolved dispute aggregation=%+v reported=%d expected=%d", disputeReport.Items, reportedResolvedDisputes, expectedResolvedDisputes)
 	}
 	financePath := "/api/v1/local/booking-trial/reservations/" + financeReservation.ID + "/financial-decision"
 	// A valid resolution on another reservation must not authorize this

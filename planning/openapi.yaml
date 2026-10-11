@@ -2355,6 +2355,47 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+  /admin/local/accounts/{accountID}:
+    get:
+      operationId: getAdminLocalAccountByID
+      tags: [LOCAL-ADMIN-01D]
+      summary: Buscar una cuenta sintética por UUID técnico exacto
+      description: Solo administrador activo. La respuesta excluye correo, contacto, credenciales y texto libre. Cada petición queda auditada, incluida la búsqueda sin resultado.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: accountID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Proyección mínima de la cuenta., content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalAccountEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /admin/local/published-spaces:
+    get:
+      operationId: listAdminLocalPublishedSpaces
+      tags: [LOCAL-ADMIN-01D]
+      summary: Consultar publicaciones locales activas
+      description: Solo administrador activo. Devuelve una proyección mínima sin dirección, descripción, atributos privados ni contactos. Solo lectura y una auditoría por petición.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Publicaciones activas ordenadas por actualización descendente e ID., content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalPublishedSpacesEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/local/published-spaces/{spaceID}:
+    get:
+      operationId: getAdminLocalPublishedSpace
+      tags: [LOCAL-ADMIN-01D]
+      summary: Consultar una publicación activa local
+      description: Solo administrador activo. Los borradores y publicaciones ocultas no son visibles en este recurso. No incluye dirección ni contenido privado.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: spaceID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Proyección mínima de la publicación activa., content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalPublishedSpaceEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /admin/local/accounts/{accountID}/block:
     post:
       operationId: blockLocalAccount
@@ -2416,6 +2457,22 @@ paths:
         - { name: timezone, in: query, required: true, schema: { type: string, example: America/Santiago } }
       responses:
         '200': { description: Movimientos confirmados separados de obligaciones al instante de generación., content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalFinanceReportEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /admin/local/reports/disputes:
+    get:
+      operationId: getAdminLocalDisputesReport
+      tags: [LOCAL-ADMIN-01D]
+      summary: Contar reclamos sintéticos abiertos en el período por su estado vigente
+      description: Administrador activo; lectura y una auditoría por petición. El período se aplica a la apertura y los grupos reflejan el estado vigente al generar el reporte; no reconstruye estados históricos ni incluye texto, evidencias o datos personales.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: from, in: query, required: true, description: Inclusivo; RFC3339 con offset compatible con timezone; salida UTC., schema: { type: string, format: date-time } }
+        - { name: until, in: query, required: true, description: Exclusivo; máximo 31 días calendario; salida UTC., schema: { type: string, format: date-time } }
+        - { name: timezone, in: query, required: true, schema: { type: string, example: America/Santiago } }
+      responses:
+        '200': { description: Conteos agregados sin datos personales., content: { application/json: { schema: { $ref: '#/components/schemas/AdminLocalDisputesReportEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
@@ -2558,6 +2615,47 @@ components:
       properties:
         data: { $ref: '#/components/schemas/AdminLocalBlock' }
         notice: { type: string, const: 'ENSAYO LOCAL — SIN MOVIMIENTOS REALES' }
+    AdminLocalAccount:
+      type: object
+      additionalProperties: false
+      required: [account_id, state, created_at, blocked, roles]
+      properties:
+        account_id: { type: string, format: uuid }
+        state: { type: string, enum: [correo_pendiente, activo, bloqueado, baja_solicitada, desidentificado] }
+        created_at: { type: string, format: date-time }
+        blocked: { type: boolean }
+        roles: { type: array, items: { type: string, enum: [arrendatario, arrendador, administrador] } }
+    AdminLocalAccountEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/AdminLocalAccount' }
+    AdminLocalPublishedSpace:
+      type: object
+      additionalProperties: false
+      required: [space_id, owner_id, title, category_code, category_name, state, updated_at]
+      properties:
+        space_id: { type: string, format: uuid }
+        owner_id: { type: [string, 'null'], format: uuid }
+        title: { type: string }
+        category_code: { type: string }
+        category_name: { type: string }
+        state: { type: string, const: activa }
+        updated_at: { type: string, format: date-time }
+    AdminLocalPublishedSpaceEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/AdminLocalPublishedSpace' }
+    AdminLocalPublishedSpacesEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/AdminLocalPublishedSpace' } }
     AdminLocalReportPeriod:
       type: object
       required: [from, until, timezone]
@@ -2610,6 +2708,28 @@ components:
       required: [data, notice]
       properties:
         data: { $ref: '#/components/schemas/AdminLocalFinanceReport' }
+        notice: { type: string, const: 'ENSAYO LOCAL — SIN MOVIMIENTOS REALES' }
+    AdminLocalDisputesReport:
+      type: object
+      required: [generated_at, period, notice, items]
+      properties:
+        generated_at: { type: string, format: date-time }
+        period: { $ref: '#/components/schemas/AdminLocalReportPeriod' }
+        notice: { type: string, const: 'ENSAYO LOCAL — SIN MOVIMIENTOS REALES' }
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [state, count]
+            properties:
+              state: { type: string, enum: [abierto, resuelta] }
+              count: { type: integer, minimum: 0 }
+    AdminLocalDisputesReportEnvelope:
+      type: object
+      required: [data, notice]
+      properties:
+        data: { $ref: '#/components/schemas/AdminLocalDisputesReport' }
         notice: { type: string, const: 'ENSAYO LOCAL — SIN MOVIMIENTOS REALES' }
     AdminLocalAuditFilter:
       type: object
