@@ -144,7 +144,7 @@ Cada fila especifica dependencias, entregable tangible y aceptación. Los PR pue
 
 ### Registro de avance FE-02 (2026-10-11)
 
-**Estado: implementado, PR pendiente de revisión.** Se entregó identidad CSR/noindex usando el SDK OpenAPI generado, con acceso HTTP separado del estado de sesión y de componentes. El recorrido usa términos versionados de Go; registro/preferencia inicial; verificación y reemisión; login, sesión y logout; recuperación y cambio de contraseña. El Bearer vive solo en memoria, los estados privados se limpian al salir y las respuestas anteriores a una sesión nueva se descartan. Roles y `restricted_mode` provienen de la respuesta de Go.
+**Estado: implementado, PR [#275](https://github.com/HernanEspinozaDev/espaciGo/pull/275) en revisión.** Se entregó identidad CSR/noindex usando el SDK OpenAPI generado, con acceso HTTP separado del estado de sesión y de componentes. El recorrido usa términos versionados de Go; registro/preferencia inicial; verificación y reemisión; login, sesión y logout; recuperación y cambio de contraseña. El Bearer vive solo en memoria, los estados privados se limpian al salir y las respuestas anteriores a una sesión nueva se descartan. Roles y `restricted_mode` provienen de la respuesta de Go.
 
 **Evidencia y validación:** 15 pruebas enfocadas Angular; build y prerender; `api:check`; recorrido M01 con cuenta sintética y Mailpit dentro de un stack temporal aislado; errores, repetición de tokens, revocación, aislamiento y escaneo de logs. Evidencia visual en [`evidencia/FE02_sesion_escritorio.jpg`](evidencia/FE02_sesion_escritorio.jpg) y [`evidencia/FE02_sesion_movil.jpg`](evidencia/FE02_sesion_movil.jpg). API/rutas Go permanecen intactas; el mock continúa en Compose. El PR queda en revisión y FE-03 no comienza hasta aprobación.
 
@@ -209,7 +209,7 @@ Estimación orientativa de trabajo enfocado para un desarrollador; no fechas pro
 
 Añadir margen de aproximadamente 20% si aparecen incompatibilidades de generación, dinero exacto, bibliotecas o endpoints. Rangos no incluyen proveedores reales, GCP ni nuevo portal público. Calibrar con entregas reales, no repartir un porcentaje ficticio por módulo.
 
-A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274) y FE-02 está implementado/en revisión. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
+A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274) y FE-02 está implementado/en revisión ([PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275)). El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
 
 ## 11. Gobierno y definición de terminado
 
