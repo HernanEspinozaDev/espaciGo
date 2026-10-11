@@ -3479,7 +3479,7 @@ components:
         space_id: { type: string, format: uuid }
         host_id: { type: string, format: uuid }
         renter_id: { type: string, format: uuid }
-        state: { type: string, enum: [pendiente_de_pago, pagada, aprobada_host, firma_parcial, lista_para_checkin, en_curso, finalizada, en_disputa, cancelada_por_firma, cancelada_por_pago, rechazada_arrendador, vencida_pago, vencida_host, cancelada_arrendatario] }
+        state: { type: string, enum: [pendiente_de_pago, pagada, aprobada_host, firma_parcial, lista_para_checkin, en_curso, finalizada, cerrada, en_disputa, cancelada_por_firma, cancelada_por_pago, rechazada_arrendador, vencida_pago, vencida_host, cancelada_arrendatario] }
         rate_unit: { type: string, enum: [hora, dia, mes] }
         unit_price_clp: { type: integer }
         currency: { type: string, const: CLP }

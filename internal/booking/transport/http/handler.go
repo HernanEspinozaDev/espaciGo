@@ -707,7 +707,7 @@ func adminReservationParams(query url.Values) (booking.AdminReservationFilter, i
 	}
 	filter.ID = strings.TrimSpace(query.Get("reservation_id"))
 	filter.State = strings.TrimSpace(query.Get("state"))
-	validStates := map[string]bool{"pendiente_de_pago": true, "pagada": true, "aprobada_host": true, "firma_parcial": true, "lista_para_checkin": true, "en_curso": true, "finalizada": true, "en_disputa": true, "cancelada_por_pago": true, "rechazada_arrendador": true, "vencida_pago": true, "vencida_host": true, "cancelada_arrendatario": true, "cancelada_por_firma": true}
+	validStates := map[string]bool{"pendiente_de_pago": true, "pagada": true, "aprobada_host": true, "firma_parcial": true, "lista_para_checkin": true, "en_curso": true, "finalizada": true, "cerrada": true, "en_disputa": true, "cancelada_por_pago": true, "rechazada_arrendador": true, "vencida_pago": true, "vencida_host": true, "cancelada_arrendatario": true, "cancelada_por_firma": true}
 	if filter.State != "" && !validStates[filter.State] {
 		return filter, 0, "", false
 	}

@@ -15,7 +15,7 @@ test("third parties and terminal or cancelled reservations remain read-only", ()
   for (const state of ["firma_parcial","lista_para_checkin"]) {
     assert.equal(canSendConversation("other",conversation(state)),false,state);
   }
-  for (const state of ["finalizada","cancelada_arrendatario","cancelada_por_firma","cancelada_por_pago","rechazada_arrendador","vencida_pago","vencida_host"]) {
+  for (const state of ["finalizada","cerrada","cancelada_arrendatario","cancelada_por_firma","cancelada_por_pago","rechazada_arrendador","vencida_pago","vencida_host"]) {
     assert.equal(canSendConversation("host",conversation(state)),false,state);
     assert.equal(canSendConversation("renter",conversation(state)),false,state);
   }

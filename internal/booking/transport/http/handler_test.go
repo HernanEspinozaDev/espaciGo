@@ -799,8 +799,8 @@ func TestAdminReservationReadRequiresRoleAndAcceptsScopedFilters(t *testing.T) {
 		t.Fatalf("non-admin list status=%d calls=%d", denied.Code, repo.listCalls)
 	}
 	from, to := "2030-01-01T00:00:00Z", "2030-02-01T00:00:00Z"
-	got := call(true, base+"?reservation_id=00000000-0000-4000-8000-000000000001&state=pagada&created_from="+url.QueryEscape(from)+"&created_to="+url.QueryEscape(to)+"&page_size=25")
-	if got.Code != http.StatusOK || repo.listCalls != 1 || repo.size != 25 || repo.filter.State != "pagada" || repo.filter.ID == "" || repo.filter.CreatedFrom == nil || repo.filter.CreatedTo == nil || repo.correlation == "" {
+	got := call(true, base+"?reservation_id=00000000-0000-4000-8000-000000000001&state=cerrada&created_from="+url.QueryEscape(from)+"&created_to="+url.QueryEscape(to)+"&page_size=25")
+	if got.Code != http.StatusOK || repo.listCalls != 1 || repo.size != 25 || repo.filter.State != "cerrada" || repo.filter.ID == "" || repo.filter.CreatedFrom == nil || repo.filter.CreatedTo == nil || repo.correlation == "" {
 		t.Fatalf("admin list status=%d calls=%d repo=%+v body=%s", got.Code, repo.listCalls, repo, got.Body.String())
 	}
 	if !strings.Contains(got.Body.String(), `"next_cursor":"opaque-next"`) {
