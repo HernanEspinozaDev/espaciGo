@@ -21,6 +21,8 @@ scripts/test-local-docker-01.sh
 
 Resultados: PASS. El test renderizó las configuraciones de desarrollo y aislada; verificó nombres, puertos, volumen, ubicación/permisos de secretos, directorios TLS, configuración TLS para backend/migrador, roles separados y red/credenciales API-only del mock. Rechazó colisión con los puertos de desarrollo y duplicación de puertos aislados. Compiló por separado ambos targets: el log de `api` no contiene etapas `mock-assets-build` ni `mock-build`; el target `mock` ejecutó ambas.
 
+Correcciones de revisión de #271: el helper compara rutas resueltas antes de `prepare` o de invocar Docker. Pruebas con el directorio raíz apuntando mediante symlink al `.local` activo y con un subdirectorio de evidencia enlazado al directorio real de desarrollo confirman rechazo; una instantánea de modos/metadatos y hashes locales de secretos demuestra que no hubo cambios y el Docker shim no recibió llamadas. Un `LOCAL_DATABASE_RUNTIME_USER=espacigo_admin` incompatible también se rechaza antes de crear el estado aislado o invocar Compose. El servicio Backend de Compose fija `espacigo_runtime`.
+
 No se levantaron servicios, no se aplicaron migraciones, no se tocó `espacigo_pgdata`, secretos ni datos del entorno actual. Docker reutilizó las capas disponibles; al salir, el test retiró únicamente sus dos tags temporales de imagen. No se eliminaron cachés.
 
 La aceptación de #246 está registrada en [GitHub](https://github.com/HernanEspinozaDev/espaciGo/issues/246#issuecomment-6112922353). Los Issue padres con criterios productivos o diferidos permanecen abiertos. DOCKER-02 (#269) y DOCKER-03 (#270) siguen bloqueados hasta completar sus dependencias; la validación integral corresponde a esos cortes.

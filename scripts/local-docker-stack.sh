@@ -9,6 +9,12 @@ LOCAL_DOCKER_MOCK_PORT="${LOCAL_DOCKER_MOCK_PORT:-18081}"
 LOCAL_DOCKER_MAILPIT_PORT="${LOCAL_DOCKER_MAILPIT_PORT:-18025}"
 LOCAL_DOCKER_PGDATA_VOLUME="${LOCAL_DOCKER_PGDATA_VOLUME:-espacigo_docker01_pgdata}"
 
+if [[ "${LOCAL_DATABASE_RUNTIME_USER:-espacigo_runtime}" != "espacigo_runtime" ]]; then
+  printf 'isolated managed stack requires runtime user espacigo_runtime\n' >&2
+  exit 2
+fi
+LOCAL_DATABASE_RUNTIME_USER="espacigo_runtime"
+
 export LOCAL_COMPOSE_PROJECT_NAME="$LOCAL_DOCKER_PROJECT_NAME"
 export LOCAL_API_PORT="$LOCAL_DOCKER_API_PORT"
 export LOCAL_MOCK_PORT="$LOCAL_DOCKER_MOCK_PORT"
@@ -42,6 +48,8 @@ Configuration overrides: LOCAL_DOCKER_PROJECT_NAME, LOCAL_DOCKER_STATE_DIR,
 LOCAL_DOCKER_API_PORT, LOCAL_DOCKER_MOCK_PORT, LOCAL_DOCKER_MAILPIT_PORT,
 LOCAL_DOCKER_PGDATA_VOLUME, DATABASE_HOST/PORT/NAME/USER through their
 LOCAL_DATABASE_* equivalents, and DATABASE_SSLMODE/SSLROOTCERT/SSLCERT/SSLKEY.
+The runtime role is fixed to espacigo_runtime; state paths are resolved before
+creation and rejected if they overlap local development private directories.
 TLS file values are container paths under /run/database-tls; place local files
 in the isolated database-tls directory. Never put credentials in URLs.
 EOF
@@ -70,6 +78,41 @@ validate_port() {
     printf '%s must not reuse a port from the development stack\n' "$label" >&2
     exit 2
   fi
+}
+
+validate_isolated_paths() {
+  python3 - "$ROOT_DIR" "$LOCAL_DOCKER_STATE_DIR" <<'PY'
+import os
+import pathlib
+import pwd
+import sys
+
+root = pathlib.Path(sys.argv[1]).resolve()
+state = pathlib.Path(sys.argv[2]).expanduser().resolve(strict=False)
+isolated = [state / name for name in (
+    "secrets", "private-evidence", "privacy-replay", "database-tls",
+)]
+home = pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir)
+data_home = pathlib.Path(os.environ.get("XDG_DATA_HOME", home / ".local/share"))
+state_home = pathlib.Path(os.environ.get("XDG_STATE_HOME", home / ".local/state"))
+development = [
+    root / ".local/secrets",
+    root / ".local/database-tls",
+    data_home / "espacigo/m03-evidence",
+    state_home / "espacigo/privacy-replay",
+]
+
+def overlaps(left, right):
+    return left == right or left in right.parents or right in left.parents
+
+for candidate in isolated:
+    real_candidate = candidate.resolve(strict=False)
+    for protected in development:
+        real_protected = protected.resolve(strict=False)
+        if overlaps(real_candidate, real_protected):
+            print("isolated state path resolves into or overlaps a development data path", file=sys.stderr)
+            raise SystemExit(2)
+PY
 }
 
 validate_name LOCAL_DOCKER_PROJECT_NAME "$LOCAL_DOCKER_PROJECT_NAME"
@@ -145,25 +188,31 @@ prepare() {
 command="${1:-}"
 case "$command" in
   config)
+    validate_isolated_paths
     prepare
     compose config --format json
     ;;
   build-backend)
+    validate_isolated_paths
     prepare
     compose build backend migrate
     ;;
   build-mock)
+    validate_isolated_paths
     prepare
     compose build mock-frontend
     ;;
   up)
+    validate_isolated_paths
     prepare
     compose up --build --wait
     ;;
   down)
+    validate_isolated_paths
     compose down
     ;;
   status)
+    validate_isolated_paths
     compose ps
     ;;
   *)

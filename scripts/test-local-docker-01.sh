@@ -25,6 +25,78 @@ command -v docker >/dev/null
 command -v python3 >/dev/null
 docker info >/dev/null
 
+FAKE_BIN="$TEST_ROOT/fake-bin"
+mkdir -m 0700 "$FAKE_BIN"
+cat > "$FAKE_BIN/docker" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DOCKER_CALL_LOG"
+exit 0
+SH
+chmod 0700 "$FAKE_BIN/docker"
+
+snapshot_dev_private_state() {
+  python3 - "$ROOT_DIR/.local" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+if not root.exists():
+    raise SystemExit("development private directory is unavailable for collision check")
+secrets = root / "secrets"
+print(".", oct(root.stat().st_mode & 0o777), "directory")
+for path in sorted(root.rglob("*")):
+    if path.is_symlink():
+        print(path.relative_to(root), "symlink", str(path.readlink()))
+    elif path.is_file():
+        stat = path.stat()
+        details = hashlib.sha256(path.read_bytes()).hexdigest() if secrets in path.parents else f"{stat.st_size}:{stat.st_mtime_ns}"
+        print(path.relative_to(root), oct(stat.st_mode & 0o777), details)
+    elif path.is_dir():
+        print(path.relative_to(root), oct(path.stat().st_mode & 0o777), "directory")
+PY
+}
+
+private_before="$(snapshot_dev_private_state)"
+docker_call_log="$TEST_ROOT/docker-calls.log"
+ln -s "$ROOT_DIR/.local" "$TEST_ROOT/dev-state-alias"
+if LOCAL_DOCKER_STATE_DIR="$TEST_ROOT/dev-state-alias" DOCKER_CALL_LOG="$docker_call_log" \
+  PATH="$FAKE_BIN:$PATH" "$ROOT_DIR/scripts/local-docker-stack.sh" config >/dev/null 2>&1; then
+  echo 'FAIL: isolated state accepted the development private directory' >&2
+  exit 1
+fi
+private_after="$(snapshot_dev_private_state)"
+if [[ "$private_before" != "$private_after" || -e "$docker_call_log" ]]; then
+  echo 'FAIL: path collision rejection modified development files or invoked Docker' >&2
+  exit 1
+fi
+
+linked_evidence_state="$TEST_ROOT/isolated-with-dev-evidence-link"
+mkdir -m 0700 "$linked_evidence_state"
+dev_evidence_dir="$(python3 -c 'import os,pathlib,pwd; home=pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir); print(pathlib.Path(os.environ.get("XDG_DATA_HOME", home / ".local/share")) / "espacigo/m03-evidence")')"
+ln -s "$dev_evidence_dir" "$linked_evidence_state/private-evidence"
+if LOCAL_DOCKER_STATE_DIR="$linked_evidence_state" DOCKER_CALL_LOG="$docker_call_log" \
+  PATH="$FAKE_BIN:$PATH" "$ROOT_DIR/scripts/local-docker-stack.sh" config >/dev/null 2>&1; then
+  echo 'FAIL: isolated private-evidence path reused the development evidence directory' >&2
+  exit 1
+fi
+if [[ -e "$linked_evidence_state/secrets" || -e "$docker_call_log" ]]; then
+  echo 'FAIL: evidence-path rejection created isolated secrets or invoked Docker' >&2
+  exit 1
+fi
+
+runtime_reject_state="$TEST_ROOT/runtime-rejected"
+if LOCAL_DOCKER_STATE_DIR="$runtime_reject_state" LOCAL_DATABASE_RUNTIME_USER=espacigo_admin \
+  DOCKER_CALL_LOG="$docker_call_log" PATH="$FAKE_BIN:$PATH" \
+  "$ROOT_DIR/scripts/local-docker-stack.sh" config >/dev/null 2>&1; then
+  echo 'FAIL: isolated stack accepted a non-runtime application user' >&2
+  exit 1
+fi
+if [[ -e "$runtime_reject_state" || -e "$docker_call_log" ]]; then
+  echo 'FAIL: runtime-user rejection created files or invoked Docker' >&2
+  exit 1
+fi
+
 isolated_json="$TEST_ROOT/isolated-compose.json"
 ISOLATED_STATE_DIR="$TEST_ROOT/isolated"
 LOCAL_DOCKER_STATE_DIR="$ISOLATED_STATE_DIR" \

@@ -98,7 +98,7 @@ services:
       DATABASE_HOST: ${LOCAL_DATABASE_HOST:-database}
       DATABASE_PORT: ${LOCAL_DATABASE_PORT:-5432}
       DATABASE_NAME: ${LOCAL_DATABASE_NAME:-espacigo_local}
-      DATABASE_USER: ${LOCAL_DATABASE_RUNTIME_USER:-espacigo_runtime}
+      DATABASE_USER: espacigo_runtime
       DATABASE_PASSWORD_FILE: /run/secrets/runtime_password
       DATABASE_SSLMODE: ${DATABASE_SSLMODE:-disable}
       DATABASE_SSLROOTCERT: ${DATABASE_SSLROOTCERT:-}
