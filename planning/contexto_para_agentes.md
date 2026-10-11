@@ -1,10 +1,8 @@
 # Contexto operativo para agentes de desarrollo
 
-## Actualización vigente posterior a PR #261 — 2026-10-11
+## Actualización vigente posterior a PR #263 — 2026-10-11
 
-PR #260 se fusionó en `main` (`38c3e1300b6d3f843238f4ee6b8758bfe3b71913`) y #256 fue aceptada/Cerrada/Hecho por portada y modalidad. Después, PR #261 se fusionó en `main` (`d5f8668da7747270115c5191dfb81de6af5d13ba`); #257 fue aceptada/Cerrada/Hecho por búsqueda textual, mapa sintético, superficie y limpiar filtros. La smoke posterior al merge confirmó búsqueda, detalle y mapa. El propietario mantiene #246 abierta y no ha aceptado LOCAL-1. #258 implementa ahora la eliminación con conservación histórica ratificada en `codex/local-m04-publication-delete-01`; #259 (estado `cerrada` tras liquidación fake) sigue después de #258. No repetir la regresión integral hasta resolver ambas brechas. Usar PostgreSQL desechable para pruebas, conservar volumen y secretos y no realizar GCP. Véanse matriz/evidencias e Issues.
-
-Seguimiento 2026-10-11: PR #262 implementa #258 y permanece en revisión; V50 no se aplica al volumen persistente antes de su aceptación. PR #263 implementa #259 en la rama apilada `codex/local-m10-booking-close-01`, con base temporal en el head de #262; después del merge de #262, retargetear #263 a `main`. V51 exige resultado fake liquidado exitosamente antes de `cerrada`, e integra retención, API/OpenAPI y mock. La integración enfocada usa PostgreSQL desechable. #246 permanece abierta; se reserva la regresión integral hasta integrar y aceptar #258 y #259. Sin GCP.
+PR #260 se fusionó en `main` (`38c3e1300b6d3f843238f4ee6b8758bfe3b71913`) y #256 fue aceptada/Cerrada/Hecho por portada y modalidad. PR #261 integró búsqueda textual, mapa sintético, superficie y limpiar filtros; #257 fue aceptada/Cerrada/Hecho. PR #262 integró #258 (RQF-091/092, eliminación con conservación histórica) y PR #263 integró #259 (RQF-177, cierre tras liquidación fake); ambas Issues fueron aceptadas/Cerradas/Hecho solo por sus slices. V50/V51 se aplicaron incrementalmente y la regresión integral LOCAL-1 pasó tras una corrección V52 para impedir DELETE directo de tarifas por `espacigo_runtime`. La rama `codex/local-close-rate-delete-privilege` contiene V52 y espera revisión; no aplicarla al volumen persistente antes de integrar. #246 sigue abierta y el propietario no ha aceptado LOCAL-1. Conservar volumen/secretos y usar DB desechable para pruebas. Sin GCP. Véanse matriz/evidencias e Issues.
 
 ## Estrategia vigente — cierre backend local, conciliada con main #243 (2026-10-10)
 

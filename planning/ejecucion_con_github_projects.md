@@ -1,10 +1,10 @@
 # Continuar EspaciGo desde un PC con GitHub Projects
 
-## Actualización vigente — 2026-10-11, posterior a PR #261
+## Actualización vigente — 2026-10-11, posterior a PR #263
 
-`main` integra #261 (`d5f8668da7747270115c5191dfb81de6af5d13ba`) después de #260/V49. #256 y #257 están aceptadas/Cerrada/Hecho solo por RQF-077/198 y RQF-094/095/099/102, respectivamente; el smoke de #257 confirmó búsqueda, detalle y mapa. #246 sigue abierta, sin aceptación final de LOCAL-1. #258 M04 RQF-091/092 implementa la regla de eliminación ratificada en `codex/local-m04-publication-delete-01`; #259 RQF-177 sigue después de #258. No ejecutar regresión integral hasta completar ambas brechas; conservar volumen y secretos, usar DB desechable y no hacer GCP.
+`main` integra PR #263 (`a0a3ad6130745d3d2126eb4c1c92805eacc39084`) después de #262/V50 y #263/V51. #258 se aceptó/Cerrada/Hecho por RQF-091/092 y #259 por RQF-177; ambas por sus slices, no por los Issues padre. V50/V51 se aplicaron incrementalmente, servicios están saludables y `scripts/dev-env.sh verify-http` pasó. La matriz y el runner integral vigente están en `evidence/local-close-01-matrix-20261011.md` y `evidence/local-close-01-final-20261011.md`.
 
-Seguimiento 2026-10-11: PR #262 para #258 sigue En revisión. PR #263 para #259 usa temporalmente `codex/local-m04-publication-delete-01` como base y requiere retarget a `main` después de su merge. V51 habilita la transición a `cerrada` solo con liquidación fake exitosa aplicada; sus pruebas se ejecutan en PostgreSQL desechable. #246 sigue abierta. La regresión integral se reserva hasta integrar y aceptar #258 y #259; no hacer GCP.
+La primera corrida encontró DELETE directo excesivo sobre tarifas históricas. V52 lo restringe mediante una función que solo elimina tarifas no referenciadas después del tombstone. El test focalizado y el runner completo pasaron en `codex/local-close-rate-delete-privilege` (`056205d`); queda integrar esa corrección y entonces aplicarla incrementalmente al volumen. #246 sigue abierta hasta la aceptación explícita de LOCAL-1. Conservar volumen/secrets y usar instancias desechables para pruebas; sin GCP.
 
 ## Instrucción vigente — backend local completo, conciliada 2026-10-10
 

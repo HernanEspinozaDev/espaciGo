@@ -1,6 +1,6 @@
 # LOCAL-M04-PUBLICATION-DELETE-01 — evidencia de la entrega
 
-Fecha: 2026-10-11. Issue #258 se presenta en revisión mediante [PR #262](https://github.com/HernanEspinozaDev/espaciGo/pull/262). Commit funcional inicial probado: `602459f` (`feat(m04): retire publications with preserved history`). La corrección del saldo de garantía quedó en `885bf2d`; las pruebas ampliadas de saldo y conciliación pendiente quedaron en `f9f5c98`. Issue #258 es hija de #246 y está trazada a RQF-091/092. Implementa la política local ratificada de eliminación de una publicación propia; no acepta M04 completo ni LOCAL-1. #246 permanece abierta. No se aplicó V50 al volumen persistente y no se ejecutó GCP.
+Fecha: 2026-10-11. PR #262 está fusionado (`4f96f81fe11093fc56c3755b9d35fbc29ac94d8f`) y #258 fue aceptada/Cerrada/Hecho por RQF-091/092. Commit funcional inicial probado: `602459f` (`feat(m04): retire publications with preserved history`). La corrección del saldo de garantía quedó en `885bf2d`; las pruebas ampliadas de saldo y conciliación pendiente quedaron en `f9f5c98`. Issue #258 es hija de #246 y está trazada a RQF-091/092. La aceptación no completa M04 ni LOCAL-1. #246 permanece abierta.
 
 ## Comportamiento verificado
 
@@ -23,5 +23,12 @@ V50 mantiene el ancla técnica necesaria por las referencias históricas y agreg
 - `npm --prefix mock run build` — PASS; TypeScript compilado y `internal/mockserver/static/app.js` actualizado.
 - `npm --prefix mock run test:publication-state` — PASS, 1 prueba de rol/estado del control de publicación.
 - `git diff --check` — PASS.
+
+## Comprobación después del merge
+
+- Tras integrar PR #263 en `main` (`a0a3ad6130745d3d2126eb4c1c92805eacc39084`), `bash scripts/dev-env.sh up -d` aplicó V50/V51 incrementalmente y backend, PostgreSQL, Mailpit y mock quedaron saludables. `bash scripts/dev-env.sh verify-http` pasó. La consulta de `schema_migrations` confirmó V47–V51 y el volumen `espacigo_pgdata` siguió presente; no se tocó el contenido de secretos ni se purgó/restauró la base.
+- La integración enfocada de eliminación volvió a pasar sobre PostgreSQL desechable desde la fuente fusionada: `GO_TEST_RUN='^TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions$' bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/spaces`. Cubre el conflicto cuando hay obligaciones, la eliminación cuando la garantía capturada/liberada y la liquidación están confirmadas, preservación histórica y recuperación durable de archivos.
+- La liquidación/cierre pasó de nuevo en PostgreSQL desechable: `GO_TEST_RUN='^TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay$' bash scripts/test-m06-local-booking-postgres.sh`; confirma liquidación fake, estado `cerrada`, historial y replay sin duplicados.
+- La regresión integral finalizada después de ambas aceptaciones está en `local-close-01-final-20261011.md`. Un hallazgo adicional de permisos de tarifa quedó corregido en el PR de seguimiento LOCAL-CLOSE-01: V52 revoca DELETE directo al runtime y permite borrar solo tarifas no referenciadas mediante una función acotada después del tombstone. V52 todavía no se aplica al volumen persistente mientras su PR espera revisión.
 
 La prueba PostgreSQL es desechable y elimina su base mediante `trap`; no se tocó `espacigo_pgdata`, secretos ni datos persistentes. No se ejecutó la regresión LOCAL-1 completa: queda para después de #259.
