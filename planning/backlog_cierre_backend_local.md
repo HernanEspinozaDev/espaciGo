@@ -120,8 +120,8 @@ Fecha inicial: 2026-10-07; conciliación actualizada al 2026-10-11 tras PR #254 
 
 - **Módulo/tipo/estado:** M04 / VERTICAL / `parcial`; #204 y #206 son slices aceptados, no completan este paquete.
 - **Objetivo y motivo:** #52–61, CU-15–18; completar borrador → publicación local con controles de negocio.
-- **Alcance restante:** #204 cubre transición local owner-only, gate KYC e historial. #206 cubre título/precio con snapshots, #208 edición de descripción/capacidad/reglas y #210 galería privada sintética; esos slices están aceptados. Continúan pendientes conexión al catálogo general, modalidad tarifaria y políticas/comisiones generales; reutilizar calendario M06.
-- **Fuera:** publicación comercial, archivos reales sin autorización, cambiar categoría semilla o elegir frontend final.
+- **Alcance restante conciliado al 2026-10-11:** los cortes aceptados cubren publicación activa consumida por catálogo (#212), título/descripción/capacidad/reglas/precio, calendario y galería sintética. Permanecen RQF-077 (selección de portada), RQF-091/092 (eliminar publicación y bloquearlo cuando haya reservas futuras pendientes) y RQF-198 (editar modalidad tarifaria); ver matriz final por ID. No volver a planificar como brecha la conexión catálogo ni la tarifa inicial ya integradas.
+- **Fuera:** archivos/documentos reales, geocodificación comercial, proveedor y frontend definitivo. Los criterios RQF anteriores siguen locales salvo exclusión específica.
 - **Dependencias:** LOCAL-PRIV-01, LOCAL-KYC-01, CORE y D-KYC/LIST/D-BOOK. El gate KYC sintético de publicación/solicitud personal está ratificado; #204 y #206 lo conservan en los puntos de entrada existentes. #142 queda fuera para la parte sintética local. La relación de publicaciones con descubrimiento general sigue pendiente. No cerrar #55/#52–#61 para desbloquear. **Desbloquea:** LOCAL-DISC-01 al completar contratos mínimos de oferta y acceso; #204/#206 por sí solos no bastan.
 - **Aceptación:** publicación requiere datos/estados aprobados; borradores quedan privados; despublicar corta nuevas operaciones según regla sin borrar reservas anteriores; galería conserva autorización y datos validados; snapshots anteriores sobreviven edición.
 - **Pruebas previstas:** transición inválida, dueño/tercero, versión de perfil, files sintéticos, permisos y reglas de calendario; finalizar LOCAL-LIST-MOCK-01.
@@ -174,9 +174,9 @@ Fecha inicial: 2026-10-07; conciliación actualizada al 2026-10-11 tras PR #254 
 
 ### LOCAL-DISC-01 — Completar búsqueda y cotización de oferta local
 
-- **Módulo/tipo/estado:** M05 / VERTICAL / satisfecho para el alcance local de catálogo/cotización de publicaciones activas; evidencia integrada por #212/PR #213, #161/#163/#165/#167 y LOCAL-BOOK-02/#214. Los padres #62–68 conservan sus criterios generales y siguen abiertos.
+- **Módulo/tipo/estado:** M05 / VERTICAL / parcial: los cortes #212/#214 y #161/#163/#165/#167 implementan catálogo/cotización sobre publicaciones activas; quedan RQF-094/095/099/102 como brechas locales expresas. Los padres #62–68 siguen abiertos.
 - **Objetivo y motivo:** #62–68, CU-19–21; reemplazar la dependencia funcional de allowlists por oferta publicada/elegible.
-- **Alcance:** filtros existentes, disponibilidad, detalle autorizado, proximidad y paginación; cotización versionada por oferta seleccionada; índices y límites para dataset local acordado.
+- **Alcance satisfecho:** filtros implementados, disponibilidad, detalle autorizado, proximidad y paginación; cotización versionada por oferta seleccionada. Pendiente: búsqueda textual RQF-094, mapa interactivo local RQF-095, filtro de superficie RQF-099 y limpiar todos los filtros RQF-102.
 - **Fuera:** geocodificador real, ranking patrocinado, mapa definitivo o garantía de capacidad cloud.
 - **Dependencias:** LOCAL-LIST-01 y LOCAL-BOOK-01. **Desbloquea:** LOCAL-BOOK-02.
 - **Aceptación:** oferta despublicada/no elegible no aparece; búsquedas no retienen disponibilidad; total/intervalo/snapshot correctos; paginación y orden documentados; no exponer dirección/coordenada privada por error.
@@ -388,18 +388,18 @@ Fecha inicial: 2026-10-07; conciliación actualizada al 2026-10-11 tras PR #254 
 
 ### LOCAL-CLOSE-01 — Registrar aceptación y detener desarrollo local (Issue #246)
 
-- **Módulo/tipo/estado:** transversal / DOC+funcional / **En curso** en Project.
+- **Módulo/tipo/estado:** transversal / DOC+funcional / **En curso** en Project; revisión de código identifica brechas funcionales locales aún no implementadas.
 - **Objetivo y motivo:** cerrar LOCAL-1 y distinguir pendientes externos del alcance local entregado.
 - **Alcance:** conciliar cada RQF/CU/HU/RNF con evidencia, función local pendiente, decisión y exclusión ratificada; completar brechas funcionales locales obligatorias; mantener guía de arranque/uso y seguimientos separados por tipo.
 - **Fuera:** desplegar/probar GCP, afirmar cumplimiento legal o cerrar criterios externos por su fake.
 - **Dependencias:** LOCAL-QA-03. **Desbloquea:** solamente la posibilidad de solicitar una nueva planificación de nube después de aceptación; no autoriza ejecutarla.
-- **Estado conciliado después de PR #254:** la matriz `evidence/local-close-01-matrix-20261011.md` registra #247 avisos, #248 purgadores, #249 evidencia de descargo y #250 consultas admin aceptadas. La corrida integral final se documenta en `evidence/local-close-01-final-20261011.md`. No se atribuyen brechas fake locales a proveedores pendientes.
+- **Estado conciliado después de PR #254:** #247–#250 están aceptadas solo por sus cortes y la regresión publicada pasó; sin embargo, no cubrió todos los requisitos locales ES1. La matriz `evidence/local-close-01-matrix-20261011.md` enumera las brechas RQF-077, 091/092, 094/095/099/102, 177 y 198. LOCAL-1 no está listo para aceptación final. No se atribuyen esas brechas locales a proveedores pendientes.
 
 - **Decisiones ratificadas para cerrar alcance local:** exact lookup por UUID de cuenta sintética; tercer reporte agregado de disputas por período/estado; outbox durable para los productores RQF-016, 047/194, 121/122/201 y 134/135/139; enlaces de firma autenticados sin bearer token en URL; foto sintética privada en descargo. RQF-210 ya dispone de trigger durable en V38 y evidencia de Mailpit en el corte #223/QA-03.
 - **Subentregas trazables:** #247 avisos (aceptada/Hecho tras PR #251); #248 purgadores de privacidad (aceptada/Hecho tras PR #252 y aplicación local de V47); #249 evidencia en descargo (aceptada/Hecho por PR #253); #250 consultas admin/reportes (aceptada/Cerrada/Hecho tras PR #254 y comprobación HTTP local). Dependencias: QA-03/#244 y slices funcionales satisfechas; ninguna requiere proveedor real. Las Issues se cierran solo por su propio criterio y aceptación, no por estar incluida en LOCAL-CLOSE-01.
 - **LOCAL-CLOSE-01C / #249 — evidencia privada en descargo:** adjuntar una PNG sintética fija generada por Backend al descargo ya persistido; acceso de participantes/admin autorizado y rechazo de terceros; exportar solo al autor; usar limpieza durable por baja y purga tras los 24 meses de reserva/disputa ya ratificados, sin plazo nuevo. Incluye pruebas de aislamiento, ZIP y cleanup/retención con PostgreSQL desechable. No fotos reales.
 - **LOCAL-CLOSE-01D / #250 — consultas administrativas pendientes:** exact lookup auditado por UUID, lista/detalle de publicaciones y reporte agregado de disputas por período/estado. Solo lectura, sin contacto/evidencia/texto libre. Dependencias locales satisfechas tras #249; las funciones no dependen de proveedor.
-- **Criterio de salida:** completar y probar estas subentregas antes de proponer la aceptación de LOCAL-1. Integraciones de PSP, firma comercial, KYC real, fiscal y GCP se reportan aparte; no se usan para ocultar brechas locales.
+- **Criterio de salida:** resolver las brechas locales enumeradas en la matriz, actualizar trazabilidad y ejecutar el runner integral con cero omisiones antes de proponer aceptación de LOCAL-1. Integraciones de PSP, firma comercial, KYC real, fiscal y GCP se reportan aparte; no se usan para ocultar brechas locales.
 - **Aceptación:** cero brechas funcionales locales obligatorias; exclusiones ratificadas; cambios publicados/fusionados y evidencia trazada; propietario acepta; agente se detiene. Los Issues padre conservan criterios generales abiertos.
 - **Verificación:** conciliación de matriz, enlaces, commits y estados; `bash scripts/test-local-qa.sh` ejecutado el 2026-10-11 con las 83 integraciones obligatorias, cero omisiones y cero SKIP; evidencia en `planning/evidence/local-close-01-final-20261011.md`.
 - **Riesgo:** aceptar un cierre parcial como integral o iniciar nube automáticamente.
