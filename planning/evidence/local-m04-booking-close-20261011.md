@@ -1,6 +1,6 @@
 # Evidencia — LOCAL-M04-PUBLICATION-DELETE-01 y LOCAL-M10-BOOKING-CLOSE-01
 
-Fecha: 2026-10-11. Base integrada `main` después de PR #261 (`d5f8668da7747270115c5191dfb81de6af5d13ba`). #258 está en PR #262. #259 se publica en el PR apilado [#263](https://github.com/HernanEspinozaDev/espaciGo/pull/263), con base temporal `codex/local-m04-publication-delete-01`; retargetearlo a `main` tras integrar #262. Commit de implementación probado: `c2107475578b967e63dd79cf30ba504b19d1e407`. #246 permanece abierta. Este documento no acepta LOCAL-1.
+Fecha: 2026-10-11. Base integrada `main` después de PR #261 (`d5f8668da7747270115c5191dfb81de6af5d13ba`). #258 está en PR #262. #259 se publica en el PR apilado [#263](https://github.com/HernanEspinozaDev/espaciGo/pull/263), con base temporal `codex/local-m04-publication-delete-01`; retargetearlo a `main` tras integrar #262. La implementación inicial de cierre fue `c2107475578b967e63dd79cf30ba504b19d1e407`; la corrección de reseñas posterior a liquidación quedó probada en `4a37314669808930fdf53a06413943a78135dc06`. #246 permanece abierta. Este documento no acepta LOCAL-1.
 
 ## LOCAL-M10-BOOKING-CLOSE-01 (#259, RQF-177)
 
