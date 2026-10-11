@@ -364,11 +364,35 @@ func testCommunicationNoticeTriggers(t *testing.T, ctx context.Context, pool *pg
 	if e = pool.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='reclamo_abierto' AND agregado_id=$1 AND destinatario_id=$2`, reservation, renter).Scan(&count); e != nil || count != 1 {
 		t.Fatalf("claim notice count=%d err=%v", count, e)
 	}
+	if _, e = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='aprobada_host',actualizada_en=now() WHERE id=$1`, secondReservation); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='pagada',actualizada_en=now() WHERE id=$1`, secondReservation); e != nil {
+		t.Fatal(e)
+	}
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='pago_arriendo_confirmado' AND agregado_id=$1 AND destinatario_id=$2`, secondReservation, renter).Scan(&count); e != nil || count != 1 {
+		t.Fatalf("renter payment notice count=%d err=%v", count, e)
+	}
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='nueva_reserva_pagada' AND agregado_id=$1 AND destinatario_id=$2`, secondReservation, host).Scan(&count); e != nil || count != 1 {
+		t.Fatalf("paid booking host notice count=%d err=%v", count, e)
+	}
 	if _, e = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='cancelada_arrendatario',actualizada_en=now() WHERE id=$1`, secondReservation); e != nil {
 		t.Fatal(e)
 	}
 	if e = pool.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='reserva_cancelada' AND agregado_id=$1`, secondReservation).Scan(&count); e != nil || count != 2 {
 		t.Fatalf("participant cancellation notices=%d err=%v", count, e)
+	}
+	if _, e = pool.Exec(ctx, `INSERT INTO public.reserva_pago_ensayo_operacion(id,reserva_id,arrendatario_id,clave_idempotencia,huella_solicitud,resultado_solicitado,estado,resultado_final,creada_en,actualizada_en) VALUES('66000000-0000-4000-8000-000000000003',$1,$2,'comm-rent-reject',repeat('d',32)::bytea,'rechazo','aplicada','rechazo_simulado',now(),now())`, secondReservation, renter); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = pool.Exec(ctx, `INSERT INTO public.reserva_pago_ensayo(id,reserva_id,resultado,clave_idempotencia,creada_en,importe_clp) VALUES('66000000-0000-4000-8000-000000000004',$1,'rechazo_simulado','comm-rent-reject-result',now(),0)`, secondReservation); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='cancelada_por_pago',actualizada_en=now() WHERE id=$1`, secondReservation); e != nil {
+		t.Fatal(e)
+	}
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='pago_arriendo_rechazado' AND agregado_id=$1 AND destinatario_id=$2`, secondReservation, renter).Scan(&count); e != nil || count != 1 {
+		t.Fatalf("renter payment success/rejection notices=%d err=%v", count, e)
 	}
 }
 
@@ -589,7 +613,116 @@ func testMailpitLocalCommunicationDelivery(t *testing.T, ctx context.Context, po
 		}
 		for _, to := range message.To {
 			if strings.EqualFold(to.Address, recipient) {
-				return
+				// Also exercise the RQF-016 lockout producer. The recipient is
+				// deliberately in the temporary login-blocked state while the
+				// worker dispatches this event.
+				lockAt := at.Add(time.Second)
+				if _, err := pool.Exec(ctx, `UPDATE public.usuario SET estado='bloqueado',bloqueado_hasta=$2,intentos_fallidos_consecutivos=5,actualizado_en=$2 WHERE id=$1`, adminID, lockAt); err != nil {
+					t.Fatal(err)
+				}
+				defer func() {
+					_, _ = pool.Exec(context.Background(), `UPDATE public.usuario SET estado='activo',bloqueado_hasta=NULL,intentos_fallidos_consecutivos=0 WHERE id=$1`, adminID)
+				}()
+				var lockID string
+				if err := pool.QueryRow(ctx, `SELECT id::text FROM public.aviso_local WHERE tipo_evento='cuenta_bloqueada_login' AND destinatario_id=$1 AND estado='pendiente'`, adminID).Scan(&lockID); err != nil {
+					t.Fatalf("durable login-lock intent not enqueued: %v", err)
+				}
+				if _, err := pool.Exec(ctx, `UPDATE public.aviso_local SET proximo_intento_en=$2 WHERE id=$1`, lockID, lockAt); err != nil {
+					t.Fatal(err)
+				}
+				clock := lockAt
+				lockService, err := localnotice.New(localnoticepg.New(pool), sender, func() time.Time { return clock })
+				if err != nil {
+					t.Fatal(err)
+				}
+				claimed, err := lockService.DispatchOne(ctx)
+				if err != nil || !claimed {
+					t.Fatalf("dispatch lockout notice while account blocked: claimed=%t err=%v", claimed, err)
+				}
+				var lockState string
+				if err := pool.QueryRow(ctx, `SELECT estado FROM public.aviso_local WHERE id=$1`, lockID).Scan(&lockState); err != nil || lockState != "entregada" {
+					t.Fatalf("lockout notice state=%s err=%v", lockState, err)
+				}
+				lockSearch, err := http.Get(strings.TrimRight(apiURL, "/") + "/api/v1/search?query=" + url.QueryEscape("to:"+recipient))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer lockSearch.Body.Close()
+				var lockResult struct {
+					Messages []struct {
+						Subject string
+						To      []struct{ Address string }
+					} `json:"messages"`
+				}
+				if err = json.NewDecoder(lockSearch.Body).Decode(&lockResult); err != nil {
+					t.Fatal(err)
+				}
+				for _, delivered := range lockResult.Messages {
+					if strings.Contains(delivered.Subject, "Bloqueo temporal") {
+						for _, to := range delivered.To {
+							if strings.EqualFold(to.Address, recipient) {
+								// An unverified account can also receive the durable
+								// security alert for its own failed login attempts.
+								const pendingID = "66000000-0000-4000-8000-000000000003"
+								pendingEmail := "pending-lockout@example.invalid"
+								if _, err = pool.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic-test-hash','correo_pendiente')`, pendingID, pendingEmail); err != nil {
+									t.Fatal(err)
+								}
+								pendingLockAt := lockAt.Add(time.Second)
+								if _, err = pool.Exec(ctx, `UPDATE public.usuario SET bloqueado_hasta=$2,actualizado_en=$2,intentos_fallidos_consecutivos=5 WHERE id=$1`, pendingID, pendingLockAt); err != nil {
+									t.Fatal(err)
+								}
+								var pendingNoticeID string
+								if err = pool.QueryRow(ctx, `SELECT id::text FROM public.aviso_local WHERE tipo_evento='cuenta_bloqueada_login' AND destinatario_id=$1 AND estado='pendiente'`, pendingID).Scan(&pendingNoticeID); err != nil {
+									t.Fatalf("pending-account lockout intent missing: %v", err)
+								}
+								if _, err = pool.Exec(ctx, `UPDATE public.aviso_local SET proximo_intento_en=$2 WHERE id=$1`, pendingNoticeID, pendingLockAt); err != nil {
+									t.Fatal(err)
+								}
+								pendingClock := pendingLockAt
+								pendingService, err := localnotice.New(localnoticepg.New(pool), sender, func() time.Time { return pendingClock })
+								if err != nil {
+									t.Fatal(err)
+								}
+								pendingClaimed, err := pendingService.DispatchOne(ctx)
+								if err != nil || !pendingClaimed {
+									t.Fatalf("dispatch lockout notice to unverified account: claimed=%t err=%v", pendingClaimed, err)
+								}
+								var pendingState string
+								if err = pool.QueryRow(ctx, `SELECT estado FROM public.aviso_local WHERE id=$1`, pendingNoticeID).Scan(&pendingState); err != nil || pendingState != "entregada" {
+									t.Fatalf("unverified lockout notice state=%s err=%v", pendingState, err)
+								}
+								pendingSearch, err := http.Get(strings.TrimRight(apiURL, "/") + "/api/v1/search?query=" + url.QueryEscape("to:"+pendingEmail))
+								if err != nil {
+									t.Fatal(err)
+								}
+								defer pendingSearch.Body.Close()
+								var pendingResult struct {
+									Messages []struct {
+										Subject string
+										To      []struct{ Address string }
+									} `json:"messages"`
+								}
+								if err = json.NewDecoder(pendingSearch.Body).Decode(&pendingResult); err != nil {
+									t.Fatal(err)
+								}
+								for _, message := range pendingResult.Messages {
+									if !strings.Contains(message.Subject, "Bloqueo temporal") {
+										continue
+									}
+									for _, to := range message.To {
+										if strings.EqualFold(to.Address, pendingEmail) {
+											return
+										}
+									}
+								}
+								t.Fatalf("Mailpit has no lockout notice for unverified %s", pendingEmail)
+								return
+							}
+						}
+					}
+				}
+				t.Fatalf("Mailpit has no login lock notice for %s", recipient)
 			}
 		}
 	}

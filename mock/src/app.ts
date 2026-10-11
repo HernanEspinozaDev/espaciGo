@@ -4,7 +4,7 @@ import { BookingQuoteState } from "./booking-quote-state.js";
 import { inboxActions } from "./booking-inbox-state.js";
 import { showThenMarkConversationPage } from "./conversation-read-state.js";
 import { canSendConversation } from "./conversation-state.js";
-import { contractActions, contractResponseIsCurrent, type ContractRequestContext } from "./contract-actions.js";
+import { contractActions, contractInviteResponseIsCurrent, contractResponseIsCurrent, type ContractInviteContext, type ContractRequestContext } from "./contract-actions.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState, type AvailabilityContext, type SelectedAvailability } from "./booking-availability-state.js";
@@ -124,6 +124,7 @@ form("login-form", async (data, element) => {
   refreshDamageAdminControls();refreshAdminReservationControls();
   if(!sessionRestrictedMode)await loadSpaceCategories();
   await loadBookingInbox();
+  await openContractInviteFromURL();
   resultElement.textContent = sessionRestrictedMode?"Sesión restringida. Solo puedes consultar y completar operaciones permitidas de reservas existentes.":"Sesión iniciada. Puedes consultarla o cerrarla.";
 });
 form("recovery-request-form", async (data, element) => {
@@ -2207,6 +2208,27 @@ function renderSyntheticContract(item:LocalContract):void{
   const deadline=selectedReservation?`Completar antes de ${bookingDate(selectedReservation.start_at,selectedReservation.time_zone)}.`:"";
   document.querySelector<HTMLElement>("#synthetic-contract-output")!.textContent=`ENSAYO SINTÉTICO LOCAL — SIN VALIDEZ JURÍDICA\nContrato v${item.version} · ${item.state} · SHA-256 ${item.sha256}\n${deadline}\nImporte snapshot: ${selectedReservation?.subtotal_clp.toLocaleString("es-CL")??"—"} CLP\nFirmas:\n${lines}\n\nHistorial:\n${history}`;
   refreshBookingActions();
+}
+async function openContractInviteFromURL():Promise<void>{
+  const url=new URL(window.location.href),contractID=url.searchParams.get("contract");
+  if(!contractID)return;
+  // The link carries only a resource ID, never an access token. The API checks
+  // the signed-in account's participant authorization before returning it.
+  url.searchParams.delete("contract");window.history.replaceState(null,"",url.pathname+url.search+url.hash);
+  const account=sessionAccountID,token=sessionToken,generation=sessionGeneration,selectionRevision=reservationSelectionRevision;
+  if(!account||!token)return;
+  const context:ContractInviteContext={contractID,accountID:account,token,generation,selectionRevision};
+  const isCurrent=(expected:ContractInviteContext)=>contractInviteResponseIsCurrent(expected,{contractID,accountID:sessionAccountID,token:sessionToken,generation:sessionGeneration,selectionRevision:reservationSelectionRevision});
+  const result=await request(`${bookingBase}/contracts/${encodeURIComponent(contractID)}`,"GET",undefined,true);
+  if(!isCurrent(context))return;
+  const contract=bookingData<LocalContract>(result);
+  const reservationID=String(contract.reservation_id??"");if(!reservationID)return;
+  const detailLoad=loadReservationDetail(reservationID);
+  const detailContext:ContractInviteContext={...context,selectionRevision:reservationSelectionRevision};
+  await detailLoad;
+  if(!isCurrent(detailContext)||selectedReservation?.id!==reservationID)return;
+  renderSyntheticContract(contract);
+  resultElement.textContent="Invitación abierta. El Backend verificó tu participación antes de mostrar el contrato.";
 }
 async function selectedContractOperation(kind:"open"|"sign"|"reject"):Promise<void>{
   const reservationID=selectedReservationID,account=sessionAccountID,token=sessionToken,generation=sessionGeneration,revision=++contractRequestRevision;

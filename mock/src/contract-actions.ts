@@ -7,6 +7,10 @@ export interface ContractUIState {
   now: number;
 }
 export interface ContractRequestContext { revision:number; reservationID:string; accountID:string; token:string; generation:number }
+export interface ContractInviteContext { contractID:string; accountID:string; token:string; generation:number; selectionRevision:number }
+export function contractInviteResponseIsCurrent(start:ContractInviteContext,current:ContractInviteContext):boolean {
+  return start.contractID===current.contractID&&start.accountID===current.accountID&&start.token===current.token&&start.generation===current.generation&&start.selectionRevision===current.selectionRevision;
+}
 export function contractResponseIsCurrent(start:ContractRequestContext,current:ContractRequestContext):boolean {
   return start.revision===current.revision&&start.reservationID===current.reservationID&&start.accountID===current.accountID&&start.token===current.token&&start.generation===current.generation;
 }

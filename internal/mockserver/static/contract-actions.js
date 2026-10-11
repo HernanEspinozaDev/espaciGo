@@ -1,3 +1,6 @@
+export function contractInviteResponseIsCurrent(start, current) {
+    return start.contractID === current.contractID && start.accountID === current.accountID && start.token === current.token && start.generation === current.generation && start.selectionRevision === current.selectionRevision;
+}
 export function contractResponseIsCurrent(start, current) {
     return start.revision === current.revision && start.reservationID === current.reservationID && start.accountID === current.accountID && start.token === current.token && start.generation === current.generation;
 }

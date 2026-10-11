@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { contractActions, contractResponseIsCurrent } from "../../internal/mockserver/static/contract-actions.js";
+import { contractActions, contractInviteResponseIsCurrent, contractResponseIsCurrent } from "../../internal/mockserver/static/contract-actions.js";
 
 test("solo el firmante pendiente puede firmar/rechazar antes del inicio", () => {
   const common = { accountID: "host", reservationState: "firma_parcial", reservationStart: 100, now: 99,
@@ -30,4 +30,17 @@ test("descarta respuesta tardía al cambiar selección, cuenta o sesión",()=>{
   assert.equal(contractResponseIsCurrent(request,{...request,revision:3,reservationID:"reservation-b"}),false);
   assert.equal(contractResponseIsCurrent(request,{...request,token:"session-a2",generation:5}),false);
   assert.equal(contractResponseIsCurrent(request,{...request,accountID:"account-b",token:"session-b1",generation:5}),false);
+});
+
+test("una invitación tardía no reemplaza otra reserva seleccionada",()=>{
+  const request={contractID:"contract-a",accountID:"account-a",token:"session-a1",generation:4,selectionRevision:7};
+  assert.equal(contractInviteResponseIsCurrent(request,{...request}),true);
+  assert.equal(contractInviteResponseIsCurrent(request,{...request,selectionRevision:8}),false);
+});
+
+test("una invitación tardía no cambia ni restaura una sesión perdida o renovada",()=>{
+  const request={contractID:"contract-a",accountID:"account-a",token:"session-a1",generation:4,selectionRevision:7};
+  assert.equal(contractInviteResponseIsCurrent(request,{...request,accountID:"",token:"",generation:5}),false);
+  assert.equal(contractInviteResponseIsCurrent(request,{...request,token:"session-a2",generation:5}),false);
+  assert.equal(contractInviteResponseIsCurrent(request,{...request,accountID:"account-b",token:"session-b1",generation:5}),false);
 });

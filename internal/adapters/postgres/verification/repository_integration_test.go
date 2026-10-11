@@ -176,6 +176,10 @@ VALUES('d6d6d6d6-d6d6-46d6-86d6-d6d6d6d6d6d6',$1,'kyc','en_revision','local-fixt
 	if _, err = runtimeRepo.Review(ctx, runtimeCase.ID, reviewer, true, "", time.Now); err != nil {
 		t.Fatalf("runtime role review/eligibility/audit write: %v", err)
 	}
+	var resolutionNotices int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='verificacion_aprobada' AND agregado_id=$1 AND destinatario_id=$2`, runtimeCase.ID, runtimeOwner).Scan(&resolutionNotices); err != nil || resolutionNotices != 1 {
+		t.Fatalf("durable verification result notice count=%d err=%v", resolutionNotices, err)
+	}
 	runtimeEligibility, err := runtimeRepo.ListEligibility(ctx, runtimeOwner)
 	runtimeKYC, runtimeKYCFound := eligibilityByType(runtimeEligibility, "kyc")
 	if err != nil || !runtimeKYCFound || !runtimeKYC.Eligible {

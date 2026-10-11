@@ -1224,6 +1224,15 @@ VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0
 	if rejectedBookingState != "cancelada_por_pago" || rejectedGuaranteeState != "no_disponible" || rejectedOccupancy || rejectedRefund != rejectedReservation.Subtotal {
 		t.Fatalf("confirmed rejection failed cancel/refund: booking=%s guarantee=%s occupancy=%v refund=%d expected=%d", rejectedBookingState, rejectedGuaranteeState, rejectedOccupancy, rejectedRefund, rejectedReservation.Subtotal)
 	}
+	var rejectedRentNotices, confirmedRentPayments int
+	if err = setup.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM public.aviso_local WHERE tipo_evento='pago_arriendo_rechazado' AND agregado_tipo='reserva' AND agregado_id=$1),
+		(SELECT count(*) FROM public.reserva_pago_ensayo_operacion WHERE reserva_id=$1 AND estado='aplicada' AND resultado_final='exito_simulado')`, rejectedReservation.ID).Scan(&rejectedRentNotices, &confirmedRentPayments); err != nil {
+		t.Fatal(err)
+	}
+	if rejectedRentNotices != 0 || confirmedRentPayments != 1 {
+		t.Fatalf("guarantee rejection was misreported as rent-payment rejection: rejected-rent notices=%d confirmed rent payment operations=%d", rejectedRentNotices, confirmedRentPayments)
+	}
 	clockMu.Lock()
 	fixedNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	clockMu.Unlock()
@@ -3184,6 +3193,10 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err != nil || createdContract.State != "generado" || len(createdContract.Signatures) != 2 || len(createdContract.Artifact) < 100 || !strings.HasPrefix(string(createdContract.Artifact), "%PDF-") {
 		t.Fatalf("synthetic contract creation/artifact: state=%s signatures=%d bytes=%d err=%v", createdContract.State, len(createdContract.Signatures), len(createdContract.Artifact), err)
 	}
+	var contractNotices int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='invitacion_firma' AND agregado_id=$1`, createdContract.ID).Scan(&contractNotices); err != nil || contractNotices != 2 {
+		t.Fatalf("contract signer invitations=%d err=%v", contractNotices, err)
+	}
 	var encryptedDocument []byte
 	if err = setup.QueryRow(ctx, `SELECT contenido FROM public.documento_privado_sintetico_local WHERE id=$1`, createdContract.DocumentID).Scan(&encryptedDocument); err != nil {
 		t.Fatal(err)
@@ -3223,6 +3236,9 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	secondSignature := decodeContract(secondSignatureResponse)
 	if secondSignatureResponse.Code != http.StatusOK || secondSignature.State != "firmado" {
 		t.Fatalf("second signature API=%d contract=%s", secondSignatureResponse.Code, secondSignature.State)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='contrato_firmado' AND agregado_id=$1`, createdContract.ID).Scan(&contractNotices); err != nil || contractNotices != 2 {
+		t.Fatalf("complete-signature notices=%d err=%v", contractNotices, err)
 	}
 	documentResponse := publishedContractAPI(t, host, contractService, http.MethodGet, contractBase+"/document")
 	if documentResponse.Code != http.StatusOK || !strings.HasPrefix(documentResponse.Body.String(), "%PDF-") {

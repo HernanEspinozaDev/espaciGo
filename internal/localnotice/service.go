@@ -109,6 +109,22 @@ func (s *Service) Purge(ctx context.Context, limit int) (int64, error) {
 }
 func render(n Notice) (string, string) {
 	switch n.Type {
+	case "cuenta_bloqueada_login":
+		return "Bloqueo temporal de inicio de sesión (ensayo local)", "Se bloqueó temporalmente el inicio de sesión por intentos fallidos. Si no reconoces la actividad, cambia la contraseña. Este aviso no incluye credenciales ni tokens."
+	case "verificacion_aprobada":
+		return "Verificación sintética aprobada", "Tu caso de verificación local fue aprobado. Inicia sesión en el prototipo para consultar su estado y elegibilidad vigente."
+	case "verificacion_rechazada":
+		return "Verificación sintética rechazada", "Tu caso de verificación local fue rechazado. Inicia sesión en el prototipo para consultar el motivo estructurado y los siguientes pasos."
+	case "pago_arriendo_confirmado":
+		return "Pago simulado confirmado", "El pago simulado del arriendo fue confirmado. Inicia sesión para consultar el estado vigente de la reserva. ENSAYO LOCAL — SIN COBRO REAL."
+	case "pago_arriendo_rechazado":
+		return "Pago simulado rechazado", "El pago simulado del arriendo fue rechazado. Inicia sesión para consultar el estado vigente de la reserva. ENSAYO LOCAL — SIN COBRO REAL."
+	case "nueva_reserva_pagada":
+		return "Nueva solicitud pagada (ensayo local)", "Una solicitud sintética quedó pagada y espera tu decisión como anfitrión. Inicia sesión para revisar la reserva. ENSAYO LOCAL — SIN COBRO REAL."
+	case "invitacion_firma":
+		return "Invitación a firmar contrato sintético", "Tienes un contrato sintético pendiente. Inicia sesión y abre la reserva indicada para revisar el documento: " + contractLink(n.AggregateID) + "\nEl enlace no autentica ni concede acceso; el Backend verifica tu participación. ENSAYO SINTÉTICO LOCAL — SIN VALIDEZ JURÍDICA."
+	case "contrato_firmado":
+		return "Contrato sintético firmado por ambas partes", "Ambas firmas sintéticas están completas. Inicia sesión en el prototipo para revisar la reserva y su historial. ENSAYO SINTÉTICO LOCAL — SIN VALIDEZ JURÍDICA."
 	case "checkin_registrado":
 		return "Registro de check-in (ensayo local)", "Se registró un check-in sintético en una reserva. Inicia sesión en el prototipo local para revisar el estado."
 	case "resena_reportada":
@@ -120,4 +136,11 @@ func render(n Notice) (string, string) {
 	default:
 		return "Actualización de reserva (ensayo local)", "Se actualizó una reserva sintética. Inicia sesión en el prototipo local para revisar su estado."
 	}
+}
+
+func contractLink(id string) string {
+	if len(id) != 36 {
+		return "http://127.0.0.1:8081/"
+	}
+	return "http://127.0.0.1:8081/?contract=" + id
 }

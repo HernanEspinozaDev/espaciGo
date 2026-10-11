@@ -1902,7 +1902,7 @@ paths:
         '201': { description: Mensaje persistido; replay idéntico devuelve el mismo mensaje., content: { application/json: { schema: { $ref: '#/components/schemas/LocalReservationMessageEnvelope' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Estado terminal, conflicto de operación o vencimiento de contrato procesado antes de insertar., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '409': { description: Estado terminal, conflicto de operación o vencimiento de contrato procesado antes de insertar., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /local/booking-trial/reservations/{reservationId}/messages/read:
     post:
@@ -2325,7 +2325,7 @@ paths:
           description: Parámetros inválidos o más de 10.000 eventos; no se devuelve exportación parcial.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+              schema: { $ref: '#/components/schemas/Error' }
   /admin/local/accounts/{accountID}/block:
     post:
       operationId: blockLocalAccount
@@ -2754,7 +2754,7 @@ components:
       required: [event_id, event_type, state, error_code, cycle_number, total_attempts, created_at, terminal_at]
       properties:
         event_id: { type: string, format: uuid }
-        event_type: { type: string, enum: [checkin_registrado, resena_reportada, reclamo_abierto, reserva_cancelada] }
+        event_type: { type: string, enum: [checkin_registrado, resena_reportada, reclamo_abierto, reclamo_resuelto, reserva_cancelada, cuenta_bloqueada_login, verificacion_aprobada, verificacion_rechazada, pago_arriendo_confirmado, pago_arriendo_rechazado, nueva_reserva_pagada, invitacion_firma, contrato_firmado] }
         state: { type: string, enum: [fallo_terminal] }
         error_code: { type: string }
         cycle_number: { type: integer, minimum: 1 }
