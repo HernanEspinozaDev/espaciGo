@@ -1860,6 +1860,156 @@ func seedPrivacyReviewReservation(t *testing.T, h *authHarness, spaceID, quoteID
 	}
 }
 
+func TestLocalContractRetentionRevalidatesRecentlyClosedDisputeOutsideFirstBatch(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "contract-retention-dispute-host@ejemplo.invalid")
+	h.verify(t)
+	renterID := h.register(t, "contract-retention-dispute-renter@ejemplo.invalid")
+	h.verify(t)
+	adminID := h.register(t, "contract-retention-dispute-admin@ejemplo.invalid")
+	h.verify(t)
+	const (
+		firstSpace = "84700000-0000-4000-8000-000000000001"
+		firstQuote = "84700000-0000-4000-8000-000000000002"
+		firstRes   = "84700000-0000-4000-8000-000000000003"
+		firstOcc   = "84700000-0000-4000-8000-000000000004"
+		laterSpace = "84700000-0000-4000-8000-000000000011"
+		laterQuote = "84700000-0000-4000-8000-000000000012"
+		laterRes   = "84700000-0000-4000-8000-000000000013"
+		laterOcc   = "84700000-0000-4000-8000-000000000014"
+		disputeID  = "84700000-0000-4000-8000-000000000021"
+	)
+	seedPrivacyReviewReservation(t, h, firstSpace, firstQuote, firstRes, firstOcc, hostID, renterID, "aprobada_host")
+	seedPrivacyReviewReservation(t, h, laterSpace, laterQuote, laterRes, laterOcc, hostID, renterID, "aprobada_host")
+	runtimePool := newRuntimePool(t, h)
+	contractRepo, err := contractspg.New(runtimePool, []byte(strings.Repeat("e", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contractService, err := contractdomain.NewService(contractRepo, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstContract, err := contractService.Create(h.ctx, hostID, firstRes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	laterContract, err := contractService.Create(h.ctx, hostID, laterRes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldest := h.now.AddDate(-25, 0, 0)
+	firstStoredDeadline := h.now.AddDate(-1, 0, 0)
+	laterStoredDeadline := h.now.AddDate(-1, 0, 1)
+	for _, item := range []struct {
+		id                string
+		updated, deadline time.Time
+	}{
+		{firstRes, oldest, firstStoredDeadline},
+		{laterRes, oldest.Add(time.Second), laterStoredDeadline},
+	} {
+		if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_ensayo_local SET estado='cancelada_arrendatario',actualizada_en=$2,vinculos_retirar_en=$3 WHERE id=$1`, item.id, item.updated, item.deadline); err != nil {
+			t.Fatal(err)
+		}
+	}
+	openedAt := h.now.Add(-2 * time.Hour)
+	closedAt := h.now.Add(-time.Hour)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.disputa_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,abierta_por,motivo_codigo,estado,clave_idempotencia,huella_solicitud,abierta_en,cerrada_por,motivo_cierre_codigo,cerrada_en) VALUES($1,$2,$3,$4,$3,'ensayo_privacidad','cerrada','retention-recent-dispute',decode(repeat('33',32),'hex'),$5,$6,'ensayo_finalizado',$7)`, disputeID, laterRes, hostID, renterID, openedAt, adminID, closedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.disputa_ensayo_historial(disputa_id,estado_anterior,estado_nuevo,actor_id,motivo_codigo,ocurrida_en) VALUES($1,NULL,'abierta',$2,'ensayo_privacidad',$3),($1,'abierta','cerrada',$4,'ensayo_finalizado',$5)`, disputeID, hostID, openedAt, adminID, closedAt); err != nil {
+		t.Fatal(err)
+	}
+	retentionRepo := identitypg.NewIdentityRepository(runtimePool)
+	firstContracts, _, err := retentionRepo.PurgeExpiredLocalDomainDocuments(h.ctx, h.now, 1)
+	if err != nil || firstContracts != 1 {
+		t.Fatalf("first batch did not consume only the older contract: contracts=%d err=%v", firstContracts, err)
+	}
+	var firstCount, laterCount int
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.contrato_ensayo_local WHERE id=$1`, firstContract.ID).Scan(&firstCount); err != nil || firstCount != 0 {
+		t.Fatalf("first-batch contract remained: count=%d err=%v", firstCount, err)
+	}
+	secondContracts, _, err := retentionRepo.PurgeExpiredLocalDomainDocuments(h.ctx, h.now, 1)
+	if err != nil || secondContracts != 0 {
+		t.Fatalf("recently closed dispute did not defer contract in second batch: contracts=%d err=%v", secondContracts, err)
+	}
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.contrato_ensayo_local WHERE id=$1`, laterContract.ID).Scan(&laterCount); err != nil || laterCount != 1 {
+		t.Fatalf("contract was purged using stale reservation deadline: count=%d err=%v", laterCount, err)
+	}
+	var stored, want time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT vinculos_retirar_en FROM public.reserva_ensayo_local WHERE id=$1`, laterRes).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	want = closedAt.AddDate(0, 24, 0)
+	if !stored.Equal(want) {
+		t.Fatalf("stored deadline was not refreshed from latest related close: got=%s want=%s", stored, want)
+	}
+}
+
+func TestLocalPublicationHistoryBatchSkipsBlockedDeletionAndPurgesSameEligibleSet(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "publication-history-batch-host@ejemplo.invalid")
+	h.verify(t)
+	renterID := h.register(t, "publication-history-batch-renter@ejemplo.invalid")
+	h.verify(t)
+	const (
+		blockedSpace  = "84800000-0000-4000-8000-000000000001"
+		blockedQuote  = "84800000-0000-4000-8000-000000000002"
+		blockedRes    = "84800000-0000-4000-8000-000000000003"
+		blockedOcc    = "84800000-0000-4000-8000-000000000004"
+		eligibleSpace = "84800000-0000-4000-8000-000000000011"
+		eligibleQuote = "84800000-0000-4000-8000-000000000012"
+		eligibleRes   = "84800000-0000-4000-8000-000000000013"
+		eligibleOcc   = "84800000-0000-4000-8000-000000000014"
+		pendingOp     = "84800000-0000-4000-8000-000000000021"
+	)
+	seedPrivacyReviewReservation(t, h, blockedSpace, blockedQuote, blockedRes, blockedOcc, hostID, renterID, "cancelada_arrendatario")
+	seedPrivacyReviewReservation(t, h, eligibleSpace, eligibleQuote, eligibleRes, eligibleOcc, hostID, renterID, "cancelada_arrendatario")
+	purgeAt := h.now
+	deletionAt := h.now.AddDate(-25, 0, 0)
+	for _, item := range []struct {
+		space, reservation string
+		deleted            time.Time
+	}{
+		{blockedSpace, blockedRes, deletionAt},
+		{eligibleSpace, eligibleRes, deletionAt.Add(time.Hour)},
+	} {
+		if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_ensayo_local SET actualizada_en=$2,vinculos_retirar_en=$3 WHERE id=$1`, item.reservation, deletionAt, deletionAt); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.espacio_publicacion_historial_local(espacio_id,actor_id,estado_anterior,estado_nuevo,ocurrida_en,correlacion_id) VALUES($1,$2,'borrador','activa',$3,'history-batch')`, item.space, hostID, deletionAt); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.pool.Exec(h.ctx, `UPDATE public.espacio SET estado='eliminada' WHERE id=$1`, item.space); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.espacio_eliminacion_historial_local(espacio_id,actor_id,ocurrida_en,correlacion_id,archivos_pendientes,resumen) VALUES($1,$2,$3,$4,0,'{"removed":[],"preserved":[]}')`, item.space, hostID, item.deleted, "history-delete-"+item.space); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_pago_ensayo_operacion(id,reserva_id,arrendatario_id,clave_idempotencia,huella_solicitud,resultado_solicitado,estado,creada_en,actualizada_en) VALUES($1,$2,$3,'blocked-history-pending',decode(repeat('71',32),'hex'),'exito','pendiente',$4,$4)`, pendingOp, blockedRes, renterID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	runtimePool := newRuntimePool(t, h)
+	retentionRepo := identitypg.NewIdentityRepository(runtimePool)
+	_, purgedPublications, err := retentionRepo.PurgeExpiredLocalDomainDocuments(h.ctx, purgeAt, 1)
+	if err != nil || purgedPublications != 1 {
+		t.Fatalf("eligible later deletion did not pass blocked oldest row at batch size 1: publication rows=%d err=%v", purgedPublications, err)
+	}
+	for _, item := range []struct {
+		space string
+		want  int
+	}{{blockedSpace, 2}, {eligibleSpace, 0}} {
+		var count int
+		if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.espacio_publicacion_historial_local WHERE espacio_id=$1)+(SELECT count(*) FROM public.espacio_eliminacion_historial_local WHERE espacio_id=$1)`, item.space).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != item.want {
+			t.Fatalf("space %s history rows=%d want=%d; both history tables must use the same selected space set", item.space, count, item.want)
+		}
+	}
+}
+
 func TestM02SuppressionReviewListsOnlyLiveReservationAndPaymentObligations(t *testing.T) {
 	h := newAuthHarness(t)
 	requesterID := h.register(t, "suppression-live@ejemplo.invalid")

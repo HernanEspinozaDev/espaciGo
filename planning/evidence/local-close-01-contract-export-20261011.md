@@ -2,6 +2,19 @@
 
 Fecha: 2026-10-11. Rama `codex/local-close-01-contract-export`; base `main` #265, `6358b26cc891977b8503f96bece033d34ebc631b`. Commit funcional probado: `e8c49427909bd610a7a4e4137c546090f5352b72`. Alcance LOCAL-1 sintético; #246 permanece abierta hasta aceptación explícita.
 
+### Corrección adicional del purgador (PR #266)
+
+El purgador ahora recalcula el plazo efectivo con el último cierre relacionado después de bloquear participantes y reserva. Si el `vinculos_retirar_en` almacenado quedó viejo, lo actualiza y difiere el retiro en vez de depender de un lote anterior. Para historiales de espacio, primero selecciona y revalida los espacios elegibles tras locks de usuario/reserva; el mismo conjunto se usa para eliminar el historial de publicación y el de eliminación dentro de la transacción.
+
+Pruebas focalizadas en PostgreSQL desechable:
+
+```sh
+GO_TEST_RUN='^TestLocal(ContractRetentionRevalidatesRecentlyClosedDisputeOutsideFirstBatch|PublicationHistoryBatchSkipsBlockedDeletionAndPurgesSameEligibleSet|ContractRetentionDefersObligationsAndRecoversAfterRollback)$' \
+  bash scripts/test-local-comm-mailpit.sh ./internal/adapters/postgres/identity
+```
+
+Resultado: PASS en las tres pruebas. La primera coloca una reserva con fecha almacenada vencida detrás de otra reserva en el primer lote; al llegar al segundo lote, el cierre reciente de una disputa actualiza el vencimiento a `cerrada_en + 24 meses calendario` y conserva contrato/PDF. La segunda usa `p_limit=1`: una eliminación antigua con pago pendiente queda intacta y no consume el lote; la eliminación posterior elegible retira ambos historiales, mientras ambas filas del espacio bloqueado permanecen. El manifiesto de integraciones obligatorias incluye las dos regresiones nuevas.
+
 ## Decisiones ratificadas e implementadas
 
 - Los almacenes especializados por dominio son la adaptación local de MAP-02/DB02-02: un recurso propietario por documento, autorización del módulo dueño, almacenamiento privado y limpieza recuperable. No se creó un almacén global ni se modificaron ES1/ES2.

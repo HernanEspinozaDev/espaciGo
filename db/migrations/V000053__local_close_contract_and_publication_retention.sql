@@ -117,10 +117,27 @@ SELECT
 $$;
 REVOKE ALL ON FUNCTION public.local_retention_reservation_has_open_obligation(uuid) FROM PUBLIC;
 
+-- Do not rely only on reserva_ensayo_local.vinculos_retirar_en: a related
+-- terminal event can be committed after a prior purge batch scheduled it.
+CREATE OR REPLACE FUNCTION public.local_contract_effective_retention_deadline(p_reservation uuid)
+RETURNS timestamptz LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+SELECT GREATEST(r.actualizada_en,
+  COALESCE((SELECT max(p.actualizada_en) FROM public.reserva_pago_ensayo_operacion p WHERE p.reserva_id=r.id),r.actualizada_en),
+  COALESCE((SELECT max(d.actualizada_en) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id),r.actualizada_en),
+  COALESCE((SELECT max(d.cerrada_en) FROM public.disputa_ensayo_local d WHERE d.reserva_id=r.id),r.actualizada_en),
+  COALESCE((SELECT max(x.resuelta_en) FROM public.reclamo_dano_resolucion_ensayo_local x JOIN public.reclamo_dano_ensayo_local c ON c.id=x.reclamo_id WHERE c.reserva_id=r.id),r.actualizada_en),
+  COALESCE((SELECT max(s.actualizada_en) FROM public.reserva_liquidacion_ensayo_local s WHERE s.reserva_id=r.id),r.actualizada_en)
+)+interval '24 months'
+FROM public.reserva_ensayo_local r WHERE r.id=p_reservation;
+$$;
+REVOKE ALL ON FUNCTION public.local_contract_effective_retention_deadline(uuid) FROM PUBLIC;
+
 CREATE OR REPLACE FUNCTION public.purge_expired_local_contracts_and_publication_history(p_at timestamptz,p_limit integer)
 RETURNS TABLE(contracts_purged bigint,publication_history_purged bigint)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
-DECLARE candidate record; host_id uuid; renter_id uuid; document_id uuid;
+DECLARE candidate record; space_candidate record; host_id uuid; renter_id uuid; document_id uuid;
+        effective_deadline timestamptz; selected_space_ids uuid[]:=ARRAY[]::uuid[];
+        selected_deletion_ids bigint[]:=ARRAY[]::bigint[]; locked_deletion_id bigint;
 BEGIN
   IF p_limit<1 OR p_limit>500 THEN RAISE EXCEPTION 'invalid batch'; END IF;
   contracts_purged:=0; publication_history_purged:=0;
@@ -130,10 +147,10 @@ BEGIN
   -- A rolled-back invocation leaves the DB-resident PDF and metadata intact;
   -- a later pass retries the complete removal transactionally.
   FOR candidate IN
-    SELECT r.id,r.anfitrion_id,r.arrendatario_id
+    SELECT r.id,r.anfitrion_id,r.arrendatario_id,r.vinculos_retirar_en
       FROM public.reserva_ensayo_local r
       JOIN public.contrato_ensayo_local c ON c.reserva_id=r.id
-     WHERE r.vinculos_retirar_en<=p_at
+     WHERE COALESCE(r.vinculos_retirar_en,public.local_contract_effective_retention_deadline(r.id))<=p_at
        AND r.estado IN ('finalizada','cerrada','cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario','cancelada_por_firma','en_disputa')
      ORDER BY r.vinculos_retirar_en,r.id
      LIMIT p_limit
@@ -150,6 +167,14 @@ BEGIN
     IF NOT EXISTS(SELECT 1 FROM public.contrato_ensayo_local c WHERE c.reserva_id=candidate.id) THEN
       CONTINUE;
     END IF;
+    SELECT public.local_contract_effective_retention_deadline(candidate.id) INTO effective_deadline;
+    IF effective_deadline IS NULL THEN CONTINUE; END IF;
+    IF candidate.vinculos_retirar_en IS NULL OR candidate.vinculos_retirar_en<effective_deadline THEN
+      UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=effective_deadline WHERE id=candidate.id;
+    ELSE
+      effective_deadline:=GREATEST(effective_deadline,candidate.vinculos_retirar_en);
+    END IF;
+    IF effective_deadline>p_at THEN CONTINUE; END IF;
     IF public.local_retention_reservation_has_open_obligation(candidate.id) THEN
       CONTINUE;
     END IF;
@@ -161,22 +186,42 @@ BEGIN
     contracts_purged:=contracts_purged+1;
   END LOOP;
 
-  WITH due AS (
-    SELECT h.id FROM public.espacio_eliminacion_historial_local h
+  -- Select due spaces once, skip known blockers before applying the batch
+  -- limit, then lock participants/reservations and revalidate under those
+  -- locks. Both append-only ledgers are removed from this exact set.
+  FOR space_candidate IN
+    SELECT h.id,h.espacio_id
+      FROM public.espacio_eliminacion_historial_local h
      WHERE h.retirar_en<=p_at
        AND NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local r WHERE r.espacio_id=h.espacio_id AND (
          r.estado NOT IN ('finalizada','cerrada','cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario','cancelada_por_firma')
-         OR r.vinculos_retirar_en IS NULL OR r.vinculos_retirar_en>p_at OR public.local_retention_reservation_has_open_obligation(r.id)))
-     ORDER BY h.retirar_en,h.id FOR UPDATE SKIP LOCKED LIMIT p_limit
-  ), removed AS (
-    DELETE FROM public.espacio_publicacion_historial_local p
-     WHERE p.espacio_id IN (SELECT h.espacio_id FROM public.espacio_eliminacion_historial_local h JOIN due d ON d.id=h.id)
-    RETURNING 1
-  ) SELECT count(*) INTO publication_history_purged FROM removed;
-  DELETE FROM public.espacio_eliminacion_historial_local h WHERE h.id IN (
-    SELECT d.id FROM (SELECT id FROM public.espacio_eliminacion_historial_local WHERE retirar_en<=p_at ORDER BY retirar_en,id FOR UPDATE SKIP LOCKED LIMIT p_limit) d
-    WHERE NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local r WHERE r.espacio_id=(SELECT espacio_id FROM public.espacio_eliminacion_historial_local WHERE id=d.id) AND (r.estado NOT IN ('finalizada','cerrada','cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario','cancelada_por_firma') OR r.vinculos_retirar_en IS NULL OR r.vinculos_retirar_en>p_at OR public.local_retention_reservation_has_open_obligation(r.id)))
-  );
+         OR GREATEST(COALESCE(r.vinculos_retirar_en,'epoch'::timestamptz),public.local_contract_effective_retention_deadline(r.id))>p_at
+         OR public.local_retention_reservation_has_open_obligation(r.id)))
+     ORDER BY h.retirar_en,h.id
+     LIMIT p_limit
+  LOOP
+    PERFORM u.id FROM public.usuario u
+     WHERE u.id IN (SELECT r.anfitrion_id FROM public.reserva_ensayo_local r WHERE r.espacio_id=space_candidate.espacio_id
+                    UNION SELECT r.arrendatario_id FROM public.reserva_ensayo_local r WHERE r.espacio_id=space_candidate.espacio_id)
+     ORDER BY u.id FOR UPDATE;
+    PERFORM r.id FROM public.reserva_ensayo_local r WHERE r.espacio_id=space_candidate.espacio_id ORDER BY r.id FOR UPDATE;
+    SELECT h.id INTO locked_deletion_id FROM public.espacio_eliminacion_historial_local h
+     WHERE h.id=space_candidate.id AND h.retirar_en<=p_at FOR UPDATE SKIP LOCKED;
+    IF locked_deletion_id IS NULL THEN CONTINUE; END IF;
+    IF EXISTS(SELECT 1 FROM public.reserva_ensayo_local r WHERE r.espacio_id=space_candidate.espacio_id AND (
+         r.estado NOT IN ('finalizada','cerrada','cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario','cancelada_por_firma')
+         OR GREATEST(COALESCE(r.vinculos_retirar_en,'epoch'::timestamptz),public.local_contract_effective_retention_deadline(r.id))>p_at
+         OR public.local_retention_reservation_has_open_obligation(r.id))) THEN
+      CONTINUE;
+    END IF;
+    selected_space_ids:=array_append(selected_space_ids,space_candidate.espacio_id);
+    selected_deletion_ids:=array_append(selected_deletion_ids,space_candidate.id);
+  END LOOP;
+  IF cardinality(selected_space_ids)>0 THEN
+    DELETE FROM public.espacio_publicacion_historial_local p WHERE p.espacio_id=ANY(selected_space_ids);
+    GET DIAGNOSTICS publication_history_purged=ROW_COUNT;
+    DELETE FROM public.espacio_eliminacion_historial_local h WHERE h.id=ANY(selected_deletion_ids);
+  END IF;
   PERFORM set_config('app.local_retention_purge','off',true);
   RETURN NEXT;
 END;
