@@ -607,6 +607,8 @@ paths:
                   evidence_files_queued: { type: integer, minimum: 0 }
                   evidence_files_removed: { type: integer, minimum: 0 }
                   evidence_files_deferred: { type: integer, minimum: 0 }
+                  contracts_purged: { type: integer, minimum: 0 }
+                  publication_history_purged: { type: integer, minimum: 0 }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: Se requiere rol administrador. }
         '503': { description: Servicio local de privacidad no disponible. }

@@ -4,9 +4,11 @@
 package ownerexport
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
@@ -17,6 +19,7 @@ import (
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	contractdomain "github.com/HernanEspinozaDev/espaciGo/internal/contract"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dispute"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
@@ -30,6 +33,10 @@ type sectionReader interface {
 	ExportOwnArchiveSections(context.Context, string) (map[string]json.RawMessage, error)
 }
 
+type contractReader interface {
+	Get(context.Context, string, string) (contractdomain.Contract, error)
+}
+
 type Repository struct {
 	pool         *pgxpool.Pool
 	verification *verificationpg.Repository
@@ -39,16 +46,21 @@ type Repository struct {
 	bookings     sectionReader
 	conversation sectionReader
 	disputes     sectionReader
+	contracts    contractReader
 }
 
-func New(pool *pgxpool.Pool, files verification.EvidenceStorage) *Repository {
-	return &Repository{
+func New(pool *pgxpool.Pool, files verification.EvidenceStorage, contractReaders ...contractReader) *Repository {
+	r := &Repository{
 		pool:         pool,
 		verification: verificationpg.New(pool), files: files,
 		spaces:  spacespg.New(pool, credentials.Generator{}),
 		pricing: pricingpg.New(pool), bookings: bookingpg.New(pool),
 		conversation: conversationpg.New(pool), disputes: disputepg.New(pool),
 	}
+	if len(contractReaders) > 0 {
+		r.contracts = contractReaders[0]
+	}
+	return r
 }
 
 type verificationCase struct {
@@ -292,6 +304,11 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 		return nil, nil, nil, err
 	}
 	sections["synthetic_reputation_and_notices"] = json.RawMessage(reputationJSON)
+	contractSection, contractFiles, contractExclusions, err := r.exportContracts(ctx, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["synthetic_contracts"] = contractSection
 	for _, reader := range []sectionReader{r.spaces, r.pricing, r.bookings, r.conversation, r.disputes} {
 		part, err := reader.ExportOwnArchiveSections(ctx, owner)
 		if err != nil {
@@ -340,10 +357,12 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 	}
 	sections["verification_history"] = historyJSON
 	files := append([]privacy.ExportFile{}, photoFiles...)
+	files = append(files, contractFiles...)
 	files = append(files, galleryFiles...)
 	files = append(files, defenseFiles...)
 	photoExclusions = append(photoExclusions, galleryExclusions...)
 	photoExclusions = append(photoExclusions, defenseExclusions...)
+	photoExclusions = append(photoExclusions, contractExclusions...)
 	exclusionCounts := 0
 	evidenceItems := []evidenceRecord{}
 	for _, item := range cases {
@@ -379,6 +398,154 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 		exclusions = append(exclusions, fmt.Sprintf("%d evidencia(s) propia(s) referenciada(s) sin archivo disponible; omitidas del ZIP", exclusionCounts))
 	}
 	return sections, files, exclusions, nil
+}
+
+type exportedContract struct {
+	ID          string           `json:"id"`
+	Role        string           `json:"role"`
+	Version     int              `json:"version"`
+	State       string           `json:"state"`
+	Snapshot    json.RawMessage  `json:"snapshot"`
+	Signatures  []map[string]any `json:"signatures"`
+	History     []map[string]any `json:"history"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	PDFStatus   string           `json:"pdf_status"`
+	ArchiveFile string           `json:"archive_file,omitempty"`
+}
+
+// exportContracts obtains each artifact through the contract owner's
+// participant-authorized repository. The archive receives a redacted copy of
+// an available PDF; a retired/missing artifact is reported without rebuild.
+func (r *Repository) exportContracts(ctx context.Context, owner string) (json.RawMessage, []privacy.ExportFile, []string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT c.id::text,r.anfitrion_id::text,r.arrendatario_id::text
+		FROM public.contrato_ensayo_local c JOIN public.reserva_ensayo_local r ON r.id=c.reserva_id
+		WHERE r.anfitrion_id=$1 OR r.arrendatario_id=$1 ORDER BY c.creada_en,c.id`, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	type candidate struct{ id, host, renter string }
+	items := []candidate{}
+	for rows.Next() {
+		var item candidate
+		if err := rows.Scan(&item.id, &item.host, &item.renter); err != nil {
+			rows.Close()
+			return nil, nil, nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, nil, nil, err
+	}
+	rows.Close()
+	if len(items) > 0 && r.contracts == nil {
+		return nil, nil, nil, privacy.ErrExportUnavailable
+	}
+	exported := make([]exportedContract, 0, len(items))
+	files := []privacy.ExportFile{}
+	exclusions := []string{}
+	for _, item := range items {
+		c, err := r.contracts.Get(ctx, owner, item.id)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		role := "renter"
+		if owner == item.host {
+			role = "host"
+		}
+		var snapshot map[string]any
+		if err := json.Unmarshal(c.Snapshot, &snapshot); err != nil {
+			return nil, nil, nil, err
+		}
+		// Participant and reservation UUIDs are replaced with roles. Snapshot
+		// facts remain useful without exporting another account's identifier.
+		for _, key := range []string{"host_id", "renter_id", "reservation_id"} {
+			delete(snapshot, key)
+		}
+		snapshot = redactContractSnapshot(snapshot, item.host, item.renter, c.ReservationID).(map[string]any)
+		snapshot["participants"] = map[string]string{"host": "host", "renter": "renter"}
+		snapshotJSON, err := json.Marshal(snapshot)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		entry := exportedContract{ID: c.ID, Role: role, Version: c.Version, State: c.State, Snapshot: snapshotJSON,
+			Signatures: []map[string]any{}, History: []map[string]any{}, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, PDFStatus: "unavailable"}
+		for _, sig := range c.Signatures {
+			entry.Signatures = append(entry.Signatures, map[string]any{"role": sig.Role, "state": sig.State, "updated_at": sig.UpdatedAt})
+		}
+		for _, event := range c.History {
+			actorRole := "system"
+			if event.ActorID == owner {
+				actorRole = "self"
+			} else if event.ActorID == item.host || event.ActorID == item.renter {
+				actorRole = "counterparty"
+			}
+			entry.History = append(entry.History, map[string]any{"sequence": event.Sequence, "actor_role": actorRole, "action": event.Action, "at": event.At})
+		}
+		if len(c.Artifact) > 0 {
+			content := redactContractPDF(c.Artifact, item.host, item.renter, c.ReservationID)
+			name := "files/contracts/" + c.ID + ".pdf"
+			entry.PDFStatus = "included"
+			entry.ArchiveFile = name
+			files = append(files, privacy.ExportFile{Name: name, MediaType: "application/pdf", Description: "PDF sintético compartido de la reserva propia", Content: content})
+		} else if c.ArtifactRetiredAt != nil {
+			entry.PDFStatus = "retired"
+			exclusions = append(exclusions, "PDF del contrato "+c.ID+" ya retirado por retención; no se reconstruyó")
+		} else {
+			exclusions = append(exclusions, "PDF del contrato "+c.ID+" no disponible; no se reconstruyó")
+		}
+		exported = append(exported, entry)
+	}
+	body, err := json.Marshal(map[string]any{"items": exported})
+	return body, files, exclusions, err
+}
+
+func redactContractSnapshot(value any, hostID, renterID, reservationID string) any {
+	switch item := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(item))
+		for key, child := range item {
+			out[key] = redactContractSnapshot(child, hostID, renterID, reservationID)
+		}
+		return out
+	case []any:
+		out := make([]any, len(item))
+		for i, child := range item {
+			out[i] = redactContractSnapshot(child, hostID, renterID, reservationID)
+		}
+		return out
+	case string:
+		for _, replacement := range []struct{ id, role string }{{hostID, "host"}, {renterID, "renter"}, {reservationID, "reservation"}} {
+			if replacement.id != "" {
+				item = strings.ReplaceAll(item, replacement.id, replacement.role)
+			}
+		}
+		return item
+	default:
+		return value
+	}
+}
+
+// The synthetic PDF is a byte-addressed, uncompressed artifact. Replacing
+// each 36-byte UUID with a same-length role marker preserves object offsets,
+// stream length, and the original PDF structure.
+func redactContractPDF(pdf []byte, hostID, renterID, reservationID string) []byte {
+	redact := func(id, role string) {
+		if id == "" {
+			return
+		}
+		marker := role
+		if len(marker) > len(id) {
+			marker = marker[:len(id)]
+		}
+		marker += strings.Repeat(" ", len(id)-len(marker))
+		pdf = bytes.ReplaceAll(pdf, []byte(id), []byte(marker))
+	}
+	redact(hostID, "HOST")
+	redact(renterID, "RENTER")
+	redact(reservationID, "RESERVATION")
+	return pdf
 }
 
 var _ privacy.CompleteExportRepository = (*Repository)(nil)

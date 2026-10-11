@@ -2,17 +2,18 @@
 
 Esta tabla preserva los IDs de ES1 y establece el cruce RQF/RNF ↔ HU/CU ↔ módulo ↔ Issues/evidencia. El estado es una **clasificación de auditoría por módulo**, no una declaración de que cada criterio individual haya sido probado: los estados `parcial` y `pendiente` apuntan a la brecha concreta en `matriz_cierre_backend_local.md`. Requisitos sin HU/CU asociado se mantienen con `—`; no se inventa una relación.
 
-Fuentes: `referencias/ES1/B_requerimientos_funcionales.md`, `C_requerimientos_no_funcionales.md`, `D_casos_de_uso.md`, `E_historias_de_usuario.md`; conciliación vigente contra `main` `6164ba0a929bd088e94a8914287f3bffe7899f94` (PR #264, V52) al 2026-10-11.
+Fuentes congeladas: `referencias/ES1/B_requerimientos_funcionales.md`, `C_requerimientos_no_funcionales.md`, `D_casos_de_uso.md`, `E_historias_de_usuario.md`. Base integrada #265 (`6358b26`), más candidato LOCAL-CLOSE-01E `03e9c77`/V53-V54 al 2026-10-11.
 
 La tabla RQF conserva snapshots intermedios y celdas agregadas por módulo. Para el estado actual prevalecen la matriz por requisito de `evidence/local-close-01-matrix-20261011.md` y el crosswalk de 43 entidades/DB02 de `matriz_cierre_backend_local.md`. No interpretar “Parcial” antiguo como una brecha actual sin contrastar evidencia.
 
-### Conciliación final posterior a #264
+### Conciliación final posterior a #265 / LOCAL-CLOSE-01E
 
-- La regresión integral aceptada se ejecutó en `056205d`; el código/migraciones/scripts/mock de ese commit coincide con `main` #264 y V52. Se reutiliza esa evidencia en este PR documental; no se repite el runner porque no hay cambios ejecutables.
-- Los cortes #256–#263 ya están integrados: RQF-077/198, RQF-094/095/099/102, RQF-091/092 y RQF-177 están aceptados por su alcance, sin cerrar los Issues padre.
-- DB02-01, 03, 04 y 09 tienen función local implementada para el alcance activado; DB02-02 mantiene una decisión pendiente sobre si el almacenamiento/metadata owner-especializado es equivalencia local suficiente para MAP-02. DB02-06 y DB02-07 conservan diferimientos/exclusiones ratificados; DB02-08 conserva los conflictos resueltos localmente sin cambiar ES1/ES2. DB02-05 mantiene una decisión pendiente para contrato/firmas/PDF e historiales de publicación/eliminación. Ver el detalle y las 43 entidades en la matriz de cierre.
-- Brecha local obligatoria: el ZIP propio aún no incluye contratos sintéticos, firmas/historial ni el PDF privado disponible del titular. Está localizada en `ownerexport.Repository.ExportOwnArchiveSections`; no depende de proveedor o validez jurídica. Impide presentar LOCAL-1 para aceptación.
-- #246 permanece OPEN hasta aceptación explícita; #185/#40 y los Issues padre continúan abiertos por sus criterios generales. Ningún estado de PR/slice se usa como cierre del padre.
+- La regresión integral y las pruebas de esta entrega pasaron en el commit candidato `03e9c77fb08815b63f2c8d8b3cc96ffe635ca491` (short `03e9c77`), basado en `main` #265. Runner: 100/100 mock, 4/4 gate, `go test -p 1 ./...`, `go vet ./...`, 89/89 integraciones obligatorias, cero omitidas/SKIP, 5/5 check-in estable. V52→V54 se validó desde V52 en PostgreSQL desechable. Ninguna base persistente fue migrada.
+- RQF-077/198, RQF-094/095/099/102, RQF-091/092 y RQF-177 mantienen sus slices aceptados (#256–#263) sin cerrar padres. LOCAL-CLOSE-01E completa exportación contractual y retención sintética.
+- DB02-02 queda ratificado como adaptación de owner-stores por dominio para LOCAL-1: un propietario por documento, autorización, almacenamiento privado y cleanup recuperable. No se crea almacén global ni se editan fuentes académicas congeladas.
+- DB02-05 queda implementado para los grupos ratificados: contrato/firma/PDF 24 meses calendario desde último cierre terminal relacionado; historial de publicación/eliminación 24 meses desde eliminación definitiva; obligaciones pendientes difieren purga. Lecturas, reintentos y exportaciones no reinician fecha.
+- El ZIP propio incluye snapshot, firmas e historial minimizados, además de PDF privado disponible; archivos retirados se informan en el manifiesto sin reconstrucción. No se exportan claves de cifrado, secretos ni documentos de terceros.
+- No quedan brechas funcionales locales obligatorias identificadas para LOCAL-1. #246 permanece OPEN hasta integración de este cambio y aceptación explícita; #185/#40 y demás padres conservan criterios generales abiertos. No se cierran por evidencia de un slice.
 
 ## RQF (236)
 

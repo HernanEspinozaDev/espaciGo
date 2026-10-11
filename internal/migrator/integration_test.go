@@ -150,6 +150,98 @@ func TestUpgradeFromV46BackfillsVerificationEvidenceFileReferences(t *testing.T)
 	})
 }
 
+func TestUpgradeFromV52BackfillsLocalDomainRetention(t *testing.T) {
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		_, sourceFile, _, ok := runtime.Caller(0)
+		if !ok {
+			t.Fatal("resolve migration test source path")
+		}
+		sourceDir := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "db", "migrations"))
+		migrations, err := DiscoverMigrations(sourceDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		upgradeDir := t.TempDir()
+		for _, migration := range migrations {
+			if migration.Version > 52 {
+				continue
+			}
+			if err := os.WriteFile(filepath.Join(upgradeDir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if result, err := Run(ctx, databaseURL, upgradeDir); err != nil || len(result.Applied) != 52 || result.Applied[51] != 52 {
+			t.Fatalf("prepare V52 database: applied=%v err=%v", result.Applied, err)
+		}
+		actorID, spaceID := "a5300000-0000-4000-8000-000000000001", "a5300000-0000-4000-8000-000000000002"
+		deletedAt := time.Date(2024, 2, 29, 18, 30, 0, 0, time.UTC)
+		conn := connectTestDB(t, ctx, databaseURL)
+		if _, err := conn.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES ($1,'retention-v52@example.invalid','retention-v52@example.invalid','test-hash','activo')`, actorID); err != nil {
+			_ = conn.Close(ctx)
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria) VALUES ($1,$2,'oficina','Historical listing',repeat('Synthetic description ',6),20,2,'Synthetic rules','hora',12000,'Retired address','eliminada','UTC')`, spaceID, actorID); err != nil {
+			_ = conn.Close(ctx)
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO public.espacio_publicacion_historial_local(espacio_id,actor_id,estado_anterior,estado_nuevo,ocurrida_en,correlacion_id) VALUES ($1,$2,'borrador','activa',$3,'v52-publication')`, spaceID, actorID, deletedAt.Add(-time.Hour)); err != nil {
+			_ = conn.Close(ctx)
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO public.espacio_eliminacion_historial_local(espacio_id,actor_id,ocurrida_en,correlacion_id,archivos_pendientes,resumen) VALUES ($1,$2,$3,'v52-deletion',0,'{"removed":[],"preserved":[]}')`, spaceID, actorID, deletedAt); err != nil {
+			_ = conn.Close(ctx)
+			t.Fatal(err)
+		}
+		if err := conn.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var v53, v54 Migration
+		for _, migration := range migrations {
+			if migration.Version == 53 {
+				v53 = migration
+			}
+			if migration.Version == 54 {
+				v54 = migration
+			}
+		}
+		if v53.Version != 53 || v54.Version != 54 {
+			t.Fatalf("V53/V54 migrations not discovered: V53=%d V54=%d", v53.Version, v54.Version)
+		}
+		for _, migration := range []Migration{v53, v54} {
+			if err := os.WriteFile(filepath.Join(upgradeDir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		result, err := Run(ctx, databaseURL, upgradeDir)
+		if err != nil || len(result.Applied) != 2 || result.Applied[0] != 53 || result.Applied[1] != 54 {
+			t.Fatalf("upgrade from V52: applied=%v err=%v", result.Applied, err)
+		}
+		conn = connectTestDB(t, ctx, databaseURL)
+		defer conn.Close(ctx)
+		var publicationDeadline, deletionDeadline time.Time
+		if err := conn.QueryRow(ctx, `SELECT p.retirar_en,d.retirar_en FROM public.espacio_publicacion_historial_local p JOIN public.espacio_eliminacion_historial_local d ON d.espacio_id=p.espacio_id WHERE p.espacio_id=$1`, spaceID).Scan(&publicationDeadline, &deletionDeadline); err != nil {
+			t.Fatal(err)
+		}
+		// PostgreSQL calendar-month interval resolves an invalid anniversary to
+		// the last day of February, not March 1.
+		want := time.Date(2026, 2, 28, 18, 30, 0, 0, time.UTC)
+		if !publicationDeadline.Equal(want) || !deletionDeadline.Equal(want) {
+			t.Fatalf("backfilled retention did not use calendar months from definitive deletion: publication=%s deletion=%s want=%s", publicationDeadline, deletionDeadline, want)
+		}
+		var documentNullable, purgeDenied bool
+		if err := conn.QueryRow(ctx, `SELECT is_nullable='YES' FROM information_schema.columns WHERE table_schema='public' AND table_name='contrato_ensayo_local' AND column_name='documento_id'`).Scan(&documentNullable); err != nil || !documentNullable {
+			t.Fatalf("contract PDF reference cannot represent retired artifact: nullable=%v err=%v", documentNullable, err)
+		}
+		if err := conn.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a WHERE p.oid=to_regprocedure('public.purge_expired_local_contracts_and_publication_history(timestamptz,integer)') AND a.grantee=0 AND a.privilege_type='EXECUTE')`).Scan(&purgeDenied); err != nil || !purgeDenied {
+			t.Fatalf("public can execute retention purge: denied=%v err=%v", purgeDenied, err)
+		}
+		var signatureExpiryIndexed bool
+		if err := conn.QueryRow(ctx, `SELECT indexdef LIKE '%cancelada_por_firma%' FROM pg_indexes WHERE schemaname='public' AND indexname='reserva_ensayo_retencion_local_idx'`).Scan(&signatureExpiryIndexed); err != nil || !signatureExpiryIndexed {
+			t.Fatalf("V54 retention index omits signature-expiry reservations: included=%v err=%v", signatureExpiryIndexed, err)
+		}
+	})
+}
+
 func TestRunnerStoresExactMigrationAndRunnerChecksums(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
 		const migrationSQL = "CREATE TABLE checksum_probe (id integer PRIMARY KEY);\n"

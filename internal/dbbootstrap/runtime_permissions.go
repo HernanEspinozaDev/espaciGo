@@ -18,6 +18,7 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT SELECT, INSERT, UPDATE ON public.outbox_evento_ciclo_local TO espacigo_runtime;
  GRANT EXECUTE ON FUNCTION public.purge_expired_local_credential_notices(timestamptz,integer) TO espacigo_runtime;
  GRANT EXECUTE ON FUNCTION public.purge_expired_local_privacy_rows(timestamptz,integer) TO espacigo_runtime;
+ GRANT EXECUTE ON FUNCTION public.purge_expired_local_contracts_and_publication_history(timestamptz,integer) TO espacigo_runtime;
  GRANT EXECUTE ON FUNCTION public.claim_expired_local_verification_files(timestamptz,integer) TO espacigo_runtime;
  GRANT EXECUTE ON FUNCTION public.complete_expired_local_verification_file(uuid,timestamptz) TO espacigo_runtime;
  GRANT EXECUTE ON FUNCTION public.fail_expired_local_verification_file(uuid,timestamptz) TO espacigo_runtime;
@@ -134,6 +135,7 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
 	// not delete immutable rate history directly. Privacy suppression still
 	// needs table DELETE for the account's private simulations.
 	_, err = conn.Exec(ctx, `REVOKE DELETE ON public.tarifa_espacio FROM espacigo_runtime;
+REVOKE UPDATE,DELETE ON public.espacio_publicacion_historial_local,public.espacio_eliminacion_historial_local FROM espacigo_runtime;
 GRANT EXECUTE ON FUNCTION public.purge_unreferenced_local_publication_rates(uuid) TO espacigo_runtime;
 GRANT DELETE ON public.simulacion_precio_privada TO espacigo_runtime;`)
 	return err
