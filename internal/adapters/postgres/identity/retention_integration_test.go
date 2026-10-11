@@ -1,11 +1,15 @@
 package postgres_test
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,10 +26,14 @@ import (
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
 	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	operationspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/operations"
+	ownerexportpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/damageclaim"
 	damageclaimhttp "github.com/HernanEspinozaDev/espaciGo/internal/damageclaim/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
+	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
+	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
@@ -33,6 +41,327 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"gopkg.in/yaml.v3"
 )
+
+type defenseEvidenceFixture struct {
+	h                                 *authHarness
+	host, renter, outsider, admin     string
+	reservation, claim, checkEvidence string
+	store                             *evidencefs.Store
+	operations                        *operation.Service
+	claims                            *damageclaim.Service
+}
+
+func newDefenseEvidenceFixture(t *testing.T, h *authHarness, suffix int) defenseEvidenceFixture {
+	t.Helper()
+	emailBase := fmt.Sprintf("defense-evidence-%d", suffix)
+	host := h.register(t, emailBase+"-host@ejemplo.invalid")
+	h.verify(t)
+	renter := h.register(t, emailBase+"-renter@ejemplo.invalid")
+	h.verify(t)
+	outsider := h.register(t, emailBase+"-outsider@ejemplo.invalid")
+	h.verify(t)
+	admin := h.register(t, emailBase+"-admin@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador')`, admin); err != nil {
+		t.Fatal(err)
+	}
+	uuid := func(offset int) string { return fmt.Sprintf("%08x-0000-4000-8000-%012x", 88000000+suffix, offset) }
+	spaceID, quoteID, reservationID, occupancyID := uuid(1), uuid(2), uuid(3), uuid(4)
+	seedPrivacyReviewReservation(t, h, spaceID, quoteID, reservationID, occupancyID, host, renter, "finalizada")
+	root := t.TempDir() + "/private-defense-evidence"
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := evidencefs.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkoutID, checkoutEvidenceID := uuid(5), uuid(6)
+	blob, err := verification.SyntheticPNG()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Put(h.ctx, checkoutEvidenceID, blob); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(blob)
+	location := `{"source":"synthetic-fixture-v1","location_code":"santiago-demo-center-v1","latitude":-33.45,"longitude":-70.66}`
+	if _, err = h.pool.Exec(h.ctx, `INSERT INTO public.operacion_arriendo_ensayo_local(id,reserva_id,tipo,actor_id,ocurrio_en,zona_horaria,ubicacion_sintetica,resultado,clave_idempotencia,huella_solicitud,creada_en) VALUES($1,$2,'checkout',$3,$4,'UTC',$5::jsonb,'registrada','defense-checkout-key',decode(repeat('11',32),'hex'),$4)`, checkoutID, reservationID, renter, h.now.Add(-time.Hour), location); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.pool.Exec(h.ctx, `INSERT INTO public.operacion_arriendo_evidencia_ensayo_local(id,operacion_id,fixture_code,mime_type,sha256,size_bytes,creada_en) VALUES($1,$2,'synthetic-png-v1','image/png',$3,$4,$5)`, checkoutEvidenceID, checkoutID, hex.EncodeToString(digest[:]), len(blob), h.now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	claims, err := damageclaim.NewWithEvidenceStore(damageclaimpg.New(h.pool), store, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := claims.Open(h.ctx, host, reservationID, "defense-claim-open-key", damageclaim.Input{Description: "motivo sintetico del reclamo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = claims.Defend(h.ctx, renter, reservationID, "defense-claim-defend-key", damageclaim.Input{Description: "descargo sintetico propio"}); err != nil {
+		t.Fatal(err)
+	}
+	runtimePool := newRuntimePool(t, h)
+	operations, err := operation.NewService(operationspg.New(runtimePool), store, credentials.Generator{}, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	return defenseEvidenceFixture{h: h, host: host, renter: renter, outsider: outsider, admin: admin, reservation: reservationID, claim: claim.ID, checkEvidence: checkoutEvidenceID, store: store, operations: operations, claims: claims}
+}
+
+func TestSyntheticDamageDefenseEvidenceParticipantAdminExportIsolation(t *testing.T) {
+	h := newAuthHarness(t)
+	f := newDefenseEvidenceFixture(t, h, 1)
+	operationHandler := operationhttp.NewHandler(h.service, f.operations, nil)
+	hostSession := h.login(t, "defense-evidence-1-host@ejemplo.invalid")
+	hostCreate := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/reservations/"+f.reservation+"/damage-claim/defense/evidence", strings.NewReader(`{}`))
+	hostCreate.Header.Set("Authorization", "Bearer "+string(hostSession.Token))
+	hostCreate.Header.Set("Idempotency-Key", "host-cannot-submit-defense-evidence")
+	hostDenied := httptest.NewRecorder()
+	operationHandler.ServeHTTP(hostDenied, hostCreate)
+	if hostDenied.Code != http.StatusNotFound {
+		t.Fatalf("host defense evidence submission status=%d body=%s", hostDenied.Code, hostDenied.Body.String())
+	}
+	renterSession := h.login(t, "defense-evidence-1-renter@ejemplo.invalid")
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/reservations/"+f.reservation+"/damage-claim/defense/evidence", strings.NewReader(`{}`))
+	create.Header.Set("Authorization", "Bearer "+string(renterSession.Token))
+	create.Header.Set("Idempotency-Key", "defense-evidence-create-001")
+	created := httptest.NewRecorder()
+	operationHandler.ServeHTTP(created, create)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create defense evidence status=%d body=%s", created.Code, created.Body.String())
+	}
+	var createdEnvelope struct {
+		Data operation.Item `json:"data"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &createdEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	item := createdEnvelope.Data
+	if len(item.Evidence) != 1 || item.Evidence[0].Fixture != "synthetic-png-v1" {
+		t.Fatalf("generated defense evidence=%+v", item.Evidence)
+	}
+	// A repeated HTTP submission reuses the same server-generated attachment.
+	retry := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/reservations/"+f.reservation+"/damage-claim/defense/evidence", strings.NewReader(`{}`))
+	retry.Header.Set("Authorization", "Bearer "+string(renterSession.Token))
+	retry.Header.Set("Idempotency-Key", "defense-evidence-create-001")
+	retried := httptest.NewRecorder()
+	operationHandler.ServeHTTP(retried, retry)
+	var retriedEnvelope struct {
+		Data operation.Item `json:"data"`
+	}
+	if retried.Code != http.StatusOK || json.Unmarshal(retried.Body.Bytes(), &retriedEnvelope) != nil || !retriedEnvelope.Data.Reused || len(retriedEnvelope.Data.Evidence) != 1 || retriedEnvelope.Data.Evidence[0].ID != item.Evidence[0].ID {
+		t.Fatalf("idempotent HTTP retry status=%d item=%+v body=%s", retried.Code, retriedEnvelope.Data, retried.Body.String())
+	}
+	claim, err := f.claims.Get(h.ctx, f.host, f.reservation)
+	if err != nil || claim.Defense == nil || len(claim.Defense.Evidence) != 1 || claim.Defense.Evidence[0].ID != item.Evidence[0].ID {
+		t.Fatalf("claim defense projection=%+v err=%v", claim.Defense, err)
+	}
+	for _, email := range []string{fmt.Sprintf("defense-evidence-%d-host@ejemplo.invalid", 1), fmt.Sprintf("defense-evidence-%d-renter@ejemplo.invalid", 1)} {
+		session := h.login(t, email)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/reservations/"+f.reservation+"/evidence/"+item.Evidence[0].ID, nil)
+		req.Header.Set("Authorization", "Bearer "+string(session.Token))
+		response := httptest.NewRecorder()
+		operationHandler.ServeHTTP(response, req)
+		if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), mustSyntheticPNG(t)) {
+			t.Fatalf("participant evidence status=%d body bytes=%d", response.Code, response.Body.Len())
+		}
+	}
+	outsiderSession := h.login(t, fmt.Sprintf("defense-evidence-%d-outsider@ejemplo.invalid", 1))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/reservations/"+f.reservation+"/evidence/"+item.Evidence[0].ID, nil)
+	req.Header.Set("Authorization", "Bearer "+string(outsiderSession.Token))
+	response := httptest.NewRecorder()
+	operationHandler.ServeHTTP(response, req)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("third-party evidence status=%d body=%s", response.Code, response.Body.String())
+	}
+	claimHandler := damageclaimhttp.NewHandler(h.service, f.claims, nil)
+	adminSession := h.login(t, fmt.Sprintf("defense-evidence-%d-admin@ejemplo.invalid", 1))
+	adminReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/local/damage-claims/"+f.claim+"/evidence/"+item.Evidence[0].ID, nil)
+	adminReq.Header.Set("Authorization", "Bearer "+string(adminSession.Token))
+	adminResp := httptest.NewRecorder()
+	claimHandler.ServeHTTP(adminResp, adminReq)
+	if adminResp.Code != http.StatusOK || !bytes.Equal(adminResp.Body.Bytes(), mustSyntheticPNG(t)) {
+		t.Fatalf("admin evidence status=%d body bytes=%d", adminResp.Code, adminResp.Body.Len())
+	}
+	archiveService, err := privacy.NewService(h.repo, ownerexportpg.New(h.pool, f.store))
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := archiveService.ExportOwnArchive(h.ctx, f.renter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data struct {
+		Sections map[string]json.RawMessage `json:"sections"`
+	}
+	for _, file := range zr.File {
+		if file.Name == "data.json" {
+			reader, e := file.Open()
+			if e != nil {
+				t.Fatal(e)
+			}
+			raw, e := io.ReadAll(reader)
+			_ = reader.Close()
+			if e != nil {
+				t.Fatal(e)
+			}
+			if e = json.Unmarshal(raw, &data); e != nil {
+				t.Fatal(e)
+			}
+		}
+	}
+	var section struct {
+		Items []struct {
+			EvidenceID    string `json:"evidence_id"`
+			Archive       string `json:"archive_file"`
+			FileAvailable bool   `json:"file_available"`
+		} `json:"items"`
+	}
+	if err = json.Unmarshal(data.Sections["synthetic_damage_claim_defenses"], &section); err != nil || len(section.Items) != 1 || section.Items[0].EvidenceID != item.Evidence[0].ID || !section.Items[0].FileAvailable {
+		t.Fatalf("own defense export section=%+v err=%v", section, err)
+	}
+	found := false
+	for _, file := range zr.File {
+		if file.Name == section.Items[0].Archive {
+			found = true
+			reader, e := file.Open()
+			if e != nil {
+				t.Fatal(e)
+			}
+			raw, e := io.ReadAll(reader)
+			_ = reader.Close()
+			if e != nil || !bytes.Equal(raw, mustSyntheticPNG(t)) {
+				t.Fatalf("exported image mismatch err=%v", e)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("ZIP omitted defense evidence %q", section.Items[0].Archive)
+	}
+	hostArchive, err := archiveService.ExportOwnArchive(h.ctx, f.host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostZip, err := zip.NewReader(bytes.NewReader(hostArchive), int64(len(hostArchive)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range hostZip.File {
+		if file.Name == section.Items[0].Archive {
+			t.Fatalf("host archive included renter-authored defense evidence")
+		}
+	}
+}
+
+func mustSyntheticPNG(t *testing.T) []byte {
+	t.Helper()
+	blob, err := verification.SyntheticPNG()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return blob
+}
+
+func TestSyntheticDamageDefenseEvidenceRetentionUsesRecoverableCleanup(t *testing.T) {
+	h := newAuthHarness(t)
+	f := newDefenseEvidenceFixture(t, h, 2)
+	item, err := f.operations.Record(h.ctx, f.renter, f.reservation, "defense-evidence-retain-001", operation.Input{Kind: operation.DefenseEvidence})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.claims.Resolve(h.ctx, f.admin, f.claim, "defense-claim-resolve-key", damageclaim.ResolutionInput{Outcome: "rechazado", ReasonCode: "hecho_no_acreditado"}); err != nil {
+		t.Fatal(err)
+	}
+	var deadline time.Time
+	if err = h.pool.QueryRow(h.ctx, `SELECT vinculos_retirar_en FROM public.reserva_ensayo_local WHERE id=$1`, f.reservation).Scan(&deadline); err != nil {
+		t.Fatal(err)
+	}
+	h.now = deadline
+	purger, err := privacy.NewService(newRuntimeIdentityRepository(t, h))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := purger.PurgeExpiredReservationLinks(h.ctx, deadline, 20)
+	if err != nil || first.Purged != 0 || first.Deferred != 1 {
+		t.Fatalf("first retention pass=%+v err=%v", first, err)
+	}
+	var queued int
+	if err = h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.operacion_arriendo_archivo_candidato_local WHERE archivo_id=$1 AND estado='pendiente_limpieza' AND ultimo_codigo_error='retencion_vencida'`, item.Evidence[0].ID).Scan(&queued); err != nil || queued != 1 {
+		t.Fatalf("retention cleanup not durable queued=%d err=%v", queued, err)
+	}
+	if err = f.operations.CleanRetiredOnce(h.ctx, 20); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.store.Get(h.ctx, item.Evidence[0].ID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("retention left private blob err=%v", err)
+	}
+	second, err := purger.PurgeExpiredReservationLinks(h.ctx, deadline, 20)
+	if err != nil || second.Purged != 1 {
+		t.Fatalf("second retention pass=%+v err=%v", second, err)
+	}
+	var retiredAt *time.Time
+	var retainedMetadata int
+	if err = h.pool.QueryRow(h.ctx, `SELECT archivo_retirado_en,(SELECT count(*) FROM public.operacion_arriendo_evidencia_ensayo_local WHERE id=$1) FROM public.operacion_arriendo_evidencia_ensayo_local WHERE id=$1`, item.Evidence[0].ID).Scan(&retiredAt, &retainedMetadata); err != nil || retiredAt == nil || retainedMetadata != 1 {
+		t.Fatalf("retained evidence facts archived_at=%v rows=%d err=%v", retiredAt, retainedMetadata, err)
+	}
+	adminClaim, err := f.claims.GetAdmin(h.ctx, f.claim)
+	if err != nil || adminClaim.Defense == nil || len(adminClaim.Defense.Evidence) != 0 {
+		t.Fatalf("retained claim exposes expired blob=%+v err=%v", adminClaim.Defense, err)
+	}
+}
+
+func TestSyntheticDamageDefenseEvidenceSuppressionQueuesRecoverableCleanup(t *testing.T) {
+	h := newAuthHarness(t)
+	f := newDefenseEvidenceFixture(t, h, 3)
+	item, err := f.operations.Record(h.ctx, f.renter, f.reservation, "defense-evidence-suppress-001", operation.Input{Kind: operation.DefenseEvidence})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.claims.Resolve(h.ctx, f.admin, f.claim, "defense-suppress-resolve", damageclaim.ResolutionInput{Outcome: "rechazado", ReasonCode: "hecho_no_acreditado"}); err != nil {
+		t.Fatal(err)
+	}
+	privacyService, err := privacy.NewService(h.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := privacyService.RequestRight(h.ctx, f.renter, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := privacyService.ReviewSuppression(h.ctx, f.admin, request.ID, "defense-suppress-review", "defense-evidence-suppress", func() time.Time { return h.now })
+	if err != nil || review.Outcome != "elegible" {
+		t.Fatalf("suppression review=%+v err=%v", review, err)
+	}
+	cleaner := &failOncePrivateCleaner{store: f.store, fail: true}
+	execution, err := privacyService.ExecuteSuppression(h.ctx, f.admin, request.ID, "defense-suppress-execute", "defense-evidence-suppress", func() time.Time { return h.now }, cleaner)
+	if err != nil || execution.Status != "limpieza_pendiente" {
+		t.Fatalf("suppression execution=%+v err=%v", execution, err)
+	}
+	if err = privacyService.RunSuppressionCleanupOnce(h.ctx, func() time.Time { return h.now }, cleaner); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.store.Get(h.ctx, item.Evidence[0].ID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("baja cleanup left defense blob: %v", err)
+	}
+	var retiredAt *time.Time
+	if err = h.pool.QueryRow(h.ctx, `SELECT archivo_retirado_en FROM public.operacion_arriendo_evidencia_ensayo_local WHERE id=$1`, item.Evidence[0].ID).Scan(&retiredAt); err != nil || retiredAt == nil {
+		t.Fatalf("baja did not mark defense blob retired: at=%v err=%v", retiredAt, err)
+	}
+	if _, _, err = f.operations.EvidenceContent(h.ctx, f.renter, f.reservation, item.Evidence[0].ID); !errors.Is(err, operation.ErrNotFound) {
+		t.Fatalf("retired defense evidence remained accessible after baja: %v", err)
+	}
+	claim, err := f.claims.GetAdmin(h.ctx, f.claim)
+	if err != nil || claim.Defense == nil || len(claim.Defense.Evidence) != 0 {
+		t.Fatalf("claim exposed defense blob after baja: defense=%+v err=%v", claim.Defense, err)
+	}
+}
 
 type failOncePrivateCleaner struct {
 	store *evidencefs.Store

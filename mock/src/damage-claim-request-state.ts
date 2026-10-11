@@ -17,3 +17,9 @@ export async function finishDamageClaimAfterReload(context:DamageClaimRequestCon
   onSuccess();
   return true;
 }
+
+export async function finishDamageClaimAfterEvidence(context:DamageClaimRequestContext,createEvidence:()=>Promise<unknown>,reload:()=>Promise<unknown>,current:()=>DamageClaimRequestContext,onSuccess:()=>void):Promise<boolean>{
+  await createEvidence();
+  if(!damageClaimRequestIsCurrent(context,current()))return false;
+  return finishDamageClaimAfterReload(context,reload,current,onSuccess);
+}

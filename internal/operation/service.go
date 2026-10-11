@@ -85,6 +85,8 @@ func validInput(input Input) bool {
 		return input.Observations == ""
 	case Receipt:
 		return input.Comments == ""
+	case DefenseEvidence:
+		return input.Comments == "" && input.Observations == ""
 	default:
 		return false
 	}

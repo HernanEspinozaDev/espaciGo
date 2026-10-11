@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { damageClaimRequestIsCurrent, finishDamageClaimAfterReload } from "../../internal/mockserver/static/damage-claim-request-state.js";
+import { damageClaimRequestIsCurrent, finishDamageClaimAfterEvidence, finishDamageClaimAfterReload } from "../../internal/mockserver/static/damage-claim-request-state.js";
 
 const host="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const original={requestRevision:3,selectionRevision:8,selectionID:"claim-a",accountID:host,token:"session-a",generation:4};
@@ -32,4 +32,20 @@ test("current session and claim selection may show the completed result",async()
   const completion=finishDamageClaimAfterReload(original,async()=>{current={...current};},()=>current,()=>{message="resuelto";});
   assert.equal(await completion,true);
   assert.equal(message,"resuelto");
+});
+
+test("late defense evidence is discarded after reservation selection changes",async()=>{
+  let release;const delayed=new Promise(resolve=>{release=resolve;});
+  let current={...original},message="",reloads=0;
+  const completion=finishDamageClaimAfterEvidence(original,()=>delayed,async()=>{reloads++;},()=>current,()=>{message="descargo guardado";});
+  current={...current,selectionRevision:9,selectionID:"claim-b"};release();
+  assert.equal(await completion,false);assert.equal(reloads,0);assert.equal(message,"");
+});
+
+test("late defense evidence cannot report success after logout and same-account relogin",async()=>{
+  let release;const delayed=new Promise(resolve=>{release=resolve;});
+  let current={...original},message="";
+  const completion=finishDamageClaimAfterEvidence(original,()=>delayed,async()=>{},()=>current,()=>{message="descargo guardado";});
+  current={...current,token:"session-b",generation:6};release();
+  assert.equal(await completion,false);assert.equal(message,"");
 });

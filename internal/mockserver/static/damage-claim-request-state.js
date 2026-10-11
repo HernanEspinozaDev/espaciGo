@@ -8,3 +8,9 @@ export async function finishDamageClaimAfterReload(context, reload, current, onS
     onSuccess();
     return true;
 }
+export async function finishDamageClaimAfterEvidence(context, createEvidence, reload, current, onSuccess) {
+    await createEvidence();
+    if (!damageClaimRequestIsCurrent(context, current()))
+        return false;
+    return finishDamageClaimAfterReload(context, reload, current, onSuccess);
+}

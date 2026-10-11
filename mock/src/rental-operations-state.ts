@@ -1,7 +1,7 @@
 export interface RentalReservationState {
   host_id:string;renter_id:string;state:string;
 }
-export interface RentalOperationState {kind:"checkin"|"checkout"|"recepcion"}
+export interface RentalOperationState {kind:"checkin"|"checkout"|"recepcion"|"descargo"}
 export interface DamageClaimState {state:string;defense?:unknown}
 export interface RentalOperationControls {
   canCheckIn:boolean;canCheckOut:boolean;canReceive:boolean;canOpenClaim:boolean;canDefend:boolean;

@@ -524,6 +524,11 @@ func (r *IdentityRepository) CompleteSuppressionFile(ctx context.Context, file p
 		if _, err = tx.Exec(ctx, `DELETE FROM public.operacion_arriendo_archivo_candidato_local WHERE archivo_id=$1`, file.EvidenceID); err != nil {
 			return mapError(err)
 		}
+		if _, err = tx.Exec(ctx, `UPDATE public.operacion_arriendo_evidencia_ensayo_local
+			SET retirar_archivo_en=LEAST(COALESCE(retirar_archivo_en,$2),$2),archivo_retirado_en=COALESCE(archivo_retirado_en,$2)
+			WHERE id=$1`, file.EvidenceID, at.UTC()); err != nil {
+			return mapError(err)
+		}
 		if _, err = tx.Exec(ctx, `UPDATE public.foto_perfil_sintetica_local SET archivo_id=NULL,mime_type=NULL,sha256=NULL,size_bytes=NULL,limpia_en=$2,proximo_intento_en=NULL,ultimo_codigo_error=NULL WHERE id=$1 AND estado='retirada_baja'`, file.EvidenceID, at.UTC()); err != nil {
 			return mapError(err)
 		}

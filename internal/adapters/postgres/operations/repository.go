@@ -170,7 +170,7 @@ func (w *candidateWriter) Apply(ctx context.Context, opID, key string, input ope
 		return operation.Item{}, false, scanErr
 	}
 	// The actor is authorized before any action-specific detail is evaluated.
-	if (w.kind == operation.CheckIn || w.kind == operation.CheckOut) && w.actor != w.renter || w.kind == operation.Receipt && w.actor != w.host {
+	if (w.kind == operation.CheckIn || w.kind == operation.CheckOut || w.kind == operation.DefenseEvidence) && w.actor != w.renter || w.kind == operation.Receipt && w.actor != w.host {
 		return operation.Item{}, false, w.reject(ctx, operation.ErrNotFound)
 	}
 	// Read the clock only after account and reservation locks have been acquired
@@ -220,6 +220,21 @@ func (w *candidateWriter) Apply(ctx context.Context, opID, key string, input ope
 		} else {
 			result, action = "recepcion_con_observaciones", "observacion_registrada"
 		}
+	case operation.DefenseEvidence:
+		if w.state != "en_disputa" {
+			return operation.Item{}, false, w.reject(ctx, operation.ErrConflict)
+		}
+		var defenseReady bool
+		if err := w.tx.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM public.reclamo_dano_ensayo_local c
+			JOIN public.reclamo_dano_descargo_ensayo_local d ON d.reclamo_id=c.id
+			WHERE c.reserva_id=$1 AND c.estado='abierto' AND d.actor_id=$2)`, w.reservation, w.actor).Scan(&defenseReady); err != nil {
+			return operation.Item{}, false, w.reject(ctx, mapError(err))
+		}
+		if !defenseReady {
+			return operation.Item{}, false, w.reject(ctx, operation.ErrConflict)
+		}
+		result, action = "registrada", "descargo_evidencia"
 	default:
 		return operation.Item{}, false, w.reject(ctx, operation.ErrInvalid)
 	}
@@ -382,7 +397,7 @@ func scanItemWithSequence(row pgx.Row) (operation.Item, error) {
 
 func attachEvidence(ctx context.Context, tx pgx.Tx, item *operation.Item) error {
 	rows, err := tx.Query(ctx, `SELECT id::text,fixture_code,mime_type,sha256,size_bytes,creada_en
-		FROM public.operacion_arriendo_evidencia_ensayo_local WHERE operacion_id=$1 ORDER BY id`, item.ID)
+		FROM public.operacion_arriendo_evidencia_ensayo_local WHERE operacion_id=$1 AND archivo_retirado_en IS NULL ORDER BY id`, item.ID)
 	if err != nil {
 		return mapError(err)
 	}
@@ -401,7 +416,7 @@ func attachEvidence(ctx context.Context, tx pgx.Tx, item *operation.Item) error 
 
 func attachEvidencePool(ctx context.Context, pool *pgxpool.Pool, item *operation.Item) error {
 	rows, err := pool.Query(ctx, `SELECT id::text,fixture_code,mime_type,sha256,size_bytes,creada_en
-		FROM public.operacion_arriendo_evidencia_ensayo_local WHERE operacion_id=$1 ORDER BY id`, item.ID)
+		FROM public.operacion_arriendo_evidencia_ensayo_local WHERE operacion_id=$1 AND archivo_retirado_en IS NULL ORDER BY id`, item.ID)
 	if err != nil {
 		return mapError(err)
 	}
@@ -464,7 +479,7 @@ func (r *Repository) Evidence(ctx context.Context, actor, reservation, evidenceI
 	err := r.pool.QueryRow(ctx, `SELECT e.id::text,e.fixture_code,e.mime_type,e.sha256,e.size_bytes,e.creada_en
 		FROM public.operacion_arriendo_evidencia_ensayo_local e JOIN public.operacion_arriendo_ensayo_local o ON o.id=e.operacion_id
 		JOIN public.reserva_ensayo_local r ON r.id=o.reserva_id
-		WHERE e.id=$1 AND r.id=$2 AND $3 IN (r.anfitrion_id::text,r.arrendatario_id::text)`, evidenceID, reservation, actor).
+		WHERE e.id=$1 AND r.id=$2 AND e.archivo_retirado_en IS NULL AND $3 IN (r.anfitrion_id::text,r.arrendatario_id::text)`, evidenceID, reservation, actor).
 		Scan(&item.ID, &item.Fixture, &item.MIME, &item.SHA256, &item.SizeBytes, &item.CreatedAt)
 	if err != nil {
 		return operation.Evidence{}, mapError(err)
@@ -514,8 +529,18 @@ func (r *Repository) ClaimCandidateCleanup(ctx context.Context, now time.Time, l
 }
 
 func (r *Repository) CompleteCandidateCleanup(ctx context.Context, fileID string) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM public.operacion_arriendo_archivo_candidato_local WHERE archivo_id=$1 AND estado='limpiando'`, fileID)
-	return mapError(err)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return mapError(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err = tx.Exec(ctx, `UPDATE public.operacion_arriendo_evidencia_ensayo_local SET archivo_retirado_en=COALESCE(archivo_retirado_en,now()) WHERE id=$1`, fileID); err != nil {
+		return mapError(err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM public.operacion_arriendo_archivo_candidato_local WHERE archivo_id=$1 AND estado='limpiando'`, fileID); err != nil {
+		return mapError(err)
+	}
+	return mapError(tx.Commit(ctx))
 }
 
 func (r *Repository) FailCandidateCleanup(ctx context.Context, fileID string, at time.Time) error {

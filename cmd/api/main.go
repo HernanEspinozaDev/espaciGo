@@ -468,6 +468,7 @@ func registerOperationRoutes(mux *http.ServeMux, handler http.Handler) {
 	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/check-in", handler)
 	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/check-out", handler)
 	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/reception", handler)
+	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/damage-claim/defense/evidence", handler)
 	mux.Handle("GET /api/v1/local/booking-trial/reservations/{reservationID}/operations", handler)
 	mux.Handle("GET /api/v1/local/booking-trial/reservations/{reservationID}/evidence/{evidenceID}", handler)
 }

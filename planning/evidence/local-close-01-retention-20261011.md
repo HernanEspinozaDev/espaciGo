@@ -1,6 +1,6 @@
 # LOCAL-CLOSE-01B — purgadores de retención local
 
-Estado: implementación en `codex/local-close-01b-retention`, pendiente de PR/revisión. No se aplicó V47 al volumen persistente. Los plazos son los ya ratificados en `privacidad_local_v1`; este cambio no agrega ni generaliza periodos.
+Estado: #248 aceptada/Hecho tras merge de PR #252 (`6e96d8f`) y aplicación incremental de V47 al volumen local. La regresión integral de LOCAL-1 se difiere hasta resolver #249/#250. No se ejecutó purga forzada ni se adelantaron vencimientos. Los plazos son los ya ratificados en `privacidad_local_v1`; este cambio no agrega ni generaliza periodos.
 
 ## Comportamiento implementado
 
@@ -24,4 +24,4 @@ Las integraciones se ejecutaron en PostgreSQL desechable creado por `scripts/tes
 
 V47 añade columnas, completa filas preexistentes y luego incorpora la restricción `NOT VALID` para ejecutar `VALIDATE CONSTRAINT` sobre datos backfilleados.
 
-V47 no está fusionada ni aplicada al entorno persistente. #248 permanece abierta/en revisión hasta aceptación. #246 sigue En curso; #185/#40 y los padres de módulos mantienen sus criterios generales pendientes. No se ejecutó trabajo de GCP.
+V47 está fusionada y aplicada incrementalmente. Se verificaron migración, permisos runtime y salud HTTP sin ejecutar la purga. #248 está cerrada/Hecho por su alcance. #246 sigue abierta/En curso; #185/#40 y los padres de módulos mantienen sus criterios generales pendientes. No se ejecutó trabajo de GCP.
