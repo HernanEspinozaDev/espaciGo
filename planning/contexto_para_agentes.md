@@ -1,8 +1,8 @@
 # Contexto operativo para agentes de desarrollo
 
-## Actualización vigente — LOCAL-DOCKER / DOCKER-02 — 2026-10-11
+## Actualización vigente — LOCAL-DOCKER / DOCKER-03 en paralelo — 2026-10-11
 
-LOCAL-1 fue aceptado explícitamente y #246 está Hecho. PR #271 se fusionó en `main` (`e074d78`) y DOCKER-01/#268 fue aceptada/Cerrada/Hecho. El trabajo vigente es DOCKER-02/#269, propuesto para revisión mediante PR #272. La instalación está en el proyecto/volumen/estado aislados descritos en `planning/evidence/local-docker-02-20261011.md`; el entorno de desarrollo y sus secretos siguen preservados. No inicies DOCKER-03 hasta aceptar #269. Sin GCP.
+LOCAL-1 fue aceptado explícitamente y #246 está Hecho. PR #271 se fusionó en `main` (`e074d78`) y DOCKER-01/#268 fue aceptada/Cerrada/Hecho. DOCKER-02/#269 sigue abierta mientras se espera su paso de liquidación/cierre al cumplirse 24 horas; no se declara aceptada todavía. El propietario autorizó explícitamente comenzar DOCKER-03/#270 en paralelo sin alterar ese criterio. La instalación de DOCKER-02 conserva recursos separados como está descrito en `planning/evidence/local-docker-02-20261011.md`; DOCKER-03 tiene una corrida integral y recursos independientes descritos en `planning/evidence/local-docker-03-20261011.md`. El entorno de desarrollo, volumen y secretos continúan preservados. Sin GCP.
 
 ## Estrategia histórica — cierre backend local, conciliada con main #243 (2026-10-10)
 

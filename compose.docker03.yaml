@@ -1,0 +1,184 @@
+# DOCKER-03 overlay: isolated PostgreSQL TLS and a separate restore target.
+# Use only through scripts/local-docker03.sh, which supplies private paths,
+# dedicated secrets, project/volume names, and verify-full client settings.
+services:
+  database:
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        install -o postgres -g postgres -m 0600 /run/postgres-tls/server.key /tmp/espacigo-server.key
+        install -o postgres -g postgres -m 0644 /run/postgres-tls/server.crt /tmp/espacigo-server.crt
+        install -o postgres -g postgres -m 0644 /run/postgres-tls/pg_hba.conf /tmp/espacigo-pg_hba.conf
+        install -o postgres -g postgres -m 0644 /run/postgres-tls/root.pem /tmp/espacigo-root.pem
+        exec /usr/local/bin/docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/espacigo-server.crt -c ssl_key_file=/tmp/espacigo-server.key -c ssl_ca_file=/tmp/espacigo-root.pem -c hba_file=/tmp/espacigo-pg_hba.conf
+    environment:
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports:
+      - "127.0.0.1:${LOCAL_DOCKER03_DATABASE_PORT:-18132}:5432"
+    volumes:
+      - type: bind
+        source: ${LOCAL_DOCKER03_POSTGRES_TLS_DIR:?DOCKER-03 PostgreSQL TLS directory is required}
+        target: /run/postgres-tls
+        read_only: true
+
+  restore-database:
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-database:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: database
+    user: "0:0"
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        install -o postgres -g postgres -m 0600 /run/postgres-tls/server.key /tmp/espacigo-server.key
+        install -o postgres -g postgres -m 0644 /run/postgres-tls/server.crt /tmp/espacigo-server.crt
+        install -o postgres -g postgres -m 0644 /run/postgres-tls/pg_hba.conf /tmp/espacigo-pg_hba.conf
+        install -o postgres -g postgres -m 0644 /run/postgres-tls/root.pem /tmp/espacigo-root.pem
+        exec /usr/local/bin/docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/espacigo-server.crt -c ssl_key_file=/tmp/espacigo-server.key -c ssl_ca_file=/tmp/espacigo-root.pem -c hba_file=/tmp/espacigo-pg_hba.conf
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${LOCAL_DATABASE_NAME:-espacigo_local}
+      POSTGRES_USER: ${LOCAL_DATABASE_ADMIN_USER:-espacigo_admin}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_admin_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets:
+      - db_admin_password
+      - runtime_password
+    volumes:
+      - pgdata_restore:/var/lib/postgresql
+      - type: bind
+        source: ${LOCAL_DOCKER03_POSTGRES_TLS_DIR:?DOCKER-03 PostgreSQL TLS directory is required}
+        target: /run/postgres-tls
+        read_only: true
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  # Isolated disposable PostgreSQL cluster for integration tests. Tests create
+  # and drop the application role, so they must not share either long-lived DB.
+  test-database:
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-database:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: database
+    user: "0:0"
+    restart: "no"
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        install -o postgres -g postgres -m 0600 /run/postgres-tls/server.key /tmp/espacigo-server.key
+        install -o postgres -g postgres -m 0644 /run/postgres-tls/server.crt /tmp/espacigo-server.crt
+        install -o postgres -g postgres -m 0644 /run/postgres-tls/pg_hba.conf /tmp/espacigo-pg_hba.conf
+        install -o postgres -g postgres -m 0644 /run/postgres-tls/root.pem /tmp/espacigo-root.pem
+        exec /usr/local/bin/docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/espacigo-server.crt -c ssl_key_file=/tmp/espacigo-server.key -c ssl_ca_file=/tmp/espacigo-root.pem -c hba_file=/tmp/espacigo-pg_hba.conf
+    environment:
+      POSTGRES_DB: ${LOCAL_DATABASE_NAME:-espacigo_local}
+      POSTGRES_USER: ${LOCAL_DATABASE_ADMIN_USER:-espacigo_admin}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_admin_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets:
+      - db_admin_password
+      - runtime_password
+    volumes:
+      - pgdata_test:/var/lib/postgresql
+      - type: bind
+        source: ${LOCAL_DOCKER03_TEST_NO_RUNTIME_INIT_FILE:?DOCKER-03 test-only init mask is required}
+        target: /docker-entrypoint-initdb.d/20-espacigo-runtime-user.sh
+        read_only: true
+      - type: bind
+        source: ${LOCAL_DOCKER03_POSTGRES_TLS_DIR:?DOCKER-03 PostgreSQL TLS directory is required}
+        target: /run/postgres-tls
+        read_only: true
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  backend:
+    environment:
+      DATABASE_SSLMODE: verify-full
+      DATABASE_SSLROOTCERT: /run/database-tls/root.pem
+
+  migrate:
+    environment:
+      DATABASE_SSLMODE: verify-full
+      DATABASE_SSLROOTCERT: /run/database-tls/root.pem
+
+  restore-backend:
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-api:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    user: "${LOCAL_UID:?run scripts/local-docker03.sh}:${LOCAL_GID:?run scripts/local-docker03.sh}"
+    restart: unless-stopped
+    environment:
+      HTTP_ADDR: ":8080"
+      LOCAL_AUTH_PROTOTYPE: "1"
+      LOCAL_BOOKING_TRIAL: "1"
+      LOCAL_SMTP_ADDR: mailpit:1025
+      LOCAL_PAYMENT_WEBHOOK_SECRET_FILE: /run/secrets/local_payment_webhook_secret
+      LOCAL_CONTRACT_ENCRYPTION_KEY_FILE: /run/secrets/local_contract_encryption_key
+      LOCAL_VERIFICATION_IP_LIMIT: "20"
+      M03_EVIDENCE_DIR: /var/lib/espacigo/private-evidence
+      LOCAL_PRIVACY_REPLAY_FILE: /var/lib/espacigo/privacy-replay/completed-suppressions-v1.json
+      DATABASE_HOST: restore-database
+      DATABASE_PORT: ${LOCAL_DATABASE_PORT:-5432}
+      DATABASE_NAME: ${LOCAL_DOCKER03_RESTORE_DATABASE_NAME:-espacigo_local_restored}
+      DATABASE_USER: espacigo_runtime
+      DATABASE_PASSWORD_FILE: /run/secrets/runtime_password
+      DATABASE_SSLMODE: verify-full
+      DATABASE_SSLROOTCERT: /run/database-tls/root.pem
+      CORS_ALLOWED_ORIGINS: http://localhost:${LOCAL_DOCKER_MOCK_PORT:-8081},http://127.0.0.1:${LOCAL_DOCKER_MOCK_PORT:-8081}
+    secrets:
+      - runtime_password
+      - local_payment_webhook_secret
+      - local_contract_encryption_key
+    volumes:
+      - type: bind
+        source: ${LOCAL_M03_EVIDENCE_DIR:?run scripts/local-docker03.sh}
+        target: /var/lib/espacigo/private-evidence
+      - type: bind
+        source: ${LOCAL_PRIVACY_REPLAY_DIR:?run scripts/local-docker03.sh}
+        target: /var/lib/espacigo/privacy-replay
+      - type: bind
+        source: ${LOCAL_DATABASE_TLS_DIR:?run scripts/local-docker03.sh}
+        target: /run/database-tls
+        read_only: true
+    depends_on:
+      restore-database:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${LOCAL_DOCKER03_RESTORE_API_PORT:-18282}:8080"
+    networks:
+      - api
+      - data
+      - mail
+    healthcheck:
+      test: ["CMD", "/api", "check"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  pgdata_restore:
+    name: ${LOCAL_DOCKER03_RESTORE_VOLUME:-espacigo_docker03_restore_pgdata}
+  pgdata_test:
+    name: ${LOCAL_DOCKER03_TEST_PGDATA_VOLUME:-espacigo_docker03_test_pgdata}
