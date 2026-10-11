@@ -18,8 +18,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--api', default='http://127.0.0.1:8080')
 parser.add_argument('--mailpit', default='http://127.0.0.1:8025')
 parser.add_argument('--mock', default='http://127.0.0.1:8081')
+parser.add_argument('--cors-origin', default='http://localhost:8081')
+parser.add_argument('--compose-project', default='espacigo')
+parser.add_argument('--email', help='optional synthetic email for a fresh local run')
 args = parser.parse_args()
-for base in (args.api, args.mailpit, args.mock):
+for base in (args.api, args.mailpit, args.mock, args.cors_origin):
     assert urlparse(base).hostname in ('localhost', '127.0.0.1'), 'requires local prototype'
 root = pathlib.Path(__file__).resolve().parent.parent
 spec = yaml.safe_load((root / 'planning/openapi.yaml').read_text())
@@ -90,7 +93,8 @@ def api(method, path, expected, data=None, token=None, label=None):
 terms = api('GET', 'terms', 200)
 assert all(item['synthetic'] for item in terms['items']), 'requires synthetic local terms'
 term_ids = [item['id'] for item in terms['items'] if item['type'] == 'terminos']
-email = f'prototype-{uuid.uuid4().hex}@ejemplo.invalid'
+email = args.email or f'prototype-{uuid.uuid4().hex}@ejemplo.invalid'
+assert re.fullmatch(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.invalid', email), 'test email must use the reserved .invalid domain'
 password = 'Synthetic#123'
 api('POST', 'register', 400, {'email': email, 'role': 'administrador'}, label='unknown fields rejected')
 api('POST', 'register', 422, {'email': email, 'password': 'Synthetic#123', 'terms_version_ids': term_ids}, label='required use preference')
@@ -174,8 +178,8 @@ secrets.append(changed_login['access_token'])
 api('POST', 'logout', 204, token=changed_login['access_token'], label='logout after credential change')
 
 # Actual CORS transport, not a mocked response.
-status, _, headers = raw('OPTIONS', args.api + '/api/v1/auth/login', headers={'Origin': 'http://localhost:8081', 'Access-Control-Request-Method': 'POST'})
-assert status == 204 and headers['Access-Control-Allow-Origin'] == 'http://localhost:8081'
+status, _, headers = raw('OPTIONS', args.api + '/api/v1/auth/login', headers={'Origin': args.cors_origin, 'Access-Control-Request-Method': 'POST'})
+assert status == 204 and headers['Access-Control-Allow-Origin'] == args.cors_origin
 status, _, _ = raw('GET', args.api + '/api/v1/auth/session', headers={'Origin': 'http://unexpected.invalid'})
 assert status == 403
 print('PASS CORS allowed/preflight and forbidden origin')
@@ -184,7 +188,7 @@ for path in ('/', '/app.js', '/styles.css'):
         assert response.status == 200
 print('PASS separate mock serves HTML, compiled TypeScript and CSS')
 # Capture logs in memory only. Never print either logs or matching credentials.
-logs = subprocess.check_output(['docker', 'compose', '--project-directory', str(root), '-f', str(root / 'compose.yaml'), 'logs', '--no-color'], env={**__import__('os').environ, 'LOCAL_UID': str(__import__('os').getuid()), 'LOCAL_GID': str(__import__('os').getgid())}, stderr=subprocess.DEVNULL, text=True)
+logs = subprocess.check_output(['docker', 'logs', f'{args.compose_project}-backend-1'], stderr=subprocess.DEVNULL, text=True)
 assert all(secret not in logs for secret in secrets + [password]), 'credential found in container logs'
 print('PASS actual verification/session secrets absent from stack logs')
 print('PASS M01 local real DB -> backend -> HTTP -> SMTP inbox -> session -> logout')

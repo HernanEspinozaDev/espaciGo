@@ -1,4 +1,5 @@
 Actualización 2026-10-11 — LOCAL-1 aceptado; inicia LOCAL-DOCKER. #246 fue aceptada y cerrada/Hecho en Projects; los Issues padres siguen abiertos cuando conservan criterios generales/productivos. LOCAL-DOCKER (#267) se organiza en DOCKER-01 (#268, En curso), DOCKER-02 (#269, Bloqueado por DOCKER-01) y DOCKER-03 (#270, Bloqueado por DOCKER-01/02). El inventario de Compose existente ya contiene Backend, mock, PostgreSQL, Mailpit y migrador separado; el corte no vuelve a crear esos servicios. El diseño, los comandos y los criterios de cada corte están en [`local_docker.md`](local_docker.md).
+Actualización DOCKER-02 — PR #271 se fusionó en `main` como `e074d78`; #268 está aceptada/Cerrada/Hecho. DOCKER-02/#269 se ejecutó con volumen vacío y se presenta en PR #272. La instalación y limitación de vencimiento se documentan en [`evidence/local-docker-02-20261011.md`](evidence/local-docker-02-20261011.md). #270 permanece bloqueada hasta la aceptación de #269.
 
 # Backlog propuesto para cerrar el backend local
 
@@ -471,9 +472,17 @@ No crear un mock antes de que existan sus operaciones Backend/API. Se pueden usa
 
 ### DOCKER-01 — Empaquetado y configuración aislada (Issue #268)
 
-- **Estado:** En curso; subcorte de #267, dependiente de LOCAL-1 aceptado (#246). Relacionado con DOCKER-02/#269 y DOCKER-03/#270, que quedan bloqueados hasta completar sus dependencias.
+- **Estado:** Aceptado/Cerrado/Hecho tras PR #271 y merge `e074d78`; subcorte de #267, dependiente de LOCAL-1 aceptado (#246). DOCKER-02/#269 se presenta por PR #272; DOCKER-03/#270 espera su aceptación.
 - **Base existente:** Compose ya separa `backend`, `mock-frontend`, `database`, `mailpit` y `migrate`. No recrear servicios. `migrate` mantiene credencial admin y `backend` runtime.
 - **Entrega:** targets independientes API/mock; configuración PostgreSQL y TLS; helper con proyecto, host ports, volumen nombrado, secretos y directorios privados propios. Defaults del proyecto/puertos/volumen de desarrollo se conservan.
 - **Aceptación:** `go test ./cmd/api -run 'TestLoadConfig' -count=1`; render de Compose dev/aislado; verificaciones de TLS/roles/red/secret paths; builds separados de ambos targets; script no inicia servicios ni manipula volumen/secretos activos.
 - **Fuera:** instalación limpia/recorrido integral (#269) y recuperación/base sustituible (#270), GCP, proveedor real, cambios de negocio.
 - **Evidencia:** `evidence/local-docker-01-20261011.md`; especificación y comandos en `local_docker.md`.
+
+### DOCKER-02 — Instalación limpia y recorrido integral (Issue #269)
+
+- **Estado:** Implementado y en revisión mediante PR #272; DOCKER-01/#268 aceptada tras PR #271. DOCKER-03/#270 no inicia hasta que este corte sea aceptado.
+- **Alcance probado:** Compose aislado con volumen inicialmente inexistente; migraciones con usuario separado; salud del API/mock/PostgreSQL/Mailpit; permisos del runtime; recorrido sintético de catálogo, cotización, solicitud, pago/garantía fake, contrato, check-in/out, recepción, historial, exportación y correo local. El runner local valida vencimientos/settlement con reloj sustituible.
+- **Fuera:** nueva funcionalidad de negocio, reutilizar/copiar datos o secretos del stack activo, reset del volumen de desarrollo, proveedor real, Cloud SQL y GCP.
+- **Validación:** `go test ./cmd/api -run 'TestLoadConfig' -count=1`, `bash scripts/test-local-docker-01.sh`, `scripts/verify-http.py` en los puertos aislados y `bash scripts/test-local-qa.sh`; evidencia: `evidence/local-docker-02-20261011.md`.
+- **Límite observable:** el settlement manual del fixture recién operado devolvió conflicto antes de 24 horas desde el check-out, según la política. No se adelantó fecha ni reloj en la base viva. El camino elegible y sus reintentos se cubrieron con el reloj sustituible del runner.

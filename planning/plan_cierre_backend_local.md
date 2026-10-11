@@ -1,5 +1,7 @@
 Actualización 2026-10-11 — aceptación LOCAL-1 y fase LOCAL-DOCKER
 
+Actualización posterior a PR #271 — DOCKER-01/#268 fue aceptada por su alcance, cerrada/Hecho y su código quedó en `main` (`e074d78`). DOCKER-02/#269 está en revisión mediante PR #272: se arrancó el stack aislado desde un volumen ausente, se aplicaron V1–V54 y se validaron permisos, salud, recorrido mock/API/PostgreSQL y correo sintético Mailpit. Evidencia en [`evidence/local-docker-02-20261011.md`](evidence/local-docker-02-20261011.md). DOCKER-03/#270 espera la aceptación de #269. No se inició GCP.
+
 El propietario aceptó explícitamente LOCAL-1 por el alcance sintético ratificado. La Issue #246 se registró como aceptada, cerrada y Hecho en Projects; los padres con criterios productivos o exclusiones ratificadas permanecen abiertos. Evidencia: [`evidence/local-close-01-post-merge-20261011.md`](evidence/local-close-01-post-merge-20261011.md) y el comentario de aceptación en #246.
 
 Comienza LOCAL-DOCKER, exclusivamente local, en tres cortes trazables: DOCKER-01 (#268, empaquetado/configuración aislada), DOCKER-02 (#269, instalación limpia y recorrido integral) y DOCKER-03 (#270, recuperación con PostgreSQL sustituible), agrupados bajo #267. El Compose ya separa `backend`, `mock-frontend`, `database`, `mailpit` y `migrate`; DOCKER-01 valida y mejora el empaquetado/configuración sin recrear esos servicios. No toca el stack activo.

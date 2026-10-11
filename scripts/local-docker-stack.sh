@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCAL_DOCKER_PROJECT_NAME="${LOCAL_DOCKER_PROJECT_NAME:-espacigo_docker01}"
+LOCAL_DOCKER_IMAGE_PREFIX="${LOCAL_DOCKER_IMAGE_PREFIX:-$LOCAL_DOCKER_PROJECT_NAME}"
 LOCAL_DOCKER_STATE_DIR="${LOCAL_DOCKER_STATE_DIR:-$ROOT_DIR/.local/docker-isolated}"
 LOCAL_DOCKER_API_PORT="${LOCAL_DOCKER_API_PORT:-18080}"
 LOCAL_DOCKER_MOCK_PORT="${LOCAL_DOCKER_MOCK_PORT:-18081}"
@@ -17,6 +18,7 @@ fi
 LOCAL_DATABASE_RUNTIME_USER="espacigo_runtime"
 
 export LOCAL_COMPOSE_PROJECT_NAME="$LOCAL_DOCKER_PROJECT_NAME"
+export LOCAL_IMAGE_PREFIX="$LOCAL_DOCKER_IMAGE_PREFIX"
 export LOCAL_API_PORT="$LOCAL_DOCKER_API_PORT"
 export LOCAL_MOCK_PORT="$LOCAL_DOCKER_MOCK_PORT"
 export LOCAL_MAILPIT_PORT="$LOCAL_DOCKER_MAILPIT_PORT"
@@ -47,7 +49,8 @@ no command here that deletes the volume or its secrets.
 
 Configuration overrides: LOCAL_DOCKER_PROJECT_NAME, LOCAL_DOCKER_STATE_DIR,
 LOCAL_DOCKER_API_PORT, LOCAL_DOCKER_MOCK_PORT, LOCAL_DOCKER_MAILPIT_PORT,
-LOCAL_DOCKER_PGDATA_VOLUME, DATABASE_HOST/PORT/NAME/USER through their
+LOCAL_DOCKER_PGDATA_VOLUME, LOCAL_DOCKER_IMAGE_PREFIX,
+DATABASE_HOST/PORT/NAME/USER through their
 LOCAL_DATABASE_* equivalents, and DATABASE_SSLMODE/SSLROOTCERT/SSLCERT/SSLKEY.
 The runtime role is fixed to espacigo_runtime; state paths are resolved before
 creation and rejected if they overlap local development private directories.
@@ -118,11 +121,16 @@ PY
 
 validate_name LOCAL_DOCKER_PROJECT_NAME "$LOCAL_DOCKER_PROJECT_NAME"
 validate_name LOCAL_DOCKER_PGDATA_VOLUME "$LOCAL_DOCKER_PGDATA_VOLUME"
+validate_name LOCAL_DOCKER_IMAGE_PREFIX "$LOCAL_DOCKER_IMAGE_PREFIX"
 validate_port LOCAL_DOCKER_API_PORT "$LOCAL_DOCKER_API_PORT"
 validate_port LOCAL_DOCKER_MOCK_PORT "$LOCAL_DOCKER_MOCK_PORT"
 validate_port LOCAL_DOCKER_MAILPIT_PORT "$LOCAL_DOCKER_MAILPIT_PORT"
 if [[ "$LOCAL_DOCKER_PROJECT_NAME" == "espacigo" || "$LOCAL_DOCKER_PGDATA_VOLUME" == "espacigo_pgdata" ]]; then
   printf 'isolated project and volume must differ from the development stack\n' >&2
+  exit 2
+fi
+if [[ "$LOCAL_DOCKER_IMAGE_PREFIX" == "espacigo-local" ]]; then
+  printf 'isolated image prefix must differ from the development image prefix espacigo-local\n' >&2
   exit 2
 fi
 if (( 10#$LOCAL_DOCKER_API_PORT == 10#$LOCAL_DOCKER_MOCK_PORT || 10#$LOCAL_DOCKER_API_PORT == 10#$LOCAL_DOCKER_MAILPIT_PORT || 10#$LOCAL_DOCKER_MOCK_PORT == 10#$LOCAL_DOCKER_MAILPIT_PORT )); then

@@ -1,4 +1,4 @@
-Actualización 2026-10-11 — LOCAL-1 aceptado por el propietario dentro del alcance sintético ratificado; #246 quedó registrado como Hecho en Projects. Los padres con criterios productivos o expresamente diferidos permanecen abiertos. Se inicia LOCAL-DOCKER; sus comandos aislados están en [`local_docker.md`](local_docker.md). DOCKER-01 solo renderiza configuraciones y compila imágenes, sin levantar servicios ni tocar el volumen de desarrollo.
+Actualización 2026-10-11 — LOCAL-1 aceptado por el propietario dentro del alcance sintético ratificado; #246 quedó registrado como Hecho en Projects. Los padres con criterios productivos o expresamente diferidos permanecen abiertos. DOCKER-01/#268 está aceptada tras PR #271. DOCKER-02/#269 usa ahora un Compose aislado con volumen propio; los datos de acceso y pasos de revisión están en [`evidence/local-docker-02-20261011.md`](evidence/local-docker-02-20261011.md). El arranque normal de desarrollo sigue en sus puertos/volumen/secretos persistentes. Comandos y separación de recursos están en [`local_docker.md`](local_docker.md).
 
 # Guía vigente de arranque local — EspaciGo
 

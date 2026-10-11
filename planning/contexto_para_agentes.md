@@ -1,8 +1,8 @@
 # Contexto operativo para agentes de desarrollo
 
-## Actualización vigente posterior a PR #264 — 2026-10-11
+## Actualización vigente — LOCAL-DOCKER / DOCKER-02 — 2026-10-11
 
-PR #260 se fusionó en `main` (`38c3e1300b6d3f843238f4ee6b8758bfe3b71913`) y #256 fue aceptada/Cerrada/Hecho por portada y modalidad. PR #261 integró búsqueda textual, mapa sintético, superficie y limpiar filtros; #257 fue aceptada/Cerrada/Hecho. PR #262 integró #258 (RQF-091/092, eliminación con conservación histórica) y PR #263 integró #259 (RQF-177, cierre tras liquidación fake); ambas Issues fueron aceptadas/Cerradas/Hecho solo por sus slices. V50/V51 y después V52 se aplicaron incrementalmente; la regresión integral LOCAL-1 pasó con el mismo código que quedó integrado en PR #264. Se comprobaron los permisos efectivos del runtime y la limpieza acotada en PostgreSQL desechable. #246 sigue abierta hasta la aceptación explícita de LOCAL-1. Conservar volumen/secretos y usar DB desechable para pruebas. Sin GCP. Véanse matriz/evidencias e Issues.
+LOCAL-1 fue aceptado explícitamente y #246 está Hecho. PR #271 se fusionó en `main` (`e074d78`) y DOCKER-01/#268 fue aceptada/Cerrada/Hecho. El trabajo vigente es DOCKER-02/#269, propuesto para revisión mediante PR #272. La instalación está en el proyecto/volumen/estado aislados descritos en `planning/evidence/local-docker-02-20261011.md`; el entorno de desarrollo y sus secretos siguen preservados. No inicies DOCKER-03 hasta aceptar #269. Sin GCP.
 
 ## Estrategia histórica — cierre backend local, conciliada con main #243 (2026-10-10)
 

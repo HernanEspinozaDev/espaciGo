@@ -2,7 +2,7 @@ name: ${LOCAL_COMPOSE_PROJECT_NAME:-espacigo}
 
 services:
   database:
-    image: espacigo-local-database:dev
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-database:dev
     build:
       context: .
       dockerfile: Dockerfile
@@ -28,7 +28,7 @@ services:
       start_period: 10s
 
   migrate:
-    image: espacigo-local-api:dev
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-api:dev
     build:
       context: .
       dockerfile: Dockerfile
@@ -75,7 +75,7 @@ services:
         aliases: [mailpit]
 
   backend:
-    image: espacigo-local-api:dev
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-api:dev
     build:
       context: .
       dockerfile: Dockerfile
@@ -141,7 +141,7 @@ services:
       start_period: 5s
 
   mock-frontend:
-    image: espacigo-local-mock:dev
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-mock:dev
     build:
       context: .
       dockerfile: Dockerfile
