@@ -28,7 +28,7 @@ La revisión requisito → handler/servicio → mock del 2026-10-11 detectó los
 | RQF-177 | Liquidación fake confirmada cambia `finalizada` a `cerrada` con historial, transacción y replay idempotente; obligaciones abiertas bloquean. | M10, #259/PR #263, V51; `local-m04-booking-close-20261011.md`; PostgreSQL enfocado repetido post-merge. | Aceptado localmente; #109/#110 mantienen sus criterios generales. |
 | RQF-198 | Modalidad hora/día/mes versionada; incompatibilidad de calendario se rechaza; snapshots anteriores permanecen. | M04, #256/PR #260; `local-m04-cover-rate-20261011.md`. | Aceptado localmente; padres M04 siguen abiertos. |
 
-La primera ejecución del runner tras estos merges encontró además que `espacigo_runtime` tenía DELETE directo sobre `tarifa_espacio`, contradiciendo la inmutabilidad de tarifas. Se corrigió con V52 y una función de limpieza limitada a publicaciones ya retiradas; la integración enfocada y el runner integral pasan en el PR de seguimiento `codex/local-close-rate-delete-privilege` (commit `056205d`). V52 todavía espera revisión/merge y no se aplicó al volumen persistente. Este es un endurecimiento de permisos pendiente de integración, no una brecha de los ocho RQF anteriores.
+La primera ejecución del runner tras estos merges encontró además que `espacigo_runtime` tenía DELETE directo sobre `tarifa_espacio`, contradiciendo la inmutabilidad de tarifas. Se corrigió con V52 y una función de limpieza limitada a publicaciones ya retiradas; la integración enfocada y el runner integral pasan en la PR de seguimiento #264 (`codex/local-close-rate-delete-privilege`, commit probado `056205d`). #264 espera revisión/merge y V52 no se aplicó al volumen persistente. Este es un endurecimiento de permisos pendiente de integración, no una brecha de los ocho RQF anteriores.
 
 ## Subentregas ordenadas de brechas obligatorias
 
@@ -96,7 +96,7 @@ RQF-077 y RQF-198 se aceptaron localmente por #256, descritos en [su evidencia](
 
 ## Estado de cierre
 
-LOCAL-CLOSE-01 espera la aceptación explícita del propietario. La regresión integral se ejecutó después de integrar #258/#259; los ocho RQF de brecha identificados en la conciliación anterior ya tienen slices aceptados y no queda otra brecha funcional local identificada en esa revisión requisito → código → evidencia. La primera corrida encontró un permiso DELETE excesivo sobre tarifas; quedó corregido con V52 en la rama de seguimiento y la prueba integral pasó allí. V52 todavía debe integrarse y aplicarse al volumen tras aprobación. Los criterios generales de #185/#40, #109/#110 y #111–#118 permanecen abiertos; sus cortes aceptados no los cierran. Esto no declara LOCAL-1 terminado ni sustituye la aceptación del propietario.
+LOCAL-CLOSE-01 espera la aceptación explícita del propietario. La regresión integral se ejecutó después de integrar #258/#259; los ocho RQF de brecha identificados en la conciliación anterior ya tienen slices aceptados y no queda otra brecha funcional local identificada en esa revisión requisito → código → evidencia. La primera corrida encontró un permiso DELETE excesivo sobre tarifas; quedó corregido con V52 en la PR #264 y la prueba integral pasó allí. V52 todavía debe integrarse y aplicarse al volumen tras revisión. Los criterios generales de #185/#40, #109/#110 y #111–#118 permanecen abiertos; sus cortes aceptados no los cierran. Esto no declara LOCAL-1 terminado ni sustituye la aceptación del propietario.
 
 ## Decisiones ratificadas para cerrar funciones locales
 

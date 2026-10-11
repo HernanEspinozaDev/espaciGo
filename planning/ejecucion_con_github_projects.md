@@ -4,7 +4,7 @@
 
 `main` integra PR #263 (`a0a3ad6130745d3d2126eb4c1c92805eacc39084`) después de #262/V50 y #263/V51. #258 se aceptó/Cerrada/Hecho por RQF-091/092 y #259 por RQF-177; ambas por sus slices, no por los Issues padre. V50/V51 se aplicaron incrementalmente, servicios están saludables y `scripts/dev-env.sh verify-http` pasó. La matriz y el runner integral vigente están en `evidence/local-close-01-matrix-20261011.md` y `evidence/local-close-01-final-20261011.md`.
 
-La primera corrida encontró DELETE directo excesivo sobre tarifas históricas. V52 lo restringe mediante una función que solo elimina tarifas no referenciadas después del tombstone. El test focalizado y el runner completo pasaron en `codex/local-close-rate-delete-privilege` (`056205d`); queda integrar esa corrección y entonces aplicarla incrementalmente al volumen. #246 sigue abierta hasta la aceptación explícita de LOCAL-1. Conservar volumen/secrets y usar instancias desechables para pruebas; sin GCP.
+La primera corrida encontró DELETE directo excesivo sobre tarifas históricas. V52 lo restringe mediante una función que solo elimina tarifas no referenciadas después del tombstone. El test focalizado y el runner completo pasaron en PR #264 (`codex/local-close-rate-delete-privilege`, `056205d`); queda integrar esa corrección y entonces aplicarla incrementalmente al volumen. #246 sigue abierta hasta la aceptación explícita de LOCAL-1. Conservar volumen/secrets y usar instancias desechables para pruebas; sin GCP.
 
 ## Instrucción vigente — backend local completo, conciliada 2026-10-10
 

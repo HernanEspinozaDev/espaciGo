@@ -1,6 +1,6 @@
 # LOCAL-CLOSE-01 — conciliación y regresión integral final
 
-Fecha: 2026-10-11 · conciliación posterior a PR #263; `main` en `a0a3ad6130745d3d2126eb4c1c92805eacc39084`. PR #262/#263 integran los slices #258/#259. V52 está en la rama de seguimiento `codex/local-close-rate-delete-privilege`, commit `056205d`, aún pendiente de revisión/merge.
+Fecha: 2026-10-11 · conciliación posterior a PR #263; `main` en `a0a3ad6130745d3d2126eb4c1c92805eacc39084`. PR #262/#263 integran los slices #258/#259. V52 está en PR #264 (`codex/local-close-rate-delete-privilege`), código probado `056205d`, pendiente de revisión/merge.
 
 ## Integración y estado operativo
 
@@ -42,7 +42,7 @@ El runner pasó sobre el código registrado en el commit probado `056205d` (`fix
 
 ## Conciliación de LOCAL-1
 
-La matriz completa por requisito, entidad, módulo, Issue y límite está en [`local-close-01-matrix-20261011.md`](local-close-01-matrix-20261011.md), reconciliada con `main` hasta #263 y anotada con V52 pendiente de integración. La matriz operativa también está en [`../matriz_cierre_backend_local.md`](../matriz_cierre_backend_local.md); plan/backlog reflejan las aceptaciones locales y sus límites.
+La matriz completa por requisito, entidad, módulo, Issue y límite está en [`local-close-01-matrix-20261011.md`](local-close-01-matrix-20261011.md), reconciliada con `main` hasta #263 y anotada con V52/PR #264 pendiente de integración. La matriz operativa también está en [`../matriz_cierre_backend_local.md`](../matriz_cierre_backend_local.md); plan/backlog reflejan las aceptaciones locales y sus límites.
 
 Además de los anteriores, #258 y #259 quedaron aceptadas por sus alcances. Las brechas locales requisito → código identificadas previamente (RQF-077, 091/092, 094/095/099/102, 177 y 198) ya tienen slices integrados y pruebas enfocadas. La primera corrida descubrió el grant DELETE directo excesivo sobre tarifas; V52 lo corrige y la segunda corrida pasó sin omisiones. V52 requiere revisión/merge y aplicación incremental para integrarse también al entorno persistente.
 
@@ -50,7 +50,7 @@ Además de los anteriores, #258 y #259 quedaron aceptadas por sus alcances. Las 
 
 - **Pendiente de decisión/trazabilidad:** DB02-09 conserva su estado previo. Las capacidades locales de preferencia, historial de claves y avisos están implementadas en cortes aceptados, pero no se declara resuelta toda la decisión general ni se cierra la Issue histórica por asociación.
 - **Alcance local de padres aún no aceptado:** M04/M05/M06 y M11 tienen flujos locales útiles integrados, pero sus Issues generales permanecen abiertas y no todos los criterios de marketplace, administración y políticas generales tienen aceptación individual. En M11 se aceptan los tres reportes ratificados y las consultas de #250; los reportes adicionales no especificados están diferidos expresamente.
-- **Permisos de tarifas pendiente de integración:** V52 elimina DELETE directo al runtime y restringe la limpieza de tarifas al retiro tombstone sin cotizaciones. El test de pricing, la prueba del flujo de eliminación y el runner integral pasaron en `codex/local-close-rate-delete-privilege` (`056205d`); no aplicar V52 al volumen hasta revisar/fusionar su PR.
+- **Permisos de tarifas pendiente de integración:** V52 elimina DELETE directo al runtime y restringe la limpieza de tarifas al retiro tombstone sin cotizaciones. El test de pricing, la prueba del flujo de eliminación y el runner integral pasaron en PR #264 (`codex/local-close-rate-delete-privilege`, `056205d`); no aplicar V52 al volumen hasta revisar/fusionar su PR.
 - **Privacidad/copia:** las bajas, plazos ratificados, purgador V47 y replay tras restauración tienen evidencia. Se conserva el volumen activo y el registro externo; las ubicaciones externas no comprobadas siguen desconocidas por decisión del propietario. No se borraron copias ni se declara supresión integral o anonimización.
 - **Exclusiones/diferimientos ratificados:** proveedor PSP y sandbox real (#76/#78), firma jurídicamente válida, KYC/KYB documental/RUT/proveedores reales (#142), movimientos financieros reales, liquidación/comisión productiva y documento fiscal válido; promociones/campañas/NPS por MAP-07; realtime/avisos por mensaje; geocodificación de dirección privada; y GCP. Estas exclusiones no transforman fake local que siga pendiente en tarea externa.
 - **Criterios que mantienen padres abiertos por exclusión productiva o decisión ratificada:** RQF-033 (cuenta bancaria/RUT real), RQF-039–044 y RQF-048–053 (verificación documental/proveedores reales, #142), RQF-080 (geocodificar dirección), RQF-131/133 (datos legales y proveedor de firma con validez jurídica), RQF-173 (transferencia bancaria real), RQF-176/211 (boleta electrónica fiscal), RQF-184 (búsqueda por RUT, excluida a favor de UUID sintético), RNF-017 (inmutabilidad productiva) y los reportes adicionales no especificados de RQF-183. RQF-183 local sí cubre los tres reportes expresamente ratificados. Las ubicaciones de respaldos fuera del inventario local autorizado siguen sin comprobarse; no se afirma supresión integral.
