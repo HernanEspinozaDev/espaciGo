@@ -1,6 +1,6 @@
 # Backlog propuesto para cerrar el backend local
 
-Fecha inicial: 2026-10-07; conciliación actualizada al 2026-10-11 tras PR #254 y la aceptación de #250. #216 LOCAL-CONT-01, #214 LOCAL-BOOK-02, #218 LOCAL-OPS-01, #236 LOCAL-FIN-SETTLEMENT-01, #238 LOCAL-QA-01, #240 LOCAL-CORE-02, #242 LOCAL-QA-02, #244 LOCAL-QA-03 y #247–#250 fueron aceptadas por sus alcances locales. #250 está cerrada/Hecho; #246 permanece abierta hasta la aceptación final. Los padres generales siguen abiertos. Complementa [el plan de cierre](plan_cierre_backend_local.md). GitHub Issues/Projects conserva los estados operativos.
+Fecha inicial: 2026-10-07; conciliación actualizada al 2026-10-11 después de PR #261. #257 fue aceptada por búsqueda/mapa/superficie/limpiar filtros; #258 está en revisión vía #262 y #259 está en revisión como entrega apilada. Los demás cortes locales enumerados se aceptan solo por sus alcances. #246 permanece abierta hasta la aceptación final. Los padres generales siguen abiertos. Complementa [el plan de cierre](plan_cierre_backend_local.md). GitHub Issues/Projects conserva los estados operativos.
 
 ## Convenciones
 
@@ -182,7 +182,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada al 2026-10-11 tras PR #254 
 
 ### LOCAL-M10-BOOKING-CLOSE-01 — Cerrar reserva tras liquidación fake (Issue #259)
 
-- **Estado:** Listo después de las brechas M04/M05 prioritarias; hija de #246, trazada a #109/#110 y RQF-177. Solo liquidación fake confirmada cambia `finalizada` a `cerrada`, con historial idempotente bajo bloqueos y sin obligaciones abiertas. Timeout/rechazo no cierran. Sin payout real, documento fiscal ni GCP.
+- **Estado:** Implementado en revisión en PR #263, rama `codex/local-m10-booking-close-01` apilada temporalmente sobre la rama de #262. Hija de #246, trazada a #109/#110 y RQF-177. Solo liquidación fake confirmada cambia `finalizada` a `cerrada`, con trigger SQL, historia idempotente bajo bloqueos y revalidación de obligaciones. Timeout/rechazo/disputa no cierran; el mismo evento puede conciliarse después de resolver una disputa. El estado cerrado respeta la retención vigente de 24 meses. Evidencia `planning/evidence/local-m04-booking-close-20261011.md`. #246 sigue abierta. Sin payout real, documento fiscal ni GCP.
 
 ### LOCAL-M05-DISC-01 — Descubrir publicaciones locales activas (Issue #212)
 
