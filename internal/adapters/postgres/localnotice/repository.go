@@ -93,7 +93,8 @@ func (r *Repository) Claim(ctx context.Context, at time.Time) (domain.Notice, bo
 		committed = true
 		return domain.Notice{}, false, nil
 	}
-	if userState != "activo" || !email.Valid {
+	loginLockRecipient := n.Type == "cuenta_bloqueada_login" && userState == "bloqueado"
+	if (userState != "activo" && !loginLockRecipient) || !email.Valid {
 		_, e = tx.Exec(ctx, `UPDATE public.aviso_local SET estado='cancelada',cancelada_en=$2,retirar_en=$2::timestamptz+interval '30 days',lease_hasta=NULL,codigo_error='destinatario_no_activo' WHERE id=$1`, id, at)
 		if e != nil {
 			return domain.Notice{}, false, e

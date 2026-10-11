@@ -153,6 +153,7 @@ form("login-form", async (data, element) => {
     if (!sessionRestrictedMode)
         await loadSpaceCategories();
     await loadBookingInbox();
+    await openContractInviteFromURL();
     resultElement.textContent = sessionRestrictedMode ? "Sesión restringida. Solo puedes consultar y completar operaciones permitidas de reservas existentes." : "Sesión iniciada. Puedes consultarla o cerrarla.";
 });
 form("recovery-request-form", async (data, element) => {
@@ -3289,6 +3290,30 @@ function renderSyntheticContract(item) {
     const deadline = selectedReservation ? `Completar antes de ${bookingDate(selectedReservation.start_at, selectedReservation.time_zone)}.` : "";
     document.querySelector("#synthetic-contract-output").textContent = `ENSAYO SINTÉTICO LOCAL — SIN VALIDEZ JURÍDICA\nContrato v${item.version} · ${item.state} · SHA-256 ${item.sha256}\n${deadline}\nImporte snapshot: ${selectedReservation?.subtotal_clp.toLocaleString("es-CL") ?? "—"} CLP\nFirmas:\n${lines}\n\nHistorial:\n${history}`;
     refreshBookingActions();
+}
+async function openContractInviteFromURL() {
+    const url = new URL(window.location.href), contractID = url.searchParams.get("contract");
+    if (!contractID)
+        return;
+    // The link carries only a resource ID, never an access token. The API checks
+    // the signed-in account's participant authorization before returning it.
+    url.searchParams.delete("contract");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    const account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    if (!account || !token)
+        return;
+    const result = await request(`${bookingBase}/contracts/${encodeURIComponent(contractID)}`, "GET", undefined, true);
+    if (account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
+        return;
+    const contract = bookingData(result);
+    selectedReservationID = String(contract.reservation_id ?? "");
+    if (!selectedReservationID)
+        return;
+    await loadBookingInbox();
+    if (account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || selectedReservation?.id !== selectedReservationID)
+        return;
+    renderSyntheticContract(contract);
+    resultElement.textContent = "Invitación abierta. El Backend verificó tu participación antes de mostrar el contrato.";
 }
 async function selectedContractOperation(kind) {
     const reservationID = selectedReservationID, account = sessionAccountID, token = sessionToken, generation = sessionGeneration, revision = ++contractRequestRevision;

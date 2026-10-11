@@ -458,8 +458,9 @@ func TestAuthLoginFailureBlockResetAndPendingAccountSafety(t *testing.T) {
 					}
 				}
 			}
-			if h.mail.alerts != 1 {
-				t.Fatal("missing block alert")
+			var alerts int
+			if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='cuenta_bloqueada_login' AND agregado_id=$1`, id).Scan(&alerts); err != nil || alerts != 1 {
+				t.Fatalf("durable block alert count=%d err=%v", alerts, err)
 			}
 			if _, err := h.service.Login(h.ctx, identity.LoginInput{Email: "login@ejemplo.invalid", Password: "Synthetic#123"}); err == nil {
 				t.Fatal("blocked login accepted")
@@ -2518,7 +2519,11 @@ func TestAuthConcurrentVerificationHasOneWinnerAndLoginCountsAllFailures(t *test
 	}
 	wg.Wait()
 	a, err := h.repo.AccountByID(h.ctx, id)
-	if err != nil || a.FailedAttempts != 5 || a.State != identity.AccountBlocked || h.mail.alerts != 1 {
+	var lockNotices int
+	if queryErr := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='cuenta_bloqueada_login' AND agregado_id=$1`, id).Scan(&lockNotices); queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if err != nil || a.FailedAttempts != 5 || a.State != identity.AccountBlocked || lockNotices != 1 {
 		t.Fatal("concurrent login failures lost updates/block")
 	}
 }

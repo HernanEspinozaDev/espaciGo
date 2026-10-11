@@ -656,8 +656,6 @@ func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (Lo
 	}
 	var result LoginResult
 	var denied error
-	var alertEmail string
-	var alertUntil time.Time
 	err := s.repo.WithLockedAccount(ctx, AccountLookup{Email: NormalizeEmail(input.Email)}, func(account Account, tx AuthenticationTransaction) error {
 		now := s.now().UTC() // evaluate lockout and session validity after account lock
 		state, attempts, blocked := account.State, account.FailedAttempts, account.BlockedUntil
@@ -692,8 +690,6 @@ func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (Lo
 				if state == AccountActive {
 					state = AccountBlocked
 				}
-				alertEmail = account.Email
-				alertUntil = until
 				denied = &LoginBlockedError{until}
 			} else {
 				denied = ErrCredentials
@@ -731,9 +727,6 @@ func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (Lo
 	}
 	if err != nil {
 		return LoginResult{}, err
-	}
-	if alertEmail != "" && s.mailer.SendLoginAlert(ctx, alertEmail, alertUntil) != nil {
-		return LoginResult{}, errors.Join(denied, ErrDelivery)
 	}
 	return result, denied
 }

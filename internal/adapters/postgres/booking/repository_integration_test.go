@@ -3184,6 +3184,10 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err != nil || createdContract.State != "generado" || len(createdContract.Signatures) != 2 || len(createdContract.Artifact) < 100 || !strings.HasPrefix(string(createdContract.Artifact), "%PDF-") {
 		t.Fatalf("synthetic contract creation/artifact: state=%s signatures=%d bytes=%d err=%v", createdContract.State, len(createdContract.Signatures), len(createdContract.Artifact), err)
 	}
+	var contractNotices int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='invitacion_firma' AND agregado_id=$1`, createdContract.ID).Scan(&contractNotices); err != nil || contractNotices != 2 {
+		t.Fatalf("contract signer invitations=%d err=%v", contractNotices, err)
+	}
 	var encryptedDocument []byte
 	if err = setup.QueryRow(ctx, `SELECT contenido FROM public.documento_privado_sintetico_local WHERE id=$1`, createdContract.DocumentID).Scan(&encryptedDocument); err != nil {
 		t.Fatal(err)
@@ -3223,6 +3227,9 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	secondSignature := decodeContract(secondSignatureResponse)
 	if secondSignatureResponse.Code != http.StatusOK || secondSignature.State != "firmado" {
 		t.Fatalf("second signature API=%d contract=%s", secondSignatureResponse.Code, secondSignature.State)
+	}
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='contrato_firmado' AND agregado_id=$1`, createdContract.ID).Scan(&contractNotices); err != nil || contractNotices != 2 {
+		t.Fatalf("complete-signature notices=%d err=%v", contractNotices, err)
 	}
 	documentResponse := publishedContractAPI(t, host, contractService, http.MethodGet, contractBase+"/document")
 	if documentResponse.Code != http.StatusOK || !strings.HasPrefix(documentResponse.Body.String(), "%PDF-") {

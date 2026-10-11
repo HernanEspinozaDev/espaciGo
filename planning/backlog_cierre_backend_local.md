@@ -377,23 +377,28 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-QA-03 — Ejecutar aceptación integral M01–M11 (Issue #244)
 
-- **Módulo/tipo/estado:** transversal / TEST-MOCK / **en curso**, Issue #244 en Project 1.
+- **Módulo/tipo/estado:** transversal / TEST-MOCK / **aceptada**, PR #245 merge `74b10dbe655d4f6ae3957a6de81f895ab887e57d`; #244 cerrada/Hecho solo por QA-03.
 - **Objetivo y motivo:** demostrar LOCAL-1, casos originales aplicables y RNF verificables localmente.
 - **Alcance:** unitarias/integración/contratos; recorrido completo feliz y alternativos; roles/tercero; concurrencia, expiración, errores y fakes; límites/consultas con dataset/máquina declarados; mocks finales de módulos completos.
 - **Fuera:** GCP, sandbox, SLA extrapolado o nueva UI.
-- **Dependencias:** LOCAL-QA-01/#238, LOCAL-CORE-02/#240 y LOCAL-QA-02/#242 aceptadas; paquetes funcionales locales aceptados por sus alcances y su evidencia MOCK/API. Los criterios generales #109/#110, #111–#118, #185/#40 y otros padres siguen abiertos y no se cierran artificialmente. **Desbloquea:** preparar una propuesta de LOCAL-CLOSE-01 cuando se complete QA-03; no declara LOCAL-1 aceptada.
+- **Dependencias:** LOCAL-QA-01/#238, LOCAL-CORE-02/#240 y LOCAL-QA-02/#242 aceptadas; paquetes funcionales locales aceptados por sus alcances y evidencia MOCK/API. Evidencia final `evidence/local-qa-03-20261010.md`. Los criterios generales #109/#110, #111–#118, #185/#40 y otros padres siguen abiertos y no se cierran artificialmente. Desbloquea LOCAL-CLOSE-01, no declara LOCAL-1 aceptada.
 - **Aceptación:** integraciones exigidas sin omisiones; cuenta → publicación → reserva/pago → firma → operación → reputación o disputa → liquidación, más privacidad/admin, reproducibles; fallos críticos resueltos y evidencia por commit.
 - **Pruebas previstas:** comando consolidado y recorridos visuales mínimos; repetir solo lo necesario por correcciones y una regresión final.
 - **Riesgo:** dar por completo el backend porque pasa una suite que no ejecutó un módulo o su integración.
 
-### LOCAL-CLOSE-01 — Registrar aceptación y detener desarrollo local
+### LOCAL-CLOSE-01 — Registrar aceptación y detener desarrollo local (Issue #246)
 
-- **Módulo/tipo/estado:** transversal / DOC / `todo`.
+- **Módulo/tipo/estado:** transversal / DOC+funcional / **En curso** en Project.
 - **Objetivo y motivo:** cerrar LOCAL-1 y distinguir pendientes externos del alcance local entregado.
-- **Alcance:** matriz final por criterio, evidencias, guía de arranque/uso, estados Issues/Project y seguimientos de proveedores/producto global; revisión humana.
+- **Alcance:** conciliar cada RQF/CU/HU/RNF con evidencia, función local pendiente, decisión y exclusión ratificada; completar brechas funcionales locales obligatorias; mantener guía de arranque/uso y seguimientos separados por tipo.
 - **Fuera:** desplegar/probar GCP, afirmar cumplimiento legal o cerrar criterios externos por su fake.
 - **Dependencias:** LOCAL-QA-03. **Desbloquea:** solamente la posibilidad de solicitar una nueva planificación de nube después de aceptación; no autoriza ejecutarla.
-- **Aceptación:** cero brechas funcionales locales obligatorias; exclusiones ratificadas; todos los cambios publicados/fusionados y evidencia trazada; propietario acepta; agente se detiene.
+- **Estado inicial:** la matriz preliminar `evidence/local-close-01-matrix-20261011.md` encontró avisos durables de M01/M03/M06/M07/M10, evidencia sintética de descargo, purga de clases V25 faltantes y consultas admin RQF-212/236. CU-45 ampliado queda como decisión de catálogo separada; las brechas locales no se atribuyen a proveedores pendientes.
+
+- **Decisiones ratificadas para cerrar alcance local:** exact lookup por UUID de cuenta sintética; tercer reporte agregado de disputas por período/estado; outbox durable para los productores RQF-016, 047/194, 121/122/201 y 134/135/139; enlaces de firma autenticados sin bearer token en URL; foto sintética privada en descargo. RQF-210 ya dispone de trigger durable en V38 y evidencia de Mailpit en el corte #223/QA-03.
+- **Subentregas trazables:** #247 avisos; #248 purgadores de privacidad; #249 evidencia en descargo; #250 consultas admin/reportes. Dependencias: QA-03/#244 y slices funcionales ya aceptados; ninguna requiere proveedor real. Estado de cada una permanece abierto hasta merge y aceptación.
+- **Criterio de salida:** completar y probar estas subentregas antes de proponer la aceptación de LOCAL-1. Integraciones de PSP, firma comercial, KYC real, fiscal y GCP se reportan aparte; no se usan para ocultar brechas locales.
+- **Aceptación:** cero brechas funcionales locales obligatorias; exclusiones ratificadas; cambios publicados/fusionados y evidencia trazada; propietario acepta; agente se detiene. Los Issues padre conservan criterios generales abiertos.
 - **Verificación prevista:** revisión de matriz, enlaces, commits y estados; no repetir suites por actualizar documentación.
 - **Riesgo:** aceptar un cierre parcial como integral o iniciar nube automáticamente.
 
