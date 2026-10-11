@@ -1,6 +1,6 @@
 # LOCAL-M04-PUBLICATION-DELETE-01 — evidencia de la entrega
 
-Fecha: 2026-10-11. Issue #258 se presenta en revisión mediante [PR #262](https://github.com/HernanEspinozaDev/espaciGo/pull/262). Commit funcional probado: `602459f` (`feat(m04): retire publications with preserved history`); el commit de evidencia es `8a9520d`. Issue #258 es hija de #246 y está trazada a RQF-091/092. Implementa la política local ratificada de eliminación de una publicación propia; no acepta M04 completo ni LOCAL-1. #246 permanece abierta. No se aplicó V50 al volumen persistente y no se ejecutó GCP.
+Fecha: 2026-10-11. Issue #258 se presenta en revisión mediante [PR #262](https://github.com/HernanEspinozaDev/espaciGo/pull/262). Commit funcional inicial probado: `602459f` (`feat(m04): retire publications with preserved history`). La corrección del saldo de garantía quedó en `885bf2d`; las pruebas ampliadas de saldo y conciliación pendiente quedaron en `f9f5c98`. Issue #258 es hija de #246 y está trazada a RQF-091/092. Implementa la política local ratificada de eliminación de una publicación propia; no acepta M04 completo ni LOCAL-1. #246 permanece abierta. No se aplicó V50 al volumen persistente y no se ejecutó GCP.
 
 ## Comportamiento verificado
 
