@@ -17,12 +17,14 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	reputationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/reputation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	reputation "github.com/HernanEspinozaDev/espaciGo/internal/reputation"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -286,6 +288,30 @@ func TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay(t *testing
 	}
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 AND estado_anterior='finalizada' AND estado_nuevo='cerrada' AND motivo='liquidacion_fake_confirmada'`, id1).Scan(&closeTransitions); err != nil || closeTransitions != 1 {
 		t.Fatalf("finalized-to-closed transition count=%d err=%v", closeTransitions, err)
+	}
+	// A confirmed fake settlement closes the reservation; that terminal state
+	// remains reviewable under the same participant and idempotency rules.
+	reviewService, err := reputation.New(reputationpg.New(pool), credentials.Generator{}, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := reviewService.Create(ctx, renter, id1, "settled-close-review-key", reputation.ReviewInput{Rating: 5, Comment: "Synthetic review after settlement"})
+	if err != nil || review.State != "publicada" || review.Rating != 5 {
+		t.Fatalf("review after settled close=%+v err=%v", review, err)
+	}
+	reviewRetry, err := reviewService.Create(ctx, renter, id1, "settled-close-review-key", reputation.ReviewInput{Rating: 5, Comment: "Synthetic review after settlement"})
+	if err != nil || !reviewRetry.Reused || reviewRetry.ID != review.ID {
+		t.Fatalf("closed reservation review retry=%+v initial=%+v err=%v", reviewRetry, review, err)
+	}
+	if _, err = reviewService.Create(ctx, renter, id1, "settled-close-alternate-key", reputation.ReviewInput{Rating: 4, Comment: "Different payload"}); !errors.Is(err, reputation.ErrConflict) {
+		t.Fatalf("closed reservation accepted a second review from the same participant: %v", err)
+	}
+	hostReview, err := reviewService.Create(ctx, host, id1, "settled-host-review-key", reputation.ReviewInput{Rating: 4})
+	if err != nil || hostReview.State != "publicada" {
+		t.Fatalf("host reciprocal review after settled close=%+v err=%v", hostReview, err)
+	}
+	if _, err = reviewService.Create(ctx, "cccccccc-cccc-4ccc-8ccc-cccccccccccc", id1, "settled-outsider-review", reputation.ReviewInput{Rating: 1}); !errors.Is(err, reputation.ErrNotFound) {
+		t.Fatalf("third-party review of closed reservation err=%v", err)
 	}
 	var retainedUntil time.Time
 	var snapshotPrice, snapshotSubtotal int64

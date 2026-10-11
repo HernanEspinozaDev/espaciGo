@@ -4,6 +4,7 @@ import { BookingQuoteState } from "./booking-quote-state.js";
 import { inboxActions } from "./booking-inbox-state.js";
 import { showThenMarkConversationPage } from "./conversation-read-state.js";
 import { canSendConversation } from "./conversation-state.js";
+import { reviewableReservationState } from "./review-eligibility.js";
 import { contractActions, contractInviteResponseIsCurrent, contractResponseIsCurrent, type ContractInviteContext, type ContractRequestContext } from "./contract-actions.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { clearCatalogFilters } from "./catalog-filter-actions.js";
@@ -1317,7 +1318,7 @@ const conversationStatus=document.querySelector<HTMLElement>("#booking-conversat
 function bookingData<T>(result:Record<string,unknown>):T{return result.data as T}
 const reservationReviewItems=document.querySelector<HTMLElement>("#booking-review-items")!;
 const reservationReviewStatus=document.querySelector<HTMLElement>("#booking-review-status")!;
-function clearReservationReviews(message="Selecciona una reserva finalizada."):void {
+function clearReservationReviews(message="Selecciona una reserva finalizada o cerrada."):void {
   reviewRequestRevision++;selectedReservationReviews=[];reservationReviewItems.replaceChildren();reservationReviewStatus.textContent=message;
   const button=document.querySelector<HTMLButtonElement>('#booking-review-form button[type="submit"]');if(button)button.disabled=true;
 }
@@ -1326,7 +1327,7 @@ function refreshReservationReviewControls():void {
   if(!button)return;
   const current=selectedReservation;
   const expectedTarget=current?.renter_id===sessionAccountID?"espacio":"arrendatario";
-  button.disabled=!sessionToken||!current||current.state!=="finalizada"||![current.host_id,current.renter_id].includes(sessionAccountID)||selectedReservationReviews.some(item=>item.target_type===expectedTarget);
+  button.disabled=!sessionToken||!current||!reviewableReservationState(current.state)||![current.host_id,current.renter_id].includes(sessionAccountID)||selectedReservationReviews.some(item=>item.target_type===expectedTarget);
 }
 async function loadReservationReviews(reservationID:string):Promise<void>{
   const revision=++reviewRequestRevision,token=sessionToken,account=sessionAccountID,generation=sessionGeneration;
@@ -1355,12 +1356,12 @@ async function loadReservationReviews(reservationID:string):Promise<void>{
     reservationReviewItems.append(article);
   }
   const ownReview=selectedReservationReviews.some(item=>item.target_type===expectedTarget);
-  reservationReviewStatus.textContent=selectedReservation?.state==="finalizada"?ownReview?"Tu reseña de esta reserva ya fue enviada y no se puede editar.":"Puedes enviar una reseña. Un reintento idéntico reutiliza el registro.":selectedReservation?.state==="en_disputa"?"La reserva está en disputa; no se admiten reseñas nuevas y las ya enviadas se conservan.":"Las reseñas nuevas requieren una reserva finalizada.";
+  reservationReviewStatus.textContent=reviewableReservationState(selectedReservation?.state)?ownReview?"Tu reseña de esta reserva ya fue enviada y no se puede editar.":"Puedes enviar una reseña. Un reintento idéntico reutiliza el registro.":selectedReservation?.state==="en_disputa"?"La reserva está en disputa; no se admiten reseñas nuevas y las ya enviadas se conservan.":"Las reseñas nuevas requieren una reserva finalizada o cerrada.";
   refreshReservationReviewControls();
 }
 form("booking-review-form",async(data,element)=>{
   const current=selectedReservation,reservationID=selectedReservationID,account=sessionAccountID,token=sessionToken,generation=sessionGeneration;
-  if(!current||current.state!=="finalizada"||![current.host_id,current.renter_id].includes(account))throw new Error("Solo un participante puede reseñar su propia reserva finalizada.");
+  if(!current||!reviewableReservationState(current.state)||![current.host_id,current.renter_id].includes(account))throw new Error("Solo un participante puede reseñar su propia reserva finalizada o cerrada.");
   const keyID=`${account}:${reservationID}`,key=reviewRetryKeys.get(keyID)??crypto.randomUUID();reviewRetryKeys.set(keyID,key);
   const response=await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/reviews`,"POST",{rating:Number(data.get("rating")),comment:String(data.get("comment")??"")},true,key);
   if(reservationID!==selectedReservationID||account!==sessionAccountID||token!==sessionToken||generation!==sessionGeneration)return;

@@ -84,7 +84,7 @@ func (r *Repository) CreateReview(ctx context.Context, id, actor, reservation st
 	if !errors.Is(e, pgx.ErrNoRows) {
 		return domain.Review{}, e
 	}
-	if state != "finalizada" {
+	if state != "finalizada" && state != "cerrada" {
 		return domain.Review{}, domain.ErrConflict
 	}
 	if linksRetireAt != nil && !linksRetireAt.After(at) {

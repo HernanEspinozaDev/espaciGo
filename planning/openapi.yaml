@@ -40,7 +40,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
     post:
       operationId: createReservationReview
-      summary: Crear una reseña sintética inmutable
+      summary: Crear una reseña sintética inmutable tras finalizar o cerrar por liquidación confirmada
       parameters:
       - in: path
         name: reservationID
