@@ -178,7 +178,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada al 2026-10-11 tras PR #254 
 
 ### LOCAL-M04-PUBLICATION-DELETE-01 — Conservación histórica (Issue #258)
 
-- **Estado:** Bloqueado antes de código por ratificación de regla; trazada a #55/#52–#61 y RQF-091/092. La propuesta en la Issue retira inmediatamente del catálogo, impide borrar con reservas futuras no terminales u obligaciones abiertas, elimina oferta/galería/calendario sin finalidad y conserva snapshots/hechos mínimos hasta cierre de obligaciones + 24 meses ratificados. No afirma anonimización y exige limpieza durable de archivos. No implementar hasta ratificación/ajuste del propietario.
+- **Estado:** Listo tras #257; regla ratificada por el propietario el 2026-10-11. Trazada a #55/#52–#61 y RQF-091/092. La eliminación comprueba bloqueadores antes de modificar, dentro de transacción; rechaza si hay reservas futuras no terminales u obligaciones abiertas. Si es elegible, retira del catálogo y elimina solo contenido/configuración/archivos sin finalidad. Conserva snapshots y hechos mínimos sin cascada ni cancelar reservas; reusa plazos ratificados y fechas originales. No declara anonimización; limpieza durable recuperable y alcance limitado a esa publicación.
 
 ### LOCAL-M10-BOOKING-CLOSE-01 — Cerrar reserva tras liquidación fake (Issue #259)
 

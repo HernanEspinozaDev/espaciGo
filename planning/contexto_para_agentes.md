@@ -2,7 +2,7 @@
 
 ## Actualización vigente posterior a PR #255 — 2026-10-11
 
-PR #255 está fusionado en `main` (`036718dfd80549d0aae415a1d404d07419cacbec`) y su conciliación actualiza la matriz LOCAL-CLOSE-01, pero el propietario mantiene #246 abierta y no ha aceptado LOCAL-1. Las brechas obligatorias se organizaron en Issues hijas #256–#259: empezar por M04/RQF-077 y RQF-198 (#256); después búsqueda/filtros M05 (#257); eliminación de publicación M04 (#258) queda bloqueada hasta ratificar su regla concreta de conservación histórica; luego estado `cerrada` tras liquidación fake (#259). No repetir regresión integral antes de resolverlas. Usar PostgreSQL desechable, no aplicar migraciones nuevas al volumen persistente antes de revisión y no realizar GCP. Véanse `evidence/local-close-01-matrix-20261011.md` y las Issues.
+PR #255 está fusionado en `main` (`036718dfd80549d0aae415a1d404d07419cacbec`) y su conciliación actualiza la matriz LOCAL-CLOSE-01, pero el propietario mantiene #246 abierta y no ha aceptado LOCAL-1. Las brechas obligatorias se organizaron en Issues hijas #256–#259: PR #260 cubre M04/RQF-077 y RQF-198; después búsqueda/filtros M05 (#257); la política de eliminación histórica de M04 (#258) fue ratificada el 2026-10-11 y queda Listo tras #257; luego estado `cerrada` tras liquidación fake (#259), posterior a #258. No repetir regresión integral antes de resolverlas. Usar PostgreSQL desechable, no aplicar migraciones nuevas al volumen persistente antes de revisión y no realizar GCP. Véanse `evidence/local-close-01-matrix-20261011.md` y las Issues.
 
 ## Estrategia vigente — cierre backend local, conciliada con main #243 (2026-10-10)
 

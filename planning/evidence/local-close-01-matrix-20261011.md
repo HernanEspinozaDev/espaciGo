@@ -20,7 +20,7 @@ La revisión requisito → handler/servicio → mock del 2026-10-11 encontró lo
 | ID | Brecha concreta observada | Trazabilidad / dependencia | Clasificación |
 |---|---|---|---|
 | RQF-077 | La galería sintética permite generar, listar, consultar y retirar PNG; la subentrega #256 agrega seleccionar y persistir una portada sintética privada propia. | M04, #55/#56; galería aceptada #210; implementación #256 pendiente de revisión/aceptación. | En implementación; no aceptar el criterio antes de fusionar y recorrerlo. |
-| RQF-091, RQF-092 | No existe operación autenticada de eliminación permanente de una publicación ni su precondición transaccional que rechace la eliminación si tiene reservas futuras pendientes. Ocultar/desactivar no satisface el borrado requerido. | M04, #52–#61; propuesta de conservación en #258, pendiente de ratificación antes de implementar. | Pendiente funcional local. |
+| RQF-091, RQF-092 | No existe operación autenticada de eliminación permanente de una publicación ni su precondición transaccional. La regla local de conservación histórica ya fue ratificada el 2026-10-11; falta implementar y probar el corte. | M04, #52–#61; #258, Listo tras #257. | Pendiente funcional local. |
 | RQF-094 | La búsqueda de catálogo no acepta texto libre ni busca publicaciones por texto; solo admite filtros estructurados. | M05, #62–#68; subentrega #257. | Pendiente funcional local. |
 | RQF-095 | El mock muestra distancia numérica, pero no presenta mapa interactivo con ubicaciones sintéticas. No se requiere geocodificación ni ubicación del navegador para cerrar esta brecha local. | M05, #62–#68; subentrega #257 reutiliza coordenadas sintéticas autorizadas. | Pendiente funcional local. |
 | RQF-099 | El catálogo no recibe ni aplica un filtro de superficie mínima (`area_m2`), aunque la superficie se guarda en el espacio. | M05, #62–#68; #257 agrega filtro y control. | Pendiente funcional local. |
@@ -32,8 +32,8 @@ La revisión requisito → handler/servicio → mock del 2026-10-11 encontró lo
 
 1. **#256 M04 — portada y modalidad tarifaria:** en curso; V49 agrega referencia de portada a imagen propia activa y exige compatibilidad con horario semanal. Snapshots existentes permanecen inmutables.
 2. **#257 M05 — búsqueda textual, mapa sintético, superficie mínima y limpiar filtros:** Listo después de aceptar #256.
-3. **#258 M04 — eliminación y conservación histórica:** Bloqueada antes de código hasta ratificar o ajustar la regla concreta incluida en la Issue.
-4. **#259 M10/M06 — cerrar reserva tras liquidación fake:** Listo después de #256/#257; requiere obligaciones resueltas e idempotencia.
+3. **#258 M04 — eliminación y conservación histórica:** Listo tras #257; propietario ratificó el 2026-10-11 la verificación transaccional de bloqueadores, preservación de snapshots/hechos, no cascada, fechas originales y limpieza durable recuperable, acotada a esa publicación. Implementar y probar conforme a [la Issue](https://github.com/HernanEspinozaDev/espaciGo/issues/258).
+4. **#259 M10/M06 — cerrar reserva tras liquidación fake:** Listo después de #258; requiere obligaciones resueltas e idempotencia.
 
 Las Issues son hijas de #246 y preservan referencias a padres originales. #246 permanece abierta hasta la aceptación explícita de LOCAL-1.
 
@@ -106,5 +106,6 @@ LOCAL-CLOSE-01 espera la aceptación del propietario tras la regresión integral
 | RQF-165 | Aceptado localmente (#249, PR #253) | Evidencia sintética privada de descargo, exportación acotada, baja y purga recuperable; recorrido y pruebas aceptados. |
 | Retención de privacidad ratificada | Aceptada localmente (#248, PR #252) | V47 aplicado incrementalmente con evidencia de fallos/reintentos y referencias KYC en `local-close-01-retention-20261011.md`. No se añade ni generaliza ningún plazo. |
 | RQF-236 | Aceptado localmente (#250/#254) | Lista y consulta administrativa autenticada/auditada de publicaciones activas, proyección mínima; no muta publicación. |
+| RQF-091/092 · privacidad al eliminar publicación | Regla local ratificada; implementación pendiente (#258) | Bloqueadores se revisan transaccionalmente antes de cambios; si es elegible, retirar solo esa oferta y contenido sin finalidad, conservar snapshots/hechos históricos mínimos sin cascada, reutilizar fechas/plazos originales y dejar limpieza de archivos durable. No cancelar reservas ni afirmar anonimización. |
 
 Las integraciones reales siguen en una columna separada y no excusan estos pendientes. No se inicia trabajo de GCP.
