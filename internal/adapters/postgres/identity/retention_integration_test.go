@@ -327,7 +327,7 @@ func TestSyntheticDamageDefenseEvidenceSuppressionQueuesRecoverableCleanup(t *te
 	if _, err = f.claims.Resolve(h.ctx, f.admin, f.claim, "defense-suppress-resolve", damageclaim.ResolutionInput{Outcome: "rechazado", ReasonCode: "hecho_no_acreditado"}); err != nil {
 		t.Fatal(err)
 	}
-	privacyService, err := privacy.NewService(h.repo)
+	privacyService, err := privacy.NewService(newRuntimeIdentityRepository(t, h))
 	if err != nil {
 		t.Fatal(err)
 	}
