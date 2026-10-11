@@ -11,12 +11,16 @@ import (
 )
 
 type config struct {
-	httpAddr      string
-	dbHost        string
-	dbPort        uint16
-	dbName        string
-	dbUser        string
-	dbPassword    string
+	httpAddr       string
+	dbHost         string
+	dbPort         uint16
+	dbName         string
+	dbUser         string
+	dbPassword     string
+	dbSSLMode      string
+	dbSSLRootCert  string
+	dbSSLCert      string
+	dbSSLKey       string
 	allowedOrigins []string
 }
 
@@ -48,6 +52,21 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 	if cfg.dbUser, err = required(getenv, "DATABASE_USER"); err != nil {
 		return config{}, err
+	}
+	cfg.dbSSLMode = strings.TrimSpace(getenv("DATABASE_SSLMODE"))
+	if cfg.dbSSLMode == "" {
+		cfg.dbSSLMode = "disable"
+	}
+	switch cfg.dbSSLMode {
+	case "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
+	default:
+		return config{}, errors.New("DATABASE_SSLMODE must be disable, allow, prefer, require, verify-ca, or verify-full")
+	}
+	cfg.dbSSLRootCert = strings.TrimSpace(getenv("DATABASE_SSLROOTCERT"))
+	cfg.dbSSLCert = strings.TrimSpace(getenv("DATABASE_SSLCERT"))
+	cfg.dbSSLKey = strings.TrimSpace(getenv("DATABASE_SSLKEY"))
+	if (cfg.dbSSLCert == "") != (cfg.dbSSLKey == "") {
+		return config{}, errors.New("DATABASE_SSLCERT and DATABASE_SSLKEY must be configured together")
 	}
 	passwordPath, err := required(getenv, "DATABASE_PASSWORD_FILE")
 	if err != nil {
@@ -102,7 +121,14 @@ func (cfg config) databaseURL() string {
 		Path:   "/" + cfg.dbName,
 	}
 	query := url.Values{}
-	query.Set("sslmode", "disable")
+	query.Set("sslmode", cfg.dbSSLMode)
+	if cfg.dbSSLRootCert != "" {
+		query.Set("sslrootcert", cfg.dbSSLRootCert)
+	}
+	if cfg.dbSSLCert != "" {
+		query.Set("sslcert", cfg.dbSSLCert)
+		query.Set("sslkey", cfg.dbSSLKey)
+	}
 	endpoint.RawQuery = query.Encode()
 	return endpoint.String()
 }
