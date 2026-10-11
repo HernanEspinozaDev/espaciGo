@@ -1,3 +1,5 @@
+name: ${LOCAL_COMPOSE_PROJECT_NAME:-espacigo}
+
 services:
   database:
     image: espacigo-local-database:dev
@@ -8,8 +10,8 @@ services:
     user: "0:0"
     restart: unless-stopped
     environment:
-      POSTGRES_DB: espacigo_local
-      POSTGRES_USER: espacigo_admin
+      POSTGRES_DB: ${LOCAL_DATABASE_NAME:-espacigo_local}
+      POSTGRES_USER: ${LOCAL_DATABASE_ADMIN_USER:-espacigo_admin}
       POSTGRES_PASSWORD_FILE: /run/secrets/db_admin_password
     secrets:
       - db_admin_password
@@ -36,12 +38,22 @@ services:
     environment:
       LOCAL_AUTH_PROTOTYPE: "1"
       LOCAL_BOOKING_TRIAL: "1"
-      DATABASE_HOST: database
-      DATABASE_NAME: espacigo_local
-      DATABASE_USER: espacigo_admin
+      DATABASE_HOST: ${LOCAL_DATABASE_HOST:-database}
+      DATABASE_PORT: ${LOCAL_DATABASE_PORT:-5432}
+      DATABASE_NAME: ${LOCAL_DATABASE_NAME:-espacigo_local}
+      DATABASE_USER: ${LOCAL_DATABASE_ADMIN_USER:-espacigo_admin}
       DATABASE_PASSWORD_FILE: /run/secrets/db_admin_password
+      DATABASE_SSLMODE: ${DATABASE_SSLMODE:-disable}
+      DATABASE_SSLROOTCERT: ${DATABASE_SSLROOTCERT:-}
+      DATABASE_SSLCERT: ${DATABASE_SSLCERT:-}
+      DATABASE_SSLKEY: ${DATABASE_SSLKEY:-}
     secrets:
       - db_admin_password
+    volumes:
+      - type: bind
+        source: ${LOCAL_DATABASE_TLS_DIR:-./.local/database-tls}
+        target: /run/database-tls
+        read_only: true
     depends_on:
       database:
         condition: service_healthy
@@ -57,7 +69,7 @@ services:
     tmpfs:
       - /data
     ports:
-      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:${LOCAL_MAILPIT_PORT:-8025}:8025"
     networks:
       mail:
         aliases: [mailpit]
@@ -83,12 +95,16 @@ services:
       LOCAL_VERIFICATION_IP_LIMIT: "${LOCAL_VERIFICATION_IP_LIMIT:-20}"
       M03_EVIDENCE_DIR: /var/lib/espacigo/private-evidence
       LOCAL_PRIVACY_REPLAY_FILE: /var/lib/espacigo/privacy-replay/completed-suppressions-v1.json
-      DATABASE_HOST: database
-      DATABASE_PORT: "5432"
-      DATABASE_NAME: espacigo_local
+      DATABASE_HOST: ${LOCAL_DATABASE_HOST:-database}
+      DATABASE_PORT: ${LOCAL_DATABASE_PORT:-5432}
+      DATABASE_NAME: ${LOCAL_DATABASE_NAME:-espacigo_local}
       DATABASE_USER: espacigo_runtime
       DATABASE_PASSWORD_FILE: /run/secrets/runtime_password
-      CORS_ALLOWED_ORIGINS: http://localhost:8081,http://127.0.0.1:8081
+      DATABASE_SSLMODE: ${DATABASE_SSLMODE:-disable}
+      DATABASE_SSLROOTCERT: ${DATABASE_SSLROOTCERT:-}
+      DATABASE_SSLCERT: ${DATABASE_SSLCERT:-}
+      DATABASE_SSLKEY: ${DATABASE_SSLKEY:-}
+      CORS_ALLOWED_ORIGINS: http://localhost:${LOCAL_MOCK_PORT:-8081},http://127.0.0.1:${LOCAL_MOCK_PORT:-8081}
     secrets:
       - runtime_password
       - local_payment_webhook_secret
@@ -100,6 +116,10 @@ services:
       - type: bind
         source: ${LOCAL_PRIVACY_REPLAY_DIR:?run scripts/dev-env.sh}
         target: /var/lib/espacigo/privacy-replay
+      - type: bind
+        source: ${LOCAL_DATABASE_TLS_DIR:-./.local/database-tls}
+        target: /run/database-tls
+        read_only: true
     depends_on:
       database:
         condition: service_healthy
@@ -108,7 +128,7 @@ services:
       mailpit:
         condition: service_started
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${LOCAL_API_PORT:-8080}:8080"
     networks:
       - api
       - data
@@ -129,12 +149,12 @@ services:
     restart: unless-stopped
     environment:
       HTTP_ADDR: ":8081"
-      API_READY_URL: http://127.0.0.1:8080/health/ready
+      API_READY_URL: http://127.0.0.1:${LOCAL_API_PORT:-8080}/health/ready
     depends_on:
       backend:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:${LOCAL_MOCK_PORT:-8081}:8081"
     networks:
       - api
     healthcheck:
@@ -166,13 +186,14 @@ networks:
 
 volumes:
   pgdata:
+    name: ${LOCAL_PGDATA_VOLUME:-espacigo_pgdata}
 
 secrets:
   db_admin_password:
-    file: ./.local/secrets/db_admin_password
+    file: ${LOCAL_SECRETS_DIR:-./.local/secrets}/db_admin_password
   runtime_password:
-    file: ./.local/secrets/runtime_password
+    file: ${LOCAL_SECRETS_DIR:-./.local/secrets}/runtime_password
   local_payment_webhook_secret:
-    file: ./.local/secrets/local_payment_webhook_secret
+    file: ${LOCAL_SECRETS_DIR:-./.local/secrets}/local_payment_webhook_secret
   local_contract_encryption_key:
-    file: ./.local/secrets/local_contract_encryption_key
+    file: ${LOCAL_SECRETS_DIR:-./.local/secrets}/local_contract_encryption_key

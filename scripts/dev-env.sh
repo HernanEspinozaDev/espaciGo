@@ -5,6 +5,10 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SECRETS_DIR="$ROOT_DIR/.local/secrets"
 export LOCAL_UID="$(id -u)"
 export LOCAL_GID="$(id -g)"
+export LOCAL_SECRETS_DIR="$SECRETS_DIR"
+export LOCAL_COMPOSE_PROJECT_NAME="espacigo"
+export LOCAL_PGDATA_VOLUME="espacigo_pgdata"
+export LOCAL_DATABASE_TLS_DIR="$ROOT_DIR/.local/database-tls"
 export LOCAL_M03_EVIDENCE_DIR="${XDG_DATA_HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)/.local/share}/espacigo/m03-evidence"
 export LOCAL_PRIVACY_REPLAY_DIR="${XDG_STATE_HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)/.local/state}/espacigo/privacy-replay"
 
@@ -75,6 +79,18 @@ ensure_privacy_replay_dir() {
   fi
 }
 
+ensure_database_tls_dir() {
+  umask 077
+  mkdir -p "$LOCAL_DATABASE_TLS_DIR"
+  chmod 0700 "$LOCAL_DATABASE_TLS_DIR"
+  local owner
+  owner="$(stat -c '%u' "$LOCAL_DATABASE_TLS_DIR")"
+  if [[ "$owner" != "$LOCAL_UID" ]]; then
+    printf 'Private database TLS directory must be owned by UID %s: %s\n' "$LOCAL_UID" "$LOCAL_DATABASE_TLS_DIR" >&2
+    exit 1
+  fi
+}
+
 usage() {
   printf '%s\n' \
     'Usage: scripts/dev-env.sh {config|up|down|verify-isolation|verify-http|verify-m01|clean}' \
@@ -94,12 +110,14 @@ case "$command" in
     ensure_secrets
     ensure_evidence_dir
     ensure_privacy_replay_dir
+    ensure_database_tls_dir
     compose config --quiet
     ;;
   up)
     ensure_secrets
     ensure_evidence_dir
     ensure_privacy_replay_dir
+    ensure_database_tls_dir
     compose up --build --wait "$@"
     ;;
   down)
