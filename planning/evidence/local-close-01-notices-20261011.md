@@ -16,7 +16,7 @@ V46 añade eventos tipados y productores transaccionales idempotentes en los due
 
 Los eventos mantienen la política existente de hasta ocho intentos por ciclo, backoff exponencial, fallo terminal, reapertura admin motivada y 30 días desde estado terminal. Mailpit es el único transporte local. SMTP puede duplicar si acepta el mensaje y el proceso cae antes de persistir el resultado; no se promete exactly-once.
 
-Las invitaciones llevan `?contract=<id>` como identificador de recurso, nunca token. Tras iniciar sesión, el mock consulta el contrato y el Backend vuelve a comprobar que la cuenta sea anfitrión o arrendatario antes de mostrarlo. La consulta sin sesión o desde terceros no otorga acceso.
+Las invitaciones llevan `?contract=<id>` como identificador de recurso, nunca token. Tras iniciar sesión, el mock consulta el contrato y el Backend vuelve a comprobar que la cuenta sea anfitrión o arrendatario antes de mostrarlo. La consulta sin sesión o desde terceros no otorga acceso. Una respuesta de invitación se aplica solo si siguen vigentes cuenta, token, generación de sesión y revisión de selección; navegar a otra reserva, salir o entrar de nuevo descarta la respuesta pendiente.
 
 ## Evidencia enfocada ejecutada
 
@@ -26,8 +26,9 @@ Las invitaciones llevan `?contract=<id>` como identificador de recurso, nunca to
 | `go test ./...` | PASS; suite unitaria completa sin `TEST_DATABASE_URL`, sin dependencias sobre la base persistente. |
 | `GO_TEST_RUN='^TestAuthLoginFailureBlockResetAndPendingAccountSafety$' bash scripts/test-local-comm-mailpit.sh ./internal/adapters/postgres/identity` | PASS con PostgreSQL desechable; el quinto fallo crea un solo aviso durable para cuentas verificadas y no verificadas. |
 | `GO_TEST_RUN='^TestVerificationRepositoryOwnershipIdempotencyReviewAndRetry$' bash scripts/test-local-comm-mailpit.sh ./internal/adapters/postgres/verification` | PASS con PostgreSQL desechable y `espacigo_runtime`; aprobación sintética crea un aviso único. |
-| `GO_TEST_RUN='^TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions$' bash scripts/test-local-comm-mailpit.sh ./internal/adapters/postgres/reputation` | PASS con PostgreSQL/PostGIS desechable y Mailpit; pago confirmado/rechazado, nueva reserva pagada, y entrega real Mailpit del reporte y bloqueo temporal. |
-| `GO_TEST_RUN='^TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry$' bash scripts/test-local-comm-mailpit.sh ./internal/adapters/postgres/booking` | PASS con PostgreSQL desechable; invitaciones a ambos firmantes y aviso de firma completa, sin duplicar en el reintento de firma. |
+| `GO_TEST_RUN='^TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions$' bash scripts/test-local-comm-mailpit.sh ./internal/adapters/postgres/reputation` | PASS con PostgreSQL/PostGIS desechable y Mailpit; pago confirmado/rechazado, nueva reserva pagada, entrega real del reporte y del bloqueo temporal tanto para una cuenta bloqueada como para una cuenta `correo_pendiente` sin verificar. |
+| `GO_TEST_RUN='^TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry$' bash scripts/test-local-comm-mailpit.sh ./internal/adapters/postgres/booking` | PASS con PostgreSQL desechable; invitaciones a ambos firmantes y aviso de firma completa, sin duplicar en el reintento de firma. En el caso de arriendo pagado seguido de rechazo de garantía, se comprueba que no se invente `pago_arriendo_rechazado`. |
+| `npm --prefix mock run test:contract-actions` | PASS (12 pruebas): una invitación A tardía se descarta al cambiar selección, perder sesión, iniciar sesión con otra cuenta o renovar la sesión de la misma cuenta. |
 | `go test ./internal/localnotice` | PASS; cada tipo tiene asunto/cuerpo específico, aviso de ensayo y comprobaciones que excluyen bearer tokens/credenciales del texto. |
 | Validación local de referencias OpenAPI y schemas de respuestas de operaciones | PASS; también corrigió dos referencias preexistentes a `ErrorEnvelope` inexistente para usar el schema común `Error`. |
 

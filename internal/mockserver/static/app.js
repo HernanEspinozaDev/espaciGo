@@ -4,7 +4,7 @@ import { BookingQuoteState } from "./booking-quote-state.js";
 import { inboxActions } from "./booking-inbox-state.js";
 import { showThenMarkConversationPage } from "./conversation-read-state.js";
 import { canSendConversation } from "./conversation-state.js";
-import { contractActions, contractResponseIsCurrent } from "./contract-actions.js";
+import { contractActions, contractInviteResponseIsCurrent, contractResponseIsCurrent } from "./contract-actions.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { actionWithButtonState } from "./action-button-state.js";
 import { BookingAvailabilityState } from "./booking-availability-state.js";
@@ -3299,18 +3299,22 @@ async function openContractInviteFromURL() {
     // the signed-in account's participant authorization before returning it.
     url.searchParams.delete("contract");
     window.history.replaceState(null, "", url.pathname + url.search + url.hash);
-    const account = sessionAccountID, token = sessionToken, generation = sessionGeneration;
+    const account = sessionAccountID, token = sessionToken, generation = sessionGeneration, selectionRevision = reservationSelectionRevision;
     if (!account || !token)
         return;
+    const context = { contractID, accountID: account, token, generation, selectionRevision };
+    const isCurrent = (expected) => contractInviteResponseIsCurrent(expected, { contractID, accountID: sessionAccountID, token: sessionToken, generation: sessionGeneration, selectionRevision: reservationSelectionRevision });
     const result = await request(`${bookingBase}/contracts/${encodeURIComponent(contractID)}`, "GET", undefined, true);
-    if (account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration)
+    if (!isCurrent(context))
         return;
     const contract = bookingData(result);
-    selectedReservationID = String(contract.reservation_id ?? "");
-    if (!selectedReservationID)
+    const reservationID = String(contract.reservation_id ?? "");
+    if (!reservationID)
         return;
-    await loadBookingInbox();
-    if (account !== sessionAccountID || token !== sessionToken || generation !== sessionGeneration || selectedReservation?.id !== selectedReservationID)
+    const detailLoad = loadReservationDetail(reservationID);
+    const detailContext = { ...context, selectionRevision: reservationSelectionRevision };
+    await detailLoad;
+    if (!isCurrent(detailContext) || selectedReservation?.id !== reservationID)
         return;
     renderSyntheticContract(contract);
     resultElement.textContent = "Invitación abierta. El Backend verificó tu participación antes de mostrar el contrato.";

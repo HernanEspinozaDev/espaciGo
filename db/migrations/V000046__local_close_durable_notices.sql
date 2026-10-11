@@ -45,8 +45,13 @@ BEGIN
     PERFORM public.enqueue_local_notice('nueva_reserva_pagada','reserva',NEW.id,NEW.anfitrion_id,
       'paid-booking:'||NEW.id::text||':host',NEW.actualizada_en);
   ELSIF OLD.estado IS DISTINCT FROM NEW.estado AND NEW.estado='cancelada_por_pago' THEN
-    PERFORM public.enqueue_local_notice('pago_arriendo_rechazado','reserva',NEW.id,NEW.arrendatario_id,
-      'rental-payment:'||NEW.id::text||':rejected',NEW.actualizada_en);
+    -- Guarantee rejection/expiry also cancels a previously paid rental. Only
+    -- emit RQF-201 when the rental payment operation itself was rejected.
+    IF EXISTS (SELECT 1 FROM public.reserva_pago_ensayo p
+      WHERE p.reserva_id=NEW.id AND p.resultado='rechazo_simulado') THEN
+      PERFORM public.enqueue_local_notice('pago_arriendo_rechazado','reserva',NEW.id,NEW.arrendatario_id,
+        'rental-payment:'||NEW.id::text||':rejected',NEW.actualizada_en);
+    END IF;
   END IF;
   RETURN NEW;
 END $$;
