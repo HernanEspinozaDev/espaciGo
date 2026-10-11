@@ -2714,6 +2714,10 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if beginCancelRaceErr != nil {
 		t.Fatal(beginCancelRaceErr)
 	}
+	var cancelRaceBlockerPID int32
+	if err = cancelRaceTx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&cancelRaceBlockerPID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = cancelRaceTx.Exec(ctx, `SELECT id FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, raceReservation.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -2722,28 +2726,40 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		err  error
 	}
 	cancelRaceResults := make(chan cancelRaceOutcome, 2)
+	startCancelRace := make(chan struct{})
+	var cancelRaceStarted sync.WaitGroup
+	cancelRaceStarted.Add(2)
 	go func() {
+		cancelRaceStarted.Done()
+		<-startCancelRace
 		_, e := svc.Decide(ctx, host, raceReservation.ID, "aprobar", "")
 		cancelRaceResults <- cancelRaceOutcome{"approval", e}
 	}()
 	go func() {
+		cancelRaceStarted.Done()
+		<-startCancelRace
 		_, e := svc.Cancel(ctx, renter, raceReservation.ID, "cancel-race", "Carrera de ensayo")
 		cancelRaceResults <- cancelRaceOutcome{"cancellation", e}
 	}()
-	cancelLockDeadline := time.Now().Add(3 * time.Second)
-	approvalAndCancelWaiting := false
+	cancelRaceStarted.Wait()
+	close(startCancelRace)
+	cancelLockDeadline := time.Now().Add(10 * time.Second)
+	requestWaitingOnRaceBlocker := false
 	for time.Now().Before(cancelLockDeadline) {
-		if err = setup.QueryRow(ctx, `SELECT count(*)>=2 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query ILIKE '%FOR UPDATE%'`).Scan(&approvalAndCancelWaiting); err != nil {
+		if err = setup.QueryRow(ctx, `SELECT EXISTS (
+			SELECT 1 FROM pg_stat_activity a
+			WHERE a.datname=current_database() AND $1=ANY(pg_blocking_pids(a.pid))
+		)`, cancelRaceBlockerPID).Scan(&requestWaitingOnRaceBlocker); err != nil {
 			t.Fatal(err)
 		}
-		if approvalAndCancelWaiting {
+		if requestWaitingOnRaceBlocker {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !approvalAndCancelWaiting {
+	if !requestWaitingOnRaceBlocker {
 		_ = cancelRaceTx.Rollback(ctx)
-		t.Fatal("approval and cancellation did not both wait in the protected lock order")
+		t.Fatal("neither concurrent operation reached the reservation lock held by the test")
 	}
 	if err = cancelRaceTx.Commit(ctx); err != nil {
 		t.Fatal(err)

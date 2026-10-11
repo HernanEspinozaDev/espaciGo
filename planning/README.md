@@ -4,11 +4,11 @@
 
 Este directorio contiene la línea base evolutiva para construir EspaciGo con prioridad en **Base de Datos → Backend → API → pruebas → validación visual con frontend mock**. Es planificación, no evidencia de implementación. La interfaz definitiva queda fuera de alcance y se decidirá cuando el backend y la persistencia hayan avanzado.
 
-## Prioridad vigente — cierre local completo, actualizado 2026-10-09
+## Prioridad vigente — cierre local completo, actualizado 2026-10-10
 
 El [plan de cierre del backend local](plan_cierre_backend_local.md) organiza el trabajo restante de M01–M11 y define la aceptación LOCAL-1. El [backlog de cierre](backlog_cierre_backend_local.md) propone paquetes, dependencias y una validación mock final por módulo; la Issue operativa #200 representa LOCAL-KYC-01. El [prompt de ejecución](prompt_cierre_backend_local.md) permite entregar esa instrucción al agente de desarrollo.
 
-La matriz de cierre registra PR #239 merge `c6769e3` y PR #241 merge `f9200fc`: LOCAL-QA-01/#238 y LOCAL-CORE-02/#240 están aceptadas, cerradas y Hecho por sus alcances. #240 no completa LOCAL-ADMIN-01/M11 ni padres generales. LOCAL-QA-02/#242 está en curso; reutiliza migración/upgrade/replay previos y agrega restauración aislada de snapshots, relaciones, permisos runtime y archivos privados. LOCAL-QA-03 espera QA-02 y aceptación funcional integral. #109/#110, #111–#118 y #185/#40 conservan sus criterios generales abiertos.
+La matriz de cierre registra PR #239 (`c6769e3`), PR #241 (`f9200fc`) y PR #243 (`65e5a08`). LOCAL-QA-01/#238, LOCAL-CORE-02/#240 y LOCAL-QA-02/#242 están aceptadas/Cerradas/Hecho por sus alcances. QA-02 cubrió restore aislado de snapshots, relaciones, permisos runtime y archivos privados; su aceptación no completa QA-03 ni LOCAL-1. LOCAL-QA-03/#244 está en curso para consolidar la matriz de cobertura M01–M11, revisar alternativas y corregir brechas locales obligatorias. #109/#110, #111–#118 y #185/#40 conservan sus criterios generales abiertos.
 
 **Completar todo el alcance local antes de proponer pruebas o despliegue GCP.** No ejecutar esa fase como parte del cierre. Se reutilizan capacidades aceptadas y adaptadores fake explícitos; el resultado no acredita integraciones reales ni cierre global del producto.
 
