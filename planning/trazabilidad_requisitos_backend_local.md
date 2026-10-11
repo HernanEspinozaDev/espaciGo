@@ -4,7 +4,7 @@ Esta tabla preserva los IDs de ES1 y establece el cruce RQF/RNF ↔ HU/CU ↔ m�
 
 Fuentes: `referencias/ES1/B_requerimientos_funcionales.md`, `C_requerimientos_no_funcionales.md`, `D_casos_de_uso.md`, `E_historias_de_usuario.md`; conciliación actual contra `main` tras PR #254 (`1b57df27f6991833cc73f3bdf7479a5ecea2c704`) y alcance de #247–#250 aceptado al 2026-10-11.
 
-La columna de estado RQF de la tabla siguiente conserva observaciones de conciliaciones intermedias y contiene celdas agregadas por módulo; **queda supersedida para estado actual** por la matriz final por ID de `evidence/local-close-01-matrix-20261011.md`. Esta última divide satisfechos, pendientes locales, decisiones, exclusiones e integración externa; no interpretar “Parcial” antiguo como veredicto actual. En la conciliación final se encontraron brechas locales obligatorias concretas: RQF-077, 091/092, 094/095/099/102, 177 y 198. Sus pruebas/funciones no se consideran completadas por el runner, que solo verifica el manifiesto existente.
+La columna de estado RQF de la tabla siguiente conserva observaciones de conciliaciones intermedias y contiene celdas agregadas por módulo; **queda supersedida para estado actual** por la matriz final por ID de `evidence/local-close-01-matrix-20261011.md` y su actualización `evidence/local-m04-booking-close-20261011.md`. Al 2026-10-11: RQF-077/198 y RQF-094/095/099/102 están aceptados por #256/#257; RQF-091/092 están implementados en PR #262 (#258), aún en revisión; RQF-177 está implementado en PR #263 (#259), temporalmente apilado sobre #262 y aún sin aceptación. No interpretar “Parcial” antiguo como estado actual. La regresión final se ejecutará cuando ambas brechas en revisión estén integradas/aceptadas.
 
 ## RQF (236)
 

@@ -4,6 +4,7 @@ import { BookingQuoteState } from "./booking-quote-state.js";
 import { inboxActions } from "./booking-inbox-state.js";
 import { showThenMarkConversationPage } from "./conversation-read-state.js";
 import { canSendConversation } from "./conversation-state.js";
+import { reviewableReservationState } from "./review-eligibility.js";
 import { contractActions, contractInviteResponseIsCurrent, contractResponseIsCurrent, type ContractInviteContext, type ContractRequestContext } from "./contract-actions.js";
 import { CatalogPaginationState } from "./catalog-pagination-state.js";
 import { clearCatalogFilters } from "./catalog-filter-actions.js";
@@ -1317,7 +1318,7 @@ const conversationStatus=document.querySelector<HTMLElement>("#booking-conversat
 function bookingData<T>(result:Record<string,unknown>):T{return result.data as T}
 const reservationReviewItems=document.querySelector<HTMLElement>("#booking-review-items")!;
 const reservationReviewStatus=document.querySelector<HTMLElement>("#booking-review-status")!;
-function clearReservationReviews(message="Selecciona una reserva finalizada."):void {
+function clearReservationReviews(message="Selecciona una reserva finalizada o cerrada."):void {
   reviewRequestRevision++;selectedReservationReviews=[];reservationReviewItems.replaceChildren();reservationReviewStatus.textContent=message;
   const button=document.querySelector<HTMLButtonElement>('#booking-review-form button[type="submit"]');if(button)button.disabled=true;
 }
@@ -1326,7 +1327,7 @@ function refreshReservationReviewControls():void {
   if(!button)return;
   const current=selectedReservation;
   const expectedTarget=current?.renter_id===sessionAccountID?"espacio":"arrendatario";
-  button.disabled=!sessionToken||!current||current.state!=="finalizada"||![current.host_id,current.renter_id].includes(sessionAccountID)||selectedReservationReviews.some(item=>item.target_type===expectedTarget);
+  button.disabled=!sessionToken||!current||!reviewableReservationState(current.state)||![current.host_id,current.renter_id].includes(sessionAccountID)||selectedReservationReviews.some(item=>item.target_type===expectedTarget);
 }
 async function loadReservationReviews(reservationID:string):Promise<void>{
   const revision=++reviewRequestRevision,token=sessionToken,account=sessionAccountID,generation=sessionGeneration;
@@ -1355,12 +1356,12 @@ async function loadReservationReviews(reservationID:string):Promise<void>{
     reservationReviewItems.append(article);
   }
   const ownReview=selectedReservationReviews.some(item=>item.target_type===expectedTarget);
-  reservationReviewStatus.textContent=selectedReservation?.state==="finalizada"?ownReview?"Tu reseña de esta reserva ya fue enviada y no se puede editar.":"Puedes enviar una reseña. Un reintento idéntico reutiliza el registro.":selectedReservation?.state==="en_disputa"?"La reserva está en disputa; no se admiten reseñas nuevas y las ya enviadas se conservan.":"Las reseñas nuevas requieren una reserva finalizada.";
+  reservationReviewStatus.textContent=reviewableReservationState(selectedReservation?.state)?ownReview?"Tu reseña de esta reserva ya fue enviada y no se puede editar.":"Puedes enviar una reseña. Un reintento idéntico reutiliza el registro.":selectedReservation?.state==="en_disputa"?"La reserva está en disputa; no se admiten reseñas nuevas y las ya enviadas se conservan.":"Las reseñas nuevas requieren una reserva finalizada o cerrada.";
   refreshReservationReviewControls();
 }
 form("booking-review-form",async(data,element)=>{
   const current=selectedReservation,reservationID=selectedReservationID,account=sessionAccountID,token=sessionToken,generation=sessionGeneration;
-  if(!current||current.state!=="finalizada"||![current.host_id,current.renter_id].includes(account))throw new Error("Solo un participante puede reseñar su propia reserva finalizada.");
+  if(!current||!reviewableReservationState(current.state)||![current.host_id,current.renter_id].includes(account))throw new Error("Solo un participante puede reseñar su propia reserva finalizada o cerrada.");
   const keyID=`${account}:${reservationID}`,key=reviewRetryKeys.get(keyID)??crypto.randomUUID();reviewRetryKeys.set(keyID,key);
   const response=await request(`${bookingBase}/reservations/${encodeURIComponent(reservationID)}/reviews`,"POST",{rating:Number(data.get("rating")),comment:String(data.get("comment")??"")},true,key);
   if(reservationID!==selectedReservationID||account!==sessionAccountID||token!==sessionToken||generation!==sessionGeneration)return;
@@ -1612,7 +1613,7 @@ form("booking-request-form",async(data,element)=>{
   await loadBookingInbox();
   resultElement.textContent="Solicitud creada; quedó seleccionada en tu bandeja local.";
 });
-const reservationStates:Record<string,string>={pendiente_de_pago:"Pendiente de pago",pagada:"Pago del arriendo confirmado · falta confirmar garantía",aprobada_host:"Aprobada por anfitrión",firma_parcial:"Contrato de ensayo esperando firmas",lista_para_checkin:"Contrato de ensayo completado",en_curso:"En curso",finalizada:"Finalizada",en_disputa:"En disputa",cancelada_por_firma:"Cancelada por vencimiento de firma · devolución fake pendiente",cancelada_por_pago:"Cancelada por resultado fake de pago/garantía · ocupación liberada",rechazada_arrendador:"Rechazada por anfitrión",vencida_pago:"Vencida por falta de pago",vencida_host:"Vencida por falta de decisión del anfitrión",cancelada_arrendatario:"Cancelada por arrendatario"};
+const reservationStates:Record<string,string>={pendiente_de_pago:"Pendiente de pago",pagada:"Pago del arriendo confirmado · falta confirmar garantía",aprobada_host:"Aprobada por anfitrión",firma_parcial:"Contrato de ensayo esperando firmas",lista_para_checkin:"Contrato de ensayo completado",en_curso:"En curso",finalizada:"Finalizada · liquidación pendiente",cerrada:"Cerrada tras liquidación confirmada",en_disputa:"En disputa",cancelada_por_firma:"Cancelada por vencimiento de firma · devolución fake pendiente",cancelada_por_pago:"Cancelada por resultado fake de pago/garantía · ocupación liberada",rechazada_arrendador:"Rechazada por anfitrión",vencida_pago:"Vencida por falta de pago",vencida_host:"Vencida por falta de decisión del anfitrión",cancelada_arrendatario:"Cancelada por arrendatario"};
 function reservationState(state:string):string{return reservationStates[state]??state}
 function bookingDate(value:string,zone:string):string{
   try{return new Intl.DateTimeFormat("es-CL",{dateStyle:"medium",timeStyle:"short",timeZone:zone}).format(new Date(value))}catch{return value}

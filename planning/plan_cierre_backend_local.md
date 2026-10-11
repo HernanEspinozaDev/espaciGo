@@ -8,6 +8,8 @@ Actualización conciliada al 2026-10-11: PR #245 (`74b10dbe655d4f6ae3957a6de81f8
 
 Actualización posterior al merge #261 (2026-10-11): `main` quedó en `d5f8668da7747270115c5191dfb81de6af5d13ba`; #257 se aceptó/Cerrada/Hecho por RQF-094/095/099/102 después del smoke de búsqueda, detalle y mapa. #246 sigue abierta sin aceptación de LOCAL-1. #258 M04 RQF-091/092 implementa la política ratificada de eliminación/conservación histórica en `codex/local-m04-publication-delete-01`; #259 RQF-177 continúa después de #258. La regresión integral se reserva hasta integrar ambas brechas. No hacer GCP.
 
+Seguimiento posterior a #261 (2026-10-11): PR #262 para #258 está En revisión y no se aplica V50 al volumen persistente antes de la aceptación. PR #263 para #259 está apilado sobre `codex/local-m04-publication-delete-01` hasta integrar #262. V51 añade `cerrada` únicamente tras aplicar un resultado fake exitoso persistido, con OpenAPI, mock y retención. La integración PostgreSQL corre desde V1 hasta V51 en base desechable y cubre éxito, rechazo, timeout/reinicio, replay concurrente, disputa, protección SQL y conservación histórica. #246 permanece abierta; no ejecutar la regresión integral hasta integrar y aceptar ambas brechas. Sin GCP.
+
 **Objetivo autorizado:** terminar el alcance funcional local de M01–M11, con PostgreSQL, Backend, API, pruebas y un mock mínimo por módulo. GCP se propondrá únicamente después de aceptar ese cierre. Este plan fue inicialmente documental; esta instrucción habilita el desarrollo por entregas verticales.
 
 ## 1. Autoridad y documentos de trabajo

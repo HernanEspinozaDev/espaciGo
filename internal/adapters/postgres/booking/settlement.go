@@ -103,7 +103,8 @@ func (r *Repository) BeginSettlement(ctx context.Context, host, reservationID, k
 		return booking.Settlement{}, false, booking.ErrConflict
 	}
 	var openClaim, pending, unsettledDecision bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1 AND estado='abierto'),
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1 AND estado='abierto')
+ OR EXISTS(SELECT 1 FROM public.disputa_ensayo_local WHERE reserva_id=$1 AND estado='abierta'),
  EXISTS(SELECT 1 FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1 AND estado='pendiente')
  OR EXISTS(SELECT 1 FROM public.reserva_pago_ensayo_operacion WHERE reserva_id=$1 AND estado IN ('pendiente','por_conciliar'))
  OR EXISTS(SELECT 1 FROM public.reserva_pago_evento_ensayo e JOIN public.reserva_pago_evento_aplicacion_ensayo a ON a.evento_id=e.id JOIN public.reserva_pago_ensayo_operacion o ON o.id=e.operacion_id WHERE o.reserva_id=$1 AND a.estado IN ('pendiente','pendiente_conciliacion'))
@@ -215,7 +216,8 @@ func (r *Repository) ApplySettlementResult(ctx context.Context, actor string, ev
 	if err = lockReservationParties(ctx, tx, reservationID); err != nil {
 		return booking.Settlement{}, false, err
 	}
-	if _, err = tx.Exec(ctx, `SELECT id FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservationID); err != nil {
+	var reservationState string
+	if err = tx.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservationID).Scan(&reservationState); err != nil {
 		return booking.Settlement{}, false, mapErr(err)
 	}
 	value, err := scanSettlement(tx.QueryRow(ctx, settlementSelect+` WHERE o.id=$1 FOR UPDATE OF s,o`, event.OperationID))
@@ -233,6 +235,21 @@ func (r *Repository) ApplySettlementResult(ctx context.Context, actor string, ev
 		if value.LastResult != event.Outcome {
 			return booking.Settlement{}, false, booking.ErrConflict
 		}
+		if value.State == "liquidada" && event.Outcome == "exito_simulado" && reservationState != "cerrada" {
+			if reservationState != "finalizada" {
+				return booking.Settlement{}, false, booking.ErrConflict
+			}
+			blocked, blockErr := settlementClosureBlocked(ctx, tx, reservationID, value.ID)
+			if blockErr != nil {
+				return booking.Settlement{}, false, blockErr
+			}
+			if blocked {
+				return booking.Settlement{}, false, booking.ErrConflict
+			}
+			if err = closeReservationAfterSettlement(ctx, tx, reservationID, actor, clock().UTC()); err != nil {
+				return booking.Settlement{}, false, err
+			}
+		}
 		value.Reused = true
 		if err = tx.Commit(ctx); err != nil {
 			return booking.Settlement{}, false, err
@@ -244,6 +261,18 @@ func (r *Repository) ApplySettlementResult(ctx context.Context, actor string, ev
 		return booking.Settlement{}, false, booking.ErrConflict
 	}
 	now := clock().UTC()
+	if event.Outcome == "exito_simulado" {
+		if reservationState != "finalizada" {
+			return booking.Settlement{}, false, booking.ErrConflict
+		}
+		blocked, blockErr := settlementClosureBlocked(ctx, tx, reservationID, value.ID)
+		if blockErr != nil {
+			return booking.Settlement{}, false, blockErr
+		}
+		if blocked {
+			return booking.Settlement{}, false, booking.ErrConflict
+		}
+	}
 	finalState, action, ledger, reason := "rechazada", "liquidacion_rechazada", "liquidacion_rechazada", "liquidacion_fake_rechazada"
 	if event.Outcome == "exito_simulado" {
 		finalState, action, ledger, reason = "liquidada", "liquidacion_confirmada", "liquidacion_confirmada", "liquidacion_fake_confirmada"
@@ -272,6 +301,9 @@ func (r *Repository) ApplySettlementResult(ctx context.Context, actor string, ev
 		if _, err = tx.Exec(ctx, `INSERT INTO public.reserva_comprobante_ensayo_local(id,liquidacion_id,version,contenido,emitido_en) VALUES($1,$2,1,$3::jsonb,$4)`, receiptID, value.ID, string(content), now); err != nil {
 			return booking.Settlement{}, false, err
 		}
+		if err = closeReservationAfterSettlement(ctx, tx, reservationID, actor, now); err != nil {
+			return booking.Settlement{}, false, err
+		}
 	}
 	if actor != "" {
 		if err = appendFinancialAdminAudit(ctx, tx, actor, reservationID, "local.finance.settlement", reason, event.EventID, now); err != nil {
@@ -286,6 +318,56 @@ func (r *Repository) ApplySettlementResult(ctx context.Context, actor string, ev
 		return booking.Settlement{}, false, err
 	}
 	return value, false, nil
+}
+
+// settlementClosureBlocked revalidates obligations in the same transaction
+// which applies a successful fake transfer. The current settlement is
+// excluded because it is the result being committed by this transaction.
+func settlementClosureBlocked(ctx context.Context, tx pgx.Tx, reservationID, settlementID string) (bool, error) {
+	var blocked bool
+	err := tx.QueryRow(ctx, `SELECT
+		EXISTS(SELECT 1 FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1 AND estado='abierto')
+		OR EXISTS(SELECT 1 FROM public.disputa_ensayo_local WHERE reserva_id=$1 AND estado='abierta')
+		OR EXISTS(SELECT 1 FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1 AND estado='pendiente')
+		OR EXISTS(SELECT 1 FROM public.reserva_pago_ensayo_operacion WHERE reserva_id=$1 AND estado IN ('pendiente','por_conciliar'))
+		OR EXISTS(SELECT 1 FROM public.reserva_pago_evento_aplicacion_ensayo a JOIN public.reserva_pago_evento_ensayo e ON e.id=a.evento_id JOIN public.reserva_pago_ensayo_operacion o ON o.id=e.operacion_id WHERE o.reserva_id=$1 AND a.estado IN ('pendiente','pendiente_conciliacion'))
+		OR EXISTS(SELECT 1 FROM public.reserva_devolucion_intento_ensayo i JOIN public.reserva_devolucion_ensayo d ON d.id=i.devolucion_id WHERE d.reserva_id=$1 AND i.resultado='sin_respuesta_simulada' AND d.estado='pendiente')
+		OR EXISTS(SELECT 1 FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=$1 AND g.estado NOT IN ('liberada','parcialmente_capturada','cancelada','no_disponible'))
+		OR EXISTS(SELECT 1 FROM public.reserva_garantia_operacion_ensayo_local o JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id WHERE g.reserva_id=$1 AND o.estado IN ('pendiente','por_conciliar'))
+		OR EXISTS(SELECT 1 FROM public.reserva_garantia_evento_aplicacion_ensayo_local a JOIN public.reserva_garantia_evento_ensayo_local e ON e.id=a.evento_id JOIN public.reserva_garantia_operacion_ensayo_local o ON o.id=e.operacion_id JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id WHERE g.reserva_id=$1 AND a.estado IN ('pendiente','por_conciliar'))
+		OR EXISTS(SELECT 1 FROM public.reserva_decision_financiera_ensayo_local WHERE reserva_id=$1 AND estado IN ('pendiente','por_conciliar'))
+		OR EXISTS(SELECT 1 FROM public.reserva_liquidacion_ensayo_local WHERE reserva_id=$1 AND id<>$2 AND estado IN ('pendiente','por_conciliar'))`, reservationID, settlementID).Scan(&blocked)
+	return blocked, err
+}
+
+func closeReservationAfterSettlement(ctx context.Context, tx pgx.Tx, reservationID, actor string, at time.Time) error {
+	var state string
+	if err := tx.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, reservationID).Scan(&state); err != nil {
+		return mapErr(err)
+	}
+	if state == "cerrada" {
+		return nil
+	}
+	if state != "finalizada" {
+		return booking.ErrConflict
+	}
+	var actorValue any
+	if actor != "" {
+		actorValue = actor
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en)
+		SELECT gen_random_uuid(),$1,COALESCE(max(secuencia),0)+1,'finalizada','cerrada',$2,'liquidacion_fake_confirmada',$3
+		FROM public.reserva_ensayo_transicion WHERE reserva_id=$1`, reservationID, actorValue, at); err != nil {
+		return err
+	}
+	result, err := tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='cerrada',actualizada_en=$2 WHERE id=$1 AND estado='finalizada'`, reservationID, at)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return booking.ErrConflict
+	}
+	return nil
 }
 
 func (r *Repository) Settlement(ctx context.Context, actor, reservationID string) (booking.Settlement, error) {

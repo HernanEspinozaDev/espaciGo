@@ -17,12 +17,14 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	reputationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/reputation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	reputation "github.com/HernanEspinozaDev/espaciGo/internal/reputation"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -279,6 +281,47 @@ func TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay(t *testing
 	if receiptCount != 1 || confirmHistory != 1 || fakeSuccess != 1 {
 		t.Fatalf("success side effects receipt/history/fake=%d/%d/%d", receiptCount, confirmHistory, fakeSuccess)
 	}
+	var closedState string
+	var closeTransitions int
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, id1).Scan(&closedState); err != nil || closedState != "cerrada" {
+		t.Fatalf("confirmed settlement reservation state=%q err=%v", closedState, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 AND estado_anterior='finalizada' AND estado_nuevo='cerrada' AND motivo='liquidacion_fake_confirmada'`, id1).Scan(&closeTransitions); err != nil || closeTransitions != 1 {
+		t.Fatalf("finalized-to-closed transition count=%d err=%v", closeTransitions, err)
+	}
+	// A confirmed fake settlement closes the reservation; that terminal state
+	// remains reviewable under the same participant and idempotency rules.
+	reviewService, err := reputation.New(reputationpg.New(pool), credentials.Generator{}, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := reviewService.Create(ctx, renter, id1, "settled-close-review-key", reputation.ReviewInput{Rating: 5, Comment: "Synthetic review after settlement"})
+	if err != nil || review.State != "publicada" || review.Rating != 5 {
+		t.Fatalf("review after settled close=%+v err=%v", review, err)
+	}
+	reviewRetry, err := reviewService.Create(ctx, renter, id1, "settled-close-review-key", reputation.ReviewInput{Rating: 5, Comment: "Synthetic review after settlement"})
+	if err != nil || !reviewRetry.Reused || reviewRetry.ID != review.ID {
+		t.Fatalf("closed reservation review retry=%+v initial=%+v err=%v", reviewRetry, review, err)
+	}
+	if _, err = reviewService.Create(ctx, renter, id1, "settled-close-alternate-key", reputation.ReviewInput{Rating: 4, Comment: "Different payload"}); !errors.Is(err, reputation.ErrConflict) {
+		t.Fatalf("closed reservation accepted a second review from the same participant: %v", err)
+	}
+	hostReview, err := reviewService.Create(ctx, host, id1, "settled-host-review-key", reputation.ReviewInput{Rating: 4})
+	if err != nil || hostReview.State != "publicada" {
+		t.Fatalf("host reciprocal review after settled close=%+v err=%v", hostReview, err)
+	}
+	if _, err = reviewService.Create(ctx, "cccccccc-cccc-4ccc-8ccc-cccccccccccc", id1, "settled-outsider-review", reputation.ReviewInput{Rating: 1}); !errors.Is(err, reputation.ErrNotFound) {
+		t.Fatalf("third-party review of closed reservation err=%v", err)
+	}
+	var retainedUntil time.Time
+	var snapshotPrice, snapshotSubtotal int64
+	var closedActiveOccupancy int
+	if err = pool.QueryRow(ctx, `SELECT r.vinculos_retirar_en,r.precio_unitario_clp,r.subtotal_clp,(SELECT count(*) FROM public.ocupacion o WHERE o.reserva_id=r.id AND o.activo) FROM public.reserva_ensayo_local r WHERE r.id=$1`, id1).Scan(&retainedUntil, &snapshotPrice, &snapshotSubtotal, &closedActiveOccupancy); err != nil {
+		t.Fatal(err)
+	}
+	if retainedUntil.Before(clockNow.AddDate(0, 24, 0)) || snapshotPrice != 8000 || snapshotSubtotal != 8000 || closedActiveOccupancy != 0 {
+		t.Fatalf("closed reservation retention/snapshot/occupancy=%s/%d/%d/%d", retainedUntil, snapshotPrice, snapshotSubtotal, closedActiveOccupancy)
+	}
 	receipt, err := service.GetLocalReceipt(ctx, host, id1)
 	if err != nil || receipt.Kind != "comprobante_ensayo" || receipt.Banner != booking.LocalSettlementBanner || receipt.TransferCLP != 10000 {
 		t.Fatalf("receipt=%+v err=%v", receipt, err)
@@ -355,6 +398,13 @@ func TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay(t *testing
 	rejected, err := service.StartSettlement(ctx, host, id3, "settlement-reject-key", "rechazo")
 	if err != nil || rejected.State != "rechazada" {
 		t.Fatalf("rejected settlement=%+v err=%v", rejected, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='cerrada' WHERE id=$1`, id3); err == nil {
+		t.Fatal("runtime must not close a reservation after a rejected settlement")
+	}
+	var rejectedReservationState string
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, id3).Scan(&rejectedReservationState); err != nil || rejectedReservationState != "finalizada" {
+		t.Fatalf("rejected settlement direct-close guard state=%s err=%v", rejectedReservationState, err)
 	}
 	if _, err = service.GetLocalReceipt(ctx, host, id3); !errors.Is(err, booking.ErrNotFound) {
 		t.Fatalf("rejected transfer created receipt, err=%v", err)
@@ -488,6 +538,79 @@ func TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay(t *testing
 	if raceReceipts != 1 || raceFinals != 1 {
 		t.Fatalf("racing confirmation duplicated effects receipt/history=%d/%d", raceReceipts, raceFinals)
 	}
+	var raceState string
+	var raceCloseTransitions int
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, id5).Scan(&raceState); err != nil || raceState != "cerrada" {
+		t.Fatalf("concurrent replay reservation state=%q err=%v", raceState, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 AND estado_anterior='finalizada' AND estado_nuevo='cerrada' AND motivo='liquidacion_fake_confirmada'`, id5).Scan(&raceCloseTransitions); err != nil || raceCloseTransitions != 1 {
+		t.Fatalf("concurrent replay closed transition count=%d err=%v", raceCloseTransitions, err)
+	}
+
+	// A dispute opened after the durable settlement intent still blocks the
+	// business transition. The fake event is retained and can be reconciled
+	// after an administrator closes the dispute, without creating another
+	// transfer, receipt, settlement, or close transition.
+	id6, q6, o6 := "eeeeeeee-4444-4444-8444-abcdefabcdef", "eeeeeeee-5555-4555-8555-eeeeeeeeeeee", "eeeeeeee-6666-4666-8666-eeeeeeeeeeee"
+	seedFinalizedSettlementReservation(t, ctx, setup, host, renter, id6, q6, o6, base, base.Add(-25*time.Hour), 112*time.Hour)
+	requestHash := sha256.Sum256([]byte("settlement-open-dispute"))
+	intent, reused, err := repo.BeginSettlement(ctx, host, id6, "settlement-open-dispute", requestHash[:], "eeeeeeee-7777-4777-8777-eeeeeeeeeeee", "eeeeeeee-8888-4888-8888-eeeeeeeeeeee", "exito", clock)
+	if err != nil || reused || intent.State != "pendiente" {
+		t.Fatalf("pre-dispute intent=%+v reused=%v err=%v", intent, reused, err)
+	}
+	disputeID := "eeeeeeee-9999-4999-8999-eeeeeeeeeeee"
+	disputeAt := base.Add(time.Hour)
+	if _, err = setup.Exec(ctx, `INSERT INTO public.disputa_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,abierta_por,motivo_codigo,estado,clave_idempotencia,huella_solicitud,abierta_en) VALUES($1,$2,$3,$4,$3,'ensayo_privacidad','abierta','settlement-open-dispute',decode(repeat('5a',32),'hex'),$5)`, disputeID, id6, host, renter, disputeAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.disputa_ensayo_historial(disputa_id,estado_anterior,estado_nuevo,actor_id,motivo_codigo,ocurrida_en) VALUES($1,NULL,'abierta',$2,'ensayo_privacidad',$3)`, disputeID, host, disputeAt); err != nil {
+		t.Fatal(err)
+	}
+	disputeEvent, err := adapter.StartTransfer(ctx, intent.OperationID, "exito")
+	if err != nil || disputeEvent == nil {
+		t.Fatalf("persist disputed settlement fake result event=%+v err=%v", disputeEvent, err)
+	}
+	disputeFingerprint := sha256.Sum256([]byte(disputeEvent.EventID + "\n" + disputeEvent.OperationID + "\n" + disputeEvent.Outcome))
+	if _, err = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='cerrada' WHERE id=$1`, id6); err == nil {
+		t.Fatal("runtime must not close a reservation before the persisted settlement result is applied")
+	}
+	if _, _, err = repo.ApplySettlementResult(ctx, host, *disputeEvent, disputeFingerprint[:], clock); !errors.Is(err, booking.ErrConflict) {
+		t.Fatalf("successful settlement must remain blocked by open dispute, err=%v", err)
+	}
+	var disputeReservationState, disputedSettlementState string
+	var disputedReceipts, disputedCloseTransitions int
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, id6).Scan(&disputeReservationState); err != nil || disputeReservationState != "finalizada" {
+		t.Fatalf("blocked reservation state=%q err=%v", disputeReservationState, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT estado FROM public.reserva_liquidacion_ensayo_local WHERE reserva_id=$1`, id6).Scan(&disputedSettlementState); err != nil || disputedSettlementState != "pendiente" {
+		t.Fatalf("blocked settlement state=%q err=%v", disputedSettlementState, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_comprobante_ensayo_local c JOIN public.reserva_liquidacion_ensayo_local s ON s.id=c.liquidacion_id WHERE s.reserva_id=$1),(SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 AND estado_nuevo='cerrada')`, id6).Scan(&disputedReceipts, &disputedCloseTransitions); err != nil || disputedReceipts != 0 || disputedCloseTransitions != 0 {
+		t.Fatalf("blocked settlement partial effects receipts/transitions=%d/%d err=%v", disputedReceipts, disputedCloseTransitions, err)
+	}
+	if _, err = setup.Exec(ctx, `UPDATE public.disputa_ensayo_local SET estado='cerrada',cerrada_por=$2,motivo_cierre_codigo='ensayo_finalizado',cerrada_en=$3 WHERE id=$1`, disputeID, adminID, disputeAt.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.disputa_ensayo_historial(disputa_id,estado_anterior,estado_nuevo,actor_id,motivo_codigo,ocurrida_en) VALUES($1,'abierta','cerrada',$2,'ensayo_finalizado',$3)`, disputeID, adminID, disputeAt.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	var disputeTransitionCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.disputa_ensayo_historial WHERE disputa_id=$1`, disputeID).Scan(&disputeTransitionCount); err != nil || disputeTransitionCount != 2 {
+		t.Fatalf("dispute open/close history rows=%d err=%v", disputeTransitionCount, err)
+	}
+	if err = service.ReconcileSettlements(ctx); err != nil {
+		t.Fatal(err)
+	}
+	closedSettlement, err := service.GetSettlement(ctx, host, id6)
+	if err != nil || closedSettlement.State != "liquidada" {
+		t.Fatalf("reconciled closed-dispute settlement=%+v err=%v", closedSettlement, err)
+	}
+	if err = service.ReconcileSettlements(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT (SELECT estado FROM public.reserva_ensayo_local WHERE id=$1),(SELECT count(*) FROM public.reserva_comprobante_ensayo_local c JOIN public.reserva_liquidacion_ensayo_local s ON s.id=c.liquidacion_id WHERE s.reserva_id=$1),(SELECT count(*) FROM public.reserva_liquidacion_historial_ensayo_local h JOIN public.reserva_liquidacion_ensayo_local s ON s.id=h.liquidacion_id WHERE s.reserva_id=$1 AND h.accion='liquidacion_confirmada'),(SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 AND estado_anterior='finalizada' AND estado_nuevo='cerrada')`, id6).Scan(&disputeReservationState, &disputedReceipts, &confirmHistory, &disputedCloseTransitions); err != nil || disputeReservationState != "cerrada" || disputedReceipts != 1 || disputedCloseTransitions != 1 {
+		t.Fatalf("successful dispute replay state/receipt/close-history=%s/%d/%d err=%v", disputeReservationState, disputedReceipts, disputedCloseTransitions, err)
+	}
 
 	// The timeout -> successful administrative reconciliation must retain its
 	// durable facts while unlinking participant identities when reservation
@@ -590,8 +713,15 @@ func TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay(t *testing
 		t.Fatal(err)
 	}
 	purged, err := privacyService.PurgeExpiredReservationLinks(ctx, purgeAt, 20)
-	if err != nil || purged.Purged != 1 || purged.Deferred != 0 {
+	if err != nil || purged.Purged != 1 || purged.Deferred != 1 {
 		t.Fatalf("timeout/reconcile settlement purge=%+v err=%v", purged, err)
+	}
+	var retainedReservationState, retainedSettlementState string
+	var retainedRenter string
+	var retainedPurgeReceipt bool
+	var retainedDeadline time.Time
+	if err = pool.QueryRow(ctx, `SELECT r.estado,COALESCE(r.arrendatario_id::text,''),EXISTS(SELECT 1 FROM public.reserva_vinculo_purgado_local p WHERE p.reserva_id=r.id),s.estado,r.vinculos_retirar_en FROM public.reserva_ensayo_local r JOIN public.reserva_liquidacion_ensayo_local s ON s.reserva_id=r.id WHERE r.id=$1`, id6).Scan(&retainedReservationState, &retainedRenter, &retainedPurgeReceipt, &retainedSettlementState, &retainedDeadline); err != nil || retainedRenter == "" || retainedReservationState != "cerrada" || retainedPurgeReceipt || retainedSettlementState != "liquidada" || !retainedDeadline.After(purgeAt) {
+		t.Fatalf("recently closed reservation must remain linked through its own 24-month term: state=%s renter=%q purged=%v settlement=%s deadline=%s err=%v", retainedReservationState, retainedRenter, retainedPurgeReceipt, retainedSettlementState, retainedDeadline, err)
 	}
 	var factsAfter struct {
 		policy, currency, state, result      string
