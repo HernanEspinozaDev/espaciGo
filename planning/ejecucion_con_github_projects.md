@@ -2,7 +2,7 @@
 
 ## Actualización vigente — 2026-10-11, posterior a PR #260
 
-`main` integra #260 (`38c3e1300b6d3f843238f4ee6b8758bfe3b71913`). #256 está aceptada/Cerrada/Hecho solo por RQF-077/198; V49 se aplicó incrementalmente y el smoke API confirmó portada/modalidad. #246 sigue abierta, sin aceptación final de LOCAL-1. #257 M05 RQF-094/095/099/102 está en revisión mediante su PR actual. #258 M04 RQF-091/092 conserva la regla de eliminación ratificada y depende de #257; #259 RQF-177 depende de #258. No ejecutar regresión integral hasta completar las brechas; conservar volumen y secretos, usar DB desechable y no hacer GCP.
+`main` integra #260 (`38c3e1300b6d3f843238f4ee6b8758bfe3b71913`). #256 está aceptada/Cerrada/Hecho solo por RQF-077/198; V49 se aplicó incrementalmente y el smoke API confirmó portada/modalidad. #246 sigue abierta, sin aceptación final de LOCAL-1. #257 M05 RQF-094/095/099/102 está en revisión mediante [PR #261](https://github.com/HernanEspinozaDev/espaciGo/pull/261), commit probado `6b244fa7ca4e8a2134be7b21e1b2e66c57a5a746`. #258 M04 RQF-091/092 conserva la regla de eliminación ratificada y depende de #257; #259 RQF-177 depende de #258. No ejecutar regresión integral hasta completar las brechas; conservar volumen y secretos, usar DB desechable y no hacer GCP.
 
 ## Instrucción vigente — backend local completo, conciliada 2026-10-10
 

@@ -173,7 +173,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada al 2026-10-11 tras PR #254 
 
 ### LOCAL-M05-SEARCH-GAPS-01 — Búsqueda textual y filtros locales restantes (Issue #257)
 
-- **Estado:** En revisión mediante PR actual, posterior a M04-COVER-RATE-01; hija de #246, trazada a #65/#62–#68 y RQF-094/095/099/102.
+- **Estado:** En revisión mediante [PR #261](https://github.com/HernanEspinozaDev/espaciGo/pull/261), commit probado `6b244fa7ca4e8a2134be7b21e1b2e66c57a5a746`; posterior a M04-COVER-RATE-01; hija de #246, trazada a #65/#62–#68 y RQF-094/095/099/102.
 - **Criterios:** texto literal e insensible a mayúsculas en título/descripción/categoría públicos, nunca dirección/contacto; plano mock usa solo posiciones relativas de coordenadas sintéticas habilitadas y no devuelve lat/lon; superficie mínima inclusiva se combina con filtros mediante AND; limpiar criterios reinicia controles/cursor/selección/cotización/mapa e invalida respuestas tardías. API/OpenAPI, PostgreSQL desechable, mock y evidencia; sin geocodificación real ni GCP. Evidencia: `planning/evidence/local-m05-search-gaps-20261011.md`; no aceptada antes de review/merge.
 
 ### LOCAL-M04-PUBLICATION-DELETE-01 — Conservación histórica (Issue #258)

@@ -1,6 +1,6 @@
 # LOCAL-M05-SEARCH-GAPS-01 — evidencia de búsqueda y filtros locales
 
-Estado al 2026-10-11: implementación en revisión en la misma entrega DB/Backend/API/mock de #257. #246 sigue abierta y LOCAL-1 no está aceptado. Sin geocodificación real, mapas de calles, nuevas migraciones ni GCP.
+Estado al 2026-10-11: implementación en revisión en la misma entrega DB/Backend/API/mock de #257, publicada en [PR #261](https://github.com/HernanEspinozaDev/espaciGo/pull/261). El commit probado y publicado es `6b244fa7ca4e8a2134be7b21e1b2e66c57a5a746` (autor de publicación HernanMEC). #246 sigue abierta y LOCAL-1 no está aceptado. Sin geocodificación real, mapas de calles, nuevas migraciones ni GCP.
 
 ## Criterios y decisiones implementadas
 
