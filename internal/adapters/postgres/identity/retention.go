@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const terminalReservationStates = `('finalizada','cerrada','cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario')`
+const terminalReservationStates = `('finalizada','cerrada','cancelada_por_pago','rechazada_arrendador','vencida_pago','vencida_host','cancelada_arrendatario','cancelada_por_firma')`
 
 type reservationRetentionCandidate struct {
 	id, host, renter string
@@ -91,7 +91,7 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 		}
 		return false, false, mapError(err)
 	}
-	if state != "finalizada" && state != "cerrada" && state != "cancelada_por_pago" && state != "rechazada_arrendador" && state != "vencida_pago" && state != "vencida_host" && state != "cancelada_arrendatario" && state != "en_disputa" {
+	if state != "finalizada" && state != "cerrada" && state != "cancelada_por_pago" && state != "rechazada_arrendador" && state != "vencida_pago" && state != "vencida_host" && state != "cancelada_arrendatario" && state != "cancelada_por_firma" && state != "en_disputa" {
 		return false, false, tx.Commit(ctx)
 	}
 	currentHost, currentRenter := "", ""

@@ -195,21 +195,25 @@ func TestUpgradeFromV52BackfillsLocalDomainRetention(t *testing.T) {
 		if err := conn.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		var v53 Migration
+		var v53, v54 Migration
 		for _, migration := range migrations {
 			if migration.Version == 53 {
 				v53 = migration
-				break
+			}
+			if migration.Version == 54 {
+				v54 = migration
 			}
 		}
-		if v53.Version != 53 {
-			t.Fatal("V53 migration not discovered")
+		if v53.Version != 53 || v54.Version != 54 {
+			t.Fatalf("V53/V54 migrations not discovered: V53=%d V54=%d", v53.Version, v54.Version)
 		}
-		if err := os.WriteFile(filepath.Join(upgradeDir, filepath.Base(v53.Path)), v53.SQL, 0o600); err != nil {
-			t.Fatal(err)
+		for _, migration := range []Migration{v53, v54} {
+			if err := os.WriteFile(filepath.Join(upgradeDir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+				t.Fatal(err)
+			}
 		}
 		result, err := Run(ctx, databaseURL, upgradeDir)
-		if err != nil || len(result.Applied) != 1 || result.Applied[0] != 53 {
+		if err != nil || len(result.Applied) != 2 || result.Applied[0] != 53 || result.Applied[1] != 54 {
 			t.Fatalf("upgrade from V52: applied=%v err=%v", result.Applied, err)
 		}
 		conn = connectTestDB(t, ctx, databaseURL)
@@ -230,6 +234,10 @@ func TestUpgradeFromV52BackfillsLocalDomainRetention(t *testing.T) {
 		}
 		if err := conn.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a WHERE p.oid=to_regprocedure('public.purge_expired_local_contracts_and_publication_history(timestamptz,integer)') AND a.grantee=0 AND a.privilege_type='EXECUTE')`).Scan(&purgeDenied); err != nil || !purgeDenied {
 			t.Fatalf("public can execute retention purge: denied=%v err=%v", purgeDenied, err)
+		}
+		var signatureExpiryIndexed bool
+		if err := conn.QueryRow(ctx, `SELECT indexdef LIKE '%cancelada_por_firma%' FROM pg_indexes WHERE schemaname='public' AND indexname='reserva_ensayo_retencion_local_idx'`).Scan(&signatureExpiryIndexed); err != nil || !signatureExpiryIndexed {
+			t.Fatalf("V54 retention index omits signature-expiry reservations: included=%v err=%v", signatureExpiryIndexed, err)
 		}
 	})
 }

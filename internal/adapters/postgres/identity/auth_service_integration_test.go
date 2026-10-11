@@ -2010,6 +2010,127 @@ func TestLocalPublicationHistoryBatchSkipsBlockedDeletionAndPurgesSameEligibleSe
 	}
 }
 
+func TestLocalSignatureExpiryRetentionSchedulesNullDeadlineDefersAndPurgesIdempotently(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "signature-retention-host@ejemplo.invalid")
+	h.verify(t)
+	renterID := h.register(t, "signature-retention-renter@ejemplo.invalid")
+	h.verify(t)
+	const (
+		spaceID       = "84900000-0000-4000-8000-000000000001"
+		quoteID       = "84900000-0000-4000-8000-000000000002"
+		reservationID = "84900000-0000-4000-8000-000000000003"
+		occupancyID   = "84900000-0000-4000-8000-000000000004"
+		refundID      = "84900000-0000-4000-8000-000000000005"
+		refundOpID    = "84900000-0000-4000-8000-000000000006"
+	)
+	seedPrivacyReviewReservation(t, h, spaceID, quoteID, reservationID, occupancyID, hostID, renterID, "aprobada_host")
+	runtimePool := newRuntimePool(t, h)
+	contractRepo, err := contractspg.New(runtimePool, []byte(strings.Repeat("f", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contractService, err := contractdomain.NewService(contractRepo, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := contractService.Create(h.ctx, hostID, reservationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A newly scheduled signature-expiry transition receives the ratified
+	// 24-calendar-month deadline. Clearing it afterward models a legacy row
+	// predating that scheduling branch and exercises the NULL fallback.
+	cancelledAt := h.now.AddDate(-25, 0, 0)
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_ensayo_local SET estado='cancelada_por_firma',actualizada_en=$2 WHERE id=$1`, reservationID, cancelledAt); err != nil {
+		t.Fatal(err)
+	}
+	due := cancelledAt.AddDate(0, 24, 0)
+	var scheduled time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT vinculos_retirar_en FROM public.reserva_ensayo_local WHERE id=$1`, reservationID).Scan(&scheduled); err != nil || !scheduled.Equal(due) {
+		t.Fatalf("signature-expiry transition did not schedule its link deadline: got=%s want=%s err=%v", scheduled, due, err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=NULL WHERE id=$1`, reservationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_devolucion_ensayo(id,reserva_id,operacion_id,importe_clp,moneda,estado,creada_en,actualizada_en) VALUES($1,$2,$3,12000,'CLP','pendiente',$4,$4)`, refundID, reservationID, refundOpID, cancelledAt); err != nil {
+		t.Fatal(err)
+	}
+	retentionRepo := identitypg.NewIdentityRepository(runtimePool)
+
+	before, _, err := retentionRepo.PurgeExpiredLocalDomainDocuments(h.ctx, due.Add(-time.Nanosecond), 10)
+	if err != nil || before != 0 {
+		t.Fatalf("contract was purged before signature retention deadline: purged=%d err=%v", before, err)
+	}
+	blocked, _, err := retentionRepo.PurgeExpiredLocalDomainDocuments(h.ctx, due, 10)
+	if err != nil || blocked != 0 {
+		t.Fatalf("pending fake refund did not defer signature-expiry purge: purged=%d err=%v", blocked, err)
+	}
+	var storedDeadline time.Time
+	var contracts, documents int
+	if err := h.pool.QueryRow(h.ctx, `SELECT r.vinculos_retirar_en,
+		(SELECT count(*) FROM public.contrato_ensayo_local WHERE id=$2),
+		(SELECT count(*) FROM public.documento_privado_sintetico_local WHERE reserva_id=r.id)
+		FROM public.reserva_ensayo_local r WHERE r.id=$1`, reservationID, created.ID).Scan(&storedDeadline, &contracts, &documents); err != nil {
+		t.Fatal(err)
+	}
+	if !storedDeadline.Equal(due) || contracts != 1 || documents != 1 {
+		t.Fatalf("NULL deadline was not repaired while obligation deferred purge: deadline=%s contracts=%d documents=%d", storedDeadline, contracts, documents)
+	}
+
+	// Resolving the refund is itself a related terminal event; the next pass
+	// must extend the effective deadline and retain the contract/PDF again.
+	refundClosedAt := cancelledAt.Add(time.Hour)
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_devolucion_ensayo SET estado='completada',ultimo_resultado='exito_simulado',actualizada_en=$2,completada_en=$2 WHERE id=$1`, refundID, refundClosedAt); err != nil {
+		t.Fatal(err)
+	}
+	finalDue := refundClosedAt.AddDate(0, 24, 0)
+	deferred, _, err := retentionRepo.PurgeExpiredLocalDomainDocuments(h.ctx, due, 10)
+	if err != nil || deferred != 0 {
+		t.Fatalf("newer refund closure did not defer purge: purged=%d err=%v", deferred, err)
+	}
+	if err := h.pool.QueryRow(h.ctx, `SELECT vinculos_retirar_en FROM public.reserva_ensayo_local WHERE id=$1`, reservationID).Scan(&storedDeadline); err != nil || !storedDeadline.Equal(finalDue) {
+		t.Fatalf("effective deadline did not include refund closure: got=%s want=%s err=%v", storedDeadline, finalDue, err)
+	}
+	if _, err := retentionRepo.PurgeExpiredReservationLinks(h.ctx, due, 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.reserva_vinculo_purgado_local WHERE reserva_id=$1`, reservationID).Scan(&contracts); err != nil || contracts != 0 {
+		t.Fatalf("links purged before recalculated deadline: markers=%d err=%v", contracts, err)
+	}
+
+	links, err := retentionRepo.PurgeExpiredReservationLinks(h.ctx, finalDue, 10)
+	if err != nil || links.Purged != 1 {
+		t.Fatalf("signature-expiry historical links not purged at effective deadline: %+v err=%v", links, err)
+	}
+	contractsPurged, historiesPurged, err := retentionRepo.PurgeExpiredLocalDomainDocuments(h.ctx, finalDue, 10)
+	if err != nil || contractsPurged != 1 {
+		t.Fatalf("contract/PDF did not purge at effective deadline: contracts=%d histories=%d err=%v", contractsPurged, historiesPurged, err)
+	}
+	var remainingContract, remainingPDF, linkMarkers int
+	var host, renter string
+	if err := h.pool.QueryRow(h.ctx, `SELECT
+		(SELECT count(*) FROM public.contrato_ensayo_local WHERE id=$2),
+		(SELECT count(*) FROM public.documento_privado_sintetico_local WHERE reserva_id=r.id),
+		(SELECT count(*) FROM public.reserva_vinculo_purgado_local WHERE reserva_id=r.id),
+		COALESCE(r.anfitrion_id::text,''),COALESCE(r.arrendatario_id::text,'')
+		FROM public.reserva_ensayo_local r WHERE r.id=$1`, reservationID, created.ID).Scan(&remainingContract, &remainingPDF, &linkMarkers, &host, &renter); err != nil {
+		t.Fatal(err)
+	}
+	if remainingContract != 0 || remainingPDF != 0 || linkMarkers != 1 || host != "" || renter != "" {
+		t.Fatalf("retained contract artifacts/links are inconsistent: contract=%d pdf=%d markers=%d host=%q renter=%q", remainingContract, remainingPDF, linkMarkers, host, renter)
+	}
+	linksAgain, err := retentionRepo.PurgeExpiredReservationLinks(h.ctx, finalDue, 10)
+	if err != nil || linksAgain.Purged != 0 || linksAgain.Scanned != 0 {
+		t.Fatalf("link purge retry was not idempotent: %+v err=%v", linksAgain, err)
+	}
+	contractsAgain, historiesAgain, err := retentionRepo.PurgeExpiredLocalDomainDocuments(h.ctx, finalDue, 10)
+	if err != nil || contractsAgain != 0 || historiesAgain != 0 {
+		t.Fatalf("contract/history purge retry was not idempotent: contracts=%d histories=%d err=%v", contractsAgain, historiesAgain, err)
+	}
+}
+
 func TestM02SuppressionReviewListsOnlyLiveReservationAndPaymentObligations(t *testing.T) {
 	h := newAuthHarness(t)
 	requesterID := h.register(t, "suppression-live@ejemplo.invalid")
