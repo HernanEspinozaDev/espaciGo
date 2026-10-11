@@ -1,6 +1,6 @@
 # LOCAL-CLOSE-01E — exportación contractual y conservación sintética
 
-Fecha: 2026-10-11. Rama `codex/local-close-01-contract-export`; base `main` #265, `6358b26cc891977b8503f96bece033d34ebc631b`. Commit funcional probado: `e8c49427909bd610a7a4e4137c546090f5352b72`. Alcance LOCAL-1 sintético; #246 permanece abierta hasta aceptación explícita.
+Fecha: 2026-10-11. Rama `codex/local-close-01-contract-export`; base `main` #265, `6358b26cc891977b8503f96bece033d34ebc631b`. Commit funcional probado: `db01c00332741e8e55f9ae44ad7725caba3ef94f`. Alcance LOCAL-1 sintético; #246 permanece abierta hasta aceptación explícita.
 
 ### Corrección adicional del purgador (PR #266)
 
@@ -45,13 +45,13 @@ go test ./internal/adapters/postgres/contracts ./internal/adapters/postgres/owne
 
 Resultados: ambas pruebas de exportación/retención y la actualización V52→V53 pasaron. La exportación se validó como ZIP real: cuenta anfitriona y arrendataria reciben solo su parte autorizada; un tercero no accede; la respuesta incluye JSON minimizado y PDF válido disponible, omite secretos/IDs ajenos, y con PDF retirado informa el estado en el manifiesto sin reconstituir archivo. Los plazos se mantienen ante exportación. La prueba de purga cubre estado previo al vencimiento, obligación pendiente, permisos runtime, rollback/reintento y retirada de archivo/referencias después de resolver la obligación.
 
-La regresión integral final se ejecutó en el mismo commit:
+La regresión integral final se ejecutó en el commit corregido `db01c00332741e8e55f9ae44ad7725caba3ef94f`:
 
 ```sh
 bash scripts/test-local-qa.sh
 ```
 
-Resultado: **PASS**. 100/100 pruebas mock; gate 4/4; `go test -p 1 ./...`; `go vet ./...`; 86/86 integraciones obligatorias, con 124 eventos de pruebas Go; cero integraciones omitidas o `SKIP`; check-in estable 5/5. El runner también verificó la limpieza de sus contenedores/red/directorio temporales. El commit ya está en `scripts/local-required-integrations.txt` para estas integraciones.
+Resultado: **PASS**. 100/100 pruebas mock; gate 4/4; `go test -p 1 ./...`; `go vet ./...`; 88/88 integraciones obligatorias, con 126 eventos de pruebas Go; cero integraciones omitidas o `SKIP`; check-in estable 5/5. El runner también verificó la limpieza de sus contenedores/red/directorio temporales. El commit ya está en `scripts/local-required-integrations.txt` para estas integraciones.
 
 ## Protección de datos de desarrollo
 

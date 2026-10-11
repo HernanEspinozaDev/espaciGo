@@ -1,6 +1,6 @@
 # Matriz conciliada de cierre del backend local
 
-Conciliación final candidata: 2026-10-11, sobre `main` #265 (`6358b26cc891977b8503f96bece033d34ebc631b`) más LOCAL-CLOSE-01E, commit funcional `e8c49427909bd610a7a4e4137c546090f5352b72`. V53 está incluida en el cambio y probada desde V52 en PostgreSQL desechable; no está aplicada al volumen persistente. Los slices #256–#263 y QA-01/02/03 mantienen sus aceptaciones por alcance. La exportación contractual y las decisiones locales de almacenamiento/retención antes pendientes están resueltas en este corte. No quedan brechas funcionales locales obligatorias identificadas para LOCAL-1. #246 sigue abierta hasta revisión/integración y aceptación explícita del propietario.
+Conciliación final candidata: 2026-10-11, sobre `main` #265 (`6358b26cc891977b8503f96bece033d34ebc631b`) más LOCAL-CLOSE-01E, commit funcional `db01c00332741e8e55f9ae44ad7725caba3ef94f`. V53 está incluida en el cambio y probada desde V52 en PostgreSQL desechable; no está aplicada al volumen persistente. Los slices #256–#263 y QA-01/02/03 mantienen sus aceptaciones por alcance. La exportación contractual y las decisiones locales de almacenamiento/retención antes pendientes están resueltas en este corte. No quedan brechas funcionales locales obligatorias identificadas para LOCAL-1. #246 sigue abierta hasta revisión/integración y aceptación explícita del propietario.
 
 ## Lectura
 
@@ -29,7 +29,7 @@ Los estados GitHub y Projects son independientes. Se conservan Issues abiertas c
 
 ## Resultado final de LOCAL-1 (candidato para aceptación)
 
-Sobre el código y migraciones del commit `e8c49427909bd610a7a4e4137c546090f5352b72`, la matriz no identifica brechas funcionales locales obligatorias pendientes. Los criterios locales de exportación contractual, owner-store adaptado y conservación/purga que estaban abiertos se completan en LOCAL-CLOSE-01E. La regresión integral pasó en el mismo commit. Este estado presenta LOCAL-1 al propietario; #246 permanece abierta hasta su aceptación explícita, y el PR debe integrarse antes de considerar cerrada la ejecución.
+Sobre el código y migraciones del commit `db01c00332741e8e55f9ae44ad7725caba3ef94f`, la matriz no identifica brechas funcionales locales obligatorias pendientes. Los criterios locales de exportación contractual, owner-store adaptado y conservación/purga que estaban abiertos se completan en LOCAL-CLOSE-01E. La regresión integral pasó en el mismo commit. Este estado presenta LOCAL-1 al propietario; #246 permanece abierta hasta su aceptación explícita, y el PR debe integrarse antes de considerar cerrada la ejecución.
 
 | Grupo de criterios restantes | Clasificación | Tratamiento / evidencia |
 |---|---|---|

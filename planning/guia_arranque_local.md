@@ -1,6 +1,6 @@
 # Guía vigente de arranque local — EspaciGo
 
-Actualizada para la entrega LOCAL-CLOSE-01E basada en `main` #265 (`6358b26cc891977b8503f96bece033d34ebc631b`) y commit candidato `e8c4942`. V53 añade exportación/retención de contratos e historiales de publicación; fue validada desde V52 solo en PostgreSQL desechable. El entorno persistente conserva `espacigo_pgdata`, datos sintéticos y secretos locales; no se aplicó V53. LOCAL-1 se presenta para aceptación explícita y #246 permanece abierta.
+Actualizada para la entrega LOCAL-CLOSE-01E basada en `main` #265 (`6358b26cc891977b8503f96bece033d34ebc631b`) y commit candidato `db01c00`. V53 añade exportación/retención de contratos e historiales de publicación; fue validada desde V52 solo en PostgreSQL desechable. El entorno persistente conserva `espacigo_pgdata`, datos sintéticos y secretos locales; no se aplicó V53. LOCAL-1 se presenta para aceptación explícita y #246 permanece abierta.
 
 ## Levantar y comprobar el prototipo
 
@@ -24,7 +24,7 @@ El mock recorre publicación/búsqueda, reserva y pagos fake, contrato sintétic
 
 ## Pruebas y límites de aislamiento
 
-El runner integral ejecutó sobre `e8c4942`: 100/100 pruebas del mock, 4/4 controles del manifiesto, `go test -p 1 ./...`, `go vet ./...`, 86/86 integraciones obligatorias PostgreSQL/PostGIS+Mailpit (124 eventos), cero omitidas y 5/5 repeticiones del check-in. La V52→V53 y pruebas nuevas de exportación/retención pasaron también en PostgreSQL desechable.
+El runner integral ejecutó sobre `db01c00`: 100/100 pruebas del mock, 4/4 controles del manifiesto, `go test -p 1 ./...`, `go vet ./...`, 88/88 integraciones obligatorias PostgreSQL/PostGIS+Mailpit (126 eventos), cero omitidas y 5/5 repeticiones del check-in. La V52→V53 y pruebas nuevas de exportación/retención pasaron también en PostgreSQL desechable.
 
 Las nuevas pruebas PostgreSQL deben utilizar el runner/base desechable del proyecto y nunca `espacigo_pgdata`. No restaurar backups sobre el volumen activo.
 
