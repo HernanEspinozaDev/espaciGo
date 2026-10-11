@@ -2598,7 +2598,7 @@ func TestAuthEmissionWindowSuccessfulLoginResetAndRoleRevocation(t *testing.T) {
 	}
 }
 
-func TestAuthLoginSessionFailureRollsBackAndAlertFailureRemainsVisible(t *testing.T) {
+func TestAuthLoginSessionFailureRollsBackAndDurableBlockAlertRemainsVisible(t *testing.T) {
 	h := newAuthHarness(t)
 	id := h.register(t, "session-failure@ejemplo.invalid")
 	h.verify(t)
@@ -2624,14 +2624,24 @@ func TestAuthLoginSessionFailureRollsBackAndAlertFailureRemainsVisible(t *testin
 		_, err := h.service.Login(h.ctx, identity.LoginInput{Email: "session-failure@ejemplo.invalid", Password: "Wrong#123"})
 		if i == 3 {
 			var blocked *identity.LoginBlockedError
-			if !errors.As(err, &blocked) || !errors.Is(err, identity.ErrDelivery) {
-				t.Fatal("alert failure or committed block hidden")
+			if !errors.As(err, &blocked) {
+				t.Fatal("durable block result hidden by login")
 			}
 		}
 	}
 	account, err = h.repo.AccountByID(h.ctx, id)
 	if err != nil || account.State != identity.AccountBlocked {
-		t.Fatal("mail failure rolled back security block")
+		t.Fatal("SMTP availability changed committed security block")
+	}
+	var notices int
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='cuenta_bloqueada_login' AND agregado_id=$1`, id).Scan(&notices); err != nil || notices != 1 {
+		t.Fatalf("durable block notice count=%d err=%v", notices, err)
+	}
+	h.mail.mu.Lock()
+	directAlerts := h.mail.alerts
+	h.mail.mu.Unlock()
+	if directAlerts != 0 {
+		t.Fatalf("login bypassed the durable outbox and sent %d synchronous alerts", directAlerts)
 	}
 }
 
