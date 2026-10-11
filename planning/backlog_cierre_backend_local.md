@@ -1,6 +1,6 @@
 # Backlog propuesto para cerrar el backend local
 
-Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación de #236 el 2026-10-10. #216 LOCAL-CONT-01, #214 LOCAL-BOOK-02, #218 LOCAL-OPS-01 y #236 LOCAL-FIN-SETTLEMENT-01 fueron aceptadas por sus alcances locales. Los padres generales siguen abiertos. LOCAL-QA-01 es la Issue #238 y está en curso. Complementa [el plan de cierre](plan_cierre_backend_local.md). Los paquetes son planificación local; GitHub Issues/Projects conserva los estados operativos.
+Fecha inicial: 2026-10-07; conciliación actualizada al 2026-10-11 tras PR #254 y la aceptación de #250. #216 LOCAL-CONT-01, #214 LOCAL-BOOK-02, #218 LOCAL-OPS-01, #236 LOCAL-FIN-SETTLEMENT-01, #238 LOCAL-QA-01, #240 LOCAL-CORE-02, #242 LOCAL-QA-02, #244 LOCAL-QA-03 y #247–#250 fueron aceptadas por sus alcances locales. #250 está cerrada/Hecho; #246 permanece abierta hasta la aceptación final. Los padres generales siguen abiertos. Complementa [el plan de cierre](plan_cierre_backend_local.md). GitHub Issues/Projects conserva los estados operativos.
 
 ## Convenciones
 
@@ -38,7 +38,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-BOOK-01 — Consolidar invariantes de reservas existentes
 
-- **Módulo/tipo/estado:** M06 / TEST-DOC / `todo`.
+- **Módulo/tipo/estado:** M06 / TEST-DOC / aceptado localmente; Issue #177 cerrada/Hecho tras PR #178 y reutilizada como base de LOCAL-BOOK-02.
 - **Objetivo y motivo:** completar evidencia concreta de #77 y aceptación local de #73/#75, CU-22–28/51, sin añadir otra función al prototipo.
 - **Alcance:** prueba PostgreSQL directa de `23P01`, traducción de conflicto a servicio/API, dos reservas adyacentes creadas y solape estricto con rollback; matriz de criterios ya satisfechos.
 - **Fuera:** proveedor, nuevas políticas, cerrar padres generales pendientes o cambiar constraints si ya satisfacen el requisito.
@@ -51,7 +51,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-CORE-01 — Completar fundamentos locales comunes
 
-- **Módulo/tipo/estado:** transversal, base M11 / DB-BE-API / `todo`.
+- **Módulo/tipo/estado:** transversal, base M11 / DB-BE-API / aceptado localmente; Issue #180 cerrada tras PR integrado. Su alcance de fundamentos locales se reutiliza en las entregas actuales; no implica terminar M11 ni #111–#118.
 - **Objetivo y motivo:** soportar persistencia y contratos generales según CORE-ARCH/CORE-BE y #112–114, sin duplicar infraestructura por módulo.
 - **Alcance:** mapa físico/ownership; transacciones; separación de rutas/casos de uso de los habilitadores de fixtures; selección explícita de adaptadores fake; metadata/almacenamiento privado; auditoría y outbox atómicos con payload mínimo; contrato de reintentos/leases.
 - **Fuera:** GCP, microservicios, proveedor real, sustituir código aceptado completo o construir toda M11 antes de M01.
@@ -62,7 +62,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-QA-01 — Unificar ejecución reproducible de pruebas locales
 
-- **Módulo/tipo/estado:** transversal / TEST / `En curso` (Issue #238, Project 1).
+- **Módulo/tipo/estado:** transversal / TEST / aceptado y Hecho; Issue #238 cerrada tras PR #239. Se reutiliza el runner en LOCAL-CLOSE-01.
 - **Objetivo y motivo:** completar CORE-TEST-01 con ejecución real, evitando suites verdes con integraciones omitidas.
 - **Alcance:** `scripts/test-local-qa.sh` reutiliza los runners existentes: instala dependencias fijadas, compila y prueba el mock, ejecuta `go test ./...` sin DSN de desarrollo, `go vet ./...`, y corre cada paquete con integraciones obligatorias en contenedores propios PostgreSQL/PostGIS y Mailpit. `scripts/local-required-integrations.txt` fija pruebas requeridas; `check_local_qa_results.py` falla si una falta, fue omitida/`SKIP` o falla. Limpieza verifica contenedor, red y archivos temporales. Se documenta y repite el fallo histórico de check-in.
 - **Fuera:** pruebas cloud, sandbox, ejecutar suite completa por edición documental o umbral arbitrario de cobertura.
@@ -105,7 +105,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-KYC-01 — Elegibilidad y ciclo de revisión sintéticos (Issue #200)
 
-- **Módulo/tipo/estado:** M03 / VERTICAL / `En curso`; hija nativa de #45, relacionada con #48–#50.
+- **Módulo/tipo/estado:** M03 / VERTICAL / aceptada localmente y Issue #200 cerrada/Hecho tras PR #201; hija nativa de #45, relacionada con #48–#50. Los padres conservan criterios generales y productivos.
 - **Objetivo y motivo:** completar en local los casos, subsanaciones y resultados fake reutilizando #47/#51; conservar la aprobación sintética por tipo y permitir revocación explícita auditada conforme a la decisión ratificada.
 - **Alcance:** V28 incremental; historial append-only; código de corrección compatible con el motivo; reintento idempotente; lista de casos pendientes y rechazados; elegibilidad `kyc`/`kyb` persistente e independiente; revocación admin bajo bloqueo de cuenta; API/OpenAPI y mock existente.
 - **Fuera:** documentos reales, RUT, proveedor, consentimiento/retención productivos de #142; no conceder roles. No implementar el ciclo general de publicación M04 ni la reserva comercial general M06 en esta Issue.
@@ -174,7 +174,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-DISC-01 — Completar búsqueda y cotización de oferta local
 
-- **Módulo/tipo/estado:** M05 / VERTICAL / `todo`.
+- **Módulo/tipo/estado:** M05 / VERTICAL / satisfecho para el alcance local de catálogo/cotización de publicaciones activas; evidencia integrada por #212/PR #213, #161/#163/#165/#167 y LOCAL-BOOK-02/#214. Los padres #62–68 conservan sus criterios generales y siguen abiertos.
 - **Objetivo y motivo:** #62–68, CU-19–21; reemplazar la dependencia funcional de allowlists por oferta publicada/elegible.
 - **Alcance:** filtros existentes, disponibilidad, detalle autorizado, proximidad y paginación; cotización versionada por oferta seleccionada; índices y límites para dataset local acordado.
 - **Fuera:** geocodificador real, ranking patrocinado, mapa definitivo o garantía de capacidad cloud.
@@ -185,7 +185,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-BOOK-02 — Consolidar reservas locales sobre publicaciones activas (Issue #214)
 
-- **Módulo/tipo/estado:** M06 / VERTICAL / en implementación; hija de #73 y relacionada con #75/#77. La subentrega cubre el recorrido no-fixture.
+- **Módulo/tipo/estado:** M06 / VERTICAL / aceptada localmente y Issue #214 cerrada/Hecho tras PR #215; hija de #73 y relacionada con #75/#77. La subentrega cubre el recorrido no-fixture.
 - **Objetivo y motivo:** #69/#73/#75/#77/#79, CU-22–28/47/51; ciclo general con pago fake/durable ya aceptado.
 - **Alcance:** reutilizar elegibilidad/snapshot, reserva/ocupación atómica, solicitud/aprobación/rechazo, vencimientos y cancelación/refund `local_flexible_v1` sobre publicación activa sin habilitador de fixture; registrar puntos de integración futura con M07/M08/M10; inbox/conciliación se reutilizan.
 - **Fuera:** proveedor real/sandbox #76/#78, políticas financieras nuevas no ratificadas o custodiar fondos.
@@ -239,7 +239,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-DIS-01 — Resolución administrativa local de disputas (Issue #222)
 
-- **Módulo/tipo/estado:** M10 / DB-BE-API-TEST-MOCK / PR de esta rama para revisión; Issue #222 pasa a `En revisión` tras publicar; hija de #106, relacionada con #103. No cierra #103/#106 ni los padres #103–110.
+- **Módulo/tipo/estado:** M10 / DB-BE-API-TEST-MOCK / aceptada localmente y Issue #222 cerrada/Hecho tras PR #223; hija de #106, relacionada con #103. No cierra #103/#106 ni los padres #103–110.
 - **Objetivo y motivo:** completar adjudicación sintética de reclamo/descargo siguiendo CU-39–41, RQF-159–171 y PT-07, después de LOCAL-OPS-01/#218 y LOCAL-COMM-01/#220.
 - **Alcance:** anfitrión abre según plazo vigente; participante contrario consulta y presenta texto de descargo; ambos participantes acceden a PNG sintéticos de check-in/out/recepción vinculados a la reserva; administrador tiene cola/detalle/evidencia privados y registra `acogido`/`rechazado`, motivo estructurado, actor, instante e historial; cierre transaccional/idempotente y aviso outbox a ambos. Cerrar retira solo el bloqueador `disputa_abierta` de este reclamo; la evaluación de privacidad conserva otras obligaciones. No ejecuta baja.
 - **Separación financiera ratificada:** no asignar montos ni actualizar reserva/ocupación/pagos. Garantía, deducciones, captura, liberación y devoluciones derivadas del fallo pertenecen a LOCAL-FIN-01; su importe/fuente no se simulan aquí.
@@ -293,7 +293,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-ADMIN-01D — Cobertura financiera del ledger y conciliación de #112–#114
 
-- **Módulo/tipo/estado:** M11 / DB-BE-TEST / en PR para revisión; parte de #112–#114, hija funcional trazable a #111. No crea Issue duplicada ni cierra #112/#113/#114.
+- **Módulo/tipo/estado:** M11 / DB-BE-TEST / aceptada localmente por PR #235 (merge `5c6be649967b794f862bf2457eaacd18e104448b`); parte de #112–#114, hija funcional trazable a #111. No crea Issue duplicada ni cierra #112/#113/#114.
 - **Objetivo:** conciliar los criterios nativos de diseño de auditoría/outbox (#112), persistencia (#113) y productor Backend (#114) con los schemas y productores ya aceptados en `main`, corrigiendo los descriptores obsoletos de publicación M04, contrato M07 y garantía fake M10.
 - **Matriz de criterios:** consultar [`diseno_local_admin_arch_01.md`](diseno_local_admin_arch_01.md), [`matriz_cierre_backend_local.md`](matriz_cierre_backend_local.md), [`trazabilidad_requisitos_backend_local.md`](trazabilidad_requisitos_backend_local.md) y la evidencia específica del PR. Cada requisito se marca aceptado localmente, brecha funcional, brecha de evidencia, decisión pendiente o integración externa.
 - **Cobertura finita del cambio:** `local.finance.decision`, `local.finance.guarantee.operation` (solo captura/liberación admin) y `local.finance.guarantee.reconcile`. La autorización iniciada por el arrendatario, los vencimientos y otros hechos del dominio conservan el historial de su owner. Eventos mínimos, append-only, dentro de la transacción dueña, sin importes, texto libre ni respuesta del fake; replay no duplica. Reutiliza auditoría y retención vigente de cinco años, solo para auditoría.
@@ -318,7 +318,7 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 
 ### LOCAL-ADMIN-01 — Completar gobierno y administración
 
-- **Módulo/tipo/estado:** M11 / VERTICAL / `todo`.
+- **Módulo/tipo/estado:** M11 / VERTICAL / parcial local; subentregas aceptadas #226/#228/#233/#235/#250. Issue padre #111 y #112–#118 siguen abiertos por criterios generales; no marcar el padre completo por acumulación de slices.
 - **Objetivo y motivo:** #111–118, CU-43–46/52 y requisitos de reportes/accesos vigentes.
 - **Alcance:** gobierno de cuentas, moderación, consultas de reserva/pago/disputa, reportes requeridos y auditoría; permisos, filtros y exportaciones mínimas. Reusar infraestructura CORE, no duplicar eventos.
 - **Fuera:** panel visual de producción, nuevas métricas/promociones sin requisito o configuración cloud.
@@ -393,15 +393,15 @@ Fecha inicial: 2026-10-07; conciliación actualizada tras PR #237 y aceptación 
 - **Alcance:** conciliar cada RQF/CU/HU/RNF con evidencia, función local pendiente, decisión y exclusión ratificada; completar brechas funcionales locales obligatorias; mantener guía de arranque/uso y seguimientos separados por tipo.
 - **Fuera:** desplegar/probar GCP, afirmar cumplimiento legal o cerrar criterios externos por su fake.
 - **Dependencias:** LOCAL-QA-03. **Desbloquea:** solamente la posibilidad de solicitar una nueva planificación de nube después de aceptación; no autoriza ejecutarla.
-- **Estado inicial:** la matriz preliminar `evidence/local-close-01-matrix-20261011.md` encontró avisos durables de M01/M03/M06/M07/M10, evidencia sintética de descargo, purga de clases V25 faltantes y consultas admin RQF-212/236. CU-45 ampliado queda como decisión de catálogo separada; las brechas locales no se atribuyen a proveedores pendientes.
+- **Estado conciliado después de PR #254:** la matriz `evidence/local-close-01-matrix-20261011.md` registra #247 avisos, #248 purgadores, #249 evidencia de descargo y #250 consultas admin aceptadas. La corrida integral final se documenta en `evidence/local-close-01-final-20261011.md`. No se atribuyen brechas fake locales a proveedores pendientes.
 
 - **Decisiones ratificadas para cerrar alcance local:** exact lookup por UUID de cuenta sintética; tercer reporte agregado de disputas por período/estado; outbox durable para los productores RQF-016, 047/194, 121/122/201 y 134/135/139; enlaces de firma autenticados sin bearer token en URL; foto sintética privada en descargo. RQF-210 ya dispone de trigger durable en V38 y evidencia de Mailpit en el corte #223/QA-03.
-- **Subentregas trazables:** #247 avisos (aceptada/Hecho tras PR #251); #248 purgadores de privacidad (aceptada/Hecho tras PR #252 y aplicación local de V47); #249 evidencia en descargo (aceptada/Hecho por PR #253); #250 consultas admin/reportes (implementación en rama, en revisión). Dependencias: QA-03/#244 y slices funcionales ya aceptados; ninguna requiere proveedor real. Las Issues se cierran solo por su propio criterio y aceptación, no por estar incluida en LOCAL-CLOSE-01.
+- **Subentregas trazables:** #247 avisos (aceptada/Hecho tras PR #251); #248 purgadores de privacidad (aceptada/Hecho tras PR #252 y aplicación local de V47); #249 evidencia en descargo (aceptada/Hecho por PR #253); #250 consultas admin/reportes (aceptada/Cerrada/Hecho tras PR #254 y comprobación HTTP local). Dependencias: QA-03/#244 y slices funcionales satisfechas; ninguna requiere proveedor real. Las Issues se cierran solo por su propio criterio y aceptación, no por estar incluida en LOCAL-CLOSE-01.
 - **LOCAL-CLOSE-01C / #249 — evidencia privada en descargo:** adjuntar una PNG sintética fija generada por Backend al descargo ya persistido; acceso de participantes/admin autorizado y rechazo de terceros; exportar solo al autor; usar limpieza durable por baja y purga tras los 24 meses de reserva/disputa ya ratificados, sin plazo nuevo. Incluye pruebas de aislamiento, ZIP y cleanup/retención con PostgreSQL desechable. No fotos reales.
 - **LOCAL-CLOSE-01D / #250 — consultas administrativas pendientes:** exact lookup auditado por UUID, lista/detalle de publicaciones y reporte agregado de disputas por período/estado. Solo lectura, sin contacto/evidencia/texto libre. Dependencias locales satisfechas tras #249; las funciones no dependen de proveedor.
 - **Criterio de salida:** completar y probar estas subentregas antes de proponer la aceptación de LOCAL-1. Integraciones de PSP, firma comercial, KYC real, fiscal y GCP se reportan aparte; no se usan para ocultar brechas locales.
 - **Aceptación:** cero brechas funcionales locales obligatorias; exclusiones ratificadas; cambios publicados/fusionados y evidencia trazada; propietario acepta; agente se detiene. Los Issues padre conservan criterios generales abiertos.
-- **Verificación prevista:** revisión de matriz, enlaces, commits y estados; no repetir suites por actualizar documentación.
+- **Verificación:** conciliación de matriz, enlaces, commits y estados; `bash scripts/test-local-qa.sh` ejecutado el 2026-10-11 con las 83 integraciones obligatorias, cero omisiones y cero SKIP; evidencia en `planning/evidence/local-close-01-final-20261011.md`.
 - **Riesgo:** aceptar un cierre parcial como integral o iniciar nube automáticamente.
 
 ## Tarjetas finales de mock por módulo
