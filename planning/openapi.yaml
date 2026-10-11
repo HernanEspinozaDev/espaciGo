@@ -2619,6 +2619,15 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
 components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Clave opaca que identifica una misma operación para reintentos seguros.
+      schema:
+        type: string
+        minLength: 1
   securitySchemes:
     bearerAuth:
       type: http
