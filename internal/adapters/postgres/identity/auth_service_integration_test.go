@@ -24,6 +24,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
+	contractspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/contracts"
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
 	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
@@ -32,6 +33,7 @@ import (
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adminlocal"
+	contractdomain "github.com/HernanEspinozaDev/espaciGo/internal/contract"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	disputedomain "github.com/HernanEspinozaDev/espaciGo/internal/dispute"
 	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
@@ -855,7 +857,7 @@ func TestLocalCompleteExportZIPIsOwnerScopedReadOnlyAndAvailableWithBlockedSuppr
 	if err := json.Unmarshal(hostEntries["manifest.json"], &manifest); err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"verifications", "verification_eligibility", "verification_history", "synthetic_evidence", "administrative_account_block", "spaces", "rates", "simulations", "quotes", "reservations", "payments", "payment_operations", "refunds", "disputes", "messages_written_by_owner", "conversation_read_cursors"} {
+	for _, required := range []string{"verifications", "verification_eligibility", "verification_history", "synthetic_evidence", "administrative_account_block", "synthetic_contracts", "spaces", "rates", "simulations", "quotes", "reservations", "payments", "payment_operations", "refunds", "disputes", "messages_written_by_owner", "conversation_read_cursors"} {
 		if !containsString(manifest.Sections, required) {
 			t.Errorf("manifest missing section %s: %+v", required, manifest.Sections)
 		}
@@ -998,6 +1000,289 @@ func TestLocalCompleteExportZIPIsOwnerScopedReadOnlyAndAvailableWithBlockedSuppr
 	}
 	if after != before {
 		t.Fatalf("export mutated persisted records: before=%s after=%s", before, after)
+	}
+}
+
+func TestLocalContractExportIsParticipantScopedMinimizedAndReportsRetiredPDF(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "contract-export-host@ejemplo.invalid")
+	h.verify(t)
+	renterID := h.register(t, "contract-export-renter@ejemplo.invalid")
+	h.verify(t)
+	thirdID := h.register(t, "contract-export-third@ejemplo.invalid")
+	h.verify(t)
+	const spaceID = "84500000-0000-4000-8000-000000000001"
+	const quoteID = "84500000-0000-4000-8000-000000000002"
+	const reservationID = "84500000-0000-4000-8000-000000000003"
+	const occupancyID = "84500000-0000-4000-8000-000000000004"
+	seedPrivacyReviewReservation(t, h, spaceID, quoteID, reservationID, occupancyID, hostID, renterID, "aprobada_host")
+	runtimePool := newRuntimePool(t, h)
+	contractRepo, err := contractspg.New(runtimePool, []byte(strings.Repeat("c", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contractService, err := contractdomain.NewService(contractRepo, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := contractService.Create(h.ctx, hostID, reservationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = contractService.Sign(h.ctx, hostID, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = contractService.Sign(h.ctx, renterID, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	contractDeadline := h.now.AddDate(0, 24, 0)
+	if _, err = h.pool.Exec(h.ctx, `UPDATE public.reserva_ensayo_local SET estado='cancelada_arrendatario',actualizada_en=$2,vinculos_retirar_en=$3 WHERE id=$1`, reservationID, h.now, contractDeadline); err != nil {
+		t.Fatal(err)
+	}
+	privacyService, err := privacy.NewService(identitypg.NewIdentityRepository(runtimePool), ownerexport.New(runtimePool, nil, contractRepo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens := map[string]identity.Secret{
+		hostID:   h.login(t, "contract-export-host@ejemplo.invalid").Token,
+		renterID: h.login(t, "contract-export-renter@ejemplo.invalid").Token,
+		thirdID:  h.login(t, "contract-export-third@ejemplo.invalid").Token,
+	}
+	archiveAPI := identityhttp.NewHandler(h.service, h.repo, nil, privacyService)
+	archive := func(owner string) map[string][]byte {
+		t.Helper()
+		token, exists := tokens[owner]
+		if !exists {
+			t.Fatalf("unknown synthetic account %q", owner)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/privacy/export/archive", nil)
+		req.RemoteAddr = "192.0.2.55:8080"
+		req.Header.Set("Authorization", "Bearer "+string(token))
+		response := httptest.NewRecorder()
+		archiveAPI.ServeHTTP(response, req)
+		if response.Code != http.StatusOK {
+			t.Fatalf("authenticated archive response=%d body=%s", response.Code, response.Body.String())
+		}
+		raw := response.Body.Bytes()
+		z, e := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+		if e != nil {
+			t.Fatal(e)
+		}
+		entries := map[string][]byte{}
+		for _, file := range z.File {
+			rc, e := file.Open()
+			if e != nil {
+				t.Fatal(e)
+			}
+			body, e := io.ReadAll(rc)
+			_ = rc.Close()
+			if e != nil {
+				t.Fatal(e)
+			}
+			entries[file.Name] = body
+		}
+		return entries
+	}
+	for _, owner := range []string{hostID, renterID} {
+		entries := archive(owner)
+		var data privacy.CompleteOwnData
+		if err := json.Unmarshal(entries["data.json"], &data); err != nil {
+			t.Fatal(err)
+		}
+		var section struct {
+			Items []struct {
+				ID         string           `json:"id"`
+				Role       string           `json:"role"`
+				Snapshot   map[string]any   `json:"snapshot"`
+				Signatures []map[string]any `json:"signatures"`
+				History    []map[string]any `json:"history"`
+				PDFStatus  string           `json:"pdf_status"`
+				Archive    string           `json:"archive_file"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(data.Sections["synthetic_contracts"], &section); err != nil || len(section.Items) != 1 {
+			t.Fatalf("contract section=%s err=%v", data.Sections["synthetic_contracts"], err)
+		}
+		item := section.Items[0]
+		if item.ID != created.ID || item.PDFStatus != "included" || item.Archive == "" || len(item.Signatures) != 2 || len(item.History) < 3 {
+			t.Fatalf("incomplete minimized contract: %+v", item)
+		}
+		if _, exists := item.Snapshot["host_id"]; exists {
+			t.Fatal("contract snapshot leaked host account id")
+		}
+		if _, exists := item.Snapshot["renter_id"]; exists {
+			t.Fatal("contract snapshot leaked renter account id")
+		}
+		if _, exists := item.Snapshot["reservation_id"]; exists {
+			t.Fatal("contract snapshot leaked reservation id")
+		}
+		for name, forbidden := range map[string]string{"data.json": hostID, "data.json:counterparty": renterID, "PDF host": hostID, "PDF renter": renterID, "PDF reservation": reservationID} {
+			body := entries["data.json"]
+			if strings.HasPrefix(name, "PDF") {
+				body = entries[item.Archive]
+			}
+			if bytes.Contains(body, []byte(forbidden)) {
+				t.Fatalf("export %s leaked identifier", name)
+			}
+		}
+		if strings.Contains(string(entries["data.json"]), "contract-export-third@ejemplo.invalid") || strings.Contains(string(entries["data.json"]), thirdID) {
+			t.Fatal("export leaked unrelated account")
+		}
+		if !bytes.HasPrefix(entries[item.Archive], []byte("%PDF-1.4")) || !bytes.HasSuffix(bytes.TrimSpace(entries[item.Archive]), []byte("%%EOF")) {
+			t.Fatal("exported shared artifact is not a PDF")
+		}
+	}
+	thirdArchive := archive(thirdID)
+	var thirdData privacy.CompleteOwnData
+	if err := json.Unmarshal(thirdArchive["data.json"], &thirdData); err != nil {
+		t.Fatal(err)
+	}
+	var thirdSection struct {
+		Items []any `json:"items"`
+	}
+	if err := json.Unmarshal(thirdData.Sections["synthetic_contracts"], &thirdSection); err != nil || len(thirdSection.Items) != 0 {
+		t.Fatalf("unrelated account can see contract: %+v err=%v", thirdSection, err)
+	}
+	// A retired PDF is represented in the export manifest/section; the archive
+	// never regenerates it from the retained snapshot.
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.contrato_ensayo_local SET documento_id=NULL,pdf_retirado_en=$2 WHERE id=$1`, created.ID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `DELETE FROM public.documento_privado_sintetico_local WHERE reserva_id=$1`, reservationID); err != nil {
+		t.Fatal(err)
+	}
+	entries := archive(renterID)
+	var data privacy.CompleteOwnData
+	if err := json.Unmarshal(entries["data.json"], &data); err != nil {
+		t.Fatal(err)
+	}
+	var section struct {
+		Items []struct {
+			PDFStatus string `json:"pdf_status"`
+			Archive   string `json:"archive_file"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(data.Sections["synthetic_contracts"], &section); err != nil || len(section.Items) != 1 || section.Items[0].PDFStatus != "retired" || section.Items[0].Archive != "" {
+		t.Fatalf("retired PDF was reconstructed or not disclosed: %+v err=%v", section, err)
+	}
+	var retiredManifest privacy.ExportManifest
+	if err := json.Unmarshal(entries["manifest.json"], &retiredManifest); err != nil {
+		t.Fatal(err)
+	}
+	foundRetiredExclusion := false
+	for _, item := range retiredManifest.Exclusions {
+		if strings.Contains(item, "PDF del contrato") && strings.Contains(item, "retirado") {
+			foundRetiredExclusion = true
+		}
+	}
+	if !foundRetiredExclusion {
+		t.Fatalf("manifest did not disclose retired PDF: %+v", retiredManifest.Exclusions)
+	}
+	var deadline time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT vinculos_retirar_en FROM public.reserva_ensayo_local WHERE id=$1`, reservationID).Scan(&deadline); err != nil || !deadline.Equal(contractDeadline) {
+		t.Fatalf("export/reset altered original contract retention deadline: got=%s want=%s err=%v", deadline, contractDeadline, err)
+	}
+}
+
+func TestLocalContractRetentionDefersObligationsAndRecoversAfterRollback(t *testing.T) {
+	h := newAuthHarness(t)
+	hostID := h.register(t, "contract-retention-host@ejemplo.invalid")
+	h.verify(t)
+	renterID := h.register(t, "contract-retention-renter@ejemplo.invalid")
+	h.verify(t)
+	const spaceID = "84600000-0000-4000-8000-000000000001"
+	const quoteID = "84600000-0000-4000-8000-000000000002"
+	const reservationID = "84600000-0000-4000-8000-000000000003"
+	const occupancyID = "84600000-0000-4000-8000-000000000004"
+	seedPrivacyReviewReservation(t, h, spaceID, quoteID, reservationID, occupancyID, hostID, renterID, "aprobada_host")
+	runtimePool := newRuntimePool(t, h)
+	contractRepo, err := contractspg.New(runtimePool, []byte(strings.Repeat("d", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contractService, err := contractdomain.NewService(contractRepo, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := contractService.Create(h.ctx, hostID, reservationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	due := h.now.AddDate(0, 24, 0)
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.reserva_ensayo_local SET estado='cancelada_arrendatario',actualizada_en=$2,vinculos_retirar_en=$3 WHERE id=$1`, reservationID, h.now, due); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.espacio_publicacion_historial_local(espacio_id,actor_id,estado_anterior,estado_nuevo,ocurrida_en,correlacion_id) VALUES ($1,$2,'borrador','activa',$3,'retention-test')`, spaceID, hostID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.espacio SET estado='eliminada' WHERE id=$1`, spaceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.espacio_eliminacion_historial_local(espacio_id,actor_id,ocurrida_en,correlacion_id,archivos_pendientes,resumen) VALUES ($1,$2,$3,'retention-test-delete',0,'{"removed":[],"preserved":[]}')`, spaceID, hostID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	var pubDue, deletionDue time.Time
+	if err := h.pool.QueryRow(h.ctx, `SELECT p.retirar_en,d.retirar_en FROM public.espacio_publicacion_historial_local p JOIN public.espacio_eliminacion_historial_local d ON d.espacio_id=p.espacio_id WHERE p.espacio_id=$1`, spaceID).Scan(&pubDue, &deletionDue); err != nil || !pubDue.Equal(due) || !deletionDue.Equal(due) {
+		t.Fatalf("publication retention deadlines pub=%s deletion=%s due=%s err=%v", pubDue, deletionDue, due, err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_pago_ensayo_operacion(id,reserva_id,arrendatario_id,clave_idempotencia,huella_solicitud,resultado_solicitado,estado,creada_en,actualizada_en) VALUES ('84600000-0000-4000-8000-000000000005',$1,$2,'pending-payment',decode(repeat('66',32),'hex'),'exito','pendiente',$3,$3)`, reservationID, renterID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	// A transaction interrupted after doing the bounded work rolls back both
+	// metadata and bytes. The durable source remains available for the retry.
+	tx, err := h.pool.Begin(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contracts, histories int64
+	if err = tx.QueryRow(h.ctx, `SELECT contracts_purged,publication_history_purged FROM public.purge_expired_local_contracts_and_publication_history($1,20)`, due).Scan(&contracts, &histories); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Rollback(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	var contractCount, documentCount int
+	if err = h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.contrato_ensayo_local WHERE id=$1),(SELECT count(*) FROM public.documento_privado_sintetico_local WHERE reserva_id=$2)`, created.ID, reservationID).Scan(&contractCount, &documentCount); err != nil || contractCount != 1 || documentCount != 1 {
+		t.Fatalf("rollback did not recover private contract document: c=%d d=%d err=%v", contractCount, documentCount, err)
+	}
+	retention, err := privacy.NewService(identitypg.NewIdentityRepository(runtimePool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateDir := t.TempDir() + "/private"
+	if err := os.Mkdir(privateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := evidencefs.New(privateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimePool.Exec(h.ctx, `DELETE FROM public.espacio_publicacion_historial_local WHERE espacio_id=$1`, spaceID); err == nil {
+		t.Fatal("runtime unexpectedly has direct delete permission for append-only publication history")
+	}
+	beforeDeadline, err := retention.PurgeExpiredLocalRetentions(h.ctx, due.Add(-time.Nanosecond), 20, store)
+	if err != nil || beforeDeadline.ContractsPurged != 0 || beforeDeadline.PublicationHistoryPurged != 0 {
+		t.Fatalf("retention ran before the ratified deadline: %+v err=%v", beforeDeadline, err)
+	}
+	blocked, err := retention.PurgeExpiredLocalRetentions(h.ctx, due, 20, store)
+	if err != nil || blocked.ContractsPurged != 0 {
+		t.Fatalf("pending payment obligation did not defer contract purge: %+v err=%v", blocked, err)
+	}
+	if err = h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.contrato_ensayo_local WHERE id=$1`, created.ID).Scan(&contractCount); err != nil || contractCount != 1 {
+		t.Fatalf("contract removed while payment obligation was open: count=%d err=%v", contractCount, err)
+	}
+	if _, err = h.pool.Exec(h.ctx, `DELETE FROM public.reserva_pago_ensayo_operacion WHERE id='84600000-0000-4000-8000-000000000005'`); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := retention.PurgeExpiredLocalRetentions(h.ctx, due, 20, store)
+	if err != nil || completed.ContractsPurged != 1 || completed.PublicationHistoryPurged != 1 {
+		t.Fatalf("due contract/publication history was not purged after obligations resolved: %+v err=%v", completed, err)
+	}
+	if err = h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.documento_privado_sintetico_local WHERE reserva_id=$1`, reservationID).Scan(&documentCount); err != nil || documentCount != 0 {
+		t.Fatalf("PDF removal was not atomic with metadata: count=%d err=%v", documentCount, err)
+	}
+	if err = h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.espacio_publicacion_historial_local WHERE espacio_id=$1)+(SELECT count(*) FROM public.espacio_eliminacion_historial_local WHERE espacio_id=$1)`, spaceID).Scan(&histories); err != nil || histories != 0 {
+		t.Fatalf("publication/deletion history survived due purge: count=%d err=%v", histories, err)
 	}
 }
 

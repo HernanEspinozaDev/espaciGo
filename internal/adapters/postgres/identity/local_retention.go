@@ -18,6 +18,17 @@ func (r *IdentityRepository) PrepareExpiredLocalRetentions(ctx context.Context, 
 	return result, mapError(err)
 }
 
+func (r *IdentityRepository) PurgeExpiredLocalDomainDocuments(ctx context.Context, at time.Time, limit int) (int64, int64, error) {
+	if limit < 1 || limit > 500 {
+		return 0, 0, privacy.ErrInvalid
+	}
+	var contracts, histories int64
+	err := r.pool.QueryRow(ctx, `SELECT contracts_purged,publication_history_purged
+		FROM public.purge_expired_local_contracts_and_publication_history($1,$2)`, at.UTC(), limit).
+		Scan(&contracts, &histories)
+	return contracts, histories, mapError(err)
+}
+
 func (r *IdentityRepository) ClaimExpiredVerificationFiles(ctx context.Context, at time.Time, limit int) ([]privacy.SuppressionFile, error) {
 	if limit < 1 || limit > 500 {
 		return nil, privacy.ErrInvalid

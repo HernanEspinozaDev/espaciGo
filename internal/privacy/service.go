@@ -95,16 +95,18 @@ type SuppressionReplayManifest struct {
 }
 
 type RetentionPurgeResult struct {
-	Scanned               int `json:"scanned"`
-	Purged                int `json:"purged"`
-	Deferred              int `json:"deferred"`
-	TermsPurged           int `json:"terms_purged"`
-	RightsPurged          int `json:"rights_purged"`
-	QuotesPurged          int `json:"quotes_purged"`
-	VerificationsPurged   int `json:"verifications_purged"`
-	EvidenceFilesQueued   int `json:"evidence_files_queued"`
-	EvidenceFilesRemoved  int `json:"evidence_files_removed"`
-	EvidenceFilesDeferred int `json:"evidence_files_deferred"`
+	Scanned                  int `json:"scanned"`
+	Purged                   int `json:"purged"`
+	Deferred                 int `json:"deferred"`
+	TermsPurged              int `json:"terms_purged"`
+	RightsPurged             int `json:"rights_purged"`
+	QuotesPurged             int `json:"quotes_purged"`
+	VerificationsPurged      int `json:"verifications_purged"`
+	EvidenceFilesQueued      int `json:"evidence_files_queued"`
+	EvidenceFilesRemoved     int `json:"evidence_files_removed"`
+	EvidenceFilesDeferred    int `json:"evidence_files_deferred"`
+	ContractsPurged          int `json:"contracts_purged"`
+	PublicationHistoryPurged int `json:"publication_history_purged"`
 }
 
 type SuppressionReplayResult struct {
@@ -126,6 +128,10 @@ type LocalRetentionRepository interface {
 	ClaimExpiredVerificationFiles(context.Context, time.Time, int) ([]SuppressionFile, error)
 	CompleteExpiredVerificationFile(context.Context, SuppressionFile, time.Time) error
 	FailExpiredVerificationFile(context.Context, SuppressionFile, time.Time) error
+}
+
+type LocalDomainRetentionRepository interface {
+	PurgeExpiredLocalDomainDocuments(context.Context, time.Time, int) (contractsPurged, publicationHistoryPurged int64, err error)
 }
 
 type SuppressionExecutionRepository interface {
@@ -310,7 +316,7 @@ func (s *Service) ExportOwnArchive(ctx context.Context, accountID string) ([]byt
 		"credenciales, hashes, sesiones, tokens y secretos",
 		"IDs personales y datos de contacto de otras cuentas",
 		"mensajes escritos por otras cuentas",
-		"texto libre compartido de condiciones e historial que podría contener datos personales de terceros",
+		"texto libre de mensajes, motivos operativos y datos de terceros; los snapshots y documentos contractuales propios se incluyen minimizados",
 		"payloads internos de adaptadores/proveedores, roles operativos y registros administrativos restringidos",
 		"dominios aún no implementados en el prototipo local",
 	}
@@ -593,6 +599,14 @@ func (s *Service) PurgeExpiredLocalRetentions(ctx context.Context, now time.Time
 		return result, err
 	}
 	addRetentionCounts(&result, finalized)
+	if domainRepo, ok := s.repo.(LocalDomainRetentionRepository); ok {
+		contracts, histories, purgeErr := domainRepo.PurgeExpiredLocalDomainDocuments(ctx, at, limit)
+		if purgeErr != nil {
+			return result, purgeErr
+		}
+		result.ContractsPurged += int(contracts)
+		result.PublicationHistoryPurged += int(histories)
+	}
 	return result, nil
 }
 

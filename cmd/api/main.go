@@ -142,6 +142,7 @@ func run() error {
 	var localContractService *contract.Service
 	var localOperationService *operation.Service
 	var localNoticeService *localnotice.Service
+	var localContractRepository *contractpg.Repository
 	var privacyReplayRegistryPath string
 	var privacyEvidenceCleaner privacy.SyntheticEvidenceCleaner
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
@@ -162,7 +163,27 @@ func run() error {
 		if err != nil {
 			return errors.New("local private evidence storage is unavailable")
 		}
-		privacyService, err := privacy.NewService(repo, ownerexport.New(pool, evidenceStore))
+		if keyPath := strings.TrimSpace(os.Getenv("LOCAL_CONTRACT_ENCRYPTION_KEY_FILE")); keyPath != "" {
+			contractKeyText, readErr := os.ReadFile(keyPath)
+			if readErr != nil {
+				return errors.New("local contract encryption key is unavailable")
+			}
+			contractKey, decodeErr := hex.DecodeString(strings.TrimSpace(string(contractKeyText)))
+			if decodeErr != nil || len(contractKey) != 32 {
+				return errors.New("local contract encryption key is invalid")
+			}
+			localContractRepository, err = contractpg.New(pool, contractKey)
+			if err != nil {
+				return errors.New("local contract repository initialization failed")
+			}
+		}
+		var archiveRepository *ownerexport.Repository
+		if localContractRepository != nil {
+			archiveRepository = ownerexport.New(pool, evidenceStore, localContractRepository)
+		} else {
+			archiveRepository = ownerexport.New(pool, evidenceStore)
+		}
+		privacyService, err := privacy.NewService(repo, archiveRepository)
 		if err != nil {
 			return errors.New("local privacy initialization failed")
 		}
@@ -297,19 +318,10 @@ func run() error {
 			mux.Handle("/api/v1/admin/local/reservations/", bookingHandler)
 			mux.Handle("/api/v1/admin/local/audit-events", bookingHandler)
 			mux.Handle("/api/v1/admin/local/audit-events/export", bookingHandler)
-			contractKeyText, err := os.ReadFile(os.Getenv("LOCAL_CONTRACT_ENCRYPTION_KEY_FILE"))
-			if err != nil {
+			if localContractRepository == nil {
 				return errors.New("local contract encryption key is unavailable")
 			}
-			contractKey, err := hex.DecodeString(strings.TrimSpace(string(contractKeyText)))
-			if err != nil || len(contractKey) != 32 {
-				return errors.New("local contract encryption key is invalid")
-			}
-			contractRepo, err := contractpg.New(pool, contractKey)
-			if err != nil {
-				return errors.New("local contract repository initialization failed")
-			}
-			contractService, err := contract.NewService(contractRepo, time.Now)
+			contractService, err := contract.NewService(localContractRepository, time.Now)
 			if err != nil {
 				return errors.New("local contract rehearsal initialization failed")
 			}

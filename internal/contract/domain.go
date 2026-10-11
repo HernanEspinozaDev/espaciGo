@@ -29,18 +29,19 @@ type Event struct {
 	At       time.Time `json:"at"`
 }
 type Contract struct {
-	ID            string      `json:"id"`
-	ReservationID string      `json:"reservation_id"`
-	DocumentID    string      `json:"-"`
-	Version       int         `json:"version"`
-	State         string      `json:"state"`
-	Snapshot      []byte      `json:"snapshot"`
-	SHA256        string      `json:"sha256"`
-	CreatedAt     time.Time   `json:"created_at"`
-	UpdatedAt     time.Time   `json:"updated_at"`
-	Signatures    []Signature `json:"signatures"`
-	History       []Event     `json:"history"`
-	Artifact      []byte      `json:"-"`
+	ID                string      `json:"id"`
+	ReservationID     string      `json:"reservation_id"`
+	DocumentID        string      `json:"-"`
+	Version           int         `json:"version"`
+	State             string      `json:"state"`
+	Snapshot          []byte      `json:"snapshot"`
+	SHA256            string      `json:"sha256"`
+	CreatedAt         time.Time   `json:"created_at"`
+	UpdatedAt         time.Time   `json:"updated_at"`
+	Signatures        []Signature `json:"signatures"`
+	History           []Event     `json:"history"`
+	Artifact          []byte      `json:"-"`
+	ArtifactRetiredAt *time.Time  `json:"-"`
 }
 type Repository interface {
 	Create(context.Context, string, string, func() time.Time) (Contract, error)

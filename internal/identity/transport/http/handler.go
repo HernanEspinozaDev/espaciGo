@@ -284,6 +284,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"evidence_files_queued":   result.EvidenceFilesQueued,
 			"evidence_files_removed":  result.EvidenceFilesRemoved,
 			"evidence_files_deferred": result.EvidenceFilesDeferred,
+			"contracts_purged": result.ContractsPurged,
+			"publication_history_purged": result.PublicationHistoryPurged,
 		})
 		return
 	}

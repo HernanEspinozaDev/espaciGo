@@ -18,6 +18,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/documents"
 	"github.com/HernanEspinozaDev/espaciGo/internal/contract"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -65,7 +66,7 @@ func LockReservationAccounts(ctx context.Context, tx pgx.Tx, reservationID strin
 	return lockReservationAccounts(ctx, tx, reservationID)
 }
 
-const columns = `id::text,reserva_id::text,documento_id::text,version,estado,snapshot::text,encode(sha256,'hex'),creada_en,actualizada_en`
+const columns = `id::text,reserva_id::text,COALESCE(documento_id::text,''),version,estado,snapshot::text,encode(sha256,'hex'),creada_en,actualizada_en,pdf_retirado_en`
 
 func (r *Repository) Create(ctx context.Context, actor, reservationID string, clock func() time.Time) (contract.Contract, error) {
 	tx, err := r.pool.Begin(ctx)
@@ -601,25 +602,31 @@ type rowQuerier interface {
 
 func load(ctx context.Context, q rowQuerier, id string, key []byte) (contract.Contract, error) {
 	var v contract.Contract
-	err := q.QueryRow(ctx, `SELECT `+columns+` FROM public.contrato_ensayo_local WHERE id=$1`, id).Scan(&v.ID, &v.ReservationID, &v.DocumentID, &v.Version, &v.State, &v.Snapshot, &v.SHA256, &v.CreatedAt, &v.UpdatedAt)
+	var retired pgtype.Timestamptz
+	err := q.QueryRow(ctx, `SELECT `+columns+` FROM public.contrato_ensayo_local WHERE id=$1`, id).Scan(&v.ID, &v.ReservationID, &v.DocumentID, &v.Version, &v.State, &v.Snapshot, &v.SHA256, &v.CreatedAt, &v.UpdatedAt, &retired)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return v, contract.ErrNotFound
 	}
 	if err != nil {
 		return v, err
 	}
+	if retired.Valid {
+		v.ArtifactRetiredAt = &retired.Time
+	}
 	if pool, ok := q.(*pgxpool.Pool); ok {
-		stored, readErr := documents.ReadPDF(ctx, pool, v.DocumentID)
-		err = readErr
-		if err != nil {
-			return v, err
-		}
-		v.Artifact, err = decryptPDF(key, stored)
-		if err != nil {
-			return v, err
-		}
-		if Hash(v.Artifact) != v.SHA256 {
-			return v, errors.New("synthetic contract document checksum mismatch")
+		if v.DocumentID != "" {
+			stored, readErr := documents.ReadPDF(ctx, pool, v.DocumentID)
+			err = readErr
+			if err != nil {
+				return v, err
+			}
+			v.Artifact, err = decryptPDF(key, stored)
+			if err != nil {
+				return v, err
+			}
+			if Hash(v.Artifact) != v.SHA256 {
+				return v, errors.New("synthetic contract document checksum mismatch")
+			}
 		}
 	}
 	sigRows, err := q.(interface {
@@ -660,7 +667,11 @@ func load(ctx context.Context, q rowQuerier, id string, key []byte) (contract.Co
 
 func scan(row pgx.Row) (contract.Contract, error) {
 	var v contract.Contract
-	err := row.Scan(&v.ID, &v.ReservationID, &v.DocumentID, &v.Version, &v.State, &v.Snapshot, &v.SHA256, &v.CreatedAt, &v.UpdatedAt)
+	var retired pgtype.Timestamptz
+	err := row.Scan(&v.ID, &v.ReservationID, &v.DocumentID, &v.Version, &v.State, &v.Snapshot, &v.SHA256, &v.CreatedAt, &v.UpdatedAt, &retired)
+	if retired.Valid {
+		v.ArtifactRetiredAt = &retired.Time
+	}
 	return v, err
 }
 func syntheticPDF(lines ...string) []byte {
