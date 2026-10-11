@@ -2,9 +2,17 @@
 
 Esta tabla preserva los IDs de ES1 y establece el cruce RQF/RNF ↔ HU/CU ↔ módulo ↔ Issues/evidencia. El estado es una **clasificación de auditoría por módulo**, no una declaración de que cada criterio individual haya sido probado: los estados `parcial` y `pendiente` apuntan a la brecha concreta en `matriz_cierre_backend_local.md`. Requisitos sin HU/CU asociado se mantienen con `—`; no se inventa una relación.
 
-Fuentes: `referencias/ES1/B_requerimientos_funcionales.md`, `C_requerimientos_no_funcionales.md`, `D_casos_de_uso.md`, `E_historias_de_usuario.md`; conciliación actual contra `main` tras PR #254 (`1b57df27f6991833cc73f3bdf7479a5ecea2c704`) y alcance de #247–#250 aceptado al 2026-10-11.
+Fuentes: `referencias/ES1/B_requerimientos_funcionales.md`, `C_requerimientos_no_funcionales.md`, `D_casos_de_uso.md`, `E_historias_de_usuario.md`; conciliación vigente contra `main` `6164ba0a929bd088e94a8914287f3bffe7899f94` (PR #264, V52) al 2026-10-11.
 
-La columna de estado RQF de la tabla siguiente conserva observaciones de conciliaciones intermedias y contiene celdas agregadas por módulo; **queda supersedida para estado actual** por la matriz final por ID de `evidence/local-close-01-matrix-20261011.md` y su actualización `evidence/local-m04-booking-close-20261011.md`. Al 2026-10-11: RQF-077/198 y RQF-094/095/099/102 están aceptados por #256/#257; RQF-091/092 están implementados en PR #262 (#258), aún en revisión; RQF-177 está implementado en PR #263 (#259), temporalmente apilado sobre #262 y aún sin aceptación. No interpretar “Parcial” antiguo como estado actual. La regresión final se ejecutará cuando ambas brechas en revisión estén integradas/aceptadas.
+La tabla RQF conserva snapshots intermedios y celdas agregadas por módulo. Para el estado actual prevalecen la matriz por requisito de `evidence/local-close-01-matrix-20261011.md` y el crosswalk de 43 entidades/DB02 de `matriz_cierre_backend_local.md`. No interpretar “Parcial” antiguo como una brecha actual sin contrastar evidencia.
+
+### Conciliación final posterior a #264
+
+- La regresión integral aceptada se ejecutó en `056205d`; el código/migraciones/scripts/mock de ese commit coincide con `main` #264 y V52. Se reutiliza esa evidencia en este PR documental; no se repite el runner porque no hay cambios ejecutables.
+- Los cortes #256–#263 ya están integrados: RQF-077/198, RQF-094/095/099/102, RQF-091/092 y RQF-177 están aceptados por su alcance, sin cerrar los Issues padre.
+- DB02-01, 03, 04 y 09 tienen función local implementada para el alcance activado; DB02-02 mantiene una decisión pendiente sobre si el almacenamiento/metadata owner-especializado es equivalencia local suficiente para MAP-02. DB02-06 y DB02-07 conservan diferimientos/exclusiones ratificados; DB02-08 conserva los conflictos resueltos localmente sin cambiar ES1/ES2. DB02-05 mantiene una decisión pendiente para contrato/firmas/PDF e historiales de publicación/eliminación. Ver el detalle y las 43 entidades en la matriz de cierre.
+- Brecha local obligatoria: el ZIP propio aún no incluye contratos sintéticos, firmas/historial ni el PDF privado disponible del titular. Está localizada en `ownerexport.Repository.ExportOwnArchiveSections`; no depende de proveedor o validez jurídica. Impide presentar LOCAL-1 para aceptación.
+- #246 permanece OPEN hasta aceptación explícita; #185/#40 y los Issues padre continúan abiertos por sus criterios generales. Ningún estado de PR/slice se usa como cierre del padre.
 
 ## RQF (236)
 

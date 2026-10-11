@@ -1,12 +1,14 @@
 # Invariantes de identidad, cuenta y sesión (M01)
 
+
+> **Estado histórico:** afirmaciones abajo que califican RQF-213/217/218 como brechas DB02-09 reflejan el diseño previo a la ratificación/implementación. La función local de esos requisitos está integrada en #183/#199/#251. DB02-09 se clasifica hoy en [`matriz_cierre_backend_local.md`](matriz_cierre_backend_local.md); Issues #31/#34 continúan abiertas por el estado general de aceptación.
 **Estado:** contrato de diseño revisado para AUTH-ARCH-01. Las decisiones de producto autorizadas están en [decisiones M01](decisiones_m01_identidad_sesion.md), ratificadas por el usuario el 2026-10-04. Este documento no implementa reglas, no altera ES1/ES2 y distingue requisitos fuente, decisiones autorizadas y brechas aún abiertas.
 
 ## 1. Identidad y registro
 
 - Validar primero el formato del correo conforme RQF-002. Conservar el valor original y derivar `correo_normalizado` eliminando espacios externos y aplicando Unicode `casefold` independiente del idioma a toda la dirección. Aplicar la misma transformación en registro, login y recuperación. No añadir NFC/NFKC, normalización de puntos, reglas `+alias` ni reglas de proveedores.
 - La identidad no distingue mayúsculas. PostgreSQL impone `UNIQUE(correo_normalizado)` para evitar duplicados también ante altas concurrentes. No usar una consulta previa como sustituto de la constraint.
-- CU-01 registra la cuenta y la aceptación versionada según sus pasos; RQF-213 pide persistir una preferencia de uso no excluyente. La preferencia no es un rol de autorización. El modelo físico de esa preferencia sigue como brecha DB02-09: no afirmar que se persiste ni agregar una columna/tabla por inferencia.
+- CU-01 registra la cuenta y la aceptación versionada según sus pasos; RQF-213 pide persistir una preferencia de uso no excluyente. La preferencia no es un rol de autorización. Su persistencia local se implementó en #183; esta descripción corresponde al diseño previo y no prevalece sobre la matriz vigente.
 - Mantener los estados del Anexo B: `correo_pendiente`, `activo`, `bloqueado`, `baja_solicitada`, `desidentificado`. No conceder permisos de publicación/KYC a partir de una preferencia de uso.
 
 ## 2. Duplicados y respuestas de registro/recuperación

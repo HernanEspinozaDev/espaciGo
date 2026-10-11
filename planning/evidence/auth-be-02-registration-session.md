@@ -1,5 +1,7 @@
 # AUTH-BE-02 — registro, verificación y sesión
 
+
+> **Snapshot histórico:** este informe documenta el corte inicial #30 y su alcance/estado a esa fecha. Las afirmaciones de que #31/RQF-213–218 no se implementaron no describen `main` actual: preferencia, cambio/recuperación, historial y avisos locales se integraron después en #183/#199/#251. Use [`matriz_cierre_backend_local.md`](../matriz_cierre_backend_local.md) para la trazabilidad vigente.
 Issue operativa [#30](https://github.com/HernanEspinozaDev/espaciGo/issues/30). Base `f1da79a13e73274f8a0b9e987aa96705e05758ac` de `main`: PR #16 aprobado por HernanEspinozaDev y fusionado el 2026-10-05 01:09:47 America/Santiago. #29/#120 se cerraron como completed y se confirmaron Hecho en Projects por aceptación expresa; #31 quedó habilitada para su alcance independiente y no se implementó. No se reimportó la migración ni se modificaron estados en documentos históricos.
 
 ## Implementación y trazabilidad

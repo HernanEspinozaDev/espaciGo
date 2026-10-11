@@ -1,13 +1,27 @@
 # LOCAL-CLOSE-01 — conciliación y regresión integral final
 
-Fecha: 2026-10-11 · conciliación posterior a PR #263; `main` en `a0a3ad6130745d3d2126eb4c1c92805eacc39084`. PR #262/#263 integran los slices #258/#259. V52 está en PR #264 (`codex/local-close-rate-delete-privilege`), código probado `056205d`, pendiente de revisión/merge.
+Fecha: 2026-10-11 · conciliación posterior a PR #264; `main` en `6164ba0a929bd088e94a8914287f3bffe7899f94`. PR #262/#263 integran los slices #258/#259 y PR #264 integra V52. El código integrado de V52 coincide con el probado en `056205d`; los commits posteriores solo actualizaron documentación.
 
 ## Integración y estado operativo
 
 - PR #263 está fusionado en `main`; #258 fue aceptada/Cerrada/Hecho en Projects por RQF-091/092 y #259 por RQF-177, únicamente por esos alcances. #246 permanece abierta hasta aceptación explícita de LOCAL-1.
-- `bash scripts/dev-env.sh up -d` aplicó V50/V51 incrementalmente. PostgreSQL, Backend, Mailpit y mock quedaron saludables; `bash scripts/dev-env.sh verify-http` pasó liveness/readiness, CORS/preflight, HTML/config/JS/CSS del mock y conectividad mock→API.
+- `bash scripts/dev-env.sh up -d` aplicó V50/V51 y, tras integrar #264, V52 incrementalmente. `schema_migrations` informa 52. PostgreSQL, Backend, Mailpit y mock quedaron saludables; `bash scripts/dev-env.sh verify-http` pasó liveness/readiness, CORS/preflight, HTML/config/JS/CSS del mock y conectividad mock→API. Los grants efectivos son `DELETE=false`, `UPDATE=false`, `EXECUTE` de la limpieza acotada `true`.
 - `espacigo_pgdata` siguió presente. `.local/secrets` conservó propietario `nandev` y modo `0700`; no se imprimieron ni regeneraron secretos ni se borró volumen o datos.
-- El runner retiró variables de conexión de desarrollo y usó PostgreSQL/PostGIS y Mailpit desechables por paquete. V52 aún no se aplicó al volumen persistente.
+- El runner retiró variables de conexión de desarrollo y usó PostgreSQL/PostGIS y Mailpit desechables por paquete. V52 se aplicó después al volumen persistente sin recrearlo.
+
+### Comprobación posterior al merge #264
+
+El diff entre el commit integral probado `056205d` y `main` `6164ba0` para migraciones, Backend, permisos, scripts y mock está vacío; los cambios intermedios son documentación. Por eso se reutiliza la regresión integral publicada y se ejecutaron los checks enfocados de V52:
+
+```sh
+GO_TEST_RUN='^TestPostgresPrivateSimulationSnapshotsRateAndDoesNotOccupyCalendar$' \
+  bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/pricing
+GO_TEST_RUN='^TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions$' \
+  bash scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/spaces
+bash scripts/dev-env.sh verify-http
+```
+
+Ambos tests PostgreSQL desechables pasaron. El primero comprueba el rol runtime real, el rechazo de `DELETE` directo y que no se puede limpiar tarifas antes del tombstone. El segundo comprueba retiro permitido cuando ya no quedan bloqueadores, preserva la reserva/snapshot histórico y ejercita el cleanup recuperable de archivos. `verify-http` confirmó salud, CORS/preflight y conectividad del mock. La consulta posterior al arranque indicó V52 y grants efectivos `f|f|t` (`tarifa_espacio DELETE`, `UPDATE`, función controlada `EXECUTE`).
 
 ## Corrección encontrada al ejecutar el gate final
 
@@ -42,15 +56,15 @@ El runner pasó sobre el código registrado en el commit probado `056205d` (`fix
 
 ## Conciliación de LOCAL-1
 
-La matriz completa por requisito, entidad, módulo, Issue y límite está en [`local-close-01-matrix-20261011.md`](local-close-01-matrix-20261011.md), reconciliada con `main` hasta #263 y anotada con V52/PR #264 pendiente de integración. La matriz operativa también está en [`../matriz_cierre_backend_local.md`](../matriz_cierre_backend_local.md); plan/backlog reflejan las aceptaciones locales y sus límites.
+La matriz completa por requisito, entidad, módulo, Issue y límite está en [`local-close-01-matrix-20261011.md`](local-close-01-matrix-20261011.md), reconciliada con `main` #264, DB02-01–09 y las 43 entidades. La matriz operativa también está en [`../matriz_cierre_backend_local.md`](../matriz_cierre_backend_local.md); plan/backlog reflejan aceptaciones, brechas y límites.
 
-Además de los anteriores, #258 y #259 quedaron aceptadas por sus alcances. Las brechas locales requisito → código identificadas previamente (RQF-077, 091/092, 094/095/099/102, 177 y 198) ya tienen slices integrados y pruebas enfocadas. La primera corrida descubrió el grant DELETE directo excesivo sobre tarifas; V52 lo corrige y la segunda corrida pasó sin omisiones. V52 requiere revisión/merge y aplicación incremental para integrarse también al entorno persistente.
+Además de los anteriores, #258 y #259 quedaron aceptadas por sus alcances. Las brechas locales requisito → código identificadas previamente (RQF-077, 091/092, 094/095/099/102, 177 y 198) ya tienen slices integrados y pruebas enfocadas. La primera corrida descubrió el grant DELETE directo excesivo sobre tarifas; V52 lo corrige. La segunda regresión integral pasó sin omisiones, el código probado coincide con el merge y V52 quedó aplicada incrementalmente al entorno persistente.
 
 ## Pendientes locales, dependencias y exclusiones
 
-- **Pendiente de decisión/trazabilidad:** DB02-09 conserva su estado previo. Las capacidades locales de preferencia, historial de claves y avisos están implementadas en cortes aceptados, pero no se declara resuelta toda la decisión general ni se cierra la Issue histórica por asociación.
-- **Alcance local de padres aún no aceptado:** M04/M05/M06 y M11 tienen flujos locales útiles integrados, pero sus Issues generales permanecen abiertas y no todos los criterios de marketplace, administración y políticas generales tienen aceptación individual. En M11 se aceptan los tres reportes ratificados y las consultas de #250; los reportes adicionales no especificados están diferidos expresamente.
-- **Permisos de tarifas pendiente de integración:** V52 elimina DELETE directo al runtime y restringe la limpieza de tarifas al retiro tombstone sin cotizaciones. El test de pricing, la prueba del flujo de eliminación y el runner integral pasaron en PR #264 (`codex/local-close-rate-delete-privilege`, `056205d`); no aplicar V52 al volumen hasta revisar/fusionar su PR.
+- **DB02-09:** RQF-213–218 tienen función local implementada en #183/#199/#251. El estado de Issues #31/#34 continúa OPEN; no se deriva cierre de los padres. El crosswalk de DB02-01–09 está en la matriz vigente.
+- **Alcance local de padres aún no aceptado:** M01–M11 mantienen abiertas las Issues generales con criterios no aceptados. La tabla de padres distingue los cortes locales implementados de requisitos externos, diferidos y decisiones pendientes; no usar el estado OPEN como descripción de código faltante. En M11 se aceptan los tres reportes ratificados y las consultas de #250; los reportes adicionales no especificados están diferidos expresamente.
+- **Permisos de tarifas integrados y comprobados:** V52 elimina DELETE directo al runtime y restringe la limpieza al retiro tombstone, manteniendo las tarifas referenciadas. El test de pricing, la prueba del flujo de eliminación y el runner integral pasaron en #264 (`056205d`); tras el merge se aplicó V52 incrementalmente y se verificaron los grants efectivos.
 - **Privacidad/copia:** las bajas, plazos ratificados, purgador V47 y replay tras restauración tienen evidencia. Se conserva el volumen activo y el registro externo; las ubicaciones externas no comprobadas siguen desconocidas por decisión del propietario. No se borraron copias ni se declara supresión integral o anonimización.
 - **Exclusiones/diferimientos ratificados:** proveedor PSP y sandbox real (#76/#78), firma jurídicamente válida, KYC/KYB documental/RUT/proveedores reales (#142), movimientos financieros reales, liquidación/comisión productiva y documento fiscal válido; promociones/campañas/NPS por MAP-07; realtime/avisos por mensaje; geocodificación de dirección privada; y GCP. Estas exclusiones no transforman fake local que siga pendiente en tarea externa.
 - **Criterios que mantienen padres abiertos por exclusión productiva o decisión ratificada:** RQF-033 (cuenta bancaria/RUT real), RQF-039–044 y RQF-048–053 (verificación documental/proveedores reales, #142), RQF-080 (geocodificar dirección), RQF-131/133 (datos legales y proveedor de firma con validez jurídica), RQF-173 (transferencia bancaria real), RQF-176/211 (boleta electrónica fiscal), RQF-184 (búsqueda por RUT, excluida a favor de UUID sintético), RNF-017 (inmutabilidad productiva) y los reportes adicionales no especificados de RQF-183. RQF-183 local sí cubre los tres reportes expresamente ratificados. Las ubicaciones de respaldos fuera del inventario local autorizado siguen sin comprobarse; no se afirma supresión integral.
@@ -58,4 +72,4 @@ Además de los anteriores, #258 y #259 quedaron aceptadas por sus alcances. Las 
 
 ## Decisión de cierre
 
-El runner integral pasó en el seguimiento con V52. No queda otra brecha funcional local obligatoria conocida en los RQF auditados; resta integrar V52 y aplicarla incrementalmente al entorno. #246 permanece abierta y en curso. Ni el runner ni las aceptaciones de slices sustituyen la aceptación final del propietario.
+El runner integral pasó en `056205d`, y el código ejecutable coincide con el integrado en #264. Sin embargo, esta suite no verifica que el ZIP de titular contenga todos los dominios ya implementados. La revisión de `ownerexport.Repository.ExportOwnArchiveSections` y los lectores de `spaces`, `pricing`, `bookings`, `conversation` y `disputes` confirmó que no hay lector de `internal/contract`: faltan contrato propio, firmas/historial y el PDF privado propio disponible. Este es un **pendiente funcional local** que impide solicitar la aceptación de LOCAL-1. También queda pendiente ratificar si el almacenamiento/metadata especializado satisface la entidad común `documento` de MAP-02, además de las decisiones de retención para contratos/artefactos e historiales de publicación/eliminación; los datos actuales se conservan y no se asigna un plazo por analogía. #246 permanece abierta. Reutilizar la regresión actual hasta que cambie código; el runner no sustituye revisión de cobertura de exportación ni la aceptación del propietario.

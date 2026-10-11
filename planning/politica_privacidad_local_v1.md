@@ -16,6 +16,21 @@ Ratificada el 2026-10-08 para cuentas, archivos y operaciones **sintéticas del 
 | Mensajes sintéticos | Una baja elegible permite limpiar hilos terminales de reservas sintéticas donde participa el titular; preservar reservas, hechos financieros e historiales. | Elimina mensajes y cursores solo para reservas terminales, conservando el resto de los datos relacionados. Plazos productivos de mensajes pendientes. |
 | Outbox | Mientras esté pendiente; 30 días desde entrega o fallo terminal. Avisos de credenciales sin finalidad se cancelan con motivo. | Cancela el aviso pendiente con `baja_local_sin_finalidad`; entregas de credenciales fijan retención de 30 días. No elimina trabajo pendiente silenciosamente. |
 
+
+## Ratificaciones locales posteriores y clases sin plazo fijado
+
+Estas decisiones posteriores solo se aplican a datos sintéticos locales y no alteran los vencimientos de la tabla anterior:
+
+| Clase | Regla vigente | Estado de automatización |
+|---|---|---|
+| Reseñas y reportes de reseñas | Reseña: 24 meses desde creación. Reporte: mientras esté pendiente y 24 meses desde resolución. | Outbox asociado conserva la regla propia de 30 días desde entrega/fallo terminal. Reutiliza la política de M09. |
+| Historial de bloqueo administrativo | Cinco años desde cada evento, campos estructurados mínimos. | Se conserva y se minimizan los identificadores al vencer; regla ratificada expresamente, separada del plazo RNF-043. |
+| Operaciones financieras fake | Mientras haya obligaciones; después, los hechos mínimos se retienen 24 meses desde el último cierre terminal relacionado. | V26/V47/V44+ tratan ledger, operación de conciliación y vínculos bajo sus owners; la garantía/autorización no se mezcla con ingresos. |
+| Contratos/firmas/PDF sintético | Sin periodo propio ratificado después de las obligaciones. | Se conservan actualmente, sin purga automática. No asumir que la retención de reservas los cubre. |
+| Historial de publicación y de eliminación | Sin periodo propio ratificado. | Se conserva actualmente; no hereda cinco años de auditoría ni la regla del grupo de reservas. |
+
+La brecha funcional separada de retención es que la exportación ZIP aceptada en #196 no incluye todavía contratos/firmas/historial ni el PDF disponible. Esa omisión no se corrige con esta política documental ni con los vencimientos de otros grupos.
+
 ## Ejecución y controles
 
 - Años/meses son calendarios. Se guardan el instante protegido de inicio y los vencimientos calculados con reloj inyectable.

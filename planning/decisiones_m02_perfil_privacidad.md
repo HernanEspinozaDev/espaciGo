@@ -1,5 +1,7 @@
 # M02 — contrato inicial de perfil y derechos
 
+
+> **Contrato inicial histórico:** las declaraciones “sin foto”, “sin derechos ejecutables” o “sin retención” describen esta línea base, no el estado actual. Foto/cuenta de cobro, exportación, baja, retención V47 y replay tienen cortes aceptados. Consulte la matriz vigente; sigue faltando el contrato sintético propio en el ZIP y están pendientes plazos propios de contratos/historiales de espacio.
 Este corte permite avanzar sobre la base ya integrada de M01. La matriz cubre el contrato local implementable de PRIV-ARCH-01 y PRIV-DB-01; el PR queda en revisión hasta que la persona usuaria acepte la entrega.
 
 | Recurso/campo | Finalidad | Acceso | Conservación / límite |
