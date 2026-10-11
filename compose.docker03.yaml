@@ -143,7 +143,7 @@ services:
       DATABASE_PASSWORD_FILE: /run/secrets/runtime_password
       DATABASE_SSLMODE: verify-full
       DATABASE_SSLROOTCERT: /run/database-tls/root.pem
-      CORS_ALLOWED_ORIGINS: http://localhost:${LOCAL_DOCKER_MOCK_PORT:-8081},http://127.0.0.1:${LOCAL_DOCKER_MOCK_PORT:-8081}
+      CORS_ALLOWED_ORIGINS: http://localhost:${LOCAL_MOCK_PORT:-8081},http://127.0.0.1:${LOCAL_MOCK_PORT:-8081}
     secrets:
       - runtime_password
       - local_payment_webhook_secret

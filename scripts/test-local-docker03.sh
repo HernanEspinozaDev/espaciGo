@@ -27,6 +27,7 @@ export LOCAL_DATABASE_PORT="${LOCAL_DATABASE_PORT:-5432}" LOCAL_DATABASE_ADMIN_U
 export DATABASE_SSLMODE=verify-full DATABASE_SSLROOTCERT=/run/database-tls/root.pem
 COMPOSE=(docker compose --project-directory "$ROOT_DIR" -f "$ROOT_DIR/compose.yaml" -f "$ROOT_DIR/compose.docker03.yaml" -p "$PROJECT")
 
+"$ROOT_DIR/scripts/test-local-docker03-preflight.sh"
 command -v docker >/dev/null
 command -v openssl >/dev/null
 command -v psql >/dev/null
@@ -85,8 +86,15 @@ echo 'PASS: Backend readiness rejects the same PostgreSQL instance when configur
 
 API_ORIGIN="http://127.0.0.1:$API_PORT" MOCK_ORIGIN="http://127.0.0.1:${LOCAL_DOCKER03_MOCK_PORT:-18281}" python3 "$ROOT_DIR/scripts/verify-http.py"
 
-# Seed only a synthetic recipient and a durable expired lease. A real container
-# restart must let the restarted Backend worker reclaim and finish this row.
+# Make the recovery test deterministic: stop the API/workers first, then seed an
+# already-expired durable lease. The row cannot be claimed until this Backend is
+# explicitly started again.
+"${COMPOSE[@]}" stop backend >/dev/null
+running_backend="$("${COMPOSE[@]}" ps --status running --services | awk '$0 == "backend" { print; found=1 } END { if (!found) print "stopped" }')"
+[[ "$running_backend" == stopped ]] || { echo 'FAIL: Backend must be stopped before seeding the recovery lease' >&2; exit 1; }
+
+# Seed only a synthetic recipient and a durable expired lease. Starting the
+# stopped container must let its worker reclaim and finish this row.
 seed_file="$STATE/restart-fixture.tsv"
 "${COMPOSE[@]}" exec -T database psql -X -qAt -v ON_ERROR_STOP=1 --username "${LOCAL_DATABASE_ADMIN_USER:-espacigo_admin}" --dbname "${LOCAL_DATABASE_NAME:-espacigo_local}" <<'SQL' > "$seed_file"
 SELECT gen_random_uuid() AS account_id \gset
@@ -105,7 +113,7 @@ chmod 0600 "$seed_file"
 mapfile -t fixture < "$seed_file"
 [[ ${#fixture[@]} -eq 2 ]] || { echo 'failed to persist restart fixture identifiers' >&2; exit 1; }
 account_id="${fixture[0]}"; notice_id="${fixture[1]}"
-"${COMPOSE[@]}" restart backend >/dev/null
+"${COMPOSE[@]}" start backend >/dev/null
 deadline=$((SECONDS + 45))
 notice_state=''
 while (( SECONDS < deadline )); do
@@ -116,7 +124,7 @@ done
 [[ "$notice_state" == entregada\|2 ]] || { echo "FAIL: restarted worker did not reclaim the persisted expired lease (state=$notice_state)" >&2; exit 1; }
 message_count="$(curl --fail --silent "http://127.0.0.1:${LOCAL_DOCKER03_MAILPIT_PORT:-18225}/api/v1/messages" | jq --arg to docker03-worker@example.invalid '[.messages[] | select(.To[]?.Address == $to)] | length')"
 [[ "$message_count" == 1 ]] || { echo "FAIL: lease recovery delivered $message_count messages, expected exactly one in Mailpit" >&2; exit 1; }
-echo 'PASS: after a real Backend container restart, an expired durable lease was reclaimed and delivered once to Mailpit.'
+echo 'PASS: with Backend stopped, an expired durable lease remained unclaimed; after Backend start it was reclaimed and delivered once to Mailpit.'
 
 # Database/volume and private-file restore are isolated. A snapshot gets a
 # separate target DB and separate file tree. The restored API is gated until
@@ -147,6 +155,9 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 curl --fail --silent "$restored_health" >/dev/null
+# Validate the restored API's CORS preflight against the actual published mock
+# origin, not the development/default mock port.
+API_ORIGIN="http://127.0.0.1:${LOCAL_DOCKER03_RESTORE_API_PORT:-18282}" MOCK_ORIGIN="http://127.0.0.1:${LOCAL_DOCKER03_MOCK_PORT:-18281}" python3 "$ROOT_DIR/scripts/verify-http.py"
 cmp <(find "$STATE/private-evidence" -type f -printf '%P %s\n' | sort) <(find "$STATE/restored-private-evidence" -type f -printf '%P %s\n' | sort)
 [[ "$(sha256sum "$STATE/restored-private-evidence/docker03-private-restore-fixture.png" | awk '{print $1}')" == "$private_file_hash" ]]
 [[ -s "$STATE/backups/source.dump" && "$(stat -c %a "$STATE/backups/source.dump")" == 600 ]]
@@ -158,7 +169,12 @@ restored_counts="$("${COMPOSE[@]}" exec -T restore-database psql -X -qAt --usern
 echo 'PASS: restored PostgreSQL and private files are separate; replay marker was required before the restored API started.'
 
 # These tests create and drop espacigo_runtime, so give them their own cluster
-# rather than perturbing either long-lived source/restore runtime account.
+# rather than perturbing either long-lived source/restore runtime account. They
+# can be skipped when validating only the restored CORS/recovery wiring.
+if [[ "${LOCAL_DOCKER03_SKIP_INTEGRATION_TESTS:-0}" == 1 ]]; then
+  echo 'SKIP: optional payment/privacy PostgreSQL integration tests (focused Docker wiring run).'
+  exit 0
+fi
 "${COMPOSE[@]}" up -d --wait test-database >/dev/null
 test_database_ip="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$PROJECT-test-database-1")"
 test_admin_password="$(cat "$STATE/secrets/db_admin_password")"

@@ -36,6 +36,8 @@ if not project.startswith("espacigo_docker03_") or not volume.startswith("espaci
     raise SystemExit("DOCKER-03 project and volumes must use the dedicated espacigo_docker03_ prefix")
 if project == "espacigo_docker03" or volume == "espacigo_docker03_pgdata" or restore_volume == "espacigo_docker03_restore_pgdata" or test_volume == "espacigo_docker03_test_pgdata":
     raise SystemExit("DOCKER-03 names must include a unique run suffix")
+if len({volume, restore_volume, test_volume}) != 3:
+    raise SystemExit("DOCKER-03 source, restore, and test volume names must be distinct")
 if len(set(ports)) != len(ports) or any(p < 1024 or p > 65535 for p in ports) or any(p in {8080,8081,8025,18080,18081,18025} for p in ports):
     raise SystemExit("DOCKER-03 ports must be unique and differ from development and DOCKER-02")
 home = pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir)
