@@ -1,5 +1,7 @@
 # Revisión del contrato de datos ES2 Anexo B v2.0
 
+
+> **Nota de vigencia (2026-10-11):** este documento conserva el análisis de contrato histórico y sus hallazgos originales; no deben leerse como estado actual de implementación. DB02-01–09 se concilió contra `main` #264/V52: RQF-213–218 se implementaron localmente en #183/#199/#251; los datos/owners de las 43 entidades están clasificados en [`matriz_cierre_backend_local.md`](matriz_cierre_backend_local.md). DB02-05 conserva las decisiones pendientes de retención indicadas allí. Los snapshots ES1/ES2 no se modifican.
 Estado: revisión documental de CORE-DB-02; contrato lógico inicial aceptado como línea base para diseño incremental, no como aprobación legal, evidencia de implementación ni autorización para crear tablas. Fuentes: `referencias/ES2/B_diccionario_datos.md` v2.0 (29-09-2026), `mapa_dominio_y_ownership.md`, `vision_y_modulos.md`, ES1 A–E (snapshots congelados), `base_de_datos.md` y `decisiones_y_hallazgos.md`. El alcance sigue siendo el producto completo, pero la materialización es incremental. Todo cambio exige requisito trazable, ticket y revisión; no se amplía el diccionario por conveniencia.
 
 ## Decisiones de contrato ratificadas para el siguiente diseño

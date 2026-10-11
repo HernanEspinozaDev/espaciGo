@@ -1,5 +1,7 @@
 # Decisiones de planificación y hallazgos
 
+
+> **Conciliación vigente (2026-10-11):** este archivo contiene decisiones/snapshots de la fase inicial. Las filas DB02-09 que aún llaman pendientes RQF-213/217/218 son históricas y están superadas por implementaciones aceptadas en #183/#199/#251. La clasificación vigente de DB02-01–09, 43 entidades, retención y Issues padre está en [`matriz_cierre_backend_local.md`](matriz_cierre_backend_local.md). Siguen pendientes solo los periodos concretos enumerados allí; no heredar plazos. `main` está en #264/V52 y el ZIP de datos propios aún omite contratos sintéticos.
 ## Decisiones vigentes
 
 | Tema | Línea base para planificar | Evidencia / límite |

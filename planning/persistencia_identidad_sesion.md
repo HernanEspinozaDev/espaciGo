@@ -1,8 +1,10 @@
 # Diseño de persistencia de identidad y sesión (AUTH-DB-01)
 
+
+> **Estado histórico:** las secciones “Brechas DB02-09” describen la propuesta anterior a la ratificación y a V22/V27/V46. RQF-213 (preferencia separada de roles), RQF-217 (hashes anteriores con ventana calendario de tres meses) y RQF-218 (aviso transaccional/durable por Mailpit) tienen implementación local aceptada en #183/#199/#251. El documento conserva el diseño base; no prevalece sobre la matriz vigente.
 ## Alcance y autoridad
 
-Contrato físico propuesto para las seis tablas M01 del Anexo B ES2 v2.0: `usuario`, `rol_usuario`, `sesion`, `token_accion`, `version_terminos` y `aceptacion_terminos`. `perfil_usuario` pertenece a M02. No se crea DDL en esta tarea. Las decisiones M01 ratificadas por el usuario el 2026-10-04 están registradas en `planning/decisiones_m01_identidad_sesion.md`; este artefacto deriva sus columnas, índices e invariantes para la migración AUTH-DB-02. El contrato no declara resueltas las brechas DB02-09.
+Contrato físico propuesto para las seis tablas M01 del Anexo B ES2 v2.0: `usuario`, `rol_usuario`, `sesion`, `token_accion`, `version_terminos` y `aceptacion_terminos`. `perfil_usuario` pertenece a M02. No se crea DDL en esta tarea. Las decisiones M01 ratificadas por el usuario el 2026-10-04 están registradas en `planning/decisiones_m01_identidad_sesion.md`; este artefacto deriva sus columnas, índices e invariantes para la migración AUTH-DB-02. Este contrato conserva la línea base física propuesta; la clasificación vigente de DB02-09 está en la matriz. RQF-213–218 tienen función local implementada; no debe usarse esta frase histórica como estado actual.
 
 El Anexo B sigue siendo la fuente de campos base y estados. Las ampliaciones del contrato incluyen `usuario.correo_original`, `sesion.ultima_actividad_en` y `token_accion.invalidado_en`, necesarias por las decisiones ratificadas; `usuario.intentos_fallidos_consecutivos` y `usuario.bloqueado_hasta` derivan de los requisitos existentes RQF-014/015/017. Estas adiciones no cambian los requisitos ni los estados base y se trazan explícitamente en este diseño.
 

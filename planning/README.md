@@ -4,11 +4,11 @@
 
 Este directorio contiene la línea base evolutiva para construir EspaciGo con prioridad en **Base de Datos → Backend → API → pruebas → validación visual con frontend mock**. Es planificación, no evidencia de implementación. La interfaz definitiva queda fuera de alcance y se decidirá cuando el backend y la persistencia hayan avanzado.
 
-## Prioridad vigente — cierre local completo, actualizado 2026-10-10
+## Prioridad vigente — cierre LOCAL-1 pendiente de consolidación, actualizado 2026-10-11
 
-El [plan de cierre del backend local](plan_cierre_backend_local.md) organiza el trabajo restante de M01–M11 y define la aceptación LOCAL-1. El [backlog de cierre](backlog_cierre_backend_local.md) propone paquetes, dependencias y una validación mock final por módulo; la Issue operativa #200 representa LOCAL-KYC-01. El [prompt de ejecución](prompt_cierre_backend_local.md) permite entregar esa instrucción al agente de desarrollo.
+El [plan de cierre del backend local](plan_cierre_backend_local.md), el [backlog de cierre](backlog_cierre_backend_local.md) y la [matriz conciliada](matriz_cierre_backend_local.md) están actualizados a `main` #264/V52. La [guía de arranque local](guia_arranque_local.md) conserva los pasos seguros del volumen persistente y apunta a la evidencia integral vigente. La conciliación final encontró una brecha local de exportación contractual y decisiones pendientes sobre la entidad `documento` de MAP-02 y la retención; #246 continúa abierta y LOCAL-1 no se presenta para aceptación todavía.
 
-La matriz de cierre registra PR #239 (`c6769e3`), PR #241 (`f9200fc`) y PR #243 (`65e5a08`). LOCAL-QA-01/#238, LOCAL-CORE-02/#240 y LOCAL-QA-02/#242 están aceptadas/Cerradas/Hecho por sus alcances. QA-02 cubrió restore aislado de snapshots, relaciones, permisos runtime y archivos privados; su aceptación no completa QA-03 ni LOCAL-1. LOCAL-QA-03/#244 está en curso para consolidar la matriz de cobertura M01–M11, revisar alternativas y corregir brechas locales obligatorias. #109/#110, #111–#118 y #185/#40 conservan sus criterios generales abiertos.
+La matriz y evidencia final están en [`matriz_cierre_backend_local.md`](matriz_cierre_backend_local.md), [`evidence/local-close-01-matrix-20261011.md`](evidence/local-close-01-matrix-20261011.md) y [`evidence/local-close-01-final-20261011.md`](evidence/local-close-01-final-20261011.md). QA-01/#238, CORE-02/#240, QA-02/#242 y QA-03/#244 están aceptadas por sus alcances. La conciliación posterior a PR #264/V52 detectó que el ZIP de titular omite contratos sintéticos propios y dejó pendiente la equivalencia local de `documento` y decisiones de retención sin plazo ratificado; #246 permanece abierta y LOCAL-1 aún no se presenta para aceptación. Véase [`guia_arranque_local.md`](guia_arranque_local.md).
 
 **Completar todo el alcance local antes de proponer pruebas o despliegue GCP.** No ejecutar esa fase como parte del cierre. Se reutilizan capacidades aceptadas y adaptadores fake explícitos; el resultado no acredita integraciones reales ni cierre global del producto.
 
@@ -17,6 +17,8 @@ La matriz de cierre registra PR #239 (`c6769e3`), PR #241 (`f9200fc`) y PR #243 
 | Documento | Contenido |
 | --- | --- |
 | [Plan de cierre local](plan_cierre_backend_local.md) | Objetivo actual M01–M11, hitos L0–L5, decisiones, pruebas locales y definición LOCAL-1; GCP queda para después. |
+| [Guía de arranque local](guia_arranque_local.md) | Levantar/verificar entorno persistente sin borrar volumen/secretos; baseline #264/V52 y límites vigentes de LOCAL-1. |
+| [Trazabilidad de requisitos Backend](trazabilidad_requisitos_backend_local.md) | Cruce ES1 RQF/RNF/CU/HU con la conciliación final; los estados históricos remiten a la matriz vigente. |
 | [Backlog de cierre local](backlog_cierre_backend_local.md) | Paquetes propuestos, trazabilidad a Issues, aceptación y once tarjetas finales de mock; no son cambios operativos del Project. |
 | [Prompt de cierre local](prompt_cierre_backend_local.md) | Instrucción para la ejecución posterior, con cuentas GitHub, primera entrega y condición de parada. |
 | [Evaluación de alcance al 2026-10-07](alcance_backend_local_y_transicion_gcp_20261007.md) | Inventario de partida y comparación histórica; la secuencia vigente es la del plan de cierre local. |
@@ -64,7 +66,7 @@ La matriz de cierre registra PR #239 (`c6769e3`), PR #241 (`f9200fc`) y PR #243 
 3. ES1 cerrada: anexos A–E con módulos, 236 RQF, 43 RNF, 52 CU y 35 HU. ES1 se consulta como línea base; no se modifica.
 4. `espaciGo/README.md` solo como descripción del repositorio, no como autoridad cuando contradiga las decisiones posteriores.
 
-## Estado inicial (registro histórico)
+## Estado inicial (registro histórico; no describe el checkout actual)
 
 La inspección inicial de `espaciGo/` encontró el README y el archivo de instrucciones; entonces no se encontró implementación de aplicación, esquema físico, migraciones, API, compose ni tablero Kanban. Posteriormente el backlog se importó al tablero local Hermes `espacigo`. Al 2026-10-01, `PLAN-ARCH-01` está `done`, `CORE-ARCH-01` en `review` y las tarjetas posteriores siguen pendientes según sus dependencias; esto no es evidencia de implementación.
 
