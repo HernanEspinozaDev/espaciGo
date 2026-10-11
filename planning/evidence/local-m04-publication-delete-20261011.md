@@ -1,6 +1,6 @@
 # LOCAL-M04-PUBLICATION-DELETE-01 — evidencia de la entrega
 
-Fecha: 2026-10-11. Issue #258, hija de #246 y trazada a RQF-091/092. Implementa la política local ratificada de eliminación de una publicación propia; no acepta M04 completo ni LOCAL-1. #246 permanece abierta. No se aplicó V50 al volumen persistente y no se ejecutó GCP.
+Fecha: 2026-10-11. Commit probado: `602459f` (`feat(m04): retire publications with preserved history`). Issue #258, hija de #246 y trazada a RQF-091/092. Implementa la política local ratificada de eliminación de una publicación propia; no acepta M04 completo ni LOCAL-1. #246 permanece abierta. No se aplicó V50 al volumen persistente y no se ejecutó GCP.
 
 ## Comportamiento verificado
 
