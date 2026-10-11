@@ -122,6 +122,9 @@ func TestPostgresPrivateSimulationSnapshotsRateAndDoesNotOccupyCalendar(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = pool.Exec(ctx, `SELECT public.purge_unreferenced_local_publication_rates($1)`, draft.ID); err == nil {
+		t.Fatal("runtime role deleted rates before the publication was retired")
+	}
 	draftInput := spaces.Input{CategoryCode: "oficina", Title: "Borrador privado editado", Description: strings.Repeat("Espacio privado sintético editado. ", 5), AreaM2: 25, Capacity: 4, UsageRules: "Respetar horarios", RateUnit: "hora", BasePriceCLP: 8000, Address: "Dirección sintética", AttributeSchemaVersion: 1, Attributes: map[string]any{}}
 	if _, err = spaceRepo.UpdateOwn(ctx, owner, draft.ID, draftInput); err != nil {
 		t.Fatalf("runtime role could not edit draft: %v", err)

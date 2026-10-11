@@ -1,6 +1,6 @@
 # Evidencia — LOCAL-M04-PUBLICATION-DELETE-01 y LOCAL-M10-BOOKING-CLOSE-01
 
-Fecha: 2026-10-11. #262 se fusionó en `main` mediante `4f96f81fe11093fc56c3755b9d35fbc29ac94d8f`; incluye las correcciones de saldo y conciliación de garantía. #259 está en el PR [#263](https://github.com/HernanEspinozaDev/espaciGo/pull/263), ahora basado en `main`. Su diff comparado con `main` contiene únicamente LOCAL-M10-BOOKING-CLOSE-01 (#259). La implementación inicial de cierre fue `c2107475578b967e63dd79cf30ba504b19d1e407`; la corrección de reseñas posterior a liquidación quedó probada en `4a37314669808930fdf53a06413943a78135dc06` y la rama actualizada con `main` en `719670d8161b2f01d724c2d4cad2eefee563d3f8`. #246 permanece abierta. Este documento no acepta LOCAL-1.
+Fecha: 2026-10-11. PR #262 se fusionó en `main` mediante `4f96f81fe11093fc56c3755b9d35fbc29ac94d8f`; incluye las correcciones de saldo y conciliación de garantía. PR #263 se fusionó en `main` como `a0a3ad6130745d3d2126eb4c1c92805eacc39084`; #259 fue aceptada/Cerrada/Hecho por RQF-177. Su diff comparado con `main` contenía únicamente LOCAL-M10-BOOKING-CLOSE-01 (#259). La implementación inicial de cierre fue `c2107475578b967e63dd79cf30ba504b19d1e407`; la corrección de reseñas posterior a liquidación quedó probada en `4a37314669808930fdf53a06413943a78135dc06` y la rama actualizada con `main` en `719670d8161b2f01d724c2d4cad2eefee563d3f8`. #246 permanece abierta. Este documento no acepta LOCAL-1.
 
 ## LOCAL-M10-BOOKING-CLOSE-01 (#259, RQF-177)
 
@@ -22,4 +22,4 @@ Una reserva `cerrada` tras una liquidación fake confirmada conserva el permiso 
 - `npm --prefix mock run test:review-eligibility` — PASS; habilita solo `finalizada` y `cerrada`, excluyendo disputa, estados activos y cancelados.
 - La compilación TypeScript corre en ambos scripts npm anteriores. `git diff --check` — PASS.
 
-Las pruebas corren en entornos desechables. V50 está integrado por #262 y V51 forma parte de #263; todavía no se aplican al volumen de desarrollo, a la espera de integrar y aceptar #263 para comprobar ambos recorridos juntos. Se conserva `espacigo_pgdata`, secretos y datos. No se ejecuta el runner integral de LOCAL-1 hasta completar y aceptar #258 y #259; sin GCP.
+Las pruebas corren en entornos desechables. Tras #263, V50/V51 se aplicaron incrementalmente al entorno local con `bash scripts/dev-env.sh up -d`; `schema_migrations` confirmó ambas y `scripts/dev-env.sh verify-http` pasó sin omisiones. La verificación funcional posterior reutilizó las dos integraciones enfocadas anteriores en bases desechables. Se conserva `espacigo_pgdata`, secretos y datos. El runner integral y la conciliación final se registran en `local-close-01-final-20261011.md`; sin GCP.

@@ -55,7 +55,8 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT SELECT, INSERT, UPDATE, DELETE ON public.espacio_horario_semanal, public.espacio_horario_semanal_tramo TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE, DELETE ON public.espacio_caracteristicas TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.ocupacion TO espacigo_runtime;
- GRANT SELECT, INSERT, DELETE ON public.tarifa_espacio, public.simulacion_precio_privada TO espacigo_runtime;
+ GRANT SELECT, INSERT ON public.tarifa_espacio TO espacigo_runtime;
+ GRANT SELECT, INSERT, DELETE ON public.simulacion_precio_privada TO espacigo_runtime;
  GRANT SELECT, DELETE ON public.reserva_ensayo_local_fixture TO espacigo_runtime;
  GRANT UPDATE (habilitada,anfitrion_id,arrendatario_id) ON public.reserva_ensayo_local_fixture TO espacigo_runtime;
  GRANT SELECT ON public.reserva_ensayo_local_ubicacion_sintetica TO espacigo_runtime;
@@ -128,8 +129,12 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
 	if err != nil {
 		return err
 	}
-	// The API's administrator-guarded local suppression path needs to remove
-	// private simulations. No pricing endpoint exposes that delete operation.
-	_, err = conn.Exec(ctx, `GRANT DELETE ON public.simulacion_precio_privada TO espacigo_runtime;`)
+	// The runtime may remove unreferenced rates only through the narrowly
+	// scoped SECURITY DEFINER function used by publication retirement. It may
+	// not delete immutable rate history directly. Privacy suppression still
+	// needs table DELETE for the account's private simulations.
+	_, err = conn.Exec(ctx, `REVOKE DELETE ON public.tarifa_espacio FROM espacigo_runtime;
+GRANT EXECUTE ON FUNCTION public.purge_unreferenced_local_publication_rates(uuid) TO espacigo_runtime;
+GRANT DELETE ON public.simulacion_precio_privada TO espacigo_runtime;`)
 	return err
 }
