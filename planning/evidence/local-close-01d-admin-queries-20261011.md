@@ -25,3 +25,14 @@ No se ejecutó todavía la regresión integral LOCAL-1. El usuario indicó reser
 ## Pendientes conservados
 
 #250 requiere revisión y merge; #246 permanece abierta. La regresión integral LOCAL-1 debe ejecutarse después de integrar #250. Los criterios generales de M11, #185/#40, M08/M10 y las demás Issues padre permanecen abiertos según sus propios criterios. Estos reportes son exclusivamente locales y no sustituyen otros criterios CU-45 no especificados.
+
+## Corrección de autorización del mock (#254)
+
+- Un 403 de una consulta administrativa vigente limpia resultados y criterios e invalida respuestas pendientes, aunque la revisión de filtros haya cambiado. La vigencia de autorización se verifica por cuenta, token y generación; los datos de resultado conservan además su revisión/filtros.
+- El mock conserva la sesión al recibir el 403, oculta temporalmente el acceso administrativo y vuelve a consultar `/session`. Aplica roles/modo restringido solo si la cuenta, token y generación siguen siendo los mismos. Si el backend confirma que falta el rol administrador o que la sesión está restringida, vuelve a limpiar los resultados administrativos; la sesión sigue disponible para operaciones permitidas.
+- Las pruebas simulan 403 después de cambiar filtros, pérdida de rol, modo restringido, un 403 tardío de sesión anterior y una consulta de roles tardía tras logout/relogin. Una respuesta anterior no limpia ni modifica la nueva sesión.
+- `npm --prefix mock run build` — PASS.
+- `node --test mock/test/admin-local-state.test.mjs mock/test/admin-local-access.test.mjs` — PASS (8 pruebas enfocadas).
+- `git diff --check` — PASS.
+
+No se ejecutaron suites Backend ni la regresión integral LOCAL-1. #250 permanece En revisión y #246 abierta.

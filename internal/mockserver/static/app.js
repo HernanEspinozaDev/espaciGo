@@ -20,7 +20,7 @@ import { captureRentalOperationContext, finishRentalOperationAfterReload, rental
 import { AdminReservationsState } from "./admin-reservations-state.js";
 import { AdminAuditState } from "./admin-audit-state.js";
 import { consumeAdminAuditExportResponse } from "./admin-audit-export-state.js";
-import { adminLocalContextMatches, captureAdminLocalContext } from "./admin-local-state.js";
+import { adminLocalContextMatches, adminLocalSessionMatches, captureAdminLocalContext, captureAdminLocalSession, handleAdminLocalForbidden, isAdminLocalForbiddenError } from "./admin-local-state.js";
 import { apiErrorMessage } from "./api-error.js";
 import { LocalSettlementState } from "./local-settlement-state.js";
 const statusElement = document.querySelector("#api-status");
@@ -66,6 +66,8 @@ async function request(path, method = "GET", body, authenticated = false, idempo
     if (!apiBase)
         throw new Error("API local aún no disponible.");
     const requestSessionToken = authenticated ? sessionToken : "";
+    const requestSessionAccount = authenticated ? sessionAccountID : "";
+    const requestSessionGeneration = authenticated ? sessionGeneration : 0;
     const headers = { Accept: "application/json" };
     if (body !== undefined)
         headers["Content-Type"] = "application/json";
@@ -80,7 +82,7 @@ async function request(path, method = "GET", body, authenticated = false, idempo
     const response = await fetch(endpoint, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), mode: "cors", cache: "no-store", credentials: "omit" });
     const data = response.status === 204 ? {} : await response.json();
     if (!response.ok) {
-        if (authenticated && response.status === 401 && sessionToken === requestSessionToken) {
+        if (authenticated && response.status === 401 && sessionToken === requestSessionToken && sessionAccountID === requestSessionAccount && sessionGeneration === requestSessionGeneration) {
             sessionToken = "";
             sessionRestrictedMode = false;
             clearBookingInboxOnSessionLoss();
@@ -3959,6 +3961,7 @@ document.querySelector("#local-admin-audit-next").addEventListener("click", () =
 document.querySelector("#local-admin-audit-export").addEventListener("click", () => void action(exportAdminAudit));
 document.querySelector("#local-admin-audit-reset").addEventListener("click", () => void action(async () => { adminAuditState.clear(); await loadAdminAudit(); }));
 function currentAdminLocalContext(context) { return adminLocalContextMatches(context, { account: sessionAccountID, token: sessionToken, generation: sessionGeneration, revision: adminLocalRevision, isAdmin: sessionRoles.includes("administrador") }); }
+function currentAdminLocalSession(context) { return adminLocalSessionMatches(context, { account: sessionAccountID, token: sessionToken, generation: sessionGeneration }); }
 function refreshAdminLocalControls() { const allowed = Boolean(sessionToken && sessionRoles.includes("administrador") && !sessionRestrictedMode); for (const id of ["#local-admin-account-id", "#local-admin-block-reason", "#local-admin-unblock-reason", "#local-admin-report-from", "#local-admin-report-until", "#local-admin-report-timezone", "#local-admin-space-id"]) {
     const input = document.querySelector(id);
     if (input)
@@ -3975,12 +3978,21 @@ function clearAdminLocalView(message = "Requiere rol administrador.") { adminLoc
 } const zone = document.querySelector("#local-admin-report-timezone"); if (zone)
     zone.value = "America/Santiago"; const output = document.querySelector("#local-admin-governance-output"); if (output)
     output.textContent = message; refreshAdminLocalControls(); }
+async function refreshAdminLocalSessionSnapshot(token) { if (sessionToken !== token)
+    throw new Error("La sesión cambió antes de actualizar los permisos."); const data = await request("session", "GET", undefined, true); return { roles: Array.isArray(data.roles) ? data.roles.map(String) : [], restrictedMode: data.restricted_mode === true }; }
+async function refreshAdminLocalAfterForbidden(context) { const sessionContext = captureAdminLocalSession(context); await handleAdminLocalForbidden(sessionContext, () => ({ account: sessionAccountID, token: sessionToken, generation: sessionGeneration, roles: sessionRoles, restrictedMode: sessionRestrictedMode }), (message) => clearAdminLocalView(message), refreshAdminLocalSessionSnapshot, (snapshot) => { if (!currentAdminLocalSession(sessionContext))
+    return; sessionRoles = snapshot.roles; sessionRestrictedMode = snapshot.restrictedMode; refreshAdminLocalControls(); }); }
 async function runAdminLocalRequest(path, method = "GET", body) { if (!sessionToken || !sessionRoles.includes("administrador") || sessionRestrictedMode)
     throw new Error("Esta operación requiere una sesión administradora activa."); const context = captureAdminLocalContext(sessionAccountID, sessionToken, sessionGeneration, ++adminLocalRevision), output = document.querySelector("#local-admin-governance-output"); output.textContent = "Consultando API administrativa local…"; refreshAdminLocalControls(); try {
     const data = await request(path, method, body, true);
     if (!currentAdminLocalContext(context))
         return;
     output.textContent = JSON.stringify(data.data ?? data, null, 2);
+}
+catch (error) {
+    if (!isAdminLocalForbiddenError(error))
+        throw error;
+    await refreshAdminLocalAfterForbidden(context);
 }
 finally {
     if (currentAdminLocalContext(context))
