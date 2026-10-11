@@ -1,0 +1,57 @@
+@use 'styles/tokens';
+
+* {
+  box-sizing: border-box;
+}
+html {
+  min-width: 20rem;
+  scroll-behavior: smooth;
+}
+body {
+  min-width: 20rem;
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-text);
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+a {
+  color: inherit;
+}
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 3px;
+}
+::selection {
+  background: var(--brand-primary-soft);
+  color: var(--color-text);
+}
+.page-width {
+  width: min(100% - 3rem, 80rem);
+  margin-inline: auto;
+}
+
+@media (max-width: 40rem) {
+  html {
+    scroll-behavior: auto;
+  }
+  .page-width {
+    width: min(100% - 2rem, 80rem);
+  }
+}

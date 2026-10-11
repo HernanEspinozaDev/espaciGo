@@ -1,0 +1,24 @@
+<main class="page-width content-page">
+  <p class="eyebrow">OCHO FORMAS DE HACER ESPACIO</p>
+  <h1>El lugar adecuado<br />para lo que viene.</h1>
+  <p class="lead">
+    Cada proyecto necesita algo distinto. Conoce las categorías flexibles de EspaciGo.
+  </p>
+  <div class="category-list">
+    @for (category of categories; track category.name; let index = $index) {
+      <article class="category-row">
+        <span class="category-index">0{{ index + 1 }}</span>
+        <div>
+          <h2>{{ category.name }}</h2>
+          <p>{{ category.detail }}</p>
+        </div>
+        <span aria-hidden="true" class="category-mark">✳</span>
+      </article>
+    }
+  </div>
+  <p class="notice">
+    La disponibilidad de espacios se consulta en el catálogo autenticado. Esta página presenta las
+    categorías del producto.
+  </p>
+  <a class="button" routerLink="/acceso">Continuar a mi cuenta</a>
+</main>

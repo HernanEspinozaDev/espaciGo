@@ -1,0 +1,47 @@
+{
+  "name": "frontend",
+  "version": "0.0.0",
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve",
+    "build": "ng build",
+    "watch": "ng build --watch --configuration development",
+    "test": "ng test",
+    "serve:ssr:frontend": "node dist/frontend/server/server.mjs",
+    "api:generate": "openapi-ts",
+    "api:check": "npm run api:generate && tsc --noEmit -p tsconfig.app.json"
+  },
+  "private": true,
+  "packageManager": "npm@12.1.0",
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
+  "dependencies": {
+    "@angular/common": "22.2.2",
+    "@angular/compiler": "22.2.2",
+    "@angular/core": "22.2.2",
+    "@angular/forms": "22.2.2",
+    "@angular/platform-browser": "22.2.2",
+    "@angular/platform-server": "22.2.2",
+    "@angular/router": "22.2.2",
+    "@angular/ssr": "22.2.2",
+    "express": "^5.1.0",
+    "rxjs": "7.8.2",
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@angular/build": "22.2.2",
+    "@angular/cli": "22.2.2",
+    "@angular/compiler-cli": "22.2.2",
+    "@hey-api/openapi-ts": "0.99.0",
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.12.0",
+    "jsdom": "^30.0.0",
+    "prettier": "^3.8.1",
+    "typescript": "6.0.3",
+    "vitest": "^5.0.0"
+  },
+  "overrides": {
+    "js-yaml": "4.3.2"
+  }
+}
