@@ -865,6 +865,37 @@ async function loadSpaces() {
             li.append(publication);
         }
         if ((String(item.state) === "activa" || String(item.state) === "oculta") && sessionRoles.includes("arrendador")) {
+            const retire = document.createElement("button");
+            retire.type = "button";
+            retire.textContent = "Eliminar publicación";
+            retire.addEventListener("click", () => void action(async () => {
+                if (!window.confirm("La publicación dejará de aparecer. Los históricos necesarios se conservarán y sus archivos privados entrarán en limpieza recuperable."))
+                    return;
+                const opToken = sessionToken, opAccount = sessionAccountID, opGeneration = sessionGeneration;
+                let receipt;
+                try {
+                    receipt = await request(`/api/v1/spaces/${encodeURIComponent(String(item.id))}`, "DELETE", undefined, true);
+                }
+                catch (error) {
+                    if (!currentSpaceSession(opToken, opAccount, opGeneration))
+                        return;
+                    throw error;
+                }
+                if (!currentSpaceSession(opToken, opAccount, opGeneration))
+                    return;
+                if (currentDraftID === String(item.id)) {
+                    currentDraftID = "";
+                    spaceForm.reset();
+                    document.querySelector("#space-save").textContent = "Crear borrador";
+                    document.querySelector("#space-cancel").hidden = true;
+                }
+                spacesOutput.textContent = JSON.stringify(receipt, null, 2);
+                resultElement.textContent = `Publicación retirada. Se conservan ${Array.isArray(receipt.preserved) ? receipt.preserved.length : 0} grupos históricos; archivos pendientes de limpieza durable: ${String(receipt.files_pending_cleanup ?? 0)}.`;
+                await loadSpaces();
+            }));
+            li.append(retire);
+        }
+        if ((String(item.state) === "activa" || String(item.state) === "oculta") && sessionRoles.includes("arrendador")) {
             const zone = typeof item.time_zone === "string" ? item.time_zone : "";
             if (zone) {
                 const configured = document.createElement("small");

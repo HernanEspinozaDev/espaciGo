@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"strings"
+	"time"
 )
 
 var (
@@ -15,6 +16,7 @@ var (
 	ErrPublicationConflict = errors.New("spaces: publication state conflict")
 	ErrEnabledFixture      = errors.New("spaces: enabled synthetic fixture prevents publication transition")
 	ErrTimeZoneRequired    = errors.New("spaces: valid IANA time zone required before publication")
+	ErrDeleteBlocked       = errors.New("spaces: publication has open obligations")
 )
 
 type Draft struct {
@@ -60,6 +62,18 @@ type PublishedContentInput struct {
 	BasePriceCLP *int64  `json:"base_price_clp,omitempty"`
 }
 
+// Deletion is a durable receipt for retiring one synthetic/local publication.
+// Preserved contains only names of retained historical record groups.
+type Deletion struct {
+	SpaceID      string    `json:"space_id"`
+	State        string    `json:"state"`
+	OccurredAt   time.Time `json:"occurred_at"`
+	Removed      []string  `json:"removed"`
+	Preserved    []string  `json:"preserved"`
+	FilesPending int       `json:"files_pending_cleanup"`
+	Reused       bool      `json:"reused"`
+}
+
 func (i PublishedContentInput) Validate() error {
 	if i.Title == nil && i.Description == nil && i.Capacity == nil && i.UsageRules == nil && i.BasePriceCLP == nil {
 		return ErrInvalid
@@ -101,6 +115,7 @@ type Repository interface {
 	UpdateOwn(ctx context.Context, owner, id string, input Input) (Draft, error)
 	SetPublicationState(ctx context.Context, owner, id, state, correlationID string) (Draft, error)
 	UpdatePublishedOwn(ctx context.Context, owner, id string, input PublishedContentInput) (Draft, error)
+	DeleteOwn(ctx context.Context, owner, id, correlationID string) (Deletion, error)
 }
 
 // ArchiveSectionRepository exports only drafts owned by the authenticated

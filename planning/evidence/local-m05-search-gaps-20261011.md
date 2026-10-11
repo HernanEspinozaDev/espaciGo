@@ -1,6 +1,6 @@
 # LOCAL-M05-SEARCH-GAPS-01 — evidencia de búsqueda y filtros locales
 
-Estado al 2026-10-11: implementación en revisión en la misma entrega DB/Backend/API/mock de #257, publicada en [PR #261](https://github.com/HernanEspinozaDev/espaciGo/pull/261). El commit probado y publicado es `6b244fa7ca4e8a2134be7b21e1b2e66c57a5a746` (autor de publicación HernanMEC). #246 sigue abierta y LOCAL-1 no está aceptado. Sin geocodificación real, mapas de calles, nuevas migraciones ni GCP.
+Estado actualizado tras la aprobación del propietario: #257 aceptada/Cerrada/Hecho solo para RQF-094/095/099/102 mediante PR #261, merge `d5f8668da7747270115c5191dfb81de6af5d13ba`. El commit probado y publicado fue `6b244fa7ca4e8a2134be7b21e1b2e66c57a5a746` (HernanMEC). El smoke posterior al merge confirmó búsqueda, detalle y mapa. #246 sigue abierta y LOCAL-1 no está aceptado. Sin geocodificación real, mapas de calles ni GCP.
 
 ## Criterios y decisiones implementadas
 
@@ -62,4 +62,4 @@ go test ./internal/booking ./internal/booking/transport/http ./internal/openapic
 PASS
 ```
 
-No se ejecutó la regresión integral LOCAL-1. #257 permanece abierta/en revisión y #246 sigue abierta.
+No se ejecutó la regresión integral LOCAL-1. #257 fue aceptada por el alcance indicado; #246 sigue abierta.

@@ -1115,6 +1115,25 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    delete:
+      operationId: deleteOwnPublication
+      tags: [M04 local]
+      description: >-
+        Retira una publicación propia elegible. Revalida reservas no terminales y obligaciones financieras o
+        de disputa bajo los bloqueos de propietario/espacio. Si procede, retira contenido del catálogo,
+        minimiza el registro técnico y encola los archivos privados para limpieza durable. Conserva
+        reservas, ocupaciones, snapshots e historiales; no cancela ni elimina en cascada. Repetir la
+        solicitud devuelve el recibo persistido. No implica anonimización.
+      responses:
+        '200':
+          description: Publicación retirada o recibo idempotente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpaceDeletionReceipt' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /spaces/{spaceId}/publication:
     parameters:
       - name: spaceId
@@ -3824,6 +3843,18 @@ components:
               maximum: { type: number }
               step: { type: number }
               filter_candidate: { type: boolean }
+    SpaceDeletionReceipt:
+      type: object
+      additionalProperties: false
+      required: [space_id, state, occurred_at, removed, preserved, files_pending_cleanup, reused]
+      properties:
+        space_id: { type: string, format: uuid }
+        state: { type: string, enum: [eliminada] }
+        occurred_at: { type: string, format: date-time }
+        removed: { type: array, items: { type: string } }
+        preserved: { type: array, items: { type: string } }
+        files_pending_cleanup: { type: integer, minimum: 0 }
+        reused: { type: boolean }
     SpaceDraftList:
       type: object
       required: [items]

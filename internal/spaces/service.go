@@ -100,6 +100,13 @@ func (s *Service) UpdatePublishedOwn(ctx context.Context, owner, id string, inpu
 	return s.repo.UpdatePublishedOwn(ctx, owner, id, input)
 }
 
+func (s *Service) DeleteOwn(ctx context.Context, owner, id, correlationID string) (Deletion, error) {
+	if !validOwner(owner) || !validID(id) || strings.TrimSpace(correlationID) == "" || len(correlationID) > 120 {
+		return Deletion{}, ErrInvalid
+	}
+	return s.repo.DeleteOwn(ctx, owner, id, correlationID)
+}
+
 func validateAttributes(profile Profile, input Input) error {
 	if err := profile.ValidateAttributes(input.Attributes); err != nil {
 		return err

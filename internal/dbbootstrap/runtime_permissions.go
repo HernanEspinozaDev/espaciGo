@@ -45,6 +45,8 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT SELECT, INSERT, DELETE ON public.verificacion_evidencia_sintetica TO espacigo_runtime;
  GRANT SELECT ON public.categoria_espacio, public.categoria_perfil_atributos TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.espacio TO espacigo_runtime;
+	GRANT SELECT, INSERT ON public.espacio_eliminacion_historial_local TO espacigo_runtime;
+	GRANT USAGE, SELECT ON SEQUENCE public.espacio_eliminacion_historial_local_id_seq TO espacigo_runtime;
 	GRANT SELECT, INSERT ON public.espacio_publicacion_historial_local TO espacigo_runtime;
 	GRANT USAGE, SELECT ON SEQUENCE public.espacio_publicacion_historial_local_id_seq TO espacigo_runtime;
 	GRANT SELECT, INSERT ON public.espacio_galeria_sintetica_local TO espacigo_runtime;
@@ -53,8 +55,8 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT SELECT, INSERT, UPDATE, DELETE ON public.espacio_horario_semanal, public.espacio_horario_semanal_tramo TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE, DELETE ON public.espacio_caracteristicas TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.ocupacion TO espacigo_runtime;
- GRANT SELECT, INSERT ON public.tarifa_espacio, public.simulacion_precio_privada TO espacigo_runtime;
- GRANT SELECT ON public.reserva_ensayo_local_fixture TO espacigo_runtime;
+ GRANT SELECT, INSERT, DELETE ON public.tarifa_espacio, public.simulacion_precio_privada TO espacigo_runtime;
+ GRANT SELECT, DELETE ON public.reserva_ensayo_local_fixture TO espacigo_runtime;
  GRANT UPDATE (habilitada,anfitrion_id,arrendatario_id) ON public.reserva_ensayo_local_fixture TO espacigo_runtime;
  GRANT SELECT ON public.reserva_ensayo_local_ubicacion_sintetica TO espacigo_runtime;
  GRANT SELECT, INSERT, DELETE ON public.cotizacion_reserva_ensayo TO espacigo_runtime;

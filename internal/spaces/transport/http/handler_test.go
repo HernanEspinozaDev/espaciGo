@@ -130,6 +130,19 @@ func (m *memoryRepo) UpdatePublishedOwn(_ context.Context, owner, id string, in 
 	}
 	return m.draft, nil
 }
+func (m *memoryRepo) DeleteOwn(_ context.Context, owner, id, correlationID string) (spaces.Deletion, error) {
+	if m.publicationErr != nil {
+		return spaces.Deletion{}, m.publicationErr
+	}
+	if owner != m.owner || id != draftID {
+		return spaces.Deletion{}, spaces.ErrNotFound
+	}
+	if m.draft.State != "activa" && m.draft.State != "oculta" {
+		return spaces.Deletion{}, spaces.ErrPublicationConflict
+	}
+	m.draft.State = "eliminada"
+	return spaces.Deletion{SpaceID: id, State: "eliminada", Removed: []string{"catalogo"}, Preserved: []string{"historicos"}}, nil
+}
 func draftFromInput(in spaces.Input) spaces.Draft {
 	name := map[string]string{"oficina": "Oficina", "sala_multiproposito": "Sala o espacio multipropósito"}[in.CategoryCode]
 	return spaces.Draft{CategoryCode: in.CategoryCode, CategoryName: name, Title: in.Title, Description: in.Description, AreaM2: in.AreaM2, Capacity: in.Capacity, UsageRules: in.UsageRules, RateUnit: in.RateUnit, BasePriceCLP: in.BasePriceCLP, Address: in.Address, State: "borrador", AttributeSchemaVersion: in.AttributeSchemaVersion, Attributes: in.Attributes}
@@ -546,6 +559,41 @@ func TestDraftResponsesValidateAgainstOpenAPISchemaAndCategoryChanges(t *testing
 	}
 	if draft.CategoryCode != "sala_multiproposito" || draft.CategoryName != "Sala o espacio multipropósito" {
 		t.Fatalf("category response=%q/%q", draft.CategoryCode, draft.CategoryName)
+	}
+}
+
+func TestOwnPublicationDeleteResponseAndErrorsMatchContract(t *testing.T) {
+	openapi, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "planning", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(openapi, &doc); err != nil {
+		t.Fatal(err)
+	}
+	components := doc["components"].(map[string]any)
+	schemas := components["schemas"].(map[string]any)
+	receiptSchema := compileOpenAPISchema(t, schemas["SpaceDeletionReceipt"])
+
+	repository := &memoryRepo{owner: ownerA, draft: spaces.Draft{ID: draftID, State: "activa"}}
+	service, err := spaces.NewService(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, service, []string{"http://localhost"})
+	deleted := invoke(h, http.MethodDelete, "/api/v1/spaces/"+draftID, "landlord", "")
+	if deleted.Code != http.StatusOK {
+		t.Fatalf("delete status=%d body=%s", deleted.Code, deleted.Body.String())
+	}
+	assertJSONSchema(t, receiptSchema, deleted.Body.Bytes(), "SpaceDeletionReceipt")
+	if foreign := invoke(h, http.MethodDelete, "/api/v1/spaces/"+draftID, "other", ""); foreign.Code != http.StatusNotFound {
+		t.Fatalf("foreign delete status=%d body=%s", foreign.Code, foreign.Body.String())
+	}
+	repository.draft.State = "activa"
+	repository.publicationErr = spaces.ErrDeleteBlocked
+	blocked := invoke(h, http.MethodDelete, "/api/v1/spaces/"+draftID, "landlord", "")
+	if blocked.Code != http.StatusConflict || !strings.Contains(blocked.Body.String(), `"code":"publication_delete_blocked"`) {
+		t.Fatalf("blocked delete status=%d body=%s", blocked.Code, blocked.Body.String())
 	}
 }
 

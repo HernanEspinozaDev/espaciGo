@@ -51,7 +51,39 @@ func (r *Repository) ExportOwnArchiveSections(ctx context.Context, owner string)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]json.RawMessage{"spaces": encoded, "space_publication_history": historyJSON}, nil
+	deleteRows, err := r.pool.Query(ctx, `SELECT h.espacio_id::text,h.ocurrida_en,'self'::text,h.correlacion_id,h.archivos_pendientes,h.resumen
+		FROM public.espacio_eliminacion_historial_local h
+		WHERE h.actor_id=$1 ORDER BY h.ocurrida_en,h.id`, owner)
+	if err != nil {
+		return nil, err
+	}
+	type deletionEvent struct {
+		SpaceID      string          `json:"space_id"`
+		At           time.Time       `json:"occurred_at"`
+		Actor        string          `json:"actor"`
+		Correlation  string          `json:"correlation_id"`
+		FilesPending int             `json:"files_pending_cleanup"`
+		Summary      json.RawMessage `json:"summary"`
+	}
+	deletions := make([]deletionEvent, 0)
+	for deleteRows.Next() {
+		var item deletionEvent
+		if err := deleteRows.Scan(&item.SpaceID, &item.At, &item.Actor, &item.Correlation, &item.FilesPending, &item.Summary); err != nil {
+			deleteRows.Close()
+			return nil, err
+		}
+		deletions = append(deletions, item)
+	}
+	if err := deleteRows.Err(); err != nil {
+		deleteRows.Close()
+		return nil, err
+	}
+	deleteRows.Close()
+	deletionJSON, err := json.Marshal(deletions)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]json.RawMessage{"spaces": encoded, "space_publication_history": historyJSON, "space_deletion_history": deletionJSON}, nil
 }
 
 var _ interface {
