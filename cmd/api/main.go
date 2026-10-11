@@ -414,7 +414,7 @@ func run() error {
 				}
 			}()
 		}
-		go localPrivacyService.RunReservationRetentionWorker(ctx, time.Hour, 100)
+		go localPrivacyService.RunLocalRetentionWorker(ctx, time.Hour, 100, privacyEvidenceCleaner)
 	}
 	if localGalleryService != nil {
 		go func() {

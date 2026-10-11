@@ -31,7 +31,11 @@ func runLocalPrivacyCommand(command string, args []string) error {
 	}
 	switch command {
 	case "local-privacy-retention-purge":
-		result, err := service.PurgeExpiredReservationLinks(context.Background(), time.Now().UTC(), 100)
+		store, err := evidencefs.New(os.Getenv("M03_EVIDENCE_DIR"))
+		if err != nil {
+			return errors.New("local private storage unavailable")
+		}
+		result, err := service.PurgeExpiredLocalRetentions(context.Background(), time.Now().UTC(), 100, store)
 		if err != nil {
 			return err
 		}

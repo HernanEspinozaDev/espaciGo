@@ -1953,7 +1953,7 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,creada_en) VALUES($1,$2,'kyb','en_revision','fixture:82000000-0000-4000-8000-000000000009','suppression-case-pending',$3)`, pendingCaseID, targetID, h.now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.verificacion_evidencia_sintetica(id,verificacion_id,codigo_fixture,mime_type,tamano_bytes,sha256,creada_en) VALUES($1,$2,'synthetic-png-v1','image/png',1,repeat('c',64),$3)`, evidenceID, caseID, h.now); err != nil {
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.verificacion_evidencia_sintetica(id,verificacion_id,codigo_fixture,mime_type,tamano_bytes,sha256,creada_en,archivo_id) VALUES($1,$2,'synthetic-png-v1','image/png',1,repeat('c',64),$3,$1)`, evidenceID, caseID, h.now); err != nil {
 		t.Fatal(err)
 	}
 	photoID, payoutID := "82000000-0000-4000-8000-000000000010", "82000000-0000-4000-8000-000000000011"

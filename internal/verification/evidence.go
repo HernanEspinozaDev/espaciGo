@@ -22,6 +22,8 @@ type Evidence struct {
 	SizeBytes      int64     `json:"size_bytes"`
 	SHA256         string    `json:"sha256"`
 	CreatedAt      time.Time `json:"created_at"`
+	FileID         string    `json:"-"`
+	FileAvailable  bool      `json:"file_available"`
 }
 
 type EvidenceRepository interface {
@@ -74,6 +76,8 @@ func (s *EvidenceService) Upload(ctx context.Context, owner, caseID string) (Evi
 	}
 	checksum := sha256.Sum256(blob)
 	item := Evidence{ID: id, VerificationID: caseID, FixtureCode: SyntheticEvidenceFixture, MIMEType: "image/png", SizeBytes: int64(len(blob)), SHA256: hex.EncodeToString(checksum[:]), CreatedAt: s.now().UTC()}
+	item.FileID = id
+	item.FileAvailable = true
 	if err := s.store.Put(ctx, id, blob); err != nil {
 		return Evidence{}, err
 	}
@@ -110,7 +114,10 @@ func (s *EvidenceService) OwnContent(ctx context.Context, owner, caseID, evidenc
 	if err != nil {
 		return Evidence{}, nil, err
 	}
-	blob, err := s.store.Get(ctx, item.ID)
+	if !item.FileAvailable || item.FileID == "" {
+		return Evidence{}, nil, ErrNotFound
+	}
+	blob, err := s.store.Get(ctx, item.FileID)
 	if err != nil {
 		return Evidence{}, nil, err
 	}
@@ -125,7 +132,10 @@ func (s *EvidenceService) ReviewContent(ctx context.Context, caseID, evidenceID 
 	if err != nil {
 		return Evidence{}, nil, err
 	}
-	blob, err := s.store.Get(ctx, item.ID)
+	if !item.FileAvailable || item.FileID == "" {
+		return Evidence{}, nil, ErrNotFound
+	}
+	blob, err := s.store.Get(ctx, item.FileID)
 	if err != nil {
 		return Evidence{}, nil, err
 	}
@@ -137,8 +147,10 @@ func (s *EvidenceService) DeleteOwn(ctx context.Context, owner, caseID, evidence
 	if err != nil {
 		return err
 	}
-	if err := s.store.Delete(ctx, item.ID); err != nil {
-		return err
+	if item.FileAvailable && item.FileID != "" {
+		if err := s.store.Delete(ctx, item.FileID); err != nil {
+			return err
+		}
 	}
 	return s.repo.DeleteOwnEvidence(ctx, owner, caseID, evidenceID)
 }
@@ -148,8 +160,10 @@ func (s *EvidenceService) DeleteReview(ctx context.Context, caseID, evidenceID s
 	if err != nil {
 		return err
 	}
-	if err := s.store.Delete(ctx, item.ID); err != nil {
-		return err
+	if item.FileAvailable && item.FileID != "" {
+		if err := s.store.Delete(ctx, item.FileID); err != nil {
+			return err
+		}
 	}
 	return s.repo.DeleteReviewEvidence(ctx, caseID, evidenceID)
 }

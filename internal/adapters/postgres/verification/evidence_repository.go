@@ -17,7 +17,7 @@ func (r *Repository) CreateEvidence(ctx context.Context, item verification.Evide
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	var owner string
-	if err = tx.QueryRow(ctx, `SELECT usuario_id::text FROM public.verificacion WHERE id=$1`, item.VerificationID).Scan(&owner); errors.Is(err, pgx.ErrNoRows) {
+	if err = tx.QueryRow(ctx, `SELECT usuario_id::text FROM public.verificacion WHERE id=$1 AND estado='en_revision' AND retirar_en IS NULL`, item.VerificationID).Scan(&owner); errors.Is(err, pgx.ErrNoRows) {
 		return verification.Evidence{}, verification.ErrNotFound
 	}
 	if err != nil {
@@ -32,12 +32,12 @@ func (r *Repository) CreateEvidence(ctx context.Context, item verification.Evide
 	}
 	var created verification.Evidence
 	err = tx.QueryRow(ctx, `INSERT INTO public.verificacion_evidencia_sintetica
-		(id, verificacion_id, codigo_fixture, mime_type, tamano_bytes, sha256, creada_en)
-		SELECT $1, v.id, $3, $4, $5, $6, $7 FROM public.verificacion v
-		WHERE v.id=$2 AND v.usuario_id=$8
-		RETURNING id::text, verificacion_id::text, codigo_fixture, mime_type, tamano_bytes, sha256, creada_en`,
+		(id, verificacion_id, codigo_fixture, mime_type, tamano_bytes, sha256, creada_en,archivo_id)
+		SELECT $1, v.id, $3, $4, $5, $6, $7,$1 FROM public.verificacion v
+		WHERE v.id=$2 AND v.usuario_id=$8 AND v.estado='en_revision' AND v.retirar_en IS NULL
+		RETURNING id::text, verificacion_id::text, codigo_fixture, mime_type, tamano_bytes, sha256, creada_en,archivo_id::text,archivo_id IS NOT NULL`,
 		item.ID, item.VerificationID, item.FixtureCode, item.MIMEType, item.SizeBytes, item.SHA256, dbTime(item.CreatedAt), owner).
-		Scan(&created.ID, &created.VerificationID, &created.FixtureCode, &created.MIMEType, &created.SizeBytes, &created.SHA256, &created.CreatedAt)
+		Scan(&created.ID, &created.VerificationID, &created.FixtureCode, &created.MIMEType, &created.SizeBytes, &created.SHA256, &created.CreatedAt, &created.FileID, &created.FileAvailable)
 	if err != nil {
 		return verification.Evidence{}, mapEvidenceDBError(err)
 	}
@@ -49,7 +49,7 @@ func (r *Repository) CreateEvidence(ctx context.Context, item verification.Evide
 
 func (r *Repository) ListOwnEvidence(ctx context.Context, owner, caseID string) ([]verification.Evidence, error) {
 	rows, err := r.pool.Query(ctx, `SELECT e.id::text, e.verificacion_id::text, e.codigo_fixture,
-		e.mime_type, e.tamano_bytes, e.sha256, e.creada_en
+		e.mime_type, e.tamano_bytes, e.sha256, e.creada_en,COALESCE(e.archivo_id::text,''),e.archivo_id IS NOT NULL
 		FROM public.verificacion_evidencia_sintetica e
 		JOIN public.verificacion v ON v.id = e.verificacion_id
 		WHERE v.usuario_id = $1 AND v.id = $2
@@ -61,7 +61,7 @@ func (r *Repository) ListOwnEvidence(ctx context.Context, owner, caseID string) 
 	items := make([]verification.Evidence, 0)
 	for rows.Next() {
 		var item verification.Evidence
-		if err := rows.Scan(&item.ID, &item.VerificationID, &item.FixtureCode, &item.MIMEType, &item.SizeBytes, &item.SHA256, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.VerificationID, &item.FixtureCode, &item.MIMEType, &item.SizeBytes, &item.SHA256, &item.CreatedAt, &item.FileID, &item.FileAvailable); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -71,7 +71,7 @@ func (r *Repository) ListOwnEvidence(ctx context.Context, owner, caseID string) 
 
 func (r *Repository) ListReviewEvidence(ctx context.Context, caseID string) ([]verification.Evidence, error) {
 	rows, err := r.pool.Query(ctx, `SELECT e.id::text, e.verificacion_id::text, e.codigo_fixture,
-		e.mime_type, e.tamano_bytes, e.sha256, e.creada_en
+		e.mime_type, e.tamano_bytes, e.sha256, e.creada_en,COALESCE(e.archivo_id::text,''),e.archivo_id IS NOT NULL
 		FROM public.verificacion_evidencia_sintetica e
 		WHERE e.verificacion_id = $1
 		ORDER BY e.creada_en DESC, e.id`, caseID)
@@ -82,7 +82,7 @@ func (r *Repository) ListReviewEvidence(ctx context.Context, caseID string) ([]v
 	items := make([]verification.Evidence, 0)
 	for rows.Next() {
 		var item verification.Evidence
-		if err := rows.Scan(&item.ID, &item.VerificationID, &item.FixtureCode, &item.MIMEType, &item.SizeBytes, &item.SHA256, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.VerificationID, &item.FixtureCode, &item.MIMEType, &item.SizeBytes, &item.SHA256, &item.CreatedAt, &item.FileID, &item.FileAvailable); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -91,20 +91,20 @@ func (r *Repository) ListReviewEvidence(ctx context.Context, caseID string) ([]v
 }
 
 func (r *Repository) GetOwnEvidence(ctx context.Context, owner, caseID, evidenceID string) (verification.Evidence, error) {
-	return r.getEvidence(ctx, `SELECT e.id::text, e.verificacion_id::text, e.codigo_fixture, e.mime_type, e.tamano_bytes, e.sha256, e.creada_en
+	return r.getEvidence(ctx, `SELECT e.id::text, e.verificacion_id::text, e.codigo_fixture, e.mime_type, e.tamano_bytes, e.sha256, e.creada_en,COALESCE(e.archivo_id::text,''),e.archivo_id IS NOT NULL
 		FROM public.verificacion_evidencia_sintetica e JOIN public.verificacion v ON v.id=e.verificacion_id
 		WHERE v.usuario_id=$1 AND v.id=$2 AND e.id=$3`, owner, caseID, evidenceID)
 }
 
 func (r *Repository) GetReviewEvidence(ctx context.Context, caseID, evidenceID string) (verification.Evidence, error) {
-	return r.getEvidence(ctx, `SELECT e.id::text, e.verificacion_id::text, e.codigo_fixture, e.mime_type, e.tamano_bytes, e.sha256, e.creada_en
+	return r.getEvidence(ctx, `SELECT e.id::text, e.verificacion_id::text, e.codigo_fixture, e.mime_type, e.tamano_bytes, e.sha256, e.creada_en,COALESCE(e.archivo_id::text,''),e.archivo_id IS NOT NULL
 		FROM public.verificacion_evidencia_sintetica e JOIN public.verificacion v ON v.id=e.verificacion_id
 		WHERE v.id=$1 AND e.id=$2`, caseID, evidenceID)
 }
 
 func (r *Repository) getEvidence(ctx context.Context, query string, args ...any) (verification.Evidence, error) {
 	var item verification.Evidence
-	err := r.pool.QueryRow(ctx, query, args...).Scan(&item.ID, &item.VerificationID, &item.FixtureCode, &item.MIMEType, &item.SizeBytes, &item.SHA256, &item.CreatedAt)
+	err := r.pool.QueryRow(ctx, query, args...).Scan(&item.ID, &item.VerificationID, &item.FixtureCode, &item.MIMEType, &item.SizeBytes, &item.SHA256, &item.CreatedAt, &item.FileID, &item.FileAvailable)
 	if err != nil {
 		return verification.Evidence{}, mapEvidenceDBError(err)
 	}

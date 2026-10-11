@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,18 +17,188 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
 	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/damageclaim"
 	damageclaimhttp "github.com/HernanEspinozaDev/espaciGo/internal/damageclaim/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"gopkg.in/yaml.v3"
 )
+
+type failOncePrivateCleaner struct {
+	store *evidencefs.Store
+	fail  bool
+}
+
+func (c *failOncePrivateCleaner) Delete(ctx context.Context, id string) error {
+	if c.fail {
+		c.fail = false
+		return errors.New("synthetic private deletion failure")
+	}
+	return c.store.Delete(ctx, id)
+}
+
+func TestRatifiedLocalRetentionPurgesDueRowsAndRecoversPrivateFileDeletion(t *testing.T) {
+	h := newAuthHarness(t)
+	ownerID := h.register(t, "retention-owner@ejemplo.invalid")
+	h.verify(t)
+	reviewerID := h.register(t, "retention-reviewer@ejemplo.invalid")
+	h.verify(t)
+	adminID := h.register(t, "retention-admin@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
+	}
+
+	resolvedAt := h.now.AddDate(-3, 0, 0)
+	fileDue := resolvedAt.AddDate(0, 0, 90)
+	metadataDue := resolvedAt.AddDate(2, 0, 0)
+	verificationRepo := verificationpg.New(h.pool)
+	verifications, err := verification.NewService(verificationRepo, credentials.Generator{}, verification.LocalFixtureProvider{}, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseItem, err := verifications.Start(h.ctx, ownerID, "kyc", "retention-case-0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateRoot := t.TempDir()
+	if err := os.Chmod(privateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	privateStore, err := evidencefs.New(privateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := verification.NewEvidenceService(verificationRepo, verificationRepo, privateStore, credentials.Generator{}, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := evidence.Upload(h.ctx, ownerID, caseItem.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = verifications.Review(h.ctx, caseItem.ID, reviewerID, "aprobada", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.verificacion SET resuelta_en=$2 WHERE id=$1`, caseItem.ID, resolvedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.verificacion_historial_local SET ocurrida_en=$2 WHERE verificacion_id=$1`, caseItem.ID, resolvedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.elegibilidad_verificacion_local SET concedida_en=$2 WHERE verificacion_id=$1`, caseItem.ID, resolvedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	// Exercise all non-file classes in the same bounded worker pass. Terms
+	// retain the shared version row; request/decision and unconverted quote
+	// rows use their own independently ratified five-year/90-day deadlines.
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.aceptacion_terminos SET retirar_en=$2 WHERE usuario_id=$1`, ownerID, fileDue); err != nil {
+		t.Fatal(err)
+	}
+	rights, err := privacy.NewService(newRuntimeIdentityRepository(t, h))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := rights.RequestRight(h.ctx, ownerID, "acceso", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedRequestAt := fileDue.AddDate(-5, 0, 0)
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.solicitud_titular SET estado='resuelta',resuelta_en=$2,motivo_resolucion_codigo='derecho_tramitado',retirar_en=$2::timestamptz+interval '5 years' WHERE id=$1`, request.ID, resolvedRequestAt); err != nil {
+		t.Fatal(err)
+	}
+	spaceID, quoteID, reservationID, occupancyID := "89000000-0000-4000-8000-000000000001", "89000000-0000-4000-8000-000000000002", "89000000-0000-4000-8000-000000000003", "89000000-0000-4000-8000-000000000004"
+	seedPrivacyReviewReservation(t, h, spaceID, quoteID, reservationID, occupancyID, reviewerID, ownerID, "aprobada_host")
+	unconvertedQuoteID := "89000000-0000-4000-8000-000000000005"
+	quoteCreated, quoteExpires := fileDue.Add(-91*24*time.Hour), fileDue.Add(-90*24*time.Hour)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.cotizacion_reserva_ensayo
+		SELECT (jsonb_populate_record(NULL::public.cotizacion_reserva_ensayo,
+			to_jsonb(q)||jsonb_build_object('id',$2::uuid,'creada_en',$3::timestamptz,'vence_en',$4::timestamptz,'retirar_en',$5::timestamptz))).*
+		FROM public.cotizacion_reserva_ensayo q WHERE q.id=$1`, quoteID, unconvertedQuoteID, quoteCreated, quoteExpires, fileDue); err != nil {
+		t.Fatal(err)
+	}
+
+	runtimeRepo := newRuntimeIdentityRepository(t, h)
+	retention, err := privacy.NewService(runtimeRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleaner := &failOncePrivateCleaner{store: privateStore, fail: true}
+	before, err := retention.PurgeExpiredLocalRetentions(h.ctx, fileDue.Add(-time.Nanosecond), 20, cleaner)
+	if err != nil || before.EvidenceFilesRemoved != 0 || before.TermsPurged != 0 || before.RightsPurged != 0 || before.QuotesPurged != 0 {
+		t.Fatalf("early retention pass=%+v err=%v", before, err)
+	}
+	failed, err := retention.PurgeExpiredLocalRetentions(h.ctx, fileDue, 20, cleaner)
+	if err != nil || failed.EvidenceFilesDeferred != 1 || failed.TermsPurged == 0 || failed.RightsPurged != 1 || failed.QuotesPurged != 1 {
+		t.Fatalf("failed-file pass=%+v err=%v", failed, err)
+	}
+	if _, err := os.Stat(filepath.Join(privateRoot, file.ID+".png")); err != nil {
+		t.Fatalf("file should remain after the simulated deletion failure: %v", err)
+	}
+	var storedFileID string
+	if err := h.pool.QueryRow(h.ctx, `SELECT archivo_id::text FROM public.verificacion_evidencia_sintetica WHERE id=$1`, file.ID).Scan(&storedFileID); err != nil || storedFileID != file.ID {
+		t.Fatalf("reference cleared before filesystem success: file_id=%q err=%v", storedFileID, err)
+	}
+
+	// Construct a fresh repository/service after the failed unlink to model a
+	// backend restart; the persisted lease and retry time drive recovery.
+	restartedService, err := privacy.NewService(newRuntimeIdentityRepository(t, h))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := restartedService.PurgeExpiredLocalRetentions(h.ctx, fileDue.Add(11*time.Second), 20, cleaner)
+	if err != nil || recovered.EvidenceFilesRemoved != 1 || recovered.VerificationsPurged != 0 {
+		t.Fatalf("recovered blob pass=%+v err=%v", recovered, err)
+	}
+	if _, err := os.Stat(filepath.Join(privateRoot, file.ID+".png")); !os.IsNotExist(err) {
+		t.Fatalf("private file remains after recovery: %v", err)
+	}
+	metadata, err := verificationRepo.ListOwnEvidence(h.ctx, ownerID, caseItem.ID)
+	if err != nil || len(metadata) != 1 || metadata[0].FileAvailable || metadata[0].FileID != "" {
+		t.Fatalf("two-year metadata/reference state=%+v err=%v", metadata, err)
+	}
+	if _, _, err := evidence.OwnContent(h.ctx, ownerID, caseItem.ID, file.ID); !errors.Is(err, verification.ErrNotFound) {
+		t.Fatalf("retired private file read err=%v, want not found", err)
+	}
+
+	metadataPurged, err := retention.PurgeExpiredLocalRetentions(h.ctx, metadataDue, 20, cleaner)
+	if err != nil || metadataPurged.VerificationsPurged != 1 {
+		t.Fatalf("two-year verification pass=%+v err=%v", metadataPurged, err)
+	}
+	var cases, histories, eligibility, evidenceRows int
+	if err := h.pool.QueryRow(h.ctx, `SELECT
+		(SELECT count(*) FROM public.verificacion WHERE id=$1),
+		(SELECT count(*) FROM public.verificacion_historial_local WHERE verificacion_id=$1),
+		(SELECT count(*) FROM public.elegibilidad_verificacion_local WHERE verificacion_id=$1),
+		(SELECT count(*) FROM public.verificacion_evidencia_sintetica WHERE verificacion_id=$1)`, caseItem.ID).Scan(&cases, &histories, &eligibility, &evidenceRows); err != nil {
+		t.Fatal(err)
+	}
+	if cases+histories+eligibility+evidenceRows != 0 {
+		t.Fatalf("verification metadata/history/projection survived deadline: cases=%d history=%d eligibility=%d evidence=%d", cases, histories, eligibility, evidenceRows)
+	}
+	var acceptances, rightsRows, quoteRows, convertedQuoteRows, reservationRows int
+	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.aceptacion_terminos WHERE usuario_id=$1),
+		(SELECT count(*) FROM public.solicitud_titular WHERE id=$2),
+		(SELECT count(*) FROM public.cotizacion_reserva_ensayo WHERE id=$3),
+		(SELECT count(*) FROM public.cotizacion_reserva_ensayo WHERE id=$4),
+		(SELECT count(*) FROM public.reserva_ensayo_local WHERE id=$5)`, ownerID, request.ID, unconvertedQuoteID, quoteID, reservationID).Scan(&acceptances, &rightsRows, &quoteRows, &convertedQuoteRows, &reservationRows); err != nil {
+		t.Fatal(err)
+	}
+	if acceptances+rightsRows+quoteRows != 0 || convertedQuoteRows != 1 || reservationRows != 1 {
+		t.Fatalf("retention changed unrelated/converted data: terms=%d rights=%d unconverted_quotes=%d converted_quotes=%d reservations=%d", acceptances, rightsRows, quoteRows, convertedQuoteRows, reservationRows)
+	}
+}
 
 type noOpPrivacyCleaner struct{}
 
