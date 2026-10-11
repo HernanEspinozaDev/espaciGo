@@ -163,6 +163,27 @@ Fecha inicial: 2026-10-07; conciliación actualizada al 2026-10-11 tras PR #254 
 - **Aceptación:** PR #211 integrado en `47b04cf`; V33 incremental, health/mock health y endpoints HTTP verificados. El mock permitió generar PNG, consultarlo desde API autenticada y retirarlo; galería quedó en 0/10. #210 cerrada y Hecho; padres M04 siguen abiertos.
 - **Evidencia:** `planning/evidence/local-m04-gallery-20261008.md`: PostgreSQL descartable con `espacigo_runtime` (candidato antiguo bloqueado durante Put, foto confirmada accesible, recuperación tras reinicio), checksums V32/V33, verify-http y smoke del mock. Se conservaron volumen/secretos y no se ejecutó GCP.
 
+### LOCAL-M04-COVER-RATE-01 — Seleccionar portada y cambiar modalidad (Issue #256)
+
+- **Módulo/tipo/estado:** M04 / VERTICAL DB-BE-API-TEST-MOCK / en curso tras PR #255; hija de #246 y trazada a #55/#56, RQF-077 y RQF-198. No completa #55/#56 ni LOCAL-1.
+- **Alcance verificable:** elegir/consultar portada solo entre PNG sintéticos activos de la galería del mismo titular/espacio; mantener privada la imagen; limpiar selección atómicamente al retirar la foto y ejecutar baja. Cambiar modalidad hora/día/mes en borrador, publicación activa u oculta con nueva versión inmutable; cotizaciones, reservas, contratos y simulaciones anteriores conservan su snapshot. Rechazar cambio incompatible con horario semanal activo con 409 sin cambiar tarifa; permitirlo después de desactivarlo.
+- **Dependencias satisfechas:** publicación/ownership y KYC local (#204/#205), edición (#206–#209), galería (#210/#211), calendario semanal M06 y snapshots. V19 exige desactivar horario semanal antes de dejar `hora`; se conserva y se expone como conflicto claro.
+- **Fuera:** exponer archivo privado en catálogo, asignar modalidad retroactiva, reescribir reservas, cambiar ocupaciones, proveedores y GCP.
+- **Validación:** PostgreSQL desechable cubre publicación, modalidad activa/oculta, incompatibilidad, snapshots, portada, ownership y retiro; handler/OpenAPI y build/tests del mock. V49 no se aplica al volumen persistente antes de revisión/aceptación.
+
+### LOCAL-M05-SEARCH-GAPS-01 — Búsqueda textual y filtros locales restantes (Issue #257)
+
+- **Estado:** Listo después de M04-COVER-RATE-01; hija de #246, trazada a #65/#62–#68 y RQF-094/095/099/102.
+- **Criterios:** texto en campos públicos permitidos; mapa mock solo con ubicaciones sintéticas, sin divulgar coordenadas privadas; superficie mínima inclusiva combinable con filtros existentes; acción restablece todos los criterios/paginación/selección y descarta respuestas tardías. API/OpenAPI, PostgreSQL desechable, mock y evidencia. Sin geocodificación real ni GCP.
+
+### LOCAL-M04-PUBLICATION-DELETE-01 — Conservación histórica (Issue #258)
+
+- **Estado:** Bloqueado antes de código por ratificación de regla; trazada a #55/#52–#61 y RQF-091/092. La propuesta en la Issue retira inmediatamente del catálogo, impide borrar con reservas futuras no terminales u obligaciones abiertas, elimina oferta/galería/calendario sin finalidad y conserva snapshots/hechos mínimos hasta cierre de obligaciones + 24 meses ratificados. No afirma anonimización y exige limpieza durable de archivos. No implementar hasta ratificación/ajuste del propietario.
+
+### LOCAL-M10-BOOKING-CLOSE-01 — Cerrar reserva tras liquidación fake (Issue #259)
+
+- **Estado:** Listo después de las brechas M04/M05 prioritarias; hija de #246, trazada a #109/#110 y RQF-177. Solo liquidación fake confirmada cambia `finalizada` a `cerrada`, con historial idempotente bajo bloqueos y sin obligaciones abiertas. Timeout/rechazo no cierran. Sin payout real, documento fiscal ni GCP.
+
 ### LOCAL-M05-DISC-01 — Descubrir publicaciones locales activas (Issue #212)
 
 - **Módulo/tipo/estado:** M05 / subentrega VERTICAL DB-API-TEST-MOCK / aceptada como slice (#212, PR #213), hija de #65; no completa M05 ni M04.

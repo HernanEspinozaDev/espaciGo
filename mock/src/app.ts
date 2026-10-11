@@ -694,7 +694,7 @@ async function loadSpaces(): Promise<void> {
     }
     if(sessionRoles.includes("arrendador")) {
       const galleryButton=document.createElement("button"); galleryButton.type="button"; galleryButton.textContent=`Galería sintética · ${String(item.title)}`;
-      galleryButton.addEventListener("click",()=>void action(()=>loadSpaceGallery(String(item.id),String(item.title))));
+      galleryButton.addEventListener("click",()=>void action(()=>loadSpaceGallery(String(item.id),String(item.title),String(item.cover_photo_id??""))));
       li.append(galleryButton);
     }
     spacesList.append(li);
@@ -711,14 +711,14 @@ function clearSpaceGallery():void {
 function currentGalleryContext(ctx:GalleryContext):boolean {
   return galleryContextMatches(ctx,{token:sessionToken,accountID:sessionAccountID,generation:sessionGeneration,spaceID:gallerySelectedSpaceID,revision:galleryRequestRevision});
 }
-async function loadSpaceGallery(spaceID:string,title:string):Promise<void> {
+async function loadSpaceGallery(spaceID:string,title:string,coverPhotoID=""):Promise<void> {
   const token=sessionToken,accountID=sessionAccountID,generation=sessionGeneration;
   galleryRequestRevision++; gallerySelectedSpaceID=spaceID;
   const ctx:GalleryContext={token,accountID,generation,spaceID,revision:galleryRequestRevision};
   for(const url of galleryPreviewURLs)URL.revokeObjectURL(url); galleryPreviewURLs.clear();
   spaceGalleryPanel.replaceChildren();
   const heading=document.createElement("h3"); heading.textContent=`Galería sintética · ${title}`;
-  const notice=document.createElement("p"); notice.textContent="El Backend genera un PNG fijo; no se cargan imágenes reales ni archivos del cliente. Máximo 10 imágenes. Esta vista privada no publica la galería en el catálogo.";
+  const notice=document.createElement("p"); notice.textContent=`El Backend genera PNG fijos; no se cargan imágenes reales ni archivos del cliente. Máximo 10 imágenes. La galería es privada. Portada seleccionada: ${coverPhotoID||"ninguna"}.`;
   const status=document.createElement("p"); status.textContent="Consultando galería propia…";
   const add=document.createElement("button"); add.type="button"; add.textContent="Generar imagen sintética";
   const list=document.createElement("ul");
@@ -769,7 +769,19 @@ async function loadSpaceGallery(spaceID:string,title:string):Promise<void> {
         status.textContent="Imagen retirada; el archivo privado queda en cola de limpieza recuperable.";
         await loadSpaceGallery(spaceID,title);
       }));
-      li.append(meta,show,remove,previewBox);list.append(li);
+      const cover=document.createElement("button");cover.type="button";
+      cover.textContent=String(item.id)===coverPhotoID?"Portada actual":"Usar como portada";
+      cover.disabled=String(item.id)===coverPhotoID;
+      cover.addEventListener("click",()=>void action(async()=>{
+        if(!currentGalleryContext(ctx))return;
+        try{await request(`/api/v1/spaces/${encodeURIComponent(spaceID)}/cover`,"PUT",{photo_id:String(item.id)},true);}
+        catch(error){if(!currentGalleryContext(ctx))return;throw error;}
+        if(!currentGalleryContext(ctx))return;
+        status.textContent="Portada sintética guardada para este espacio.";
+        await loadSpaces();
+        if(currentGalleryContext(ctx))await loadSpaceGallery(spaceID,title,String(item.id));
+      }));
+      li.append(meta,show,cover,remove,previewBox);list.append(li);
     }
   } catch(error){if(!currentGalleryContext(ctx))return;throw error;}
 }
@@ -792,7 +804,7 @@ const calendarBlockForm = document.querySelector<HTMLFormElement>("#calendar-blo
 const priceRateForm = document.querySelector<HTMLFormElement>("#price-rate-form")!;
 const priceRateOutput = document.querySelector<HTMLElement>("#price-rate-output")!;
 const priceSimulationOutput = document.querySelector<HTMLElement>("#price-simulation-output")!;
-function pricePath(suffix:string):string { if(!calendarSpace.value) throw new Error("Selecciona uno de tus borradores."); return `/api/v1/spaces/${encodeURIComponent(calendarSpace.value)}/${suffix}`; }
+function pricePath(suffix:string):string { if(!calendarSpace.value) throw new Error("Selecciona uno de tus espacios propios."); return `/api/v1/spaces/${encodeURIComponent(calendarSpace.value)}/${suffix}`; }
 document.querySelector<HTMLButtonElement>("#price-load")!.addEventListener("click",()=>void action(async()=>{
   const spaceID=calendarSpace.value, selection=calendarRequestState.snapshot();
   const [rate,history]=await Promise.all([request(pricePath("tariff"),"GET",undefined,true),request(pricePath("tariffs"),"GET",undefined,true)]);
@@ -837,7 +849,7 @@ async function loadCalendarSpaces(): Promise<void> {
   const result = await request("/api/v1/spaces", "GET", undefined, true);
   const items = result.items as Array<Record<string, unknown>>;
   const selected = calendarSpace.value;
-  calendarSpace.replaceChildren(new Option("Selecciona un borrador", ""));
+  calendarSpace.replaceChildren(new Option("Selecciona un espacio propio", ""));
   for (const item of items) calendarSpace.add(new Option(String(item.title), String(item.id)));
   if ([...calendarSpace.options].some(option => option.value === selected)) calendarSpace.value = selected;
 }

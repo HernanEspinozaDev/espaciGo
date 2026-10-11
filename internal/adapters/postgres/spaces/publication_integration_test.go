@@ -17,12 +17,14 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
+	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
 	"github.com/jackc/pgx/v5"
@@ -181,7 +183,11 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	spacesAPI := spaceshttp.NewHandler(apiAuth, svc, nil, calendarService)
+	pricingService, err := pricing.NewService(pricingpg.New(pool), calendarService, credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spacesAPI := spaceshttp.NewHandlerWithPricing(apiAuth, svc, nil, calendarService, pricingService)
 	bookingPayment, err := fakebooking.New([]byte("space-zone-publication-local-payment-key-32-bytes"))
 	if err != nil {
 		t.Fatal(err)
@@ -306,6 +312,26 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if err != nil || reservation.State != "pendiente_de_pago" {
 		t.Fatalf("reservation after rejected publication: %+v err=%v", reservation, err)
 	}
+	weekly := booking.WeeklyHours{SpaceID: fixtureDraft.ID, Enabled: true, Days: make([]booking.WeeklyDay, 7)}
+	for i := range weekly.Days {
+		weekly.Days[i] = booking.WeeklyDay{Weekday: i + 1, Periods: []booking.WeeklyPeriod{}}
+	}
+	weekly.Days[2].Periods = []booking.WeeklyPeriod{{Open: "09:00", Close: "17:00"}}
+	if _, err = bookingService.SaveWeeklyHours(ctx, owner, fixtureDraft.ID, weekly); err != nil {
+		t.Fatalf("enable weekly schedule for tariff guard: %v", err)
+	}
+	modeChange := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+fixtureDraft.ID+"/tariff", "owner-token", []byte(`{"rate_unit":"dia","base_price":8000}`))
+	if modeChange.Code != http.StatusConflict || !strings.Contains(modeChange.Body.String(), `"code":"tariff_calendar_conflict"`) {
+		t.Fatalf("mode change with active weekly schedule status=%d body=%s", modeChange.Code, modeChange.Body.String())
+	}
+	var versionsBeforeConflict int
+	if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$1`, fixtureDraft.ID).Scan(&versionsBeforeConflict); err != nil || versionsBeforeConflict != 1 {
+		t.Fatalf("incompatible mode change created a tariff version: count=%d err=%v", versionsBeforeConflict, err)
+	}
+	weekly.Enabled = false
+	if _, err = bookingService.SaveWeeklyHours(ctx, owner, fixtureDraft.ID, weekly); err != nil {
+		t.Fatalf("disable weekly schedule before mode change: %v", err)
+	}
 	// Once the allowlist entry is disabled, a local publication can be edited.
 	// Existing quote and reservation snapshots must remain fixed.
 	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_ensayo_local_fixture SET habilitada=false WHERE espacio_id=$1`, fixtureDraft.ID); err != nil {
@@ -313,6 +339,13 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	}
 	if _, err = svc.SetPublicationState(ctx, owner, fixtureDraft.ID, "activa", "activate-for-edit-test"); err != nil {
 		t.Fatalf("activate non-fixture publication for edit test: %v", err)
+	}
+	modeChange = invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+fixtureDraft.ID+"/tariff", "owner-token", []byte(`{"rate_unit":"dia","base_price":8000}`))
+	if modeChange.Code != http.StatusOK || !strings.Contains(modeChange.Body.String(), `"rate_unit":"dia"`) || !strings.Contains(modeChange.Body.String(), `"version":2`) {
+		t.Fatalf("active listing rate-mode change status=%d body=%s", modeChange.Code, modeChange.Body.String())
+	}
+	if foreignMode := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+fixtureDraft.ID+"/tariff", "renter-token", []byte(`{"rate_unit":"mes","base_price":9000}`)); foreignMode.Code != http.StatusForbidden {
+		t.Fatalf("non-owner rate-mode update status=%d body=%s", foreignMode.Code, foreignMode.Body.String())
 	}
 	// A legacy active listing with a reservation can be repaired only when its
 	// persisted zone is absent; the historical reservation snapshot is never
@@ -359,12 +392,13 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 		t.Fatalf("existing reservation snapshot changed: %+v err=%v", detail.Reservation, err)
 	}
 	var quotePrice, reservationPrice int64
+	var quoteUnit, reservationUnit string
 	var rateVersions int
-	if err = adminPool.QueryRow(ctx, `SELECT q.precio_unitario_clp,r.precio_unitario_clp,(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$1) FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local r ON r.cotizacion_id=q.id WHERE q.id=$2`, fixtureDraft.ID, quote.ID).Scan(&quotePrice, &reservationPrice, &rateVersions); err != nil {
+	if err = adminPool.QueryRow(ctx, `SELECT q.precio_unitario_clp,r.precio_unitario_clp,q.modalidad,r.modalidad,(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$1) FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local r ON r.cotizacion_id=q.id WHERE q.id=$2`, fixtureDraft.ID, quote.ID).Scan(&quotePrice, &reservationPrice, &quoteUnit, &reservationUnit, &rateVersions); err != nil {
 		t.Fatal(err)
 	}
-	if quotePrice != 8000 || reservationPrice != 8000 || rateVersions != 2 {
-		t.Fatalf("price version/snapshots quote=%d reservation=%d versions=%d", quotePrice, reservationPrice, rateVersions)
+	if quotePrice != 8000 || reservationPrice != 8000 || quoteUnit != "hora" || reservationUnit != "hora" || rateVersions != 3 {
+		t.Fatalf("price version/snapshots quote=%d/%s reservation=%d/%s versions=%d", quotePrice, quoteUnit, reservationPrice, reservationUnit, rateVersions)
 	}
 	if _, err = svc.SetPublicationState(ctx, owner, fixtureDraft.ID, "oculta", "hide-after-edit"); err != nil {
 		t.Fatal(err)
@@ -377,8 +411,18 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$1`, fixtureDraft.ID).Scan(&rateVersions); err != nil {
 		t.Fatal(err)
 	}
-	if rateVersions != 2 {
+	if rateVersions != 3 {
 		t.Fatalf("title-only edit created a tariff version: count=%d", rateVersions)
+	}
+	modeChange = invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+fixtureDraft.ID+"/tariff", "owner-token", []byte(`{"rate_unit":"mes","base_price":12000}`))
+	if modeChange.Code != http.StatusOK || !strings.Contains(modeChange.Body.String(), `"rate_unit":"mes"`) || !strings.Contains(modeChange.Body.String(), `"version":4`) {
+		t.Fatalf("hidden listing rate-mode change status=%d body=%s", modeChange.Code, modeChange.Body.String())
+	}
+	if err = adminPool.QueryRow(ctx, `SELECT q.precio_unitario_clp,r.precio_unitario_clp,q.modalidad,r.modalidad FROM public.cotizacion_reserva_ensayo q JOIN public.reserva_ensayo_local r ON r.cotizacion_id=q.id WHERE q.id=$1`, quote.ID).Scan(&quotePrice, &reservationPrice, &quoteUnit, &reservationUnit); err != nil {
+		t.Fatal(err)
+	}
+	if quotePrice != 8000 || reservationPrice != 8000 || quoteUnit != "hora" || reservationUnit != "hora" {
+		t.Fatalf("hidden mode change altered historical snapshots: quote=%d/%s reservation=%d/%s", quotePrice, quoteUnit, reservationPrice, reservationUnit)
 	}
 	if _, err = svc.UpdatePublishedOwn(ctx, other, fixtureDraft.ID, spaces.PublishedContentInput{Title: &newTitle}); err != spaces.ErrNotFound {
 		t.Fatalf("foreign published-content edit error=%v", err)

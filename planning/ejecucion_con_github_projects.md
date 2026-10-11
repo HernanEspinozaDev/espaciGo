@@ -1,5 +1,9 @@
 # Continuar EspaciGo desde un PC con GitHub Projects
 
+## Actualización vigente — 2026-10-11, posterior a PR #255
+
+`main` integra #255 (`036718dfd80549d0aae415a1d404d07419cacbec`). #246 sigue abierta; no existe aceptación final de LOCAL-1. Sus brechas se distribuyeron como hijas #256 M04 portada/modalidad (en curso), #257 búsqueda/filtros M05 (Listo después de #256), #258 eliminación/conservación histórica (Bloqueada hasta ratificación de regla), y #259 transición a `cerrada` tras liquidación fake (Listo después de los cortes prioritarios). No ejecutar nuevamente la regresión integral hasta completar estas brechas; conservar volumen y secretos, usar DB desechable y no hacer GCP.
+
 ## Instrucción vigente — backend local completo, conciliada 2026-10-10
 
 Seguir [plan_cierre_backend_local.md](plan_cierre_backend_local.md), [backlog_cierre_backend_local.md](backlog_cierre_backend_local.md) y [prompt_cierre_backend_local.md](prompt_cierre_backend_local.md). El objetivo es completar el alcance local M01–M11 y aceptar LOCAL-1 antes de proponer cualquier prueba/despliegue GCP. Los paquetes son planificación: contrastar Issues, PRs y evidencias actuales antes de trasladarlos a Projects.

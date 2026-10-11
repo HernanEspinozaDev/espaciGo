@@ -31,6 +31,7 @@ type Draft struct {
 	Address                string         `json:"address"`
 	State                  string         `json:"state"`
 	TimeZone               *string        `json:"time_zone,omitempty"`
+	CoverPhotoID           *string        `json:"cover_photo_id,omitempty"`
 	AttributeSchemaVersion int            `json:"attribute_schema_version"`
 	Attributes             map[string]any `json:"attributes"`
 }

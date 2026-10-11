@@ -276,8 +276,9 @@ func calendarHandler(t *testing.T) http.Handler {
 }
 
 type priceRepo struct {
-	rate pricing.Rate
-	sim  pricing.Simulation
+	rate             pricing.Rate
+	sim              pricing.Simulation
+	calendarConflict bool
 }
 
 func (p *priceRepo) CurrentRate(_ context.Context, owner, space string) (pricing.Rate, error) {
@@ -293,6 +294,9 @@ func (p *priceRepo) RateHistory(_ context.Context, owner, space string) ([]prici
 func (p *priceRepo) UpdateRate(_ context.Context, owner, space string, in pricing.RateInput) (pricing.Rate, error) {
 	if owner != ownerA || space != draftID {
 		return pricing.Rate{}, pricing.ErrNotFound
+	}
+	if p.calendarConflict && in.Unit != "hora" {
+		return pricing.Rate{}, pricing.ErrCalendarConflict
 	}
 	p.rate.Version++
 	p.rate.Unit = in.Unit
@@ -325,15 +329,21 @@ func TestPrivatePriceSimulationRoutesAndOpenAPISchemas(t *testing.T) {
 	}
 	h := NewHandlerWithPricing(fakeAuth{}, spacesSvc, []string{"http://localhost"}, fakeCalendar{}, service)
 	base := "/api/v1/spaces/" + draftID
-	read := invoke(h, "GET", base+"/tariff", "user", "")
+	read := invoke(h, "GET", base+"/tariff", "landlord", "")
 	if read.Code != 200 || !strings.Contains(read.Body.String(), `"version":1`) {
 		t.Fatalf("rate response %d %s", read.Code, read.Body.String())
 	}
-	updated := invoke(h, "PUT", base+"/tariff", "user", `{"rate_unit":"hora","base_price":9000}`)
+	repo.calendarConflict = true
+	conflict := invoke(h, "PUT", base+"/tariff", "landlord", `{"rate_unit":"dia","base_price":9000}`)
+	if conflict.Code != http.StatusConflict || !strings.Contains(conflict.Body.String(), `"code":"tariff_calendar_conflict"`) {
+		t.Fatalf("calendar-incompatible tariff response %d %s", conflict.Code, conflict.Body.String())
+	}
+	repo.calendarConflict = false
+	updated := invoke(h, "PUT", base+"/tariff", "landlord", `{"rate_unit":"hora","base_price":9000}`)
 	if updated.Code != 200 || !strings.Contains(updated.Body.String(), `"version":2`) {
 		t.Fatalf("rate update %d %s", updated.Code, updated.Body.String())
 	}
-	sim := invoke(h, "POST", base+"/price-simulations", "user", `{"start_at":"2030-04-01T12:00:00Z","end_at":"2030-04-01T13:30:00Z"}`)
+	sim := invoke(h, "POST", base+"/price-simulations", "landlord", `{"start_at":"2030-04-01T12:00:00Z","end_at":"2030-04-01T13:30:00Z"}`)
 	if sim.Code != 201 || !strings.Contains(sim.Body.String(), `"billed_units":2`) || !strings.Contains(sim.Body.String(), `"base_subtotal":18000`) || !strings.Contains(sim.Body.String(), `"private":true`) {
 		t.Fatalf("simulation %d %s", sim.Code, sim.Body.String())
 	}
@@ -365,7 +375,12 @@ func invoke(h http.Handler, method, path, token, body string) *httptest.Response
 	return w
 }
 func TestDraftRoutesRequireSessionAndReturnNotFoundAcrossOwners(t *testing.T) {
-	h := testHandler(t)
+	repository := &memoryRepo{}
+	service, err := spaces.NewService(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, service, []string{"http://localhost"})
 	if got := invoke(h, "GET", "/api/v1/spaces", "", "").Code; got != 401 {
 		t.Fatalf("unauthenticated status=%d", got)
 	}
@@ -486,7 +501,12 @@ func TestDraftResponsesValidateAgainstOpenAPISchemaAndCategoryChanges(t *testing
 	profileSchema := compileOpenAPISchema(t, schemas["SpaceAttributeProfile"])
 	inputSchema := compileOpenAPISchema(t, schemas["SpaceDraftInput"])
 
-	h := testHandler(t)
+	repository := &memoryRepo{}
+	service, err := spaces.NewService(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, service, []string{"http://localhost"})
 	profileResponse := invoke(h, "GET", "/api/v1/spaces/categories/oficina/attributes", "user", "")
 	if profileResponse.Code != http.StatusOK {
 		t.Fatalf("profile status=%d %s", profileResponse.Code, profileResponse.Body.String())
@@ -502,6 +522,16 @@ func TestDraftResponsesValidateAgainstOpenAPISchemaAndCategoryChanges(t *testing
 		t.Fatalf("create status=%d: %s", created.Code, created.Body.String())
 	}
 	assertDraftResponseSchema(t, schema, created.Body.Bytes())
+	if strings.Contains(created.Body.String(), `"cover_photo_id"`) {
+		t.Fatalf("unselected cover should remain omitted: %s", created.Body.String())
+	}
+	selectedCoverID := "11111111-1111-4111-8111-111111111111"
+	repository.draft.CoverPhotoID = &selectedCoverID
+	coverResponse := invoke(h, "GET", "/api/v1/spaces/"+draftID, "user", "")
+	if coverResponse.Code != http.StatusOK || !strings.Contains(coverResponse.Body.String(), `"cover_photo_id":"`+selectedCoverID+`"`) {
+		t.Fatalf("selected cover response status=%d body=%s", coverResponse.Code, coverResponse.Body.String())
+	}
+	assertDraftResponseSchema(t, schema, coverResponse.Body.Bytes())
 
 	input := spaces.Input{CategoryCode: "sala_multiproposito", AttributeSchemaVersion: 1, Title: "Sala", Description: strings.Repeat("Sala multipropósito para actividades privadas. ", 3), AreaM2: 10, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "hora", BasePriceCLP: 6001, Address: "Calle 2"}
 	body, _ := json.Marshal(input)

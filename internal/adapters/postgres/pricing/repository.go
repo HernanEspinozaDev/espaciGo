@@ -26,10 +26,10 @@ const rateCols = `espacio_id::text,version,modalidad,precio_base_clp,moneda,crea
 const joinedRateCols = `t.espacio_id::text,t.version,t.modalidad,t.precio_base_clp,t.moneda,t.creada_en`
 
 func (r *Repository) CurrentRate(ctx context.Context, owner, spaceID string) (pricing.Rate, error) {
-	return scanRate(r.pool.QueryRow(ctx, `SELECT `+joinedRateCols+` FROM public.tarifa_espacio t JOIN public.espacio e ON e.id=t.espacio_id WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado='borrador' ORDER BY t.version DESC LIMIT 1`, spaceID, owner))
+	return scanRate(r.pool.QueryRow(ctx, `SELECT `+joinedRateCols+` FROM public.tarifa_espacio t JOIN public.espacio e ON e.id=t.espacio_id WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado IN ('borrador','activa','oculta') ORDER BY t.version DESC LIMIT 1`, spaceID, owner))
 }
 func (r *Repository) RateHistory(ctx context.Context, owner, spaceID string) ([]pricing.Rate, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+joinedRateCols+` FROM public.tarifa_espacio t JOIN public.espacio e ON e.id=t.espacio_id WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado='borrador' ORDER BY t.version`, spaceID, owner)
+	rows, err := r.pool.Query(ctx, `SELECT `+joinedRateCols+` FROM public.tarifa_espacio t JOIN public.espacio e ON e.id=t.espacio_id WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado IN ('borrador','activa','oculta') ORDER BY t.version`, spaceID, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -59,14 +59,14 @@ func (r *Repository) UpdateRate(ctx context.Context, owner, spaceID string, in p
 	}
 	var unit string
 	var amount int64
-	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado='borrador' FOR UPDATE`, spaceID, owner).Scan(&unit, &amount)
+	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado IN ('borrador','activa','oculta') FOR UPDATE`, spaceID, owner).Scan(&unit, &amount)
 	if err != nil {
 		return pricing.Rate{}, mapError(err)
 	}
 	if unit == in.Unit && amount == in.Amount {
 		return scanRate(tx.QueryRow(ctx, `SELECT `+rateCols+` FROM public.tarifa_espacio WHERE espacio_id=$1 ORDER BY version DESC LIMIT 1`, spaceID))
 	}
-	_, err = tx.Exec(ctx, `UPDATE public.espacio SET modalidad_tarifa=$3,precio_base_clp=$4,actualizado_en=now() WHERE id=$1 AND propietario_id=$2 AND estado='borrador'`, spaceID, owner, in.Unit, in.Amount)
+	_, err = tx.Exec(ctx, `UPDATE public.espacio SET modalidad_tarifa=$3,precio_base_clp=$4,actualizado_en=clock_timestamp() WHERE id=$1 AND propietario_id=$2 AND estado IN ('borrador','activa','oculta')`, spaceID, owner, in.Unit, in.Amount)
 	if err != nil {
 		return pricing.Rate{}, mapError(err)
 	}
@@ -129,8 +129,13 @@ func mapError(err error) error {
 		return pricing.ErrNotFound
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23514" || pgErr.Code == "22003" || pgErr.Code == "23505") {
-		return pricing.ErrInvalid
+	if errors.As(err, &pgErr) {
+		if pgErr.Code == "23514" && (pgErr.ConstraintName == "modalidad_horario_semanal_activo_ck" || pgErr.ConstraintName == "tarifa_horario_semanal_activo_ck") {
+			return pricing.ErrCalendarConflict
+		}
+		if pgErr.Code == "23503" || pgErr.Code == "23514" || pgErr.Code == "22003" || pgErr.Code == "23505" {
+			return pricing.ErrInvalid
+		}
 	}
 	return err
 }

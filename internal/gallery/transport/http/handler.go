@@ -49,7 +49,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	}
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -85,6 +85,27 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case photoID == "cover" && r.Method == http.MethodPut:
+		var input struct {
+			PhotoID string `json:"photo_id"`
+		}
+		decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil || strings.TrimSpace(input.PhotoID) == "" {
+			failure(w, 422, "validation_error", "Indica una imagen sintética activa de la galería propia.")
+			return
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			failure(w, 422, "validation_error", "El cuerpo JSON debe contener un único objeto.")
+			return
+		}
+		result, err := h.service.SelectCover(r.Context(), principal.AccountID, spaceID, input.PhotoID)
+		if err != nil {
+			galleryError(w, err)
+			return
+		}
+		write(w, 200, result)
 	case photoID == "" && r.Method == http.MethodGet:
 		items, err := h.service.List(r.Context(), principal.AccountID, spaceID)
 		if err != nil {
@@ -142,6 +163,9 @@ func route(path string) (spaceID, photoID string, content, ok bool) {
 		return "", "", false, false
 	}
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(path, prefix), "/"), "/")
+	if len(parts) == 2 && parts[0] != "" && parts[1] == "cover" {
+		return parts[0], "cover", false, true
+	}
 	if len(parts) < 2 || parts[0] == "" || parts[1] != "gallery" {
 		return "", "", false, false
 	}

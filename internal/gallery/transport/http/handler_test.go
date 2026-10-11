@@ -98,6 +98,12 @@ func (r *repoStub) Get(_ context.Context, _, _, id string) (gallery.Photo, error
 func (r *repoStub) Remove(_ context.Context, _, _, id string) (gallery.Removal, error) {
 	return gallery.Removal{PhotoID: id, Removed: true}, nil
 }
+func (r *repoStub) SelectCover(_ context.Context, _, spaceID, photoID string) (gallery.Cover, error) {
+	if _, err := r.Get(context.Background(), testOwner, spaceID, photoID); err != nil {
+		return gallery.Cover{}, err
+	}
+	return gallery.Cover{SpaceID: spaceID, PhotoID: photoID, Selected: true}, nil
+}
 func (r *repoStub) PendingCleanup(context.Context, int) ([]string, error)    { return nil, nil }
 func (r *repoStub) CompleteCleanup(context.Context, string, time.Time) error { return nil }
 func (r *repoStub) FailCleanup(context.Context, string, time.Time) error     { return nil }
@@ -109,15 +115,23 @@ func TestAssembledRouterKeepsSpaceRoutesAndChecksGalleryErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	galleryHandler := NewHandler(authStub{}, svc, nil)
+	galleryHandler := NewHandler(authStub{}, svc, []string{"http://localhost"})
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/spaces/{spaceID}/gallery", galleryHandler)
+	mux.Handle("/api/v1/spaces/{spaceID}/cover", galleryHandler)
 	mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}", galleryHandler)
 	mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/content", galleryHandler)
 	mux.Handle("/api/v1/spaces/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(209)
 		_, _ = w.Write([]byte("existing space route"))
 	}))
+	preflight := httptest.NewRequest(http.MethodOptions, "/api/v1/spaces/"+testSpace+"/cover", nil)
+	preflight.Header.Set("Origin", "http://localhost")
+	preflightResponse := httptest.NewRecorder()
+	mux.ServeHTTP(preflightResponse, preflight)
+	if preflightResponse.Code != http.StatusNoContent || !strings.Contains(preflightResponse.Header().Get("Access-Control-Allow-Methods"), "PUT") {
+		t.Fatalf("cover preflight status=%d headers=%v", preflightResponse.Code, preflightResponse.Header())
+	}
 	create := httptest.NewRequest(http.MethodPost, "/api/v1/spaces/"+testSpace+"/gallery", nil)
 	create.Header.Set("Authorization", "Bearer synthetic-test-token")
 	create.Header.Set("Idempotency-Key", "gallery-test-key-01")
@@ -133,6 +147,14 @@ func TestAssembledRouterKeepsSpaceRoutesAndChecksGalleryErrors(t *testing.T) {
 	}
 	if err := json.Unmarshal(created.Body.Bytes(), &response); err != nil || response.Photo.ID != testPhoto || !response.Synthetic {
 		t.Fatalf("gallery create response=%s err=%v", created.Body.String(), err)
+	}
+	coverRequest := httptest.NewRequest(http.MethodPut, "/api/v1/spaces/"+testSpace+"/cover", strings.NewReader(`{"photo_id":"`+testPhoto+`"}`))
+	coverRequest.Header.Set("Authorization", "Bearer synthetic-test-token")
+	coverRequest.Header.Set("Content-Type", "application/json")
+	cover := httptest.NewRecorder()
+	mux.ServeHTTP(cover, coverRequest)
+	if cover.Code != http.StatusOK || !strings.Contains(cover.Body.String(), `"photo_id":"`+testPhoto+`"`) || !strings.Contains(cover.Body.String(), `"selected":true`) {
+		t.Fatalf("cover selection status=%d body=%s", cover.Code, cover.Body.String())
 	}
 	contentRequest := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+testSpace+"/gallery/"+testPhoto+"/content", nil)
 	contentRequest.Header.Set("Authorization", "Bearer synthetic-test-token")

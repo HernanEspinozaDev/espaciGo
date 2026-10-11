@@ -112,6 +112,13 @@ func (s *Service) Remove(ctx context.Context, owner, spaceID, photoID string) (R
 	return s.repo.Remove(ctx, owner, spaceID, photoID)
 }
 
+func (s *Service) SelectCover(ctx context.Context, owner, spaceID, photoID string) (Cover, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Cover{}, ErrNotFound
+	}
+	return s.repo.SelectCover(ctx, owner, spaceID, photoID)
+}
+
 // CleanRetiredOnce drains withdrawn photos and files that never became photos.
 // Both paths are durable, retryable and safe across Backend restarts.
 func (s *Service) CleanRetiredOnce(ctx context.Context, limit int) error {

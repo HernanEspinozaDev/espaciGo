@@ -84,6 +84,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if (publicationID != "" || publicationContentID != "") && r.Method == http.MethodPut {
 		requiredRole = identity.RoleLandlord
 	}
+	if strings.HasSuffix(path, "/tariff") || strings.HasSuffix(path, "/tariffs") || strings.Contains(path, "/price-simulations") {
+		requiredRole = identity.RoleLandlord
+	}
 	calendarPath := strings.Contains(path, "/availability")
 	if r.URL.RawQuery != "" && !calendarPath {
 		failure(w, 400, "invalid_request", "No se admiten parámetros de URL.")
@@ -306,6 +309,8 @@ func (h *Handler) servePricing(w http.ResponseWriter, r *http.Request, path, own
 
 func pricingError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, pricing.ErrCalendarConflict):
+		failure(w, 409, "tariff_calendar_conflict", "Desactiva el horario semanal antes de cambiar a una modalidad distinta de hora.")
 	case errors.Is(err, pricing.ErrInvalid):
 		failure(w, 422, "invalid_request", "La tarifa o el intervalo no es válido.")
 	case errors.Is(err, pricing.ErrNotFound):

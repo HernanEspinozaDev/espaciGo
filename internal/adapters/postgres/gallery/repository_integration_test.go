@@ -15,6 +15,7 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
+	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
@@ -210,6 +211,21 @@ func TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup(t *testing.T
 	if _, _, err = svc.Content(ctx, other, spaceA, first.ID); !errors.Is(err, gallery.ErrNotFound) {
 		t.Fatalf("foreign owner content error=%v", err)
 	}
+	cover, err := svc.SelectCover(ctx, owner, spaceA, first.ID)
+	if err != nil || !cover.Selected || cover.PhotoID != first.ID {
+		t.Fatalf("select own cover=%+v err=%v", cover, err)
+	}
+	if _, err = svc.SelectCover(ctx, other, spaceA, first.ID); !errors.Is(err, gallery.ErrNotFound) {
+		t.Fatalf("foreign owner selected cover error=%v", err)
+	}
+	var selectedCover string
+	if err = adminPool.QueryRow(ctx, `SELECT portada_foto_id::text FROM public.espacio WHERE id=$1`, spaceA).Scan(&selectedCover); err != nil || selectedCover != first.ID {
+		t.Fatalf("persisted cover=%q err=%v", selectedCover, err)
+	}
+	space, err := spacespg.New(pool, credentials.Generator{}).GetOwn(ctx, owner, spaceA)
+	if err != nil || space.CoverPhotoID == nil || *space.CoverPhotoID != first.ID {
+		t.Fatalf("owner API model cover=%v err=%v", space.CoverPhotoID, err)
+	}
 
 	// A candidate that is already past the cleanup age remains protected while
 	// Put is paused before creating the file; after confirmation the worker must
@@ -316,6 +332,13 @@ func TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup(t *testing.T
 	removed, err := svc.Remove(ctx, owner, spaceA, first.ID)
 	if err != nil || !removed.Removed || removed.Reused {
 		t.Fatalf("remove=%+v err=%v", removed, err)
+	}
+	if err = adminPool.QueryRow(ctx, `SELECT COALESCE(portada_foto_id::text,'') FROM public.espacio WHERE id=$1`, spaceA).Scan(&selectedCover); err != nil || selectedCover != "" {
+		t.Fatalf("retired cover selection was not cleared: %q err=%v", selectedCover, err)
+	}
+	space, err = spacespg.New(pool, credentials.Generator{}).GetOwn(ctx, owner, spaceA)
+	if err != nil || space.CoverPhotoID != nil {
+		t.Fatalf("owner API model still exposes retired cover: cover=%v err=%v", space.CoverPhotoID, err)
 	}
 	removed, err = svc.Remove(ctx, owner, spaceA, first.ID)
 	if err != nil || !removed.Reused {

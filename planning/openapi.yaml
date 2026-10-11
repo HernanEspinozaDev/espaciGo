@@ -1214,6 +1214,30 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
         '503': { description: Storage privado temporalmente no disponible., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /spaces/{spaceId}/cover:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: selectOwnSyntheticSpaceCover
+      tags: [M04 local]
+      description: >-
+        Selecciona como portada una imagen PNG sintética activa de la galería propia. La selección queda ligada al mismo espacio y titular; retirar la imagen elimina la selección en la misma transacción. El archivo continúa privado y no se expone automáticamente al catálogo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [photo_id]
+              properties:
+                photo_id: { type: string, format: uuid }
+      responses:
+        '200': { description: Portada seleccionada., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticSpaceCover' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /spaces/{spaceId}/gallery/{photoId}:
     parameters:
       - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -1299,17 +1323,19 @@ paths:
     parameters:
       - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
     get:
-      operationId: getOwnDraftTariff
+      operationId: getOwnSpaceTariff
       tags: [M05 local]
-      description: Consulta la versión vigente de la tarifa base CLP del borrador propio.
+      description: Consulta la versión vigente de la tarifa base CLP del espacio propio en estado borrador, activo u oculto.
       responses:
         '200': { description: Tarifa vigente, content: { application/json: { schema: { $ref: '#/components/schemas/Rate' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     put:
-      operationId: updateOwnDraftTariff
+      operationId: updateOwnSpaceTariff
       tags: [M05 local]
-      description: Actualiza la tarifa del borrador propio creando una versión inmutable. No publica el borrador.
+      description: >-
+        Actualiza la tarifa del espacio propio en estado borrador, activo u oculto creando una versión inmutable. Una modalidad incompatible con un horario semanal activo responde conflicto y no cambia la tarifa. Cotizaciones, reservas y simulaciones existentes conservan sus snapshots. No cambia el estado de publicación.
       requestBody:
         required: true
         content:
@@ -1317,18 +1343,21 @@ paths:
       responses:
         '200': { description: Nueva versión, content: { application/json: { schema: { $ref: '#/components/schemas/Rate' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
   /spaces/{spaceId}/tariffs:
     parameters:
       - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
     get:
-      operationId: listOwnDraftTariffVersions
+      operationId: listOwnSpaceTariffVersions
       tags: [M05 local]
-      description: Lista versiones inmutables de tarifa del borrador propio.
+      description: Lista versiones inmutables de tarifa del espacio propio en estado borrador, activo u oculto.
       responses:
         '200': { description: Historial de tarifas, content: { application/json: { schema: { $ref: '#/components/schemas/RateList' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
   /spaces/{spaceId}/price-simulations:
     parameters:
@@ -3596,6 +3625,15 @@ components:
         time_zone: { type: string, nullable: true, maxLength: 100, description: Zona IANA propia; puede ser nula en datos heredados pendientes de reparación. }
         attribute_schema_version: { type: integer, minimum: 1 }
         attributes: { type: object, maxProperties: 80, description: Características declaradas y validadas por el perfil versionado. }
+        cover_photo_id: { type: string, format: uuid, nullable: true, description: Identificador de portada sintética activa propia; no revela contenido ni URL del archivo privado. }
+    SyntheticSpaceCover:
+      type: object
+      additionalProperties: false
+      required: [space_id, photo_id, selected]
+      properties:
+        space_id: { type: string, format: uuid }
+        photo_id: { type: string, format: uuid }
+        selected: { type: boolean, const: true }
     SyntheticSpaceGalleryPhoto:
       type: object
       additionalProperties: false

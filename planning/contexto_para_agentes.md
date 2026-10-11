@@ -1,5 +1,9 @@
 # Contexto operativo para agentes de desarrollo
 
+## Actualización vigente posterior a PR #255 — 2026-10-11
+
+PR #255 está fusionado en `main` (`036718dfd80549d0aae415a1d404d07419cacbec`) y su conciliación actualiza la matriz LOCAL-CLOSE-01, pero el propietario mantiene #246 abierta y no ha aceptado LOCAL-1. Las brechas obligatorias se organizaron en Issues hijas #256–#259: empezar por M04/RQF-077 y RQF-198 (#256); después búsqueda/filtros M05 (#257); eliminación de publicación M04 (#258) queda bloqueada hasta ratificar su regla concreta de conservación histórica; luego estado `cerrada` tras liquidación fake (#259). No repetir regresión integral antes de resolverlas. Usar PostgreSQL desechable, no aplicar migraciones nuevas al volumen persistente antes de revisión y no realizar GCP. Véanse `evidence/local-close-01-matrix-20261011.md` y las Issues.
+
 ## Estrategia vigente — cierre backend local, conciliada con main #243 (2026-10-10)
 
 El baseline integrado es PR #243, merge `65e5a0850c3e04710db5c022b21102a2a8726c5a`. LOCAL-QA-01/#238, LOCAL-CORE-02/#240 y LOCAL-QA-02/#242 están aceptadas/Cerradas/Hecho únicamente por sus alcances; QA-01/CORE-02/QA-02 aportan runner, continuidad durable y actualización/restauración aisladas ya evidenciadas. LOCAL-QA-03/#244 está en curso en `codex/local-qa-03` para conciliar la aceptación M01–M11, revisar alternativas críticas y corregir brechas locales obligatorias antes de una eventual propuesta de LOCAL-CLOSE-01. La aceptación QA-02 no declara M01–M11 ni LOCAL-1 terminados. #109/#110, #111–#118 y #185/#40 siguen abiertos por criterios generales/productivos. Preservar checkout, volumen persistente, secretos y cambios locales ajenos; no realizar trabajo de GCP.

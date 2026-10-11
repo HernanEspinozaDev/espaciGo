@@ -19,9 +19,10 @@ type ArchiveSectionRepository interface {
 }
 
 var (
-	ErrInvalid  = errors.New("pricing: invalid request")
-	ErrNotFound = errors.New("pricing: private resource not found")
-	ErrConflict = errors.New("pricing: interval unavailable")
+	ErrInvalid          = errors.New("pricing: invalid request")
+	ErrNotFound         = errors.New("pricing: private resource not found")
+	ErrConflict         = errors.New("pricing: interval unavailable")
+	ErrCalendarConflict = errors.New("pricing: rate mode conflicts with active weekly schedule")
 )
 
 type Rate struct {

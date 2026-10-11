@@ -220,6 +220,7 @@ func run() error {
 		localGalleryService = galleryService
 		galleryHandler := galleryhttp.NewHandler(service, galleryService, cfg.allowedOrigins)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery", galleryHandler)
+		mux.Handle("/api/v1/spaces/{spaceID}/cover", galleryHandler)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}", galleryHandler)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/content", galleryHandler)
 		if os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {
