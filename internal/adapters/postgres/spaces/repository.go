@@ -260,7 +260,10 @@ func (r *Repository) DeleteOwn(ctx context.Context, owner, id, correlationID str
 	if _, err = tx.Exec(ctx, `DELETE FROM public.simulacion_precio_privada WHERE espacio_id=$1`, id); err != nil {
 		return spaces.Deletion{}, err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM public.tarifa_espacio t WHERE espacio_id=$1 AND NOT EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q WHERE q.espacio_id=t.espacio_id AND q.tarifa_version=t.version)`, id); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET estado='eliminada',titulo='Publicación retirada',descripcion='Contenido retirado. Los hechos históricos y los snapshots necesarios se conservan según la política local ratificada.',superficie_m2=0.01,capacidad_maxima=1,reglas_uso='Retirado',modalidad_tarifa='hora',precio_base_clp=5001,direccion='Retirada',zona_horaria=NULL,actualizado_en=$2 WHERE id=$1`, id, now); err != nil {
+		return spaces.Deletion{}, mapError(err)
+	}
+	if _, err = tx.Exec(ctx, `SELECT public.purge_unreferenced_local_publication_rates($1)`, id); err != nil {
 		return spaces.Deletion{}, err
 	}
 	removed := []string{"catalogo", "contenido_publicacion", "atributos", "horario_semanal", "simulaciones_privadas", "fixture_deshabilitado"}
@@ -271,9 +274,6 @@ func (r *Repository) DeleteOwn(ctx context.Context, owner, id, correlationID str
 		return spaces.Deletion{}, err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO public.espacio_eliminacion_historial_local(espacio_id,actor_id,ocurrida_en,correlacion_id,archivos_pendientes,resumen) VALUES($1,$2,$3,$4,$5,$6::jsonb)`, id, owner, now, correlationID, filesPending, encoded); err != nil {
-		return spaces.Deletion{}, mapError(err)
-	}
-	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET estado='eliminada',titulo='Publicación retirada',descripcion='Contenido retirado. Los hechos históricos y los snapshots necesarios se conservan según la política local ratificada.',superficie_m2=0.01,capacidad_maxima=1,reglas_uso='Retirado',modalidad_tarifa='hora',precio_base_clp=5001,direccion='Retirada',zona_horaria=NULL,actualizado_en=$2 WHERE id=$1`, id, now); err != nil {
 		return spaces.Deletion{}, mapError(err)
 	}
 	if err = tx.Commit(ctx); err != nil {
