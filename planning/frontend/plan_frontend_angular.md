@@ -280,7 +280,7 @@ Bearer permanece en memoria. Intentos inciertos guardan clave y payload original
 
 ## FE-10 — Disputas y finanzas (implementación en revisión)
 
-**Estado:** en `codex/frontend-local-1-fe10-disputes-finance`, basada en `main` actualizado tras la fusión de FE-09 (#284, `0d3bac8a06457899239a49274b54ad6807846f42`). PR [#285](https://github.com/HernanEspinozaDev/espaciGo/pull/285) abierto para revisión; commit `868116cbe4508b620bb7edc69482cfffcd6cc90c`. Autor verificado HernanMEC; solicitada revisión de HernanEspinozaDev. FE-11 permanece pendiente hasta aprobación y fusión de FE-10.
+**Estado:** en `codex/frontend-local-1-fe10-disputes-finance`, basada en `main` actualizado tras la fusión de FE-09 (#284, `0d3bac8a06457899239a49274b54ad6807846f42`). PR [#285](https://github.com/HernanEspinozaDev/espaciGo/pull/285) abierto para revisión; implementación `868116cbe4508b620bb7edc69482cfffcd6cc90c`, correcciones a los comentarios de revisión `b2da3243becb9db0fa10828baf5cae9782af474f`. Autor verificado HernanMEC; solicitada nuevamente revisión de HernanEspinozaDev. FE-11 permanece pendiente hasta aprobación y fusión de FE-10.
 
 La ruta de reserva integra incidencias, historial de reclamos/descargos, evidencia sintética privada, garantía fake, decisión administrativa de reclamos, liquidación fake, conciliación y comprobante de ensayo con las operaciones M10 de Go. La vista de administración requiere el rol que devuelve Go. La UI distingue cierre de incidencia, resolución del reclamo y decisión financiera; solo habilita registrar una decisión económica después de que Go confirme la resolución, y refleja su respuesta. Los artefactos privados se descargan con Bearer y Blob URLs temporales.
 
