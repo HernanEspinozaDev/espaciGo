@@ -91,6 +91,75 @@ describe('IdentitySession', () => {
     expect(identity.status()).toBe('anonymous');
   });
 
+  it('invalidates an active session after successful password recovery', async () => {
+    const api = {
+      login: vi.fn().mockResolvedValue(makeLogin('account-1', 'active-token')),
+      session: vi.fn().mockResolvedValue(makeSession('account-1')),
+      logout: vi.fn(),
+      consumeRecovery: vi.fn().mockResolvedValue(undefined),
+    };
+    const identity = createIdentity(api);
+    let cleared = false;
+    TestBed.inject(PrivateSessionState).register(() => (cleared = true));
+    await identity.signIn('person@example.invalid', 'Synthetic#123');
+
+    await identity.consumeRecovery('recovery-id', 'recovery-code', 'Changed#789', 'Changed#789');
+
+    expect(api.consumeRecovery).toHaveBeenCalledWith(
+      'recovery-id',
+      'recovery-code',
+      'Changed#789',
+      'Changed#789',
+    );
+    expect(identity.accessToken()).toBeNull();
+    expect(identity.session()).toBeNull();
+    expect(identity.status()).toBe('anonymous');
+    expect(cleared).toBe(true);
+  });
+
+  it('does not publish or navigate a stale logout after a newer login succeeds', async () => {
+    let finishLogout!: () => void;
+    const pendingLogout = new Promise<void>((resolve) => (finishLogout = resolve));
+    const api = {
+      login: vi
+        .fn()
+        .mockResolvedValueOnce(makeLogin('account-1', 'old-token'))
+        .mockResolvedValueOnce(makeLogin('account-2', 'new-token')),
+      session: vi
+        .fn()
+        .mockResolvedValueOnce(makeSession('account-1'))
+        .mockResolvedValueOnce(makeSession('account-2')),
+      logout: vi.fn(() => pendingLogout),
+    };
+    const identity = createIdentity(api);
+    await identity.signIn('first@example.invalid', 'Synthetic#123');
+
+    const staleLogout = identity.signOut();
+    await identity.signIn('second@example.invalid', 'Synthetic#456');
+    finishLogout();
+
+    await expect(staleLogout).resolves.toBe(false);
+    expect(identity.session()?.account_id).toBe('account-2');
+    expect(identity.accessToken()).toBe('new-token');
+    expect(identity.notice()).toBe('');
+  });
+
+  it('keeps local cleanup and reports an unconfirmed logout when Go is unavailable', async () => {
+    const api = {
+      login: vi.fn().mockResolvedValue(makeLogin('account-1', 'logout-token')),
+      session: vi.fn().mockResolvedValue(makeSession('account-1')),
+      logout: vi.fn().mockRejectedValue(new Error('network offline')),
+    };
+    const identity = createIdentity(api);
+    await identity.signIn('person@example.invalid', 'Synthetic#123');
+
+    await expect(identity.signOut()).resolves.toBe(true);
+
+    expect(identity.accessToken()).toBeNull();
+    expect(identity.session()).toBeNull();
+    expect(identity.notice()).toContain('Go no confirmó');
+  });
+
   it('clears a session after a current-session 401', async () => {
     const api = {
       login: vi.fn().mockResolvedValue(makeLogin('account-1', 'expired-token')),
@@ -107,11 +176,7 @@ describe('IdentitySession', () => {
 
 function createIdentity(api: object): IdentitySession {
   TestBed.configureTestingModule({
-    providers: [
-      provideRouter([]),
-      { provide: IdentityApi, useValue: api },
-      PrivateSessionState,
-    ],
+    providers: [provideRouter([]), { provide: IdentityApi, useValue: api }, PrivateSessionState],
   });
   return TestBed.inject(IdentitySession);
 }

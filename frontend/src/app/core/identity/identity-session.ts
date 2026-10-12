@@ -67,25 +67,45 @@ export class IdentitySession {
     }
   }
 
-  async signOut(): Promise<void> {
-    const token = this.accessToken();
+  async consumeRecovery(
+    tokenId: string,
+    token: string,
+    newPassword: string,
+    confirmPassword: string,
+  ): Promise<void> {
+    await this.api.consumeRecovery(tokenId, token, newPassword, confirmPassword);
+    // Go revokes every active token after a successful recovery, including this tab.
     ++this.generation;
     this.resetSession();
-    if (!token) return;
+    this.notice.set('Go cambió la contraseña y revocó las sesiones. Ya puedes iniciar sesión.');
+  }
+
+  async signOut(): Promise<boolean> {
+    const token = this.accessToken();
+    const generation = ++this.generation;
+    this.resetSession();
+    this.notice.set('');
+    if (!token) return true;
     try {
       await this.api.logout(token);
+      if (generation !== this.generation) return false;
       this.notice.set('Sesión cerrada y revocada por Go.');
     } catch (error) {
+      if (generation !== this.generation) return false;
       if (isUnauthorized(error)) {
         this.notice.set('La sesión ya no estaba vigente en Go. Se limpió el estado local.');
       } else {
         this.notice.set('Se limpió el estado local, pero Go no confirmó la revocación.');
-        throw error;
       }
     }
+    return true;
   }
 
-  async changePassword(currentPassword: string, newPassword: string, confirmPassword: string): Promise<void> {
+  async changePassword(
+    currentPassword: string,
+    newPassword: string,
+    confirmPassword: string,
+  ): Promise<void> {
     const token = this.accessToken();
     if (!token) throw new Error('Inicia sesión para cambiar tu contraseña.');
     const generation = this.generation;
@@ -116,5 +136,8 @@ export class StaleIdentityRequest extends Error {
 }
 
 export function isUnauthorized(error: unknown): boolean {
-  return (error instanceof HttpErrorResponse || error instanceof IdentityApiError) && error.status === 401;
+  return (
+    (error instanceof HttpErrorResponse || error instanceof IdentityApiError) &&
+    error.status === 401
+  );
 }

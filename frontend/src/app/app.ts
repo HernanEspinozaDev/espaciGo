@@ -30,9 +30,11 @@ export class App {
 
   protected async signOut(): Promise<void> {
     try {
-      await this.identity.signOut();
-      await this.router.navigateByUrl('/acceso');
-    } catch { /* IdentitySession already reports the unconfirmed revocation. */ }
+      const isCurrentLogout = await this.identity.signOut();
+      if (isCurrentLogout) await this.router.navigateByUrl('/acceso');
+    } catch {
+      /* IdentitySession owns local cleanup and reports revocation status. */
+    }
     this.closeMenu();
   }
 }

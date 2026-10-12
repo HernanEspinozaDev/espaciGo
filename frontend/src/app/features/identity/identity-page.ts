@@ -14,6 +14,7 @@ import {
 import { IdentityApi } from '../../core/identity/identity-api';
 import { identityErrorMessage } from '../../core/identity/identity-errors';
 import { IdentitySession } from '../../core/identity/identity-session';
+import { PrivateSessionState } from '../../core/identity/private-session-state';
 import type { TermsResponse } from '../../../generated/api/types.gen';
 
 type IdentityMode = 'login' | 'register' | 'verify' | 'recovery' | 'change-password' | 'account';
@@ -27,6 +28,7 @@ type IdentityMode = 'login' | 'register' | 'verify' | 'recovery' | 'change-passw
 export class IdentityPage {
   private readonly api = inject(IdentityApi);
   private readonly identity = inject(IdentitySession);
+  private readonly privateSessionState = inject(PrivateSessionState);
   private readonly router = inject(Router);
   private readonly meta = inject(Meta);
   private readonly destroyRef = inject(DestroyRef);
@@ -35,10 +37,17 @@ export class IdentityPage {
   protected readonly errorMessage = signal('');
   protected readonly successMessage = signal('');
   protected readonly terms = signal<TermsResponse['items']>([]);
-  protected readonly termVersions = computed(() => this.terms().filter((item) => item.type === 'terminos'));
-  protected readonly privacyVersions = computed(() => this.terms().filter((item) => item.type === 'privacidad'));
+  protected readonly termVersions = computed(() =>
+    this.terms().filter((item) => item.type === 'terminos'),
+  );
+  protected readonly privacyVersions = computed(() =>
+    this.terms().filter((item) => item.type === 'privacidad'),
+  );
   protected readonly termsState = signal<'loading' | 'ready' | 'error'>('loading');
   protected readonly session = this.identity.session;
+  private unregisterSensitiveState!: () => void;
+  private requestGeneration = 0;
+  private destroyed = false;
 
   protected readonly loginModel = signal({ email: '', password: '' });
   protected readonly loginForm = form(this.loginModel, (path) => {
@@ -121,25 +130,38 @@ export class IdentityPage {
   });
 
   constructor() {
+    this.unregisterSensitiveState = this.privateSessionState.register(() => {
+      this.requestGeneration++;
+      this.loginModel.update((model) => ({ ...model, password: '' }));
+      this.registerModel.update((model) => ({ ...model, password: '', confirmPassword: '' }));
+      this.tokenModel.set({ tokenId: '', token: '' });
+      this.recoveryModel.set({ tokenId: '', token: '', newPassword: '', confirmPassword: '' });
+      this.changeModel.set({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      this.errorMessage.set('');
+      this.successMessage.set('');
+      this.busy.set(false);
+    });
     this.meta.updateTag({ name: 'robots', content: 'noindex, nofollow' });
-    this.destroyRef.onDestroy(() => this.meta.removeTag("name='robots'"));
+    this.destroyRef.onDestroy(() => {
+      this.destroyed = true;
+      this.requestGeneration++;
+      this.unregisterSensitiveState();
+      this.meta.removeTag("name='robots'");
+    });
     if (this.mode === 'register') void this.loadTerms();
   }
 
   protected async onLogin(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     await submit(this.loginForm, async () => {
-      this.begin();
-      try {
-        await this.identity.signIn(this.loginModel().email, this.loginModel().password);
-        this.successMessage.set('Sesión confirmada por Go.');
-        this.loginModel.update((model) => ({ ...model, password: '' }));
-        await this.router.navigateByUrl('/mi-cuenta');
-      } catch (error) {
-        this.errorMessage.set(identityErrorMessage(error));
-      } finally {
-        this.busy.set(false);
-      }
+      const { email: address, password } = this.loginModel();
+      await this.performRequest(
+        () => this.identity.signIn(address, password),
+        async () => {
+          this.successMessage.set('Sesión confirmada por Go.');
+          await this.router.navigateByUrl('/mi-cuenta');
+        },
+      );
     });
   }
 
@@ -148,131 +170,136 @@ export class IdentityPage {
     await submit(this.registerForm, async () => {
       const model = this.registerModel();
       const versionIds = this.terms()
-        .filter((item) =>
-          (item.type === 'terminos' && model.acceptTerms) ||
-          (item.type === 'privacidad' && model.acceptPrivacy),
+        .filter(
+          (item) =>
+            (item.type === 'terminos' && model.acceptTerms) ||
+            (item.type === 'privacidad' && model.acceptPrivacy),
         )
         .map((item) => item.id);
-      if (!versionIds.some((id) => this.terms().some((term) => term.id === id && term.type === 'terminos'))) {
-        this.errorMessage.set('Go no publicó una versión sintética de términos; no es posible crear la cuenta.');
+      if (
+        !versionIds.some((id) =>
+          this.terms().some((term) => term.id === id && term.type === 'terminos'),
+        )
+      ) {
+        this.errorMessage.set(
+          'Go no publicó una versión sintética de términos; no es posible crear la cuenta.',
+        );
         return;
       }
-      this.begin();
-      try {
-        const result = await this.api.register({
-          email: model.email,
-          password: model.password,
-          use_preference: model.usePreference as 'ofrecer' | 'arrendar',
-          terms_version_ids: versionIds,
-        });
-        this.emailModel.set({ email: model.email });
-        this.registerModel.update((current) => ({ ...current, password: '', confirmPassword: '' }));
-        this.successMessage.set(
-          result.status === 'verification_pending'
-            ? 'Go creó la cuenta; el correo no pudo confirmarse. Solicita la verificación de nuevo.'
-            : 'Go creó la cuenta. Revisa el buzón local para verificar tu correo antes de iniciar sesión.',
-        );
-      } catch (error) {
-        this.errorMessage.set(identityErrorMessage(error));
-      } finally {
-        this.busy.set(false);
-      }
+      await this.performRequest(
+        () =>
+          this.api.register({
+            email: model.email,
+            password: model.password,
+            use_preference: model.usePreference as 'ofrecer' | 'arrendar',
+            terms_version_ids: versionIds,
+          }),
+        (result) => {
+          this.emailModel.set({ email: model.email });
+          this.registerModel.update((current) => ({
+            ...current,
+            password: '',
+            confirmPassword: '',
+          }));
+          this.successMessage.set(
+            result.status === 'verification_pending'
+              ? 'Go creó la cuenta; el correo no pudo confirmarse. Solicita la verificación de nuevo.'
+              : 'Go creó la cuenta. Revisa el buzón local para verificar tu correo antes de iniciar sesión.',
+          );
+        },
+      );
     });
   }
 
   protected async onReissue(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     await submit(this.emailForm, async () => {
-      this.begin();
-      try {
-        await this.api.reissueVerification(this.emailModel().email);
-        this.successMessage.set('Go aceptó la solicitud. Si corresponde, Mailpit recibirá un nuevo correo de verificación.');
-      } catch (error) {
-        this.errorMessage.set(identityErrorMessage(error));
-      } finally {
-        this.busy.set(false);
-      }
+      const address = this.emailModel().email;
+      await this.performRequest(
+        () => this.api.reissueVerification(address),
+        () =>
+          this.successMessage.set(
+            'Go aceptó la solicitud. Si corresponde, Mailpit recibirá un nuevo correo de verificación.',
+          ),
+      );
     });
   }
 
   protected async onVerify(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     await submit(this.tokenForm, async () => {
-      this.begin();
-      try {
-        const model = this.tokenModel();
-        await this.api.verifyEmail(model.tokenId, model.token);
-        this.tokenModel.set({ tokenId: '', token: '' });
-        this.successMessage.set('Correo verificado por Go. Ya puedes iniciar sesión.');
-      } catch (error) {
-        this.errorMessage.set(identityErrorMessage(error));
-      } finally {
-        this.busy.set(false);
-      }
+      const model = this.tokenModel();
+      await this.performRequest(
+        () => this.api.verifyEmail(model.tokenId, model.token),
+        () => {
+          this.tokenModel.set({ tokenId: '', token: '' });
+          this.successMessage.set('Correo verificado por Go. Ya puedes iniciar sesión.');
+        },
+      );
     });
   }
 
   protected async onRecover(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     await submit(this.emailForm, async () => {
-      this.begin();
-      try {
-        const accepted = await this.api.recover(this.emailModel().email);
-        this.successMessage.set(accepted.message);
-      } catch (error) {
-        this.errorMessage.set(identityErrorMessage(error));
-      } finally {
-        this.busy.set(false);
-      }
+      const address = this.emailModel().email;
+      await this.performRequest(
+        () => this.api.recover(address),
+        (accepted) => this.successMessage.set(accepted.message),
+      );
     });
   }
 
   protected async onConsumeRecovery(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     await submit(this.recoveryForm, async () => {
-      this.begin();
-      try {
-        const model = this.recoveryModel();
-        await this.api.consumeRecovery(
-          model.tokenId,
-          model.token,
-          model.newPassword,
-          model.confirmPassword,
-        );
-        this.recoveryModel.set({ tokenId: '', token: '', newPassword: '', confirmPassword: '' });
-        this.successMessage.set('Go cambió la contraseña y revocó las sesiones. Ya puedes iniciar sesión.');
-      } catch (error) {
-        this.errorMessage.set(identityErrorMessage(error));
-      } finally {
-        this.busy.set(false);
-      }
+      const model = this.recoveryModel();
+      await this.performRequest(
+        () =>
+          this.identity.consumeRecovery(
+            model.tokenId,
+            model.token,
+            model.newPassword,
+            model.confirmPassword,
+          ),
+        () => undefined,
+      );
     });
   }
 
   protected async onChangePassword(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     await submit(this.changeForm, async () => {
-      this.begin();
+      const generation = this.begin();
+      const request = this.identity.changePassword(
+        this.changeModel().currentPassword,
+        this.changeModel().newPassword,
+        this.changeModel().confirmPassword,
+      );
+      const stateGeneration = this.privateSessionState.generation();
       try {
-        const model = this.changeModel();
-        await this.identity.changePassword(
-          model.currentPassword,
-          model.newPassword,
-          model.confirmPassword,
-        );
-        this.changeModel.set({ currentPassword: '', newPassword: '', confirmPassword: '' });
-        this.successMessage.set('Go cambió tu contraseña y revocó las sesiones. Inicia sesión nuevamente.');
-        await this.router.navigateByUrl('/acceso');
+        await request;
+        if (!this.destroyed) await this.router.navigateByUrl('/acceso');
       } catch (error) {
-        this.errorMessage.set(identityErrorMessage(error));
+        if (this.isCurrentRequest(generation, stateGeneration)) {
+          this.errorMessage.set(identityErrorMessage(error));
+        }
       } finally {
-        this.busy.set(false);
+        if (this.isCurrentRequest(generation, stateGeneration)) this.busy.set(false);
       }
     });
   }
 
   protected getRoleLabel(role: string): string {
-    return ({ arrendatario: 'Arrendatario', arrendador: 'Arrendador', administrador: 'Administración' } as Record<string, string>)[role] ?? 'Rol';
+    return (
+      (
+        {
+          arrendatario: 'Arrendatario',
+          arrendador: 'Arrendador',
+          administrador: 'Administración',
+        } as Record<string, string>
+      )[role] ?? 'Rol'
+    );
   }
 
   private async loadTerms(): Promise<void> {
@@ -285,10 +312,43 @@ export class IdentityPage {
     }
   }
 
-  private begin(): void {
+  private begin(): number {
     this.errorMessage.set('');
     this.successMessage.set('');
     this.busy.set(true);
+    return ++this.requestGeneration;
+  }
+
+  private async performRequest<T>(
+    request: () => Promise<T>,
+    onSuccess: (value: T) => void | Promise<void>,
+  ): Promise<void> {
+    this.begin();
+    let generation = this.requestGeneration;
+    let stateGeneration = this.privateSessionState.generation();
+    try {
+      // IdentitySession may clear private state synchronously when a new login starts.
+      const pending = request();
+      generation = this.requestGeneration;
+      stateGeneration = this.privateSessionState.generation();
+      const value = await pending;
+      if (!this.isCurrentRequest(generation, stateGeneration)) return;
+      await onSuccess(value);
+    } catch (error) {
+      if (this.isCurrentRequest(generation, stateGeneration)) {
+        this.errorMessage.set(identityErrorMessage(error));
+      }
+    } finally {
+      if (this.isCurrentRequest(generation, stateGeneration)) this.busy.set(false);
+    }
+  }
+
+  private isCurrentRequest(generation: number, stateGeneration: number): boolean {
+    return (
+      !this.destroyed &&
+      generation === this.requestGeneration &&
+      stateGeneration === this.privateSessionState.generation()
+    );
   }
 }
 
