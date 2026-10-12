@@ -23,7 +23,7 @@ Fecha: 2026-10-11. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | FE-06 | 26 | Aceptado y fusionado; PR #280 |
 | FE-07 | 8 | Aceptado y fusionado; PR #282; merge `978a27e` |
 | FE-08 | 10 | Aprobado y fusionado; [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), merge `503d193` |
-| FE-09 | 8 | Implementado en rama; en revisión |
+| FE-09 | 8 | Implementado; en revisión PR #284 |
 | FE-10 | 21 | Pendiente |
 | FE-11 | 29 | Pendiente |
 | Técnica | 1 | No requiere pantalla directa |
@@ -299,7 +299,7 @@ Cuentas sintéticas y receta de recreación: `.local/testing/fe08-cuentas.md` y 
 Todas las operaciones de interfaz deben estar implementadas y verificadas en Angular o tener una exclusión técnica explícita y aceptada. Ninguna función puede figurar como completada por existir solo en el mock. FE-14 registra paridad; FE-15 adapta runners y elimina el mock después de la aceptación del usuario.
 
 
-## Trazabilidad FE-09 — Conversación, lectura, reseñas y reportes
+## Trazabilidad FE-09 — Conversación, lectura, reseñas y reportes (PR #284 en revisión)
 
 | Operación | Interfaz | Evidencia de comportamiento |
 | --- | --- | --- |

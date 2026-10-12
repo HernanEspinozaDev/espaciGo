@@ -265,7 +265,7 @@ FE-08 queda aceptado. FE-09 inicia desde `main` actualizado; FE-10 permanece pen
 
 ## FE-09 — Conversación, lectura, reseñas y reportes (en revisión)
 
-**Estado:** implementado en `codex/frontend-local-1-fe09-conversation`, basado en `main` tras fusionar FE-08 (#283). PR de FE-09 pendiente de publicación; FE-10 sigue pendiente hasta aprobación y fusión.
+**Estado:** en revisión en [PR #284](https://github.com/HernanEspinozaDev/espaciGo/pull/284), rama `codex/frontend-local-1-fe09-conversation`, basada en `main` tras fusionar FE-08 (#283). FE-10 sigue pendiente hasta aprobación y fusión.
 
 El detalle de reserva integra `BookingConversationPanel` y `BookingCommunicationApi`. Usa operaciones Go para páginas de mensajes, envío, cursor de lectura, contador de no leídos, reseñas de reserva, reporte de reseñas, reseñas públicas de espacios y reputación propia. El mensaje se renderiza como texto. Solo los estados editables autorizados por Go permiten enviar; los terminales quedan en modo de lectura. La UI no concede permisos ni altera estados.
 
