@@ -1,0 +1,78 @@
+<main class="finance-page">
+  <a class="back" routerLink="/reservas">← Volver a reservas</a>
+  <header><p class="eyebrow">{{ admin ? 'GESTIÓN AUTORIZADA' : 'TU RESERVA' }}</p><h1>Disputas y finanzas</h1>
+    <p class="notice" role="status">{{ notice() || 'ENSAYO LOCAL — SIN MOVIMIENTO DE DINERO REAL' }}</p></header>
+  @if (!admin) {
+    <label class="reservation-id">Identificador de reserva<input aria-label="Identificador de reserva" [value]="id" readonly /></label>
+  }
+  <div class="toolbar"><button type="button" (click)="refresh()" [disabled]="loading() || busy()">{{ loading() ? 'Consultando Go…' : 'Actualizar desde Go' }}</button></div>
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (loading()) { <p role="status">Cargando estado confirmado…</p> }
+  @if (!admin) {
+    <div class="grid">
+      <section class="card"><h2>Incidencias</h2><p>El anfitrión puede abrir una incidencia sintética; la política y el historial los determina Go.</p>
+        <button type="button" [disabled]="busy()" (click)="openDispute()">Abrir incidencia de ensayo</button>
+        <pre>{{ json(disputes()) }}</pre>
+      </section>
+      <section class="card"><h2>Reclamo y descargo</h2>
+        <label>Descripción sintética<textarea rows="4" [value]="description()" (input)="setDescription($any($event.target).value)"></textarea></label>
+        <div class="actions"><button type="button" [disabled]="busy()" (click)="openClaim()">Abrir reclamo (anfitrión)</button><button type="button" [disabled]="busy()" (click)="defend()">Presentar descargo (arrendatario)</button><button type="button" class="secondary" [disabled]="busy()" (click)="syntheticEvidence()">Generar evidencia sintética</button></div>
+        <pre>{{ json(claim()) }}</pre>
+        @for (evidence of evidenceItems(claim()); track label(evidence, 'id')) {
+          <button type="button" class="secondary" (click)="viewEvidence(evidence)">Ver evidencia sintética · {{ label(evidence, 'operation') }}</button>
+        }
+        @if (evidenceUrl(); as imageUrl) { <img class="private-evidence" [src]="imageUrl" alt="Evidencia sintética privada de la reserva" /> }
+      </section>
+      <section class="card"><h2>Garantía sintética</h2><p>Importes y operaciones separados según Go.</p>
+        <label>Tipo de operación<select [value]="guaranteeKind()" (change)="setGuaranteeKind($any($event.target).value)"><option value="autorizacion">Autorización</option><option value="captura">Captura</option><option value="liberacion">Liberación</option></select></label>
+        <label>Importe exacto en CLP<input inputmode="numeric" [value]="guaranteeAmount()" (input)="setGuaranteeAmount($any($event.target).value)" /></label>
+        <label>Resultado de ensayo<select [value]="outcome()" (change)="setOutcome($any($event.target).value)"><option value="exito">Éxito</option><option value="rechazo">Rechazo</option><option value="sin_respuesta">Sin respuesta (incierto)</option></select></label>
+        <button type="button" [disabled]="busy()" (click)="guaranteeOperation()">Ejecutar operación de garantía</button>
+        <pre>{{ json(guarantee()) }}</pre>
+      </section>
+      <section class="card"><h2>Liquidación</h2>
+        <label>Resultado de ensayo<select [value]="outcome()" (change)="setOutcome($any($event.target).value)"><option value="exito">Éxito</option><option value="rechazo">Rechazo</option><option value="sin_respuesta">Sin respuesta (incierto)</option></select></label>
+        <div class="actions"><button type="button" [disabled]="busy()" (click)="settle()">Solicitar liquidación</button><button type="button" class="secondary" [disabled]="busy()" (click)="reconcile('settlement')">Conciliar liquidación</button><button type="button" class="secondary" [disabled]="busy()" (click)="reconcile('guarantee')">Conciliar garantía</button></div>
+        <pre>{{ json(settlement()) }}</pre><h3>Comprobante de ensayo</h3><pre>{{ json(receipt()) }}</pre>
+      </section>
+    </div>
+  } @else {
+    <section class="card admin-tools"><h2>Conciliación por reserva</h2>
+      <label>Identificador de reserva<input [value]="adminReservationId()" (input)="setAdminReservationId($any($event.target).value)" autocomplete="off" /></label>
+      <button type="button" [disabled]="loading() || busy() || !adminReservationId().trim()" (click)="refresh()">Consultar garantía, liquidación y comprobante</button>
+      <label>Resultado confirmado tardío<select [value]="outcome()" (change)="setOutcome($any($event.target).value)"><option value="exito">Éxito</option><option value="rechazo">Rechazo</option></select></label>
+      <label>Tipo garantía<select [value]="guaranteeKind()" (change)="setGuaranteeKind($any($event.target).value)"><option value="autorizacion">Autorización</option><option value="captura">Captura</option><option value="liberacion">Liberación</option></select></label>
+      <label>Importe de operación exacto en CLP<input inputmode="numeric" [value]="guaranteeAmount()" (input)="setGuaranteeAmount($any($event.target).value)" /></label>
+      <div class="actions"><button type="button" [disabled]="busy() || !adminReservationId().trim()" (click)="guaranteeOperation()">Ejecutar operación fake de garantía</button><button type="button" [disabled]="busy() || !adminReservationId().trim()" (click)="reconcile('settlement')">Conciliar liquidación</button><button type="button" [disabled]="busy() || !adminReservationId().trim()" (click)="reconcile('guarantee')">Conciliar garantía</button></div>
+      <h3>Snapshot de garantía</h3><pre>{{ json(guarantee()) }}</pre><h3>Liquidación</h3><pre>{{ json(settlement()) }}</pre><h3>Comprobante (si Go lo confirmó)</h3><pre>{{ json(receipt()) }}</pre>
+    </section>
+    <div class="grid">
+      <section class="card"><h2>Incidencias abiertas</h2>
+        @for (dispute of disputes(); track $index) { <article class="claim"><pre>{{ json(dispute) }}</pre><button type="button" [disabled]="busy()" (click)="closeDispute(dispute)">Cerrar incidencia (ensayo)</button></article> }
+        @empty { <p>No hay incidencias abiertas informadas por Go.</p> }
+      </section>
+      <section class="card"><h2>Reclamos sintéticos abiertos</h2>
+        @for (claim of claims(); track $index) {
+          <article class="claim"><p>Reclamo: <code>{{ label(claim, 'id') || label(claim, 'claim_id') }}</code></p>
+            <p>Estado: {{ label(claim, 'state') }} · Reserva: {{ label(claim, 'reservation_id') }}</p>
+            @for (evidence of evidenceItems(claim); track label(evidence, 'id')) { <button type="button" class="secondary" (click)="viewEvidence(evidence, label(claim, 'id'))">Ver evidencia sintética · {{ label(evidence, 'mime_type') }}</button> }
+            <label>Resultado de resolución<select [value]="decision()" (change)="setDecision($any($event.target).value)"><option value="rechazado">Rechazar</option><option value="acogido">Acoger</option></select></label>
+            <label>Fundamento<select [value]="reasonCode()" (change)="setReason($any($event.target).value)"><option value="evidencia_suficiente">Evidencia suficiente</option><option value="evidencia_insuficiente">Evidencia insuficiente</option><option value="hecho_no_acreditado">Hecho no acreditado</option><option value="informacion_insuficiente">Información insuficiente</option></select></label>
+            <button type="button" [disabled]="busy()" (click)="resolve(claim)">Registrar resolución en Go</button>
+          </article>
+        } @empty { <p>No hay reclamos abiertos informados por Go.</p> }
+      </section>
+      @if (selectedClaim(); as selected) {
+        <section class="card"><h2>Decisión financiera vinculada</h2>
+          <p>Resolución confirmada por Go: {{ claimResolution(selected) || 'pendiente' }} · {{ label(selected, 'id') }}</p>
+          <label>Deducción CLP (entero exacto, máximo autorizado 50.000)<input inputmode="numeric" [value]="deductionAmount()" (input)="setDeductionAmount($any($event.target).value)" /></label>
+          @if (deductionAmount() !== '0') {
+            <label>Evidencia sintética vinculada<select [value]="decisionEvidenceId()" (change)="setDecisionEvidenceId($any($event.target).value)"><option value="">Selecciona la evidencia</option>@for (evidence of evidenceItems(selected); track label(evidence, 'id')) { <option [value]="label(evidence, 'id')">{{ label(evidence, 'operation') }} · {{ label(evidence, 'mime_type') }}</option> }</select></label>
+          }
+          <button type="button" class="secondary" [disabled]="busy() || !claimResolution(selected) || (claimResolution(selected) === 'acogido' && deductionAmount() !== '0' && !decisionEvidenceId())" (click)="decideClaim(selected)">Registrar decisión financiera en Go</button>
+          @if (financialDecision(); as decisionResult) { <h3>Resultado financiero confirmado por Go</h3><pre>{{ json(decisionResult) }}</pre> }
+        </section>
+      }
+    </div>
+  }
+</main>

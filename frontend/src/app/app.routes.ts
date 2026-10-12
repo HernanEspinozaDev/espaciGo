@@ -163,5 +163,20 @@ export const routes: Routes = [
     canActivate: [identityGuard],
     title: 'Detalle de reserva | EspaciGo',
   },
+  {
+    path: 'reservas/:id/disputas',
+    loadComponent: () =>
+      import('./features/finance/finance-disputes-page').then((module) => module.FinanceDisputesPage),
+    canActivate: [identityGuard],
+    title: 'Disputas y finanzas | EspaciGo',
+  },
+  {
+    path: 'administracion/disputas',
+    loadComponent: () =>
+      import('./features/finance/finance-disputes-page').then((module) => module.FinanceDisputesPage),
+    canActivate: [roleGuard],
+    title: 'Disputas y finanzas | EspaciGo',
+    data: { requiredRole: 'administrador', mode: 'admin' },
+  },
   { path: '**', redirectTo: '' },
 ];
