@@ -452,6 +452,73 @@ describe('FE-06 HostingSpacesPage', () => {
     fixture.destroy();
   });
 
+  it('expires the current bearer when A configuration returns 401 after selecting B', async () => {
+    const api = apiFor(space('space-a', 'activa'));
+    const { identity } = setup(api);
+    await identity.signIn('owner@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    const component = page(fixture);
+    const pendingProfile = deferred<Awaited<ReturnType<typeof api.profile>>>();
+    api.profile.mockReturnValueOnce(pendingProfile.promise);
+    const loadingA = component.loadSpace('space-a');
+    await flush();
+
+    api.detail.mockResolvedValueOnce(space('space-b', 'borrador'));
+    await component.loadSpace('space-b');
+    expect(component.selectedSpace()?.id).toBe('space-b');
+    expect(identity.accessToken()).toBe('bearer-a');
+
+    pendingProfile.reject(new HostingApiError('unauthorized', 401));
+    await loadingA;
+    expect(identity.accessToken()).toBeNull();
+    expect(identity.session()).toBeNull();
+    expect(component.spaces()).toEqual([]);
+    expect(component.selectedSpace()).toBeNull();
+    expect(component.gallery()).toEqual([]);
+    fixture.destroy();
+  });
+
+  it('ignores a parallel configuration 401 from the old bearer after logout and login', async () => {
+    const api = apiFor(space('space-a', 'activa'));
+    const identityApi = {
+      login: vi
+        .fn()
+        .mockResolvedValueOnce(login('owner-a', 'bearer-a'))
+        .mockResolvedValueOnce(login('owner-b', 'bearer-b')),
+      session: vi.fn(async (token: string) => ({
+        ...ownerSession,
+        account_id: token === 'bearer-a' ? 'owner-a' : 'owner-b',
+      })),
+      logout: vi.fn().mockResolvedValue(undefined),
+    };
+    const { identity } = setup(api, null, identityApi);
+    await identity.signIn('owner-a@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    const component = page(fixture);
+    const pendingProfile = deferred<Awaited<ReturnType<typeof api.profile>>>();
+    api.profile.mockReturnValueOnce(pendingProfile.promise);
+    const loadingA = component.loadSpace('space-a');
+    await flush();
+
+    await identity.signOut();
+    await identity.signIn('owner-b@example.invalid', 'secret');
+    await component.load();
+    expect(identity.accessToken()).toBe('bearer-b');
+    expect(component.spaces()).toHaveLength(1);
+
+    pendingProfile.reject(new HostingApiError('unauthorized', 401));
+    await loadingA;
+    expect(identity.accessToken()).toBe('bearer-b');
+    expect(identity.session()?.account_id).toBe('owner-b');
+    expect(component.spaces()).toHaveLength(1);
+    expect(component.selectedSpace()?.id).toBe('space-a');
+    fixture.destroy();
+  });
+
   it('retains an uncertain gallery key after logout/login to the same account', async () => {
     const api = apiFor();
     api.addPhoto.mockRejectedValueOnce(new Error('network timeout')).mockResolvedValueOnce({

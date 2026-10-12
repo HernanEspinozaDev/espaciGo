@@ -272,13 +272,21 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
         this.api.weekly(context.token, spaceId),
         this.api.tariffVersions(context.token, spaceId),
       ]);
-      if (!this.resourceCurrent(context, generation, selection, spaceId)) return;
+      // A resource switch must not hide an unauthorized response for the same
+      // still-current bearer. Process all parallel 401s before discarding data
+      // whose resource selection is stale; expireIfCurrent protects a newer
+      // session that may have replaced this token meanwhile.
       for (const result of [profile, photos, tariff, tz, weekly, versions]) {
         if (result.status === 'rejected' && statusOf(result.reason) === 401) {
           this.fail(result.reason, context, false);
           if (!this.contextCurrent(context)) return;
-        } else if (
+        }
+      }
+      if (!this.resourceCurrent(context, generation, selection, spaceId)) return;
+      for (const result of [profile, photos, tariff, tz, weekly, versions]) {
+        if (
           result.status === 'rejected' &&
+          statusOf(result.reason) !== 401 &&
           statusOf(result.reason) !== 404 &&
           statusOf(result.reason) !== undefined
         ) {
