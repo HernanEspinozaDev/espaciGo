@@ -120,12 +120,14 @@ export class BookingLifecyclePanel {
     const context = this.context(); if (!context || !this.canOpenContract()) return;
     await this.execute(context, async () => this.api.createOrGetContract(context.token, context.reservationId), (result) => {
       this.contract.set(result.data); this.success.set(result.notice);
+      this.stateChanged.emit();
     });
   }
   protected async refreshContract(): Promise<void> {
     const item = this.contract(); const context = this.context(); if (!context || !item) return;
     await this.execute(context, () => this.api.getContract(context.token, item.id), (result) => {
       this.contract.set(result.data); this.success.set(result.notice);
+      this.stateChanged.emit();
     });
   }
   protected async sign(): Promise<void> { await this.contractAction('sign'); }

@@ -1,5 +1,6 @@
 import { By } from '@angular/platform-browser';
 import { TestBed } from '@angular/core/testing';
+import { createComponent, createEnvironmentInjector, EnvironmentInjector, runInInjectionContext } from '@angular/core';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { BehaviorSubject } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -32,7 +33,8 @@ const operation = (kind: string, sequence: number) => ({
 const envelope = <T>(data: T) => ({ safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL', data });
 const deferred = <T>() => { let resolve!: (value: T) => void; let reject!: (error: unknown) => void; const promise = new Promise<T>((ok, fail) => { resolve = ok; reject = fail; }); return { promise, resolve, reject }; };
 const settle = async (fixture: ReturnType<typeof TestBed.createComponent>) => { for (let i = 0; i < 4; i++) await Promise.resolve(); fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges(); };
-type PanelAccess = { openContract(): Promise<void>; sign(): Promise<void>; reject(): Promise<void>; record(action: 'check-in' | 'check-out' | 'reception'): Promise<void>; comments: { set(value: string): void; (): string }; observations: { set(value: string): void; (): string }; attempts?: unknown };
+const settleRef = async (ref: { changeDetectorRef: { detectChanges(): void } }) => { for (let i = 0; i < 4; i++) await Promise.resolve(); ref.changeDetectorRef.detectChanges(); };
+type PanelAccess = { openContract(): Promise<void>; refreshContract(): Promise<void>; sign(): Promise<void>; reject(): Promise<void>; record(action: 'check-in' | 'check-out' | 'reception'): Promise<void>; comments: { set(value: string): void; (): string }; observations: { set(value: string): void; (): string }; attempts?: unknown };
 type PageAccess = { reservation(): LocalBookingDetail | null; error(): string };
 
 function integratedSetup(initialState: string, lifecycleOverrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
@@ -82,6 +84,21 @@ function integratedSetup(initialState: string, lifecycleOverrides: Record<string
   return { fixture, identity: TestBed.inject(IdentitySession), attempts: TestBed.inject(BookingLifecycleAttempts), bookingApi, lifecycleApi, panel, page: () => fixture.componentInstance as unknown as PageAccess, state: () => goState, setGoState: (state: string) => { goState = state; } };
 }
 
+function concurrentParticipantPanel(lifecycleApi: ReturnType<typeof vi.fn> | object, identityApi: object, reservationValue: LocalBookingDetail) {
+  let injector!: EnvironmentInjector;
+  injector = createEnvironmentInjector([
+    { provide: IdentityApi, useValue: identityApi },
+    { provide: PrivateSessionState, useFactory: () => new PrivateSessionState() },
+    { provide: BookingLifecycleApi, useValue: lifecycleApi },
+    { provide: BookingLifecycleAttempts, useValue: TestBed.inject(BookingLifecycleAttempts) },
+    { provide: IdentitySession, useFactory: () => runInInjectionContext(injector, () => new IdentitySession()) },
+  ], TestBed.inject(EnvironmentInjector));
+  const ref = createComponent(BookingLifecyclePanel, { environmentInjector: injector });
+  ref.setInput('reservation', reservationValue);
+  ref.changeDetectorRef.detectChanges();
+  return { ref, panel: ref.instance as unknown as PanelAccess, identity: injector.get(IdentitySession), destroy: () => { ref.destroy(); injector.destroy(); } };
+}
+
 describe('BookingDetailPage + BookingLifecyclePanel integration with real IdentitySession', () => {
   afterEach(() => { vi.restoreAllMocks(); TestBed.resetTestingModule(); });
 
@@ -116,6 +133,43 @@ describe('BookingDetailPage + BookingLifecyclePanel integration with real Identi
     expect(test.page().reservation()?.state).toBe('cancelada_por_firma');
     expect(test.lifecycleApi.rejectContract).toHaveBeenCalledWith('token-renter', 'contract-1');
     test.fixture.destroy();
+  });
+
+  it('refreshes renter detail after the host signs concurrently, without logout or remount', async () => {
+    const test = integratedSetup('aprobada_host');
+    await test.identity.signIn('renter@example.invalid', 'synthetic'); await settle(test.fixture);
+    const renterView = test.fixture;
+    await test.panel().openContract(); await settle(test.fixture);
+    await test.panel().sign(); await settle(test.fixture);
+    expect(test.page().reservation()?.state).toBe('firma_parcial');
+
+    const host = concurrentParticipantPanel(test.lifecycleApi, TestBed.inject(IdentityApi), test.page().reservation()!);
+    await host.identity.signIn('host@example.invalid', 'synthetic'); await settleRef(host.ref);
+    await host.panel.openContract(); await settleRef(host.ref);
+    await host.panel.sign(); await settleRef(host.ref);
+    expect(test.identity.accessToken()).toBe('token-renter');
+    expect(test.fixture).toBe(renterView);
+
+    await test.panel().refreshContract(); await settle(test.fixture);
+    expect(test.page().reservation()?.state).toBe('lista_para_checkin');
+    expect(test.fixture.nativeElement.textContent).toContain('Registrar check-in');
+    host.destroy(); test.fixture.destroy();
+  });
+
+  it('refreshes renter detail after an external host rejection and removes stale check-in capability', async () => {
+    const test = integratedSetup('aprobada_host');
+    await test.identity.signIn('renter@example.invalid', 'synthetic'); await settle(test.fixture);
+    await test.panel().openContract(); await settle(test.fixture);
+    const host = concurrentParticipantPanel(test.lifecycleApi, TestBed.inject(IdentityApi), test.page().reservation()!);
+    await host.identity.signIn('host@example.invalid', 'synthetic'); await settleRef(host.ref);
+    await host.panel.openContract(); await settleRef(host.ref);
+    await host.panel.reject(); await settleRef(host.ref);
+
+    await test.panel().refreshContract(); await settle(test.fixture);
+    expect(test.page().reservation()?.state).toBe('cancelada_por_firma');
+    expect(test.fixture.nativeElement.textContent).toContain('Anulado por Go');
+    expect(test.fixture.nativeElement.textContent).not.toContain('Registrar check-in');
+    host.destroy(); test.fixture.destroy();
   });
 
   it('retries an uncertain check-in with the original non-empty payload and key after reauthentication, while keeping fields clean', async () => {
