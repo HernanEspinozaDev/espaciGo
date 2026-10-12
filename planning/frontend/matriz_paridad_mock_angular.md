@@ -206,7 +206,7 @@ La UI reutiliza `M04Local` y sus tipos generados para categorías/perfiles. Cat�
 
 **Límite de automatización:** no se automatizó el selector/diálogo del sistema de archivos del navegador para comprobar escritura física de la descarga. Angular inspecciona el Blob de descarga (incluida firma ZIP) y la prueba Go abre/verifica el ZIP y sus contenidos; el clic de descarga se comprueba en componente. El mock se conserva y Go no se modifica.
 
-## Trazabilidad FE-05 — KYC sintético (implementado; PR en revisión)
+## Trazabilidad FE-05 — KYC sintético ([PR #279](https://github.com/HernanEspinozaDev/espaciGo/pull/279), commit `3405f05`; en revisión)
 
 Ruta privada `/mi-cuenta/verificaciones`, guard de sesión, render CSR y metadato `noindex,nofollow`. La vista separa acceso HTTP (`VerificationApi`), estado del recorrido (`VerificationPage`) y plantilla. Bearer sólo en memoria; las sesiones y selecciones tienen generación propia para descartar respuestas tardías. Una respuesta 401 sólo expira el bearer vigente. Los fixtures de evidencia se solicitan a Go con el literal permitido; el PNG se obtiene por petición autenticada y se representa con Blob URL temporal, revocada al seleccionar otro caso, cambiar/cerrar sesión o destruir la vista. `file_available=false` representa archivo retirado y no reconstruye contenido.
 
