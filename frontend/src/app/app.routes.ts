@@ -109,5 +109,11 @@ export const routes: Routes = [
     canActivate: [identityGuard],
     title: 'Privacidad de la cuenta | EspaciGo',
   },
+  {
+    path: 'mi-cuenta/verificaciones',
+    loadComponent: () => import('./features/verification/verification-page').then((module) => module.VerificationPage),
+    canActivate: [identityGuard],
+    title: 'Verificaciones | EspaciGo',
+  },
   { path: '**', redirectTo: '' },
 ];
