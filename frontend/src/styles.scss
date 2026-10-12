@@ -30,13 +30,37 @@ textarea {
 a {
   color: inherit;
 }
-a:focus-visible,
-button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
+:where(
+  a[href],
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [tabindex]:not([tabindex='-1'])
+):focus-visible {
   outline: 3px solid var(--color-focus);
   outline-offset: 3px;
+}
+button,
+select,
+input[type='button'],
+input[type='submit'],
+input[type='reset'] {
+  min-height: 2.75rem;
+}
+.main-navigation a,
+.footer-links a {
+  min-height: 2.75rem;
+  align-items: center;
+}
+.main-navigation a,
+.footer-links a {
+  display: inline-flex;
+}
+#contenido h1[tabindex='-1']:focus {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 0.35rem;
 }
 ::selection {
   background: var(--brand-primary-soft);
@@ -53,5 +77,16 @@ textarea:focus-visible {
   }
   .page-width {
     width: min(100% - 2rem, 80rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

@@ -217,6 +217,24 @@
   border: 1px solid var(--color-border);
   border-radius: 0.5rem;
 }
+.offline-banner {
+  display: flex;
+  max-width: 80rem;
+  min-height: 3.5rem;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem auto;
+  border: 2px solid var(--color-warning);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-warning-soft);
+  color: var(--color-text);
+  line-height: 1.45;
+}
+.offline-banner strong {
+  color: var(--color-warning);
+  white-space: nowrap;
+}
 
 @media (max-width: 48rem) {
   .header-inner {
@@ -266,5 +284,10 @@
   .footer-bottom {
     flex-direction: column;
     gap: 0.35rem;
+  }
+  .offline-banner {
+    align-items: flex-start;
+    flex-direction: column;
+    margin-inline: 1rem;
   }
 }

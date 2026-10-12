@@ -1,6 +1,6 @@
 # Plan completo del frontend Angular — FRONTEND-LOCAL-1
 
-Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 aprobado y fusionado en PR #283 (merge `503d19359e94c9f187bb955047c150aef8b97507`). FE-09 aprobado y fusionado en PR #284 (merge `0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 aprobado y fusionado en PR #285 (merge `39514662c9002d3c50bdbe7244813c57d13c2b38`); FE-11 está en revisión en PR #286, rama `codex/frontend-local-1-fe11-admin`; FE-12–FE-15 siguen pendientes.
+Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 aprobado y fusionado en PR #283 (merge `503d19359e94c9f187bb955047c150aef8b97507`). FE-09 aprobado y fusionado en PR #284 (merge `0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 aprobado y fusionado en PR #285 (merge `39514662c9002d3c50bdbe7244813c57d13c2b38`); FE-11 fue aprobado y fusionado en PR #286; FE-12 está en ejecución y FE-13–FE-15 siguen pendientes.
 
 ## 1. Objetivo y condición de cierre
 
@@ -261,11 +261,11 @@ Bearer permanece en memoria. Respuestas tardías se descartan por identidad, tok
 
 **Evidencia visual:** [recorrido escritorio](evidencia/FE08_flujo_angular_go_escritorio.png) y [recorrido compacto](evidencia/FE08_flujo_angular_go_movil.png), capturas de página completa con detalle y estados confirmados por Go. El viewport compacto efectivo fue 500×758 CSS px (488 px de contenido, sin desbordamiento horizontal); el Firefox Snap del host impone 500 px como ancho mínimo, por lo que no se pudo medir 390 px. La sesión de las capturas se obtuvo de Go y se inyectó solo en memoria en el navegador de prueba; el formulario de login visual no forma parte de esta evidencia. La descarga privada se comprobó en la respuesta Go y en la acción Angular; el navegador no expone una aserción automatizada del archivo guardado por el sistema operativo.
 
-FE-08 queda aceptado. FE-09 aprobado y fusionado en PR #284 (`0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 aprobado y fusionado en PR #285; FE-11 continúa en revisión en PR #286.
+FE-08 queda aceptado. FE-09 aprobado y fusionado en PR #284 (`0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 aprobado y fusionado en PR #285; FE-11 aprobado y fusionado en PR #286.
 
 ## FE-09 — Conversación, lectura, reseñas y reportes (aceptado y fusionado)
 
-**Estado:** aprobado y fusionado en [PR #284](https://github.com/HernanEspinozaDev/espaciGo/pull/284), merge `0d3bac8a06457899239a49274b54ad6807846f42`, rama `codex/frontend-local-1-fe09-conversation`. FE-10 aprobado y fusionado en PR #285; FE-11 continúa en revisión en PR #286.
+**Estado:** aprobado y fusionado en [PR #284](https://github.com/HernanEspinozaDev/espaciGo/pull/284), merge `0d3bac8a06457899239a49274b54ad6807846f42`, rama `codex/frontend-local-1-fe09-conversation`. FE-10 aprobado y fusionado en PR #285; FE-11 aprobado y fusionado en PR #286.
 
 El detalle de reserva integra `BookingConversationPanel` y `BookingCommunicationApi`. Usa operaciones Go para páginas de mensajes, envío, cursor de lectura, contador de no leídos, reseñas de reserva, reporte de reseñas, reseñas públicas de espacios y reputación propia. El mensaje se renderiza como texto. Solo los estados editables autorizados por Go permiten enviar; los terminales quedan en modo de lectura. La UI no concede permisos ni altera estados.
 
@@ -280,7 +280,7 @@ Bearer permanece en memoria. Intentos inciertos guardan clave y payload original
 
 ## FE-10 — Disputas y finanzas (aceptado y fusionado)
 
-**Estado:** aprobado y fusionado en [PR #285](https://github.com/HernanEspinozaDev/espaciGo/pull/285), merge `39514662c9002d3c50bdbe7244813c57d13c2b38`. Implementación `868116cbe4508b620bb7edc69482cfffcd6cc90c`; correcciones de revisión `b2da3243becb9db0fa10828baf5cae9782af474f`. FE-11 inicia desde `main` actualizado.
+**Estado:** aprobado y fusionado en [PR #285](https://github.com/HernanEspinozaDev/espaciGo/pull/285), merge `39514662c9002d3c50bdbe7244813c57d13c2b38`. Implementación `868116cbe4508b620bb7edc69482cfffcd6cc90c`; correcciones de revisión `b2da3243becb9db0fa10828baf5cae9782af474f`. FE-11 fue aprobado y fusionado en PR #286.
 
 La ruta de reserva integra incidencias, historial de reclamos/descargos, evidencia sintética privada, garantía fake, decisión administrativa de reclamos, liquidación fake, conciliación y comprobante de ensayo con las operaciones M10 de Go. La vista de administración requiere el rol que devuelve Go. La UI distingue cierre de incidencia, resolución del reclamo y decisión financiera; solo habilita registrar una decisión económica después de que Go confirme la resolución, y refleja su respuesta. Los artefactos privados se descargan con Bearer y Blob URLs temporales.
 
@@ -292,7 +292,7 @@ En el recorrido de navegador de este fixture, la reserva seguía `en_disputa` co
 
 **Regresión y build:** Angular — 149 pruebas en 26 archivos; se añadieron cambios de reserva con GET fuera de orden, cambios de cuenta con intento incierto y protección de una nueva instancia frente a respuestas viejas exitosas/4xx. Los tests de componente usan `IdentitySession` real. `go test ./internal/adapters/postgres/booking -count=1` pasó sus tres integraciones en un PostgreSQL efímero con PostGIS; cubre reloj sustituible, autorización/captura/liberación, liquidación, conciliación, replay y comprobante. `npm run api:check` pasó con `ng serve` detenido; `npm run build` compiló y prerenderizó 3 rutas. Después, `ng serve` quedó reactivado y Angular volvió a responder HTTP 200; Go readiness respondió HTTP 200.
 
-**Correcciones de revisión PR #285:** se invalida y limpia el contexto financiero administrativo al cambiar la reserva, las claves de intentos incluyen cuenta + reserva + operación (sin Bearer) y `FinanceApi` elimina únicamente la misma instancia de caché que originó el resultado. Las regresiones validan cambio de contexto mientras hay solicitudes y dos respuestas fuera de orden sobre una operación incierta. FE-10 aceptado y fusionado en PR #285; FE-11 queda en progreso y FE-12 pendiente hasta aprobar y fusionar FE-11.
+**Correcciones de revisión PR #285:** se invalida y limpia el contexto financiero administrativo al cambiar la reserva, las claves de intentos incluyen cuenta + reserva + operación (sin Bearer) y `FinanceApi` elimina únicamente la misma instancia de caché que originó el resultado. Las regresiones validan cambio de contexto mientras hay solicitudes y dos respuestas fuera de orden sobre una operación incierta. FE-10 aceptado y fusionado en PR #285; FE-11 fue aceptado y fusionado en PR #286; FE-12 comienza ahora.
 
 **Evidencia visual:** [participante escritorio 1425×2787](evidencia/FE10_disputas_escritorio.jpg), [participante móvil 375×4050](evidencia/FE10_disputas_movil.jpg), [cola admin escritorio 1425×2289](evidencia/FE10_admin_escritorio.jpg), [cola admin móvil 375×2703](evidencia/FE10_admin_movil.jpg), y [panel admin conectado actual escritorio 1265×712](evidencia/FE10_admin_actual_escritorio.jpg) / [móvil 375×812](evidencia/FE10_admin_actual_movil.jpg). Las capturas del panel actual son viewport del navegador integrado; las capturas anteriores son completas.
 
@@ -319,9 +319,9 @@ FRONTEND-LOCAL-1 se acepta cuando:
 Documentos aportados por el usuario y conversación en el checkout local. Implementación: `../openapi.yaml`, `../matriz_cierre_backend_local.md`, `../local_docker.md`, `../../internal/booking/transport/http/handler.go` y mock vigente. Angular, generación y renderizado: enlaces oficiales de las secciones técnicas, consultados el 2026-10-11. Las propuestas técnicas se revalidan al fijar versiones; no se atribuye aprobación del usuario a herramientas todavía no implementadas.
 
 
-## FE-11 — Administración completa (en revisión)
+## FE-11 — Administración completa (aprobado y fusionado)
 
-**Estado:** en revisión en [PR #286](https://github.com/HernanEspinozaDev/espaciGo/pull/286), rama `codex/frontend-local-1-fe11-admin`; autor verificado HernanMEC y revisión solicitada a HernanEspinozaDev. Basada en `main` actualizado después del merge de FE-10 (#285). FE-12 permanece pendiente hasta aprobar y fusionar FE-11.
+**Estado:** aprobado y fusionado en [PR #286](https://github.com/HernanEspinozaDev/espaciGo/pull/286), autor HernanMEC y revisión de HernanEspinozaDev. FE-12 comienza sobre `main` actualizado.
 
 La ruta `/administracion` mantiene el guardado por rol confirmado en la sesión Go y el servidor decide los permisos efectivos. El panel coordina colas de verificaciones/evidencias, privacidad y supresión, reportes de reseñas, avisos terminales y reapertura, cuentas/bloqueo, publicaciones, reservas, auditoría/exportación y reportes agregados. Las acciones administrativas solicitan motivo y confirman acciones destructivas; las operaciones repetibles conservan clave/payload inciertos en memoria y por cuenta/ámbito, sin Bearer. Las lecturas se aíslan por token/cuenta/revisión; un 401 expira únicamente el token que lo originó y un 403 deja la identidad en manos de Go. Finanzas conserva importes CLP decimales exactos. Evidencia KYC se descarga con Bearer y Blob URL temporal, con revocación al cambiar selección, sesión o vista.
 
@@ -330,3 +330,14 @@ La matriz registra las 29 operaciones OpenAPI del corte y su cobertura UI. Regre
 El stack desechable usa `127.0.0.1:18380`, readiness `GET /health/ready` HTTP 200; el frontend respondió HTTP 200 en `127.0.0.1:4200`. Para poder validar la operación existente de reportes de reseñas se montó su handler Go, que estaba implementado pero no registrado en el router; prueba `TestReputationRoutesDoNotInterceptBookingOperations` pasa. Se usó un proyecto/volumen FE-11 desechable; no se eliminaron ni alteraron volúmenes persistentes. Capturas JPEG reales de Angular autenticado y sin credenciales: [escritorio 1440×914](evidencia/FE11_admin_escritorio.jpg) muestra KYC/evidencia privada, [móvil 500×758](evidencia/FE11_admin_movil.jpg) muestra auditoría; ambos viewports tuvieron `scrollWidth <= innerWidth`. Firefox headless impone mínimo 500 px de ancho, así que el ancho móvil es 500 px, no 390 px.
 
 Límites: la paginación de auditoría está cubierta por regresiones, pero no se pudo avanzar una página en vivo porque la exportación devolvió 14 eventos (el límite por página es 25). No se generó terminal de avisos para ejercitar reapertura; no se atribuye esa mutación al recorrido vivo. `api:check` se ejecuta con `ng serve` detenido; el build/prerender debe completar tres rutas. `frontend/public/config.json` apunta localmente a `http://127.0.0.1:18380/api/v1` y se conserva fuera del PR. Credenciales y tokens permanecen privados/locales; Bearer solo en memoria.
+
+
+## FE-12 — Consolidación visual y accesibilidad (en ejecución)
+
+**Estado:** iniciado sobre `main` actualizado tras el merge de FE-11 (#286), en la rama `codex/frontend-local-1-fe12-visual`. FE-13 permanece pendiente hasta la aprobación y fusión de FE-12.
+
+Este corte consolida la navegación y las reglas globales de foco/objetivos táctiles, atiende el menú móvil con Escape y retorno del foco, mueve el foco al título tras cambiar de ruta, anuncia el estado offline y vuelve a consultar readiness al recuperar conexión. Los roles, Bearer en memoria, claves idempotentes y payloads de operaciones inciertas no cambian. El estado sin conexión explica cómo comprobar si una escritura fue confirmada antes de reintentar. Se eliminó un ID `contenido` duplicado en identidad.
+
+**Validación:** shell responsivo comprobado con viewport de navegador a 390×844 CSS px y escritorio; recorrido de páginas públicas/cuenta, orden de teclado, menú móvil Escape y foco de encabezado; auditoría axe-core de reglas WCAG A/AA en el shell compartido. La suite Angular incluye 167 pruebas en 28 archivos; `api:check` pasó con `ng serve` detenido y `npm run build` prerenderizó 3 rutas. Capturas de navegador: [móvil, viewport 390×844 CSS px / JPEG 375×812](evidencia/FE12_movil.jpg) y [escritorio, viewport 1365×900 CSS px / JPEG 1350×890](evidencia/FE12_escritorio.jpg). El navegador reportó `innerWidth=390` y `scrollWidth=clientWidth=375` en móvil; la diferencia corresponde al ancho de scrollbar reservado.
+
+**Límites de revisión visual:** no se autentican cuentas durante este corte visual; FE-11 ya registra el recorrido autenticado, pero no se repitieron todas las acciones de administración sobre esta rama. La auditoría automatizada axe se limita al shell y no certifica WCAG 2.2 AA ni sustituye revisión manual con lector de pantalla, zoom 400% y recorrido de todos los componentes.

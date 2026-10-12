@@ -200,14 +200,6 @@ textarea {
   background: #fff;
   font: inherit;
 }
-input:focus,
-select:focus,
-textarea:focus,
-button:focus-visible,
-a:focus-visible {
-  outline: 3px solid #e7a47e;
-  outline-offset: 2px;
-}
 textarea {
   resize: vertical;
 }

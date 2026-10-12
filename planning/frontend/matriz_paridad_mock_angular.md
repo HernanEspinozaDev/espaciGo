@@ -25,7 +25,7 @@ Fecha: 2026-10-12. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | FE-08 | 10 | Aprobado y fusionado; [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), merge `503d193` |
 | FE-09 | 8 | Aceptado y fusionado; PR #284, merge `0d3bac8` |
 | FE-10 | 21 | Aceptado y fusionado en [PR #285](https://github.com/HernanEspinozaDev/espaciGo/pull/285), merge `39514662c9002d3c50bdbe7244813c57d13c2b38` |
-| FE-11 | 29 | Implementado; [PR #286 en revisión](https://github.com/HernanEspinozaDev/espaciGo/pull/286) |
+| FE-11 | 29 | Aceptado y fusionado; [PR #286](https://github.com/HernanEspinozaDev/espaciGo/pull/286) |
 | Técnica | 1 | No requiere pantalla directa |
 
 La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y retirada, aunque no agreguen operaciones de API.
@@ -310,9 +310,9 @@ Todas las operaciones de interfaz deben estar implementadas y verificadas en Ang
 
 Pruebas Angular: 141 en 24 archivos; regresiones de sesión/401 tardío, respuestas fuera de orden, paginación concurrente con refresh y éxito/error obsoleto, terminal solo lectura, texto como texto, lectura tras render, clic DOM de reintento idempotente con formulario limpio y resumen público actualizado después de reseña con descarte de lectura anterior. `api:check` y `build` con prerender de 3 rutas pasan. Revisión autenticada en navegador integrado: Angular HTTP 200, Go readiness HTTP 200; sin `ERR_BLOCKED_BY_CLIENT`. Arrendatario: 40 mensajes, paginación UI operativa, intento incierto conserva el formulario original y su reintento produjo una sola fila Go (#40). Anfitrión: reseña reportada, otra publicada y vista terminal solo lectura; resumen público 5/5, 1 reseña. Evidencia capturada desde Angular conectado a Go: [conversación desktop 1413×1004](evidencia/FE09_conversacion_escritorio.jpg) · [móvil 473×824](evidencia/FE09_conversacion_movil.jpg) · [reintento desktop 1413×1004](evidencia/FE09_reintento_escritorio.jpg) · [reseñas/reportes desktop 1413×989](evidencia/FE09_reportes_escritorio.jpg) · [móvil 473×824](evidencia/FE09_reportes_movil.jpg). Los 404 iniciales correspondían a un ID obsoleto que no pertenecía a esa cuenta; se corrigió consultando reservas actuales de Go. No se compartieron credenciales.
 
-FE-09 aprobado y fusionado en PR #284, merge `0d3bac8a06457899239a49274b54ad6807846f42`. FE-10 aprobado y fusionado en PR #285; FE-11 inicia desde `main` actualizado.
+FE-09, FE-10 y FE-11 aprobados y fusionados en PR #284, #285 y #286.
 
-**Aceptación:** FE-09 aprobado y fusionado en PR #284. FE-10 aprobado y fusionado en PR #285; FE-11 comienza desde `main` actualizado.
+**Aceptación:** FE-09, FE-10 y FE-11 aprobados y fusionados en PR #284, #285 y #286.
 
 ## Trazabilidad FE-10 — Disputas y finanzas ([PR #285 aprobado y fusionado](https://github.com/HernanEspinozaDev/espaciGo/pull/285))
 
@@ -327,10 +327,10 @@ FE-09 aceptado y fusionado en PR #284, merge `0d3bac8a06457899239a49274b54ad6807
 
 Evidencia Angular conectada a Go: [participante escritorio 1425×2787](evidencia/FE10_disputas_escritorio.jpg), [participante móvil 375×4050](evidencia/FE10_disputas_movil.jpg), [cola admin escritorio 1425×2289](evidencia/FE10_admin_escritorio.jpg), [cola admin móvil 375×2703](evidencia/FE10_admin_movil.jpg), [panel actual desktop 1265×712](evidencia/FE10_admin_actual_escritorio.jpg) y [móvil 375×812](evidencia/FE10_admin_actual_movil.jpg). Las capturas de panel actual son viewports; las primeras son páginas completas.
 
-Correcciones de revisión: commit `b2da3243becb9db0fa10828baf5cae9782af474f`. Regresión Angular: 149 pruebas en 26 archivos, incluidas selección admin A→B con GET tardío, sesión admin A→B con intento incierto, aislamiento por cuenta y respuestas tardías exitosas/4xx sin borrar la instancia nueva. Test Go: `go test ./internal/adapters/postgres/booking -count=1` en PostgreSQL/PostGIS descartable, con reloj inyectado; tres pruebas de integración pasan y verifican garantía, liquidación/reconciliación y comprobante exitosos. `api:check` pasó con `ng serve` detenido; build/prerender pasó con 3 rutas. FE-10 aceptado y fusionado en PR #285; FE-11 comienza ahora y FE-12 queda pendiente hasta aprobar y fusionar FE-11.
+Correcciones de revisión: commit `b2da3243becb9db0fa10828baf5cae9782af474f`. Regresión Angular: 149 pruebas en 26 archivos, incluidas selección admin A→B con GET tardío, sesión admin A→B con intento incierto, aislamiento por cuenta y respuestas tardías exitosas/4xx sin borrar la instancia nueva. Test Go: `go test ./internal/adapters/postgres/booking -count=1` en PostgreSQL/PostGIS descartable, con reloj inyectado; tres pruebas de integración pasan y verifican garantía, liquidación/reconciliación y comprobante exitosos. `api:check` pasó con `ng serve` detenido; build/prerender pasó con 3 rutas. FE-10 y FE-11 aceptados y fusionados en PR #285 y #286; FE-12 comienza ahora.
 
 
-## Trazabilidad FE-11 — Administración completa ([PR #286 en revisión](https://github.com/HernanEspinozaDev/espaciGo/pull/286))
+## Trazabilidad FE-11 — Administración completa ([PR #286 aprobado y fusionado](https://github.com/HernanEspinozaDev/espaciGo/pull/286))
 
 | Área | Operaciones Go | Estado y evidencia |
 | --- | --- | --- |
@@ -343,4 +343,16 @@ Correcciones de revisión: commit `b2da3243becb9db0fa10828baf5cae9782af474f`. Re
 
 Regresión Angular: `npm test -- --watch=false` — 163 pruebas / 28 archivos; incluye 401/403 vigente/tardío, cambio de sesión, intentos idempotentes, paginación, `correlation_id` original y 403 vigente con revocación/limpieza y refresh de capacidades. `GET /health/ready` de Go y Angular respondieron HTTP 200 en el stack FE-11 desechable; se registró la ruta Go de moderación existente que no estaba montada y pasa `go test ./cmd/api -run TestReputationRoutesDoNotInterceptBookingOperations`. La prueba visual muestra cola KYC con evidencia privada en desktop y auditoría en mobile; la captura mobile tiene 500 px de ancho por límite del navegador headless. `npm run api:check` pasó con `ng serve` detenido y `npm run build` completó prerender de 3 rutas.
 
-FE-10 aceptado y fusionado en PR #285. FE-11 está en revisión en PR #286; FE-12 sigue pendiente hasta aprobar y fusionar FE-11.
+FE-10 y FE-11 aceptados y fusionados en PR #285 y #286. FE-12 está en ejecución; FE-13 queda pendiente hasta aprobar y fusionar FE-12.
+
+
+## Trazabilidad FE-12 — Consolidación visual, responsive y accesibilidad
+
+| Área | Cambio / comprobación | Evidencia y límite |
+| --- | --- | --- |
+| Navegación y foco | Foco compartido de 3 px, objetivos de 44 px para controles y enlaces de navegación, foco al título tras navegar, Escape cierra menú y devuelve foco al disparador | Pruebas Angular de foco/ruta/menú; axe-core sobre shell compartido |
+| Responsive | Portada y categorías inspeccionadas con viewport móvil de 390×844 CSS px; desktop comprobado con viewport ancho; sin overflow horizontal | [móvil, viewport 390×844 / JPEG 375×812](evidencia/FE12_movil.jpg) · [escritorio, viewport 1365×900 / JPEG 1350×890](evidencia/FE12_escritorio.jpg). `innerWidth=390`, `scrollWidth=clientWidth=375` en móvil porque el scrollbar reserva 15 px |
+| Sin conexión | Aviso accesible durante `offline`; readiness se actualiza al volver `online`; mensaje advierte confirmar una escritura antes de reintentar | Prueba de componente; comprobación manual de teclado. No se desconectó el stack Go |
+| Estados | Shell mantiene readiness disponible/no disponible; errores, carga, vacío y permisos siguen anunciados en las vistas de cada corte | No se alteran permisos Go ni semántica de confirmación/idempotencia |
+
+Suite: `npm test -- --watch=false` — 167 pruebas en 28 archivos (incluye auditoría axe WCAG A/AA del shell compartido). `api:check` pasó con ng serve detenido; build/prerender generó 3 rutas estáticas. FE-11 aprobado y fusionado en #286; FE-13 pendiente de aprobación y fusión de FE-12.

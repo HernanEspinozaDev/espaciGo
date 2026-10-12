@@ -10,6 +10,7 @@
       ><span>espaci<span class="brand-go">Go</span></span>
     </a>
     <button
+      id="main-menu-toggle"
       class="menu-toggle"
       type="button"
       [attr.aria-expanded]="menuOpen()"
@@ -25,28 +26,79 @@
       [class.is-open]="menuOpen()"
       aria-label="Navegación principal"
     >
-      <a routerLink="/categorias" routerLinkActive="is-current" (click)="closeMenu()">Categorías</a>
-      <a routerLink="/como-funciona" routerLinkActive="is-current" (click)="closeMenu()"
+      <a
+        routerLink="/categorias"
+        routerLinkActive="is-current"
+        ariaCurrentWhenActive="page"
+        (click)="closeMenu()"
+        >Categorías</a
+      >
+      <a
+        routerLink="/como-funciona"
+        routerLinkActive="is-current"
+        ariaCurrentWhenActive="page"
+        (click)="closeMenu()"
         >Cómo funciona</a
       >
       @if (identity.session(); as session) {
         @if (!session.restricted_mode && session.roles.includes('arrendatario')) {
-          <a routerLink="/explorar" (click)="closeMenu()">Explorar</a>
+          <a
+            routerLink="/explorar"
+            routerLinkActive="is-current"
+            ariaCurrentWhenActive="page"
+            (click)="closeMenu()"
+            >Explorar</a
+          >
         }
         @if (!session.restricted_mode && session.roles.includes('arrendador')) {
-          <a routerLink="/panel/espacios" (click)="closeMenu()">Anfitrión</a>
+          <a
+            routerLink="/panel/espacios"
+            routerLinkActive="is-current"
+            ariaCurrentWhenActive="page"
+            (click)="closeMenu()"
+            >Anfitrión</a
+          >
         }
         @if (!session.restricted_mode && session.roles.includes('administrador')) {
-          <a routerLink="/administracion" (click)="closeMenu()">Administración</a>
-          <a routerLink="/administracion/disputas" (click)="closeMenu()">Disputas y finanzas</a>
+          <a
+            routerLink="/administracion"
+            routerLinkActive="is-current"
+            ariaCurrentWhenActive="page"
+            (click)="closeMenu()"
+            >Administración</a
+          >
+          <a
+            routerLink="/administracion/disputas"
+            routerLinkActive="is-current"
+            ariaCurrentWhenActive="page"
+            (click)="closeMenu()"
+            >Disputas y finanzas</a
+          >
         }
         @if (session.roles.includes('arrendatario') || session.roles.includes('arrendador')) {
-          <a routerLink="/reservas" (click)="closeMenu()">Reservas</a>
+          <a
+            routerLink="/reservas"
+            routerLinkActive="is-current"
+            ariaCurrentWhenActive="page"
+            (click)="closeMenu()"
+            >Reservas</a
+          >
         }
-        <a routerLink="/mi-cuenta" (click)="closeMenu()">Mi cuenta</a>
+        <a
+          routerLink="/mi-cuenta"
+          routerLinkActive="is-current"
+          ariaCurrentWhenActive="page"
+          (click)="closeMenu()"
+          >Mi cuenta</a
+        >
         <button class="nav-sign-in" type="button" (click)="signOut()">Cerrar sesión</button>
       } @else {
-        <a class="nav-sign-in" routerLink="/acceso" (click)="closeMenu()"
+        <a
+          class="nav-sign-in"
+          routerLink="/acceso"
+          routerLinkActive="is-current"
+          ariaCurrentWhenActive="page"
+          (click)="closeMenu()"
           >Iniciar sesión <span aria-hidden="true">↗</span></a
         >
       }
@@ -65,8 +117,19 @@
 @if (identity.notice()) {
   <p class="identity-notice" role="status" aria-live="polite">{{ identity.notice() }}</p>
 }
+@if (offline()) {
+  <aside class="offline-banner" role="status" aria-live="polite" aria-atomic="true">
+    <strong>Sin conexión.</strong>
+    <span
+      >Puedes seguir leyendo esta pantalla. Las acciones que necesitan Go requieren conexión;
+      confirma su estado antes de reintentarlas.</span
+    >
+  </aside>
+}
 
-<div id="contenido" tabindex="-1"><router-outlet /></div>
+<div id="contenido" tabindex="-1" role="region" aria-label="Contenido principal">
+  <router-outlet (activate)="focusCurrentPageHeading()" />
+</div>
 
 <footer class="site-footer">
   <div class="page-width footer-main">
