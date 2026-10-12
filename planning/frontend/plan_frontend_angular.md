@@ -1,6 +1,6 @@
 # Plan completo del frontend Angular — FRONTEND-LOCAL-1
 
-Fecha: 2026-10-11. Baseline de planificación: `b0f62b976c9586d260cea15ed9acc29ab12257a7`, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 implementado y en revisión. FE-06–FE-15 siguen pendientes, no son capacidades implementadas.
+Fecha: 2026-10-11. Baseline de planificación: `b0f62b976c9586d260cea15ed9acc29ab12257a7`, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 implementado y en revisión. FE-07–FE-15 siguen pendientes, no son capacidades implementadas.
 
 ## 1. Objetivo y condición de cierre
 
@@ -168,9 +168,15 @@ Cada fila especifica dependencias, entregable tangible y aceptación. Los PR pue
 
 ### Registro de avance FE-05 (2026-10-12)
 
-**Estado: implementado y en revisión en [PR #279](https://github.com/HernanEspinozaDev/espaciGo/pull/279), commit `3405f05`.** `/mi-cuenta/verificaciones` es privada, CSR/noindex y consume el SDK OpenAPI generado. Presenta casos propios KYC/KYB, estados y elegibilidad confirmados por Go, historial, subsanación del rechazo y generación de evidencia exclusivamente mediante `synthetic-png-v1`. El cliente no acepta archivos ni bytes arbitrarios; los contenidos se descargan con Bearer y las Blob URLs temporales se revocan en cambio de caso, cierre/cambio de sesión y destrucción de vista. No asigna roles ni concede elegibilidad.
+**Estado: aprobado y fusionado en [PR #279](https://github.com/HernanEspinozaDev/espaciGo/pull/279), commit `3405f05`.** `/mi-cuenta/verificaciones` es privada, CSR/noindex y consume el SDK OpenAPI generado. Presenta casos propios KYC/KYB, estados y elegibilidad confirmados por Go, historial, subsanación del rechazo y generación de evidencia exclusivamente mediante `synthetic-png-v1`. El cliente no acepta archivos ni bytes arbitrarios; los contenidos se descargan con Bearer y las Blob URLs temporales se revocan en cambio de caso, cierre/cambio de sesión y destrucción de vista. No asigna roles ni concede elegibilidad.
 
-**Validación y evidencia:** 7 pruebas KYC enfocadas; regresión Angular consolidada de 62 pruebas en 14 archivos; `npm run api:check`; build/prerender; pruebas Go del handler y de repositorio PostgreSQL temporal (`tmpfs`) para autorización titular/tercero, estados, reintento y evidencia. Las regresiones Angular cubren 401 vigente/tardío, cambio A→B, PNG fuera de orden, Blob URL en cambio de recurso/logout/destrucción, y evidencia retirada. Capturas de escritorio/móvil usan fixtures sintéticos locales y se enlazan en la matriz. FE-04 fue aceptado y fusionado en PR #278; FE-05 queda en revisión y FE-06 pendiente hasta su aprobación/fusión.
+**Validación y evidencia:** 7 pruebas KYC enfocadas; regresión Angular consolidada de 62 pruebas en 14 archivos; `npm run api:check`; build/prerender; pruebas Go del handler y de repositorio PostgreSQL temporal (`tmpfs`) para autorización titular/tercero, estados, reintento y evidencia. Las regresiones Angular cubren 401 vigente/tardío, cambio A→B, PNG fuera de orden, Blob URL en cambio de recurso/logout/destrucción, y evidencia retirada. Capturas de escritorio/móvil usan fixtures sintéticos locales y se enlazan en la matriz. FE-04 y FE-05 fueron aceptados y fusionados en PR #278 y #279 antes de iniciar FE-06.
+
+### Registro de avance FE-06 (2026-10-12)
+
+**Estado: implementado y preparado para revisión.** El panel de anfitrión `/panel/espacios` y las rutas de edición, tarifas, calendario y galería son privadas, CSR/noindex y requieren el rol de arrendador confirmado por Go. FE-05 se registra como aceptado y fusionado en PR #279. El corte cubre borradores y contenido publicado, perfiles de atributos versionados, tarifa exacta en CLP y versiones/simulaciones, publicación/ocultamiento/eliminación diferenciados, galería sintética/portada con contenido privado y Blob URL revocable, zona IANA, disponibilidad, bloqueos y horario semanal. Los borradores usan un GET fresco y fusionan solo campos modificados antes de enviar el PUT requerido por contrato; el API de contenido publicado usa PATCH lógico por campos. Claves idempotentes y payload de fixture se conservan para una creación incierta de imagen sintética. Go decide propiedad, elegibilidad, estado y conflictos. El mock y Go se mantienen sin cambios de ruta; no se iniciaron GCP ni proveedores reales.
+
+**Validación:** 13 pruebas FE-06 enfocadas y 85 pruebas Angular consolidadas en 16 archivos; `npm run api:check`; `npm run build` con prerender y sin advertencias. Las pruebas cubren titular/tercero, perfil versionado, GET frente a PUT confirmado, tarifa int64 mayor que `Number.MAX_SAFE_INTEGER`, edición parcial, clave incierta, respuesta privada de foto después de logout/login y limpieza de Blob URL, conflicto 409, cambio de modalidad e intervalos, e instante de pared DST inválido/ambiguo. La prueba visual desde navegador integrado quedó limitada porque bloqueó el acceso al servidor Angular local (`ERR_BLOCKED_BY_CLIENT`); por eso esta revisión no adjunta capturas móviles/escritorio. La suite FE-06 usa `IdentitySession` real y API simulada; no se ejecutó un recorrido destructivo contra el volumen persistente ni una automatización visual del diálogo del navegador.
 
 ### Hitos para revisar avance
 
@@ -231,11 +237,11 @@ Estimación orientativa de trabajo enfocado para un desarrollador; no fechas pro
 
 Añadir margen de aproximadamente 20% si aparecen incompatibilidades de generación, dinero exacto, bibliotecas o endpoints. Rangos no incluyen proveedores reales, GCP ni nuevo portal público. Calibrar con entregas reales, no repartir un porcentaje ficticio por módulo.
 
-A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274), FE-02 está aprobado y fusionado ([PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275)), FE-03 está aprobado y fusionado ([PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276)), FE-04 fue aceptado/fusionado (PR #278) y FE-05 está en revisión. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
+A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274), FE-02 aprobado y fusionado ([PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275)), FE-03 aprobado y fusionado ([PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276)), FE-04 aceptado/fusionado (PR #278), FE-05 aprobado/fusionado (PR #279) y FE-06 está en revisión. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
 
 ## 11. Gobierno y definición de terminado
 
-La implementación se publica por cortes con HernanMEC y solicita revisión a HernanEspinozaDev según el flujo existente. Los cambios documentales ajenos se conservan sin incorporarlos al corte. La aprobación humana de FE-05 precede al siguiente corte FE-06.
+La implementación se publica por cortes con HernanMEC y solicita revisión a HernanEspinozaDev según el flujo existente. Los cambios documentales ajenos se conservan sin incorporarlos al corte. La aprobación humana de cada corte precede al siguiente: FE-06 permanece en revisión antes de iniciar FE-07.
 
 FRONTEND-LOCAL-1 se acepta cuando:
 

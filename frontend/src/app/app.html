@@ -34,7 +34,7 @@
           <a routerLink="/explorar" (click)="closeMenu()">Explorar</a>
         }
         @if (!session.restricted_mode && session.roles.includes('arrendador')) {
-          <a routerLink="/panel-anfitrion" (click)="closeMenu()">Anfitrión</a>
+          <a routerLink="/panel/espacios" (click)="closeMenu()">Anfitrión</a>
         }
         @if (!session.restricted_mode && session.roles.includes('administrador')) {
           <a routerLink="/administracion" (click)="closeMenu()">Administración</a>
