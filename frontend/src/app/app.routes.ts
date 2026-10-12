@@ -98,10 +98,16 @@ export const routes: Routes = [
   {
     path: 'mi-cuenta',
     loadComponent: () =>
-      import('./features/identity/identity-page').then((module) => module.IdentityPage),
+      import('./features/account/account-privacy-page').then((module) => module.AccountPrivacyPage),
     canActivate: [identityGuard],
-    title: 'Mi cuenta | EspaciGo',
-    data: { identityMode: 'account' },
+    title: 'Mi cuenta y privacidad | EspaciGo',
+  },
+  {
+    path: 'mi-cuenta/privacidad',
+    loadComponent: () =>
+      import('./features/account/account-privacy-page').then((module) => module.AccountPrivacyPage),
+    canActivate: [identityGuard],
+    title: 'Privacidad de la cuenta | EspaciGo',
   },
   { path: '**', redirectTo: '' },
 ];
