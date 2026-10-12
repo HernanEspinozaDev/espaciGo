@@ -8,6 +8,7 @@
     <section class="panel">
       <p class="eyebrow">SOLICITUD · {{ item.id }}</p><h1>{{ resultLabel(item.state) }}</h1>
       <p>{{ when(item.start_at, item.time_zone) }} – {{ when(item.end_at, item.time_zone) }} · {{ item.time_zone }}</p>
+      <p><a class="button secondary" [routerLink]="['/reservas', item.id, 'disputas']">Incidencias y finanzas de esta reserva</a></p>
       <dl><div><dt>Total</dt><dd>{{ money(item.subtotal_clp) }}</dd></div><div><dt>Tarifa</dt><dd>{{ money(item.unit_price_clp) }} / {{ item.rate_unit }}</dd></div><div><dt>Unidades</dt><dd>{{ item.units }}</dd></div><div><dt>Espacio</dt><dd>{{ item.space_id }}</dd></div><div><dt>Pago fake</dt><dd>{{ item.state === 'pendiente_de_pago' ? 'Sin confirmar' : item.state === 'pagada' || item.state === 'aprobada_host' ? 'Confirmado por Go' : 'No confirmado o no aplicable' }}</dd></div></dl>
     </section>
 

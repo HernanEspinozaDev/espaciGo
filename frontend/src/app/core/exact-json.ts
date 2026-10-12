@@ -10,6 +10,22 @@ const exactClpKeys = new Set([
   'guarantee_expected_clp',
   'amount_clp',
   'refund_amount_clp',
+  'gross_rent_clp',
+  'confirmed_refunds_clp',
+  'commission_clp',
+  'transfer_clp',
+  'guarantee_authorized_clp',
+  'guarantee_captured_clp',
+  'guarantee_released_clp',
+  'expected_clp',
+  'authorized_clp',
+  'captured_clp',
+  'released_clp',
+  'deduction_clp',
+  'deduction_amount_clp',
+  'claim_amount_clp',
+  'settlement_amount_clp',
+  'requested_amount_clp',
 ]);
 
 /** Quote CLP literals before JSON.parse so int64 amounts never pass through Number. */

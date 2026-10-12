@@ -38,6 +38,7 @@
         }
         @if (!session.restricted_mode && session.roles.includes('administrador')) {
           <a routerLink="/administracion" (click)="closeMenu()">Administración</a>
+          <a routerLink="/administracion/disputas" (click)="closeMenu()">Disputas y finanzas</a>
         }
         @if (session.roles.includes('arrendatario') || session.roles.includes('arrendador')) {
           <a routerLink="/reservas" (click)="closeMenu()">Reservas</a>
