@@ -149,5 +149,19 @@ export const routes: Routes = [
     canActivate: [identityGuard],
     title: 'Verificaciones | EspaciGo',
   },
+  {
+    path: 'reservas',
+    loadComponent: () =>
+      import('./features/bookings/bookings-page').then((module) => module.BookingsPage),
+    canActivate: [identityGuard],
+    title: 'Reservas | EspaciGo',
+  },
+  {
+    path: 'reservas/:id',
+    loadComponent: () =>
+      import('./features/bookings/booking-detail-page').then((module) => module.BookingDetailPage),
+    canActivate: [identityGuard],
+    title: 'Detalle de reserva | EspaciGo',
+  },
   { path: '**', redirectTo: '' },
 ];

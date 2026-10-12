@@ -1,0 +1,44 @@
+<main class="page-width detail">
+  <a routerLink="/reservas" class="back">← Todas las reservas</a>
+  <p class="safety" role="note">{{ notice() }} · Sin movimiento real de dinero.</p>
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (uncertainNotice()) { <p class="uncertain" role="alert">{{ uncertainNotice() }}</p> }
+  @if (loading() && !reservation()) { <p role="status">Consultando estado confirmado por Go…</p> }
+  @if (reservation(); as item) {
+    <section class="panel">
+      <p class="eyebrow">SOLICITUD · {{ item.id }}</p><h1>{{ resultLabel(item.state) }}</h1>
+      <p>{{ when(item.start_at, item.time_zone) }} – {{ when(item.end_at, item.time_zone) }} · {{ item.time_zone }}</p>
+      <dl><div><dt>Total</dt><dd>{{ money(item.subtotal_clp) }}</dd></div><div><dt>Tarifa</dt><dd>{{ money(item.unit_price_clp) }} / {{ item.rate_unit }}</dd></div><div><dt>Unidades</dt><dd>{{ item.units }}</dd></div><div><dt>Espacio</dt><dd>{{ item.space_id }}</dd></div><div><dt>Pago fake</dt><dd>{{ item.state === 'pendiente_de_pago' ? 'Sin confirmar' : item.state === 'pagada' || item.state === 'aprobada_host' ? 'Confirmado por Go' : 'No confirmado o no aplicable' }}</dd></div></dl>
+    </section>
+
+    @if (isRenter(item) && item.state === 'pendiente_de_pago') {
+      <section class="panel actions"><h2>Pago de ensayo</h2><p>La respuesta de Go define si se confirma, rechaza o queda incierto. No uses datos de pago reales.</p>
+        <label>Resultado fake<select [value]="paymentOutcome()" (change)="paymentOutcome.set($any($event.target).value)"><option value="exito">Éxito</option><option value="rechazo">Rechazo</option><option value="sin_respuesta">Timeout sin respuesta</option></select></label>
+        <button class="button" type="button" [disabled]="busy()" (click)="pay()">{{ busy() ? 'Enviando…' : 'Simular pago' }}</button>
+      </section>
+    }
+    @if (isHost(item) && item.state === 'pagada') {
+      <section class="panel actions"><h2>Decisión del anfitrión</h2><label>Motivo (obligatorio para rechazar)<textarea [value]="decisionReason()" (input)="decisionReason.set($any($event.target).value)" rows="3"></textarea></label>
+        <div class="buttons"><button class="button" type="button" [disabled]="busy()" (click)="decide('aprobar')">Aprobar</button><button class="button secondary" type="button" [disabled]="busy()" (click)="decide('rechazar')">Rechazar</button></div>
+      </section>
+    }
+    @if (isRenter(item) && !['cancelada_arrendatario','cancelada_por_pago','cancelada_por_firma','rechazada_arrendador','vencida_pago','vencida_host','finalizada','cerrada'].includes(item.state)) {
+      <section class="panel actions"><h2>Cancelación</h2><button class="button secondary" type="button" [disabled]="busy()" (click)="loadCancellationPreview()">Consultar política de cancelación en Go</button>
+        @if (preview(); as currentPreview) {
+          <p>{{ currentPreview.refund_label }}. @if (currentPreview.eligible) { Importe elegible: <strong>{{ money(currentPreview.amount_clp) }}</strong>. } @else { {{ currentPreview.reason_code }}. }</p>
+          @if (currentPreview.eligible) { <label>Motivo (opcional)<textarea [value]="reason()" (input)="reason.set($any($event.target).value)" rows="2"></textarea></label><label class="confirm"><input type="checkbox" [checked]="confirmCancel()" (change)="confirmCancel.set($any($event.target).checked)" /> Confirmo solicitar la cancelación.</label><button class="button secondary" type="button" [disabled]="busy() || !confirmCancel()" (click)="cancel()">Solicitar cancelación</button> }
+        }
+      </section>
+    }
+    @if (isRenter(item) && item.refund_state === 'pendiente' && item.refund_operation_id) {
+      <section class="panel actions"><h2>Devolución simulada pendiente</h2><p>Importe: {{ money(item.refund_amount_clp) }}. La cancelación creó la obligación; esta acción no mueve dinero real.</p>
+        <label>Resultado fake<select [value]="refundOutcome()" (change)="refundOutcome.set($any($event.target).value)"><option value="exito">Éxito</option><option value="fallo">Fallo</option><option value="sin_respuesta">Timeout sin respuesta</option></select></label>
+        <button class="button" type="button" [disabled]="busy()" (click)="refund()">{{ busy() ? 'Enviando…' : 'Simular devolución' }}</button>
+      </section>
+    }
+    @if (isRenter(item) && item.refund_state === 'completada') {
+      <p class="success" role="status">Go confirmó la devolución fake de {{ money(item.refund_amount_clp) }}. No hubo movimiento de dinero real.</p>
+    }
+    <section class="panel history"><h2>Historial confirmado por Go</h2><ol>@for (entry of item.history; track entry.sequence) { <li><strong>{{ resultLabel(entry.to) }}</strong><span>{{ when(entry.at, item.time_zone) }}</span><p>{{ entry.reason }}</p></li> }</ol></section>
+  }
+</main>

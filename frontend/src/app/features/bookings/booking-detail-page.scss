@@ -1,0 +1,19 @@
+.detail { padding-block: 2rem 5rem; max-width: 900px; }
+.back { display: inline-block; color: #87442f; font-weight: 750; margin-bottom: 1rem; }
+.safety,.panel { border: 1px solid #e8ddd0; border-radius: 1rem; background: #fffdf8; padding: clamp(1rem,3vw,1.5rem); margin-bottom: 1rem; }
+.safety { color: #713b2c; background: #f4e6d7; font-weight: 750; }
+.eyebrow { color: #87442f; font-weight: 800; font-size: .75rem; letter-spacing: .1em; overflow-wrap: anywhere; }
+h1 { font-size: clamp(1.9rem,5vw,3rem); margin: .25rem 0 .5rem; }
+h2 { margin-top: 0; } p { line-height: 1.55; color: #62584f; }
+dl { margin: 1.2rem 0 0; } dl div { display: flex; justify-content: space-between; gap: 1rem; border-top: 1px solid #eee2d4; padding: .65rem 0; }
+dt { color: #71665b; } dd { margin: 0; text-align: end; font-weight: 800; overflow-wrap: anywhere; }
+.actions { display: grid; gap: .8rem; } label { display: grid; gap: .45rem; font-weight: 700; color: #51483f; }
+select,textarea { width: 100%; border: 1px solid #c9b9a7; border-radius: .55rem; min-height: 2.8rem; padding: .6rem; color: #2d2823; background: white; font: inherit; }
+.confirm { display: flex; align-items: center; } .confirm input { width: 1.2rem; height: 1.2rem; accent-color: #a9573f; }
+.buttons { display: flex; flex-wrap: wrap; gap: .7rem; }
+.button { min-height: 2.8rem; border: 0; border-radius: 999px; padding: .7rem 1.1rem; background: #a9573f; color: #fffaf3; font: inherit; font-weight: 800; cursor: pointer; }
+.button.secondary { color: #713b2c; background: #f1e4d7; } .button:disabled { opacity: .55; cursor: wait; }
+.error { padding: .8rem; border-radius: .6rem; background: #fff0ed; color: #842d22; }
+.uncertain { padding: .9rem; border: 2px solid #a9573f; border-radius: .7rem; background: #fff3e6; color: #713b2c; font-weight: 750; }
+.success { padding: .9rem; border-radius: .7rem; background: #e8f3e9; color: #245d36; font-weight: 750; }
+.history ol { display: grid; gap: .8rem; padding-left: 1.2rem; } .history li { padding: .3rem .2rem; } .history li span { display: block; color: #71665b; font-size: .9rem; } .history li p { margin: .25rem 0; }
