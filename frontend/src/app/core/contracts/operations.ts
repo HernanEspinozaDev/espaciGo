@@ -57,7 +57,9 @@ export type BackendOperation = {
 }[OperationKind];
 export function backendOperation<K extends OperationKind>(
   kind: K,
-  params: OperationParameters[K] = {} as OperationParameters[K],
+  ...args: keyof OperationParameters[K] extends never
+    ? [params?: OperationParameters[K]]
+    : [params: OperationParameters[K]]
 ): BackendOperation {
-  return { kind, params } as BackendOperation;
+  return { kind, params: args[0] ?? {} } as BackendOperation;
 }
