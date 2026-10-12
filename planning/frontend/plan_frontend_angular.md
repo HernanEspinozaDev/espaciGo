@@ -152,7 +152,7 @@ Cada fila especifica dependencias, entregable tangible y aceptación. Los PR pue
 
 ### Registro de avance FE-03 (2026-10-11)
 
-**Estado: implementado, PR FE-03 en revisión.** `/explorar` y `/espacios/:id` usan los roles confirmados por Go y permanecen en CSR/noindex. El recorrido incluye búsqueda, categorías/perfiles versionados, filtros, paginación opaca, mapa `x/y` sintético, detalle sin datos privados, horarios de disponibilidad y cotización Go. El Bearer sigue en memoria; respuestas y cursores se invalidan al cambiar cuenta/sesión. Cambios de espacio, fecha, duración o intervalo descartan una cotización anterior; limpiar filtros reinicia resultados y cursor.
+**Estado: implementado, [PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276) en revisión.** `/explorar` y `/espacios/:id` usan los roles confirmados por Go y permanecen en CSR/noindex. El recorrido incluye búsqueda, categorías/perfiles versionados, filtros, paginación opaca, mapa `x/y` sintético, detalle sin datos privados, horarios de disponibilidad y cotización Go. El Bearer sigue en memoria; respuestas y cursores se invalidan al cambiar cuenta/sesión. Cambios de espacio, fecha, duración o intervalo descartan una cotización anterior; limpiar filtros reinicia resultados y cursor.
 
 **Importes y tiempo:** las respuestas del catálogo/cotización llegan como texto y se convierten en cadenas CLP antes de que el parser JSON vea los literales `int64`. La UI usa `BigInt` para validar/formatear importes, sin redondear mediante `Number`. El selector toma la fecha en la zona IANA de cada espacio, consume intervalos UTC de Go, y presenta zona/offset para distinguir las horas repetidas DST; horarios inexistentes dependen del resultado de Go.
 
