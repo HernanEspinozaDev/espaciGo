@@ -1,6 +1,6 @@
 # Plan completo del frontend Angular — FRONTEND-LOCAL-1
 
-Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 reserva y pago está en implementación para revisión. FE-08–FE-15 siguen pendientes, no son capacidades implementadas.
+Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 en revisión en PR #283. FE-09–FE-15 siguen pendientes, no son capacidades implementadas.
 
 ## 1. Objetivo y condición de cierre
 
@@ -180,7 +180,7 @@ Cada fila especifica dependencias, entregable tangible y aceptación. Los PR pue
 
 ### Registro de avance FE-07 (2026-10-12)
 
-**Estado:** implementación preparada para revisión en el PR #282 (reemplaza al PR #281 cerrado). Autor del PR: HernanMEC; revisor solicitado: HernanEspinozaDev. FE-06 aceptado y fusionado en PR #280; FE-08 sigue pendiente hasta fusionar FE-07.
+**Estado:** aceptado y fusionado en el PR #282 (merge `978a27e4bc628c48b4ccffa55e784b369bbcd6d5`; commit de trazabilidad `08b3d7abe6a0941db7b42b3db9e535635382da90`). Autor del PR: HernanMEC. FE-06 y FE-07 quedan aceptados/fusionados; FE-08 comienza en esta rama desde `main` actualizado.
 
 **Implementación:** bandejas autenticadas por participante, detalle e historial confirmado por Go, solicitud desde cotización, decisión del anfitrión, pago fake (éxito/rechazo/timeout), política y cancelación, devolución fake. Los módulos de API/estado/componentes están separados. Los intentos inciertos conservan clave y payload en memoria; importes int64 se parsean desde texto JSON a decimal exacto; sesión Bearer solo en memoria. Go decide acceso y transición; roles no se infieren de preferencias. Go mantiene sus rutas y el mock permanece disponible.
 
@@ -245,11 +245,27 @@ Estimación orientativa de trabajo enfocado para un desarrollador; no fechas pro
 
 Añadir margen de aproximadamente 20% si aparecen incompatibilidades de generación, dinero exacto, bibliotecas o endpoints. Rangos no incluyen proveedores reales, GCP ni nuevo portal público. Calibrar con entregas reales, no repartir un porcentaje ficticio por módulo.
 
-A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274), FE-02 aprobado y fusionado ([PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275)), FE-03 aprobado y fusionado ([PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276)), FE-04 aceptado/fusionado (PR #278), FE-05 aprobado/fusionado (PR #279), FE-06 aceptado y fusionado (PR #280), y FE-07 está en revisión. FE-08 permanece pendiente de aprobación y fusión de FE-07. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
+A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274), FE-02 aprobado y fusionado ([PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275)), FE-03 aprobado y fusionado ([PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276)), FE-04 aceptado/fusionado (PR #278), FE-05 aprobado/fusionado (PR #279), FE-06 aceptado y fusionado (PR #280) y FE-07 aceptado y fusionado ([PR #282](https://github.com/HernanEspinozaDev/espaciGo/pull/282), merge `978a27e`). FE-08 está en revisión en [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), rama `codex/frontend-local-1-fe08-contract-operations`; FE-09 permanece pendiente hasta aprobar y fusionar FE-08. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
+
+### FE-08 — Contrato y operación (rama `codex/frontend-local-1-fe08-contract-operations`)
+
+**Estado:** en revisión en [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283); revisión vigente publicada en el commit que acompaña este registro. Autor del PR: HernanMEC; revisor solicitado: HernanEspinozaDev. FE-07 se aceptó y fusionó en PR #282, merge `978a27e4bc628c48b4ccffa55e784b369bbcd6d5`.
+
+El detalle de la reserva integra generación/consulta de snapshot, firma/rechazo, descarga de PDF privado, check-in/out, recepción e historial/evidencia PNG sintética privada. La UI condiciona las acciones a participación y estado que informó Go; el backend mantiene la autoridad. Se reutiliza el cliente generado y los accesos HTTP están separados del panel. No se admiten documentos reales ni bytes arbitrarios.
+
+Bearer permanece en memoria. Respuestas tardías se descartan por identidad, token, generación y reserva; intentos inciertos conservan idempotency-key y payload en memoria por cuenta/reserva/operación, sin Bearer. Los Blob URLs de PDF/PNG se revocan en logout, cambio de recurso y destrucción del panel.
+
+**Validación integrada:** pruebas de componente con `BookingDetailPage`, `BookingLifecyclePanel` e `IdentitySession` real cubren las dos firmas, actualización del padre desde Go, check-in, check-out y recepción, rechazo, intento incierto con payload no vacío y misma clave al reautenticar, respuesta 4xx antigua que no borra un intento nuevo, aislamiento de formulario y respuestas tardías. En `espacigo_fe08` (PostgreSQL/Mailpit desechables), el navegador Angular operó una reserva Go recién aprobada: ambas firmas, descarga privada solicitada, check-in/out con comentarios sintéticos y recepción del anfitrión; la UI mostró estados e historial devueltos por Go. Go además rechazó a terceros en reserva, contrato, PDF, operaciones y evidencias, y confirmó el rechazo de versión. No se usaron proveedores reales.
+
+**Pruebas de corte:** `npm test -- --watch=false` — 125 pruebas en 22 archivos; `npm run api:check`; `npm run build` — prerender de 3 rutas. El cliente FE-08 ahora omite `Cache-Control` en solicitudes CORS; la preflight Go no admitía ese encabezado y bloqueaba las acciones en navegador.
+
+**Evidencia visual:** [recorrido escritorio](evidencia/FE08_flujo_angular_go_escritorio.png) y [recorrido compacto](evidencia/FE08_flujo_angular_go_movil.png), capturas de página completa con detalle y estados confirmados por Go. El viewport compacto efectivo fue 500×758 CSS px (488 px de contenido, sin desbordamiento horizontal); el Firefox Snap del host impone 500 px como ancho mínimo, por lo que no se pudo medir 390 px. La sesión de las capturas se obtuvo de Go y se inyectó solo en memoria en el navegador de prueba; el formulario de login visual no forma parte de esta evidencia. La descarga privada se comprobó en la respuesta Go y en la acción Angular; el navegador no expone una aserción automatizada del archivo guardado por el sistema operativo.
+
+FE-09 sigue pendiente hasta aprobar y fusionar FE-08.
 
 ## 11. Gobierno y definición de terminado
 
-La implementación se publica por cortes con HernanMEC y solicita revisión a HernanEspinozaDev según el flujo existente. Los cambios documentales ajenos se conservan sin incorporarlos al corte. La aprobación humana de cada corte precede al siguiente: FE-07 permanece en revisión antes de iniciar FE-08.
+La implementación se publica por cortes con HernanMEC y solicita revisión a HernanEspinozaDev según el flujo existente. Los cambios documentales ajenos se conservan sin incorporarlos al corte. FE-07 fue fusionado en #282; FE-08 permanece en revisión hasta su aprobación y fusión antes de iniciar FE-09.
 
 FRONTEND-LOCAL-1 se acepta cuando:
 
