@@ -16,8 +16,8 @@ Fecha: 2026-10-11. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | Corte | Operaciones declaradas | Estado Angular |
 | --- | ---: | --- |
 | Compatibilidad | 1 | No requiere pantalla directa |
-| FE-02 | 10 | Implementado; PR en revisión |
-| FE-03 | 7 | Pendiente |
+| FE-02 | 10 | Aprobado y fusionado; PR #275 |
+| FE-03 | 7 | Implementado; PR en revisión |
 | FE-04 | 13 | Pendiente |
 | FE-05 | 10 | Pendiente |
 | FE-06 | 26 | Pendiente |
@@ -43,13 +43,13 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `POST /admin/local/review-reports/{reportID}/{action}` | `moderateReviewReport` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `GET /admin/local/notices` | `listTerminalLocalNotices` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `POST /admin/local/notices/{noticeID}/reopen` | `reopenLocalNotice` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
-| `GET /auth/terms` | `listLocalTerms` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; PR en revisión |
-| `POST /auth/register` | `registerAccount` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; PR en revisión |
-| `POST /auth/verification/reissue` | `reissueVerification` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; PR en revisión |
-| `POST /auth/verification` | `verifyEmail` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; PR en revisión |
-| `POST /auth/password/recovery` | `requestPasswordRecovery` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; PR en revisión |
-| `POST /auth/password/recovery/consume` | `consumePasswordRecovery` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; PR en revisión |
-| `POST /auth/password/change` | `changePassword` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; PR en revisión |
+| `GET /auth/terms` | `listLocalTerms` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
+| `POST /auth/register` | `registerAccount` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
+| `POST /auth/verification/reissue` | `reissueVerification` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
+| `POST /auth/verification` | `verifyEmail` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
+| `POST /auth/password/recovery` | `requestPasswordRecovery` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
+| `POST /auth/password/recovery/consume` | `consumePasswordRecovery` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
+| `POST /auth/password/change` | `changePassword` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
 | `GET /profile` | `getOwnProfile` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
 | `PUT /profile` | `updateOwnProfile` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
 | `GET /profile/photo` | `getOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
@@ -86,11 +86,11 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /admin/verifications/failed` | `listRejectedVerifications` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `POST /admin/verifications/{id}/review` | `reviewSyntheticVerification` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `POST /admin/verifications/{id}/revoke` | `revokeSyntheticEligibility` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
-| `POST /auth/login` | `login` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; PR en revisión |
-| `GET /auth/session` | `currentSession` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; PR en revisión |
-| `GET /spaces/categories` | `listSpaceCategories` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Pendiente |
-| `GET /spaces/categories/{categoryCode}/attributes` | `getSpaceAttributeProfile` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Pendiente |
-| `GET /spaces/categories/{categoryCode}/attributes/{version}` | `getVersionedSpaceAttributeProfile` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Pendiente |
+| `POST /auth/login` | `login` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
+| `GET /auth/session` | `currentSession` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
+| `GET /spaces/categories` | `listSpaceCategories` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado en FE-03; PR en revisión |
+| `GET /spaces/categories/{categoryCode}/attributes` | `getSpaceAttributeProfile` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado en FE-03; PR en revisión |
+| `GET /spaces/categories/{categoryCode}/attributes/{version}` | `getVersionedSpaceAttributeProfile` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado en FE-03; PR en revisión |
 | `GET /spaces` | `listOwnSpaces` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Pendiente |
 | `POST /spaces` | `createOwnSpaceDraft` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Pendiente |
 | `GET /spaces/{spaceId}` | `getOwnSpaceDraft` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Pendiente |
@@ -116,12 +116,12 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /spaces/{spaceId}/availability/timezone` | `getOwnDraftTimeZone` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Pendiente |
 | `DELETE /spaces/{spaceId}/availability/blocks/{blockId}` | `deleteOwnDraftManualBlock` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Pendiente |
 | `GET /local/booking-trial/fixture` | `getAuthorizedLocalBookingFixture` | Bearer; permisos en Go | Compatibilidad — Sustituida en UI por catálogo/detalle; conservar API | Sin UI directa justificada |
-| `GET /local/booking-trial/catalog` | `searchAuthorizedLocalSyntheticCatalog` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Pendiente |
-| `GET /local/booking-trial/catalog/{spaceId}` | `getAuthorizedLocalSyntheticCatalogDetail` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Pendiente |
-| `GET /local/booking-trial/catalog/{spaceId}/availability-options` | `getAuthorizedLocalFixtureAvailabilityOptions` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Pendiente |
+| `GET /local/booking-trial/catalog` | `searchAuthorizedLocalSyntheticCatalog` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Implementado en FE-03; PR en revisión |
+| `GET /local/booking-trial/catalog/{spaceId}` | `getAuthorizedLocalSyntheticCatalogDetail` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Implementado en FE-03; PR en revisión |
+| `GET /local/booking-trial/catalog/{spaceId}/availability-options` | `getAuthorizedLocalFixtureAvailabilityOptions` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Implementado en FE-03; PR en revisión |
 | `GET /local/booking-trial/catalog/{spaceId}/weekly-hours` | `getOwnSyntheticHourlyWeeklyHours` | Bearer; permisos en Go | FE-06 — Horario semanal propio | Pendiente |
 | `PUT /local/booking-trial/catalog/{spaceId}/weekly-hours` | `replaceOwnSyntheticHourlyWeeklyHours` | Bearer; permisos en Go | FE-06 — Horario semanal propio | Pendiente |
-| `POST /local/booking-trial/quotes` | `quoteAuthorizedLocalBooking` | Bearer; permisos en Go | FE-03 — Cotización confirmada por Go | Pendiente |
+| `POST /local/booking-trial/quotes` | `quoteAuthorizedLocalBooking` | Bearer; permisos en Go | FE-03 — Cotización confirmada por Go | Implementado en FE-03; PR en revisión |
 | `GET /local/booking-trial/reservations` | `listOwnLocalTrialReservations` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
 | `POST /local/booking-trial/reservations` | `requestLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
 | `GET /local/booking-trial/reservations/{reservationId}` | `getOwnLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
@@ -147,7 +147,7 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /local/booking-trial/disputes/{dispute_id}/history` | `getOwnTrialDisputeHistory` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Pendiente |
 | `GET /admin/disputes` | `listOpenLocalTrialDisputes` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Pendiente |
 | `POST /admin/disputes/{dispute_id}/close` | `closeLocalTrialDispute` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Pendiente |
-| `POST /auth/logout` | `logout` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; PR en revisión |
+| `POST /auth/logout` | `logout` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
 | `POST /local/booking-trial/reservations/{reservationId}/contract` | `createOrGetSyntheticReservationContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
 | `GET /local/booking-trial/contracts/{contractId}` | `getOwnSyntheticContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
 | `POST /local/booking-trial/contracts/{contractId}/sign` | `signSyntheticContractAsParticipant` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
@@ -179,7 +179,20 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /admin/local/damage-claims/{claimID}/evidence/{evidenceID}` | `getAdminLocalDamageClaimEvidence` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Pendiente |
 | `POST /admin/local/damage-claims/{claimID}/resolution` | `resolveLocalSyntheticDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Pendiente |
 
-## Trazabilidad FE-02 — [PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275) en revisión
+## Trazabilidad FE-03 — PR en revisión
+
+| Operación | Pantalla / componente | Validación | Evidencia visual |
+| --- | --- | --- | --- |
+| `GET /local/booking-trial/catalog` | `/explorar`: búsqueda autenticada, categorías y perfiles, filtros tipados, paginación opaca, plano sintético | 35 pruebas Angular; cursor reiniciado al limpiar; respuesta A descartada tras logout/login B; `int64` CLP preservado como decimal exacto | [Explorar escritorio](evidencia/FE03_explorar_escritorio.png) · [móvil](evidencia/FE03_explorar_movil.png) |
+| `GET /local/booking-trial/catalog/{spaceId}` | `/espacios/:id`: detalle seguro sin dirección, propietario ni galería privada | Recorrido de componente con sesión real y cuenta sintética; respuestas tardías condicionadas por espacio y sesión | [Detalle escritorio](evidencia/FE03_detalle_escritorio.png) · [móvil](evidencia/FE03_detalle_movil.png) |
+| `GET /local/booking-trial/catalog/{spaceId}/availability-options` | Selector de fecha local, duración e intervalos UTC distintos para horas DST repetidas | `America/New_York` de prueba: las dos 01:30 muestran offsets diferentes; fecha/duración invalida selección y cotización | [Detalle escritorio](evidencia/FE03_detalle_escritorio.png) · [móvil](evidencia/FE03_detalle_movil.png) |
+| `POST /local/booking-trial/quotes` | Cotización real de Go con snapshot CLP exacto y aviso de ensayo | `int64` > `Number.MAX_SAFE_INTEGER`; selección devuelta comparada con espacio e intervalo actual; cotización no crea reserva | [Detalle escritorio](evidencia/FE03_detalle_escritorio.png) |
+
+La UI reutiliza `M04Local` y sus tipos generados para categorías/perfiles. Catálogo, disponibilidad y cotización se leen como texto: los literales de CLP se convierten en cadenas antes de parsear el JSON y se formatean con `BigInt`; filtros CLP viajan como cadenas de consulta. No se aplica `Number` a importes. El Bearer se adjunta en memoria por solicitud, no se registra y no pasa por URL. Go sigue siendo autoridad para roles, permisos, disponibilidad, zona IANA, horarios y snapshot de cotización. El mapa solo representa `x/y` normalizados y está rotulado como sintético.
+
+**Validación:** regresión Angular, `api:check`, build/prerender y prueba M05/M06 Go contra PostgreSQL temporal en `tmpfs`; cuenta y datos sintéticos. Incluye errores 401/403/404/409/422, permiso de arrendatario, DST, cotización y aislamiento de sesión. Sin pruebas destructivas en el volumen persistente, sin proveedores reales y con el mock conservado.
+
+## Trazabilidad FE-02 — [PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275) aprobado y fusionado
 
 | Operación | Pantalla / componente | Validación | Evidencia visual |
 | --- | --- | --- | --- |

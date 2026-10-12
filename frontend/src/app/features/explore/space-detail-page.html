@@ -1,0 +1,151 @@
+<main class="detail page-width">
+  <a class="back-link" routerLink="/explorar">← Volver a explorar</a>
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+  @if (busy() && !space()) {
+    <p class="status" role="status">Cargando detalle seguro desde Go…</p>
+  }
+  @if (space(); as item) {
+    <div class="safety" role="note">{{ notice() }}</div>
+    <div class="detail-grid">
+      <article class="space-detail panel">
+        <div class="cover" aria-label="Ilustración de referencia, sin fotografía del espacio">
+          <span>Espacio flexible</span><b aria-hidden="true">✳</b>
+        </div>
+        <div class="copy">
+          <p class="eyebrow">{{ item.category_name }} · {{ item.area_m2 }} m²</p>
+          <h1>{{ item.title }}</h1>
+          <p class="description">{{ item.description }}</p>
+          <div class="facts">
+            <p>
+              <span>Tarifa base</span
+              ><strong>{{ formatClp(item.base_price_clp) }} / {{ item.rate_unit }}</strong>
+            </p>
+            <p>
+              <span>Zona horaria</span><strong>{{ item.time_zone }}</strong>
+            </p>
+            <p>
+              <span>Superficie</span><strong>{{ item.area_m2 }} m²</strong>
+            </p>
+          </div>
+          @if (profile(); as activeProfile) {
+            <section class="attributes">
+              <h2>Características · perfil v{{ activeProfile.schema_version }}</h2>
+              <dl>
+                @for (attribute of activeProfile.attributes; track attribute.code) {
+                  @if (item.attributes[attribute.code] !== undefined) {
+                    <div>
+                      <dt>{{ attribute.label }}</dt>
+                      <dd>
+                        {{ attributeValue(item.attributes[attribute.code])
+                        }}{{ attribute.unit ? ' ' + attribute.unit : '' }}
+                      </dd>
+                    </div>
+                  }
+                }
+              </dl>
+            </section>
+          }
+          <p class="privacy-note">
+            Go no entrega dirección, propietario ni galería privada en esta ficha.
+          </p>
+        </div>
+      </article>
+
+      <section class="booking panel" aria-labelledby="booking-title">
+        <p class="eyebrow">DISPONIBILIDAD VIGENTE</p>
+        <h2 id="booking-title">Elige un horario</h2>
+        <p>
+          Los intervalos se calculan en {{ item.time_zone }}. Horas repetidas durante cambios DST
+          aparecen como opciones distintas; las horas inexistentes no se ofrecen.
+        </p>
+        <label
+          >Fecha local
+          <input type="date" [value]="date()" (change)="chooseDate($any($event.target).value)" />
+        </label>
+        <label
+          >Duración
+          <select [value]="duration()" (change)="chooseDuration($any($event.target).value)">
+            @if (item.rate_unit === 'hora') {
+              <option value="1">1 hora</option>
+              <option value="2">2 horas</option>
+              <option value="4">4 horas</option>
+            }
+            @if (item.rate_unit === 'dia') {
+              <option value="1">1 día</option>
+              <option value="2">2 días</option>
+              <option value="3">3 días</option>
+            }
+            @if (item.rate_unit === 'mes') {
+              <option value="1">1 mes</option>
+            }
+          </select>
+        </label>
+        <label
+          >Horario disponible
+          <select
+            [value]="selected() ? options().indexOf(selected()!) : ''"
+            (change)="chooseInterval($any($event.target).value)"
+            [disabled]="busy() || !options().length"
+          >
+            <option value="">Selecciona un intervalo</option>
+            @for (
+              interval of options();
+              track interval.start_at + interval.end_at;
+              let index = $index
+            ) {
+              <option [value]="index">{{ formatInterval(interval) }}</option>
+            }
+          </select>
+        </label>
+        @if (!busy() && date() && !options().length && !error()) {
+          <p class="empty">No hay horarios disponibles para esta fecha y duración.</p>
+        }
+        <button
+          class="button"
+          type="button"
+          [disabled]="busy() || !selected()"
+          (click)="createQuote()"
+        >
+          {{ busy() ? 'Consultando…' : 'Cotizar horario' }}
+        </button>
+        @if (quote(); as currentQuote) {
+          <section class="quote" aria-live="polite">
+            <p class="eyebrow">COTIZACIÓN CONFIRMADA POR GO</p>
+            <p>
+              {{ formatInterval({ start_at: currentQuote.start_at, end_at: currentQuote.end_at }) }}
+            </p>
+            <dl>
+              <div>
+                <dt>Precio unitario</dt>
+                <dd>{{ formatClp(currentQuote.unit_price_clp) }}</dd>
+              </div>
+              <div>
+                <dt>Unidades</dt>
+                <dd>{{ currentQuote.units }}</dd>
+              </div>
+              <div class="total">
+                <dt>Total del arriendo</dt>
+                <dd>{{ formatClp(currentQuote.subtotal_clp) }}</dd>
+              </div>
+              <div>
+                <dt>Garantía esperada (snapshot local)</dt>
+                <dd>{{ formatClp(currentQuote.guarantee_expected_clp) }}</dd>
+              </div>
+              <div>
+                <dt>Vence</dt>
+                <dd>{{ formatDateTime(currentQuote.expires_at) }}</dd>
+              </div>
+            </dl>
+            <p class="quote-explainer">
+              Cotizar no reserva ni retiene disponibilidad. Cambiar fecha, duración u horario
+              invalida esta cotización.
+            </p>
+          </section>
+        }
+        <p class="no-charge">Ensayo local: la cotización no genera un cobro real ni una reserva.</p>
+      </section>
+    </div>
+  }
+</main>

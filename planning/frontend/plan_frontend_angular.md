@@ -1,6 +1,6 @@
 # Plan completo del frontend Angular — FRONTEND-LOCAL-1
 
-Fecha: 2026-10-11. Baseline de planificación: `b0f62b976c9586d260cea15ed9acc29ab12257a7`, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 implementado y en revisión. FE-03–FE-15 siguen pendientes, no son capacidades implementadas.
+Fecha: 2026-10-11. Baseline de planificación: `b0f62b976c9586d260cea15ed9acc29ab12257a7`, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 implementado y en revisión. FE-04–FE-15 siguen pendientes, no son capacidades implementadas.
 
 ## 1. Objetivo y condición de cierre
 
@@ -144,11 +144,19 @@ Cada fila especifica dependencias, entregable tangible y aceptación. Los PR pue
 
 ### Registro de avance FE-02 (2026-10-11)
 
-**Estado: implementado, PR [#275](https://github.com/HernanEspinozaDev/espaciGo/pull/275) en revisión.** Se entregó identidad CSR/noindex usando el SDK OpenAPI generado, con acceso HTTP separado del estado de sesión y de componentes. El recorrido usa términos versionados de Go; registro/preferencia inicial; verificación y reemisión; login, sesión y logout; recuperación y cambio de contraseña. El Bearer vive solo en memoria, los estados privados se limpian al salir y las respuestas anteriores a una sesión nueva se descartan. Roles y `restricted_mode` provienen de la respuesta de Go.
+**Estado: aprobado y fusionado en PR [#275](https://github.com/HernanEspinozaDev/espaciGo/pull/275).** Se entregó identidad CSR/noindex usando el SDK OpenAPI generado, con acceso HTTP separado del estado de sesión y de componentes. El recorrido usa términos versionados de Go; registro/preferencia inicial; verificación y reemisión; login, sesión y logout; recuperación y cambio de contraseña. El Bearer vive solo en memoria, los estados privados se limpian al salir y las respuestas anteriores a una sesión nueva se descartan. Roles y `restricted_mode` provienen de la respuesta de Go.
 
-**Evidencia y validación:** 26 pruebas Angular tras responder a revisión; build y prerender; `api:check`; recorrido M01 con cuenta sintética y Mailpit dentro de un stack temporal aislado; errores, repetición de tokens, revocación, aislamiento y escaneo de logs. Las regresiones cubren recuperación con sesión activa, limpieza de contraseñas aun si logout no llega a Go, respuesta tardía de logout A tras login B y respuesta tardía de recuperación después de limpiar sesión y navegación fuera de la cuenta cuando Go no confirma logout; login válido desde el componente con IdentitySession real; recuperación A tardía después de logout y login B, con revalidación explícita de B; recuperación anónima aceptada que limpia tokenId, token y contraseñas del formulario vigente. Evidencia visual en [`evidencia/FE02_sesion_escritorio.jpg`](evidencia/FE02_sesion_escritorio.jpg) y [`evidencia/FE02_sesion_movil.jpg`](evidencia/FE02_sesion_movil.jpg). API/rutas Go permanecen intactas; el mock continúa en Compose. El PR queda en revisión y FE-03 no comienza hasta aprobación.
+**Evidencia y validación:** 26 pruebas Angular tras responder a revisión; build y prerender; `api:check`; recorrido M01 con cuenta sintética y Mailpit dentro de un stack temporal aislado; errores, repetición de tokens, revocación, aislamiento y escaneo de logs. Las regresiones cubren recuperación con sesión activa, limpieza de contraseñas aun si logout no llega a Go, respuesta tardía de logout A tras login B y respuesta tardía de recuperación después de limpiar sesión y navegación fuera de la cuenta cuando Go no confirma logout; login válido desde el componente con IdentitySession real; recuperación A tardía después de logout y login B, con revalidación explícita de B; recuperación anónima aceptada que limpia tokenId, token y contraseñas del formulario vigente. Evidencia visual en [`evidencia/FE02_sesion_escritorio.jpg`](evidencia/FE02_sesion_escritorio.jpg) y [`evidencia/FE02_sesion_movil.jpg`](evidencia/FE02_sesion_movil.jpg). API/rutas Go permanecen intactas; el mock continúa en Compose. El PR fue aprobado y fusionado; FE-03 puede avanzar.
 
 **Límites:** los términos locales exponen códigos/versiones/hash y no constituyen texto legal; se informa este alcance en la UI. Los destinos de catálogo, anfitrión y administración siguen en estado futuro y no implementan sus capacidades. No hay proveedores externos ni despliegue GCP.
+
+### Registro de avance FE-03 (2026-10-11)
+
+**Estado: implementado, PR FE-03 en revisión.** `/explorar` y `/espacios/:id` usan los roles confirmados por Go y permanecen en CSR/noindex. El recorrido incluye búsqueda, categorías/perfiles versionados, filtros, paginación opaca, mapa `x/y` sintético, detalle sin datos privados, horarios de disponibilidad y cotización Go. El Bearer sigue en memoria; respuestas y cursores se invalidan al cambiar cuenta/sesión. Cambios de espacio, fecha, duración o intervalo descartan una cotización anterior; limpiar filtros reinicia resultados y cursor.
+
+**Importes y tiempo:** las respuestas del catálogo/cotización llegan como texto y se convierten en cadenas CLP antes de que el parser JSON vea los literales `int64`. La UI usa `BigInt` para validar/formatear importes, sin redondear mediante `Number`. El selector toma la fecha en la zona IANA de cada espacio, consume intervalos UTC de Go, y presenta zona/offset para distinguir las horas repetidas DST; horarios inexistentes dependen del resultado de Go.
+
+**Evidencia y validación:** regresión Angular enfocada y consolidada, `api:check`, build/prerender, prueba Go de catálogo/disponibilidad/cotización en una base PostgreSQL temporal `tmpfs`, cuenta sintética y evidencia visual escritorio/móvil en la matriz de paridad. Errores/permisos y aislamiento A→B cubiertos por pruebas de componente/servicio. El mock se conserva; no se cambia Go ni se inician proveedores/GCP. El siguiente corte permanece pendiente hasta aprobación de FE-03.
 
 ### Hitos para revisar avance
 
@@ -209,7 +217,7 @@ Estimación orientativa de trabajo enfocado para un desarrollador; no fechas pro
 
 Añadir margen de aproximadamente 20% si aparecen incompatibilidades de generación, dinero exacto, bibliotecas o endpoints. Rangos no incluyen proveedores reales, GCP ni nuevo portal público. Calibrar con entregas reales, no repartir un porcentaje ficticio por módulo.
 
-A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274) y FE-02 está implementado/en revisión ([PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275)). El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
+A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274) y FE-02 está aprobado y fusionado ([PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275)); FE-03 está implementado/en revisión. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
 
 ## 11. Gobierno y definición de terminado
 

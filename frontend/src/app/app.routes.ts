@@ -22,10 +22,18 @@ export const routes: Routes = [
   {
     path: 'explorar',
     loadComponent: () =>
-      import('./features/coming-soon/coming-soon').then((module) => module.ComingSoon),
+      import('./features/explore/explore-page').then((module) => module.ExplorePage),
     canActivate: [roleGuard],
     title: 'Explorar espacios | EspaciGo',
-    data: { requiredRole: 'arrendatario', title: 'Explorar espacios', message: 'El catálogo llegará en FE-03.' },
+    data: { requiredRole: 'arrendatario' },
+  },
+  {
+    path: 'espacios/:id',
+    loadComponent: () =>
+      import('./features/explore/space-detail-page').then((module) => module.SpaceDetailPage),
+    canActivate: [roleGuard],
+    title: 'Detalle de espacio | EspaciGo',
+    data: { requiredRole: 'arrendatario' },
   },
   {
     path: 'panel-anfitrion',
@@ -33,7 +41,11 @@ export const routes: Routes = [
       import('./features/coming-soon/coming-soon').then((module) => module.ComingSoon),
     canActivate: [roleGuard],
     title: 'Panel de anfitrión | EspaciGo',
-    data: { requiredRole: 'arrendador', title: 'Panel de anfitrión', message: 'La gestión de espacios llegará en FE-06.' },
+    data: {
+      requiredRole: 'arrendador',
+      title: 'Panel de anfitrión',
+      message: 'La gestión de espacios llegará en FE-06.',
+    },
   },
   {
     path: 'administracion',
@@ -41,7 +53,11 @@ export const routes: Routes = [
       import('./features/coming-soon/coming-soon').then((module) => module.ComingSoon),
     canActivate: [roleGuard],
     title: 'Administración | EspaciGo',
-    data: { requiredRole: 'administrador', title: 'Administración', message: 'Las funciones administrativas llegarán en FE-11.' },
+    data: {
+      requiredRole: 'administrador',
+      title: 'Administración',
+      message: 'Las funciones administrativas llegarán en FE-11.',
+    },
   },
   {
     path: 'acceso',
