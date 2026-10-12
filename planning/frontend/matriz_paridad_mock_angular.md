@@ -22,7 +22,7 @@ Fecha: 2026-10-11. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | FE-05 | 10 | Aceptado y fusionado; PR #279 |
 | FE-06 | 26 | Aceptado y fusionado; PR #280 |
 | FE-07 | 8 | Aceptado y fusionado; PR #282; merge `978a27e` |
-| FE-08 | 10 | Implementado en revisión; PR pendiente de crear |
+| FE-08 | 10 | En revisión; [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283) |
 | FE-09 | 8 | Pendiente |
 | FE-10 | 21 | Pendiente |
 | FE-11 | 29 | Pendiente |
@@ -148,16 +148,16 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /admin/disputes` | `listOpenLocalTrialDisputes` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Pendiente |
 | `POST /admin/disputes/{dispute_id}/close` | `closeLocalTrialDispute` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Pendiente |
 | `POST /auth/logout` | `logout` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
-| `POST /local/booking-trial/reservations/{reservationId}/contract` | `createOrGetSyntheticReservationContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
-| `GET /local/booking-trial/contracts/{contractId}` | `getOwnSyntheticContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
-| `POST /local/booking-trial/contracts/{contractId}/sign` | `signSyntheticContractAsParticipant` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
-| `POST /local/booking-trial/contracts/{contractId}/reject` | `rejectSyntheticContractVersion` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
-| `GET /local/booking-trial/contracts/{contractId}/document` | `downloadSignedSyntheticContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
-| `POST /local/booking-trial/reservations/{reservationID}/check-in` | `recordSyntheticCheckIn` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
-| `POST /local/booking-trial/reservations/{reservationID}/check-out` | `recordSyntheticCheckOut` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
-| `POST /local/booking-trial/reservations/{reservationID}/reception` | `recordSyntheticHostReception` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
-| `GET /local/booking-trial/reservations/{reservationID}/operations` | `listSyntheticRentalOperations` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
-| `GET /local/booking-trial/reservations/{reservationID}/evidence/{evidenceID}` | `downloadSyntheticRentalOperationEvidence` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
+| `POST /local/booking-trial/reservations/{reservationId}/contract` | `createOrGetSyntheticReservationContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; en revisión PR #283 |
+| `GET /local/booking-trial/contracts/{contractId}` | `getOwnSyntheticContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; en revisión PR #283 |
+| `POST /local/booking-trial/contracts/{contractId}/sign` | `signSyntheticContractAsParticipant` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; en revisión PR #283 |
+| `POST /local/booking-trial/contracts/{contractId}/reject` | `rejectSyntheticContractVersion` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; en revisión PR #283 |
+| `GET /local/booking-trial/contracts/{contractId}/document` | `downloadSignedSyntheticContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; en revisión PR #283 |
+| `POST /local/booking-trial/reservations/{reservationID}/check-in` | `recordSyntheticCheckIn` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; en revisión PR #283 |
+| `POST /local/booking-trial/reservations/{reservationID}/check-out` | `recordSyntheticCheckOut` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; en revisión PR #283 |
+| `POST /local/booking-trial/reservations/{reservationID}/reception` | `recordSyntheticHostReception` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; en revisión PR #283 |
+| `GET /local/booking-trial/reservations/{reservationID}/operations` | `listSyntheticRentalOperations` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; en revisión PR #283 |
+| `GET /local/booking-trial/reservations/{reservationID}/evidence/{evidenceID}` | `downloadSyntheticRentalOperationEvidence` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; en revisión PR #283 |
 | `POST /local/booking-trial/reservations/{reservationID}/damage-claim/defense/evidence` | `createSyntheticDamageClaimDefenseEvidence` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Pendiente |
 | `GET /local/booking-trial/reservations/{reservationID}/damage-claim` | `getOwnSyntheticDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Pendiente |
 | `POST /local/booking-trial/reservations/{reservationID}/damage-claim` | `openSyntheticHostDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Pendiente |
@@ -271,7 +271,7 @@ Credenciales sintéticas y receta: .local/testing/fe07-cuentas.md, modo 0600 y e
 | Crear/consultar, firmar/rechazar contrato y descargar PDF privado | Panel del detalle de reserva | Participantes confirmados, tercero denegado, transición de firma y PDF autenticado | Stack Go desechable; prueba de API/componente |
 | Listar operaciones, check-in, check-out, recepción, descargar evidencia privada | Panel de llegada/salida/recepción | Arrendatario/anfitrión según operación, tercero 403/404, estados confirmados, PNG sintético privado | Stack Go desechable; prueba de API/componente |
 
-**Estado FE-08:** implementación terminada, regresión local y API Go completadas; pendiente de PR/revisión. Componentes: `BookingLifecycleApi` y `BookingLifecyclePanel`, integrados al detalle existente. El acceso se valida con IDs de participante y estados devueltos por Go; la API sigue imponiendo autorización. Bearer solo en memoria, intentos idempotentes en memoria sin Bearer; lecturas obsoletas se descartan por sesión/recurso/generación; URL de Blob PDF/PNG se revoca al cerrar sesión, cambiar recurso o destruir la vista.
+**Estado FE-08:** implementación terminada, regresión local y API Go completadas; en revisión en [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), commit `0bf20393e2c198479abbdfa3784d8706082b9240`. Autor HernanMEC; revisor solicitado HernanEspinozaDev. Componentes: `BookingLifecycleApi` y `BookingLifecyclePanel`, integrados al detalle existente. El acceso se valida con IDs de participante y estados devueltos por Go; la API sigue imponiendo autorización. Bearer solo en memoria, intentos idempotentes en memoria sin Bearer; lecturas obsoletas se descartan por sesión/recurso/generación; URL de Blob PDF/PNG se revoca al cerrar sesión, cambiar recurso o destruir la vista.
 
 **Validación:** stack aislado `espacigo_fe08` con PostgreSQL y Mailpit, usando cuentas sintéticas autorizadas. Go confirmó creación/consulta y firmas de ambas partes, PDF para participantes y rechazo de tercero, check-in del arrendatario con PNG sintético, check-out del arrendatario, recepción del anfitrión, historial y evidencia autorizada; tercero rechazado para operaciones/evidencia. Se verificó además rechazo de contrato. Cuenta de tercero no obtiene controles de la vista. Pruebas Angular reales de `IdentitySession`: sesión anterior y lecturas tardías, rechazo de tercero, anfitrión/arrendatario, idempotencia incierta y revocación de Blob PNG/PDF.
 

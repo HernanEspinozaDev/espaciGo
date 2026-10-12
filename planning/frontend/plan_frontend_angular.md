@@ -1,6 +1,6 @@
 # Plan completo del frontend Angular — FRONTEND-LOCAL-1
 
-Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 implementado en espera de publicación/revisión. FE-09–FE-15 siguen pendientes, no son capacidades implementadas.
+Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 en revisión en PR #283. FE-09–FE-15 siguen pendientes, no son capacidades implementadas.
 
 ## 1. Objetivo y condición de cierre
 
@@ -245,11 +245,11 @@ Estimación orientativa de trabajo enfocado para un desarrollador; no fechas pro
 
 Añadir margen de aproximadamente 20% si aparecen incompatibilidades de generación, dinero exacto, bibliotecas o endpoints. Rangos no incluyen proveedores reales, GCP ni nuevo portal público. Calibrar con entregas reales, no repartir un porcentaje ficticio por módulo.
 
-A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274), FE-02 aprobado y fusionado ([PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275)), FE-03 aprobado y fusionado ([PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276)), FE-04 aceptado/fusionado (PR #278), FE-05 aprobado/fusionado (PR #279), FE-06 aceptado y fusionado (PR #280) y FE-07 aceptado y fusionado ([PR #282](https://github.com/HernanEspinozaDev/espaciGo/pull/282), merge `978a27e`). FE-08 está implementado en `codex/frontend-local-1-fe08-contract-operations`; FE-09 permanece pendiente hasta aprobar y fusionar FE-08. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
+A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274), FE-02 aprobado y fusionado ([PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275)), FE-03 aprobado y fusionado ([PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276)), FE-04 aceptado/fusionado (PR #278), FE-05 aprobado/fusionado (PR #279), FE-06 aceptado y fusionado (PR #280) y FE-07 aceptado y fusionado ([PR #282](https://github.com/HernanEspinozaDev/espaciGo/pull/282), merge `978a27e`). FE-08 está en revisión en [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), rama `codex/frontend-local-1-fe08-contract-operations`; FE-09 permanece pendiente hasta aprobar y fusionar FE-08. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
 
 ### FE-08 — Contrato y operación (rama `codex/frontend-local-1-fe08-contract-operations`)
 
-**Estado:** implementación y validación de API Go desechable terminadas; pendiente publicación/revisión. FE-07 se aceptó y fusionó en PR #282, merge `978a27e4bc628c48b4ccffa55e784b369bbcd6d5`.
+**Estado:** en revisión en [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), commit `0bf20393e2c198479abbdfa3784d8706082b9240`. Autor del PR: HernanMEC; revisor solicitado: HernanEspinozaDev. FE-07 se aceptó y fusionó en PR #282, merge `978a27e4bc628c48b4ccffa55e784b369bbcd6d5`.
 
 El detalle de la reserva integra generación/consulta de snapshot, firma/rechazo, descarga de PDF privado, check-in/out, recepción e historial/evidencia PNG sintética privada. La UI condiciona las acciones a participación y estado que informó Go; el backend mantiene la autoridad. Se reutiliza el cliente generado y los accesos HTTP están separados del panel. No se admiten documentos reales ni bytes arbitrarios.
 
@@ -257,7 +257,7 @@ Bearer permanece en memoria. Respuestas tardías se descartan por identidad, tok
 
 **Validación de Go:** cuentas sintéticas en stack aislado, Mailpit y DB descartable; Go confirmó firmas de anfitrión y arrendatario, PDF privado para participantes, check-in/out y recepción, historial/evidencia PNG. Terceros rechazados para contrato, operación y archivo; se probó rechazo de contrato. No se usaron proveedores reales.
 
-**Evidencia visual:** limitada por el Firefox Snap disponible en este host, que abre Angular pero no conecta con los puertos loopback del stack. No se guardan capturas de error como si fueran evidencia funcional; capturas conectadas de 1440×1100 y 390×844 px quedan pendientes de navegador con loopback habilitado. El motivo y el intento están en la matriz.
+**Evidencia visual:** limitada por el Firefox Snap disponible en este host, que abre Angular pero no conecta con los puertos loopback del stack. Se intentó la captura desde escritorio (viewport 1440×1100), pero el recorrido no llegó a cargar el detalle; móvil (390×844) no pudo capturarse. No se guardan capturas de error como si fueran evidencia funcional. Ambas capturas conectadas quedan pendientes de navegador con loopback habilitado; el intento está en la matriz.
 
 FE-09 sigue pendiente hasta aprobar y fusionar FE-08.
 
