@@ -83,14 +83,10 @@ export const routes: Routes = [
   {
     path: 'administracion',
     loadComponent: () =>
-      import('./features/coming-soon/coming-soon').then((module) => module.ComingSoon),
+      import('./features/admin/admin-page').then((module) => module.AdminPage),
     canActivate: [roleGuard],
     title: 'Administración | EspaciGo',
-    data: {
-      requiredRole: 'administrador',
-      title: 'Administración',
-      message: 'Las funciones administrativas llegarán en FE-11.',
-    },
+    data: { requiredRole: 'administrador', noindex: true },
   },
   {
     path: 'acceso',
