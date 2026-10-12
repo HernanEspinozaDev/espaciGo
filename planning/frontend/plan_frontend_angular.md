@@ -245,7 +245,7 @@ Estimación orientativa de trabajo enfocado para un desarrollador; no fechas pro
 
 Añadir margen de aproximadamente 20% si aparecen incompatibilidades de generación, dinero exacto, bibliotecas o endpoints. Rangos no incluyen proveedores reales, GCP ni nuevo portal público. Calibrar con entregas reales, no repartir un porcentaje ficticio por módulo.
 
-Estado vigente: FE-08 aprobado y fusionado en [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), merge `503d19359e94c9f187bb955047c150aef8b97507`; FE-09 está en desarrollo desde `main` actualizado en `codex/frontend-local-1-fe09-conversation`. FE-10 queda pendiente de aprobación y fusión de FE-09. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
+Estado vigente: FE-08 aprobado y fusionado en [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), merge `503d19359e94c9f187bb955047c150aef8b97507`; FE-09 está en revisión en [PR #284](https://github.com/HernanEspinozaDev/espaciGo/pull/284), rama `codex/frontend-local-1-fe09-conversation`. FE-10 queda pendiente de aprobación y fusión de FE-09. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
 
 ### FE-08 — Contrato y operación (rama `codex/frontend-local-1-fe08-contract-operations`)
 
