@@ -98,6 +98,10 @@
   border-radius: 0.6rem;
   padding-inline: 1rem;
   color: var(--brand-primary);
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
 }
 .main-navigation .nav-sign-in:hover {
   border-color: var(--brand-primary);
@@ -192,6 +196,28 @@
   font-size: 0.82rem;
 }
 
+.restricted-banner,
+.identity-notice {
+  display: flex;
+  max-width: 80rem;
+  min-height: 3rem;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 auto;
+  padding: 0.75rem 1.5rem;
+  color: #78350f;
+  line-height: 1.45;
+}
+.restricted-banner {
+  border-bottom: 1px solid #b45309;
+  background: #fffbeb;
+}
+.identity-notice {
+  margin-top: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+}
+
 @media (max-width: 48rem) {
   .header-inner {
     min-height: 4.5rem;
@@ -220,6 +246,11 @@
   .main-navigation a {
     min-height: 2.9rem;
     align-content: center;
+  }
+  .main-navigation button.nav-sign-in {
+    width: 100%;
+    justify-content: center;
+    margin-top: 0.35rem;
   }
   .main-navigation .nav-sign-in {
     justify-content: center;
