@@ -37,6 +37,14 @@ docker compose -f compose.yaml -f compose.frontend.yaml up --build angular-front
 
 El frontend se publica en `http://localhost:4200` (override `LOCAL_ANGULAR_PORT`). Puede ejecutarse independientemente con `npm start`; la configuración de desarrollo apunta a `http://localhost:8080/api/v1`.
 
+## Stack FE-13 y runner integrado
+
+La validación desde cero se ejecuta con `scripts/test-frontend-docker.sh`. Usa un proyecto Compose, volumen PostgreSQL, puertos y directorios de secretos efímeros propios; al terminar elimina únicamente ese proyecto/volumen. El stack incluye Go, migrador, Mailpit, mock opcional y Angular; Angular y el runner solo están en la red `api`, sin secretos/DB. Override `FE13_PORT_BASE` para escoger la primera de cuatro puertos consecutivos libres; `FE13_KEEP_STACK=1` conserva el stack aislado para inspección.
+
+El runner `angular-runner` verifica el HTML de Angular, su configuración pública no cacheable, el readiness real de Go y CORS/preflight desde el origen del navegador en el host. Usa `http://backend:8080` solo dentro de la red Compose; `/config.json` conserva la URL `127.0.0.1` que el navegador del host puede abrir. Comandos de bajo nivel: `scripts/local-docker-stack.sh up-frontend`, `verify-frontend`, `down-frontend`.
+
+Instalación limpia y regresión desde `frontend/`: `npm ci`, `npm test -- --watch=false`, `npm run api:check` (sin `ng serve` activo) y `npm run build`. El mock permanece disponible pero el runner y la app Angular no lo consultan.
+
 ## Alcance visible
 
 `/`, `/categorias` y `/como-funciona` contienen solo información del producto y son prerenderizadas. Las páginas de identidad y cuenta son CSR/noindex. `/explorar` y las áreas de anfitrión/administración requieren la sesión, roles y modo restringido que confirma Go; sus funciones posteriores siguen pendientes. El registro distingue la preferencia inicial de los roles autorizados. No se muestran fichas, disponibilidad, precios ni acciones no respaldadas por una sesión o por el contrato actual.

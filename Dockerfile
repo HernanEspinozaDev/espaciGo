@@ -44,6 +44,12 @@ COPY --from=api-build --chown=65532:65532 /out/netprobe /netprobe
 USER 65532:65532
 ENTRYPOINT ["/netprobe"]
 
+FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS frontend-runner
+WORKDIR /runner
+COPY scripts/verify-frontend-stack.mjs ./verify-frontend-stack.mjs
+USER node
+ENTRYPOINT ["node", "verify-frontend-stack.mjs"]
+
 FROM postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677 AS database
 USER root
 COPY scripts/postgres/entrypoint-wrapper.sh /usr/local/bin/espacigo-postgres-entrypoint
