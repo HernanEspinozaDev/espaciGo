@@ -60,6 +60,68 @@ describe('IdentityPage private forms', () => {
     fixture.destroy();
   });
 
+  it('clears anonymous recovery credentials after Go accepts the current request', async () => {
+    const api = {
+      login: vi.fn(),
+      session: vi.fn(),
+      logout: vi.fn(),
+      consumeRecovery: vi.fn().mockResolvedValue(undefined),
+    };
+    TestBed.configureTestingModule({
+      imports: [IdentityPage],
+      providers: [
+        provideHttpClient(),
+        provideRouter([]),
+        { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'recovery' } } } },
+        { provide: IdentityApi, useValue: api },
+        PrivateSessionState,
+      ],
+    });
+    const fixture = TestBed.createComponent(IdentityPage);
+    fixture.detectChanges();
+    const identity = TestBed.inject(IdentitySession);
+    const page = fixture.componentInstance as unknown as {
+      recoveryModel: (() => {
+        tokenId: string;
+        token: string;
+        newPassword: string;
+        confirmPassword: string;
+      }) & {
+        set(value: {
+          tokenId: string;
+          token: string;
+          newPassword: string;
+          confirmPassword: string;
+        }): void;
+      };
+      onConsumeRecovery(event: SubmitEvent): Promise<void>;
+    };
+    page.recoveryModel.set({
+      tokenId: 'recovery-id',
+      token: 'recovery-code',
+      newPassword: 'New#12345',
+      confirmPassword: 'New#12345',
+    });
+
+    await page.onConsumeRecovery(new Event('submit') as SubmitEvent);
+
+    expect(api.consumeRecovery).toHaveBeenCalledWith(
+      'recovery-id',
+      'recovery-code',
+      'New#12345',
+      'New#12345',
+    );
+    expect(identity.status()).toBe('anonymous');
+    expect(identity.accessToken()).toBeNull();
+    expect(page.recoveryModel()).toEqual({
+      tokenId: '',
+      token: '',
+      newPassword: '',
+      confirmPassword: '',
+    });
+    fixture.destroy();
+  });
+
   it('clears change-password inputs when logout cleanup runs even if Go is unavailable', async () => {
     const api = {
       login: vi.fn().mockResolvedValue({

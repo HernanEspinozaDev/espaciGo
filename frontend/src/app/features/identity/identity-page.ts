@@ -264,7 +264,13 @@ export class IdentityPage {
             model.newPassword,
             model.confirmPassword,
           ),
-        () => undefined,
+        () =>
+          this.recoveryModel.set({
+            tokenId: '',
+            token: '',
+            newPassword: '',
+            confirmPassword: '',
+          }),
       );
     });
   }
