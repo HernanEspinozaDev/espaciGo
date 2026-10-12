@@ -1,6 +1,6 @@
 # Plan completo del frontend Angular — FRONTEND-LOCAL-1
 
-Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 aprobado y fusionado en PR #283 (merge `503d19359e94c9f187bb955047c150aef8b97507`). FE-09 aprobado y fusionado en PR #284 (merge `0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 aprobado y fusionado en PR #285 (merge `39514662c9002d3c50bdbe7244813c57d13c2b38`); FE-11 aprobado y fusionado en PR #286; FE-12 aprobado y fusionado en PR #287; FE-13 está en ejecución y FE-14/15 siguen pendientes.
+Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 aprobado y fusionado en PR #283 (merge `503d19359e94c9f187bb955047c150aef8b97507`). FE-09 aprobado y fusionado en PR #284 (merge `0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 aprobado y fusionado en PR #285 (merge `39514662c9002d3c50bdbe7244813c57d13c2b38`); FE-11 aprobado y fusionado en PR #286; FE-12 aprobado y fusionado en PR #287; FE-13 está en revisión en PR #288 y FE-14/15 siguen pendientes.
 
 ## 1. Objetivo y condición de cierre
 
@@ -350,9 +350,9 @@ Este corte consolida la navegación y las reglas globales de foco/objetivos tác
 
 **Regresión final del HEAD:** 168 pruebas Angular en 28 archivos, `api:check` con `ng serve` detenido y build/prerender de 3 rutas. La prueba manual mantuvo readiness online; error de red y offline se cubren con regresiones del aviso/refresh, pero no se capturó una sesión visual sin red ni se interrumpió el servicio durante la revisión.
 
-## Trazabilidad FE-13 — Stack Docker y paridad sin mock (en ejecución)
+## Trazabilidad FE-13 — Stack Docker y paridad sin mock (en revisión)
 
-**Estado:** iniciado en `codex/frontend-local-1-fe13-docker`, desde `origin/main` actualizado al merge #287 (`106942ff`). FE-12 aceptado/fusionado; FE-14 queda pendiente de la aprobación y fusión de este corte.
+**Estado:** en revisión en [PR #288](https://github.com/HernanEspinozaDev/espaciGo/pull/288), autor verificado `HernanMEC`, revisión solicitada a `HernanEspinozaDev`. Rama `codex/frontend-local-1-fe13-docker`, creada desde `origin/main` actualizado al merge #287 (`106942ff`). FE-12 aceptado/fusionado; FE-14 queda pendiente de la aprobación y fusión de este corte.
 
 El cambio integra el servicio Angular y un runner técnico al Compose aislado. La configuración pública de navegador apunta a `127.0.0.1:<puerto API>`; los nombres `backend` y `angular-frontend` se usan solo en la red Compose. CORS incorpora la misma combinación de puerto local para `localhost` y `127.0.0.1`. El runner valida readiness Go y preflight de login; no recibe credenciales, no tiene acceso a la red de datos y no depende del mock. La imagen Angular se construye con `npm ci` y lockfile fijado; el mock permanece disponible.
 

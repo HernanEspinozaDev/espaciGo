@@ -27,7 +27,7 @@ Fecha: 2026-10-12. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | FE-10 | 21 | Aceptado y fusionado en [PR #285](https://github.com/HernanEspinozaDev/espaciGo/pull/285), merge `39514662c9002d3c50bdbe7244813c57d13c2b38` |
 | FE-11 | 29 | Aceptado y fusionado; [PR #286](https://github.com/HernanEspinozaDev/espaciGo/pull/286) |
 | FE-12 | 0 | Aceptado y fusionado; [PR #287](https://github.com/HernanEspinozaDev/espaciGo/pull/287) |
-| FE-13 | 0 | En ejecución; stack Angular Docker, URL/CORS, runner y paridad sin mock |
+| FE-13 | 0 | En revisión en [PR #288](https://github.com/HernanEspinozaDev/espaciGo/pull/288); stack Angular Docker, URL/CORS y runner sin mock |
 | Técnica | 1 | No requiere pantalla directa |
 
 La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y retirada, aunque no agreguen operaciones de API.
@@ -345,7 +345,7 @@ Correcciones de revisión: commit `b2da3243becb9db0fa10828baf5cae9782af474f`. Re
 
 Regresión Angular: `npm test -- --watch=false` — 163 pruebas / 28 archivos; incluye 401/403 vigente/tardío, cambio de sesión, intentos idempotentes, paginación, `correlation_id` original y 403 vigente con revocación/limpieza y refresh de capacidades. `GET /health/ready` de Go y Angular respondieron HTTP 200 en el stack FE-11 desechable; se registró la ruta Go de moderación existente que no estaba montada y pasa `go test ./cmd/api -run TestReputationRoutesDoNotInterceptBookingOperations`. La prueba visual muestra cola KYC con evidencia privada en desktop y auditoría en mobile; la captura mobile tiene 500 px de ancho por límite del navegador headless. `npm run api:check` pasó con `ng serve` detenido y `npm run build` completó prerender de 3 rutas.
 
-FE-10 y FE-11 aceptados y fusionados en PR #285 y #286. FE-12 aceptado y fusionado en PR #287. FE-13 está en ejecución; FE-14 sigue pendiente de aprobación y fusión de FE-13.
+FE-10 y FE-11 aceptados y fusionados en PR #285 y #286. FE-12 aceptado y fusionado en PR #287. FE-13 está en revisión en PR #288; FE-14 sigue pendiente de aprobación y fusión de FE-13.
 
 
 ## Trazabilidad FE-12 — Consolidación visual, responsive y accesibilidad
@@ -390,4 +390,4 @@ Las capturas usan viewport de navegador 390×844 CSS px y 1365×900 CSS px. El J
 
 **Regresión Angular:** `npm test -- --watch=false`, 169 pruebas/28 archivos; `npm run api:check` pasó con `ng serve` detenido; `npm run build` prerenderizó 3 rutas. **Stack Docker:** `scripts/test-frontend-docker.sh` pasó con puertos API 18680/Angular 18683 y runner sin credenciales; imagen runner `sha256:83812f89384f93e01a5520122c4b87bd3bb97964a569476a7207c72f129308e8`. Transcripción de criterios/alcance: [`evidencia/FE13_docker_stack.log`](evidencia/FE13_docker_stack.log). No se usó ningún volumen persistente y la limpieza confirmó cero contenedores/redes/volúmenes con prefijo FE-13. La pérdida de conexión no revoca un token; si Go responde 401 vigente, se conservan las reglas existentes de expiración. FE-14 queda pendiente.
 
-Origen base: `origin/main` tras merge #287 (`106942ff`); código validado en `c6b46db9bb62ed7ba0ab943e1398e32b7645c450`, rama `codex/frontend-local-1-fe13-docker`. El script `scripts/test-frontend-docker.sh` crea un proyecto y volumen nuevos con puertos propios, secretos/directorios fuera de datos locales y limpieza acotada a esos recursos. La instalación/ejecución no incluye credenciales ni cambia configuración privada. FE-14 pendiente hasta aprobar y fusionar FE-13; FE-15 (retirar mock) no forma parte de este PR.
+Origen base: `origin/main` tras merge #287 (`106942ff`); código validado en `c6b46db9bb62ed7ba0ab943e1398e32b7645c450`, rama `codex/frontend-local-1-fe13-docker`. PR #288 abierto por `HernanMEC`, revisión solicitada a `HernanEspinozaDev`. El script `scripts/test-frontend-docker.sh` crea un proyecto y volumen nuevos con puertos propios, secretos/directorios fuera de datos locales y limpieza acotada a esos recursos. La instalación/ejecución no incluye credenciales ni cambia configuración privada. FE-14 pendiente hasta aprobar y fusionar FE-13; FE-15 (retirar mock) no forma parte de este PR.
