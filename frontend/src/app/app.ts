@@ -1,3 +1,5 @@
+import { FocusMonitor } from '@angular/cdk/a11y';
+import { UiButton } from './shared/ui/button/button';
 import { DOCUMENT, isPlatformBrowser } from '@angular/common';
 import {
   afterNextRender,
@@ -8,14 +10,14 @@ import {
   PLATFORM_ID,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { IdentitySession } from './core/identity/application/identity-session';
 import { Readiness } from './core/readiness';
-import { IdentitySession } from './core/identity/identity-session';
 
 @Component({
-  imports: [RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [UiButton, RouterLink, RouterLinkActive, RouterOutlet],
   selector: 'app-root',
   host: {
     '(document:keydown.escape)': 'closeMenuOnEscape()',
@@ -30,6 +32,7 @@ export class App {
   protected readonly offline = signal(false);
   protected readonly readiness = inject(Readiness);
   protected readonly identity = inject(IdentitySession);
+  private readonly focusMonitor = inject(FocusMonitor);
   private readonly document = inject(DOCUMENT);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
@@ -62,7 +65,8 @@ export class App {
     if (!this.menuOpen()) return;
     this.closeMenu();
     if (isPlatformBrowser(this.platformId)) {
-      this.document.getElementById('main-menu-toggle')?.focus();
+      const trigger = this.document.getElementById('main-menu-toggle');
+      if (trigger) this.focusMonitor.focusVia(trigger, 'keyboard');
     }
   }
 
@@ -86,7 +90,7 @@ export class App {
         const heading = this.document.querySelector<HTMLElement>('#contenido h1');
         if (!heading) return;
         heading.tabIndex = -1;
-        heading.focus();
+        this.focusMonitor.focusVia(heading, 'program');
       },
       { injector: this.injector },
     );

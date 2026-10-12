@@ -60,7 +60,7 @@ form {
   border: 1px solid var(--color-border-control);
   border-radius: 0.55rem;
   padding: 0.65rem 0.75rem;
-  background: #fff;
+  background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
 }
@@ -115,7 +115,7 @@ form {
   border: 1px solid var(--color-border-control);
   border-radius: 0.6rem;
   padding: 0.7rem;
-  background: #fff;
+  background: var(--color-surface);
   line-height: 1.4;
 }
 
@@ -152,7 +152,7 @@ form {
   border-radius: 0.6rem;
   padding: 0.65rem 1rem;
   background: var(--brand-primary);
-  color: #fff;
+  color: var(--color-surface);
   font: inherit;
   font-weight: 750;
   cursor: pointer;
@@ -172,12 +172,12 @@ form {
 
 .secondary-button {
   justify-self: start;
-  background: #fff;
+  background: var(--color-surface);
   color: var(--brand-primary);
 }
 
 .secondary-button:hover {
-  color: #fff;
+  color: var(--color-surface);
 }
 
 .form-alert {
@@ -189,15 +189,15 @@ form {
 }
 
 .is-error {
-  border-color: #b91c1c;
-  background: #fef2f2;
-  color: #7f1d1d;
+  border-color: var(--color-error);
+  background: var(--color-error-soft);
+  color: var(--brand-primary-active);
 }
 
 .is-success {
-  border-color: #15803d;
-  background: #f0fdf4;
-  color: #14532d;
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+  color: var(--color-success);
 }
 
 .form-links,
@@ -257,14 +257,14 @@ form {
 .role-list li {
   border-radius: 999px;
   padding: 0.35rem 0.7rem;
-  background: #fff;
+  background: var(--color-surface);
   color: var(--color-text);
   font-size: 0.9rem;
   font-weight: 700;
 }
 
 .restricted-copy {
-  border-left: 3px solid #b45309;
+  border-left: 3px solid var(--color-warning);
   padding-left: 0.75rem;
   color: var(--color-text-muted);
 }

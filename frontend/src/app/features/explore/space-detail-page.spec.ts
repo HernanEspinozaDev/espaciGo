@@ -3,10 +3,11 @@ import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { BehaviorSubject } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { IdentityApi } from '../../core/identity/identity-api';
-import { IdentitySession } from '../../core/identity/identity-session';
+import { IdentitySession } from '../../core/identity/application/identity-session';
+import { IdentityApi } from '../../core/identity/infrastructure/identity-api';
 import { PrivateSessionState } from '../../core/identity/private-session-state';
-import { ExploreApi } from './explore-api';
+import { provideFrontendPorts } from '../../frontend.providers';
+import { ExploreApi } from './infrastructure/explore-api';
 import { SpaceDetailPage } from './space-detail-page';
 
 const session = { account_id: 'renter-1', roles: ['arrendatario'], restricted_mode: false };
@@ -72,6 +73,7 @@ describe('SpaceDetailPage', () => {
     TestBed.configureTestingModule({
       imports: [SpaceDetailPage],
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
         provideRouter([]),
         PrivateSessionState,
@@ -122,7 +124,11 @@ describe('SpaceDetailPage', () => {
     expect(page.selected()).toBeNull();
     expect(page.quote()).toBeNull();
     fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).querySelector('button.button')?.hasAttribute('disabled')).toBe(true);
+    expect(
+      (fixture.nativeElement as HTMLElement)
+        .querySelector('button.button')
+        ?.hasAttribute('disabled'),
+    ).toBe(true);
     await page.chooseDate('2026-11-02');
     expect(page.selected()).toBeNull();
     expect(page.quote()).toBeNull();
@@ -134,26 +140,49 @@ describe('SpaceDetailPage', () => {
     const hourly = { ...space, space_id: 'hour-space', rate_unit: 'hora' as const };
     const daily = { ...space, space_id: 'day-space', rate_unit: 'dia' as const };
     const monthly = { ...space, space_id: 'month-space', rate_unit: 'mes' as const };
-    const byId = new Map<string, { space_id: string; rate_unit: 'hora' | 'dia' | 'mes'; time_zone: string }>([
-      [hourly.space_id, hourly], [daily.space_id, daily], [monthly.space_id, monthly],
+    const byId = new Map<
+      string,
+      { space_id: string; rate_unit: 'hora' | 'dia' | 'mes'; time_zone: string }
+    >([
+      [hourly.space_id, hourly],
+      [daily.space_id, daily],
+      [monthly.space_id, monthly],
     ]);
     const explore = {
       detail: vi.fn(async (_token: string, id: string) => byId.get(id)!),
-      profile: vi.fn().mockResolvedValue({ category_code: 'oficina', schema_version: 1, attributes: [] }),
-      availability: vi.fn(async (_token: string, spaceId: string, _date: string, duration: number) => ({
-        safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
-        data: { space_id: spaceId, time_zone: 'America/New_York', rate_unit: byId.get(spaceId)!.rate_unit, items: [], duration },
-      })),
+      profile: vi
+        .fn()
+        .mockResolvedValue({ category_code: 'oficina', schema_version: 1, attributes: [] }),
+      availability: vi.fn(
+        async (_token: string, spaceId: string, _date: string, duration: number) => ({
+          safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
+          data: {
+            space_id: spaceId,
+            time_zone: 'America/New_York',
+            rate_unit: byId.get(spaceId)!.rate_unit,
+            items: [],
+            duration,
+          },
+        }),
+      ),
       quote: vi.fn(),
     };
     TestBed.configureTestingModule({
       imports: [SpaceDetailPage],
       providers: [
-        provideHttpClient(), provideRouter([]), PrivateSessionState,
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([]),
+        PrivateSessionState,
         { provide: ActivatedRoute, useValue: { paramMap: routeParams.asObservable() } },
-        { provide: IdentityApi, useValue: {
-          login: vi.fn().mockResolvedValue(login), session: vi.fn().mockResolvedValue(session), logout: vi.fn(),
-        } },
+        {
+          provide: IdentityApi,
+          useValue: {
+            login: vi.fn().mockResolvedValue(login),
+            session: vi.fn().mockResolvedValue(session),
+            logout: vi.fn(),
+          },
+        },
         { provide: ExploreApi, useValue: explore },
       ],
     });
@@ -187,21 +216,36 @@ describe('SpaceDetailPage', () => {
     const routeParams = new BehaviorSubject(convertToParamMap({ id: 'space-1' }));
     const explore = {
       detail: vi.fn().mockResolvedValue(space),
-      profile: vi.fn().mockResolvedValue({ category_code: 'oficina', schema_version: 1, attributes: [] }),
+      profile: vi
+        .fn()
+        .mockResolvedValue({ category_code: 'oficina', schema_version: 1, attributes: [] }),
       availability: vi.fn().mockResolvedValue({
         safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
-        data: { space_id: 'space-1', time_zone: 'America/New_York', rate_unit: 'hora', items: [{ start_at: '2026-11-01T05:30:00Z', end_at: '2026-11-01T06:30:00Z' }] },
+        data: {
+          space_id: 'space-1',
+          time_zone: 'America/New_York',
+          rate_unit: 'hora',
+          items: [{ start_at: '2026-11-01T05:30:00Z', end_at: '2026-11-01T06:30:00Z' }],
+        },
       }),
       quote: vi.fn().mockRejectedValue({ status: 401 }),
     };
     TestBed.configureTestingModule({
       imports: [SpaceDetailPage],
       providers: [
-        provideHttpClient(), provideRouter([]), PrivateSessionState,
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([]),
+        PrivateSessionState,
         { provide: ActivatedRoute, useValue: { paramMap: routeParams.asObservable() } },
-        { provide: IdentityApi, useValue: {
-          login: vi.fn().mockResolvedValue(login), session: vi.fn().mockResolvedValue(session), logout: vi.fn(),
-        } },
+        {
+          provide: IdentityApi,
+          useValue: {
+            login: vi.fn().mockResolvedValue(login),
+            session: vi.fn().mockResolvedValue(session),
+            logout: vi.fn(),
+          },
+        },
         { provide: ExploreApi, useValue: explore },
       ],
     });

@@ -2,9 +2,10 @@ import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter, Router } from '@angular/router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { IdentityApi } from '../../core/identity/identity-api';
-import { IdentitySession } from '../../core/identity/identity-session';
+import { IdentitySession } from '../../core/identity/application/identity-session';
+import { IdentityApi } from '../../core/identity/infrastructure/identity-api';
 import { PrivateSessionState } from '../../core/identity/private-session-state';
+import { provideFrontendPorts } from '../../frontend.providers';
 import { IdentityPage } from './identity-page';
 
 describe('IdentityPage private forms', () => {
@@ -31,6 +32,7 @@ describe('IdentityPage private forms', () => {
     TestBed.configureTestingModule({
       imports: [IdentityPage],
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
         provideRouter([]),
         { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'login' } } } },
@@ -70,6 +72,7 @@ describe('IdentityPage private forms', () => {
     TestBed.configureTestingModule({
       imports: [IdentityPage],
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
         provideRouter([]),
         { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'recovery' } } } },
@@ -143,6 +146,7 @@ describe('IdentityPage private forms', () => {
     TestBed.configureTestingModule({
       imports: [IdentityPage],
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
         provideRouter([]),
         {
@@ -206,6 +210,7 @@ describe('IdentityPage private forms', () => {
     TestBed.configureTestingModule({
       imports: [IdentityPage],
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
         provideRouter([]),
         { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'recovery' } } } },
@@ -285,6 +290,7 @@ describe('IdentityPage private forms', () => {
     TestBed.configureTestingModule({
       imports: [IdentityPage],
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
         provideRouter([]),
         { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'recovery' } } } },

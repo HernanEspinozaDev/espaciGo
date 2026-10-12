@@ -82,8 +82,7 @@ export const routes: Routes = [
   },
   {
     path: 'administracion',
-    loadComponent: () =>
-      import('./features/admin/admin-page').then((module) => module.AdminPage),
+    loadComponent: () => import('./features/admin/admin-page').then((module) => module.AdminPage),
     canActivate: [roleGuard],
     title: 'Administración | EspaciGo',
     data: { requiredRole: 'administrador', noindex: true },
@@ -162,14 +161,18 @@ export const routes: Routes = [
   {
     path: 'reservas/:id/disputas',
     loadComponent: () =>
-      import('./features/finance/finance-disputes-page').then((module) => module.FinanceDisputesPage),
+      import('./features/finance/finance-disputes-page').then(
+        (module) => module.FinanceDisputesPage,
+      ),
     canActivate: [identityGuard],
     title: 'Disputas y finanzas | EspaciGo',
   },
   {
     path: 'administracion/disputas',
     loadComponent: () =>
-      import('./features/finance/finance-disputes-page').then((module) => module.FinanceDisputesPage),
+      import('./features/finance/finance-disputes-page').then(
+        (module) => module.FinanceDisputesPage,
+      ),
     canActivate: [roleGuard],
     title: 'Disputas y finanzas | EspaciGo',
     data: { requiredRole: 'administrador', mode: 'admin' },

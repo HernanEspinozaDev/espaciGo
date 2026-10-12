@@ -72,6 +72,36 @@ test('E2E runner can read only the accounts fixture and write artifacts/results,
   }
 });
 
+test('Typed hosting form creates and edits a synthetic draft through Go', async ({ page }) => {
+  await login(page, accounts.host);
+  await navigateSpa(page, '/panel/espacios');
+  await expect(page.getByRole('heading', { name: 'Mis espacios' })).toBeVisible();
+  await page.getByLabel('Categoría', { exact: true }).selectOption('oficina');
+  await expect(page.locator('.attributes legend')).toContainText('perfil versión');
+  await page.getByLabel('Título', { exact: true }).fill('Oficina sintética · arquitectura');
+  await page.getByLabel('Descripción', { exact: true }).fill('Fixture desechable para comprobar los formularios tipados, el aislamiento del dominio y la confirmación del borrador por Go.');
+  await page.getByLabel('Superficie (m²)', { exact: true }).fill('40');
+  await page.getByLabel('Capacidad', { exact: true }).fill('4');
+  await page.getByLabel('Tarifa base inicial (CLP)', { exact: false }).fill('15000');
+  await page.getByLabel('Dirección privada', { exact: false }).fill('Dirección sintética 100, Santiago');
+  await page.getByLabel('Reglas de uso', { exact: true }).fill('Solo fixture de prueba.');
+  const createdResponse = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/api/v1/spaces'));
+  await page.getByRole('button', { name: 'Crear borrador', exact: true }).click();
+  const created = await createdResponse;
+  expect(created.status()).toBe(201);
+  const draft = await created.json();
+  await expect(page).toHaveURL(new RegExp(`/panel/espacios/${draft.id}/editar$`));
+  await expect(page.getByLabel('Título', { exact: true })).toHaveValue('Oficina sintética · arquitectura');
+  await page.getByLabel('Título', { exact: true }).fill('Oficina sintética · edición confirmada');
+  const updatedResponse = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/api/v1/spaces/${draft.id}`));
+  await page.getByRole('button', { name: 'Guardar cambios del borrador', exact: true }).click();
+  expect((await updatedResponse).status()).toBe(200);
+  await expect(page.getByLabel('Título', { exact: true })).toHaveValue('Oficina sintética · edición confirmada');
+  await takeScreenshot(page, 'architecture_host_desktop');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await takeScreenshot(page, 'architecture_host_mobile');
+});
+
 test('Go-backed role navigation, private JSON/ZIP exports, and responsive evidence', async ({ browser }) => {
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   await login(mobile, accounts.renter);

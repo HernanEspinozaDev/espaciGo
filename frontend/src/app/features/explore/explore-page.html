@@ -163,10 +163,11 @@
       </label>
     </fieldset>
     <div class="filter-actions wide">
-      <button class="button" type="submit" [disabled]="busy()">
+      <button appButton="primary" class="button" type="submit" [disabled]="busy()">
         {{ busy() ? 'Buscando…' : 'Buscar espacios' }}
       </button>
       <button
+        appButton="secondary"
         class="button button-secondary"
         type="button"
         (click)="clearFilters()"
@@ -175,6 +176,7 @@
         Limpiar filtros
       </button>
       <button
+        appButton="text"
         class="text-button"
         type="button"
         (click)="toggleMap()"
@@ -255,7 +257,13 @@
     </section>
   }
   @if (nextCursor()) {
-    <button class="button more" type="button" [disabled]="busy()" (click)="loadMore()">
+    <button
+      appButton="primary"
+      class="button more"
+      type="button"
+      [disabled]="busy()"
+      (click)="loadMore()"
+    >
       {{ busy() ? 'Cargando…' : 'Ver más resultados' }}
     </button>
   }

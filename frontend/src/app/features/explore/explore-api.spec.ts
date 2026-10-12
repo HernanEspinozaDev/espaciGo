@@ -4,7 +4,13 @@ import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import { M04Local } from '../../../generated/api/sdk.gen';
 import { ApiRuntimeConfig } from '../../core/api-runtime-config';
-import { CatalogEnvelope, ExploreApi, ExploreApiError, parseExactClpJson } from './explore-api';
+import { provideFrontendPorts } from '../../frontend.providers';
+import {
+  CatalogEnvelope,
+  ExploreApi,
+  ExploreApiError,
+  parseExactClpJson,
+} from './infrastructure/explore-api';
 
 describe('parseExactClpJson', () => {
   it('preserves int64 CLP literals as exact decimal strings before JSON parsing', () => {
@@ -39,7 +45,7 @@ describe('parseExactClpJson', () => {
 
   it('reads the authenticated catalog as text and retains an exact int64 CLP amount', async () => {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideHttpClientTesting()],
     });
     const runtime = TestBed.inject(ApiRuntimeConfig);
     runtime.apiBaseUrl.set('http://api.test/api/v1');
@@ -74,19 +80,25 @@ describe('parseExactClpJson', () => {
   it('preserves SDK HTTP status for category and profile authorization failures', async () => {
     TestBed.configureTestingModule({
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
-        { provide: M04Local, useValue: {
-          listSpaceCategories: async () => ({ error: {}, response: { status: 401 } }),
-          getSpaceAttributeProfile: async () => ({ error: {}, response: { status: 401 } }),
-        } },
+        {
+          provide: M04Local,
+          useValue: {
+            listSpaceCategories: async () => ({ error: {}, response: { status: 401 } }),
+            getSpaceAttributeProfile: async () => ({ error: {}, response: { status: 401 } }),
+          },
+        },
       ],
     });
     const api = TestBed.inject(ExploreApi);
     await expect(api.categories('expired')).rejects.toMatchObject({
-      name: 'ExploreApiError', status: 401,
+      name: 'ExploreApiError',
+      status: 401,
     } satisfies Partial<ExploreApiError>);
     await expect(api.profile('expired', 'oficina')).rejects.toMatchObject({
-      name: 'ExploreApiError', status: 401,
+      name: 'ExploreApiError',
+      status: 401,
     });
     TestBed.resetTestingModule();
   });

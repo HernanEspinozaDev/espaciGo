@@ -6,7 +6,7 @@
   transform: translateY(-160%);
   border-radius: 0.4rem;
   padding: 0.75rem 1rem;
-  background: #fff;
+  background: var(--color-surface);
   color: var(--color-text);
   box-shadow: 0 0.25rem 1rem rgb(51 39 32 / 18%);
 }
@@ -211,12 +211,12 @@
   gap: 0.75rem;
   margin: 0 auto;
   padding: 0.75rem 1.5rem;
-  color: #78350f;
+  color: var(--brand-primary-active);
   line-height: 1.45;
 }
 .restricted-banner {
-  border-bottom: 1px solid #b45309;
-  background: #fffbeb;
+  border-bottom: 1px solid var(--color-warning);
+  background: var(--color-warning-soft);
 }
 .identity-notice {
   margin-top: 0.5rem;

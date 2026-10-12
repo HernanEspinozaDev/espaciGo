@@ -10,6 +10,7 @@
       ><span>espaci<span class="brand-go">Go</span></span>
     </a>
     <button
+      appButton="primary"
       id="main-menu-toggle"
       class="menu-toggle"
       type="button"
@@ -99,7 +100,9 @@
           (click)="closeMenu()"
           >Mi cuenta</a
         >
-        <button class="nav-sign-in" type="button" (click)="signOut()">Cerrar sesión</button>
+        <button appButton="primary" class="nav-sign-in" type="button" (click)="signOut()">
+          Cerrar sesión
+        </button>
       } @else {
         <a
           class="nav-sign-in"
@@ -168,7 +171,14 @@
             : 'Servicio no disponible'
       }}</span>
       @if (readiness.status() === 'unavailable') {
-        <button type="button" class="retry-button" (click)="readiness.refresh()">Reintentar</button>
+        <button
+          appButton="primary"
+          type="button"
+          class="retry-button"
+          (click)="readiness.refresh()"
+        >
+          Reintentar
+        </button>
       }
     </div>
   </div>

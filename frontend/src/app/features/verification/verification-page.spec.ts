@@ -8,11 +8,13 @@ import type {
   VerificationEligibilityList,
   VerificationHistoryList,
   VerificationList,
-} from '../../../generated/api/types.gen';
-import { IdentityApi } from '../../core/identity/identity-api';
-import { IdentitySession } from '../../core/identity/identity-session';
+} from '../../core/contracts/models';
+import { IdentitySession } from '../../core/identity/application/identity-session';
+import { IdentityApi } from '../../core/identity/infrastructure/identity-api';
 import { PrivateSessionState } from '../../core/identity/private-session-state';
-import { VerificationApi, VerificationApiError } from './verification-api';
+import { provideFrontendPorts } from '../../frontend.providers';
+import { VerificationFacade } from './application/verification-facade';
+import { VerificationApi, VerificationApiError } from './infrastructure/verification-api';
 import { VerificationPage } from './verification-page';
 
 const sessionA = { account_id: 'a', roles: ['arrendatario'], restricted_mode: false };
@@ -97,6 +99,7 @@ function fixture(api: ReturnType<typeof defaults>, identityApi?: unknown) {
   TestBed.configureTestingModule({
     imports: [VerificationPage],
     providers: [
+      ...provideFrontendPorts(),
       provideHttpClient(),
       provideRouter([]),
       PrivateSessionState,
@@ -515,8 +518,11 @@ describe('VerificationPage', () => {
     await ensureLoaded(f);
     await page(f).createCase();
     const newKey = api.create.mock.calls[1][2];
-    const attempts = (f.componentInstance as unknown as { writeAttempts: Map<string, unknown> })
-      .writeAttempts;
+    const attempts = (
+      f.debugElement.injector.get(VerificationFacade) as unknown as {
+        writeAttempts: Map<string, unknown>;
+      }
+    ).writeAttempts;
     expect(JSON.stringify([...attempts.values()])).not.toContain('ta2');
     finishOld(item('created-old'));
     await oldOperation;

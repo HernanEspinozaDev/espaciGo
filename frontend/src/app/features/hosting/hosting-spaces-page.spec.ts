@@ -3,14 +3,14 @@ import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router } from '@angular/router';
 import { BehaviorSubject, of } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { SpaceDraft } from '../../../generated/api/types.gen';
-import { IdentityApi } from '../../core/identity/identity-api';
-import { IdentitySession } from '../../core/identity/identity-session';
-import { PrivateSessionState } from '../../core/identity/private-session-state';
 import { parseExactClpJson, stringifyExactClpJson } from '../../core/exact-json';
-import { HostingApi, HostingApiError } from './hosting-api';
-import { HostingSpacesPage } from './hosting-spaces-page';
+import { IdentitySession } from '../../core/identity/application/identity-session';
+import { IdentityApi } from '../../core/identity/infrastructure/identity-api';
+import { PrivateSessionState } from '../../core/identity/private-session-state';
+import { provideFrontendPorts } from '../../frontend.providers';
 import { zonedIsoLabel, zonedLocalToRfc3339 } from './calendar-time';
+import { HostingSpacesPage } from './hosting-spaces-page';
+import { HostingApi, HostingApiError } from './infrastructure/hosting-api';
 
 const ownerSession = { account_id: 'owner-a', roles: ['arrendador'], restricted_mode: false };
 const login = (account_id: string, access_token: string) => ({
@@ -194,6 +194,7 @@ function setup(
   TestBed.configureTestingModule({
     imports: [HostingSpacesPage],
     providers: [
+      ...provideFrontendPorts(),
       provideHttpClient(),
       PrivateSessionState,
       { provide: Router, useValue: { navigate: vi.fn(async () => true) } },

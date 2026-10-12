@@ -3,12 +3,20 @@
   <header class="page-heading">
     <p class="eyebrow">CUENTA · PRIVACIDAD</p>
     <h1>Tu información y tus derechos</h1>
-    <p>Datos propios consultados a Go. Las referencias y archivos de este entorno son sintéticos.</p>
+    <p>
+      Datos propios consultados a Go. Las referencias y archivos de este entorno son sintéticos.
+    </p>
   </header>
 
-  @if (error()) { <p class="alert error" role="alert">{{ error() }}</p> }
-  @if (notice()) { <p class="alert success" role="status">{{ notice() }}</p> }
-  @if (busy() && !profile()) { <p class="loading" role="status">Cargando datos privados desde Go…</p> }
+  @if (error()) {
+    <p class="alert error" role="alert">{{ error() }}</p>
+  }
+  @if (notice()) {
+    <p class="alert success" role="status">{{ notice() }}</p>
+  }
+  @if (busy() && !profile()) {
+    <p class="loading" role="status">Cargando datos privados desde Go…</p>
+  }
 
   @if (session()) {
     <section class="panel identity-card" aria-labelledby="identity-heading">
@@ -17,7 +25,9 @@
         <h2 id="identity-heading">{{ profile()?.display_name ?? 'Cuenta' }}</h2>
         <p>{{ session()?.account_id }}</p>
         <ul class="role-list" aria-label="Roles confirmados por Go">
-          @for (role of session()?.roles ?? []; track role) { <li>{{ role }}</li> }
+          @for (role of session()?.roles ?? []; track role) {
+            <li>{{ role }}</li>
+          }
         </ul>
       </div>
       <a class="text-link" routerLink="/mi-cuenta/seguridad">Seguridad de acceso</a>
@@ -26,82 +36,218 @@
 
     <section class="panel section" aria-labelledby="profile-heading">
       <div class="section-heading">
-        <div><p class="eyebrow">M02 · TITULAR</p><h2 id="profile-heading">Perfil</h2></div>
+        <div>
+          <p class="eyebrow">M02 · TITULAR</p>
+          <h2 id="profile-heading">Perfil</h2>
+        </div>
       </div>
       @if (profileReady()) {
-        @if (!profile()) { <div class="empty-state">Aún no has creado un perfil. Puedes completar estos datos ahora.</div> }
+        @if (!profile()) {
+          <div class="empty-state">
+            Aún no has creado un perfil. Puedes completar estos datos ahora.
+          </div>
+        }
         <form class="profile-form" (submit)="saveProfile($event)" novalidate>
-          <label>Nombre visible
-            <input name="display-name" autocomplete="name" maxlength="120" required [value]="displayName()" (input)="displayName.set($any($event.target).value)" />
+          <label
+            >Nombre visible
+            <input
+              name="display-name"
+              autocomplete="name"
+              maxlength="120"
+              required
+              [value]="displayName()"
+              (input)="displayName.set($any($event.target).value)"
+            />
           </label>
-          <label>Teléfono opcional
-            <input name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="9" placeholder="9 dígitos" [value]="phone()" (input)="phone.set($any($event.target).value)" aria-describedby="phone-hint" />
+          <label
+            >Teléfono opcional
+            <input
+              name="phone"
+              type="tel"
+              inputmode="numeric"
+              autocomplete="tel-national"
+              maxlength="9"
+              placeholder="9 dígitos"
+              [value]="phone()"
+              (input)="phone.set($any($event.target).value)"
+              aria-describedby="phone-hint"
+            />
             <span class="hint" id="phone-hint">Se guarda solo si contiene nueve dígitos.</span>
           </label>
-          <button class="primary-button" type="submit" [disabled]="busy() || savingProfile()">{{ savingProfile() ? 'Guardando…' : profile() ? 'Guardar perfil' : 'Crear perfil' }}</button>
+          <button
+            appButton="primary"
+            class="primary-button"
+            type="submit"
+            [disabled]="busy() || savingProfile()"
+          >
+            {{ savingProfile() ? 'Guardando…' : profile() ? 'Guardar perfil' : 'Crear perfil' }}
+          </button>
         </form>
       }
-      @if (profile(); as currentProfile) { <p class="updated">Última actualización: {{ formatDate(currentProfile.updated_at) }}</p> }
+      @if (profile(); as currentProfile) {
+        <p class="updated">Última actualización: {{ formatDate(currentProfile.updated_at) }}</p>
+      }
     </section>
 
     <section class="panel section" aria-labelledby="photo-heading">
       <div class="section-heading">
-        <div><p class="eyebrow">ARCHIVO PRIVADO</p><h2 id="photo-heading">Foto sintética</h2></div>
+        <div>
+          <p class="eyebrow">ARCHIVO PRIVADO</p>
+          <h2 id="photo-heading">Foto sintética</h2>
+        </div>
       </div>
       @if (photo(); as metadata) {
         @if (photoUrl()) {
           <img class="profile-photo" [src]="photoUrl()" alt="Foto sintética privada de la cuenta" />
         } @else {
-          <div class="artifact-retired">El PNG ya no está disponible. No se recreó una copia local.</div>
+          <div class="artifact-retired">
+            El PNG ya no está disponible. No se recreó una copia local.
+          </div>
         }
         <dl class="metadata">
-          <div><dt>Formato</dt><dd>{{ metadata.mime_type }} · {{ metadata.size_bytes }} bytes</dd></div>
-          <div><dt>Fixture</dt><dd>{{ metadata.fixture_code }}</dd></div>
-          <div><dt>SHA-256</dt><dd>{{ metadata.sha256 }}</dd></div>
+          <div>
+            <dt>Formato</dt>
+            <dd>{{ metadata.mime_type }} · {{ metadata.size_bytes }} bytes</dd>
+          </div>
+          <div>
+            <dt>Fixture</dt>
+            <dd>{{ metadata.fixture_code }}</dd>
+          </div>
+          <div>
+            <dt>SHA-256</dt>
+            <dd>{{ metadata.sha256 }}</dd>
+          </div>
         </dl>
         <div class="button-row">
-          <button class="secondary-button" type="button" [disabled]="busy()" (click)="createPhoto()">Generar/reemplazar fixture</button>
-          <button class="quiet-button" type="button" [disabled]="busy()" (click)="removePhoto()">Retirar foto</button>
+          <button
+            appButton="secondary"
+            class="secondary-button"
+            type="button"
+            [disabled]="busy()"
+            (click)="createPhoto()"
+          >
+            Generar/reemplazar fixture
+          </button>
+          <button
+            appButton="primary"
+            class="quiet-button"
+            type="button"
+            [disabled]="busy()"
+            (click)="removePhoto()"
+          >
+            Retirar foto
+          </button>
         </div>
       } @else {
         <div class="empty-state">No hay foto sintética activa para esta cuenta.</div>
-        <button class="secondary-button" type="button" [disabled]="busy()" (click)="createPhoto()">Generar foto sintética</button>
+        <button
+          appButton="secondary"
+          class="secondary-button"
+          type="button"
+          [disabled]="busy()"
+          (click)="createPhoto()"
+        >
+          Generar foto sintética
+        </button>
       }
-      <p class="hint">Go genera un PNG fijo y lo entrega con autorización. Esta pantalla no sube ni acepta archivos.</p>
+      <p class="hint">
+        Go genera un PNG fijo y lo entrega con autorización. Esta pantalla no sube ni acepta
+        archivos.
+      </p>
     </section>
 
     <section class="panel section" aria-labelledby="payout-heading">
       <div class="section-heading">
-        <div><p class="eyebrow">SOLO ENSAYO</p><h2 id="payout-heading">Cuenta de cobro fake</h2></div>
+        <div>
+          <p class="eyebrow">SOLO ENSAYO</p>
+          <h2 id="payout-heading">Cuenta de cobro fake</h2>
+        </div>
       </div>
       @if (payout(); as destination) {
         <dl class="metadata payout-data">
-          <div><dt>Adaptador</dt><dd>{{ destination.adapter }}</dd></div>
-          <div><dt>Referencia ficticia</dt><dd>{{ destination.reference }}</dd></div>
-          <div><dt>Estado</dt><dd>{{ destination.state }}</dd></div>
-          <div><dt>Actualizada</dt><dd>{{ formatDate(destination.updated_at) }}</dd></div>
+          <div>
+            <dt>Adaptador</dt>
+            <dd>{{ destination.adapter }}</dd>
+          </div>
+          <div>
+            <dt>Referencia ficticia</dt>
+            <dd>{{ destination.reference }}</dd>
+          </div>
+          <div>
+            <dt>Estado</dt>
+            <dd>{{ destination.state }}</dd>
+          </div>
+          <div>
+            <dt>Actualizada</dt>
+            <dd>{{ formatDate(destination.updated_at) }}</dd>
+          </div>
         </dl>
-        <button class="quiet-button" type="button" [disabled]="busy()" (click)="removePayout()">Revocar referencia fake</button>
+        <button
+          appButton="primary"
+          class="quiet-button"
+          type="button"
+          [disabled]="busy()"
+          (click)="removePayout()"
+        >
+          Revocar referencia fake
+        </button>
       } @else {
         <div class="empty-state">No hay una cuenta de cobro sintética activa.</div>
-        <button class="secondary-button" type="button" [disabled]="busy()" (click)="createPayout()">Crear referencia de ensayo</button>
+        <button
+          appButton="secondary"
+          class="secondary-button"
+          type="button"
+          [disabled]="busy()"
+          (click)="createPayout()"
+        >
+          Crear referencia de ensayo
+        </button>
       }
-      <p class="hint">Go exige elegibilidad KYC sintética. No se piden RUT ni datos bancarios y no se programa ninguna transferencia.</p>
+      <p class="hint">
+        Go exige elegibilidad KYC sintética. No se piden RUT ni datos bancarios y no se programa
+        ninguna transferencia.
+      </p>
     </section>
 
     <section class="panel section" aria-labelledby="rights-heading">
       <div class="section-heading">
-        <div><p class="eyebrow">SOLICITUDES DEL TITULAR</p><h2 id="rights-heading">Acceso y supresión</h2></div>
+        <div>
+          <p class="eyebrow">SOLICITUDES DEL TITULAR</p>
+          <h2 id="rights-heading">Acceso y supresión</h2>
+        </div>
       </div>
-      <p>Las solicitudes se registran en Go. Una solicitud de supresión no elimina datos desde esta vista; las obligaciones y la decisión pertenecen al flujo administrativo.</p>
+      <p>
+        Las solicitudes se registran en Go. Una solicitud de supresión no elimina datos desde esta
+        vista; las obligaciones y la decisión pertenecen al flujo administrativo.
+      </p>
       <div class="button-row">
-        <button class="secondary-button" type="button" [disabled]="busy()" (click)="requestRight('acceso')">Solicitar acceso</button>
-        <button class="quiet-button" type="button" [disabled]="busy()" (click)="requestRight('supresion')">Solicitar supresión</button>
+        <button
+          appButton="secondary"
+          class="secondary-button"
+          type="button"
+          [disabled]="busy()"
+          (click)="requestRight('acceso')"
+        >
+          Solicitar acceso
+        </button>
+        <button
+          appButton="primary"
+          class="quiet-button"
+          type="button"
+          [disabled]="busy()"
+          (click)="requestRight('supresion')"
+        >
+          Solicitar supresión
+        </button>
       </div>
       @if (rights().length) {
         <ul class="request-list">
           @for (request of rights(); track request.id) {
-            <li><span>{{ request.kind === 'acceso' ? 'Acceso' : 'Supresión' }}</span><strong>{{ request.state.replace('_', ' ') }}</strong><time>{{ formatDate(request.created_at) }}</time></li>
+            <li>
+              <span>{{ request.kind === 'acceso' ? 'Acceso' : 'Supresión' }}</span
+              ><strong>{{ request.state.replace('_', ' ') }}</strong
+              ><time>{{ formatDate(request.created_at) }}</time>
+            </li>
           }
         </ul>
       } @else {
@@ -111,21 +257,50 @@
 
     <section class="panel section export-section" aria-labelledby="export-heading">
       <div class="section-heading">
-        <div><p class="eyebrow">PORTABILIDAD</p><h2 id="export-heading">Exporta tus datos disponibles</h2></div>
+        <div>
+          <p class="eyebrow">PORTABILIDAD</p>
+          <h2 id="export-heading">Exporta tus datos disponibles</h2>
+        </div>
       </div>
-      <p>El JSON cubre identidad local. El ZIP incluye las secciones actualmente disponibles y su manifiesto de exclusiones. Ninguna exportación es una copia completa de áreas futuras.</p>
-      @if (exportNotice()) { <p class="export-status" role="status">{{ exportNotice() }}</p> }
+      <p>
+        El JSON cubre identidad local. El ZIP incluye las secciones actualmente disponibles y su
+        manifiesto de exclusiones. Ninguna exportación es una copia completa de áreas futuras.
+      </p>
+      @if (exportNotice()) {
+        <p class="export-status" role="status">{{ exportNotice() }}</p>
+      }
       <div class="button-row">
-        <button class="primary-button" type="button" [disabled]="busy()" (click)="downloadJson()">Descargar JSON</button>
-        <button class="secondary-button" type="button" [disabled]="busy()" (click)="downloadZip()">Descargar ZIP</button>
+        <button
+          appButton="primary"
+          class="primary-button"
+          type="button"
+          [disabled]="busy()"
+          (click)="downloadJson()"
+        >
+          Descargar JSON
+        </button>
+        <button
+          appButton="secondary"
+          class="secondary-button"
+          type="button"
+          [disabled]="busy()"
+          (click)="downloadZip()"
+        >
+          Descargar ZIP
+        </button>
       </div>
       <ul class="scope-list">
         <li>JSON: identidad, perfil, roles, términos y solicitudes propias.</li>
         <li>ZIP: manifiesto con archivos disponibles y datos excluidos.</li>
-        <li>No incluye credenciales, tokens, datos personales de terceros ni contenido administrativo restringido.</li>
+        <li>
+          No incluye credenciales, tokens, datos personales de terceros ni contenido administrativo
+          restringido.
+        </li>
       </ul>
     </section>
   } @else if (!busy() && !error()) {
-    <div class="empty-state">No hay datos privados que mostrar. Inicia sesión para consultar tu cuenta.</div>
+    <div class="empty-state">
+      No hay datos privados que mostrar. Inicia sesión para consultar tu cuenta.
+    </div>
   }
 </main>

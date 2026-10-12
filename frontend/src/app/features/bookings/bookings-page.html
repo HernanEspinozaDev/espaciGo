@@ -1,18 +1,44 @@
 <main class="page-width bookings">
   <p class="eyebrow">CUENTA PRIVADA · ESTADOS CONFIRMADOS POR GO</p>
   <h1>Reservas</h1>
-  <p class="safety" role="note">{{ notice() }} · Pagos y devoluciones son simulaciones sin movimiento de dinero.</p>
-  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
-  @if (loading()) { <p role="status">Consultando reservas de Go…</p> }
+  <p class="safety" role="note">
+    {{ notice() }} · Pagos y devoluciones son simulaciones sin movimiento de dinero.
+  </p>
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+  @if (loading()) {
+    <p role="status">Consultando reservas de Go…</p>
+  }
   @if (!loading() && reservations().length === 0 && !error()) {
-    <section class="empty"><h2>Aún no hay reservas</h2><p>Las solicitudes y decisiones aparecerán aquí cuando Go las confirme.</p><a class="button" routerLink="/explorar">Explorar espacios</a></section>
+    <section class="empty">
+      <h2>Aún no hay reservas</h2>
+      <p>Las solicitudes y decisiones aparecerán aquí cuando Go las confirme.</p>
+      <a appButton="primary" class="button" routerLink="/explorar">Explorar espacios</a>
+    </section>
   }
   <section class="cards" aria-label="Solicitudes de reserva">
     @for (item of reservations(); track item.id) {
       <article class="card">
-        <div><p class="eyebrow">{{ participant(item) }}</p><h2>{{ stateLabel(item.state) }}</h2><p>{{ when(item.start_at, item.time_zone) }} – {{ when(item.end_at, item.time_zone) }} · {{ item.time_zone }}</p></div>
-        <dl><div><dt>Total</dt><dd>{{ money(item.subtotal_clp) }}</dd></div><div><dt>Unidades</dt><dd>{{ item.units }} {{ item.rate_unit }}</dd></div></dl>
-        <a class="button" [routerLink]="['/reservas', item.id]">Ver solicitud</a>
+        <div>
+          <p class="eyebrow">{{ participant(item) }}</p>
+          <h2>{{ stateLabel(item.state) }}</h2>
+          <p>
+            {{ when(item.start_at, item.time_zone) }} – {{ when(item.end_at, item.time_zone) }} ·
+            {{ item.time_zone }}
+          </p>
+        </div>
+        <dl>
+          <div>
+            <dt>Total</dt>
+            <dd>{{ money(item.subtotal_clp) }}</dd>
+          </div>
+          <div>
+            <dt>Unidades</dt>
+            <dd>{{ item.units }} {{ item.rate_unit }}</dd>
+          </div>
+        </dl>
+        <a appButton="primary" class="button" [routerLink]="['/reservas', item.id]">Ver solicitud</a>
       </article>
     }
   </section>

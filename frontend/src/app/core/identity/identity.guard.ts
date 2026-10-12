@@ -1,6 +1,6 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router, UrlTree } from '@angular/router';
-import { IdentitySession } from './identity-session';
+import { IdentitySession } from './application/identity-session';
 
 export const identityGuard: CanActivateFn = () => {
   const identity = inject(IdentitySession);

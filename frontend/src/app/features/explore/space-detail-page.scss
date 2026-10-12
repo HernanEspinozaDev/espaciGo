@@ -4,7 +4,7 @@
 }
 .back-link {
   display: inline-block;
-  color: #87442f;
+  color: var(--brand-primary-hover);
   font-weight: 700;
   margin-bottom: 1.25rem;
 }
@@ -12,8 +12,8 @@
   margin: 0 0 1rem;
   border-radius: 0.7rem;
   padding: 0.75rem 1rem;
-  background: #f4e6d7;
-  color: #713b2c;
+  background: var(--brand-primary-soft);
+  color: var(--brand-primary-hover);
   font-weight: 800;
 }
 .detail-grid {
@@ -23,9 +23,9 @@
   align-items: start;
 }
 .panel {
-  border: 1px solid #e8ddd0;
+  border: 1px solid var(--color-border);
   border-radius: 1.1rem;
-  background: #fffdf8;
+  background: var(--color-surface);
   box-shadow: 0 12px 28px rgb(64 42 27 / 6%);
   overflow: hidden;
 }
@@ -35,10 +35,10 @@
   display: flex;
   align-items: end;
   justify-content: space-between;
-  color: #fff8ef;
+  color: var(--color-warning-soft);
   background:
-    radial-gradient(circle at 78% 30%, #e7c29e 0 8%, transparent 8.5%),
-    linear-gradient(135deg, #5f463b, #ba7656 60%, #e1bc99);
+    radial-gradient(circle at 78% 30%, var(--color-border) 0 8%, transparent 8.5%),
+    linear-gradient(135deg, var(--color-text-muted), var(--brand-accent) 60%, var(--color-border));
 }
 .cover b {
   font-size: 5rem;
@@ -49,7 +49,7 @@
   padding: clamp(1.2rem, 3vw, 2rem);
 }
 .eyebrow {
-  color: #8c4f3b;
+  color: var(--brand-primary);
   font-size: 0.75rem;
   font-weight: 750;
   letter-spacing: 0.12em;
@@ -60,11 +60,11 @@ h1 {
   margin: 0.35rem 0 0.8rem;
 }
 .description {
-  color: #5f554c;
+  color: var(--color-text-muted);
   line-height: 1.65;
 }
 .facts {
-  border-block: 1px solid #eee2d4;
+  border-block: 1px solid var(--brand-primary-soft);
   margin-block: 1.2rem;
 }
 .facts p {
@@ -76,7 +76,7 @@ h1 {
 }
 .facts span,
 .privacy-note {
-  color: #71665b;
+  color: var(--color-text-muted);
 }
 .facts strong {
   text-align: end;
@@ -91,11 +91,11 @@ dl > div {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  border-top: 1px solid #eee2d4;
+  border-top: 1px solid var(--brand-primary-soft);
   padding: 0.7rem 0;
 }
 dt {
-  color: #6a5d50;
+  color: var(--color-text-muted);
 }
 dd {
   margin: 0;
@@ -106,11 +106,11 @@ pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font: inherit;
-  color: #554b42;
+  color: var(--color-text-muted);
 }
 .privacy-note {
   font-size: 0.85rem;
-  border-top: 1px solid #eee2d4;
+  border-top: 1px solid var(--brand-primary-soft);
   padding-top: 1rem;
 }
 .booking {
@@ -122,14 +122,14 @@ pre {
   margin: 0.25rem 0 0.6rem;
 }
 .booking > p:not(.eyebrow) {
-  color: #62584f;
+  color: var(--color-text-muted);
   line-height: 1.5;
   font-size: 0.93rem;
 }
 .booking label {
   display: grid;
   gap: 0.45rem;
-  color: #51483f;
+  color: var(--color-text-muted);
   font-weight: 650;
   margin-block: 0.9rem;
 }
@@ -137,11 +137,11 @@ pre {
 .booking select {
   width: 100%;
   min-height: 2.8rem;
-  border: 1px solid #c9b9a7;
+  border: 1px solid var(--color-border-control);
   border-radius: 0.55rem;
   background: white;
   padding: 0.55rem;
-  color: #2d2823;
+  color: var(--color-text);
   font: inherit;
 }
 .button {
@@ -149,8 +149,8 @@ pre {
   border: 0;
   border-radius: 999px;
   padding: 0.85rem 1rem;
-  background: #a9573f;
-  color: #fffaf3;
+  background: var(--brand-primary);
+  color: var(--color-canvas);
   font: inherit;
   font-weight: 800;
   cursor: pointer;
@@ -164,36 +164,36 @@ pre {
 .status {
   padding: 0.8rem;
   border-radius: 0.65rem;
-  background: #fff0ed;
-  color: #842d22;
+  background: var(--color-error-soft);
+  color: var(--brand-primary-hover);
 }
 .empty,
 .status {
-  background: #f3ece3;
-  color: #5b5147;
+  background: var(--color-surface-subtle);
+  color: var(--color-text-muted);
 }
 .quote {
-  background: #f6efe7;
+  background: var(--color-surface-subtle);
   padding: 1rem;
   border-radius: 0.75rem;
   margin-top: 1.1rem;
 }
 .quote dl {
-  background: #fffdf8;
+  background: var(--color-surface);
   border-radius: 0.55rem;
   padding-inline: 0.7rem;
 }
 .quote .total {
   font-size: 1.08rem;
-  color: #733d2d;
+  color: var(--brand-primary-hover);
   font-weight: 800;
 }
 .quote-explainer,
 .no-charge {
-  font-size: 0.85rem !important;
+  font-size: 0.85rem;
 }
 .no-charge {
-  border-top: 1px solid #eee2d4;
+  border-top: 1px solid var(--brand-primary-soft);
   padding-top: 0.7rem;
   margin-top: 1rem;
 }
