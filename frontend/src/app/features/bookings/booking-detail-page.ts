@@ -31,14 +31,24 @@ export class BookingDetailPage {
 
   protected async load(): Promise<void> {
     const token = this.identity.accessToken(); const session = this.identity.session(); const id = this.id;
-    if (!token || !session || !id) return; const generation = ++this.generation; const refundRevisionAtStart = this.attempts.refundRevision(session.account_id, id); this.readRevision++; this.loading.set(true); this.error.set('');
+    if (!token || !session || !id) return; const generation = ++this.generation; const refundReadRevision = this.attempts.nextRevision(); this.readRevision++; this.loading.set(true); this.error.set('');
     try {
       const result = await this.api.detail(token, id);
       if (!this.current(generation, token, session, id)) return;
+      const read = result.data;
+      if (read.refund_operation_id && read.refund_amount_clp !== undefined && (read.refund_state === 'pendiente' || read.refund_state === 'completada')) {
+        this.attempts.saveRefundSnapshot(session.account_id, id, {
+          operationId: read.refund_operation_id, amount: String(read.refund_amount_clp), state: read.refund_state, revision: refundReadRevision,
+        });
+      }
       const confirmedRefund = this.attempts.refundSnapshot(session.account_id, id);
-      const item = (confirmedRefund && (!result.data.refund_operation_id || confirmedRefund.revision > refundRevisionAtStart)
-        ? { ...result.data, refund_operation_id: confirmedRefund.operationId, refund_amount_clp: confirmedRefund.amount, refund_state: confirmedRefund.state }
-        : result.data) as LocalBookingDetail;
+      const snapshotIsNewer = !!confirmedRefund && confirmedRefund.revision > refundReadRevision;
+      const item = (confirmedRefund ? {
+        ...read,
+        refund_operation_id: snapshotIsNewer ? confirmedRefund.operationId : read.refund_operation_id ?? confirmedRefund.operationId,
+        refund_amount_clp: snapshotIsNewer ? confirmedRefund.amount : read.refund_amount_clp ?? confirmedRefund.amount,
+        refund_state: snapshotIsNewer ? confirmedRefund.state : read.refund_state ?? confirmedRefund.state,
+      } : read) as LocalBookingDetail;
       this.reservation.set(item); this.notice.set(result.safety_notice); this.syncAttempts(item, session.account_id);
     }
     catch (error) { if (this.unauthorized(error, token, session)) return; if (this.current(generation, token, session, id)) this.error.set(messageFor(error)); }
@@ -73,7 +83,7 @@ export class BookingDetailPage {
     const operation = current.id + ':cancel';
     const prior = this.attempts.find(owner.account_id, operation);
     const payload = prior?.uncertain ? parsePayload<{ reason: string }>(prior.payload) : { reason: this.reason().trim() };
-    await this.mutate('cancel', payload, (key) => this.api.cancel(token, current.id, payload.reason, key), true, (data, revision) => this.applyCancellation(data as CancellationResult, revision));
+    await this.mutate('cancel', payload, (key) => this.api.cancel(token, current.id, payload.reason, key), true, (data, revision, applyToView) => this.applyCancellation(data as CancellationResult, revision, applyToView));
     if (this.sameContext(token, owner, current.id)) this.confirmCancel.set(false);
   }
   protected async refund(): Promise<void> {
@@ -82,7 +92,7 @@ export class BookingDetailPage {
     const operation = current.id + ':refund';
     const prior = this.attempts.find(owner.account_id, operation);
     const payload = prior?.uncertain ? parsePayload<{ outcome: RefundOutcome; operationId: string }>(prior.payload) : { outcome: this.refundOutcome(), operationId };
-    await this.mutate('refund', payload, () => this.api.refund(token, current.id, payload.outcome, operationId), true, (data, revision) => this.applyRefund(data as RefundResult, revision));
+    await this.mutate('refund', payload, () => this.api.refund(token, current.id, payload.outcome, operationId), true, (data, revision, applyToView) => this.applyRefund(data as RefundResult, revision, applyToView));
   }
 
   protected isRenter(item: LocalBookingReservation): boolean { return this.identity.session()?.account_id === item.renter_id; }
@@ -91,25 +101,26 @@ export class BookingDetailPage {
   protected when(value: string, zone: string): string { return new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium', timeStyle: 'short', timeZone: zone }).format(new Date(value)); }
   protected resultLabel(value: string): string { return ({ pendiente_de_pago: 'Pendiente de pago fake', pagada: 'Pago fake confirmado; espera decisión', aprobada_host: 'Aprobada por anfitrión', rechazada_arrendador: 'Rechazada por anfitrión', vencida_pago: 'Vencida por pago', vencida_host: 'Vencida por anfitrión', cancelada_arrendatario: 'Cancelada por arrendatario', cancelada_por_pago: 'Cancelada por pago', finalizada: 'Finalizada', en_curso: 'En curso', cerrada: 'Cerrada', firma_parcial: 'Firma parcial', lista_para_checkin: 'Lista para llegada', en_disputa: 'En disputa', cancelada_por_firma: 'Cancelada por firma' } as Record<string,string>)[value] ?? value; }
 
-  private async mutate<T>(operation: string, payload: unknown, call: (key: string) => Promise<{ safety_notice: string; data: T }>, uncertainOnTimeout: boolean, onConfirmed?: (data: T, revision: number) => void): Promise<void> {
+  private async mutate<T>(operation: string, payload: unknown, call: (key: string) => Promise<{ safety_notice: string; data: T }>, uncertainOnTimeout: boolean, onConfirmed?: (data: T, revision: number, applyToView: boolean) => void): Promise<void> {
     const owner = this.identity.session(); const token = this.identity.accessToken(); const item = this.reservation(); if (!owner || !token || !item) return;
     let attempt; try { attempt = this.attempts.get(owner.account_id, `${item.id}:${operation}`, payload); } catch (error) { this.error.set(messageFor(error)); return; }
     await this.action(() => call(attempt.key), uncertainOnTimeout, { operation: item.id + ':' + operation, key: attempt.key }, onConfirmed);
   }
-  private async action<T>(call: () => Promise<{ safety_notice: string; data: T }>, keepOnTimeout: boolean, attempt?: { operation: string; key: string }, onConfirmed?: (data: T, revision: number) => void): Promise<void> {
+  private async action<T>(call: () => Promise<{ safety_notice: string; data: T }>, keepOnTimeout: boolean, attempt?: { operation: string; key: string }, onConfirmed?: (data: T, revision: number, applyToView: boolean) => void): Promise<void> {
     const token = this.identity.accessToken(); const owner = this.identity.session(); const id = this.id; if (!token || !owner) return;
     const generation = ++this.generation; const actionRevision = ++this.writeRevision; const refundRevision = this.attempts.nextRevision(); this.busy.set(true); this.error.set('');
     try {
       const result = await call();
-      if (!this.current(generation, token, owner, id)) return;
-      if (attempt && actionRevision === this.writeRevision) this.attempts.settle(owner.account_id, attempt.operation, attempt.key);
-      this.clearUncertain(attempt?.operation);
-      this.notice.set(result.safety_notice); this.busy.set(false);
-      const expectedReadRevision = this.readRevision + 1;
-      await this.load();
-      if (this.sameContext(token, owner, id) && actionRevision === this.writeRevision && expectedReadRevision === this.readRevision) {
-        onConfirmed?.(result.data, refundRevision);
+      if (!this.sameContext(token, owner, id)) return;
+      const actionIsCurrent = this.current(generation, token, owner, id) && actionRevision === this.writeRevision;
+      if (attempt && actionIsCurrent) this.attempts.settle(owner.account_id, attempt.operation, attempt.key);
+      if (actionIsCurrent) {
+        this.clearUncertain(attempt?.operation);
+        this.notice.set(result.safety_notice); this.busy.set(false);
       }
+      onConfirmed?.(result.data, refundRevision, actionIsCurrent);
+      if (!actionIsCurrent) return;
+      await this.load();
     }
     catch (error) {
       if (attempt && this.current(generation, token, owner, id) && actionRevision === this.writeRevision && error instanceof BookingApiError && error.status !== undefined && error.status < 500 && error.status !== 0) {
@@ -157,7 +168,7 @@ export class BookingDetailPage {
       else if (refund.uncertain) this.uncertainNotice.set('Go todavía muestra la devolución pendiente. Reintenta la misma operación.');
     }
   }
-  private applyCancellation(data: CancellationResult, revision: number): void {
+  private applyCancellation(data: CancellationResult, revision: number, applyToView: boolean): void {
     const current = this.reservation();
     const accountId = this.identity.session()?.account_id;
     const operationId = data.reservation.refund_operation_id;
@@ -165,21 +176,33 @@ export class BookingDetailPage {
     if (accountId && current && operationId && amount !== undefined && data.refund_state === 'pendiente') {
       this.attempts.saveRefundSnapshot(accountId, current.id, { operationId, amount: String(amount), state: 'pendiente', revision });
     }
-    this.reservation.update((current) => current ? ({
-      ...current, ...data.reservation,
-      refund_state: data.refund_state === 'no_aplica' ? undefined : data.refund_state,
-      refund_amount_clp: data.refund_amount_clp ?? data.reservation.refund_amount_clp,
-    } as unknown as LocalBookingDetail) : current);
+    if (applyToView) {
+      this.reservation.update((current) => current ? ({
+        ...current, ...data.reservation,
+        refund_state: data.refund_state === 'no_aplica' ? undefined : data.refund_state,
+        refund_amount_clp: data.refund_amount_clp ?? data.reservation.refund_amount_clp,
+      } as unknown as LocalBookingDetail) : current);
+    } else if (operationId && amount !== undefined) {
+      this.reservation.update((current) => current && (!current.refund_operation_id || current.refund_state === undefined)
+        ? { ...current, refund_operation_id: operationId, refund_amount_clp: String(amount), refund_state: data.refund_state === 'no_aplica' ? undefined : data.refund_state } as unknown as LocalBookingDetail
+        : current);
+    }
   }
-  private applyRefund(data: RefundResult, revision: number): void {
+  private applyRefund(data: RefundResult, revision: number, applyToView: boolean): void {
     const accountId = this.identity.session()?.account_id;
     if (accountId) this.attempts.saveRefundSnapshot(accountId, data.reservation_id, {
       operationId: data.operation_id, amount: String(data.amount_clp), state: data.state, revision,
     });
-    this.reservation.update((current) => current ? ({
-      ...current, refund_operation_id: data.operation_id, refund_amount_clp: data.amount_clp,
-      refund_state: data.state, refund_last_result: data.last_result, refund_updated_at: data.updated_at,
-    } as unknown as LocalBookingDetail) : current);
+    if (applyToView) {
+      this.reservation.update((current) => current ? ({
+        ...current, refund_operation_id: data.operation_id, refund_amount_clp: data.amount_clp,
+        refund_state: data.state, refund_last_result: data.last_result, refund_updated_at: data.updated_at,
+      } as unknown as LocalBookingDetail) : current);
+    } else {
+      this.reservation.update((current) => current && (!current.refund_operation_id || current.refund_state === undefined)
+        ? { ...current, refund_operation_id: data.operation_id, refund_amount_clp: data.amount_clp, refund_state: data.state, refund_last_result: data.last_result, refund_updated_at: data.updated_at } as unknown as LocalBookingDetail
+        : current);
+    }
   }
   private clearUncertain(operation?: string): void {
     if (!operation || operation.startsWith(this.id + ':')) this.uncertainNotice.set('');

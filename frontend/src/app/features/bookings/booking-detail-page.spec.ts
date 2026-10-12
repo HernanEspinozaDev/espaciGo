@@ -140,11 +140,12 @@ describe('BookingDetailPage with real IdentitySession', () => {
       }),
       refund: vi.fn(async (_token: string, id: string, _outcome: string, operationId: string) => envelope({ reservation_id: id, operation_id: operationId, amount_clp: '12500', currency: 'CLP', state: 'completada', last_result: 'exito_simulado', updated_at: '2026-10-12T01:00:00Z', notice_status: 'no_disponible_no_durable' })),
     };
-    const { fixture, identity } = setup(api);
+    const { fixture, identity, attempts } = setup(api);
     await identity.signIn('a@example.invalid', 'secret'); await settle(fixture);
     const view = page(fixture); view.preview.set({ eligible: true }); view.confirmCancel.set(true); view.reason.set('motivo local');
     await view.cancel(); await settle(fixture);
     expect(view.reservation()?.refund_state).toBe('pendiente');
+    expect(attempts.refundSnapshot('renter-a', 'r1')?.state).toBe('pendiente');
     expect(fixture.nativeElement.textContent).toContain('Devolución simulada pendiente');
     await identity.signOut(); await identity.signIn('a@example.invalid', 'secret'); await settle(fixture);
     expect(view.reservation()?.refund_state).toBe('pendiente');
@@ -152,6 +153,7 @@ describe('BookingDetailPage with real IdentitySession', () => {
     await view.refund(); await settle(fixture);
     expect(api.refund).toHaveBeenCalledWith('token-a', 'r1', 'exito', 'refund-op');
     expect(view.reservation()?.refund_state).toBe('completada');
+    expect(attempts.refundSnapshot('renter-a', 'r1')?.state).toBe('completada');
     expect(fixture.nativeElement.textContent).toContain('Go confirmó la devolución fake');
     fixture.destroy();
   });
@@ -299,6 +301,82 @@ describe('BookingDetailPage with real IdentitySession', () => {
     await cancelRequest; await settle(fixture);
     expect(view.reservation()?.refund_state).toBe('completada');
     expect(attempts.refundSnapshot('renter-a', 'r1')?.state).toBe('completada');
+    fixture.destroy();
+  });
+
+  it('applies a pending refund POST before reload and keeps the later completed Go detail in the view and snapshot', async () => {
+    let detailState = makeReservation('r1', 'renter-a', 'cancelada_arrendatario', {
+      refund_operation_id: 'refund-op', refund_amount_clp: '12500', refund_state: 'pendiente',
+    });
+    const api = {
+      detail: vi.fn(async () => envelope(detailState)),
+      payment: vi.fn(), decision: vi.fn(), cancellationPreview: vi.fn(), cancel: vi.fn(),
+      refund: vi.fn(async (_token: string, id: string, _outcome: string, operationId: string) => {
+        detailState = makeReservation('r1', 'renter-a', 'cancelada_arrendatario', {
+          refund_operation_id: operationId, refund_amount_clp: '12500', refund_state: 'completada',
+        });
+        return envelope({ reservation_id: id, operation_id: operationId, amount_clp: '12500', currency: 'CLP', state: 'pendiente', last_result: 'fallo_simulado', updated_at: '2026-10-12T04:00:00Z', notice_status: 'no_disponible_no_durable' });
+      }),
+    };
+    const { fixture, identity, attempts } = setup(api);
+    await identity.signIn('a@example.invalid', 'secret'); await settle(fixture);
+    const view = page(fixture); view.refundOutcome.set('fallo');
+    await view.refund(); await settle(fixture);
+    expect(view.reservation()?.refund_state).toBe('completada');
+    expect(attempts.refundSnapshot('renter-a', 'r1')?.state).toBe('completada');
+    fixture.destroy();
+  });
+
+  it('uses a completed Go detail over an older pending cancellation POST and preserves it in the snapshot', async () => {
+    let detailCall = 0;
+    const api = {
+      detail: vi.fn(async () => {
+        detailCall++;
+        return envelope(makeReservation('r1', 'renter-a', detailCall === 1 ? 'aprobada_host' : 'cancelada_arrendatario', {
+          refund_operation_id: 'refund-op', refund_amount_clp: '12500', refund_state: 'completada',
+        }));
+      }),
+      payment: vi.fn(), decision: vi.fn(), cancellationPreview: vi.fn(async () => envelope({ eligible: true })),
+      cancel: vi.fn(async () => envelope({
+        reservation: makeReservation('r1', 'renter-a', 'cancelada_arrendatario', { refund_operation_id: 'refund-op', refund_amount_clp: '12500' }),
+        refund_amount_clp: '12500', refund_state: 'pendiente', notice_status: 'no_disponible_no_durable',
+      })), refund: vi.fn(),
+    };
+    const { fixture, identity, attempts } = setup(api);
+    await identity.signIn('a@example.invalid', 'secret'); await settle(fixture);
+    const view = page(fixture); view.preview.set({ eligible: true }); view.confirmCancel.set(true);
+    await view.cancel(); await settle(fixture);
+    expect(view.reservation()?.refund_state).toBe('completada');
+    expect(attempts.refundSnapshot('renter-a', 'r1')?.state).toBe('completada');
+    fixture.destroy();
+  });
+
+  it('keeps a confirmed refund snapshot when cancellation reload fails or omits refund fields', async () => {
+    let detailCall = 0;
+    const api = {
+      detail: vi.fn(async () => {
+        detailCall++;
+        if (detailCall === 1) return envelope(makeReservation('r1', 'renter-a', 'aprobada_host'));
+        if (detailCall === 2) throw new Error('GET temporalmente no disponible');
+        return envelope(makeReservation('r1', 'renter-a', 'cancelada_arrendatario'));
+      }),
+      payment: vi.fn(), decision: vi.fn(), cancellationPreview: vi.fn(async () => envelope({ eligible: true })),
+      cancel: vi.fn(async () => envelope({
+        reservation: makeReservation('r1', 'renter-a', 'cancelada_arrendatario', { refund_operation_id: 'refund-op', refund_amount_clp: '12500' }),
+        refund_amount_clp: '12500', refund_state: 'pendiente', notice_status: 'no_disponible_no_durable',
+      })),
+      refund: vi.fn(),
+    };
+    const { fixture, identity, attempts } = setup(api);
+    await identity.signIn('a@example.invalid', 'secret'); await settle(fixture);
+    const view = page(fixture); view.preview.set({ eligible: true }); view.confirmCancel.set(true);
+    await view.cancel(); await settle(fixture);
+    expect(view.reservation()?.refund_state).toBe('pendiente');
+    expect(attempts.refundSnapshot('renter-a', 'r1')?.state).toBe('pendiente');
+    await view.load(); await settle(fixture);
+    expect(view.reservation()?.refund_operation_id).toBe('refund-op');
+    expect(view.reservation()?.refund_state).toBe('pendiente');
+    expect(attempts.refundSnapshot('renter-a', 'r1')?.state).toBe('pendiente');
     fixture.destroy();
   });
 });

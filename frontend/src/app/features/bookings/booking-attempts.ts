@@ -16,10 +16,6 @@ export class BookingAttempts {
     return this.refunds()[accountId + ':' + reservationId] ?? null;
   }
 
-  refundRevision(accountId: string, reservationId: string): number {
-    return this.refundSnapshot(accountId, reservationId)?.revision ?? 0;
-  }
-
   saveRefundSnapshot(accountId: string, reservationId: string, snapshot: ConfirmedRefundSnapshot): void {
     const id = accountId + ':' + reservationId;
     this.refunds.update((items) => (items[id]?.revision ?? 0) > snapshot.revision
