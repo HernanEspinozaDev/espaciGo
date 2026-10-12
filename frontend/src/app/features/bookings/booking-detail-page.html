@@ -2,6 +2,7 @@
   <a routerLink="/reservas" class="back">← Todas las reservas</a>
   <p class="safety" role="note">{{ notice() }} · Sin movimiento real de dinero.</p>
   @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (uncertainNotice()) { <p class="uncertain" role="alert">{{ uncertainNotice() }}</p> }
   @if (loading() && !reservation()) { <p role="status">Consultando estado confirmado por Go…</p> }
   @if (reservation(); as item) {
     <section class="panel">
@@ -34,6 +35,9 @@
         <label>Resultado fake<select [value]="refundOutcome()" (change)="refundOutcome.set($any($event.target).value)"><option value="exito">Éxito</option><option value="fallo">Fallo</option><option value="sin_respuesta">Timeout sin respuesta</option></select></label>
         <button class="button" type="button" [disabled]="busy()" (click)="refund()">{{ busy() ? 'Enviando…' : 'Simular devolución' }}</button>
       </section>
+    }
+    @if (isRenter(item) && item.refund_state === 'completada') {
+      <p class="success" role="status">Go confirmó la devolución fake de {{ money(item.refund_amount_clp) }}. No hubo movimiento de dinero real.</p>
     }
     <section class="panel history"><h2>Historial confirmado por Go</h2><ol>@for (entry of item.history; track entry.sequence) { <li><strong>{{ resultLabel(entry.to) }}</strong><span>{{ when(entry.at, item.time_zone) }}</span><p>{{ entry.reason }}</p></li> }</ol></section>
   }

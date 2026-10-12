@@ -14,4 +14,6 @@ select,textarea { width: 100%; border: 1px solid #c9b9a7; border-radius: .55rem;
 .button { min-height: 2.8rem; border: 0; border-radius: 999px; padding: .7rem 1.1rem; background: #a9573f; color: #fffaf3; font: inherit; font-weight: 800; cursor: pointer; }
 .button.secondary { color: #713b2c; background: #f1e4d7; } .button:disabled { opacity: .55; cursor: wait; }
 .error { padding: .8rem; border-radius: .6rem; background: #fff0ed; color: #842d22; }
+.uncertain { padding: .9rem; border: 2px solid #a9573f; border-radius: .7rem; background: #fff3e6; color: #713b2c; font-weight: 750; }
+.success { padding: .9rem; border-radius: .7rem; background: #e8f3e9; color: #245d36; font-weight: 750; }
 .history ol { display: grid; gap: .8rem; padding-left: 1.2rem; } .history li { padding: .3rem .2rem; } .history li span { display: block; color: #71665b; font-size: .9rem; } .history li p { margin: .25rem 0; }

@@ -1,15 +1,21 @@
-import { Injectable, inject, signal } from '@angular/core';
-import { PrivateSessionState } from '../../core/identity/private-session-state';
+import { Injectable, signal } from '@angular/core';
 
-export type BookingAttempt = { key: string; payload: string };
+export type BookingAttempt = { key: string; payload: string; uncertain: boolean };
+export type ConfirmedRefundSnapshot = { operationId: string; amount: string; state: 'pendiente' | 'completada' };
 
-/** In-memory only. An uncertain request keeps its exact key and payload for a retry. */
+/** In-memory only. Every unsettled write keeps its exact key and payload for a retry. */
 @Injectable({ providedIn: 'root' })
 export class BookingAttempts {
-  private readonly privateState = inject(PrivateSessionState);
   private readonly attempts = signal<Record<string, BookingAttempt>>({});
+  private readonly refunds = signal<Record<string, ConfirmedRefundSnapshot>>({});
 
-  constructor() { this.privateState.register(() => this.reset()); }
+  refundSnapshot(accountId: string, reservationId: string): ConfirmedRefundSnapshot | null {
+    return this.refunds()[accountId + ':' + reservationId] ?? null;
+  }
+
+  saveRefundSnapshot(accountId: string, reservationId: string, snapshot: ConfirmedRefundSnapshot): void {
+    this.refunds.update((items) => ({ ...items, [accountId + ':' + reservationId]: snapshot }));
+  }
 
   get(accountId: string, operation: string, payload: unknown): BookingAttempt {
     const id = `${accountId}:${operation}`;
@@ -19,9 +25,20 @@ export class BookingAttempts {
       if (prior.payload !== serialized) throw new Error('Hay un intento incierto. Reintenta con los mismos datos antes de cambiar la operación.');
       return prior;
     }
-    const attempt = { key: crypto.randomUUID(), payload: serialized };
+    const attempt = { key: crypto.randomUUID(), payload: serialized, uncertain: true };
     this.attempts.update((items) => ({ ...items, [id]: attempt }));
     return attempt;
+  }
+
+  find(accountId: string, operation: string): BookingAttempt | null {
+    return this.attempts()[accountId + ':' + operation] ?? null;
+  }
+
+  markUncertain(accountId: string, operation: string, key: string): void {
+    const id = accountId + ':' + operation;
+    this.attempts.update((items) => items[id]?.key === key
+      ? { ...items, [id]: { ...items[id], uncertain: true } }
+      : items);
   }
 
   settle(accountId: string, operation: string, key: string): void {
@@ -33,6 +50,4 @@ export class BookingAttempts {
       return next;
     });
   }
-
-  reset(): void { this.attempts.set({}); }
 }
