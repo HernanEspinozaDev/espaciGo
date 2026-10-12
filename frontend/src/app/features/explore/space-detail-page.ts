@@ -51,6 +51,8 @@ export class SpaceDetailPage implements OnInit {
         this.options.set([]);
         this.selected.set(null);
         this.quote.set(null);
+        this.date.set('');
+        this.duration.set(1);
         this.busy.set(false);
         this.error.set('La sesión cambió. Vuelve a abrir el espacio desde la búsqueda.');
       }
@@ -71,15 +73,36 @@ export class SpaceDetailPage implements OnInit {
   }
 
   protected async chooseDuration(value: string): Promise<void> {
-    this.duration.set(Number(value));
+    const duration = Number(value);
+    if (!this.durationOptions().includes(duration)) return;
+    this.duration.set(duration);
     this.invalidateInterval();
     await this.loadAvailability();
   }
 
   protected chooseInterval(value: string): void {
-    const index = Number(value);
-    this.selected.set(Number.isInteger(index) ? (this.options()[index] ?? null) : null);
+    ++this.generation;
+    this.busy.set(false);
+    const index = value === '' ? Number.NaN : Number(value);
+    this.selected.set(
+      Number.isInteger(index) && index >= 0 && index < this.options().length
+        ? this.options()[index]
+        : null,
+    );
     this.quote.set(null);
+  }
+
+  protected durationOptions(): number[] {
+    switch (this.space()?.rate_unit) {
+      case 'hora':
+        return [1, 2, 4];
+      case 'dia':
+        return [1, 2, 3];
+      case 'mes':
+        return [1];
+      default:
+        return [];
+    }
   }
 
   protected async loadAvailability(): Promise<void> {
@@ -103,6 +126,7 @@ export class SpaceDetailPage implements OnInit {
       }
       this.options.set(response.data.items);
     } catch (error) {
+      if (this.handleUnauthorized(error, token)) return;
       if (this.isCurrent(generation, token, session, space.space_id))
         this.error.set(apiError(error));
     } finally {
@@ -140,6 +164,7 @@ export class SpaceDetailPage implements OnInit {
       this.quote.set(response.data);
       this.notice.set(response.safety_notice);
     } catch (error) {
+      if (this.handleUnauthorized(error, token)) return;
       if (this.isCurrent(generation, token, session, space.space_id))
         this.error.set(apiError(error));
     } finally {
@@ -195,6 +220,7 @@ export class SpaceDetailPage implements OnInit {
     this.selected.set(null);
     this.quote.set(null);
     this.date.set('');
+    this.duration.set(1);
     this.error.set('');
     if (!token || !session || session.restricted_mode || !session.roles.includes('arrendatario')) {
       this.error.set('Go no confirmó permisos de arrendatario para ver este espacio.');
@@ -205,6 +231,7 @@ export class SpaceDetailPage implements OnInit {
       const item = await this.api.detail(token, id);
       if (!this.isCurrent(generation, token, session, id)) return;
       this.space.set(item);
+      if (!this.durationOptions().includes(this.duration())) this.duration.set(1);
       this.title.setTitle(`${item.title} | EspaciGo`);
       const profile = await this.api.profile(token, item.category_code);
       if (!this.isCurrent(generation, token, session, id)) return;
@@ -212,6 +239,7 @@ export class SpaceDetailPage implements OnInit {
       this.date.set(localDateInZone(item.time_zone));
       await this.loadAvailability();
     } catch (error) {
+      if (this.handleUnauthorized(error, token)) return;
       if (this.isCurrent(generation, token, session, id)) this.error.set(apiError(error));
     } finally {
       if (this.isCurrent(generation, token, session, id)) this.busy.set(false);
@@ -223,6 +251,21 @@ export class SpaceDetailPage implements OnInit {
     this.selected.set(null);
     this.quote.set(null);
     this.options.set([]);
+  }
+
+  private handleUnauthorized(error: unknown, token: string): boolean {
+    if (apiStatus(error) !== 401 || !this.identity.expireIfCurrent(token)) return false;
+    ++this.generation;
+    this.space.set(null);
+    this.profile.set(null);
+    this.options.set([]);
+    this.selected.set(null);
+    this.quote.set(null);
+    this.date.set('');
+    this.duration.set(1);
+    this.busy.set(false);
+    this.error.set('Go cerró la sesión. Inicia sesión nuevamente.');
+    return true;
   }
 
   private isCurrent(
@@ -251,11 +294,14 @@ function localDateInZone(timeZone: string): string {
   return `${value('year')}-${value('month')}-${value('day')}`;
 }
 function apiError(error: unknown): string {
-  const status = (error as { status?: number })?.status;
+  const status = apiStatus(error);
   if (status === 401) return 'Go cerró la sesión. Inicia sesión nuevamente.';
   if (status === 403) return 'Go confirmó que esta cuenta no puede consultar este espacio.';
   if (status === 404) return 'Este espacio ya no está disponible para tu cuenta.';
   if (status === 409) return 'El horario cambió. Consulta disponibilidad nuevamente.';
   if (status === 422) return 'Go rechazó el horario seleccionado. Elige otra opción.';
   return 'No fue posible completar la operación. Inténtalo nuevamente.';
+}
+function apiStatus(error: unknown): number | undefined {
+  return (error as { status?: number })?.status;
 }

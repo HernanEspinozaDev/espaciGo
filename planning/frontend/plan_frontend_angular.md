@@ -156,7 +156,9 @@ Cada fila especifica dependencias, entregable tangible y aceptación. Los PR pue
 
 **Importes y tiempo:** las respuestas del catálogo/cotización llegan como texto y se convierten en cadenas CLP antes de que el parser JSON vea los literales `int64`. La UI usa `BigInt` para validar/formatear importes, sin redondear mediante `Number`. El selector toma la fecha en la zona IANA de cada espacio, consume intervalos UTC de Go, y presenta zona/offset para distinguir las horas repetidas DST; horarios inexistentes dependen del resultado de Go.
 
-**Evidencia y validación:** regresión Angular enfocada y consolidada, `api:check`, build/prerender, prueba Go de catálogo/disponibilidad/cotización en una base PostgreSQL temporal `tmpfs`, cuenta sintética y evidencia visual escritorio/móvil en la matriz de paridad. Errores/permisos y aislamiento A→B cubiertos por pruebas de componente/servicio. El mock se conserva; no se cambia Go ni se inician proveedores/GCP. El siguiente corte permanece pendiente hasta aprobación de FE-03.
+**Correcciones de revisión:** cambios de filtros y atributos invalidan las búsquedas en curso y reinician el cursor; un 401 limpia la sesión y el estado privado solo si coincide con el Bearer vigente; categorías/perfiles conservan el status HTTP; cambios de espacio/modalidad restablecen una duración admitida; la opción vacía del horario anula la selección y la cotización.
+
+**Evidencia y validación:** 41 pruebas Angular, `api:check`, build/prerender, prueba Go de catálogo/disponibilidad/cotización en una base PostgreSQL temporal `tmpfs`, cuenta sintética y evidencia visual escritorio/móvil en la matriz de paridad. Errores/permisos y aislamiento A→B cubiertos por pruebas de componente/servicio. El mock se conserva; no se cambia Go ni se inician proveedores/GCP. FE-04 permanece pendiente hasta que FE-03 sea aprobado y fusionado.
 
 ### Hitos para revisar avance
 

@@ -20,6 +20,7 @@ export class ExplorePage implements OnInit {
   private readonly title = inject(Title);
   private readonly destroyRef = inject(DestroyRef);
   private requestGeneration = 0;
+  private profileGeneration = 0;
   private ownerSession = this.identity.session();
   private ownerToken = this.identity.accessToken();
 
@@ -57,8 +58,7 @@ export class ExplorePage implements OnInit {
         this.ownerSession = session;
         this.ownerToken = token;
         this.invalidate();
-        this.items.set([]);
-        this.nextCursor.set(undefined);
+        this.clearPrivateResults();
       }
     });
   }
@@ -77,9 +77,10 @@ export class ExplorePage implements OnInit {
         if (!this.isSameSession(token, session)) return;
         this.categories.set(response.items);
       })
-      .catch(() => {
+      .catch((error) => {
+        if (this.handleUnauthorized(error, token)) return;
         if (this.isSameSession(token, session))
-          this.error.set('No fue posible cargar las categorías.');
+          this.error.set(errorMessage(error));
       })
       .finally(() => {
         if (this.isSameSession(token, session)) this.busy.set(false);
@@ -91,6 +92,7 @@ export class ExplorePage implements OnInit {
     value: ReturnType<typeof this.filters>[K],
   ): void {
     this.filters.update((filters) => ({ ...filters, [key]: value }));
+    this.invalidateCriteria();
     if (key === 'category_code') {
       this.attributeFilters.set({});
       this.profile.set(null);
@@ -98,15 +100,25 @@ export class ExplorePage implements OnInit {
       const category = value as string;
       if (token && category) {
         const owner = this.identity.session();
+        const profileGeneration = ++this.profileGeneration;
         this.api
           .profile(token, category)
           .then((profile) => {
-            if (this.isSameSession(token, owner) && this.filters().category_code === category)
+            if (
+              profileGeneration === this.profileGeneration &&
+              this.isSameSession(token, owner) &&
+              this.filters().category_code === category
+            )
               this.profile.set(profile);
           })
-          .catch(() => {
-            if (this.isSameSession(token, owner))
-              this.error.set('No fue posible cargar el perfil de filtros.');
+          .catch((error) => {
+            if (this.handleUnauthorized(error, token)) return;
+            if (
+              profileGeneration === this.profileGeneration &&
+              this.isSameSession(token, owner) &&
+              this.filters().category_code === category
+            )
+              this.error.set(errorMessage(error));
           });
       }
     }
@@ -114,6 +126,7 @@ export class ExplorePage implements OnInit {
 
   protected setAttribute(code: string, value: string | boolean): void {
     this.attributeFilters.update((filters) => ({ ...filters, [code]: value }));
+    this.invalidateCriteria();
   }
 
   protected async search(reset = true): Promise<void> {
@@ -200,6 +213,7 @@ export class ExplorePage implements OnInit {
       this.items.update((current) => (reset ? incoming : [...current, ...incoming]));
       this.nextCursor.set(result.data.next_cursor);
     } catch (error) {
+      if (this.handleUnauthorized(error, token)) return;
       if (this.isCurrent(generation, token, session)) this.error.set(errorMessage(error));
     } finally {
       if (this.isCurrent(generation, token, session)) this.busy.set(false);
@@ -208,6 +222,7 @@ export class ExplorePage implements OnInit {
 
   protected clearFilters(): void {
     this.invalidate();
+    ++this.profileGeneration;
     this.filters.set({
       q: '',
       category_code: '',
@@ -255,6 +270,39 @@ export class ExplorePage implements OnInit {
     ++this.requestGeneration;
     this.busy.set(false);
   }
+  private invalidateCriteria(): void {
+    this.invalidate();
+    this.items.set([]);
+    this.nextCursor.set(undefined);
+    this.error.set('');
+  }
+  private clearPrivateResults(): void {
+    ++this.profileGeneration;
+    this.categories.set([]);
+    this.profile.set(null);
+    this.items.set([]);
+    this.nextCursor.set(undefined);
+    this.filters.set({
+      q: '',
+      category_code: '',
+      min_area_m2: '',
+      start_local_utc: '',
+      end_local_utc: '',
+      min_total_clp: '',
+      max_total_clp: '',
+      latitude: '',
+      longitude: '',
+      radius_km: '',
+    });
+    this.attributeFilters.set({});
+  }
+  private handleUnauthorized(error: unknown, token: string): boolean {
+    if (statusCode(error) !== 401 || !this.identity.expireIfCurrent(token)) return false;
+    this.invalidate();
+    this.clearPrivateResults();
+    this.error.set('Go cerró la sesión. Inicia sesión nuevamente.');
+    return true;
+  }
   private typedAttributes(): Record<string, unknown> {
     const typed: Record<string, unknown> = {};
     for (const [code, value] of Object.entries(this.attributeFilters())) {
@@ -296,10 +344,13 @@ function formatClp(value: string): string {
   return `CLP ${parsed.toLocaleString('es-CL')}`;
 }
 function errorMessage(error: unknown): string {
-  const status = (error as { status?: number })?.status;
+  const status = statusCode(error);
   if (status === 401) return 'Go cerró la sesión. Inicia sesión nuevamente.';
   if (status === 403) return 'Go confirmó que esta cuenta no tiene permiso para explorar.';
   if (status === 422)
     return 'Go rechazó los filtros o el cursor. Limpia los filtros y vuelve a buscar.';
   return 'No fue posible completar la búsqueda. Inténtalo nuevamente.';
+}
+function statusCode(error: unknown): number | undefined {
+  return (error as { status?: number })?.status;
 }

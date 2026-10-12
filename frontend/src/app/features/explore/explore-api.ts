@@ -85,6 +85,16 @@ export type CatalogFilters = {
   cursor?: string;
 };
 
+export class ExploreApiError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = 'ExploreApiError';
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class ExploreApi {
   private readonly http = inject(HttpClient);
@@ -138,7 +148,8 @@ export class ExploreApi {
     const result = await this.categoriesClient.listSpaceCategories({
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (result.error || !result.data) throw new Error('No fue posible cargar las categorías.');
+    if (result.error || !result.data)
+      throw new ExploreApiError('No fue posible cargar las categorías.', result.response?.status);
     return result.data as SpaceCategoryList;
   }
 
@@ -148,7 +159,10 @@ export class ExploreApi {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (result.error || !result.data)
-      throw new Error('No fue posible cargar el perfil de categoría.');
+      throw new ExploreApiError(
+        'No fue posible cargar el perfil de categoría.',
+        result.response?.status,
+      );
     return result.data as SpaceAttributeProfile;
   }
 

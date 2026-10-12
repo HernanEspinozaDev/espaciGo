@@ -124,6 +124,131 @@ describe('ExplorePage', () => {
     fixture.destroy();
   });
 
+  it('discards an in-flight result and resets the cursor when criteria change', async () => {
+    let finishSearch!: (result: unknown) => void;
+    const pending = new Promise((resolve) => (finishSearch = resolve));
+    const explore = {
+      categories: vi.fn().mockResolvedValue({ items: [] }),
+      search: vi
+        .fn()
+        .mockResolvedValueOnce({ safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL', data: { items: [], next_cursor: 'cursor-old' } })
+        .mockImplementationOnce(() => pending),
+      profile: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [ExplorePage],
+      providers: [
+        provideHttpClient(), provideRouter([]), PrivateSessionState,
+        { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
+        { provide: IdentityApi, useValue: {
+          login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
+          session: vi.fn().mockResolvedValue(accountA), logout: vi.fn(),
+        } },
+        { provide: ExploreApi, useValue: explore },
+      ],
+    });
+    const fixture = TestBed.createComponent(ExplorePage);
+    fixture.detectChanges();
+    const identity = TestBed.inject(IdentitySession);
+    await identity.signIn('a@example.invalid', 'Synthetic#123');
+    const page = fixture.componentInstance as unknown as {
+      search(reset?: boolean): Promise<void>;
+      updateFilter(key: 'q', value: string): void;
+      setAttribute(code: string, value: string): void;
+      nextCursor(): string | undefined;
+      items(): unknown[];
+    };
+    await page.search();
+    const pendingSearch = page.search(false);
+    page.updateFilter('q', 'new criteria');
+    page.setAttribute('capacity', '5');
+    expect(page.nextCursor()).toBeUndefined();
+    finishSearch({ safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL', data: { items: [{ space_id: 'stale' }], next_cursor: 'stale-cursor' } });
+    await pendingSearch;
+    expect(page.items()).toEqual([]);
+    expect(page.nextCursor()).toBeUndefined();
+    fixture.destroy();
+  });
+
+  it('uses a fresh cursor after criteria change and clears a current Bearer on 401 despite filter invalidation', async () => {
+    let failSearch!: (error: unknown) => void;
+    const pending401 = new Promise((_resolve, reject) => (failSearch = reject));
+    const explore = {
+      categories: vi.fn().mockResolvedValue({ items: [] }),
+      search: vi
+        .fn()
+        .mockResolvedValueOnce({ safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL', data: { items: [], next_cursor: 'cursor-old' } })
+        .mockImplementationOnce(() => pending401),
+      profile: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [ExplorePage],
+      providers: [
+        provideHttpClient(), provideRouter([]), PrivateSessionState,
+        { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
+        { provide: IdentityApi, useValue: {
+          login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
+          session: vi.fn().mockResolvedValue(accountA), logout: vi.fn(),
+        } },
+        { provide: ExploreApi, useValue: explore },
+      ],
+    });
+    const fixture = TestBed.createComponent(ExplorePage);
+    fixture.detectChanges();
+    const identity = TestBed.inject(IdentitySession);
+    await identity.signIn('a@example.invalid', 'Synthetic#123');
+    const page = fixture.componentInstance as unknown as {
+      search(reset?: boolean): Promise<void>;
+      updateFilter(key: 'q', value: string): void;
+    };
+    await page.search();
+    page.updateFilter('q', 'changed');
+    const request = page.search(false);
+    expect(explore.search.mock.calls[1][1].cursor).toBeUndefined();
+    page.updateFilter('q', 'changed again');
+    failSearch({ status: 401 });
+    await request;
+    expect(identity.accessToken()).toBeNull();
+    expect(identity.session()).toBeNull();
+    fixture.destroy();
+  });
+
+  it('does not let a late A 401 expire B', async () => {
+    let failSearch!: (error: unknown) => void;
+    const pending = new Promise((_resolve, reject) => (failSearch = reject));
+    const explore = {
+      categories: vi.fn().mockResolvedValue({ items: [] }),
+      search: vi.fn(() => pending),
+      profile: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [ExplorePage],
+      providers: [
+        provideHttpClient(), provideRouter([]), PrivateSessionState,
+        { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
+        { provide: IdentityApi, useValue: {
+          login: vi.fn().mockResolvedValueOnce(login('account-a', 'bearer-a')).mockResolvedValueOnce(login('account-b', 'bearer-b')),
+          session: vi.fn().mockResolvedValueOnce(accountA).mockResolvedValueOnce(accountB),
+          logout: vi.fn().mockResolvedValue(undefined),
+        } },
+        { provide: ExploreApi, useValue: explore },
+      ],
+    });
+    const fixture = TestBed.createComponent(ExplorePage);
+    fixture.detectChanges();
+    const identity = TestBed.inject(IdentitySession);
+    await identity.signIn('a@example.invalid', 'Synthetic#123');
+    const page = fixture.componentInstance as unknown as { search(): Promise<void> };
+    const request = page.search();
+    await identity.signOut();
+    await identity.signIn('b@example.invalid', 'Synthetic#456');
+    failSearch({ status: 401 });
+    await request;
+    expect(identity.accessToken()).toBe('bearer-b');
+    expect(identity.session()?.account_id).toBe('account-b');
+    fixture.destroy();
+  });
+
   it('does not query the catalog for a session whose confirmed role is only arrendador', async () => {
     const explore = {
       categories: vi.fn(),

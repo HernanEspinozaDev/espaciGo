@@ -2,8 +2,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
+import { M04Local } from '../../../generated/api/sdk.gen';
 import { ApiRuntimeConfig } from '../../core/api-runtime-config';
-import { CatalogEnvelope, ExploreApi, parseExactClpJson } from './explore-api';
+import { CatalogEnvelope, ExploreApi, ExploreApiError, parseExactClpJson } from './explore-api';
 
 describe('parseExactClpJson', () => {
   it('preserves int64 CLP literals as exact decimal strings before JSON parsing', () => {
@@ -67,6 +68,26 @@ describe('parseExactClpJson', () => {
     const result = (await resultPromise) as CatalogEnvelope;
     expect(result.data.items[0].base_price_clp).toBe('9007199254740993');
     http.verify();
+    TestBed.resetTestingModule();
+  });
+
+  it('preserves SDK HTTP status for category and profile authorization failures', async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        { provide: M04Local, useValue: {
+          listSpaceCategories: async () => ({ error: {}, response: { status: 401 } }),
+          getSpaceAttributeProfile: async () => ({ error: {}, response: { status: 401 } }),
+        } },
+      ],
+    });
+    const api = TestBed.inject(ExploreApi);
+    await expect(api.categories('expired')).rejects.toMatchObject({
+      name: 'ExploreApiError', status: 401,
+    } satisfies Partial<ExploreApiError>);
+    await expect(api.profile('expired', 'oficina')).rejects.toMatchObject({
+      name: 'ExploreApiError', status: 401,
+    });
     TestBed.resetTestingModule();
   });
 });
