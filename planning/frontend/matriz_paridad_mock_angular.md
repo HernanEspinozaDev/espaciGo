@@ -21,8 +21,8 @@ Fecha: 2026-10-11. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | FE-04 | 13 | Aceptado y fusionado; PR #278 |
 | FE-05 | 10 | Aceptado y fusionado; PR #279 |
 | FE-06 | 26 | Aceptado y fusionado; PR #280 |
-| FE-07 | 8 | Implementado; PR #282 de HernanMEC en revisión; revisor solicitado: HernanEspinozaDev |
-| FE-08 | 10 | Pendiente |
+| FE-07 | 8 | Aceptado y fusionado; PR #282; merge `978a27e` |
+| FE-08 | 10 | Implementado en revisión; PR pendiente de crear |
 | FE-09 | 8 | Pendiente |
 | FE-10 | 21 | Pendiente |
 | FE-11 | 29 | Pendiente |
@@ -148,16 +148,16 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /admin/disputes` | `listOpenLocalTrialDisputes` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Pendiente |
 | `POST /admin/disputes/{dispute_id}/close` | `closeLocalTrialDispute` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Pendiente |
 | `POST /auth/logout` | `logout` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
-| `POST /local/booking-trial/reservations/{reservationId}/contract` | `createOrGetSyntheticReservationContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
-| `GET /local/booking-trial/contracts/{contractId}` | `getOwnSyntheticContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
-| `POST /local/booking-trial/contracts/{contractId}/sign` | `signSyntheticContractAsParticipant` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
-| `POST /local/booking-trial/contracts/{contractId}/reject` | `rejectSyntheticContractVersion` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
-| `GET /local/booking-trial/contracts/{contractId}/document` | `downloadSignedSyntheticContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
-| `POST /local/booking-trial/reservations/{reservationID}/check-in` | `recordSyntheticCheckIn` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
-| `POST /local/booking-trial/reservations/{reservationID}/check-out` | `recordSyntheticCheckOut` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
-| `POST /local/booking-trial/reservations/{reservationID}/reception` | `recordSyntheticHostReception` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
-| `GET /local/booking-trial/reservations/{reservationID}/operations` | `listSyntheticRentalOperations` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
-| `GET /local/booking-trial/reservations/{reservationID}/evidence/{evidenceID}` | `downloadSyntheticRentalOperationEvidence` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Pendiente |
+| `POST /local/booking-trial/reservations/{reservationId}/contract` | `createOrGetSyntheticReservationContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
+| `GET /local/booking-trial/contracts/{contractId}` | `getOwnSyntheticContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
+| `POST /local/booking-trial/contracts/{contractId}/sign` | `signSyntheticContractAsParticipant` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
+| `POST /local/booking-trial/contracts/{contractId}/reject` | `rejectSyntheticContractVersion` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
+| `GET /local/booking-trial/contracts/{contractId}/document` | `downloadSignedSyntheticContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
+| `POST /local/booking-trial/reservations/{reservationID}/check-in` | `recordSyntheticCheckIn` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
+| `POST /local/booking-trial/reservations/{reservationID}/check-out` | `recordSyntheticCheckOut` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
+| `POST /local/booking-trial/reservations/{reservationID}/reception` | `recordSyntheticHostReception` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
+| `GET /local/booking-trial/reservations/{reservationID}/operations` | `listSyntheticRentalOperations` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
+| `GET /local/booking-trial/reservations/{reservationID}/evidence/{evidenceID}` | `downloadSyntheticRentalOperationEvidence` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; revisión pendiente |
 | `POST /local/booking-trial/reservations/{reservationID}/damage-claim/defense/evidence` | `createSyntheticDamageClaimDefenseEvidence` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Pendiente |
 | `GET /local/booking-trial/reservations/{reservationID}/damage-claim` | `getOwnSyntheticDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Pendiente |
 | `POST /local/booking-trial/reservations/{reservationID}/damage-claim` | `openSyntheticHostDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Pendiente |
@@ -248,7 +248,7 @@ Cliente generado reutilizado desde `frontend/src/generated/api`. El Bearer vive 
 
 Ejecución: 26 pruebas Angular enfocadas; build/prerender; generación OpenAPI y compilación TS; script `scripts/verify-m01.py` en proyecto Compose desechable con PostgreSQL y Mailpit; escaneo de logs del backend sin secretos. Las capturas representan UI conectada a servicios locales y cuentan sintéticas.
 
-## Trazabilidad FE-07 — Reserva y pago ([PR #282](https://github.com/HernanEspinozaDev/espaciGo/pull/282); en revisión; PR #281 cerrado)
+## Trazabilidad FE-07 — Reserva y pago ([PR #282](https://github.com/HernanEspinozaDev/espaciGo/pull/282); aceptado y fusionado)
 
 | Operación | Pantalla / componente | Validación | Evidencia |
 | --- | --- | --- | --- |
@@ -262,7 +262,22 @@ Páginas privadas CSR/noindex. Bearer y claves idempotentes solo en memoria; el 
 
 Validación: 12 pruebas de componente FE-07 con IdentitySession real y una prueba de store; suite Angular consolidada de 112 pruebas en 19 archivos; npm run api:check; npm run build con prerender de 3 rutas. Las regresiones cubren 4xx de un Bearer previo tras logout/login de la misma cuenta, devolución/cancelación con POST pendiente y GET posterior completada, lectura antigua de devolución fallida posterior a una devolución exitosa, respuestas de cancelación fuera de orden, recarga fallida o sin campos de devolución y protección monotónica del snapshot confirmado. El stack aislado espacigo_fe07 con PostgreSQL y Mailpit confirmó cinco cuentas sintéticas, solicitud idempotente, rechazo de tercero, pago fake exitoso/rechazado/timeout, decisión de anfitrión, cancelación y devolución fake según Go. La UI Angular conectada completó login, búsqueda/cotización, solicitud, pago, aprobación, cancelación y devolución pendiente → completada confirmadas por Go. Go devuelve operation_id/importe pendientes desde la respuesta de cancelación pero no los repite en el GET detalle; Angular conserva la respuesta autoritativa en un snapshot temporal en memoria y abre la devolución con esos datos. La respuesta del POST se aplica antes de recargar; un GET posterior reemplaza el estado y snapshot si Go devuelve campos confirmados, mientras que GET sin esos campos reutiliza la confirmación guardada. Una recarga fallida mantiene la confirmación del POST. El estado visible y el snapshot quedan protegidos frente a respuestas fuera de orden. No se usaron proveedores ni dinero real.
 
-Credenciales sintéticas y receta: .local/testing/fe07-cuentas.md, modo 0600 y excluidas en .git/info/exclude; no versionar ni publicar. El stack FE-07 no tocó volúmenes persistentes. Evidencia: [devolución completada escritorio](evidencia/FE07_devolucion_completada_escritorio.jpg), [devolución completada móvil](evidencia/FE07_devolucion_completada_movil.jpg), [bandeja escritorio](evidencia/FE07_reservas_escritorio.jpg), [bandeja móvil](evidencia/FE07_reservas_movil.jpg), [detalle escritorio](evidencia/FE07_reserva_detalle_escritorio.jpg), [decisión móvil](evidencia/FE07_decision_anfitrion_movil.jpg). UI comprobada a 1440×1000 y 390×844 CSS px; la captura móvil del navegador integrado es limitada. FE-06 aceptado/fusionado en PR #280; FE-08 pendiente hasta aprobación y fusión de FE-07.
+Credenciales sintéticas y receta: .local/testing/fe07-cuentas.md, modo 0600 y excluidas en .git/info/exclude; no versionar ni publicar. El stack FE-07 no tocó volúmenes persistentes. Evidencia: [devolución completada escritorio](evidencia/FE07_devolucion_completada_escritorio.jpg), [devolución completada móvil](evidencia/FE07_devolucion_completada_movil.jpg), [bandeja escritorio](evidencia/FE07_reservas_escritorio.jpg), [bandeja móvil](evidencia/FE07_reservas_movil.jpg), [detalle escritorio](evidencia/FE07_reserva_detalle_escritorio.jpg), [decisión móvil](evidencia/FE07_decision_anfitrion_movil.jpg). UI comprobada a 1440×1000 y 390×844 CSS px; la captura móvil del navegador integrado es limitada. FE-06 aceptado/fusionado en PR #280; FE-07 aceptado/fusionado en PR #282; FE-08 continúa en revisión.
+
+## Trazabilidad FE-08 — Contrato y operación
+
+| Operación Go | Interfaz Angular | Validación enfocada | Evidencia |
+| --- | --- | --- | --- |
+| Crear/consultar, firmar/rechazar contrato y descargar PDF privado | Panel del detalle de reserva | Participantes confirmados, tercero denegado, transición de firma y PDF autenticado | Stack Go desechable; prueba de API/componente |
+| Listar operaciones, check-in, check-out, recepción, descargar evidencia privada | Panel de llegada/salida/recepción | Arrendatario/anfitrión según operación, tercero 403/404, estados confirmados, PNG sintético privado | Stack Go desechable; prueba de API/componente |
+
+**Estado FE-08:** implementación terminada, regresión local y API Go completadas; pendiente de PR/revisión. Componentes: `BookingLifecycleApi` y `BookingLifecyclePanel`, integrados al detalle existente. El acceso se valida con IDs de participante y estados devueltos por Go; la API sigue imponiendo autorización. Bearer solo en memoria, intentos idempotentes en memoria sin Bearer; lecturas obsoletas se descartan por sesión/recurso/generación; URL de Blob PDF/PNG se revoca al cerrar sesión, cambiar recurso o destruir la vista.
+
+**Validación:** stack aislado `espacigo_fe08` con PostgreSQL y Mailpit, usando cuentas sintéticas autorizadas. Go confirmó creación/consulta y firmas de ambas partes, PDF para participantes y rechazo de tercero, check-in del arrendatario con PNG sintético, check-out del arrendatario, recepción del anfitrión, historial y evidencia autorizada; tercero rechazado para operaciones/evidencia. Se verificó además rechazo de contrato. Cuenta de tercero no obtiene controles de la vista. Pruebas Angular reales de `IdentitySession`: sesión anterior y lecturas tardías, rechazo de tercero, anfitrión/arrendatario, idempotencia incierta y revocación de Blob PNG/PDF.
+
+**Límite visual:** se intentó Firefox headless/Selenium en 1440×1100 y 390×844 CSS px. Este host ejecuta Firefox mediante Snap: Angular abre, pero Firefox no logra conectar con los puertos loopback del stack aunque curl y las solicitudes OPTIONS desde el host sí funcionan. Las capturas conectadas FE-08 no se adjuntan para evitar presentar una pantalla sin datos Go como evidencia funcional. Captura automática de móvil/escritorio pendiente de un navegador con acceso al loopback; pruebas responsive quedan cubiertas por estilos fluidos y revisión de componente, no por evidencia visual final.
+
+Cuentas sintéticas y receta de recreación: `.local/testing/fe08-cuentas.md` y `.local/testing/provision_fe08.py` (modo 0600, `.local/testing/` excluido por Git y `.git/info/exclude`; no versionar ni publicar). Stack nuevo en puerto 18430/18431/18432 y volumen aislado `espacigo_fe08_pgdata`; no se alteró ni eliminó volumen persistente preexistente. La regeneración usa `scripts/local-docker-stack.sh` con prefijo/proyecto/volumen `espacigo_fe08`; después ejecuta el provisionador local; credenciales no se incluyen en logs o GitHub. El mock queda intacto.
 
 ## Escenarios que deben trasladarse del mock
 

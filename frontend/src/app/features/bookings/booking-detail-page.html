@@ -39,6 +39,7 @@
     @if (isRenter(item) && item.refund_state === 'completada') {
       <p class="success" role="status">Go confirmó la devolución fake de {{ money(item.refund_amount_clp) }}. No hubo movimiento de dinero real.</p>
     }
+    <app-booking-lifecycle-panel [reservation]="item" />
     <section class="panel history"><h2>Historial confirmado por Go</h2><ol>@for (entry of item.history; track entry.sequence) { <li><strong>{{ resultLabel(entry.to) }}</strong><span>{{ when(entry.at, item.time_zone) }}</span><p>{{ entry.reason }}</p></li> }</ol></section>
   }
 </main>

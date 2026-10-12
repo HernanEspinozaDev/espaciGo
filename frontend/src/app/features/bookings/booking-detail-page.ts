@@ -7,8 +7,9 @@ import { IdentitySession } from '../../core/identity/identity-session';
 import { PrivateSessionState } from '../../core/identity/private-session-state';
 import { BookingApi, BookingApiError, CancellationResult, PaymentOutcome, RefundOutcome, RefundResult } from './booking-api';
 import { BookingAttempts } from './booking-attempts';
+import { BookingLifecyclePanel } from './booking-lifecycle-panel';
 
-@Component({ selector: 'app-booking-detail-page', imports: [RouterLink], templateUrl: './booking-detail-page.html', styleUrl: './booking-detail-page.scss' })
+@Component({ selector: 'app-booking-detail-page', imports: [RouterLink, BookingLifecyclePanel], templateUrl: './booking-detail-page.html', styleUrl: './booking-detail-page.scss' })
 export class BookingDetailPage {
   private readonly api = inject(BookingApi); private readonly attempts = inject(BookingAttempts); private readonly identity = inject(IdentitySession);
   private readonly privateState = inject(PrivateSessionState); private readonly route = inject(ActivatedRoute); private readonly title = inject(Title);
