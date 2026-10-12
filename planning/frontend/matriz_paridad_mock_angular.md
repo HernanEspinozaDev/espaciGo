@@ -20,8 +20,8 @@ Fecha: 2026-10-11. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | FE-03 | 7 | Aceptado y fusionado; PR #276 |
 | FE-04 | 13 | Aceptado y fusionado; PR #278 |
 | FE-05 | 10 | Aceptado y fusionado; PR #279 |
-| FE-06 | 26 | Implementado; PR #280 en revisión |
-| FE-07 | 8 | Pendiente |
+| FE-06 | 26 | Aceptado y fusionado; PR #280 |
+| FE-07 | 8 | Implementado; PR FE-07 en revisión |
 | FE-08 | 10 | Pendiente |
 | FE-09 | 8 | Pendiente |
 | FE-10 | 21 | Pendiente |
@@ -122,10 +122,10 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /local/booking-trial/catalog/{spaceId}/weekly-hours` | `getOwnSyntheticHourlyWeeklyHours` | Bearer; permisos en Go | FE-06 — Horario semanal propio | Implementado; PR #280 |
 | `PUT /local/booking-trial/catalog/{spaceId}/weekly-hours` | `replaceOwnSyntheticHourlyWeeklyHours` | Bearer; permisos en Go | FE-06 — Horario semanal propio | Implementado; PR #280 |
 | `POST /local/booking-trial/quotes` | `quoteAuthorizedLocalBooking` | Bearer; permisos en Go | FE-03 — Cotización confirmada por Go | Implementado; aceptado y fusionado en PR #276 |
-| `GET /local/booking-trial/reservations` | `listOwnLocalTrialReservations` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
-| `POST /local/booking-trial/reservations` | `requestLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
-| `GET /local/booking-trial/reservations/{reservationId}` | `getOwnLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
-| `POST /local/booking-trial/reservations/{reservationId}/payment` | `simulateLocalTrialPayment` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
+| `GET /local/booking-trial/reservations` | `listOwnLocalTrialReservations` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR FE-07 |
+| `POST /local/booking-trial/reservations` | `requestLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR FE-07 |
+| `GET /local/booking-trial/reservations/{reservationId}` | `getOwnLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR FE-07 |
+| `POST /local/booking-trial/reservations/{reservationId}/payment` | `simulateLocalTrialPayment` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR FE-07 |
 | `GET /local/booking-trial/reservations/{reservationId}/settlement` | `getOwnLocalSettlement` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Pendiente |
 | `POST /local/booking-trial/reservations/{reservationId}/settlement` | `requestLocalFakeSettlement` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Pendiente |
 | `POST /local/booking-trial/reservations/{reservationId}/settlement-reconcile` | `reconcileLocalFakeSettlement` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Pendiente |
@@ -135,10 +135,10 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `POST /local/booking-trial/reservations/{reservationId}/guarantee-reconcile` | `reconcileLocalGuaranteeFakeResult` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Pendiente |
 | `POST /local/booking-trial/reservations/{reservationId}/financial-decision` | `recordAdminLocalFinancialDecision` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Pendiente |
 | `POST /local/booking-trial/payment-events` | `receiveAuthenticatedLocalPaymentEvent` | HMAC Backend | Técnica — Callback HMAC; no UI ni secreto en Angular | Sin UI directa justificada |
-| `POST /local/booking-trial/reservations/{reservationId}/decision` | `decideLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
-| `GET /local/booking-trial/reservations/{reservationId}/cancellation-preview` | `previewLocalTrialReservationCancellation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
-| `POST /local/booking-trial/reservations/{reservationId}/cancel` | `cancelLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
-| `POST /local/booking-trial/reservations/{reservationId}/refund` | `simulateLocalTrialRefund` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
+| `POST /local/booking-trial/reservations/{reservationId}/decision` | `decideLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR FE-07 |
+| `GET /local/booking-trial/reservations/{reservationId}/cancellation-preview` | `previewLocalTrialReservationCancellation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR FE-07 |
+| `POST /local/booking-trial/reservations/{reservationId}/cancel` | `cancelLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR FE-07 |
+| `POST /local/booking-trial/reservations/{reservationId}/refund` | `simulateLocalTrialRefund` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR FE-07 |
 | `GET /local/booking-trial/reservations/{reservationId}/messages` | `listOwnLocalReservationMessages` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Pendiente |
 | `POST /local/booking-trial/reservations/{reservationId}/messages` | `sendOwnLocalReservationMessage` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Pendiente |
 | `POST /local/booking-trial/reservations/{reservationId}/messages/read` | `advanceOwnLocalReservationMessageReadCursor` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Pendiente |
@@ -220,7 +220,7 @@ Ruta privada `/mi-cuenta/verificaciones`, guard de sesión, render CSR y metadat
 
 **Validación:** 7 pruebas KYC enfocadas; suite Angular consolidada: 62 pruebas en 14 archivos; `api:check`; build/prerender; pruebas Go del handler y del repositorio de verificaciones con PostgreSQL temporal en `tmpfs`. Cubren titular/tercero, estados, retry, evidencia, 401 actual/tardío, cambio de cuenta, respuestas de PNG fuera de orden y Blob URL al cambiar caso/logout/destruir vista. Las capturas reflejan UI Angular con fixtures de API sintéticos locales: [escritorio](evidencia/FE05_kyc_escritorio.png) · [móvil](evidencia/FE05_kyc_movil.png). No se probaron documentos reales ni se usó volumen persistente. FE-04 y FE-05 aceptados/fusionados en PR #278 y #279. FE-06 se registra a continuación.
 
-## Trazabilidad FE-06 — Oferta y calendario ([PR #280](https://github.com/HernanEspinozaDev/espaciGo/pull/280); en revisión)
+## Trazabilidad FE-06 — Oferta y calendario ([PR #280](https://github.com/HernanEspinozaDev/espaciGo/pull/280); aceptado y fusionado)
 
 El panel `/panel/espacios` organiza datos, tarifas, calendario y galería con controles responsive Terracota + Crema. La lista, detalle, guardados, tarifario, simulaciones, disponibilidad, bloques, zona y horario semanal consultan Go con Bearer en memoria. La UI conserva estados vacíos, reconoce 401/403/404/409/422, pide confirmación en retiro de imagen y eliminación, y distingue publicar/ocultar/eliminar. Tarifas y respuestas con importes usan el parser/serializador exacto; fechas de pared se convierten desde zona IANA y DST ambiguo requiere seleccionar ocurrencia. Las lecturas comparan sesión/generación/recurso; escrituras confirmadas invalidan lecturas anteriores. La galería solo genera el fixture permitido, usa claves idempotentes y descarga contenido con Bearer en Blob URL temporal.
 
@@ -247,6 +247,22 @@ El panel `/panel/espacios` organiza datos, tarifas, calendario y galería con co
 Cliente generado reutilizado desde `frontend/src/generated/api`. El Bearer vive en una señal en memoria; no se guarda en storage ni se agrega a rutas. La capa de acceso añade explícitamente Authorization a operaciones protegidas debido al orden de construcción de request del cliente generado, cubierto por prueba de `HttpTestingController`. Roles no se infieren de la preferencia de uso. Identidad y cuenta se renderizan en CSR/noindex. Las páginas futuras solo muestran avisos; sus funciones no se declaran implementadas.
 
 Ejecución: 26 pruebas Angular enfocadas; build/prerender; generación OpenAPI y compilación TS; script `scripts/verify-m01.py` en proyecto Compose desechable con PostgreSQL y Mailpit; escaneo de logs del backend sin secretos. Las capturas representan UI conectada a servicios locales y cuentan sintéticas.
+
+## Trazabilidad FE-07 — Reserva y pago (PR FE-07; en revisión)
+
+| Operación | Pantalla / componente | Validación | Evidencia |
+| --- | --- | --- | --- |
+| Listar y solicitar reserva | Bandeja por participante y detalle desde cotización | Solicitud idempotente, duplicado misma clave, titular/tercero | Bandeja escritorio/móvil |
+| Consultar detalle e historial | Detalle privado con transiciones Go | Aislamiento por participante y sesión | Detalle escritorio |
+| Pago fake | Resultado éxito/rechazo/timeout | Exactitud int64, 504 incierto y reintento misma clave/payload | Pruebas FE-07 y recorrido Go |
+| Decidir reserva | Acciones de anfitrión aprobar/rechazar | Host aprueba/rechaza; roles y estado confirmados por Go | Decisión anfitrión móvil |
+| Política, cancelación y devolución | Vista de cancelación/devolución simulada | Elegibilidad y obligación confirmadas por Go; API fake éxito/fallo/timeout | Detalle y pruebas/API Go |
+
+Páginas privadas CSR/noindex. Bearer y claves idempotentes solo en memoria; el parser procesa respuesta textual para conservar int64 exacto. Las operaciones inciertas retienen clave y payload; respuestas tardías se descartan por generación/sesión. Go confirma acceso y transición; la UI no concede roles.
+
+Validación: 4 pruebas FE-07 enfocadas; suite Angular consolidada de 99 pruebas en 18 archivos; npm run api:check; npm run build con prerender de 3 rutas. El stack aislado espacigo_fe07 con PostgreSQL y Mailpit confirmó cinco cuentas sintéticas, solicitud idempotente, rechazo de tercero, pago fake exitoso/rechazado/timeout, decisión de anfitrión, cancelación y devolución fake según Go. La UI Angular conectada completó login, búsqueda/cotización, solicitud, pago, aprobación y cancelación. Limitación: tras cancelar la reserva de la demo, Go no expuso una devolución pendiente en el detalle; la devolución se ejercitó y confirmó mediante API/Go y prueba FE-07, no desde ese detalle visual. No se usaron proveedores ni dinero real.
+
+Credenciales sintéticas y receta: .local/testing/fe07-cuentas.md, modo 0600 y excluidas en .git/info/exclude; no versionar ni publicar. El stack FE-07 no tocó volúmenes persistentes. Evidencia: [bandeja escritorio](evidencia/FE07_reservas_escritorio.jpg), [bandeja móvil](evidencia/FE07_reservas_movil.jpg), [detalle escritorio](evidencia/FE07_reserva_detalle_escritorio.jpg), [decisión móvil](evidencia/FE07_decision_anfitrion_movil.jpg). UI comprobada a 1440×1000 y 390×844 CSS px; la captura móvil del navegador integrado es limitada. FE-06 aceptado/fusionado en PR #280; FE-08 pendiente hasta aprobación y fusión de FE-07.
 
 ## Escenarios que deben trasladarse del mock
 

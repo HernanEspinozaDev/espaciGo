@@ -8,6 +8,8 @@ const exactClpKeys = new Set([
   'unit_price_clp',
   'subtotal_clp',
   'guarantee_expected_clp',
+  'amount_clp',
+  'refund_amount_clp',
 ]);
 
 /** Quote CLP literals before JSON.parse so int64 amounts never pass through Number. */

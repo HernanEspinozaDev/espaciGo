@@ -1,10 +1,12 @@
 import { Component, DestroyRef, OnInit, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Meta, Title } from '@angular/platform-browser';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { SpaceAttributeProfile } from '../../../generated/api/types.gen';
 import { IdentitySession } from '../../core/identity/identity-session';
 import { AvailabilityInterval, BookingQuote, CatalogItem, ExploreApi } from './explore-api';
+import { BookingApi, BookingApiError } from '../bookings/booking-api';
+import { BookingAttempts } from '../bookings/booking-attempts';
 
 @Component({
   selector: 'app-space-detail-page',
@@ -14,6 +16,9 @@ import { AvailabilityInterval, BookingQuote, CatalogItem, ExploreApi } from './e
 })
 export class SpaceDetailPage implements OnInit {
   private readonly api = inject(ExploreApi);
+  private readonly bookingApi = inject(BookingApi);
+  private readonly bookingAttempts = inject(BookingAttempts);
+  private readonly router = inject(Router);
   private readonly identity = inject(IdentitySession);
   private readonly route = inject(ActivatedRoute);
   private readonly meta = inject(Meta);
@@ -34,6 +39,7 @@ export class SpaceDetailPage implements OnInit {
   protected readonly notice = signal('ENSAYO LOCAL — SIN COBRO REAL');
   protected readonly busy = signal(false);
   protected readonly error = signal('');
+  protected readonly requestingReservation = signal(false);
 
   constructor() {
     this.title.setTitle('Detalle de espacio | EspaciGo');
@@ -169,6 +175,41 @@ export class SpaceDetailPage implements OnInit {
         this.error.set(apiError(error));
     } finally {
       if (this.isCurrent(generation, token, session, space.space_id)) this.busy.set(false);
+    }
+  }
+
+  protected async requestReservation(): Promise<void> {
+    const quote = this.quote();
+    const token = this.identity.accessToken();
+    const session = this.identity.session();
+    if (!quote || !token || !session || this.requestingReservation()) return;
+    const generation = this.generation;
+    let attempt;
+    try {
+      attempt = this.bookingAttempts.get(session.account_id, `quote:${quote.id}`, { quote_id: quote.id });
+    } catch (error) {
+      this.error.set(apiError(error));
+      return;
+    }
+    this.requestingReservation.set(true);
+    this.error.set('');
+    try {
+      const result = await this.bookingApi.requestReservation(token, quote.id, attempt.key);
+      if (!this.isCurrent(generation, token, session, quote.space_id)) return;
+      this.bookingAttempts.settle(session.account_id, `quote:${quote.id}`, attempt.key);
+      this.notice.set(result.safety_notice);
+      await this.router.navigate(['/reservas', result.data.id]);
+    } catch (error) {
+      if (error instanceof BookingApiError && error.status === 401) {
+        this.identity.expireIfCurrent(token);
+        return;
+      }
+      if (error instanceof BookingApiError && error.status !== undefined && error.status > 0 && error.status < 500) {
+        this.bookingAttempts.settle(session.account_id, `quote:${quote.id}`, attempt.key);
+      }
+      if (this.isCurrent(generation, token, session, quote.space_id)) this.error.set(apiError(error));
+    } finally {
+      if (token === this.identity.accessToken() && session === this.identity.session()) this.requestingReservation.set(false);
     }
   }
 

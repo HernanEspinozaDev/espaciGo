@@ -1,0 +1,13 @@
+.bookings { padding-block: 3rem 5rem; min-height: 55vh; }
+.eyebrow { color: #87442f; font-size: .75rem; font-weight: 800; letter-spacing: .1em; }
+h1 { font-size: clamp(2.2rem, 6vw, 3.6rem); margin: .3rem 0 1rem; }
+.safety,.empty,.card { border: 1px solid #e8ddd0; border-radius: 1rem; background: #fffdf8; padding: 1.2rem; }
+.safety { color: #713b2c; background: #f4e6d7; font-weight: 700; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill,minmax(min(100%,19rem),1fr)); gap: 1rem; }
+.card { display: grid; gap: .8rem; box-shadow: 0 10px 24px rgb(64 42 27 / 5%); }
+.card h2,.empty h2 { margin: 0; font-size: 1.25rem; }
+.card p { color: #62584f; line-height: 1.5; }
+dl { margin: 0; } dl div { display: flex; justify-content: space-between; gap: 1rem; padding: .5rem 0; border-top: 1px solid #eee2d4; }
+dt { color: #71665b; } dd { margin: 0; font-weight: 800; }
+.button { display: inline-flex; align-items: center; justify-content: center; min-height: 2.8rem; border: 0; border-radius: 999px; padding: .7rem 1.1rem; background: #a9573f; color: #fffaf3; font-weight: 800; text-decoration: none; }
+.error { padding: .8rem; border-radius: .6rem; background: #fff0ed; color: #842d22; }
