@@ -21,7 +21,7 @@ Fecha: 2026-10-11. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | FE-04 | 13 | Aceptado y fusionado; PR #278 |
 | FE-05 | 10 | Aceptado y fusionado; PR #279 |
 | FE-06 | 26 | Aceptado y fusionado; PR #280 |
-| FE-07 | 8 | Implementado; PR #281 en revisión |
+| FE-07 | 8 | Implementado; PR #282 de HernanMEC en revisión; revisor solicitado: HernanEspinozaDev |
 | FE-08 | 10 | Pendiente |
 | FE-09 | 8 | Pendiente |
 | FE-10 | 21 | Pendiente |
@@ -122,10 +122,10 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /local/booking-trial/catalog/{spaceId}/weekly-hours` | `getOwnSyntheticHourlyWeeklyHours` | Bearer; permisos en Go | FE-06 — Horario semanal propio | Implementado; PR #280 |
 | `PUT /local/booking-trial/catalog/{spaceId}/weekly-hours` | `replaceOwnSyntheticHourlyWeeklyHours` | Bearer; permisos en Go | FE-06 — Horario semanal propio | Implementado; PR #280 |
 | `POST /local/booking-trial/quotes` | `quoteAuthorizedLocalBooking` | Bearer; permisos en Go | FE-03 — Cotización confirmada por Go | Implementado; aceptado y fusionado en PR #276 |
-| `GET /local/booking-trial/reservations` | `listOwnLocalTrialReservations` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #281 |
-| `POST /local/booking-trial/reservations` | `requestLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #281 |
-| `GET /local/booking-trial/reservations/{reservationId}` | `getOwnLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #281 |
-| `POST /local/booking-trial/reservations/{reservationId}/payment` | `simulateLocalTrialPayment` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #281 |
+| `GET /local/booking-trial/reservations` | `listOwnLocalTrialReservations` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
+| `POST /local/booking-trial/reservations` | `requestLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
+| `GET /local/booking-trial/reservations/{reservationId}` | `getOwnLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
+| `POST /local/booking-trial/reservations/{reservationId}/payment` | `simulateLocalTrialPayment` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
 | `GET /local/booking-trial/reservations/{reservationId}/settlement` | `getOwnLocalSettlement` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Pendiente |
 | `POST /local/booking-trial/reservations/{reservationId}/settlement` | `requestLocalFakeSettlement` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Pendiente |
 | `POST /local/booking-trial/reservations/{reservationId}/settlement-reconcile` | `reconcileLocalFakeSettlement` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Pendiente |
@@ -135,10 +135,10 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `POST /local/booking-trial/reservations/{reservationId}/guarantee-reconcile` | `reconcileLocalGuaranteeFakeResult` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Pendiente |
 | `POST /local/booking-trial/reservations/{reservationId}/financial-decision` | `recordAdminLocalFinancialDecision` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Pendiente |
 | `POST /local/booking-trial/payment-events` | `receiveAuthenticatedLocalPaymentEvent` | HMAC Backend | Técnica — Callback HMAC; no UI ni secreto en Angular | Sin UI directa justificada |
-| `POST /local/booking-trial/reservations/{reservationId}/decision` | `decideLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #281 |
-| `GET /local/booking-trial/reservations/{reservationId}/cancellation-preview` | `previewLocalTrialReservationCancellation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #281 |
-| `POST /local/booking-trial/reservations/{reservationId}/cancel` | `cancelLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #281 |
-| `POST /local/booking-trial/reservations/{reservationId}/refund` | `simulateLocalTrialRefund` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #281 |
+| `POST /local/booking-trial/reservations/{reservationId}/decision` | `decideLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
+| `GET /local/booking-trial/reservations/{reservationId}/cancellation-preview` | `previewLocalTrialReservationCancellation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
+| `POST /local/booking-trial/reservations/{reservationId}/cancel` | `cancelLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
+| `POST /local/booking-trial/reservations/{reservationId}/refund` | `simulateLocalTrialRefund` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
 | `GET /local/booking-trial/reservations/{reservationId}/messages` | `listOwnLocalReservationMessages` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Pendiente |
 | `POST /local/booking-trial/reservations/{reservationId}/messages` | `sendOwnLocalReservationMessage` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Pendiente |
 | `POST /local/booking-trial/reservations/{reservationId}/messages/read` | `advanceOwnLocalReservationMessageReadCursor` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Pendiente |
@@ -248,7 +248,7 @@ Cliente generado reutilizado desde `frontend/src/generated/api`. El Bearer vive 
 
 Ejecución: 26 pruebas Angular enfocadas; build/prerender; generación OpenAPI y compilación TS; script `scripts/verify-m01.py` en proyecto Compose desechable con PostgreSQL y Mailpit; escaneo de logs del backend sin secretos. Las capturas representan UI conectada a servicios locales y cuentan sintéticas.
 
-## Trazabilidad FE-07 — Reserva y pago ([PR #281](https://github.com/HernanEspinozaDev/espaciGo/pull/281); en revisión)
+## Trazabilidad FE-07 — Reserva y pago ([PR #282](https://github.com/HernanEspinozaDev/espaciGo/pull/282); en revisión; PR #281 cerrado)
 
 | Operación | Pantalla / componente | Validación | Evidencia |
 | --- | --- | --- | --- |

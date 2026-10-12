@@ -180,7 +180,7 @@ Cada fila especifica dependencias, entregable tangible y aceptación. Los PR pue
 
 ### Registro de avance FE-07 (2026-10-12)
 
-**Estado:** implementación preparada para revisión en el PR #281. FE-06 aceptado y fusionado en PR #280; FE-08 sigue pendiente hasta aprobar y fusionar FE-07.
+**Estado:** implementación preparada para revisión en el PR #282 (reemplaza al PR #281 cerrado). Autor del PR: HernanMEC; revisor solicitado: HernanEspinozaDev. FE-06 aceptado y fusionado en PR #280; FE-08 sigue pendiente hasta fusionar FE-07.
 
 **Implementación:** bandejas autenticadas por participante, detalle e historial confirmado por Go, solicitud desde cotización, decisión del anfitrión, pago fake (éxito/rechazo/timeout), política y cancelación, devolución fake. Los módulos de API/estado/componentes están separados. Los intentos inciertos conservan clave y payload en memoria; importes int64 se parsean desde texto JSON a decimal exacto; sesión Bearer solo en memoria. Go decide acceso y transición; roles no se infieren de preferencias. Go mantiene sus rutas y el mock permanece disponible.
 
