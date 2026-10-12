@@ -19,6 +19,8 @@ func TestReputationRoutesDoNotInterceptBookingOperations(t *testing.T) {
 	reviews := routeName("reputation")
 	mux.Handle("/api/v1/local/booking-trial/", booking)
 	mux.Handle("/api/v1/local/booking-trial/reservations/", booking)
+	mux.Handle("/api/v1/admin/local/review-reports", reviews)
+	mux.Handle("/api/v1/admin/local/review-reports/", reviews)
 	registerReputationReservationRoutes(mux, reviews)
 
 	cases := []struct{ method, path, want string }{
@@ -27,6 +29,8 @@ func TestReputationRoutesDoNotInterceptBookingOperations(t *testing.T) {
 		{http.MethodGet, "/api/v1/local/booking-trial/reservations/11111111-1111-4111-8111-111111111111/reviews", "reputation"},
 		{http.MethodPost, "/api/v1/local/booking-trial/reservations/11111111-1111-4111-8111-111111111111/reviews", "reputation"},
 		{http.MethodPost, "/api/v1/local/booking-trial/reservations/11111111-1111-4111-8111-111111111111/reviews/22222222-2222-4222-8222-222222222222/report", "reputation"},
+		{http.MethodGet, "/api/v1/admin/local/review-reports", "reputation"},
+		{http.MethodPost, "/api/v1/admin/local/review-reports/22222222-2222-4222-8222-222222222222/hide", "reputation"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
