@@ -1,6 +1,16 @@
 import { DOCUMENT, isPlatformBrowser } from '@angular/common';
-import { afterNextRender, Component, inject, PLATFORM_ID, signal } from '@angular/core';
-import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import {
+  afterNextRender,
+  Component,
+  DestroyRef,
+  inject,
+  Injector,
+  PLATFORM_ID,
+  signal,
+} from '@angular/core';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { filter } from 'rxjs/operators';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Readiness } from './core/readiness';
 import { IdentitySession } from './core/identity/identity-session';
 
@@ -23,8 +33,17 @@ export class App {
   private readonly document = inject(DOCUMENT);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
+  private navigationId = 0;
 
   constructor() {
+    this.router.events
+      .pipe(
+        filter((event): event is NavigationEnd => event instanceof NavigationEnd),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((event) => this.focusAfterNavigation(event));
     afterNextRender(() => {
       this.offline.set(!navigator.onLine);
       void this.readiness.refresh();
@@ -56,14 +75,21 @@ export class App {
     void this.readiness.refresh();
   }
 
-  protected focusCurrentPageHeading(): void {
+  private focusAfterNavigation(event: NavigationEnd): void {
     if (!isPlatformBrowser(this.platformId)) return;
-    queueMicrotask(() => {
-      const heading = this.document.querySelector<HTMLElement>('#contenido h1');
-      if (!heading) return;
-      heading.tabIndex = -1;
-      heading.focus();
-    });
+    const navigationId = event.id;
+    this.navigationId = navigationId;
+    afterNextRender(
+      () => {
+        if (this.navigationId !== navigationId || this.router.url !== event.urlAfterRedirects)
+          return;
+        const heading = this.document.querySelector<HTMLElement>('#contenido h1');
+        if (!heading) return;
+        heading.tabIndex = -1;
+        heading.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   protected async signOut(): Promise<void> {

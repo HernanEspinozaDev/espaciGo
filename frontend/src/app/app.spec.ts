@@ -1,11 +1,25 @@
-import { signal } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs/operators';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import axe from 'axe-core';
 import { IdentitySession } from './core/identity/identity-session';
 import { Readiness } from './core/readiness';
 import { App } from './app';
+
+@Component({
+  selector: 'test-reservation-route',
+  template: '<h1>Reserva {{ id() }}</h1><button>Acción</button>',
+})
+class TestReservationRoute {
+  readonly route = inject(ActivatedRoute);
+  readonly id = toSignal(this.route.paramMap.pipe(map((params) => params.get('id'))), {
+    initialValue: '',
+  });
+}
 
 describe('App logout navigation', () => {
   afterEach(() => TestBed.resetTestingModule());
@@ -170,28 +184,79 @@ describe('App logout navigation', () => {
     fixture.destroy();
   });
 
-  it('moves focus to the new page heading after route activation', async () => {
+  it('moves focus after a real navigation and reused reservation parameter change', async () => {
     const identity = { session: signal(null), notice: signal(''), signOut: vi.fn() };
     TestBed.configureTestingModule({
       imports: [App],
       providers: [
-        provideRouter([]),
+        provideRouter([{ path: 'reservas/:id', component: TestReservationRoute }]),
         { provide: IdentitySession, useValue: identity },
         { provide: Readiness, useValue: { status: signal('ready'), refresh: vi.fn() } },
       ],
     });
     const fixture = TestBed.createComponent(App);
+    const router = TestBed.inject(Router);
     await fixture.whenStable();
-    const heading = document.createElement('h1');
-    heading.textContent = 'Nueva pantalla';
-    fixture.nativeElement.querySelector('#contenido')?.append(heading);
-    const component = fixture.componentInstance as unknown as { focusCurrentPageHeading(): void };
-
-    component.focusCurrentPageHeading();
-    await Promise.resolve();
-
-    expect(heading.getAttribute('tabindex')).toBe('-1');
+    await router.navigateByUrl('/reservas/a');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const firstRoute = fixture.nativeElement.querySelector('test-reservation-route');
+    const heading = fixture.nativeElement.querySelector('#contenido h1') as HTMLElement;
+    expect(heading.textContent).toContain('a');
     expect(document.activeElement).toBe(heading);
+
+    (
+      fixture.nativeElement.querySelector('test-reservation-route button') as HTMLButtonElement
+    ).focus();
+    await router.navigateByUrl('/reservas/b');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.nativeElement.querySelector('test-reservation-route')).toBe(firstRoute);
+    expect(heading.textContent).toContain('b');
+    expect(document.activeElement).toBe(heading);
+    fixture.destroy();
+  });
+
+  it('sets aria-current page on only the exact nested destination', async () => {
+    const identity = {
+      session: signal({ roles: ['administrador', 'arrendatario'], restricted_mode: false }),
+      notice: signal(''),
+      signOut: vi.fn(),
+    };
+    @Component({ standalone: true, template: '<h1>Destino</h1>' })
+    class Destination {}
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [
+        provideRouter([
+          { path: 'administracion', component: Destination },
+          { path: 'administracion/disputas', component: Destination },
+          { path: 'mi-cuenta', component: Destination },
+          { path: 'mi-cuenta/privacidad', component: Destination },
+        ]),
+        { provide: IdentitySession, useValue: identity },
+        { provide: Readiness, useValue: { status: signal('ready'), refresh: vi.fn() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(App);
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl('/administracion/disputas');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    let currentPages = fixture.nativeElement.querySelectorAll('[aria-current="page"]');
+    expect(currentPages).toHaveLength(1);
+    expect(currentPages[0].textContent).toContain('Disputas y finanzas');
+    const adminLocation = fixture.nativeElement.querySelector('[aria-current="location"]');
+    expect(adminLocation?.textContent).toContain('Administración');
+
+    await router.navigateByUrl('/mi-cuenta/privacidad');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    currentPages = fixture.nativeElement.querySelectorAll('[aria-current="page"]');
+    expect(currentPages).toHaveLength(0);
+    const accountLocation = fixture.nativeElement.querySelector('[aria-current="location"]');
+    expect(accountLocation?.textContent).toContain('Mi cuenta');
     fixture.destroy();
   });
 });

@@ -75,14 +75,20 @@
 }
 .main-navigation {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: clamp(1.25rem, 3vw, 2.5rem);
+  justify-content: flex-end;
+  gap: clamp(0.65rem, 1.5vw, 1.25rem);
 }
 .main-navigation a,
 .footer-links a {
   color: var(--color-text-muted);
   font-weight: 600;
   text-decoration: none;
+}
+.main-navigation a,
+.main-navigation button {
+  white-space: nowrap;
 }
 .main-navigation a:hover,
 .main-navigation a.is-current,

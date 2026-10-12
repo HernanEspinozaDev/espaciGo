@@ -30,6 +30,7 @@
         routerLink="/categorias"
         routerLinkActive="is-current"
         ariaCurrentWhenActive="page"
+        [routerLinkActiveOptions]="{ exact: true }"
         (click)="closeMenu()"
         >Categorías</a
       >
@@ -37,6 +38,7 @@
         routerLink="/como-funciona"
         routerLinkActive="is-current"
         ariaCurrentWhenActive="page"
+        [routerLinkActiveOptions]="{ exact: true }"
         (click)="closeMenu()"
         >Cómo funciona</a
       >
@@ -46,6 +48,7 @@
             routerLink="/explorar"
             routerLinkActive="is-current"
             ariaCurrentWhenActive="page"
+            [routerLinkActiveOptions]="{ exact: true }"
             (click)="closeMenu()"
             >Explorar</a
           >
@@ -55,6 +58,7 @@
             routerLink="/panel/espacios"
             routerLinkActive="is-current"
             ariaCurrentWhenActive="page"
+            [routerLinkActiveOptions]="{ exact: true }"
             (click)="closeMenu()"
             >Anfitrión</a
           >
@@ -63,7 +67,8 @@
           <a
             routerLink="/administracion"
             routerLinkActive="is-current"
-            ariaCurrentWhenActive="page"
+            ariaCurrentWhenActive="location"
+            [routerLinkActiveOptions]="{ exact: false }"
             (click)="closeMenu()"
             >Administración</a
           >
@@ -71,6 +76,7 @@
             routerLink="/administracion/disputas"
             routerLinkActive="is-current"
             ariaCurrentWhenActive="page"
+            [routerLinkActiveOptions]="{ exact: true }"
             (click)="closeMenu()"
             >Disputas y finanzas</a
           >
@@ -80,6 +86,7 @@
             routerLink="/reservas"
             routerLinkActive="is-current"
             ariaCurrentWhenActive="page"
+            [routerLinkActiveOptions]="{ exact: true }"
             (click)="closeMenu()"
             >Reservas</a
           >
@@ -87,7 +94,8 @@
         <a
           routerLink="/mi-cuenta"
           routerLinkActive="is-current"
-          ariaCurrentWhenActive="page"
+          ariaCurrentWhenActive="location"
+          [routerLinkActiveOptions]="{ exact: false }"
           (click)="closeMenu()"
           >Mi cuenta</a
         >
@@ -98,6 +106,7 @@
           routerLink="/acceso"
           routerLinkActive="is-current"
           ariaCurrentWhenActive="page"
+          [routerLinkActiveOptions]="{ exact: true }"
           (click)="closeMenu()"
           >Iniciar sesión <span aria-hidden="true">↗</span></a
         >
@@ -128,7 +137,7 @@
 }
 
 <div id="contenido" tabindex="-1" role="region" aria-label="Contenido principal">
-  <router-outlet (activate)="focusCurrentPageHeading()" />
+  <router-outlet />
 </div>
 
 <footer class="site-footer">
