@@ -10,7 +10,7 @@ import { PrivateSessionState } from '../../core/identity/private-session-state';
 import { parseExactClpJson, stringifyExactClpJson } from '../../core/exact-json';
 import { HostingApi, HostingApiError } from './hosting-api';
 import { HostingSpacesPage } from './hosting-spaces-page';
-import { zonedLocalToRfc3339 } from './calendar-time';
+import { zonedIsoLabel, zonedLocalToRfc3339 } from './calendar-time';
 
 const ownerSession = { account_id: 'owner-a', roles: ['arrendador'], restricted_mode: false };
 const login = (account_id: string, access_token: string) => ({
@@ -226,6 +226,15 @@ const page = (fixture: ReturnType<typeof TestBed.createComponent>) =>
 async function flush(): Promise<void> {
   for (let i = 0; i < 8; i++) await Promise.resolve();
 }
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
 
 describe('FE-06 HostingSpacesPage', () => {
   afterEach(() => {
@@ -242,6 +251,60 @@ describe('FE-06 HostingSpacesPage', () => {
     await flush();
     expect(api.profile).toHaveBeenCalledWith('bearer-a', 'oficina', 2);
     expect(page(fixture).selectedSpace()?.state).toBe('oculta');
+    fixture.destroy();
+  });
+
+  it('releases the create operation after its own confirmed detail reload', async () => {
+    const api = apiFor();
+    api.list.mockResolvedValue({ items: [] });
+    const { identity } = setup(api);
+    await identity.signIn('owner@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    Object.assign(page(fixture).form, {
+      category_code: 'oficina',
+      title: 'Borrador nuevo',
+      address: 'Dirección sintética',
+    });
+    await page(fixture).createDraft();
+    expect(api.create).toHaveBeenCalledOnce();
+    expect(page(fixture).selectedSpace()?.id).toBe('space-a');
+    expect(page(fixture).detailLoading()).toBe(false);
+    expect(page(fixture).saving()).toBe(false);
+    fixture.destroy();
+  });
+
+  it('does not let a stale create completion unlock a newer write after switching spaces', async () => {
+    const api = apiFor();
+    api.list.mockResolvedValue({ items: [] });
+    const create = deferred<ReturnType<typeof space>>();
+    const update = deferred<ReturnType<typeof space>>();
+    api.create.mockReturnValue(create.promise);
+    api.detail.mockResolvedValue(space('space-b', 'activa'));
+    api.updatePublished.mockReturnValue(update.promise);
+    const { identity } = setup(api);
+    await identity.signIn('owner@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    Object.assign(page(fixture).form, {
+      category_code: 'oficina',
+      title: 'Borrador A',
+      address: 'Dirección sintética',
+    });
+    const pendingCreate = page(fixture).createDraft();
+    await flush();
+    const loadingB = page(fixture).loadSpace('space-b');
+    await loadingB;
+    page(fixture).publishedForm.title = 'Título de B';
+    const pendingWrite = page(fixture).savePublishedContent();
+    create.resolve(space('space-a'));
+    await pendingCreate;
+    expect(page(fixture).saving()).toBe(true);
+    update.resolve({ ...space('space-b', 'activa'), title: 'Título de B' });
+    await pendingWrite;
+    expect(page(fixture).saving()).toBe(false);
     fixture.destroy();
   });
 
@@ -317,7 +380,7 @@ describe('FE-06 HostingSpacesPage', () => {
     fixture.destroy();
   });
 
-  it('does not let a pre-write detail response overwrite the confirmed publication update', async () => {
+  it('does not let an older space read overwrite the newer selected space', async () => {
     const api = apiFor(space('space-a', 'activa'));
     const { identity } = setup(api);
     await identity.signIn('owner@example.invalid', 'secret');
@@ -333,15 +396,59 @@ describe('FE-06 HostingSpacesPage', () => {
     );
     const oldRead = page(fixture).loadSpace('space-a');
     await flush();
-    page(fixture).publishedForm.title = 'Título confirmado';
-    api.updatePublished.mockResolvedValueOnce({
-      ...space('space-a', 'activa'),
-      title: 'Título confirmado',
-    });
-    await page(fixture).savePublishedContent();
+    api.detail.mockResolvedValueOnce(space('space-b', 'borrador'));
+    await page(fixture).loadSpace('space-b');
     finishOld(space('space-a', 'activa'));
     await oldRead;
-    expect(page(fixture).selectedSpace()?.title).toBe('Título confirmado');
+    expect(page(fixture).selectedSpace()?.id).toBe('space-b');
+    fixture.destroy();
+  });
+
+  it('clears space A state before loading B and keeps partial 404 resources empty', async () => {
+    const api = apiFor(space('space-a', 'activa'));
+    const { identity } = setup(api);
+    await identity.signIn('owner@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    page(fixture).simulation.set({
+      base_subtotal: '12000',
+      billed_units: 2,
+      rate_unit: 'hora',
+      time_zone: 'America/Santiago',
+    });
+    page(fixture).availability.set({
+      available: false,
+      start_at: '2026-10-15T10:00:00-03:00',
+      end_at: '2026-10-15T11:00:00-03:00',
+    });
+    page(fixture).blocks.set([
+      {
+        id: 'block-a',
+        start_at: '2026-10-15T10:00:00Z',
+        end_at: '2026-10-15T11:00:00Z',
+        reason: 'test',
+        time_zone: 'America/Santiago',
+      },
+    ]);
+    const next = space('space-b', 'borrador');
+    api.detail.mockResolvedValue(next);
+    api.gallery.mockRejectedValue(new HostingApiError('empty', 404));
+    api.tariff.mockRejectedValue(new HostingApiError('empty', 404));
+    api.tariffVersions.mockRejectedValue(new HostingApiError('empty', 404));
+    api.weekly.mockRejectedValue(new HostingApiError('empty', 404));
+    const loading = page(fixture).loadSpace('space-b');
+    expect(page(fixture).detailLoading()).toBe(true);
+    expect(page(fixture).selectedSpace()).toBeNull();
+    expect(page(fixture).simulation()).toBeNull();
+    expect(page(fixture).availability()).toBeNull();
+    await loading;
+    expect(page(fixture).selectedSpace()?.id).toBe('space-b');
+    expect(page(fixture).gallery()).toEqual([]);
+    expect(page(fixture).tariff()).toBeNull();
+    expect(page(fixture).tariffHistory()).toEqual([]);
+    expect(page(fixture).weekly()).toBeNull();
+    expect(page(fixture).blocks()).toEqual([]);
     fixture.destroy();
   });
 
@@ -405,7 +512,8 @@ describe('FE-06 HostingSpacesPage', () => {
       login: vi
         .fn()
         .mockResolvedValueOnce(login('owner-a', 'bearer-a'))
-        .mockResolvedValueOnce(login('owner-b', 'bearer-b')),
+        .mockResolvedValueOnce(login('owner-b', 'bearer-b'))
+        .mockResolvedValueOnce(login('owner-b', 'bearer-b2')),
       session: vi.fn().mockImplementation(async (token: string) => ({
         account_id: token === 'bearer-a' ? 'owner-a' : 'owner-b',
         roles: ['arrendador'],
@@ -452,6 +560,211 @@ describe('FE-06 HostingSpacesPage', () => {
     fixture.destroy();
   });
 
+  it('discards simulation and availability after criteria edits and accepts only the newest query', async () => {
+    const api = apiFor();
+    const oldSimulation = deferred<Awaited<ReturnType<typeof api.simulate>>>();
+    api.simulate.mockReturnValueOnce(oldSimulation.promise);
+    const oldAvailability = deferred<Awaited<ReturnType<typeof api.checkAvailability>>>();
+    api.checkAvailability.mockReturnValueOnce(oldAvailability.promise);
+    const { identity } = setup(api);
+    await identity.signIn('owner@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    const component = page(fixture);
+    component.simulationForm.start_at = '2026-10-15T10:00';
+    component.simulationForm.end_at = '2026-10-15T11:00';
+    const simulationPending = component.simulatePrice();
+    component.zoneDateTime('2026-10-15T12:00', 'simulation', 'start_at');
+    oldSimulation.resolve({
+      id: 'old-sim',
+      space_id: 'space-a',
+      rate_version: 1,
+      rate_unit: 'hora',
+      base_price: '8000',
+      billed_units: 1,
+      currency: 'CLP',
+      base_subtotal: '8000',
+      start_at: '2026-10-15T13:00:00Z',
+      end_at: '2026-10-15T14:00:00Z',
+      time_zone: 'America/Santiago',
+      private: true,
+      created_at: '2026-10-12T00:00:00Z',
+    });
+    await simulationPending;
+    expect(component.simulation()).toBeNull();
+
+    component.availabilityForm.start_at = '2026-10-15T10:00';
+    component.availabilityForm.end_at = '2026-10-15T11:00';
+    const availabilityPending = component.checkAvailability();
+    component.setTimeZone('America/New_York');
+    oldAvailability.resolve({
+      space_id: 'space-a',
+      time_zone: 'America/Santiago',
+      start_at: '2026-10-15T13:00:00Z',
+      end_at: '2026-10-15T14:00:00Z',
+      available: false,
+    });
+    await availabilityPending;
+    expect(component.availability()).toBeNull();
+    expect(component.conflict()).toBe('');
+
+    const oldAvailabilityQuery = deferred<Awaited<ReturnType<typeof api.checkAvailability>>>();
+    const newAvailabilityQuery = deferred<Awaited<ReturnType<typeof api.checkAvailability>>>();
+    api.checkAvailability
+      .mockReturnValueOnce(oldAvailabilityQuery.promise)
+      .mockReturnValueOnce(newAvailabilityQuery.promise);
+    component.setTimeZone('America/Santiago');
+    component.availabilityForm.start_at = '2026-10-15T15:00';
+    component.availabilityForm.end_at = '2026-10-15T16:00';
+    const oldAvailabilityResult = component.checkAvailability();
+    const newAvailabilityResult = component.checkAvailability();
+    newAvailabilityQuery.resolve({
+      space_id: 'space-a',
+      time_zone: 'America/Santiago',
+      start_at: '2026-10-15T18:00:00Z',
+      end_at: '2026-10-15T19:00:00Z',
+      available: false,
+    });
+    await newAvailabilityResult;
+    oldAvailabilityQuery.resolve({
+      space_id: 'space-a',
+      time_zone: 'America/Santiago',
+      start_at: '2026-10-15T18:00:00Z',
+      end_at: '2026-10-15T19:00:00Z',
+      available: true,
+    });
+    await oldAvailabilityResult;
+    expect(component.availability()?.available).toBe(false);
+
+    const first = deferred<Awaited<ReturnType<typeof api.simulate>>>();
+    const second = deferred<Awaited<ReturnType<typeof api.simulate>>>();
+    api.simulate.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    component.simulationForm.start_at = '2026-10-15T15:00';
+    component.simulationForm.end_at = '2026-10-15T16:00';
+    const firstQuery = component.simulatePrice();
+    const secondQuery = component.simulatePrice();
+    const result = (price: string) => ({
+      id: `sim-${price}`,
+      space_id: 'space-a',
+      rate_version: 1,
+      rate_unit: 'hora' as const,
+      base_price: price,
+      billed_units: 1,
+      currency: 'CLP' as const,
+      base_subtotal: price,
+      start_at: '2026-10-15T18:00:00Z',
+      end_at: '2026-10-15T19:00:00Z',
+      time_zone: 'America/New_York',
+      private: true as const,
+      created_at: '2026-10-12T00:00:00Z',
+    });
+    second.resolve(result('9000'));
+    await secondQuery;
+    first.resolve(result('8000'));
+    await firstQuery;
+    expect(component.simulation()?.base_subtotal).toBe('9000');
+    fixture.destroy();
+  });
+
+  it('keeps late 409 and load errors from a prior space and account out of the current view', async () => {
+    const api = apiFor(space('space-a', 'activa'));
+    const idApi = {
+      login: vi
+        .fn()
+        .mockResolvedValueOnce(login('owner-a', 'bearer-a'))
+        .mockResolvedValueOnce(login('owner-b', 'bearer-b'))
+        .mockResolvedValueOnce(login('owner-b', 'bearer-b2')),
+      session: vi.fn().mockImplementation(async (token: string) => ({
+        account_id: token === 'bearer-a' ? 'owner-a' : 'owner-b',
+        roles: ['arrendador'],
+        restricted_mode: false,
+      })),
+      logout: vi.fn().mockResolvedValue(undefined),
+    };
+    const { identity } = setup(api, null, idApi);
+    await identity.signIn('owner-a@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    const component = page(fixture);
+    const oldBlock = deferred<Awaited<ReturnType<typeof api.addBlock>>>();
+    api.addBlock.mockReturnValueOnce(oldBlock.promise);
+    component.blockForm.start_at = '2026-10-15T10:00';
+    component.blockForm.end_at = '2026-10-15T11:00';
+    const oldWrite = component.addManualBlock();
+    api.detail.mockResolvedValue(space('space-b', 'borrador'));
+    await component.loadSpace('space-b');
+    oldBlock.reject(new HostingApiError('conflict from A', 409));
+    await oldWrite;
+    expect(component.conflict()).toBe('');
+    expect(component.error()).toBe('');
+
+    const oldList = deferred<Awaited<ReturnType<typeof api.list>>>();
+    api.list.mockReturnValueOnce(oldList.promise);
+    const priorLoad = component.load();
+    await identity.signOut();
+    await identity.signIn('owner-b@example.invalid', 'secret');
+    await flush();
+    oldList.reject(new Error('late load from A'));
+    await priorLoad;
+    expect(identity.session()?.account_id).toBe('owner-b');
+    expect(component.loadingError()).toBe('');
+    expect(component.error()).toBe('');
+    expect(component.conflict()).toBe('');
+    fixture.destroy();
+  });
+
+  it('expires the current bearer on a 401 after criteria changed but ignores an old bearer 401', async () => {
+    const api = apiFor();
+    const idApi = {
+      login: vi
+        .fn()
+        .mockResolvedValueOnce(login('owner-a', 'bearer-a'))
+        .mockResolvedValueOnce(login('owner-b', 'bearer-b'))
+        .mockResolvedValueOnce(login('owner-b', 'bearer-b2')),
+      session: vi.fn().mockImplementation(async (token: string) => ({
+        account_id: token === 'bearer-a' ? 'owner-a' : 'owner-b',
+        roles: ['arrendador'],
+        restricted_mode: false,
+      })),
+      logout: vi.fn().mockResolvedValue(undefined),
+    };
+    const { identity } = setup(api, null, idApi);
+    await identity.signIn('owner-a@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    const component = page(fixture);
+    const pendingCurrent = deferred<Awaited<ReturnType<typeof api.simulate>>>();
+    api.simulate.mockReturnValueOnce(pendingCurrent.promise);
+    component.simulationForm.start_at = '2026-10-15T10:00';
+    component.simulationForm.end_at = '2026-10-15T11:00';
+    const currentRequest = component.simulatePrice();
+    component.zoneDateTime('2026-10-15T12:00', 'simulation', 'start_at');
+    pendingCurrent.reject(new HostingApiError('unauthorized', 401));
+    await currentRequest;
+    expect(identity.accessToken()).toBeNull();
+
+    await identity.signIn('owner-b@example.invalid', 'secret');
+    await flush();
+    await component.load();
+    const pendingOld = deferred<Awaited<ReturnType<typeof api.simulate>>>();
+    api.simulate.mockReturnValueOnce(pendingOld.promise);
+    component.simulationForm.start_at = '2026-10-15T15:00';
+    component.simulationForm.end_at = '2026-10-15T16:00';
+    const oldRequest = component.simulatePrice();
+    await identity.signOut();
+    await identity.signIn('owner-b@example.invalid', 'secret');
+    await flush();
+    await component.load();
+    expect(component.selectedSpace()).not.toBeNull();
+    pendingOld.reject(new HostingApiError('old token unauthorized', 401));
+    await oldRequest;
+    expect(identity.session()?.account_id).toBe('owner-b');
+    fixture.destroy();
+  });
+
   it('converts unique and repeated DST wall times but rejects nonexistent local times', () => {
     expect(zonedLocalToRfc3339('2026-11-01T01:30', 'America/New_York', 'earlier')).toBe(
       '2026-11-01T01:30:00-04:00',
@@ -460,5 +773,17 @@ describe('FE-06 HostingSpacesPage', () => {
       '2026-11-01T01:30:00-05:00',
     );
     expect(() => zonedLocalToRfc3339('2026-03-08T02:30', 'America/New_York')).toThrow(/no existe/);
+  });
+
+  it('formats wall-clock labels in the requested IANA zone, including repeated DST times', () => {
+    const santiago = zonedIsoLabel('2026-10-15T13:00:00Z', 'America/Santiago');
+    expect(santiago).toContain('15');
+    expect(santiago).toContain('oct');
+    expect(santiago).toMatch(/CLST|CLT/);
+    const before = zonedIsoLabel('2026-11-01T05:30:00Z', 'America/New_York');
+    const after = zonedIsoLabel('2026-11-01T06:30:00Z', 'America/New_York');
+    expect(before).toContain('01:30');
+    expect(after).toContain('01:30');
+    expect(before).not.toBe(after);
   });
 });

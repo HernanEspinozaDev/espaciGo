@@ -62,8 +62,12 @@ export function zonedLocalToRfc3339(
 
 export function zonedIsoLabel(value: string, timeZone: string): string {
   return new Intl.DateTimeFormat('es-CL', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
     timeZone,
     timeZoneName: 'short',
   }).format(new Date(value));

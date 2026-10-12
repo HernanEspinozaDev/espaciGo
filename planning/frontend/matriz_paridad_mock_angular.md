@@ -220,19 +220,19 @@ Ruta privada `/mi-cuenta/verificaciones`, guard de sesión, render CSR y metadat
 
 **Validación:** 7 pruebas KYC enfocadas; suite Angular consolidada: 62 pruebas en 14 archivos; `api:check`; build/prerender; pruebas Go del handler y del repositorio de verificaciones con PostgreSQL temporal en `tmpfs`. Cubren titular/tercero, estados, retry, evidencia, 401 actual/tardío, cambio de cuenta, respuestas de PNG fuera de orden y Blob URL al cambiar caso/logout/destruir vista. Las capturas reflejan UI Angular con fixtures de API sintéticos locales: [escritorio](evidencia/FE05_kyc_escritorio.png) · [móvil](evidencia/FE05_kyc_movil.png). No se probaron documentos reales ni se usó volumen persistente. FE-04 y FE-05 aceptados/fusionados en PR #278 y #279. FE-06 se registra a continuación.
 
-## Trazabilidad FE-06 — Oferta y calendario ([PR #280](https://github.com/HernanEspinozaDev/espaciGo/pull/280), commit `8aa32e6`; en revisión)
+## Trazabilidad FE-06 — Oferta y calendario ([PR #280](https://github.com/HernanEspinozaDev/espaciGo/pull/280); en revisión)
 
 El panel `/panel/espacios` organiza datos, tarifas, calendario y galería con controles responsive Terracota + Crema. La lista, detalle, guardados, tarifario, simulaciones, disponibilidad, bloques, zona y horario semanal consultan Go con Bearer en memoria. La UI conserva estados vacíos, reconoce 401/403/404/409/422, pide confirmación en retiro de imagen y eliminación, y distingue publicar/ocultar/eliminar. Tarifas y respuestas con importes usan el parser/serializador exacto; fechas de pared se convierten desde zona IANA y DST ambiguo requiere seleccionar ocurrencia. Las lecturas comparan sesión/generación/recurso; escrituras confirmadas invalidan lecturas anteriores. La galería solo genera el fixture permitido, usa claves idempotentes y descarga contenido con Bearer en Blob URL temporal.
 
 | Recorrido | Comportamiento y pruebas | Estado |
 | --- | --- | --- |
-| Propietario / tercero | `IdentitySession` real; listado propio y detalle no propietario oculto por 404 de Go | Cubierto por componente; no se modificó la autorización Go |
+| Propietario / tercero | `IdentitySession` real; listado propio y detalle no propietario oculto por 404 de Go | Componentes Angular; integración Go con PostGIS efímero cubre propietario, catálogo/detalle/cotización tercero y denegación de escrituras ajenas |
 | Borrador y publicación | Perfil versionado, PUT completo fusionado con el detalle más reciente; PUT de contenido publicado solo contiene campos cambiados; publicación, ocultamiento y baja separados | Cubierto por pruebas de componente/API |
 | Tarifas y modalidad | JSON exacto sin `Number`/redondeo; versión y simulación, cambio de unidad invalida simulación e intervalos | Parser exacto y unidad cubiertos; Go conserva validación |
 | Calendario | zona IANA, DST inválido/ambiguo, disponibilidad, bloqueos y semana; 409 se representa como conflicto de Go | DST y conflicto cubiertos; rutas de API generan cliente/compilan |
 | Galería | fixture sintético permitido, Bearer en contenido, idempotencia y revocación del Blob URL; respuesta tardía de A no llega a sesión B | Pruebas API y de componente |
 
-**Validación:** 13 pruebas FE-06 enfocadas; Angular consolidado 85 pruebas / 16 archivos; `npm run api:check`; `npm run build` y prerender sin advertencias. El navegador integrado rechazó la conexión al servidor local con `ERR_BLOCKED_BY_CLIENT`, por lo que no se adjuntan capturas visuales para este corte. No se probó contra volumen persistente, no se alteraron rutas Go y se conserva el mock.
+**Validación de revisión:** 20 pruebas FE-06 enfocadas; Angular consolidado 93 pruebas / 17 archivos; `npm run api:check`; `npm run build` y prerender de 3 rutas. Go: `scripts/test-m04-attributes-postgres.sh ./internal/adapters/postgres/spaces` pasó con PostgreSQL/PostGIS efímero (`tmpfs`), incluyendo creación y publicación como propietario, lectura/cotización de tercero y rechazo de cambios ajenos. Se corrigió además el alias `/panel-anfitrion`, cuya configuración inválida impedía arrancar el router Angular. La navegación visual integrada llega al login, pero no hay una cuenta propietaria disponible en el backend desechable del navegador para abrir el panel privado; por ello no se adjuntan capturas FE-06 móvil/escritorio. Sin escrituras a volúmenes persistentes; no se alteraron rutas Go y se conserva el mock.
 
 ## Trazabilidad FE-02 — [PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275) aprobado y fusionado
 

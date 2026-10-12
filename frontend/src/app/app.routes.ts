@@ -39,8 +39,6 @@ export const routes: Routes = [
     path: 'panel-anfitrion',
     redirectTo: 'panel/espacios',
     pathMatch: 'full',
-    canActivate: [roleGuard],
-    data: { requiredRole: 'arrendador' },
   },
   {
     path: 'panel/espacios',

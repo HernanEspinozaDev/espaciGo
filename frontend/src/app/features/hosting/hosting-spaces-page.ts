@@ -81,6 +81,10 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
   private loadGeneration = 0;
   private resourceGeneration = 0;
+  private savingGeneration = 0;
+  private queryRevision = 0;
+  private simulationQueryGeneration = 0;
+  private availabilityQueryGeneration = 0;
   private galleryGeneration = 0;
   private selectionRevision = 0;
   private ownerToken = this.identity.accessToken();
@@ -223,16 +227,19 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       const nextId = this.routeSpaceId ?? this.selectedSpace()?.id ?? list.items[0]?.id ?? null;
       if (nextId) await this.loadSpace(nextId);
       else {
-        this.selectedSpace.set(null);
+        this.activeSpaceId = null;
+        this.resetResourceState();
         this.form.category_code = categories.items[0]?.code ?? '';
         if (this.form.category_code) await this.loadProfile(context, this.form.category_code);
       }
       if (!this.loadCurrent(context, generation)) return;
     } catch (error) {
-      this.fail(error, context, this.loadCurrent(context, generation));
-      this.loadingError.set(
-        'No fue posible cargar tus espacios. Go mantiene la decisión de permisos.',
-      );
+      const current = this.loadCurrent(context, generation);
+      this.fail(error, context, current);
+      if (current)
+        this.loadingError.set(
+          'No fue posible cargar tus espacios. Go mantiene la decisión de permisos.',
+        );
     } finally {
       if (this.loadCurrent(context, generation)) this.loading.set(false);
     }
@@ -244,6 +251,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     const generation = ++this.resourceGeneration;
     const selection = ++this.selectionRevision;
     this.activeSpaceId = spaceId;
+    this.resetResourceState();
     this.detailLoading.set(true);
     this.error.set('');
     this.notice.set('');
@@ -251,6 +259,9 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     try {
       const draft = (await this.api.detail(context.token, spaceId)) as unknown as ExactSpace;
       if (!this.resourceCurrent(context, generation, selection, spaceId)) return;
+      this.form.rate_unit = draft.rate_unit;
+      this.rateForm.rate_unit = draft.rate_unit;
+      this.rateForm.base_price = String(draft.base_price_clp);
       this.selectedSpace.set(draft);
       this.setForm(draft);
       const [profile, photos, tariff, tz, weekly, versions] = await Promise.allSettled([
@@ -261,9 +272,11 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
         this.api.weekly(context.token, spaceId),
         this.api.tariffVersions(context.token, spaceId),
       ]);
+      if (!this.resourceCurrent(context, generation, selection, spaceId)) return;
       for (const result of [profile, photos, tariff, tz, weekly, versions]) {
         if (result.status === 'rejected' && statusOf(result.reason) === 401) {
           this.fail(result.reason, context, false);
+          if (!this.contextCurrent(context)) return;
         } else if (
           result.status === 'rejected' &&
           statusOf(result.reason) !== 404 &&
@@ -327,12 +340,12 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     const payload = this.makePayload(this.form);
     if (!payload) return;
     const revision = ++this.resourceGeneration;
-    this.saving.set(true);
+    const saveOperation = this.beginSaving();
     this.error.set('');
     this.notice.set('');
     try {
       const created = (await this.api.create(context.token, payload)) as unknown as ExactSpace;
-      if (!this.contextCurrent(context) || revision !== this.resourceGeneration) return;
+      if (!this.writeCurrent(context, revision, null)) return;
       this.spaces.update((items) => [created, ...items.filter((item) => item.id !== created.id)]);
       this.selectedSpace.set(created);
       this.setForm(created);
@@ -341,10 +354,9 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       if (!this.contextCurrent(context)) return;
       await this.loadSpace(created.id);
     } catch (error) {
-      this.fail(error, context, this.contextCurrent(context));
+      this.fail(error, context, this.writeCurrent(context, revision, null));
     } finally {
-      if (this.contextCurrent(context) && revision === this.resourceGeneration)
-        this.saving.set(false);
+      this.finishSaving(saveOperation);
     }
   }
 
@@ -356,7 +368,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     const original = structuredClone(this.originalForm.get(space.id) ?? this.form);
     const revision = ++this.resourceGeneration;
     const selection = this.selectionRevision;
-    this.saving.set(true);
+    const saveOperation = this.beginSaving();
     this.error.set('');
     this.notice.set('');
     try {
@@ -386,8 +398,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     } catch (error) {
       this.fail(error, context, this.draftWriteCurrent(context, revision, selection, space.id));
     } finally {
-      if (this.contextCurrent(context) && revision === this.resourceGeneration)
-        this.saving.set(false);
+      this.finishSaving(saveOperation);
     }
   }
 
@@ -402,7 +413,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     if (!Object.keys(patch).length)
       return this.setNotice('No hay campos modificados para guardar.');
     const revision = ++this.resourceGeneration;
-    this.saving.set(true);
+    const saveOperation = this.beginSaving();
     try {
       const updated = (await this.api.updatePublished(
         context.token,
@@ -418,14 +429,9 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       this.applyDraft(updated);
       this.notice.set('Los campos modificados de la publicación fueron confirmados por Go.');
     } catch (error) {
-      this.fail(
-        error,
-        context,
-        this.contextCurrent(context) && this.selectedSpace()?.id === space.id,
-      );
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
     } finally {
-      if (this.contextCurrent(context) && revision === this.resourceGeneration)
-        this.saving.set(false);
+      this.finishSaving(saveOperation);
     }
   }
 
@@ -434,7 +440,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     const space = this.selectedSpace();
     if (!context || !space) return;
     const revision = ++this.resourceGeneration;
-    this.saving.set(true);
+    const saveOperation = this.beginSaving();
     this.error.set('');
     this.conflict.set('');
     try {
@@ -454,14 +460,9 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
           : 'Publicación oculta confirmada por Go.',
       );
     } catch (error) {
-      this.fail(
-        error,
-        context,
-        this.contextCurrent(context) && this.selectedSpace()?.id === space.id,
-      );
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
     } finally {
-      if (this.contextCurrent(context) && revision === this.resourceGeneration)
-        this.saving.set(false);
+      this.finishSaving(saveOperation);
     }
   }
 
@@ -477,7 +478,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     )
       return;
     const revision = ++this.resourceGeneration;
-    this.saving.set(true);
+    const saveOperation = this.beginSaving();
     try {
       const receipt = await this.api.remove(context.token, space.id);
       if (
@@ -494,14 +495,9 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       );
       await this.router.navigate(['/panel/espacios']);
     } catch (error) {
-      this.fail(
-        error,
-        context,
-        this.contextCurrent(context) && this.selectedSpace()?.id === space.id,
-      );
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
     } finally {
-      if (this.contextCurrent(context) && revision === this.resourceGeneration)
-        this.saving.set(false);
+      this.finishSaving(saveOperation);
     }
   }
 
@@ -512,7 +508,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     if (!validClp(this.rateForm.base_price))
       return this.error.set('La tarifa debe ser un entero CLP exacto.');
     const revision = ++this.resourceGeneration;
-    this.saving.set(true);
+    const saveOperation = this.beginSaving();
     this.simulation.set(null);
     try {
       const value = await this.api.updateTariff(context.token, space.id, {
@@ -536,14 +532,9 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       this.tariffHistory.set(history.items as never);
       this.notice.set(`Tarifa versión ${value.version} guardada por Go.`);
     } catch (error) {
-      this.fail(
-        error,
-        context,
-        this.contextCurrent(context) && this.selectedSpace()?.id === space.id,
-      );
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
     } finally {
-      if (this.contextCurrent(context) && revision === this.resourceGeneration)
-        this.saving.set(false);
+      this.finishSaving(saveOperation);
     }
   }
 
@@ -551,15 +542,36 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     const context = this.context();
     const space = this.selectedSpace();
     if (!context || !space) return;
-    this.simulation.set(null);
     const revision = this.resourceGeneration;
     const selection = this.selectionRevision;
+    const request = ++this.simulationQueryGeneration;
+    const criteriaRevision = this.queryRevision;
+    const criteria = {
+      start: this.simulationForm.start_at,
+      end: this.simulationForm.end_at,
+      timeZone: this.timeZone(),
+      rateUnit: this.tariff()?.rate_unit ?? this.rateForm.rate_unit,
+      disambiguation: this.disambiguation(),
+    };
+    this.simulation.set(null);
     try {
       const result = await this.api.simulate(context.token, space.id, {
-        start_at: this.toInstant(this.simulationForm.start_at),
-        end_at: this.toInstant(this.simulationForm.end_at),
+        start_at: zonedLocalToRfc3339(criteria.start, criteria.timeZone, criteria.disambiguation),
+        end_at: zonedLocalToRfc3339(criteria.end, criteria.timeZone, criteria.disambiguation),
       });
-      if (!this.resourceCurrent(context, revision, selection, space.id)) return;
+      if (
+        !this.queryCurrent(
+          context,
+          revision,
+          selection,
+          space.id,
+          criteriaRevision,
+          request,
+          criteria,
+          'simulation',
+        )
+      )
+        return;
       this.simulation.set({
         base_subtotal: String(result.base_subtotal),
         billed_units: result.billed_units,
@@ -568,7 +580,20 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       });
       this.notice.set('Simulación privada calculada por Go; no crea una reserva.');
     } catch (error) {
-      this.fail(error, context, this.resourceCurrent(context, revision, selection, space.id));
+      this.fail(
+        error,
+        context,
+        this.queryCurrent(
+          context,
+          revision,
+          selection,
+          space.id,
+          criteriaRevision,
+          request,
+          criteria,
+          'simulation',
+        ),
+      );
     }
   }
 
@@ -577,7 +602,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     const space = this.selectedSpace();
     if (!context || !space) return;
     const revision = ++this.resourceGeneration;
-    this.saving.set(true);
+    const saveOperation = this.beginSaving();
     this.availability.set(null);
     this.blocks.set([]);
     try {
@@ -598,14 +623,9 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       )
         return;
     } catch (error) {
-      this.fail(
-        error,
-        context,
-        this.contextCurrent(context) && this.selectedSpace()?.id === space.id,
-      );
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
     } finally {
-      if (this.contextCurrent(context) && revision === this.resourceGeneration)
-        this.saving.set(false);
+      this.finishSaving(saveOperation);
     }
   }
 
@@ -615,17 +635,53 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     if (!context || !space) return;
     const generation = this.resourceGeneration;
     const selection = this.selectionRevision;
+    const request = ++this.availabilityQueryGeneration;
+    const criteriaRevision = this.queryRevision;
+    const criteria = {
+      start: this.availabilityForm.start_at,
+      end: this.availabilityForm.end_at,
+      timeZone: this.timeZone(),
+      rateUnit: this.tariff()?.rate_unit ?? this.rateForm.rate_unit,
+      disambiguation: this.disambiguation(),
+    };
+    this.availability.set(null);
+    this.conflict.set('');
     try {
-      const from = this.toInstant(this.availabilityForm.start_at);
-      const to = this.toInstant(this.availabilityForm.end_at);
+      const from = zonedLocalToRfc3339(criteria.start, criteria.timeZone, criteria.disambiguation);
+      const to = zonedLocalToRfc3339(criteria.end, criteria.timeZone, criteria.disambiguation);
       const result = await this.api.checkAvailability(context.token, space.id, from, to);
-      if (!this.resourceCurrent(context, generation, selection, space.id)) return;
+      if (
+        !this.queryCurrent(
+          context,
+          generation,
+          selection,
+          space.id,
+          criteriaRevision,
+          request,
+          criteria,
+          'availability',
+        )
+      )
+        return;
       this.availability.set(result);
       this.conflict.set(
         result.available ? '' : 'Go confirmó un conflicto de disponibilidad en este intervalo.',
       );
     } catch (error) {
-      this.fail(error, context, this.resourceCurrent(context, generation, selection, space.id));
+      this.fail(
+        error,
+        context,
+        this.queryCurrent(
+          context,
+          generation,
+          selection,
+          space.id,
+          criteriaRevision,
+          request,
+          criteria,
+          'availability',
+        ),
+      );
     }
   }
 
@@ -634,7 +690,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     const space = this.selectedSpace();
     if (!context || !space) return;
     const revision = ++this.resourceGeneration;
-    this.saving.set(true);
+    const saveOperation = this.beginSaving();
     this.conflict.set('');
     try {
       const block = await this.api.addBlock(context.token, space.id, {
@@ -651,16 +707,9 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       this.blocks.update((items) => [block, ...items]);
       this.notice.set('Bloqueo manual confirmado por Go.');
     } catch (error) {
-      if (statusOf(error) === 409)
-        this.conflict.set('Go rechazó el bloqueo por conflicto de calendario.');
-      this.fail(
-        error,
-        context,
-        this.contextCurrent(context) && this.selectedSpace()?.id === space.id,
-      );
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
     } finally {
-      if (this.contextCurrent(context) && revision === this.resourceGeneration)
-        this.saving.set(false);
+      this.finishSaving(saveOperation);
     }
   }
 
@@ -680,11 +729,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       this.blocks.update((items) => items.filter((item) => item.id !== blockId));
       this.notice.set('Go desactivó el bloqueo.');
     } catch (error) {
-      this.fail(
-        error,
-        context,
-        this.contextCurrent(context) && this.selectedSpace()?.id === space.id,
-      );
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
     }
   }
 
@@ -717,7 +762,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     const weekly = this.weekly();
     if (!context || !space || !weekly) return;
     const revision = ++this.resourceGeneration;
-    this.saving.set(true);
+    const saveOperation = this.beginSaving();
     try {
       const result = await this.api.saveWeekly(context.token, space.id, {
         enabled: this.weeklyForm.enabled,
@@ -739,16 +784,9 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       };
       this.notice.set('Horario semanal confirmado por Go.');
     } catch (error) {
-      if (statusOf(error) === 409)
-        this.conflict.set('Go detectó un conflicto con el horario vigente.');
-      this.fail(
-        error,
-        context,
-        this.contextCurrent(context) && this.selectedSpace()?.id === space.id,
-      );
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
     } finally {
-      if (this.contextCurrent(context) && revision === this.resourceGeneration)
-        this.saving.set(false);
+      this.finishSaving(saveOperation);
     }
   }
 
@@ -767,20 +805,21 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       this.galleryAttempts.set(keyId, attempt);
     }
     const revision = ++this.resourceGeneration;
-    this.saving.set(true);
+    const saveOperation = this.beginSaving();
     try {
       const photo = await this.api.addPhoto(context.token, space.id, attempt.key);
-      if (this.galleryAttempts.get(keyId) === attempt) this.galleryAttempts.delete(keyId);
       if (
         !this.contextCurrent(context) ||
         revision !== this.resourceGeneration ||
         this.selectedSpace()?.id !== space.id
       )
         return;
+      if (this.galleryAttempts.get(keyId) === attempt) this.galleryAttempts.delete(keyId);
       this.gallery.update((items) => [photo, ...items.filter((item) => item.id !== photo.id)]);
       this.notice.set('Go generó una imagen sintética autorizada.');
     } catch (error) {
       if (
+        this.writeCurrent(context, revision, space.id) &&
         statusOf(error) !== undefined &&
         statusOf(error)! >= 400 &&
         statusOf(error)! < 500 &&
@@ -789,14 +828,9 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       ) {
         if (this.galleryAttempts.get(keyId) === attempt) this.galleryAttempts.delete(keyId);
       }
-      this.fail(
-        error,
-        context,
-        this.contextCurrent(context) && this.selectedSpace()?.id === space.id,
-      );
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
     } finally {
-      if (this.contextCurrent(context) && revision === this.resourceGeneration)
-        this.saving.set(false);
+      this.finishSaving(saveOperation);
     }
   }
 
@@ -818,11 +852,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       );
       this.notice.set('Portada sintética confirmada por Go.');
     } catch (error) {
-      this.fail(
-        error,
-        context,
-        this.contextCurrent(context) && this.selectedSpace()?.id === space.id,
-      );
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
     }
   }
 
@@ -849,7 +879,10 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       this.fail(
         error,
         context,
-        this.contextCurrent(context) && generation === this.galleryGeneration,
+        this.contextCurrent(context) &&
+          generation === this.galleryGeneration &&
+          this.activeSpaceId === space.id &&
+          this.selectedSpace()?.id === space.id,
       );
     }
   }
@@ -874,20 +907,29 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       this.revokePhoto();
       this.notice.set('Go retiró la imagen sintética.');
     } catch (error) {
-      this.fail(
-        error,
-        context,
-        this.contextCurrent(context) && this.selectedSpace()?.id === space.id,
-      );
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
     }
   }
 
   setRateUnit(unit: 'hora' | 'dia' | 'mes'): void {
+    if (this.rateForm.rate_unit === unit) return;
     this.rateForm.rate_unit = unit;
-    this.simulation.set(null);
     this.simulationForm.start_at = '';
     this.simulationForm.end_at = '';
+    this.invalidateQueries();
     this.notice.set('Modalidad cambiada. Revisa el intervalo antes de simular de nuevo.');
+  }
+
+  setTimeZone(value: string): void {
+    if (value === this.timeZone()) return;
+    this.timeZone.set(value);
+    this.invalidateQueries();
+  }
+
+  setDisambiguation(value: 'earlier' | 'later'): void {
+    if (this.disambiguation() === value) return;
+    this.disambiguation.set(value);
+    this.invalidateQueries();
   }
 
   setAttribute(code: string, raw: string, type: string): void {
@@ -946,9 +988,11 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     await this.router.navigate(['/panel/espacios', id, part]);
   }
   newDraft(): void {
+    this.resourceGeneration++;
+    this.selectionRevision++;
     this.activeSpaceId = null;
-    this.selectedSpace.set(null);
-    this.clearEditor();
+    this.detailLoading.set(false);
+    this.resetResourceState();
     const context = this.context();
     if (context && this.form.category_code) void this.loadProfile(context, this.form.category_code);
     void this.router.navigate(['/panel/espacios']);
@@ -967,7 +1011,7 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     if (kind === 'block') this.blockForm[endpoint] = value;
     if (kind === 'availability') this.availabilityForm[endpoint] = value;
     if (kind === 'simulation') this.simulationForm[endpoint] = value;
-    this.simulation.set(null);
+    this.invalidateQueries();
   }
 
   private async loadProfile(context: RequestContext, category: string): Promise<void> {
@@ -983,7 +1027,13 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       this.profile.set(result);
       this.form.attribute_schema_version = result.schema_version;
     } catch (error) {
-      this.fail(error, context, this.contextCurrent(context));
+      this.fail(
+        error,
+        context,
+        this.contextCurrent(context) &&
+          generation === this.resourceGeneration &&
+          this.form.category_code === category,
+      );
     }
   }
   private makePayload(form: DraftForm): SpaceDraftInput | null {
@@ -1106,6 +1156,46 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       this.selectedSpace()?.id === spaceId
     );
   }
+  private writeCurrent(context: RequestContext, revision: number, spaceId: string | null): boolean {
+    return (
+      this.contextCurrent(context) &&
+      revision === this.resourceGeneration &&
+      this.activeSpaceId === spaceId &&
+      (spaceId === null ? this.selectedSpace() === null : this.selectedSpace()?.id === spaceId)
+    );
+  }
+  private queryCurrent(
+    context: RequestContext,
+    revision: number,
+    selection: number,
+    spaceId: string,
+    criteriaRevision: number,
+    request: number,
+    criteria: {
+      start: string;
+      end: string;
+      timeZone: string;
+      rateUnit: string;
+      disambiguation: 'earlier' | 'later';
+    },
+    kind: 'simulation' | 'availability',
+  ): boolean {
+    const requestCurrent =
+      kind === 'simulation'
+        ? request === this.simulationQueryGeneration
+        : request === this.availabilityQueryGeneration;
+    const form = kind === 'simulation' ? this.simulationForm : this.availabilityForm;
+    return (
+      this.resourceCurrent(context, revision, selection, spaceId) &&
+      criteriaRevision === this.queryRevision &&
+      requestCurrent &&
+      form.start_at === criteria.start &&
+      form.end_at === criteria.end &&
+      this.timeZone() === criteria.timeZone &&
+      this.disambiguation() === criteria.disambiguation &&
+      (this.tariff()?.rate_unit ?? this.rateForm.rate_unit) === criteria.rateUnit
+    );
+  }
   private loadCurrent(context: RequestContext, generation: number): boolean {
     return this.contextCurrent(context) && generation === this.loadGeneration;
   }
@@ -1128,8 +1218,9 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
       return;
     }
     const message = goErrorMessage(error);
+    if (!canPresent) return;
     if (statusOf(error) === 409) this.conflict.set(message);
-    if (canPresent) this.error.set(message);
+    this.error.set(message);
   }
   private revokePhoto(): void {
     if (this.blobUrl) URL.revokeObjectURL(this.blobUrl);
@@ -1150,9 +1241,62 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     Object.assign(this.form, emptyForm(), { category_code: this.categories()[0]?.code ?? '' });
     this.revokePhoto();
   }
+  private resetResourceState(): void {
+    this.selectedSpace.set(null);
+    this.profile.set(null);
+    this.gallery.set([]);
+    this.maxPhotos.set(10);
+    this.tariff.set(null);
+    this.tariffHistory.set([]);
+    this.weekly.set(null);
+    this.blocks.set([]);
+    this.availability.set(null);
+    this.simulation.set(null);
+    this.conflict.set('');
+    this.error.set('');
+    this.notice.set('');
+    this.timeZone.set('America/Santiago');
+    Object.assign(this.form, emptyForm(), { category_code: this.categories()[0]?.code ?? '' });
+    this.publishedForm.title = '';
+    this.publishedForm.description = '';
+    this.publishedForm.capacity = 1;
+    this.publishedForm.usage_rules = '';
+    this.rateForm.rate_unit = 'hora';
+    this.rateForm.base_price = '5001';
+    this.weeklyForm = {
+      enabled: false,
+      days: dayNames.map((_, index) => ({ weekday: index + 1, periods: [] })),
+    };
+    this.simulationForm.start_at = '';
+    this.simulationForm.end_at = '';
+    this.blockForm.start_at = '';
+    this.blockForm.end_at = '';
+    this.blockForm.reason = 'bloqueo_anfitrion';
+    this.availabilityForm.start_at = '';
+    this.availabilityForm.end_at = '';
+    this.invalidateQueries();
+    this.revokePhoto();
+  }
+  private beginSaving(): number {
+    this.savingGeneration++;
+    this.saving.set(true);
+    return this.savingGeneration;
+  }
+  private finishSaving(operation: number): void {
+    if (operation === this.savingGeneration) this.saving.set(false);
+  }
+  private invalidateQueries(): void {
+    this.queryRevision++;
+    this.simulationQueryGeneration++;
+    this.availabilityQueryGeneration++;
+    this.simulation.set(null);
+    this.availability.set(null);
+    this.conflict.set('');
+  }
   private clearPrivate(): void {
     this.loadGeneration++;
     this.resourceGeneration++;
+    this.savingGeneration++;
     this.galleryGeneration++;
     this.selectionRevision++;
     this.activeSpaceId = null;
@@ -1175,6 +1319,9 @@ export class HostingSpacesPage implements OnInit, OnDestroy {
     this.conflict.set('');
     this.simulation.set(null);
     this.availability.set(null);
+    this.queryRevision++;
+    this.simulationQueryGeneration++;
+    this.availabilityQueryGeneration++;
     Object.assign(this.form, emptyForm());
     this.timeZone.set('America/Santiago');
     this.publishedForm.title = '';
