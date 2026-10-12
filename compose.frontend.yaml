@@ -41,3 +41,25 @@ services:
         condition: service_healthy
     networks:
       - api
+
+  angular-e2e:
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-angular-e2e:dev
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.e2e
+    profiles: [e2e]
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      HOME: /tmp
+      FRONTEND_BASE_URL: http://angular-frontend:4000
+      FE14_ACCOUNT_FILE: /run/fe14/accounts.json
+      FE14_ARTIFACT_DIR: /run/fe14/artifacts
+    volumes:
+      - ${LOCAL_DOCKER_STATE_DIR:-/tmp/espacigo-fe14-not-configured}:/run/fe14
+    depends_on:
+      angular-frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - api
