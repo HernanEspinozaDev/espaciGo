@@ -3,9 +3,13 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs/operators';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ActivatedRoute } from '@angular/router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import axe from 'axe-core';
+import type { LoginResponse, SessionResponse } from '../generated/api/types.gen';
+import { IdentityApi } from './core/identity/identity-api';
 import { IdentitySession } from './core/identity/identity-session';
 import { Readiness } from './core/readiness';
 import { App } from './app';
@@ -159,7 +163,12 @@ describe('App logout navigation', () => {
   });
 
   it('announces offline state and refreshes readiness when connectivity returns', async () => {
-    const identity = { session: signal(null), notice: signal(''), signOut: vi.fn() };
+    const activeSession = {
+      account_id: 'offline-account',
+      roles: ['arrendatario'],
+      restricted_mode: false,
+    };
+    const identity = { session: signal(activeSession), notice: signal(''), signOut: vi.fn() };
     const readiness = { status: signal('ready'), refresh: vi.fn() };
     TestBed.configureTestingModule({
       imports: [App],
@@ -176,11 +185,13 @@ describe('App logout navigation', () => {
     expect(
       fixture.nativeElement.querySelector('[role="status"].offline-banner')?.textContent,
     ).toContain('Sin conexión');
+    expect(identity.session()).toBe(activeSession);
 
     window.dispatchEvent(new Event('online'));
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.offline-banner')).toBeNull();
     expect(readiness.refresh).toHaveBeenCalled();
+    expect(identity.session()).toBe(activeSession);
     fixture.destroy();
   });
 
@@ -257,6 +268,69 @@ describe('App logout navigation', () => {
     expect(currentPages).toHaveLength(0);
     const accountLocation = fixture.nativeElement.querySelector('[aria-current="location"]');
     expect(accountLocation?.textContent).toContain('Mi cuenta');
+    fixture.destroy();
+  });
+});
+
+describe('App API outage recovery with a real identity session', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('keeps the in-memory session through Go downtime and readiness restoration', async () => {
+    const login: LoginResponse = {
+      account_id: 'offline-account',
+      access_token: 'opaque-in-memory-token',
+      token_type: 'Bearer',
+      expires_at: '2026-10-13T00:00:00Z',
+      roles: ['arrendatario'],
+      restricted_mode: false,
+    };
+    const session: SessionResponse = {
+      account_id: 'offline-account',
+      roles: ['arrendatario'],
+      restricted_mode: false,
+    };
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          provide: IdentityApi,
+          useValue: {
+            login: vi.fn().mockResolvedValue(login),
+            session: vi.fn().mockResolvedValue(session),
+          },
+        },
+      ],
+    });
+    const identity = TestBed.inject(IdentitySession);
+    await identity.signIn('offline@example.invalid', 'Synthetic#123');
+    const fixture = TestBed.createComponent(App);
+    const http = TestBed.inject(HttpTestingController);
+    await fixture.whenStable();
+
+    http.expectOne('/config.json').flush({ apiBaseUrl: 'http://localhost:8080/api/v1' });
+    const outageCheck = await vi.waitFor(() =>
+      http.expectOne('http://localhost:8080/health/ready'),
+    );
+    outageCheck.error(new ProgressEvent('error'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Servicio no disponible');
+    expect(identity.status()).toBe('authenticated');
+    expect(identity.session()).toEqual(session);
+    expect(identity.accessToken()).toBe('opaque-in-memory-token');
+
+    window.dispatchEvent(new Event('online'));
+    const restoredCheck = await vi.waitFor(() =>
+      http.expectOne('http://localhost:8080/health/ready'),
+    );
+    restoredCheck.flush({ status: 'ready' });
+    await fixture.whenStable();
+    expect(identity.session()).toEqual(session);
+    expect(identity.accessToken()).toBe('opaque-in-memory-token');
+    http.verify();
     fixture.destroy();
   });
 });

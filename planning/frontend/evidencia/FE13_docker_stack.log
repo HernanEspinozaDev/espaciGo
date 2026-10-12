@@ -1,0 +1,24 @@
+FE-13 Docker / Angular — evidencia de ejecución
+Fecha: 2026-10-12
+Base: origin/main 106942ff (merge FE-12 #287)
+Proyecto desechable: espacigo_fe13_20261012203806_986313
+Puertos host: Go 18680; Angular 18683
+Redes seleccionadas tras inspeccionar las redes existentes: 10.240.0.0/24 (api), 10.240.1.0/24 (mail), 10.240.2.0/24 (data)
+Volumen: espacigo_fe13_20261012203806_986313_pgdata, nuevo y eliminado al terminar
+Imágenes locales (no publicadas): Angular sha256:2b0b71689b4be10667e485afc6fd550fa7bb1fc3da5aa3caabcae1059eac72b6; runner sha256:83812f89384f93e01a5520122c4b87bd3bb97964a569476a7207c72f129308e8
+
+Instalación limpia en frontend/: npm ci — 403 paquetes agregados, auditoría 0 vulnerabilidades.
+Regresión Angular: npm test -- --watch=false — 169 pruebas en 28 archivos; pasó.
+Contrato: npm run api:check, con ng serve detenido — generación y TypeScript pasaron.
+Build: npm run build — prerenderizó 3 rutas.
+
+scripts/test-frontend-docker.sh:
+PASS construcción multi-stage Angular con Node 24.21.0 Alpine fijado por digest y npm 12.1.0; npm ci/build de imagen.
+PASS Angular aislado: solo la red api; sin credenciales DB en entorno; mock-frontend no iniciado.
+PASS Angular SSR en http://127.0.0.1:18683/ y healthz HTTP 200.
+PASS runner integrado: HTML, /config.json público no cacheable, Go /health/ready HTTP 200, CORS y OPTIONS /api/v1/auth/login HTTP 204.
+PASS parada del backend del proyecto FE-13: Go readiness dejó de responder; Angular root/healthz mantuvieron HTTP 200.
+PASS restauración con up-frontend: backend/migración sanos y runner volvió a confirmar readiness/CORS.
+PASS limpieza: sin contenedores, redes ni volúmenes FE-13 al terminar.
+
+La sesión se verificó mediante regresión de componente que usa IdentitySession real: una solicitud de readiness que falla por red no limpia el token/sesión en memoria; al recuperar readiness el estado continúa autenticado. No se ejecutó login visual en navegador durante la interrupción de Go. No se probaron datos o proveedores externos. No se tocó el volumen persistente ni se retiró el mock.

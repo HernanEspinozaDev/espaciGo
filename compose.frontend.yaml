@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: "4000"
-      API_PUBLIC_BASE_URL: http://localhost:${LOCAL_API_PORT:-8080}/api/v1
+      API_PUBLIC_BASE_URL: http://127.0.0.1:${LOCAL_API_PORT:-8080}/api/v1
     depends_on:
       backend:
         condition: service_healthy
@@ -21,3 +21,23 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
+
+  angular-runner:
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-angular-runner:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend-runner
+    profiles: [verify]
+    environment:
+      FRONTEND_INTERNAL_URL: http://angular-frontend:4000
+      API_INTERNAL_BASE_URL: http://backend:8080/api/v1
+      API_PUBLIC_BASE_URL: http://127.0.0.1:${LOCAL_API_PORT:-8080}/api/v1
+      FRONTEND_PUBLIC_ORIGIN: http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200}
+    depends_on:
+      angular-frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - api

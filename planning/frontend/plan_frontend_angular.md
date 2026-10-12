@@ -1,6 +1,6 @@
 # Plan completo del frontend Angular — FRONTEND-LOCAL-1
 
-Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 aprobado y fusionado en PR #283 (merge `503d19359e94c9f187bb955047c150aef8b97507`). FE-09 aprobado y fusionado en PR #284 (merge `0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 aprobado y fusionado en PR #285 (merge `39514662c9002d3c50bdbe7244813c57d13c2b38`); FE-11 fue aprobado y fusionado en PR #286; FE-12 está en ejecución y FE-13–FE-15 siguen pendientes.
+Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 aprobado y fusionado en PR #283 (merge `503d19359e94c9f187bb955047c150aef8b97507`). FE-09 aprobado y fusionado en PR #284 (merge `0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 aprobado y fusionado en PR #285 (merge `39514662c9002d3c50bdbe7244813c57d13c2b38`); FE-11 aprobado y fusionado en PR #286; FE-12 aprobado y fusionado en PR #287; FE-13 está en ejecución y FE-14/15 siguen pendientes.
 
 ## 1. Objetivo y condición de cierre
 
@@ -203,6 +203,8 @@ Dos URLs públicas/configurables: `API_PUBLIC_BASE_URL` para navegador y `API_IN
 
 La configuración SSR futura no modifica la sesión Bearer elegida ni crea un BFF financiero. El servicio Angular escucha en `0.0.0.0` y acepta puerto configurable; esto prepara el contenedor, sin desplegar ni certificar Cloud Run.
 
+**Criterio de cierre FE-13:** FE-12 está aceptado/fusionado en #287. La validación se implementa con `scripts/local-docker-stack.sh up-frontend|verify-frontend|down-frontend` para un proyecto y volumen explícitos; `scripts/test-frontend-docker.sh` selecciona puertos/proyecto/volumen/secretos propios y elimina únicamente los recursos que acaba de crear. El runner integrado no recibe credenciales y verifica shell Angular, `/config.json`, readiness de Go, origen CORS y preflight de login. La URL pública se configura para que el navegador del host alcance la API publicada; el runner usa `http://backend:8080` solo para tráfico interno. El corte conserva mock y topología Go, sin acceso a la red de datos ni credenciales DB desde Angular/runner. Registrar evidencia y resultados reales por commit en la trazabilidad FE-13 y la matriz. FE-14 permanece pendiente de aprobación y fusión de FE-13.
+
 ## 8. Validación sin ciclos redundantes
 
 El documento propone pruebas para ejecutar durante implementación; **esta planificación no ejecuta suites ni crea tests**.
@@ -332,9 +334,9 @@ El stack desechable usa `127.0.0.1:18380`, readiness `GET /health/ready` HTTP 20
 Límites: la paginación de auditoría está cubierta por regresiones, pero no se pudo avanzar una página en vivo porque la exportación devolvió 14 eventos (el límite por página es 25). No se generó terminal de avisos para ejercitar reapertura; no se atribuye esa mutación al recorrido vivo. `api:check` se ejecuta con `ng serve` detenido; el build/prerender debe completar tres rutas. `frontend/public/config.json` apunta localmente a `http://127.0.0.1:18380/api/v1` y se conserva fuera del PR. Credenciales y tokens permanecen privados/locales; Bearer solo en memoria.
 
 
-## FE-12 — Consolidación visual y accesibilidad (en ejecución)
+## FE-12 — Consolidación visual y accesibilidad (aceptado y fusionado)
 
-**Estado:** iniciado sobre `main` actualizado tras el merge de FE-11 (#286), en la rama `codex/frontend-local-1-fe12-visual`. FE-13 permanece pendiente hasta la aprobación y fusión de FE-12.
+**Estado:** aprobado y fusionado en PR #287; merge `106942ff903a25b89628a383f1f7482805c46842`. FE-13 está en ejecución desde `origin/main` actualizado.
 
 Este corte consolida la navegación y las reglas globales de foco/objetivos táctiles, atiende el menú móvil con Escape y retorno del foco, mueve el foco al título tras cambiar de ruta, anuncia el estado offline y vuelve a consultar readiness al recuperar conexión. Los roles, Bearer en memoria, claves idempotentes y payloads de operaciones inciertas no cambian. El estado sin conexión explica cómo comprobar si una escritura fue confirmada antes de reintentar. Se eliminó un ID `contenido` duplicado en identidad.
 
@@ -347,3 +349,11 @@ Este corte consolida la navegación y las reglas globales de foco/objetivos tác
 **Error/offline:** la reserva sintética de `.local/testing/fe11-angular-rejection-reservation.txt` ofrece un estado terminal real de Go (`Cancelada por firma`). La desconexión/offline se conserva como la regresión existente de `frontend/src/app/app.spec.ts`; readiness siguió saludable y no se deshabilitó la red ni se cortó Go para crear una captura falsa.
 
 **Regresión final del HEAD:** 168 pruebas Angular en 28 archivos, `api:check` con `ng serve` detenido y build/prerender de 3 rutas. La prueba manual mantuvo readiness online; error de red y offline se cubren con regresiones del aviso/refresh, pero no se capturó una sesión visual sin red ni se interrumpió el servicio durante la revisión.
+
+## Trazabilidad FE-13 — Stack Docker y paridad sin mock (en ejecución)
+
+**Estado:** iniciado en `codex/frontend-local-1-fe13-docker`, desde `origin/main` actualizado al merge #287 (`106942ff`). FE-12 aceptado/fusionado; FE-14 queda pendiente de la aprobación y fusión de este corte.
+
+El cambio integra el servicio Angular y un runner técnico al Compose aislado. La configuración pública de navegador apunta a `127.0.0.1:<puerto API>`; los nombres `backend` y `angular-frontend` se usan solo en la red Compose. CORS incorpora la misma combinación de puerto local para `localhost` y `127.0.0.1`. El runner valida readiness Go y preflight de login; no recibe credenciales, no tiene acceso a la red de datos y no depende del mock. La imagen Angular se construye con `npm ci` y lockfile fijado; el mock permanece disponible.
+
+**Validación:** `npm ci` agregó 403 paquetes y auditó 0 vulnerabilidades; Angular pasó 169 pruebas/28 archivos; `npm run api:check` y build/prerender (3 rutas) pasaron. La imagen Angular (Node 24.21.0 Alpine por digest, npm 12.1.0) se instaló desde cero. El runner confirmó shell/config/readiness Go HTTP 200, CORS/preflight HTTP 204 y URL pública del host. Angular quedó solo en la red `api`, sin credenciales DB; no se inició el mock. Se detuvo el backend: readiness dejó de conectar, Angular SSR y healthz permanecieron HTTP 200; al levantar otra vez Go, readiness y runner pasaron. La regresión Angular con `IdentitySession` real confirmó que error de red en readiness conserva sesión/token en memoria y la recuperación no los altera. Evidencia detallada: `evidencia/FE13_docker_stack.log`; imagen Angular `sha256:2b0b71689b4be10667e485afc6fd550fa7bb1fc3da5aa3caabcae1059eac72b6`, runner `sha256:83812f89384f93e01a5520122c4b87bd3bb97964a569476a7207c72f129308e8`. Proyecto, redes y volumen descartables fueron retirados; no se usó volumen persistente. No se ejecutó login visual durante la interrupción del backend. No se retira el mock: esa decisión queda para FE-15 tras aceptación de paridad. FE-14 sigue pendiente.

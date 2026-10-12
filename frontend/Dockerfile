@@ -1,4 +1,4 @@
-FROM node:24.21.0-alpine3.23 AS build
+FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS build
 
 WORKDIR /app
 RUN npm install --global npm@12.1.0
@@ -7,7 +7,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:24.21.0-alpine3.23 AS runtime
+FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS runtime
 
 ENV NODE_ENV=production
 ENV PORT=4000

@@ -26,6 +26,8 @@ Fecha: 2026-10-12. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | FE-09 | 8 | Aceptado y fusionado; PR #284, merge `0d3bac8` |
 | FE-10 | 21 | Aceptado y fusionado en [PR #285](https://github.com/HernanEspinozaDev/espaciGo/pull/285), merge `39514662c9002d3c50bdbe7244813c57d13c2b38` |
 | FE-11 | 29 | Aceptado y fusionado; [PR #286](https://github.com/HernanEspinozaDev/espaciGo/pull/286) |
+| FE-12 | 0 | Aceptado y fusionado; [PR #287](https://github.com/HernanEspinozaDev/espaciGo/pull/287) |
+| FE-13 | 0 | En ejecución; stack Angular Docker, URL/CORS, runner y paridad sin mock |
 | Técnica | 1 | No requiere pantalla directa |
 
 La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y retirada, aunque no agreguen operaciones de API.
@@ -343,7 +345,7 @@ Correcciones de revisión: commit `b2da3243becb9db0fa10828baf5cae9782af474f`. Re
 
 Regresión Angular: `npm test -- --watch=false` — 163 pruebas / 28 archivos; incluye 401/403 vigente/tardío, cambio de sesión, intentos idempotentes, paginación, `correlation_id` original y 403 vigente con revocación/limpieza y refresh de capacidades. `GET /health/ready` de Go y Angular respondieron HTTP 200 en el stack FE-11 desechable; se registró la ruta Go de moderación existente que no estaba montada y pasa `go test ./cmd/api -run TestReputationRoutesDoNotInterceptBookingOperations`. La prueba visual muestra cola KYC con evidencia privada en desktop y auditoría en mobile; la captura mobile tiene 500 px de ancho por límite del navegador headless. `npm run api:check` pasó con `ng serve` detenido y `npm run build` completó prerender de 3 rutas.
 
-FE-10 y FE-11 aceptados y fusionados en PR #285 y #286. FE-12 está en ejecución; FE-13 queda pendiente hasta aprobar y fusionar FE-12.
+FE-10 y FE-11 aceptados y fusionados en PR #285 y #286. FE-12 aceptado y fusionado en PR #287. FE-13 está en ejecución; FE-14 sigue pendiente de aprobación y fusión de FE-13.
 
 
 ## Trazabilidad FE-12 — Consolidación visual, responsive y accesibilidad
@@ -357,7 +359,7 @@ FE-10 y FE-11 aceptados y fusionados en PR #285 y #286. FE-12 está en ejecució
 | Teclado, foco y contraste | Tab/Escape en el menú mobile mantiene el foco visible; el indicador azul de 3 px mide 6.28:1 contra Crema. Muestreo de hojas visibles de texto en `/mi-cuenta`: 0 elementos bajo 4.5:1 (texto normal) o 3:1 (texto grande). | AXE no reportó infracciones A/AA en el shell. Esta comprobación acotada no equivale a certificación WCAG ni a revisión con lector de pantalla/zoom 400%. |
 | Carga, vacío, error y desconexión | Go readiness visible como disponible; ficha sin horario, perfil/foto/cuenta de cobro vacíos y estados terminales privados de reservas. Aviso offline y reintento de readiness cubiertos en prueba de componente. | En esta pasada visual no se interrumpió Go para generar un error de red; los estados error/offline se verificaron mediante las regresiones existentes, no se capturaron como pantallas. |
 
-**Regresión final del HEAD:** Angular — 168 pruebas en 28 archivos; `npm run api:check` pasó con `ng serve` detenido; `npm run build` compiló y prerenderizó 3 rutas. FE-11 aprobado y fusionado en #286; FE-13 pendiente de aprobación y fusión de FE-12.
+**Regresión final de FE-12:** Angular — 168 pruebas en 28 archivos; `npm run api:check` pasó con `ng serve` detenido; `npm run build` compiló y prerenderizó 3 rutas. FE-12 aprobado y fusionado en #287; FE-13 en ejecución.
 
 ### Revisión visual complementaria del tercer hilo de #287
 
@@ -375,3 +377,17 @@ Stack conectado: Angular `127.0.0.1:4200` HTTP 200 y Go `127.0.0.1:18380/health/
 | Error y offline | El caso de fallo terminal anterior es un estado real confirmado por Go. La desconexión se cubre con la regresión existente `announces offline state and refreshes readiness when connectivity returns` en `frontend/src/app/app.spec.ts`; readiness se mantuvo saludable y no se cortó la red durante la sesión visual. | No se presenta una captura offline como si fuera una caída real. Axe-core y la regresión de conectividad complementan la inspección visual; el muestreo manual no certifica WCAG. | No se generó una captura offline porque no se alteró el estado de red del navegador ni se interrumpió Go. |
 
 Las capturas usan viewport de navegador 390×844 CSS px y 1365×900 CSS px. El JPEG móvil mide 375×812 por el scrollbar reservado de 15 px; el JPEG de escritorio mide 1350×890. El anillo azul `rgb(29,78,216)` de 3 px da 6,28:1 sobre Crema. Los fixtures/cuentas son locales y sintéticos; sus credenciales permanecen fuera del PR.
+
+## FE-13 — Stack Angular Docker y runner sin mock (en ejecución)
+
+| Superficie | Validación | Evidencia |
+| --- | --- | --- |
+| Instalación reproducible | `npm ci`: 403 paquetes, auditoría 0 vulnerabilidades. Imagen Node 24.21.0 Alpine fijada por digest; npm 12.1.0 y package-lock | Pasó; imagen Angular `sha256:2b0b71689b4be10667e485afc6fd550fa7bb1fc3da5aa3caabcae1059eac72b6` |
+| Angular/Go/Compose | Runner integrado comprueba shell SSR desde URL host y red Compose, config pública `127.0.0.1`, readiness Go HTTP 200, CORS y preflight login HTTP 204; no depende del mock | Pasó con proyecto `espacigo_fe13_20261012203806_986313`; sin mock activo |
+| Aislamiento/reinicio | Inspección Docker: Angular solo en red `_api`, sin variables de credenciales DB. API se detiene; Angular root y healthz permanecen HTTP 200; se reinicia el servicio backend/migración | Pasó. Redes/subredes temporales 10.240.0.0/24–10.240.2.0/24; volumen exclusivo eliminado al cerrar |
+| API caída/restaurada | Readiness host deja de conectar al detener Go; tras `up-frontend` el runner vuelve a obtener readiness HTTP 200/CORS/preflight exitosos | Pasó, stack/volumen/redes del proyecto temporal retirados |
+| Sesión | Regresión de componente con `IdentitySession` real: error de red en readiness mantiene `status=authenticated`, Bearer y sesión; readiness recuperado no cambia la sesión | Pasó en Vitest; no se ejecutó un login visual live durante el reinicio |
+
+**Regresión Angular:** `npm test -- --watch=false`, 169 pruebas/28 archivos; `npm run api:check` pasó con `ng serve` detenido; `npm run build` prerenderizó 3 rutas. **Stack Docker:** `scripts/test-frontend-docker.sh` pasó con puertos API 18680/Angular 18683 y runner sin credenciales; imagen runner `sha256:83812f89384f93e01a5520122c4b87bd3bb97964a569476a7207c72f129308e8`. Transcripción de criterios/alcance: [`evidencia/FE13_docker_stack.log`](evidencia/FE13_docker_stack.log). No se usó ningún volumen persistente y la limpieza confirmó cero contenedores/redes/volúmenes con prefijo FE-13. La pérdida de conexión no revoca un token; si Go responde 401 vigente, se conservan las reglas existentes de expiración. FE-14 queda pendiente.
+
+Origen base: `origin/main` tras merge #287 (`106942ff`); rama `codex/frontend-local-1-fe13-docker`. El script `scripts/test-frontend-docker.sh` crea un proyecto y volumen nuevos con puertos propios, secretos/directorios fuera de datos locales y limpieza acotada a esos recursos. La instalación/ejecución no incluye credenciales ni cambia configuración privada. FE-14 pendiente hasta aprobar y fusionar FE-13; FE-15 (retirar mock) no forma parte de este PR.

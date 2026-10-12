@@ -8,6 +8,7 @@ LOCAL_DOCKER_STATE_DIR="${LOCAL_DOCKER_STATE_DIR:-$ROOT_DIR/.local/docker-isolat
 LOCAL_DOCKER_API_PORT="${LOCAL_DOCKER_API_PORT:-18080}"
 LOCAL_DOCKER_MOCK_PORT="${LOCAL_DOCKER_MOCK_PORT:-18081}"
 LOCAL_DOCKER_MAILPIT_PORT="${LOCAL_DOCKER_MAILPIT_PORT:-18025}"
+LOCAL_DOCKER_ANGULAR_PORT="${LOCAL_DOCKER_ANGULAR_PORT:-18420}"
 LOCAL_DOCKER_PGDATA_VOLUME="${LOCAL_DOCKER_PGDATA_VOLUME:-espacigo_docker01_pgdata}"
 LOCAL_DOCKER_STATE_DIR="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).expanduser().resolve(strict=False))' "$LOCAL_DOCKER_STATE_DIR")"
 
@@ -22,6 +23,7 @@ export LOCAL_IMAGE_PREFIX="$LOCAL_DOCKER_IMAGE_PREFIX"
 export LOCAL_API_PORT="$LOCAL_DOCKER_API_PORT"
 export LOCAL_MOCK_PORT="$LOCAL_DOCKER_MOCK_PORT"
 export LOCAL_MAILPIT_PORT="$LOCAL_DOCKER_MAILPIT_PORT"
+export LOCAL_ANGULAR_PORT="$LOCAL_DOCKER_ANGULAR_PORT"
 export LOCAL_PGDATA_VOLUME="$LOCAL_DOCKER_PGDATA_VOLUME"
 export LOCAL_SECRETS_DIR="$LOCAL_DOCKER_STATE_DIR/secrets"
 export LOCAL_M03_EVIDENCE_DIR="$LOCAL_DOCKER_STATE_DIR/private-evidence"
@@ -41,7 +43,7 @@ export DATABASE_SSLKEY="${DATABASE_SSLKEY:-}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/local-docker-stack.sh {config|build-backend|build-mock|up|down|status}
+Usage: scripts/local-docker-stack.sh {config|config-frontend|build-backend|build-mock|up|up-frontend|verify-frontend|stop-backend|down|down-frontend|status}
 
 This stack uses a dedicated Compose project, volume, ports, secrets and private
 directories. `down` retains its named PostgreSQL volume. There is intentionally
@@ -49,6 +51,7 @@ no command here that deletes the volume or its secrets.
 
 Configuration overrides: LOCAL_DOCKER_PROJECT_NAME, LOCAL_DOCKER_STATE_DIR,
 LOCAL_DOCKER_API_PORT, LOCAL_DOCKER_MOCK_PORT, LOCAL_DOCKER_MAILPIT_PORT,
+LOCAL_DOCKER_ANGULAR_PORT,
 LOCAL_DOCKER_PGDATA_VOLUME, LOCAL_DOCKER_IMAGE_PREFIX,
 DATABASE_HOST/PORT/NAME/USER through their
 LOCAL_DATABASE_* equivalents, and DATABASE_SSLMODE/SSLROOTCERT/SSLCERT/SSLKEY.
@@ -125,6 +128,7 @@ validate_name LOCAL_DOCKER_IMAGE_PREFIX "$LOCAL_DOCKER_IMAGE_PREFIX"
 validate_port LOCAL_DOCKER_API_PORT "$LOCAL_DOCKER_API_PORT"
 validate_port LOCAL_DOCKER_MOCK_PORT "$LOCAL_DOCKER_MOCK_PORT"
 validate_port LOCAL_DOCKER_MAILPIT_PORT "$LOCAL_DOCKER_MAILPIT_PORT"
+validate_port LOCAL_DOCKER_ANGULAR_PORT "$LOCAL_DOCKER_ANGULAR_PORT"
 if [[ "$LOCAL_DOCKER_PROJECT_NAME" == "espacigo" || "$LOCAL_DOCKER_PGDATA_VOLUME" == "espacigo_pgdata" ]]; then
   printf 'isolated project and volume must differ from the development stack\n' >&2
   exit 2
@@ -133,13 +137,27 @@ if [[ "$LOCAL_DOCKER_IMAGE_PREFIX" == "espacigo-local" ]]; then
   printf 'isolated image prefix must differ from the development image prefix espacigo-local\n' >&2
   exit 2
 fi
-if (( 10#$LOCAL_DOCKER_API_PORT == 10#$LOCAL_DOCKER_MOCK_PORT || 10#$LOCAL_DOCKER_API_PORT == 10#$LOCAL_DOCKER_MAILPIT_PORT || 10#$LOCAL_DOCKER_MOCK_PORT == 10#$LOCAL_DOCKER_MAILPIT_PORT )); then
+if (( 10#$LOCAL_DOCKER_API_PORT == 10#$LOCAL_DOCKER_MOCK_PORT || 10#$LOCAL_DOCKER_API_PORT == 10#$LOCAL_DOCKER_MAILPIT_PORT || 10#$LOCAL_DOCKER_API_PORT == 10#$LOCAL_DOCKER_ANGULAR_PORT || 10#$LOCAL_DOCKER_MOCK_PORT == 10#$LOCAL_DOCKER_MAILPIT_PORT || 10#$LOCAL_DOCKER_MOCK_PORT == 10#$LOCAL_DOCKER_ANGULAR_PORT || 10#$LOCAL_DOCKER_MAILPIT_PORT == 10#$LOCAL_DOCKER_ANGULAR_PORT )); then
   printf 'isolated host ports must be distinct\n' >&2
   exit 2
 fi
 
 compose() {
-  docker compose --project-directory "$ROOT_DIR" -f "$ROOT_DIR/compose.yaml" -p "$LOCAL_DOCKER_PROJECT_NAME" "$@"
+  local -a files=(-f "$ROOT_DIR/compose.yaml")
+  if [[ -n "${LOCAL_DOCKER_COMPOSE_OVERRIDE:-}" ]]; then
+    [[ -f "$LOCAL_DOCKER_COMPOSE_OVERRIDE" ]] || { printf 'LOCAL_DOCKER_COMPOSE_OVERRIDE does not exist\n' >&2; exit 2; }
+    files+=(-f "$LOCAL_DOCKER_COMPOSE_OVERRIDE")
+  fi
+  docker compose --project-directory "$ROOT_DIR" "${files[@]}" -p "$LOCAL_DOCKER_PROJECT_NAME" "$@"
+}
+
+compose_frontend() {
+  local -a files=(-f "$ROOT_DIR/compose.yaml" -f "$ROOT_DIR/compose.frontend.yaml")
+  if [[ -n "${LOCAL_DOCKER_COMPOSE_OVERRIDE:-}" ]]; then
+    [[ -f "$LOCAL_DOCKER_COMPOSE_OVERRIDE" ]] || { printf 'LOCAL_DOCKER_COMPOSE_OVERRIDE does not exist\n' >&2; exit 2; }
+    files+=(-f "$LOCAL_DOCKER_COMPOSE_OVERRIDE")
+  fi
+  docker compose --project-directory "$ROOT_DIR" "${files[@]}" -p "$LOCAL_DOCKER_PROJECT_NAME" "$@"
 }
 
 ensure_private_dir() {
@@ -201,6 +219,11 @@ case "$command" in
     prepare
     compose config --format json
     ;;
+  config-frontend)
+    validate_isolated_paths
+    prepare
+    compose_frontend config --format json
+    ;;
   build-backend)
     validate_isolated_paths
     prepare
@@ -216,9 +239,27 @@ case "$command" in
     prepare
     compose up --build --wait
     ;;
+  up-frontend)
+    validate_isolated_paths
+    prepare
+    compose_frontend up --build --wait angular-frontend
+    ;;
+  verify-frontend)
+    validate_isolated_paths
+    compose_frontend --profile verify build angular-runner
+    compose_frontend --profile verify run --rm angular-runner
+    ;;
+  stop-backend)
+    validate_isolated_paths
+    compose_frontend stop backend
+    ;;
   down)
     validate_isolated_paths
     compose down
+    ;;
+  down-frontend)
+    validate_isolated_paths
+    compose_frontend down
     ;;
   status)
     validate_isolated_paths
