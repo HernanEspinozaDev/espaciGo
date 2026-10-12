@@ -1,6 +1,6 @@
 # Plan completo del frontend Angular — FRONTEND-LOCAL-1
 
-Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 en revisión en PR #283. FE-09–FE-15 siguen pendientes, no son capacidades implementadas.
+Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 aprobado y fusionado en PR #283 (merge `503d19359e94c9f187bb955047c150aef8b97507`). FE-09 está en desarrollo; FE-10–FE-15 siguen pendientes y no se declaran implementados.
 
 ## 1. Objetivo y condición de cierre
 
@@ -245,11 +245,11 @@ Estimación orientativa de trabajo enfocado para un desarrollador; no fechas pro
 
 Añadir margen de aproximadamente 20% si aparecen incompatibilidades de generación, dinero exacto, bibliotecas o endpoints. Rangos no incluyen proveedores reales, GCP ni nuevo portal público. Calibrar con entregas reales, no repartir un porcentaje ficticio por módulo.
 
-A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274), FE-02 aprobado y fusionado ([PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275)), FE-03 aprobado y fusionado ([PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276)), FE-04 aceptado/fusionado (PR #278), FE-05 aprobado/fusionado (PR #279), FE-06 aceptado y fusionado (PR #280) y FE-07 aceptado y fusionado ([PR #282](https://github.com/HernanEspinozaDev/espaciGo/pull/282), merge `978a27e`). FE-08 está en revisión en [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), rama `codex/frontend-local-1-fe08-contract-operations`; FE-09 permanece pendiente hasta aprobar y fusionar FE-08. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
+Estado vigente: FE-08 aprobado y fusionado en [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), merge `503d19359e94c9f187bb955047c150aef8b97507`; FE-09 está en revisión en [PR #284](https://github.com/HernanEspinozaDev/espaciGo/pull/284), rama `codex/frontend-local-1-fe09-conversation`. FE-10 queda pendiente de aprobación y fusión de FE-09. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
 
 ### FE-08 — Contrato y operación (rama `codex/frontend-local-1-fe08-contract-operations`)
 
-**Estado:** en revisión en [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283); revisión vigente publicada en el commit que acompaña este registro. Autor del PR: HernanMEC; revisor solicitado: HernanEspinozaDev. FE-07 se aceptó y fusionó en PR #282, merge `978a27e4bc628c48b4ccffa55e784b369bbcd6d5`.
+**Estado:** aprobado y fusionado en [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), merge `503d19359e94c9f187bb955047c150aef8b97507`; HEAD `e85e8cc493589badb34dd305dcf128c57982667c`. FE-07 se aceptó y fusionó en PR #282, merge `978a27e4bc628c48b4ccffa55e784b369bbcd6d5`.
 
 El detalle de la reserva integra generación/consulta de snapshot, firma/rechazo, descarga de PDF privado, check-in/out, recepción e historial/evidencia PNG sintética privada. La UI condiciona las acciones a participación y estado que informó Go; el backend mantiene la autoridad. Se reutiliza el cliente generado y los accesos HTTP están separados del panel. No se admiten documentos reales ni bytes arbitrarios.
 
@@ -261,11 +261,25 @@ Bearer permanece en memoria. Respuestas tardías se descartan por identidad, tok
 
 **Evidencia visual:** [recorrido escritorio](evidencia/FE08_flujo_angular_go_escritorio.png) y [recorrido compacto](evidencia/FE08_flujo_angular_go_movil.png), capturas de página completa con detalle y estados confirmados por Go. El viewport compacto efectivo fue 500×758 CSS px (488 px de contenido, sin desbordamiento horizontal); el Firefox Snap del host impone 500 px como ancho mínimo, por lo que no se pudo medir 390 px. La sesión de las capturas se obtuvo de Go y se inyectó solo en memoria en el navegador de prueba; el formulario de login visual no forma parte de esta evidencia. La descarga privada se comprobó en la respuesta Go y en la acción Angular; el navegador no expone una aserción automatizada del archivo guardado por el sistema operativo.
 
-FE-09 sigue pendiente hasta aprobar y fusionar FE-08.
+FE-08 queda aceptado. FE-09 inicia desde `main` actualizado; FE-10 permanece pendiente hasta aprobar y fusionar FE-09.
+
+## FE-09 — Conversación, lectura, reseñas y reportes (en revisión)
+
+**Estado:** en revisión en [PR #284](https://github.com/HernanEspinozaDev/espaciGo/pull/284), rama `codex/frontend-local-1-fe09-conversation`, basada en `main` tras fusionar FE-08 (#283). FE-10 sigue pendiente hasta aprobación y fusión.
+
+El detalle de reserva integra `BookingConversationPanel` y `BookingCommunicationApi`. Usa operaciones Go para páginas de mensajes, envío, cursor de lectura, contador de no leídos, reseñas de reserva, reporte de reseñas, reseñas públicas de espacios y reputación propia. El mensaje se renderiza como texto. Solo los estados editables autorizados por Go permiten enviar; los terminales quedan en modo de lectura. La UI no concede permisos ni altera estados.
+
+Bearer permanece en memoria. Intentos inciertos guardan clave y payload originales, aislados por cuenta/reserva/acción y sin Bearer. Lecturas/escrituras y efectos de 401 se validan contra sesión, token, reserva y generación; respuestas viejas no sobrescriben otra página, sesión o contador. La paginación de mensajes deduplica y ordena elementos; el cursor de lectura solo avanza cuando el mensaje final ya está renderizado. El número no leído se consulta desde la bandeja Go, cuya respuesta incluye el contador autoritativo.
+
+**Validación Go desechable:** `espacigo_fe09_20261012` con volumen nuevo `espacigo_fe09_pgdata`, sin tocar volúmenes persistentes. El recorrido verificó 5 cuentas sintéticas, 4 sesiones distintas, paginación de 38 mensajes (30 + anteriores), incremento y limpieza del contador, acceso titular/tercero, lectura terminal y rechazo de escritura, reseña por anfitrión/arrendatario, reporte del anfitrión y reputación. Se activó una publicación propia del anfitrión mediante las operaciones Go y se comprobó `GET /spaces/{spaceID}/reviews` con HTTP 200 y 1 reseña.
+
+**Regresión:** `npm test -- --watch=false` — 141 pruebas en 24 archivos; incluye sesión real, cambio de sesión y respuestas tardías/401, paginación con páginas solapadas y refresh concurrente (éxito/error viejo), terminal de solo lectura, texto seguro, avance del cursor tras render, actualización de no leídos y clic DOM real de reintento con formulario limpio, misma clave/payload e intento aislado de otra cuenta. Crear reseña vuelve a leer reseñas de reserva y resumen público; una consulta pública vieja no sobrescribe el resultado nuevo. `npm run api:check` valida generación OpenAPI y tipos; `npm run build` prerenderiza 3 rutas.
+
+**Revisión visual autenticada (12-10-2026):** Angular en `127.0.0.1:4200` respondió HTTP 200 y Go `GET /health/ready` HTTP 200 (`ready`) con `apiBaseUrl=http://127.0.0.1:18180/api/v1`. El navegador integrado abrió la app; no reapareció `ERR_BLOCKED_BY_CLIENT`, así que no hubo permiso del navegador que revisar. Tras detectar que un ID de reserva guardado en un fixture antiguo ya no correspondía a la cuenta, se consultó la lista actual de Go y se usó la reserva participante confirmada. Con `fe09-renter-04`, Go confirmó `aprobada_host`, 40 mensajes, carga anterior de página desde la interfaz, reseña pública promedio 5/5 (1), y un mensaje sintético que, tras detener brevemente el backend desechable, mantuvo el control «Reintentar mensaje original» y se guardó una sola vez (#40) al volver Go. Con `fe09-host-02`, Go confirmó reserva finalizada en solo lectura, reseña del arrendatario reportada, reseña del anfitrión publicada y resumen público actualizado. Capturas verificadas: conversación desktop [1413×1004](evidencia/FE09_conversacion_escritorio.jpg), móvil [473×824](evidencia/FE09_conversacion_movil.jpg); reintento incierto desktop [1413×1004](evidencia/FE09_reintento_escritorio.jpg); reseñas/reportes desktop [1413×989](evidencia/FE09_reportes_escritorio.jpg), móvil [473×824](evidencia/FE09_reportes_movil.jpg). El navegador dejó tokens en memoria; no se publicaron credenciales ni capturas contienen secretos. El stack desechable fue reiniciado y readiness quedó en HTTP 200.
 
 ## 11. Gobierno y definición de terminado
 
-La implementación se publica por cortes con HernanMEC y solicita revisión a HernanEspinozaDev según el flujo existente. Los cambios documentales ajenos se conservan sin incorporarlos al corte. FE-07 fue fusionado en #282; FE-08 permanece en revisión hasta su aprobación y fusión antes de iniciar FE-09.
+La implementación se publica por cortes con HernanMEC y solicita revisión a HernanEspinozaDev según el flujo existente. Los cambios documentales ajenos se conservan sin incorporarlos al corte. FE-07 fue fusionado en #282; FE-08 fue aprobado y fusionado en #283 antes de iniciar FE-09.
 
 FRONTEND-LOCAL-1 se acepta cuando:
 
