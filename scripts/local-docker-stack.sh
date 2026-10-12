@@ -43,7 +43,7 @@ export DATABASE_SSLKEY="${DATABASE_SSLKEY:-}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/local-docker-stack.sh {config|config-frontend|build-backend|build-mock|up|up-frontend|verify-frontend|stop-backend|down|down-frontend|status}
+Usage: scripts/local-docker-stack.sh {config|config-frontend|build-backend|build-mock|up|up-frontend|verify-frontend|run-e2e|stop-backend|down|down-frontend|status}
 
 This stack uses a dedicated Compose project, volume, ports, secrets and private
 directories. `down` retains its named PostgreSQL volume. There is intentionally
@@ -153,6 +153,9 @@ compose() {
 
 compose_frontend() {
   local -a files=(-f "$ROOT_DIR/compose.yaml" -f "$ROOT_DIR/compose.frontend.yaml")
+  if [[ "${LOCAL_FRONTEND_E2E:-0}" == "1" ]]; then
+    files+=(-f "$ROOT_DIR/compose.frontend-e2e.yaml")
+  fi
   if [[ -n "${LOCAL_DOCKER_COMPOSE_OVERRIDE:-}" ]]; then
     [[ -f "$LOCAL_DOCKER_COMPOSE_OVERRIDE" ]] || { printf 'LOCAL_DOCKER_COMPOSE_OVERRIDE does not exist\n' >&2; exit 2; }
     files+=(-f "$LOCAL_DOCKER_COMPOSE_OVERRIDE")
@@ -248,6 +251,11 @@ case "$command" in
     validate_isolated_paths
     compose_frontend --profile verify build angular-runner
     compose_frontend --profile verify run --rm angular-runner
+    ;;
+  run-e2e)
+    validate_isolated_paths
+    [[ "${LOCAL_FRONTEND_E2E:-0}" == "1" ]] || { printf 'run-e2e requires LOCAL_FRONTEND_E2E=1\n' >&2; exit 2; }
+    compose_frontend --profile e2e build angular-e2e
     ;;
   stop-backend)
     validate_isolated_paths

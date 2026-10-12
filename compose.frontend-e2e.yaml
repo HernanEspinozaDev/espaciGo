@@ -1,0 +1,40 @@
+services:
+  backend:
+    environment:
+      CORS_ALLOWED_ORIGINS: http://localhost:${LOCAL_MOCK_PORT:-8081},http://127.0.0.1:${LOCAL_MOCK_PORT:-8081},http://localhost:${LOCAL_ANGULAR_PORT:-4200},http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200},http://angular-frontend:4000
+
+  angular-frontend:
+    environment:
+      API_PUBLIC_BASE_URL: http://backend:8080/api/v1
+
+  angular-e2e:
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-angular-e2e:dev
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.e2e
+    profiles: [e2e]
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      HOME: /tmp
+      FRONTEND_BASE_URL: http://angular-frontend:4000
+      FE14_ACCOUNT_FILE: /run/fe14/accounts.json
+      FE14_ARTIFACT_DIR: /run/fe14/artifacts
+      FE14_RESULTS_DIR: /run/fe14/results/playwright
+    volumes:
+      - type: bind
+        source: ${FE14_ACCOUNT_FILE_HOST:?FE14_ACCOUNT_FILE_HOST is required for the E2E runner}
+        target: /run/fe14/accounts.json
+        read_only: true
+      - type: bind
+        source: ${FE14_ARTIFACT_DIR_HOST:?FE14_ARTIFACT_DIR_HOST is required for the E2E runner}
+        target: /run/fe14/artifacts
+      - type: bind
+        source: ${FE14_RESULTS_DIR_HOST:?FE14_RESULTS_DIR_HOST is required for the E2E runner}
+        target: /run/fe14/results
+    depends_on:
+      angular-frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - api

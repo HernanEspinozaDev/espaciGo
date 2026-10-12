@@ -1,6 +1,6 @@
 # Matriz de paridad del mock hacia Angular
 
-Fecha: 2026-10-12. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab12257a7`: **118 paths / 144 operaciones**. Inventario de contrato; la evidencia y el estado FE-02 se registran abajo. Los demás estados Pendiente no implican cobertura.
+Fecha: 2026-10-12. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab12257a7`: **118 paths / 144 operaciones**. Inventario de contrato; la evidencia y el estado FE-02 se registran abajo. El estado de cada operación debe leerse junto a la traza y límites del corte; la presencia en inventario no implica una repetición E2E en FE-14.
 
 ## Cómo usarla
 
@@ -27,7 +27,8 @@ Fecha: 2026-10-12. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | FE-10 | 21 | Aceptado y fusionado en [PR #285](https://github.com/HernanEspinozaDev/espaciGo/pull/285), merge `39514662c9002d3c50bdbe7244813c57d13c2b38` |
 | FE-11 | 29 | Aceptado y fusionado; [PR #286](https://github.com/HernanEspinozaDev/espaciGo/pull/286) |
 | FE-12 | 0 | Aceptado y fusionado; [PR #287](https://github.com/HernanEspinozaDev/espaciGo/pull/287) |
-| FE-13 | 0 | En revisión en [PR #288](https://github.com/HernanEspinozaDev/espaciGo/pull/288); stack Angular Docker, URL/CORS y runner sin mock |
+| FE-13 | 0 | Aceptado y fusionado en [PR #288](https://github.com/HernanEspinozaDev/espaciGo/pull/288); stack Angular Docker, URL/CORS y runner independiente del mock |
+| FE-14 | 0 | Regresión consolidada/aceptación; PR de este corte |
 | Técnica | 1 | No requiere pantalla directa |
 
 La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y retirada, aunque no agreguen operaciones de API.
@@ -41,10 +42,10 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `POST /local/booking-trial/reservations/{reservationID}/reviews` | `createReservationReview` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Implementado; anfitrión y arrendatario |
 | `POST /local/booking-trial/reservations/{reservationID}/reviews/{reviewID}/report` | `reportSpaceReview` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Implementado; reporte host confirmado |
 | `GET /local/reputation/me` | `getOwnRenterReputation` | Bearer; permisos en Go | FE-09 — Reputación propia | Implementado; stack Go |
-| `GET /admin/local/review-reports` | `listPendingReviewReports` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `POST /admin/local/review-reports/{reportID}/{action}` | `moderateReviewReport` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/local/notices` | `listTerminalLocalNotices` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `POST /admin/local/notices/{noticeID}/reopen` | `reopenLocalNotice` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
+| `GET /admin/local/review-reports` | `listPendingReviewReports` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `POST /admin/local/review-reports/{reportID}/{action}` | `moderateReviewReport` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/local/notices` | `listTerminalLocalNotices` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `POST /admin/local/notices/{noticeID}/reopen` | `reopenLocalNotice` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
 | `GET /auth/terms` | `listLocalTerms` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
 | `POST /auth/register` | `registerAccount` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
 | `POST /auth/verification/reissue` | `reissueVerification` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
@@ -52,25 +53,25 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `POST /auth/password/recovery` | `requestPasswordRecovery` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
 | `POST /auth/password/recovery/consume` | `consumePasswordRecovery` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
 | `POST /auth/password/change` | `changePassword` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
-| `GET /profile` | `getOwnProfile` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
-| `PUT /profile` | `updateOwnProfile` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
-| `GET /profile/photo` | `getOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
-| `PUT /profile/photo` | `generateOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
-| `DELETE /profile/photo` | `removeOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
-| `GET /profile/photo/content` | `getOwnSyntheticProfilePhotoContent` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
-| `GET /payout-account` | `getOwnSyntheticPayoutAccount` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
-| `PUT /payout-account` | `createOrReplaceOwnSyntheticPayoutAccount` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
-| `DELETE /payout-account` | `revokeOwnSyntheticPayoutAccount` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
-| `GET /rights-requests` | `listOwnRightsRequests` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
-| `POST /rights-requests` | `requestDataRight` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
-| `GET /privacy/export` | `exportOwnIdentityData` | Bearer; permisos en Go | FE-04 — Exportación del titular | Implementado; PR en revisión |
-| `GET /privacy/export/archive` | `downloadCompleteOwnDataArchive` | Bearer; permisos en Go | FE-04 — Exportación del titular | Implementado; PR en revisión |
-| `POST /privacy/suppression-requests/{request_id}/review` | `reviewLocalSuppressionBlockers` | Bearer; permisos en Go | FE-11 — Administración de privacidad; operación explícita | Implementado; revisión viva parcial |
-| `POST /privacy/suppression-requests/{request_id}/execute` | `executeLocalSyntheticSuppression` | Bearer; permisos en Go | FE-11 — Administración de privacidad; operación explícita | Implementado; revisión viva parcial |
-| `POST /privacy/retention/purge` | `purgeExpiredLocalPrivacyData` | Bearer; permisos en Go | FE-11 — Administración de privacidad; operación explícita | Implementado; revisión viva parcial |
-| `GET /admin/credential-notices` | `listTerminalLocalCredentialNotices` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `POST /admin/credential-notices/{event_id}/reopen` | `reopenTerminalLocalCredentialNotice` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /privacy/suppression-requests` | `listPendingLocalSuppressionRequests` | Bearer; permisos en Go | FE-11 — Administración de privacidad; operación explícita | Implementado; revisión viva parcial |
+| `GET /profile` | `getOwnProfile` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; aceptado y fusionado en PR #278 |
+| `PUT /profile` | `updateOwnProfile` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; aceptado y fusionado en PR #278 |
+| `GET /profile/photo` | `getOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; aceptado y fusionado en PR #278 |
+| `PUT /profile/photo` | `generateOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; aceptado y fusionado en PR #278 |
+| `DELETE /profile/photo` | `removeOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; aceptado y fusionado en PR #278 |
+| `GET /profile/photo/content` | `getOwnSyntheticProfilePhotoContent` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; aceptado y fusionado en PR #278 |
+| `GET /payout-account` | `getOwnSyntheticPayoutAccount` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; aceptado y fusionado en PR #278 |
+| `PUT /payout-account` | `createOrReplaceOwnSyntheticPayoutAccount` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; aceptado y fusionado en PR #278 |
+| `DELETE /payout-account` | `revokeOwnSyntheticPayoutAccount` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; aceptado y fusionado en PR #278 |
+| `GET /rights-requests` | `listOwnRightsRequests` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; aceptado y fusionado en PR #278 |
+| `POST /rights-requests` | `requestDataRight` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; aceptado y fusionado en PR #278 |
+| `GET /privacy/export` | `exportOwnIdentityData` | Bearer; permisos en Go | FE-04 — Exportación del titular | Implementado; aceptado y fusionado en PR #278 |
+| `GET /privacy/export/archive` | `downloadCompleteOwnDataArchive` | Bearer; permisos en Go | FE-04 — Exportación del titular | Implementado; aceptado y fusionado en PR #278 |
+| `POST /privacy/suppression-requests/{request_id}/review` | `reviewLocalSuppressionBlockers` | Bearer; permisos en Go | FE-11 — Administración de privacidad; operación explícita | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `POST /privacy/suppression-requests/{request_id}/execute` | `executeLocalSyntheticSuppression` | Bearer; permisos en Go | FE-11 — Administración de privacidad; operación explícita | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `POST /privacy/retention/purge` | `purgeExpiredLocalPrivacyData` | Bearer; permisos en Go | FE-11 — Administración de privacidad; operación explícita | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/credential-notices` | `listTerminalLocalCredentialNotices` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `POST /admin/credential-notices/{event_id}/reopen` | `reopenTerminalLocalCredentialNotice` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /privacy/suppression-requests` | `listPendingLocalSuppressionRequests` | Bearer; permisos en Go | FE-11 — Administración de privacidad; operación explícita | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
 | `GET /verifications` | `listOwnVerifications` | Bearer; permiso titular en Go | FE-05 — Casos KYC/KYB propios | Implementado |
 | `POST /verifications` | `startSyntheticVerification` | Bearer; permiso e idempotencia Go | FE-05 — Crear caso sintético | Implementado; sólo KYC/KYB |
 | `GET /verifications/eligibility` | `listOwnSyntheticEligibility` | Bearer; elegibilidad efectiva por Go | FE-05 — Elegibilidad por tipo | Implementado; no muta roles |
@@ -81,13 +82,13 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `POST /verifications/{id}/evidence` | `uploadSyntheticEvidence` | Bearer; fixture e idempotencia validados por Go | FE-05 — Evidencia | Implementado; sólo `synthetic-png-v1`, sin cargas |
 | `GET /verifications/{id}/evidence/{evidenceId}` | `getOwnSyntheticEvidenceContent` | Bearer; autorización titular | FE-05 — PNG privado | Implementado; Blob URL temporal |
 | `DELETE /verifications/{id}/evidence/{evidenceId}` | `deleteOwnSyntheticEvidence` | Bearer; permiso titular en Go | FE-05 — Retirar evidencia | Disponible por contrato; no se expone en UI |
-| `GET /admin/verifications/{id}/evidence/{evidenceId}` | `reviewSyntheticEvidenceContent` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `DELETE /admin/verifications/{id}/evidence/{evidenceId}` | `deleteReviewedSyntheticEvidence` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/verifications/{id}/evidence` | `listEvidenceForReview` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/verifications` | `listPendingVerifications` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/verifications/failed` | `listRejectedVerifications` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `POST /admin/verifications/{id}/review` | `reviewSyntheticVerification` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `POST /admin/verifications/{id}/revoke` | `revokeSyntheticEligibility` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
+| `GET /admin/verifications/{id}/evidence/{evidenceId}` | `reviewSyntheticEvidenceContent` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `DELETE /admin/verifications/{id}/evidence/{evidenceId}` | `deleteReviewedSyntheticEvidence` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/verifications/{id}/evidence` | `listEvidenceForReview` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/verifications` | `listPendingVerifications` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/verifications/failed` | `listRejectedVerifications` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `POST /admin/verifications/{id}/review` | `reviewSyntheticVerification` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `POST /admin/verifications/{id}/revoke` | `revokeSyntheticEligibility` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
 | `POST /auth/login` | `login` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
 | `GET /auth/session` | `currentSession` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
 | `GET /spaces/categories` | `listSpaceCategories` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado; aceptado y fusionado en PR #276 |
@@ -164,18 +165,18 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /local/booking-trial/reservations/{reservationID}/damage-claim` | `getOwnSyntheticDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR #285 aprobado y fusionado |
 | `POST /local/booking-trial/reservations/{reservationID}/damage-claim` | `openSyntheticHostDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR #285 aprobado y fusionado |
 | `POST /local/booking-trial/reservations/{reservationID}/damage-claim/defense` | `submitSyntheticDamageClaimDefense` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR #285 aprobado y fusionado |
-| `GET /admin/local/audit-events` | `listAdminLocalAuditEvents` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/local/audit-events/export` | `exportAdminLocalAuditEvents` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/local/accounts/{accountID}` | `getAdminLocalAccountByID` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/local/published-spaces` | `listAdminLocalPublishedSpaces` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/local/published-spaces/{spaceID}` | `getAdminLocalPublishedSpace` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `POST /admin/local/accounts/{accountID}/block` | `blockLocalAccount` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `POST /admin/local/accounts/{accountID}/unblock` | `unblockLocalAccount` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/local/reports/reservations` | `getAdminLocalReservationsReport` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/local/reports/finance` | `getAdminLocalFinanceReport` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/local/reports/disputes` | `getAdminLocalDisputesReport` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/local/reservations` | `listAdminLocalReservations` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
-| `GET /admin/local/reservations/{reservationID}` | `getAdminLocalReservation` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; revisión viva parcial |
+| `GET /admin/local/audit-events` | `listAdminLocalAuditEvents` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/local/audit-events/export` | `exportAdminLocalAuditEvents` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/local/accounts/{accountID}` | `getAdminLocalAccountByID` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/local/published-spaces` | `listAdminLocalPublishedSpaces` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/local/published-spaces/{spaceID}` | `getAdminLocalPublishedSpace` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `POST /admin/local/accounts/{accountID}/block` | `blockLocalAccount` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `POST /admin/local/accounts/{accountID}/unblock` | `unblockLocalAccount` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/local/reports/reservations` | `getAdminLocalReservationsReport` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/local/reports/finance` | `getAdminLocalFinanceReport` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/local/reports/disputes` | `getAdminLocalDisputesReport` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/local/reservations` | `listAdminLocalReservations` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
+| `GET /admin/local/reservations/{reservationID}` | `getAdminLocalReservation` | Bearer; permisos en Go | FE-11 — Administración y colas | Implementado; aceptado y fusionado en PR #286; la cobertura viva individual se detalla en FE-11 |
 | `GET /admin/local/damage-claims` | `listOpenLocalSyntheticDamageClaims` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR #285 aprobado y fusionado |
 | `GET /admin/local/damage-claims/{claimID}` | `getAdminLocalSyntheticDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR #285 aprobado y fusionado |
 | `GET /admin/local/damage-claims/{claimID}/evidence/{evidenceID}` | `getAdminLocalDamageClaimEvidence` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR #285 aprobado y fusionado |
@@ -345,7 +346,7 @@ Correcciones de revisión: commit `b2da3243becb9db0fa10828baf5cae9782af474f`. Re
 
 Regresión Angular: `npm test -- --watch=false` — 163 pruebas / 28 archivos; incluye 401/403 vigente/tardío, cambio de sesión, intentos idempotentes, paginación, `correlation_id` original y 403 vigente con revocación/limpieza y refresh de capacidades. `GET /health/ready` de Go y Angular respondieron HTTP 200 en el stack FE-11 desechable; se registró la ruta Go de moderación existente que no estaba montada y pasa `go test ./cmd/api -run TestReputationRoutesDoNotInterceptBookingOperations`. La prueba visual muestra cola KYC con evidencia privada en desktop y auditoría en mobile; la captura mobile tiene 500 px de ancho por límite del navegador headless. `npm run api:check` pasó con `ng serve` detenido y `npm run build` completó prerender de 3 rutas.
 
-FE-10 y FE-11 aceptados y fusionados en PR #285 y #286. FE-12 aceptado y fusionado en PR #287. FE-13 está en revisión en PR #288; FE-14 sigue pendiente de aprobación y fusión de FE-13.
+FE-10 y FE-11 aceptados y fusionados en PR #285 y #286. FE-12 y FE-13 aceptados y fusionados en PR #287 y #288. FE-14 continúa en revisión; FE-15 requiere aceptación explícita de FE-14.
 
 
 ## Trazabilidad FE-12 — Consolidación visual, responsive y accesibilidad
@@ -359,7 +360,7 @@ FE-10 y FE-11 aceptados y fusionados en PR #285 y #286. FE-12 aceptado y fusiona
 | Teclado, foco y contraste | Tab/Escape en el menú mobile mantiene el foco visible; el indicador azul de 3 px mide 6.28:1 contra Crema. Muestreo de hojas visibles de texto en `/mi-cuenta`: 0 elementos bajo 4.5:1 (texto normal) o 3:1 (texto grande). | AXE no reportó infracciones A/AA en el shell. Esta comprobación acotada no equivale a certificación WCAG ni a revisión con lector de pantalla/zoom 400%. |
 | Carga, vacío, error y desconexión | Go readiness visible como disponible; ficha sin horario, perfil/foto/cuenta de cobro vacíos y estados terminales privados de reservas. Aviso offline y reintento de readiness cubiertos en prueba de componente. | En esta pasada visual no se interrumpió Go para generar un error de red; los estados error/offline se verificaron mediante las regresiones existentes, no se capturaron como pantallas. |
 
-**Regresión final de FE-12:** Angular — 168 pruebas en 28 archivos; `npm run api:check` pasó con `ng serve` detenido; `npm run build` compiló y prerenderizó 3 rutas. FE-12 aprobado y fusionado en #287; FE-13 en ejecución.
+**Regresión final de FE-12:** Angular — 168 pruebas en 28 archivos; `npm run api:check` pasó con `ng serve` detenido; `npm run build` compiló y prerenderizó 3 rutas. FE-12 aprobado y fusionado en #287; FE-13 se aceptó y fusionó en #288.
 
 ### Revisión visual complementaria del tercer hilo de #287
 
@@ -378,7 +379,7 @@ Stack conectado: Angular `127.0.0.1:4200` HTTP 200 y Go `127.0.0.1:18380/health/
 
 Las capturas usan viewport de navegador 390×844 CSS px y 1365×900 CSS px. El JPEG móvil mide 375×812 por el scrollbar reservado de 15 px; el JPEG de escritorio mide 1350×890. El anillo azul `rgb(29,78,216)` de 3 px da 6,28:1 sobre Crema. Los fixtures/cuentas son locales y sintéticos; sus credenciales permanecen fuera del PR.
 
-## FE-13 — Stack Angular Docker y runner sin mock (en ejecución)
+## FE-13 — Stack Angular Docker y runner sin mock (aceptado y fusionado)
 
 | Superficie | Validación | Evidencia |
 | --- | --- | --- |
@@ -388,6 +389,23 @@ Las capturas usan viewport de navegador 390×844 CSS px y 1365×900 CSS px. El J
 | API caída/restaurada | Readiness host deja de conectar al detener Go; tras `up-frontend` el runner vuelve a obtener readiness HTTP 200/CORS/preflight exitosos | Pasó, stack/volumen/redes del proyecto temporal retirados |
 | Sesión | Regresión de componente con `IdentitySession` real: error de red en readiness mantiene `status=authenticated`, Bearer y sesión; readiness recuperado no cambia la sesión | Pasó en Vitest; no se ejecutó un login visual live durante el reinicio |
 
-**Regresión Angular:** `npm test -- --watch=false`, 169 pruebas/28 archivos; `npm run api:check` pasó con `ng serve` detenido; `npm run build` prerenderizó 3 rutas. **Stack Docker:** `scripts/test-frontend-docker.sh` pasó con puertos API 18680/Angular 18683 y runner sin credenciales; imagen runner `sha256:83812f89384f93e01a5520122c4b87bd3bb97964a569476a7207c72f129308e8`. Transcripción de criterios/alcance: [`evidencia/FE13_docker_stack.log`](evidencia/FE13_docker_stack.log). No se usó ningún volumen persistente y la limpieza confirmó cero contenedores/redes/volúmenes con prefijo FE-13. La pérdida de conexión no revoca un token; si Go responde 401 vigente, se conservan las reglas existentes de expiración. FE-14 queda pendiente.
+**Regresión Angular:** `npm test -- --watch=false`, 169 pruebas/28 archivos; `npm run api:check` pasó con `ng serve` detenido; `npm run build` prerenderizó 3 rutas. **Stack Docker:** `scripts/test-frontend-docker.sh` pasó con puertos API 18680/Angular 18683 y runner sin credenciales; imagen runner `sha256:83812f89384f93e01a5520122c4b87bd3bb97964a569476a7207c72f129308e8`. Transcripción de criterios/alcance: [`evidencia/FE13_docker_stack.log`](evidencia/FE13_docker_stack.log). No se usó ningún volumen persistente y la limpieza confirmó cero contenedores/redes/volúmenes con prefijo FE-13. La pérdida de conexión no revoca un token; si Go responde 401 vigente, se conservan las reglas existentes de expiración. FE-14 se ejecuta a continuación; FE-15 queda pendiente de aceptación explícita.
 
-Origen base: `origin/main` tras merge #287 (`106942ff`); código validado en `c6b46db9bb62ed7ba0ab943e1398e32b7645c450`, rama `codex/frontend-local-1-fe13-docker`. PR #288 abierto por `HernanMEC`, revisión solicitada a `HernanEspinozaDev`. El script `scripts/test-frontend-docker.sh` crea un proyecto y volumen nuevos con puertos propios, secretos/directorios fuera de datos locales y limpieza acotada a esos recursos. La instalación/ejecución no incluye credenciales ni cambia configuración privada. FE-14 pendiente hasta aprobar y fusionar FE-13; FE-15 (retirar mock) no forma parte de este PR.
+Origen base: `origin/main` tras merge #287 (`106942ff`); código validado en `c6b46db9bb62ed7ba0ab943e1398e32b7645c450`, rama `codex/frontend-local-1-fe13-docker`. PR #288 abierto por `HernanMEC`, revisión solicitada a `HernanEspinozaDev`. El script `scripts/test-frontend-docker.sh` crea un proyecto y volumen nuevos con puertos propios, secretos/directorios fuera de datos locales y limpieza acotada a esos recursos. La instalación/ejecución no incluye credenciales ni cambia configuración privada. FE-13 aceptado y fusionado en #288. FE-14 se prepara en el corte actual; FE-15 (retirar el mock) requiere aceptación explícita de FE-14.
+
+
+## FE-14 — Regresión consolidada y matriz completa (en revisión)
+
+**Base:** `main` actualizado desde #288, merge `4eaf98fcd0a46326c884e4f3236d7e55ff39e0df`. **Source commit E2E:** `6277140b8fef7226fe29d10284b67d36d943d780`. El inventario conserva 118 paths/144 operaciones, vinculadas a cortes de UI o excepción técnica; 0 operaciones nuevas en FE-14. Los estados de FE-04 y FE-11 se actualizaron a aceptados/fusionados, y FE-13 a #288. La matriz registra el estado completo, no afirma que las 144 operaciones se hayan repetido en una sola prueba E2E.
+
+| Recorrido FE-14 | Comprobación real | Resultado | Evidencia |
+| --- | --- | --- | --- |
+| Arrendatario, anfitrión, administrador y tercero | Login/session Go; guardias y navegación; el tercero no abre vistas anfitrión/admin. Roles host/admin se preparan solo en la DB descartable y Go los devuelve al consultar sesión. | 4 cuentas `.invalid`; almacenamiento local/session vacío para Bearer; pasa | [Móvil arrendatario 390×844](evidencia/fe14_renter_mobile.jpg) · [escritorio](evidencia/fe14_renter_desktop.jpg); [móvil anfitrión](evidencia/fe14_host_mobile.jpg) · [escritorio](evidencia/fe14_host_desktop.jpg); [móvil admin](evidencia/fe14_admin_mobile.jpg) · [escritorio](evidencia/fe14_admin_desktop.jpg) |
+| Exportación JSON/ZIP privada | Descarga por interfaz con Bearer; JSON propio sin token/contraseña/otra cuenta; firma `PK`, `manifest.json` y `data.json` comprobados del ZIP. | Pasa contra Go; backend logs sin credenciales | Capturas de privacidad incluidas en [recorrido arrendatario](evidencia/fe14_renter_desktop.jpg) |
+| Caída/restauración de Go | Espera el `requestfailed` autenticado de elegibilidad, error visible y tarjetas vacías. Tras restaurar, compara UUID/rol, conserva login único, retrasa el request para observar spinner/vacío y luego exige HTTP 200 Bearer, payload Go y dos tarjetas renderizadas. | Misma sesión/cuenta sin login nuevo; control de respuesta demorada bloquea falso positivo; pasa | [sesión restaurada 1365×900](evidencia/fe14_restored_session_desktop.jpg) |
+| Aislamiento del runner | Montajes limitados a accounts.json read-only y artefactos/resultados read-write; comprobación de paths privados/secretos y env ausentes. | Solo 3 entradas `/run/fe14`; secretos, evidencia y replay no existen/no son legibles; pasa | [manifiesto de evidencia](evidencia/FE14_aceptacion.md) |
+| Responsive/foco | Playwright Chromium 390×844 y 1365×900; screenshots full-page y JSON con medidas viewport/documento; Tab visible en enlace/heading. | Dimensiones exactas, overflow horizontal ausente en vistas evaluadas; ver capturas JPEG | [manifiesto de evidencia](evidencia/FE14_aceptacion.md) |
+
+**Regresión consolidada:** 169 pruebas Angular/28 archivos; `api:check` pasa; build/prerender completa tres rutas; Playwright 3/3 pruebas pasan. Config y descarga privada evaluadas en Go/Compose desechable. Artefactos exactos, imágenes Docker, hashes, medidas, cleanup y límites quedan en [`evidencia/FE14_aceptacion.md`](evidencia/FE14_aceptacion.md). Stack `espacigo_fe14_98d604e66706`; API 18780, Angular 18783, Mailpit 18782; readiness/frontend HTTP 200 antes del login; cuentas/roles sintéticos creados en DB nueva; al cierre se retiraron contenedores, redes y volumen con ese prefijo. La ejecución E2E final usó un volumen propio nuevo. Un intento previo abortado por el puerto ocupado de Mailpit reinició el contenedor DB persistente, sin aprovisionar cuentas, pruebas destructivas o eliminar ese volumen; detalle en `evidencia/FE14_aceptacion.md`.
+
+**Paridad y aceptación:** matriz completa en términos de operación, FE-02–FE-13 aceptados y fusiones anotadas. FE-14 valida los invariantes transversales; no repite cada mutación/combinación Go. No se simularon datos productivos ni se introdujeron credenciales. El mock se conserva; FE-15 y su retirada dependen de aceptación explícita del usuario sobre FE-14.
