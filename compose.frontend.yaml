@@ -54,8 +54,18 @@ services:
       FRONTEND_BASE_URL: http://angular-frontend:4000
       FE14_ACCOUNT_FILE: /run/fe14/accounts.json
       FE14_ARTIFACT_DIR: /run/fe14/artifacts
+      FE14_RESULTS_DIR: /run/fe14/results/playwright
     volumes:
-      - ${LOCAL_DOCKER_STATE_DIR:-/tmp/espacigo-fe14-not-configured}:/run/fe14
+      - type: bind
+        source: ${FE14_ACCOUNT_FILE_HOST:?FE14_ACCOUNT_FILE_HOST is required for the E2E runner}
+        target: /run/fe14/accounts.json
+        read_only: true
+      - type: bind
+        source: ${FE14_ARTIFACT_DIR_HOST:?FE14_ARTIFACT_DIR_HOST is required for the E2E runner}
+        target: /run/fe14/artifacts
+      - type: bind
+        source: ${FE14_RESULTS_DIR_HOST:?FE14_RESULTS_DIR_HOST is required for the E2E runner}
+        target: /run/fe14/results
     depends_on:
       angular-frontend:
         condition: service_healthy

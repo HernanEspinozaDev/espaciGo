@@ -6,7 +6,7 @@ module.exports = defineConfig({
   fullyParallel: false,
   workers: 1,
   timeout: 90_000,
-  outputDir: process.env.FE14_RESULTS_DIR || '/run/fe14/test-results',
+  outputDir: process.env.FE14_RESULTS_DIR || '/run/fe14/results/playwright',
   expect: { timeout: 15_000 },
   reporter: [['list']],
   use: {

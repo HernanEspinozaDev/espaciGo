@@ -5,6 +5,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_ID="$(python3 -c 'import secrets; print(secrets.token_hex(6))')"
 PROJECT="espacigo_fe14_${RUN_ID}"
 STATE_DIR="${TMPDIR:-/tmp}/espacigo-fe14-${RUN_ID}"
+STATE_DIR="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).expanduser().resolve(strict=False))' "$STATE_DIR")"
 BASE_PORT="${FE14_PORT_BASE:-18780}"
 if [[ ! "$BASE_PORT" =~ ^[0-9]{4,5}$ ]] || (( BASE_PORT < 1024 || BASE_PORT > 65000 )); then
   printf 'FE14_PORT_BASE must be an unprivileged TCP port from 1024 to 65000\n' >&2
@@ -33,6 +34,9 @@ export LOCAL_DATABASE_ADMIN_USER="espacigo_admin"
 export LOCAL_DATABASE_RUNTIME_USER="espacigo_runtime"
 export DATABASE_SSLMODE="disable"
 export LOCAL_FRONTEND_E2E=1
+export FE14_ACCOUNT_FILE_HOST="$STATE_DIR/accounts.json"
+export FE14_ARTIFACT_DIR_HOST="$STATE_DIR/artifacts"
+export FE14_RESULTS_DIR_HOST="$STATE_DIR/results"
 export LOCAL_UID="$(id -u)"
 export LOCAL_GID="$(id -g)"
 export LOCAL_SECRETS_DIR="$STATE_DIR/secrets"
@@ -41,7 +45,8 @@ export LOCAL_PRIVACY_REPLAY_DIR="$STATE_DIR/privacy-replay"
 export LOCAL_DATABASE_TLS_DIR="$STATE_DIR/database-tls"
 umask 077
 mkdir -p "$STATE_DIR/artifacts"
-chmod 0700 "$STATE_DIR" "$STATE_DIR/artifacts"
+mkdir -p "$STATE_DIR/results"
+chmod 0700 "$STATE_DIR" "$STATE_DIR/artifacts" "$STATE_DIR/results"
 export LOCAL_DOCKER_COMPOSE_OVERRIDE="$STATE_DIR/network-pools.yaml"
 
 mapfile -t FE14_SUBNETS < <(python3 - <<'PY'
@@ -114,10 +119,7 @@ cleanup() {
   mapfile -t ids < <(docker network ls --quiet --filter "label=com.docker.compose.project=${PROJECT}")
   if (( ${#ids[@]} > 0 )); then docker network rm "${ids[@]}" >/dev/null 2>&1 || true; fi
   docker volume rm "$LOCAL_DOCKER_PGDATA_VOLUME" >/dev/null 2>&1 || true
-  if docker image inspect "${LOCAL_IMAGE_PREFIX}-angular-e2e:dev" >/dev/null 2>&1; then
-    docker run --rm --user 0 -v "$STATE_DIR:/run/fe14" --entrypoint /bin/rm \
-      "${LOCAL_IMAGE_PREFIX}-angular-e2e:dev" -rf /run/fe14/test-results >/dev/null 2>&1 || true
-  fi
+  rm -rf -- "$STATE_DIR/results"
   rm -rf -- "$STATE_DIR"
   return "$status"
 }
@@ -126,6 +128,7 @@ trap cleanup EXIT
 printf 'FE-14 disposable project: %s\n' "$PROJECT"
 printf 'API/Angular/Mailpit ports: %s/%s/%s\n' "$LOCAL_DOCKER_API_PORT" "$LOCAL_DOCKER_ANGULAR_PORT" "$LOCAL_DOCKER_MAILPIT_PORT"
 printf 'New database volume: %s; no persistent volume is referenced\n' "$LOCAL_DOCKER_PGDATA_VOLUME"
+printf 'E2E bind mounts: read-only accounts file, artifacts directory, results directory only\n'
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" up-frontend >"$STATE_DIR/stack-build.log" 2>&1
 curl --silent --show-error --fail --max-time 5 "http://127.0.0.1:${LOCAL_DOCKER_API_PORT}/health/ready" >/dev/null
 curl --silent --show-error --fail --max-time 5 "http://127.0.0.1:${LOCAL_DOCKER_ANGULAR_PORT}/healthz" >/dev/null

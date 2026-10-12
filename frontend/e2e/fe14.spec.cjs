@@ -6,6 +6,16 @@ const { test, expect } = require('@playwright/test');
 const accounts = JSON.parse(fs.readFileSync(process.env.FE14_ACCOUNT_FILE || '/run/fe14/accounts.json', 'utf8'));
 const artifactDir = process.env.FE14_ARTIFACT_DIR || '/run/fe14/artifacts';
 fs.mkdirSync(artifactDir, { recursive: true });
+const resultsDir = process.env.FE14_RESULTS_DIR || '/run/fe14/results';
+const resultsRoot = path.dirname(resultsDir);
+
+async function waitForMarker(marker, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!fs.existsSync(marker) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  expect(fs.existsSync(marker)).toBeTruthy();
+}
 
 async function login(page, account) {
   await page.goto('/acceso');
@@ -35,6 +45,32 @@ async function takeScreenshot(page, name) {
   await page.screenshot({ path: path.join(artifactDir, `${name}.jpg`), type: 'jpeg', quality: 86 });
   fs.writeFileSync(path.join(artifactDir, `${name}.json`), JSON.stringify(measurements, null, 2));
 }
+
+test('E2E runner can read only the accounts fixture and write artifacts/results, never backend secrets', async () => {
+  const accountFile = process.env.FE14_ACCOUNT_FILE || '/run/fe14/accounts.json';
+  expect(fs.existsSync(accountFile)).toBeTruthy();
+  expect(() => fs.accessSync(accountFile, fs.constants.R_OK)).not.toThrow();
+  expect(() => fs.accessSync(accountFile, fs.constants.W_OK)).toThrow();
+  expect(() => fs.accessSync(artifactDir, fs.constants.W_OK)).not.toThrow();
+  expect(() => fs.accessSync(resultsRoot, fs.constants.W_OK)).not.toThrow();
+  expect(fs.readdirSync('/run/fe14').sort()).toEqual(['accounts.json', 'artifacts', 'results']);
+  expect(process.env.LOCAL_DOCKER_STATE_DIR).toBeUndefined();
+
+  for (const forbiddenPath of [
+    '/run/fe14/secrets',
+    '/run/fe14/private-evidence',
+    '/run/fe14/privacy-replay',
+    '/run/fe14/database-tls',
+    '/run/secrets',
+    '/run/secrets/db_admin_password',
+    '/run/secrets/runtime_password',
+    '/run/secrets/local_payment_webhook_secret',
+    '/run/secrets/local_contract_encryption_key',
+  ]) {
+    expect(fs.existsSync(forbiddenPath)).toBe(false);
+    expect(() => fs.accessSync(forbiddenPath, fs.constants.R_OK)).toThrow();
+  }
+});
 
 test('Go-backed role navigation, private JSON/ZIP exports, and responsive evidence', async ({ browser }) => {
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
@@ -115,32 +151,95 @@ test('Go-backed role navigation, private JSON/ZIP exports, and responsive eviden
 
 test('Go outage preserves the same in-memory session and restoration revalidates it in place', async ({ browser }) => {
   const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  let loginRequests = 0;
+  page.on('request', (request) => {
+    if (/\/auth\/login(?:\?|$)/.test(request.url())) loginRequests++;
+  });
   await login(page, accounts.renter);
+  expect(loginRequests).toBe(1);
+  const accountId = await page.locator('.identity-card .identity-copy > p').nth(1).innerText();
+  expect(accountId).toMatch(/^[0-9a-f-]{36}$/i);
+
   const ready = path.join(artifactDir, 'outage-session-ready');
   const stopped = path.join(artifactDir, 'outage-stopped');
   const restored = path.join(artifactDir, 'outage-restored');
+  const restoreRequestStarted = path.join(artifactDir, 'restore-request-started');
+  const releaseRestoreRequest = path.join(artifactDir, 'release-restore-request');
   fs.writeFileSync(ready, 'ready');
-  const deadline = Date.now() + 120_000;
-  while (!fs.existsSync(stopped) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 250));
-  expect(fs.existsSync(stopped)).toBeTruthy();
 
+  await waitForMarker(stopped, 120_000);
+  const failedEligibility = page.waitForEvent('requestfailed', {
+    predicate: (request) => request.url().includes('/verifications/eligibility'),
+  });
   await navigateSpa(page, '/mi-cuenta/verificaciones');
   await expect(page.getByRole('heading', { name: 'Casos de verificación' })).toBeVisible();
+  const failedRequest = await failedEligibility;
+  expect(Boolean(failedRequest.failure()?.errorText)).toBe(true);
+  const failedHeaders = await failedRequest.allHeaders();
+  expect(Boolean(failedHeaders.authorization?.startsWith('Bearer '))).toBe(true);
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Consultando casos y elegibilidad con Go' })).toHaveCount(0);
+  await expect(page.locator('.eligibility-card')).toHaveCount(0);
+
+  // A genuine network failure must not log the current account out.
+  await expect(page).not.toHaveURL(/\/acceso/);
+  expect(loginRequests).toBe(1);
+  fs.writeFileSync(path.join(artifactDir, 'outage-verified'), 'verified');
+  await waitForMarker(restored, 120_000);
+
+  // Same Angular document and IdentitySession: after Go is healthy again, the
+  // account ID and role list must still match the original authenticated user.
   await navigateSpa(page, '/mi-cuenta');
-  // The same Angular document stays mounted through the outage: a network error
-  // must not turn into a logout or persist the Bearer outside memory.
   await expect(page.getByRole('heading', { name: 'Tu información y tus derechos' })).toBeVisible();
+  await expect(page.locator('.identity-card .identity-copy > p').nth(1)).toHaveText(accountId);
   await expect(page.locator('.role-list')).toContainText(accounts.renter.roleLabel);
   await expect(page).not.toHaveURL(/\/acceso/);
-  fs.writeFileSync(path.join(artifactDir, 'outage-verified'), 'verified');
-  while (!fs.existsSync(restored) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 250));
-  expect(fs.existsSync(restored)).toBeTruthy();
+  expect(loginRequests).toBe(1);
+
+  await page.route('**/verifications/eligibility', async (route) => {
+    fs.writeFileSync(restoreRequestStarted, 'started');
+    await waitForMarker(releaseRestoreRequest);
+    await route.continue();
+  });
+  const restoredEligibilityResponse = page.waitForResponse((response) =>
+    response.url().includes('/verifications/eligibility'),
+  );
 
   await navigateSpa(page, '/mi-cuenta/verificaciones');
   await expect(page.getByRole('heading', { name: 'Casos de verificación' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Elegibilidad' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Consultando casos y elegibilidad con Go' })).toBeVisible();
+  await waitForMarker(restoreRequestStarted);
+  // A delayed authenticated request must remain visibly loading and cannot be
+  // mistaken for the response-less eligibility heading in the shell.
+  await expect(page.locator('.eligibility-card')).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Consultando casos y elegibilidad con Go' })).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
+  fs.writeFileSync(releaseRestoreRequest, 'continue');
+
+  const eligibilityResponse = await restoredEligibilityResponse;
+  expect(eligibilityResponse.status()).toBe(200);
+  const authorization = (await eligibilityResponse.request().allHeaders()).authorization;
+  expect(Boolean(authorization?.startsWith('Bearer '))).toBe(true);
+  const eligibilityBody = await eligibilityResponse.json();
+  expect(eligibilityBody.scope).toBe('synthetic_local');
+  expect(eligibilityBody.items).toHaveLength(2);
+  await expect(page.locator('.eligibility-card')).toHaveCount(2);
+  for (const item of eligibilityBody.items) {
+    const label = item.type === 'kyc' ? 'Persona (KYC)' : 'Organización (KYB)';
+    const card = page.locator('.eligibility-card').filter({ hasText: label });
+    await expect(card).toContainText(item.eligible ? 'Elegible' : 'No elegible');
+    await expect(card).toContainText(item.verification_id || 'sin caso vigente');
+  }
+  await expect(page.getByRole('status').filter({ hasText: 'Consultando casos y elegibilidad con Go' })).toHaveCount(0);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(loginRequests).toBe(1);
   expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
   await page.screenshot({ path: path.join(artifactDir, 'fe14_restored_session_desktop.jpg'), type: 'jpeg', quality: 86 });
+  await navigateSpa(page, '/mi-cuenta');
+  await expect(page.getByRole('heading', { name: 'Tu información y tus derechos' })).toBeVisible();
+  await expect(page.locator('.identity-card .identity-copy > p').nth(1)).toHaveText(accountId);
+  await expect(page.locator('.role-list')).toContainText(accounts.renter.roleLabel);
+  await expect(page).not.toHaveURL(/\/acceso/);
+  expect(loginRequests).toBe(1);
   await page.close();
 });
