@@ -30,6 +30,10 @@ export class BookingDetailPage {
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => { const id = params.get('id') ?? ''; if (id !== this.id) { this.id = id; this.clear(); if (id) void this.load(); } });
   }
 
+  protected refreshAfterLifecycle(): void {
+    if (this.identity.accessToken() && this.identity.session() && this.id) void this.load();
+  }
+
   protected async load(): Promise<void> {
     const token = this.identity.accessToken(); const session = this.identity.session(); const id = this.id;
     if (!token || !session || !id) return; const generation = ++this.generation; const refundReadRevision = this.attempts.nextRevision(); this.readRevision++; this.loading.set(true); this.error.set('');

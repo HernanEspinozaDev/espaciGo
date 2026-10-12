@@ -16,6 +16,7 @@ describe('BookingLifecycleApi generated OpenAPI access', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     const request = http.expectOne((candidate) => candidate.url.endsWith('/local/booking-trial/reservations/reservation-id/check-in'));
     expect(request.request.headers.get('Authorization')).toBe('Bearer token-in-memory');
+    expect(request.request.headers.has('Cache-Control')).toBe(false);
     expect(request.request.headers.get('Idempotency-Key')).toBe('key-12345678');
     expect(request.request.body).toEqual({ comments: 'demo' });
     request.flush({ data: { id: 'operation-id' }, notice: 'synthetic' }, { status: 201, statusText: 'Created' });

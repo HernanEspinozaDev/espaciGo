@@ -51,7 +51,7 @@ export class BookingLifecycleApi {
     return (await this.m08.downloadSyntheticRentalOperationEvidence(options)).data as Blob;
   }
 
-  private authHeaders(token: string) { return { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-store' }; }
+  private authHeaders(token: string) { return { Authorization: `Bearer ${token}` }; }
 
   private client(token: string) {
     const base = this.runtime.apiBaseUrl();

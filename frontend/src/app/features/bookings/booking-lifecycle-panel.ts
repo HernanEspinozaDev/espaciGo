@@ -1,5 +1,5 @@
-import { Component, DestroyRef, effect, inject, input, signal } from '@angular/core';
-import type { LocalBookingDetail, LocalRentalOperation, LocalSyntheticContract } from '../../../generated/api/types.gen';
+import { Component, DestroyRef, effect, inject, input, output, signal } from '@angular/core';
+import type { LocalBookingDetail, LocalRentalOperation, LocalRentalOperationInput, LocalSyntheticContract } from '../../../generated/api/types.gen';
 import { IdentitySession } from '../../core/identity/identity-session';
 import { PrivateSessionState } from '../../core/identity/private-session-state';
 import { BookingApiError } from './booking-api';
@@ -40,9 +40,10 @@ type LifecycleContext = { token: string; accountId: string; reservationId: strin
     <section class="panel lifecycle" aria-labelledby="operation-title">
       <h2 id="operation-title">Llegada, salida y recepción</h2>
       <p>Go genera imágenes de ensayo privadas. No adjuntes documentos ni archivos propios.</p>
-      @if (canCheckIn()) { <label>Comentario sintético (opcional)<textarea [value]="comments()" (input)="comments.set($any($event.target).value)" rows="2"></textarea></label><button class="button" type="button" [disabled]="busy()" (click)="record('check-in')">Registrar check-in</button> }
-      @if (canCheckOut()) { <label>Comentario sintético (opcional)<textarea [value]="comments()" (input)="comments.set($any($event.target).value)" rows="2"></textarea></label><button class="button" type="button" [disabled]="busy()" (click)="record('check-out')">Registrar check-out</button> }
-      @if (canReceive()) { <label>Observación de recepción (opcional)<textarea [value]="observations()" (input)="observations.set($any($event.target).value)" rows="2"></textarea></label><button class="button" type="button" [disabled]="busy()" (click)="record('reception')">Registrar recepción</button> }
+      @if (hasUncertainAttempt()) { <p role="status">Go aún no confirmó una operación. Reintentar reutiliza la clave y el contenido original guardado en memoria; los campos privados permanecen limpios.</p> }
+      @if (canCheckIn()) { <label>Comentario sintético (opcional)<textarea [value]="comments()" (input)="comments.set($any($event.target).value)" rows="2"></textarea></label><button class="button" type="button" [disabled]="busy()" (click)="record('check-in')">{{ retryLabel('checkin', 'check-in') }}</button> }
+      @if (canCheckOut()) { <label>Comentario sintético (opcional)<textarea [value]="comments()" (input)="comments.set($any($event.target).value)" rows="2"></textarea></label><button class="button" type="button" [disabled]="busy()" (click)="record('check-out')">{{ retryLabel('checkout', 'check-out') }}</button> }
+      @if (canReceive()) { <label>Observación de recepción (opcional)<textarea [value]="observations()" (input)="observations.set($any($event.target).value)" rows="2"></textarea></label><button class="button" type="button" [disabled]="busy()" (click)="record('reception')">{{ retryLabel('reception', 'recepción') }}</button> }
       @if (operations().length) {
         <h3>Historial de operación confirmado por Go</h3>
         <ol class="operations">@for (operation of operations(); track operation.id) {
@@ -64,6 +65,7 @@ type LifecycleContext = { token: string; accountId: string; reservationId: strin
 })
 export class BookingLifecyclePanel {
   readonly reservation = input.required<LocalBookingDetail>();
+  readonly stateChanged = output<void>();
   private readonly identity = inject(IdentitySession);
   private readonly privateState = inject(PrivateSessionState);
   private readonly api = inject(BookingLifecycleApi);
@@ -100,6 +102,8 @@ export class BookingLifecyclePanel {
     });
   }
 
+  protected retryLabel(action: string, label: string): string { return this.attempts.find(this.accountId ?? '', this.reservationId, action) ? `Reintentar ${label} original` : `Registrar ${label}`; }
+  protected hasUncertainAttempt(): boolean { return !!this.accountId && ['checkin','checkout','reception'].some((action) => this.attempts.find(this.accountId!, this.reservationId, action)); }
   protected canOpenContract(): boolean { return this.isParticipant(this.reservation()) && ['aprobada_host','firma_parcial','lista_para_checkin','en_curso','finalizada','cerrada','en_disputa'].includes(this.reservation().state); }
   protected canSign(value: LocalSyntheticContract): boolean {
     const account = this.identity.session()?.account_id;
@@ -142,8 +146,11 @@ export class BookingLifecyclePanel {
   protected async record(action: 'check-in' | 'check-out' | 'reception'): Promise<void> {
     const context = this.context(); if (!context) return;
     if ((action === 'check-in' && !this.canCheckIn()) || (action === 'check-out' && !this.canCheckOut()) || (action === 'reception' && !this.canReceive())) return;
-    const body = action === 'reception' ? { observations: this.observations().trim() } : { comments: this.comments().trim() };
     const keyAction = action === 'check-in' ? 'checkin' : action === 'check-out' ? 'checkout' : 'reception';
+    const prior = this.attempts.find(context.accountId, context.reservationId, keyAction);
+    const body = prior
+      ? JSON.parse(prior.payload) as LocalRentalOperationInput
+      : action === 'reception' ? { observations: this.observations().trim() } : { comments: this.comments().trim() };
     let attempt;
     try { attempt = this.attempts.get(context.accountId, context.reservationId, keyAction, body); }
     catch (error) { this.error.set(messageFor(error)); return; }
@@ -153,7 +160,11 @@ export class BookingLifecyclePanel {
       this.success.set(result.notice); this.comments.set(''); this.observations.set('');
       this.readRevision++;
       void this.loadOperations();
-    }, () => this.attempts.markUncertain(context.accountId, context.reservationId, keyAction, attempt.key));
+      this.stateChanged.emit();
+    }, () => { this.attempts.markUncertain(context.accountId, context.reservationId, keyAction, attempt.key); this.stateChanged.emit(); }, true, (isCurrent) => {
+      this.attempts.settle(context.accountId, context.reservationId, keyAction, attempt.key);
+      if (isCurrent) this.stateChanged.emit();
+    });
   }
   protected async loadEvidence(evidenceId: string): Promise<void> {
     if (this.objectUrls.has(evidenceId)) return;
@@ -169,7 +180,8 @@ export class BookingLifecyclePanel {
     if (!contract || !context || !this.canSign(contract)) return;
     await this.execute(context, async () => action === 'sign' ? this.api.signContract(context.token, contract.id) : this.api.rejectContract(context.token, contract.id), (result) => {
       this.contract.set(result.data); this.success.set(result.notice);
-    });
+      this.stateChanged.emit();
+    }, undefined, true, (isCurrent) => { if (isCurrent) this.stateChanged.emit(); });
   }
   private async loadOperations(): Promise<void> {
     const context = this.context(); if (!context || !this.isParticipant(this.reservation())) return;
@@ -178,10 +190,11 @@ export class BookingLifecyclePanel {
       if (revision === this.readRevision) this.operations.set(result.data.items);
     }, undefined, false);
   }
-  private async execute<T>(context: LifecycleContext, request: () => Promise<T>, apply: (value: T) => void, onUncertain?: () => void, showBusy = true): Promise<void> {
+  private async execute<T>(context: LifecycleContext, request: () => Promise<T>, apply: (value: T) => void, onUncertain?: () => void, showBusy = true, onDefinitive?: (isCurrent: boolean) => void): Promise<void> {
     if (showBusy) this.busy.set(true); this.error.set(''); this.success.set('');
     try { const result = await request(); if (!this.current(context)) return; apply(result); }
     catch (error) {
+      if (error instanceof BookingApiError && error.status !== 401 && error.status !== undefined && error.status >= 400 && error.status < 500) onDefinitive?.(this.current(context));
       if (error instanceof BookingApiError && error.status === 401) {
         if (context.token === this.identity.accessToken() && context.accountId === this.identity.session()?.account_id) this.identity.expireIfCurrent(context.token);
         return;
