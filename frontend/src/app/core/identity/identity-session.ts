@@ -142,6 +142,15 @@ export class IdentitySession {
     return true;
   }
 
+  /** Expire only the bearer that received the unauthorized response. */
+  expireIfCurrent(token: string): boolean {
+    if (!token || this.accessToken() !== token) return false;
+    ++this.generation;
+    this.resetSession();
+    this.notice.set('Go cerró la sesión. Inicia sesión nuevamente.');
+    return true;
+  }
+
   async changePassword(
     currentPassword: string,
     newPassword: string,

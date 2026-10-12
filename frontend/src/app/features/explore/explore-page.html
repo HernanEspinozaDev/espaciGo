@@ -1,0 +1,262 @@
+<main class="explore page-width">
+  <header class="page-heading">
+    <p class="eyebrow">CATÁLOGO AUTENTICADO</p>
+    <h1>Encuentra tu próximo espacio</h1>
+    <p>
+      Busca por categoría y características. La ubicación del plano es sintética y no representa
+      calles ni domicilios.
+    </p>
+  </header>
+
+  <div class="safety" role="note"><span aria-hidden="true">●</span> {{ safetyNotice }}</div>
+  <form class="filters panel" (submit)="$event.preventDefault(); search()">
+    <label class="wide"
+      >Buscar
+      <input
+        type="search"
+        maxlength="120"
+        [value]="filters().q"
+        (input)="updateFilter('q', $any($event.target).value)"
+        placeholder="Título, descripción o categoría"
+      />
+    </label>
+    <label
+      >Categoría
+      <select
+        [value]="filters().category_code"
+        (change)="updateFilter('category_code', $any($event.target).value)"
+      >
+        <option value="">Todas las categorías</option>
+        @for (category of categories(); track category.code) {
+          <option [value]="category.code">{{ category.name }}</option>
+        }
+      </select>
+    </label>
+    <label
+      >Superficie mínima (m²)
+      <input
+        type="number"
+        min="0.01"
+        step="0.01"
+        [value]="filters().min_area_m2"
+        (input)="updateFilter('min_area_m2', $any($event.target).value)"
+      />
+    </label>
+    @if (profile(); as activeProfile) {
+      @for (attribute of activeProfile.attributes; track attribute.code) {
+        @if (attribute.filter_candidate) {
+          <label
+            >{{ attribute.label }}
+            @if (attribute.type === 'boolean') {
+              <select
+                [value]="attributeValue(attribute.code)"
+                (change)="
+                  setAttribute(
+                    attribute.code,
+                    $any($event.target).value === '' ? '' : $any($event.target).value === 'true'
+                  )
+                "
+              >
+                <option value="">Cualquiera</option>
+                <option value="true">Sí</option>
+                <option value="false">No</option>
+              </select>
+            } @else if (attribute.type === 'enum' || attribute.type === 'enum_list') {
+              <select
+                [value]="attributeValue(attribute.code)"
+                (change)="setAttribute(attribute.code, $any($event.target).value)"
+              >
+                <option value="">Cualquiera</option>
+                @for (option of attribute.options ?? []; track option) {
+                  <option [value]="option">{{ option }}</option>
+                }
+              </select>
+            } @else {
+              <input
+                type="text"
+                inputmode="decimal"
+                [value]="attributeValue(attribute.code)"
+                (input)="setAttribute(attribute.code, $any($event.target).value)"
+              />
+            }
+          </label>
+        }
+      }
+    }
+    <fieldset class="price-filter wide">
+      <legend>Total estimado (CLP)</legend>
+      <p>El intervalo común se interpreta en UTC; el selector del espacio usa su zona IANA.</p>
+      <label
+        >Desde UTC
+        <input
+          type="datetime-local"
+          [value]="filters().start_local_utc"
+          (input)="updateFilter('start_local_utc', $any($event.target).value)"
+      /></label>
+      <label
+        >Hasta UTC
+        <input
+          type="datetime-local"
+          [value]="filters().end_local_utc"
+          (input)="updateFilter('end_local_utc', $any($event.target).value)"
+      /></label>
+      <label
+        >Mínimo
+        <input
+          type="text"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          [value]="filters().min_total_clp"
+          (input)="updateFilter('min_total_clp', $any($event.target).value)"
+      /></label>
+      <label
+        >Máximo
+        <input
+          type="text"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          [value]="filters().max_total_clp"
+          (input)="updateFilter('max_total_clp', $any($event.target).value)"
+      /></label>
+    </fieldset>
+    <fieldset class="proximity-filter wide">
+      <legend>Proximidad</legend>
+      <p>
+        Go filtra por radio y devuelve distancia directa aproximada. El plano usa posiciones
+        sintéticas, sin calles ni marcadores geográficos.
+      </p>
+      <label
+        >Latitud del centro
+        <input
+          type="number"
+          min="-90"
+          max="90"
+          step="any"
+          [value]="filters().latitude"
+          (input)="updateFilter('latitude', $any($event.target).value)"
+        />
+      </label>
+      <label
+        >Longitud del centro
+        <input
+          type="number"
+          min="-180"
+          max="180"
+          step="any"
+          [value]="filters().longitude"
+          (input)="updateFilter('longitude', $any($event.target).value)"
+        />
+      </label>
+      <label
+        >Radio
+        <select
+          [value]="filters().radius_km"
+          (change)="updateFilter('radius_km', $any($event.target).value)"
+        >
+          <option value="">Sin filtro</option>
+          <option value="1">1 km</option>
+          <option value="3">3 km</option>
+          <option value="5">5 km</option>
+          <option value="10">10 km</option>
+          <option value="25">25 km</option>
+        </select>
+      </label>
+    </fieldset>
+    <div class="filter-actions wide">
+      <button class="button" type="submit" [disabled]="busy()">
+        {{ busy() ? 'Buscando…' : 'Buscar espacios' }}
+      </button>
+      <button
+        class="button button-secondary"
+        type="button"
+        (click)="clearFilters()"
+        [disabled]="busy()"
+      >
+        Limpiar filtros
+      </button>
+      <button
+        class="text-button"
+        type="button"
+        (click)="toggleMap()"
+        [attr.aria-pressed]="mapView()"
+      >
+        {{ mapView() ? 'Ver lista' : 'Ver plano sintético' }}
+      </button>
+    </div>
+  </form>
+
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+  @if (busy() && !items().length) {
+    <p class="status" role="status">Consultando disponibilidad con Go…</p>
+  }
+  @if (!busy() && !error() && !items().length) {
+    <p class="empty" role="status">Aplica filtros y busca espacios disponibles.</p>
+  }
+
+  @if (mapView() && items().length) {
+    <section class="synthetic-map" aria-label="Plano sintético de resultados">
+      <p>Plano sintético de esta página · sin calles ni coordenadas geográficas</p>
+      @for (item of items(); track item.space_id; let index = $index) {
+        @if (item.map_position; as point) {
+          <a
+            class="map-pin"
+            [style.left.%]="point.x"
+            [style.top.%]="point.y"
+            [routerLink]="['/espacios', item.space_id]"
+            [attr.aria-label]="item.title"
+            >{{ index + 1 }}</a
+          >
+        }
+      }
+    </section>
+  } @else if (items().length) {
+    <section class="results" aria-label="Resultados de espacios">
+      @for (item of items(); track item.space_id; let index = $index) {
+        <article class="space-card panel">
+          <div class="space-art" aria-hidden="true">
+            <span>{{ item.category_name }}</span
+            ><b>0{{ index + 1 }}</b>
+          </div>
+          <div class="space-summary">
+            <p class="eyebrow">{{ item.category_name }} · {{ item.area_m2 }} m²</p>
+            <h2>
+              <a [routerLink]="['/espacios', item.space_id]">{{ item.title }}</a>
+            </h2>
+            <p>{{ item.description }}</p>
+            @if (item.attributes | keyvalue; as attributes) {
+              @if (attributes.length > 0) {
+                <p class="attributes">
+                  @for (attribute of attributes; track attribute.key) {
+                    <span
+                      >{{ attributeLabel(attribute.key) }}:
+                      {{ displayValue(attribute.value) }}</span
+                    >
+                  }
+                </p>
+              }
+            }
+            <div class="price-row">
+              <strong>{{ price(item.base_price_clp) }} / {{ item.rate_unit }}</strong>
+              @if (item.estimated_total_clp !== undefined) {
+                <span>Total estimado: {{ price(item.estimated_total_clp) }}</span>
+              }
+            </div>
+            @if (item.distance_km !== undefined) {
+              <small>Distancia directa aproximada: {{ item.distance_km }} km; no es ruta.</small>
+            }
+            <a class="card-link" [routerLink]="['/espacios', item.space_id]"
+              >Ver detalle y horarios <span aria-hidden="true">↗</span></a
+            >
+          </div>
+        </article>
+      }
+    </section>
+  }
+  @if (nextCursor()) {
+    <button class="button more" type="button" [disabled]="busy()" (click)="loadMore()">
+      {{ busy() ? 'Cargando…' : 'Ver más resultados' }}
+    </button>
+  }
+</main>
