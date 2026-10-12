@@ -17,8 +17,8 @@ Fecha: 2026-10-11. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | --- | ---: | --- |
 | Compatibilidad | 1 | No requiere pantalla directa |
 | FE-02 | 10 | Aprobado y fusionado; PR #275 |
-| FE-03 | 7 | Implementado; PR en revisión |
-| FE-04 | 13 | Pendiente |
+| FE-03 | 7 | Aceptado y fusionado; PR #276 |
+| FE-04 | 13 | Implementado; PR en revisión |
 | FE-05 | 10 | Pendiente |
 | FE-06 | 26 | Pendiente |
 | FE-07 | 8 | Pendiente |
@@ -50,19 +50,19 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `POST /auth/password/recovery` | `requestPasswordRecovery` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
 | `POST /auth/password/recovery/consume` | `consumePasswordRecovery` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
 | `POST /auth/password/change` | `changePassword` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
-| `GET /profile` | `getOwnProfile` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
-| `PUT /profile` | `updateOwnProfile` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
-| `GET /profile/photo` | `getOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
-| `PUT /profile/photo` | `generateOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
-| `DELETE /profile/photo` | `removeOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
-| `GET /profile/photo/content` | `getOwnSyntheticProfilePhotoContent` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
-| `GET /payout-account` | `getOwnSyntheticPayoutAccount` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
-| `PUT /payout-account` | `createOrReplaceOwnSyntheticPayoutAccount` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
-| `DELETE /payout-account` | `revokeOwnSyntheticPayoutAccount` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
-| `GET /rights-requests` | `listOwnRightsRequests` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
-| `POST /rights-requests` | `requestDataRight` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Pendiente |
-| `GET /privacy/export` | `exportOwnIdentityData` | Bearer; permisos en Go | FE-04 — Exportación del titular | Pendiente |
-| `GET /privacy/export/archive` | `downloadCompleteOwnDataArchive` | Bearer; permisos en Go | FE-04 — Exportación del titular | Pendiente |
+| `GET /profile` | `getOwnProfile` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
+| `PUT /profile` | `updateOwnProfile` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
+| `GET /profile/photo` | `getOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
+| `PUT /profile/photo` | `generateOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
+| `DELETE /profile/photo` | `removeOwnSyntheticProfilePhoto` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
+| `GET /profile/photo/content` | `getOwnSyntheticProfilePhotoContent` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
+| `GET /payout-account` | `getOwnSyntheticPayoutAccount` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
+| `PUT /payout-account` | `createOrReplaceOwnSyntheticPayoutAccount` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
+| `DELETE /payout-account` | `revokeOwnSyntheticPayoutAccount` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
+| `GET /rights-requests` | `listOwnRightsRequests` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
+| `POST /rights-requests` | `requestDataRight` | Bearer; permisos en Go | FE-04 — Cuenta y privacidad | Implementado; PR en revisión |
+| `GET /privacy/export` | `exportOwnIdentityData` | Bearer; permisos en Go | FE-04 — Exportación del titular | Implementado; PR en revisión |
+| `GET /privacy/export/archive` | `downloadCompleteOwnDataArchive` | Bearer; permisos en Go | FE-04 — Exportación del titular | Implementado; PR en revisión |
 | `POST /privacy/suppression-requests/{request_id}/review` | `reviewLocalSuppressionBlockers` | Bearer; permisos en Go | FE-11 — Administración de privacidad; operación explícita | Pendiente |
 | `POST /privacy/suppression-requests/{request_id}/execute` | `executeLocalSyntheticSuppression` | Bearer; permisos en Go | FE-11 — Administración de privacidad; operación explícita | Pendiente |
 | `POST /privacy/retention/purge` | `purgeExpiredLocalPrivacyData` | Bearer; permisos en Go | FE-11 — Administración de privacidad; operación explícita | Pendiente |
@@ -88,9 +88,9 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `POST /admin/verifications/{id}/revoke` | `revokeSyntheticEligibility` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `POST /auth/login` | `login` | Sin Bearer declarado; reglas en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
 | `GET /auth/session` | `currentSession` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
-| `GET /spaces/categories` | `listSpaceCategories` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado en FE-03; PR en revisión |
-| `GET /spaces/categories/{categoryCode}/attributes` | `getSpaceAttributeProfile` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado en FE-03; PR en revisión |
-| `GET /spaces/categories/{categoryCode}/attributes/{version}` | `getVersionedSpaceAttributeProfile` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado en FE-03; PR en revisión |
+| `GET /spaces/categories` | `listSpaceCategories` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado; aceptado y fusionado en PR #276 |
+| `GET /spaces/categories/{categoryCode}/attributes` | `getSpaceAttributeProfile` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado; aceptado y fusionado en PR #276 |
+| `GET /spaces/categories/{categoryCode}/attributes/{version}` | `getVersionedSpaceAttributeProfile` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado; aceptado y fusionado en PR #276 |
 | `GET /spaces` | `listOwnSpaces` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Pendiente |
 | `POST /spaces` | `createOwnSpaceDraft` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Pendiente |
 | `GET /spaces/{spaceId}` | `getOwnSpaceDraft` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Pendiente |
@@ -116,12 +116,12 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /spaces/{spaceId}/availability/timezone` | `getOwnDraftTimeZone` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Pendiente |
 | `DELETE /spaces/{spaceId}/availability/blocks/{blockId}` | `deleteOwnDraftManualBlock` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Pendiente |
 | `GET /local/booking-trial/fixture` | `getAuthorizedLocalBookingFixture` | Bearer; permisos en Go | Compatibilidad — Sustituida en UI por catálogo/detalle; conservar API | Sin UI directa justificada |
-| `GET /local/booking-trial/catalog` | `searchAuthorizedLocalSyntheticCatalog` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Implementado en FE-03; PR en revisión |
-| `GET /local/booking-trial/catalog/{spaceId}` | `getAuthorizedLocalSyntheticCatalogDetail` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Implementado en FE-03; PR en revisión |
-| `GET /local/booking-trial/catalog/{spaceId}/availability-options` | `getAuthorizedLocalFixtureAvailabilityOptions` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Implementado en FE-03; PR en revisión |
+| `GET /local/booking-trial/catalog` | `searchAuthorizedLocalSyntheticCatalog` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Implementado; aceptado y fusionado en PR #276 |
+| `GET /local/booking-trial/catalog/{spaceId}` | `getAuthorizedLocalSyntheticCatalogDetail` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Implementado; aceptado y fusionado en PR #276 |
+| `GET /local/booking-trial/catalog/{spaceId}/availability-options` | `getAuthorizedLocalFixtureAvailabilityOptions` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Implementado; aceptado y fusionado en PR #276 |
 | `GET /local/booking-trial/catalog/{spaceId}/weekly-hours` | `getOwnSyntheticHourlyWeeklyHours` | Bearer; permisos en Go | FE-06 — Horario semanal propio | Pendiente |
 | `PUT /local/booking-trial/catalog/{spaceId}/weekly-hours` | `replaceOwnSyntheticHourlyWeeklyHours` | Bearer; permisos en Go | FE-06 — Horario semanal propio | Pendiente |
-| `POST /local/booking-trial/quotes` | `quoteAuthorizedLocalBooking` | Bearer; permisos en Go | FE-03 — Cotización confirmada por Go | Implementado en FE-03; PR en revisión |
+| `POST /local/booking-trial/quotes` | `quoteAuthorizedLocalBooking` | Bearer; permisos en Go | FE-03 — Cotización confirmada por Go | Implementado; aceptado y fusionado en PR #276 |
 | `GET /local/booking-trial/reservations` | `listOwnLocalTrialReservations` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
 | `POST /local/booking-trial/reservations` | `requestLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
 | `GET /local/booking-trial/reservations/{reservationId}` | `getOwnLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
@@ -179,7 +179,7 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /admin/local/damage-claims/{claimID}/evidence/{evidenceID}` | `getAdminLocalDamageClaimEvidence` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Pendiente |
 | `POST /admin/local/damage-claims/{claimID}/resolution` | `resolveLocalSyntheticDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Pendiente |
 
-## Trazabilidad FE-03 — [PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276) en revisión
+## Trazabilidad FE-03 — [PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276) aprobado y fusionado
 
 | Operación | Pantalla / componente | Validación | Evidencia visual |
 | --- | --- | --- | --- |
@@ -190,7 +190,21 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 
 La UI reutiliza `M04Local` y sus tipos generados para categorías/perfiles. Catálogo, disponibilidad y cotización se leen como texto: los literales de CLP se convierten en cadenas antes de parsear el JSON y se formatean con `BigInt`; filtros CLP viajan como cadenas de consulta. No se aplica `Number` a importes. El Bearer se adjunta en memoria por solicitud, no se registra y no pasa por URL. Go sigue siendo autoridad para roles, permisos, disponibilidad, zona IANA, horarios y snapshot de cotización. El mapa solo representa `x/y` normalizados y está rotulado como sintético.
 
-**Validación:** 41 pruebas Angular, `api:check`, build/prerender y prueba M05/M06 Go contra PostgreSQL temporal en `tmpfs`; cuenta y datos sintéticos. Incluye errores 401/403/404/409/422, permiso de arrendatario, DST, cotización y aislamiento de sesión. Sin pruebas destructivas en el volumen persistente, sin proveedores reales y con el mock conservado. FE-04 no inicia hasta que FE-03 sea aprobado y fusionado.
+**Validación:** 41 pruebas Angular, `api:check`, build/prerender y prueba M05/M06 Go contra PostgreSQL temporal en `tmpfs`; cuenta y datos sintéticos. Incluye errores 401/403/404/409/422, permiso de arrendatario, DST, cotización y aislamiento de sesión. Sin pruebas destructivas en el volumen persistente, sin proveedores reales y con el mock conservado. FE-03 fue aceptado y fusionado; FE-04 comienza a continuación.
+
+## Trazabilidad FE-04 — cuenta y privacidad (en revisión)
+
+| Operación Go | Pantalla / comportamiento | Validación | Evidencia visual |
+| --- | --- | --- | --- |
+| `GET/PUT /profile` | `/mi-cuenta`: ver y actualizar nombre/teléfono del titular; el 404 de perfil muestra estado vacío y habilita creación por PUT | SDK OpenAPI generado y prueba de componente/sesión: cuenta nueva → 404 → creación → estado confirmado; solicitudes y exportaciones siguen disponibles | [Escritorio](evidencia/FE04_cuenta_escritorio.png) · [móvil](evidencia/FE04_cuenta_movil.png) |
+| `GET/PUT/DELETE /profile/photo`, `GET /profile/photo/content` | Foto sintética privada: metadatos, contenido autenticado, generar y retirar | Sin campos de subida; contenido mediante Blob autenticado; URLs revocadas al cerrar sesión, cambiar recurso y destruir vista; vacío/retirado no reconstruye datos | [Escritorio](evidencia/FE04_cuenta_escritorio.png) · [móvil](evidencia/FE04_cuenta_movil.png) |
+| `GET/PUT/DELETE /payout-account` | Referencia fake de cuenta de cobro, sujeta a elegibilidad Go | No acepta datos bancarios; idempotencia y Bearer comprobados; Go valida elegibilidad | [Escritorio](evidencia/FE04_cuenta_escritorio.png) |
+| `GET/POST /rights-requests` | Solicitudes de acceso y supresión con estado devuelto por Go | Titular autorizado y aislamiento; supresión queda como solicitud revisable, no borrado inmediato | [Escritorio](evidencia/FE04_cuenta_escritorio.png) · [móvil](evidencia/FE04_cuenta_movil.png) |
+| `GET /privacy/export`, `GET /privacy/export/archive` | Descargar JSON propio y archivo ZIP completo | Angular: JSON/ZIP Blob y cabecera PK; Go con PostgreSQL temporal: contenidos, scope del titular, foto/ref fake presentes y credenciales/otra cuenta excluidas | [Escritorio](evidencia/FE04_cuenta_escritorio.png) |
+
+**Validación:** 55 pruebas Angular en 13 archivos; `api:check`; build/prerender. Pruebas de componente con IdentitySession real cubren el perfil 404 y alta, guardado concurrente con solicitud/foto, GET de perfil obsoleto que termina después del PUT confirmado y la publicación/descarto del aviso de foto según recarga, sesión y destrucción de vista. El GET obsoleto no cancela la recarga ni bloquea acciones; solo no aplica perfil/nombre/teléfono viejos. Pruebas Go enfocadas de foto sintética/cuenta fake, autorización por titular, aislamiento de dos cuentas y exportaciones con PostgreSQL temporal y Mailpit desechable. Se mantienen casos de Bearer vigente 401 (limpia estado), 401 tardío de A después de B (no expira B), logout/login, respuestas tardías, limpieza de Blob URLs, descarga/estructura JSON y ZIP. Capturas marcadas con respuestas/API sintéticas.
+
+**Límite de automatización:** no se automatizó el selector/diálogo del sistema de archivos del navegador para comprobar escritura física de la descarga. Angular inspecciona el Blob de descarga (incluida firma ZIP) y la prueba Go abre/verifica el ZIP y sus contenidos; el clic de descarga se comprueba en componente. El mock se conserva y Go no se modifica.
 
 ## Trazabilidad FE-02 — [PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275) aprobado y fusionado
 
