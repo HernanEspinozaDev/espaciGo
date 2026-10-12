@@ -34,7 +34,7 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 
 | Método y ruta relativa a `/api/v1` | operationId | Acceso declarado | Corte / pantalla | Estado |
 | --- | --- | --- | --- | --- |
-| `GET /spaces/{spaceID}/reviews` | `listActiveSpaceReviews` | Sin Bearer declarado; reglas en Go | FE-09 — Reseñas visibles autorizadas | Implementado; fixture no activo devuelve 404 |
+| `GET /spaces/{spaceID}/reviews` | `listActiveSpaceReviews` | Sin Bearer declarado; reglas en Go | FE-09 — Reseñas visibles autorizadas | Implementado; espacio activo Go HTTP 200, 1 reseña |
 | `GET /local/booking-trial/reservations/{reservationID}/reviews` | `listReservationReviews` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Implementado; stack Go + regresión Angular |
 | `POST /local/booking-trial/reservations/{reservationID}/reviews` | `createReservationReview` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Implementado; anfitrión y arrendatario |
 | `POST /local/booking-trial/reservations/{reservationID}/reviews/{reviewID}/report` | `reportSpaceReview` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Implementado; reporte host confirmado |
@@ -139,7 +139,7 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /local/booking-trial/reservations/{reservationId}/cancellation-preview` | `previewLocalTrialReservationCancellation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
 | `POST /local/booking-trial/reservations/{reservationId}/cancel` | `cancelLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
 | `POST /local/booking-trial/reservations/{reservationId}/refund` | `simulateLocalTrialRefund` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
-| `GET /local/booking-trial/reservations/{reservationId}/messages` | `listOwnLocalReservationMessages` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Implementado; 37 mensajes, páginas 30 + anteriores y tercero denegado |
+| `GET /local/booking-trial/reservations/{reservationId}/messages` | `listOwnLocalReservationMessages` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Implementado; 38 mensajes, páginas 30 + anteriores y tercero denegado |
 | `POST /local/booking-trial/reservations/{reservationId}/messages` | `sendOwnLocalReservationMessage` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Implementado; estado editable y terminal denegado por Go |
 | `POST /local/booking-trial/reservations/{reservationId}/messages/read` | `advanceOwnLocalReservationMessageReadCursor` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Implementado; cursor y contador confirmados por Go |
 | `GET /local/booking-trial/reservations/{reservation_id}/disputes` | `listOwnReservationTrialDisputes` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Pendiente |
@@ -303,12 +303,12 @@ Todas las operaciones de interfaz deben estar implementadas y verificadas en Ang
 
 | Operación | Interfaz | Evidencia de comportamiento |
 | --- | --- | --- |
-| Páginas, envío y lectura de mensajes | Conversación dentro de reserva | Stack Go: dos participantes, 37 mensajes, página inicial 30 + cursor anterior; tercero denegado; texto terminal legible y envío terminal HTTP 409 |
+| Páginas, envío y lectura de mensajes | Conversación dentro de reserva | Stack Go: dos participantes, 38 mensajes, página inicial 30 + cursor anterior; tercero denegado; texto terminal legible y envío terminal HTTP 409 |
 | Contador no leído | Bandeja y panel | Go incrementó y limpió contador por cursor; las pruebas evitan aplicarlo tras cambio de sesión/reserva |
 | Reseña de reserva y reporte | Detalle de reserva | Ambos participantes pudieron reseñar; host reportó reseña y Go la marcó reportada |
-| Reseñas públicas y reputación propia | Detalle/cuenta | Go devolvió reputación propia; reseña pública 404 por fixture no activo, pendiente evidencia con espacio publicado activo |
+| Reseñas públicas y reputación propia | Detalle/cuenta | Se activó publicación propia con Go; `GET /spaces/{spaceID}/reviews` HTTP 200 con una reseña; reputación consultada por el titular |
 
-Pruebas Angular: 138 en 24 archivos; regresiones de sesión/401 tardío, respuestas fuera de orden, paginación, terminal solo lectura, texto como texto, lectura tras render e idempotencia. `api:check` y `build` con prerender de 3 rutas pasan. La inspección visual autenticada móvil/escritorio no se pudo realizar: el navegador integrado bloqueó localhost/127.0.0.1 y no resolvió `host.docker.internal`; se deja pendiente captura real en un navegador que alcance el host.
+Pruebas Angular: 141 en 24 archivos; regresiones de sesión/401 tardío, respuestas fuera de orden, paginación concurrente con refresh y éxito/error obsoleto, terminal solo lectura, texto como texto, lectura tras render, clic DOM de reintento idempotente con formulario limpio y resumen público actualizado después de reseña con descarte de lectura anterior. `api:check` y `build` con prerender de 3 rutas pasan. Se comprobó la reseña pública de un espacio activo contra Go (HTTP 200, 1 elemento). La inspección visual autenticada móvil/escritorio sigue bloqueada: el navegador integrado rechazó `localhost`, `127.0.0.1` y `192.168.1.9` con `ERR_BLOCKED_BY_CLIENT`; `host.docker.internal` no resolvió. No se adjuntan capturas porque no se pudo cargar la aplicación en esa superficie.
 
 FE-10 permanece pendiente hasta que FE-09 sea aprobado y fusionado.
 

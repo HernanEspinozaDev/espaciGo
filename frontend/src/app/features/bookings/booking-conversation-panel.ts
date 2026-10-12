@@ -37,7 +37,7 @@ const REPORT_REASONS: Array<{ value: ReportReason; label: string }> = [
         <label for="message-body">Nuevo mensaje</label>
         <textarea id="message-body" [value]="body()" (input)="body.set($any($event.target).value)" rows="3" maxlength="2000" aria-describedby="message-help"></textarea>
         <p id="message-help" class="hint">Hasta 2.000 caracteres. No incluyas datos sensibles.</p>
-        <button class="button" type="button" [disabled]="sending() || !body().trim()" (click)="send()">{{ sending() ? 'Enviando…' : sendAttempt() ? 'Reintentar mensaje original' : 'Enviar mensaje' }}</button>
+        <button class="button" type="button" [disabled]="sending() || (!sendAttempt() && !body().trim())" (click)="send()">{{ sending() ? 'Enviando…' : sendAttempt() ? 'Reintentar mensaje original' : 'Enviar mensaje' }}</button>
       } @else {
         <p class="readonly" role="note">Esta reserva está en modo de solo lectura. Go conserva el acceso al historial.</p>
       }
@@ -122,6 +122,7 @@ export class BookingConversationPanel {
   private reservationId = '';
   private generation = 0;
   private messageRevision = 0;
+  private spaceReviewRevision = 0;
   private reviewRevision = 0;
   private unreadRevision = 0;
   private destroyed = false;
@@ -157,14 +158,14 @@ export class BookingConversationPanel {
   protected readonly REVIEW_STATES = REVIEW_STATES;
 
   constructor() {
-    this.destroyRef.onDestroy(() => { this.destroyed = true; this.generation++; this.messageRevision++; this.reviewRevision++; this.unregister(); });
+    this.destroyRef.onDestroy(() => { this.destroyed = true; this.generation++; this.messageRevision++; this.reviewRevision++; this.spaceReviewRevision++; this.unregister(); });
     effect(() => {
       const item = this.reservation();
       const token = this.identity.accessToken();
       const account = this.identity.session()?.account_id ?? null;
       if (token !== this.token || account !== this.owner || item.id !== this.reservationId) {
         this.token = token; this.owner = account; this.reservationId = item.id;
-        this.generation++; this.messageRevision++; this.reviewRevision++; this.clearPrivate();
+        this.generation++; this.messageRevision++; this.reviewRevision++; this.spaceReviewRevision++; this.clearPrivate();
         const context = this.context();
         if (context && this.isParticipant()) {
           void this.loadRecent(context);
@@ -180,6 +181,8 @@ export class BookingConversationPanel {
   protected async loadRecent(context = this.context()): Promise<void> {
     if (!context || !this.isParticipant()) return;
     const revision = ++this.messageRevision;
+    // A refresh supersedes any previous pagination operation and releases its control.
+    this.olderLoading.set(false);
     this.loading.set(true); this.error.set('');
     try {
       const result = await this.api.messages(context.token, context.reservationId);
@@ -267,6 +270,7 @@ export class BookingConversationPanel {
       if (!this.current(context)) return;
       this.attempts.settle(scope, attempt.key); this.reviewComment.set(''); this.reviewNotice.set(result.data.reused ? 'Go reutilizó la reseña ya registrada; es inmutable.' : 'Go confirmó la reseña sintética; no se puede editar.');
       await this.loadReviews(context);
+      await this.loadSpaceReviews(context);
     } catch (error) {
       if (this.unauthorized(error, context)) return;
       if (!this.current(context)) return;
@@ -289,6 +293,7 @@ export class BookingConversationPanel {
       if (!this.current(context)) return;
       this.attempts.settle(scope, attempt.key); this.reported.update((items) => ({ ...items, [review.id]: `Reporte ${result.data.state}; Go conserva el promedio hasta la decisión administrativa.` }));
       await this.loadReviews(context);
+      await this.loadSpaceReviews(context);
     } catch (error) {
       if (this.unauthorized(error, context)) return;
       if (!this.current(context)) return;
@@ -311,11 +316,12 @@ export class BookingConversationPanel {
 
   protected async loadSpaceReviews(context = this.context()): Promise<void> {
     if (!context) return;
+    const revision = ++this.spaceReviewRevision;
     try {
       const result = await this.api.spaceReviews(this.reservation().space_id);
-      if (this.current(context)) this.spaceReviews.set(result.data);
+      if (this.current(context) && revision === this.spaceReviewRevision) this.spaceReviews.set(result.data);
     } catch {
-      if (this.current(context)) this.spaceReviews.set(null); // Hidden/inactive publications return 404.
+      if (this.current(context) && revision === this.spaceReviewRevision) this.spaceReviews.set(null); // Hidden/inactive publications return 404.
     }
   }
 

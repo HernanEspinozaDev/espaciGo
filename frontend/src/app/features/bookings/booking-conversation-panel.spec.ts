@@ -22,9 +22,10 @@ const page = (items: LocalReservationMessage[], older_cursor: number | null): Lo
 const deferred = <T>() => { let resolve!: (value: T) => void; let reject!: (error: unknown) => void; const promise = new Promise<T>((ok, fail) => { resolve = ok; reject = fail; }); return { promise, resolve, reject }; };
 const settle = async (fixture: ReturnType<typeof TestBed.createComponent>) => { for (let i = 0; i < 6; i++) await Promise.resolve(); fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges(); };
 type ComponentAccess = {
-  messages(): LocalReservationMessage[]; olderCursor(): number | null; loadOlder(): Promise<void>; send(): Promise<void>;
+  messages(): LocalReservationMessage[]; olderCursor(): number | null; olderLoading(): boolean; loadOlder(): Promise<void>; send(): Promise<void>;
   body: { set(value: string): void; (): string }; reviewComment: { set(value: string): void; (): string };
   writable(): boolean; readThrough(): number; unreadCount(): number; submitReview(): Promise<void>; report(review: LocalReview): Promise<void>;
+  loadSpaceReviews(): Promise<void>; spaceReviews(): { items: LocalReview[]; average: number; count: number } | null;
 };
 
 function setup(apiOverrides: Record<string, ReturnType<typeof vi.fn>> = {}, state = 'lista_para_checkin', unreadCounts = [4, 0, 0]) {
@@ -122,20 +123,53 @@ describe('BookingConversationPanel with real IdentitySession', () => {
     test.fixture.destroy();
   });
 
-  it('retries an uncertain send with its original idempotency key and payload', async () => {
+  it('retries from the real enabled button with the original key and payload after a same-account re-login, without leaking the attempt to another account', async () => {
     const first = deferred<{ safety_notice: string; data: LocalReservationMessage }>();
     const sendMessage = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValueOnce({ safety_notice: 'ENSAYO', data: message(5, 'synthetic original', 'renter-a') });
     const test = setup({ sendMessage });
     await test.identity.signIn('renter@example.invalid', 'synthetic'); await settle(test.fixture);
-    test.panel().body.set('synthetic original'); const pending = test.panel().send(); await Promise.resolve();
+    const composer = test.fixture.nativeElement.querySelector('#message-body') as HTMLTextAreaElement;
+    composer.value = 'synthetic original'; composer.dispatchEvent(new Event('input', { bubbles: true })); test.fixture.detectChanges();
+    const sendButton = () => [...test.fixture.nativeElement.querySelectorAll('button')].find((button) => button.textContent.includes('Enviar mensaje') || button.textContent.includes('Reintentar mensaje original')) as HTMLButtonElement;
+    expect(sendButton().disabled).toBe(false);
+    sendButton().click(); const pending = Promise.resolve(); await Promise.resolve();
     first.reject(new Error('network timeout')); await pending; await settle(test.fixture);
+    await test.identity.signOut(); await test.identity.signIn('host@example.invalid', 'synthetic'); await settle(test.fixture);
+    expect((test.fixture.nativeElement.querySelector('#message-body') as HTMLTextAreaElement).value).toBe('');
+    expect(sendButton().textContent).toContain('Enviar mensaje'); expect(sendButton().disabled).toBe(true);
     await test.identity.signOut(); await test.identity.signIn('renter@example.invalid', 'synthetic'); await settle(test.fixture);
-    test.panel().body.set(''); await test.panel().send(); await settle(test.fixture);
+    expect((test.fixture.nativeElement.querySelector('#message-body') as HTMLTextAreaElement).value).toBe('');
+    expect(sendButton().textContent).toContain('Reintentar mensaje original'); expect(sendButton().disabled).toBe(false);
+    sendButton().click(); await settle(test.fixture);
     expect(sendMessage).toHaveBeenCalledTimes(2);
     expect(sendMessage.mock.calls[0]?.slice(0, 3)).toEqual(sendMessage.mock.calls[1]?.slice(0, 3));
     expect(sendMessage.mock.calls[0]?.[2]).toBe('synthetic original');
     expect(sendMessage.mock.calls[0]?.[3]).toBe(sendMessage.mock.calls[1]?.[3]);
     test.fixture.destroy();
+  });
+
+  it.each(['success', 'error'] as const)('keeps pagination usable after a concurrent refresh and stale older-page %s', async (oldResult) => {
+    const oldPage = deferred<LocalReservationMessagesPageEnvelope>(); const newPage = deferred<LocalReservationMessagesPageEnvelope>();
+    const messages = vi.fn()
+      .mockResolvedValueOnce(page([message(5)], 5))
+      .mockReturnValueOnce(oldPage.promise)
+      .mockResolvedValueOnce(page([message(6)], 6))
+      .mockReturnValueOnce(newPage.promise);
+    const test = setup({ messages }); await test.identity.signIn('renter@example.invalid', 'synthetic'); await settle(test.fixture);
+    const older = () => test.fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    older().click(); await Promise.resolve(); expect(test.panel().olderLoading()).toBe(true);
+    const refresh = [...test.fixture.nativeElement.querySelectorAll('button')].find((button) => button.textContent.includes('Actualizar conversación')) as HTMLButtonElement;
+    refresh.click(); await settle(test.fixture);
+    expect(test.panel().olderLoading()).toBe(false);
+    older().click(); await Promise.resolve(); expect(test.panel().olderLoading()).toBe(true);
+    if (oldResult === 'success') oldPage.resolve(page([message(1), message(2)], null));
+    else oldPage.reject(new Error('old page failed'));
+    await settle(test.fixture); expect(test.panel().olderLoading()).toBe(true);
+    expect(test.panel().messages().map((item) => item.sequence)).toEqual([6]);
+    newPage.resolve(page([message(1), message(2), message(3), message(4), message(5)], null)); await settle(test.fixture);
+    expect(test.panel().olderLoading()).toBe(false);
+    expect(test.panel().messages().map((item) => item.sequence)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(test.panel().olderCursor()).toBeNull(); test.fixture.destroy();
   });
 
   it('lets an eligible participant create one immutable review and still renders its comment as text', async () => {
@@ -154,6 +188,29 @@ describe('BookingConversationPanel with real IdentitySession', () => {
     expect(test.fixture.nativeElement.querySelector('img')).toBeNull();
     expect(test.fixture.nativeElement.textContent).toContain(comment);
     expect(test.fixture.nativeElement.querySelector('#review-comment')).toBeNull();
+    test.fixture.destroy();
+  });
+
+  it('refreshes the Go public space summary after publishing a review and discards an earlier read', async () => {
+    const oldPublicRead = deferred<{ data: { items: LocalReview[]; average: number; count: number }; notice: string }>();
+    let reservationReviews: LocalReview[] = [];
+    const test = setup({
+      spaceReviews: vi.fn().mockReturnValueOnce(oldPublicRead.promise).mockResolvedValueOnce({ data: { items: [], average: 4, count: 1 }, notice: 'ENSAYO' }),
+      createReview: vi.fn(async () => {
+        const saved = { id: 'public-review', target_type: 'espacio', rating: 4, comment: 'review now visible', state: 'publicada', created_at: '2026-10-12T10:00:00Z' } as LocalReview;
+        reservationReviews = [saved]; return { data: saved, notice: 'ENSAYO' };
+      }),
+      reservationReviews: vi.fn(async () => ({ data: { items: reservationReviews }, notice: 'ENSAYO' })),
+    }, 'finalizada');
+    await test.identity.signIn('renter@example.invalid', 'synthetic'); await settle(test.fixture);
+    expect(test.api.spaceReviews).toHaveBeenCalledTimes(1);
+    test.panel().reviewComment.set('review now visible'); await test.panel().submitReview(); await settle(test.fixture);
+    expect(test.api.createReview).toHaveBeenCalledTimes(1);
+    expect(test.api.spaceReviews).toHaveBeenCalledTimes(2);
+    expect(test.panel().spaceReviews()).toMatchObject({ count: 1, average: 4 });
+    oldPublicRead.resolve({ data: { items: [], average: 0, count: 0 }, notice: 'ENSAYO' }); await settle(test.fixture);
+    expect(test.panel().spaceReviews()).toMatchObject({ count: 1, average: 4 });
+    expect(test.fixture.nativeElement.textContent).toContain('Promedio 4/5 · 1 reseña(s).');
     test.fixture.destroy();
   });
 
