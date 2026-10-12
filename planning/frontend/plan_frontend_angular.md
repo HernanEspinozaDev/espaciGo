@@ -1,6 +1,6 @@
 # Plan completo del frontend Angular — FRONTEND-LOCAL-1
 
-Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 aprobado y fusionado en PR #283 (merge `503d19359e94c9f187bb955047c150aef8b97507`). FE-09 aprobado y fusionado en PR #284 (merge `0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 aprobado y fusionado en PR #285 (merge `39514662c9002d3c50bdbe7244813c57d13c2b38`); FE-11 está en implementación en la rama `codex/frontend-local-1-fe11-admin`; FE-12–FE-15 siguen pendientes.
+Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 aprobado y fusionado en PR #283 (merge `503d19359e94c9f187bb955047c150aef8b97507`). FE-09 aprobado y fusionado en PR #284 (merge `0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 aprobado y fusionado en PR #285 (merge `39514662c9002d3c50bdbe7244813c57d13c2b38`); FE-11 está en revisión en PR #286, rama `codex/frontend-local-1-fe11-admin`; FE-12–FE-15 siguen pendientes.
 
 ## 1. Objetivo y condición de cierre
 
@@ -261,11 +261,11 @@ Bearer permanece en memoria. Respuestas tardías se descartan por identidad, tok
 
 **Evidencia visual:** [recorrido escritorio](evidencia/FE08_flujo_angular_go_escritorio.png) y [recorrido compacto](evidencia/FE08_flujo_angular_go_movil.png), capturas de página completa con detalle y estados confirmados por Go. El viewport compacto efectivo fue 500×758 CSS px (488 px de contenido, sin desbordamiento horizontal); el Firefox Snap del host impone 500 px como ancho mínimo, por lo que no se pudo medir 390 px. La sesión de las capturas se obtuvo de Go y se inyectó solo en memoria en el navegador de prueba; el formulario de login visual no forma parte de esta evidencia. La descarga privada se comprobó en la respuesta Go y en la acción Angular; el navegador no expone una aserción automatizada del archivo guardado por el sistema operativo.
 
-FE-08 queda aceptado. FE-09 aprobado y fusionado en PR #284 (`0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 inicia desde `main` actualizado y FE-11 queda pendiente hasta aprobación/fusión de FE-10.
+FE-08 queda aceptado. FE-09 aprobado y fusionado en PR #284 (`0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 aprobado y fusionado en PR #285; FE-11 continúa en revisión en PR #286.
 
 ## FE-09 — Conversación, lectura, reseñas y reportes (aceptado y fusionado)
 
-**Estado:** aprobado y fusionado en [PR #284](https://github.com/HernanEspinozaDev/espaciGo/pull/284), merge `0d3bac8a06457899239a49274b54ad6807846f42`, rama `codex/frontend-local-1-fe09-conversation`. FE-10 inicia desde `main` actualizado; FE-11 espera aprobación y fusión de FE-10.
+**Estado:** aprobado y fusionado en [PR #284](https://github.com/HernanEspinozaDev/espaciGo/pull/284), merge `0d3bac8a06457899239a49274b54ad6807846f42`, rama `codex/frontend-local-1-fe09-conversation`. FE-10 aprobado y fusionado en PR #285; FE-11 continúa en revisión en PR #286.
 
 El detalle de reserva integra `BookingConversationPanel` y `BookingCommunicationApi`. Usa operaciones Go para páginas de mensajes, envío, cursor de lectura, contador de no leídos, reseñas de reserva, reporte de reseñas, reseñas públicas de espacios y reputación propia. El mensaje se renderiza como texto. Solo los estados editables autorizados por Go permiten enviar; los terminales quedan en modo de lectura. La UI no concede permisos ni altera estados.
 
