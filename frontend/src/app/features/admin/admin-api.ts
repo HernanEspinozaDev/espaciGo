@@ -1,5 +1,5 @@
 import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { client } from '../../../generated/api/client.gen';
 import { ApiRuntimeConfig } from '../../core/api-runtime-config';
@@ -21,6 +21,8 @@ export class AdminApi {
   private readonly http = inject(HttpClient);
   private readonly runtime = inject(ApiRuntimeConfig);
   private readonly attempts = new Map<string, Attempt>();
+  readonly permissionDeniedRevision = signal(0);
+  readonly capabilitiesRevision = signal(0);
 
   async get<T>(token: string, path: string, query?: Record<string, string | number | undefined>): Promise<T> {
     return this.request<T>(token, path, 'GET', undefined, query);
@@ -35,13 +37,13 @@ export class AdminApi {
   ): Promise<T> {
     const attemptId = idempotencyScope ? `${accountId}:${idempotencyScope}` : undefined;
     const saved = attemptId ? this.attempts.get(attemptId) : undefined;
-    if (saved && stableJson(saved.body) !== stableJson(body)) {
+    if (saved && !sameRetryIntent(saved.body, body)) {
       throw new AdminApiError('Hay un intento incierto. Reintenta sin cambiar sus datos.', 409);
     }
     const attempt = saved ?? (attemptId ? { key: crypto.randomUUID(), body } : undefined);
     if (attemptId && attempt) this.attempts.set(attemptId, attempt);
     try {
-      const result = await this.request<T>(token, path, 'POST', attempt?.body ?? body, undefined, attempt?.key);
+      const result = await this.request<T>(token, path, 'POST', attempt ? attempt.body : body, undefined, attempt?.key);
       if (attemptId && attempt && this.attempts.get(attemptId) === attempt) this.attempts.delete(attemptId);
       return result;
     } catch (error) {
@@ -67,8 +69,13 @@ export class AdminApi {
     } catch (error) {
       const status = error instanceof HttpErrorResponse ? error.status : 0;
       if (status === 401) this.identity.expireIfCurrent(token);
+      if (status === 403) this.refreshCapabilities(token);
       throw new AdminApiError(status === 403 ? 'Go negó el acceso a la evidencia.' : `Go respondió HTTP ${status || 'sin conexión'}.`, status);
     }
+  }
+
+  handleForbidden(token: string): void {
+    this.refreshCapabilities(token);
   }
 
   private async request<T>(
@@ -92,12 +99,23 @@ export class AdminApi {
     if ('error' in result && result.error !== undefined) {
       const status = result.response?.status ?? 0;
       if (status === 401) this.identity.expireIfCurrent(token);
+      if (status === 403) this.refreshCapabilities(token);
       const message = status === 403
         ? 'Go confirmó que esta cuenta no tiene permiso de administración.'
         : `Go respondió HTTP ${status || 'sin conexión'}.`;
       throw new AdminApiError(message, status);
     }
     return result.data as T;
+  }
+
+  private refreshCapabilities(token: string): void {
+    if (token !== this.identity.accessToken()) return;
+    this.permissionDeniedRevision.update((revision) => revision + 1);
+    void this.identity.refreshSessionIfCurrent(token).catch(() => undefined).finally(() => {
+      if (token === this.identity.accessToken()) {
+        this.capabilitiesRevision.update((revision) => revision + 1);
+      }
+    });
   }
 }
 
@@ -106,4 +124,18 @@ function stableJson(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(',')}}`;
+}
+
+function sameRetryIntent(original: unknown, retry: unknown): boolean {
+  if (stableJson(original) === stableJson(retry)) return true;
+  if (!isRecord(original) || !isRecord(retry)) return false;
+  const withoutCorrelation = (value: Record<string, unknown>) => {
+    const { correlation_id: _correlationId, ...intent } = value;
+    return intent;
+  };
+  return stableJson(withoutCorrelation(original)) === stableJson(withoutCorrelation(retry));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }

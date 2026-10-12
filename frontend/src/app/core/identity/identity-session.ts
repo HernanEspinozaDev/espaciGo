@@ -67,6 +67,26 @@ export class IdentitySession {
     }
   }
 
+  /** Refresh Go-confirmed roles/capabilities without replacing a still-valid bearer. */
+  async refreshSessionIfCurrent(token: string): Promise<SessionResponse | null> {
+    if (!token || token !== this.accessToken()) return null;
+    const generation = this.generation;
+    const accountId = this.session()?.account_id;
+    try {
+      const confirmed = await this.api.session(token);
+      if (generation !== this.generation || token !== this.accessToken()) return null;
+      if (accountId && confirmed.account_id !== accountId) return null;
+      this.session.set(confirmed);
+      this.status.set('authenticated');
+      return confirmed;
+    } catch (error) {
+      if (generation === this.generation && token === this.accessToken() && isUnauthorized(error)) {
+        this.expireIfCurrent(token);
+      }
+      throw error;
+    }
+  }
+
   async consumeRecovery(
     tokenId: string,
     recoveryToken: string,

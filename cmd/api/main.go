@@ -290,6 +290,8 @@ func run() error {
 			}
 			reputationHandler := reputationhttp.NewHandler(service, reputationService, cfg.allowedOrigins)
 			mux.Handle("GET /api/v1/spaces/{spaceID}/reviews", reputationHandler)
+			mux.Handle("/api/v1/admin/local/review-reports", reputationHandler)
+			mux.Handle("/api/v1/admin/local/review-reports/", reputationHandler)
 			registerReputationReservationRoutes(mux, reputationHandler)
 			mux.Handle("GET /api/v1/local/reputation/me", reputationHandler)
 			localNoticeService, err = localnotice.New(localnoticepg.New(pool), devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}, time.Now)

@@ -1,6 +1,7 @@
 import { Component, DestroyRef, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Meta } from '@angular/platform-browser';
+import { Router } from '@angular/router';
 import { IdentitySession } from '../../core/identity/identity-session';
 import { AdminApi } from './admin-api';
 import { FinanceApi, FinanceApiError } from '../finance/finance-api';
@@ -27,11 +28,15 @@ export class AdminPage {
   private readonly api = inject(AdminApi);
   private readonly financeApi = inject(FinanceApi);
   private readonly identity = inject(IdentitySession);
+  private readonly router = inject(Router);
   private readonly meta = inject(Meta);
   private readonly destroyRef = inject(DestroyRef);
   private requestRevision = 0;
   private evidenceRevision = 0;
   private previousIdentity = '';
+  private previousPermissionRevision = 0;
+  private previousCapabilitiesRevision = 0;
+  private auditRange: { from: string; until: string } | null = null;
   private verificationRejected = false;
 
   protected readonly sections = sections;
@@ -67,18 +72,24 @@ export class AdminPage {
       this.meta.removeTag("name='robots'");
     });
     effect(() => {
+      const deniedRevision = this.api.permissionDeniedRevision();
+      const capabilitiesRevision = this.api.capabilitiesRevision();
+      if (deniedRevision !== this.previousPermissionRevision) {
+        this.previousPermissionRevision = deniedRevision;
+        this.clearAdminControls();
+        this.error.set('Go rechazó el acceso. Se limpiaron los controles y se están revalidando tus permisos.');
+      }
+      if (capabilitiesRevision !== this.previousCapabilitiesRevision) {
+        this.previousCapabilitiesRevision = capabilitiesRevision;
+        if (!this.identity.session()?.roles.includes('administrador')) void this.router.navigateByUrl('/mi-cuenta');
+      }
       const token = this.identity.accessToken();
       const account = this.identity.session()?.account_id ?? '';
       const key = `${account}:${token ?? ''}`;
       if (key === this.previousIdentity) return;
       this.previousIdentity = key;
-      ++this.requestRevision;
-      ++this.evidenceRevision;
-      this.clearEvidencePreview();
-      this.evidenceItems.set([]); this.evidenceCaseId.set(''); this.evidenceError.set('');
-      this.items.set([]); this.result.set(null); this.selected.set(null); this.selectedAction.set(null);
-      this.cursor.set(''); this.nextCursor.set(''); this.error.set(''); this.success.set('');
-      this.loading.set(false); this.busy.set(false);
+      this.clearAdminControls();
+      this.error.set(''); this.success.set('');
       if (token && this.identity.session()?.roles.includes('administrador')) void this.load();
     });
   }
@@ -90,6 +101,7 @@ export class AdminPage {
   }
 
   protected async selectSection(section: AdminSection): Promise<void> {
+    this.auditRange = section === 'audit' ? createAuditRange() : null;
     ++this.requestRevision;
     this.active.set(section); this.cursor.set(''); this.nextCursor.set('');
     this.selected.set(null); this.selectedAction.set(null); this.success.set(''); this.busy.set(false);
@@ -301,6 +313,7 @@ export class AdminPage {
       this.result.set(result); this.items.set(unwrapPage(result).items); this.nextCursor.set('');
     } catch (error) {
       if (error instanceof FinanceApiError && error.status === 401) this.identity.expireIfCurrent(token);
+      if (error instanceof FinanceApiError && error.status === 403) this.api.handleForbidden(token);
       if (this.isCurrent(revision, token, account)) { this.result.set(null); this.items.set([]); this.error.set(error instanceof Error ? error.message : 'Go no pudo completar la consulta.'); }
     } finally { if (this.isCurrent(revision, token, account)) this.loading.set(false); }
   }
@@ -340,8 +353,22 @@ export class AdminPage {
   }
 
   private auditQuery(includeCursor: boolean): Record<string, string | number | undefined> {
-    const now = new Date(); const start = new Date(now.getTime() - 7 * 86400000);
-    return { from: start.toISOString(), until: now.toISOString(), actor_id: undefined, resource_type: undefined, resource_id: this.filter().trim() || undefined, action: undefined, result: undefined, ...(includeCursor ? {} : {}) };
+    this.auditRange ??= createAuditRange();
+    return { from: this.auditRange.from, until: this.auditRange.until, actor_id: undefined, resource_type: undefined, resource_id: this.filter().trim() || undefined, action: undefined, result: undefined, ...(includeCursor ? {} : {}) };
+  }
+
+  private clearAdminControls(): void {
+    ++this.requestRevision;
+    ++this.evidenceRevision;
+    this.clearEvidencePreview();
+    this.evidenceItems.set([]); this.evidenceCaseId.set(''); this.evidenceError.set('');
+    this.items.set([]); this.result.set(null); this.cursor.set(''); this.nextCursor.set('');
+    this.selected.set(null); this.selectedAction.set(null); this.reason.set('');
+    this.accountId.set(''); this.resourceId.set(''); this.filter.set('');
+    this.fromDate.set(''); this.untilDate.set(''); this.success.set('');
+    this.loading.set(false); this.busy.set(false);
+    this.auditRange = null;
+    this.verificationRejected = false;
   }
 
   private actionsFor(section: AdminSection): AdminAction[] {
@@ -409,4 +436,9 @@ function offsetAt(timestamp: number, timezone: string): number {
   if (!match) return 0;
   const minutes = Number(match[2]) * 60 + Number(match[3] ?? 0);
   return (match[1] === '-' ? -minutes : minutes) * 60000;
+}
+
+function createAuditRange(now = new Date()): { from: string; until: string } {
+  const until = now.toISOString();
+  return { from: new Date(now.getTime() - 7 * 86400000).toISOString(), until };
 }

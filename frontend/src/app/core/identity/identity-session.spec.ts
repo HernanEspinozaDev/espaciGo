@@ -46,6 +46,42 @@ describe('IdentitySession', () => {
     expect(identity.status()).toBe('authenticated');
   });
 
+  it('refreshes Go-confirmed roles for the current bearer without clearing a valid session', async () => {
+    const api = {
+      login: vi.fn().mockResolvedValue(makeLogin('account-1', 'opaque-token')),
+      session: vi.fn().mockResolvedValueOnce({ account_id: 'account-1', roles: ['administrador'], restricted_mode: false })
+        .mockResolvedValueOnce(makeSession('account-1', true)),
+      logout: vi.fn(),
+    };
+    const identity = createIdentity(api);
+    await identity.signIn('person@example.invalid', 'Synthetic#123');
+
+    await expect(identity.refreshSessionIfCurrent('opaque-token')).resolves.toEqual(makeSession('account-1', true));
+
+    expect(identity.accessToken()).toBe('opaque-token');
+    expect(identity.session()?.roles).toEqual(['arrendatario']);
+    expect(identity.session()?.restricted_mode).toBe(true);
+    expect(identity.status()).toBe('authenticated');
+  });
+
+  it('does not refresh or replace the capabilities of a newer bearer', async () => {
+    const api = {
+      login: vi.fn().mockResolvedValueOnce(makeLogin('account-1', 'old-token')).mockResolvedValueOnce(makeLogin('account-2', 'new-token')),
+      session: vi.fn().mockResolvedValueOnce(makeSession('account-1')).mockResolvedValueOnce(makeSession('account-2', true)),
+      logout: vi.fn(),
+    };
+    const identity = createIdentity(api);
+    await identity.signIn('first@example.invalid', 'Synthetic#123');
+    await identity.signOut();
+    await identity.signIn('second@example.invalid', 'Synthetic#456');
+
+    await expect(identity.refreshSessionIfCurrent('old-token')).resolves.toBeNull();
+
+    expect(api.session).toHaveBeenCalledTimes(2);
+    expect(identity.accessToken()).toBe('new-token');
+    expect(identity.session()).toEqual(makeSession('account-2', true));
+  });
+
   it('discards a delayed login response from an earlier generation', async () => {
     let finishFirst!: (value: LoginResponse) => void;
     const firstLogin = new Promise<LoginResponse>((resolve) => (finishFirst = resolve));

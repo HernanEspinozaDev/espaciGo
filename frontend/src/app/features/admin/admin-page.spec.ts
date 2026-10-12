@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { signal } from '@angular/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IdentityApi } from '../../core/identity/identity-api';
 import { IdentitySession } from '../../core/identity/identity-session';
@@ -21,7 +22,7 @@ function setup(api: { get: ReturnType<typeof vi.fn>; post: ReturnType<typeof vi.
         session: vi.fn().mockImplementation((token: string) => Promise.resolve(adminSession(token === 'token-a' ? 'admin-a' : token === 'token-b' ? 'admin-b' : 'member'))),
         logout: vi.fn().mockResolvedValue(undefined),
       } },
-      { provide: AdminApi, useValue: api },
+      { provide: AdminApi, useValue: Object.assign(api, { permissionDeniedRevision: signal(0), capabilitiesRevision: signal(0), handleForbidden: vi.fn() }) },
       { provide: FinanceApi, useValue: { call: vi.fn().mockResolvedValue({ data: { confirmed_movements: [{ amount_clp: '9007199254740993' }] } }) } },
     ],
   });
@@ -40,15 +41,24 @@ function page(fixture: ReturnType<typeof TestBed.createComponent>) {
     selectSection(value: string): Promise<void>;
     applyFilter(): Promise<void>;
     nextPage(): Promise<void>;
+    exportAudit(): Promise<void>;
     submitAction(): Promise<void>;
     select(item: Record<string, unknown>, action: unknown): void;
     actionsForTemplate(): Array<{ label: string }>;
     loadSingle(path: string, query?: Record<string, string | number | undefined>): Promise<void>;
+    evidenceUrl: { (): string | null; set(value: string | null): void };
+    reason: { (): string; set(value: string): void };
+    accountId: { (): string; set(value: string): void };
+    resourceId: { (): string; set(value: string): void };
+    selected: { (): Record<string, unknown> | null; set(value: Record<string, unknown> | null): void };
+    selectedAction: { (): unknown; set(value: unknown): void };
+    evidenceItems: { (): Array<Record<string, unknown>>; set(value: Array<Record<string, unknown>>): void };
+    evidenceCaseId: { (): string; set(value: string): void };
   };
 }
 
 describe('AdminPage', () => {
-  afterEach(() => { vi.restoreAllMocks(); TestBed.resetTestingModule(); });
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); TestBed.resetTestingModule(); });
 
   it('does not let an old queue response replace the data from a new admin session', async () => {
     let finishA!: (value: unknown) => void;
@@ -95,6 +105,56 @@ describe('AdminPage', () => {
     await vi.waitFor(() => expect(page(fixture).error()).toContain('no tiene permiso'));
     expect(identity.accessToken()).toBe('token-a');
     expect(page(fixture).items()).toEqual([]);
+    fixture.destroy();
+  });
+
+  it('revokes private evidence and clears admin controls on a current 403 without logging out', async () => {
+    const api = { get: vi.fn().mockResolvedValue({ items: [{ id: 'case-a' }] }), post: vi.fn() };
+    setup(api);
+    const identity = TestBed.inject(IdentitySession); await identity.signIn('admin-a@example.invalid', 'Synthetic#123');
+    const fixture = TestBed.createComponent(AdminPage); fixture.detectChanges();
+    await vi.waitFor(() => expect(api.get).toHaveBeenCalled());
+    const component = page(fixture);
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    component.evidenceUrl.set('blob:private-admin-evidence');
+    component.evidenceCaseId.set('case-a'); component.evidenceItems.set([{ id: 'evidence-a' }]);
+    component.accountId.set('account-a'); component.resourceId.set('request-a');
+    component.filter.set('private-filter'); component.reason.set('uso_indebido');
+    component.selected.set({ id: 'case-a' }); component.selectedAction.set({ label: 'Rechazar' });
+    const adminApi = TestBed.inject(AdminApi) as unknown as { permissionDeniedRevision: { update(callback: (value: number) => number): void } };
+    adminApi.permissionDeniedRevision.update((revision) => revision + 1);
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(revoke).toHaveBeenCalledWith('blob:private-admin-evidence');
+    expect(component.evidenceUrl()).toBeNull();
+    expect(component.evidenceItems()).toEqual([]); expect(component.evidenceCaseId()).toBe('');
+    expect(component.accountId()).toBe(''); expect(component.resourceId()).toBe('');
+    expect(component.filter()).toBe(''); expect(component.reason()).toBe('');
+    expect(component.selected()).toBeNull(); expect(component.selectedAction()).toBeNull();
+    expect(identity.accessToken()).toBe('token-a');
+    fixture.destroy();
+  });
+
+  it('keeps the audit date interval fixed across later pages and export', async () => {
+    const api = { get: vi.fn().mockResolvedValue({ data: { items: [], next_cursor: 'next-a' } }), post: vi.fn() };
+    setup(api);
+    const identity = TestBed.inject(IdentitySession); await identity.signIn('admin-a@example.invalid', 'Synthetic#123');
+    const fixture = TestBed.createComponent(AdminPage); fixture.detectChanges();
+    await vi.waitFor(() => expect(api.get).toHaveBeenCalled());
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-12T12:00:00.000Z'));
+    const component = page(fixture);
+    await component.selectSection('audit');
+    const firstQuery = api.get.mock.calls.at(-1)?.[2] as Record<string, unknown>;
+    vi.setSystemTime(new Date('2026-10-13T18:30:00.000Z'));
+    await component.nextPage();
+    const nextQuery = api.get.mock.calls.at(-1)?.[2] as Record<string, unknown>;
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:audit-export');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    await component.exportAudit();
+    const exportQuery = api.get.mock.calls.at(-1)?.[2] as Record<string, unknown>;
+    expect(nextQuery).toMatchObject({ from: firstQuery['from'], until: firstQuery['until'], cursor: 'next-a' });
+    expect(exportQuery).toMatchObject({ from: firstQuery['from'], until: firstQuery['until'] });
     fixture.destroy();
   });
 
