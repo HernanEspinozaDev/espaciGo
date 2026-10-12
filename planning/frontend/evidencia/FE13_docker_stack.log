@@ -1,6 +1,7 @@
 FE-13 Docker / Angular — evidencia de ejecución
 Fecha: 2026-10-12
 Base: origin/main 106942ff (merge FE-12 #287)
+Código validado: c6b46db9bb62ed7ba0ab943e1398e32b7645c450
 Proyecto desechable: espacigo_fe13_20261012203806_986313
 Puertos host: Go 18680; Angular 18683
 Redes seleccionadas tras inspeccionar las redes existentes: 10.240.0.0/24 (api), 10.240.1.0/24 (mail), 10.240.2.0/24 (data)
