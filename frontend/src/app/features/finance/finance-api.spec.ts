@@ -64,4 +64,50 @@ describe('FinanceApi', () => {
     await retry;
     http.verify();
   });
+
+  it('isolates identical administrative attempts by account', async () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    TestBed.inject(ApiRuntimeConfig).apiBaseUrl.set('http://127.0.0.1:18180/api/v1');
+    const api = TestBed.inject(FinanceApi); const http = TestBed.inject(HttpTestingController);
+    const body = { outcome: 'acogido' };
+    const a = api.call('admin-a-token', '/admin/local/damage-claims/c-1/resolution', 'POST', body, 'account:admin-a:reservation:r-1:operation:claim-resolution:c-1');
+    const b = api.call('admin-b-token', '/admin/local/damage-claims/c-1/resolution', 'POST', body, 'account:admin-b:reservation:r-1:operation:claim-resolution:c-1');
+    const requests = http.match((request) => request.url.endsWith('/resolution'));
+    expect(requests).toHaveLength(2);
+    expect(requests[0].request.headers.get('Idempotency-Key')).not.toBe(requests[1].request.headers.get('Idempotency-Key'));
+    requests[0].flush('{"data":{"state":"resuelta"}}');
+    requests[1].flush('{"data":{"state":"resuelta"}}');
+    await Promise.all([a, b]);
+    http.verify();
+  });
+
+  it('does not let a delayed old response delete a newer uncertain attempt instance', async () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    TestBed.inject(ApiRuntimeConfig).apiBaseUrl.set('http://127.0.0.1:18180/api/v1');
+    const api = TestBed.inject(FinanceApi); const http = TestBed.inject(HttpTestingController);
+    const attempt = 'account:admin-a:reservation:r-1:operation:claim-resolution:c-1';
+    const oldBody = { outcome: 'acogido' }; const newBody = { outcome: 'rechazado' };
+    const oldFirst = api.call('admin-a-token', '/resolution', 'POST', oldBody, attempt);
+    const oldPendingRetry = api.call('admin-a-token', '/resolution', 'POST', oldBody, attempt);
+    const oldRequests = http.match((request) => request.url.endsWith('/resolution'));
+    expect(oldRequests).toHaveLength(2);
+    oldRequests[0].flush('{"data":{"state":"resuelta"}}');
+    await oldFirst;
+
+    const newer = api.call('admin-a-token', '/resolution', 'POST', newBody, attempt);
+    const newRequest = http.expectOne((request) => request.url.endsWith('/resolution'));
+    const newKey = newRequest.request.headers.get('Idempotency-Key');
+    oldRequests[1].flush('{"error":"definitive old result"}', { status: 422, statusText: 'Unprocessable Entity' });
+    await expect(oldPendingRetry).rejects.toMatchObject({ status: 422 });
+
+    const retry = api.call('admin-a-token', '/resolution', 'POST', newBody, attempt);
+    const retryRequest = http.expectOne((request) => request.url.endsWith('/resolution'));
+    expect(retryRequest.request.headers.get('Idempotency-Key')).toBe(newKey);
+    expect(retryRequest.request.body).toEqual(newBody);
+    newRequest.error(new ProgressEvent('error'));
+    await expect(newer).rejects.toMatchObject({ status: 0 });
+    retryRequest.flush('{"data":{"state":"resuelta"}}');
+    await retry;
+    http.verify();
+  });
 });

@@ -85,8 +85,8 @@ export class FinanceDisputesPage {
     const token = this.identity.accessToken(); const owner = this.identity.session();
     if (!token || !owner || (!this.admin && !this.id)) return;
     this.revokeEvidence();
-    const gen = ++this.generation; this.loading.set(true); this.error.set('');
     const targetId = this.admin ? this.adminReservationId().trim() : this.id;
+    const gen = ++this.generation; this.loading.set(true); this.error.set('');
     const requests = this.admin
       ? [this.api.call(token, '/admin/disputes', 'GET'), this.api.call(token, '/admin/local/damage-claims', 'GET'),
         ...(targetId ? [this.api.call(token, `/local/booking-trial/reservations/${encodeURIComponent(targetId)}/guarantee`, 'GET'),
@@ -102,7 +102,7 @@ export class FinanceDisputesPage {
     const results = await Promise.allSettled(requests);
     const unauthorized = results.find((result) => result.status === 'rejected' && result.reason instanceof FinanceApiError && result.reason.status === 401);
     if (unauthorized?.status === 'rejected') this.identity.expireIfCurrent(token);
-    if (!this.current(gen, owner, token)) return;
+    if (!this.current(gen, owner, token, targetId)) return;
     if (this.admin) {
       this.disputes.set(results[0].status === 'fulfilled' ? arr(results[0].value) : []);
       this.claims.set(results[1].status === 'fulfilled' ? arr(results[1].value) : []);
@@ -159,6 +159,7 @@ export class FinanceDisputesPage {
     if (amount === null || amount > 50000) { this.error.set('La deducción debe ser un entero entre 0 y 50.000 CLP.'); return; }
     const resolvedOutcome = this.claimResolution(claim);
     if (!resolvedOutcome) { this.error.set('Go aún no confirma una resolución para este reclamo.'); return; }
+    const context = this.contextId();
     const body = {
       claim_id: claimId,
       outcome: resolvedOutcome,
@@ -167,14 +168,17 @@ export class FinanceDisputesPage {
       ...(resolvedOutcome === 'acogido' && amount > 0 && this.decisionEvidenceId() ? { evidence_id: this.decisionEvidenceId() } : {}),
     };
     await this.perform(
-      () => this.api.call(this.identity.accessToken()!, `/local/booking-trial/reservations/${encodeURIComponent(reservationId)}/financial-decision`, 'POST', body, `financial-decision:${reservationId}:${claimId}`),
+      () => this.api.call(this.identity.accessToken()!, `/local/booking-trial/reservations/${encodeURIComponent(reservationId)}/financial-decision`, 'POST', body, this.attemptId(this.identity.session()?.account_id ?? '', reservationId, `financial-decision:${claimId}`)),
       (result) => this.financialDecision.set(unwrap(result)),
+      context,
     );
   }
   protected async closeDispute(dispute: unknown): Promise<void> {
     const id = field(dispute, 'id') || field(dispute, 'dispute_id');
     if (!id) { this.error.set('Go no devolvió el identificador de incidencia.'); return; }
-    await this.perform(() => this.api.call(this.identity.accessToken()!, `/admin/disputes/${encodeURIComponent(id)}/close`, 'POST', { reason_code: 'ensayo_finalizado' }, `close-dispute:${id}`));
+    const context = this.contextId();
+    const reservationId = field(dispute, 'reservation_id') || context;
+    await this.perform(() => this.api.call(this.identity.accessToken()!, `/admin/disputes/${encodeURIComponent(id)}/close`, 'POST', { reason_code: 'ensayo_finalizado' }, this.attemptId(this.identity.session()?.account_id ?? '', reservationId, `close-dispute:${id}`)), undefined, context);
   }
   protected evidenceItems(value: unknown): unknown[] {
     if (typeof value !== 'object' || value === null) return [];
@@ -206,12 +210,14 @@ export class FinanceDisputesPage {
   }
   protected async resolve(claim: unknown): Promise<void> {
     const claimId = field(claim, 'id') || field(claim, 'claim_id');
+    const context = this.contextId();
     if (!claimId) { this.error.set('Go no devolvió el identificador del reclamo.'); return; }
     const outcome = this.decision() === 'rechazado' ? 'rechazado' : 'acogido';
     this.selectedClaim.set(claim);
     await this.perform(
-      () => this.api.call(this.identity.accessToken()!, `/admin/local/damage-claims/${encodeURIComponent(claimId)}/resolution`, 'POST', { outcome, reason_code: this.reasonCode() }, `claim-resolution:${claimId}`),
+      () => this.api.call(this.identity.accessToken()!, `/admin/local/damage-claims/${encodeURIComponent(claimId)}/resolution`, 'POST', { outcome, reason_code: this.reasonCode() }, this.attemptId(this.identity.session()?.account_id ?? '', field(claim, 'reservation_id'), `claim-resolution:${claimId}`)),
       (result) => this.selectedClaim.set(unwrap(result)),
+      context,
     );
   }
   protected claimResolution(claim: unknown): 'acogido' | 'rechazado' | '' {
@@ -229,36 +235,47 @@ export class FinanceDisputesPage {
   protected setDeductionAmount(value: string): void { this.deductionAmount.set(value); }
   protected setDecisionEvidenceId(value: string): void { this.decisionEvidenceId.set(value); }
   protected setAdminReservationId(value: string): void {
-    if (value !== this.adminReservationId()) this.revokeEvidence();
+    if (value !== this.adminReservationId()) {
+      this.generation++;
+      this.writeRevision++;
+      this.revokeEvidence();
+      this.guarantee.set(null); this.settlement.set(null); this.receipt.set(null);
+      this.selectedClaim.set(null); this.financialDecision.set(null);
+      this.error.set(''); this.notice.set(''); this.busy.set(false); this.loading.set(false);
+    }
     this.adminReservationId.set(value);
   }
   protected label(value: unknown, key: string): string { return field(value, key) || '—'; }
   protected json(value: unknown): string { return value == null ? 'Aún no hay registros.' : JSON.stringify(value, null, 2); }
 
   private async write(suffix: string, body: unknown, attempt: string): Promise<void> {
-    await this.perform(() => this.api.call(this.identity.accessToken()!, this.path(suffix), 'POST', body, `${this.identity.session()?.account_id}:${this.id}:${attempt}`));
+    const reservationId = this.contextId();
+    const accountId = this.identity.session()?.account_id ?? '';
+    await this.perform(() => this.api.call(this.identity.accessToken()!, this.path(suffix), 'POST', body, this.attemptId(accountId, reservationId, attempt)), undefined, reservationId);
   }
-  private async perform(action: () => Promise<unknown>, confirmed?: (result: unknown) => void): Promise<void> {
+  private async perform(action: () => Promise<unknown>, confirmed?: (result: unknown) => void, context = this.contextId()): Promise<void> {
     const token = this.identity.accessToken(); const owner = this.identity.session(); const gen = this.generation;
     if (!token || !owner) return;
     const operation = ++this.writeRevision;
     this.busy.set(true); this.error.set(''); this.notice.set('Operación en curso; Go conserva el estado confirmado.');
     try {
       const result = await action();
-      if (!this.current(gen, owner, token)) return;
+      if (!this.current(gen, owner, token, context)) return;
       confirmed?.(result);
       this.notice.set('Go confirmó la operación de ensayo.'); this.busy.set(false); await this.load();
     } catch (error) {
       if (error instanceof FinanceApiError && error.status === 401) this.identity.expireIfCurrent(token);
-      if (!this.current(gen, owner, token)) return;
+      if (!this.current(gen, owner, token, context)) return;
       this.error.set(this.message(error));
       this.notice.set(error instanceof FinanceApiError && (error.status === 0 || error.status === 408 || error.status >= 500)
         ? 'Resultado incierto: conserva la misma clave y el mismo payload hasta conciliar con Go.' : '');
     } finally { if (operation === this.writeRevision && !this.destroyed && this.identity.accessToken() === token) this.busy.set(false); }
   }
-  private current(gen: number, owner: unknown, token: string): boolean {
-    return !this.destroyed && gen === this.generation && owner === this.identity.session() && token === this.identity.accessToken();
+  private current(gen: number, owner: unknown, token: string, context = this.contextId()): boolean {
+    return !this.destroyed && gen === this.generation && owner === this.identity.session() && token === this.identity.accessToken() && context === this.contextId();
   }
+  private contextId(): string { return this.admin ? this.adminReservationId().trim() : this.id; }
+  private attemptId(account: string, reservation: string, operation: string): string { return `account:${account}:reservation:${reservation}:operation:${operation}`; }
   private path(suffix: string): string {
     const id = this.admin ? this.adminReservationId().trim() : this.id;
     return `/local/booking-trial/reservations/${encodeURIComponent(id)}${suffix}`;

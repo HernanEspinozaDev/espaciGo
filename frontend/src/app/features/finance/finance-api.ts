@@ -46,13 +46,13 @@ export class FinanceApi {
       const raw = await firstValueFrom(this.http.request(method, `${base}${path}`, {
         headers, body: saved?.body ?? body, responseType: 'text',
       }));
-      if (cacheId) this.uncertain.delete(cacheId);
+      if (cacheId && this.uncertain.get(cacheId) === saved) this.uncertain.delete(cacheId);
       return parseExactClpJson<T>(raw);
     } catch (error) {
       if (error instanceof HttpErrorResponse) {
         // A server error can happen after the write was committed; keep the
         // original key and payload until an authoritative retry/reconciliation.
-        if (cacheId && error.status >= 400 && error.status < 500 && error.status !== 408) this.uncertain.delete(cacheId);
+        if (cacheId && error.status >= 400 && error.status < 500 && error.status !== 408 && this.uncertain.get(cacheId) === saved) this.uncertain.delete(cacheId);
         throw new FinanceApiError(`Go respondió HTTP ${error.status || 'sin conexión'}.`, error.status);
       }
       throw new FinanceApiError(error instanceof Error ? error.message : 'No se pudo completar la solicitud.');
