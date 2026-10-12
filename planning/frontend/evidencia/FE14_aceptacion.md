@@ -26,7 +26,8 @@ Cada JPEG es una captura real de Chromium con sesión sintética ya autenticada.
 - Stack desechable: `espacigo_fe14_916a8cf5c305`; API `18780`, Angular `18783`, Mailpit `18782`; readiness Go y health Angular HTTP 200 antes de login.
 - Resultado: 2 pruebas E2E Playwright aprobadas; JSON y ZIP descargados desde Go por controles Angular y validados (scope propio, ausencia de token/contraseña, estructura ZIP y archivos); tercero sin acceso host/admin; estado privado recuperado al restaurar backend en el mismo documento. Backend logs sin correos ni contraseñas sintéticas.
 - Accounts: cuatro usuarios de dominio `.invalid`, password aleatorio y archivo temporal modo 0600; roles host/admin sembrados solo en el PostgreSQL nuevo descartable para probar guards. Go confirmó login, sesión y roles efectivos. No se guardó Bearer en almacenamiento web ni en credenciales persistentes.
-- Limpieza: el proyecto eliminó contenedores, red y volumen únicos. No se usó ni eliminó ningún volumen persistente. No quedan recursos `espacigo_fe14_916a8cf5c305`.
+- Limpieza de la ejecución E2E final: se eliminaron contenedores, red y volumen únicos; no quedan recursos `espacigo_fe14_916a8cf5c305`.
+- Incidencia previa: un primer `up-frontend` abortó al intentar publicar Mailpit en un puerto ocupado, antes de aprovisionar cuentas o lanzar E2E. Faltaban variables explícitas de Compose y el proyecto por defecto montó `espacigo_pgdata`; el contenedor DB persistente se reinició (su volumen existente no fue eliminado). No se ejecutaron comandos de prueba destructivos sobre esa base. El contenedor persistente fue verificado saludable. La corrida E2E exitosa descrita arriba usó otro proyecto y un volumen FE-14 nuevo, sin referencia al persistente.
 - Gate consolidado sobre el mismo corte: Angular 169 pruebas en 28 archivos; `api:check` pasó; build/prerender pasó con 3 rutas.
 
 ## Límites
