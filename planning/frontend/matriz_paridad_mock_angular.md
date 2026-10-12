@@ -20,7 +20,7 @@ Fecha: 2026-10-11. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | FE-03 | 7 | Aceptado y fusionado; PR #276 |
 | FE-04 | 13 | Aceptado y fusionado; PR #278 |
 | FE-05 | 10 | Aceptado y fusionado; PR #279 |
-| FE-06 | 26 | Implementado; PR en preparación |
+| FE-06 | 26 | Implementado; PR #280 en revisión |
 | FE-07 | 8 | Pendiente |
 | FE-08 | 10 | Pendiente |
 | FE-09 | 8 | Pendiente |
@@ -91,36 +91,36 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /spaces/categories` | `listSpaceCategories` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado; aceptado y fusionado en PR #276 |
 | `GET /spaces/categories/{categoryCode}/attributes` | `getSpaceAttributeProfile` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado; aceptado y fusionado en PR #276 |
 | `GET /spaces/categories/{categoryCode}/attributes/{version}` | `getVersionedSpaceAttributeProfile` | Bearer; permisos en Go | FE-03 — Catálogo de categorías y perfiles | Implementado; aceptado y fusionado en PR #276 |
-| `GET /spaces` | `listOwnSpaces` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `POST /spaces` | `createOwnSpaceDraft` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `GET /spaces/{spaceId}` | `getOwnSpaceDraft` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `PUT /spaces/{spaceId}` | `updateOwnSpaceDraft` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `DELETE /spaces/{spaceId}` | `deleteOwnPublication` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `PUT /spaces/{spaceId}/publication` | `setOwnSpacePublicationState` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `PUT /spaces/{spaceId}/publication-content` | `updateOwnPublishedSpaceContent` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `GET /spaces/{spaceId}/gallery` | `listOwnSyntheticSpaceGallery` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `POST /spaces/{spaceId}/gallery` | `createSyntheticOwnSpaceGalleryPhoto` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `PUT /spaces/{spaceId}/cover` | `selectOwnSyntheticSpaceCover` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `GET /spaces/{spaceId}/gallery/{photoId}` | `getOwnSyntheticSpaceGalleryPhoto` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `DELETE /spaces/{spaceId}/gallery/{photoId}` | `removeOwnSyntheticSpaceGalleryPhoto` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `GET /spaces/{spaceId}/gallery/{photoId}/content` | `getOwnSyntheticSpaceGalleryPhotoContent` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `PUT /spaces/{spaceId}/availability` | `configureOwnDraftAvailability` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `GET /spaces/{spaceId}/availability` | `queryOwnDraftAvailability` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `GET /spaces/{spaceId}/tariff` | `getOwnSpaceTariff` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `PUT /spaces/{spaceId}/tariff` | `updateOwnSpaceTariff` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `GET /spaces/{spaceId}/tariffs` | `listOwnSpaceTariffVersions` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `POST /spaces/{spaceId}/price-simulations` | `createPrivateOwnDraftPriceSimulation` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `GET /spaces/{spaceId}/price-simulations/{simulationId}` | `getOwnPrivatePriceSimulation` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `GET /spaces/{spaceId}/availability/blocks` | `listOwnDraftManualBlocks` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `POST /spaces/{spaceId}/availability/blocks` | `createOwnDraftManualBlock` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `GET /spaces/{spaceId}/availability/timezone` | `getOwnDraftTimeZone` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
-| `DELETE /spaces/{spaceId}/availability/blocks/{blockId}` | `deleteOwnDraftManualBlock` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR FE-06 |
+| `GET /spaces` | `listOwnSpaces` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `POST /spaces` | `createOwnSpaceDraft` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `GET /spaces/{spaceId}` | `getOwnSpaceDraft` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `PUT /spaces/{spaceId}` | `updateOwnSpaceDraft` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `DELETE /spaces/{spaceId}` | `deleteOwnPublication` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `PUT /spaces/{spaceId}/publication` | `setOwnSpacePublicationState` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `PUT /spaces/{spaceId}/publication-content` | `updateOwnPublishedSpaceContent` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `GET /spaces/{spaceId}/gallery` | `listOwnSyntheticSpaceGallery` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `POST /spaces/{spaceId}/gallery` | `createSyntheticOwnSpaceGalleryPhoto` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `PUT /spaces/{spaceId}/cover` | `selectOwnSyntheticSpaceCover` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `GET /spaces/{spaceId}/gallery/{photoId}` | `getOwnSyntheticSpaceGalleryPhoto` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `DELETE /spaces/{spaceId}/gallery/{photoId}` | `removeOwnSyntheticSpaceGalleryPhoto` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `GET /spaces/{spaceId}/gallery/{photoId}/content` | `getOwnSyntheticSpaceGalleryPhotoContent` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `PUT /spaces/{spaceId}/availability` | `configureOwnDraftAvailability` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `GET /spaces/{spaceId}/availability` | `queryOwnDraftAvailability` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `GET /spaces/{spaceId}/tariff` | `getOwnSpaceTariff` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `PUT /spaces/{spaceId}/tariff` | `updateOwnSpaceTariff` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `GET /spaces/{spaceId}/tariffs` | `listOwnSpaceTariffVersions` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `POST /spaces/{spaceId}/price-simulations` | `createPrivateOwnDraftPriceSimulation` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `GET /spaces/{spaceId}/price-simulations/{simulationId}` | `getOwnPrivatePriceSimulation` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `GET /spaces/{spaceId}/availability/blocks` | `listOwnDraftManualBlocks` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `POST /spaces/{spaceId}/availability/blocks` | `createOwnDraftManualBlock` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `GET /spaces/{spaceId}/availability/timezone` | `getOwnDraftTimeZone` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
+| `DELETE /spaces/{spaceId}/availability/blocks/{blockId}` | `deleteOwnDraftManualBlock` | Bearer; permisos en Go | FE-06 — Gestión propia de espacios | Implementado; PR #280 |
 | `GET /local/booking-trial/fixture` | `getAuthorizedLocalBookingFixture` | Bearer; permisos en Go | Compatibilidad — Sustituida en UI por catálogo/detalle; conservar API | Sin UI directa justificada |
 | `GET /local/booking-trial/catalog` | `searchAuthorizedLocalSyntheticCatalog` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Implementado; aceptado y fusionado en PR #276 |
 | `GET /local/booking-trial/catalog/{spaceId}` | `getAuthorizedLocalSyntheticCatalogDetail` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Implementado; aceptado y fusionado en PR #276 |
 | `GET /local/booking-trial/catalog/{spaceId}/availability-options` | `getAuthorizedLocalFixtureAvailabilityOptions` | Bearer; permisos en Go | FE-03 — Exploración, detalle y horarios | Implementado; aceptado y fusionado en PR #276 |
-| `GET /local/booking-trial/catalog/{spaceId}/weekly-hours` | `getOwnSyntheticHourlyWeeklyHours` | Bearer; permisos en Go | FE-06 — Horario semanal propio | Implementado; PR FE-06 |
-| `PUT /local/booking-trial/catalog/{spaceId}/weekly-hours` | `replaceOwnSyntheticHourlyWeeklyHours` | Bearer; permisos en Go | FE-06 — Horario semanal propio | Implementado; PR FE-06 |
+| `GET /local/booking-trial/catalog/{spaceId}/weekly-hours` | `getOwnSyntheticHourlyWeeklyHours` | Bearer; permisos en Go | FE-06 — Horario semanal propio | Implementado; PR #280 |
+| `PUT /local/booking-trial/catalog/{spaceId}/weekly-hours` | `replaceOwnSyntheticHourlyWeeklyHours` | Bearer; permisos en Go | FE-06 — Horario semanal propio | Implementado; PR #280 |
 | `POST /local/booking-trial/quotes` | `quoteAuthorizedLocalBooking` | Bearer; permisos en Go | FE-03 — Cotización confirmada por Go | Implementado; aceptado y fusionado en PR #276 |
 | `GET /local/booking-trial/reservations` | `listOwnLocalTrialReservations` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
 | `POST /local/booking-trial/reservations` | `requestLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Pendiente |
@@ -220,7 +220,7 @@ Ruta privada `/mi-cuenta/verificaciones`, guard de sesión, render CSR y metadat
 
 **Validación:** 7 pruebas KYC enfocadas; suite Angular consolidada: 62 pruebas en 14 archivos; `api:check`; build/prerender; pruebas Go del handler y del repositorio de verificaciones con PostgreSQL temporal en `tmpfs`. Cubren titular/tercero, estados, retry, evidencia, 401 actual/tardío, cambio de cuenta, respuestas de PNG fuera de orden y Blob URL al cambiar caso/logout/destruir vista. Las capturas reflejan UI Angular con fixtures de API sintéticos locales: [escritorio](evidencia/FE05_kyc_escritorio.png) · [móvil](evidencia/FE05_kyc_movil.png). No se probaron documentos reales ni se usó volumen persistente. FE-04 y FE-05 aceptados/fusionados en PR #278 y #279. FE-06 se registra a continuación.
 
-## Trazabilidad FE-06 — Oferta y calendario (PR en preparación)
+## Trazabilidad FE-06 — Oferta y calendario ([PR #280](https://github.com/HernanEspinozaDev/espaciGo/pull/280), commit `8aa32e6`; en revisión)
 
 El panel `/panel/espacios` organiza datos, tarifas, calendario y galería con controles responsive Terracota + Crema. La lista, detalle, guardados, tarifario, simulaciones, disponibilidad, bloques, zona y horario semanal consultan Go con Bearer en memoria. La UI conserva estados vacíos, reconoce 401/403/404/409/422, pide confirmación en retiro de imagen y eliminación, y distingue publicar/ocultar/eliminar. Tarifas y respuestas con importes usan el parser/serializador exacto; fechas de pared se convierten desde zona IANA y DST ambiguo requiere seleccionar ocurrencia. Las lecturas comparan sesión/generación/recurso; escrituras confirmadas invalidan lecturas anteriores. La galería solo genera el fixture permitido, usa claves idempotentes y descarga contenido con Bearer en Blob URL temporal.
 
