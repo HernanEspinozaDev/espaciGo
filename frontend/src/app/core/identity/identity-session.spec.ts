@@ -94,7 +94,10 @@ describe('IdentitySession', () => {
   it('invalidates an active session after successful password recovery', async () => {
     const api = {
       login: vi.fn().mockResolvedValue(makeLogin('account-1', 'active-token')),
-      session: vi.fn().mockResolvedValue(makeSession('account-1')),
+      session: vi
+        .fn()
+        .mockResolvedValueOnce(makeSession('account-1'))
+        .mockRejectedValueOnce(new HttpErrorResponse({ status: 401 })),
       logout: vi.fn(),
       consumeRecovery: vi.fn().mockResolvedValue(undefined),
     };
@@ -115,6 +118,47 @@ describe('IdentitySession', () => {
     expect(identity.session()).toBeNull();
     expect(identity.status()).toBe('anonymous');
     expect(cleared).toBe(true);
+    expect(identity.notice()).toContain('revocó la sesión vigente');
+  });
+
+  it('preserves a newer account after an older account recovery completes late', async () => {
+    let finishRecovery!: () => void;
+    const pendingRecovery = new Promise<void>((resolve) => (finishRecovery = resolve));
+    const api = {
+      login: vi
+        .fn()
+        .mockResolvedValueOnce(makeLogin('account-a', 'bearer-a'))
+        .mockResolvedValueOnce(makeLogin('account-b', 'bearer-b')),
+      session: vi
+        .fn()
+        .mockResolvedValueOnce(makeSession('account-a'))
+        .mockResolvedValueOnce(makeSession('account-b'))
+        .mockResolvedValueOnce(makeSession('account-b', true)),
+      logout: vi.fn().mockResolvedValue(undefined),
+      consumeRecovery: vi.fn(() => pendingRecovery),
+    };
+    const identity = createIdentity(api);
+    await identity.signIn('a@example.invalid', 'Synthetic#123');
+
+    const recovery = identity.consumeRecovery(
+      'recovery-a',
+      'recovery-code-a',
+      'Changed#789',
+      'Changed#789',
+    );
+    await identity.signOut();
+    await identity.signIn('b@example.invalid', 'Synthetic#456');
+    const sessionB = identity.session();
+    const tokenB = identity.accessToken();
+    finishRecovery();
+    await recovery;
+
+    expect(api.session).toHaveBeenCalledTimes(3);
+    expect(identity.accessToken()).toBe(tokenB);
+    expect(identity.session()).toEqual(makeSession('account-b', true));
+    expect(identity.session()?.account_id).toBe('account-b');
+    expect(identity.notice()).toBe('');
+    expect(sessionB?.account_id).toBe('account-b');
   });
 
   it('does not publish or navigate a stale logout after a newer login succeeds', async () => {

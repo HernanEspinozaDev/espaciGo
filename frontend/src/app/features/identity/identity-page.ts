@@ -161,6 +161,8 @@ export class IdentityPage {
           this.successMessage.set('Sesión confirmada por Go.');
           await this.router.navigateByUrl('/mi-cuenta');
         },
+        (session) =>
+          this.identity.session() === session && this.identity.status() === 'authenticated',
       );
     });
   }
@@ -322,24 +324,32 @@ export class IdentityPage {
   private async performRequest<T>(
     request: () => Promise<T>,
     onSuccess: (value: T) => void | Promise<void>,
+    acceptsSessionGenerationChange?: (value: T) => boolean,
   ): Promise<void> {
     this.begin();
     let generation = this.requestGeneration;
     let stateGeneration = this.privateSessionState.generation();
+    let result!: T;
+    let hasResult = false;
+    const isCurrent = () =>
+      this.isCurrentRequest(generation, stateGeneration) ||
+      (!this.destroyed &&
+        generation === this.requestGeneration &&
+        hasResult &&
+        acceptsSessionGenerationChange?.(result) === true);
     try {
       // IdentitySession may clear private state synchronously when a new login starts.
       const pending = request();
       generation = this.requestGeneration;
       stateGeneration = this.privateSessionState.generation();
-      const value = await pending;
-      if (!this.isCurrentRequest(generation, stateGeneration)) return;
-      await onSuccess(value);
+      result = await pending;
+      hasResult = true;
+      if (!isCurrent()) return;
+      await onSuccess(result);
     } catch (error) {
-      if (this.isCurrentRequest(generation, stateGeneration)) {
-        this.errorMessage.set(identityErrorMessage(error));
-      }
+      if (isCurrent()) this.errorMessage.set(identityErrorMessage(error));
     } finally {
-      if (this.isCurrentRequest(generation, stateGeneration)) this.busy.set(false);
+      if (isCurrent()) this.busy.set(false);
     }
   }
 

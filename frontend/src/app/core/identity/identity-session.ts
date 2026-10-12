@@ -69,15 +69,56 @@ export class IdentitySession {
 
   async consumeRecovery(
     tokenId: string,
-    token: string,
+    recoveryToken: string,
     newPassword: string,
     confirmPassword: string,
   ): Promise<void> {
-    await this.api.consumeRecovery(tokenId, token, newPassword, confirmPassword);
-    // Go revokes every active token after a successful recovery, including this tab.
-    ++this.generation;
-    this.resetSession();
-    this.notice.set('Go cambió la contraseña y revocó las sesiones. Ya puedes iniciar sesión.');
+    const sourceGeneration = this.generation;
+    await this.api.consumeRecovery(tokenId, recoveryToken, newPassword, confirmPassword);
+
+    const generation = this.generation;
+    const token = this.accessToken();
+    const sessionBeforeRevalidation = this.session();
+    if (!token) {
+      if (sourceGeneration === generation) {
+        this.notice.set('Go cambió la contraseña y revocó las sesiones. Ya puedes iniciar sesión.');
+      }
+      return;
+    }
+
+    // A recovery completion can outlive logout/login. Revalidate whichever bearer
+    // is current now; the token submitted for recovery may belong to another account.
+    try {
+      const confirmed = await this.api.session(token);
+      if (generation !== this.generation || token !== this.accessToken()) return;
+      if (
+        sessionBeforeRevalidation &&
+        confirmed.account_id !== sessionBeforeRevalidation.account_id
+      ) {
+        ++this.generation;
+        this.resetSession();
+        this.notice.set('Go no confirmó la sesión vigente. Inicia sesión nuevamente.');
+        return;
+      }
+      this.session.set(confirmed);
+      this.status.set('authenticated');
+      if (sourceGeneration === generation) {
+        this.notice.set('Go cambió la contraseña y confirmó la sesión vigente.');
+      }
+    } catch (error) {
+      if (generation !== this.generation || token !== this.accessToken()) return;
+      if (isUnauthorized(error)) {
+        ++this.generation;
+        this.resetSession();
+        this.notice.set(
+          sourceGeneration === generation
+            ? 'Go cambió la contraseña y revocó la sesión vigente. Inicia sesión nuevamente.'
+            : 'Go confirmó que la sesión vigente ya no está activa. Inicia sesión nuevamente.',
+        );
+      } else if (sourceGeneration === generation) {
+        this.notice.set('Go cambió la contraseña; no fue posible revalidar la sesión vigente.');
+      }
+    }
   }
 
   async signOut(): Promise<boolean> {

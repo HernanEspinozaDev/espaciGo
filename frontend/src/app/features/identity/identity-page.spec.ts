@@ -1,6 +1,6 @@
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, provideRouter } from '@angular/router';
+import { ActivatedRoute, provideRouter, Router } from '@angular/router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IdentityApi } from '../../core/identity/identity-api';
 import { IdentitySession } from '../../core/identity/identity-session';
@@ -9,6 +9,56 @@ import { IdentityPage } from './identity-page';
 
 describe('IdentityPage private forms', () => {
   afterEach(() => TestBed.resetTestingModule());
+
+  it('confirms login through the real IdentitySession and navigates to the account page', async () => {
+    const api = {
+      login: vi.fn().mockResolvedValue({
+        account_id: 'account-login',
+        roles: ['arrendatario'],
+        access_token: 'login-bearer',
+        token_type: 'Bearer',
+        expires_at: '2026-10-12T00:00:00Z',
+        restricted_mode: false,
+      }),
+      session: vi.fn().mockResolvedValue({
+        account_id: 'account-login',
+        roles: ['arrendatario'],
+        restricted_mode: false,
+      }),
+      logout: vi.fn(),
+      consumeRecovery: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [IdentityPage],
+      providers: [
+        provideHttpClient(),
+        provideRouter([]),
+        { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'login' } } } },
+        { provide: IdentityApi, useValue: api },
+        PrivateSessionState,
+      ],
+    });
+    const fixture = TestBed.createComponent(IdentityPage);
+    fixture.detectChanges();
+    const identity = TestBed.inject(IdentitySession);
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const page = fixture.componentInstance as unknown as {
+      loginModel: (() => { email: string; password: string }) & {
+        set(value: { email: string; password: string }): void;
+      };
+      onLogin(event: SubmitEvent): Promise<void>;
+    };
+    page.loginModel.set({ email: 'person@example.invalid', password: 'Synthetic#123' });
+
+    await page.onLogin(new Event('submit') as SubmitEvent);
+
+    expect(api.login).toHaveBeenCalledWith('person@example.invalid', 'Synthetic#123');
+    expect(identity.session()?.account_id).toBe('account-login');
+    expect(identity.status()).toBe('authenticated');
+    expect(navigate).toHaveBeenCalledWith('/mi-cuenta');
+    fixture.destroy();
+  });
 
   it('clears change-password inputs when logout cleanup runs even if Go is unavailable', async () => {
     const api = {
@@ -80,11 +130,14 @@ describe('IdentityPage private forms', () => {
         expires_at: '2026-10-12T00:00:00Z',
         restricted_mode: false,
       }),
-      session: vi.fn().mockResolvedValue({
-        account_id: 'account-a',
-        roles: ['arrendatario'],
-        restricted_mode: false,
-      }),
+      session: vi
+        .fn()
+        .mockResolvedValueOnce({
+          account_id: 'account-a',
+          roles: ['arrendatario'],
+          restricted_mode: false,
+        })
+        .mockRejectedValueOnce(new HttpErrorResponse({ status: 401 })),
       logout: vi.fn(),
       consumeRecovery: vi.fn().mockResolvedValue(undefined),
     };
@@ -158,13 +211,11 @@ describe('IdentityPage private forms', () => {
         expires_at: '2026-10-12T00:00:00Z',
         restricted_mode: false,
       }),
-      session: vi
-        .fn()
-        .mockResolvedValue({
-          account_id: 'account-a',
-          roles: ['arrendatario'],
-          restricted_mode: false,
-        }),
+      session: vi.fn().mockResolvedValue({
+        account_id: 'account-a',
+        roles: ['arrendatario'],
+        restricted_mode: false,
+      }),
       logout: vi.fn().mockResolvedValue(undefined),
       recover: vi.fn(() => pendingRecovery),
       consumeRecovery: vi.fn().mockResolvedValue(undefined),
