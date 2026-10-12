@@ -1,20 +1,30 @@
 import { Injectable, signal } from '@angular/core';
 
 export type BookingAttempt = { key: string; payload: string; uncertain: boolean };
-export type ConfirmedRefundSnapshot = { operationId: string; amount: string; state: 'pendiente' | 'completada' };
+export type ConfirmedRefundSnapshot = { operationId: string; amount: string; state: 'pendiente' | 'completada'; revision: number };
 
 /** In-memory only. Every unsettled write keeps its exact key and payload for a retry. */
 @Injectable({ providedIn: 'root' })
 export class BookingAttempts {
   private readonly attempts = signal<Record<string, BookingAttempt>>({});
   private readonly refunds = signal<Record<string, ConfirmedRefundSnapshot>>({});
+  private revision = 0;
+
+  nextRevision(): number { return ++this.revision; }
 
   refundSnapshot(accountId: string, reservationId: string): ConfirmedRefundSnapshot | null {
     return this.refunds()[accountId + ':' + reservationId] ?? null;
   }
 
+  refundRevision(accountId: string, reservationId: string): number {
+    return this.refundSnapshot(accountId, reservationId)?.revision ?? 0;
+  }
+
   saveRefundSnapshot(accountId: string, reservationId: string, snapshot: ConfirmedRefundSnapshot): void {
-    this.refunds.update((items) => ({ ...items, [accountId + ':' + reservationId]: snapshot }));
+    const id = accountId + ':' + reservationId;
+    this.refunds.update((items) => (items[id]?.revision ?? 0) > snapshot.revision
+      ? items
+      : { ...items, [id]: snapshot });
   }
 
   get(accountId: string, operation: string, payload: unknown): BookingAttempt {

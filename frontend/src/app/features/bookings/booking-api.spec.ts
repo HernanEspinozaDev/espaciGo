@@ -64,4 +64,17 @@ describe('BookingAttempts', () => {
     expect(attempts.get('account-A', 'reservation:payment', { outcome: 'sin_respuesta' }).key).not.toBe(first.key);
     TestBed.resetTestingModule();
   });
+
+  it('does not let an older confirmed refund snapshot replace a newer Go result', () => {
+    TestBed.configureTestingModule({});
+    const attempts = TestBed.inject(BookingAttempts);
+    attempts.saveRefundSnapshot('account-A', 'reservation-1', {
+      operationId: 'refund-op', amount: '12500', state: 'completada', revision: 12,
+    });
+    attempts.saveRefundSnapshot('account-A', 'reservation-1', {
+      operationId: 'refund-op', amount: '12500', state: 'pendiente', revision: 11,
+    });
+    expect(attempts.refundSnapshot('account-A', 'reservation-1')?.state).toBe('completada');
+    TestBed.resetTestingModule();
+  });
 });

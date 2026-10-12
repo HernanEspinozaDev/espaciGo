@@ -30,12 +30,13 @@ const pending = <T>() => {
   return { promise, resolve, reject };
 };
 
-function setup(api: Record<string, ReturnType<typeof vi.fn>>) {
+function setup(api: Record<string, ReturnType<typeof vi.fn>>, identityOverrides: Record<string, unknown> = {}) {
   const params = new BehaviorSubject(convertToParamMap({ id: 'r1' }));
   const identityApi = {
     login: vi.fn(async (email: string) => email.startsWith('b@') ? makeLogin('renter-b', 'token-b') : makeLogin('renter-a', 'token-a')),
     session: vi.fn(async (token: string) => ({ account_id: token === 'token-b' ? 'renter-b' : 'renter-a', roles: ['arrendatario'], restricted_mode: false })),
     logout: vi.fn(async () => undefined),
+    ...identityOverrides,
   };
   TestBed.configureTestingModule({
     imports: [BookingDetailPage],
@@ -199,6 +200,105 @@ describe('BookingDetailPage with real IdentitySession', () => {
     expect(identity.accessToken()).toBe('token-b'); expect(identity.session()?.account_id).toBe('renter-b');
     await view.pay(); await settle(fixture);
     expect(identity.accessToken()).toBeNull(); expect(identity.session()).toBeNull();
+    fixture.destroy();
+  });
+
+  it('does not let a definitive 4xx from a prior login clear the new same-account operation notice', async () => {
+    const oldPayment = pending<ReturnType<typeof envelope<unknown>>>();
+    const api = {
+      detail: vi.fn(async () => envelope(makeReservation('r1'))),
+      payment: vi.fn().mockImplementationOnce(() => oldPayment.promise)
+        .mockRejectedValueOnce(new BookingApiError('timeout', 504)),
+      decision: vi.fn(), cancellationPreview: vi.fn(), cancel: vi.fn(), refund: vi.fn(),
+    };
+    let loginCount = 0;
+    const { fixture, identity } = setup(api, {
+      login: vi.fn(async () => makeLogin('renter-a', `token-a${++loginCount}`)),
+    });
+    await identity.signIn('a@example.invalid', 'secret'); await settle(fixture);
+    const view = page(fixture);
+    const oldRequest = view.pay();
+    await identity.signOut(); await identity.signIn('a@example.invalid', 'secret'); await settle(fixture);
+    await view.pay(); await settle(fixture);
+    expect(api.payment.mock.calls.map(([token]) => token)).toEqual(['token-a1', 'token-a2']);
+    const latestNotice = view.uncertainNotice();
+    expect(latestNotice).toContain('pago como pendiente');
+    oldPayment.reject(new BookingApiError('idempotency conflict', 409));
+    await oldRequest; await settle(fixture);
+    expect(view.uncertainNotice()).toBe(latestNotice);
+    expect(identity.accessToken()).toBe('token-a2');
+    fixture.destroy();
+  });
+
+  it('does not apply an older failed-refund confirmation after a newer success and delayed pending reload', async () => {
+    const oldReload = pending<ReturnType<typeof envelope<LocalBookingDetail>>>();
+    const completed = makeReservation('r1', 'renter-a', 'cancelada_arrendatario', {
+      refund_operation_id: 'refund-op', refund_amount_clp: '12500', refund_state: 'completada',
+    });
+    let detailCall = 0;
+    const api = {
+      detail: vi.fn(() => {
+        detailCall++;
+        if (detailCall === 1) return Promise.resolve(envelope(makeReservation('r1', 'renter-a', 'cancelada_arrendatario', {
+          refund_operation_id: 'refund-op', refund_amount_clp: '12500', refund_state: 'pendiente',
+        })));
+        if (detailCall === 2) return oldReload.promise;
+        return Promise.resolve(envelope(completed));
+      }),
+      payment: vi.fn(), decision: vi.fn(), cancellationPreview: vi.fn(), cancel: vi.fn(),
+      refund: vi.fn()
+        .mockResolvedValueOnce(envelope({ reservation_id: 'r1', operation_id: 'refund-op', amount_clp: '12500', currency: 'CLP', state: 'pendiente', last_result: 'fallo_simulado', updated_at: '2026-10-12T01:00:00Z', notice_status: 'no_disponible_no_durable' }))
+        .mockResolvedValueOnce(envelope({ reservation_id: 'r1', operation_id: 'refund-op', amount_clp: '12500', currency: 'CLP', state: 'completada', last_result: 'exito_simulado', updated_at: '2026-10-12T02:00:00Z', notice_status: 'no_disponible_no_durable' })),
+    };
+    const { fixture, identity, attempts } = setup(api);
+    await identity.signIn('a@example.invalid', 'secret'); await settle(fixture);
+    const view = page(fixture);
+    view.refundOutcome.set('fallo');
+    const failedRefund = view.refund();
+    await Promise.resolve(); await Promise.resolve();
+    expect(detailCall).toBe(2);
+    view.refundOutcome.set('exito');
+    await view.refund(); await settle(fixture);
+    expect(view.reservation()?.refund_state).toBe('completada');
+    expect(attempts.refundSnapshot('renter-a', 'r1')?.state).toBe('completada');
+    oldReload.resolve(envelope(makeReservation('r1', 'renter-a', 'cancelada_arrendatario', {
+      refund_operation_id: 'refund-op', refund_amount_clp: '12500', refund_state: 'pendiente',
+    })));
+    await failedRefund; await settle(fixture);
+    expect(view.reservation()?.refund_state).toBe('completada');
+    expect(attempts.refundSnapshot('renter-a', 'r1')?.state).toBe('completada');
+    fixture.destroy();
+  });
+
+  it('keeps a newer refund view and snapshot when a cancellation response arrives out of order', async () => {
+    const oldCancel = pending<ReturnType<typeof envelope<unknown>>>();
+    const pendingRefund = makeReservation('r1', 'renter-a', 'cancelada_arrendatario', {
+      refund_operation_id: 'refund-op', refund_amount_clp: '12500', refund_state: 'pendiente',
+    });
+    const completed = makeReservation('r1', 'renter-a', 'cancelada_arrendatario', {
+      refund_operation_id: 'refund-op', refund_amount_clp: '12500', refund_state: 'completada',
+    });
+    let detailState = makeReservation('r1', 'renter-a', 'aprobada_host');
+    const api = {
+      detail: vi.fn(async () => envelope(detailState)),
+      payment: vi.fn(), decision: vi.fn(), cancellationPreview: vi.fn(async () => envelope({ eligible: true })),
+      cancel: vi.fn(() => oldCancel.promise),
+      refund: vi.fn(async (_token: string, id: string, _outcome: string, operationId: string) => envelope({ reservation_id: id, operation_id: operationId, amount_clp: '12500', currency: 'CLP', state: 'completada', last_result: 'exito_simulado', updated_at: '2026-10-12T03:00:00Z', notice_status: 'no_disponible_no_durable' })),
+    };
+    const { fixture, identity, attempts } = setup(api);
+    await identity.signIn('a@example.invalid', 'secret'); await settle(fixture);
+    const view = page(fixture); view.preview.set({ eligible: true }); view.confirmCancel.set(true);
+    const cancelRequest = view.cancel();
+    detailState = pendingRefund;
+    await view.load(); await settle(fixture);
+    expect(view.reservation()?.refund_state).toBe('pendiente');
+    detailState = completed;
+    await view.refund(); await settle(fixture);
+    expect(view.reservation()?.refund_state).toBe('completada');
+    oldCancel.resolve(envelope({ reservation: makeReservation('r1', 'renter-a', 'cancelada_arrendatario'), refund_amount_clp: '12500', refund_state: 'pendiente', notice_status: 'no_disponible_no_durable' }));
+    await cancelRequest; await settle(fixture);
+    expect(view.reservation()?.refund_state).toBe('completada');
+    expect(attempts.refundSnapshot('renter-a', 'r1')?.state).toBe('completada');
     fixture.destroy();
   });
 });
