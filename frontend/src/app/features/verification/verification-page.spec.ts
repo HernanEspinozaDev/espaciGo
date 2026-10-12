@@ -133,6 +133,14 @@ const page = (f: ReturnType<typeof TestBed.createComponent>) =>
     notice(): string;
     eligibility(): VerificationEligibilityList | null;
   };
+async function ensureLoaded(f: ReturnType<typeof TestBed.createComponent>): Promise<void> {
+  const view = page(f);
+  for (let attempt = 0; attempt < 5 && !view.cases().length; attempt++) {
+    await view.load();
+    for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+  }
+  expect(view.cases().length).toBeGreaterThan(0);
+}
 
 describe('VerificationPage', () => {
   afterEach(() => {
@@ -143,7 +151,7 @@ describe('VerificationPage', () => {
     const api = defaults();
     const { f, identity } = fixture(api);
     await identity.signIn('a@example.invalid', 'secret');
-    await page(f).load();
+    await ensureLoaded(f);
     expect(page(f).cases()[0].state).toBe('en_revision');
     expect(page(f).eligibility()?.items[0].eligible).toBe(false);
     expect(api.create).not.toHaveBeenCalled();
@@ -176,6 +184,7 @@ describe('VerificationPage', () => {
     );
     const { f, identity } = fixture(api);
     await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
     expect(
       ['en_revision', 'aprobada', 'rechazada', 'revocada'].map((state) =>
         page(f).stateLabel(state as VerificationCase['state']),
@@ -209,7 +218,7 @@ describe('VerificationPage', () => {
     const pending = page(f).load();
     await identity.signOut();
     await identity.signIn('b', 'pw');
-    await page(f).load();
+    await ensureLoaded(f);
     rejectA(new VerificationApiError(401));
     await pending;
     expect(identity.accessToken()).toBe('tb');
@@ -224,12 +233,56 @@ describe('VerificationPage', () => {
     const api = defaults();
     const { f, identity } = fixture(api);
     await identity.signIn('a', 'pw');
-    await page(f).load();
+    await ensureLoaded(f);
     api.eligibility.mockRejectedValueOnce(new VerificationApiError(401));
     await page(f).load();
     expect(identity.accessToken()).toBeNull();
     expect(page(f).cases()).toEqual([]);
     expect(page(f).eligibility()).toBeNull();
+    f.destroy();
+  });
+  it('expires the current bearer when case A returns 401 after the user selects case B', async () => {
+    const api = defaults();
+    api.list.mockResolvedValue({ items: [item('v-a'), item('v-b')] });
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    let rejectHistoryA!: (error: unknown) => void;
+    api.history.mockImplementation((_token, id) =>
+      id === 'v-a'
+        ? new Promise((_resolve, reject) => (rejectHistoryA = reject))
+        : Promise.resolve(emptyHistory),
+    );
+    const oldSelection = page(f).select(item('v-a'));
+    const untilHistoryStarted = async () => {
+      for (let attempt = 0; attempt < 10 && !rejectHistoryA; attempt++) await Promise.resolve();
+    };
+    await untilHistoryStarted();
+    await page(f).select(item('v-b'));
+    rejectHistoryA(new VerificationApiError(401));
+    await oldSelection;
+    expect(identity.accessToken()).toBeNull();
+    expect(page(f).cases()).toEqual([]);
+    f.destroy();
+  });
+  it('expires the current bearer when private PNG content returns a late 401 after selection changes', async () => {
+    const api = defaults();
+    api.list.mockResolvedValue({ items: [item('v-a'), item('v-b')] });
+    api.evidence.mockImplementation(async (_token, id) => (id === 'v-a' ? [evidence] : []));
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    let rejectContentA!: (error: unknown) => void;
+    api.content.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => (rejectContentA = reject)),
+    );
+    const oldSelection = page(f).select(item('v-a'));
+    for (let attempt = 0; attempt < 10 && !rejectContentA; attempt++) await Promise.resolve();
+    await page(f).select(item('v-b'));
+    rejectContentA(new VerificationApiError(401));
+    await oldSelection;
+    expect(identity.accessToken()).toBeNull();
+    expect(page(f).selected()).toBeNull();
     f.destroy();
   });
   it('uses only authorized PNG fixtures and revokes the temporary URL on selection change and destroy', async () => {
@@ -239,6 +292,7 @@ describe('VerificationPage', () => {
     const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
     const { f, identity } = fixture(api);
     await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
     await page(f).select(item('v-a'));
     expect(api.content).toHaveBeenCalledWith('ta', 'v-a', 'e-a');
     expect(page(f).evidenceUrl()).toBe('blob:private');
@@ -251,23 +305,187 @@ describe('VerificationPage', () => {
   });
   it('discards a late evidence response from A after switching to B', async () => {
     const api = defaults();
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    api.list.mockImplementation(async (token) => ({
+      items: [item(token === 'tb' ? 'v-b' : 'v-a')],
+    }));
     api.evidence.mockImplementation(async (_token, id) => (id === 'v-a' ? [evidence] : []));
     let finish!: (blob: Blob) => void;
     api.content.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
     const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:stale');
-    const { f, identity } = fixture(api);
-    await identity.signIn('a', 'pw');
     const pending = page(f).select(item('v-a'));
-    for (let attempt = 0; attempt < 10 && !api.content.mock.calls.length; attempt++)
-      await Promise.resolve();
+    for (let attempt = 0; attempt < 20 && !api.content.mock.calls.length; attempt++)
+      await new Promise((resolve) => setTimeout(resolve, 0));
     await identity.signOut();
     await identity.signIn('b', 'pw');
+    await ensureLoaded(f);
     await page(f).select(item('v-b'));
+    const urlsBeforeStaleResponse = create.mock.calls.length;
     finish(new Blob(['stale'], { type: 'image/png' }));
     await pending;
     expect(page(f).selected()?.id).toBe('v-b');
     expect(page(f).evidenceUrl()).toBeNull();
-    expect(create).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledTimes(urlsBeforeStaleResponse);
+    f.destroy();
+  });
+  it('does not select or query an A case with B after create reload is invalidated', async () => {
+    const api = defaults();
+    api.create.mockResolvedValue(item('created-a'));
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    let finishAList!: (result: VerificationList) => void;
+    api.list.mockImplementation((token) =>
+      token === 'ta'
+        ? new Promise((resolve) => (finishAList = resolve))
+        : Promise.resolve({ items: [item('case-b')] }),
+    );
+
+    const creating = page(f).createCase();
+    for (let attempt = 0; attempt < 10 && !finishAList; attempt++) await Promise.resolve();
+    await identity.signOut();
+    await identity.signIn('b', 'pw');
+    finishAList({ items: [item('created-a')] });
+    await creating;
+
+    expect(api.detail).not.toHaveBeenCalledWith('tb', 'created-a');
+    expect(api.history).not.toHaveBeenCalledWith('tb', 'created-a');
+    expect(page(f).selected()?.id).not.toBe('created-a');
+    f.destroy();
+  });
+  it('does not select or query an A retry result with B after retry reload is invalidated', async () => {
+    const api = defaults();
+    api.list.mockResolvedValue({ items: [item('rejected-a', 'rechazada')] });
+    api.detail.mockImplementation(async (_token, id) =>
+      item(id, id === 'rejected-a' ? 'rechazada' : 'en_revision'),
+    );
+    api.retry.mockResolvedValue(item('retry-a'));
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    let finishAList!: (result: VerificationList) => void;
+    api.list.mockImplementation((token) =>
+      token === 'ta'
+        ? new Promise((resolve) => (finishAList = resolve))
+        : Promise.resolve({ items: [item('case-b')] }),
+    );
+
+    const retrying = page(f).retryCase();
+    for (let attempt = 0; attempt < 10 && !finishAList; attempt++) await Promise.resolve();
+    await identity.signOut();
+    await identity.signIn('b', 'pw');
+    finishAList({ items: [item('retry-a')] });
+    await retrying;
+
+    expect(api.detail).not.toHaveBeenCalledWith('tb', 'retry-a');
+    expect(api.history).not.toHaveBeenCalledWith('tb', 'retry-a');
+    expect(page(f).selected()?.id).not.toBe('retry-a');
+    f.destroy();
+  });
+  it('keeps evidence writes and notices attached to the originating selection', async () => {
+    const api = defaults();
+    api.list.mockResolvedValue({ items: [item('v-a'), item('v-b')] });
+    let confirmEvidence!: () => void;
+    api.generateEvidence.mockImplementationOnce(
+      () => new Promise((resolve) => (confirmEvidence = () => resolve(evidence))),
+    );
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    await page(f).select(item('v-a'));
+    const detailCallsBeforeWrite = api.detail.mock.calls.length;
+    const writing = page(f).createEvidence();
+    await page(f).select(item('v-b'));
+    confirmEvidence();
+    await writing;
+    expect(page(f).selected()?.id).toBe('v-b');
+    expect(page(f).notice()).toBe('');
+    expect(api.detail.mock.calls.slice(detailCallsBeforeWrite)).not.toContainEqual(['ta', 'v-a']);
+    f.destroy();
+  });
+  it('keeps a pending correction attached to its originating selection', async () => {
+    const api = defaults();
+    api.list.mockResolvedValue({ items: [item('reject-a', 'rechazada'), item('v-b')] });
+    api.detail.mockImplementation(async (_token, id) =>
+      item(id, id === 'reject-a' ? 'rechazada' : 'en_revision'),
+    );
+    let confirmRetry!: (value: VerificationCase) => void;
+    api.retry.mockImplementationOnce(() => new Promise((resolve) => (confirmRetry = resolve)));
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    await page(f).select(item('reject-a', 'rechazada'));
+    const detailCallsBeforeWrite = api.detail.mock.calls.length;
+    const correcting = page(f).retryCase();
+    await page(f).select(item('v-b'));
+    confirmRetry(item('retry-a'));
+    await correcting;
+    expect(page(f).selected()?.id).toBe('v-b');
+    expect(page(f).notice()).toBe('');
+    expect(api.detail.mock.calls.slice(detailCallsBeforeWrite)).not.toContainEqual([
+      'ta',
+      'reject-a',
+    ]);
+    f.destroy();
+  });
+  it('retries an uncertain create with the same key and payload but changes key when type changes', async () => {
+    const api = defaults();
+    api.create.mockRejectedValueOnce(new Error('network timeout'));
+    api.create.mockRejectedValueOnce(new Error('network timeout'));
+    api.create.mockResolvedValue(item('created-a'));
+    api.list.mockImplementation(async (_token) => ({ items: [item('v-a'), item('created-a')] }));
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    await page(f).createCase();
+    const kycKey = api.create.mock.calls[0][2];
+    (
+      f.componentInstance as unknown as { createType: { set(value: 'kyc' | 'kyb'): void } }
+    ).createType.set('kyb');
+    await page(f).createCase();
+    const kybKey = api.create.mock.calls[1][2];
+    (
+      f.componentInstance as unknown as { createType: { set(value: 'kyc' | 'kyb'): void } }
+    ).createType.set('kyc');
+    await page(f).createCase();
+    expect(api.create.mock.calls.map((call) => call[1])).toEqual(['kyc', 'kyb', 'kyc']);
+    expect(api.create.mock.calls[2][2]).toBe(kycKey);
+    expect(kycKey).not.toBe(kybKey);
+    f.destroy();
+  });
+  it('retries uncertain correction and evidence writes with their original keys and payloads', async () => {
+    const api = defaults();
+    api.list.mockResolvedValue({ items: [item('reject-a', 'rechazada'), item('pending-a')] });
+    api.detail.mockImplementation(async (_token, id) =>
+      item(id, id === 'reject-a' ? 'rechazada' : 'en_revision'),
+    );
+    api.retry
+      .mockRejectedValueOnce(new Error('network timeout'))
+      .mockResolvedValue(item('retry-a'));
+    api.generateEvidence
+      .mockRejectedValueOnce(new Error('network timeout'))
+      .mockResolvedValue(evidence);
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    await page(f).select(item('reject-a', 'rechazada'));
+    await page(f).retryCase();
+    const retryKey = api.retry.mock.calls[0][3];
+    await page(f).retryCase();
+    expect(api.retry.mock.calls[1].slice(1, 3)).toEqual([
+      'reject-a',
+      'fixture_vigente_actualizado',
+    ]);
+    expect(api.retry.mock.calls[1][3]).toBe(retryKey);
+
+    await page(f).select(item('pending-a'));
+    await page(f).createEvidence();
+    const evidenceKey = api.generateEvidence.mock.calls[0][2];
+    await page(f).createEvidence();
+    expect(api.generateEvidence.mock.calls[1].slice(1, 2)).toEqual(['pending-a']);
+    expect(api.generateEvidence.mock.calls[1][2]).toBe(evidenceKey);
     f.destroy();
   });
   it('keeps unavailable evidence empty and does not request content', async () => {
@@ -275,6 +493,7 @@ describe('VerificationPage', () => {
     api.evidence.mockResolvedValue([{ ...evidence, file_available: false }]);
     const { f, identity } = fixture(api);
     await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
     await page(f).select(item('v-a'));
     expect(api.content).not.toHaveBeenCalled();
     expect(page(f).evidenceUrl()).toBeNull();
