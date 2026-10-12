@@ -67,10 +67,17 @@ const pageAccess = (fixture: ReturnType<typeof TestBed.createComponent>) =>
   fixture.componentInstance as unknown as {
     profile: () => Profile | null;
     photoUrl: () => string | null;
-    load(): Promise<void>;
+    load(): Promise<boolean>;
     downloadJson(): Promise<void>;
     downloadZip(): Promise<void>;
     removePhoto(): Promise<void>;
+    createPhoto(): Promise<void>;
+    saveProfile(): Promise<void>;
+    requestRight(type: 'acceso' | 'supresion'): Promise<void>;
+    displayName: { (): string; set(value: string): void };
+    savingProfile: () => boolean;
+    busy: () => boolean;
+    notice: () => string;
     error(): string;
   };
 
@@ -152,6 +159,166 @@ describe('AccountPrivacyPage', () => {
     fixture.destroy();
   });
 
+  it('treats a missing profile as empty, allows creating it, and keeps rights and exports available', async () => {
+    const api = accountApiDefaults();
+    api.profile.mockRejectedValue(new AccountPrivacyApiError('profile not created', 404));
+    const identityApi = {
+      login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
+      session: vi.fn().mockResolvedValue(sessionA), logout: vi.fn(),
+    };
+    setup(identityApi, api);
+    const identity = TestBed.inject(IdentitySession);
+    await identity.signIn('a@example.invalid', 'Synthetic#123');
+    const fixture = TestBed.createComponent(AccountPrivacyPage);
+    fixture.detectChanges();
+    await vi.waitFor(() => expect(fixture.nativeElement.querySelector('form.profile-form')).not.toBeNull());
+    await vi.waitFor(() => expect(pageAccess(fixture).busy()).toBe(false));
+    expect(fixture.nativeElement.textContent).toContain('Aún no has creado un perfil');
+    expect(fixture.nativeElement.textContent).toContain('Solicitar acceso');
+    expect(fixture.nativeElement.textContent).toContain('Descargar JSON');
+    const accessButton = [...fixture.nativeElement.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === 'Solicitar acceso') as HTMLButtonElement;
+    accessButton.click();
+    await vi.waitFor(() => expect(api.requestRight).toHaveBeenCalledWith('bearer-a', 'acceso'));
+    await vi.waitFor(() => expect(api.rightsRequests).toHaveBeenCalledTimes(2));
+
+    const page = pageAccess(fixture);
+    page.displayName.set('Primer perfil');
+    const created = { ...profile('Primer perfil'), updated_at: '2026-10-12T12:00:00Z' };
+    api.updateProfile.mockResolvedValueOnce(created);
+    fixture.nativeElement.querySelector('form.profile-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(api.updateProfile).toHaveBeenCalled());
+    await vi.waitFor(() => expect(page.savingProfile()).toBe(false));
+    fixture.detectChanges();
+    expect(api.updateProfile).toHaveBeenCalledWith('bearer-a', { display_name: 'Primer perfil', phone: '' });
+    expect(page.profile()?.display_name).toBe('Primer perfil');
+    expect(page.notice()).toBe('Perfil guardado por Go.');
+    expect(fixture.nativeElement.querySelector('#identity-heading').textContent).toContain('Primer perfil');
+    fixture.destroy();
+  });
+
+  it('finishes a profile save after another account action and reflects the confirmed response', async () => {
+    let finishUpdate!: (value: Profile) => void;
+    const pendingUpdate = new Promise<Profile>((resolve) => (finishUpdate = resolve));
+    const api = accountApiDefaults();
+    api.updateProfile.mockReturnValueOnce(pendingUpdate);
+    setup({
+      login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
+      session: vi.fn().mockResolvedValue(sessionA), logout: vi.fn(),
+    }, api);
+    const identity = TestBed.inject(IdentitySession);
+    await identity.signIn('a@example.invalid', 'Synthetic#123');
+    const fixture = TestBed.createComponent(AccountPrivacyPage);
+    fixture.detectChanges();
+    const page = pageAccess(fixture);
+    await vi.waitFor(() => expect(page.profile()?.display_name).toBe('Titular A'));
+
+    page.displayName.set('Nombre confirmado');
+    const save = page.saveProfile();
+    await vi.waitFor(() => expect(page.savingProfile()).toBe(true));
+    const accessButton = [...fixture.nativeElement.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === 'Solicitar acceso') as HTMLButtonElement;
+    expect(accessButton.disabled).toBe(false);
+    accessButton.click();
+    await vi.waitFor(() => expect(api.requestRight).toHaveBeenCalledWith('bearer-a', 'acceso'));
+    await vi.waitFor(() => expect(api.rightsRequests).toHaveBeenCalledTimes(2));
+    expect(page.savingProfile()).toBe(true);
+
+    const confirmed = profile('Nombre confirmado');
+    finishUpdate(confirmed);
+    await save;
+    fixture.detectChanges();
+    expect(page.savingProfile()).toBe(false);
+    expect(page.profile()?.display_name).toBe('Nombre confirmado');
+    expect(page.notice()).toBe('Perfil guardado por Go.');
+    expect(fixture.nativeElement.querySelector('#identity-heading').textContent).toContain('Nombre confirmado');
+    fixture.destroy();
+  });
+
+  it('discards a photo success notice when its own refresh finishes after another account signs in', async () => {
+    let finishARefresh!: (value: Profile) => void;
+    let profileCallsA = 0;
+    const pendingARefresh = new Promise<Profile>((resolve) => (finishARefresh = resolve));
+    const api = accountApiDefaults();
+    api.profile.mockImplementation((token: string) => {
+      if (token === 'bearer-a' && ++profileCallsA === 2) return pendingARefresh;
+      return Promise.resolve(profile(token === 'bearer-a' ? 'Titular A' : 'Titular B'));
+    });
+    api.photoMetadata.mockRejectedValueOnce(new AccountPrivacyApiError('not found', 404))
+      .mockResolvedValue(metadata);
+    const identityApi = {
+      login: vi.fn().mockResolvedValueOnce(login('account-a', 'bearer-a')).mockResolvedValueOnce(login('account-b', 'bearer-b')),
+      session: vi.fn().mockResolvedValueOnce(sessionA).mockResolvedValueOnce(sessionB),
+      logout: vi.fn().mockResolvedValue(undefined),
+    };
+    setup(identityApi, api);
+    const identity = TestBed.inject(IdentitySession);
+    await identity.signIn('a@example.invalid', 'Synthetic#123');
+    const fixture = TestBed.createComponent(AccountPrivacyPage);
+    fixture.detectChanges();
+    const page = pageAccess(fixture);
+    await vi.waitFor(() => expect(page.profile()?.display_name).toBe('Titular A'));
+
+    const photoOperation = page.createPhoto();
+    await vi.waitFor(() => expect(api.profile).toHaveBeenCalledTimes(2));
+    await identity.signOut();
+    await identity.signIn('b@example.invalid', 'Synthetic#456');
+    await vi.waitFor(() => expect(page.profile()?.display_name).toBe('Titular B'));
+    finishARefresh(profile('Respuesta A tardía'));
+    await photoOperation;
+    fixture.detectChanges();
+    expect(identity.accessToken()).toBe('bearer-b');
+    expect(page.profile()?.display_name).toBe('Titular B');
+    expect(page.notice()).toBe('');
+    fixture.destroy();
+  });
+
+  it('keeps the successful photo notice when its own refresh is current', async () => {
+    const api = accountApiDefaults();
+    api.photoMetadata.mockRejectedValueOnce(new AccountPrivacyApiError('not found', 404))
+      .mockResolvedValue(metadata);
+    setup({
+      login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
+      session: vi.fn().mockResolvedValue(sessionA), logout: vi.fn(),
+    }, api);
+    const identity = TestBed.inject(IdentitySession);
+    await identity.signIn('a@example.invalid', 'Synthetic#123');
+    const fixture = TestBed.createComponent(AccountPrivacyPage);
+    fixture.detectChanges();
+    const page = pageAccess(fixture);
+    await vi.waitFor(() => expect(page.profile()?.display_name).toBe('Titular A'));
+    await page.createPhoto();
+    fixture.detectChanges();
+    expect(page.notice()).toBe('Foto sintética privada generada por Go.');
+    fixture.destroy();
+  });
+
+  it('discards a photo success notice if the view is destroyed during its refresh', async () => {
+    let finishRefresh!: (value: Profile) => void;
+    let profileCalls = 0;
+    const pendingRefresh = new Promise<Profile>((resolve) => (finishRefresh = resolve));
+    const secondApi = accountApiDefaults();
+    secondApi.profile.mockImplementation(() => ++profileCalls === 1 ? Promise.resolve(profile('Titular A')) : pendingRefresh);
+    secondApi.photoMetadata.mockRejectedValueOnce(new AccountPrivacyApiError('not found', 404))
+      .mockResolvedValue(metadata);
+    setup({
+      login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
+      session: vi.fn().mockResolvedValue(sessionA), logout: vi.fn(),
+    }, secondApi);
+    const secondIdentity = TestBed.inject(IdentitySession);
+    await secondIdentity.signIn('a@example.invalid', 'Synthetic#123');
+    const fixture = TestBed.createComponent(AccountPrivacyPage);
+    fixture.detectChanges();
+    const page = pageAccess(fixture);
+    await vi.waitFor(() => expect(page.profile()?.display_name).toBe('Titular A'));
+    const photoOperation = page.createPhoto();
+    await vi.waitFor(() => expect(secondApi.profile).toHaveBeenCalledTimes(2));
+    fixture.destroy();
+    finishRefresh(profile('Vista destruida'));
+    await photoOperation;
+    expect(page.notice()).toBe('');
+  });
+
   it('revokes private photo Blob URLs on logout and view destruction', async () => {
     let sequence = 0;
     const createUrl = vi.fn(() => `blob:private-photo-${++sequence}`);
@@ -172,6 +339,7 @@ describe('AccountPrivacyPage', () => {
     await vi.waitFor(() => expect(pageAccess(fixture).photoUrl()).toBe('blob:private-photo-1'));
     await pageAccess(fixture).removePhoto();
     await vi.waitFor(() => expect(pageAccess(fixture).photoUrl()).toBe('blob:private-photo-2'));
+    expect(pageAccess(fixture).notice()).toBe('Foto retirada. El estado se muestra sin reconstruir el archivo.');
     expect(revokeUrl).toHaveBeenCalledWith('blob:private-photo-1');
     await identity.signOut();
     expect(pageAccess(fixture).photoUrl()).toBeNull();

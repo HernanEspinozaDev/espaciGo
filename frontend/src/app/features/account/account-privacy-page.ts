@@ -41,6 +41,7 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
   private generation = 0;
+  private profileWriteRevision = 0;
   private ownerSession = this.identity.session();
   private ownerToken = this.identity.accessToken();
   private unregisterPrivateState!: () => void;
@@ -51,6 +52,7 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
 
   protected readonly session = this.identity.session;
   protected readonly profile = signal<Profile | null>(null);
+  protected readonly profileReady = signal(false);
   protected readonly displayName = signal('');
   protected readonly phone = signal('');
   protected readonly photo = signal<PhotoMetadata | null>(null);
@@ -91,26 +93,28 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
     this.revokeAllBlobUrls();
   }
 
-  protected async load(): Promise<void> {
+  protected async load(): Promise<boolean> {
     const token = this.identity.accessToken();
     const session = this.identity.session();
-    if (!token || !session) return;
+    if (!token || !session) return false;
     const generation = ++this.generation;
     this.revokePhotoUrl();
     this.photo.set(null);
+    this.profileReady.set(false);
     this.error.set('');
     this.busy.set(true);
     try {
       const [profile, photo, payout, rights] = await Promise.all([
-        this.api.profile(token),
+        this.api.profile(token).catch((error) => (statusOf(error) === 404 ? null : Promise.reject(error))),
         this.api.photoMetadata(token).catch((error) => (statusOf(error) === 404 ? null : Promise.reject(error))),
         this.api.payoutAccount(token),
         this.api.rightsRequests(token),
       ]);
-      if (!this.isCurrent(generation, token, session)) return;
+      if (!this.isCurrent(generation, token, session)) return false;
       this.profile.set(profile);
-      this.displayName.set(profile.display_name);
-      this.phone.set(profile.phone ?? '');
+      this.profileReady.set(true);
+      this.displayName.set(profile?.display_name ?? '');
+      this.phone.set(profile?.phone ?? '');
       this.photo.set(photo);
       this.payout.set(payout);
       this.rights.set(rights.items);
@@ -118,13 +122,15 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
         const content = await this.api.photoContent(token).catch((error) =>
           statusOf(error) === 404 ? null : Promise.reject(error),
         );
-        if (!this.isCurrent(generation, token, session)) return;
+        if (!this.isCurrent(generation, token, session)) return false;
         if (content) this.setPhotoUrl(content);
         else this.photo.set(null);
       }
+      return true;
     } catch (error) {
-      if (this.handleError(error, token)) return;
+      if (this.handleError(error, token)) return false;
       if (this.isCurrent(generation, token, session)) this.error.set(messageFor(error));
+      return false;
     } finally {
       if (this.isCurrent(generation, token, session)) this.busy.set(false);
     }
@@ -141,7 +147,7 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
       this.error.set('Ingresa un nombre visible y un teléfono vacío o de nueve dígitos.');
       return;
     }
-    const generation = ++this.generation;
+    const revision = ++this.profileWriteRevision;
     this.error.set('');
     this.notice.set('');
     this.savingProfile.set(true);
@@ -150,16 +156,16 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
         display_name,
         ...(phone ? { phone } : { phone: '' }),
       });
-      if (!this.isCurrent(generation, token, session)) return;
+      if (!this.isSessionCurrent(token, session) || revision !== this.profileWriteRevision) return;
       this.profile.set(updated);
       this.displayName.set(updated.display_name);
       this.phone.set(updated.phone ?? '');
       this.notice.set('Perfil guardado por Go.');
     } catch (error) {
       if (this.handleError(error, token)) return;
-      if (this.isCurrent(generation, token, session)) this.error.set(messageFor(error));
+      if (this.isSessionCurrent(token, session) && revision === this.profileWriteRevision) this.error.set(messageFor(error));
     } finally {
-      if (this.isCurrent(generation, token, session)) this.savingProfile.set(false);
+      if (this.isSessionCurrent(token, session) && revision === this.profileWriteRevision) this.savingProfile.set(false);
     }
   }
 
@@ -224,7 +230,8 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
       if (!this.isCurrent(generation, token, session)) return;
       this.idempotencyKeys.delete(action);
       if (action === 'photo-create' || action === 'photo-remove') {
-        await this.load();
+        const reloaded = await this.load();
+        if (!reloaded || !this.isSessionCurrent(token, session)) return;
         this.notice.set(action === 'photo-create' ? 'Foto sintética privada generada por Go.' : 'Foto retirada. El estado se muestra sin reconstruir el archivo.');
       }
       if (action === 'payout-remove') this.payout.set(null);
@@ -339,6 +346,7 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
     this.generation++;
     this.revokeAllBlobUrls();
     this.profile.set(null);
+    this.profileReady.set(false);
     this.displayName.set('');
     this.phone.set('');
     this.photo.set(null);
@@ -375,11 +383,16 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
     session: ReturnType<IdentitySession['session']>,
   ): boolean {
     return (
-      !this.destroyed &&
-      generation === this.generation &&
-      this.identity.accessToken() === token &&
-      this.identity.session() === session
+      this.isSessionCurrent(token, session) &&
+      generation === this.generation
     );
+  }
+
+  private isSessionCurrent(
+    token: string,
+    session: ReturnType<IdentitySession['session']>,
+  ): boolean {
+    return !this.destroyed && this.identity.accessToken() === token && this.identity.session() === session;
   }
 }
 

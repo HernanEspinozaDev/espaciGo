@@ -10,11 +10,11 @@
   @if (notice()) { <p class="alert success" role="status">{{ notice() }}</p> }
   @if (busy() && !profile()) { <p class="loading" role="status">Cargando datos privados desde Go…</p> }
 
-  @if (profile(); as currentProfile) {
+  @if (session()) {
     <section class="panel identity-card" aria-labelledby="identity-heading">
       <div class="identity-copy">
         <p class="eyebrow">SESIÓN CONFIRMADA</p>
-        <h2 id="identity-heading">{{ currentProfile.display_name }}</h2>
+        <h2 id="identity-heading">{{ profile()?.display_name ?? 'Cuenta' }}</h2>
         <p>{{ session()?.account_id }}</p>
         <ul class="role-list" aria-label="Roles confirmados por Go">
           @for (role of session()?.roles ?? []; track role) { <li>{{ role }}</li> }
@@ -27,17 +27,20 @@
       <div class="section-heading">
         <div><p class="eyebrow">M02 · TITULAR</p><h2 id="profile-heading">Perfil</h2></div>
       </div>
-      <form class="profile-form" (submit)="saveProfile($event)" novalidate>
-        <label>Nombre visible
-          <input name="display-name" autocomplete="name" maxlength="120" required [value]="displayName()" (input)="displayName.set($any($event.target).value)" />
-        </label>
-        <label>Teléfono opcional
-          <input name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="9" placeholder="9 dígitos" [value]="phone()" (input)="phone.set($any($event.target).value)" aria-describedby="phone-hint" />
-          <span class="hint" id="phone-hint">Se guarda solo si contiene nueve dígitos.</span>
-        </label>
-        <button class="primary-button" type="submit" [disabled]="busy() || savingProfile()">{{ savingProfile() ? 'Guardando…' : 'Guardar perfil' }}</button>
-      </form>
-      <p class="updated">Última actualización: {{ formatDate(currentProfile.updated_at) }}</p>
+      @if (profileReady()) {
+        @if (!profile()) { <div class="empty-state">Aún no has creado un perfil. Puedes completar estos datos ahora.</div> }
+        <form class="profile-form" (submit)="saveProfile($event)" novalidate>
+          <label>Nombre visible
+            <input name="display-name" autocomplete="name" maxlength="120" required [value]="displayName()" (input)="displayName.set($any($event.target).value)" />
+          </label>
+          <label>Teléfono opcional
+            <input name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="9" placeholder="9 dígitos" [value]="phone()" (input)="phone.set($any($event.target).value)" aria-describedby="phone-hint" />
+            <span class="hint" id="phone-hint">Se guarda solo si contiene nueve dígitos.</span>
+          </label>
+          <button class="primary-button" type="submit" [disabled]="busy() || savingProfile()">{{ savingProfile() ? 'Guardando…' : profile() ? 'Guardar perfil' : 'Crear perfil' }}</button>
+        </form>
+      }
+      @if (profile(); as currentProfile) { <p class="updated">Última actualización: {{ formatDate(currentProfile.updated_at) }}</p> }
     </section>
 
     <section class="panel section" aria-labelledby="photo-heading">
