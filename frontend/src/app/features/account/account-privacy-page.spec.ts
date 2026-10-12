@@ -75,6 +75,7 @@ const pageAccess = (fixture: ReturnType<typeof TestBed.createComponent>) =>
     saveProfile(): Promise<void>;
     requestRight(type: 'acceso' | 'supresion'): Promise<void>;
     displayName: { (): string; set(value: string): void };
+    phone: { (): string; set(value: string): void };
     savingProfile: () => boolean;
     busy: () => boolean;
     notice: () => string;
@@ -232,6 +233,62 @@ describe('AccountPrivacyPage', () => {
     expect(page.profile()?.display_name).toBe('Nombre confirmado');
     expect(page.notice()).toBe('Perfil guardado por Go.');
     expect(fixture.nativeElement.querySelector('#identity-heading').textContent).toContain('Nombre confirmado');
+    fixture.destroy();
+  });
+
+  it('keeps a confirmed PUT over an older profile GET during photo refresh without blocking other controls', async () => {
+    let finishPut!: (value: Profile) => void;
+    let finishOldRead!: (value: Profile) => void;
+    const pendingPut = new Promise<Profile>((resolve) => (finishPut = resolve));
+    const pendingOldRead = new Promise<Profile>((resolve) => (finishOldRead = resolve));
+    const api = accountApiDefaults();
+    let reads = 0;
+    const old = { ...profile('Old A'), phone: '111222333' };
+    api.profile.mockImplementation(() => ++reads === 1 ? Promise.resolve(old) : pendingOldRead);
+    api.updateProfile.mockReturnValueOnce(pendingPut);
+    api.photoMetadata.mockRejectedValueOnce(new AccountPrivacyApiError('not found', 404))
+      .mockResolvedValue(metadata);
+    setup({
+      login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
+      session: vi.fn().mockResolvedValue(sessionA), logout: vi.fn(),
+    }, api);
+    const identity = TestBed.inject(IdentitySession);
+    await identity.signIn('a@example.invalid', 'Synthetic#123');
+    const fixture = TestBed.createComponent(AccountPrivacyPage);
+    fixture.detectChanges();
+    const page = pageAccess(fixture);
+    await vi.waitFor(() => expect(page.profile()?.display_name).toBe('Old A'));
+
+    page.displayName.set('Updated A');
+    page.phone.set('987654321');
+    const save = page.saveProfile();
+    await vi.waitFor(() => expect(page.savingProfile()).toBe(true));
+    const photoButton = [...fixture.nativeElement.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === 'Generar foto sintética') as HTMLButtonElement;
+    expect(photoButton.disabled).toBe(false);
+    photoButton.click();
+    await vi.waitFor(() => expect(api.profile).toHaveBeenCalledTimes(2));
+    expect(page.busy()).toBe(true);
+
+    const confirmed = { ...profile('Updated A'), phone: '987654321' };
+    finishPut(confirmed);
+    await save;
+    expect(page.profile()).toEqual(confirmed);
+    expect(page.displayName()).toBe('Updated A');
+    expect(page.phone()).toBe('987654321');
+
+    finishOldRead(old);
+    await vi.waitFor(() => expect(page.busy()).toBe(false));
+    fixture.detectChanges();
+    expect(page.profile()).toEqual(confirmed);
+    expect(page.displayName()).toBe('Updated A');
+    expect(page.phone()).toBe('987654321');
+    expect(page.savingProfile()).toBe(false);
+    expect([...fixture.nativeElement.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === 'Solicitar acceso')?.disabled).toBe(false);
+    expect([...fixture.nativeElement.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === 'Generar/reemplazar fixture')?.disabled).toBe(false);
+    expect(fixture.nativeElement.querySelector('#identity-heading').textContent).toContain('Updated A');
     fixture.destroy();
   });
 

@@ -42,6 +42,7 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
   private generation = 0;
   private profileWriteRevision = 0;
+  private profileCommitRevision = 0;
   private ownerSession = this.identity.session();
   private ownerToken = this.identity.accessToken();
   private unregisterPrivateState!: () => void;
@@ -103,6 +104,7 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
     this.profileReady.set(false);
     this.error.set('');
     this.busy.set(true);
+    const profileRevisionAtReadStart = this.profileCommitRevision;
     try {
       const [profile, photo, payout, rights] = await Promise.all([
         this.api.profile(token).catch((error) => (statusOf(error) === 404 ? null : Promise.reject(error))),
@@ -111,10 +113,12 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
         this.api.rightsRequests(token),
       ]);
       if (!this.isCurrent(generation, token, session)) return false;
-      this.profile.set(profile);
-      this.profileReady.set(true);
-      this.displayName.set(profile?.display_name ?? '');
-      this.phone.set(profile?.phone ?? '');
+      if (profileRevisionAtReadStart === this.profileCommitRevision) {
+        this.profile.set(profile);
+        this.profileReady.set(true);
+        this.displayName.set(profile?.display_name ?? '');
+        this.phone.set(profile?.phone ?? '');
+      }
       this.photo.set(photo);
       this.payout.set(payout);
       this.rights.set(rights.items);
@@ -157,7 +161,9 @@ export class AccountPrivacyPage implements OnInit, OnDestroy {
         ...(phone ? { phone } : { phone: '' }),
       });
       if (!this.isSessionCurrent(token, session) || revision !== this.profileWriteRevision) return;
+      this.profileCommitRevision++;
       this.profile.set(updated);
+      this.profileReady.set(true);
       this.displayName.set(updated.display_name);
       this.phone.set(updated.phone ?? '');
       this.notice.set('Perfil guardado por Go.');
