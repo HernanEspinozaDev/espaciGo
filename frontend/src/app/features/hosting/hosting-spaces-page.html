@@ -1,0 +1,723 @@
+<main class="hosting-shell">
+  <section class="hosting-intro">
+    <div>
+      <p class="eyebrow">PANEL DE ANFITRIÓN · ENSAYO LOCAL</p>
+      <h1>Mis espacios</h1>
+      <p>
+        Administra tus borradores, publicaciones y calendario. Go confirma permisos, elegibilidad y
+        conflictos.
+      </p>
+    </div>
+    <a class="button button--quiet" routerLink="/explorar">Ver catálogo</a>
+  </section>
+
+  @if (loading()) {
+    <p class="status" role="status">Cargando espacios propios desde Go…</p>
+  }
+  @if (loadingError()) {
+    <p class="alert" role="alert">{{ loadingError() }}</p>
+  }
+  @if (error()) {
+    <p class="alert" role="alert">{{ error() }}</p>
+  }
+  @if (notice()) {
+    <p class="notice" role="status">{{ notice() }}</p>
+  }
+  @if (conflict()) {
+    <p class="alert" role="alert">{{ conflict() }}</p>
+  }
+
+  <div class="hosting-layout">
+    <aside class="space-rail" aria-label="Tus espacios">
+      <div class="rail-heading">
+        <h2>Espacios propios</h2>
+        <span>{{ spaces().length }}</span>
+      </div>
+      @if (spaces().length === 0) {
+        <p class="empty">
+          Todavía no tienes espacios. Completa el formulario para crear tu primer borrador.
+        </p>
+      } @else {
+        <ul>
+          @for (space of spaces(); track space.id) {
+            <li>
+              <button
+                type="button"
+                class="space-choice"
+                [class.space-choice--active]="selectedSpace()?.id === space.id"
+                (click)="goTo(space.id)"
+              >
+                <strong>{{ space.title || 'Borrador sin título' }}</strong>
+                <span>{{ space.category_name }} · {{ labelState(space.state) }}</span>
+              </button>
+            </li>
+          }
+        </ul>
+      }
+      <button class="button button--primary rail-create" type="button" (click)="newDraft()">
+        + Nuevo borrador
+      </button>
+    </aside>
+
+    <section class="editor" aria-label="Gestión del espacio" [attr.aria-busy]="detailLoading()">
+      @if (detailLoading()) {
+        <p class="status" role="status">Cargando el espacio y su configuración…</p>
+      }
+      @if (!detailLoading()) {
+        @if (selectedSpace(); as space) {
+          <header class="editor-heading">
+            <div>
+              <p class="eyebrow">{{ space.category_name }} · {{ labelState(space.state) }}</p>
+              <h2>{{ space.title || 'Borrador sin título' }}</h2>
+            </div>
+            <span class="state-pill" [attr.data-state]="space.state">{{
+              labelState(space.state)
+            }}</span>
+          </header>
+          <nav class="section-tabs" aria-label="Secciones del espacio">
+            <button
+              type="button"
+              [class.selected]="section() === 'datos'"
+              (click)="goTo(space.id, 'datos')"
+            >
+              Datos
+            </button>
+            <button
+              type="button"
+              [class.selected]="section() === 'tarifas'"
+              (click)="goTo(space.id, 'tarifas')"
+            >
+              Tarifas
+            </button>
+            <button
+              type="button"
+              [class.selected]="section() === 'calendario'"
+              (click)="goTo(space.id, 'calendario')"
+            >
+              Calendario
+            </button>
+            <button
+              type="button"
+              [class.selected]="section() === 'galeria'"
+              (click)="goTo(space.id, 'galeria')"
+            >
+              Galería
+            </button>
+          </nav>
+        } @else {
+          <header class="editor-heading">
+            <div>
+              <p class="eyebrow">NUEVO ESPACIO</p>
+              <h2>Prepara un borrador</h2>
+            </div>
+          </header>
+        }
+
+        @if (!selectedSpace() || section() === 'datos') {
+          <section class="panel-card">
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">CONFIGURACIÓN</p>
+                <h3>Información del espacio</h3>
+              </div>
+              <p>Los campos obligatorios se validan también en Go.</p>
+            </div>
+            @if (!selectedSpace() || selectedSpace()!.state === 'borrador') {
+              <form (ngSubmit)="selectedSpace() ? saveDraft() : createDraft()" #draftForm="ngForm">
+                <div class="form-grid">
+                  <label
+                    >Categoría
+                    <select
+                      name="category"
+                      [ngModel]="form.category_code"
+                      (ngModelChange)="categoryChanged($event)"
+                      required
+                    >
+                      <option value="">Selecciona una categoría</option>
+                      @for (category of categories(); track category.code) {
+                        <option [value]="category.code">{{ category.name }}</option>
+                      }
+                    </select></label
+                  >
+                  <label
+                    >Título <input name="title" [(ngModel)]="form.title" maxlength="120" required
+                  /></label>
+                  <label class="span-2"
+                    >Descripción
+                    <textarea name="description" [(ngModel)]="form.description" rows="4"></textarea>
+                  </label>
+                  <label
+                    >Superficie (m²)
+                    <input type="number" name="area" [(ngModel)]="form.area_m2" min="1" required
+                  /></label>
+                  <label
+                    >Capacidad
+                    <input
+                      type="number"
+                      name="capacity"
+                      [(ngModel)]="form.capacity"
+                      min="1"
+                      required
+                  /></label>
+                  <label
+                    >Modalidad base
+                    <select name="rateUnit" [(ngModel)]="form.rate_unit">
+                      <option value="hora">Por hora</option>
+                      <option value="dia">Por día</option>
+                      <option value="mes">Por mes</option>
+                    </select></label
+                  >
+                  <label
+                    >Tarifa base inicial (CLP)
+                    <input
+                      name="basePrice"
+                      [(ngModel)]="form.base_price_clp"
+                      [readonly]="!!selectedSpace()"
+                      inputmode="numeric"
+                      pattern="[0-9]+"
+                      required
+                    /><small
+                      >Se conserva como entero exacto; Go valida el mínimo y rango.</small
+                    ></label
+                  >
+                  <label class="span-2"
+                    >Dirección privada
+                    <input
+                      name="address"
+                      [(ngModel)]="form.address"
+                      autocomplete="street-address"
+                      required
+                    /><small
+                      >La dirección se usa para la gestión propia. La visibilidad la controla
+                      Go.</small
+                    ></label
+                  >
+                  <label class="span-2"
+                    >Reglas de uso
+                    <textarea name="rules" [(ngModel)]="form.usage_rules" rows="3"></textarea>
+                  </label>
+                </div>
+                @if (profile(); as attributeProfile) {
+                  <fieldset class="attributes">
+                    <legend>
+                      Características · perfil versión {{ attributeProfile.schema_version }}
+                    </legend>
+                    <div class="form-grid">
+                      @for (attribute of attributeProfile.attributes; track attribute.code) {
+                        <label
+                          >{{ attribute.label }}
+                          @if (attribute.unit) {
+                            <span>({{ attribute.unit }})</span>
+                          }
+                          @if (attribute.type === 'boolean') {
+                            <select
+                              [name]="'attr-' + attribute.code"
+                              [ngModel]="attributeValue(attribute.code)"
+                              (ngModelChange)="setAttribute(attribute.code, $event, attribute.type)"
+                            >
+                              <option value="">Sin declarar</option>
+                              <option value="true">Sí</option>
+                              <option value="false">No</option>
+                            </select>
+                          } @else if (attribute.type === 'enum') {
+                            <select
+                              [name]="'attr-' + attribute.code"
+                              [ngModel]="attributeValue(attribute.code)"
+                              (ngModelChange)="setAttribute(attribute.code, $event, attribute.type)"
+                            >
+                              <option value="">Selecciona…</option>
+                              @for (option of attribute.options ?? []; track option) {
+                                <option [value]="option">{{ option }}</option>
+                              }
+                            </select>
+                          } @else {
+                            <input
+                              [name]="'attr-' + attribute.code"
+                              [type]="
+                                attribute.type === 'integer' || attribute.type === 'number'
+                                  ? 'number'
+                                  : 'text'
+                              "
+                              [step]="attribute.step ?? 'any'"
+                              [min]="attribute.minimum ?? null"
+                              [max]="attribute.maximum ?? null"
+                              [ngModel]="attributeValue(attribute.code)"
+                              (ngModelChange)="setAttribute(attribute.code, $event, attribute.type)"
+                              [placeholder]="
+                                attribute.type === 'enum_list' ? 'separa con comas' : ''
+                              "
+                            />
+                          }
+                          @if (attribute.description) {
+                            <small>{{ attribute.description }}</small>
+                          }
+                        </label>
+                      }
+                    </div>
+                  </fieldset>
+                }
+                <div class="form-actions">
+                  <button
+                    class="button button--primary"
+                    type="submit"
+                    [disabled]="saving() || draftForm.invalid"
+                  >
+                    {{
+                      saving()
+                        ? 'Guardando…'
+                        : selectedSpace()
+                          ? 'Guardar cambios del borrador'
+                          : 'Crear borrador'
+                    }}
+                  </button>
+                </div>
+              </form>
+            }
+
+            @if (selectedSpace() && selectedSpace()!.state !== 'borrador') {
+              <form class="published-editor" (ngSubmit)="savePublishedContent()">
+                <h3>Contenido público versionado</h3>
+                <p>Solo se envían los campos que cambiaste; los demás permanecen intactos.</p>
+                <div class="form-grid">
+                  <label
+                    >Título publicado
+                    <input name="publishedTitle" [(ngModel)]="publishedForm.title" /></label
+                  ><label
+                    >Capacidad publicada
+                    <input
+                      type="number"
+                      name="publishedCapacity"
+                      [(ngModel)]="publishedForm.capacity" /></label
+                  ><label class="span-2"
+                    >Descripción publicada
+                    <textarea
+                      name="publishedDescription"
+                      [(ngModel)]="publishedForm.description"
+                    ></textarea></label
+                  ><label class="span-2"
+                    >Reglas publicadas
+                    <textarea
+                      name="publishedRules"
+                      [(ngModel)]="publishedForm.usage_rules"
+                    ></textarea>
+                  </label>
+                </div>
+                <button class="button button--primary" type="submit" [disabled]="saving()">
+                  Guardar solo campos modificados
+                </button>
+              </form>
+            }
+            @if (selectedSpace()) {
+              <div class="publication-actions">
+                <div>
+                  <strong>Estado confirmado:</strong> {{ labelState(selectedSpace()!.state) }}
+                  <p>
+                    Publicar y ocultar cambian visibilidad. Eliminar retira el recurso y no equivale
+                    a ocultarlo.
+                  </p>
+                </div>
+                @if (selectedSpace()!.state === 'activa') {
+                  <button
+                    class="button button--quiet"
+                    type="button"
+                    (click)="changePublication('oculta')"
+                    [disabled]="saving()"
+                  >
+                    Ocultar
+                  </button>
+                } @else {
+                  <button
+                    class="button button--primary"
+                    type="button"
+                    (click)="changePublication('activa')"
+                    [disabled]="saving()"
+                  >
+                    Publicar
+                  </button>
+                }
+                @if (selectedSpace()!.state !== 'borrador') {
+                  <button
+                    class="button button--danger"
+                    type="button"
+                    (click)="deleteSpace()"
+                    [disabled]="saving()"
+                  >
+                    Eliminar…
+                  </button>
+                }
+              </div>
+            }
+          </section>
+        }
+
+        @if (section() === 'tarifas' && selectedSpace()) {
+          <section class="panel-card">
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">PRECIO</p>
+                <h3>Tarifa y simulaciones</h3>
+              </div>
+              <p>Los importes exactos y las unidades facturables proceden de Go.</p>
+            </div>
+            <div class="current-rate">
+              <span>Tarifa vigente</span><strong>{{ formatClp(tariff()?.base_price) }}</strong
+              ><span
+                >por {{ tariff()?.rate_unit ?? '—' }} · versión {{ tariff()?.version ?? '—' }}</span
+              >
+            </div>
+            <form class="form-grid" (ngSubmit)="saveTariff()">
+              <label
+                >Modalidad
+                <select
+                  name="rate-unit"
+                  [ngModel]="rateForm.rate_unit"
+                  (ngModelChange)="setRateUnit($event)"
+                >
+                  <option value="hora">Hora</option>
+                  <option value="dia">Día</option>
+                  <option value="mes">Mes</option>
+                </select></label
+              ><label
+                >Importe base CLP
+                <input
+                  name="rate-price"
+                  [(ngModel)]="rateForm.base_price"
+                  inputmode="numeric"
+                  pattern="[0-9]+"
+                  required
+              /></label>
+              <div class="span-2">
+                <button class="button button--primary" [disabled]="saving()">
+                  Guardar nueva versión de tarifa
+                </button>
+              </div>
+            </form>
+            <div class="form-grid simulation-form">
+              <label
+                >Inicio local en {{ timeZone() }}
+                <input
+                  type="datetime-local"
+                  name="sim-start"
+                  [(ngModel)]="simulationForm.start_at"
+                  (ngModelChange)="simulation.set(null)" /></label
+              ><label
+                >Término local en {{ timeZone() }}
+                <input
+                  type="datetime-local"
+                  name="sim-end"
+                  [(ngModel)]="simulationForm.end_at"
+                  (ngModelChange)="simulation.set(null)"
+              /></label>
+              <div class="span-2">
+                <button
+                  class="button button--quiet"
+                  type="button"
+                  (click)="simulatePrice()"
+                  [disabled]="!simulationForm.start_at || !simulationForm.end_at"
+                >
+                  Simular con Go
+                </button>
+              </div>
+            </div>
+            @if (simulation(); as result) {
+              <p class="notice">
+                Go estima {{ formatClp(result.base_subtotal) }} por {{ result.billed_units }}
+                {{ result.rate_unit }} en {{ result.time_zone }}. Esta simulación no crea una
+                reserva.
+              </p>
+            }
+            <h3>Versiones anteriores</h3>
+            @if (tariffHistory().length) {
+              <ul class="history-list">
+                @for (version of tariffHistory(); track version.version) {
+                  <li>
+                    <span>v{{ version.version }} · {{ version.rate_unit }}</span
+                    ><strong>{{ formatClp(version.base_price) }}</strong>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <p class="empty">Go no devolvió versiones previas.</p>
+            }
+          </section>
+        }
+
+        @if (section() === 'calendario' && selectedSpace()) {
+          <section class="panel-card">
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">ZONA IANA</p>
+                <h3>Calendario del espacio</h3>
+              </div>
+              <p>Las conversiones respetan horas inexistentes y repetidas por DST.</p>
+            </div>
+            <form class="form-grid" (ngSubmit)="saveTimeZone()">
+              <label class="span-2"
+                >Zona horaria IANA
+                <input
+                  name="timezone"
+                  [ngModel]="timeZone()"
+                  (ngModelChange)="setTimeZone($event)"
+                  placeholder="America/Santiago"
+                  required
+                /><small
+                  >La zona debe ser válida para Intl y Go la confirma antes de aplicar.</small
+                ></label
+              >
+              <div class="span-2">
+                <button class="button button--primary" [disabled]="saving()">Guardar zona</button>
+              </div>
+            </form>
+            <div class="calendar-grid">
+              <section class="sub-card">
+                <h3>Consultar disponibilidad</h3>
+                <p>Go verifica intervalos contra ocupaciones y bloqueos vigentes.</p>
+                <label
+                  >Inicio local
+                  <input
+                    type="datetime-local"
+                    [(ngModel)]="availabilityForm.start_at"
+                    name="availability-start" /></label
+                ><label
+                  >Término local
+                  <input
+                    type="datetime-local"
+                    [(ngModel)]="availabilityForm.end_at"
+                    name="availability-end" /></label
+                ><button class="button button--quiet" type="button" (click)="checkAvailability()">
+                  Consultar a Go
+                </button>
+                @if (availability(); as result) {
+                  <p class="availability" [class.availability--free]="result.available">
+                    {{ result.available ? 'Disponible según Go' : 'No disponible según Go' }} ·
+                    {{ zoneLabel(result.start_at) }} – {{ zoneLabel(result.end_at) }}
+                  </p>
+                }
+              </section>
+              <section class="sub-card">
+                <h3>Bloqueo manual</h3>
+                <p>El intervalo usa el huso confirmado y se valida en Go.</p>
+                <label
+                  >Inicio local
+                  <input
+                    type="datetime-local"
+                    [(ngModel)]="blockForm.start_at"
+                    name="block-start" /></label
+                ><label
+                  >Término local
+                  <input
+                    type="datetime-local"
+                    [(ngModel)]="blockForm.end_at"
+                    name="block-end" /></label
+                ><label
+                  >Motivo
+                  <select [(ngModel)]="blockForm.reason" name="block-reason">
+                    <option value="bloqueo_anfitrion">Bloqueo del anfitrión</option>
+                    <option value="mantencion">Mantención</option>
+                    <option value="otro">Otro</option>
+                  </select></label
+                ><label class="check-row"
+                  ><input
+                    type="checkbox"
+                    [checked]="disambiguation() === 'later'"
+                    (change)="setDisambiguation($any($event.target).checked ? 'later' : 'earlier')"
+                  />Si la hora se repite por DST, usar la segunda ocurrencia</label
+                ><button
+                  class="button button--primary"
+                  type="button"
+                  (click)="addManualBlock()"
+                  [disabled]="saving()"
+                >
+                  Guardar bloqueo
+                </button>
+              </section>
+            </div>
+            <h3>Bloqueos próximos</h3>
+            @if (blocks().length) {
+              <ul class="block-list">
+                @for (block of blocks(); track block.id) {
+                  <li>
+                    <div>
+                      <strong>{{ block.reason }}</strong
+                      ><span
+                        >{{ zoneLabel(block.start_at) }} – {{ zoneLabel(block.end_at) }} ·
+                        {{ block.time_zone }}</span
+                      >
+                    </div>
+                    <button
+                      class="button button--quiet"
+                      type="button"
+                      (click)="removeManualBlock(block.id)"
+                    >
+                      Retirar
+                    </button>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <p class="empty">Sin bloqueos en el horizonte consultado.</p>
+            }
+            @if (tariff()?.rate_unit === 'hora') {
+              <section class="weekly">
+                <div class="card-heading">
+                  <div>
+                    <p class="eyebrow">DISPONIBILIDAD RECURRENTE</p>
+                    <h3>Horario semanal</h3>
+                  </div>
+                  <label class="check-row"
+                    ><input
+                      type="checkbox"
+                      [(ngModel)]="weeklyForm.enabled"
+                      name="weekly-enabled"
+                    />Activar horario semanal</label
+                  >
+                </div>
+                @if (weekly()) {
+                  <div class="weekly-grid">
+                    @for (day of weeklyForm.days; track day.weekday; let i = $index) {
+                      <div class="week-day">
+                        <strong>{{ days[i] }}</strong>
+                        @if (day.periods.length) {
+                          @for (period of day.periods; track $index; let pi = $index) {
+                            <div class="period">
+                              <label
+                                >Apertura
+                                <input
+                                  type="time"
+                                  [(ngModel)]="period.open"
+                                  [name]="'open-' + i + '-' + pi" /></label
+                              ><label
+                                >Cierre
+                                <input
+                                  type="text"
+                                  inputmode="numeric"
+                                  placeholder="HH:mm o 24:00"
+                                  pattern="^(?:[01][0-9]|2[0-3]):[0-5][0-9]$|^24:00$"
+                                  [(ngModel)]="period.close"
+                                  [name]="'close-' + i + '-' + pi" /></label
+                              ><button
+                                type="button"
+                                class="icon-button"
+                                [attr.aria-label]="'Quitar tramo de ' + days[i]"
+                                (click)="removePeriod(i, pi)"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          }
+                        } @else {
+                          <p>Cerrado</p>
+                        }
+                        <button type="button" class="text-button" (click)="addPeriod(i)">
+                          + Añadir tramo
+                        </button>
+                      </div>
+                    }
+                  </div>
+                  <button
+                    class="button button--primary"
+                    type="button"
+                    (click)="saveWeekly()"
+                    [disabled]="saving()"
+                  >
+                    Guardar horario semanal
+                  </button>
+                } @else {
+                  <p class="empty">El horario semanal se ofrece para tarifas por hora.</p>
+                }
+              </section>
+            }
+          </section>
+        }
+
+        @if (section() === 'galeria' && selectedSpace()) {
+          <section class="panel-card">
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">ARCHIVOS PRIVADOS</p>
+                <h3>Galería sintética</h3>
+              </div>
+              <p>
+                Se admiten únicamente fixtures PNG generados por Go. No se cargan archivos locales.
+              </p>
+            </div>
+            <div class="gallery-summary">
+              <span>{{ gallery().length }} de {{ maxPhotos() }} imágenes</span
+              ><button
+                class="button button--primary"
+                type="button"
+                (click)="addSyntheticPhoto()"
+                [disabled]="saving() || gallery().length >= maxPhotos()"
+              >
+                Generar imagen sintética
+              </button>
+            </div>
+            @if (gallery().length) {
+              <div class="gallery-grid">
+                @for (photo of gallery(); track photo.id) {
+                  <article
+                    class="photo-card"
+                    [class.photo-card--cover]="selectedSpace()?.cover_photo_id === photo.id"
+                  >
+                    <button
+                      class="photo-preview"
+                      type="button"
+                      (click)="showPhoto(photo.id)"
+                      [attr.aria-label]="'Ver imagen sintética ' + photo.id"
+                    >
+                      @if (photoUrl() && previewPhotoId() === photo.id) {
+                        <img [src]="photoUrl()" alt="Vista temporal de imagen sintética propia" />
+                      } @else {
+                        <span>PNG sintético</span>
+                      }</button
+                    ><strong>{{
+                      selectedSpace()?.cover_photo_id === photo.id ? 'Portada' : 'Imagen de galería'
+                    }}</strong
+                    ><small
+                      >{{ photo.created_at | date: 'medium' }} · {{ photo.size_bytes }} bytes</small
+                    >
+                    <div>
+                      <button class="text-button" type="button" (click)="showPhoto(photo.id)">
+                        Ver archivo privado</button
+                      ><button
+                        class="text-button"
+                        type="button"
+                        (click)="selectCover(photo.id)"
+                        [disabled]="selectedSpace()?.cover_photo_id === photo.id"
+                      >
+                        Usar como portada</button
+                      ><button
+                        class="text-button text-button--danger"
+                        type="button"
+                        (click)="removePhoto(photo.id)"
+                      >
+                        Retirar
+                      </button>
+                    </div>
+                  </article>
+                }
+              </div>
+            } @else {
+              <div class="empty-gallery">
+                <span aria-hidden="true">▧</span>
+                <h3>La galería está vacía</h3>
+                <p>Genera un PNG de fixture permitido por Go para probar portada y galería.</p>
+              </div>
+            }
+            @if (photoUrl()) {
+              <div class="private-preview">
+                <img [src]="photoUrl()" alt="Contenido PNG privado de la galería" /><button
+                  type="button"
+                  class="button button--quiet"
+                  (click)="closePhoto()"
+                >
+                  Cerrar vista previa
+                </button>
+              </div>
+            }
+          </section>
+        }
+      }
+    </section>
+  </div>
+</main>

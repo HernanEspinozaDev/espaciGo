@@ -37,15 +37,48 @@ export const routes: Routes = [
   },
   {
     path: 'panel-anfitrion',
+    redirectTo: 'panel/espacios',
+    pathMatch: 'full',
+  },
+  {
+    path: 'panel/espacios',
     loadComponent: () =>
-      import('./features/coming-soon/coming-soon').then((module) => module.ComingSoon),
+      import('./features/hosting/hosting-spaces-page').then((module) => module.HostingSpacesPage),
     canActivate: [roleGuard],
-    title: 'Panel de anfitrión | EspaciGo',
-    data: {
-      requiredRole: 'arrendador',
-      title: 'Panel de anfitrión',
-      message: 'La gestión de espacios llegará en FE-06.',
-    },
+    title: 'Mis espacios | EspaciGo',
+    data: { requiredRole: 'arrendador' },
+  },
+  {
+    path: 'panel/espacios/:spaceId/editar',
+    loadComponent: () =>
+      import('./features/hosting/hosting-spaces-page').then((module) => module.HostingSpacesPage),
+    canActivate: [roleGuard],
+    title: 'Editar espacio | EspaciGo',
+    data: { requiredRole: 'arrendador', section: 'datos' },
+  },
+  {
+    path: 'panel/espacios/:spaceId/tarifas',
+    loadComponent: () =>
+      import('./features/hosting/hosting-spaces-page').then((module) => module.HostingSpacesPage),
+    canActivate: [roleGuard],
+    title: 'Tarifas | EspaciGo',
+    data: { requiredRole: 'arrendador', section: 'tarifas' },
+  },
+  {
+    path: 'panel/espacios/:spaceId/calendario',
+    loadComponent: () =>
+      import('./features/hosting/hosting-spaces-page').then((module) => module.HostingSpacesPage),
+    canActivate: [roleGuard],
+    title: 'Calendario | EspaciGo',
+    data: { requiredRole: 'arrendador', section: 'calendario' },
+  },
+  {
+    path: 'panel/espacios/:spaceId/galeria',
+    loadComponent: () =>
+      import('./features/hosting/hosting-spaces-page').then((module) => module.HostingSpacesPage),
+    canActivate: [roleGuard],
+    title: 'Galería | EspaciGo',
+    data: { requiredRole: 'arrendador', section: 'galeria' },
   },
   {
     path: 'administracion',
@@ -111,7 +144,8 @@ export const routes: Routes = [
   },
   {
     path: 'mi-cuenta/verificaciones',
-    loadComponent: () => import('./features/verification/verification-page').then((module) => module.VerificationPage),
+    loadComponent: () =>
+      import('./features/verification/verification-page').then((module) => module.VerificationPage),
     canActivate: [identityGuard],
     title: 'Verificaciones | EspaciGo',
   },

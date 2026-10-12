@@ -4,6 +4,8 @@ import { firstValueFrom } from 'rxjs';
 import { M04Local } from '../../../generated/api/sdk.gen';
 import type { SpaceAttributeProfile, SpaceCategoryList } from '../../../generated/api/types.gen';
 import { ApiRuntimeConfig } from '../../core/api-runtime-config';
+import { parseExactClpJson } from '../../core/exact-json';
+export { parseExactClpJson } from '../../core/exact-json';
 
 export type ClpAmount = string;
 export type CatalogItem = {
@@ -219,50 +221,4 @@ export class ExploreApi {
           );
     return parseExactClpJson<T>(text);
   }
-}
-
-const exactAmountKeys = new Set([
-  'base_price_clp',
-  'estimated_total_clp',
-  'min_total_clp',
-  'max_total_clp',
-  'unit_price_clp',
-  'subtotal_clp',
-  'guarantee_expected_clp',
-]);
-
-/** Quotes CLP integer literals before JSON.parse, so int64 values are never rounded as JS numbers. */
-export function parseExactClpJson<T>(source: string): T {
-  let output = '';
-  let index = 0;
-  while (index < source.length) {
-    if (source[index] !== '"') {
-      output += source[index++];
-      continue;
-    }
-    const stringStart = index++;
-    while (index < source.length) {
-      if (source[index] === '\\') index += 2;
-      else if (source[index++] === '"') break;
-    }
-    const rawString = source.slice(stringStart, index);
-    output += rawString;
-    let cursor = index;
-    while (/\s/.test(source[cursor] ?? '') && cursor < source.length) cursor++;
-    if (source[cursor] !== ':') continue;
-    const key = rawString.slice(1, -1);
-    if (!exactAmountKeys.has(key)) continue;
-    cursor++;
-    while (/\s/.test(source[cursor] ?? '') && cursor < source.length) cursor++;
-    const number = /^-?\d+/.exec(source.slice(cursor))?.[0];
-    if (!number) throw new Error(`Literal CLP no entero en JSON: ${key}`);
-    if (/[.eE]/.test(source[cursor + number.length] ?? '')) {
-      throw new Error(`Notación no decimal para importe CLP: ${key}`);
-    }
-    output += source.slice(index, cursor);
-    index = cursor;
-    output += `"${number}"`;
-    index += number.length;
-  }
-  return JSON.parse(output) as T;
 }
