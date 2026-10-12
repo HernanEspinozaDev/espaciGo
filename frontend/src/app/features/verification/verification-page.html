@@ -1,0 +1,246 @@
+<main class="verification page-width">
+  <a class="back-link" routerLink="/mi-cuenta">← Mi cuenta</a>
+  <header class="page-heading">
+    <p class="eyebrow">VERIFICACIÓN · FIXTURES LOCALES</p>
+    <h1>Casos de verificación</h1>
+    <p>
+      Consulta y gestiona únicamente verificaciones sintéticas propias. Go confirma estados y
+      elegibilidad; esta pantalla no asigna roles.
+    </p>
+  </header>
+  @if (error()) {
+    <p class="alert error" role="alert">{{ error() }}</p>
+  }
+  @if (notice()) {
+    <p class="alert success" role="status">{{ notice() }}</p>
+  }
+  @if (loading()) {
+    <p role="status" class="loading">Consultando casos y elegibilidad con Go…</p>
+  }
+  @if (session()) {
+    <section class="panel section" aria-labelledby="eligibility-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">RESPUESTA EFECTIVA DE GO</p>
+          <h2 id="eligibility-heading">Elegibilidad</h2>
+        </div>
+      </div>
+      @if (eligibility(); as result) {
+        <div class="eligibility-grid">
+          @for (type of ['kyc', 'kyb']; track type) {
+            @if (eligibilityFor($any(type)); as item) {
+              <article class="eligibility-card">
+                <strong>{{ typeLabel($any(type)) }}</strong
+                ><span [class.on]="item.eligible" [class.off]="!item.eligible">{{
+                  item.eligible ? 'Elegible' : 'No elegible'
+                }}</span
+                ><small>Caso: {{ item.verification_id || 'sin caso vigente' }}</small>
+                @if (item.revoked_at) {
+                  <small
+                    >Revocada: {{ formatDate(item.revoked_at) }} ·
+                    {{ item.revocation_reason_code }}</small
+                  >
+                }
+              </article>
+            }
+          }
+        </div>
+      } @else {
+        <p class="empty-state">La elegibilidad aún no está disponible.</p>
+      }
+    </section>
+    <section class="panel section" aria-labelledby="create-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">NUEVO CASO</p>
+          <h2 id="create-heading">Iniciar verificación sintética</h2>
+        </div>
+      </div>
+      <form class="create-form" (submit)="$event.preventDefault(); createCase()">
+        <label for="verification-type">Tipo</label
+        ><select
+          id="verification-type"
+          [value]="createType()"
+          (change)="createType.set($any($event.target).value)"
+        >
+          <option value="kyc">Persona (KYC)</option>
+          <option value="kyb">Organización (KYB)</option></select
+        ><button class="primary-button" [disabled]="!!operation()">
+          {{ operation() === 'create' ? 'Creando…' : 'Iniciar caso' }}
+        </button>
+      </form>
+      <p class="hint">
+        Go crea el caso como pendiente de revisión. No se consultan proveedores ni se solicitan
+        documentos reales.
+      </p>
+    </section>
+    <div class="case-layout">
+      <section class="panel section" aria-labelledby="cases-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">TITULAR CONFIRMADO</p>
+            <h2 id="cases-heading">Historial de casos</h2>
+          </div>
+        </div>
+        @if (cases().length) {
+          <ul class="case-list">
+            @for (item of cases(); track item.id) {
+              <li>
+                <button
+                  type="button"
+                  class="case-select"
+                  [class.active]="selected()?.id === item.id"
+                  (click)="select(item)"
+                >
+                  <span
+                    ><strong>{{ typeLabel(item.type) }}</strong
+                    ><small>{{ formatDate(item.created_at) }}</small></span
+                  ><span class="state" [attr.data-state]="item.state">{{
+                    stateLabel(item.state)
+                  }}</span>
+                </button>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="empty-state">No hay casos. Puedes iniciar uno con datos sintéticos.</p>
+        }
+      </section>
+      @if (selected(); as item) {
+        <section class="panel section detail" aria-labelledby="detail-heading">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">DETALLE CONFIRMADO POR GO</p>
+              <h2 id="detail-heading">{{ typeLabel(item.type) }}</h2>
+            </div>
+            <span class="state" [attr.data-state]="item.state">{{ stateLabel(item.state) }}</span>
+          </div>
+          @if (detailLoading()) {
+            <p role="status">Cargando detalle, historial y evidencia…</p>
+          } @else {
+            <dl class="metadata">
+              <div>
+                <dt>Estado</dt>
+                <dd>{{ stateLabel(item.state) }}</dd>
+              </div>
+              <div>
+                <dt>Proveedor</dt>
+                <dd>{{ item.provider }}</dd>
+              </div>
+              <div>
+                <dt>Referencia sintética</dt>
+                <dd>{{ item.evidence_ref }}</dd>
+              </div>
+              @if (item.reason_code) {
+                <div>
+                  <dt>Motivo informado</dt>
+                  <dd>{{ item.reason_code }}</dd>
+                </div>
+              }
+              @if (item.correction_code) {
+                <div>
+                  <dt>Subsanación</dt>
+                  <dd>{{ item.correction_code }}</dd>
+                </div>
+              }
+              @if (item.retry_of) {
+                <div>
+                  <dt>Reintenta caso</dt>
+                  <dd>{{ item.retry_of }}</dd>
+                </div>
+              }
+              @if (item.resolved_at) {
+                <div>
+                  <dt>Resuelto</dt>
+                  <dd>{{ formatDate(item.resolved_at) }}</dd>
+                </div>
+              }
+              @if (item.revoked_at) {
+                <div>
+                  <dt>Revocado</dt>
+                  <dd>{{ formatDate(item.revoked_at) }} · {{ item.revocation_reason_code }}</dd>
+                </div>
+              }
+            </dl>
+            <section class="subsection">
+              <h3>Evidencia permitida</h3>
+              @if (evidence().length) {
+                @for (entry of evidence(); track entry.id) {
+                  <article class="evidence">
+                    <p>
+                      <strong>{{ entry.fixture_code }}</strong> · PNG sintético ·
+                      {{ entry.size_bytes }} bytes
+                    </p>
+                    <small>SHA-256: {{ entry.sha256 }}</small>
+                    @if (entry.file_available && evidenceUrl()) {
+                      <img [src]="evidenceUrl()" alt="Fixture PNG sintético privado" />
+                    } @else {
+                      <p class="empty-state">
+                        El archivo está vacío, retirado o ya no disponible. Se conserva solo el
+                        estado informado por Go.
+                      </p>
+                    }
+                  </article>
+                }
+              } @else {
+                <p class="empty-state">Este caso todavía no tiene evidencia sintética.</p>
+              }
+              <button
+                class="secondary-button"
+                type="button"
+                [disabled]="!!operation() || item.state !== 'en_revision'"
+                (click)="createEvidence()"
+              >
+                {{ operation() === 'evidence' ? 'Generando…' : 'Generar fixture PNG permitido' }}
+              </button>
+              <p class="hint">
+                Solo se solicita a Go el código fijo <code>synthetic-png-v1</code>. No se aceptan
+                archivos ni bytes del usuario.
+              </p>
+            </section>
+            @if (item.state === 'rechazada') {
+              <section class="subsection">
+                <h3>Subsanar y reintentar</h3>
+                <label for="correction">Corrección sintética</label
+                ><select
+                  id="correction"
+                  [value]="correction()"
+                  (change)="correction.set($any($event.target).value)"
+                >
+                  <option value="fixture_vigente_actualizado">Fixture vigente actualizado</option>
+                  <option value="antecedentes_fixture_actualizados">
+                    Antecedentes fixture actualizados
+                  </option>
+                  <option value="inicio_actividades_fixture_actualizadas">
+                    Inicio de actividades fixture actualizado
+                  </option></select
+                ><button class="secondary-button" [disabled]="!!operation()" (click)="retryCase()">
+                  {{ operation() === 'retry' ? 'Enviando…' : 'Enviar subsanación a Go' }}
+                </button>
+              </section>
+            }
+            <section class="subsection">
+              <h3>Historial confirmado</h3>
+              @if (history().length) {
+                <ol class="history">
+                  @for (event of history(); track event.sequence) {
+                    <li>
+                      <strong>{{ event.action }}</strong
+                      ><span>{{ event.from_state || '—' }} → {{ event.to_state }}</span>
+                      @if (event.reason_code) {
+                        <small>{{ event.reason_code }}</small>
+                      }
+                      <time>{{ formatDate(event.occurred_at) }}</time>
+                    </li>
+                  }
+                </ol>
+              } @else {
+                <p class="empty-state">No hay eventos disponibles.</p>
+              }
+            </section>
+          }
+        </section>
+      }
+    </div>
+  }
+</main>

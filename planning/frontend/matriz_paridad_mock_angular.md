@@ -18,8 +18,8 @@ Fecha: 2026-10-11. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | Compatibilidad | 1 | No requiere pantalla directa |
 | FE-02 | 10 | Aprobado y fusionado; PR #275 |
 | FE-03 | 7 | Aceptado y fusionado; PR #276 |
-| FE-04 | 13 | Implementado; PR en revisión |
-| FE-05 | 10 | Pendiente |
+| FE-04 | 13 | Aceptado y fusionado; PR #278 |
+| FE-05 | 10 | Implementado; PR en revisión |
 | FE-06 | 26 | Pendiente |
 | FE-07 | 8 | Pendiente |
 | FE-08 | 10 | Pendiente |
@@ -69,16 +69,16 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /admin/credential-notices` | `listTerminalLocalCredentialNotices` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `POST /admin/credential-notices/{event_id}/reopen` | `reopenTerminalLocalCredentialNotice` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `GET /privacy/suppression-requests` | `listPendingLocalSuppressionRequests` | Bearer; permisos en Go | FE-11 — Administración de privacidad; operación explícita | Pendiente |
-| `GET /verifications` | `listOwnVerifications` | Bearer; permisos en Go | FE-05 — Verificación sintética y elegibilidad | Pendiente |
-| `POST /verifications` | `startSyntheticVerification` | Bearer; permisos en Go | FE-05 — Verificación sintética y elegibilidad | Pendiente |
-| `GET /verifications/eligibility` | `listOwnSyntheticEligibility` | Bearer; permisos en Go | FE-05 — Verificación sintética y elegibilidad | Pendiente |
-| `GET /verifications/{id}` | `getOwnVerification` | Bearer; permisos en Go | FE-05 — Verificación sintética y elegibilidad | Pendiente |
-| `GET /verifications/{id}/history` | `listOwnVerificationHistory` | Bearer; permisos en Go | FE-05 — Verificación sintética y elegibilidad | Pendiente |
-| `POST /verifications/{id}/retry` | `retryRejectedVerification` | Bearer; permisos en Go | FE-05 — Verificación sintética y elegibilidad | Pendiente |
-| `GET /verifications/{id}/evidence` | `listOwnSyntheticEvidence` | Bearer; permisos en Go | FE-05 — Verificación sintética y elegibilidad | Pendiente |
-| `POST /verifications/{id}/evidence` | `uploadSyntheticEvidence` | Bearer; permisos en Go | FE-05 — Verificación sintética y elegibilidad | Pendiente |
-| `GET /verifications/{id}/evidence/{evidenceId}` | `getOwnSyntheticEvidenceContent` | Bearer; permisos en Go | FE-05 — Verificación sintética y elegibilidad | Pendiente |
-| `DELETE /verifications/{id}/evidence/{evidenceId}` | `deleteOwnSyntheticEvidence` | Bearer; permisos en Go | FE-05 — Verificación sintética y elegibilidad | Pendiente |
+| `GET /verifications` | `listOwnVerifications` | Bearer; permiso titular en Go | FE-05 — Casos KYC/KYB propios | Implementado |
+| `POST /verifications` | `startSyntheticVerification` | Bearer; permiso e idempotencia Go | FE-05 — Crear caso sintético | Implementado; sólo KYC/KYB |
+| `GET /verifications/eligibility` | `listOwnSyntheticEligibility` | Bearer; elegibilidad efectiva por Go | FE-05 — Elegibilidad por tipo | Implementado; no muta roles |
+| `GET /verifications/{id}` | `getOwnVerification` | Bearer; permiso de titular en Go | FE-05 — Detalle | Implementado; respuestas tardías aisladas |
+| `GET /verifications/{id}/history` | `listOwnVerificationHistory` | Bearer; permiso de titular en Go | FE-05 — Historial | Implementado |
+| `POST /verifications/{id}/retry` | `retryRejectedVerification` | Bearer; rechazo/código/idempotencia validados por Go | FE-05 — Subsanación | Implementado; códigos del contrato |
+| `GET /verifications/{id}/evidence` | `listOwnSyntheticEvidence` | Bearer; titular; metadatos | FE-05 — Evidencia propia | Implementado; vacío/retirado |
+| `POST /verifications/{id}/evidence` | `uploadSyntheticEvidence` | Bearer; fixture e idempotencia validados por Go | FE-05 — Evidencia | Implementado; sólo `synthetic-png-v1`, sin cargas |
+| `GET /verifications/{id}/evidence/{evidenceId}` | `getOwnSyntheticEvidenceContent` | Bearer; autorización titular | FE-05 — PNG privado | Implementado; Blob URL temporal |
+| `DELETE /verifications/{id}/evidence/{evidenceId}` | `deleteOwnSyntheticEvidence` | Bearer; permiso titular en Go | FE-05 — Retirar evidencia | Disponible por contrato; no se expone en UI |
 | `GET /admin/verifications/{id}/evidence/{evidenceId}` | `reviewSyntheticEvidenceContent` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `DELETE /admin/verifications/{id}/evidence/{evidenceId}` | `deleteReviewedSyntheticEvidence` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `GET /admin/verifications/{id}/evidence` | `listEvidenceForReview` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
@@ -192,7 +192,7 @@ La UI reutiliza `M04Local` y sus tipos generados para categorías/perfiles. Cat�
 
 **Validación:** 41 pruebas Angular, `api:check`, build/prerender y prueba M05/M06 Go contra PostgreSQL temporal en `tmpfs`; cuenta y datos sintéticos. Incluye errores 401/403/404/409/422, permiso de arrendatario, DST, cotización y aislamiento de sesión. Sin pruebas destructivas en el volumen persistente, sin proveedores reales y con el mock conservado. FE-03 fue aceptado y fusionado; FE-04 comienza a continuación.
 
-## Trazabilidad FE-04 — cuenta y privacidad (en revisión)
+## Trazabilidad FE-04 — cuenta y privacidad (aceptado; PR #278 fusionado)
 
 | Operación Go | Pantalla / comportamiento | Validación | Evidencia visual |
 | --- | --- | --- | --- |
@@ -205,6 +205,20 @@ La UI reutiliza `M04Local` y sus tipos generados para categorías/perfiles. Cat�
 **Validación:** 55 pruebas Angular en 13 archivos; `api:check`; build/prerender. Pruebas de componente con IdentitySession real cubren el perfil 404 y alta, guardado concurrente con solicitud/foto, GET de perfil obsoleto que termina después del PUT confirmado y la publicación/descarto del aviso de foto según recarga, sesión y destrucción de vista. El GET obsoleto no cancela la recarga ni bloquea acciones; solo no aplica perfil/nombre/teléfono viejos. Pruebas Go enfocadas de foto sintética/cuenta fake, autorización por titular, aislamiento de dos cuentas y exportaciones con PostgreSQL temporal y Mailpit desechable. Se mantienen casos de Bearer vigente 401 (limpia estado), 401 tardío de A después de B (no expira B), logout/login, respuestas tardías, limpieza de Blob URLs, descarga/estructura JSON y ZIP. Capturas marcadas con respuestas/API sintéticas.
 
 **Límite de automatización:** no se automatizó el selector/diálogo del sistema de archivos del navegador para comprobar escritura física de la descarga. Angular inspecciona el Blob de descarga (incluida firma ZIP) y la prueba Go abre/verifica el ZIP y sus contenidos; el clic de descarga se comprueba en componente. El mock se conserva y Go no se modifica.
+
+## Trazabilidad FE-05 — KYC sintético ([PR #279](https://github.com/HernanEspinozaDev/espaciGo/pull/279), commit `3405f05`; en revisión)
+
+Ruta privada `/mi-cuenta/verificaciones`, guard de sesión, render CSR y metadato `noindex,nofollow`. La vista separa acceso HTTP (`VerificationApi`), estado del recorrido (`VerificationPage`) y plantilla. Bearer sólo en memoria; las sesiones y selecciones tienen generación propia para descartar respuestas tardías. Una respuesta 401 sólo expira el bearer vigente. Los fixtures de evidencia se solicitan a Go con el literal permitido; el PNG se obtiene por petición autenticada y se representa con Blob URL temporal, revocada al seleccionar otro caso, cambiar/cerrar sesión o destruir la vista. `file_available=false` representa archivo retirado y no reconstruye contenido.
+
+| Recorrido | Comportamiento visible | Pruebas/evidencia |
+| --- | --- | --- |
+| Casos propios KYC/KYB y detalle | Estados `en_revision`, `aprobada`, `rechazada`, `revocada`, fechas, proveedor y motivo vienen de Go | `VerificationPage` + `IdentitySession` real; lista/detalle/historial y aislamiento |
+| Crear / corregir | Crear caso sintético; el rechazo permite reenviar código compatible y Go crea caso nuevo | Claves idempotentes y códigos limitados al esquema; sin privilegios concedidos por UI |
+| Elegibilidad | Muestra KYC/KYB según respuesta efectiva, independiente de preferencia y roles | Elegibilidad no inferida en navegador |
+| Evidencia | Metadatos de fixture y vista privada autorizada; vacío/retirado sin reconstruir | No hay file input ni subida de bytes; tercero recibe rechazo/ocultación Go |
+| Sesiones y concurrencia | Cambio A→B descarta listados/detalle/PNG de A; 401 actual limpia, 401 tardío no expira B | Suite Angular focused/full; Go handler owner-scoped |
+
+**Validación:** 7 pruebas KYC enfocadas; suite Angular consolidada: 62 pruebas en 14 archivos; `api:check`; build/prerender; pruebas Go del handler y del repositorio de verificaciones con PostgreSQL temporal en `tmpfs`. Cubren titular/tercero, estados, retry, evidencia, 401 actual/tardío, cambio de cuenta, respuestas de PNG fuera de orden y Blob URL al cambiar caso/logout/destruir vista. Las capturas reflejan UI Angular con fixtures de API sintéticos locales: [escritorio](evidencia/FE05_kyc_escritorio.png) · [móvil](evidencia/FE05_kyc_movil.png). No se probaron documentos reales ni se usó volumen persistente. FE-04 aceptado/fusionado en PR #278; FE-05 queda en revisión y FE-06 permanece pendiente.
 
 ## Trazabilidad FE-02 — [PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275) aprobado y fusionado
 

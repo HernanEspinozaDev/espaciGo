@@ -1,6 +1,6 @@
 # Plan completo del frontend Angular — FRONTEND-LOCAL-1
 
-Fecha: 2026-10-11. Baseline de planificación: `b0f62b976c9586d260cea15ed9acc29ab12257a7`, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 implementado y en revisión. FE-05–FE-15 siguen pendientes, no son capacidades implementadas.
+Fecha: 2026-10-11. Baseline de planificación: `b0f62b976c9586d260cea15ed9acc29ab12257a7`, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 implementado y en revisión. FE-06–FE-15 siguen pendientes, no son capacidades implementadas.
 
 ## 1. Objetivo y condición de cierre
 
@@ -164,7 +164,13 @@ Cada fila especifica dependencias, entregable tangible y aceptación. Los PR pue
 
 **Estado: implementado y preparado para revisión.** `/mi-cuenta` y `/mi-cuenta/privacidad` son rutas privadas CSR/noindex. El corte integra perfil, foto sintética privada, cuenta de cobro fake, solicitudes de acceso/supresión y exportaciones JSON/ZIP mediante el cliente generado y operaciones Go existentes. El Bearer se conserva en memoria; los 401 vigentes limpian el estado privado, las respuestas tardías no afectan otra sesión y las URLs Blob privadas se revocan al cambiar recurso, cerrar sesión o destruir la vista. Los vacíos/artefactos retirados reflejan la respuesta del servidor sin reconstrucción local.
 
-**Validación y evidencia:** 55 pruebas Angular, `api:check`, build/prerender y pruebas Go enfocadas con PostgreSQL temporal/Mailpit desechable para titular/tercero, aislamiento entre dos cuentas, foto y cuenta fake, exportaciones y exclusión de credenciales/datos ajenos. Las pruebas de componente con IdentitySession real incluyen la creación del primer perfil tras GET 404, guardado concurrente a una solicitud, protección contra GET de perfil obsoleto posterior al PUT confirmado y avisos de foto después de recargas, cambio de sesión y destrucción de vista. La matriz de paridad registra por operación los recorridos y las capturas [escritorio](evidencia/FE04_cuenta_escritorio.png) y [móvil](evidencia/FE04_cuenta_movil.png). No se automatizó el diálogo del sistema operativo para verificar la escritura física de descargas; se inspeccionan los Blob y el contenido ZIP generado en pruebas. El mock se mantiene, Go no se modifica y no se inician GCP ni proveedores reales. FE-05 queda pendiente hasta la aprobación y fusión de FE-04.
+**Validación y evidencia:** 55 pruebas Angular, `api:check`, build/prerender y pruebas Go enfocadas con PostgreSQL temporal/Mailpit desechable para titular/tercero, aislamiento entre dos cuentas, foto y cuenta fake, exportaciones y exclusión de credenciales/datos ajenos. Las pruebas de componente con IdentitySession real incluyen la creación del primer perfil tras GET 404, guardado concurrente a una solicitud, protección contra GET de perfil obsoleto posterior al PUT confirmado y avisos de foto después de recargas, cambio de sesión y destrucción de vista. La matriz de paridad registra por operación los recorridos y las capturas [escritorio](evidencia/FE04_cuenta_escritorio.png) y [móvil](evidencia/FE04_cuenta_movil.png). No se automatizó el diálogo del sistema operativo para verificar la escritura física de descargas; se inspeccionan los Blob y el contenido ZIP generado en pruebas. El mock se mantiene, Go no se modifica y no se inician GCP ni proveedores reales. FE-04 fue aceptado y fusionado en PR #278 antes de comenzar FE-05.
+
+### Registro de avance FE-05 (2026-10-12)
+
+**Estado: implementado y en revisión en [PR #279](https://github.com/HernanEspinozaDev/espaciGo/pull/279), commit `3405f05`.** `/mi-cuenta/verificaciones` es privada, CSR/noindex y consume el SDK OpenAPI generado. Presenta casos propios KYC/KYB, estados y elegibilidad confirmados por Go, historial, subsanación del rechazo y generación de evidencia exclusivamente mediante `synthetic-png-v1`. El cliente no acepta archivos ni bytes arbitrarios; los contenidos se descargan con Bearer y las Blob URLs temporales se revocan en cambio de caso, cierre/cambio de sesión y destrucción de vista. No asigna roles ni concede elegibilidad.
+
+**Validación y evidencia:** 7 pruebas KYC enfocadas; regresión Angular consolidada de 62 pruebas en 14 archivos; `npm run api:check`; build/prerender; pruebas Go del handler y de repositorio PostgreSQL temporal (`tmpfs`) para autorización titular/tercero, estados, reintento y evidencia. Las regresiones Angular cubren 401 vigente/tardío, cambio A→B, PNG fuera de orden, Blob URL en cambio de recurso/logout/destrucción, y evidencia retirada. Capturas de escritorio/móvil usan fixtures sintéticos locales y se enlazan en la matriz. FE-04 fue aceptado y fusionado en PR #278; FE-05 queda en revisión y FE-06 pendiente hasta su aprobación/fusión.
 
 ### Hitos para revisar avance
 
@@ -225,11 +231,11 @@ Estimación orientativa de trabajo enfocado para un desarrollador; no fechas pro
 
 Añadir margen de aproximadamente 20% si aparecen incompatibilidades de generación, dinero exacto, bibliotecas o endpoints. Rangos no incluyen proveedores reales, GCP ni nuevo portal público. Calibrar con entregas reales, no repartir un porcentaje ficticio por módulo.
 
-A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274), FE-02 está aprobado y fusionado ([PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275)), FE-03 está aprobado y fusionado ([PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276)) y FE-04 está en revisión. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
+A la fecha de este registro, FE-00/FE-01 están aceptados (PR #274), FE-02 está aprobado y fusionado ([PR #275](https://github.com/HernanEspinozaDev/espaciGo/pull/275)), FE-03 está aprobado y fusionado ([PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276)), FE-04 fue aceptado/fusionado (PR #278) y FE-05 está en revisión. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
 
 ## 11. Gobierno y definición de terminado
 
-La implementación se publica por cortes con HernanMEC y solicita revisión a HernanEspinozaDev según el flujo existente. Los cambios documentales ajenos se conservan sin incorporarlos al corte. La aprobación humana precede al siguiente corte FE-05.
+La implementación se publica por cortes con HernanMEC y solicita revisión a HernanEspinozaDev según el flujo existente. Los cambios documentales ajenos se conservan sin incorporarlos al corte. La aprobación humana de FE-05 precede al siguiente corte FE-06.
 
 FRONTEND-LOCAL-1 se acepta cuando:
 
