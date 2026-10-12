@@ -173,8 +173,8 @@ export class VerificationPage implements OnInit, OnDestroy {
     const payload = { type: this.createType() } as const;
     const attempt = this.writeAttempt(context, 'create', 'new-case', payload);
     try {
-      const created = await this.api.create(context.token, payload.type, attempt.key);
-      this.settleAttempt(attempt.id);
+      const created = await this.api.create(context.token, payload.type, attempt.attempt.key);
+      this.settleAttempt(attempt.id, attempt.attempt);
       if (!this.operationCurrent(context) || !this.originSelectionCurrent(context)) return;
       this.notice.set('Go creó el caso y lo dejó en revisión.');
 
@@ -190,7 +190,7 @@ export class VerificationPage implements OnInit, OnDestroy {
       if (!this.operationCurrent(context) || !this.selectionStill(detailRevision, listed.id))
         return;
     } catch (error) {
-      this.handleWriteFailure(error, context, attempt.id);
+      this.handleWriteFailure(error, context, attempt.id, attempt.attempt);
     } finally {
       this.finishOperation(context);
     }
@@ -208,9 +208,9 @@ export class VerificationPage implements OnInit, OnDestroy {
         context.token,
         item.id,
         payload.correction_code,
-        attempt.key,
+        attempt.attempt.key,
       );
-      this.settleAttempt(attempt.id);
+      this.settleAttempt(attempt.id, attempt.attempt);
       if (!this.operationCurrent(context) || !this.originSelectionCurrent(context)) return;
       this.notice.set('Go recibió la subsanación y creó un nuevo caso en revisión.');
 
@@ -226,7 +226,7 @@ export class VerificationPage implements OnInit, OnDestroy {
       if (!this.operationCurrent(context) || !this.selectionStill(detailRevision, listed.id))
         return;
     } catch (error) {
-      this.handleWriteFailure(error, context, attempt.id);
+      this.handleWriteFailure(error, context, attempt.id, attempt.attempt);
     } finally {
       this.finishOperation(context);
     }
@@ -240,15 +240,15 @@ export class VerificationPage implements OnInit, OnDestroy {
     const payload: SyntheticFixture = { fixture_code: 'synthetic-png-v1' };
     const attempt = this.writeAttempt(context, 'evidence', item.id, payload);
     try {
-      await this.api.generateEvidence(context.token, item.id, attempt.key);
-      this.settleAttempt(attempt.id);
+      await this.api.generateEvidence(context.token, item.id, attempt.attempt.key);
+      this.settleAttempt(attempt.id, attempt.attempt);
       if (!this.operationCurrent(context) || !this.originSelectionCurrent(context)) return;
       const refresh = this.refreshSelected(context, context.selectionRevision);
       await refresh;
       if (!this.operationCurrent(context) || !this.originSelectionCurrent(context)) return;
       this.notice.set('Go generó y adjuntó el fixture PNG sintético.');
     } catch (error) {
-      this.handleWriteFailure(error, context, attempt.id);
+      this.handleWriteFailure(error, context, attempt.id, attempt.attempt);
     } finally {
       this.finishOperation(context);
     }
@@ -410,7 +410,7 @@ export class VerificationPage implements OnInit, OnDestroy {
     action: OperationContext['name'],
     resource: string,
     payload: unknown,
-  ): { id: string; key: string } {
+  ): { id: string; attempt: WriteAttempt } {
     const fingerprint = JSON.stringify(payload);
     const id = JSON.stringify([context.accountId, action, resource, fingerprint]);
     let attempt = this.writeAttempts.get(id);
@@ -418,18 +418,23 @@ export class VerificationPage implements OnInit, OnDestroy {
       attempt = { key: this.key(), payload: JSON.parse(fingerprint) as unknown };
       this.writeAttempts.set(id, attempt);
     }
-    return { id, key: attempt.key };
+    return { id, attempt };
   }
 
-  private settleAttempt(id: string): void {
-    this.writeAttempts.delete(id);
+  private settleAttempt(id: string, attempt: WriteAttempt): void {
+    if (this.writeAttempts.get(id) === attempt) this.writeAttempts.delete(id);
   }
 
-  private handleWriteFailure(error: unknown, context: OperationContext, attemptId: string): void {
+  private handleWriteFailure(
+    error: unknown,
+    context: OperationContext,
+    attemptId: string,
+    attempt: WriteAttempt,
+  ): void {
     const status = verificationStatus(error);
     // Network errors, timeouts and server errors are uncertain; retain the exact key/payload.
     if (status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 429) {
-      this.settleAttempt(attemptId);
+      this.settleAttempt(attemptId, attempt);
     }
     this.handleFailure(
       error,

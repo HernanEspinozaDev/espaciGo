@@ -488,6 +488,81 @@ describe('VerificationPage', () => {
     expect(api.generateEvidence.mock.calls[1][2]).toBe(evidenceKey);
     f.destroy();
   });
+  it('keeps the new uncertain create attempt when the previous same-account request succeeds late', async () => {
+    const api = defaults();
+    let finishOld!: (value: VerificationCase) => void;
+    api.create
+      .mockImplementationOnce(() => new Promise((resolve) => (finishOld = resolve)))
+      .mockRejectedValueOnce(new Error('network timeout'))
+      .mockResolvedValue(item('created-new'));
+    const identityApi = {
+      login: vi
+        .fn()
+        .mockResolvedValueOnce(login('a', 'ta'))
+        .mockResolvedValueOnce(login('a', 'ta2')),
+      session: vi.fn().mockResolvedValue(sessionA),
+      logout: vi.fn().mockResolvedValue(undefined),
+    };
+    const { f, identity } = fixture(api, identityApi);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    const oldOperation = page(f).createCase();
+    for (let attempt = 0; attempt < 10 && api.create.mock.calls.length < 1; attempt++)
+      await Promise.resolve();
+
+    await identity.signOut();
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    await page(f).createCase();
+    const newKey = api.create.mock.calls[1][2];
+    const attempts = (f.componentInstance as unknown as { writeAttempts: Map<string, unknown> })
+      .writeAttempts;
+    expect(JSON.stringify([...attempts.values()])).not.toContain('ta2');
+    finishOld(item('created-old'));
+    await oldOperation;
+    await page(f).createCase();
+
+    expect(api.create.mock.calls.map((call) => call[1])).toEqual(['kyc', 'kyc', 'kyc']);
+    expect(api.create.mock.calls[2].slice(1)).toEqual(api.create.mock.calls[1].slice(1));
+    expect(api.create.mock.calls[2][2]).toBe(newKey);
+    f.destroy();
+  });
+  it('keeps the new uncertain create attempt when the previous same-account request fails definitively late', async () => {
+    const api = defaults();
+    let rejectOld!: (error: unknown) => void;
+    api.create
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectOld = reject)))
+      .mockRejectedValueOnce(new Error('network timeout'))
+      .mockResolvedValue(item('created-new'));
+    const identityApi = {
+      login: vi
+        .fn()
+        .mockResolvedValueOnce(login('a', 'ta'))
+        .mockResolvedValueOnce(login('a', 'ta2')),
+      session: vi.fn().mockResolvedValue(sessionA),
+      logout: vi.fn().mockResolvedValue(undefined),
+    };
+    const { f, identity } = fixture(api, identityApi);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    const oldOperation = page(f).createCase();
+    for (let attempt = 0; attempt < 10 && api.create.mock.calls.length < 1; attempt++)
+      await Promise.resolve();
+
+    await identity.signOut();
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    await page(f).createCase();
+    const newKey = api.create.mock.calls[1][2];
+    rejectOld(new VerificationApiError(422));
+    await oldOperation;
+    await page(f).createCase();
+
+    expect(api.create.mock.calls.map((call) => call[1])).toEqual(['kyc', 'kyc', 'kyc']);
+    expect(api.create.mock.calls[2].slice(1)).toEqual(api.create.mock.calls[1].slice(1));
+    expect(api.create.mock.calls[2][2]).toBe(newKey);
+    f.destroy();
+  });
   it('keeps unavailable evidence empty and does not request content', async () => {
     const api = defaults();
     api.evidence.mockResolvedValue([{ ...evidence, file_available: false }]);
