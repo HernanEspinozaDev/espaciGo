@@ -21,7 +21,6 @@
 .primary-button { background: #873c2e; border-color: #873c2e; color: white; }
 .secondary-button { color: #713526; background: #fffaf4; }
 .text-button { color: #713526; background: transparent; border-color: transparent; text-decoration: underline; }
-button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid #1b6270; outline-offset: 2px; }
 button:disabled { cursor: wait; opacity: .58; }
 .status-card, .empty-state, .action-panel, .report-result { margin: 1rem 0; padding: 1rem; border: 1px solid #ddc9b7; border-radius: .9rem; background: #fffaf4; }
 .status-card.error { border-color: #a3342e; color: #7d201b; background: #fff0ed; }
