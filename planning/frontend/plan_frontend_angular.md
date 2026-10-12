@@ -1,6 +1,6 @@
 # Plan completo del frontend Angular — FRONTEND-LOCAL-1
 
-Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 aprobado y fusionado en PR #283 (merge `503d19359e94c9f187bb955047c150aef8b97507`). FE-09 aprobado y fusionado en PR #284 (merge `0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 está en implementación/revisión; FE-11–FE-15 siguen pendientes y no se declaran implementados.
+Fecha: 2026-10-12. Baseline de planificación: b0f62b976c9586d260cea15ed9acc29ab12257a7, V54. Estado actual: FE-00/FE-01 aceptados en PR #274; FE-02 aprobado y fusionado en PR #275; FE-03 aprobado y fusionado en PR #276; FE-04 aceptado y fusionado en PR #278; FE-05 aprobado y fusionado en PR #279; FE-06 aceptado y fusionado en PR #280; FE-07 aceptado y fusionado en PR #282; FE-08 aprobado y fusionado en PR #283 (merge `503d19359e94c9f187bb955047c150aef8b97507`). FE-09 aprobado y fusionado en PR #284 (merge `0d3bac8a06457899239a49274b54ad6807846f42`); FE-10 en revisión en PR #285 (commit `868116cbe4508b620bb7edc69482cfffcd6cc90c`); FE-11–FE-15 siguen pendientes y no se declaran implementados.
 
 ## 1. Objetivo y condición de cierre
 
@@ -245,7 +245,7 @@ Estimación orientativa de trabajo enfocado para un desarrollador; no fechas pro
 
 Añadir margen de aproximadamente 20% si aparecen incompatibilidades de generación, dinero exacto, bibliotecas o endpoints. Rangos no incluyen proveedores reales, GCP ni nuevo portal público. Calibrar con entregas reales, no repartir un porcentaje ficticio por módulo.
 
-Estado vigente: FE-09 aprobado y fusionado en [PR #284](https://github.com/HernanEspinozaDev/espaciGo/pull/284), merge `0d3bac8a06457899239a49274b54ad6807846f42`; FE-10 se trabaja en `codex/frontend-local-1-fe10-disputes-finance`. FE-11 permanece pendiente hasta que FE-10 sea aprobado y fusionado. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
+Estado vigente: FE-09 aprobado y fusionado en [PR #284](https://github.com/HernanEspinozaDev/espaciGo/pull/284), merge `0d3bac8a06457899239a49274b54ad6807846f42`; FE-10 en revisión en [PR #285](https://github.com/HernanEspinozaDev/espaciGo/pull/285), commit `868116cbe4508b620bb7edc69482cfffcd6cc90c`, rama `codex/frontend-local-1-fe10-disputes-finance`; autor HernanMEC, revisor solicitado HernanEspinozaDev. FE-11 permanece pendiente hasta que FE-10 sea aprobado y fusionado. El backend y Docker aportan la base reutilizable; no cuentan como pantallas Angular terminadas. Cada FE mantiene estado, PR/commit y evidencia. Si un contrato falla, registrar brecha concreta y ajuste mínimo; no reabrir todo LOCAL-1.
 
 ### FE-08 — Contrato y operación (rama `codex/frontend-local-1-fe08-contract-operations`)
 
@@ -280,7 +280,7 @@ Bearer permanece en memoria. Intentos inciertos guardan clave y payload original
 
 ## FE-10 — Disputas y finanzas (implementación en revisión)
 
-**Estado:** en `codex/frontend-local-1-fe10-disputes-finance`, basada en `main` actualizado tras la fusión de FE-09 (#284, `0d3bac8a06457899239a49274b54ad6807846f42`). PR FE-10 pendiente de apertura/revisión. FE-11 permanece pendiente hasta aprobación y fusión de FE-10.
+**Estado:** en `codex/frontend-local-1-fe10-disputes-finance`, basada en `main` actualizado tras la fusión de FE-09 (#284, `0d3bac8a06457899239a49274b54ad6807846f42`). PR [#285](https://github.com/HernanEspinozaDev/espaciGo/pull/285) abierto para revisión; commit `868116cbe4508b620bb7edc69482cfffcd6cc90c`. Autor verificado HernanMEC; solicitada revisión de HernanEspinozaDev. FE-11 permanece pendiente hasta aprobación y fusión de FE-10.
 
 La ruta de reserva integra incidencias, historial de reclamos/descargos, evidencia sintética privada, garantía fake, decisión administrativa de reclamos, liquidación fake, conciliación y comprobante de ensayo con las operaciones M10 de Go. La vista de administración requiere el rol que devuelve Go. La UI distingue cierre de incidencia, resolución del reclamo y decisión financiera; solo habilita registrar una decisión económica después de que Go confirme la resolución, y refleja su respuesta. Los artefactos privados se descargan con Bearer y Blob URLs temporales.
 

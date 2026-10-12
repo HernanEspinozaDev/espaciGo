@@ -24,7 +24,7 @@ Fecha: 2026-10-12. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | FE-07 | 8 | Aceptado y fusionado; PR #282; merge `978a27e` |
 | FE-08 | 10 | Aprobado y fusionado; [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), merge `503d193` |
 | FE-09 | 8 | Aceptado y fusionado; PR #284, merge `0d3bac8` |
-| FE-10 | 21 | Implementado; PR FE-10 en revisión |
+| FE-10 | 21 | Implementado; [PR #285 en revisión](https://github.com/HernanEspinozaDev/espaciGo/pull/285) |
 | FE-11 | 29 | Pendiente |
 | Técnica | 1 | No requiere pantalla directa |
 
@@ -126,14 +126,14 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `POST /local/booking-trial/reservations` | `requestLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
 | `GET /local/booking-trial/reservations/{reservationId}` | `getOwnLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
 | `POST /local/booking-trial/reservations/{reservationId}/payment` | `simulateLocalTrialPayment` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
-| `GET /local/booking-trial/reservations/{reservationId}/settlement` | `getOwnLocalSettlement` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR FE-10 en revisión |
-| `POST /local/booking-trial/reservations/{reservationId}/settlement` | `requestLocalFakeSettlement` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR FE-10 en revisión |
-| `POST /local/booking-trial/reservations/{reservationId}/settlement-reconcile` | `reconcileLocalFakeSettlement` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR FE-10 en revisión |
-| `GET /local/booking-trial/reservations/{reservationId}/receipt` | `getOwnLocalSettlementReceipt` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR FE-10 en revisión |
-| `GET /local/booking-trial/reservations/{reservationId}/guarantee` | `getOwnSyntheticReservationGuarantee` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR FE-10 en revisión |
-| `POST /local/booking-trial/reservations/{reservationId}/guarantee` | `executeLocalSyntheticGuaranteeOperation` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR FE-10 en revisión |
-| `POST /local/booking-trial/reservations/{reservationId}/guarantee-reconcile` | `reconcileLocalGuaranteeFakeResult` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR FE-10 en revisión |
-| `POST /local/booking-trial/reservations/{reservationId}/financial-decision` | `recordAdminLocalFinancialDecision` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR FE-10 en revisión |
+| `GET /local/booking-trial/reservations/{reservationId}/settlement` | `getOwnLocalSettlement` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR #285 en revisión |
+| `POST /local/booking-trial/reservations/{reservationId}/settlement` | `requestLocalFakeSettlement` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR #285 en revisión |
+| `POST /local/booking-trial/reservations/{reservationId}/settlement-reconcile` | `reconcileLocalFakeSettlement` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR #285 en revisión |
+| `GET /local/booking-trial/reservations/{reservationId}/receipt` | `getOwnLocalSettlementReceipt` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR #285 en revisión |
+| `GET /local/booking-trial/reservations/{reservationId}/guarantee` | `getOwnSyntheticReservationGuarantee` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR #285 en revisión |
+| `POST /local/booking-trial/reservations/{reservationId}/guarantee` | `executeLocalSyntheticGuaranteeOperation` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR #285 en revisión |
+| `POST /local/booking-trial/reservations/{reservationId}/guarantee-reconcile` | `reconcileLocalGuaranteeFakeResult` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR #285 en revisión |
+| `POST /local/booking-trial/reservations/{reservationId}/financial-decision` | `recordAdminLocalFinancialDecision` | Bearer; permisos en Go | FE-10 — Garantía, liquidación y comprobante de ensayo | Implementado; PR #285 en revisión |
 | `POST /local/booking-trial/payment-events` | `receiveAuthenticatedLocalPaymentEvent` | HMAC Backend | Técnica — Callback HMAC; no UI ni secreto en Angular | Sin UI directa justificada |
 | `POST /local/booking-trial/reservations/{reservationId}/decision` | `decideLocalTrialReservation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
 | `GET /local/booking-trial/reservations/{reservationId}/cancellation-preview` | `previewLocalTrialReservationCancellation` | Bearer; permisos en Go | FE-07 — Reserva, historial, pago y cancelación | Implementado; PR #282 |
@@ -142,11 +142,11 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /local/booking-trial/reservations/{reservationId}/messages` | `listOwnLocalReservationMessages` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Implementado; 38 mensajes, páginas 30 + anteriores y tercero denegado |
 | `POST /local/booking-trial/reservations/{reservationId}/messages` | `sendOwnLocalReservationMessage` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Implementado; estado editable y terminal denegado por Go |
 | `POST /local/booking-trial/reservations/{reservationId}/messages/read` | `advanceOwnLocalReservationMessageReadCursor` | Bearer; permisos en Go | FE-09 — Conversación, lectura y reseñas | Implementado; cursor y contador confirmados por Go |
-| `GET /local/booking-trial/reservations/{reservation_id}/disputes` | `listOwnReservationTrialDisputes` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR FE-10 en revisión |
-| `POST /local/booking-trial/reservations/{reservation_id}/disputes` | `openOwnHostedTrialDispute` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR FE-10 en revisión |
-| `GET /local/booking-trial/disputes/{dispute_id}/history` | `getOwnTrialDisputeHistory` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR FE-10 en revisión |
-| `GET /admin/disputes` | `listOpenLocalTrialDisputes` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR FE-10 en revisión |
-| `POST /admin/disputes/{dispute_id}/close` | `closeLocalTrialDispute` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR FE-10 en revisión |
+| `GET /local/booking-trial/reservations/{reservation_id}/disputes` | `listOwnReservationTrialDisputes` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR #285 en revisión |
+| `POST /local/booking-trial/reservations/{reservation_id}/disputes` | `openOwnHostedTrialDispute` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR #285 en revisión |
+| `GET /local/booking-trial/disputes/{dispute_id}/history` | `getOwnTrialDisputeHistory` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR #285 en revisión |
+| `GET /admin/disputes` | `listOpenLocalTrialDisputes` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR #285 en revisión |
+| `POST /admin/disputes/{dispute_id}/close` | `closeLocalTrialDispute` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR #285 en revisión |
 | `POST /auth/logout` | `logout` | Bearer; permisos en Go | FE-02 — Identidad y seguridad | Implementado; aprobado y fusionado en PR #275 |
 | `POST /local/booking-trial/reservations/{reservationId}/contract` | `createOrGetSyntheticReservationContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; aprobado y fusionado PR #283 |
 | `GET /local/booking-trial/contracts/{contractId}` | `getOwnSyntheticContract` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; aprobado y fusionado PR #283 |
@@ -158,10 +158,10 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `POST /local/booking-trial/reservations/{reservationID}/reception` | `recordSyntheticHostReception` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; aprobado y fusionado PR #283 |
 | `GET /local/booking-trial/reservations/{reservationID}/operations` | `listSyntheticRentalOperations` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; aprobado y fusionado PR #283 |
 | `GET /local/booking-trial/reservations/{reservationID}/evidence/{evidenceID}` | `downloadSyntheticRentalOperationEvidence` | Bearer; permisos en Go | FE-08 — Contrato y operación con evidencia | Implementado; aprobado y fusionado PR #283 |
-| `POST /local/booking-trial/reservations/{reservationID}/damage-claim/defense/evidence` | `createSyntheticDamageClaimDefenseEvidence` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR FE-10 en revisión |
-| `GET /local/booking-trial/reservations/{reservationID}/damage-claim` | `getOwnSyntheticDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR FE-10 en revisión |
-| `POST /local/booking-trial/reservations/{reservationID}/damage-claim` | `openSyntheticHostDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR FE-10 en revisión |
-| `POST /local/booking-trial/reservations/{reservationID}/damage-claim/defense` | `submitSyntheticDamageClaimDefense` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR FE-10 en revisión |
+| `POST /local/booking-trial/reservations/{reservationID}/damage-claim/defense/evidence` | `createSyntheticDamageClaimDefenseEvidence` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR #285 en revisión |
+| `GET /local/booking-trial/reservations/{reservationID}/damage-claim` | `getOwnSyntheticDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR #285 en revisión |
+| `POST /local/booking-trial/reservations/{reservationID}/damage-claim` | `openSyntheticHostDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR #285 en revisión |
+| `POST /local/booking-trial/reservations/{reservationID}/damage-claim/defense` | `submitSyntheticDamageClaimDefense` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia y evidencia | Implementado; PR #285 en revisión |
 | `GET /admin/local/audit-events` | `listAdminLocalAuditEvents` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `GET /admin/local/audit-events/export` | `exportAdminLocalAuditEvents` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `GET /admin/local/accounts/{accountID}` | `getAdminLocalAccountByID` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
@@ -174,10 +174,10 @@ La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y ret
 | `GET /admin/local/reports/disputes` | `getAdminLocalDisputesReport` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `GET /admin/local/reservations` | `listAdminLocalReservations` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
 | `GET /admin/local/reservations/{reservationID}` | `getAdminLocalReservation` | Bearer; permisos en Go | FE-11 — Administración y colas | Pendiente |
-| `GET /admin/local/damage-claims` | `listOpenLocalSyntheticDamageClaims` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR FE-10 en revisión |
-| `GET /admin/local/damage-claims/{claimID}` | `getAdminLocalSyntheticDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR FE-10 en revisión |
-| `GET /admin/local/damage-claims/{claimID}/evidence/{evidenceID}` | `getAdminLocalDamageClaimEvidence` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR FE-10 en revisión |
-| `POST /admin/local/damage-claims/{claimID}/resolution` | `resolveLocalSyntheticDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR FE-10 en revisión |
+| `GET /admin/local/damage-claims` | `listOpenLocalSyntheticDamageClaims` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR #285 en revisión |
+| `GET /admin/local/damage-claims/{claimID}` | `getAdminLocalSyntheticDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR #285 en revisión |
+| `GET /admin/local/damage-claims/{claimID}/evidence/{evidenceID}` | `getAdminLocalDamageClaimEvidence` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR #285 en revisión |
+| `POST /admin/local/damage-claims/{claimID}/resolution` | `resolveLocalSyntheticDamageClaim` | Bearer; permisos en Go | FE-10 — Reclamo/incidencia administrativa | Implementado; PR #285 en revisión |
 
 ## Trazabilidad FE-03 — [PR #276](https://github.com/HernanEspinozaDev/espaciGo/pull/276) aprobado y fusionado
 
@@ -310,11 +310,11 @@ Todas las operaciones de interfaz deben estar implementadas y verificadas en Ang
 
 Pruebas Angular: 141 en 24 archivos; regresiones de sesión/401 tardío, respuestas fuera de orden, paginación concurrente con refresh y éxito/error obsoleto, terminal solo lectura, texto como texto, lectura tras render, clic DOM de reintento idempotente con formulario limpio y resumen público actualizado después de reseña con descarte de lectura anterior. `api:check` y `build` con prerender de 3 rutas pasan. Revisión autenticada en navegador integrado: Angular HTTP 200, Go readiness HTTP 200; sin `ERR_BLOCKED_BY_CLIENT`. Arrendatario: 40 mensajes, paginación UI operativa, intento incierto conserva el formulario original y su reintento produjo una sola fila Go (#40). Anfitrión: reseña reportada, otra publicada y vista terminal solo lectura; resumen público 5/5, 1 reseña. Evidencia capturada desde Angular conectado a Go: [conversación desktop 1413×1004](evidencia/FE09_conversacion_escritorio.jpg) · [móvil 473×824](evidencia/FE09_conversacion_movil.jpg) · [reintento desktop 1413×1004](evidencia/FE09_reintento_escritorio.jpg) · [reseñas/reportes desktop 1413×989](evidencia/FE09_reportes_escritorio.jpg) · [móvil 473×824](evidencia/FE09_reportes_movil.jpg). Los 404 iniciales correspondían a un ID obsoleto que no pertenecía a esa cuenta; se corrigió consultando reservas actuales de Go. No se compartieron credenciales.
 
-FE-09 aprobado y fusionado en PR #284, merge `0d3bac8a06457899239a49274b54ad6807846f42`. FE-10 está en implementación/revisión; FE-11 espera aprobación y fusión de FE-10.
+FE-09 aprobado y fusionado en PR #284, merge `0d3bac8a06457899239a49274b54ad6807846f42`. FE-10 está en revisión en PR #285; FE-11 espera aprobación y fusión de FE-10.
 
 **Aceptación:** FE-09 aprobado y fusionado en PR #284. FE-10 está en revisión; FE-11 queda pendiente hasta su aprobación y fusión.
 
-## Trazabilidad FE-10 — Disputas y finanzas
+## Trazabilidad FE-10 — Disputas y finanzas ([PR #285 en revisión](https://github.com/HernanEspinozaDev/espaciGo/pull/285))
 
 | Flujo/operación Go | Interfaz Angular | Prueba/evidencia | Estado/límite |
 | --- | --- | --- | --- |
@@ -327,4 +327,4 @@ FE-09 aceptado y fusionado en PR #284, merge `0d3bac8a06457899239a49274b54ad6807
 
 Evidencia Angular conectada a Go: [participante escritorio 1425×2787](evidencia/FE10_disputas_escritorio.jpg), [participante móvil 375×4050](evidencia/FE10_disputas_movil.jpg), [cola admin escritorio 1425×2289](evidencia/FE10_admin_escritorio.jpg), [cola admin móvil 375×2703](evidencia/FE10_admin_movil.jpg), [panel actual desktop 1265×712](evidencia/FE10_admin_actual_escritorio.jpg) y [móvil 375×812](evidencia/FE10_admin_actual_movil.jpg). Las capturas de panel actual son viewports; las primeras son páginas completas.
 
-Regresión Angular: `npm test -- --watch=false` — 145 pruebas en 26 archivos; FinanceApi conserva clave/payload original en timeout y 503 ambiguo, prohíbe variar payload, procesa CLP int64 exacto y conserva status Go. Un test integrado con `IdentitySession` real verifica resolución confirmada, evidencia, importe y resultado de decisión financiera que Go devuelve. `npm run api:check` pasa y `npm run build` prerenderiza 3 rutas. FE-11 sigue pendiente hasta aprobar y fusionar FE-10.
+Regresión Angular: `npm test -- --watch=false` — 145 pruebas en 26 archivos; commit `868116cbe4508b620bb7edc69482cfffcd6cc90c`, autor GitHub HernanMEC, revisor solicitado y verificado HernanEspinozaDev; FinanceApi conserva clave/payload original en timeout y 503 ambiguo, prohíbe variar payload, procesa CLP int64 exacto y conserva status Go. Un test integrado con `IdentitySession` real verifica resolución confirmada, evidencia, importe y resultado de decisión financiera que Go devuelve. `npm run api:check` pasa y `npm run build` prerenderiza 3 rutas. FE-11 sigue pendiente hasta aprobar y fusionar FE-10.
