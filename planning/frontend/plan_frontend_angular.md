@@ -321,7 +321,7 @@ Documentos aportados por el usuario y conversación en el checkout local. Implem
 
 ## FE-11 — Administración completa (en revisión)
 
-**Estado:** en revisión en [PR #286](https://github.com/HernanEspinozaDev/espaciGo/pull/286), commit `806d5d21b5718ac3a376b644b48ab1927d656d2b`, rama `codex/frontend-local-1-fe11-admin`; autor verificado HernanMEC y revisión solicitada a HernanEspinozaDev. Basada en `main` actualizado después del merge de FE-10 (#285). FE-12 permanece pendiente hasta aprobar y fusionar FE-11.
+**Estado:** en revisión en [PR #286](https://github.com/HernanEspinozaDev/espaciGo/pull/286), rama `codex/frontend-local-1-fe11-admin`; autor verificado HernanMEC y revisión solicitada a HernanEspinozaDev. Basada en `main` actualizado después del merge de FE-10 (#285). FE-12 permanece pendiente hasta aprobar y fusionar FE-11.
 
 La ruta `/administracion` mantiene el guardado por rol confirmado en la sesión Go y el servidor decide los permisos efectivos. El panel coordina colas de verificaciones/evidencias, privacidad y supresión, reportes de reseñas, avisos terminales y reapertura, cuentas/bloqueo, publicaciones, reservas, auditoría/exportación y reportes agregados. Las acciones administrativas solicitan motivo y confirman acciones destructivas; las operaciones repetibles conservan clave/payload inciertos en memoria y por cuenta/ámbito, sin Bearer. Las lecturas se aíslan por token/cuenta/revisión; un 401 expira únicamente el token que lo originó y un 403 deja la identidad en manos de Go. Finanzas conserva importes CLP decimales exactos. Evidencia KYC se descarga con Bearer y Blob URL temporal, con revocación al cambiar selección, sesión o vista.
 

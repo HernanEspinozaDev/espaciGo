@@ -25,7 +25,7 @@ Fecha: 2026-10-12. Snapshot OpenAPI 3.1.0 de `b0f62b976c9586d260cea15ed9acc29ab1
 | FE-08 | 10 | Aprobado y fusionado; [PR #283](https://github.com/HernanEspinozaDev/espaciGo/pull/283), merge `503d193` |
 | FE-09 | 8 | Aceptado y fusionado; PR #284, merge `0d3bac8` |
 | FE-10 | 21 | Aceptado y fusionado en [PR #285](https://github.com/HernanEspinozaDev/espaciGo/pull/285), merge `39514662c9002d3c50bdbe7244813c57d13c2b38` |
-| FE-11 | 29 | Implementado; [PR #286 en revisión](https://github.com/HernanEspinozaDev/espaciGo/pull/286), commit `806d5d2` |
+| FE-11 | 29 | Implementado; [PR #286 en revisión](https://github.com/HernanEspinozaDev/espaciGo/pull/286) |
 | Técnica | 1 | No requiere pantalla directa |
 
 La cobertura completa requiere FE-01/12–15 para diseño, Docker, calidad y retirada, aunque no agreguen operaciones de API.
@@ -343,4 +343,4 @@ Correcciones de revisión: commit `b2da3243becb9db0fa10828baf5cae9782af474f`. Re
 
 Regresión Angular: `npm test -- --watch=false` — 156 pruebas / 28 archivos: admin/no admin 401/403, cambio de sesión con solicitudes pendientes, filtros/paginación, motivo e idempotencia, y representación exacta de CLP. `npm run api:check` pasó con `ng serve` detenido; `npm run build` pasó y prerenderizó 3 rutas. El contenedor FE-11 creado con volumen nuevo no alcanzó readiness (inicio API falló con diagnóstico genérico); los volúmenes persistentes existentes permanecieron intactos. La evidencia visual se inspeccionó en el navegador integrado, que no permitió guardar esas capturas como archivos locales.
 
-FE-10 aceptado y fusionado en PR #285. FE-11 está en revisión en PR #286, commit `806d5d21b5718ac3a376b644b48ab1927d656d2b`; FE-12 sigue pendiente hasta aprobar y fusionar FE-11.
+FE-10 aceptado y fusionado en PR #285. FE-11 está en revisión en PR #286; FE-12 sigue pendiente hasta aprobar y fusionar FE-11.
