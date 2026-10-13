@@ -124,4 +124,91 @@ describe('ExplorePage public catalog URL state', () => {
     await Promise.resolve();
     expect(page.items().map((item) => item.space_id)).toEqual(['fresh']);
   });
+
+  it.each(['success', 'error'] as const)(
+    'keeps a cached route authoritative when an older page request ends with %s',
+    async (oldOutcome) => {
+      let resolveOld!: (value: unknown) => void;
+      let rejectOld!: (error: unknown) => void;
+      const oldPage = new Promise((resolve, reject) => {
+        resolveOld = resolve;
+        rejectOld = reject;
+      });
+      const api = {
+        publicCategories: vi.fn().mockResolvedValue([]),
+        publicSearch: vi
+          .fn()
+          .mockResolvedValueOnce({ items: [publicSpace('first')], next_cursor: 'cursor-two' })
+          .mockReturnValueOnce(oldPage),
+      };
+      TestBed.configureTestingModule({
+        providers: [
+          ...provideFrontendPorts(),
+          provideHttpClient(),
+          provideRouter([{ path: 'explorar', component: ExplorePage }]),
+          { provide: ExploreApi, useValue: api },
+        ],
+      });
+
+      const harness = await RouterTestingHarness.create('/explorar?page_size=1');
+      const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+      await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+      page.loadMore();
+      await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+      await TestBed.inject(Router).navigateByUrl('/explorar?page_size=1');
+      expect(page.items().map((item) => item.space_id)).toEqual(['first']);
+
+      if (oldOutcome === 'success') resolveOld({ items: [publicSpace('second')] });
+      else rejectOld(new Error('stale request failed'));
+      await Promise.resolve();
+      expect(page.items().map((item) => item.space_id)).toEqual(['first']);
+      expect(page.busy()).toBe(false);
+    },
+  );
+
+  it.each(['success', 'error'] as const)(
+    'ignores an older result after invalid route filters and allows a retry (%s)',
+    async (oldOutcome) => {
+      let resolveOld!: (value: unknown) => void;
+      let rejectOld!: (error: unknown) => void;
+      const oldPage = new Promise((resolve, reject) => {
+        resolveOld = resolve;
+        rejectOld = reject;
+      });
+      const api = {
+        publicCategories: vi.fn().mockResolvedValue([]),
+        publicSearch: vi.fn().mockReturnValueOnce(oldPage).mockResolvedValue({
+          items: [publicSpace('retry-result')],
+        }),
+      };
+      TestBed.configureTestingModule({
+        providers: [
+          ...provideFrontendPorts(),
+          provideHttpClient(),
+          provideRouter([{ path: 'explorar', component: ExplorePage }]),
+          { provide: ExploreApi, useValue: api },
+        ],
+      });
+
+      const harness = await RouterTestingHarness.create('/explorar');
+      const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+      await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+      await TestBed.inject(Router).navigateByUrl(
+        '/explorar?rate_unit=hora&min_unit_price_clp=invalid',
+      );
+      expect(page.items()).toEqual([]);
+      expect(page.error()).toContain('precios CLP');
+
+      if (oldOutcome === 'success') resolveOld({ items: [publicSpace('stale')] });
+      else rejectOld(new Error('stale request failed'));
+      await Promise.resolve();
+      expect(page.items()).toEqual([]);
+      expect(page.error()).toContain('precios CLP');
+
+      page.updateFilter('min_unit_price_clp', '1000');
+      await page.search();
+      await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(page.items()[0]?.space_id).toBe('retry-result'));
+    },
+  );
 });

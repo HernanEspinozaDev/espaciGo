@@ -134,6 +134,10 @@ export class ExploreFacade implements OnInit {
     const criteriaChanged = this.criteriaKey !== nextCriteriaKey;
     const requestKey = `${nextCriteriaKey}|cursor=${filters.cursor}`;
     if (!criteriaChanged && this.routeRequestKey === requestKey) return;
+    // Every distinct route state supersedes the previous request, including
+    // cache hits and invalid filters that do not start a replacement request.
+    this.requestGeneration++;
+    this.busy.set(false);
     if (criteriaChanged) {
       this.criteriaKey = nextCriteriaKey;
       this.pages.clear();
