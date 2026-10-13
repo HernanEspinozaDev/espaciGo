@@ -21,7 +21,7 @@ export type CatalogItem = {
   profile: Record<string, unknown>;
   attributes: Record<string, unknown>;
   available?: boolean;
-  estimated_total_clp?: ClpAmount;
+  estimated_total_clp?: ClpAmount | null;
   region_code?: string | null;
   region_name?: string | null;
   comuna_code?: string | null;

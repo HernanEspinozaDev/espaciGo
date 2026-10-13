@@ -46,6 +46,8 @@ export class ExploreFacade implements OnInit {
   private readonly pages = new Map<string, PublicSpace[]>();
   private readonly pageNextCursors = new Map<string, string>();
   private navigationPending = false;
+  private attributeFilterCategory = '';
+  private attributeFilterGeneration = 0;
 
   readonly categories = signal<PublicCategory[]>([]);
   readonly locations = signal<PublicLocation[]>([]);
@@ -70,7 +72,10 @@ export class ExploreFacade implements OnInit {
   constructor() {
     this.title.setTitle('Explorar espacios | EspaciGo');
     this.meta.addTag({ name: 'robots', content: 'noindex, nofollow' });
-    this.destroyRef.onDestroy(() => this.meta.removeTag("name='robots'"));
+    this.destroyRef.onDestroy(() => {
+      this.attributeFilterGeneration++;
+      this.meta.removeTag("name='robots'");
+    });
   }
 
   ngOnInit(): void {
@@ -82,9 +87,13 @@ export class ExploreFacade implements OnInit {
   }
 
   updateFilter<K extends ExploreCriterion>(key: K, value: ExploreFilters[K]): void {
-    this.filters.update((filters) => ({ ...filters, [key]: value, cursor: '' }));
+    if (key === 'category_code') {
+      this.filters.update((filters) => ({ ...filters, category_code: String(value), attributes: {}, cursor: '' }));
+      this.selectAttributeFilterCategory(String(value));
+    } else {
+      this.filters.update((filters) => ({ ...filters, [key]: value, cursor: '' }));
+    }
     this.invalidateCriteria();
-    if (key === 'category_code') void this.loadAttributeFilters(String(value));
   }
 
   setAttribute(code: string, value: boolean | null): void {
@@ -168,7 +177,7 @@ export class ExploreFacade implements OnInit {
     }
     const filters = decoded.filters;
     this.filters.set(filters);
-    void this.loadAttributeFilters(filters.category_code);
+    this.selectAttributeFilterCategory(filters.category_code);
     const nextCriteriaKey = criteriaSignature(filters);
     const criteriaChanged = this.criteriaKey !== nextCriteriaKey;
     const requestKey = `${nextCriteriaKey}|cursor=${filters.cursor}`;
@@ -295,10 +304,20 @@ export class ExploreFacade implements OnInit {
     catch { this.error.set('No fue posible cargar las ubicaciones públicas.'); }
   }
 
-  private async loadAttributeFilters(code: string): Promise<void> {
-    if (!code) { this.attributeFilters.set([]); return; }
-    try { this.attributeFilters.set(await this.api.publicAttributeFilters(code)); }
-    catch { this.attributeFilters.set([]); }
+  private selectAttributeFilterCategory(code: string): void {
+    if (code === this.attributeFilterCategory) return;
+    this.attributeFilterCategory = code;
+    const generation = ++this.attributeFilterGeneration;
+    this.attributeFilters.set([]);
+    if (!code) return;
+    void this.api.publicAttributeFilters(code).then((filters) => {
+      if (this.destroyRef.destroyed || generation !== this.attributeFilterGeneration || this.filters().category_code !== code) return;
+      this.attributeFilters.set(filters);
+    }).catch(() => {
+      if (this.destroyRef.destroyed || generation !== this.attributeFilterGeneration || this.filters().category_code !== code) return;
+      this.attributeFilters.set([]);
+      this.error.set('No fue posible cargar los filtros de esta categoría.');
+    });
   }
 }
 

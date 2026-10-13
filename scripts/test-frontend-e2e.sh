@@ -133,6 +133,12 @@ cleanup() {
   mapfile -t ids < <(docker network ls --quiet --filter "label=com.docker.compose.project=${PROJECT}")
   if (( ${#ids[@]} > 0 )); then docker network rm "${ids[@]}" >/dev/null 2>&1 || true; fi
   docker volume rm "$LOCAL_DOCKER_PGDATA_VOLUME" >/dev/null 2>&1 || true
+  if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" && "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
+    mkdir -p "$FE14_EVIDENCE_OUTPUT_DIR"
+    for artifact in fe14_public_search_desktop.jpg fe14_public_search_desktop.json fe14_public_search_mobile.jpg fe14_public_search_mobile.json; do
+      if [[ -f "$STATE_DIR/artifacts/$artifact" ]]; then cp -- "$STATE_DIR/artifacts/$artifact" "$FE14_EVIDENCE_OUTPUT_DIR/$artifact"; fi
+    done
+  fi
   rm -rf -- "$STATE_DIR/results"
   rm -rf -- "$STATE_DIR"
   return "$status"
@@ -191,14 +197,18 @@ WITH host AS (
   SELECT id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-public-owner@ejemplo.invalid'
 ), space AS (
   INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,
-      reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado)
+      reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria,
+      ubicacion_catalogo_version,region_codigo,comuna_codigo)
   SELECT gen_random_uuid(),host.id,'oficina','Espacio sintético público FE-14',
       'Publicación sintética recreable para comprobar el catálogo público anónimo, el detalle minimizado y sus filtros desde el navegador en el entorno FE-14 desechable.',
-      32,6,'Uso de prueba recreable','hora',18000,'Dirección privada de prueba 123, Santiago','activa'
+      32,6,'Uso de prueba recreable','hora',18000,'Dirección privada de prueba 123, Santiago','activa','America/Santiago',
+      'SUBDERE_DPA_2018','13','13123'
   FROM host RETURNING id
 )
 INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
 SELECT id,1,'hora',18000 FROM space;
+INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores)
+SELECT id,'oficina',1,'{"wifi":true}'::jsonb FROM public.espacio WHERE titulo='Espacio sintético público FE-14';
 SQL
 printf 'PASS disposable FE-14 database contains one eligible synthetic public listing\n'
 

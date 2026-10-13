@@ -2937,22 +2937,43 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if publicResponse.Code != http.StatusOK || !strings.Contains(publicResponse.Body.String(), `"estimated_total_clp":9000`) || !strings.Contains(publicResponse.Body.String(), activeSpace) {
 		t.Fatalf("interval estimate status=%d body=%s", publicResponse.Code, publicResponse.Body.String())
 	}
-	for _, priceCase := range []struct{ unit, start, end string }{
-		{"hora", "2026-09-06T01:00:00-03:00", "2026-09-06T03:00:00-03:00"},
-		{"dia", "2026-09-05T00:00:00-04:00", "2026-09-07T00:00:00-03:00"},
-		{"mes", "2026-09-06T01:00:00-03:00", "2026-10-06T01:00:00-03:00"},
-	} {
-		startAt, parseStartErr := time.Parse(time.RFC3339, priceCase.start)
-		endAt, parseEndErr := time.Parse(time.RFC3339, priceCase.end)
-		if parseStartErr != nil || parseEndErr != nil {
-			t.Fatalf("invalid price case fixture: %+v", priceCase)
+	priceCases := []struct{ unit, zone, start, end string }{
+		{"hora", "America/Santiago", "2026-09-06T01:00:00-03:00", "2026-09-06T03:00:00-03:00"},
+		{"dia", "America/Santiago", "2026-09-05T00:00:00-04:00", "2026-09-06T01:00:00-03:00"},    // skipped midnight is first instant of the day
+		{"mes", "America/Santiago", "2026-01-05T09:00:00-03:00", "2026-02-05T10:00:00-03:00"},    // session-zone casting used to undercount this
+		{"mes", "America/Santiago", "2024-01-31T09:00:00-03:00", "2024-02-29T09:00:00-03:00"},    // leap-year clamped anniversary
+		{"mes", "America/Los_Angeles", "2026-02-08T02:30:00-08:00", "2026-03-08T03:00:00-07:00"}, // anniversary falls in a spring gap
+		{"mes", "America/Los_Angeles", "2026-10-01T01:30:00-07:00", "2026-11-01T01:30:00-07:00"}, // first occurrence in fall fold
+		{"mes", "America/Los_Angeles", "2026-10-01T01:30:00-07:00", "2026-11-01T01:30:00-08:00"}, // second occurrence in fall fold
+		{"mes", "Australia/Lord_Howe", "2026-09-04T02:15:00+10:30", "2026-10-04T02:30:00+11:00"}, // 30-minute gap
+		{"mes", "America/Santiago", "2024-01-31T09:00:00-03:00", "2024-03-01T09:00:00-03:00"},    // month-end clamp plus next started month
+	}
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sessionZone := range []string{"UTC", "Pacific/Auckland", "America/Los_Angeles"} {
+		if _, err = conn.Exec(ctx, `SELECT set_config('TimeZone',$1,false)`, sessionZone); err != nil {
+			t.Fatal(err)
 		}
-		goUnits, unitErr := booking.PriceUnits(priceCase.unit, startAt, endAt, "America/Santiago")
-		var sqlUnits int64
-		if unitErr != nil || pool.QueryRow(ctx, `SELECT public.public_catalog_billed_units($1,$2,$3,'America/Santiago')`, priceCase.unit, startAt, endAt).Scan(&sqlUnits) != nil || sqlUnits != goUnits {
-			t.Fatalf("SQL/Go price units differ across DST for %+v: SQL=%d Go=%d err=%v", priceCase, sqlUnits, goUnits, unitErr)
+		for _, priceCase := range priceCases {
+			startAt, parseStartErr := time.Parse(time.RFC3339, priceCase.start)
+			endAt, parseEndErr := time.Parse(time.RFC3339, priceCase.end)
+			if parseStartErr != nil || parseEndErr != nil {
+				t.Fatalf("invalid price case fixture: %+v", priceCase)
+			}
+			goUnits, unitErr := booking.PriceUnits(priceCase.unit, startAt, endAt, priceCase.zone)
+			var sqlUnits int64
+			sqlErr := conn.QueryRow(ctx, `SELECT public.public_catalog_billed_units($1,$2,$3,$4)`, priceCase.unit, startAt, endAt, priceCase.zone).Scan(&sqlUnits)
+			if unitErr != nil || sqlErr != nil || sqlUnits != goUnits {
+				t.Fatalf("SQL/Go price units differ for session zone %s and %+v: SQL=%d Go=%d errors=(%v,%v)", sessionZone, priceCase, sqlUnits, goUnits, sqlErr, unitErr)
+			}
 		}
 	}
+	if _, err = conn.Exec(ctx, `SELECT set_config('TimeZone','UTC',false)`); err != nil {
+		t.Fatal(err)
+	}
+	conn.Release()
 	publicRequest = httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces", nil)
 	publicResponse = httptest.NewRecorder()
 	publicHandler.ServeHTTP(publicResponse, publicRequest)
@@ -4651,6 +4672,34 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	minimizedDetail := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/reservations/"+minimizedReservation.ID, "", nil, true)
 	if minimizedDetail.Code != http.StatusOK || !strings.Contains(minimizedDetail.Body.String(), `"host_id":null`) || !strings.Contains(minimizedDetail.Body.String(), `"renter_id":null`) {
 		t.Fatalf("minimized historic row=%d %s", minimizedDetail.Code, minimizedDetail.Body.String())
+	}
+	secondEstimatedSpace := createPublishedSpace(host, "Oficina publicada elegible precio superior", "activa", 18000)
+	if _, err = setup.Exec(ctx, `UPDATE public.espacio SET ubicacion_catalogo_version='SUBDERE_DPA_2018',region_codigo='13',comuna_codigo='13123' WHERE id=$1`, secondEstimatedSpace); err != nil {
+		t.Fatal(err)
+	}
+	intervalQuery := "start_at=2026-10-15T12%3A00%3A00-03%3A00&end_at=2026-10-15T13%3A00%3A00-03%3A00&min_total_clp=9000&max_total_clp=18000&sort=estimated_total_asc&page_size=1"
+	publicResponse = httptest.NewRecorder()
+	publicHandler.ServeHTTP(publicResponse, httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces?"+intervalQuery, nil))
+	var estimatedPage struct {
+		Items []struct {
+			SpaceID        string `json:"space_id"`
+			EstimatedTotal *int64 `json:"estimated_total_clp"`
+		} `json:"items"`
+		NextCursor string `json:"next_cursor"`
+	}
+	if publicResponse.Code != http.StatusOK || json.Unmarshal(publicResponse.Body.Bytes(), &estimatedPage) != nil || len(estimatedPage.Items) != 1 || estimatedPage.Items[0].SpaceID != activeSpace || estimatedPage.Items[0].EstimatedTotal == nil || *estimatedPage.Items[0].EstimatedTotal != 9500 || estimatedPage.NextCursor == "" {
+		t.Fatalf("estimated total first page status=%d body=%s decoded=%+v", publicResponse.Code, publicResponse.Body.String(), estimatedPage)
+	}
+	publicResponse = httptest.NewRecorder()
+	publicHandler.ServeHTTP(publicResponse, httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces?"+intervalQuery+"&cursor="+url.QueryEscape(estimatedPage.NextCursor), nil))
+	var estimatedSecondPage struct {
+		Items []struct {
+			SpaceID        string `json:"space_id"`
+			EstimatedTotal *int64 `json:"estimated_total_clp"`
+		} `json:"items"`
+	}
+	if publicResponse.Code != http.StatusOK || json.Unmarshal(publicResponse.Body.Bytes(), &estimatedSecondPage) != nil || len(estimatedSecondPage.Items) != 1 || estimatedSecondPage.Items[0].SpaceID != secondEstimatedSpace || estimatedSecondPage.Items[0].EstimatedTotal == nil || *estimatedSecondPage.Items[0].EstimatedTotal != 18000 {
+		t.Fatalf("estimated total cursor page status=%d body=%s decoded=%+v", publicResponse.Code, publicResponse.Body.String(), estimatedSecondPage)
 	}
 	if _, err = setup.Exec(ctx, `INSERT INTO public.bloqueo_cuenta_administrativo_local(cuenta_id,bloqueada_por,motivo_codigo,bloqueada_en,correlacion_id) VALUES($1,$2,'revision_administrativa',now(),'public-catalog-block-test')`, host, adminID); err != nil {
 		t.Fatal(err)

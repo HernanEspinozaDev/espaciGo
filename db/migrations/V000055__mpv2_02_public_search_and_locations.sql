@@ -533,6 +533,68 @@ UPDATE public.espacio e SET busqueda_publica = public.build_public_search_docume
 
 -- This SQL key matches booking.PriceUnits. Go recomputes the page's displayed
 -- exact CLP totals with PriceUnits; SQL uses the same units before LIMIT/sort.
+-- Resolve local wall times with Go's calendar policy: first occurrence for
+-- folds, first instant after a gap, independent of the PostgreSQL session TZ.
+CREATE FUNCTION public.public_catalog_resolve_wall(p_wall timestamp, p_zone text)
+RETURNS timestamptz
+LANGUAGE plpgsql STABLE PARALLEL SAFE AS $$
+DECLARE
+    guess timestamptz;
+    offset_values integer[];
+    offset_value integer;
+    candidate timestamptz;
+    resolved timestamptz;
+    low_probe timestamptz;
+    high_probe timestamptz;
+    middle_probe timestamptz;
+    old_offset integer;
+    new_offset integer;
+    before_wall timestamp;
+    after_wall timestamp;
+    step_index integer;
+BEGIN
+    guess := p_wall AT TIME ZONE p_zone;
+    SELECT array_agg(DISTINCT extract(epoch FROM ((probe AT TIME ZONE p_zone) - (probe AT TIME ZONE 'UTC')))::integer)
+      INTO offset_values
+      FROM generate_series(guess - interval '48 hours', guess + interval '48 hours', interval '6 hours') AS probes(probe);
+
+    FOREACH offset_value IN ARRAY offset_values LOOP
+        candidate := (p_wall - make_interval(secs => offset_value)) AT TIME ZONE 'UTC';
+        IF candidate AT TIME ZONE p_zone = p_wall AND (resolved IS NULL OR candidate < resolved) THEN
+            resolved := candidate;
+        END IF;
+    END LOOP;
+    IF resolved IS NOT NULL THEN RETURN resolved; END IF;
+
+    -- No exact wall-time candidate means p_wall lies in a forward gap. Find
+    -- that transition and use its first valid instant, matching calendar.go.
+    low_probe := guess - interval '48 hours';
+    FOR step_index IN 1..16 LOOP
+        high_probe := low_probe + interval '6 hours';
+        SELECT extract(epoch FROM ((low_probe AT TIME ZONE p_zone) - (low_probe AT TIME ZONE 'UTC')))::integer,
+               extract(epoch FROM ((high_probe AT TIME ZONE p_zone) - (high_probe AT TIME ZONE 'UTC')))::integer
+          INTO old_offset,new_offset;
+        IF new_offset > old_offset THEN
+            WHILE high_probe - low_probe > interval '1 second' LOOP
+                middle_probe := low_probe + (high_probe - low_probe) / 2;
+                IF extract(epoch FROM ((middle_probe AT TIME ZONE p_zone) - (middle_probe AT TIME ZONE 'UTC')))::integer = old_offset THEN
+                    low_probe := middle_probe;
+                ELSE
+                    high_probe := middle_probe;
+                END IF;
+            END LOOP;
+            before_wall := (high_probe AT TIME ZONE 'UTC') + make_interval(secs => old_offset);
+            after_wall := (high_probe AT TIME ZONE 'UTC') + make_interval(secs => new_offset);
+            IF p_wall >= before_wall AND p_wall < after_wall THEN RETURN high_probe; END IF;
+        END IF;
+        low_probe := high_probe;
+    END LOOP;
+    RETURN NULL;
+EXCEPTION WHEN invalid_parameter_value OR datetime_field_overflow THEN
+    RETURN NULL;
+END;
+$$;
+
 CREATE FUNCTION public.public_catalog_billed_units(
     p_unit text,p_start timestamptz,p_end timestamptz,p_zone text
 ) RETURNS bigint
@@ -545,6 +607,9 @@ DECLARE
     anniversary_day integer;
     target_day integer;
     anniversary_local timestamp;
+    end_boundary timestamptz;
+    anniversary_instant timestamptz;
+    end_date date;
 BEGIN
     IF p_end <= p_start OR p_zone = '' THEN RETURN NULL; END IF;
     local_start := p_start AT TIME ZONE p_zone;
@@ -552,11 +617,10 @@ BEGIN
     CASE p_unit
     WHEN 'hora' THEN RETURN GREATEST(1,ceil(extract(epoch FROM (p_end-p_start))/3600.0)::bigint);
     WHEN 'dia' THEN
-        target_day := extract(day FROM local_end)::integer;
-        IF local_end::time = TIME '00:00:00' THEN target_day := target_day-1; END IF;
-        RETURN (make_date(extract(year FROM local_end)::integer,extract(month FROM local_end)::integer,1)
-                + (target_day-1))
-             - local_start::date + 1;
+        end_date := local_end::date;
+        end_boundary := public.public_catalog_resolve_wall(end_date::timestamp,p_zone);
+        IF p_end=end_boundary THEN end_date := end_date-1; END IF;
+        RETURN end_date-local_start::date+1;
     WHEN 'mes' THEN
         month_delta := (extract(year FROM local_end)::integer-extract(year FROM local_start)::integer)*12
                      + extract(month FROM local_end)::integer-extract(month FROM local_start)::integer;
@@ -565,7 +629,9 @@ BEGIN
         anniversary_day := extract(day FROM local_start)::integer;
         target_day := LEAST(anniversary_day,extract(day FROM (target_month + interval '1 month - 1 day'))::integer);
         anniversary_local := target_month + (target_day-1) + local_start::time;
-        IF local_end > (anniversary_local AT TIME ZONE p_zone) THEN month_delta := month_delta+1; END IF;
+        anniversary_instant := public.public_catalog_resolve_wall(anniversary_local,p_zone);
+        IF anniversary_instant IS NULL THEN RETURN NULL; END IF;
+        IF p_end > anniversary_instant THEN month_delta := month_delta+1; END IF;
         RETURN month_delta;
     ELSE RETURN NULL;
     END CASE;

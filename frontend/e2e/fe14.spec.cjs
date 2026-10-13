@@ -35,14 +35,14 @@ async function navigateSpa(page, target) {
   }, target);
 }
 
-async function takeScreenshot(page, name) {
+async function takeScreenshot(page, name, fullPage = false) {
   await expect(page.locator('body')).toBeVisible();
   const measurements = await page.evaluate(() => ({
     viewport: { width: innerWidth, height: innerHeight },
     document: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight },
   }));
   expect(measurements.document.width).toBeLessThanOrEqual(measurements.viewport.width);
-  await page.screenshot({ path: path.join(artifactDir, `${name}.jpg`), type: 'jpeg', quality: 86 });
+  await page.screenshot({ path: path.join(artifactDir, `${name}.jpg`), type: 'jpeg', quality: 86, fullPage });
   fs.writeFileSync(path.join(artifactDir, `${name}.json`), JSON.stringify(measurements, null, 2));
 }
 
@@ -83,14 +83,46 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
   expect(publicRequest).toBeTruthy();
   expect((await publicRequest.allHeaders()).authorization).toBeUndefined();
+
+  // Follow the rendered controls into the real Go API. The public item has a
+  // deliberately assigned synthetic zone and boolean attribute in this stack.
+  await page.getByLabel('Buscar', { exact: true }).fill('publico providencia');
+  await page.locator('.filters label').filter({ hasText: /^Categoría/ }).locator('select').selectOption('oficina');
+  await page.getByLabel('Región').selectOption('13');
+  await page.getByLabel('Comuna').selectOption('13123');
+  await page.getByLabel('Wi-Fi').selectOption('true');
+  await page.getByLabel('Desde (fecha y hora)', { exact: true }).fill('2026-10-20T10:00');
+  await page.getByLabel('Hasta (fecha y hora)', { exact: true }).fill('2026-10-20T11:00');
+  await page.getByLabel('Total estimado mínimo (CLP)', { exact: true }).fill('18000');
+  await page.getByLabel('Ordenar por').selectOption('estimated_total_asc');
+  const filteredResponse = page.waitForResponse(response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url()) && response.url().includes('estimated_total_asc'));
+  await page.getByRole('button', { name: 'Buscar espacios' }).click();
+  const filtered = await filteredResponse;
+  expect(filtered.status()).toBe(200);
+  const filteredUrl = new URL(filtered.url());
+  expect(filteredUrl.searchParams.get('q')).toBe('publico providencia');
+  expect(filteredUrl.searchParams.get('region_code')).toBe('13');
+  expect(filteredUrl.searchParams.get('comuna_code')).toBe('13123');
+  expect(filteredUrl.searchParams.getAll('attribute')).toEqual(['wifi:true']);
+  expect(filteredUrl.searchParams.get('start_at')).toBeTruthy();
+  expect(filteredUrl.searchParams.get('end_at')).toBeTruthy();
+  expect((await filtered.allHeaders()).authorization).toBeUndefined();
+  await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
+  await expect(page.getByText('Total estimado: CLP 18.000')).toBeVisible();
+  await takeScreenshot(page, 'fe14_public_search_desktop', true);
+
+  // Keep the same filtered SPA state while capturing its narrow layout.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByLabel('Región')).toHaveValue('13');
+  await expect(page.getByLabel('Comuna')).toHaveValue('13123');
+  await takeScreenshot(page, 'fe14_public_search_mobile', true);
+
   await page.getByRole('link', { name: 'Espacio sintético público FE-14' }).click();
   await expect(page.getByRole('heading', { name: 'Espacio sintético público FE-14' })).toBeVisible();
   await expect(page.getByText('CLP 18.000 / hora')).toBeVisible();
   await expect(page.getByText('Fotografía no disponible')).toBeVisible();
   await expect(page.getByText(/Dirección privada de prueba/)).toHaveCount(0);
   await takeScreenshot(page, 'fe14_public_catalog_desktop');
-  await page.setViewportSize({ width: 390, height: 844 });
-  await takeScreenshot(page, 'fe14_public_catalog_mobile');
 });
 
 test('Typed hosting form creates and edits a synthetic draft through Go', async ({ page }) => {
