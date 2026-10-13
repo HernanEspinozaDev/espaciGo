@@ -16,13 +16,14 @@ import { HostingSpacesFacade } from './application/hosting-spaces-facade';
 export class HostingSpacesPage {
   private readonly attributeModels = new Map<string, { value: string }>();
   attributeControl(code: string, type: string): FormControl<string> {
-    const model = this.attributeModels.get(code) ?? { value: '' };
+    const key = `${code}/${type}`;
+    const model = this.attributeModels.get(key) ?? { value: '' };
     model.value = this.facade.attributeValue(code);
-    this.attributeModels.set(code, model);
+    this.attributeModels.set(key, model);
     const control = this.controls.forProperty(model, 'value', (value) =>
       this.facade.setAttribute(code, String(value), type),
     );
-    if (!this.attributeControls.contains(code)) this.attributeControls.addControl(code, control);
+    if (this.attributeControls.get(code) !== control) this.attributeControls.setControl(code, control);
     return control;
   }
   private readonly controls = inject(ModelControls);

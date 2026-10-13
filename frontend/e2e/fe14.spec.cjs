@@ -97,9 +97,9 @@ test('Typed hosting form creates and edits a synthetic draft through Go', async 
   await page.getByRole('button', { name: 'Guardar cambios del borrador', exact: true }).click();
   expect((await updatedResponse).status()).toBe(200);
   await expect(page.getByLabel('Título', { exact: true })).toHaveValue('Oficina sintética · edición confirmada');
-  await takeScreenshot(page, 'architecture_host_desktop');
+  await takeScreenshot(page, 'fe14_architecture_host_desktop');
   await page.setViewportSize({ width: 390, height: 844 });
-  await takeScreenshot(page, 'architecture_host_mobile');
+  await takeScreenshot(page, 'fe14_architecture_host_mobile');
 });
 
 test('Go-backed role navigation, private JSON/ZIP exports, and responsive evidence', async ({ browser }) => {

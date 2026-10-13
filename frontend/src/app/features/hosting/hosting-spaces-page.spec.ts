@@ -243,6 +243,23 @@ describe('FE-06 HostingSpacesPage', () => {
     TestBed.resetTestingModule();
   });
 
+  it('replaces a dynamic attribute control when the Go profile changes its type', async () => {
+    const { identity } = setup(apiFor());
+    await identity.signIn('owner@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    const numeric = page(fixture).attributeControl('dynamic', 'number');
+    numeric.setValue('3');
+    expect(page(fixture).form.attributes['dynamic']).toBe(3);
+    const boolean = page(fixture).attributeControl('dynamic', 'boolean');
+    expect(boolean).not.toBe(numeric);
+    expect(page(fixture).attributeControls.get('dynamic')).toBe(boolean);
+    boolean.setValue('true');
+    expect(page(fixture).form.attributes['dynamic']).toBe(true);
+    fixture.destroy();
+  });
+
   it('loads owner spaces with the server-selected category profile version and hides no server state', async () => {
     const api = apiFor(space('space-a', 'oculta'));
     const { identity } = setup(api);
