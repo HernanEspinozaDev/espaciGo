@@ -73,6 +73,111 @@ test('E2E runner can read only the accounts fixture and write artifacts/results,
   }
 });
 
+test('MPV2-07 serves public catalog, detail, metadata, and sitemap from Go without JavaScript', async ({ request, page }) => {
+  const origin = process.env.FE14_PUBLIC_ORIGIN;
+  const frontend = process.env.FRONTEND_BASE_URL || 'http://angular-frontend:4000';
+  expect(origin).toMatch(/^https?:\/\//);
+  const goCatalog = await request.get('http://backend:8080/api/v1/public/spaces?page_size=25');
+  expect(goCatalog.status()).toBe(200);
+  const goItems = (await goCatalog.json()).items;
+  expect(goItems.length).toBeGreaterThan(0);
+  const space = goItems[0];
+
+  const spoofedHostResponse = await request.get(`${frontend}/explorar`, {
+    headers: { host: 'host-header-attacker.invalid' },
+  });
+  expect(spoofedHostResponse.status()).toBe(400);
+
+  const catalogResponse = await request.get(`${frontend}/explorar`);
+  expect(catalogResponse.status()).toBe(200);
+  expect(catalogResponse.headers()['cache-control']).toBe('no-store');
+  const catalogHtml = await catalogResponse.text();
+  expect(catalogHtml).toMatch(/<h1[^>]*>Encuentra tu próximo espacio<\/h1>/);
+  expect(catalogHtml).toContain(space.title);
+  expect(catalogHtml).toContain(`<link rel="canonical" href="${origin}/explorar">`);
+  expect(catalogHtml).toContain('name="robots" content="index, follow"');
+  expect(catalogHtml).not.toContain('http://backend:8080');
+  expect(catalogHtml.toLowerCase()).not.toMatch(/bearer|access_token|password|owner_id/);
+
+  const filteredResponse = await request.get(`${frontend}/explorar?q=publico`);
+  expect(filteredResponse.status()).toBe(200);
+  const filteredHtml = await filteredResponse.text();
+  expect(filteredHtml).toContain('name="robots" content="noindex, follow"');
+  expect(filteredHtml).toContain(`<link rel="canonical" href="${origin}/explorar">`);
+
+  const detailResponse = await request.get(`${frontend}/espacios/${space.space_id}`);
+  expect(detailResponse.status()).toBe(200);
+  expect(detailResponse.headers()['cache-control']).toBe('no-store');
+  const detailHtml = await detailResponse.text();
+  expect(detailHtml).toContain(space.title);
+  expect(detailHtml).toContain(`<link rel="canonical" href="${origin}/espacios/${space.space_id}">`);
+  expect(detailHtml).toContain(`<meta property="og:url" content="${origin}/espacios/${space.space_id}">`);
+  const goDetail = await request.get(`http://backend:8080/api/v1/public/spaces/${space.space_id}`);
+  const cover = (await goDetail.json()).data.images.find((image) => image.is_cover);
+  if (cover) expect(detailHtml).toContain(`${origin}/public/spaces/${space.space_id}/images/${cover.image_id}`);
+  else expect(detailHtml).not.toContain('property="og:image"');
+  expect(detailHtml).not.toContain('http://backend:8080');
+  expect(detailHtml.toLowerCase()).not.toMatch(/bearer|access_token|password|owner_id/);
+
+  const contextualResponse = await request.get(`${frontend}/espacios/${space.space_id}?context=returned&returnTo=%2Fexplorar`);
+  const contextualHtml = await contextualResponse.text();
+  expect(contextualHtml).toContain('name="robots" content="noindex, follow"');
+  expect(contextualHtml).toContain(`<link rel="canonical" href="${origin}/espacios/${space.space_id}">`);
+
+  const missingResponse = await request.get(`${frontend}/espacios/00000000-0000-4000-8000-000000000000`);
+  expect(missingResponse.status()).toBe(404);
+  expect(await missingResponse.text()).toContain('Este espacio ya no está disponible.');
+
+  const sitemapResponse = await request.get(`${frontend}/sitemap.xml`);
+  expect(sitemapResponse.status()).toBe(200);
+  expect(sitemapResponse.headers()['cache-control']).toBe('no-store');
+  const sitemap = await sitemapResponse.text();
+  const sitemapIds = [...sitemap.matchAll(/<loc>[^<]*\/espacios\/([0-9a-f-]{36})<\/loc>/g)].map((match) => match[1]);
+  expect(new Set(sitemapIds)).toEqual(new Set(goItems.map((item) => item.space_id)));
+  expect(sitemap).not.toMatch(/cursor|returnTo|\?q=/i);
+  const robots = await request.get(`${frontend}/robots.txt`);
+  expect(robots.status()).toBe(200);
+  expect(await robots.text()).toContain(`Sitemap: ${origin}/sitemap.xml`);
+
+  const privatePage = await request.get(`${frontend}/mi-cuenta`);
+  expect(privatePage.headers()['x-robots-tag']).toBe('noindex, nofollow');
+  expect(privatePage.headers()['cache-control']).toBe('no-store');
+
+  const concurrentHtml = await Promise.all([
+    ...goItems.map((item) => request.get(`${frontend}/espacios/${item.space_id}`)),
+    request.get(`${frontend}/mi-cuenta`),
+  ]);
+  const renderedPages = await Promise.all(concurrentHtml.map((response) => response.text()));
+  for (let index = 0; index < goItems.length; index++) {
+    expect(concurrentHtml[index].status()).toBe(200);
+    expect(renderedPages[index]).toContain(goItems[index].title);
+    for (let other = 0; other < goItems.length; other++) {
+      if (other !== index) expect(renderedPages[index]).not.toContain(goItems[other].title);
+    }
+    expect(renderedPages[index].toLowerCase()).not.toMatch(/bearer|access_token|password|owner_id/);
+  }
+  expect(concurrentHtml.at(-1).headers()['x-robots-tag']).toBe('noindex, nofollow');
+  expect(renderedPages.at(-1).toLowerCase()).not.toMatch(/bearer|access_token|password|owner_id/);
+
+  const browserCatalogRequests = [];
+  page.on('request', (browserRequest) => {
+    if (browserRequest.url().includes('/api/v1/public/spaces')) browserCatalogRequests.push(browserRequest.url());
+  });
+  await page.goto('/explorar');
+  await expect(page.getByRole('link', { name: goItems[0].title })).toBeVisible();
+  expect(browserCatalogRequests).toEqual([]);
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await takeScreenshot(page, 'fe14_mpv2_07_catalog_desktop', true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await takeScreenshot(page, 'fe14_mpv2_07_catalog_mobile', true);
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.getByRole('link', { name: goItems[0].title }).first().click();
+  await expect(page.getByRole('heading', { name: goItems[0].title })).toBeVisible();
+  await takeScreenshot(page, 'fe14_mpv2_07_detail_desktop', true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await takeScreenshot(page, 'fe14_mpv2_07_detail_mobile', true);
+});
+
 test('Anonymous visitor explores the Go-backed public catalog and minimized detail', async ({ page }) => {
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.goto('/');
@@ -83,15 +188,14 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   await page.getByRole('link', { name: /Oficina/ }).click();
   await expect(page).toHaveURL(/\/explorar\?category_code=oficina/);
   await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
-  let publicRequest;
+  const initialPublicRequests = [];
   page.on('request', request => {
-    if (request.method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(request.url())) publicRequest = request;
+    if (request.method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(request.url())) initialPublicRequests.push(request);
   });
   await page.goto('/explorar');
   await expect(page.getByRole('heading', { name: 'Encuentra tu próximo espacio' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
-  expect(publicRequest).toBeTruthy();
-  expect((await publicRequest.allHeaders()).authorization).toBeUndefined();
+  expect(initialPublicRequests).toEqual([]);
 
   // Follow the rendered controls into the real Go API. The public item has a
   // deliberately assigned synthetic zone and boolean attribute in this stack.
@@ -105,7 +209,9 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   await page.getByLabel('Total estimado mínimo (CLP)', { exact: true }).fill('18000');
   const baseFilterResponse = page.waitForResponse(response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url()) && response.url().includes('min_total_clp=18000'));
   await page.getByRole('button', { name: 'Buscar espacios' }).click();
-  expect((await baseFilterResponse).status()).toBe(200);
+  const filteredResponseWithStatus = await baseFilterResponse;
+  expect(filteredResponseWithStatus.status()).toBe(200);
+  expect((await filteredResponseWithStatus.request().allHeaders()).authorization).toBeUndefined();
   const filteredResponse = page.waitForResponse(response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url()) && response.url().includes('estimated_total_asc'));
   await page.locator('.desktop-sort select').selectOption('estimated_total_asc');
   const filtered = await filteredResponse;
@@ -490,7 +596,7 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
   await visitor.setViewportSize({ width: 390, height: 844 });
   await takeScreenshot(visitor, 'fe14_mpv2_04_visitor_search_mobile', true);
   await visitor.setViewportSize({ width: 1365, height: 900 });
-  const imageResponsePromise=visitor.waitForResponse(response=>response.request().method()==='GET'&&response.url().includes(`/api/v1/public/spaces/${draft.id}/images/${photoId}`));
+  const imageResponsePromise=visitor.waitForResponse(response=>response.request().method()==='GET'&&response.url().includes(`/public/spaces/${draft.id}/images/${photoId}`));
   const publicDetailResponsePromise=visitor.waitForResponse(response=>response.request().method()==='GET'&&response.url().endsWith(`/api/v1/public/spaces/${draft.id}`));
   await visitor.getByRole('link', { name: title }).click();
   const publicDetailResponse=await publicDetailResponsePromise;
@@ -500,6 +606,21 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
   expect(JSON.stringify(detailDTO.images)).not.toContain(privatePhotoId);
   expect(detailDTO.usage_rules).toBe('Prueba de publicación sintética.');
   expect(JSON.stringify(detailDTO)).not.toContain('Dirección confidencial');
+  const origin = process.env.FE14_PUBLIC_ORIGIN;
+  const frontendBase = process.env.FRONTEND_BASE_URL || 'http://angular-frontend:4000';
+  const ssrDetailResponse = await visitor.request.get(`${frontendBase}/espacios/${draft.id}`);
+  expect(ssrDetailResponse.status()).toBe(200);
+  const ssrDetailHtml = await ssrDetailResponse.text();
+  expect(ssrDetailHtml).toContain(title);
+  expect(ssrDetailHtml).toContain(`<link rel="canonical" href="${origin}/espacios/${draft.id}">`);
+  expect(ssrDetailHtml).toContain(`${origin}/public/spaces/${draft.id}/images/${photo2Id}`);
+  expect(ssrDetailHtml).not.toContain('http://backend:8080');
+  expect(ssrDetailHtml).not.toContain('Dirección privada de prueba');
+  const socialImagePath = new URL(`${origin}/public/spaces/${draft.id}/images/${photo2Id}`).pathname;
+  const socialImageResponse = await visitor.request.get(`${frontendBase}${socialImagePath}`);
+  expect(socialImageResponse.status()).toBe(200);
+  expect(socialImageResponse.headers()['content-type']).toContain('image/png');
+  expect(socialImageResponse.headers()['cache-control']).toBe('no-store');
   await expect(visitor.getByRole('heading', { name: title })).toBeVisible();
   await expect(visitor.getByText(/Dirección confidencial MPV2-03/)).toHaveCount(0);
   await expect(visitor.getByRole('img',{name:'Fotografía de portada del espacio'})).toBeVisible();
@@ -517,10 +638,22 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
   await host.getByRole('button',{name:`Ver imagen sintética ${photoId}`}).locator('xpath=ancestor::article').getByRole('button',{name:'Retirar de ficha pública'}).click();
   const withdrawn=await visitor.request.get(imageResponse.url());
   expect(withdrawn.status()).toBe(404);
+  const withdrawnSsr = await visitor.request.get(`${frontendBase}/espacios/${draft.id}`);
+  expect(withdrawnSsr.status()).toBe(200);
+  expect(await withdrawnSsr.text()).not.toContain(`${origin}/public/spaces/${draft.id}/images/${photoId}`);
   await visitor.reload();
   await expect(visitor.getByRole('heading',{name:title})).toBeVisible();
   await expect(visitor.locator('.gallery-image img')).toHaveCount(1);
   await expect.poll(()=>visitor.locator('.gallery-image img').evaluate(image=>image.naturalWidth)).toBeGreaterThan(0);
+  await host.getByRole('button', { name: 'Datos', exact: true }).click();
+  const hideResponsePromise = host.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/api/v1/spaces/${draft.id}/publication`));
+  await host.getByRole('button', { name: 'Ocultar', exact: true }).click();
+  expect((await hideResponsePromise).status()).toBe(200);
+  const unavailableSsr = await visitor.request.get(`${frontendBase}/espacios/${draft.id}`);
+  expect(unavailableSsr.status()).toBe(404);
+  const sitemapAfterWithdrawal = await visitor.request.get(`${frontendBase}/sitemap.xml`);
+  expect(sitemapAfterWithdrawal.status()).toBe(200);
+  expect(await sitemapAfterWithdrawal.text()).not.toContain(`/espacios/${draft.id}`);
   await host.close();
   await visitor.close();
 

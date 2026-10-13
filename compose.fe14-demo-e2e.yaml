@@ -2,7 +2,15 @@
 services:
   angular-frontend:
     environment:
-      API_PUBLIC_BASE_URL: http://backend:8080/api/v1
+      API_INTERNAL_BASE_URL: http://backend:8080/api/v1
+      API_PUBLIC_BASE_URL: http://api-public:8080/api/v1
+      FRONTEND_PUBLIC_ORIGIN: http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200}
+
+  backend:
+    networks:
+      api:
+        aliases:
+          - api-public
   angular-e2e:
     environment:
       FRONTEND_BASE_URL: http://angular-frontend:4000

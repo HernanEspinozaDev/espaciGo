@@ -320,7 +320,7 @@ describe('App API outage recovery with a real identity session', () => {
     const http = TestBed.inject(HttpTestingController);
     await fixture.whenStable();
 
-    http.expectOne('/config.json').flush({ apiBaseUrl: 'http://localhost:8080/api/v1' });
+    http.expectOne('/config.json').flush({ apiBaseUrl: 'http://localhost:8080/api/v1', siteOrigin: 'http://localhost:4000' });
     const outageCheck = await vi.waitFor(() =>
       http.expectOne('http://localhost:8080/health/ready'),
     );

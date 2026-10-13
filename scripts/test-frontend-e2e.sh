@@ -36,6 +36,14 @@ export FE14_HEAD="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 export FE14_ACCOUNT_FILE_HOST="$STATE_DIR/accounts.json"
 export FE14_ARTIFACT_DIR_HOST="$STATE_DIR/artifacts"
 export FE14_RESULTS_DIR_HOST="$STATE_DIR/results"
+FE14_EVIDENCE_PREFIX=""
+case "${FE14_EVIDENCE_OUTPUT_DIR:-}" in
+  */mpv2_03) FE14_EVIDENCE_PREFIX='fe14_mpv2_03_' ;;
+  */mpv2_04) FE14_EVIDENCE_PREFIX='fe14_mpv2_04_' ;;
+  */mpv2_05) FE14_EVIDENCE_PREFIX='fe14_mpv2_05_' ;;
+  */mpv2_06) FE14_EVIDENCE_PREFIX='fe14_mpv2_06_' ;;
+  */mpv2_07) FE14_EVIDENCE_PREFIX='fe14_mpv2_07_' ;;
+esac
 export LOCAL_UID="$(id -u)"
 export LOCAL_GID="$(id -g)"
 export LOCAL_SECRETS_DIR="$STATE_DIR/secrets"
@@ -136,11 +144,13 @@ cleanup() {
   docker volume rm "$LOCAL_DOCKER_PGDATA_VOLUME" >/dev/null 2>&1 || true
   if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" && "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
     mkdir -p "$FE14_EVIDENCE_OUTPUT_DIR"
-    for artifact in \
-      fe14_mpv2_05_catalog_desktop.jpg fe14_mpv2_05_catalog_desktop.json \
-      fe14_mpv2_05_filters_mobile.jpg fe14_mpv2_05_filters_mobile.json \
-      fe14_mpv2_06_context_desktop.jpg fe14_mpv2_06_context_desktop.json \
-      fe14_mpv2_06_context_mobile.jpg fe14_mpv2_06_context_mobile.json; do
+    case "$FE14_EVIDENCE_PREFIX" in
+      fe14_mpv2_05_) evidence_artifacts=(fe14_mpv2_05_catalog_desktop.jpg fe14_mpv2_05_catalog_desktop.json fe14_mpv2_05_filters_mobile.jpg fe14_mpv2_05_filters_mobile.json) ;;
+      fe14_mpv2_06_) evidence_artifacts=(fe14_mpv2_06_context_desktop.jpg fe14_mpv2_06_context_desktop.json fe14_mpv2_06_context_mobile.jpg fe14_mpv2_06_context_mobile.json) ;;
+      fe14_mpv2_07_) evidence_artifacts=(fe14_mpv2_07_catalog_desktop.jpg fe14_mpv2_07_catalog_desktop.json fe14_mpv2_07_catalog_mobile.jpg fe14_mpv2_07_catalog_mobile.json fe14_mpv2_07_detail_desktop.jpg fe14_mpv2_07_detail_desktop.json fe14_mpv2_07_detail_mobile.jpg fe14_mpv2_07_detail_mobile.json) ;;
+      *) evidence_artifacts=() ;;
+    esac
+    for artifact in "${evidence_artifacts[@]}"; do
       if [[ -f "$STATE_DIR/artifacts/$artifact" ]]; then cp -- "$STATE_DIR/artifacts/$artifact" "$FE14_EVIDENCE_OUTPUT_DIR/$artifact"; fi
     done
   fi
@@ -236,9 +246,20 @@ printf 'PASS disposable FE-14 database contains two eligible synthetic public li
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
 if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
   printf 'Running focused anonymous public catalog journey\n'
-  PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-Anonymous visitor explores|MPV2-04 host declares|Removing applied filter chips|Mobile filter dialog|Contextual registration and verification|Contextual login returns}"
+  PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-MPV2-07 serves public catalog|Anonymous visitor explores|MPV2-04 host declares|Removing applied filter chips|Mobile filter dialog|Contextual registration and verification|Contextual login returns}"
   "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep "$PUBLIC_TEST_GREP" >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
   cat "$STATE_DIR/e2e.log"
+  "${compose[@]}" stop backend >/dev/null
+  outage_status="$(curl --silent --show-error --max-time 10 --output "$STATE_DIR/ssr-outage.html" --write-out '%{http_code}' "http://127.0.0.1:${LOCAL_DOCKER_ANGULAR_PORT}/explorar")"
+  [[ "$outage_status" == "503" ]] || { printf 'Expected public SSR to return 503 during Go outage; received %s\n' "$outage_status" >&2; exit 1; }
+  sitemap_outage_status="$(curl --silent --show-error --max-time 10 --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:${LOCAL_DOCKER_ANGULAR_PORT}/sitemap.xml")"
+  [[ "$sitemap_outage_status" == "503" ]] || { printf 'Expected sitemap to return 503 during Go outage; received %s\n' "$sitemap_outage_status" >&2; exit 1; }
+  "${compose[@]}" start backend >/dev/null
+  curl --silent --show-error --fail --retry 30 --retry-connrefused --retry-delay 1 --max-time 45 \
+    "http://127.0.0.1:${LOCAL_DOCKER_API_PORT}/health/ready" >/dev/null
+  restored_status="$(curl --silent --show-error --max-time 10 --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:${LOCAL_DOCKER_ANGULAR_PORT}/explorar")"
+  [[ "$restored_status" == "200" ]] || { printf 'Expected public SSR to recover with Go; received %s\n' "$restored_status" >&2; exit 1; }
+  printf 'PASS public SSR and sitemap return 503 during Go outage and recover after Go restoration\n'
 else
 printf 'Waiting for same-tab outage and restore test\n'
 "${compose[@]}" --profile e2e run --rm angular-e2e >"$STATE_DIR/e2e.log" 2>&1 &
@@ -294,19 +315,13 @@ PY
 mkdir -p "$ROOT_DIR/planning/frontend/evidencia" "$ROOT_DIR/planning/marketplace_publico_v2/evidencia/mpv2_03"
 for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
   [[ -f "$image" ]] || continue
-  if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" && "$(basename "$image")" == fe14_mpv2_0[56]_* ]]; then
+  if [[ -n "$FE14_EVIDENCE_PREFIX" && "$(basename "$image")" == "$FE14_EVIDENCE_PREFIX"* ]]; then
     destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$image")"
     cp -- "$image" "$destination"
     chmod 0644 "$destination"
     continue
   fi
-  if [[ "${FE14_EVIDENCE_OUTPUT_DIR:-}" == */mpv2_05 ]]; then continue; fi
-  if [[ "$(basename "$image")" == fe14_mpv2_03_* || "$(basename "$image")" == fe14_mpv2_04_* || "$(basename "$image")" == fe14_mpv2_05_* || "$(basename "$image")" == fe14_mpv2_06_* ]] && [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
-    destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$image")"
-    cp -- "$image" "$destination"
-    chmod 0644 "$destination"
-    continue
-  fi
+  if [[ -n "$FE14_EVIDENCE_PREFIX" ]]; then continue; fi
   destination="$ROOT_DIR/planning/frontend/evidencia/$(basename "$image")"
   if [[ -e "$destination" ]]; then
     extension="${destination##*.}"
@@ -317,19 +332,13 @@ for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
 done
 for measurements in "$STATE_DIR"/artifacts/fe14_*.json; do
   [[ -f "$measurements" ]] || continue
-  if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" && "$(basename "$measurements")" == fe14_mpv2_0[56]_* ]]; then
+  if [[ -n "$FE14_EVIDENCE_PREFIX" && "$(basename "$measurements")" == "$FE14_EVIDENCE_PREFIX"* ]]; then
     destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$measurements")"
     cp -- "$measurements" "$destination"
     chmod 0644 "$destination"
     continue
   fi
-  if [[ "${FE14_EVIDENCE_OUTPUT_DIR:-}" == */mpv2_05 ]]; then continue; fi
-  if [[ "$(basename "$measurements")" == fe14_mpv2_03_* || "$(basename "$measurements")" == fe14_mpv2_04_* || "$(basename "$measurements")" == fe14_mpv2_05_* || "$(basename "$measurements")" == fe14_mpv2_06_* ]] && [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
-    destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$measurements")"
-    cp -- "$measurements" "$destination"
-    chmod 0644 "$destination"
-    continue
-  fi
+  if [[ -n "$FE14_EVIDENCE_PREFIX" ]]; then continue; fi
   destination="$ROOT_DIR/planning/frontend/evidencia/$(basename "$measurements")"
   if [[ -e "$destination" ]]; then
     extension="${destination##*.}"

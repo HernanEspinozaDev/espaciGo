@@ -7,12 +7,13 @@ import {
   provideAppInitializer,
   provideBrowserGlobalErrorListeners,
 } from '@angular/core';
-import { provideClientHydration } from '@angular/platform-browser';
+import { provideClientHydration, withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import { client } from '../generated/api/client.gen';
 import { provideHeyApiClient } from '../generated/api/client/client.gen';
 import { routes } from './app.routes';
 import { ApiRuntimeConfig } from './core/api-runtime-config';
+import { publicTransferRequest } from './core/public-runtime-config';
 import { provideFrontendPorts } from './frontend.providers';
 
 export const appConfig: ApplicationConfig = {
@@ -22,7 +23,10 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(withFetch()),
     provideHeyApiClient(client),
     provideRouter(routes),
-    provideClientHydration(),
+    provideClientHydration(withHttpTransferCacheOptions({
+      filter: publicTransferRequest,
+      includeNonCacheableRequests: true,
+    })),
     provideAppInitializer(() => {
       const platformId = inject(PLATFORM_ID);
       return isPlatformBrowser(platformId) ? inject(ApiRuntimeConfig).load() : undefined;

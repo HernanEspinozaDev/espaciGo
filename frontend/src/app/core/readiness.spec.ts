@@ -23,7 +23,7 @@ describe('Readiness', () => {
 
   it('checks the configured Go readiness endpoint', async () => {
     const result = service.refresh();
-    http.expectOne('/config.json').flush({ apiBaseUrl: 'http://localhost:8080/api/v1' });
+    http.expectOne('/config.json').flush({ apiBaseUrl: 'http://localhost:8080/api/v1', siteOrigin: 'http://localhost:4000' });
     await vi.waitFor(() =>
       http.expectOne('http://localhost:8080/health/ready').flush({ status: 'ready' }),
     );
@@ -34,7 +34,7 @@ describe('Readiness', () => {
 
   it('shows an unavailable state when the API cannot be reached', async () => {
     const result = service.refresh();
-    http.expectOne('/config.json').flush({ apiBaseUrl: 'http://localhost:8080/api/v1' });
+    http.expectOne('/config.json').flush({ apiBaseUrl: 'http://localhost:8080/api/v1', siteOrigin: 'http://localhost:4000' });
     await vi.waitFor(() =>
       http.expectOne('http://localhost:8080/health/ready').error(new ProgressEvent('error')),
     );
@@ -45,7 +45,7 @@ describe('Readiness', () => {
 
   it('sets the generated API client base URL from the public runtime config', async () => {
     const result = apiConfig.load();
-    http.expectOne('/config.json').flush({ apiBaseUrl: 'http://localhost:8080/api/v1' });
+    http.expectOne('/config.json').flush({ apiBaseUrl: 'http://localhost:8080/api/v1', siteOrigin: 'http://localhost:4000' });
     await result;
 
     expect(apiConfig.apiBaseUrl()).toBe('http://localhost:8080/api/v1');
