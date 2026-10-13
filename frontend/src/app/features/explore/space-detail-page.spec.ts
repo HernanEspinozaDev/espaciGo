@@ -65,6 +65,35 @@ describe('SpaceDetailPage public detail',()=>{
  });
 
  it.each([
+  { label: 'restricted', roles: ['arrendatario'], restricted_mode: true, expected: 'modo restringido' },
+  { label: 'role-incompatible', roles: ['arrendador'], restricted_mode: false, expected: 'no tiene el rol de arrendatario' },
+ ] as const)('keeps public detail and explains a $label session without private booking reads',async({roles,restricted_mode,expected})=>{
+  const params=new BehaviorSubject(convertToParamMap({id:'space-123'}));
+  const api={publicDetail:vi.fn().mockResolvedValue({space_id:'space-123',category_code:'oficina',category_name:'Oficina',title:'Visible',description:'Descripción',area_m2:30,rate_unit:'dia',base_price_clp:'6000',currency:'CLP'}),detail:vi.fn(),profile:vi.fn(),businessClock:vi.fn(),availability:vi.fn(),quote:vi.fn()};
+  const identityApi={login:vi.fn().mockResolvedValue({account_id:'other-session',roles,access_token:'other-bearer',token_type:'Bearer',expires_at:'2027-01-01T00:00:00Z',restricted_mode}),session:vi.fn().mockResolvedValue({account_id:'other-session',roles,restricted_mode}),logout:vi.fn()};
+  TestBed.configureTestingModule({imports:[SpaceDetailPage],providers:[...provideFrontendPorts(),provideHttpClient(),provideRouter([]),PrivateSessionState,{provide:ActivatedRoute,useValue:{paramMap:params.asObservable()}},{provide:IdentityApi,useValue:identityApi},{provide:ExploreApi,useValue:api}]});
+  const fixture=TestBed.createComponent(SpaceDetailPage);fixture.detectChanges();await vi.waitFor(()=>expect(api.publicDetail).toHaveBeenCalledWith('space-123'));
+  await TestBed.inject(IdentitySession).signIn('other@example.invalid','Synthetic#123');fixture.detectChanges();
+  expect(fixture.nativeElement.textContent).toContain(expected);expect(api.detail).not.toHaveBeenCalled();expect(api.availability).not.toHaveBeenCalled();expect(api.quote).not.toHaveBeenCalled();fixture.destroy();
+ });
+
+ it('discards a late quote from the replaced account and requires a fresh selection',async()=>{
+  const params=new BehaviorSubject(convertToParamMap({id:'space-123'}));
+  const full={space_id:'space-123',category_code:'oficina',category_name:'Oficina',title:'Visible',description:'Descripción',area_m2:30,rate_unit:'hora',base_price_clp:'6000',currency:'CLP',time_zone:'America/Santiago',profile_version:1,profile:{},attributes:{}};
+  const interval={start_at:'2026-10-14T12:00:00Z',end_at:'2026-10-14T13:00:00Z'};let resolveQuote!:(value:unknown)=>void;
+  const pendingQuote=new Promise(resolve=>{resolveQuote=resolve;});
+  const api={publicDetail:vi.fn().mockResolvedValue({...full,time_zone:undefined,profile_version:undefined,profile:undefined,attributes:undefined}),detail:vi.fn().mockResolvedValue(full),profile:vi.fn().mockResolvedValue({category_code:'oficina',schema_version:1,attributes:[]}),businessClock:vi.fn().mockResolvedValue({data:{now:'2026-10-13T12:00:00Z'}}),availability:vi.fn().mockResolvedValue({data:{space_id:'space-123',time_zone:'America/Santiago',rate_unit:'hora',items:[interval]}}),quote:vi.fn(()=>pendingQuote)};
+  const identityApi={login:vi.fn().mockResolvedValueOnce({account_id:'renter-a',roles:['arrendatario'],access_token:'bearer-a',token_type:'Bearer',expires_at:'2027-01-01T00:00:00Z',restricted_mode:false}).mockResolvedValueOnce({account_id:'renter-b',roles:['arrendatario'],access_token:'bearer-b',token_type:'Bearer',expires_at:'2027-01-01T00:00:00Z',restricted_mode:false}),session:vi.fn().mockImplementation((token:string)=>Promise.resolve({account_id:token==='bearer-a'?'renter-a':'renter-b',roles:['arrendatario'],restricted_mode:false})),logout:vi.fn().mockResolvedValue(undefined)};
+  TestBed.configureTestingModule({imports:[SpaceDetailPage],providers:[...provideFrontendPorts(),provideHttpClient(),provideRouter([]),PrivateSessionState,{provide:ActivatedRoute,useValue:{paramMap:params.asObservable()}},{provide:IdentityApi,useValue:identityApi},{provide:ExploreApi,useValue:api}]});
+  const fixture=TestBed.createComponent(SpaceDetailPage);fixture.detectChanges();const identity=TestBed.inject(IdentitySession);await vi.waitFor(()=>expect(api.publicDetail).toHaveBeenCalled());
+  await identity.signIn('renter-a@example.invalid','Synthetic#123');await vi.waitFor(()=>expect(api.availability).toHaveBeenCalled());
+  const page=fixture.componentInstance as unknown as {chooseInterval(value:string):void;createQuote():Promise<void>;quote:()=>unknown};page.chooseInterval('0');const oldQuote=page.createQuote();await vi.waitFor(()=>expect(api.quote).toHaveBeenCalledOnce());
+  await identity.signOut();await identity.signIn('renter-b@example.invalid','Synthetic#456');await vi.waitFor(()=>expect(api.detail).toHaveBeenCalledWith('bearer-b','space-123'));
+  resolveQuote({safety_notice:'ENSAYO LOCAL — SIN COBRO REAL',data:{id:'quote-old',space_id:'space-123',start_at:interval.start_at,end_at:interval.end_at}});await oldQuote;
+  expect(page.quote()).toBeNull();expect(api.quote).toHaveBeenCalledOnce();fixture.destroy();
+ });
+
+ it.each([
   { oldOutcome: 'success', nextAccount: 'renter-a' },
   { oldOutcome: 'error', nextAccount: 'renter-a' },
   { oldOutcome: 'success', nextAccount: 'renter-b' },

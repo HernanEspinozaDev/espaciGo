@@ -1,9 +1,10 @@
 import { DestroyRef, Injectable, OnInit, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Meta, Title } from '@angular/platform-browser';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, UrlTree } from '@angular/router';
 import type { SpaceAttributeProfile } from '../../../core/contracts/models';
 import { IdentitySession } from '../../../core/identity/application/identity-session';
+import { buildContextualReturn, canonicalCatalogReturn } from '../../../core/identity/contextual-return';
 import { BookingAttempts } from '../../bookings/application/booking-attempts';
 import { BookingApiError, BookingPort } from '../../bookings/domain/ports/booking-port';
 import {
@@ -302,6 +303,29 @@ export class SpaceDetailFacade implements OnInit {
     return !!this.identity.accessToken() && !!session && !session.restricted_mode && session.roles.includes('arrendatario');
   }
 
+  get session() {
+    return this.identity.session;
+  }
+
+  get identityReturnUrl(): string | null {
+    const item = this.space();
+    if (!item) return null;
+    const values = this.route.snapshot?.queryParamMap?.getAll('returnTo') ?? [];
+    const listing = values.length === 1 ? canonicalCatalogReturn(values[0]) : null;
+    return buildContextualReturn(item.space_id, listing ?? '/explorar');
+  }
+
+  get listingReturnUrl(): UrlTree {
+    const values = this.route.snapshot?.queryParamMap?.getAll('returnTo') ?? [];
+    const listing = values.length === 1 ? canonicalCatalogReturn(values[0]) ?? '/explorar' : '/explorar';
+    return this.router.parseUrl(listing);
+  }
+
+  get hasReservationContext(): boolean {
+    const context = this.route.snapshot?.queryParamMap?.getAll('context') ?? [];
+    return context.length === 1 && context[0] === 'returned' && !!this.listingReturnUrl;
+  }
+
   private async loadPrivateBookingData(): Promise<void> {
     const item=this.space();const token=this.identity.accessToken();const session=this.identity.session();
     if(!item||!token||!session||!this.canBook())return;
@@ -377,7 +401,7 @@ function apiError(error: unknown): string {
   const status = apiStatus(error);
   if (status === 401) return 'Go cerró la sesión. Inicia sesión nuevamente.';
   if (status === 403) return 'Go confirmó que esta cuenta no puede consultar este espacio.';
-  if (status === 404) return 'Este espacio ya no está disponible para tu cuenta.';
+  if (status === 404) return 'Este espacio ya no está disponible.';
   if (status === 409) return 'El horario cambió. Consulta disponibilidad nuevamente.';
   if (status === 422) return 'Go rechazó el horario seleccionado. Elige otra opción.';
   return 'No fue posible completar la operación. Inténtalo nuevamente.';

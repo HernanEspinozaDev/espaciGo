@@ -57,6 +57,7 @@ export class ExplorePage {
   readonly applySort = this.facade.applySort.bind(this.facade);
   readonly loadMore = this.facade.loadMore.bind(this.facade);
   readonly price = this.facade.price.bind(this.facade);
+  readonly detailLink = this.facade.detailLink.bind(this.facade);
 
   openFilters(trigger: HTMLElement): void {
     this.filterTrigger = trigger;

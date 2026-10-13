@@ -9,12 +9,13 @@ import {
   validate,
 } from '@angular/forms/signals';
 import { Meta } from '@angular/platform-browser';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, UrlTree } from '@angular/router';
 import type { TermsResponse } from '../../../core/contracts/models';
 import { IdentityPort } from '../../../core/identity/domain/ports/identity-port';
 import { identityErrorMessage } from '../../../core/identity/identity-errors';
 import { IdentitySession } from '../../../core/identity/application/identity-session';
 import { PrivateSessionState } from '../../../core/identity/private-session-state';
+import { parseIdentityReturn } from '../../../core/identity/contextual-return';
 
 type IdentityMode = 'login' | 'register' | 'verify' | 'recovery' | 'change-password' | 'account';
 
@@ -152,10 +153,12 @@ export class IdentityFacade {
         () => this.identity.signIn(address, password),
         async () => {
           this.successMessage.set('Sesión confirmada por Go.');
-          const inviteReturn = safeBookingInvitationReturnUrl(
-            this.route.snapshot.queryParamMap?.get('returnUrl') ?? null,
+          const safeReturn = parseIdentityReturn(
+            this.route.snapshot.queryParamMap?.getAll('returnUrl') ?? [],
           );
-          await this.router.navigateByUrl(inviteReturn ?? '/mi-cuenta');
+          await this.router.navigateByUrl(
+            typeof safeReturn === 'string' ? safeReturn : safeReturn?.detailUrl ?? '/mi-cuenta',
+          );
         },
         (session) =>
           this.identity.session() === session && this.identity.status() === 'authenticated',
@@ -306,6 +309,24 @@ export class IdentityFacade {
     );
   }
 
+  identityQueryParams(): Record<string, string> {
+    const safeReturn = parseIdentityReturn(
+      this.route.snapshot.queryParamMap?.getAll('returnUrl') ?? [],
+    );
+    const returnUrl =
+      typeof safeReturn === 'string' ? safeReturn : safeReturn?.identityReturnUrl;
+    return returnUrl ? { returnUrl } : {};
+  }
+
+  contextualCancelUrl(): UrlTree | null {
+    const safeReturn = parseIdentityReturn(
+      this.route.snapshot.queryParamMap?.getAll('returnUrl') ?? [],
+    );
+    return typeof safeReturn === 'object' && safeReturn
+      ? this.router.parseUrl(safeReturn.listingUrl)
+      : null;
+  }
+
   private async loadTerms(): Promise<void> {
     try {
       const terms = await this.api.terms();
@@ -361,26 +382,6 @@ export class IdentityFacade {
       generation === this.requestGeneration &&
       stateGeneration === this.privateSessionState.generation()
     );
-  }
-}
-
-function safeBookingInvitationReturnUrl(value: string | null): string | null {
-  if (!value?.startsWith('/reservas?')) return null;
-  try {
-    const parsed = new URL(value, 'http://localhost');
-    const contractId = parsed.searchParams.get('contrato');
-    if (
-      parsed.origin !== 'http://localhost' ||
-      parsed.pathname !== '/reservas' ||
-      parsed.searchParams.size !== 1 ||
-      !contractId ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(contractId)
-    ) {
-      return null;
-    }
-    return `${parsed.pathname}?contrato=${encodeURIComponent(contractId)}`;
-  } catch {
-    return null;
   }
 }
 

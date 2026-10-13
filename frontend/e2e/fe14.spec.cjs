@@ -41,6 +41,7 @@ async function takeScreenshot(page, name, fullPage = false) {
     viewport: { width: innerWidth, height: innerHeight },
     document: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight },
   }));
+  measurements.head = process.env.FE14_HEAD || 'unknown';
   expect(measurements.document.width).toBeLessThanOrEqual(measurements.viewport.width);
   await page.screenshot({ path: path.join(artifactDir, `${name}.jpg`), type: 'jpeg', quality: 86, fullPage });
   fs.writeFileSync(path.join(artifactDir, `${name}.json`), JSON.stringify(measurements, null, 2));
@@ -244,6 +245,132 @@ test('Mobile filter dialog preserves applied chips, focus, and closes on desktop
   }));
   expect(bounds.filters.right).toBeLessThanOrEqual(bounds.results.left);
   expect(bounds.results.top).toBeLessThan(bounds.filters.bottom);
+});
+
+test('Contextual registration and verification preserve the pending return until login', async ({ page }) => {
+  await page.goto('/explorar?q=publico&category_code=oficina');
+  await page.getByRole('link', { name: 'Espacio sintético público FE-14' }).first().click();
+  await expect(page).toHaveURL(/\/espacios\/[0-9a-f-]+/);
+  const spaceId = new URL(page.url()).pathname.split('/').at(-1);
+  await page.locator('.booking a.button').click();
+  await expect(page).toHaveURL(/\/acceso\?returnUrl=/);
+  const pendingReturn = new URL(page.url()).searchParams.get('returnUrl');
+  await page.getByRole('link', { name: 'Crear cuenta' }).click();
+  await expect(page).toHaveURL(/\/registro\?returnUrl=/);
+  expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(pendingReturn);
+
+  const email = `mpv2-06-${Date.now()}@ejemplo.invalid`;
+  const password = 'Context#12345';
+  await expect(page.getByRole('heading', { name: 'Crea tu cuenta' })).toBeVisible();
+  await page.getByLabel('Correo electrónico').fill(email);
+  await page.getByLabel('Contraseña', { exact: true }).fill(password);
+  await page.getByLabel('Repite la contraseña').fill(password);
+  await page.getByRole('radio', { name: 'Arrendar un espacio' }).check();
+  for (const checkbox of await page.getByRole('checkbox').all()) await checkbox.check();
+  await page.getByRole('button', { name: 'Crear cuenta' }).click();
+  await expect(page.getByRole('status')).toContainText('Go creó la cuenta');
+  await expect(page).toHaveURL(/\/registro\?returnUrl=/);
+
+  await page.getByRole('link', { name: 'Verificar el correo' }).click();
+  await expect(page).toHaveURL(/\/verificar-correo\?returnUrl=/);
+  expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(pendingReturn);
+  const mailListResponse = await page.request.get('http://mailpit:8025/api/v1/messages');
+  expect(mailListResponse.ok()).toBeTruthy();
+  const messages = (await mailListResponse.json()).messages || [];
+  const message = messages.find(item => (item.To || []).some(recipient => (recipient.Address || '').toLowerCase() === email.toLowerCase()));
+  expect(message).toBeTruthy();
+  const messageResponse = await page.request.get(`http://mailpit:8025/api/v1/message/${message.ID}`);
+  expect(messageResponse.ok()).toBeTruthy();
+  const messageBody = (await messageResponse.json()).Text || '';
+  const tokenId = /^Token ID: ([0-9a-f-]+)$/m.exec(messageBody)?.[1];
+  const token = /^Token: ([A-Za-z0-9_-]+)$/m.exec(messageBody)?.[1];
+  expect(tokenId).toBeTruthy();
+  expect(token).toBeTruthy();
+  await page.getByLabel('Identificador del correo').fill(tokenId);
+  await page.getByLabel('Código de verificación').fill(token);
+  await page.getByRole('button', { name: 'Verificar correo' }).click();
+  await expect(page.getByRole('status')).toContainText('Correo verificado por Go');
+  await expect(page).toHaveURL(/\/verificar-correo\?returnUrl=/);
+
+  await page.getByRole('link', { name: 'Inicia sesión para volver al espacio' }).click();
+  await page.getByLabel('Correo electrónico').fill(email);
+  await page.getByLabel('Contraseña').fill(password);
+  await page.getByRole('button', { name: 'Iniciar sesión' }).click();
+  await expect(page).toHaveURL(new RegExp(`/espacios/${spaceId}\\?context=returned&returnTo=`));
+  await expect(page.getByText(/Volviste a esta ficha/)).toBeVisible();
+  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
+  expect(page.url()).not.toMatch(/bearer|token|password/i);
+});
+
+test('Contextual login returns to the selected space and requires explicit quote and reservation confirmation', async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 });
+  const bookingWrites = [];
+  page.on('request', request => {
+    if (request.method() !== 'POST') return;
+    const pathname = new URL(request.url()).pathname;
+    if (/\/local\/booking-trial\/(quotes|reservations)$/.test(pathname)) bookingWrites.push(pathname);
+  });
+
+  await page.goto('/explorar?q=publico&category_code=oficina');
+  const listing = page.getByRole('link', { name: 'Espacio sintético público FE-14' }).first();
+  await expect(listing).toBeVisible();
+  await listing.click();
+  await expect(page.getByRole('heading', { name: 'Espacio sintético público FE-14' })).toBeVisible();
+  await expect(page).toHaveURL(/\/espacios\/[0-9a-f-]+/);
+  const detailId = new URL(page.url()).pathname.split('/').at(-1);
+  const access = page.locator('.booking a.button');
+  const accessUrl = new URL(await access.getAttribute('href'), page.url());
+  const returnUrl = accessUrl.searchParams.get('returnUrl');
+  expect(returnUrl).toContain(`/espacios/${detailId}?action=reserve&returnTo=`);
+  expect(returnUrl).toContain('q%3Dpublico');
+  expect(returnUrl).not.toMatch(/bearer|token|password/i);
+
+  await access.click();
+  await expect(page.getByRole('heading', { name: 'Inicia sesión' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Cancelar y volver al catálogo' })).toHaveAttribute('href', '/explorar?q=publico&category_code=oficina');
+  await page.getByRole('link', { name: 'Cancelar y volver al catálogo' }).click();
+  await expect(page).toHaveURL('/explorar?q=publico&category_code=oficina');
+  await page.getByRole('link', { name: 'Espacio sintético público FE-14' }).first().click();
+  await expect(page.getByRole('heading', { name: 'Espacio sintético público FE-14' })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/espacios/${detailId}`));
+  await page.locator('.booking a.button').click();
+  await expect(page).toHaveURL(/\/acceso\?returnUrl=/);
+  await page.getByLabel('Correo electrónico').fill(accounts.renter.email);
+  await page.getByLabel('Contraseña').fill(accounts.renter.password);
+  await page.getByRole('button', { name: 'Iniciar sesión' }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/espacios/${detailId}\\?context=returned&returnTo=`));
+  await expect(page.getByText(/Volviste a esta ficha/)).toBeVisible();
+  await expect(page.getByLabel('Horario disponible')).toBeVisible();
+  await expect.poll(() => page.getByLabel('Horario disponible').locator('option').count()).toBeGreaterThan(1);
+  expect(bookingWrites).toEqual([]);
+  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
+  const activeUrl = new URL(page.url());
+  expect(activeUrl.search).not.toMatch(/bearer|token|password/i);
+  await takeScreenshot(page, 'fe14_mpv2_06_context_desktop');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await takeScreenshot(page, 'fe14_mpv2_06_context_mobile');
+  await page.setViewportSize({ width: 1365, height: 900 });
+
+  await page.getByLabel('Horario disponible').selectOption('0');
+  const quoteResponsePromise = page.waitForResponse(response => response.request().method() === 'POST' && /\/api\/v1\/local\/booking-trial\/quotes$/.test(new URL(response.url()).pathname));
+  await page.getByRole('button', { name: 'Cotizar horario' }).click();
+  const quoteResponse = await quoteResponsePromise;
+  expect(quoteResponse.status()).toBe(200);
+  expect(bookingWrites).toEqual(['/api/v1/local/booking-trial/quotes']);
+  await expect(page.getByRole('button', { name: 'Solicitar reserva' })).toBeVisible();
+
+  const reservationResponsePromise = page.waitForResponse(response => response.request().method() === 'POST' && /\/api\/v1\/local\/booking-trial\/reservations$/.test(new URL(response.url()).pathname));
+  await expect(page.getByRole('button', { name: 'Solicitar reserva' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Solicitar reserva' }).click();
+  const reservationResponse = await reservationResponsePromise;
+  expect(reservationResponse.status()).toBe(201);
+  await expect(page).toHaveURL(/\/reservas\/[0-9a-f-]+$/);
+  expect(bookingWrites).toEqual([
+    '/api/v1/local/booking-trial/quotes',
+    '/api/v1/local/booking-trial/reservations',
+  ]);
 });
 
 test('Typed hosting form creates and edits a synthetic draft through Go', async ({ page }) => {

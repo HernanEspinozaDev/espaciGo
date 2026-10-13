@@ -1,6 +1,8 @@
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, provideRouter, Router } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
+import type { UrlTree } from '@angular/router';
+import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IdentitySession } from '../../core/identity/application/identity-session';
 import { IdentityApi } from '../../core/identity/infrastructure/identity-api';
@@ -59,6 +61,192 @@ describe('IdentityPage private forms', () => {
     expect(identity.session()?.account_id).toBe('account-login');
     expect(identity.status()).toBe('authenticated');
     expect(navigate).toHaveBeenCalledWith('/mi-cuenta');
+    fixture.destroy();
+  });
+
+  it('returns to the same public space after contextual login without starting a write', async () => {
+    const spaceId = '550e8400-e29b-41d4-a716-446655440000';
+    const listing = '/explorar?q=oficina+centro&category_code=oficina&sort=relevance';
+    const context = `/espacios/${spaceId}?action=reserve&returnTo=${encodeURIComponent(listing)}`;
+    const api = {
+      login: vi.fn().mockResolvedValue({
+        account_id: 'renter-context',
+        roles: ['arrendatario'],
+        access_token: 'context-bearer',
+        token_type: 'Bearer',
+        expires_at: '2026-10-12T00:00:00Z',
+        restricted_mode: false,
+      }),
+      session: vi.fn().mockResolvedValue({
+        account_id: 'renter-context',
+        roles: ['arrendatario'],
+        restricted_mode: false,
+      }),
+      logout: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [IdentityPage],
+      providers: [
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              data: { identityMode: 'login' },
+              queryParamMap: convertToParamMap({ returnUrl: context }),
+            },
+          },
+        },
+        { provide: IdentityApi, useValue: api },
+        PrivateSessionState,
+      ],
+    });
+    const fixture = TestBed.createComponent(IdentityPage);
+    fixture.detectChanges();
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const page = fixture.componentInstance as unknown as {
+      loginModel: { set(value: { email: string; password: string }): void };
+      onLogin(event: SubmitEvent): Promise<void>;
+      identityQueryParams(): Record<string, string>;
+      contextualCancelUrl(): UrlTree | null;
+    };
+    page.loginModel.set({ email: 'renter@example.invalid', password: 'Synthetic#123' });
+    await page.onLogin(new Event('submit') as SubmitEvent);
+
+    expect(navigate).toHaveBeenCalledWith(
+      `/espacios/${spaceId}?context=returned&returnTo=${encodeURIComponent(listing)}`,
+    );
+    expect(page.identityQueryParams()).toEqual({ returnUrl: context });
+    const cancelUrl = page.contextualCancelUrl();
+    expect(cancelUrl).toBeTruthy();
+    expect(router.serializeUrl(cancelUrl!)).toBe(
+      '/explorar?q=oficina%20centro&category_code=oficina&sort=relevance',
+    );
+    expect(fixture.nativeElement.querySelector('.context-cancel')?.textContent).toContain(
+      'Cancelar y volver al catálogo',
+    );
+    expect(fixture.nativeElement.querySelector('a[href^="/registro"]')?.getAttribute('href')).toContain(
+      encodeURIComponent(context),
+    );
+    const audit = await axe.run(fixture.nativeElement, {
+      runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] },
+    });
+    expect(audit.violations.map((violation) => violation.id)).toEqual([]);
+    expect(api.login).toHaveBeenCalledOnce();
+    fixture.destroy();
+  });
+
+  it('rejects a contextual redirect with an external or duplicated destination', async () => {
+    const api = {
+      login: vi.fn().mockResolvedValue({
+        account_id: 'renter-safe',
+        roles: ['arrendatario'],
+        access_token: 'safe-bearer',
+        token_type: 'Bearer',
+        expires_at: '2026-10-12T00:00:00Z',
+        restricted_mode: false,
+      }),
+      session: vi.fn().mockResolvedValue({
+        account_id: 'renter-safe',
+        roles: ['arrendatario'],
+        restricted_mode: false,
+      }),
+      logout: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [IdentityPage],
+      providers: [
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              data: { identityMode: 'login' },
+              queryParamMap: convertToParamMap({
+                returnUrl: [
+                  '/espacios/550e8400-e29b-41d4-a716-446655440000?action=reserve&returnTo=%2Fexplorar',
+                  '//evil.example',
+                ],
+              }),
+            },
+          },
+        },
+        { provide: IdentityApi, useValue: api },
+        PrivateSessionState,
+      ],
+    });
+    const fixture = TestBed.createComponent(IdentityPage);
+    fixture.detectChanges();
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const page = fixture.componentInstance as unknown as {
+      loginModel: { set(value: { email: string; password: string }): void };
+      onLogin(event: SubmitEvent): Promise<void>;
+      identityQueryParams(): Record<string, string>;
+      contextualCancelUrl(): UrlTree | null;
+    };
+    page.loginModel.set({ email: 'renter@example.invalid', password: 'Synthetic#123' });
+    await page.onLogin(new Event('submit') as SubmitEvent);
+    expect(navigate).toHaveBeenCalledWith('/mi-cuenta');
+    expect(page.identityQueryParams()).toEqual({});
+    expect(page.contextualCancelUrl()).toBeNull();
+    fixture.destroy();
+  });
+
+  it('preserves the legacy contract invitation return after confirmed login', async () => {
+    const contractId = '123e4567-e89b-42d3-a456-426614174000';
+    const api = {
+      login: vi.fn().mockResolvedValue({ account_id: 'renter-invite', roles: ['arrendatario'], access_token: 'invite-bearer', token_type: 'Bearer', expires_at: '2026-10-12T00:00:00Z', restricted_mode: false }),
+      session: vi.fn().mockResolvedValue({ account_id: 'renter-invite', roles: ['arrendatario'], restricted_mode: false }),
+      logout: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [IdentityPage],
+      providers: [
+        ...provideFrontendPorts(), provideHttpClient(), provideRouter([]),
+        { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'login' }, queryParamMap: convertToParamMap({ returnUrl: `/reservas?contrato=${contractId}` }) } } },
+        { provide: IdentityApi, useValue: api }, PrivateSessionState,
+      ],
+    });
+    const fixture = TestBed.createComponent(IdentityPage); fixture.detectChanges();
+    const router = TestBed.inject(Router); const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const page = fixture.componentInstance as unknown as { loginModel: { set(value: { email: string; password: string }): void }; onLogin(event: SubmitEvent): Promise<void> };
+    page.loginModel.set({ email: 'invite@example.invalid', password: 'Synthetic#123' });
+    await page.onLogin(new Event('submit') as SubmitEvent);
+    expect(navigate).toHaveBeenCalledWith(`/reservas?contrato=${contractId}`);
+    fixture.destroy();
+  });
+
+  it.each([
+    { label: 'restricted', roles: ['arrendatario'], restricted_mode: true },
+    { label: 'incompatible role', roles: ['arrendador'], restricted_mode: false },
+  ] as const)('returns a $label account to the contextual detail for an explanatory state', async ({ roles, restricted_mode }) => {
+    const spaceId = '550e8400-e29b-41d4-a716-446655440000';
+    const returnUrl = `/espacios/${spaceId}?action=reserve&returnTo=%2Fexplorar%3Fq%3Dpublico`;
+    const api = {
+      login: vi.fn().mockResolvedValue({ account_id: 'account-limited', roles, access_token: 'limited-bearer', token_type: 'Bearer', expires_at: '2026-10-12T00:00:00Z', restricted_mode }),
+      session: vi.fn().mockResolvedValue({ account_id: 'account-limited', roles, restricted_mode }),
+      logout: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [IdentityPage],
+      providers: [
+        ...provideFrontendPorts(), provideHttpClient(), provideRouter([]),
+        { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'login' }, queryParamMap: convertToParamMap({ returnUrl }) } } },
+        { provide: IdentityApi, useValue: api }, PrivateSessionState,
+      ],
+    });
+    const fixture = TestBed.createComponent(IdentityPage); fixture.detectChanges();
+    const router = TestBed.inject(Router); const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const page = fixture.componentInstance as unknown as { loginModel: { set(value: { email: string; password: string }): void }; onLogin(event: SubmitEvent): Promise<void> };
+    page.loginModel.set({ email: 'account@example.invalid', password: 'Synthetic#123' });
+    await page.onLogin(new Event('submit') as SubmitEvent);
+    expect(navigate).toHaveBeenCalledWith(`/espacios/${spaceId}?context=returned&returnTo=%2Fexplorar%3Fq%3Dpublico`);
     fixture.destroy();
   });
 

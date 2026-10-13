@@ -54,9 +54,9 @@
         </button>
       </form>
       <nav class="form-links" aria-label="Ayuda para acceder">
-        <a routerLink="/recuperar-acceso">¿Olvidaste tu contraseña?</a>
-        <a routerLink="/verificar-correo">Verificar o reenviar correo</a>
-        <a routerLink="/registro">Crear cuenta</a>
+        <a routerLink="/recuperar-acceso" [queryParams]="identityQueryParams()">¿Olvidaste tu contraseña?</a>
+        <a routerLink="/verificar-correo" [queryParams]="identityQueryParams()">Verificar o reenviar correo</a>
+        <a routerLink="/registro" [queryParams]="identityQueryParams()">Crear cuenta</a>
       </nav>
     }
 
@@ -206,6 +206,7 @@
         }
         @if (successMessage()) {
           <p class="form-alert is-success" role="status">{{ successMessage() }}</p>
+          <a routerLink="/verificar-correo" [queryParams]="identityQueryParams()">Verificar el correo</a>
         }
         <button
           appButton="primary"
@@ -216,7 +217,7 @@
           {{ busy() ? 'Creando cuenta…' : 'Crear cuenta' }}
         </button>
       </form>
-      <p class="bottom-link">¿Ya tienes cuenta? <a routerLink="/acceso">Inicia sesión</a></p>
+      <p class="bottom-link">¿Ya tienes cuenta? <a routerLink="/acceso" [queryParams]="identityQueryParams()">Inicia sesión</a></p>
     }
 
     @if (mode === 'verify') {
@@ -266,6 +267,7 @@
         }
         @if (successMessage()) {
           <p class="form-alert is-success" role="status">{{ successMessage() }}</p>
+          <a routerLink="/acceso" [queryParams]="identityQueryParams()">Inicia sesión para volver al espacio</a>
         }
         <button appButton="primary" class="primary-button" type="submit" [disabled]="busy()">
           {{ busy() ? 'Verificando…' : 'Verificar correo' }}
@@ -416,7 +418,7 @@
           </button>
         </form>
       </section>
-      <p class="bottom-link"><a routerLink="/acceso">Volver al acceso</a></p>
+      <p class="bottom-link"><a routerLink="/acceso" [queryParams]="identityQueryParams()">Volver al acceso</a></p>
     }
 
     @if (mode === 'change-password') {
@@ -529,4 +531,7 @@
       </nav>
     }
   </section>
+  @if (contextualCancelUrl(); as cancelUrl) {
+    <p class="context-cancel"><a [routerLink]="cancelUrl">Cancelar y volver al catálogo</a></p>
+  }
 </main>
