@@ -14,6 +14,7 @@ import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import type {
   LocalWeeklyHoursEnvelope,
+  PublicLocationList,
   SpaceAttributeProfile,
   SpaceCategoryList,
   SpaceDraft,
@@ -43,6 +44,8 @@ type DraftForm = {
   rate_unit: 'hora' | 'dia' | 'mes';
   base_price_clp: string;
   address: string;
+  region_code: string;
+  comuna_code: string;
   attribute_schema_version?: number;
   attributes: Record<string, unknown>;
 };
@@ -57,6 +60,8 @@ const emptyForm = (): DraftForm => ({
   rate_unit: 'hora',
   base_price_clp: '5001',
   address: '',
+  region_code: '',
+  comuna_code: '',
   attributes: {},
 });
 const dayNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
@@ -79,6 +84,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
   private simulationQueryGeneration = 0;
   private availabilityQueryGeneration = 0;
   private galleryGeneration = 0;
+  private profileGeneration = 0;
   private selectionRevision = 0;
   private ownerToken = this.identity.accessToken();
   private ownerSession = this.identity.session();
@@ -93,6 +99,9 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
   readonly session = this.identity.session;
   readonly spaces = signal<ExactSpace[]>([]);
   readonly categories = signal<SpaceCategoryList['items']>([]);
+  readonly publicLocations = signal<PublicLocationList['items']>([]);
+  readonly locationsLoading = signal(false);
+  readonly locationsError = signal('');
   readonly selectedSpace = signal<ExactSpace | null>(null);
   readonly profile = signal<SpaceAttributeProfile | null>(null);
   readonly gallery = signal<SyntheticSpaceGalleryPhoto[]>([]);
@@ -197,6 +206,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     this.destroyed = true;
     this.loadGeneration++;
     this.resourceGeneration++;
+    this.profileGeneration++;
     this.galleryGeneration++;
     this.galleryAttempts.clear();
     this.unregister?.();
@@ -209,6 +219,8 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     const generation = ++this.loadGeneration;
     this.loading.set(true);
     this.loadingError.set('');
+    this.locationsLoading.set(true);
+    this.locationsError.set('');
     try {
       const [list, categories] = await Promise.all([
         this.api.list(context.token) as unknown as Promise<ExactDraftList>,
@@ -217,6 +229,17 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
       if (!this.loadCurrent(context, generation)) return;
       this.spaces.set(list.items);
       this.categories.set(categories.items);
+      try {
+        const locations = await this.api.publicLocations();
+        if (!this.loadCurrent(context, generation)) return;
+        this.publicLocations.set(locations.items);
+      } catch (error) {
+        if (!this.loadCurrent(context, generation)) return;
+        this.locationsError.set('No fue posible cargar el catálogo territorial público.');
+        this.fail(error, context, true);
+      } finally {
+        if (this.loadCurrent(context, generation)) this.locationsLoading.set(false);
+      }
       const nextId = this.routeSpaceId ?? this.selectedSpace()?.id ?? list.items[0]?.id ?? null;
       if (nextId) await this.loadSpace(nextId);
       else {
@@ -234,7 +257,10 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
           'No fue posible cargar tus espacios. Go mantiene la decisión de permisos.',
         );
     } finally {
-      if (this.loadCurrent(context, generation)) this.loading.set(false);
+      if (this.loadCurrent(context, generation)) {
+        this.loading.set(false);
+        this.locationsLoading.set(false);
+      }
     }
   }
 
@@ -242,6 +268,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     const context = this.context();
     if (!context || !spaceId || this.destroyed) return;
     const generation = ++this.resourceGeneration;
+    this.profileGeneration++;
     const selection = ++this.selectionRevision;
     this.activeSpaceId = spaceId;
     this.resetResourceState();
@@ -327,12 +354,19 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
   }
 
   async categoryChanged(code: string): Promise<void> {
+    this.profileGeneration++;
+    this.resourceGeneration++;
     this.form.category_code = code;
     this.form.attributes = {};
     this.form.attribute_schema_version = undefined;
     this.profile.set(null);
     const context = this.context();
     if (context && code) await this.loadProfile(context, code);
+  }
+
+  regionChanged(code: string): void {
+    this.form.region_code = code;
+    this.form.comuna_code = '';
   }
 
   async createDraft(): Promise<void> {
@@ -410,6 +444,14 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     const patch: Record<string, unknown> = {};
     for (const key of ['title', 'description', 'capacity', 'usage_rules'] as const) {
       if (this.publishedForm[key] !== space[key]) patch[key] = this.publishedForm[key];
+    }
+    const regionCode = this.form.region_code;
+    const communeCode = this.form.comuna_code;
+    if (!!regionCode !== !!communeCode)
+      return this.error.set('Selecciona una comuna de la región para guardar la ubicación pública.');
+    if (regionCode !== (space.region_code ?? '') || communeCode !== (space.comuna_code ?? '')) {
+      patch['region_code'] = regionCode;
+      patch['comuna_code'] = communeCode;
     }
     if (!Object.keys(patch).length)
       return this.setNotice('No hay campos modificados para guardar.');
@@ -1016,12 +1058,12 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
   }
 
   private async loadProfile(context: RequestContext, category: string): Promise<void> {
-    const generation = this.resourceGeneration;
+    const generation = ++this.profileGeneration;
     try {
       const result = await this.api.profile(context.token, category);
       if (
         !this.contextCurrent(context) ||
-        generation !== this.resourceGeneration ||
+        generation !== this.profileGeneration ||
         this.form.category_code !== category
       )
         return;
@@ -1032,7 +1074,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
         error,
         context,
         this.contextCurrent(context) &&
-          generation === this.resourceGeneration &&
+          generation === this.profileGeneration &&
           this.form.category_code === category,
       );
     }
@@ -1042,6 +1084,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
       !form.category_code ||
       !form.title.trim() ||
       !form.address.trim() ||
+      (!!form.region_code !== !!form.comuna_code) ||
       !validClp(form.base_price_clp)
     ) {
       this.error.set('Completa categoría, título, dirección y una tarifa CLP entera válida.');
@@ -1057,6 +1100,9 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
       rate_unit: form.rate_unit,
       base_price_clp: form.base_price_clp as unknown as number,
       address: form.address,
+      ...(form.region_code && form.comuna_code
+        ? { region_code: form.region_code, comuna_code: form.comuna_code }
+        : {}),
       attribute_schema_version: form.attribute_schema_version,
       attributes: form.attributes,
     };
@@ -1076,14 +1122,22 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
       rate_unit: latest.rate_unit,
       base_price_clp: String(latest.base_price_clp),
       address: latest.address,
+      region_code: latest.region_code ?? '',
+      comuna_code: latest.comuna_code ?? '',
       attribute_schema_version: latest.attribute_schema_version,
       attributes: { ...latest.attributes },
     };
+    const locationChanged =
+      edited.region_code !== original.region_code || edited.comuna_code !== original.comuna_code;
     for (const key of Object.keys(merged) as Array<keyof DraftForm>) {
-      if (key === 'attributes') continue;
+      if (key === 'attributes' || key === 'region_code' || key === 'comuna_code') continue;
       if (JSON.stringify(edited[key]) !== JSON.stringify(original[key])) {
         (merged as unknown as Record<string, unknown>)[key] = edited[key];
       }
+    }
+    if (locationChanged) {
+      merged.region_code = edited.region_code;
+      merged.comuna_code = edited.comuna_code;
     }
     const attributeKeys = new Set([
       ...Object.keys(original.attributes),
@@ -1113,6 +1167,8 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
       rate_unit: space.rate_unit,
       base_price_clp: String(space.base_price_clp),
       address: space.address,
+      region_code: space.region_code ?? '',
+      comuna_code: space.comuna_code ?? '',
       attribute_schema_version: space.attribute_schema_version,
       attributes: { ...space.attributes },
     };
@@ -1243,6 +1299,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     this.revokePhoto();
   }
   private resetResourceState(): void {
+    this.profileGeneration++;
     this.selectedSpace.set(null);
     this.profile.set(null);
     this.gallery.set([]);
@@ -1297,6 +1354,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
   private clearPrivate(): void {
     this.loadGeneration++;
     this.resourceGeneration++;
+    this.profileGeneration++;
     this.savingGeneration++;
     this.galleryGeneration++;
     this.selectionRevision++;
@@ -1304,6 +1362,9 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     this.originalForm.clear();
     this.spaces.set([]);
     this.categories.set([]);
+    this.publicLocations.set([]);
+    this.locationsLoading.set(false);
+    this.locationsError.set('');
     this.selectedSpace.set(null);
     this.gallery.set([]);
     this.tariff.set(null);

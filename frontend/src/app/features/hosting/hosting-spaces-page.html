@@ -218,6 +218,44 @@
                       Go.</small
                     ></label
                   >
+                  <div class="span-2 public-location-note" role="note">
+                    <strong>Ubicación pública</strong>
+                    <p>
+                      Región y comuna se mostrarán a visitantes para que encuentren tu espacio.
+                      La dirección privada y las coordenadas no se publican.
+                    </p>
+                  </div>
+                  <label
+                    >Región
+                    <select
+                      name="publicRegion"
+                      [formControl]="controlFor(form, 'region_code', regionChanged)"
+                    >
+                      <option value="">Sin indicar</option>
+                      @for (region of publicRegions; track region.code) {
+                        <option [value]="region.code">{{ region.name }}</option>
+                      }
+                    </select></label
+                  >
+                  <label
+                    >Comuna
+                    <select
+                      name="publicCommune"
+                      [formControl]="controlFor(form, 'comuna_code')"
+                      [disabled]="!form.region_code || locationsLoading()"
+                    >
+                      <option value="">Sin indicar</option>
+                      @for (commune of publicCommunes; track commune.comuna_code) {
+                        <option [value]="commune.comuna_code">{{ commune.comuna_name }}</option>
+                      }
+                    </select></label
+                  >
+                  @if (locationsLoading()) {
+                    <p class="span-2" role="status">Cargando regiones y comunas…</p>
+                  }
+                  @if (locationsError()) {
+                    <p class="alert span-2" role="alert">{{ locationsError() }}</p>
+                  }
                   <label class="span-2"
                     >Reglas de uso
                     <textarea
@@ -306,9 +344,14 @@
               <form
                 class="published-editor"
                 (submit)="$event.preventDefault(); savePublishedContent()"
+                [formGroup]="draftForm"
               >
                 <h3>Contenido público versionado</h3>
-                <p>Solo se envían los campos que cambiaste; los demás permanecen intactos.</p>
+                <p>
+                  Visitantes verán el título, descripción, reglas y ubicación elegidos aquí. La
+                  dirección privada, coordenadas y datos de contacto no se publican. Solo se envían
+                  los campos que cambiaste.
+                </p>
                 <div class="form-grid">
                   <label
                     >Título publicado
@@ -334,6 +377,33 @@
                       [formControl]="controlFor(publishedForm, 'usage_rules')"
                     ></textarea>
                   </label>
+                  <label
+                    >Región pública
+                    <select
+                      name="publishedRegion"
+                      [formControl]="controlFor(form, 'region_code', regionChanged)"
+                    >
+                      <option value="">Sin indicar</option>
+                      @for (region of publicRegions; track region.code) {
+                        <option [value]="region.code">{{ region.name }}</option>
+                      }
+                    </select></label
+                  ><label
+                    >Comuna pública
+                    <select
+                      name="publishedCommune"
+                      [formControl]="controlFor(form, 'comuna_code')"
+                      [disabled]="!form.region_code || locationsLoading()"
+                    >
+                      <option value="">Sin indicar</option>
+                      @for (commune of publicCommunes; track commune.comuna_code) {
+                        <option [value]="commune.comuna_code">{{ commune.comuna_name }}</option>
+                      }
+                    </select></label
+                  >
+                  @if (locationsError()) {
+                    <p class="alert span-2" role="alert">{{ locationsError() }}</p>
+                  }
                 </div>
                 <button
                   appButton="primary"

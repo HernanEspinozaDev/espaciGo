@@ -843,7 +843,7 @@ export class M04Local {
     }
 
     /**
-     * Modifica título, descripción, capacidad, reglas de uso y/o precio base de una publicación propia activa u oculta. Requiere titularidad y rol arrendador. Un cambio de precio agrega una nueva versión de tarifa y conserva cotizaciones/reservas anteriores. No cambia el estado ni agrega el espacio al catálogo general.
+     * Modifica título, descripción, capacidad, reglas de uso, ubicación pública y/o precio base de una publicación propia activa u oculta. Requiere titularidad y rol arrendador. Un cambio de precio agrega una nueva versión de tarifa y conserva cotizaciones/reservas anteriores. La ubicación usa el catálogo SUBDERE_DPA_2018 y no se deriva de dirección o coordenadas. No cambia el estado ni la visibilidad del espacio.
      */
     public updateOwnPublishedSpaceContent<ThrowOnError extends boolean = false>(options: Options<UpdateOwnPublishedSpaceContentData, ThrowOnError>): RequestResult<UpdateOwnPublishedSpaceContentResponses, UpdateOwnPublishedSpaceContentErrors, ThrowOnError> {
         return (options.client ?? client).put<UpdateOwnPublishedSpaceContentResponses, UpdateOwnPublishedSpaceContentErrors, ThrowOnError>({

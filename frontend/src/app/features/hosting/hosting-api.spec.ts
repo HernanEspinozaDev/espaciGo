@@ -38,6 +38,16 @@ describe('HostingApi', () => {
     });
   });
 
+  it('loads the public region and commune reference without a bearer', async () => {
+    const { api, http } = setup();
+    const pending = api.publicLocations();
+    const request = http.expectOne('http://go.test/api/v1/public/locations');
+    expect(request.request.method).toBe('GET');
+    expect(request.request.headers.has('Authorization')).toBe(false);
+    request.flush('{"items":[{"region_code":"13","region_name":"Metropolitana de Santiago","comuna_code":"13123","comuna_name":"Providencia"}]}');
+    expect(await pending).toEqual({ items: [{ region_code: '13', region_name: 'Metropolitana de Santiago', comuna_code: '13123', comuna_name: 'Providencia' }] });
+  });
+
   it('sends and reads int64 tariffs as exact decimal tokens', async () => {
     const { api, http } = setup();
     const amount = '9223372036854775807';

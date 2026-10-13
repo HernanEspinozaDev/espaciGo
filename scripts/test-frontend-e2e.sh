@@ -135,7 +135,9 @@ cleanup() {
   docker volume rm "$LOCAL_DOCKER_PGDATA_VOLUME" >/dev/null 2>&1 || true
   if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" && "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
     mkdir -p "$FE14_EVIDENCE_OUTPUT_DIR"
-    for artifact in fe14_public_search_desktop.jpg fe14_public_search_desktop.json fe14_public_search_mobile.jpg fe14_public_search_mobile.json; do
+    for artifact in fe14_public_search_desktop.jpg fe14_public_search_desktop.json fe14_public_search_mobile.jpg fe14_public_search_mobile.json \
+      fe14_mpv2_03_host_desktop.jpg fe14_mpv2_03_host_desktop.json fe14_mpv2_03_host_mobile.jpg fe14_mpv2_03_host_mobile.json \
+      fe14_mpv2_03_visitor_search_desktop.jpg fe14_mpv2_03_visitor_search_desktop.json fe14_mpv2_03_visitor_search_mobile.jpg fe14_mpv2_03_visitor_search_mobile.json; do
       if [[ -f "$STATE_DIR/artifacts/$artifact" ]]; then cp -- "$STATE_DIR/artifacts/$artifact" "$FE14_EVIDENCE_OUTPUT_DIR/$artifact"; fi
     done
   fi
@@ -184,9 +186,10 @@ VALUES(gen_random_uuid(),'fe14-'||:'run_id'||'-public-owner@ejemplo.invalid',
 WITH approved AS (
   INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,resuelta_en)
   SELECT gen_random_uuid(),host.id,'kyc','aprobada','fixture:'||gen_random_uuid(),
-         'fe14-public-'||:'run_id',admin.id,now()
+         'fe14-public-'||:'run_id'||'-'||host.id::text,admin.id,now()
   FROM public.usuario host CROSS JOIN public.usuario admin
-  WHERE host.correo_normalizado='fe14-'||:'run_id'||'-public-owner@ejemplo.invalid'
+  WHERE host.correo_normalizado IN ('fe14-'||:'run_id'||'-public-owner@ejemplo.invalid',
+                                    'fe14-'||:'run_id'||'-host@ejemplo.invalid')
     AND admin.correo_normalizado='fe14-'||:'run_id'||'-admin@ejemplo.invalid'
   RETURNING id,usuario_id
 )
@@ -215,7 +218,7 @@ printf 'PASS disposable FE-14 database contains one eligible synthetic public li
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
 if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
   printf 'Running focused anonymous public catalog journey\n'
-  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep 'Anonymous visitor explores' >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
+  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep 'Anonymous visitor explores|MPV2-03 host publishes' >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
   cat "$STATE_DIR/e2e.log"
 else
 printf 'Waiting for same-tab outage and restore test\n'
@@ -269,9 +272,15 @@ for account in accounts.values():
 print('PASS backend logs contain none of the synthetic account emails or passwords')
 PY
 
-mkdir -p "$ROOT_DIR/planning/frontend/evidencia"
+mkdir -p "$ROOT_DIR/planning/frontend/evidencia" "$ROOT_DIR/planning/marketplace_publico_v2/evidencia/mpv2_03"
 for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
   [[ -f "$image" ]] || continue
+  if [[ "$(basename "$image")" == fe14_mpv2_03_* && -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
+    destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$image")"
+    cp -- "$image" "$destination"
+    chmod 0644 "$destination"
+    continue
+  fi
   destination="$ROOT_DIR/planning/frontend/evidencia/$(basename "$image")"
   if [[ -e "$destination" ]]; then
     extension="${destination##*.}"
@@ -282,6 +291,12 @@ for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
 done
 for measurements in "$STATE_DIR"/artifacts/fe14_*.json; do
   [[ -f "$measurements" ]] || continue
+  if [[ "$(basename "$measurements")" == fe14_mpv2_03_* && -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
+    destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$measurements")"
+    cp -- "$measurements" "$destination"
+    chmod 0644 "$destination"
+    continue
+  fi
   destination="$ROOT_DIR/planning/frontend/evidencia/$(basename "$measurements")"
   if [[ -e "$destination" ]]; then
     extension="${destination##*.}"

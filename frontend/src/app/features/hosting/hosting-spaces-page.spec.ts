@@ -43,6 +43,10 @@ function apiFor(base = space()) {
   return {
     list: vi.fn(async () => ({ items: [base] })),
     categories: vi.fn(async () => ({ items: [{ code: 'oficina', name: 'Oficina' }] })),
+    publicLocations: vi.fn(async () => ({ items: [
+      { region_code: '13', region_name: 'Metropolitana de Santiago', comuna_code: '13123', comuna_name: 'Providencia' },
+      { region_code: '13', region_name: 'Metropolitana de Santiago', comuna_code: '13101', comuna_name: 'Santiago' },
+    ] })),
     profile: vi.fn(async (_token: string, category: string, version?: number) => ({
       category_code: category,
       schema_version: version ?? 2,
@@ -272,6 +276,27 @@ describe('FE-06 HostingSpacesPage', () => {
     fixture.destroy();
   });
 
+  it('discards a stale public-location response after the authenticated account changes', async () => {
+    const api = apiFor();
+    const first = deferred<{ items: { region_code: string; region_name: string; comuna_code: string; comuna_name: string }[] }>();
+    const second = deferred<{ items: { region_code: string; region_name: string; comuna_code: string; comuna_name: string }[] }>();
+    api.publicLocations.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { identity } = setup(api);
+    await identity.signIn('owner-a@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    await identity.signIn('owner-b@example.invalid', 'secret');
+    fixture.detectChanges();
+    await flush();
+    second.resolve({ items: [{ region_code: '06', region_name: 'O’Higgins', comuna_code: '06101', comuna_name: 'Rancagua' }] });
+    await flush();
+    first.resolve({ items: [{ region_code: '13', region_name: 'Metropolitana', comuna_code: '13123', comuna_name: 'Providencia' }] });
+    await flush();
+    expect(page(fixture).publicLocations().map(location => location.region_code)).toEqual(['06']);
+    fixture.destroy();
+  });
+
   it('releases the create operation after its own confirmed detail reload', async () => {
     const api = apiFor();
     api.list.mockResolvedValue({ items: [] });
@@ -284,9 +309,12 @@ describe('FE-06 HostingSpacesPage', () => {
       category_code: 'oficina',
       title: 'Borrador nuevo',
       address: 'Dirección sintética',
+      region_code: '13',
+      comuna_code: '13123',
     });
     await page(fixture).createDraft();
     expect(api.create).toHaveBeenCalledOnce();
+    expect(api.create.mock.calls[0][1]).toMatchObject({ region_code: '13', comuna_code: '13123' });
     expect(page(fixture).selectedSpace()?.id).toBe('space-a');
     expect(page(fixture).detailLoading()).toBe(false);
     expect(page(fixture).saving()).toBe(false);
@@ -364,6 +392,42 @@ describe('FE-06 HostingSpacesPage', () => {
     fixture.destroy();
   });
 
+  it('saves the public location for a published space and clears the commune when the region changes', async () => {
+    const api = apiFor(space('space-a', 'activa'));
+    const { identity } = setup(api);
+    await identity.signIn('owner@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    page(fixture).form.region_code = '13';
+    page(fixture).form.comuna_code = '13123';
+    await page(fixture).savePublishedContent();
+    expect(api.updatePublished).toHaveBeenCalledWith('bearer-a', 'space-a', {
+      region_code: '13',
+      comuna_code: '13123',
+    });
+    page(fixture).form.region_code = '06';
+    page(fixture).form.comuna_code = '06101';
+    page(fixture).regionChanged('13');
+    expect(page(fixture).form.comuna_code).toBe('');
+    fixture.destroy();
+  });
+
+  it('does not submit an incomplete public region/commune pair', async () => {
+    const api = apiFor(space('space-a', 'activa'));
+    const { identity } = setup(api);
+    await identity.signIn('owner@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    page(fixture).form.region_code = '13';
+    page(fixture).form.comuna_code = '';
+    await page(fixture).savePublishedContent();
+    expect(api.updatePublished).not.toHaveBeenCalled();
+    expect(page(fixture).error()).toContain('Selecciona una comuna');
+    fixture.destroy();
+  });
+
   it('preserves the latest exact tariff and every unmodified draft field in the required full PUT', async () => {
     const api = apiFor();
     const exactPrice = '9007199254740993';
@@ -396,6 +460,80 @@ describe('FE-06 HostingSpacesPage', () => {
     expect(payload.title).toBe('Título actualizado desde Go');
     expect(payload.description).toBe('Descripción modificada');
     fixture.destroy();
+  });
+
+  it('merges public location as a pair while retaining remote fields', async () => {
+    const scenarios = [
+      {
+        name: 'only commune changed locally',
+        original: ['13', '13123'],
+        edited: ['13', '13101'],
+        latest: ['06', '06101'],
+        expected: ['13', '13101'],
+      },
+      {
+        name: 'selection from empty location',
+        original: ['', ''],
+        edited: ['13', '13123'],
+        latest: ['06', '06101'],
+        expected: ['13', '13123'],
+      },
+      {
+        name: 'location retired locally',
+        original: ['13', '13123'],
+        edited: ['', ''],
+        latest: ['06', '06101'],
+        expected: ['', ''],
+      },
+      {
+        name: 'remote location retained without local edit',
+        original: ['13', '13123'],
+        edited: ['13', '13123'],
+        latest: ['06', '06101'],
+        expected: ['06', '06101'],
+      },
+    ] as const;
+
+    for (const scenario of scenarios) {
+      const [originalRegion, originalCommune] = scenario.original;
+      const [editedRegion, editedCommune] = scenario.edited;
+      const [latestRegion, latestCommune] = scenario.latest;
+      const originalSpace = {
+        ...space(),
+        region_code: originalRegion || undefined,
+        comuna_code: originalCommune || undefined,
+      };
+      const api = apiFor(originalSpace);
+      const { identity } = setup(api);
+      await identity.signIn('owner@example.invalid', 'secret');
+      const fixture = TestBed.createComponent(HostingSpacesPage);
+      fixture.detectChanges();
+      await flush();
+      Object.assign(page(fixture).form, {
+        region_code: editedRegion,
+        comuna_code: editedCommune,
+      });
+      api.detail.mockResolvedValue({
+        ...originalSpace,
+        title: 'Título remoto conservado',
+        region_code: latestRegion || undefined,
+        comuna_code: latestCommune || undefined,
+      } as ReturnType<typeof space>);
+
+      await page(fixture).saveDraft();
+
+      const payload = api.update.mock.calls[0][2] as {
+        title: string;
+        region_code?: string;
+        comuna_code?: string;
+      };
+      expect([payload.region_code ?? '', payload.comuna_code ?? ''], scenario.name).toEqual(
+        [...scenario.expected],
+      );
+      expect(payload.title, scenario.name).toBe('Título remoto conservado');
+      fixture.destroy();
+      TestBed.resetTestingModule();
+    }
   });
 
   it('does not let an older space read overwrite the newer selected space', async () => {

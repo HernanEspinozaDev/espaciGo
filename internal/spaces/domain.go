@@ -33,6 +33,8 @@ type Draft struct {
 	Address                string         `json:"address"`
 	State                  string         `json:"state"`
 	TimeZone               *string        `json:"time_zone,omitempty"`
+	RegionCode             *string        `json:"region_code,omitempty"`
+	CommuneCode            *string        `json:"comuna_code,omitempty"`
 	CoverPhotoID           *string        `json:"cover_photo_id,omitempty"`
 	AttributeSchemaVersion int            `json:"attribute_schema_version"`
 	Attributes             map[string]any `json:"attributes"`
@@ -48,6 +50,8 @@ type Input struct {
 	RateUnit               string         `json:"rate_unit"`
 	BasePriceCLP           int64          `json:"base_price_clp"`
 	Address                string         `json:"address"`
+	RegionCode             string         `json:"region_code,omitempty"`
+	CommuneCode            string         `json:"comuna_code,omitempty"`
 	AttributeSchemaVersion int            `json:"attribute_schema_version,omitempty"`
 	Attributes             map[string]any `json:"attributes,omitempty"`
 }
@@ -60,7 +64,11 @@ type PublishedContentInput struct {
 	Capacity     *int32  `json:"capacity,omitempty"`
 	UsageRules   *string `json:"usage_rules,omitempty"`
 	BasePriceCLP *int64  `json:"base_price_clp,omitempty"`
+	RegionCode   *string `json:"region_code,omitempty"`
+	CommuneCode  *string `json:"comuna_code,omitempty"`
 }
+
+const PublicLocationCatalogVersion = "SUBDERE_DPA_2018"
 
 // Deletion is a durable receipt for retiring one synthetic/local publication.
 // Preserved contains only names of retained historical record groups.
@@ -75,7 +83,7 @@ type Deletion struct {
 }
 
 func (i PublishedContentInput) Validate() error {
-	if i.Title == nil && i.Description == nil && i.Capacity == nil && i.UsageRules == nil && i.BasePriceCLP == nil {
+	if i.Title == nil && i.Description == nil && i.Capacity == nil && i.UsageRules == nil && i.BasePriceCLP == nil && i.RegionCode == nil && i.CommuneCode == nil {
 		return ErrInvalid
 	}
 	if i.Title != nil && (strings.TrimSpace(*i.Title) == "" || len([]rune(*i.Title)) > 70) {
@@ -93,15 +101,38 @@ func (i PublishedContentInput) Validate() error {
 	if i.BasePriceCLP != nil && *i.BasePriceCLP <= 5000 {
 		return ErrInvalid
 	}
+	if (i.RegionCode == nil) != (i.CommuneCode == nil) {
+		return ErrInvalid
+	}
+	if i.RegionCode != nil {
+		if (*i.RegionCode == "") != (*i.CommuneCode == "") {
+			return ErrInvalid
+		}
+		if *i.RegionCode != "" && !validPublicLocationCodes(*i.RegionCode, *i.CommuneCode) {
+			return ErrInvalid
+		}
+	}
 	return nil
 }
 
 func (i Input) Validate() error {
 	areaCents := i.AreaM2 * 100
-	if strings.TrimSpace(i.Title) == "" || len([]rune(i.Title)) > 70 || len([]rune(strings.TrimSpace(i.Description))) < 100 || math.IsNaN(i.AreaM2) || math.IsInf(i.AreaM2, 0) || i.AreaM2 < 0.01 || i.AreaM2 > 99999999.99 || math.Abs(areaCents-math.Round(areaCents)) > 1e-7 || i.CategoryCode == "" || i.Capacity <= 0 || strings.TrimSpace(i.UsageRules) == "" || len([]rune(i.UsageRules)) > 250 || (i.RateUnit != "hora" && i.RateUnit != "dia" && i.RateUnit != "mes") || i.BasePriceCLP <= 5000 || strings.TrimSpace(i.Address) == "" || len([]rune(i.Address)) > 500 {
+	if strings.TrimSpace(i.Title) == "" || len([]rune(i.Title)) > 70 || len([]rune(strings.TrimSpace(i.Description))) < 100 || math.IsNaN(i.AreaM2) || math.IsInf(i.AreaM2, 0) || i.AreaM2 < 0.01 || i.AreaM2 > 99999999.99 || math.Abs(areaCents-math.Round(areaCents)) > 1e-7 || i.CategoryCode == "" || i.Capacity <= 0 || strings.TrimSpace(i.UsageRules) == "" || len([]rune(i.UsageRules)) > 250 || (i.RateUnit != "hora" && i.RateUnit != "dia" && i.RateUnit != "mes") || i.BasePriceCLP <= 5000 || strings.TrimSpace(i.Address) == "" || len([]rune(i.Address)) > 500 || (i.RegionCode == "") != (i.CommuneCode == "") || i.RegionCode != "" && !validPublicLocationCodes(i.RegionCode, i.CommuneCode) {
 		return ErrInvalid
 	}
 	return nil
+}
+
+func validPublicLocationCodes(regionCode, communeCode string) bool {
+	if len(regionCode) != 2 || len(communeCode) != 5 {
+		return false
+	}
+	for _, value := range regionCode + communeCode {
+		if value < '0' || value > '9' {
+			return false
+		}
+	}
+	return strings.HasPrefix(communeCode, regionCode)
 }
 
 type Repository interface {
