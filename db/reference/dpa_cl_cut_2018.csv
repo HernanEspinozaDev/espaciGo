@@ -1,0 +1,346 @@
+region_code,region_name,commune_code,commune_name
+01,Tarapacá,01101,Iquique
+01,Tarapacá,01107,Alto Hospicio
+01,Tarapacá,01401,Pozo Almonte
+01,Tarapacá,01402,Camiña
+01,Tarapacá,01403,Colchane
+01,Tarapacá,01404,Huara
+01,Tarapacá,01405,Pica
+02,Antofagasta,02101,Antofagasta
+02,Antofagasta,02102,Mejillones
+02,Antofagasta,02103,Sierra Gorda
+02,Antofagasta,02104,Taltal
+02,Antofagasta,02201,Calama
+02,Antofagasta,02202,Ollagüe
+02,Antofagasta,02203,San Pedro de Atacama
+02,Antofagasta,02301,Tocopilla
+02,Antofagasta,02302,María Elena
+03,Atacama,03101,Copiapó
+03,Atacama,03102,Caldera
+03,Atacama,03103,Tierra Amarilla
+03,Atacama,03201,Chañaral
+03,Atacama,03202,Diego de Almagro
+03,Atacama,03301,Vallenar
+03,Atacama,03302,Alto del Carmen
+03,Atacama,03303,Freirina
+03,Atacama,03304,Huasco
+04,Coquimbo,04101,La Serena
+04,Coquimbo,04102,Coquimbo
+04,Coquimbo,04103,Andacollo
+04,Coquimbo,04104,La Higuera
+04,Coquimbo,04105,Paiguano
+04,Coquimbo,04106,Vicuña
+04,Coquimbo,04201,Illapel
+04,Coquimbo,04202,Canela
+04,Coquimbo,04203,Los Vilos
+04,Coquimbo,04204,Salamanca
+04,Coquimbo,04301,Ovalle
+04,Coquimbo,04302,Combarbalá
+04,Coquimbo,04303,Monte Patria
+04,Coquimbo,04304,Punitaqui
+04,Coquimbo,04305,Río Hurtado
+05,Valparaíso,05101,Valparaíso
+05,Valparaíso,05102,Casablanca
+05,Valparaíso,05103,Concón
+05,Valparaíso,05104,Juan Fernández
+05,Valparaíso,05105,Puchuncaví
+05,Valparaíso,05107,Quintero
+05,Valparaíso,05109,Viña del Mar
+05,Valparaíso,05201,Isla de Pascua
+05,Valparaíso,05301,Los Andes
+05,Valparaíso,05302,Calle Larga
+05,Valparaíso,05303,Rinconada
+05,Valparaíso,05304,San Esteban
+05,Valparaíso,05401,La Ligua
+05,Valparaíso,05402,Cabildo
+05,Valparaíso,05403,Papudo
+05,Valparaíso,05404,Petorca
+05,Valparaíso,05405,Zapallar
+05,Valparaíso,05501,Quillota
+05,Valparaíso,05502,Calera
+05,Valparaíso,05503,Hijuelas
+05,Valparaíso,05504,La Cruz
+05,Valparaíso,05506,Nogales
+05,Valparaíso,05601,San Antonio
+05,Valparaíso,05602,Algarrobo
+05,Valparaíso,05603,Cartagena
+05,Valparaíso,05604,El Quisco
+05,Valparaíso,05605,El Tabo
+05,Valparaíso,05606,Santo Domingo
+05,Valparaíso,05701,San Felipe
+05,Valparaíso,05702,Catemu
+05,Valparaíso,05703,Llaillay
+05,Valparaíso,05704,Panquehue
+05,Valparaíso,05705,Putaendo
+05,Valparaíso,05706,Santa María
+05,Valparaíso,05801,Quilpué
+05,Valparaíso,05802,Limache
+05,Valparaíso,05803,Olmué
+05,Valparaíso,05804,Villa Alemana
+06,Libertador General Bernardo O'Higgins,06101,Rancagua
+06,Libertador General Bernardo O'Higgins,06102,Codegua
+06,Libertador General Bernardo O'Higgins,06103,Coinco
+06,Libertador General Bernardo O'Higgins,06104,Coltauco
+06,Libertador General Bernardo O'Higgins,06105,Doñihue
+06,Libertador General Bernardo O'Higgins,06106,Graneros
+06,Libertador General Bernardo O'Higgins,06107,Las Cabras
+06,Libertador General Bernardo O'Higgins,06108,Machalí
+06,Libertador General Bernardo O'Higgins,06109,Malloa
+06,Libertador General Bernardo O'Higgins,06110,Mostazal
+06,Libertador General Bernardo O'Higgins,06111,Olivar
+06,Libertador General Bernardo O'Higgins,06112,Peumo
+06,Libertador General Bernardo O'Higgins,06113,Pichidegua
+06,Libertador General Bernardo O'Higgins,06114,Quinta de Tilcoco
+06,Libertador General Bernardo O'Higgins,06115,Rengo
+06,Libertador General Bernardo O'Higgins,06116,Requínoa
+06,Libertador General Bernardo O'Higgins,06117,San Vicente
+06,Libertador General Bernardo O'Higgins,06201,Pichilemu
+06,Libertador General Bernardo O'Higgins,06202,La Estrella
+06,Libertador General Bernardo O'Higgins,06203,Litueche
+06,Libertador General Bernardo O'Higgins,06204,Marchihue
+06,Libertador General Bernardo O'Higgins,06205,Navidad
+06,Libertador General Bernardo O'Higgins,06206,Paredones
+06,Libertador General Bernardo O'Higgins,06301,San Fernando
+06,Libertador General Bernardo O'Higgins,06302,Chépica
+06,Libertador General Bernardo O'Higgins,06303,Chimbarongo
+06,Libertador General Bernardo O'Higgins,06304,Lolol
+06,Libertador General Bernardo O'Higgins,06305,Nancagua
+06,Libertador General Bernardo O'Higgins,06306,Palmilla
+06,Libertador General Bernardo O'Higgins,06307,Peralillo
+06,Libertador General Bernardo O'Higgins,06308,Placilla
+06,Libertador General Bernardo O'Higgins,06309,Pumanque
+06,Libertador General Bernardo O'Higgins,06310,Santa Cruz
+07,Maule,07101,Talca
+07,Maule,07102,Constitución
+07,Maule,07103,Curepto
+07,Maule,07104,Empedrado
+07,Maule,07105,Maule
+07,Maule,07106,Pelarco
+07,Maule,07107,Pencahue
+07,Maule,07108,Río Claro
+07,Maule,07109,San Clemente
+07,Maule,07110,San Rafael
+07,Maule,07201,Cauquenes
+07,Maule,07202,Chanco
+07,Maule,07203,Pelluhue
+07,Maule,07301,Curicó
+07,Maule,07302,Hualañé
+07,Maule,07303,Licantén
+07,Maule,07304,Molina
+07,Maule,07305,Rauco
+07,Maule,07306,Romeral
+07,Maule,07307,Sagrada Familia
+07,Maule,07308,Teno
+07,Maule,07309,Vichuquén
+07,Maule,07401,Linares
+07,Maule,07402,Colbún
+07,Maule,07403,Longaví
+07,Maule,07404,Parral
+07,Maule,07405,Retiro
+07,Maule,07406,San Javier
+07,Maule,07407,Villa Alegre
+07,Maule,07408,Yerbas Buenas
+08,Biobío,08101,Concepción
+08,Biobío,08102,Coronel
+08,Biobío,08103,Chiguayante
+08,Biobío,08104,Florida
+08,Biobío,08105,Hualqui
+08,Biobío,08106,Lota
+08,Biobío,08107,Penco
+08,Biobío,08108,San Pedro de la Paz
+08,Biobío,08109,Santa Juana
+08,Biobío,08110,Talcahuano
+08,Biobío,08111,Tomé
+08,Biobío,08112,Hualpén
+08,Biobío,08201,Lebu
+08,Biobío,08202,Arauco
+08,Biobío,08203,Cañete
+08,Biobío,08204,Contulmo
+08,Biobío,08205,Curanilahue
+08,Biobío,08206,Los Alamos
+08,Biobío,08207,Tirúa
+08,Biobío,08301,Los Angeles
+08,Biobío,08302,Antuco
+08,Biobío,08303,Cabrero
+08,Biobío,08304,Laja
+08,Biobío,08305,Mulchén
+08,Biobío,08306,Nacimiento
+08,Biobío,08307,Negrete
+08,Biobío,08308,Quilaco
+08,Biobío,08309,Quilleco
+08,Biobío,08310,San Rosendo
+08,Biobío,08311,Santa Bárbara
+08,Biobío,08312,Tucapel
+08,Biobío,08313,Yumbel
+08,Biobío,08314,Alto Biobío
+09,La Araucanía,09101,Temuco
+09,La Araucanía,09102,Carahue
+09,La Araucanía,09103,Cunco
+09,La Araucanía,09104,Curarrehue
+09,La Araucanía,09105,Freire
+09,La Araucanía,09106,Galvarino
+09,La Araucanía,09107,Gorbea
+09,La Araucanía,09108,Lautaro
+09,La Araucanía,09109,Loncoche
+09,La Araucanía,09110,Melipeuco
+09,La Araucanía,09111,Nueva Imperial
+09,La Araucanía,09112,Padre Las Casas
+09,La Araucanía,09113,Perquenco
+09,La Araucanía,09114,Pitrufquén
+09,La Araucanía,09115,Pucón
+09,La Araucanía,09116,Saavedra
+09,La Araucanía,09117,Teodoro Schmidt
+09,La Araucanía,09118,Toltén
+09,La Araucanía,09119,Vilcún
+09,La Araucanía,09120,Villarrica
+09,La Araucanía,09121,Cholchol
+09,La Araucanía,09201,Angol
+09,La Araucanía,09202,Collipulli
+09,La Araucanía,09203,Curacautín
+09,La Araucanía,09204,Ercilla
+09,La Araucanía,09205,Lonquimay
+09,La Araucanía,09206,Los Sauces
+09,La Araucanía,09207,Lumaco
+09,La Araucanía,09208,Purén
+09,La Araucanía,09209,Renaico
+09,La Araucanía,09210,Traiguén
+09,La Araucanía,09211,Victoria
+10,Los Lagos,10101,Puerto Montt
+10,Los Lagos,10102,Calbuco
+10,Los Lagos,10103,Cochamó
+10,Los Lagos,10104,Fresia
+10,Los Lagos,10105,Frutillar
+10,Los Lagos,10106,Los Muermos
+10,Los Lagos,10107,Llanquihue
+10,Los Lagos,10108,Maullín
+10,Los Lagos,10109,Puerto Varas
+10,Los Lagos,10201,Castro
+10,Los Lagos,10202,Ancud
+10,Los Lagos,10203,Chonchi
+10,Los Lagos,10204,Curaco de Vélez
+10,Los Lagos,10205,Dalcahue
+10,Los Lagos,10206,Puqueldón
+10,Los Lagos,10207,Queilén
+10,Los Lagos,10208,Quellón
+10,Los Lagos,10209,Quemchi
+10,Los Lagos,10210,Quinchao
+10,Los Lagos,10301,Osorno
+10,Los Lagos,10302,Puerto Octay
+10,Los Lagos,10303,Purranque
+10,Los Lagos,10304,Puyehue
+10,Los Lagos,10305,Río Negro
+10,Los Lagos,10306,San Juan de la Costa
+10,Los Lagos,10307,San Pablo
+10,Los Lagos,10401,Chaitén
+10,Los Lagos,10402,Futaleufú
+10,Los Lagos,10403,Hualaihué
+10,Los Lagos,10404,Palena
+11,Aysén del General Carlos Ibáñez del Campo,11101,Coihaique
+11,Aysén del General Carlos Ibáñez del Campo,11102,Lago Verde
+11,Aysén del General Carlos Ibáñez del Campo,11201,Aisén
+11,Aysén del General Carlos Ibáñez del Campo,11202,Cisnes
+11,Aysén del General Carlos Ibáñez del Campo,11203,Guaitecas
+11,Aysén del General Carlos Ibáñez del Campo,11301,Cochrane
+11,Aysén del General Carlos Ibáñez del Campo,11302,O'Higgins
+11,Aysén del General Carlos Ibáñez del Campo,11303,Tortel
+11,Aysén del General Carlos Ibáñez del Campo,11401,Chile Chico
+11,Aysén del General Carlos Ibáñez del Campo,11402,Río Ibáñez
+12,Magallanes y de la Antártica Chilena,12101,Punta Arenas
+12,Magallanes y de la Antártica Chilena,12102,Laguna Blanca
+12,Magallanes y de la Antártica Chilena,12103,Río Verde
+12,Magallanes y de la Antártica Chilena,12104,San Gregorio
+12,Magallanes y de la Antártica Chilena,12201,Cabo de Hornos
+12,Magallanes y de la Antártica Chilena,12301,Porvenir
+12,Magallanes y de la Antártica Chilena,12302,Primavera
+12,Magallanes y de la Antártica Chilena,12303,Timaukel
+12,Magallanes y de la Antártica Chilena,12401,Natales
+12,Magallanes y de la Antártica Chilena,12402,Torres del Paine
+13,Metropolitana de Santiago,13101,Santiago
+13,Metropolitana de Santiago,13102,Cerrillos
+13,Metropolitana de Santiago,13103,Cerro Navia
+13,Metropolitana de Santiago,13104,Conchalí
+13,Metropolitana de Santiago,13105,El Bosque
+13,Metropolitana de Santiago,13106,Estación Central
+13,Metropolitana de Santiago,13107,Huechuraba
+13,Metropolitana de Santiago,13108,Independencia
+13,Metropolitana de Santiago,13109,La Cisterna
+13,Metropolitana de Santiago,13110,La Florida
+13,Metropolitana de Santiago,13111,La Granja
+13,Metropolitana de Santiago,13112,La Pintana
+13,Metropolitana de Santiago,13113,La Reina
+13,Metropolitana de Santiago,13114,Las Condes
+13,Metropolitana de Santiago,13115,Lo Barnechea
+13,Metropolitana de Santiago,13116,Lo Espejo
+13,Metropolitana de Santiago,13117,Lo Prado
+13,Metropolitana de Santiago,13118,Macul
+13,Metropolitana de Santiago,13119,Maipú
+13,Metropolitana de Santiago,13120,Ñuñoa
+13,Metropolitana de Santiago,13121,Pedro Aguirre Cerda
+13,Metropolitana de Santiago,13122,Peñalolén
+13,Metropolitana de Santiago,13123,Providencia
+13,Metropolitana de Santiago,13124,Pudahuel
+13,Metropolitana de Santiago,13125,Quilicura
+13,Metropolitana de Santiago,13126,Quinta Normal
+13,Metropolitana de Santiago,13127,Recoleta
+13,Metropolitana de Santiago,13128,Renca
+13,Metropolitana de Santiago,13129,San Joaquín
+13,Metropolitana de Santiago,13130,San Miguel
+13,Metropolitana de Santiago,13131,San Ramón
+13,Metropolitana de Santiago,13132,Vitacura
+13,Metropolitana de Santiago,13201,Puente Alto
+13,Metropolitana de Santiago,13202,Pirque
+13,Metropolitana de Santiago,13203,San José de Maipo
+13,Metropolitana de Santiago,13301,Colina
+13,Metropolitana de Santiago,13302,Lampa
+13,Metropolitana de Santiago,13303,Tiltil
+13,Metropolitana de Santiago,13401,San Bernardo
+13,Metropolitana de Santiago,13402,Buin
+13,Metropolitana de Santiago,13403,Calera de Tango
+13,Metropolitana de Santiago,13404,Paine
+13,Metropolitana de Santiago,13501,Melipilla
+13,Metropolitana de Santiago,13502,Alhué
+13,Metropolitana de Santiago,13503,Curacaví
+13,Metropolitana de Santiago,13504,María Pinto
+13,Metropolitana de Santiago,13505,San Pedro
+13,Metropolitana de Santiago,13601,Talagante
+13,Metropolitana de Santiago,13602,El Monte
+13,Metropolitana de Santiago,13603,Isla de Maipo
+13,Metropolitana de Santiago,13604,Padre Hurtado
+13,Metropolitana de Santiago,13605,Peñaflor
+14,Los Ríos,14101,Valdivia
+14,Los Ríos,14102,Corral
+14,Los Ríos,14103,Lanco
+14,Los Ríos,14104,Los Lagos
+14,Los Ríos,14105,Máfil
+14,Los Ríos,14106,Mariquina
+14,Los Ríos,14107,Paillaco
+14,Los Ríos,14108,Panguipulli
+14,Los Ríos,14201,La Unión
+14,Los Ríos,14202,Futrono
+14,Los Ríos,14203,Lago Ranco
+14,Los Ríos,14204,Río Bueno
+15,Arica y Parinacota,15101,Arica
+15,Arica y Parinacota,15102,Camarones
+15,Arica y Parinacota,15201,Putre
+15,Arica y Parinacota,15202,General Lagos
+16,Ñuble,16101,Chillán
+16,Ñuble,16102,Bulnes
+16,Ñuble,16103,Chillán Viejo
+16,Ñuble,16104,El Carmen
+16,Ñuble,16105,Pemuco
+16,Ñuble,16106,Pinto
+16,Ñuble,16107,Quillón
+16,Ñuble,16108,San Ignacio
+16,Ñuble,16109,Yungay
+16,Ñuble,16201,Quirihue
+16,Ñuble,16202,Cobquecura
+16,Ñuble,16203,Coelemu
+16,Ñuble,16204,Ninhue
+16,Ñuble,16205,Portezuelo
+16,Ñuble,16206,Ranquil
+16,Ñuble,16207,Treguaco
+16,Ñuble,16301,San Carlos
+16,Ñuble,16302,Coihueco
+16,Ñuble,16303,Ñiquén
+16,Ñuble,16304,San Fabián
+16,Ñuble,16305,San Nicolás

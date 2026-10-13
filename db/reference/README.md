@@ -1,0 +1,7 @@
+# Referencia pública región/comuna de Chile
+
+Snapshot local de los códigos/nombres de región y comuna de la DPA/CUT 2018. Fuente primaria: [SUBDERE, Códigos Únicos Territoriales actualizado al 2018](https://www.subdere.gov.cl/documentacion/c%C3%B3digos-%C3%BAnicos-territoriales-actualizados-al-06-de-septiembre-2018), que publica `CUT_2018_v04.xls` y el Decreto Exento N.º 1.115. La [capa de comunas DPA 2018 distribuida por IDE Chile/MOP](https://rest-sit.mop.gob.cl/arcgis/rest/services/INTEROP/SERVICIO_DPA/MapServer/1) confirma los campos CUT región/comuna y declara cobertura nacional de 345 comunas, sin Territorio Antártico Chileno.
+
+`dpa_cl_cut_2018.csv` es una extracción de solo códigos y nombres desde esa capa, sin polígonos, coordenadas ni datos privados. Se versiona para que los mismos códigos y etiquetas estén disponibles sin una llamada externa en runtime. Snapshot importado el 2026-10-13; SHA-256 `6d724d07ca9c9fa628394a6b74e6b413af444f8ab9f95068ba616d3ad11720db`. Alcance: 16 regiones y las 345 comunas del catálogo DPA/CUT 2018. No se asigna una comuna por dirección ni por ubicación sintética; las ofertas existentes quedan con zona NULL hasta que el anfitrión la ingrese mediante el editor de MPV2-03.
+
+Los códigos son strings para conservar ceros iniciales. Una futura revisión DPA debe agregarse como una nueva versión y una migración de mapeo explícita; no se reescribe esta instantánea ni se asume equivalencia entre versiones.

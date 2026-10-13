@@ -43,6 +43,35 @@ describe('parseExactClpJson', () => {
     ).toEqual({ rate_version: 9, unit_price_clp: '10000000000000001' });
   });
 
+  it('preserves the nullable estimated total while retaining exact int64 precision', () => {
+    expect(parseExactClpJson<{ estimated_total_clp: string | null }>(
+      '{"estimated_total_clp":null}',
+    )).toEqual({ estimated_total_clp: null });
+    expect(parseExactClpJson<{ estimated_total_clp: string | null }>(
+      '{"estimated_total_clp":9223372036854775807}',
+    )).toEqual({ estimated_total_clp: '9223372036854775807' });
+    expect(() => parseExactClpJson('{"base_price_clp":null}')).toThrow();
+  });
+
+  it('loads public search through HttpClient when an estimate is null and keeps large CLP exact', async () => {
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideHttpClientTesting()],
+    });
+    TestBed.inject(ApiRuntimeConfig).apiBaseUrl.set('http://api.test/api/v1');
+    const api = TestBed.inject(ExploreApi);
+    const http = TestBed.inject(HttpTestingController);
+    const resultPromise = api.publicSearch({});
+    const request = http.expectOne('http://api.test/api/v1/public/spaces');
+    expect(request.request.method).toBe('GET');
+    expect(request.request.headers.has('Authorization')).toBe(false);
+    request.flush('{"items":[{"space_id":"space-1","base_price_clp":9007199254740993,"estimated_total_clp":null}]}');
+    const result = await resultPromise;
+    expect(result.items[0].base_price_clp).toBe('9007199254740993');
+    expect(result.items[0].estimated_total_clp).toBeNull();
+    http.verify();
+    TestBed.resetTestingModule();
+  });
+
   it('reads the authenticated catalog as text and retains an exact int64 CLP amount', async () => {
     TestBed.configureTestingModule({
       providers: [...provideFrontendPorts(), provideHttpClient(), provideHttpClientTesting()],

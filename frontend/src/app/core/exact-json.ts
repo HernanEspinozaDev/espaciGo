@@ -27,6 +27,7 @@ const exactClpKeys = new Set([
   'settlement_amount_clp',
   'requested_amount_clp',
 ]);
+const nullableExactClpKeys = new Set(['estimated_total_clp']);
 
 /** Quote CLP literals before JSON.parse so int64 amounts never pass through Number. */
 export function parseExactClpJson<T>(source: string): T {
@@ -51,6 +52,11 @@ export function parseExactClpJson<T>(source: string): T {
     if (!exactClpKeys.has(key)) continue;
     cursor++;
     while (/\s/.test(source[cursor] ?? '') && cursor < source.length) cursor++;
+    if (nullableExactClpKeys.has(key) && source.startsWith('null', cursor)) {
+      output += source.slice(index, cursor + 4);
+      index = cursor + 4;
+      continue;
+    }
     const number = /^-?\d+/.exec(source.slice(cursor))?.[0];
     if (!number || /[.eE]/.test(source[cursor + number.length] ?? '')) {
       throw new Error(`Importe CLP entero inválido: ${key}`);

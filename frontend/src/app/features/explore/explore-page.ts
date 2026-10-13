@@ -15,6 +15,8 @@ export class ExplorePage {
   get categories() {
     return this.facade.categories;
   }
+  get locations() { return this.facade.locations; }
+  get attributeFilters() { return this.facade.attributeFilters; }
   get items() {
     return this.facade.items;
   }
@@ -34,6 +36,10 @@ export class ExplorePage {
     this.facade.ngOnInit();
   }
   readonly updateFilter = this.facade.updateFilter.bind(this.facade);
+  readonly setAttribute = this.facade.setAttribute.bind(this.facade);
+  readonly updateDate = this.facade.updateDate.bind(this.facade);
+  readonly dateInput = this.facade.dateInput.bind(this.facade);
+  readonly booleanValue = (value: boolean | undefined): string => value === undefined ? '' : String(value);
   readonly search = this.facade.search.bind(this.facade);
   readonly clearFilters = this.facade.clearFilters.bind(this.facade);
   readonly loadMore = this.facade.loadMore.bind(this.facade);

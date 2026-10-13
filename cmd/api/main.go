@@ -263,6 +263,8 @@ func run() error {
 			mux.Handle("/api/v1/public/spaces", publicCatalogHandler)
 			mux.Handle("/api/v1/public/spaces/", publicCatalogHandler)
 			mux.Handle("/api/v1/public/space-categories", publicCatalogHandler)
+			mux.Handle("/api/v1/public/space-categories/", publicCatalogHandler)
+			mux.Handle("/api/v1/public/locations", publicCatalogHandler)
 			quoteTTL, err := localTrialDuration("LOCAL_BOOKING_QUOTE_TTL", 15*time.Minute)
 			if err != nil {
 				return errors.New("invalid local quote lifetime")

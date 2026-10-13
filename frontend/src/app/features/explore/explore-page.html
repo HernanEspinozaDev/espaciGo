@@ -5,6 +5,19 @@
     <p>Explora publicaciones visibles. La ficha muestra información pública y una ilustración de referencia en lugar de fotografías.</p>
   </header>
   <form class="filters panel" (submit)="$event.preventDefault(); search()">
+    <label>Buscar<input type="search" maxlength="120" [value]="filters().q" (input)="updateFilter('q',$any($event.target).value)" /></label>
+    <label>Región
+      <select [value]="filters().region_code" (change)="updateFilter('region_code',$any($event.target).value); updateFilter('comuna_code','')">
+        <option value="">Todas las regiones</option>
+        @for(location of locations();track location.region_code){@if($index===0 || locations()[$index-1].region_code!==location.region_code){<option [value]="location.region_code">{{location.region_name}}</option>}}
+      </select>
+    </label>
+    <label>Comuna
+      <select [value]="filters().comuna_code" (change)="updateFilter('comuna_code',$any($event.target).value)">
+        <option value="">Todas las comunas</option>
+        @for(location of locations();track location.comuna_code){@if(!filters().region_code || filters().region_code===location.region_code){<option [value]="location.comuna_code">{{location.comuna_name}}</option>}}
+      </select>
+    </label>
     <label>Categoría
       <select [value]="filters().category_code" (change)="updateFilter('category_code',$any($event.target).value)">
         <option value="">Todas las categorías</option>
@@ -18,9 +31,17 @@
     </label>
     <label>Precio unitario mínimo (CLP)<input inputmode="numeric" [value]="filters().min_unit_price_clp" (input)="updateFilter('min_unit_price_clp',$any($event.target).value)" /></label>
     <label>Precio unitario máximo (CLP)<input inputmode="numeric" [value]="filters().max_unit_price_clp" (input)="updateFilter('max_unit_price_clp',$any($event.target).value)" /></label>
+    <label>Superficie mínima (m²)<input inputmode="decimal" [value]="filters().min_area_m2" (input)="updateFilter('min_area_m2',$any($event.target).value)" /></label>
+    <label>Desde (fecha y hora)<input type="datetime-local" [value]="dateInput(filters().start_at)" (change)="updateDate('start_at',$any($event.target).value)" /></label>
+    <label>Hasta (fecha y hora)<input type="datetime-local" [value]="dateInput(filters().end_at)" (change)="updateDate('end_at',$any($event.target).value)" /></label>
+    <label>Total estimado mínimo (CLP)<input inputmode="numeric" [value]="filters().min_total_clp" (input)="updateFilter('min_total_clp',$any($event.target).value)" /></label>
+    <label>Total estimado máximo (CLP)<input inputmode="numeric" [value]="filters().max_total_clp" (input)="updateFilter('max_total_clp',$any($event.target).value)" /></label>
+    @if(attributeFilters().length){<fieldset class="wide attribute-filters"><legend>Características públicas</legend>@for(attribute of attributeFilters();track attribute.code){<label>{{attribute.label}}
+      <select [value]="booleanValue(filters().attributes[attribute.code])" (change)="setAttribute(attribute.code,$any($event.target).value===''?null:$any($event.target).value==='true')"><option value="">Cualquiera</option><option value="true">Sí</option><option value="false">No</option></select>
+    </label>}</fieldset>}
     <label>Ordenar por
       <select [value]="filters().sort" (change)="updateFilter('sort',$any($event.target).value)">
-        <option value="default">Categoría y nombre</option><option value="unit_price_asc">Precio menor</option><option value="unit_price_desc">Precio mayor</option>
+        <option value="default">Categoría y nombre</option><option value="unit_price_asc">Precio menor</option><option value="unit_price_desc">Precio mayor</option><option value="relevance">Relevancia</option><option value="estimated_total_asc">Total estimado menor</option><option value="estimated_total_desc">Total estimado mayor</option>
       </select>
     </label>
     <div class="filter-actions wide"><button appButton="primary" class="button" type="submit" [disabled]="busy()">{{busy()?'Buscando…':'Buscar espacios'}}</button>
@@ -33,7 +54,7 @@
     @for(item of items();track item.space_id;let index=$index){<article class="space-card panel">
       <div class="space-art" aria-label="Ilustración de referencia; fotografía no disponible"><span>{{item.category_name}}</span><b>0{{index+1}}</b></div>
       <div class="space-summary"><p class="eyebrow">{{item.category_name}} · {{item.area_m2}} m²</p><h2><a [routerLink]="['/espacios',item.space_id]">{{item.title}}</a></h2>
-        <p>{{item.description}}</p><div class="price-row"><strong>{{price(item.base_price_clp)}} / {{item.rate_unit}}</strong></div>
+        <p>{{item.description}}</p>@if(item.region_name&&item.comuna_name){<p>{{item.comuna_name}}, {{item.region_name}}</p>}<div class="price-row"><strong>{{price(item.base_price_clp)}} / {{item.rate_unit}}</strong>@if(item.estimated_total_clp){<strong>Total estimado: {{price(item.estimated_total_clp)}}</strong>}</div>
         <a class="card-link" [routerLink]="['/espacios',item.space_id]">Ver detalle <span aria-hidden="true">↗</span></a></div>
     </article>}
   </section>}

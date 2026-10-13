@@ -3,6 +3,7 @@ package publiccatalog
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 var (
@@ -21,43 +22,76 @@ type Category struct {
 	Order int    `json:"order"`
 }
 
+type Location struct {
+	RegionCode  string `json:"region_code"`
+	RegionName  string `json:"region_name"`
+	CommuneCode string `json:"comuna_code"`
+	CommuneName string `json:"comuna_name"`
+}
+
+type AttributeFilter struct {
+	Code           string `json:"code"`
+	Label          string `json:"label"`
+	Type           string `json:"type"`
+	ProfileVersion int    `json:"profile_version"`
+}
+
 // Space is an intentional public projection. It contains no owner, address,
 // profile JSON, fixture state, availability, or file/blob references.
 type Space struct {
-	SpaceID      string  `json:"space_id"`
-	CategoryCode string  `json:"category_code"`
-	CategoryName string  `json:"category_name"`
-	Title        string  `json:"title"`
-	Description  string  `json:"description"`
-	AreaM2       float64 `json:"area_m2"`
-	RateUnit     string  `json:"rate_unit"`
-	BasePriceCLP int64   `json:"base_price_clp"`
-	Currency     string  `json:"currency"`
+	SpaceID           string  `json:"space_id"`
+	CategoryCode      string  `json:"category_code"`
+	CategoryName      string  `json:"category_name"`
+	Title             string  `json:"title"`
+	Description       string  `json:"description"`
+	AreaM2            float64 `json:"area_m2"`
+	RateUnit          string  `json:"rate_unit"`
+	BasePriceCLP      int64   `json:"base_price_clp"`
+	Currency          string  `json:"currency"`
+	RegionCode        *string `json:"region_code,omitempty"`
+	RegionName        *string `json:"region_name,omitempty"`
+	CommuneCode       *string `json:"comuna_code,omitempty"`
+	CommuneName       *string `json:"comuna_name,omitempty"`
+	EstimatedTotalCLP *int64  `json:"estimated_total_clp"`
+	TimeZone          string  `json:"-"`
 
-	CategoryOrder int    `json:"-"`
-	TitleKey      string `json:"-"`
+	CategoryOrder int     `json:"-"`
+	TitleKey      string  `json:"-"`
+	RelevanceRank float64 `json:"-"`
 }
 
 type Filters struct {
-	CategoryCode    string
-	RateUnit        string
-	MinUnitPriceCLP *int64
-	MaxUnitPriceCLP *int64
-	Sort            string
-	PageSize        int
-	PageSizeSet     bool
-	Cursor          string
+	CategoryCode     string
+	RateUnit         string
+	MinUnitPriceCLP  *int64
+	MaxUnitPriceCLP  *int64
+	Sort             string
+	PageSize         int
+	PageSizeSet      bool
+	Cursor           string
+	Query            string
+	RegionCode       string
+	CommuneCode      string
+	MinAreaM2        string
+	Attributes       map[string]bool
+	AttributeVersion int
+	StartAt          *time.Time
+	EndAt            *time.Time
+	MinTotalCLP      *int64
+	MaxTotalCLP      *int64
 }
 
 type Cursor struct {
-	Version           int    `json:"v"`
-	Fingerprint       string `json:"f"`
-	Sort              string `json:"s"`
-	PageSize          int    `json:"n"`
-	LastCategoryOrder int    `json:"c,omitempty"`
-	LastTitleKey      string `json:"t,omitempty"`
-	LastUnitPriceCLP  int64  `json:"p,omitempty"`
-	LastSpaceID       string `json:"i"`
+	Version               int     `json:"v"`
+	Fingerprint           string  `json:"f"`
+	Sort                  string  `json:"s"`
+	PageSize              int     `json:"n"`
+	LastCategoryOrder     int     `json:"c,omitempty"`
+	LastTitleKey          string  `json:"t,omitempty"`
+	LastUnitPriceCLP      int64   `json:"p,omitempty"`
+	LastEstimatedTotalCLP *int64  `json:"e,omitempty"`
+	LastRelevanceRank     float64 `json:"r,omitempty"`
+	LastSpaceID           string  `json:"i"`
 }
 
 type Page struct {
@@ -68,6 +102,10 @@ type Page struct {
 type Repository interface {
 	Categories(context.Context) ([]Category, error)
 	HasActiveCategory(context.Context, string) (bool, error)
+	AttributeFilters(context.Context, string) ([]AttributeFilter, error)
+	HasRegion(context.Context, string) (bool, error)
+	HasCommune(context.Context, string, string) (bool, error)
+	Locations(context.Context, string, string, int) ([]Location, error)
 	List(context.Context, Filters, *Cursor, int) ([]Space, error)
 	Detail(context.Context, string) (Space, error)
 }

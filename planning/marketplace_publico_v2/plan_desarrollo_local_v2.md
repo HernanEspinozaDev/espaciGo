@@ -242,4 +242,4 @@ No equivale a puesta en producción, cumplimiento legal certificado, indexación
 
 ## 12. Estado inicial de seguimiento
 
-MPV2-00 está revisado y fusionado en PR #294 (merge `916176c85186fa95fa84d99911279309a2653a19`). MPV2-01 está en el PR #295, con correcciones a comentarios de revisión y nueva revisión pendiente; MPV2-02 y sucesores siguen pendientes según su secuencia. La fusión técnica de MPV2-00 no implica aceptación final de producto. Este plan no afirma que las capacidades de cortes posteriores estén implementadas. Las alternativas de taxonomía residencial, visitas/postulaciones y fotos reales requieren una decisión posterior de ampliación.
+MPV2-00 está revisado y fusionado en PR #294 (merge `916176c85186fa95fa84d99911279309a2653a19`). MPV2-01 se fusionó técnicamente en PR #295 (merge `1222cf734dd7b6bd486bdc71e277f5b345830be2`); su aceptación de producto no está declarada. MPV2-02 está en implementación en una rama temporal. Este plan no afirma que las capacidades de cortes posteriores estén implementadas. Las alternativas de taxonomía residencial, visitas/postulaciones y fotos reales requieren una decisión posterior de ampliación.
