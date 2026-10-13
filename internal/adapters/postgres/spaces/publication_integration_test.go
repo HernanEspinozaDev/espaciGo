@@ -479,6 +479,19 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if err != nil || updated.State != "activa" || updated.RegionCode == nil || *updated.RegionCode != regionCode || updated.CommuneCode == nil || *updated.CommuneCode != communeCode {
 		t.Fatalf("active public location edit=%+v err=%v", updated, err)
 	}
+	for _, body := range []string{
+		`{"region_code":"","comuna_code":"13123"}`,
+		`{"region_code":"13","comuna_code":""}`,
+	} {
+		invalidLocationEdit := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+fixtureDraft.ID+"/publication-content", "owner-token", []byte(body))
+		if invalidLocationEdit.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("partial location edit body=%s response=%d body=%s", body, invalidLocationEdit.Code, invalidLocationEdit.Body.String())
+		}
+		stored, getErr := repo.GetOwn(ctx, owner, fixtureDraft.ID)
+		if getErr != nil || stored.RegionCode == nil || *stored.RegionCode != regionCode || stored.CommuneCode == nil || *stored.CommuneCode != communeCode {
+			t.Fatalf("invalid location edit changed persisted location: %+v err=%v", stored, getErr)
+		}
+	}
 	publicService, err := publiccatalog.New(publiccatalogpg.New(pool), []byte("space-public-search-test-master-key-32"))
 	if err != nil {
 		t.Fatal(err)

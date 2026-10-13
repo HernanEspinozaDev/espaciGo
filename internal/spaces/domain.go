@@ -104,8 +104,13 @@ func (i PublishedContentInput) Validate() error {
 	if (i.RegionCode == nil) != (i.CommuneCode == nil) {
 		return ErrInvalid
 	}
-	if i.RegionCode != nil && *i.RegionCode != "" && !validPublicLocationCodes(*i.RegionCode, *i.CommuneCode) {
-		return ErrInvalid
+	if i.RegionCode != nil {
+		if (*i.RegionCode == "") != (*i.CommuneCode == "") {
+			return ErrInvalid
+		}
+		if *i.RegionCode != "" && !validPublicLocationCodes(*i.RegionCode, *i.CommuneCode) {
+			return ErrInvalid
+		}
 	}
 	return nil
 }

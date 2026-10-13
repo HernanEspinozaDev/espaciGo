@@ -1127,11 +1127,17 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
       attribute_schema_version: latest.attribute_schema_version,
       attributes: { ...latest.attributes },
     };
+    const locationChanged =
+      edited.region_code !== original.region_code || edited.comuna_code !== original.comuna_code;
     for (const key of Object.keys(merged) as Array<keyof DraftForm>) {
-      if (key === 'attributes') continue;
+      if (key === 'attributes' || key === 'region_code' || key === 'comuna_code') continue;
       if (JSON.stringify(edited[key]) !== JSON.stringify(original[key])) {
         (merged as unknown as Record<string, unknown>)[key] = edited[key];
       }
+    }
+    if (locationChanged) {
+      merged.region_code = edited.region_code;
+      merged.comuna_code = edited.comuna_code;
     }
     const attributeKeys = new Set([
       ...Object.keys(original.attributes),

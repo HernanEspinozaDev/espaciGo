@@ -73,16 +73,19 @@ func TestPublishedContentInputValidatesPartialTitleAndPrice(t *testing.T) {
 		}
 	}
 	for name, input := range map[string]PublishedContentInput{
-		"empty":               {},
-		"blank":               {Title: ptrString("  ")},
-		"too long":            {Title: ptrString(strings.Repeat("x", 71))},
-		"short description":   {Description: ptrString("Descripción breve")},
-		"zero capacity":       {Capacity: ptrInt32(0)},
-		"blank rules":         {UsageRules: ptrString(" ")},
-		"long rules":          {UsageRules: ptrString(strings.Repeat("x", 251))},
-		"low price":           {BasePriceCLP: ptrInt64(5000)},
-		"partial location":    {RegionCode: ptrString("13")},
-		"mismatched location": {RegionCode: ptrString("13"), CommuneCode: ptrString("14101")},
+		"empty":                     {},
+		"blank":                     {Title: ptrString("  ")},
+		"too long":                  {Title: ptrString(strings.Repeat("x", 71))},
+		"short description":         {Description: ptrString("Descripción breve")},
+		"zero capacity":             {Capacity: ptrInt32(0)},
+		"blank rules":               {UsageRules: ptrString(" ")},
+		"long rules":                {UsageRules: ptrString(strings.Repeat("x", 251))},
+		"low price":                 {BasePriceCLP: ptrInt64(5000)},
+		"partial region field":      {RegionCode: ptrString("13")},
+		"partial commune field":     {CommuneCode: ptrString("13123")},
+		"empty region with commune": {RegionCode: ptrString(""), CommuneCode: ptrString("13123")},
+		"region with empty commune": {RegionCode: ptrString("13"), CommuneCode: ptrString("")},
+		"mismatched location":       {RegionCode: ptrString("13"), CommuneCode: ptrString("14101")},
 	} {
 		if err := input.Validate(); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s error=%v, want ErrInvalid", name, err)

@@ -462,6 +462,80 @@ describe('FE-06 HostingSpacesPage', () => {
     fixture.destroy();
   });
 
+  it('merges public location as a pair while retaining remote fields', async () => {
+    const scenarios = [
+      {
+        name: 'only commune changed locally',
+        original: ['13', '13123'],
+        edited: ['13', '13101'],
+        latest: ['06', '06101'],
+        expected: ['13', '13101'],
+      },
+      {
+        name: 'selection from empty location',
+        original: ['', ''],
+        edited: ['13', '13123'],
+        latest: ['06', '06101'],
+        expected: ['13', '13123'],
+      },
+      {
+        name: 'location retired locally',
+        original: ['13', '13123'],
+        edited: ['', ''],
+        latest: ['06', '06101'],
+        expected: ['', ''],
+      },
+      {
+        name: 'remote location retained without local edit',
+        original: ['13', '13123'],
+        edited: ['13', '13123'],
+        latest: ['06', '06101'],
+        expected: ['06', '06101'],
+      },
+    ] as const;
+
+    for (const scenario of scenarios) {
+      const [originalRegion, originalCommune] = scenario.original;
+      const [editedRegion, editedCommune] = scenario.edited;
+      const [latestRegion, latestCommune] = scenario.latest;
+      const originalSpace = {
+        ...space(),
+        region_code: originalRegion || undefined,
+        comuna_code: originalCommune || undefined,
+      };
+      const api = apiFor(originalSpace);
+      const { identity } = setup(api);
+      await identity.signIn('owner@example.invalid', 'secret');
+      const fixture = TestBed.createComponent(HostingSpacesPage);
+      fixture.detectChanges();
+      await flush();
+      Object.assign(page(fixture).form, {
+        region_code: editedRegion,
+        comuna_code: editedCommune,
+      });
+      api.detail.mockResolvedValue({
+        ...originalSpace,
+        title: 'Título remoto conservado',
+        region_code: latestRegion || undefined,
+        comuna_code: latestCommune || undefined,
+      } as ReturnType<typeof space>);
+
+      await page(fixture).saveDraft();
+
+      const payload = api.update.mock.calls[0][2] as {
+        title: string;
+        region_code?: string;
+        comuna_code?: string;
+      };
+      expect([payload.region_code ?? '', payload.comuna_code ?? ''], scenario.name).toEqual(
+        [...scenario.expected],
+      );
+      expect(payload.title, scenario.name).toBe('Título remoto conservado');
+      fixture.destroy();
+      TestBed.resetTestingModule();
+    }
+  });
+
   it('does not let an older space read overwrite the newer selected space', async () => {
     const api = apiFor(space('space-a', 'activa'));
     const { identity } = setup(api);
