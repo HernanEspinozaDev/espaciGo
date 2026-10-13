@@ -107,4 +107,4 @@ La liquidación viva no es elegible sin check-out y 24 horas reales. Se ejecutó
 
 **Gates del cambio:** Angular 179 pruebas/32 archivos; `npm run api:check` pasó; `npm run build` pasó y prerenderizó 3 rutas; la prueba Go aislada indicada pasó. E2E de roles, descargas y caída/restauración siguen como evidencia previa del merge #290; el recorrido vivo de check-in quedó bloqueado por el día local IANA, así que no se reportan check-out/recepción completados.
 
-Se solicita revisión adicional antes de cerrar la aceptación FE-14. El mock permanece y FE-15 no se inicia hasta la aceptación explícita del usuario.
+Se solicita revisión adicional en [PR #291](https://github.com/HernanEspinozaDev/espaciGo/pull/291) antes de cerrar la aceptación FE-14. El mock permanece y FE-15 no se inicia hasta la aceptación explícita del usuario.
