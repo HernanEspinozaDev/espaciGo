@@ -5,10 +5,13 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(path.join(root, 'frontend/package.json'));
 const ts = require('typescript');
+const yaml = require('js-yaml');
 const app = path.join(root, 'frontend/src/app');
 // Endpoint namespaces come from the authoritative contract, not a hand-maintained subset.
 export function contractRoots(openapi) {
-  return new Set([...openapi.matchAll(/^  \/([^/ :]+)(?:[^\n]*):\s*$/gm)].map(match => match[1]));
+  const document = yaml.load(openapi, { schema: yaml.JSON_SCHEMA });
+  if (!document?.paths || typeof document.paths !== 'object' || Array.isArray(document.paths)) throw new Error('Invalid OpenAPI paths');
+  return new Set(Object.keys(document.paths).map(endpoint => endpoint.match(/^\/([^/]+)/)?.[1]).filter(Boolean));
 }
 export function isBackendPath(value, roots) {
   const path = value.replace(/^(?:https?:)?\/\/[^/]+/i, '');

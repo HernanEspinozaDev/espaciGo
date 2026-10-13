@@ -13,7 +13,7 @@ for (const namespace of roots) {
   });
 }
 test('finds new endpoint namespaces without editing the rule', () => {
-  const future = contractRoots('paths:\n  /new-resource/{id}:\n    get: {}\n');
+  const future = contractRoots('paths:\n  \"/new-resource/{id}\":\n    get: {}\n');
   assert.ok(inspectSource(path.join(root, 'frontend/src/app/features/example/application/fixture.ts'), "const endpoint = '/new-resource/1';", future).length);
 });
 test('rejects templates, absolute endpoint URLs and versioned bases', () => {

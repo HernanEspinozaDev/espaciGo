@@ -1,0 +1,44 @@
+FE-14 disposable project: espacigo_fe14_05d8e464e060
+API/Angular/Mailpit ports: 18780/18783/18782
+New database volume: espacigo_fe14_05d8e464e060_pgdata; no persistent volume is referenced
+E2E bind mounts: read-only accounts file, artifacts directory, results directory only
+PASS Angular and Go readiness are HTTP 200 before authenticated E2E
+PASS Go registered and verified four disposable synthetic accounts; credentials are stored in a mode-0600 temporary file
+PASS Go verified four synthetic accounts; only this disposable database received host/admin roles
+Waiting for same-tab outage and restore test
+ Container espacigo_fe14_05d8e464e060-angular-frontend-1 Running 
+ Container espacigo_fe14_05d8e464e060-database-1 Running 
+ Container espacigo_fe14_05d8e464e060-backend-1 Running 
+ Container espacigo_fe14_05d8e464e060-mailpit-1 Running 
+ Container espacigo_fe14_05d8e464e060-database-1 Waiting 
+ Container espacigo_fe14_05d8e464e060-database-1 Healthy 
+ Container espacigo_fe14_05d8e464e060-migrate-1 Starting 
+ Container espacigo_fe14_05d8e464e060-migrate-1 Started 
+ Container espacigo_fe14_05d8e464e060-migrate-1 Waiting 
+ Container espacigo_fe14_05d8e464e060-database-1 Waiting 
+ Container espacigo_fe14_05d8e464e060-database-1 Healthy 
+ Container espacigo_fe14_05d8e464e060-migrate-1 Exited 
+ Container espacigo_fe14_05d8e464e060-backend-1 Waiting 
+ Container espacigo_fe14_05d8e464e060-backend-1 Healthy 
+ Container espacigo_fe14_05d8e464e060-angular-frontend-1 Waiting 
+ Container espacigo_fe14_05d8e464e060-backend-1 Waiting 
+ Container espacigo_fe14_05d8e464e060-angular-frontend-1 Healthy 
+ Container espacigo_fe14_05d8e464e060-backend-1 Healthy 
+ Container espacigo_fe14_05d8e464e060-angular-e2e-run-8bb96e2c1e3d Creating 
+ Container espacigo_fe14_05d8e464e060-angular-e2e-run-8bb96e2c1e3d Created 
+
+Running 4 tests using 1 worker
+
+  ✓  1 e2e/fe14.spec.cjs:49:1 › E2E runner can read only the accounts fixture and write artifacts/results, never backend secrets (36ms)
+  ✓  2 e2e/fe14.spec.cjs:75:1 › Typed hosting form creates and edits a synthetic draft through Go (2.5s)
+  ✓  3 e2e/fe14.spec.cjs:106:1 › Go-backed role navigation, private JSON/ZIP exports, and responsive evidence (4.3s)
+  ✓  4 e2e/fe14.spec.cjs:183:1 › Go outage preserves the same in-memory session and restoration revalidates it in place (1.4m)
+
+  4 passed (1.5m)
+npm notice
+npm notice New major version of npm available! 10.9.4 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice
+PASS backend logs contain none of the synthetic account emails or passwords
+PASS authenticated screenshots and viewport measurements copied; temporary accounts and private state are removed on exit

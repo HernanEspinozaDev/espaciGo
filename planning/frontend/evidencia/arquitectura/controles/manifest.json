@@ -1,0 +1,109 @@
+{
+  "runtime_source_commit": "0cd0d9f8b0d113bc2761f40289f21c52e7e6e31a",
+  "application_tree": "0418e5b8746bcfb94fe553946eb7c946704a49ce",
+  "css_baseline": "f461c2eab3cdf5f2bd6f94e2981c72b20d0c400e",
+  "e2e_project": "espacigo_fe14_05d8e464e060",
+  "docker_images": [
+    "espacigo_fe14_05d8e464e060-angular:dev sha256:09d426637a89747982eed1508c0d93cda9e117269ff8f135dbd98ced0b4036aa",
+    "espacigo_fe14_05d8e464e060-api:dev sha256:4915c68ac5560e4f41b7188027ea4cd34429e3945f9a04c88dbaabef7a0caa66",
+    "espacigo_fe14_05d8e464e060-angular-e2e:dev sha256:7f498899c8113f379b71910807ae63cb3ee0f7786276d08118ce39fcf8b3e1f3"
+  ],
+  "captures": [
+    {
+      "file": "admin_desktop.jpg",
+      "sha256": "2f5680b91953588a23933def511c2507f8942275831e687d6b82b2b94035b746",
+      "viewport": {
+        "width": 1365,
+        "height": 900
+      },
+      "document": {
+        "width": 1365,
+        "height": 1069
+      }
+    },
+    {
+      "file": "admin_mobile.jpg",
+      "sha256": "5600ed622fbb479944337815e284ff85f81fb69bdd0ffd812a99348482f144b6",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "document": {
+        "width": 390,
+        "height": 1253
+      }
+    },
+    {
+      "file": "architecture_host_desktop.jpg",
+      "sha256": "8a0d93d7ad54cb090bd9fa7f8de18fd5514a8497d1d61e8834c5c7b0fd270b90",
+      "viewport": {
+        "width": 1365,
+        "height": 900
+      },
+      "document": {
+        "width": 1365,
+        "height": 2519
+      }
+    },
+    {
+      "file": "architecture_host_mobile.jpg",
+      "sha256": "b702937f7391097869560f61824095fac2c76346bccace32afce0f2c29106fcc",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "document": {
+        "width": 390,
+        "height": 3858
+      }
+    },
+    {
+      "file": "host_desktop.jpg",
+      "sha256": "1e103aee17ad282e8f7505be89a6a42f00863f87995badad2879fb145b7e8b49",
+      "viewport": {
+        "width": 1365,
+        "height": 900
+      },
+      "document": {
+        "width": 1365,
+        "height": 963
+      }
+    },
+    {
+      "file": "host_mobile.jpg",
+      "sha256": "5f527ceca7fde23e5640e8b875b3f7149c23f06d0b05eef9e8b69b8b865ebf23",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "document": {
+        "width": 390,
+        "height": 3881
+      }
+    },
+    {
+      "file": "renter_desktop.jpg",
+      "sha256": "9ea4ab23523045826a810a9fee4c4f2a85314911b40417db26795617723ccc2f",
+      "viewport": {
+        "width": 1365,
+        "height": 900
+      },
+      "document": {
+        "width": 1365,
+        "height": 2339
+      }
+    },
+    {
+      "file": "renter_mobile.jpg",
+      "sha256": "76908c640dd0fefdb9ffc134962adbf364d77a932bacfc6c5de335314bffd914",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "document": {
+        "width": 390,
+        "height": 3152
+      }
+    }
+  ]
+}

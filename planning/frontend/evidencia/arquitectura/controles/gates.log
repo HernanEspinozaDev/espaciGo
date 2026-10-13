@@ -1,0 +1,51 @@
+npm notice run frontend@0.0.0 lint
+npm notice run eslint src && npm run lint:styles && npm run architecture:check
+npm notice run frontend@0.0.0 lint:styles
+npm notice run node --test tooling/design-token-rule.test.mjs && stylelint "src/**/*.scss"
+✔ rejects unreviewed padding: 13px (30.791818ms)
+✔ rejects unreviewed gap: .37rem (5.376046ms)
+✔ rejects unreviewed margin-inline: 2vw (1.692251ms)
+✔ rejects unreviewed font-size: 1.03rem (1.637397ms)
+✔ rejects unreviewed font-weight: 623 (2.1159ms)
+✔ rejects unreviewed font-family: Arial (1.421881ms)
+✔ rejects unreviewed line-height: 1.43 (1.335558ms)
+✔ rejects unreviewed letter-spacing: .02em (1.134189ms)
+✔ rejects raw viewport thresholds (1.93014ms)
+✔ allows tokens, zero/auto and shared responsive mixins (2.34391ms)
+✔ a token beside an arbitrary literal does not conceal the literal (1.201365ms)
+✔ rejects local variables, unknown tokens and arbitrary fallbacks (5.262072ms)
+✔ rejects viewport range syntax as well as colon thresholds (1.066621ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 301.932279
+npm notice run frontend@0.0.0 architecture:check
+npm notice run node --test ../scripts/check-frontend-architecture.test.mjs && node ../scripts/check-frontend-architecture.mjs
+✔ rejects application route /spaces from the real OpenAPI contract (5.989243ms)
+✔ rejects application route /local from the real OpenAPI contract (0.600883ms)
+✔ rejects application route /admin from the real OpenAPI contract (0.361511ms)
+✔ rejects application route /auth from the real OpenAPI contract (0.271852ms)
+✔ rejects application route /profile from the real OpenAPI contract (0.335472ms)
+✔ rejects application route /payout-account from the real OpenAPI contract (0.384525ms)
+✔ rejects application route /rights-requests from the real OpenAPI contract (0.342857ms)
+✔ rejects application route /privacy from the real OpenAPI contract (0.272494ms)
+✔ rejects application route /verifications from the real OpenAPI contract (0.388092ms)
+✔ finds new endpoint namespaces without editing the rule (0.71092ms)
+✔ rejects templates, absolute endpoint URLs and versioned bases (2.054844ms)
+✔ allows UI routes and infrastructure endpoint mapping (1.086709ms)
+✔ rejects an application transport import even without a URL literal (0.947847ms)
+✔ rejects a dynamic global HTTP call in application (0.668791ms)
+✔ rejects inline component CSS that would bypass Stylelint (1.245668ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 304.867483
+Architecture PASS: 77 production files; endpoint namespaces: admin, auth, local, payout-account, privacy, profile, rights-requests, spaces, verifications; domain/contracts pure; UI/application independent of SDK/HTTP.

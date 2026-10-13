@@ -1,0 +1,73 @@
+npm notice run frontend@0.0.0 build
+npm notice run ng build
+❯ Building...
+✔ Building...
+Browser bundles     
+Initial chunk files  | Names                 |  Raw size | Estimated transfer size
+main-IOMK3W3Z.js     | main                  | 419.59 kB |               107.25 kB
+styles-3OYCWWAT.css  | styles                |   3.03 kB |               957 bytes
+
+                     | Initial total         | 422.62 kB |               108.21 kB
+
+Lazy chunk files     | Names                 |  Raw size | Estimated transfer size
+chunk-D4UQkMC_.js    | identity-page         |  76.57 kB |                17.99 kB
+chunk-Dp8Ex4Wd.js    | hosting-spaces-page   |  71.54 kB |                15.59 kB
+chunk-DLdCAoKI.js    | booking-detail-page   |  69.86 kB |                14.64 kB
+chunk-Be_mSCwg.js    | -                     |  43.89 kB |                 9.38 kB
+chunk-B1reqSIg.js    | admin-page            |  40.86 kB |                 9.55 kB
+chunk-DcYisRH7.js    | verification-page     |  30.19 kB |                 7.63 kB
+chunk-Du66lPOC.js    | finance-disputes-page |  29.05 kB |                 7.09 kB
+chunk-CRwZeD17.js    | account-privacy-page  |  27.47 kB |                 7.42 kB
+chunk-BH-Aodxg.js    | explore-page          |  25.82 kB |                 6.90 kB
+chunk-CcMEQZGr.js    | space-detail-page     |  21.14 kB |                 5.97 kB
+chunk-wBTn20G7.js    | home                  |  13.19 kB |                 3.24 kB
+chunk-DIQJie0C.js    | bookings-page         |   6.95 kB |                 2.63 kB
+chunk-C3TVgnuC.js    | categories            |   3.21 kB |                 1.24 kB
+chunk-CeCTSGgG.js    | how-it-works          |   3.10 kB |                 1.22 kB
+chunk-BM4xYnmr.js    | -                     |   1.11 kB |               511 bytes
+...and 3 more lazy chunks files. Use "--verbose" to show all the files.
+
+
+Server bundles      
+Initial chunk files  | Names                 |  Raw size
+server.mjs           | server                | 915.70 kB |                        
+main.server.mjs      | main.server           | 376.86 kB |                        
+chunk-IUWOTAHY.mjs   | -                     | 320.30 kB |                        
+polyfills.server.mjs | polyfills.server      | 235.58 kB |                        
+chunk-N6KVJ6OL.mjs   | -                     |   4.61 kB |                        
+chunk-C2KJ4ATU.mjs   | -                     |   1.54 kB |                        
+chunk-RDKA7JQF.mjs   | -                     |   1.20 kB |                        
+chunk-KYQQYI4M.mjs   | -                     |   1.01 kB |                        
+chunk-LZ47TMZQ.mjs   | -                     | 309 bytes |                        
+chunk-IWTFYBVZ.mjs   | -                     | 245 bytes |                        
+chunk-7FCVPQFU.mjs   | -                     | 217 bytes |                        
+chunk-BI5FTXRE.mjs   | -                     | 205 bytes |                        
+chunk-RMHZAEU6.mjs   | -                     | 187 bytes |                        
+chunk-N2AXSI2K.mjs   | -                     | 170 bytes |                        
+chunk-E57AKSWH.mjs   | -                     | 168 bytes |                        
+chunk-L4WZGYTC.mjs   | -                     | 168 bytes |                        
+chunk-RPYL3AXX.mjs   | -                     |  84 bytes |                        
+
+Lazy chunk files     | Names                 |  Raw size
+chunk-TZCUMGHE.mjs   | identity-page         |  75.24 kB |                        
+chunk-LB5YA53X.mjs   | hosting-spaces-page   |  70.89 kB |                        
+chunk-F7D4RANA.mjs   | booking-detail-page   |  69.28 kB |                        
+chunk-RRSRONO4.mjs   | -                     |  43.78 kB |                        
+chunk-GS4X6YHN.mjs   | admin-page            |  40.53 kB |                        
+chunk-3CHQULXT.mjs   | verification-page     |  29.96 kB |                        
+chunk-VFKTFPV4.mjs   | finance-disputes-page |  28.69 kB |                        
+chunk-4BWONREF.mjs   | account-privacy-page  |  27.32 kB |                        
+chunk-LO7ZUXXZ.mjs   | explore-page          |  25.66 kB |                        
+chunk-WYVLBKUV.mjs   | space-detail-page     |  21.13 kB |                        
+chunk-DLGOXKH3.mjs   | home                  |  13.16 kB |                        
+chunk-RBXOAK24.mjs   | xhr2                  |  12.17 kB |                        
+chunk-XDZ7ZLR6.mjs   | xhr2                  |  12.08 kB |                        
+chunk-2GPWUXNR.mjs   | bookings-page         |   7.01 kB |                        
+chunk-WPJ27GVN.mjs   | categories            |   3.25 kB |                        
+...and 5 more lazy chunks files. Use "--verbose" to show all the files.
+
+Prerendered 3 static routes.
+Application bundle generation complete. [8.031 seconds] - 2026-10-13T00:25:24.297Z
+
+Output location: /home/nandev/.codex/worktrees/frontend-architecture/espaciGo/frontend/dist/frontend
+
