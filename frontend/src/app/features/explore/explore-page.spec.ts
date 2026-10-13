@@ -1,369 +1,214 @@
 import { provideHttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { IdentitySession } from '../../core/identity/application/identity-session';
-import { IdentityApi } from '../../core/identity/infrastructure/identity-api';
-import { PrivateSessionState } from '../../core/identity/private-session-state';
 import { provideFrontendPorts } from '../../frontend.providers';
 import { ExplorePage } from './explore-page';
 import { ExploreApi } from './infrastructure/explore-api';
 
-const accountA = { account_id: 'account-a', roles: ['arrendatario'], restricted_mode: false };
-const accountB = { account_id: 'account-b', roles: ['arrendatario'], restricted_mode: false };
-const login = (account_id: string, access_token: string) => ({
-  account_id,
-  roles: ['arrendatario'],
-  access_token,
-  token_type: 'Bearer',
-  expires_at: '2027-01-01T00:00:00Z',
-  restricted_mode: false,
+const publicSpace = (id: string) => ({
+  space_id: id,
+  category_code: 'oficina',
+  category_name: 'Oficina',
+  title: id,
+  description: 'Synthetic public space',
+  area_m2: 20,
+  rate_unit: 'hora' as const,
+  base_price_clp: '6000',
+  currency: 'CLP' as const,
 });
 
-describe('ExplorePage', () => {
+describe('ExplorePage public catalog URL state', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('discards an A catalog response after logout and login as B', async () => {
-    let finishSearch!: (result: unknown) => void;
-    const pending = new Promise((resolve) => (finishSearch = resolve));
-    const explore = {
-      categories: vi.fn().mockResolvedValue({ items: [] }),
-      search: vi.fn(() => pending),
-      profile: vi.fn(),
+  it('restores page_size and cursor from the real Router URL', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]),
+      publicSearch: vi.fn().mockResolvedValue({ items: [] }),
     };
     TestBed.configureTestingModule({
-      imports: [ExplorePage],
       providers: [
         ...provideFrontendPorts(),
         provideHttpClient(),
-        provideRouter([]),
-        PrivateSessionState,
-        { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
-        {
-          provide: IdentityApi,
-          useValue: {
-            login: vi
-              .fn()
-              .mockResolvedValueOnce(login('account-a', 'bearer-a'))
-              .mockResolvedValueOnce(login('account-b', 'bearer-b')),
-            session: vi.fn().mockResolvedValueOnce(accountA).mockResolvedValueOnce(accountB),
-            logout: vi.fn().mockResolvedValue(undefined),
-          },
-        },
-        { provide: ExploreApi, useValue: explore },
+        provideRouter([{ path: 'explorar', component: ExplorePage }]),
+        { provide: ExploreApi, useValue: api },
       ],
     });
-    const fixture = TestBed.createComponent(ExplorePage);
-    fixture.detectChanges();
-    const identity = TestBed.inject(IdentitySession);
-    await identity.signIn('a@example.invalid', 'Synthetic#123');
-    const page = fixture.componentInstance as unknown as {
-      items: () => unknown[];
-      search(): Promise<void>;
-    };
-    const request = page.search();
-    await identity.signOut();
-    await identity.signIn('b@example.invalid', 'Synthetic#456');
-    finishSearch({
-      safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
-      data: { items: [{ space_id: 'space-from-a' }], next_cursor: 'cursor-a' },
-    });
-    await request;
 
-    expect(identity.session()?.account_id).toBe('account-b');
-    expect(identity.accessToken()).toBe('bearer-b');
-    expect(page.items()).toEqual([]);
-    fixture.destroy();
+    const harness = await RouterTestingHarness.create(
+      '/explorar?page_size=1&cursor=saved-cursor',
+    );
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    expect(api.publicSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ page_size: 1, cursor: 'saved-cursor' }),
+    );
+    expect(harness.routeDebugElement!.componentInstance.items()).toEqual([]);
   });
 
-  it('starts a fresh search without reusing a cursor after clearing filters', async () => {
-    const explore = {
-      categories: vi.fn().mockResolvedValue({ items: [] }),
-      search: vi
+  it('writes each next cursor once and clears it when criteria change', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([{ code: 'oficina', name: 'Oficina', order: 1 }]),
+      publicSearch: vi
         .fn()
-        .mockResolvedValueOnce({
-          safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
-          data: { items: [], next_cursor: 'old-cursor' },
-        })
-        .mockResolvedValueOnce({
-          safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
-          data: { items: [], next_cursor: 'new-cursor' },
+        .mockResolvedValueOnce({ items: [publicSpace('page-one')], next_cursor: 'cursor-two' })
+        .mockResolvedValueOnce({ items: [publicSpace('page-two')], next_cursor: 'cursor-three' })
+        .mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([{ path: 'explorar', component: ExplorePage }]),
+        { provide: ExploreApi, useValue: api },
+      ],
+    });
+
+    const harness = await RouterTestingHarness.create('/explorar?page_size=1');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    page.loadMore();
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+    expect(api.publicSearch.mock.calls[1][0]).toMatchObject({ page_size: 1, cursor: 'cursor-two' });
+    await vi.waitFor(() => expect(TestBed.inject(Router).url).toContain('cursor=cursor-two'));
+
+    page.updateFilter('category_code', 'oficina');
+    await page.search();
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(3));
+    expect(api.publicSearch.mock.calls[2][0]).toMatchObject({
+      category_code: 'oficina',
+      page_size: 1,
+      cursor: undefined,
+    });
+    expect(TestBed.inject(Router).url).not.toContain('cursor=');
+  });
+
+  it('discards an in-flight old-criteria result after Router navigation', async () => {
+    let resolveOld!: (value: unknown) => void;
+    const oldPage = new Promise((resolve) => (resolveOld = resolve));
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]),
+      publicSearch: vi.fn().mockReturnValueOnce(oldPage).mockResolvedValue({
+        items: [
+          {
+            space_id: 'fresh',
+            category_code: 'oficina',
+            category_name: 'Oficina',
+            title: 'Fresh result',
+            description: 'Current criteria result',
+            area_m2: 20,
+            rate_unit: 'hora',
+            base_price_clp: '6000',
+            currency: 'CLP',
+          },
+        ],
+      }),
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([{ path: 'explorar', component: ExplorePage }]),
+        { provide: ExploreApi, useValue: api },
+      ],
+    });
+
+    const harness = await RouterTestingHarness.create('/explorar');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    page.updateFilter('category_code', 'oficina');
+    await page.search();
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(page.items()[0]?.space_id).toBe('fresh'));
+    resolveOld({ items: [{ space_id: 'stale' }] });
+    await Promise.resolve();
+    expect(page.items().map((item) => item.space_id)).toEqual(['fresh']);
+  });
+
+  it.each(['success', 'error'] as const)(
+    'keeps a cached route authoritative when an older page request ends with %s',
+    async (oldOutcome) => {
+      let resolveOld!: (value: unknown) => void;
+      let rejectOld!: (error: unknown) => void;
+      const oldPage = new Promise((resolve, reject) => {
+        resolveOld = resolve;
+        rejectOld = reject;
+      });
+      const api = {
+        publicCategories: vi.fn().mockResolvedValue([]),
+        publicSearch: vi
+          .fn()
+          .mockResolvedValueOnce({ items: [publicSpace('first')], next_cursor: 'cursor-two' })
+          .mockReturnValueOnce(oldPage),
+      };
+      TestBed.configureTestingModule({
+        providers: [
+          ...provideFrontendPorts(),
+          provideHttpClient(),
+          provideRouter([{ path: 'explorar', component: ExplorePage }]),
+          { provide: ExploreApi, useValue: api },
+        ],
+      });
+
+      const harness = await RouterTestingHarness.create('/explorar?page_size=1');
+      const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+      await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+      page.loadMore();
+      await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+      await TestBed.inject(Router).navigateByUrl('/explorar?page_size=1');
+      expect(page.items().map((item) => item.space_id)).toEqual(['first']);
+
+      if (oldOutcome === 'success') resolveOld({ items: [publicSpace('second')] });
+      else rejectOld(new Error('stale request failed'));
+      await Promise.resolve();
+      expect(page.items().map((item) => item.space_id)).toEqual(['first']);
+      expect(page.busy()).toBe(false);
+    },
+  );
+
+  it.each(['success', 'error'] as const)(
+    'ignores an older result after invalid route filters and allows a retry (%s)',
+    async (oldOutcome) => {
+      let resolveOld!: (value: unknown) => void;
+      let rejectOld!: (error: unknown) => void;
+      const oldPage = new Promise((resolve, reject) => {
+        resolveOld = resolve;
+        rejectOld = reject;
+      });
+      const api = {
+        publicCategories: vi.fn().mockResolvedValue([]),
+        publicSearch: vi.fn().mockReturnValueOnce(oldPage).mockResolvedValue({
+          items: [publicSpace('retry-result')],
         }),
-      profile: vi.fn(),
-    };
-    TestBed.configureTestingModule({
-      imports: [ExplorePage],
-      providers: [
-        ...provideFrontendPorts(),
-        provideHttpClient(),
-        provideRouter([]),
-        PrivateSessionState,
-        { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
-        {
-          provide: IdentityApi,
-          useValue: {
-            login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
-            session: vi.fn().mockResolvedValue(accountA),
-            logout: vi.fn(),
-          },
-        },
-        { provide: ExploreApi, useValue: explore },
-      ],
-    });
-    const fixture = TestBed.createComponent(ExplorePage);
-    fixture.detectChanges();
-    const identity = TestBed.inject(IdentitySession);
-    await identity.signIn('a@example.invalid', 'Synthetic#123');
-    const page = fixture.componentInstance as unknown as {
-      search(reset?: boolean): Promise<void>;
-      clearFilters(): void;
-      nextCursor(): string | undefined;
-    };
-    await page.search();
-    expect(page.nextCursor()).toBe('old-cursor');
-    page.clearFilters();
-    await vi.waitFor(() => expect(explore.search).toHaveBeenCalledTimes(2));
-    expect(explore.search.mock.calls[1][1].cursor).toBeUndefined();
-    fixture.destroy();
-  });
+      };
+      TestBed.configureTestingModule({
+        providers: [
+          ...provideFrontendPorts(),
+          provideHttpClient(),
+          provideRouter([{ path: 'explorar', component: ExplorePage }]),
+          { provide: ExploreApi, useValue: api },
+        ],
+      });
 
-  it('discards an in-flight result and resets the cursor when criteria change', async () => {
-    let finishSearch!: (result: unknown) => void;
-    const pending = new Promise((resolve) => (finishSearch = resolve));
-    const explore = {
-      categories: vi.fn().mockResolvedValue({ items: [] }),
-      search: vi
-        .fn()
-        .mockResolvedValueOnce({
-          safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
-          data: { items: [], next_cursor: 'cursor-old' },
-        })
-        .mockImplementationOnce(() => pending),
-      profile: vi.fn(),
-    };
-    TestBed.configureTestingModule({
-      imports: [ExplorePage],
-      providers: [
-        ...provideFrontendPorts(),
-        provideHttpClient(),
-        provideRouter([]),
-        PrivateSessionState,
-        { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
-        {
-          provide: IdentityApi,
-          useValue: {
-            login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
-            session: vi.fn().mockResolvedValue(accountA),
-            logout: vi.fn(),
-          },
-        },
-        { provide: ExploreApi, useValue: explore },
-      ],
-    });
-    const fixture = TestBed.createComponent(ExplorePage);
-    fixture.detectChanges();
-    const identity = TestBed.inject(IdentitySession);
-    await identity.signIn('a@example.invalid', 'Synthetic#123');
-    const page = fixture.componentInstance as unknown as {
-      search(reset?: boolean): Promise<void>;
-      updateFilter(key: 'q', value: string): void;
-      setAttribute(code: string, value: string): void;
-      nextCursor(): string | undefined;
-      items(): unknown[];
-    };
-    await page.search();
-    const pendingSearch = page.search(false);
-    page.updateFilter('q', 'new criteria');
-    page.setAttribute('capacity', '5');
-    expect(page.nextCursor()).toBeUndefined();
-    finishSearch({
-      safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
-      data: { items: [{ space_id: 'stale' }], next_cursor: 'stale-cursor' },
-    });
-    await pendingSearch;
-    expect(page.items()).toEqual([]);
-    expect(page.nextCursor()).toBeUndefined();
-    fixture.destroy();
-  });
+      const harness = await RouterTestingHarness.create('/explorar');
+      const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+      await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+      await TestBed.inject(Router).navigateByUrl(
+        '/explorar?rate_unit=hora&min_unit_price_clp=invalid',
+      );
+      expect(page.items()).toEqual([]);
+      expect(page.error()).toContain('precios CLP');
 
-  it('uses a fresh cursor after criteria change and clears a current Bearer on 401 despite filter invalidation', async () => {
-    let failSearch!: (error: unknown) => void;
-    const pending401 = new Promise((_resolve, reject) => (failSearch = reject));
-    const explore = {
-      categories: vi.fn().mockResolvedValue({ items: [] }),
-      search: vi
-        .fn()
-        .mockResolvedValueOnce({
-          safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
-          data: { items: [], next_cursor: 'cursor-old' },
-        })
-        .mockImplementationOnce(() => pending401),
-      profile: vi.fn(),
-    };
-    TestBed.configureTestingModule({
-      imports: [ExplorePage],
-      providers: [
-        ...provideFrontendPorts(),
-        provideHttpClient(),
-        provideRouter([]),
-        PrivateSessionState,
-        { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
-        {
-          provide: IdentityApi,
-          useValue: {
-            login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
-            session: vi.fn().mockResolvedValue(accountA),
-            logout: vi.fn(),
-          },
-        },
-        { provide: ExploreApi, useValue: explore },
-      ],
-    });
-    const fixture = TestBed.createComponent(ExplorePage);
-    fixture.detectChanges();
-    const identity = TestBed.inject(IdentitySession);
-    await identity.signIn('a@example.invalid', 'Synthetic#123');
-    const page = fixture.componentInstance as unknown as {
-      search(reset?: boolean): Promise<void>;
-      updateFilter(key: 'q', value: string): void;
-    };
-    await page.search();
-    page.updateFilter('q', 'changed');
-    const request = page.search(false);
-    expect(explore.search.mock.calls[1][1].cursor).toBeUndefined();
-    page.updateFilter('q', 'changed again');
-    failSearch({ status: 401 });
-    await request;
-    expect(identity.accessToken()).toBeNull();
-    expect(identity.session()).toBeNull();
-    fixture.destroy();
-  });
+      if (oldOutcome === 'success') resolveOld({ items: [publicSpace('stale')] });
+      else rejectOld(new Error('stale request failed'));
+      await Promise.resolve();
+      expect(page.items()).toEqual([]);
+      expect(page.error()).toContain('precios CLP');
 
-  it('does not let a late A 401 expire B', async () => {
-    let failSearch!: (error: unknown) => void;
-    const pending = new Promise((_resolve, reject) => (failSearch = reject));
-    const explore = {
-      categories: vi.fn().mockResolvedValue({ items: [] }),
-      search: vi.fn(() => pending),
-      profile: vi.fn(),
-    };
-    TestBed.configureTestingModule({
-      imports: [ExplorePage],
-      providers: [
-        ...provideFrontendPorts(),
-        provideHttpClient(),
-        provideRouter([]),
-        PrivateSessionState,
-        { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
-        {
-          provide: IdentityApi,
-          useValue: {
-            login: vi
-              .fn()
-              .mockResolvedValueOnce(login('account-a', 'bearer-a'))
-              .mockResolvedValueOnce(login('account-b', 'bearer-b')),
-            session: vi.fn().mockResolvedValueOnce(accountA).mockResolvedValueOnce(accountB),
-            logout: vi.fn().mockResolvedValue(undefined),
-          },
-        },
-        { provide: ExploreApi, useValue: explore },
-      ],
-    });
-    const fixture = TestBed.createComponent(ExplorePage);
-    fixture.detectChanges();
-    const identity = TestBed.inject(IdentitySession);
-    await identity.signIn('a@example.invalid', 'Synthetic#123');
-    const page = fixture.componentInstance as unknown as { search(): Promise<void> };
-    const request = page.search();
-    await identity.signOut();
-    await identity.signIn('b@example.invalid', 'Synthetic#456');
-    failSearch({ status: 401 });
-    await request;
-    expect(identity.accessToken()).toBe('bearer-b');
-    expect(identity.session()?.account_id).toBe('account-b');
-    fixture.destroy();
-  });
-
-  it('does not query the catalog for a session whose confirmed role is only arrendador', async () => {
-    const explore = {
-      categories: vi.fn(),
-      search: vi.fn(),
-      profile: vi.fn(),
-    };
-    TestBed.configureTestingModule({
-      imports: [ExplorePage],
-      providers: [
-        ...provideFrontendPorts(),
-        provideHttpClient(),
-        provideRouter([]),
-        PrivateSessionState,
-        { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
-        {
-          provide: IdentityApi,
-          useValue: {
-            login: vi.fn().mockResolvedValue({
-              ...login('account-owner', 'owner-token'),
-              roles: ['arrendador'],
-            }),
-            session: vi.fn().mockResolvedValue({
-              account_id: 'account-owner',
-              roles: ['arrendador'],
-              restricted_mode: false,
-            }),
-            logout: vi.fn(),
-          },
-        },
-        { provide: ExploreApi, useValue: explore },
-      ],
-    });
-    const identity = TestBed.inject(IdentitySession);
-    await identity.signIn('owner@example.invalid', 'Synthetic#123');
-    const fixture = TestBed.createComponent(ExplorePage);
-    fixture.detectChanges();
-
-    expect(explore.categories).not.toHaveBeenCalled();
-    expect(explore.search).not.toHaveBeenCalled();
-    fixture.destroy();
-  });
-
-  it('shows Go permission errors without leaking a stale result', async () => {
-    const explore = {
-      categories: vi.fn().mockResolvedValue({ items: [] }),
-      search: vi.fn().mockRejectedValue({ status: 403 }),
-      profile: vi.fn(),
-    };
-    TestBed.configureTestingModule({
-      imports: [ExplorePage],
-      providers: [
-        ...provideFrontendPorts(),
-        provideHttpClient(),
-        provideRouter([]),
-        PrivateSessionState,
-        { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
-        {
-          provide: IdentityApi,
-          useValue: {
-            login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
-            session: vi.fn().mockResolvedValue(accountA),
-            logout: vi.fn(),
-          },
-        },
-        { provide: ExploreApi, useValue: explore },
-      ],
-    });
-    const identity = TestBed.inject(IdentitySession);
-    await identity.signIn('a@example.invalid', 'Synthetic#123');
-    const fixture = TestBed.createComponent(ExplorePage);
-    fixture.detectChanges();
-    const page = fixture.componentInstance as unknown as {
-      search(): Promise<void>;
-      error(): string;
-      items(): unknown[];
-    };
-    await page.search();
-
-    expect(page.error()).toContain('Go confirmó que esta cuenta no tiene permiso');
-    expect(page.items()).toEqual([]);
-    fixture.destroy();
-  });
+      page.updateFilter('min_unit_price_clp', '1000');
+      await page.search();
+      await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(page.items()[0]?.space_id).toBe('retry-result'));
+    },
+  );
 });

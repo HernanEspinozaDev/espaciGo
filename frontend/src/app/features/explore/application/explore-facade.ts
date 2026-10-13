@@ -1,347 +1,299 @@
-import { DestroyRef, Injectable, OnInit, effect, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, OnInit, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Meta, Title } from '@angular/platform-browser';
-import type { SpaceAttributeProfile, SpaceCategoryList } from '../../../core/contracts/models';
-import { IdentitySession } from '../../../core/identity/application/identity-session';
-import { CatalogFilters, CatalogItem, ExplorePort } from '../domain/ports/explore-port';
+import { ActivatedRoute, ParamMap, Router } from '@angular/router';
+import {
+  ExplorePort,
+  PublicCatalogFilters,
+  PublicCategory,
+  PublicSpace,
+} from '../domain/ports/explore-port';
+
+type ExploreFilters = {
+  category_code: string;
+  rate_unit: string;
+  min_unit_price_clp: string;
+  max_unit_price_clp: string;
+  sort: string;
+  page_size: number;
+  cursor: string;
+};
+type ExploreCriterion = Exclude<keyof ExploreFilters, 'cursor'>;
 
 @Injectable()
 export class ExploreFacade implements OnInit {
   private readonly api = inject(ExplorePort);
-  private readonly identity = inject(IdentitySession);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly meta = inject(Meta);
   private readonly title = inject(Title);
   private readonly destroyRef = inject(DestroyRef);
   private requestGeneration = 0;
-  private profileGeneration = 0;
-  private ownerSession = this.identity.session();
-  private ownerToken = this.identity.accessToken();
+  private criteriaKey: string | undefined;
+  private routeRequestKey: string | undefined;
+  private pageCursors: string[] = [];
+  private readonly pages = new Map<string, PublicSpace[]>();
+  private readonly pageNextCursors = new Map<string, string>();
+  private navigationPending = false;
 
-  readonly categories = signal<SpaceCategoryList['items']>([]);
-  readonly profile = signal<SpaceAttributeProfile | null>(null);
-  readonly items = signal<CatalogItem[]>([]);
-  readonly nextCursor = signal<string | undefined>(undefined);
+  readonly categories = signal<PublicCategory[]>([]);
+  readonly items = signal<PublicSpace[]>([]);
+  readonly nextCursor = signal('');
   readonly busy = signal(false);
   readonly error = signal('');
-  readonly filters = signal({
-    q: '',
+  readonly filters = signal<ExploreFilters>({
     category_code: '',
-    min_area_m2: '',
-    start_local_utc: '',
-    end_local_utc: '',
-    min_total_clp: '',
-    max_total_clp: '',
-    latitude: '',
-    longitude: '',
-    radius_km: '',
+    rate_unit: '',
+    min_unit_price_clp: '',
+    max_unit_price_clp: '',
+    sort: 'default',
+    page_size: 20,
+    cursor: '',
   });
-  readonly attributeFilters = signal<Record<string, string | boolean>>({});
-  readonly mapView = signal(false);
-  readonly safetyNotice = 'ENSAYO LOCAL — SIN COBRO REAL';
 
   constructor() {
     this.title.setTitle('Explorar espacios | EspaciGo');
     this.meta.addTag({ name: 'robots', content: 'noindex, nofollow' });
     this.destroyRef.onDestroy(() => this.meta.removeTag("name='robots'"));
-    // Any account/token transition invalidates results and cursors held by this page.
-    effect(() => {
-      const session = this.identity.session();
-      const token = this.identity.accessToken();
-      if (session !== this.ownerSession || token !== this.ownerToken) {
-        this.ownerSession = session;
-        this.ownerToken = token;
-        this.invalidate();
-        this.clearPrivateResults();
-      }
-    });
   }
 
   ngOnInit(): void {
-    const token = this.identity.accessToken();
-    const session = this.identity.session();
-    if (!token || !session || session.restricted_mode || !session.roles.includes('arrendatario')) {
-      this.error.set('Go no confirmó permisos de arrendatario para explorar.');
-      return;
-    }
-    this.busy.set(true);
-    this.api
-      .categories(token)
-      .then((response) => {
-        if (!this.isSameSession(token, session)) return;
-        this.categories.set(response.items);
-      })
-      .catch((error) => {
-        if (this.handleUnauthorized(error, token)) return;
-        if (this.isSameSession(token, session)) this.error.set(errorMessage(error));
-      })
-      .finally(() => {
-        if (this.isSameSession(token, session)) this.busy.set(false);
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
+      void this.loadCategories();
+      this.loadFromRoute(params);
+    });
+  }
+
+  updateFilter<K extends ExploreCriterion>(key: K, value: ExploreFilters[K]): void {
+    this.filters.update((filters) => ({ ...filters, [key]: value, cursor: '' }));
+    this.invalidateCriteria();
+  }
+
+  async search(): Promise<void> {
+    const filters = { ...this.filters(), cursor: '' };
+    if (!this.validateForSearch(filters)) return;
+    this.filters.set(filters);
+    const queryParams = encodeFilters(filters);
+    if (!sameOwnedQuery(this.route.snapshot.queryParamMap, queryParams)) {
+      this.navigationPending = true;
+      await this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams,
+        replaceUrl: true,
       });
-  }
-
-  updateFilter<K extends keyof ReturnType<typeof this.filters>>(
-    key: K,
-    value: ReturnType<typeof this.filters>[K],
-  ): void {
-    this.filters.update((filters) => ({ ...filters, [key]: value }));
-    this.invalidateCriteria();
-    if (key === 'category_code') {
-      this.attributeFilters.set({});
-      this.profile.set(null);
-      const token = this.identity.accessToken();
-      const category = value as string;
-      if (token && category) {
-        const owner = this.identity.session();
-        const profileGeneration = ++this.profileGeneration;
-        this.api
-          .profile(token, category)
-          .then((profile) => {
-            if (
-              profileGeneration === this.profileGeneration &&
-              this.isSameSession(token, owner) &&
-              this.filters().category_code === category
-            )
-              this.profile.set(profile);
-          })
-          .catch((error) => {
-            if (this.handleUnauthorized(error, token)) return;
-            if (
-              profileGeneration === this.profileGeneration &&
-              this.isSameSession(token, owner) &&
-              this.filters().category_code === category
-            )
-              this.error.set(errorMessage(error));
-          });
-      }
-    }
-  }
-
-  setAttribute(code: string, value: string | boolean): void {
-    this.attributeFilters.update((filters) => ({ ...filters, [code]: value }));
-    this.invalidateCriteria();
-  }
-
-  async search(reset = true): Promise<void> {
-    const token = this.identity.accessToken();
-    const session = this.identity.session();
-    if (!token || !session || session.restricted_mode || !session.roles.includes('arrendatario')) {
-      this.error.set('Necesitas una sesión de arrendatario confirmada por Go.');
+      this.navigationPending = false;
       return;
     }
-    const generation = ++this.requestGeneration;
-    this.error.set('');
-    this.busy.set(true);
-    if (reset) {
-      this.items.set([]);
-      this.nextCursor.set(undefined);
-    }
-    const values = this.filters();
-    const dateInterval = values.start_local_utc || values.end_local_utc;
-    if (dateInterval && (!values.start_local_utc || !values.end_local_utc)) {
-      this.error.set('Completa el inicio y término UTC para filtrar por total.');
-      this.busy.set(false);
-      return;
-    }
-    const filters: CatalogFilters = {
-      q: values.q.trim() || undefined,
-      category_code: values.category_code || undefined,
-      min_area_m2: values.min_area_m2 || undefined,
-      start_at: dateInterval ? utcDateTime(values.start_local_utc) : undefined,
-      end_at: dateInterval ? utcDateTime(values.end_local_utc) : undefined,
-      min_total_clp: values.min_total_clp || undefined,
-      max_total_clp: values.max_total_clp || undefined,
-      latitude: values.latitude || undefined,
-      longitude: values.longitude || undefined,
-      radius_km: values.radius_km || undefined,
-      attributes: this.typedAttributes(),
-      page_size: 8,
-      cursor: reset ? undefined : this.nextCursor(),
-    };
-    if ((filters.min_total_clp || filters.max_total_clp) && !dateInterval) {
-      this.error.set('El rango de total requiere un intervalo UTC.');
-      this.busy.set(false);
-      return;
-    }
-    if (!validClp(filters.min_total_clp) || !validClp(filters.max_total_clp)) {
-      this.error.set('Ingresa importes CLP enteros válidos.');
-      this.busy.set(false);
-      return;
-    }
-    const proximity = [values.latitude, values.longitude, values.radius_km];
-    if (proximity.some(Boolean) && !proximity.every(Boolean)) {
-      this.error.set('Completa latitud, longitud y radio para filtrar por proximidad.');
-      this.busy.set(false);
-      return;
-    }
-    if (
-      values.latitude &&
-      (!Number.isFinite(Number(values.latitude)) ||
-        Number(values.latitude) < -90 ||
-        Number(values.latitude) > 90)
-    ) {
-      this.error.set('La latitud debe estar entre -90 y 90.');
-      this.busy.set(false);
-      return;
-    }
-    if (
-      values.longitude &&
-      (!Number.isFinite(Number(values.longitude)) ||
-        Number(values.longitude) < -180 ||
-        Number(values.longitude) > 180)
-    ) {
-      this.error.set('La longitud debe estar entre -180 y 180.');
-      this.busy.set(false);
-      return;
-    }
-    if (values.radius_km && !['1', '3', '5', '10', '25'].includes(values.radius_km)) {
-      this.error.set('El radio debe ser uno de los valores disponibles.');
-      this.busy.set(false);
-      return;
-    }
-    try {
-      const result = await this.api.search(token, filters);
-      if (!this.isCurrent(generation, token, session)) return;
-      const incoming = result.data.items;
-      this.items.update((current) => (reset ? incoming : [...current, ...incoming]));
-      this.nextCursor.set(result.data.next_cursor);
-    } catch (error) {
-      if (this.handleUnauthorized(error, token)) return;
-      if (this.isCurrent(generation, token, session)) this.error.set(errorMessage(error));
-    } finally {
-      if (this.isCurrent(generation, token, session)) this.busy.set(false);
+    if (!this.busy()) {
+      this.criteriaKey = criteriaSignature(filters);
+      this.routeRequestKey = `${this.criteriaKey}|cursor=${filters.cursor}`;
+      await this.loadPage(filters, false);
     }
   }
 
   clearFilters(): void {
-    this.invalidate();
-    ++this.profileGeneration;
     this.filters.set({
-      q: '',
       category_code: '',
-      min_area_m2: '',
-      start_local_utc: '',
-      end_local_utc: '',
-      min_total_clp: '',
-      max_total_clp: '',
-      latitude: '',
-      longitude: '',
-      radius_km: '',
+      rate_unit: '',
+      min_unit_price_clp: '',
+      max_unit_price_clp: '',
+      sort: 'default',
+      page_size: 20,
+      cursor: '',
     });
-    this.attributeFilters.set({});
-    this.profile.set(null);
-    this.items.set([]);
-    this.nextCursor.set(undefined);
-    void this.search(true);
+    this.invalidateCriteria();
+    void this.search();
   }
 
-  toggleMap(): void {
-    this.mapView.update((value) => !value);
-  }
   loadMore(): void {
-    if (this.nextCursor() && !this.busy()) void this.search(false);
-  }
-  attributeValue(code: string): string | boolean {
-    return this.attributeFilters()[code] ?? '';
-  }
-  attributeLabel(code: string): string {
-    return this.profile()?.attributes.find((attribute) => attribute.code === code)?.label ?? code;
-  }
-  displayValue(value: unknown): string {
-    if (typeof value === 'boolean') return value ? 'Sí' : 'No';
-    if (Array.isArray(value)) return value.join(', ');
-    return String(value ?? '—');
-  }
-  price(value: string | undefined): string {
-    return value === undefined ? '' : formatClp(value);
-  }
-  position(item: CatalogItem): string {
-    return item.map_position ? `left:${item.map_position.x}%;top:${item.map_position.y}%` : '';
+    const next = this.nextCursor();
+    if (!next || this.busy() || this.navigationPending) return;
+    const filters = { ...this.filters(), cursor: next };
+    const queryParams = encodeFilters(filters);
+    if (sameOwnedQuery(this.route.snapshot.queryParamMap, queryParams)) return;
+    this.navigationPending = true;
+    void this.router
+      .navigate([], { relativeTo: this.route, queryParams, replaceUrl: false })
+      .finally(() => (this.navigationPending = false));
   }
 
-  private invalidate(): void {
-    ++this.requestGeneration;
+  price(value: string): string {
+    return `CLP ${BigInt(value).toLocaleString('es-CL')}`;
+  }
+
+  private loadFromRoute(params: ParamMap): void {
+    const decoded = decodeFilters(params);
+    if (!decoded.filters) {
+      this.invalidateCriteria();
+      this.error.set(decoded.error);
+      return;
+    }
+    const filters = decoded.filters;
+    this.filters.set(filters);
+    const nextCriteriaKey = criteriaSignature(filters);
+    const criteriaChanged = this.criteriaKey !== nextCriteriaKey;
+    const requestKey = `${nextCriteriaKey}|cursor=${filters.cursor}`;
+    if (!criteriaChanged && this.routeRequestKey === requestKey) return;
+    // Every distinct route state supersedes the previous request, including
+    // cache hits and invalid filters that do not start a replacement request.
+    this.requestGeneration++;
+    this.busy.set(false);
+    if (criteriaChanged) {
+      this.criteriaKey = nextCriteriaKey;
+      this.pages.clear();
+      this.pageNextCursors.clear();
+      this.pageCursors = [];
+      this.items.set([]);
+      this.nextCursor.set('');
+    }
+    this.routeRequestKey = requestKey;
+    if (!this.validateForSearch(filters)) return;
+    const cachedIndex = this.pageCursors.indexOf(filters.cursor);
+    if (!criteriaChanged && cachedIndex >= 0) {
+      this.items.set(this.pageCursors.slice(0, cachedIndex + 1).flatMap((cursor) => this.pages.get(cursor) ?? []));
+      const cached = this.pages.get(filters.cursor) ?? [];
+      this.nextCursor.set(cached.length ? (this.pageNextCursors.get(filters.cursor) ?? '') : '');
+      this.busy.set(false);
+      return;
+    }
+    void this.loadPage(filters, !criteriaChanged && this.items().length > 0);
+  }
+
+  private async loadPage(filters: ExploreFilters, append: boolean): Promise<void> {
+    const generation = ++this.requestGeneration;
+    this.error.set('');
+    this.busy.set(true);
+    if (!append && this.pages.size === 0) this.items.set([]);
+    const request: PublicCatalogFilters = {
+      category_code: filters.category_code || undefined,
+      rate_unit: filters.rate_unit || undefined,
+      min_unit_price_clp: filters.min_unit_price_clp || undefined,
+      max_unit_price_clp: filters.max_unit_price_clp || undefined,
+      sort: filters.sort,
+      page_size: filters.page_size,
+      cursor: filters.cursor || undefined,
+    };
+    try {
+      const page = await this.api.publicSearch(request);
+      if (generation !== this.requestGeneration) return;
+      this.pages.set(filters.cursor, page.items);
+      this.pageNextCursors.set(filters.cursor, page.next_cursor ?? '');
+      if (!this.pageCursors.includes(filters.cursor)) this.pageCursors.push(filters.cursor);
+      this.items.update((current) => (append ? [...current, ...page.items] : page.items));
+      this.nextCursor.set(page.next_cursor ?? '');
+    } catch {
+      if (generation === this.requestGeneration)
+        this.error.set('No fue posible cargar los espacios públicos. Inténtalo nuevamente.');
+    } finally {
+      if (generation === this.requestGeneration) this.busy.set(false);
+    }
+  }
+
+  private invalidateCriteria(): void {
+    this.requestGeneration++;
+    this.routeRequestKey = undefined;
+    this.pages.clear();
+    this.pageNextCursors.clear();
+    this.pageCursors = [];
+    this.items.set([]);
+    this.nextCursor.set('');
+    this.error.set('');
     this.busy.set(false);
   }
-  private invalidateCriteria(): void {
-    this.invalidate();
-    this.items.set([]);
-    this.nextCursor.set(undefined);
-    this.error.set('');
-  }
-  private clearPrivateResults(): void {
-    ++this.profileGeneration;
-    this.categories.set([]);
-    this.profile.set(null);
-    this.items.set([]);
-    this.nextCursor.set(undefined);
-    this.filters.set({
-      q: '',
-      category_code: '',
-      min_area_m2: '',
-      start_local_utc: '',
-      end_local_utc: '',
-      min_total_clp: '',
-      max_total_clp: '',
-      latitude: '',
-      longitude: '',
-      radius_km: '',
-    });
-    this.attributeFilters.set({});
-  }
-  private handleUnauthorized(error: unknown, token: string): boolean {
-    if (statusCode(error) !== 401 || !this.identity.expireIfCurrent(token)) return false;
-    this.invalidate();
-    this.clearPrivateResults();
-    this.error.set('Go cerró la sesión. Inicia sesión nuevamente.');
+
+  private validateForSearch(filters: ExploreFilters): boolean {
+    if (!Number.isInteger(filters.page_size) || filters.page_size < 1 || filters.page_size > 25) {
+      this.error.set('El tamaño de página debe estar entre 1 y 25.');
+      this.busy.set(false);
+      return false;
+    }
+    if (!validPrice(filters.min_unit_price_clp) || !validPrice(filters.max_unit_price_clp)) {
+      this.error.set('Ingresa precios CLP enteros válidos.');
+      this.busy.set(false);
+      return false;
+    }
+    if (
+      (filters.min_unit_price_clp || filters.max_unit_price_clp || filters.sort !== 'default') &&
+      !filters.rate_unit
+    ) {
+      this.error.set('Elige hora, día o mes para comparar tarifas.');
+      this.busy.set(false);
+      return false;
+    }
     return true;
   }
-  private typedAttributes(): Record<string, unknown> {
-    const typed: Record<string, unknown> = {};
-    for (const [code, value] of Object.entries(this.attributeFilters())) {
-      if (value === '') continue;
-      const type = this.profile()?.attributes.find((attribute) => attribute.code === code)?.type;
-      if (type === 'boolean') {
-        typed[code] = value === true || value === 'true';
-        continue;
-      }
-      if (type === 'integer' || type === 'number') {
-        const number = Number(value);
-        if (Number.isFinite(number)) typed[code] = number;
-        continue;
-      }
-      typed[code] = type === 'enum_list' ? [String(value)] : String(value);
+
+  private async loadCategories(): Promise<void> {
+    try {
+      this.categories.set(await this.api.publicCategories());
+    } catch {
+      this.error.set('No fue posible cargar las categorías públicas.');
     }
-    return typed;
-  }
-  private isSameSession(token: string, session: ReturnType<IdentitySession['session']>): boolean {
-    return this.identity.accessToken() === token && this.identity.session() === session;
-  }
-  private isCurrent(
-    generation: number,
-    token: string,
-    session: ReturnType<IdentitySession['session']>,
-  ): boolean {
-    return generation === this.requestGeneration && this.isSameSession(token, session);
   }
 }
 
-function utcDateTime(value: string): string {
-  return new Date(`${value}Z`).toISOString();
+function decodeFilters(params: ParamMap): { filters: ExploreFilters | null; error: string } {
+  const singleValue = (key: string, fallback = ''): string | null => {
+    const values = params.getAll(key);
+    return values.length > 1 ? null : (values[0] ?? fallback);
+  };
+  const category = singleValue('category_code');
+  const unit = singleValue('rate_unit');
+  const minimum = singleValue('min_unit_price_clp');
+  const maximum = singleValue('max_unit_price_clp');
+  const sort = singleValue('sort', 'default');
+  const rawSize = singleValue('page_size');
+  const cursor = singleValue('cursor');
+  if ([category, unit, minimum, maximum, sort, rawSize, cursor].some((value) => value === null))
+    return { filters: null, error: 'La URL contiene parámetros públicos duplicados.' };
+  const pageSize = rawSize === '' ? 20 : Number(rawSize);
+  if (rawSize !== '' && !/^\d+$/.test(rawSize!))
+    return { filters: null, error: 'El tamaño de página de la URL no es válido.' };
+  return {
+    filters: {
+      category_code: category!,
+      rate_unit: unit!,
+      min_unit_price_clp: minimum!,
+      max_unit_price_clp: maximum!,
+      sort: sort!,
+      page_size: pageSize,
+      cursor: cursor!,
+    },
+    error: '',
+  };
 }
-function validClp(value: string | undefined): boolean {
+
+function encodeFilters(filters: ExploreFilters): Record<string, string | null> {
+  return {
+    category_code: filters.category_code || null,
+    rate_unit: filters.rate_unit || null,
+    min_unit_price_clp: filters.min_unit_price_clp || null,
+    max_unit_price_clp: filters.max_unit_price_clp || null,
+    sort: filters.sort === 'default' ? null : filters.sort,
+    page_size: filters.page_size === 20 ? null : String(filters.page_size),
+    cursor: filters.cursor || null,
+  };
+}
+
+function sameOwnedQuery(params: ParamMap, target: Record<string, string | null>): boolean {
+  const targetKeys = new Set(Object.keys(target));
+  return (
+    params.keys.every((key) => targetKeys.has(key)) &&
+    Object.entries(target).every(([key, value]) => (params.get(key) || null) === value)
+  );
+}
+
+function criteriaSignature(filters: ExploreFilters): string {
+  return JSON.stringify([
+    filters.category_code,
+    filters.rate_unit,
+    filters.min_unit_price_clp,
+    filters.max_unit_price_clp,
+    filters.sort,
+    filters.page_size,
+  ]);
+}
+
+function validPrice(value: string): boolean {
   return !value || /^(0|[1-9]\d*)$/.test(value);
-}
-function formatClp(value: string): string {
-  const parsed = BigInt(value);
-  return `CLP ${parsed.toLocaleString('es-CL')}`;
-}
-function errorMessage(error: unknown): string {
-  const status = statusCode(error);
-  if (status === 401) return 'Go cerró la sesión. Inicia sesión nuevamente.';
-  if (status === 403) return 'Go confirmó que esta cuenta no tiene permiso para explorar.';
-  if (status === 422)
-    return 'Go rechazó los filtros o el cursor. Limpia los filtros y vuelve a buscar.';
-  return 'No fue posible completar la búsqueda. Inténtalo nuevamente.';
-}
-function statusCode(error: unknown): number | undefined {
-  return (error as { status?: number })?.status;
 }

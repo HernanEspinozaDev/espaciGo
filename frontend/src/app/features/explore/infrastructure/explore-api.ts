@@ -14,6 +14,7 @@ import {
   ExploreApiError,
   ExplorePort,
   QuoteEnvelope,
+  PublicCatalogFilters, PublicCategory, PublicSpace, PublicSpacePage,
 } from '../domain/ports/explore-port';
 export { parseExactClpJson } from '../../../core/exact-json';
 
@@ -23,6 +24,16 @@ export class ExploreApi extends ExplorePort {
   private readonly runtime = inject(ApiRuntimeConfig);
   private readonly categoriesClient = inject(M04Local);
   private readonly bookingClient = inject(M06Local);
+
+  async publicSearch(filters: PublicCatalogFilters): Promise<PublicSpacePage> {
+    const values: Record<string,string|number> = {};
+    for (const key of ['category_code','rate_unit','min_unit_price_clp','max_unit_price_clp','sort','page_size','cursor'] as const) {
+      const value=filters[key]; if(value!==undefined&&value!=='')values[key]=value;
+    }
+    return this.publicRaw<PublicSpacePage>('/public/spaces',new HttpParams({fromObject:values}));
+  }
+  async publicDetail(spaceId:string):Promise<PublicSpace>{return (await this.publicRaw<{data:PublicSpace}>(`/public/spaces/${encodeURIComponent(spaceId)}`)).data;}
+  async publicCategories():Promise<PublicCategory[]>{return (await this.publicRaw<{items:PublicCategory[]}>('/public/space-categories')).items;}
 
   async search(token: string, filters: CatalogFilters): Promise<CatalogEnvelope> {
     const paramsObject: Record<string, string | number> = {};
@@ -149,6 +160,12 @@ export class ExploreApi extends ExplorePort {
         : await firstValueFrom(
             this.http.post(`${baseUrl}${path}`, body, { headers, responseType: 'text' }),
           );
+    return parseExactClpJson<T>(text);
+  }
+
+  private async publicRaw<T>(path:string,params?:HttpParams):Promise<T>{
+    const baseUrl=this.runtime.apiBaseUrl();if(!baseUrl)throw new Error('La API todavía no está configurada.');
+    const text=await firstValueFrom(this.http.get(`${baseUrl}${path}`,{params,responseType:'text'}));
     return parseExactClpJson<T>(text);
   }
 }

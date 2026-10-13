@@ -15,6 +15,8 @@ export class SpaceDetailPage {
   get space() {
     return this.facade.space;
   }
+  get privateSpace() { return this.facade.privateSpace; }
+  get canBook() { return this.facade.canBook.bind(this.facade); }
   get profile() {
     return this.facade.profile;
   }

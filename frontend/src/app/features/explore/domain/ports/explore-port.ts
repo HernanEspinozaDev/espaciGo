@@ -1,5 +1,9 @@
 import type { SpaceAttributeProfile, SpaceCategoryList } from '../../../../core/contracts/models';
 export type ClpAmount = string;
+export type PublicSpace = Pick<CatalogItem, 'space_id'|'category_code'|'category_name'|'title'|'description'|'area_m2'|'rate_unit'|'base_price_clp'|'currency'>;
+export type PublicCategory = {code:string;name:string;order:number};
+export type PublicCatalogFilters = {category_code?:string;rate_unit?:string;min_unit_price_clp?:string;max_unit_price_clp?:string;sort?:string;page_size?:number;cursor?:string};
+export type PublicSpacePage = {items:PublicSpace[];next_cursor?:string};
 export type CatalogItem = {
   space_id: string;
   category_code: string;
@@ -90,6 +94,9 @@ export class ExploreApiError extends Error {
 }
 
 export abstract class ExplorePort {
+  abstract publicSearch(filters:PublicCatalogFilters):Promise<PublicSpacePage>;
+  abstract publicDetail(spaceId:string):Promise<PublicSpace>;
+  abstract publicCategories():Promise<PublicCategory[]>;
   abstract search(token: string, filters: CatalogFilters): Promise<CatalogEnvelope>;
   abstract detail(token: string, spaceId: string): Promise<CatalogItem>;
   abstract categories(token: string): Promise<SpaceCategoryList>;

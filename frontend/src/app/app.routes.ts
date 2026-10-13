@@ -23,17 +23,13 @@ export const routes: Routes = [
     path: 'explorar',
     loadComponent: () =>
       import('./features/explore/explore-page').then((module) => module.ExplorePage),
-    canActivate: [roleGuard],
     title: 'Explorar espacios | EspaciGo',
-    data: { requiredRole: 'arrendatario' },
   },
   {
     path: 'espacios/:id',
     loadComponent: () =>
       import('./features/explore/space-detail-page').then((module) => module.SpaceDetailPage),
-    canActivate: [roleGuard],
     title: 'Detalle de espacio | EspaciGo',
-    data: { requiredRole: 'arrendatario' },
   },
   {
     path: 'panel-anfitrion',
