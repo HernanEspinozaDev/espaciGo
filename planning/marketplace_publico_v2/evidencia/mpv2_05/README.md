@@ -23,7 +23,7 @@ Los JSON adjuntos registran viewport CSS y tamaño del documento. Capturas de p�
 
 | Captura | Viewport CSS | JPEG | SHA-256 |
 | --- | ---: | ---: | --- |
-| Catálogo con filtros aplicados, escritorio | 1365×900 | 1365×1917 | 50e664a8dcd9dff1b6c03ae03e81ab7ac0667a6ca6d2024c0e5f11ca1a500397 |
+| Catálogo con filtros aplicados, escritorio | 1365×900 | 1365×1917 | 4c374621494f8156dd7c4d83415bec0877fd803fb85baa46a8a6bd36cf4ba17f |
 | Panel de filtros móvil abierto | 390×844 | 390×844 | 006f1df6d54742ce30d34f00847aee6dd608fdd29bed4c48ef4db6885c1fbef3 |
 
 ## Límites

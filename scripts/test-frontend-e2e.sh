@@ -135,12 +135,7 @@ cleanup() {
   docker volume rm "$LOCAL_DOCKER_PGDATA_VOLUME" >/dev/null 2>&1 || true
   if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" && "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
     mkdir -p "$FE14_EVIDENCE_OUTPUT_DIR"
-    for artifact in fe14_public_search_desktop.jpg fe14_public_search_desktop.json fe14_public_search_mobile.jpg fe14_public_search_mobile.json \
-      fe14_mpv2_03_host_desktop.jpg fe14_mpv2_03_host_desktop.json fe14_mpv2_03_host_mobile.jpg fe14_mpv2_03_host_mobile.json \
-      fe14_mpv2_04_visitor_search_desktop.jpg fe14_mpv2_04_visitor_search_desktop.json fe14_mpv2_04_visitor_search_mobile.jpg fe14_mpv2_04_visitor_search_mobile.json \
-      fe14_mpv2_04_host_desktop.jpg fe14_mpv2_04_host_desktop.json fe14_mpv2_04_host_mobile.jpg fe14_mpv2_04_host_mobile.json \
-      fe14_mpv2_04_visitor_search_desktop.jpg fe14_mpv2_04_visitor_search_desktop.json fe14_mpv2_04_visitor_search_mobile.jpg fe14_mpv2_04_visitor_search_mobile.json \
-      fe14_mpv2_04_detail_desktop.jpg fe14_mpv2_04_detail_desktop.json fe14_mpv2_04_detail_mobile.jpg fe14_mpv2_04_detail_mobile.json \
+    for artifact in \
       fe14_mpv2_05_catalog_desktop.jpg fe14_mpv2_05_catalog_desktop.json \
       fe14_mpv2_05_filters_mobile.jpg fe14_mpv2_05_filters_mobile.json; do
       if [[ -f "$STATE_DIR/artifacts/$artifact" ]]; then cp -- "$STATE_DIR/artifacts/$artifact" "$FE14_EVIDENCE_OUTPUT_DIR/$artifact"; fi
@@ -294,6 +289,13 @@ PY
 mkdir -p "$ROOT_DIR/planning/frontend/evidencia" "$ROOT_DIR/planning/marketplace_publico_v2/evidencia/mpv2_03"
 for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
   [[ -f "$image" ]] || continue
+  if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" && "$(basename "$image")" == fe14_mpv2_05_* ]]; then
+    destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$image")"
+    cp -- "$image" "$destination"
+    chmod 0644 "$destination"
+    continue
+  fi
+  if [[ "${FE14_EVIDENCE_OUTPUT_DIR:-}" == */mpv2_05 ]]; then continue; fi
   if [[ "$(basename "$image")" == fe14_mpv2_03_* || "$(basename "$image")" == fe14_mpv2_04_* || "$(basename "$image")" == fe14_mpv2_05_* ]] && [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
     destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$image")"
     cp -- "$image" "$destination"
@@ -310,6 +312,13 @@ for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
 done
 for measurements in "$STATE_DIR"/artifacts/fe14_*.json; do
   [[ -f "$measurements" ]] || continue
+  if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" && "$(basename "$measurements")" == fe14_mpv2_05_* ]]; then
+    destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$measurements")"
+    cp -- "$measurements" "$destination"
+    chmod 0644 "$destination"
+    continue
+  fi
+  if [[ "${FE14_EVIDENCE_OUTPUT_DIR:-}" == */mpv2_05 ]]; then continue; fi
   if [[ "$(basename "$measurements")" == fe14_mpv2_03_* || "$(basename "$measurements")" == fe14_mpv2_04_* || "$(basename "$measurements")" == fe14_mpv2_05_* ]] && [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
     destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$measurements")"
     cp -- "$measurements" "$destination"
