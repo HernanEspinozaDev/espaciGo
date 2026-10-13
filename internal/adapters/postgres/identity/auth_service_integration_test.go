@@ -1634,7 +1634,7 @@ func TestLocalDisputeBlocksBothParticipantsUntilAdministratorCloses(t *testing.T
 			t.Errorf("restricted account reached blocked route %s", route)
 		}))
 	}
-	restrictedAPI := identityhttp.RestrictedAccountMiddleware(h.service, restrictedMux, "http://localhost:8081")
+	restrictedAPI := identityhttp.RestrictedAccountMiddleware(h.service, restrictedMux, "http://localhost:4200")
 	adminLocal, err := adminlocal.New(runtimePool, func() time.Time { return h.now })
 	if err != nil {
 		t.Fatal(err)

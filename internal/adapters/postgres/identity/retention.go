@@ -168,6 +168,10 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 		WHERE o.id=e.operacion_id AND o.reserva_id=$1 AND o.tipo='descargo' AND e.archivo_retirado_en IS NULL`, candidate.id, deadline); err != nil {
 		return false, false, mapError(err)
 	}
+	// The retention deadline above is a business timestamp. The durable blob
+	// cleanup is technical housekeeping and must be runnable immediately on
+	// the real worker clock, even when a demo business clock is advanced.
+	technicalNow := time.Now().UTC()
 	queued, err := tx.Exec(ctx, `INSERT INTO public.operacion_arriendo_archivo_candidato_local
 		(archivo_id,reserva_id,actor_id,tipo,estado,creada_en,proximo_intento_en,ultimo_codigo_error)
 		SELECT e.id,r.id,o.actor_id,o.tipo,'pendiente_limpieza',e.creada_en,$2,'retencion_vencida'
@@ -175,7 +179,7 @@ func (r *IdentityRepository) purgeReservationLinks(ctx context.Context, candidat
 		JOIN public.operacion_arriendo_ensayo_local o ON o.id=e.operacion_id
 		JOIN public.reserva_ensayo_local r ON r.id=o.reserva_id
 		WHERE r.id=$1 AND o.tipo='descargo' AND e.archivo_retirado_en IS NULL
-		ON CONFLICT (archivo_id) DO NOTHING`, candidate.id, now)
+		ON CONFLICT (archivo_id) DO NOTHING`, candidate.id, technicalNow)
 	if err != nil {
 		return false, false, mapError(err)
 	}

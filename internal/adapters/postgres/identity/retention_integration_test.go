@@ -295,7 +295,8 @@ func TestSyntheticDamageDefenseEvidenceRetentionUsesRecoverableCleanup(t *testin
 		t.Fatalf("first retention pass=%+v err=%v", first, err)
 	}
 	var queued int
-	if err = h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.operacion_arriendo_archivo_candidato_local WHERE archivo_id=$1 AND estado='pendiente_limpieza' AND ultimo_codigo_error='retencion_vencida'`, item.Evidence[0].ID).Scan(&queued); err != nil || queued != 1 {
+	if err = h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.operacion_arriendo_archivo_candidato_local
+		WHERE archivo_id=$1 AND estado='pendiente_limpieza' AND ultimo_codigo_error='retencion_vencida' AND proximo_intento_en<=clock_timestamp()`, item.Evidence[0].ID).Scan(&queued); err != nil || queued != 1 {
 		t.Fatalf("retention cleanup not durable queued=%d err=%v", queued, err)
 	}
 	if err = f.operations.CleanRetiredOnce(h.ctx, 20); err != nil {

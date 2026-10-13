@@ -176,7 +176,7 @@ func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := NewHandler(authStub{}, service, []string{"http://localhost:8081"})
+	h := NewHandler(authStub{}, service, []string{"http://localhost:4200"})
 	unauth := httptest.NewRecorder()
 	h.ServeHTTP(unauth, httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/fixture", nil))
 	if unauth.Code != http.StatusUnauthorized || unauth.Header().Get("X-Prototype-Safety") != booking.SafetyBanner {
@@ -240,7 +240,7 @@ func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	geoHandler := NewHandler(authStub{}, geoService, []string{"http://localhost:8081"})
+	geoHandler := NewHandler(authStub{}, geoService, []string{"http://localhost:4200"})
 	for _, query := range []string{
 		"latitude=-33.456", "latitude=&longitude=-70.6693&radius_km=5", "latitude=norte&longitude=-70.6693&radius_km=5",
 		"latitude=-33.456&longitude=-70.6693&radius_km=", "latitude=-33.456&longitude=-70.6693&radius_km=cinco",

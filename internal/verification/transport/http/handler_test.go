@@ -151,7 +151,7 @@ func newHandler(t *testing.T) http.Handler {
 	if e != nil {
 		t.Fatal(e)
 	}
-	return NewHandler(testAuth{}, svc, []string{"http://localhost:8081"})
+	return NewHandler(testAuth{}, svc, []string{"http://localhost:4200"})
 }
 
 type evidenceRepoFake struct {
@@ -240,7 +240,7 @@ func TestEvidenceAPIIsPrivateOwnerScopedAndExplicitlyCleanable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := NewHandler(testAuth{}, service, []string{"http://localhost:8081"}, evidence)
+	h := NewHandler(testAuth{}, service, []string{"http://localhost:4200"}, evidence)
 	if got := call(h, "GET", "/api/v1/verifications/"+caseID+"/evidence", "", "", "").Code; got != 401 {
 		t.Fatalf("unauthenticated evidence query status=%d", got)
 	}

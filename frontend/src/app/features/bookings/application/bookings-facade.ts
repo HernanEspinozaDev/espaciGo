@@ -1,19 +1,26 @@
 import { DestroyRef, effect, inject, Injectable, signal } from '@angular/core';
 import { Meta, Title } from '@angular/platform-browser';
+import { ActivatedRoute, Router } from '@angular/router';
 import type { LocalBookingReservation } from '../../../core/contracts/models';
 import { IdentitySession } from '../../../core/identity/application/identity-session';
 import { PrivateSessionState } from '../../../core/identity/private-session-state';
 import { BookingApiError, BookingPort } from '../domain/ports/booking-port';
+import { BookingLifecyclePort } from '../domain/ports/booking-lifecycle-port';
 
 @Injectable()
 export class BookingsFacade {
   private readonly api = inject(BookingPort);
+  private readonly lifecycle = inject(BookingLifecyclePort);
   private readonly identity = inject(IdentitySession);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly privateState = inject(PrivateSessionState);
   private readonly title = inject(Title);
   private readonly meta = inject(Meta);
   private readonly destroyRef = inject(DestroyRef);
   private generation = 0;
+  private inviteGeneration = 0;
+  private readonly invitedContractId = this.route.snapshot.queryParamMap.get('contrato');
   private owner = this.identity.session();
   private token = this.identity.accessToken();
   private readonly unregister = this.privateState.register(() => this.clear());
@@ -28,6 +35,7 @@ export class BookingsFacade {
     this.meta.addTag({ name: 'robots', content: 'noindex, nofollow' });
     this.destroyRef.onDestroy(() => {
       this.meta.removeTag("name='robots'");
+      this.inviteGeneration++;
       this.unregister();
     });
     effect(() => {
@@ -37,10 +45,15 @@ export class BookingsFacade {
         this.owner = session;
         this.token = token;
         this.clear();
-        if (session && token) void this.load();
+        if (session && token) {
+          void this.load();
+          if (this.invitedContractId) void this.openContractInvite(this.invitedContractId);
+        }
       }
     });
     void this.load();
+    if (this.owner && this.token && this.invitedContractId)
+      void this.openContractInvite(this.invitedContractId);
   }
 
   async load(): Promise<void> {
@@ -62,6 +75,38 @@ export class BookingsFacade {
     } finally {
       if (this.current(generation, token, session)) this.loading.set(false);
     }
+  }
+
+  private async openContractInvite(contractId: string): Promise<void> {
+    const session = this.identity.session();
+    const token = this.identity.accessToken();
+    if (!session || !token) return;
+    const generation = ++this.inviteGeneration;
+    try {
+      const contract = await this.lifecycle.getContract(token, contractId);
+      if (!this.currentInvite(generation, token, session)) return;
+      await this.router.navigate(['/reservas', contract.data.reservation_id]);
+    } catch (error) {
+      if (error instanceof BookingApiError && error.status === 401) {
+        this.identity.expireIfCurrent(token);
+      } else if (this.currentInvite(generation, token, session)) {
+        // Go intentionally uses the same not-found response for a missing
+        // contract and a contract the authenticated account cannot access.
+        this.error.set('No fue posible abrir esta invitación con esta cuenta.');
+      }
+    }
+  }
+
+  private currentInvite(
+    generation: number,
+    token: string,
+    session: NonNullable<ReturnType<IdentitySession['session']>>,
+  ): boolean {
+    return (
+      generation === this.inviteGeneration &&
+      token === this.identity.accessToken() &&
+      session === this.identity.session()
+    );
   }
 
   participant(reservation: LocalBookingReservation): string {
@@ -112,6 +157,7 @@ export class BookingsFacade {
   }
   private clear(): void {
     this.generation++;
+    this.inviteGeneration++;
     this.reservations.set([]);
     this.error.set('');
     this.loading.set(false);

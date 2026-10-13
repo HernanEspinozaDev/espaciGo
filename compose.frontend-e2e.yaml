@@ -1,7 +1,7 @@
 services:
   backend:
     environment:
-      CORS_ALLOWED_ORIGINS: http://localhost:${LOCAL_MOCK_PORT:-8081},http://127.0.0.1:${LOCAL_MOCK_PORT:-8081},http://localhost:${LOCAL_ANGULAR_PORT:-4200},http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200},http://angular-frontend:4000
+      CORS_ALLOWED_ORIGINS: http://localhost:${LOCAL_ANGULAR_PORT:-4200},http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200},http://angular-frontend:4000
 
   angular-frontend:
     environment:

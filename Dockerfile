@@ -10,21 +10,6 @@ RUN mkdir -p /out \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/api ./cmd/api \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/netprobe ./cmd/netprobe
 
-FROM node:26.7.0-alpine3.24 AS mock-assets-build
-WORKDIR /src
-COPY mock/package.json mock/package-lock.json ./mock/
-RUN cd mock && npm ci --ignore-scripts --no-audit --no-fund
-COPY mock ./mock
-COPY internal/mockserver/static ./internal/mockserver/static
-RUN cd mock && npm run build
-
-FROM go-deps AS mock-build
-WORKDIR /src
-COPY . .
-COPY --from=mock-assets-build /src/internal/mockserver/static/app.js /src/internal/mockserver/static/app.js
-RUN mkdir -p /out \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/mock ./cmd/mock
-
 FROM scratch AS api
 COPY --from=api-build --chown=65532:65532 /out/api /api
 COPY db/migrations /migrations
@@ -32,12 +17,6 @@ COPY planning/openapi.yaml /openapi.yaml
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/api"]
-
-FROM scratch AS mock
-COPY --from=mock-build --chown=65532:65532 /out/mock /mock
-USER 65532:65532
-EXPOSE 8081
-ENTRYPOINT ["/mock"]
 
 FROM scratch AS netprobe
 COPY --from=api-build --chown=65532:65532 /out/netprobe /netprobe

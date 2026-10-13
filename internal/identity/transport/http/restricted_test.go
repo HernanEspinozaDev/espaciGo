@@ -24,7 +24,7 @@ func TestRestrictedAccountMiddlewareAllowsOnlyExistingReservationPaths(t *testin
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	const origin = "http://localhost:8081"
+	const origin = "http://localhost:4200"
 	middleware := RestrictedAccountMiddleware(restrictedTestAuth{principal}, next, origin)
 	for _, tc := range []struct {
 		method, path string

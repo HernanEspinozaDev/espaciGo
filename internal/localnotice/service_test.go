@@ -17,7 +17,7 @@ func TestRenderCloseNoticeEventsAvoidsSecretsAndUsesAuthenticatedContractLink(t 
 		{"pago_arriendo_confirmado", "", []string{"Pago simulado confirmado", "SIN COBRO REAL"}},
 		{"pago_arriendo_rechazado", "", []string{"Pago simulado rechazado", "SIN COBRO REAL"}},
 		{"nueva_reserva_pagada", "", []string{"solicitud sintética", "SIN COBRO REAL"}},
-		{"invitacion_firma", "018f1c0a-1234-4a00-8a00-0123456789ab", []string{"http://127.0.0.1:8081/?contract=018f1c0a-1234-4a00-8a00-0123456789ab", "no autentica"}},
+		{"invitacion_firma", "018f1c0a-1234-4a00-8a00-0123456789ab", []string{"http://127.0.0.1:4200/reservas?contrato=018f1c0a-1234-4a00-8a00-0123456789ab", "no autentica"}},
 		{"contrato_firmado", "", []string{"ambas firmas", "SIN VALIDEZ JURÍDICA"}},
 	}
 	for _, tt := range tests {
@@ -34,5 +34,17 @@ func TestRenderCloseNoticeEventsAvoidsSecretsAndUsesAuthenticatedContractLink(t 
 				}
 			}
 		})
+	}
+}
+
+func TestContractInvitationUsesConfiguredAngularOriginAndInboxRoute(t *testing.T) {
+	const origin = "http://127.0.0.1:4321"
+	const contractID = "018f1c0a-1234-4a00-8a00-0123456789ab"
+	_, body := renderWithFrontendOrigin(Notice{Type: "invitacion_firma", AggregateID: contractID}, origin)
+	if !strings.Contains(body, origin+"/reservas?contrato="+contractID) {
+		t.Fatalf("invitation URL does not use configured Angular inbox route: %q", body)
+	}
+	if strings.Contains(body, "?contract=") || strings.Contains(body, ":8081") {
+		t.Fatalf("invitation URL retains an unsupported mock route: %q", body)
 	}
 }

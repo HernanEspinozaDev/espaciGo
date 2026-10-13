@@ -11,17 +11,18 @@ import (
 )
 
 type config struct {
-	httpAddr       string
-	dbHost         string
-	dbPort         uint16
-	dbName         string
-	dbUser         string
-	dbPassword     string
-	dbSSLMode      string
-	dbSSLRootCert  string
-	dbSSLCert      string
-	dbSSLKey       string
-	allowedOrigins []string
+	httpAddr             string
+	dbHost               string
+	dbPort               uint16
+	dbName               string
+	dbUser               string
+	dbPassword           string
+	dbSSLMode            string
+	dbSSLRootCert        string
+	dbSSLCert            string
+	dbSSLKey             string
+	allowedOrigins       []string
+	frontendPublicOrigin string
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -90,6 +91,13 @@ func loadConfig(getenv func(string) string) (config, error) {
 			return config{}, fmt.Errorf("invalid CORS origin %q", origin)
 		}
 		cfg.allowedOrigins = append(cfg.allowedOrigins, origin)
+	}
+	cfg.frontendPublicOrigin = strings.TrimSpace(getenv("FRONTEND_PUBLIC_ORIGIN"))
+	if cfg.frontendPublicOrigin == "" {
+		cfg.frontendPublicOrigin = "http://127.0.0.1:4200"
+	}
+	if !validOrigin(cfg.frontendPublicOrigin) {
+		return config{}, errors.New("FRONTEND_PUBLIC_ORIGIN must be an HTTP(S) origin without path, query, or fragment")
 	}
 	return cfg, nil
 }

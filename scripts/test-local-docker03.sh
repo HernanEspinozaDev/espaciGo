@@ -11,7 +11,7 @@ export LOCAL_DOCKER03_API_PORT="$API_PORT" LOCAL_DOCKER03_DATABASE_PORT="$DATABA
 export LOCAL_DOCKER03_RESTORE_API_PORT="${LOCAL_DOCKER03_RESTORE_API_PORT:-18282}"
 export LOCAL_DOCKER03_TLS_PROBE_PORT="${LOCAL_DOCKER03_TLS_PROBE_PORT:-18283}"
 export LOCAL_IMAGE_PREFIX="$PROJECT" LOCAL_DOCKER_PROJECT_NAME="$PROJECT"
-export LOCAL_API_PORT="$API_PORT" LOCAL_MOCK_PORT="${LOCAL_DOCKER03_MOCK_PORT:-18281}"
+export LOCAL_API_PORT="$API_PORT" LOCAL_ANGULAR_PORT="${LOCAL_DOCKER03_ANGULAR_PORT:-18284}"
 export LOCAL_MAILPIT_PORT="${LOCAL_DOCKER03_MAILPIT_PORT:-18225}"
 export LOCAL_PGDATA_VOLUME="${LOCAL_DOCKER03_PGDATA_VOLUME:-espacigo_docker03_pgdata_20261011}"
 export LOCAL_DOCKER03_RESTORE_VOLUME="${LOCAL_DOCKER03_RESTORE_VOLUME:-espacigo_docker03_restore_pgdata_20261011}"
@@ -84,7 +84,7 @@ untrusted_probe_id=''
 trap - EXIT
 echo 'PASS: Backend readiness rejects the same PostgreSQL instance when configured with an untrusted CA.'
 
-API_ORIGIN="http://127.0.0.1:$API_PORT" MOCK_ORIGIN="http://127.0.0.1:${LOCAL_DOCKER03_MOCK_PORT:-18281}" python3 "$ROOT_DIR/scripts/verify-http.py"
+API_ORIGIN="http://127.0.0.1:$API_PORT" ANGULAR_ORIGIN="http://127.0.0.1:${LOCAL_DOCKER03_ANGULAR_PORT:-18284}" EXPECTED_API_BASE="http://127.0.0.1:$API_PORT/api/v1" python3 "$ROOT_DIR/scripts/verify-http.py"
 
 # Make the recovery test deterministic: stop the API/workers first, then seed an
 # already-expired durable lease. The row cannot be claimed until this Backend is
@@ -155,9 +155,8 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 curl --fail --silent "$restored_health" >/dev/null
-# Validate the restored API's CORS preflight against the actual published mock
-# origin, not the development/default mock port.
-API_ORIGIN="http://127.0.0.1:${LOCAL_DOCKER03_RESTORE_API_PORT:-18282}" MOCK_ORIGIN="http://127.0.0.1:${LOCAL_DOCKER03_MOCK_PORT:-18281}" python3 "$ROOT_DIR/scripts/verify-http.py"
+# Validate the restored API's CORS preflight from the published Angular origin.
+API_ORIGIN="http://127.0.0.1:${LOCAL_DOCKER03_RESTORE_API_PORT:-18282}" ANGULAR_ORIGIN="http://127.0.0.1:${LOCAL_DOCKER03_ANGULAR_PORT:-18284}" EXPECTED_API_BASE="http://127.0.0.1:${LOCAL_DOCKER03_API_PORT:-18280}/api/v1" python3 "$ROOT_DIR/scripts/verify-http.py"
 cmp <(find "$STATE/private-evidence" -type f -printf '%P %s\n' | sort) <(find "$STATE/restored-private-evidence" -type f -printf '%P %s\n' | sort)
 [[ "$(sha256sum "$STATE/restored-private-evidence/docker03-private-restore-fixture.png" | awk '{print $1}')" == "$private_file_hash" ]]
 [[ -s "$STATE/backups/source.dump" && "$(stat -c %a "$STATE/backups/source.dump")" == 600 ]]

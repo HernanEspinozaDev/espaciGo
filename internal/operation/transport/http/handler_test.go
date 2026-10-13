@@ -20,17 +20,17 @@ func (a testAuthenticator) Authorize(context.Context, identity.Secret, identity.
 }
 
 func TestRecordRejectsClientSelectedKindAndUsesCommonErrorHeaders(t *testing.T) {
-	handler := NewHandler(testAuthenticator{}, nil, []string{"http://localhost:8081"})
+	handler := NewHandler(testAuthenticator{}, nil, []string{"http://localhost:4200"})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/reservations/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/check-in", strings.NewReader(`{"kind":"checkout","comments":"x"}`))
 	request.Header.Set("Authorization", "Bearer test")
-	request.Header.Set("Origin", "http://localhost:8081")
+	request.Header.Set("Origin", "http://localhost:4200")
 	request.Header.Set("Idempotency-Key", "strict-kind-key")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if response.Header().Get("Access-Control-Allow-Origin") != "http://localhost:8081" {
+	if response.Header().Get("Access-Control-Allow-Origin") != "http://localhost:4200" {
 		t.Fatalf("CORS header=%q", response.Header().Get("Access-Control-Allow-Origin"))
 	}
 	if response.Header().Get("X-Request-ID") == "" || !strings.Contains(response.Body.String(), response.Header().Get("X-Request-ID")) {

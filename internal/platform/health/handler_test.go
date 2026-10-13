@@ -77,7 +77,7 @@ func TestReadinessReturnsReadyWhenDatabasePingSucceeds(t *testing.T) {
 }
 
 func TestReadinessCORSAllowsOnlyConfiguredMockOrigin(t *testing.T) {
-	allowedOrigin := "http://localhost:8081"
+	allowedOrigin := "http://localhost:4200"
 	handler := NewHandler(pingFunc(func(context.Context) error { return nil }), []string{allowedOrigin})
 
 	allowed := httptest.NewRecorder()
@@ -101,7 +101,7 @@ func TestReadinessCORSAllowsOnlyConfiguredMockOrigin(t *testing.T) {
 }
 
 func TestReadinessAllowsCorsPreflightFromMock(t *testing.T) {
-	allowedOrigin := "http://localhost:8081"
+	allowedOrigin := "http://localhost:4200"
 	handler := NewHandler(pingFunc(func(context.Context) error { return nil }), []string{allowedOrigin})
 	request := httptest.NewRequest(http.MethodOptions, "/health/ready", nil)
 	request.Header.Set("Origin", allowedOrigin)

@@ -84,6 +84,7 @@ services:
     restart: unless-stopped
     environment:
       HTTP_ADDR: ":8080"
+      FRONTEND_PUBLIC_ORIGIN: http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200}
       LOCAL_AUTH_PROTOTYPE: "1"
       LOCAL_BOOKING_TRIAL: "1"
       LOCAL_BOOKING_QUOTE_TTL: "${LOCAL_BOOKING_QUOTE_TTL:-15m}"
@@ -104,7 +105,7 @@ services:
       DATABASE_SSLROOTCERT: ${DATABASE_SSLROOTCERT:-}
       DATABASE_SSLCERT: ${DATABASE_SSLCERT:-}
       DATABASE_SSLKEY: ${DATABASE_SSLKEY:-}
-      CORS_ALLOWED_ORIGINS: http://localhost:${LOCAL_MOCK_PORT:-8081},http://127.0.0.1:${LOCAL_MOCK_PORT:-8081},http://localhost:${LOCAL_ANGULAR_PORT:-4200},http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200}
+      CORS_ALLOWED_ORIGINS: http://localhost:${LOCAL_ANGULAR_PORT:-4200},http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200},http://angular-frontend:4000
     secrets:
       - runtime_password
       - local_payment_webhook_secret
@@ -140,25 +141,24 @@ services:
       retries: 20
       start_period: 5s
 
-  mock-frontend:
-    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-mock:dev
+  angular-frontend:
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-angular:dev
     build:
-      context: .
+      context: ./frontend
       dockerfile: Dockerfile
-      target: mock
     restart: unless-stopped
     environment:
-      HTTP_ADDR: ":8081"
-      API_READY_URL: http://127.0.0.1:${LOCAL_API_PORT:-8080}/health/ready
+      PORT: "4000"
+      API_PUBLIC_BASE_URL: http://127.0.0.1:${LOCAL_API_PORT:-8080}/api/v1
     depends_on:
       backend:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${LOCAL_MOCK_PORT:-8081}:8081"
+      - "127.0.0.1:${LOCAL_ANGULAR_PORT:-4200}:4000"
     networks:
       - api
     healthcheck:
-      test: ["CMD", "/mock", "check"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 5s
       timeout: 3s
       retries: 20

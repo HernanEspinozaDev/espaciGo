@@ -57,7 +57,7 @@ func TestConversationRoutesAuthenticateValidateAndReturnPlainText(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := NewHandler(authStub{}, bookings, []string{"http://localhost:8081"}, conversations)
+	h := NewHandler(authStub{}, bookings, []string{"http://localhost:4200"}, conversations)
 
 	unauthorized := httptest.NewRecorder()
 	h.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/reservations/"+testReservationID+"/messages", nil))
