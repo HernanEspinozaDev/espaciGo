@@ -176,8 +176,7 @@ curl --silent --show-error --fail --max-time 5 "http://127.0.0.1:${LOCAL_DOCKER_
 curl --silent --show-error --fail --max-time 5 "http://127.0.0.1:${LOCAL_DOCKER_ANGULAR_PORT}/healthz" >/dev/null
 printf 'PASS Angular and Go readiness are HTTP 200 before authenticated E2E\n'
 
-if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
-  LOCAL_FRONTEND_HOST=0.0.0.0 \
+LOCAL_FRONTEND_HOST=0.0.0.0 \
   LOCAL_FRONTEND_PORT="$LOCAL_DOCKER_SSR_PORT" \
   API_INTERNAL_BASE_URL="http://127.0.0.1:${LOCAL_DOCKER_API_PORT}/api/v1" \
   API_PUBLIC_BASE_URL=http://localhost:8080/api/v1 \
@@ -201,8 +200,7 @@ if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
     printf 'Timed out waiting for npm start local SSR smoke server\n' >&2
     exit 1
   fi
-  printf 'PASS npm start local SSR command serves /healthz with explicit local API/origin configuration\n'
-fi
+printf 'PASS npm start local SSR command serves /healthz with explicit local API/origin configuration\n'
 
 python3 "$ROOT_DIR/scripts/provision-fe14-accounts.py" \
   "http://127.0.0.1:${LOCAL_DOCKER_API_PORT}" \
