@@ -2,10 +2,12 @@ import { inject } from '@angular/core';
 import { CanActivateFn, Router, UrlTree } from '@angular/router';
 import { IdentitySession } from './application/identity-session';
 
-export const identityGuard: CanActivateFn = () => {
+export const identityGuard: CanActivateFn = (_route, state) => {
   const identity = inject(IdentitySession);
   const router = inject(Router);
-  return identity.session() ? true : router.createUrlTree(['/acceso']);
+  return identity.session()
+    ? true
+    : router.createUrlTree(['/acceso'], { queryParams: { returnUrl: state.url } });
 };
 
 export const roleGuard: CanActivateFn = (route): boolean | UrlTree => {

@@ -24,6 +24,7 @@ export class IdentityFacade {
   private readonly identity = inject(IdentitySession);
   private readonly privateSessionState = inject(PrivateSessionState);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly meta = inject(Meta);
   private readonly destroyRef = inject(DestroyRef);
   readonly mode = inject(ActivatedRoute).snapshot.data['identityMode'] as IdentityMode;
@@ -151,7 +152,10 @@ export class IdentityFacade {
         () => this.identity.signIn(address, password),
         async () => {
           this.successMessage.set('Sesión confirmada por Go.');
-          await this.router.navigateByUrl('/mi-cuenta');
+          const inviteReturn = safeBookingInvitationReturnUrl(
+            this.route.snapshot.queryParamMap?.get('returnUrl') ?? null,
+          );
+          await this.router.navigateByUrl(inviteReturn ?? '/mi-cuenta');
         },
         (session) =>
           this.identity.session() === session && this.identity.status() === 'authenticated',
@@ -357,6 +361,26 @@ export class IdentityFacade {
       generation === this.requestGeneration &&
       stateGeneration === this.privateSessionState.generation()
     );
+  }
+}
+
+function safeBookingInvitationReturnUrl(value: string | null): string | null {
+  if (!value?.startsWith('/reservas?')) return null;
+  try {
+    const parsed = new URL(value, 'http://localhost');
+    const contractId = parsed.searchParams.get('contrato');
+    if (
+      parsed.origin !== 'http://localhost' ||
+      parsed.pathname !== '/reservas' ||
+      parsed.searchParams.size !== 1 ||
+      !contractId ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(contractId)
+    ) {
+      return null;
+    }
+    return `${parsed.pathname}?contrato=${encodeURIComponent(contractId)}`;
+  } catch {
+    return null;
   }
 }
 

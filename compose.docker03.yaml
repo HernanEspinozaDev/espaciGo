@@ -128,6 +128,7 @@ services:
     restart: unless-stopped
     environment:
       HTTP_ADDR: ":8080"
+      FRONTEND_PUBLIC_ORIGIN: http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200}
       LOCAL_AUTH_PROTOTYPE: "1"
       LOCAL_BOOKING_TRIAL: "1"
       LOCAL_SMTP_ADDR: mailpit:1025

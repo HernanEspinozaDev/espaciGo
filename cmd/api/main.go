@@ -299,7 +299,7 @@ func run() error {
 			mux.Handle("/api/v1/admin/local/review-reports/", reputationHandler)
 			registerReputationReservationRoutes(mux, reputationHandler)
 			mux.Handle("GET /api/v1/local/reputation/me", reputationHandler)
-			localNoticeService, err = localnotice.New(localnoticepg.New(pool), devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}, time.Now)
+			localNoticeService, err = localnotice.NewWithFrontendOrigin(localnoticepg.New(pool), devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}, time.Now, cfg.frontendPublicOrigin)
 			if err != nil {
 				return errors.New("local durable notice initialization failed")
 			}

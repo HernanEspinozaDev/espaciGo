@@ -22,6 +22,7 @@ func TestLoadConfigReadsLocalPasswordFileAndParsesOrigins(t *testing.T) {
 		"DATABASE_USER":          "espacigo_runtime",
 		"DATABASE_PASSWORD_FILE": passwordFile,
 		"CORS_ALLOWED_ORIGINS":   "http://localhost:4200, http://127.0.0.1:4200",
+		"FRONTEND_PUBLIC_ORIGIN": "http://127.0.0.1:4321",
 	}
 
 	cfg, err := loadConfig(func(key string) string { return values[key] })
@@ -37,6 +38,24 @@ func TestLoadConfigReadsLocalPasswordFileAndParsesOrigins(t *testing.T) {
 	}
 	if cfg.dbSSLMode != "disable" {
 		t.Fatalf("default sslmode=%q, want disable", cfg.dbSSLMode)
+	}
+	if cfg.frontendPublicOrigin != "http://127.0.0.1:4321" {
+		t.Fatalf("frontend origin=%q, want configured origin", cfg.frontendPublicOrigin)
+	}
+}
+
+func TestLoadConfigRejectsInvalidFrontendPublicOrigin(t *testing.T) {
+	passwordFile := filepath.Join(t.TempDir(), "runtime-password")
+	if err := os.WriteFile(passwordFile, []byte("synthetic-test-value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{
+		"DATABASE_HOST": "database", "DATABASE_NAME": "espacigo_test",
+		"DATABASE_USER": "espacigo_runtime", "DATABASE_PASSWORD_FILE": passwordFile,
+		"FRONTEND_PUBLIC_ORIGIN": "https://frontend.example.invalid/path",
+	}
+	if _, err := loadConfig(func(key string) string { return values[key] }); err == nil {
+		t.Fatal("loadConfig accepted a frontend URL with a path")
 	}
 }
 

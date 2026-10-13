@@ -52,6 +52,71 @@ func TestRunnerAppliesFromEmptyAndRepeatIsNoop(t *testing.T) {
 	})
 }
 
+func TestUpgradeFromExistingV46BasePreservesMigrationHistory(t *testing.T) {
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		_, sourceFile, _, ok := runtime.Caller(0)
+		if !ok {
+			t.Fatal("resolve migration source path")
+		}
+		sourceDir := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "db", "migrations"))
+		migrations, err := DiscoverMigrations(sourceDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		v46Dir := t.TempDir()
+		for _, migration := range migrations {
+			if migration.Version > 46 {
+				continue
+			}
+			if err := os.WriteFile(filepath.Join(v46Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if migration.Version == 46 && migration.Checksum != "74e70bad1a0fb0d99dfb25a66e5dae169d957c62914e879fda18489501ab5736" {
+				t.Fatalf("V46 differs from the established base migration checksum: %s", migration.Checksum)
+			}
+		}
+		if result, err := Run(ctx, databaseURL, v46Dir); err != nil || len(result.Applied) != 46 || result.Applied[45] != 46 {
+			t.Fatalf("apply established V1-V46 base: applied=%v err=%v", result.Applied, err)
+		}
+
+		conn := connectTestDB(t, ctx, databaseURL)
+		var beforeChecksum, beforeName string
+		var beforeAppliedAt time.Time
+		if err := conn.QueryRow(ctx, `SELECT name,checksum,applied_at FROM public.schema_migrations WHERE version=46`).Scan(&beforeName, &beforeChecksum, &beforeAppliedAt); err != nil {
+			_ = conn.Close(ctx)
+			t.Fatal(err)
+		}
+		if err := conn.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+
+		result, err := Run(ctx, databaseURL, sourceDir)
+		if err != nil {
+			t.Fatalf("upgrade a previously migrated V46 database: %v", err)
+		}
+		if len(result.Applied) != len(migrations)-46 {
+			t.Fatalf("upgrade applied versions %v; want all versions after V46", result.Applied)
+		}
+		conn = connectTestDB(t, ctx, databaseURL)
+		defer conn.Close(ctx)
+		var afterChecksum, afterName string
+		var afterAppliedAt time.Time
+		var historyRows int
+		if err := conn.QueryRow(ctx, `SELECT name,checksum,applied_at FROM public.schema_migrations WHERE version=46`).Scan(&afterName, &afterChecksum, &afterAppliedAt); err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.schema_migrations`).Scan(&historyRows); err != nil {
+			t.Fatal(err)
+		}
+		if beforeName != afterName || beforeChecksum != afterChecksum || !beforeAppliedAt.Equal(afterAppliedAt) {
+			t.Fatalf("upgrade rewrote V46 history: before=(%s,%s,%s) after=(%s,%s,%s)", beforeName, beforeChecksum, beforeAppliedAt, afterName, afterChecksum, afterAppliedAt)
+		}
+		if historyRows != len(migrations) {
+			t.Fatalf("migration history rows=%d, want %d", historyRows, len(migrations))
+		}
+	})
+}
+
 func TestUpgradeFromV46BackfillsVerificationEvidenceFileReferences(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
 		_, sourceFile, _, ok := runtime.Caller(0)

@@ -4,6 +4,8 @@ package localnotice
 import (
 	"context"
 	"errors"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -39,26 +41,35 @@ type Sender interface {
 	SendLocalBookingNotice(context.Context, string, string, string) error
 }
 type Service struct {
-	repo   Repository
-	sender Sender
-	now    func() time.Time
+	repo           Repository
+	sender         Sender
+	now            func() time.Time
+	frontendOrigin string
 }
 
 func New(repo Repository, sender Sender, now func() time.Time) (*Service, error) {
+	return NewWithFrontendOrigin(repo, sender, now, "http://127.0.0.1:4200")
+}
+
+func NewWithFrontendOrigin(repo Repository, sender Sender, now func() time.Time, frontendOrigin string) (*Service, error) {
 	if repo == nil || sender == nil {
 		return nil, ErrInvalid
 	}
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repo: repo, sender: sender, now: now}, nil
+	parsed, err := url.Parse(frontendOrigin)
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || (parsed.Path != "" && parsed.Path != "/") {
+		return nil, ErrInvalid
+	}
+	return &Service{repo: repo, sender: sender, now: now, frontendOrigin: strings.TrimRight(frontendOrigin, "/")}, nil
 }
 func (s *Service) DispatchOne(ctx context.Context) (bool, error) {
 	n, ok, e := s.repo.Claim(ctx, s.now().UTC())
 	if e != nil || !ok {
 		return ok, e
 	}
-	subject, body := render(n)
+	subject, body := renderWithFrontendOrigin(n, s.frontendOrigin)
 	sendErr := s.sender.SendLocalBookingNotice(ctx, n.Email, subject, body)
 	code := ""
 	if sendErr != nil {
@@ -108,6 +119,10 @@ func (s *Service) Purge(ctx context.Context, limit int) (int64, error) {
 	return s.repo.Purge(ctx, s.now().UTC(), limit)
 }
 func render(n Notice) (string, string) {
+	return renderWithFrontendOrigin(n, "http://127.0.0.1:4200")
+}
+
+func renderWithFrontendOrigin(n Notice, frontendOrigin string) (string, string) {
 	switch n.Type {
 	case "cuenta_bloqueada_login":
 		return "Bloqueo temporal de inicio de sesión (ensayo local)", "Se bloqueó temporalmente el inicio de sesión por intentos fallidos. Si no reconoces la actividad, cambia la contraseña. Este aviso no incluye credenciales ni tokens."
@@ -122,7 +137,7 @@ func render(n Notice) (string, string) {
 	case "nueva_reserva_pagada":
 		return "Nueva solicitud pagada (ensayo local)", "Una solicitud sintética quedó pagada y espera tu decisión como anfitrión. Inicia sesión para revisar la reserva. ENSAYO LOCAL — SIN COBRO REAL."
 	case "invitacion_firma":
-		return "Invitación a firmar contrato sintético", "Tienes un contrato sintético pendiente. Inicia sesión y abre la reserva indicada para revisar el documento: " + contractLink(n.AggregateID) + "\nEl enlace no autentica ni concede acceso; el Backend verifica tu participación. ENSAYO SINTÉTICO LOCAL — SIN VALIDEZ JURÍDICA."
+		return "Invitación a firmar contrato sintético", "Tienes un contrato sintético pendiente. Inicia sesión y abre la reserva indicada para revisar el documento: " + contractLink(frontendOrigin, n.AggregateID) + "\nEl enlace no autentica ni concede acceso; el Backend verifica tu participación. ENSAYO SINTÉTICO LOCAL — SIN VALIDEZ JURÍDICA."
 	case "contrato_firmado":
 		return "Contrato sintético firmado por ambas partes", "Ambas firmas sintéticas están completas. Inicia sesión en el prototipo para revisar la reserva y su historial. ENSAYO SINTÉTICO LOCAL — SIN VALIDEZ JURÍDICA."
 	case "checkin_registrado":
@@ -138,9 +153,9 @@ func render(n Notice) (string, string) {
 	}
 }
 
-func contractLink(id string) string {
+func contractLink(origin, id string) string {
 	if len(id) != 36 {
-		return "http://127.0.0.1:4200/"
+		return origin + "/reservas"
 	}
-	return "http://127.0.0.1:4200/?contract=" + id
+	return origin + "/reservas?contrato=" + url.QueryEscape(id)
 }
