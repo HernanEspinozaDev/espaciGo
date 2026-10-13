@@ -11,6 +11,7 @@ if [[ ! "$BASE_PORT" =~ ^[0-9]{4,5}$ ]] || (( BASE_PORT < 1024 || BASE_PORT > 65
   printf 'FE14_PORT_BASE must be an unprivileged TCP port from 1024 to 65000\n' >&2
   exit 2
 fi
+LOCAL_SSR_PORT="$((BASE_PORT + 3))"
 
 export LOCAL_DOCKER_PROJECT_NAME="$PROJECT"
 export LOCAL_DOCKER_IMAGE_PREFIX="$PROJECT"
@@ -19,6 +20,7 @@ export LOCAL_DOCKER_PGDATA_VOLUME="${PROJECT}_pgdata"
 export LOCAL_DOCKER_API_PORT="$BASE_PORT"
 export LOCAL_DOCKER_MAILPIT_PORT="$((BASE_PORT + 1))"
 export LOCAL_DOCKER_ANGULAR_PORT="$((BASE_PORT + 2))"
+export LOCAL_DOCKER_SSR_PORT="$LOCAL_SSR_PORT"
 export LOCAL_COMPOSE_PROJECT_NAME="$PROJECT"
 export LOCAL_IMAGE_PREFIX="$PROJECT"
 export LOCAL_API_PORT="$LOCAL_DOCKER_API_PORT"
@@ -118,6 +120,7 @@ for service in (config.get('services') or {}).values():
 print('PASS resolved FE-14 Compose uses only run-specific named volumes')
 PY
 E2E_PID=""
+LOCAL_SSR_PID=""
 print_sanitized_e2e_log() {
   python3 - "$STATE_DIR/accounts.json" "$STATE_DIR/e2e.log" <<'PY'
 import json, pathlib, re, sys
@@ -134,6 +137,10 @@ cleanup() {
   if [[ -n "$E2E_PID" ]]; then
     kill "$E2E_PID" >/dev/null 2>&1 || true
     wait "$E2E_PID" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$LOCAL_SSR_PID" ]]; then
+    kill -TERM "$LOCAL_SSR_PID" >/dev/null 2>&1 || true
+    wait "$LOCAL_SSR_PID" >/dev/null 2>&1 || true
   fi
   bash "$ROOT_DIR/scripts/local-docker-stack.sh" down-frontend >/dev/null 2>&1 || true
   local -a ids=()
@@ -168,6 +175,34 @@ bash "$ROOT_DIR/scripts/local-docker-stack.sh" up-frontend >"$STATE_DIR/stack-bu
 curl --silent --show-error --fail --max-time 5 "http://127.0.0.1:${LOCAL_DOCKER_API_PORT}/health/ready" >/dev/null
 curl --silent --show-error --fail --max-time 5 "http://127.0.0.1:${LOCAL_DOCKER_ANGULAR_PORT}/healthz" >/dev/null
 printf 'PASS Angular and Go readiness are HTTP 200 before authenticated E2E\n'
+
+if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
+  LOCAL_FRONTEND_HOST=0.0.0.0 \
+  LOCAL_FRONTEND_PORT="$LOCAL_DOCKER_SSR_PORT" \
+  API_INTERNAL_BASE_URL="http://127.0.0.1:${LOCAL_DOCKER_API_PORT}/api/v1" \
+  API_PUBLIC_BASE_URL=http://localhost:8080/api/v1 \
+  FRONTEND_PUBLIC_ORIGIN="http://127.0.0.1:${LOCAL_DOCKER_SSR_PORT}" \
+  node "$ROOT_DIR/frontend/tooling/start-local-ssr.mjs" >"$STATE_DIR/local-ssr.log" 2>&1 &
+  LOCAL_SSR_PID=$!
+  local_ssr_ready=0
+  for _ in $(seq 1 120); do
+    if curl --silent --fail --max-time 2 "http://127.0.0.1:${LOCAL_DOCKER_SSR_PORT}/healthz" >/dev/null; then
+      local_ssr_ready=1
+      break
+    fi
+    if ! kill -0 "$LOCAL_SSR_PID" >/dev/null 2>&1; then
+      tail -n 100 "$STATE_DIR/local-ssr.log" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  if (( local_ssr_ready != 1 )); then
+    tail -n 100 "$STATE_DIR/local-ssr.log" >&2
+    printf 'Timed out waiting for npm start local SSR smoke server\n' >&2
+    exit 1
+  fi
+  printf 'PASS npm start local SSR command serves /healthz with explicit local API/origin configuration\n'
+fi
 
 python3 "$ROOT_DIR/scripts/provision-fe14-accounts.py" \
   "http://127.0.0.1:${LOCAL_DOCKER_API_PORT}" \

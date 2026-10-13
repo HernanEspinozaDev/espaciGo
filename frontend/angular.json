@@ -67,6 +67,9 @@
         },
         "serve": {
           "builder": "@angular/build:dev-server",
+          "options": {
+            "allowedHosts": ["host.docker.internal"]
+          },
           "configurations": {
             "production": {
               "buildTarget": "frontend:build:production"

@@ -28,6 +28,8 @@ services:
       FE14_RESULTS_DIR: /run/fe14/results/playwright
       FE14_HEAD: ${FE14_HEAD:-unknown}
       FE14_PUBLIC_ORIGIN: http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200}
+      FE14_LOCAL_SSR_ORIGIN: http://host.docker.internal:${LOCAL_DOCKER_SSR_PORT:-4203}
+      FE14_LOCAL_SSR_CANONICAL_ORIGIN: http://127.0.0.1:${LOCAL_DOCKER_SSR_PORT:-4203}
       PLAYWRIGHT_INSECURE_ORIGINS: http://angular-frontend:4000
     volumes:
       - type: bind
@@ -50,3 +52,5 @@ services:
     networks:
       - api
       - mail
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -621,6 +621,41 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
   expect(socialImageResponse.status()).toBe(200);
   expect(socialImageResponse.headers()['content-type']).toContain('image/png');
   expect(socialImageResponse.headers()['cache-control']).toBe('no-store');
+
+  // Exercise the documented `npm start` path against the same live Go fixture,
+  // using its local development config and explicit SSR-only overrides.
+  const localSsr = process.env.FE14_LOCAL_SSR_ORIGIN;
+  const localCanonicalOrigin = process.env.FE14_LOCAL_SSR_CANONICAL_ORIGIN;
+  expect(localSsr).toBeTruthy();
+  expect(localCanonicalOrigin).toBeTruthy();
+  const localConfigResponse = await visitor.request.get(`${localSsr}/config.json`);
+  expect(localConfigResponse.status()).toBe(200);
+  expect(await localConfigResponse.json()).toEqual({
+    apiBaseUrl: 'http://localhost:8080/api/v1',
+    siteOrigin: 'http://localhost:4200',
+  });
+  const localSpoofedHost = await visitor.request.get(`${localSsr}/explorar`, {
+    headers: { host: 'host-header-attacker.invalid' },
+  });
+  expect(localSpoofedHost.status()).toBe(403);
+  const localCatalogResponse = await visitor.request.get(`${localSsr}/explorar`);
+  expect(localCatalogResponse.status()).toBe(200);
+  expect(await localCatalogResponse.text()).toContain(title);
+  const localDetailResponse = await visitor.request.get(`${localSsr}/espacios/${draft.id}`);
+  expect(localDetailResponse.status()).toBe(200);
+  const localDetailHtml = await localDetailResponse.text();
+  expect(localDetailHtml).toContain(title);
+  expect(localDetailHtml).toContain(`<link rel="canonical" href="${localCanonicalOrigin}/espacios/${draft.id}">`);
+  expect(localDetailHtml).toContain(`${localCanonicalOrigin}/public/spaces/${draft.id}/images/${photo2Id}`);
+  expect(localDetailHtml).not.toContain('http://backend:8080');
+  expect(localDetailHtml).not.toContain('Dirección confidencial MPV2-03');
+  const localImage = await visitor.request.get(
+    `${localSsr}/public/spaces/${draft.id}/images/${photo2Id}`,
+  );
+  expect(localImage.status()).toBe(200);
+  expect(localImage.headers()['content-type']).toContain('image/png');
+  expect(localImage.headers()['cache-control']).toBe('no-store');
+
   await expect(visitor.getByRole('heading', { name: title })).toBeVisible();
   await expect(visitor.getByText(/Dirección confidencial MPV2-03/)).toHaveCount(0);
   await expect(visitor.getByRole('img',{name:'Fotografía de portada del espacio'})).toBeVisible();
