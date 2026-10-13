@@ -5,7 +5,7 @@
 ## Identificación
 
 - Base probada: `a285d4531279a8f93738712247f4f5c80cdeb9f6` (merge de MPV2-06, PR #300).
-- HEAD de código probado: `9b64704ac1d9042b2f6a5decb6ada4c0b87d917f`.
+- HEAD de código probado con la corrección de desarrollo local: `79fd5b79006e632108e7f690ce7195456e382c6d`.
 - Rama: `codex/marketplace/feature/mpv2-07-public-ssr-seo`.
 - Cambios de Go/OpenAPI y migraciones: ninguno; V1–V56 se conservan.
 
@@ -15,11 +15,11 @@
 - `npm run lint` — aprobado, incluidas reglas arquitectónicas (80 archivos de producción).
 - `npm run api:check` — aprobado.
 - `npm run build` — aprobado; conserva tres rutas informativas prerenderizadas.
-- FE-14 conectado: `FE14_PUBLIC_ONLY=1 FE14_EVIDENCE_OUTPUT_DIR=planning/marketplace_publico_v2/evidencia/mpv2_07 bash scripts/test-frontend-e2e.sh` — 7/7 recorridos aprobados contra Angular, Go, PostgreSQL y Mailpit del stack desechable.
+- FE-14 conectado: `FE14_PUBLIC_ONLY=1 FE14_EVIDENCE_OUTPUT_DIR=planning/marketplace_publico_v2/evidencia/mpv2_07 bash scripts/test-frontend-e2e.sh` — 7/7 recorridos aprobados contra Angular, Go, PostgreSQL y Mailpit del stack desechable. El recorrido MPV2-04 también arranca el comando documentado `npm start` contra la misma base y prueba el `/config.json` real, catálogo, ficha, imagen PNG, Host manipulado y origen canónico fijo con variables SSR explícitas.
 
-El E2E comprobó HTML de catálogo y ficha sin JavaScript, metadatos de origen configurado, rechazo del Host manipulado, DTO público sin credenciales/datos privados, detalle inexistente 404, sitemap frente a la página devuelta por Go, rutas privadas `noindex`/`no-store`, solicitudes concurrentes sin cruce de datos, hidratación sin volver a descargar el catálogo, y lectura/retirada de foto pública. Durante la prueba se detuvo Go: SSR y sitemap devolvieron 503; al restaurarlo, SSR volvió a 200. Se retiró el proyecto y volumen propios del ensayo; no se usó ni alteró `espacigo_pgdata`, y las credenciales sintéticas temporales se eliminaron.
+El E2E comprobó HTML de catálogo y ficha sin JavaScript, metadatos de origen configurado, rechazo del Host manipulado, DTO público sin credenciales/datos privados, detalle inexistente 404, sitemap frente a la página devuelta por Go, rutas privadas `noindex`/`no-store`, solicitudes concurrentes sin cruce de datos, hidratación sin volver a descargar el catálogo, y lectura/retirada de foto pública. El smoke adicional de `npm start` usó el asset `frontend/public/config.json` servido realmente y variables solo para el SSR (`API_INTERNAL_BASE_URL`, `API_PUBLIC_BASE_URL`, `FRONTEND_PUBLIC_ORIGIN`); la imagen social y su fetch pasaron por el servidor local Angular contra Go. Durante la prueba se detuvo Go: SSR y sitemap devolvieron 503; al restaurarlo, SSR volvió a 200. Se retiró el proyecto y volumen propios del ensayo; no se usó ni alteró `espacigo_pgdata`, y las credenciales sintéticas temporales se eliminaron.
 
-Las pruebas unitarias, lint, `api:check` y build se ejecutaron antes de crear el commit de código, con contenido idéntico al HEAD descrito; el FE-14 completo se repitió después del commit y las capturas se generaron usando ese SHA.
+Las pruebas unitarias, lint, `api:check`, build y FE-14 completo se ejecutaron desde el HEAD de código descrito. Los JSON de las cuatro capturas registran ese SHA.
 
 ## Capturas
 
