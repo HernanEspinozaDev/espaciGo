@@ -956,10 +956,10 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
 
   async setPhotoPublic(photoId:string,enabled:boolean):Promise<void>{
     const context=this.context();const space=this.selectedSpace();if(!context||!space)return;
-    const revision=++this.resourceGeneration;this.saving.set(true);this.error.set('');
-    try{const updated=await this.api.setPhotoPublic(context.token,space.id,photoId,enabled);if(!this.contextCurrent(context)||revision!==this.resourceGeneration||this.selectedSpace()?.id!==space.id)return;this.gallery.update(items=>items.map(item=>item.id===photoId?updated:item));}
-    catch{this.error.set('No se pudo actualizar la visibilidad de la imagen.');}
-    finally{this.saving.set(false);}
+    const revision=++this.resourceGeneration;const operation=this.beginSaving();this.error.set('');
+    try{const updated=await this.api.setPhotoPublic(context.token,space.id,photoId,enabled);if(!this.writeCurrent(context,revision,space.id))return;this.gallery.update(items=>items.map(item=>item.id===photoId?updated:item));}
+    catch(error){this.fail(error,context,this.writeCurrent(context,revision,space.id));}
+    finally{this.finishSaving(operation);}
   }
 
   setRateUnit(unit: 'hora' | 'dia' | 'mes'): void {

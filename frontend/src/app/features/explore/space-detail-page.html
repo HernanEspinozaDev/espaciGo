@@ -5,7 +5,12 @@
   @if(space();as item){
     <div class="detail-grid">
       <article class="space-detail panel">
-        @if(item.images?.length){<div class="cover"><img [src]="publicImageUrl(item.images[0].image_id)" alt="Fotografía pública del espacio" loading="lazy" /></div>}@else{<div class="cover" aria-label="Fotografía no disponible"><span>Fotografía no disponible</span><b aria-hidden="true">✳</b></div>}
+        @if(item.images?.length){<div class="gallery" aria-label="Galería pública del espacio">
+          @for(image of orderedImages(item.images);track image.image_id;let index=$index){
+            @if(imageAvailable(item.space_id,image.image_id)){<button class="gallery-image" [class.cover-image]="index===0" [class.selected-image]="imageSelected(item.space_id,image.image_id)" type="button" [attr.aria-pressed]="imageSelected(item.space_id,image.image_id)" [attr.aria-label]="(image.is_cover?'Portada':'Fotografía '+(index+1))+', seleccionar fotografía'" (click)="selectImage(item.space_id,image.image_id)"><img [src]="publicImageUrl(image.image_id)" [alt]="image.is_cover?'Fotografía de portada del espacio':'Fotografía pública '+(index+1)" loading="lazy" (error)="imageFailed(item.space_id,image.image_id,spaceGeneration())" /><span class="gallery-caption">{{image.is_cover?'Portada':'Fotografía '+(index+1)}}</span></button>}
+          }
+          @if(!hasAvailableImage(item.space_id,item.images)){<div class="cover" aria-label="Fotografías no disponibles"><span>Fotografías no disponibles</span><b aria-hidden="true">✳</b></div>}
+        </div>}@else{<div class="cover" aria-label="Fotografía no disponible"><span>Fotografía no disponible</span><b aria-hidden="true">✳</b></div>}
         <div class="copy"><p class="eyebrow">{{item.category_name}} · {{item.area_m2}} m²</p><h1>{{item.title}}</h1>
           <p class="description">{{item.description}}</p><div class="facts"><p><span>Tarifa base</span><strong>{{formatClp(item.base_price_clp)}} / {{item.rate_unit}}</strong></p><p><span>Superficie</span><strong>{{item.area_m2}} m²</strong></p></div>
           @if(item.usage_rules){<h2>Reglas de uso</h2><p>{{item.usage_rules}}</p>}

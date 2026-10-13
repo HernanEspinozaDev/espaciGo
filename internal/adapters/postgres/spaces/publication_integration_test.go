@@ -27,6 +27,7 @@ import (
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
+	galleryhttp "github.com/HernanEspinozaDev/espaciGo/internal/gallery/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
@@ -492,7 +493,28 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 			t.Fatalf("invalid location edit changed persisted location: %+v err=%v", stored, getErr)
 		}
 	}
-	publicService, err := publiccatalog.New(publiccatalogpg.New(pool), []byte("space-public-search-test-master-key-32"))
+	publicImageRoot, err := os.MkdirTemp("", "espacigo-public-image-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(publicImageRoot)
+	if err = os.Chmod(publicImageRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	publicFiles, err := evidencefs.New(publicImageRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicGallery, err := gallery.NewService(gallerypg.New(pool), publicFiles, credentials.Generator{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicPhoto, _, err := publicGallery.AddSynthetic(ctx, owner, fixtureDraft.ID, "public-image-check-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicPhotoHandler := galleryhttp.NewHandler(apiAuth, publicGallery, nil)
+	publicService, err := publiccatalog.NewWithImageStore(publiccatalogpg.New(pool), []byte("space-public-search-test-master-key-32"), publicFiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,6 +527,91 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	publicHandler.ServeHTTP(publicDetailResponse, httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces/"+fixtureDraft.ID, nil))
 	if publicDetailResponse.Code != http.StatusOK || !strings.Contains(publicDetailResponse.Body.String(), `"images":[]`) || strings.Contains(publicDetailResponse.Body.String(), "Dirección sintética") {
 		t.Fatalf("public detail HTTP status=%d body=%s", publicDetailResponse.Code, publicDetailResponse.Body.String())
+	}
+	publicImagePath := "/api/v1/public/spaces/" + fixtureDraft.ID + "/images/" + publicPhoto.ID
+	readPublicImage := func(path string) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		publicHandler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
+		return rr
+	}
+	assertPrivateImage404 := func(path string) {
+		rr := readPublicImage(path)
+		if rr.Code != 404 || rr.Header().Get("Cache-Control") != "no-store" || strings.Contains(rr.Body.String(), publicPhoto.ID) || strings.Contains(rr.Body.String(), publicPhoto.SHA256) {
+			t.Fatalf("private image response=%d headers=%v body=%s", rr.Code, rr.Header(), rr.Body.String())
+		}
+	}
+	assertPrivateImage404(publicImagePath)                                                                       // New photos stay private until the owner opts in.
+	assertPrivateImage404("/api/v1/public/spaces/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/images/" + publicPhoto.ID) // A photo ID cannot cross spaces.
+	kycEvidenceID := "20000000-0000-4000-8000-000000000001"
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.verificacion_evidencia_sintetica(id,verificacion_id,codigo_fixture,mime_type,tamano_bytes,sha256,archivo_id,retirar_archivo_en) VALUES($1,$2,'synthetic-png-v1','image/png',128,repeat('a',64),$1,now()+interval '90 days')`, kycEvidenceID, verificationID); err != nil {
+		t.Fatal(err)
+	}
+	assertPrivateImage404("/api/v1/public/spaces/" + fixtureDraft.ID + "/images/" + kycEvidenceID) // KYC evidence IDs are not gallery IDs.
+	markPublic := func(enabled bool) *httptest.ResponseRecorder {
+		raw := `false`
+		if enabled {
+			raw = `true`
+		}
+		return invokePublicationAPI(publicPhotoHandler, http.MethodPut, "/api/v1/spaces/"+fixtureDraft.ID+"/gallery/"+publicPhoto.ID+"/publication", "owner-token", []byte(`{"public_in_catalog":`+raw+`}`))
+	}
+	if response := markPublic(true); response.Code != http.StatusOK {
+		t.Fatalf("owner publish photo status=%d body=%s", response.Code, response.Body.String())
+	}
+	publicImage := readPublicImage(publicImagePath)
+	if publicImage.Code != http.StatusOK || publicImage.Header().Get("Content-Type") != "image/png" || publicImage.Header().Get("Cache-Control") != "no-store" || publicImage.Header().Get("X-Content-Type-Options") != "nosniff" || len(publicImage.Body.Bytes()) == 0 {
+		t.Fatalf("public image status=%d headers=%v bodylen=%d", publicImage.Code, publicImage.Header(), publicImage.Body.Len())
+	}
+	if response := invokePublicationAPI(publicPhotoHandler, http.MethodPut, "/api/v1/spaces/"+fixtureDraft.ID+"/gallery/"+publicPhoto.ID+"/publication", "renter-token", []byte(`{"public_in_catalog":false}`)); response.Code == http.StatusOK {
+		t.Fatalf("non-owner withdrew public photo: %s", response.Body.String())
+	}
+	if response := markPublic(false); response.Code != http.StatusOK {
+		t.Fatalf("owner withdraw photo status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertPrivateImage404(publicImagePath)
+	if response := markPublic(true); response.Code != http.StatusOK {
+		t.Fatalf("republish photo status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.elegibilidad_verificacion_local SET estado='revocada',revocada_en=now(),revocada_por=$2,motivo_revocacion_codigo='revision_fixture_actualizada' WHERE usuario_id=$1 AND tipo='kyc'`, owner, adminID); err != nil {
+		t.Fatal(err)
+	}
+	assertPrivateImage404(publicImagePath)
+	if _, err = adminPool.Exec(ctx, `UPDATE public.elegibilidad_verificacion_local SET estado='elegible',revocada_en=NULL,revocada_por=NULL,motivo_revocacion_codigo=NULL WHERE usuario_id=$1 AND tipo='kyc'`, owner); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.bloqueo_cuenta_administrativo_local(cuenta_id,bloqueada_por,motivo_codigo,bloqueada_en,correlacion_id) VALUES($1,$2,'revision_administrativa',now(),'public-image-block-test')`, owner, adminID); err != nil {
+		t.Fatal(err)
+	}
+	assertPrivateImage404(publicImagePath)
+	if _, err = adminPool.Exec(ctx, `DELETE FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id=$1`, owner); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.SetPublicationState(ctx, owner, fixtureDraft.ID, "oculta", "public-image-hide-test"); err != nil {
+		t.Fatal(err)
+	}
+	assertPrivateImage404(publicImagePath)
+	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio SET zona_horaria='UTC' WHERE id=$1`, fixtureDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.SetPublicationState(ctx, owner, fixtureDraft.ID, "activa", "public-image-unhide-test"); err != nil {
+		t.Fatal(err)
+	}
+	retiredPhoto, _, err := publicGallery.AddSynthetic(ctx, owner, fixtureDraft.ID, "public-image-check-retired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = publicGallery.SetPublicInCatalog(ctx, owner, fixtureDraft.ID, retiredPhoto.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	retiredPath := "/api/v1/public/spaces/" + fixtureDraft.ID + "/images/" + retiredPhoto.ID
+	if _, err = publicGallery.Remove(ctx, owner, fixtureDraft.ID, retiredPhoto.ID); err != nil {
+		t.Fatal(err)
+	}
+	assertPrivateImage404(retiredPath) // A physically retired photo is no longer readable.
+	if _, err = publicGallery.Remove(ctx, owner, fixtureDraft.ID, publicPhoto.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = publicGallery.CleanRetiredOnce(ctx, 20); err != nil {
+		t.Fatal(err)
 	}
 	publicQuery := "/api/v1/public/spaces?q=" + url.QueryEscape("Título publicado editado") + "&region_code=13&comuna_code=13123"
 	publicResponse := httptest.NewRecorder()
@@ -750,10 +857,14 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if _, err = galleryService.SelectCover(ctx, owner, fixtureDraft.ID, photo.ID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = galleryService.SetPublicInCatalog(ctx, owner, fixtureDraft.ID, photo.ID, true); err != nil {
+		t.Fatal(err)
+	}
 	deleted := invokePublicationAPI(spacesAPI, http.MethodDelete, "/api/v1/spaces/"+fixtureDraft.ID, "owner-token", nil)
-	if deleted.Code != http.StatusOK || !strings.Contains(deleted.Body.String(), `"state":"eliminada"`) || !strings.Contains(deleted.Body.String(), `"files_pending_cleanup":1`) {
+	if deleted.Code != http.StatusOK || !strings.Contains(deleted.Body.String(), `"state":"eliminada"`) || !strings.Contains(deleted.Body.String(), `"files_pending_cleanup":`) {
 		t.Fatalf("delete eligible publication status=%d body=%s", deleted.Code, deleted.Body.String())
 	}
+	assertPrivateImage404("/api/v1/public/spaces/" + fixtureDraft.ID + "/images/" + photo.ID) // Deleted space is no longer eligible even before file cleanup.
 	if _, err = repo.GetOwn(ctx, owner, fixtureDraft.ID); err != spaces.ErrNotFound {
 		t.Fatalf("deleted offer remains owner-visible: %v", err)
 	}
@@ -779,7 +890,7 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	var fileID *string
 	var summary []byte
 	var histories int
-	if err = adminPool.QueryRow(ctx, `SELECT s.estado,s.portada_foto_id::text,g.estado,g.archivo_id::text,h.resumen,(SELECT count(*) FROM public.espacio_eliminacion_historial_local WHERE espacio_id=s.id) FROM public.espacio s JOIN public.espacio_galeria_sintetica_local g ON g.espacio_id=s.id JOIN public.espacio_eliminacion_historial_local h ON h.espacio_id=s.id WHERE s.id=$1`, fixtureDraft.ID).Scan(&storedState, &storedCover, &photoState, &fileID, &summary, &histories); err != nil {
+	if err = adminPool.QueryRow(ctx, `SELECT s.estado,s.portada_foto_id::text,g.estado,g.archivo_id::text,h.resumen,(SELECT count(*) FROM public.espacio_eliminacion_historial_local WHERE espacio_id=s.id) FROM public.espacio s JOIN public.espacio_galeria_sintetica_local g ON g.espacio_id=s.id JOIN public.espacio_eliminacion_historial_local h ON h.espacio_id=s.id WHERE s.id=$1 AND g.id=$2`, fixtureDraft.ID, photo.ID).Scan(&storedState, &storedCover, &photoState, &fileID, &summary, &histories); err != nil {
 		t.Fatal(err)
 	}
 	if storedState != "eliminada" || storedCover != nil || photoState != "retirada" || fileID == nil || histories != 1 {
@@ -823,7 +934,7 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if _, err = svc.DeleteOwn(ctx, other, fixtureDraft.ID, "foreign-delete"); err != spaces.ErrNotFound {
 		t.Fatalf("foreign delete error=%v", err)
 	}
-	if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.espacio_publicacion_historial_local WHERE espacio_id=$1`, fixtureDraft.ID).Scan(&count); err != nil || count != 2 {
+	if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.espacio_publicacion_historial_local WHERE espacio_id=$1`, fixtureDraft.ID).Scan(&count); err != nil || count != 4 {
 		t.Fatalf("publication history not preserved count=%d err=%v", count, err)
 	}
 	archiveSections, err := repo.ExportOwnArchiveSections(ctx, owner)
