@@ -1,12 +1,13 @@
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { M04Local } from '../../../../generated/api/sdk.gen';
+import { M04Local, M06Local } from '../../../../generated/api/sdk.gen';
 import { ApiRuntimeConfig } from '../../../core/api-runtime-config';
 import type { SpaceAttributeProfile, SpaceCategoryList } from '../../../core/contracts/models';
 import { parseExactClpJson } from '../../../core/exact-json';
 import {
   AvailabilityOptions,
+  BusinessClock,
   CatalogEnvelope,
   CatalogFilters,
   CatalogItem,
@@ -21,6 +22,7 @@ export class ExploreApi extends ExplorePort {
   private readonly http = inject(HttpClient);
   private readonly runtime = inject(ApiRuntimeConfig);
   private readonly categoriesClient = inject(M04Local);
+  private readonly bookingClient = inject(M06Local);
 
   async search(token: string, filters: CatalogFilters): Promise<CatalogEnvelope> {
     const paramsObject: Record<string, string | number> = {};
@@ -91,6 +93,15 @@ export class ExploreApi extends ExplorePort {
     return (await this.profile(token, categoryCode)).schema_version;
   }
 
+  async businessClock(token: string): Promise<BusinessClock> {
+    const result = await this.bookingClient.getLocalBusinessClock({
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (result.error || !result.data)
+      throw new ExploreApiError('No fue posible consultar la hora de Go.', result.response?.status);
+    return result.data as BusinessClock;
+  }
+
   async availability(
     token: string,
     spaceId: string,
@@ -146,6 +157,7 @@ export {
   ExploreApiError,
   type AvailabilityInterval,
   type AvailabilityOptions,
+  type BusinessClock,
   type BookingQuote,
   type CatalogEnvelope,
   type CatalogFilters,

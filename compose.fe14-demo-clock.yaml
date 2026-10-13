@@ -1,0 +1,10 @@
+# Loaded only by scripts/local-docker-stack.sh for the isolated FE-14 project.
+services:
+  backend:
+    environment:
+      LOCAL_DEMO_BUSINESS_CLOCK_FILE: /run/fe14-demo/business-clock.json
+    volumes:
+      - type: bind
+        source: ${LOCAL_FE14_BUSINESS_CLOCK_HOST:?initialize with scripts/fe14-business-clock set}
+        target: /run/fe14-demo
+        read_only: true

@@ -1,8 +1,8 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
-import { M04Local } from '../../../generated/api/sdk.gen';
+import { describe, expect, it, vi } from 'vitest';
+import { M04Local, M06Local } from '../../../generated/api/sdk.gen';
 import { ApiRuntimeConfig } from '../../core/api-runtime-config';
 import { provideFrontendPorts } from '../../frontend.providers';
 import {
@@ -99,6 +99,28 @@ describe('parseExactClpJson', () => {
     await expect(api.profile('expired', 'oficina')).rejects.toMatchObject({
       name: 'ExploreApiError',
       status: 401,
+    });
+    TestBed.resetTestingModule();
+  });
+
+  it('reads Go business time through the generated authenticated operation', async () => {
+    const getLocalBusinessClock = vi.fn().mockResolvedValue({
+      data: { data: { now: '2026-10-13T05:00:00Z' } },
+      response: { status: 200 },
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        { provide: M06Local, useValue: { getLocalBusinessClock } },
+      ],
+    });
+    const api = TestBed.inject(ExploreApi);
+    await expect(api.businessClock('bearer-synthetic')).resolves.toEqual({
+      data: { now: '2026-10-13T05:00:00Z' },
+    });
+    expect(getLocalBusinessClock).toHaveBeenCalledWith({
+      headers: { Authorization: 'Bearer bearer-synthetic' },
     });
     TestBed.resetTestingModule();
   });

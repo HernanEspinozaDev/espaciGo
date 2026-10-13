@@ -94,6 +94,36 @@ Todas las medidas son CSS; el test comprobó que el ancho del documento no exced
 
 **Estado de aceptación:** evidencias y límites listos para revisión del usuario. La secuencia de operación posterior a la firma está pendiente porque el calendario de Go no habilita un intervalo local hoy; no se reemplaza con mocks ni con manipulación de fechas. No se declara FE-14 aceptado. El mock sigue presente y FE-15 no comenzó.
 
+## Reloj de negocio manual y operación completa — 2026-10-13
+
+Este seguimiento sustituye el límite temporal del recorrido anterior: el HTTP 409 anterior ocurrió antes del día IANA de check-in; no se cambió la fecha de reserva. Se añadió un reloj manual que aprovecha la inyección de `now` de los servicios y solo se activa en el compose desechable de FE-14. Al iniciar sin `LOCAL_DEMO_BUSINESS_CLOCK_FILE`, `businessclock.FromEnv` retorna `time.Now`; para demo exige también `LOCAL_BOOKING_TRIAL=1` y el path exacto `/run/fe14-demo/business-clock.json` (rechaza rutas alternativas y traversal). El override `compose.fe14-demo-clock.yaml` no pertenece al stack normal. `scripts/fe14-business-clock set RFC3339`, `advance DURATION` y `show` reemplazan atómicamente el archivo en el directorio dedicado montado al contenedor; la API ve el valor nuevo en caliente. El comando no usa `date`, privilegios ni cambios de reloj del host, y el modo de reloj no altera las reglas de negocio.
+
+| Hora local lógica | UTC | Resultado Angular/Go |
+| --- | --- | --- |
+| 2026-10-13 02:00:00 −03:00 | 05:00Z | Ambas firmas confirmadas; check-in por Angular HTTP 201; Go registró `registrada`. |
+| 2026-10-13 03:00:00 −03:00 | 06:00Z | Check-out Angular HTTP 201; recepción del anfitrión Angular HTTP 201 y `recepcion_conforme` confirmado por Go. Se solicitó liquidar antes del plazo: HTTP 409. |
+| 2026-10-14 03:00:00 −03:00 | 06:00Z | Al cumplirse checkout + 24 h, liberación de garantía por Angular HTTP 202. El primer intento de liquidación fue incierto; Angular concilió conservando el intento y Go respondió HTTP 200 con estado `liquidada` por CLP 12.000. |
+| 2026-10-14 03:30:00 −03:00 | 06:30Z | Prueba posterior del reloj en caliente: Go autenticado devolvió el nuevo instante sin reiniciar backend; Angular usó fecha `2026-10-14` en el selector de horarios del espacio `America/Santiago`. |
+
+El reloj lógico llega a reserva, contrato, operación, disputa y adaptador de pago fake a través de las dependencias existentes. Se revisaron fuentes SQL del corte: `now()` en `espacio_horario_semanal.actualizado_en` y `operacion_arriendo_evidencia_ensayo_local.archivo_retirado_en` solo registra escritura/limpieza, no decide elegibilidad de horario, operación ni liquidación; `clock_timestamp()` en retención de auditoría aplica una expiración técnica. La agenda/reintento de limpieza de evidencia y sus esperas usan hora real, separadas del timestamp del evento de operación. Autenticación y vencimiento de sesión conservan `time.Now`; límites, backoff y timeouts de transporte/DB siguen reales. Los fallbacks `time.Now` de adaptadores se usan si se construyen sin reloj y no reemplazan la inyección de `businessNow` en el API. También se dejaron en reloj real los metadatos de otros dominios que no participan en esta demostración (p. ej. cuenta, KYC, galería, conversación y avisos). Ningún timestamp se actualizó manualmente en SQL para producir los resultados.
+
+### Capturas de Chromium de la secuencia temporal
+
+Son JPEG reales de la vista conectada al stack Go sintético; las dimensiones son CSS de la imagen full-page. SHA-256 se calcula sobre los archivos publicados aquí.
+
+| Estado | Viewport o captura | Documento/JPEG | SHA-256 |
+| --- | ---: | ---: | --- |
+| Detalle firmado listo para check-in | móvil 390×844 | 390×4688 | `86c2e4bfc6290409d547fae3d696f1069fb077aa80e42e6dbe73bb1d33ff5ebf` |
+| “Hoy” leído de Go (`2026-10-14`) | móvil 390×844 | 390×2073 | `bfcaf05b0624eb3c4769b5e9158f1197bca8b802002fb015336c5bc0a6f4ff00` |
+| Check-out confirmado | escritorio 1365×900 | 1365×4060 | `2a67d10e009286d4271dc9fda42c79d4306e2099902619c13a70721910cb29a9` |
+| Recepción confirmada | móvil 390×844 | 390×4512 | `4c6365ebb2175ad52691b67e894f4d25da7d22251769e657c39549135e0ec113` |
+| Rechazo antes de 24 h | escritorio 1365×900 | 1365×2209 | `2f6625079580187c491af0ba8f38dce4de72473f2552c1ba2703e082ee80ec49` |
+| Liquidación fake confirmada | escritorio 1365×900 | 1365×2144 | `bff8f56997a551ea416b8934fc278c4cb8438e293d8c977c0fdff4d73dd8b289` |
+
+Los JSON completos de prueba están en `.local/testing/fe14-demo/artifacts/`, excluidos localmente; el artefacto de aceptación público omite cuentas, tokens, logs y archivos privados. La imagen Android hoy muestra la fecha devuelta por Go y la zona, no datos de identidad. Resultados estructurados no secretos: `fe14_manual_clock_predeadline_results.json` (409 antes del plazo, check-out y recepción 201) y `fe14_manual_clock_results.json` (plazo, operación incierta y conciliación HTTP 200 con `liquidada`). La configuración de reloj terminó en 2026-10-14T06:30:00Z solo después de la liquidación, para verificar propagación en caliente.
+
+**Gates del árbol actualizado:** Go: paquete del reloj, pago fake, HTTP booking y servicios de reserva/contrato/operación/disputa/reclamo: pasan; Angular: 180 pruebas en 32 archivos; generación OpenAPI/`api:check`: pasa con `ng serve` detenido; `npm run build`: pasa con tres rutas prerenderizadas. Los E2E de roles/descargas/caída y restauración de #289 se conservan como ejecución anterior. Sin efecto sobre la aceptación: FE-14 sigue esperando decisión explícita, mock presente y FE-15 no iniciado.
+
 
 ## Revisión adicional de FE-14 — pago confirmado y operaciones (2026-10-13)
 

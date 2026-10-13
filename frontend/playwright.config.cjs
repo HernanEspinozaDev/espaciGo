@@ -15,5 +15,9 @@ module.exports = defineConfig({
     headless: true,
     acceptDownloads: true,
     trace: 'retain-on-failure',
+    launchOptions: {
+      args: (process.env.PLAYWRIGHT_INSECURE_ORIGINS || '').split(',').filter(Boolean)
+        .map(origin => `--unsafely-treat-insecure-origin-as-secure=${origin}`),
+    },
   },
 });

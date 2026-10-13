@@ -47,6 +47,7 @@ describe('SpaceDetailPage', () => {
       profile: vi
         .fn()
         .mockResolvedValue({ category_code: 'oficina', schema_version: 1, attributes: [] }),
+      businessClock: vi.fn().mockResolvedValue({ data: { now: '2026-10-13T02:30:00Z' } }),
       availability: vi.fn().mockResolvedValue({
         safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
         data: {
@@ -104,6 +105,7 @@ describe('SpaceDetailPage', () => {
       duration(): number;
     };
     await vi.waitFor(() => expect(page.options()).toHaveLength(2));
+    expect(explore.availability).toHaveBeenCalledWith('bearer-renter', 'space-1', '2026-10-12', 1);
     page.chooseInterval('0');
     await page.createQuote();
 
@@ -153,6 +155,7 @@ describe('SpaceDetailPage', () => {
       profile: vi
         .fn()
         .mockResolvedValue({ category_code: 'oficina', schema_version: 1, attributes: [] }),
+      businessClock: vi.fn().mockResolvedValue({ data: { now: '2026-10-13T05:30:00Z' } }),
       availability: vi.fn(
         async (_token: string, spaceId: string, _date: string, duration: number) => ({
           safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
@@ -219,6 +222,7 @@ describe('SpaceDetailPage', () => {
       profile: vi
         .fn()
         .mockResolvedValue({ category_code: 'oficina', schema_version: 1, attributes: [] }),
+      businessClock: vi.fn().mockResolvedValue({ data: { now: '2026-10-13T05:30:00Z' } }),
       availability: vi.fn().mockResolvedValue({
         safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
         data: {

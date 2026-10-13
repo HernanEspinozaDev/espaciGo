@@ -144,7 +144,9 @@ func (w *candidateWriter) Apply(ctx context.Context, opID, key string, input ope
 		comentarios,observacion,resultado,clave_idempotencia,huella_solicitud
 		FROM public.operacion_arriendo_ensayo_local WHERE reserva_id=$1 AND tipo=$2`, w.reservation, w.kind))
 	if scanErr == nil {
-		cleanup := w.queueCleanupTx(ctx, clock().UTC(), "alta_idempotente_reutilizada")
+		// Candidate retry scheduling is storage housekeeping, so it follows
+		// wall time even when operation timestamps use the demo clock.
+		cleanup := w.queueCleanupTx(ctx, time.Now().UTC(), "alta_idempotente_reutilizada")
 		if cleanup != nil {
 			return operation.Item{}, false, cleanup
 		}

@@ -43,7 +43,7 @@ export DATABASE_SSLKEY="${DATABASE_SSLKEY:-}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/local-docker-stack.sh {config|config-frontend|build-backend|build-mock|up|up-frontend|verify-frontend|run-e2e|stop-backend|down|down-frontend|status}
+Usage: scripts/local-docker-stack.sh {config|config-frontend|build-backend|build-mock|up|up-frontend|verify-frontend|run-e2e|run-fe14-clock-e2e|stop-backend|down|down-frontend|status}
 
 This stack uses a dedicated Compose project, volume, ports, secrets and private
 directories. `down` retains its named PostgreSQL volume. There is intentionally
@@ -144,6 +144,13 @@ fi
 
 compose() {
   local -a files=(-f "$ROOT_DIR/compose.yaml")
+  if [[ "${LOCAL_FE14_BUSINESS_CLOCK:-0}" == "1" ]]; then
+    [[ "$LOCAL_DOCKER_PROJECT_NAME" == espacigo_fe14_demo_* ]] || { printf 'manual business clock is restricted to the isolated FE-14 demo project\n' >&2; exit 2; }
+    [[ "$LOCAL_DOCKER_STATE_DIR" == "$ROOT_DIR/.local/testing/fe14-demo/runtime" ]] || { printf 'manual business clock requires the dedicated FE-14 demo state directory\n' >&2; exit 2; }
+    [[ -s "$ROOT_DIR/.local/testing/fe14-demo/business-clock/business-clock.json" ]] || { printf 'initialize the manual clock with scripts/fe14-business-clock set RFC3339\n' >&2; exit 2; }
+    export LOCAL_FE14_BUSINESS_CLOCK_HOST="$ROOT_DIR/.local/testing/fe14-demo/business-clock"
+    files+=(-f "$ROOT_DIR/compose.fe14-demo-clock.yaml")
+  fi
   if [[ -n "${LOCAL_DOCKER_COMPOSE_OVERRIDE:-}" ]]; then
     [[ -f "$LOCAL_DOCKER_COMPOSE_OVERRIDE" ]] || { printf 'LOCAL_DOCKER_COMPOSE_OVERRIDE does not exist\n' >&2; exit 2; }
     files+=(-f "$LOCAL_DOCKER_COMPOSE_OVERRIDE")
@@ -153,8 +160,19 @@ compose() {
 
 compose_frontend() {
   local -a files=(-f "$ROOT_DIR/compose.yaml" -f "$ROOT_DIR/compose.frontend.yaml")
+  if [[ "${LOCAL_FE14_BUSINESS_CLOCK:-0}" == "1" ]]; then
+    [[ "$LOCAL_DOCKER_PROJECT_NAME" == espacigo_fe14_demo_* ]] || { printf 'manual business clock is restricted to the isolated FE-14 demo project\n' >&2; exit 2; }
+    [[ "$LOCAL_DOCKER_STATE_DIR" == "$ROOT_DIR/.local/testing/fe14-demo/runtime" ]] || { printf 'manual business clock requires the dedicated FE-14 demo state directory\n' >&2; exit 2; }
+    [[ -s "$ROOT_DIR/.local/testing/fe14-demo/business-clock/business-clock.json" ]] || { printf 'initialize the manual clock with scripts/fe14-business-clock set RFC3339\n' >&2; exit 2; }
+    export LOCAL_FE14_BUSINESS_CLOCK_HOST="$ROOT_DIR/.local/testing/fe14-demo/business-clock"
+    files+=(-f "$ROOT_DIR/compose.fe14-demo-clock.yaml")
+  fi
   if [[ "${LOCAL_FRONTEND_E2E:-0}" == "1" ]]; then
     files+=(-f "$ROOT_DIR/compose.frontend-e2e.yaml")
+    if [[ "${LOCAL_FE14_BUSINESS_CLOCK:-0}" == "1" ]]; then
+      [[ -f "${FE14_ACCEPTANCE_SPEC_HOST:-}" ]] || { printf 'set FE14_ACCEPTANCE_SPEC_HOST to the ignored FE-14 acceptance test\n' >&2; exit 2; }
+      files+=(-f "$ROOT_DIR/compose.fe14-demo-e2e.yaml")
+    fi
   fi
   if [[ -n "${LOCAL_DOCKER_COMPOSE_OVERRIDE:-}" ]]; then
     [[ -f "$LOCAL_DOCKER_COMPOSE_OVERRIDE" ]] || { printf 'LOCAL_DOCKER_COMPOSE_OVERRIDE does not exist\n' >&2; exit 2; }
@@ -256,6 +274,27 @@ case "$command" in
     validate_isolated_paths
     [[ "${LOCAL_FRONTEND_E2E:-0}" == "1" ]] || { printf 'run-e2e requires LOCAL_FRONTEND_E2E=1\n' >&2; exit 2; }
     compose_frontend --profile e2e build angular-e2e
+    ;;
+  run-fe14-clock-e2e)
+    validate_isolated_paths
+    [[ "${LOCAL_FE14_BUSINESS_CLOCK:-0}" == "1" && "${LOCAL_FRONTEND_E2E:-0}" == "1" ]] || { printf 'run-fe14-clock-e2e requires the isolated FE-14 clock and E2E overlays\n' >&2; exit 2; }
+    [[ "${FE14_CLOCK_PHASE:-}" =~ ^(checkin|finish|settle|clock)$ ]] || { printf 'FE14_CLOCK_PHASE must be checkin, finish, settle, or clock\n' >&2; exit 2; }
+    compose_frontend up -d --no-deps backend angular-frontend
+    compose_frontend --profile e2e build angular-e2e
+    docker run --rm --user "${LOCAL_UID}:${LOCAL_GID}" --network "${LOCAL_DOCKER_PROJECT_NAME}_api" \
+      -e FRONTEND_BASE_URL=http://angular-frontend:4000 \
+      -e PLAYWRIGHT_INSECURE_ORIGINS=http://angular-frontend:4000 \
+      -e FE14_ACCOUNT_FILE=/run/fe14/accounts.json \
+      -e FE14_ARTIFACT_DIR=/run/fe14/artifacts \
+      -e FE14_RESULTS_DIR=/run/fe14/results/playwright \
+      -e FE14_CLOCK_PHASE="$FE14_CLOCK_PHASE" \
+      -e FE14_EXPECTED_CLOCK="${FE14_EXPECTED_CLOCK:-}" \
+      -v "$ROOT_DIR/.local/testing/fe14-demo/accounts.json:/run/fe14/accounts.json:ro" \
+      -v "$FE14_ACCEPTANCE_SPEC_HOST:/workspace/e2e/fe14-business-clock.spec.cjs:ro" \
+      -v "$ROOT_DIR/.local/testing/fe14-demo/artifacts:/run/fe14/artifacts" \
+      -v "$ROOT_DIR/.local/testing/fe14-demo/results:/run/fe14/results" \
+      "${LOCAL_DOCKER_IMAGE_PREFIX}-angular-e2e:dev" \
+      npx playwright test --config=playwright.config.cjs --grep 'FE14 manual Go business clock'
     ;;
   stop-backend)
     validate_isolated_paths

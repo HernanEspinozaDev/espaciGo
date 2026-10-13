@@ -29,20 +29,32 @@ type ResultStore interface {
 type Adapter struct {
 	eventKey []byte
 	store    ResultStore
+	now      func() time.Time
 	mu       sync.Mutex
 	results  map[string]booking.PaymentEvent
 	timeouts map[string]bool
 }
 
 func New(eventKey []byte) (*Adapter, error) {
+	return NewWithClock(eventKey, time.Now)
+}
+
+func NewWithClock(eventKey []byte, now func() time.Time) (*Adapter, error) {
 	if len(eventKey) < 32 {
 		return nil, errors.New("local payment event key must contain at least 32 bytes")
 	}
-	return &Adapter{eventKey: append([]byte(nil), eventKey...), results: make(map[string]booking.PaymentEvent), timeouts: make(map[string]bool)}, nil
+	if now == nil {
+		now = time.Now
+	}
+	return &Adapter{eventKey: append([]byte(nil), eventKey...), now: now, results: make(map[string]booking.PaymentEvent), timeouts: make(map[string]bool)}, nil
 }
 
 func NewWithStore(eventKey []byte, store ResultStore) (*Adapter, error) {
-	adapter, err := New(eventKey)
+	return NewWithStoreAndClock(eventKey, store, time.Now)
+}
+
+func NewWithStoreAndClock(eventKey []byte, store ResultStore, now func() time.Time) (*Adapter, error) {
+	adapter, err := NewWithClock(eventKey, now)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +72,7 @@ func (a *Adapter) StartPayment(ctx context.Context, operationID, requested strin
 	switch requested {
 	case "sin_respuesta":
 		if a.store != nil {
-			if err := a.store.RecordFakePaymentTimeout(ctx, operationID, time.Now().UTC()); err != nil {
+			if err := a.store.RecordFakePaymentTimeout(ctx, operationID, a.now().UTC()); err != nil {
 				return nil, err
 			}
 		} else {
@@ -123,7 +135,7 @@ func (a *Adapter) LookupPayment(ctx context.Context, operation booking.PaymentOp
 func (a *Adapter) recordResult(ctx context.Context, operationID, outcome string) (booking.PaymentEvent, bool, error) {
 	event := *a.SignPaymentEvent(operationID, outcome)
 	if a.store != nil {
-		stored, created, err := a.store.SaveFakePaymentResult(ctx, event, time.Now().UTC())
+		stored, created, err := a.store.SaveFakePaymentResult(ctx, event, a.now().UTC())
 		if err != nil {
 			return booking.PaymentEvent{}, false, err
 		}
@@ -188,7 +200,7 @@ func (a *Adapter) StartTransfer(ctx context.Context, operationID, requested stri
 			if !ok {
 				return nil, ErrUnsupportedOutcome
 			}
-			if err := store.RecordFakeSettlementTimeout(ctx, operationID, time.Now().UTC()); err != nil {
+			if err := store.RecordFakeSettlementTimeout(ctx, operationID, a.now().UTC()); err != nil {
 				return nil, err
 			}
 		} else {
@@ -208,7 +220,7 @@ func (a *Adapter) StartTransfer(ctx context.Context, operationID, requested stri
 			if !ok {
 				return nil, ErrUnsupportedOutcome
 			}
-			stored, _, err := store.SaveFakeSettlementResult(ctx, *event, time.Now().UTC())
+			stored, _, err := store.SaveFakeSettlementResult(ctx, *event, a.now().UTC())
 			if err != nil {
 				return nil, err
 			}
@@ -280,7 +292,7 @@ func (a *Adapter) ResolveTransfer(ctx context.Context, operationID, outcome stri
 		if !ok {
 			return booking.SettlementEvent{}, ErrUnsupportedOutcome
 		}
-		event, err := store.ResolveFakeSettlementResult(ctx, operationID, wanted, time.Now().UTC())
+		event, err := store.ResolveFakeSettlementResult(ctx, operationID, wanted, a.now().UTC())
 		if err != nil {
 			return booking.SettlementEvent{}, err
 		}

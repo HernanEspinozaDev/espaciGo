@@ -25,6 +25,7 @@ export type CatalogEnvelope = {
   data: { items: CatalogItem[]; next_cursor?: string };
 };
 export type AvailabilityInterval = { start_at: string; end_at: string };
+export type BusinessClock = { data: { now: string } };
 export type AvailabilityOptions = {
   safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL';
   data: {
@@ -94,6 +95,7 @@ export abstract class ExplorePort {
   abstract categories(token: string): Promise<SpaceCategoryList>;
   abstract profile(token: string, categoryCode: string): Promise<SpaceAttributeProfile>;
   abstract profileVersion(token: string, categoryCode: string): Promise<number>;
+  abstract businessClock(token: string): Promise<BusinessClock>;
   abstract availability(
     token: string,
     spaceId: string,

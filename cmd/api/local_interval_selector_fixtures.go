@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/platform/businessclock"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -60,7 +61,11 @@ func createLocalIntervalSelectorFixtures(args []string) error {
 	if err != nil {
 		return err
 	}
-	today := time.Now().In(loc)
+	businessNow, err := businessclock.FromEnv(os.Getenv)
+	if err != nil {
+		return errors.New("invalid isolated business clock configuration")
+	}
+	today := businessNow().In(loc)
 	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, loc)
 	ids := credentials.Generator{}
 	fixtures := []struct {

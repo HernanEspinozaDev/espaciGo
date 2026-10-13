@@ -296,6 +296,28 @@ func TestLocalBookingFixtureAndQuoteRequireSessionAndCarrySafetyNotice(t *testin
 	}
 }
 
+func TestBusinessClockEndpointReturnsInjectedGoInstantAndRequiresSession(t *testing.T) {
+	service, err := booking.NewService(repoStub{}, credentials.Generator{}, time.Now, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instant := time.Date(2026, 10, 13, 5, 30, 0, 123, time.UTC)
+	h := NewHandlerWithClock(authStub{}, service, nil, func() time.Time { return instant })
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/business-clock", nil)
+	response := httptest.NewRecorder()
+	h.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous clock status=%d", response.Code)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/local/booking-trial/business-clock", nil)
+	request.Header.Set("Authorization", "Bearer test-session")
+	response = httptest.NewRecorder()
+	h.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"now":"2026-10-13T05:30:00.000000123Z"`) {
+		t.Fatalf("authenticated business clock=%d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestPaymentEventCallbackRejectsUnauthenticatedEventWithoutUserSession(t *testing.T) {
 	adapter, err := fakebooking.New([]byte("handler-test-payment-webhook-key-at-least-32-bytes"))
 	if err != nil {

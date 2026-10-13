@@ -1545,6 +1545,14 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/business-clock:
+    get:
+      operationId: getLocalBusinessClock
+      tags: [M06 local]
+      description: Devuelve el instante de negocio actual de Go para vistas autenticadas que calculan fechas locales. Usa el reloj real normalmente y el reloj manual solo en el stack de demo FE-14 aislado.
+      responses:
+        '200': { description: Instante lógico UTC confirmado por Go., content: { application/json: { schema: { $ref: '#/components/schemas/LocalBusinessClockEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /local/booking-trial/catalog/{spaceId}/weekly-hours:
     parameters:
       - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -3218,6 +3226,15 @@ components:
       properties:
         safety_notice: { type: string, const: "ENSAYO LOCAL — SIN COBRO REAL" }
         data: { $ref: '#/components/schemas/LocalAvailabilityOptions' }
+    LocalBusinessClockEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [now]
+          properties:
+            now: { type: string, format: date-time }
     LocalAvailabilityOptions:
       type: object
       required: [space_id, time_zone, rate_unit, items]
