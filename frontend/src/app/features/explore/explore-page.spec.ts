@@ -46,6 +46,19 @@ describe('ExplorePage public catalog URL state', () => {
     expect(harness.routeDebugElement!.componentInstance.items()).toEqual([]);
   });
 
+  it('restores search, location, attributes, and interval estimates from the real Router URL', async () => {
+    const api = { publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }) };
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }],
+    });
+    await RouterTestingHarness.create('/explorar?q=sala+abierta&region_code=13&comuna_code=13123&attribute=wifi%3Atrue&start_at=2026-10-15T12%3A00%3A00.000Z&end_at=2026-10-15T13%3A00%3A00.000Z&min_total_clp=9000&sort=estimated_total_asc');
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    expect(api.publicSearch).toHaveBeenCalledWith(expect.objectContaining({
+      q: 'sala abierta', region_code: '13', comuna_code: '13123', attributes: { wifi: true },
+      start_at: '2026-10-15T12:00:00.000Z', end_at: '2026-10-15T13:00:00.000Z', min_total_clp: '9000', sort: 'estimated_total_asc',
+    }));
+  });
+
   it('writes each next cursor once and clears it when criteria change', async () => {
     const api = {
       publicCategories: vi.fn().mockResolvedValue([{ code: 'oficina', name: 'Oficina', order: 1 }]),

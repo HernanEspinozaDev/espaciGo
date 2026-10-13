@@ -12,7 +12,15 @@ func (m memoryRepository) Categories(context.Context) ([]Category, error) {
 	return []Category{{Code: "oficina", Name: "Oficina", Order: 1}}, nil
 }
 func (m memoryRepository) HasActiveCategory(context.Context, string) (bool, error) { return true, nil }
-func (m memoryRepository) Detail(context.Context, string) (Space, error)           { return Space{}, ErrNotFound }
+func (m memoryRepository) AttributeFilters(context.Context, string) ([]AttributeFilter, error) {
+	return []AttributeFilter{{Code: "wifi", Type: "boolean", ProfileVersion: 1}}, nil
+}
+func (m memoryRepository) HasRegion(context.Context, string) (bool, error)          { return true, nil }
+func (m memoryRepository) HasCommune(context.Context, string, string) (bool, error) { return true, nil }
+func (m memoryRepository) Locations(context.Context, string, string, int) ([]Location, error) {
+	return nil, nil
+}
+func (m memoryRepository) Detail(context.Context, string) (Space, error) { return Space{}, ErrNotFound }
 func (m memoryRepository) List(_ context.Context, f Filters, after *Cursor, limit int) ([]Space, error) {
 	start := 0
 	if after != nil {

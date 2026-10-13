@@ -302,6 +302,47 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if _, err = migrator.Run(ctx, dbURL, "../../../../db/migrations"); err != nil {
 		t.Fatal(err)
 	}
+	// Exercise the production upgrade path independently: a second disposable
+	// database receives V1–V54 first, then only the new migration is applied.
+	upgradeName := fmt.Sprintf("mpv2_02_upgrade_%d", time.Now().UnixNano())
+	if _, err = admin.Exec(ctx, `CREATE DATABASE `+pgx.Identifier{upgradeName}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, dropErr := admin.Exec(context.Background(), `DROP DATABASE `+pgx.Identifier{upgradeName}.Sanitize()+` WITH (FORCE)`); dropErr != nil {
+			t.Errorf("drop disposable V54 upgrade database: %v", dropErr)
+		}
+	}()
+	upgradeURL := *u
+	upgradeURL.Path = "/" + upgradeName
+	priorDir, err := os.MkdirTemp("", "espacigo-mpv2-02-v54-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(priorDir)
+	migrationFiles, err := os.ReadDir("../../../../db/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range migrationFiles {
+		if file.IsDir() || strings.HasPrefix(file.Name(), "V000055__") {
+			continue
+		}
+		source, pathErr := filepath.Abs(filepath.Join("../../../../db/migrations", file.Name()))
+		if pathErr != nil {
+			t.Fatal(pathErr)
+		}
+		if linkErr := os.Symlink(source, filepath.Join(priorDir, file.Name())); linkErr != nil {
+			t.Fatal(linkErr)
+		}
+	}
+	if _, err = migrator.Run(ctx, upgradeURL.String(), priorDir); err != nil {
+		t.Fatalf("migrate disposable database through V54: %v", err)
+	}
+	upgradeResult, err := migrator.Run(ctx, upgradeURL.String(), "../../../../db/migrations")
+	if err != nil || len(upgradeResult.Applied) != 1 || upgradeResult.Applied[0] != 55 {
+		t.Fatalf("V54 upgrade applied=%v err=%v; want only V55", upgradeResult.Applied, err)
+	}
 	if _, err = admin.Exec(ctx, `CREATE ROLE espacigo_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD 'local-booking-test'`); err != nil {
 		t.Fatal(err)
 	}
@@ -2839,6 +2880,11 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		return id
 	}
 	activeSpace := createPublishedSpace(host, "Oficina publicada elegible", "activa", 9000)
+	// This is an explicit synthetic test assignment; production listings remain
+	// NULL until an owner selects a public commune in the later host-location flow.
+	if _, err = setup.Exec(ctx, `UPDATE public.espacio SET ubicacion_catalogo_version='SUBDERE_DPA_2018',region_codigo='13',comuna_codigo='13123' WHERE id=$1`, activeSpace); err != nil {
+		t.Fatal(err)
+	}
 	// A disabled fixture grant must not shadow the normal published-catalog
 	// path, and the joined space must still appear only once.
 	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,false)`, activeSpace, host, renter); err != nil {
@@ -2859,9 +2905,56 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = publiccatalogpg.New(pool).List(ctx, publiccatalog.Filters{PageSize: 20, Sort: "default"}, nil, 21); err != nil {
+		t.Fatalf("public catalog SQL query: %v", err)
+	}
 	publicHandler := publiccataloghttp.New(publicService)
-	publicRequest := httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces", nil)
+	filtersResponse := httptest.NewRecorder()
+	publicHandler.ServeHTTP(filtersResponse, httptest.NewRequest(http.MethodGet, "/api/v1/public/space-categories/oficina/filters", nil))
+	if filtersResponse.Code != http.StatusOK || !strings.Contains(filtersResponse.Body.String(), `"code":"wifi"`) {
+		t.Fatalf("public boolean-filter allowlist status=%d body=%s", filtersResponse.Code, filtersResponse.Body.String())
+	}
+	locationsResponse := httptest.NewRecorder()
+	publicHandler.ServeHTTP(locationsResponse, httptest.NewRequest(http.MethodGet, "/api/v1/public/locations?q=Nunoa&region_code=13", nil))
+	if locationsResponse.Code != http.StatusOK || !strings.Contains(locationsResponse.Body.String(), `"comuna_code":"13120"`) {
+		t.Fatalf("accent-insensitive official location search status=%d body=%s", locationsResponse.Code, locationsResponse.Body.String())
+	}
+	publicRequest := httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces?q=publicada%20providencia&region_code=13&comuna_code=13123", nil)
 	publicResponse := httptest.NewRecorder()
+	publicHandler.ServeHTTP(publicResponse, publicRequest)
+	if publicResponse.Code != http.StatusOK || !strings.Contains(publicResponse.Body.String(), activeSpace) {
+		t.Fatalf("accent-insensitive public listing search status=%d body=%s", publicResponse.Code, publicResponse.Body.String())
+	}
+	publicRequest = httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces?q=publicada%20sincoincidencia", nil)
+	publicResponse = httptest.NewRecorder()
+	publicHandler.ServeHTTP(publicResponse, publicRequest)
+	if publicResponse.Code != http.StatusOK || strings.Contains(publicResponse.Body.String(), activeSpace) {
+		t.Fatalf("AND full-text query status=%d body=%s", publicResponse.Code, publicResponse.Body.String())
+	}
+	publicRequest = httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces?start_at=2026-10-15T12%3A00%3A00-03%3A00&end_at=2026-10-15T13%3A00%3A00-03%3A00&min_total_clp=9000&sort=estimated_total_asc", nil)
+	publicResponse = httptest.NewRecorder()
+	publicHandler.ServeHTTP(publicResponse, publicRequest)
+	if publicResponse.Code != http.StatusOK || !strings.Contains(publicResponse.Body.String(), `"estimated_total_clp":9000`) || !strings.Contains(publicResponse.Body.String(), activeSpace) {
+		t.Fatalf("interval estimate status=%d body=%s", publicResponse.Code, publicResponse.Body.String())
+	}
+	for _, priceCase := range []struct{ unit, start, end string }{
+		{"hora", "2026-09-06T01:00:00-03:00", "2026-09-06T03:00:00-03:00"},
+		{"dia", "2026-09-05T00:00:00-04:00", "2026-09-07T00:00:00-03:00"},
+		{"mes", "2026-09-06T01:00:00-03:00", "2026-10-06T01:00:00-03:00"},
+	} {
+		startAt, parseStartErr := time.Parse(time.RFC3339, priceCase.start)
+		endAt, parseEndErr := time.Parse(time.RFC3339, priceCase.end)
+		if parseStartErr != nil || parseEndErr != nil {
+			t.Fatalf("invalid price case fixture: %+v", priceCase)
+		}
+		goUnits, unitErr := booking.PriceUnits(priceCase.unit, startAt, endAt, "America/Santiago")
+		var sqlUnits int64
+		if unitErr != nil || pool.QueryRow(ctx, `SELECT public.public_catalog_billed_units($1,$2,$3,'America/Santiago')`, priceCase.unit, startAt, endAt).Scan(&sqlUnits) != nil || sqlUnits != goUnits {
+			t.Fatalf("SQL/Go price units differ across DST for %+v: SQL=%d Go=%d err=%v", priceCase, sqlUnits, goUnits, unitErr)
+		}
+	}
+	publicRequest = httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces", nil)
+	publicResponse = httptest.NewRecorder()
 	publicHandler.ServeHTTP(publicResponse, publicRequest)
 	if publicResponse.Code != http.StatusOK || strings.Contains(publicResponse.Body.String(), "Dirección privada") || strings.Contains(publicResponse.Body.String(), host) || !strings.Contains(publicResponse.Body.String(), activeSpace) || strings.Contains(publicResponse.Body.String(), noKYCActiveSpace) || strings.Contains(publicResponse.Body.String(), hiddenSpace) {
 		t.Fatalf("anonymous public projection status=%d body=%s", publicResponse.Code, publicResponse.Body.String())

@@ -1,8 +1,10 @@
 import type { SpaceAttributeProfile, SpaceCategoryList } from '../../../../core/contracts/models';
 export type ClpAmount = string;
-export type PublicSpace = Pick<CatalogItem, 'space_id'|'category_code'|'category_name'|'title'|'description'|'area_m2'|'rate_unit'|'base_price_clp'|'currency'>;
+export type PublicSpace = Pick<CatalogItem, 'space_id'|'category_code'|'category_name'|'title'|'description'|'area_m2'|'rate_unit'|'base_price_clp'|'currency'|'estimated_total_clp'|'region_code'|'region_name'|'comuna_code'|'comuna_name'>;
 export type PublicCategory = {code:string;name:string;order:number};
-export type PublicCatalogFilters = {category_code?:string;rate_unit?:string;min_unit_price_clp?:string;max_unit_price_clp?:string;sort?:string;page_size?:number;cursor?:string};
+export type PublicCatalogFilters = {q?:string;category_code?:string;rate_unit?:string;min_unit_price_clp?:string;max_unit_price_clp?:string;region_code?:string;comuna_code?:string;min_area_m2?:string;attributes?:Record<string,boolean>;start_at?:string;end_at?:string;min_total_clp?:string;max_total_clp?:string;sort?:string;page_size?:number;cursor?:string};
+export type PublicLocation={region_code:string;region_name:string;comuna_code:string;comuna_name:string};
+export type PublicAttributeFilter={code:string;label:string;type:'boolean';profile_version:number};
 export type PublicSpacePage = {items:PublicSpace[];next_cursor?:string};
 export type CatalogItem = {
   space_id: string;
@@ -20,6 +22,10 @@ export type CatalogItem = {
   attributes: Record<string, unknown>;
   available?: boolean;
   estimated_total_clp?: ClpAmount;
+  region_code?: string | null;
+  region_name?: string | null;
+  comuna_code?: string | null;
+  comuna_name?: string | null;
   distance_km?: number;
   distance_kind?: 'direct';
   map_position?: { x: number; y: number };
@@ -97,6 +103,8 @@ export abstract class ExplorePort {
   abstract publicSearch(filters:PublicCatalogFilters):Promise<PublicSpacePage>;
   abstract publicDetail(spaceId:string):Promise<PublicSpace>;
   abstract publicCategories():Promise<PublicCategory[]>;
+  abstract publicLocations():Promise<PublicLocation[]>;
+  abstract publicAttributeFilters(categoryCode:string):Promise<PublicAttributeFilter[]>;
   abstract search(token: string, filters: CatalogFilters): Promise<CatalogEnvelope>;
   abstract detail(token: string, spaceId: string): Promise<CatalogItem>;
   abstract categories(token: string): Promise<SpaceCategoryList>;

@@ -7,9 +7,12 @@ import {
   PublicCatalogFilters,
   PublicCategory,
   PublicSpace,
+  PublicLocation,
+  PublicAttributeFilter,
 } from '../domain/ports/explore-port';
 
 type ExploreFilters = {
+  q: string;
   category_code: string;
   rate_unit: string;
   min_unit_price_clp: string;
@@ -17,6 +20,14 @@ type ExploreFilters = {
   sort: string;
   page_size: number;
   cursor: string;
+  region_code: string;
+  comuna_code: string;
+  min_area_m2: string;
+  start_at: string;
+  end_at: string;
+  min_total_clp: string;
+  max_total_clp: string;
+  attributes: Record<string, boolean>;
 };
 type ExploreCriterion = Exclude<keyof ExploreFilters, 'cursor'>;
 
@@ -37,11 +48,14 @@ export class ExploreFacade implements OnInit {
   private navigationPending = false;
 
   readonly categories = signal<PublicCategory[]>([]);
+  readonly locations = signal<PublicLocation[]>([]);
+  readonly attributeFilters = signal<PublicAttributeFilter[]>([]);
   readonly items = signal<PublicSpace[]>([]);
   readonly nextCursor = signal('');
   readonly busy = signal(false);
   readonly error = signal('');
   readonly filters = signal<ExploreFilters>({
+    q: '',
     category_code: '',
     rate_unit: '',
     min_unit_price_clp: '',
@@ -49,6 +63,8 @@ export class ExploreFacade implements OnInit {
     sort: 'default',
     page_size: 20,
     cursor: '',
+    region_code: '', comuna_code: '', min_area_m2: '', start_at: '', end_at: '',
+    min_total_clp: '', max_total_clp: '', attributes: {},
   });
 
   constructor() {
@@ -60,6 +76,7 @@ export class ExploreFacade implements OnInit {
   ngOnInit(): void {
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       void this.loadCategories();
+      void this.loadLocations();
       this.loadFromRoute(params);
     });
   }
@@ -67,6 +84,24 @@ export class ExploreFacade implements OnInit {
   updateFilter<K extends ExploreCriterion>(key: K, value: ExploreFilters[K]): void {
     this.filters.update((filters) => ({ ...filters, [key]: value, cursor: '' }));
     this.invalidateCriteria();
+    if (key === 'category_code') void this.loadAttributeFilters(String(value));
+  }
+
+  setAttribute(code: string, value: boolean | null): void {
+    const attributes = { ...this.filters().attributes };
+    if (value === null) delete attributes[code]; else attributes[code] = value;
+    this.filters.update((filters) => ({ ...filters, attributes, cursor: '' }));
+    this.invalidateCriteria();
+  }
+
+  updateDate(key: 'start_at' | 'end_at', value: string): void {
+    this.updateFilter(key, value ? new Date(value).toISOString() : '');
+  }
+
+  dateInput(value: string): string {
+    if (!value) return '';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
   }
 
   async search(): Promise<void> {
@@ -94,12 +129,15 @@ export class ExploreFacade implements OnInit {
   clearFilters(): void {
     this.filters.set({
       category_code: '',
+      q: '',
       rate_unit: '',
       min_unit_price_clp: '',
       max_unit_price_clp: '',
       sort: 'default',
       page_size: 20,
       cursor: '',
+      region_code: '', comuna_code: '', min_area_m2: '', start_at: '', end_at: '',
+      min_total_clp: '', max_total_clp: '', attributes: {},
     });
     this.invalidateCriteria();
     void this.search();
@@ -130,6 +168,7 @@ export class ExploreFacade implements OnInit {
     }
     const filters = decoded.filters;
     this.filters.set(filters);
+    void this.loadAttributeFilters(filters.category_code);
     const nextCriteriaKey = criteriaSignature(filters);
     const criteriaChanged = this.criteriaKey !== nextCriteriaKey;
     const requestKey = `${nextCriteriaKey}|cursor=${filters.cursor}`;
@@ -166,12 +205,17 @@ export class ExploreFacade implements OnInit {
     if (!append && this.pages.size === 0) this.items.set([]);
     const request: PublicCatalogFilters = {
       category_code: filters.category_code || undefined,
+      q: filters.q || undefined,
       rate_unit: filters.rate_unit || undefined,
       min_unit_price_clp: filters.min_unit_price_clp || undefined,
       max_unit_price_clp: filters.max_unit_price_clp || undefined,
       sort: filters.sort,
       page_size: filters.page_size,
       cursor: filters.cursor || undefined,
+      region_code: filters.region_code || undefined, comuna_code: filters.comuna_code || undefined,
+      min_area_m2: filters.min_area_m2 || undefined, start_at: filters.start_at || undefined,
+      end_at: filters.end_at || undefined, min_total_clp: filters.min_total_clp || undefined,
+      max_total_clp: filters.max_total_clp || undefined, attributes: filters.attributes,
     };
     try {
       const page = await this.api.publicSearch(request);
@@ -213,12 +257,27 @@ export class ExploreFacade implements OnInit {
       return false;
     }
     if (
-      (filters.min_unit_price_clp || filters.max_unit_price_clp || filters.sort !== 'default') &&
+      (filters.min_unit_price_clp || filters.max_unit_price_clp || filters.sort === 'unit_price_asc' || filters.sort === 'unit_price_desc') &&
       !filters.rate_unit
     ) {
       this.error.set('Elige hora, día o mes para comparar tarifas.');
       this.busy.set(false);
       return false;
+    }
+    if ((filters.sort === 'relevance' && !filters.q.trim()) ||
+        ((filters.min_total_clp || filters.max_total_clp || filters.sort.startsWith('estimated_total_')) && (!filters.start_at || !filters.end_at))) {
+      this.error.set('La relevancia requiere texto y el total estimado requiere un intervalo.');
+      this.busy.set(false);
+      return false;
+    }
+    if (!validPrice(filters.min_total_clp) || !validPrice(filters.max_total_clp)) {
+      this.error.set('Ingresa totales CLP enteros válidos.'); this.busy.set(false); return false;
+    }
+    if (filters.min_area_m2 && (!/^\d+(?:\.\d{1,2})?$/.test(filters.min_area_m2) || Number(filters.min_area_m2) <= 0)) {
+      this.error.set('Ingresa una superficie mínima válida.'); this.busy.set(false); return false;
+    }
+    if (filters.start_at && filters.end_at && Date.parse(filters.end_at) <= Date.parse(filters.start_at)) {
+      this.error.set('El fin debe ser posterior al inicio.'); this.busy.set(false); return false;
     }
     return true;
   }
@@ -230,6 +289,17 @@ export class ExploreFacade implements OnInit {
       this.error.set('No fue posible cargar las categorías públicas.');
     }
   }
+
+  async loadLocations(): Promise<void> {
+    try { this.locations.set(await this.api.publicLocations()); }
+    catch { this.error.set('No fue posible cargar las ubicaciones públicas.'); }
+  }
+
+  private async loadAttributeFilters(code: string): Promise<void> {
+    if (!code) { this.attributeFilters.set([]); return; }
+    try { this.attributeFilters.set(await this.api.publicAttributeFilters(code)); }
+    catch { this.attributeFilters.set([]); }
+  }
 }
 
 function decodeFilters(params: ParamMap): { filters: ExploreFilters | null; error: string } {
@@ -237,6 +307,7 @@ function decodeFilters(params: ParamMap): { filters: ExploreFilters | null; erro
     const values = params.getAll(key);
     return values.length > 1 ? null : (values[0] ?? fallback);
   };
+  const q = singleValue('q');
   const category = singleValue('category_code');
   const unit = singleValue('rate_unit');
   const minimum = singleValue('min_unit_price_clp');
@@ -244,13 +315,25 @@ function decodeFilters(params: ParamMap): { filters: ExploreFilters | null; erro
   const sort = singleValue('sort', 'default');
   const rawSize = singleValue('page_size');
   const cursor = singleValue('cursor');
-  if ([category, unit, minimum, maximum, sort, rawSize, cursor].some((value) => value === null))
+  const region = singleValue('region_code'); const comuna = singleValue('comuna_code');
+  const area = singleValue('min_area_m2'); const start = singleValue('start_at'); const end = singleValue('end_at');
+  const minTotal = singleValue('min_total_clp'); const maxTotal = singleValue('max_total_clp');
+  const attributes: Record<string, boolean> = {};
+  for (const entry of params.getAll('attribute')) {
+    const split = entry.lastIndexOf(':');
+    if (split < 1 || !/^[a-z][a-z0-9_]{0,79}$/.test(entry.slice(0, split)) || !['true','false'].includes(entry.slice(split + 1)) || attributes[entry.slice(0, split)] !== undefined)
+      return { filters: null, error: 'Los atributos de la URL no son válidos.' };
+    attributes[entry.slice(0, split)] = entry.slice(split + 1) === 'true';
+  }
+  if (Object.keys(attributes).length > 8) return { filters: null, error: 'La URL supera el máximo de filtros.' };
+  if ([q, category, unit, minimum, maximum, sort, rawSize, cursor, region, comuna, area, start, end, minTotal, maxTotal].some((value) => value === null))
     return { filters: null, error: 'La URL contiene parámetros públicos duplicados.' };
   const pageSize = rawSize === '' ? 20 : Number(rawSize);
   if (rawSize !== '' && !/^\d+$/.test(rawSize!))
     return { filters: null, error: 'El tamaño de página de la URL no es válido.' };
   return {
     filters: {
+      q: q!,
       category_code: category!,
       rate_unit: unit!,
       min_unit_price_clp: minimum!,
@@ -258,13 +341,17 @@ function decodeFilters(params: ParamMap): { filters: ExploreFilters | null; erro
       sort: sort!,
       page_size: pageSize,
       cursor: cursor!,
+      region_code: region!, comuna_code: comuna!, min_area_m2: area!, start_at: start!, end_at: end!,
+      min_total_clp: minTotal!, max_total_clp: maxTotal!, attributes,
     },
     error: '',
   };
 }
 
-function encodeFilters(filters: ExploreFilters): Record<string, string | null> {
+function encodeFilters(filters: ExploreFilters): Record<string, string | string[] | null> {
+  // Repeated attribute values are serialized below by Angular Router as an array.
   return {
+    q: filters.q || null,
     category_code: filters.category_code || null,
     rate_unit: filters.rate_unit || null,
     min_unit_price_clp: filters.min_unit_price_clp || null,
@@ -272,20 +359,28 @@ function encodeFilters(filters: ExploreFilters): Record<string, string | null> {
     sort: filters.sort === 'default' ? null : filters.sort,
     page_size: filters.page_size === 20 ? null : String(filters.page_size),
     cursor: filters.cursor || null,
+    region_code: filters.region_code || null, comuna_code: filters.comuna_code || null,
+    min_area_m2: filters.min_area_m2 || null, start_at: filters.start_at || null, end_at: filters.end_at || null,
+    min_total_clp: filters.min_total_clp || null, max_total_clp: filters.max_total_clp || null,
+    attribute: Object.entries(filters.attributes).sort(([a],[b]) => a.localeCompare(b)).map(([k,v]) => `${k}:${v}`),
   };
 }
 
-function sameOwnedQuery(params: ParamMap, target: Record<string, string | null>): boolean {
+function sameOwnedQuery(params: ParamMap, target: Record<string, string | string[] | null>): boolean {
   const targetKeys = new Set(Object.keys(target));
   return (
     params.keys.every((key) => targetKeys.has(key)) &&
-    Object.entries(target).every(([key, value]) => (params.get(key) || null) === value)
+    Object.entries(target).every(([key, value]) => Array.isArray(value)
+      ? JSON.stringify(params.getAll(key)) === JSON.stringify(value)
+      : (params.get(key) || null) === value)
   );
 }
 
 function criteriaSignature(filters: ExploreFilters): string {
   return JSON.stringify([
     filters.category_code,
+    filters.q, filters.region_code, filters.comuna_code, filters.min_area_m2, filters.start_at, filters.end_at,
+    filters.min_total_clp, filters.max_total_clp, filters.attributes,
     filters.rate_unit,
     filters.min_unit_price_clp,
     filters.max_unit_price_clp,

@@ -16,15 +16,48 @@ paths:
       tags: [Public catalog]
       summary: Explorar publicaciones públicas elegibles
       parameters:
-      - {in: query, name: category_code, schema: {type: string}}
+      - {in: query, name: q, description: Texto NFC; máximo 120 caracteres. Stopwords o puntuación sin lexemas dan una página vacía., schema: {type: string, maxLength: 120}}
+      - {in: query, name: category_code, schema: {type: string, maxLength: 80}}
+      - {in: query, name: region_code, schema: {type: string, pattern: '^[0-9]{2}$'}}
+      - {in: query, name: comuna_code, schema: {type: string, pattern: '^[0-9]{5}$'}}
+      - {in: query, name: min_area_m2, description: Superficie positiva en m², hasta dos decimales., schema: {type: number, exclusiveMinimum: 0}}
+      - {in: query, name: attribute, description: Repetible hasta ocho veces como `codigo:true|false`; requiere category_code y código allowlisted en su versión de perfil., style: form, explode: true, schema: {type: array, maxItems: 8, items: {type: string, pattern: '^[a-z][a-z0-9_]{0,59}:(true|false)$'}}}
       - {in: query, name: rate_unit, schema: {type: string, enum: [hora, dia, mes]}}
       - {in: query, name: min_unit_price_clp, schema: {type: integer, format: int64, minimum: 0}}
       - {in: query, name: max_unit_price_clp, schema: {type: integer, format: int64, minimum: 0}}
-      - {in: query, name: sort, schema: {type: string, enum: [default, unit_price_asc, unit_price_desc], default: default}}
+      - {in: query, name: start_at, description: RFC3339 con offset. Ambos extremos habilitan estimación con la tarifa y zona horaria vigentes., schema: {type: string, format: date-time}}
+      - {in: query, name: end_at, schema: {type: string, format: date-time}}
+      - {in: query, name: min_total_clp, schema: {type: integer, format: int64, minimum: 0}}
+      - {in: query, name: max_total_clp, schema: {type: integer, format: int64, minimum: 0}}
+      - {in: query, name: sort, schema: {type: string, enum: [default, unit_price_asc, unit_price_desc, relevance, estimated_total_asc, estimated_total_desc], default: default}}
       - {in: query, name: page_size, schema: {type: integer, minimum: 1, maximum: 25, default: 20}}
       - {in: query, name: cursor, schema: {type: string, maxLength: 4096}}
       responses:
         '200': {description: Página pública minimizada, content: {application/json: {schema: {$ref: '#/components/schemas/PublicSpacePage'}}}}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /public/space-categories/{code}/filters:
+    get:
+      operationId: getPublicSpaceCategoryFilters
+      security: []
+      tags: [Public catalog]
+      summary: Listar únicamente los atributos públicos allowlisted para una versión de perfil
+      parameters:
+      - {in: path, name: code, required: true, schema: {type: string, maxLength: 80}}
+      responses:
+        '200': {description: Filtros tipados y versionados de la categoría, content: {application/json: {schema: {$ref: '#/components/schemas/PublicCategoryFilters'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /public/locations:
+    get:
+      operationId: listPublicLocations
+      security: []
+      tags: [Public catalog]
+      summary: Buscar nombres y códigos públicos DPA región/comuna
+      parameters:
+      - {in: query, name: q, schema: {type: string, maxLength: 80}}
+      - {in: query, name: region_code, schema: {type: string, pattern: '^[0-9]{2}$'}}
+      - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 400, default: 400}}
+      responses:
+        '200': {description: Comunas del snapshot DPA activo, con referencia a región, content: {application/json: {schema: {$ref: '#/components/schemas/PublicLocations'}}}}
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
   /public/spaces/{spaceID}:
     get:
@@ -2698,7 +2731,7 @@ components:
     PublicSpace:
       type: object
       additionalProperties: false
-      required: [space_id, category_code, category_name, title, description, area_m2, rate_unit, base_price_clp, currency]
+      required: [space_id, category_code, category_name, title, description, area_m2, rate_unit, base_price_clp, currency, estimated_total_clp]
       properties:
         space_id: {type: string, format: uuid}
         category_code: {type: string}
@@ -2709,6 +2742,11 @@ components:
         rate_unit: {type: string, enum: [hora, dia, mes]}
         base_price_clp: {type: integer, format: int64}
         currency: {type: string, const: CLP}
+        region_code: {type: [string, 'null'], pattern: '^[0-9]{2}$'}
+        region_name: {type: [string, 'null']}
+        comuna_code: {type: [string, 'null'], pattern: '^[0-9]{5}$'}
+        comuna_name: {type: [string, 'null']}
+        estimated_total_clp: {type: [integer, 'null'], format: int64, minimum: 0, description: Estimación calculada con PriceUnits, tarifa y zona vigentes; null cuando falta zona válida o el subtotal excede int64. No es cotización ni disponibilidad.}
     PublicSpaceEnvelope:
       type: object
       additionalProperties: false
@@ -2736,6 +2774,37 @@ components:
       required: [items]
       properties:
         items: {type: array, items: {$ref: '#/components/schemas/PublicSpaceCategory'}}
+    PublicCategoryFilter:
+      type: object
+      additionalProperties: false
+      required: [code, label, type, profile_version]
+      properties:
+        code: {type: string}
+        label: {type: string}
+        type: {type: string, const: 'boolean'}
+        profile_version: {type: integer, minimum: 1}
+    PublicCategoryFilters:
+      type: object
+      additionalProperties: false
+      required: [category_code, items]
+      properties:
+        category_code: {type: string}
+        items: {type: array, maxItems: 8, items: {$ref: '#/components/schemas/PublicCategoryFilter'}}
+    PublicLocation:
+      type: object
+      additionalProperties: false
+      required: [region_code, region_name, comuna_code, comuna_name]
+      properties:
+        region_code: {type: string, pattern: '^[0-9]{2}$'}
+        region_name: {type: string}
+        comuna_code: {type: string, pattern: '^[0-9]{5}$'}
+        comuna_name: {type: string}
+    PublicLocations:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, maxItems: 400, items: {$ref: '#/components/schemas/PublicLocation'}}
     AdminLocalBlockInput:
       type: object
       additionalProperties: false
@@ -3370,7 +3439,7 @@ components:
         profile: { type: object }
         attributes: { type: object }
         available: { type: boolean }
-        estimated_total_clp: { type: integer, minimum: 1, description: Estimación inclusiva del precio total para el intervalo de búsqueda; se omite si no se indicó intervalo. }
+        estimated_total_clp: { type: integer, minimum: 1, description: Estimación inclusiva para el intervalo de búsqueda; null si no se indicó intervalo o si no hay zona válida. No es cotización ni disponibilidad. }
         distance_km: { type: number, format: float, minimum: 0, description: Distancia geográfica directa aproximada a una décima de kilómetro; solo se incluye con filtro geográfico. No es distancia por carretera. }
         distance_kind: { type: string, enum: [direct], description: 'Identifica distancia directa, no ruta vial.' }
         map_position: { $ref: '#/components/schemas/SyntheticMapPosition' }

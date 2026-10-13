@@ -14,6 +14,14 @@ export type PublicSpace = {
     rate_unit: 'hora' | 'dia' | 'mes';
     base_price_clp: number;
     currency: 'CLP';
+    region_code?: string | null;
+    region_name?: string | null;
+    comuna_code?: string | null;
+    comuna_name?: string | null;
+    /**
+     * Estimación calculada con PriceUnits
+     */
+    estimated_total_clp: number | null;
 };
 
 export type PublicSpaceEnvelope = {
@@ -33,6 +41,29 @@ export type PublicSpaceCategory = {
 
 export type PublicSpaceCategories = {
     items: Array<PublicSpaceCategory>;
+};
+
+export type PublicCategoryFilter = {
+    code: string;
+    label: string;
+    type: 'boolean';
+    profile_version: number;
+};
+
+export type PublicCategoryFilters = {
+    category_code: string;
+    items: Array<PublicCategoryFilter>;
+};
+
+export type PublicLocation = {
+    region_code: string;
+    region_name: string;
+    comuna_code: string;
+    comuna_name: string;
+};
+
+export type PublicLocations = {
+    items: Array<PublicLocation>;
 };
 
 export type AdminLocalBlockInput = {
@@ -626,7 +657,7 @@ export type LocalCatalogItem = {
     };
     available?: boolean;
     /**
-     * Estimación inclusiva del precio total para el intervalo de búsqueda; se omite si no se indicó intervalo.
+     * Estimación inclusiva para el intervalo de búsqueda; null si no se indicó intervalo o si no hay zona válida. No es cotización ni disponibilidad.
      */
     estimated_total_clp?: number;
     /**
@@ -1544,11 +1575,32 @@ export type ListPublicSpacesData = {
     body?: never;
     path?: never;
     query?: {
+        /**
+         * Texto NFC; máximo 120 caracteres. Stopwords o puntuación sin lexemas dan una página vacía.
+         */
+        q?: string;
         category_code?: string;
+        region_code?: string;
+        comuna_code?: string;
+        /**
+         * Superficie positiva en m²
+         */
+        min_area_m2?: number;
+        /**
+         * Repetible hasta ocho veces como `codigo:true|false`; requiere category_code y código allowlisted en su versión de perfil.
+         */
+        attribute?: Array<string>;
         rate_unit?: 'hora' | 'dia' | 'mes';
         min_unit_price_clp?: number;
         max_unit_price_clp?: number;
-        sort?: 'default' | 'unit_price_asc' | 'unit_price_desc';
+        /**
+         * RFC3339 con offset. Ambos extremos habilitan estimación con la tarifa y zona horaria vigentes.
+         */
+        start_at?: string;
+        end_at?: string;
+        min_total_clp?: number;
+        max_total_clp?: number;
+        sort?: 'default' | 'unit_price_asc' | 'unit_price_desc' | 'relevance' | 'estimated_total_asc' | 'estimated_total_desc';
         page_size?: number;
         cursor?: string;
     };
@@ -1572,6 +1624,62 @@ export type ListPublicSpacesResponses = {
 };
 
 export type ListPublicSpacesResponse = ListPublicSpacesResponses[keyof ListPublicSpacesResponses];
+
+export type GetPublicSpaceCategoryFiltersData = {
+    body?: never;
+    path: {
+        code: string;
+    };
+    query?: never;
+    url: '/public/space-categories/{code}/filters';
+};
+
+export type GetPublicSpaceCategoryFiltersErrors = {
+    /**
+     * Recurso inexistente o no visible para esta identidad.
+     */
+    404: Error;
+};
+
+export type GetPublicSpaceCategoryFiltersError = GetPublicSpaceCategoryFiltersErrors[keyof GetPublicSpaceCategoryFiltersErrors];
+
+export type GetPublicSpaceCategoryFiltersResponses = {
+    /**
+     * Filtros tipados y versionados de la categoría
+     */
+    200: PublicCategoryFilters;
+};
+
+export type GetPublicSpaceCategoryFiltersResponse = GetPublicSpaceCategoryFiltersResponses[keyof GetPublicSpaceCategoryFiltersResponses];
+
+export type ListPublicLocationsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        q?: string;
+        region_code?: string;
+        limit?: number;
+    };
+    url: '/public/locations';
+};
+
+export type ListPublicLocationsErrors = {
+    /**
+     * validation_error o invalid_token: regla semántica no satisfecha.
+     */
+    422: Error;
+};
+
+export type ListPublicLocationsError = ListPublicLocationsErrors[keyof ListPublicLocationsErrors];
+
+export type ListPublicLocationsResponses = {
+    /**
+     * Comunas del snapshot DPA activo
+     */
+    200: PublicLocations;
+};
+
+export type ListPublicLocationsResponse = ListPublicLocationsResponses[keyof ListPublicLocationsResponses];
 
 export type GetPublicSpaceData = {
     body?: never;

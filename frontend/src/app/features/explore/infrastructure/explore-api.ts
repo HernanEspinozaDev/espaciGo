@@ -14,7 +14,7 @@ import {
   ExploreApiError,
   ExplorePort,
   QuoteEnvelope,
-  PublicCatalogFilters, PublicCategory, PublicSpace, PublicSpacePage,
+  PublicCatalogFilters, PublicCategory, PublicSpace, PublicSpacePage, PublicLocation, PublicAttributeFilter,
 } from '../domain/ports/explore-port';
 export { parseExactClpJson } from '../../../core/exact-json';
 
@@ -27,13 +27,17 @@ export class ExploreApi extends ExplorePort {
 
   async publicSearch(filters: PublicCatalogFilters): Promise<PublicSpacePage> {
     const values: Record<string,string|number> = {};
-    for (const key of ['category_code','rate_unit','min_unit_price_clp','max_unit_price_clp','sort','page_size','cursor'] as const) {
+    for (const key of ['q','category_code','rate_unit','min_unit_price_clp','max_unit_price_clp','region_code','comuna_code','min_area_m2','start_at','end_at','min_total_clp','max_total_clp','sort','page_size','cursor'] as const) {
       const value=filters[key]; if(value!==undefined&&value!=='')values[key]=value;
     }
-    return this.publicRaw<PublicSpacePage>('/public/spaces',new HttpParams({fromObject:values}));
+    let params=new HttpParams({fromObject:values});
+    for(const [code,value] of Object.entries(filters.attributes??{})) params=params.append('attribute',`${code}:${value}`);
+    return this.publicRaw<PublicSpacePage>('/public/spaces',params);
   }
   async publicDetail(spaceId:string):Promise<PublicSpace>{return (await this.publicRaw<{data:PublicSpace}>(`/public/spaces/${encodeURIComponent(spaceId)}`)).data;}
   async publicCategories():Promise<PublicCategory[]>{return (await this.publicRaw<{items:PublicCategory[]}>('/public/space-categories')).items;}
+  async publicLocations():Promise<PublicLocation[]>{return (await this.publicRaw<{items:PublicLocation[]}>('/public/locations')).items;}
+  async publicAttributeFilters(categoryCode:string):Promise<PublicAttributeFilter[]>{return (await this.publicRaw<{items:PublicAttributeFilter[]}>(`/public/space-categories/${encodeURIComponent(categoryCode)}/filters`)).items;}
 
   async search(token: string, filters: CatalogFilters): Promise<CatalogEnvelope> {
     const paramsObject: Record<string, string | number> = {};
