@@ -73,10 +73,11 @@ test('E2E runner can read only the accounts fixture and write artifacts/results,
 });
 
 test('Typed hosting form creates and edits a synthetic draft through Go', async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 });
   await login(page, accounts.host);
   await navigateSpa(page, '/panel/espacios');
   await expect(page.getByRole('heading', { name: 'Mis espacios' })).toBeVisible();
-  await page.getByLabel('Categoría', { exact: true }).selectOption('oficina');
+  await page.getByRole('combobox', { name: 'Categoría', exact: true }).selectOption('oficina');
   await expect(page.locator('.attributes legend')).toContainText('perfil versión');
   await page.getByLabel('Título', { exact: true }).fill('Oficina sintética · arquitectura');
   await page.getByLabel('Descripción', { exact: true }).fill('Fixture desechable para comprobar los formularios tipados, el aislamiento del dominio y la confirmación del borrador por Go.');
