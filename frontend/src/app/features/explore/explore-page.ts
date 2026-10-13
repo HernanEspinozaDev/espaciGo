@@ -1,5 +1,6 @@
 import { UiButton } from '../../shared/ui/button/button';
-import { Component, inject } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
+import { Component, ElementRef, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ExploreFacade } from './application/explore-facade';
 
@@ -7,11 +8,20 @@ import { ExploreFacade } from './application/explore-facade';
   providers: [ExploreFacade],
   selector: 'app-explore-page',
   imports: [UiButton, RouterLink],
+  host: {
+    '(document:keydown)': 'onDialogKeydown($event)',
+    '(window:resize)': 'onViewportResize()',
+  },
   templateUrl: './explore-page.html',
   styleUrl: './explore-page.scss',
 })
 export class ExplorePage {
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly document = inject(DOCUMENT);
   private readonly facade = inject(ExploreFacade);
+  readonly filtersOpen = signal(false);
+  private filterTrigger: HTMLElement | null = null;
+  readonly activeFilters = computed(() => this.buildActiveFilters());
   get categories() {
     return this.facade.categories;
   }
@@ -32,6 +42,8 @@ export class ExplorePage {
   get filters() {
     return this.facade.filters;
   }
+  get appliedFilters() { return this.facade.appliedFilters; }
+  get hasUnappliedChanges() { return this.facade.hasUnappliedChanges; }
   ngOnInit(): void {
     this.facade.ngOnInit();
   }
@@ -42,6 +54,68 @@ export class ExplorePage {
   readonly booleanValue = (value: boolean | undefined): string => value === undefined ? '' : String(value);
   readonly search = this.facade.search.bind(this.facade);
   readonly clearFilters = this.facade.clearFilters.bind(this.facade);
+  readonly applySort = this.facade.applySort.bind(this.facade);
   readonly loadMore = this.facade.loadMore.bind(this.facade);
   readonly price = this.facade.price.bind(this.facade);
+
+  openFilters(trigger: HTMLElement): void {
+    this.filterTrigger = trigger;
+    this.filtersOpen.set(true);
+    setTimeout(() => ((this.host.nativeElement as HTMLElement).querySelector('.filter-close') as HTMLElement | null)?.focus());
+  }
+
+  closeFilters(): void {
+    this.filtersOpen.set(false);
+    setTimeout(() => {
+      if (this.filterTrigger?.getClientRects().length) this.filterTrigger.focus();
+      else (this.host.nativeElement as HTMLElement).querySelector<HTMLElement>('.filters input')?.focus();
+    });
+  }
+
+  removeFilter(key: string): void { this.facade.removeAppliedFilter(key); }
+
+  private buildActiveFilters(): { key: string; label: string }[] {
+    const f = this.facade.appliedFilters();
+    const labels: Record<string, string> = {
+      q: 'Búsqueda', category_code: 'Categoría', region_code: 'Región', comuna_code: 'Comuna', rate_unit: 'Tarifa',
+      min_unit_price_clp: 'Precio desde', max_unit_price_clp: 'Precio hasta', min_area_m2: 'Superficie mínima',
+      start_at: 'Desde', end_at: 'Hasta', min_total_clp: 'Total estimado desde', max_total_clp: 'Total estimado hasta',
+      sort: 'Orden',
+    };
+    const active = Object.entries(labels).filter(([key]) => Boolean(f[key as keyof typeof f])).map(([key, label]) => {
+      const value = String(f[key as keyof typeof f]);
+      const formatted = key === 'category_code'
+        ? this.categories().find((item) => item.code === value)?.name ?? value
+        : key === 'region_code'
+          ? this.locations().find((item) => item.region_code === value)?.region_name ?? value
+          : key === 'comuna_code'
+            ? this.locations().find((item) => item.comuna_code === value)?.comuna_name ?? value
+            : key === 'rate_unit'
+              ? ({ hora: 'Hora', dia: 'Día', mes: 'Mes' } as Record<string, string>)[value] ?? value
+                  : key === 'sort'
+                    ? ({ unit_price_asc: 'Precio menor', unit_price_desc: 'Precio mayor', relevance: 'Relevancia', estimated_total_asc: 'Total estimado menor', estimated_total_desc: 'Total estimado mayor' } as Record<string, string>)[value] ?? value
+              : key === 'start_at' || key === 'end_at'
+                ? this.dateInput(value).replace('T', ' ')
+                : key.includes('price') || key.includes('total')
+                  ? this.price(value)
+                  : key === 'min_area_m2' ? `${value} m²` : value;
+      return { key, label: `${label}: ${formatted}` };
+    });
+    return [...active, ...Object.entries(f.attributes).map(([key, value]) => ({ key: `attribute:${key}`, label: `${this.attributeFilters().find((filter) => filter.code === key)?.label ?? key}: ${value ? 'Sí' : 'No'}` }))];
+  }
+
+  onDialogKeydown(event: KeyboardEvent): void {
+    if (!this.filtersOpen()) return;
+    if (event.key === 'Escape') { event.preventDefault(); this.closeFilters(); return; }
+    if (event.key !== 'Tab') return;
+    const focusable = [...((this.host.nativeElement as HTMLElement).querySelector('.filters-open')?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)') ?? [])];
+    if (!focusable.length) return;
+    const first = focusable[0]; const last = focusable.at(-1);
+    if (event.shiftKey && this.document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && this.document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+
+  onViewportResize(): void {
+    if (this.filtersOpen() && (this.document.defaultView?.innerWidth ?? 0) > 760) this.closeFilters();
+  }
 }

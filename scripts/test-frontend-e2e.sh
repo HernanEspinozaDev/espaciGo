@@ -135,12 +135,9 @@ cleanup() {
   docker volume rm "$LOCAL_DOCKER_PGDATA_VOLUME" >/dev/null 2>&1 || true
   if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" && "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
     mkdir -p "$FE14_EVIDENCE_OUTPUT_DIR"
-    for artifact in fe14_public_search_desktop.jpg fe14_public_search_desktop.json fe14_public_search_mobile.jpg fe14_public_search_mobile.json \
-      fe14_mpv2_03_host_desktop.jpg fe14_mpv2_03_host_desktop.json fe14_mpv2_03_host_mobile.jpg fe14_mpv2_03_host_mobile.json \
-      fe14_mpv2_04_visitor_search_desktop.jpg fe14_mpv2_04_visitor_search_desktop.json fe14_mpv2_04_visitor_search_mobile.jpg fe14_mpv2_04_visitor_search_mobile.json \
-      fe14_mpv2_04_host_desktop.jpg fe14_mpv2_04_host_desktop.json fe14_mpv2_04_host_mobile.jpg fe14_mpv2_04_host_mobile.json \
-      fe14_mpv2_04_visitor_search_desktop.jpg fe14_mpv2_04_visitor_search_desktop.json fe14_mpv2_04_visitor_search_mobile.jpg fe14_mpv2_04_visitor_search_mobile.json \
-      fe14_mpv2_04_detail_desktop.jpg fe14_mpv2_04_detail_desktop.json fe14_mpv2_04_detail_mobile.jpg fe14_mpv2_04_detail_mobile.json; do
+    for artifact in \
+      fe14_mpv2_05_catalog_desktop.jpg fe14_mpv2_05_catalog_desktop.json \
+      fe14_mpv2_05_filters_mobile.jpg fe14_mpv2_05_filters_mobile.json; do
       if [[ -f "$STATE_DIR/artifacts/$artifact" ]]; then cp -- "$STATE_DIR/artifacts/$artifact" "$FE14_EVIDENCE_OUTPUT_DIR/$artifact"; fi
     done
   fi
@@ -215,13 +212,27 @@ INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
 SELECT id,1,'hora',18000 FROM space;
 INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores)
 SELECT id,'oficina',1,'{"wifi":true}'::jsonb FROM public.espacio WHERE titulo='Espacio sintético público FE-14';
+WITH host AS (
+  SELECT id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-public-owner@ejemplo.invalid'
+), space AS (
+  INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,
+      reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria,
+      ubicacion_catalogo_version,region_codigo,comuna_codigo)
+  SELECT gen_random_uuid(),host.id,'oficina','Segundo espacio público FE-14',
+      'Segunda publicación sintética recreable para validar cursores y navegación de páginas en el catálogo público desde la interfaz anónima.',
+      24,4,'Uso de prueba recreable','dia',35000,'Dirección privada de prueba 456, Santiago','activa','America/Santiago',
+      'SUBDERE_DPA_2018','13','13123'
+  FROM host RETURNING id
+)
+INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
+SELECT id,1,'dia',35000 FROM space;
 SQL
-printf 'PASS disposable FE-14 database contains one eligible synthetic public listing\n'
+printf 'PASS disposable FE-14 database contains two eligible synthetic public listings\n'
 
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
 if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
   printf 'Running focused anonymous public catalog journey\n'
-  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep 'Anonymous visitor explores|MPV2-04 host declares' >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
+  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep 'Anonymous visitor explores|MPV2-04 host declares|Removing applied filter chips|Mobile filter dialog' >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
   cat "$STATE_DIR/e2e.log"
 else
 printf 'Waiting for same-tab outage and restore test\n'
@@ -278,7 +289,14 @@ PY
 mkdir -p "$ROOT_DIR/planning/frontend/evidencia" "$ROOT_DIR/planning/marketplace_publico_v2/evidencia/mpv2_03"
 for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
   [[ -f "$image" ]] || continue
-  if [[ "$(basename "$image")" == fe14_mpv2_03_* || "$(basename "$image")" == fe14_mpv2_04_* ]] && [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
+  if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" && "$(basename "$image")" == fe14_mpv2_05_* ]]; then
+    destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$image")"
+    cp -- "$image" "$destination"
+    chmod 0644 "$destination"
+    continue
+  fi
+  if [[ "${FE14_EVIDENCE_OUTPUT_DIR:-}" == */mpv2_05 ]]; then continue; fi
+  if [[ "$(basename "$image")" == fe14_mpv2_03_* || "$(basename "$image")" == fe14_mpv2_04_* || "$(basename "$image")" == fe14_mpv2_05_* ]] && [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
     destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$image")"
     cp -- "$image" "$destination"
     chmod 0644 "$destination"
@@ -294,7 +312,14 @@ for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
 done
 for measurements in "$STATE_DIR"/artifacts/fe14_*.json; do
   [[ -f "$measurements" ]] || continue
-  if [[ "$(basename "$measurements")" == fe14_mpv2_03_* || "$(basename "$measurements")" == fe14_mpv2_04_* ]] && [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
+  if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" && "$(basename "$measurements")" == fe14_mpv2_05_* ]]; then
+    destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$measurements")"
+    cp -- "$measurements" "$destination"
+    chmod 0644 "$destination"
+    continue
+  fi
+  if [[ "${FE14_EVIDENCE_OUTPUT_DIR:-}" == */mpv2_05 ]]; then continue; fi
+  if [[ "$(basename "$measurements")" == fe14_mpv2_03_* || "$(basename "$measurements")" == fe14_mpv2_04_* || "$(basename "$measurements")" == fe14_mpv2_05_* ]] && [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
     destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$measurements")"
     cp -- "$measurements" "$destination"
     chmod 0644 "$destination"

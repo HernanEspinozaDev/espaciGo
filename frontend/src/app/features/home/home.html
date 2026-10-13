@@ -7,15 +7,18 @@
         Encuentra lugares flexibles para trabajar, crear, guardar o reunirte. EspaciGo conecta tus
         planes con espacios que se adaptan a ellos.
       </p>
+      <form class="hero-search" (submit)="$event.preventDefault(); search()">
+        <label for="home-search">¿Qué espacio estás buscando?</label>
+        <div><input id="home-search" type="search" maxlength="120" [value]="searchText()" (input)="searchText.set($any($event.target).value)" placeholder="Ej. oficina en Santiago" />
+        <button appButton="primary" class="button button-primary" type="submit">Buscar espacios</button></div>
+      </form>
       <div class="hero-actions">
-        <a appButton="primary" class="button button-primary" routerLink="/categorias">Descubrir categorías</a>
+        <a class="text-link" routerLink="/categorias">Descubrir categorías</a>
         <a class="text-link" routerLink="/como-funciona"
           >Conoce cómo funciona <span aria-hidden="true">→</span></a
         >
       </div>
-      <p class="hero-note">
-        Explora primero. Los espacios y su disponibilidad se consultan con sesión.
-      </p>
+      <p class="hero-note">Explora publicaciones y precios públicos sin crear una cuenta.</p>
     </div>
 
     <div class="hero-art" aria-hidden="true">
@@ -41,7 +44,7 @@
       </div>
       <div class="category-grid">
         @for (category of categories.slice(0, 4); track category.name; let index = $index) {
-          <a class="category-card" routerLink="/categorias">
+          <a class="category-card" [routerLink]="['/explorar']" [queryParams]="{ category_code: category.code }">
             <span class="category-number">0{{ index + 1 }}</span>
             <span class="category-card__body">
               <strong>{{ category.name }}</strong>

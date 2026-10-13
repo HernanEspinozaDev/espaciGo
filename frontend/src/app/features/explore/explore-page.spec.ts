@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { provideFrontendPorts } from '../../frontend.providers';
 import { ExplorePage } from './explore-page';
@@ -331,4 +332,111 @@ describe('ExplorePage public catalog URL state', () => {
       await vi.waitFor(() => expect(page.items()[0]?.space_id).toBe('retry-result'));
     },
   );
+
+  it.each([
+    {
+      start: '/explorar?q=oficina&sort=relevance&page_size=1&cursor=existing-cursor',
+      chip: 'q',
+      absent: ['q', 'sort'],
+      expected: { sort: 'default' },
+    },
+    {
+      start: '/explorar?rate_unit=hora&min_unit_price_clp=10000&max_unit_price_clp=15000&sort=unit_price_asc&page_size=1&cursor=existing-cursor',
+      chip: 'rate_unit',
+      absent: ['rate_unit', 'min_unit_price_clp', 'max_unit_price_clp', 'sort'],
+      expected: { sort: 'default' },
+    },
+    {
+      start: '/explorar?rate_unit=hora&start_at=2026-10-20T10%3A00%3A00.000Z&end_at=2026-10-20T11%3A00%3A00.000Z&min_total_clp=18000&max_total_clp=25000&sort=estimated_total_asc&page_size=1&cursor=existing-cursor',
+      chip: 'start_at',
+      absent: ['start_at', 'end_at', 'min_total_clp', 'max_total_clp', 'sort'],
+      expected: { rate_unit: 'hora', sort: 'default' },
+    },
+  ])('removes $chip and its dependent criteria through the Router', async ({ start, chip, absent, expected }) => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]),
+      publicLocations: vi.fn().mockResolvedValue([]),
+      publicSearch: vi.fn().mockResolvedValue({ items: [publicSpace('valid-result')] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideFrontendPorts(), provideHttpClient(),
+        provideRouter([{ path: 'explorar', component: ExplorePage }]),
+        { provide: ExploreApi, useValue: api },
+      ],
+    });
+    const harness = await RouterTestingHarness.create(start);
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    const router = TestBed.inject(Router);
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    expect(api.publicSearch.mock.calls[0][0]).toMatchObject({ cursor: 'existing-cursor', page_size: 1 });
+
+    page.removeFilter(chip);
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(page.items()[0]?.space_id).toBe('valid-result'));
+    expect(router.parseUrl(router.url).queryParamMap.keys).not.toContain('cursor');
+    for (const key of absent) expect(router.parseUrl(router.url).queryParamMap.has(key)).toBe(false);
+    expect(api.publicSearch.mock.calls[1][0]).toMatchObject(expected);
+    expect(api.publicSearch.mock.calls[1][0].cursor).toBeUndefined();
+    expect(page.hasUnappliedChanges()).toBe(false);
+  });
+
+  it('renders applied chips with field-specific names and leaves draft edits unapplied', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([{ code: '13', name: 'Categoría numérica', order: 1 }]),
+      publicLocations: vi.fn().mockResolvedValue([
+        { region_code: '13', region_name: 'Metropolitana', comuna_code: '13123', comuna_name: 'Providencia' },
+      ]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]),
+      publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideFrontendPorts(), provideHttpClient(),
+        provideRouter([{ path: 'explorar', component: ExplorePage }]),
+        { provide: ExploreApi, useValue: api },
+      ],
+    });
+    const harness = await RouterTestingHarness.create('/explorar?category_code=13&region_code=13&comuna_code=13123&q=13123');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(api.publicLocations).toHaveBeenCalledOnce());
+
+    const chips = page.activeFilters().map((chip) => chip.label);
+    expect(chips).toContain('Categoría: Categoría numérica');
+    expect(chips).toContain('Región: Metropolitana');
+    expect(chips).toContain('Comuna: Providencia');
+    expect(chips).toContain('Búsqueda: 13123');
+
+    page.updateFilter('q', 'texto aún sin aplicar');
+    expect(page.hasUnappliedChanges()).toBe(true);
+    expect(page.activeFilters().find((chip) => chip.key === 'q')?.label).toBe('Búsqueda: 13123');
+  });
+
+  it('has no WCAG A/AA axe violations in desktop catalog and mobile filter dialog', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]),
+      publicLocations: vi.fn().mockResolvedValue([]),
+      publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideFrontendPorts(), provideHttpClient(),
+        provideRouter([{ path: 'explorar', component: ExplorePage }]),
+        { provide: ExploreApi, useValue: api },
+      ],
+    });
+    const harness = await RouterTestingHarness.create('/explorar');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+    const desktop = await axe.run(harness.fixture.nativeElement, { runOnly: { type: 'tag', values: tags } });
+    expect(desktop.violations.map(({ id }) => id)).toEqual([]);
+
+    const trigger = harness.routeNativeElement!.querySelector<HTMLElement>('.filter-toggle')!;
+    page.openFilters(trigger);
+    harness.fixture.detectChanges();
+    const mobile = await axe.run(harness.fixture.nativeElement, { runOnly: { type: 'tag', values: tags } });
+    expect(mobile.violations.map(({ id }) => id)).toEqual([]);
+  });
 });

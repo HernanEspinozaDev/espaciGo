@@ -45,10 +45,25 @@
 }
 .filters {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: metrics.$space-1rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: metrics.$space-0-8rem;
   padding: metrics.$space-1-25rem;
 }
+.catalog-layout { display: grid; grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr); align-items: start; gap: metrics.$space-1-5rem; }
+.filter-sidebar { min-width: 0; }
+.catalog-results { min-width: 0; }
+.catalog-toolbar { display: flex; align-items: center; justify-content: space-between; margin: metrics.$space-1rem 0; }
+.results-count { margin: 0; color: var(--color-text-muted); }
+.filter-toggle, .filter-close { display: none; }
+.mobile-filter-header { display: none; }
+.filters .mobile-sort-label { display: none; }
+.desktop-sort { display: grid; grid-template-columns: auto minmax(12rem, 16rem); align-items: center; gap: metrics.$space-0-5rem; color: var(--color-text-muted); font-size: metrics.$font-size-0-9rem; font-weight: metrics.$font-weight-650; }
+.desktop-sort select { min-width: 0; min-height: 2.8rem; border: 1px solid var(--color-border-control); border-radius: 0.55rem; background: white; color: var(--color-text); padding: metrics.$space-0-55rem metrics.$space-0-7rem; font: inherit; }
+.pending-filters { padding: metrics.$space-0-65rem metrics.$space-0-8rem; border-radius: 0.55rem; background: var(--color-surface-subtle); color: var(--color-text-muted); }
+.active-filters { display: flex; align-items: center; flex-wrap: wrap; gap: metrics.$space-0-5rem; margin-block: metrics.$space-1rem; }
+.filter-chip { min-height: 2.5rem; border: 1px solid var(--color-border-control); border-radius: 999px; padding: metrics.$space-0-4rem metrics.$space-0-75rem; background: var(--color-surface); color: var(--color-text); font: inherit; cursor: pointer; }
+.clear-chips { min-height: 2.5rem; border: 0; background: transparent; color: var(--brand-primary-hover); font: inherit; text-decoration: underline; cursor: pointer; }
+.filter-backdrop { display: none; }
 .filters label,
 .price-filter label,
 .proximity-filter label {
@@ -149,7 +164,7 @@
 .results {
   display: grid;
   gap: metrics.$space-1rem;
-  margin-top: metrics.$space-1-5rem;
+  margin-top: metrics.$space-1rem;
 }
 .space-card {
   display: grid;
@@ -256,14 +271,25 @@
   display: block;
   margin: metrics.$space-1-5rem auto 0;
 }
+@include bp.down('viewport-64rem') {
+  .catalog-layout { grid-template-columns: minmax(14rem, 16rem) minmax(0, 1fr); gap: metrics.$space-1rem; }
+  .filters { padding: metrics.$space-0-8rem; }
+}
 @include bp.down('viewport-760px') {
   .explore {
     padding-block: metrics.$space-2rem metrics.$space-3rem;
   }
-  .filters {
-    grid-template-columns: 1fr;
-    padding: metrics.$space-0-9rem;
-  }
+  .catalog-layout { display: block; }
+  .catalog-toolbar { flex-wrap: wrap; gap: metrics.$space-0-65rem; }
+  .desktop-sort { display: none; }
+  .filter-toggle { display: inline-flex; min-height: 2.75rem; align-items: center; border: 1px solid var(--color-border-control); border-radius: 999px; padding-inline: metrics.$space-1rem; background: var(--color-surface); color: var(--color-text); font: inherit; font-weight: metrics.$font-weight-700; }
+  .filters { display: none; }
+  .filters.filters-open { position: fixed; z-index: 1001; inset: auto 0 0; display: grid; max-height: 88dvh; overflow: auto; grid-template-columns: 1fr; padding: metrics.$space-1rem; border-radius: 1rem 1rem 0 0; }
+  .mobile-filter-header { display: flex; align-items: center; justify-content: space-between; grid-column: 1 / -1; }
+  .mobile-filter-header h2 { margin: 0; }
+  .filters .mobile-sort-label { display: grid; }
+  .filter-close { display: inline-grid; width: 2.75rem; height: 2.75rem; place-items: center; border: 1px solid var(--color-border-control); border-radius: 50%; background: var(--color-surface); color: var(--color-text); font-size: metrics.$font-size-1-5rem; cursor: pointer; }
+  .filter-backdrop { position: fixed; z-index: 1000; inset: 0; display: block; width: 100%; border: 0; background: rgb(20 20 20 / 55%); }
   .wide {
     grid-column: auto;
   }
