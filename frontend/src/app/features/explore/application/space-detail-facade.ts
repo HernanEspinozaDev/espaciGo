@@ -2,6 +2,7 @@ import { DestroyRef, Injectable, OnInit, effect, inject, signal } from '@angular
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router, UrlTree } from '@angular/router';
+import { PublicPageSeo } from '../../../core/public-page-seo';
 import type { SpaceAttributeProfile } from '../../../core/contracts/models';
 import { IdentitySession } from '../../../core/identity/application/identity-session';
 import { buildContextualReturn, canonicalCatalogReturn } from '../../../core/identity/contextual-return';
@@ -27,6 +28,7 @@ export class SpaceDetailFacade implements OnInit {
   private readonly meta = inject(Meta);
   private readonly title = inject(Title);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly seo = inject(PublicPageSeo);
   private generation = 0;
   private reservationGeneration = 0;
   private activeSpaceId = '';
@@ -289,10 +291,20 @@ export class SpaceDetailFacade implements OnInit {
       const item = await this.api.publicDetail(id);
       if (generation !== this.generation || this.activeSpaceId !== id) return;
       this.space.set(item);
-      this.title.setTitle(`${item.title} | EspaciGo`);
+      this.seo.detail({
+        id: item.space_id,
+        title: item.title,
+        description: item.description,
+        imageId: item.images?.find((image) => image.is_cover)?.image_id,
+        contextual: this.route.snapshot.queryParamMap.keys.length > 0,
+      });
       if (this.canBook()) await this.loadPrivateBookingData();
     } catch (error) {
-      if (generation === this.generation && this.activeSpaceId === id) this.error.set(apiError(error));
+      if (generation === this.generation && this.activeSpaceId === id) {
+        this.seo.responseForApiError(error);
+        if (apiStatus(error) === 404) this.seo.unavailable();
+        this.error.set(apiError(error));
+      }
     } finally {
       if (generation === this.generation && this.activeSpaceId === id) this.busy.set(false);
     }

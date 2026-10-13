@@ -2,10 +2,16 @@ services:
   backend:
     environment:
       CORS_ALLOWED_ORIGINS: http://localhost:${LOCAL_ANGULAR_PORT:-4200},http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200},http://angular-frontend:4000
+    networks:
+      api:
+        aliases:
+          - api-public
 
   angular-frontend:
     environment:
-      API_PUBLIC_BASE_URL: http://backend:8080/api/v1
+      API_INTERNAL_BASE_URL: http://backend:8080/api/v1
+      API_PUBLIC_BASE_URL: http://api-public:8080/api/v1
+      FRONTEND_PUBLIC_ORIGIN: http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200}
 
   angular-e2e:
     image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-angular-e2e:dev
@@ -21,6 +27,9 @@ services:
       FE14_ARTIFACT_DIR: /run/fe14/artifacts
       FE14_RESULTS_DIR: /run/fe14/results/playwright
       FE14_HEAD: ${FE14_HEAD:-unknown}
+      FE14_PUBLIC_ORIGIN: http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200}
+      FE14_LOCAL_SSR_ORIGIN: http://host.docker.internal:${LOCAL_DOCKER_SSR_PORT:-4203}
+      FE14_LOCAL_SSR_CANONICAL_ORIGIN: http://127.0.0.1:${LOCAL_DOCKER_SSR_PORT:-4203}
       PLAYWRIGHT_INSECURE_ORIGINS: http://angular-frontend:4000
     volumes:
       - type: bind
@@ -43,3 +52,5 @@ services:
     networks:
       - api
       - mail
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

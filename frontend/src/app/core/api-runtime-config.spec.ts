@@ -20,9 +20,25 @@ describe('ApiRuntimeConfig', () => {
 
   it('rejects a public API URL containing credentials', async () => {
     const result = service.load();
-    http.expectOne('/config.json').flush({ apiBaseUrl: 'https://user:secret@example.test/api/v1' });
+    http.expectOne('/config.json').flush({
+      apiBaseUrl: 'https://user:secret@example.test/api/v1',
+      siteOrigin: 'https://example.test',
+    });
 
-    await expect(result).rejects.toThrow('Invalid public API URL');
+    await expect(result).rejects.toThrow('Invalid public runtime configuration');
     expect(service.apiBaseUrl()).toBeNull();
+  });
+
+  it('loads a public API base and fixed site origin without accepting request hosts', async () => {
+    const result = service.load();
+    http.expectOne('/config.json').flush({
+      apiBaseUrl: 'https://api.example.test/api/v1/',
+      siteOrigin: 'https://spaces.example.test',
+    });
+
+    await result;
+    expect(service.apiBaseUrl()).toBe('https://api.example.test/api/v1');
+    expect(service.publicApiBaseUrl()).toBe('https://api.example.test/api/v1');
+    expect(service.publicSiteOrigin()).toBe('https://spaces.example.test');
   });
 });

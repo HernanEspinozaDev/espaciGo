@@ -10,6 +10,7 @@ import {
   PublicLocation,
   PublicAttributeFilter,
 } from '../domain/ports/explore-port';
+import { PublicPageSeo } from '../../../core/public-page-seo';
 
 type ExploreFilters = {
   q: string;
@@ -39,6 +40,7 @@ export class ExploreFacade implements OnInit {
   private readonly meta = inject(Meta);
   private readonly title = inject(Title);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly seo = inject(PublicPageSeo);
   private requestGeneration = 0;
   private criteriaKey: string | undefined;
   private routeRequestKey: string | undefined;
@@ -296,14 +298,17 @@ export class ExploreFacade implements OnInit {
     try {
       const page = await this.api.publicSearch(request);
       if (generation !== this.requestGeneration) return;
+      this.seo.catalog(this.route.snapshot.queryParamMap.keys.length > 0);
       this.pages.set(filters.cursor, page.items);
       this.pageNextCursors.set(filters.cursor, page.next_cursor ?? '');
       if (!this.pageCursors.includes(filters.cursor)) this.pageCursors.push(filters.cursor);
       this.items.update((current) => (append ? [...current, ...page.items] : page.items));
       this.nextCursor.set(page.next_cursor ?? '');
-    } catch {
-      if (generation === this.requestGeneration)
+    } catch (error) {
+      if (generation === this.requestGeneration) {
+        this.seo.responseForApiError(error);
         this.error.set('No fue posible cargar los espacios públicos. Inténtalo nuevamente.');
+      }
     } finally {
       if (generation === this.requestGeneration) this.busy.set(false);
     }
@@ -361,14 +366,15 @@ export class ExploreFacade implements OnInit {
   private async loadCategories(): Promise<void> {
     try {
       this.categories.set(await this.api.publicCategories());
-    } catch {
+    } catch (error) {
+      this.seo.responseForApiError(error);
       this.error.set('No fue posible cargar las categorías públicas.');
     }
   }
 
   async loadLocations(): Promise<void> {
     try { this.locations.set(await this.api.publicLocations()); }
-    catch { this.error.set('No fue posible cargar las ubicaciones públicas.'); }
+    catch (error) { this.seo.responseForApiError(error); this.error.set('No fue posible cargar las ubicaciones públicas.'); }
   }
 
   private selectAttributeFilterCategory(code: string): void {
@@ -380,8 +386,9 @@ export class ExploreFacade implements OnInit {
     void this.api.publicAttributeFilters(code).then((filters) => {
       if (this.destroyRef.destroyed || generation !== this.attributeFilterGeneration || this.filters().category_code !== code) return;
       this.attributeFilters.set(filters);
-    }).catch(() => {
+    }).catch((error) => {
       if (this.destroyRef.destroyed || generation !== this.attributeFilterGeneration || this.filters().category_code !== code) return;
+      this.seo.responseForApiError(error);
       this.attributeFilters.set([]);
       this.error.set('No fue posible cargar los filtros de esta categoría.');
     });

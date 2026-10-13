@@ -1,6 +1,6 @@
-import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, timeout } from 'rxjs';
 import { M04Local, M06Local } from '../../../../generated/api/sdk.gen';
 import { ApiRuntimeConfig } from '../../../core/api-runtime-config';
 import type { SpaceAttributeProfile, SpaceCategoryList } from '../../../core/contracts/models';
@@ -35,7 +35,7 @@ export class ExploreApi extends ExplorePort {
     return this.publicRaw<PublicSpacePage>('/public/spaces',params);
   }
   async publicDetail(spaceId:string):Promise<PublicSpaceDetail>{return (await this.publicRaw<{data:PublicSpaceDetail}>(`/public/spaces/${encodeURIComponent(spaceId)}`)).data;}
-  publicImageUrl(spaceId:string,imageId:string):string{return `${(this.runtime.apiBaseUrl()??'').replace(/\/$/,'')}/public/spaces/${encodeURIComponent(spaceId)}/images/${encodeURIComponent(imageId)}`;}
+  publicImageUrl(spaceId:string,imageId:string):string{return `/public/spaces/${encodeURIComponent(spaceId)}/images/${encodeURIComponent(imageId)}`;}
   async publicCategories():Promise<PublicCategory[]>{return (await this.publicRaw<{items:PublicCategory[]}>('/public/space-categories')).items;}
   async publicLocations():Promise<PublicLocation[]>{return (await this.publicRaw<{items:PublicLocation[]}>('/public/locations')).items;}
   async publicAttributeFilters(categoryCode:string):Promise<PublicAttributeFilter[]>{return (await this.publicRaw<{items:PublicAttributeFilter[]}>(`/public/space-categories/${encodeURIComponent(categoryCode)}/filters`)).items;}
@@ -170,8 +170,13 @@ export class ExploreApi extends ExplorePort {
 
   private async publicRaw<T>(path:string,params?:HttpParams):Promise<T>{
     const baseUrl=this.runtime.apiBaseUrl();if(!baseUrl)throw new Error('La API todavía no está configurada.');
-    const text=await firstValueFrom(this.http.get(`${baseUrl}${path}`,{params,responseType:'text'}));
-    return parseExactClpJson<T>(text);
+    try {
+      const text=await firstValueFrom(this.http.get(`${baseUrl}${path}`,{params,responseType:'text'}).pipe(timeout(4000)));
+      return parseExactClpJson<T>(text);
+    } catch (error) {
+      if (error instanceof HttpErrorResponse) throw new ExploreApiError('La consulta pública no está disponible.', error.status);
+      throw error;
+    }
   }
 }
 
