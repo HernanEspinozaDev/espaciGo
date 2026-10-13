@@ -8,7 +8,8 @@ export default [
   {
     files: ['src/**/*.ts'],
     languageOptions: { parser: tseslint.parser },
-    plugins: { '@typescript-eslint': tseslint.plugin, '@angular-eslint': angular },
+    plugins: { '@typescript-eslint': tseslint.plugin, '@angular-eslint': angular, '@angular-eslint/template': angularTemplate },
+    processor: angularTemplate.processors['extract-inline-html'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',
       '@angular-eslint/prefer-inject': 'error',
@@ -23,6 +24,7 @@ export default [
       '@angular-eslint/template/eqeqeq': 'error',
       '@angular-eslint/template/prefer-control-flow': 'error',
       '@angular-eslint/template/no-positive-tabindex': 'error',
+      '@angular-eslint/template/no-inline-styles': ['error', { allowBindToStyle: 'dynamic' }],
     },
   },
 ];

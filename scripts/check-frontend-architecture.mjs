@@ -44,6 +44,7 @@ export function inspectSource(file, text, roots) {
     return undefined;
   }
   function visit(node) {
+    if (component && ts.isPropertyAssignment(node) && node.name.getText(source) === 'styles') errors.push(`${relative}: inline component CSS bypasses Stylelint; use styleUrl`);
     const prefix = staticPrefix(node);
     if ((application || domain || component) && prefix !== undefined && isBackendPath(prefix, roots)) errors.push(`${relative}: REST path outside infrastructure`);
     if ((application || domain || component) && ts.isCallExpression(node) && /^(fetch|globalThis\.fetch|window\.fetch)$/.test(node.expression.getText(source))) errors.push(`${relative}: HTTP call outside infrastructure`);

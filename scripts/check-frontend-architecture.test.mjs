@@ -35,3 +35,5 @@ test('rejects an application transport import even without a URL literal', () =>
 });
 
 test('rejects a dynamic global HTTP call in application', () => { assert.ok(inspect('fetch(endpoint);').length); });
+
+test('rejects inline component CSS that would bypass Stylelint', () => { assert.ok(inspect('@Component({styles: [`.fixture { padding: 13px; }`]}) class Example {}', 'presentation').length); });
