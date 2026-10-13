@@ -204,6 +204,7 @@ export class HostingSpacesPage {
   readonly selectCover = this.facade.selectCover.bind(this.facade);
   readonly showPhoto = this.facade.showPhoto.bind(this.facade);
   readonly removePhoto = this.facade.removePhoto.bind(this.facade);
+  readonly setPhotoPublic = this.facade.setPhotoPublic.bind(this.facade);
   readonly setRateUnit = this.facade.setRateUnit.bind(this.facade);
   readonly setTimeZone = this.facade.setTimeZone.bind(this.facade);
   readonly setDisambiguation = this.facade.setDisambiguation.bind(this.facade);

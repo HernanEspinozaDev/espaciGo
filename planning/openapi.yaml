@@ -68,7 +68,20 @@ paths:
       parameters:
       - {in: path, name: spaceID, required: true, schema: {type: string, format: uuid}}
       responses:
-        '200': {description: Detalle público minimizado, content: {application/json: {schema: {$ref: '#/components/schemas/PublicSpaceEnvelope'}}}}
+        '200': {description: Detalle público minimizado, content: {application/json: {schema: {$ref: '#/components/schemas/PublicSpaceDetailEnvelope'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /public/spaces/{spaceID}/images/{imageID}:
+    get:
+      operationId: getPublicSpaceImage
+      security: []
+      tags: [Public catalog]
+      summary: Leer una imagen declarada pública en una publicación vigente
+      description: Resuelve la visibilidad y asociación en cada solicitud; las fotos existentes siguen privadas hasta su declaración explícita.
+      parameters:
+      - {in: path, name: spaceID, required: true, schema: {type: string, format: uuid}}
+      - {in: path, name: imageID, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200': {description: PNG público, no cacheable, content: {image/png: {schema: {type: string, format: binary}}}}
         '404': {$ref: '#/components/responses/NotFound'}
   /public/space-categories:
     get:
@@ -1347,6 +1360,29 @@ paths:
       description: Retira la imagen propia y encola limpieza recuperable del archivo privado.
       responses:
         '200': { description: Resultado idempotente de la retirada., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticSpaceGalleryRemoval' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /spaces/{spaceId}/gallery/{photoId}/publication:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: photoId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: setOwnSyntheticSpaceGalleryPhotoPublication
+      tags: [M04 local]
+      description: Declara o retira explícitamente una foto sintética de la ficha pública. La portada solo se muestra mientras también sea pública.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [public_in_catalog]
+              properties:
+                public_in_catalog: { type: boolean }
+      responses:
+        '200': { description: Estado de publicación de la imagen propia., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticSpaceGalleryPhoto' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -2748,12 +2784,57 @@ components:
         comuna_code: {type: [string, 'null'], pattern: '^[0-9]{5}$'}
         comuna_name: {type: [string, 'null']}
         estimated_total_clp: {type: [integer, 'null'], format: int64, minimum: 0, description: Estimación calculada con PriceUnits, tarifa y zona vigentes; null cuando falta zona válida o el subtotal excede int64. No es cotización ni disponibilidad.}
+        features: {type: array, items: {$ref: '#/components/schemas/PublicSpaceFeature'}}
+        images: {type: array, items: {$ref: '#/components/schemas/PublicSpaceImageRef'}}
     PublicSpaceEnvelope:
       type: object
       additionalProperties: false
       required: [data]
       properties:
         data: {$ref: '#/components/schemas/PublicSpace'}
+    PublicSpaceDetail:
+      type: object
+      additionalProperties: false
+      required: [space_id, category_code, category_name, title, description, area_m2, rate_unit, base_price_clp, currency, estimated_total_clp, usage_rules, features, images]
+      properties:
+        space_id: {type: string, format: uuid}
+        category_code: {type: string}
+        category_name: {type: string}
+        title: {type: string}
+        description: {type: string}
+        area_m2: {type: number}
+        rate_unit: {type: string, enum: [hora, dia, mes]}
+        base_price_clp: {type: integer, format: int64}
+        currency: {type: string, const: CLP}
+        region_code: {type: [string, 'null'], pattern: '^[0-9]{2}$'}
+        region_name: {type: [string, 'null']}
+        comuna_code: {type: [string, 'null'], pattern: '^[0-9]{5}$'}
+        comuna_name: {type: [string, 'null']}
+        estimated_total_clp: {type: [integer, 'null'], format: int64, minimum: 0}
+        usage_rules: {type: string, maxLength: 250}
+        features: {type: array, items: {$ref: '#/components/schemas/PublicSpaceFeature'}}
+        images: {type: array, items: {$ref: '#/components/schemas/PublicSpaceImageRef'}}
+    PublicSpaceDetailEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/PublicSpaceDetail'}
+    PublicSpaceFeature:
+      type: object
+      additionalProperties: false
+      required: [code, label, value]
+      properties:
+        code: {type: string}
+        label: {type: string}
+        value: {type: boolean}
+    PublicSpaceImageRef:
+      type: object
+      additionalProperties: false
+      required: [image_id, is_cover]
+      properties:
+        image_id: {type: string, format: uuid}
+        is_cover: {type: boolean}
     PublicSpacePage:
       type: object
       additionalProperties: false
@@ -3847,7 +3928,7 @@ components:
     SyntheticSpaceGalleryPhoto:
       type: object
       additionalProperties: false
-      required: [id, fixture_code, mime_type, sha256, size_bytes, created_at]
+      required: [id, fixture_code, mime_type, sha256, size_bytes, created_at, public_in_catalog]
       properties:
         id: { type: string, format: uuid }
         fixture_code: { type: string, const: synthetic-png-v1 }
@@ -3855,6 +3936,7 @@ components:
         sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
         size_bytes: { type: integer, minimum: 1, maximum: 1048576 }
         created_at: { type: string, format: date-time }
+        public_in_catalog: { type: boolean }
     SyntheticSpaceGalleryPhotoEnvelope:
       type: object
       required: [photo, reused, synthetic]

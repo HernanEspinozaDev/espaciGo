@@ -22,12 +22,13 @@ var (
 )
 
 type Photo struct {
-	ID        string    `json:"id"`
-	Fixture   string    `json:"fixture_code"`
-	MIME      string    `json:"mime_type"`
-	SHA256    string    `json:"sha256"`
-	Size      int64     `json:"size_bytes"`
-	CreatedAt time.Time `json:"created_at"`
+	ID              string    `json:"id"`
+	Fixture         string    `json:"fixture_code"`
+	MIME            string    `json:"mime_type"`
+	SHA256          string    `json:"sha256"`
+	Size            int64     `json:"size_bytes"`
+	CreatedAt       time.Time `json:"created_at"`
+	PublicInCatalog bool      `json:"public_in_catalog"`
 }
 
 type Removal struct {
@@ -53,6 +54,7 @@ type Repository interface {
 	Get(context.Context, string, string, string) (Photo, error)
 	Remove(context.Context, string, string, string) (Removal, error)
 	SelectCover(context.Context, string, string, string) (Cover, error)
+	SetPublicInCatalog(context.Context, string, string, string, bool) (Photo, error)
 	PendingCleanup(context.Context, int) ([]string, error)
 	CompleteCleanup(context.Context, string, time.Time) error
 	FailCleanup(context.Context, string, time.Time) error

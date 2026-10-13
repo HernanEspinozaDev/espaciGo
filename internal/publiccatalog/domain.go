@@ -39,25 +39,38 @@ type AttributeFilter struct {
 // Space is an intentional public projection. It contains no owner, address,
 // profile JSON, fixture state, availability, or file/blob references.
 type Space struct {
-	SpaceID           string  `json:"space_id"`
-	CategoryCode      string  `json:"category_code"`
-	CategoryName      string  `json:"category_name"`
-	Title             string  `json:"title"`
-	Description       string  `json:"description"`
-	AreaM2            float64 `json:"area_m2"`
-	RateUnit          string  `json:"rate_unit"`
-	BasePriceCLP      int64   `json:"base_price_clp"`
-	Currency          string  `json:"currency"`
-	RegionCode        *string `json:"region_code,omitempty"`
-	RegionName        *string `json:"region_name,omitempty"`
-	CommuneCode       *string `json:"comuna_code,omitempty"`
-	CommuneName       *string `json:"comuna_name,omitempty"`
-	EstimatedTotalCLP *int64  `json:"estimated_total_clp"`
-	TimeZone          string  `json:"-"`
+	SpaceID           string           `json:"space_id"`
+	CategoryCode      string           `json:"category_code"`
+	CategoryName      string           `json:"category_name"`
+	Title             string           `json:"title"`
+	Description       string           `json:"description"`
+	AreaM2            float64          `json:"area_m2"`
+	RateUnit          string           `json:"rate_unit"`
+	BasePriceCLP      int64            `json:"base_price_clp"`
+	Currency          string           `json:"currency"`
+	RegionCode        *string          `json:"region_code,omitempty"`
+	RegionName        *string          `json:"region_name,omitempty"`
+	CommuneCode       *string          `json:"comuna_code,omitempty"`
+	CommuneName       *string          `json:"comuna_name,omitempty"`
+	EstimatedTotalCLP *int64           `json:"estimated_total_clp"`
+	UsageRules        string           `json:"usage_rules,omitempty"`
+	Features          []PublicFeature  `json:"features"`
+	Images            []PublicImageRef `json:"images"`
+	TimeZone          string           `json:"-"`
 
 	CategoryOrder int     `json:"-"`
 	TitleKey      string  `json:"-"`
 	RelevanceRank float64 `json:"-"`
+}
+
+type PublicFeature struct {
+	Code  string `json:"code"`
+	Label string `json:"label"`
+	Value bool   `json:"value"`
+}
+type PublicImageRef struct {
+	ImageID string `json:"image_id"`
+	IsCover bool   `json:"is_cover"`
 }
 
 type Filters struct {
@@ -108,4 +121,15 @@ type Repository interface {
 	Locations(context.Context, string, string, int) ([]Location, error)
 	List(context.Context, Filters, *Cursor, int) ([]Space, error)
 	Detail(context.Context, string) (Space, error)
+}
+
+type PublicImageRepository interface {
+	PublicImage(context.Context, string, string) (PublicImage, error)
+}
+type PublicImageStore interface {
+	Get(context.Context, string) ([]byte, error)
+}
+type PublicImage struct {
+	MIME, SHA256, FileID string
+	Size                 int64
 }

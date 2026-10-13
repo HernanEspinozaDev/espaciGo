@@ -123,6 +123,9 @@ export class HostingApi extends HostingPort {
       }),
     );
   }
+  async setPhotoPublic(token:string,spaceId:string,photoId:string,publicInCatalog:boolean):Promise<SyntheticSpaceGalleryPhoto>{
+    return unwrap(await this.sdk.setOwnSyntheticSpaceGalleryPhotoPublication({path:{spaceId,photoId},body:{public_in_catalog:publicInCatalog},headers:auth(token)}));
+  }
   async removePhoto(
     token: string,
     spaceId: string,

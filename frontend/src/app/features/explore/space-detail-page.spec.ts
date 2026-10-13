@@ -21,6 +21,30 @@ describe('SpaceDetailPage public detail',()=>{
   const fixture=TestBed.createComponent(SpaceDetailPage);fixture.detectChanges();await vi.waitFor(()=>expect(api.publicDetail).toHaveBeenCalledWith('space-123'));await vi.waitFor(()=>expect((fixture.componentInstance as unknown as {space:()=>unknown}).space()).toBeTruthy());fixture.detectChanges();
   expect(fixture.nativeElement.textContent).toContain('Sala pública');expect(fixture.nativeElement.textContent).toContain('CLP 9.007.199.254.740.993');expect(fixture.nativeElement.textContent).toContain('Fotografía no disponible');fixture.destroy();
  });
+ it('renders every public reference with the cover first and omits images that return 404',async()=>{
+  const params=new BehaviorSubject(convertToParamMap({id:'space-123'}));
+  const api={publicDetail:vi.fn().mockResolvedValue({space_id:'space-123',category_code:'oficina',category_name:'Oficina',title:'Galería',description:'Descripción',area_m2:30,rate_unit:'dia',base_price_clp:'9000',currency:'CLP',images:[{image_id:'photo-a',is_cover:false},{image_id:'photo-cover',is_cover:true}]}),publicImageUrl:vi.fn((_spaceId:string,imageId:string)=>`/public/${imageId}`)};
+  TestBed.configureTestingModule({imports:[SpaceDetailPage],providers:[...provideFrontendPorts(),provideHttpClient(),provideRouter([]),{provide:ActivatedRoute,useValue:{paramMap:params.asObservable()}},{provide:ExploreApi,useValue:api}]});
+  const fixture=TestBed.createComponent(SpaceDetailPage);fixture.detectChanges();await vi.waitFor(()=>expect(api.publicDetail).toHaveBeenCalled());await vi.waitFor(()=>expect((fixture.componentInstance as unknown as {space:()=>unknown}).space()).toBeTruthy());fixture.detectChanges();
+  const page=fixture.componentInstance as unknown as {orderedImages(images:{image_id:string;is_cover:boolean}[]):{image_id:string;is_cover:boolean}[];imageFailed(spaceId:string,imageId:string,generation:number):void;imageAvailable(spaceId:string,imageId:string):boolean;selectImage(spaceId:string,imageId:string):void;imageSelected(spaceId:string,imageId:string):boolean;spaceGeneration:()=>number};
+  const images=[{image_id:'photo-a',is_cover:false},{image_id:'photo-cover',is_cover:true}];
+  expect(page.orderedImages(images)).toEqual([{image_id:'photo-cover',is_cover:true},{image_id:'photo-a',is_cover:false}]);
+  expect(fixture.nativeElement.querySelectorAll('.gallery-image img')).toHaveLength(2);
+  expect(fixture.nativeElement.querySelectorAll('button.gallery-image')).toHaveLength(2);page.selectImage('space-123','photo-a');expect(page.imageSelected('space-123','photo-a')).toBe(true);
+  page.imageFailed('space-123','photo-a',page.spaceGeneration());fixture.detectChanges();expect(fixture.nativeElement.querySelectorAll('.gallery-image img')).toHaveLength(1);
+  page.imageFailed('space-old','photo-cover',page.spaceGeneration());expect(page.imageAvailable('space-123','photo-cover')).toBe(true);
+  fixture.destroy();
+ });
+ it('ignores a late detail and image failure from the route that was left',async()=>{
+  const params=new BehaviorSubject(convertToParamMap({id:'space-a'}));let resolveA!:(value:unknown)=>void;
+  const api={publicDetail:vi.fn((id:string)=>id==='space-a'?new Promise(resolve=>{resolveA=resolve;}):Promise.resolve({space_id:'space-b',category_code:'oficina',category_name:'Oficina',title:'Espacio B',description:'Descripción',area_m2:20,rate_unit:'dia',base_price_clp:'9000',currency:'CLP',images:[{image_id:'photo-b',is_cover:true}]})),publicImageUrl:vi.fn((_spaceId:string,imageId:string)=>`/public/${imageId}`)};
+  TestBed.configureTestingModule({imports:[SpaceDetailPage],providers:[...provideFrontendPorts(),provideHttpClient(),provideRouter([]),{provide:ActivatedRoute,useValue:{paramMap:params.asObservable()}},{provide:ExploreApi,useValue:api}]});
+  const fixture=TestBed.createComponent(SpaceDetailPage);fixture.detectChanges();await vi.waitFor(()=>expect(api.publicDetail).toHaveBeenCalledWith('space-a'));
+  params.next(convertToParamMap({id:'space-b'}));await vi.waitFor(()=>expect((fixture.componentInstance as unknown as {space:()=>{space_id:string}|null}).space()?.space_id).toBe('space-b'));
+  const page=fixture.componentInstance as unknown as {imageFailed(spaceId:string,imageId:string,generation:number):void;imageAvailable(spaceId:string,imageId:string):boolean;spaceGeneration:()=>number};
+  page.imageFailed('space-a','photo-b',0);resolveA!({space_id:'space-a',category_code:'oficina',category_name:'Oficina',title:'Espacio A',description:'Descripción',area_m2:20,rate_unit:'dia',base_price_clp:'9000',currency:'CLP',images:[]});await Promise.resolve();fixture.detectChanges();
+  expect((fixture.componentInstance as unknown as {space:()=>{title:string}|null}).space()?.title).toBe('Espacio B');expect(page.imageAvailable('space-b','photo-b')).toBe(true);fixture.destroy();
+ });
  it('keeps public detail during identity changes',async()=>{
   const params=new BehaviorSubject(convertToParamMap({id:'space-123'}));
   const api={publicDetail:vi.fn().mockResolvedValue({space_id:'space-123',category_code:'oficina',category_name:'Oficina',title:'Visible',description:'Descripción',area_m2:30,rate_unit:'dia',base_price_clp:'6000',currency:'CLP'})};
@@ -35,7 +59,7 @@ describe('SpaceDetailPage public detail',()=>{
   TestBed.configureTestingModule({imports:[SpaceDetailPage],providers:[...provideFrontendPorts(),provideHttpClient(),provideRouter([]),PrivateSessionState,{provide:ActivatedRoute,useValue:{paramMap:params.asObservable()}},{provide:IdentityApi,useValue:{login:vi.fn().mockResolvedValue({account_id:'renter',roles:['arrendatario'],access_token:'private-bearer',token_type:'Bearer',expires_at:'2027-01-01T00:00:00Z',restricted_mode:false}),session:vi.fn().mockResolvedValue({account_id:'renter',roles:['arrendatario'],restricted_mode:false}),logout:vi.fn()},},{provide:ExploreApi,useValue:api}]});
   const fixture=TestBed.createComponent(SpaceDetailPage);fixture.detectChanges();await vi.waitFor(()=>expect(api.publicDetail).toHaveBeenCalledWith('space-123'));expect(api.detail).not.toHaveBeenCalled();
   await TestBed.inject(IdentitySession).signIn('renter@example.invalid','Synthetic#123');await vi.waitFor(()=>expect(api.availability).toHaveBeenCalled());
-  expect(api.detail).toHaveBeenCalledWith('private-bearer','space-123');expect(fixture.nativeElement.textContent).toContain('Cotizar horario');
+  expect(api.detail).toHaveBeenCalledWith('private-bearer','space-123');await vi.waitFor(()=>expect(fixture.nativeElement.textContent).toContain('Cotizar horario'));
   const page=fixture.componentInstance as unknown as {chooseInterval(value:string):void;createQuote():Promise<void>;quote:()=>unknown};page.chooseInterval('0');await page.createQuote();
   expect(api.quote).toHaveBeenCalledWith('private-bearer','space-123',interval.start_at,interval.end_at);expect(page.quote()).toBeTruthy();fixture.destroy();
  });

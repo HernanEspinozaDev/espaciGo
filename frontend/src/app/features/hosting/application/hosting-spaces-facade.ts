@@ -954,6 +954,14 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     }
   }
 
+  async setPhotoPublic(photoId:string,enabled:boolean):Promise<void>{
+    const context=this.context();const space=this.selectedSpace();if(!context||!space)return;
+    const revision=++this.resourceGeneration;const operation=this.beginSaving();this.error.set('');
+    try{const updated=await this.api.setPhotoPublic(context.token,space.id,photoId,enabled);if(!this.writeCurrent(context,revision,space.id))return;this.gallery.update(items=>items.map(item=>item.id===photoId?updated:item));}
+    catch(error){this.fail(error,context,this.writeCurrent(context,revision,space.id));}
+    finally{this.finishSaving(operation);}
+  }
+
   setRateUnit(unit: 'hora' | 'dia' | 'mes'): void {
     if (this.rateForm.rate_unit === unit) return;
     this.rateForm.rate_unit = unit;

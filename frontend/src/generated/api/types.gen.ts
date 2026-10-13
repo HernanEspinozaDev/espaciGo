@@ -22,10 +22,47 @@ export type PublicSpace = {
      * Estimación calculada con PriceUnits
      */
     estimated_total_clp: number | null;
+    features?: Array<PublicSpaceFeature>;
+    images?: Array<PublicSpaceImageRef>;
 };
 
 export type PublicSpaceEnvelope = {
     data: PublicSpace;
+};
+
+export type PublicSpaceDetail = {
+    space_id: string;
+    category_code: string;
+    category_name: string;
+    title: string;
+    description: string;
+    area_m2: number;
+    rate_unit: 'hora' | 'dia' | 'mes';
+    base_price_clp: number;
+    currency: 'CLP';
+    region_code?: string | null;
+    region_name?: string | null;
+    comuna_code?: string | null;
+    comuna_name?: string | null;
+    estimated_total_clp: number | null;
+    usage_rules: string;
+    features: Array<PublicSpaceFeature>;
+    images: Array<PublicSpaceImageRef>;
+};
+
+export type PublicSpaceDetailEnvelope = {
+    data: PublicSpaceDetail;
+};
+
+export type PublicSpaceFeature = {
+    code: string;
+    label: string;
+    value: boolean;
+};
+
+export type PublicSpaceImageRef = {
+    image_id: string;
+    is_cover: boolean;
 };
 
 export type PublicSpacePage = {
@@ -1096,6 +1133,7 @@ export type SyntheticSpaceGalleryPhoto = {
     sha256: string;
     size_bytes: number;
     created_at: string;
+    public_in_catalog: boolean;
 };
 
 export type SyntheticSpaceGalleryPhotoEnvelope = {
@@ -1727,10 +1765,38 @@ export type GetPublicSpaceResponses = {
     /**
      * Detalle público minimizado
      */
-    200: PublicSpaceEnvelope;
+    200: PublicSpaceDetailEnvelope;
 };
 
 export type GetPublicSpaceResponse = GetPublicSpaceResponses[keyof GetPublicSpaceResponses];
+
+export type GetPublicSpaceImageData = {
+    body?: never;
+    path: {
+        spaceID: string;
+        imageID: string;
+    };
+    query?: never;
+    url: '/public/spaces/{spaceID}/images/{imageID}';
+};
+
+export type GetPublicSpaceImageErrors = {
+    /**
+     * Recurso inexistente o no visible para esta identidad.
+     */
+    404: Error;
+};
+
+export type GetPublicSpaceImageError = GetPublicSpaceImageErrors[keyof GetPublicSpaceImageErrors];
+
+export type GetPublicSpaceImageResponses = {
+    /**
+     * PNG público
+     */
+    200: Blob | File;
+};
+
+export type GetPublicSpaceImageResponse = GetPublicSpaceImageResponses[keyof GetPublicSpaceImageResponses];
 
 export type ListPublicSpaceCategoriesData = {
     body?: never;
@@ -4316,6 +4382,44 @@ export type GetOwnSyntheticSpaceGalleryPhotoResponses = {
 };
 
 export type GetOwnSyntheticSpaceGalleryPhotoResponse = GetOwnSyntheticSpaceGalleryPhotoResponses[keyof GetOwnSyntheticSpaceGalleryPhotoResponses];
+
+export type SetOwnSyntheticSpaceGalleryPhotoPublicationData = {
+    body: {
+        public_in_catalog: boolean;
+    };
+    path: {
+        spaceId: string;
+        photoId: string;
+    };
+    query?: never;
+    url: '/spaces/{spaceId}/gallery/{photoId}/publication';
+};
+
+export type SetOwnSyntheticSpaceGalleryPhotoPublicationErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Recurso inexistente o no visible para esta identidad.
+     */
+    404: Error;
+};
+
+export type SetOwnSyntheticSpaceGalleryPhotoPublicationError = SetOwnSyntheticSpaceGalleryPhotoPublicationErrors[keyof SetOwnSyntheticSpaceGalleryPhotoPublicationErrors];
+
+export type SetOwnSyntheticSpaceGalleryPhotoPublicationResponses = {
+    /**
+     * Estado de publicación de la imagen propia.
+     */
+    200: SyntheticSpaceGalleryPhoto;
+};
+
+export type SetOwnSyntheticSpaceGalleryPhotoPublicationResponse = SetOwnSyntheticSpaceGalleryPhotoPublicationResponses[keyof SetOwnSyntheticSpaceGalleryPhotoPublicationResponses];
 
 export type GetOwnSyntheticSpaceGalleryPhotoContentData = {
     body?: never;

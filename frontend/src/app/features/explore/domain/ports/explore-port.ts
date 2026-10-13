@@ -1,6 +1,7 @@
 import type { SpaceAttributeProfile, SpaceCategoryList } from '../../../../core/contracts/models';
 export type ClpAmount = string;
 export type PublicSpace = Pick<CatalogItem, 'space_id'|'category_code'|'category_name'|'title'|'description'|'area_m2'|'rate_unit'|'base_price_clp'|'currency'|'estimated_total_clp'|'region_code'|'region_name'|'comuna_code'|'comuna_name'>;
+export type PublicSpaceDetail = PublicSpace & { usage_rules:string; features?:{code:string;label:string;value:boolean}[]; images?:{image_id:string;is_cover:boolean}[] };
 export type PublicCategory = {code:string;name:string;order:number};
 export type PublicCatalogFilters = {q?:string;category_code?:string;rate_unit?:string;min_unit_price_clp?:string;max_unit_price_clp?:string;region_code?:string;comuna_code?:string;min_area_m2?:string;attributes?:Record<string,boolean>;start_at?:string;end_at?:string;min_total_clp?:string;max_total_clp?:string;sort?:string;page_size?:number;cursor?:string};
 export type PublicLocation={region_code:string;region_name:string;comuna_code:string;comuna_name:string};
@@ -101,7 +102,8 @@ export class ExploreApiError extends Error {
 
 export abstract class ExplorePort {
   abstract publicSearch(filters:PublicCatalogFilters):Promise<PublicSpacePage>;
-  abstract publicDetail(spaceId:string):Promise<PublicSpace>;
+  abstract publicDetail(spaceId:string):Promise<PublicSpaceDetail>;
+  abstract publicImageUrl(spaceId:string,imageId:string):string;
   abstract publicCategories():Promise<PublicCategory[]>;
   abstract publicLocations():Promise<PublicLocation[]>;
   abstract publicAttributeFilters(categoryCode:string):Promise<PublicAttributeFilter[]>;

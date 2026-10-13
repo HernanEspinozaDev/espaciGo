@@ -585,6 +585,7 @@ export type SyntheticSpaceGalleryPhoto = {
   sha256: string;
   size_bytes: number;
   created_at: string;
+  public_in_catalog: boolean;
 };
 
 export type SyntheticSpaceGalleryRemoval = {

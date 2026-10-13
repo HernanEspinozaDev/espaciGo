@@ -254,8 +254,9 @@ func run() error {
 		mux.Handle("/api/v1/spaces/{spaceID}/cover", galleryHandler)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}", galleryHandler)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/content", galleryHandler)
+		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/publication", galleryHandler)
 		if os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {
-			publicCatalogService, err := publiccatalog.New(publiccatalogpg.New(pool), publicCatalogMasterKey)
+			publicCatalogService, err := publiccatalog.NewWithImageStore(publiccatalogpg.New(pool), publicCatalogMasterKey, evidenceStore)
 			if err != nil {
 				return errors.New("public catalog initialization failed")
 			}

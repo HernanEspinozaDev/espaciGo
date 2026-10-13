@@ -764,7 +764,7 @@
                 <h3>Galería sintética</h3>
               </div>
               <p>
-                Se admiten únicamente fixtures PNG generados por Go. No se cargan archivos locales.
+                Las imágenes son privadas hasta que declares cada fixture PNG público. No se cargan archivos locales.
               </p>
             </div>
             <div class="gallery-summary">
@@ -804,6 +804,7 @@
                     ><small
                       >{{ photo.created_at | date: 'medium' }} · {{ photo.size_bytes }} bytes</small
                     >
+                    <small>{{photo.public_in_catalog ? 'Visible en ficha pública' : 'Privada'}}</small>
                     <div>
                       <button
                         appButton="text"
@@ -812,6 +813,9 @@
                         (click)="showPhoto(photo.id)"
                       >
                         Ver archivo privado</button
+                      ><button appButton="text" class="text-button" type="button" (click)="setPhotoPublic(photo.id,!photo.public_in_catalog)" [disabled]="saving()">
+                        {{photo.public_in_catalog ? 'Retirar de ficha pública' : 'Mostrar en ficha pública'}}
+                      </button
                       ><button
                         appButton="text"
                         class="text-button"

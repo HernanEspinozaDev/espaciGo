@@ -65,6 +65,7 @@ export abstract class HostingPort {
     key: string,
   ): Promise<SyntheticSpaceGalleryPhoto>;
   abstract cover(token: string, spaceId: string, photoId: string): Promise<SyntheticSpaceCover>;
+  abstract setPhotoPublic(token:string,spaceId:string,photoId:string,publicInCatalog:boolean):Promise<SyntheticSpaceGalleryPhoto>;
   abstract removePhoto(
     token: string,
     spaceId: string,

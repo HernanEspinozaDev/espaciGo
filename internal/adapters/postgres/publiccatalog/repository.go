@@ -207,6 +207,8 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 	out := make([]publiccatalog.Space, 0, limit)
 	for rows.Next() {
 		var v publiccatalog.Space
+		v.Features = []publiccatalog.PublicFeature{}
+		v.Images = []publiccatalog.PublicImageRef{}
 		var timeZone, regionCode, regionName, communeCode, communeName sql.NullString
 		var estimatedTotal sql.NullInt64
 		if err := rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &timeZone, &regionCode, &regionName, &communeCode, &communeName, &estimatedTotal, &v.RelevanceRank); err != nil {
@@ -237,11 +239,64 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 
 func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space, error) {
 	var v publiccatalog.Space
-	err := r.pool.QueryRow(ctx, projection+eligiblePublicSQL+` AND e.id=$1`, id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey)
+	err := r.pool.QueryRow(ctx, projection+`,e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre`+eligiblePublicSQL+` AND e.id=$1`, id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName)
 	if err == pgx.ErrNoRows {
 		return publiccatalog.Space{}, publiccatalog.ErrNotFound
 	}
+	if err != nil {
+		return v, err
+	}
+	v.Features = []publiccatalog.PublicFeature{}
+	v.Images = []publiccatalog.PublicImageRef{}
+	rows, err := r.pool.Query(ctx, `SELECT f.codigo,f.etiqueta,(a.valores->>f.codigo)::boolean
+FROM public.espacio_caracteristicas a JOIN public.atributo_filtro_publico f ON f.categoria_codigo=a.categoria_codigo AND f.perfil_version=a.perfil_version AND f.tipo='boolean'
+WHERE a.espacio_id=$1 AND jsonb_typeof(a.valores->f.codigo)='boolean' ORDER BY f.orden,f.codigo`, id)
+	if err != nil {
+		return v, err
+	}
+	for rows.Next() {
+		var f publiccatalog.PublicFeature
+		if err = rows.Scan(&f.Code, &f.Label, &f.Value); err != nil {
+			rows.Close()
+			return v, err
+		}
+		v.Features = append(v.Features, f)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return v, err
+	}
+	rows, err = r.pool.Query(ctx, `SELECT g.id::text,COALESCE(e.portada_foto_id=g.id,false) FROM public.espacio e JOIN public.espacio_galeria_sintetica_local g ON g.espacio_id=e.id AND g.propietario_id=e.propietario_id AND g.estado='activa' AND g.publicada_en_catalogo AND g.archivo_id IS NOT NULL
+WHERE e.id=$1 ORDER BY (e.portada_foto_id=g.id) DESC,g.creada_en,g.id`, id)
+	if err != nil {
+		return v, err
+	}
+	for rows.Next() {
+		var ref publiccatalog.PublicImageRef
+		if err = rows.Scan(&ref.ImageID, &ref.IsCover); err != nil {
+			rows.Close()
+			return v, err
+		}
+		v.Images = append(v.Images, ref)
+	}
+	err = rows.Err()
+	rows.Close()
 	return v, err
+}
+
+func (r *Repository) PublicImage(ctx context.Context, spaceID, imageID string) (publiccatalog.PublicImage, error) {
+	var item publiccatalog.PublicImage
+	err := r.pool.QueryRow(ctx, `WITH eligible AS (SELECT e.id,e.propietario_id`+eligiblePublicSQL+` AND e.id=$1)
+SELECT g.mime_type,g.sha256,g.archivo_id::text,g.size_bytes
+FROM public.espacio_galeria_sintetica_local g JOIN eligible e ON e.id=g.espacio_id AND e.propietario_id=g.propietario_id
+WHERE g.id=$2
+AND g.estado='activa' AND g.publicada_en_catalogo AND g.archivo_id IS NOT NULL
+AND g.mime_type='image/png' AND g.size_bytes BETWEEN 1 AND 1048576`, spaceID, imageID).Scan(&item.MIME, &item.SHA256, &item.FileID, &item.Size)
+	if err == pgx.ErrNoRows {
+		return publiccatalog.PublicImage{}, publiccatalog.ErrNotFound
+	}
+	return item, err
 }
 
 func itoa(v int) string {

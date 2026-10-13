@@ -81,6 +81,9 @@ function apiFor(base = space()) {
     ),
     remove: vi.fn(async () => ({ files_pending_cleanup: 0 })),
     gallery: vi.fn(async () => ({ items: [], max_photos: 10 as const, synthetic: true as const })),
+    setPhotoPublic: vi.fn(async (_token: string, _spaceId: string, photoId: string, public_in_catalog: boolean) => ({
+      id: photoId, public_in_catalog,
+    } as never)),
     addPhoto: vi.fn(async (_token: string, _spaceId: string, _key: string) => ({
       id: 'photo-1',
       fixture_code: 'synthetic-png-v1' as const,
@@ -1008,5 +1011,42 @@ describe('FE-06 HostingSpacesPage', () => {
     expect(before).toContain('01:30');
     expect(after).toContain('01:30');
     expect(before).not.toBe(after);
+  });
+
+  it('ignores stale photo publication failures without clearing a newer save or session', async () => {
+    const api=apiFor();
+    const idApi={login:vi.fn().mockResolvedValueOnce(login('owner-a','bearer-a')).mockResolvedValueOnce(login('owner-b','bearer-b')),session:vi.fn().mockImplementation(async(token:string)=>({account_id:token==='bearer-a'?'owner-a':'owner-b',roles:['arrendador'],restricted_mode:false})),logout:vi.fn().mockResolvedValue(undefined)};
+    const {identity}=setup(api,null,idApi);await identity.signIn('owner-a@example.invalid','secret');
+    const fixture=TestBed.createComponent(HostingSpacesPage);fixture.detectChanges();await flush();
+    const component=page(fixture);const first=deferred<never>();const second=deferred<never>();
+    api.setPhotoPublic.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const oldWrite=component.setPhotoPublic('photo-1',true);await flush();
+    await identity.signOut();await identity.signIn('owner-b@example.invalid','secret');await flush();await vi.waitFor(()=>expect(component.selectedSpace()?.id).toBe('space-a'));
+    const newWrite=component.setPhotoPublic('photo-1',true);await flush();
+    first.reject(new HostingApiError('stale unauthorized',401));await oldWrite;
+    expect(identity.accessToken()).toBe('bearer-b');expect(component.saving()).toBe(true);expect(component.error()).toBe('');
+    second.reject(new HostingApiError('current failure',503));await newWrite;
+    expect(component.saving()).toBe(false);expect(component.error()).not.toBe('');fixture.destroy();
+  });
+
+  it('expires the current bearer on a photo publication 401 even when its resource revision changed', async () => {
+    const api=apiFor();const {identity}=setup(api);await identity.signIn('owner@example.invalid','secret');
+    const fixture=TestBed.createComponent(HostingSpacesPage);fixture.detectChanges();await flush();const component=page(fixture);
+    const pending=deferred<never>();api.setPhotoPublic.mockReturnValueOnce(pending.promise);
+    const write=component.setPhotoPublic('photo-1',true);await flush();
+    // A newer resource write supersedes presentation of the old response while retaining its Bearer.
+    const superseding=component.setPhotoPublic('photo-1',false);await flush();
+    pending.reject(new HostingApiError('unauthorized',401));await write;
+    expect(identity.accessToken()).toBeNull();await superseding;fixture.destroy();
+  });
+
+  it('does not let a late successful photo update finish a newer pending write', async () => {
+    const api=apiFor();const {identity}=setup(api);await identity.signIn('owner@example.invalid','secret');
+    const fixture=TestBed.createComponent(HostingSpacesPage);fixture.detectChanges();await flush();const component=page(fixture);await vi.waitFor(()=>expect(component.selectedSpace()?.id).toBe('space-a'));
+    const old=deferred<never>();const current=deferred<never>();api.setPhotoPublic.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
+    const oldWrite=component.setPhotoPublic('photo-1',true);await flush();const currentWrite=component.setPhotoPublic('photo-1',false);await flush();
+    old.resolve({id:'photo-1',public_in_catalog:true} as never);await oldWrite;
+    expect(component.saving()).toBe(true);expect(component.gallery().find(photo=>photo.id==='photo-1')?.public_in_catalog).not.toBe(true);
+    current.reject(new HostingApiError('current failure',503));await currentWrite;fixture.destroy();
   });
 });
