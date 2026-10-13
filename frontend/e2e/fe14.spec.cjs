@@ -74,6 +74,15 @@ test('E2E runner can read only the accounts fixture and write artifacts/results,
 
 test('Anonymous visitor explores the Go-backed public catalog and minimized detail', async ({ page }) => {
   await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto('/');
+  await page.getByLabel('¿Qué espacio estás buscando?').fill('Espacio sintético público FE-14');
+  await page.getByRole('button', { name: 'Buscar espacios' }).click();
+  await expect(page).toHaveURL(/\/explorar\?q=/);
+  await page.goto('/categorias');
+  await page.getByRole('link', { name: /Oficina/ }).click();
+  await expect(page).toHaveURL(/\/explorar\?category_code=oficina/);
+  await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
+  await page.goto('/explorar');
   let publicRequest;
   page.on('request', request => {
     if (request.method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(request.url())) publicRequest = request;
@@ -109,12 +118,25 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   expect((await filtered.allHeaders()).authorization).toBeUndefined();
   await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
   await expect(page.getByText('Total estimado: CLP 18.000')).toBeVisible();
+  await takeScreenshot(page, 'fe14_mpv2_05_catalog_desktop', true);
   await takeScreenshot(page, 'fe14_public_search_desktop', true);
 
   // Keep the same filtered SPA state while capturing its narrow layout.
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByLabel('Región')).toHaveValue('13');
-  await expect(page.getByLabel('Comuna')).toHaveValue('13123');
+  const filterTrigger = page.getByRole('button', { name: 'Filtrar y ordenar' });
+  await filterTrigger.click();
+  const filterDialog = page.getByRole('dialog', { name: 'Filtros de espacios' });
+  await expect(filterDialog).toBeVisible();
+  await expect(filterDialog.getByLabel('Región', { exact: false })).toHaveValue('13');
+  await expect(filterDialog.getByLabel('Comuna', { exact: false })).toHaveValue('13123');
+  await page.keyboard.press('Escape');
+  await expect(filterDialog).toHaveCount(0);
+  await expect(filterTrigger).toBeFocused();
+  await filterTrigger.click();
+  await page.getByRole('button', { name: 'Cerrar filtros' }).last().click();
+  await filterTrigger.click();
+  await takeScreenshot(page, 'fe14_mpv2_05_filters_mobile');
+  await page.getByRole('button', { name: 'Cerrar filtros' }).last().click();
   await takeScreenshot(page, 'fe14_public_search_mobile', true);
 
   await page.getByRole('link', { name: 'Espacio sintético público FE-14' }).click();
@@ -123,6 +145,18 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   await expect(page.getByText('Fotografía no disponible')).toBeVisible();
   await expect(page.getByText(/Dirección privada de prueba/)).toHaveCount(0);
   await takeScreenshot(page, 'fe14_public_catalog_desktop');
+
+  await page.goto('/explorar?category_code=oficina&page_size=1');
+  await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
+  const secondPage = page.waitForResponse(response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url()) && response.url().includes('cursor='));
+  await page.getByRole('button', { name: 'Ver más espacios' }).click();
+  expect((await secondPage).status()).toBe(200);
+  await expect(page.getByRole('link', { name: 'Segundo espacio público FE-14' })).toBeVisible();
+  const nextPageUrl = page.url();
+  await page.goBack();
+  await expect(page).toHaveURL(/page_size=1/);
+  await page.goForward();
+  await expect(page).toHaveURL(nextPageUrl);
 });
 
 test('Typed hosting form creates and edits a synthetic draft through Go', async ({ page }) => {

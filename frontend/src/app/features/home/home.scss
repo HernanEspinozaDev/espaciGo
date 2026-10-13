@@ -39,6 +39,10 @@ h1 {
   font-size: metrics.$font-size-1-13rem;
   line-height: metrics.$line-height-1-7;
 }
+.hero-search { display: grid; gap: metrics.$space-0-5rem; max-width: 38rem; margin-bottom: metrics.$space-1rem; }
+.hero-search label { color: var(--color-text); font-weight: metrics.$font-weight-700; }
+.hero-search > div { display: flex; gap: metrics.$space-0-5rem; }
+.hero-search input { min-width: 0; flex: 1; min-height: 3rem; border: 1px solid var(--color-border-control); border-radius: 0.625rem; padding-inline: metrics.$space-0-8rem; font: inherit; }
 .hero-actions {
   display: flex;
   flex-wrap: wrap;

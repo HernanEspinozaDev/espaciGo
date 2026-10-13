@@ -6,19 +6,17 @@
   </p>
   <div class="category-list">
     @for (category of categories; track category.name; let index = $index) {
-      <article class="category-row">
+      <a class="category-row" [routerLink]="['/explorar']" [queryParams]="{ category_code: category.code }">
         <span class="category-index">0{{ index + 1 }}</span>
         <div>
           <h2>{{ category.name }}</h2>
           <p>{{ category.detail }}</p>
         </div>
         <span aria-hidden="true" class="category-mark">✳</span>
-      </article>
+        <span class="category-cta">Ver espacios <span aria-hidden="true">↗</span></span>
+      </a>
     }
   </div>
-  <p class="notice">
-    La disponibilidad de espacios se consulta en el catálogo autenticado. Esta página presenta las
-    categorías del producto.
-  </p>
-  <a appButton="primary" class="button" routerLink="/acceso">Continuar a mi cuenta</a>
+  <p class="notice">Selecciona una categoría para ver las publicaciones públicas disponibles. La disponibilidad se confirma al coordinar cada espacio.</p>
+  <a appButton="primary" class="button" routerLink="/explorar">Explorar todos los espacios</a>
 </main>

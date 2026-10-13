@@ -49,6 +49,14 @@
   gap: metrics.$space-1rem;
   padding: metrics.$space-1-25rem;
 }
+.catalog-toolbar { display: flex; align-items: center; justify-content: space-between; margin: metrics.$space-1rem 0; }
+.results-count { margin: 0; color: var(--color-text-muted); }
+.filter-toggle, .filter-close { display: none; }
+.mobile-filter-header { display: none; }
+.active-filters { display: flex; align-items: center; flex-wrap: wrap; gap: metrics.$space-0-5rem; margin-block: metrics.$space-1rem; }
+.filter-chip { min-height: 2.5rem; border: 1px solid var(--color-border-control); border-radius: 999px; padding: metrics.$space-0-4rem metrics.$space-0-75rem; background: var(--color-surface); color: var(--color-text); font: inherit; cursor: pointer; }
+.clear-chips { min-height: 2.5rem; border: 0; background: transparent; color: var(--brand-primary-hover); font: inherit; text-decoration: underline; cursor: pointer; }
+.filter-backdrop { display: none; }
 .filters label,
 .price-filter label,
 .proximity-filter label {
@@ -260,10 +268,13 @@
   .explore {
     padding-block: metrics.$space-2rem metrics.$space-3rem;
   }
-  .filters {
-    grid-template-columns: 1fr;
-    padding: metrics.$space-0-9rem;
-  }
+  .filter-toggle { display: inline-flex; min-height: 2.75rem; align-items: center; border: 1px solid var(--color-border-control); border-radius: 999px; padding-inline: metrics.$space-1rem; background: var(--color-surface); color: var(--color-text); font: inherit; font-weight: metrics.$font-weight-700; }
+  .filters { display: none; }
+  .filters.filters-open { position: fixed; z-index: 1001; inset: auto 0 0; display: grid; max-height: 88dvh; overflow: auto; grid-template-columns: 1fr; padding: metrics.$space-1rem; border-radius: 1rem 1rem 0 0; }
+  .mobile-filter-header { display: flex; align-items: center; justify-content: space-between; grid-column: 1 / -1; }
+  .mobile-filter-header h2 { margin: 0; }
+  .filter-close { display: inline-grid; width: 2.75rem; height: 2.75rem; place-items: center; border: 1px solid var(--color-border-control); border-radius: 50%; background: var(--color-surface); color: var(--color-text); font-size: metrics.$font-size-1-5rem; cursor: pointer; }
+  .filter-backdrop { position: fixed; z-index: 1000; inset: 0; display: block; width: 100%; border: 0; background: rgb(20 20 20 / 55%); }
   .wide {
     grid-column: auto;
   }

@@ -1,13 +1,13 @@
 # Desarrollo local versión 2 del marketplace público
 
 **Identificador:** MARKETPLACE-LOCAL-2. **Cortes:** MPV2-00–MPV2-09.
-**Fecha:** 2026-10-13. **Estado:** cortes MPV2-00–03 fusionados; MPV2-04 en implementación y revisión.
+**Fecha:** 2026-10-13. **Estado:** MPV2-00–04 fusionados técnicamente; MPV2-05 implementado en revisión, sin aceptación final de producto.
 
 ## 1. Objetivo y base de trabajo
 
 Una persona sin cuenta debe poder entrar a EspaciGo, buscar espacios, filtrar por categoría y características, consultar tarjetas y fichas públicas y compartirlas. La autenticación se solicita al comenzar una reserva u otra operación privada realmente implementada. Al identificarse, conserva el espacio y los criterios elegidos, y Go vuelve a validar la operación.
 
-La base de código inicial de MARKETPLACE-LOCAL-2 fue `a68da0c` (main, merge de #293), con Angular como frontend predeterminado, mock retirado y migraciones hasta V54. V55 se agregó en MPV2-02 y V1–V55 se conservan byte a byte. El corte vigente MPV2-04 parte del merge #297 `0fe7785352ba91972d4ec403d24b4cd085d5477e`; agrega V56 sin reescribir historial. El inventario/contrato está en [MPV2-00](contrato_mpv2_00.md).
+La base de código inicial de MARKETPLACE-LOCAL-2 fue `a68da0c` (main, merge de #293), con Angular como frontend predeterminado, mock retirado y migraciones hasta V54. V55 se agregó en MPV2-02 y V1–V55 se conservan byte a byte. MPV2-04 se fusionó técnicamente en #298, merge `c3e5cd297a32863446df33d271931aacb6fc2a8b`; agrega V56 sin reescribir historial. MPV2-05 parte de ese merge de main, sin cambios de backend ni migraciones. El inventario/contrato está en [MPV2-00](contrato_mpv2_00.md).
 
 Al comenzar la implementación se debe actualizar la referencia de `origin/main` y registrar su SHA exacto. No desarrollar sobre el checkout antiguo por coincidencia de ruta. Conservar los cambios locales ajenos y usar una rama `codex/` desde la base vigente.
 
@@ -242,4 +242,4 @@ No equivale a puesta en producción, cumplimiento legal certificado, indexación
 
 ## 12. Estado inicial de seguimiento
 
-MPV2-00 está revisado y fusionado en PR #294 (merge `916176c85186fa95fa84d99911279309a2653a19`). MPV2-01 se fusionó técnicamente en PR #295 (merge `1222cf734dd7b6bd486bdc71e277f5b345830be2`); su aceptación de producto no está declarada. MPV2-02 se fusionó técnicamente en PR #296 (merge `a8af7b04691c61363c7348f376b5b16857c17995`); su aceptación de producto no está declarada. MPV2-03 se fusionó técnicamente en PR #297, merge `0fe7785352ba91972d4ec403d24b4cd085d5477e`; no se infiere aceptación de producto. MPV2-04 está abierto en [PR #298](https://github.com/HernanEspinozaDev/espaciGo/pull/298), rama temporal `codex/marketplace/feature/mpv2-04-public-images-detail`, con código probado `18099504fe8bffecbf6a5c3d77ec9e04e9f0dd9f`, desde el merge de #297. La ejecución CI 38423547641 aprobó lint, OpenAPI/SDK, unitarias, build y auditoría npm; se solicitó revisión a `HernanEspinozaDev`, sin inferir aprobación. El recorrido conectado y sus límites están en la [evidencia MPV2-04](evidencia/mpv2_04/README.md). No iniciar MPV2-05 antes de revisión y fusión. Este plan no afirma que las capacidades de cortes posteriores estén implementadas. Las alternativas de taxonomía residencial, visitas/postulaciones y fotos reales requieren una decisión posterior de ampliación.
+MPV2-00 está revisado y fusionado en PR #294 (merge 916176c85186fa95fa84d99911279309a2653a19). MPV2-01 se fusionó técnicamente en #295 (merge 1222cf734dd7b6bd486bdc71e277f5b345830be2); MPV2-02 en #296 (merge a8af7b04691c61363c7348f376b5b16857c17995); y MPV2-03 en #297 (merge 0fe7785352ba91972d4ec403d24b4cd085d5477e). MPV2-04 se fusionó técnicamente en PR #298, merge c3e5cd297a32863446df33d271931aacb6fc2a8b; HEAD de código revisado 145067b907f79c4d557c7cf7c0c0a293814af173 y CI 38471346689 aprobado. Su evidencia está en evidencia/mpv2_04/README.md; no se infiere aceptación de producto. MPV2-05 parte de ese merge. No iniciar MPV2-06 antes de revisión y fusión de MPV2-05. Este plan no afirma que capacidades de cortes posteriores estén implementadas. Taxonomía residencial, visitas/postulaciones y fotos reales requieren una decisión posterior.

@@ -4,7 +4,13 @@
     <h1>Encuentra tu próximo espacio</h1>
     <p>Explora publicaciones visibles. La ficha muestra información pública y una ilustración de referencia en lugar de fotografías.</p>
   </header>
-  <form class="filters panel" (submit)="$event.preventDefault(); search()">
+  <div class="catalog-toolbar">
+    <p class="results-count" role="status">{{items().length}} espacios en esta página</p>
+    <button class="filter-toggle" type="button" [attr.aria-expanded]="filtersOpen()" aria-controls="catalog-filters" (click)="openFilters($any($event.currentTarget))">Filtrar y ordenar</button>
+  </div>
+  @if(filtersOpen()){<button class="filter-backdrop" type="button" aria-label="Cerrar filtros" (click)="closeFilters()"></button>}
+  <form id="catalog-filters" class="filters panel" [class.filters-open]="filtersOpen()" [attr.aria-modal]="filtersOpen() ? 'true' : null" [attr.role]="filtersOpen() ? 'dialog' : 'region'" aria-label="Filtros de espacios" (submit)="$event.preventDefault(); search(); closeFilters()">
+    <div class="mobile-filter-header"><h2>Filtros</h2><button class="filter-close" type="button" aria-label="Cerrar filtros" (click)="closeFilters()">×</button></div>
     <label>Buscar<input type="search" maxlength="120" [value]="filters().q" (input)="updateFilter('q',$any($event.target).value)" /></label>
     <label>Región
       <select [value]="filters().region_code" (change)="updateFilter('region_code',$any($event.target).value); updateFilter('comuna_code','')">
@@ -47,6 +53,7 @@
     <div class="filter-actions wide"><button appButton="primary" class="button" type="submit" [disabled]="busy()">{{busy()?'Buscando…':'Buscar espacios'}}</button>
       <button appButton="secondary" class="button button-secondary" type="button" (click)="clearFilters()">Limpiar filtros</button></div>
   </form>
+  @if(activeFilters().length){<section class="active-filters" aria-label="Filtros aplicados"><span>Aplicados:</span>@for(chip of activeFilters();track chip.key){<button type="button" class="filter-chip" [attr.aria-label]="'Quitar filtro ' + chip.label" (click)="removeFilter(chip.key)">{{chip.label}} <span aria-hidden="true">×</span></button>}<button type="button" class="clear-chips" (click)="clearFilters()">Quitar todos</button></section>}
   @if(error()){<p class="error" role="alert">{{error()}}</p>}
   @if(busy()&&!items().length){<p class="status" role="status">Cargando publicaciones públicas…</p>}
   @if(!busy()&&!error()&&!items().length){<p class="empty" role="status">No hay espacios que coincidan con estos filtros.</p>}
