@@ -119,6 +119,51 @@ describe('ExplorePage public catalog URL state', () => {
     expect(definitions()).toEqual([]);
   });
 
+  it.each(['resolved', 'pending'] as const)(
+    'clears a form-only category and its %s attribute profile without changing the empty URL', async (profileState) => {
+      let resolveOffice!: (value: { code: string; label: string; type: 'boolean'; profile_version: number }[]) => void;
+      const pendingProfile = new Promise<{ code: string; label: string; type: 'boolean'; profile_version: number }[]>((resolve) => { resolveOffice = resolve; });
+      const wifiProfile = [{ code: 'wifi', label: 'Wi-Fi', type: 'boolean' as const, profile_version: 1 }];
+      const api = {
+        publicCategories: vi.fn().mockResolvedValue([]),
+        publicLocations: vi.fn().mockResolvedValue([]),
+        publicAttributeFilters: vi.fn((code: string) => code === 'oficina' ? (profileState === 'resolved' ? Promise.resolve(wifiProfile) : pendingProfile) : Promise.resolve([])),
+        publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+      };
+      TestBed.configureTestingModule({
+        providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }],
+      });
+      const harness = await RouterTestingHarness.create('/explorar');
+      const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+      await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+
+      page.updateFilter('category_code', 'oficina');
+      if (profileState === 'resolved') {
+        await vi.waitFor(() => expect(page.attributeFilters().map((filter) => filter.code)).toEqual(['wifi']));
+        page.setAttribute('wifi', true);
+      }
+      page.filters.update((filters) => ({ ...filters, cursor: 'stale-cursor' }));
+
+      expect(TestBed.inject(Router).url).toBe('/explorar');
+      page.clearFilters();
+      await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+      expect(TestBed.inject(Router).url).toBe('/explorar');
+      expect(page.filters().category_code).toBe('');
+      expect(page.filters().attributes).toEqual({});
+      expect(page.filters().cursor).toBe('');
+      expect(page.attributeFilters()).toEqual([]);
+      expect(api.publicSearch.mock.calls[1][0].attributes).toEqual({});
+      expect(api.publicSearch.mock.calls[1][0].category_code ?? '').toBe('');
+      expect(api.publicSearch.mock.calls[1][0].cursor ?? '').toBe('');
+
+      if (profileState === 'pending') {
+        resolveOffice(wifiProfile);
+        await Promise.resolve();
+        expect(page.attributeFilters()).toEqual([]);
+      }
+    },
+  );
+
   it('writes each next cursor once and clears it when criteria change', async () => {
     const api = {
       publicCategories: vi.fn().mockResolvedValue([{ code: 'oficina', name: 'Oficina', order: 1 }]),

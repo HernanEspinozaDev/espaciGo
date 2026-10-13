@@ -148,6 +148,7 @@ export class ExploreFacade implements OnInit {
       region_code: '', comuna_code: '', min_area_m2: '', start_at: '', end_at: '',
       min_total_clp: '', max_total_clp: '', attributes: {},
     });
+    this.selectAttributeFilterCategory('');
     this.invalidateCriteria();
     void this.search();
   }
