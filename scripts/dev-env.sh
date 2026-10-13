@@ -97,8 +97,8 @@ usage() {
     '  config           Generate local secrets if missing and validate Compose' \
     '  up [options]      Build and start the stack, waiting for healthy services' \
     '  down [options]    Stop the stack (pass --volumes to remove the database)' \
-    '  verify-isolation  Probe the dynamic PostgreSQL IP from mock and data networks' \
-    '  verify-http       Check API health, mock assets, and HTTP/CORS behavior' \
+    '  verify-isolation  Probe the dynamic PostgreSQL IP from frontend and data networks' \
+    '  verify-http       Check API readiness, Angular shell, runtime config, and HTTP/CORS behavior' \
     '  verify-m01        Exercise real registration, SMTP, verification and session' \
     '  clean             Stop, remove volumes/orphans, and delete generated secrets'
 }

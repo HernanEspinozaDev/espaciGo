@@ -9,7 +9,7 @@
     "test": "ng test",
     "serve:ssr:frontend": "node dist/frontend/server/server.mjs",
     "e2e": "playwright test --config=playwright.config.cjs",
-    "api:generate": "openapi-ts",
+    "api:generate": "openapi-ts && node ../scripts/normalize-openapi-generated.mjs src/generated/api",
     "api:check": "npm run api:generate && tsc --noEmit -p tsconfig.app.json",
     "lint": "eslint src && npm run lint:styles && npm run architecture:check",
     "lint:styles": "node --test tooling/design-token-rule.test.mjs && stylelint \"src/**/*.scss\"",

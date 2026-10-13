@@ -7,7 +7,7 @@ import (
 )
 
 func TestTransportRejectsUnsafeRequestsBeforeCallingService(t *testing.T) {
-	handler := NewHandler(nil, nil, []string{"http://localhost:8081"})
+	handler := NewHandler(nil, nil, []string{"http://localhost:4200"})
 	cases := []struct {
 		method, path, body, content, origin string
 		status                              int
@@ -38,7 +38,7 @@ func TestTransportRejectsUnsafeRequestsBeforeCallingService(t *testing.T) {
 		}
 	}
 	r := httptest.NewRequest("OPTIONS", "/api/v1/auth/login", nil)
-	r.Header.Set("Origin", "http://localhost:8081")
+	r.Header.Set("Origin", "http://localhost:4200")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	if w.Code != 204 || !strings.Contains(w.Header().Get("Access-Control-Allow-Headers"), "Authorization") {

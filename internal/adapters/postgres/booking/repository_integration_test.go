@@ -151,7 +151,7 @@ func publishedContractAPI(t *testing.T, actor string, service *contract.Service,
 	request := httptest.NewRequest(method, path, nil)
 	request.Header.Set("Authorization", "Bearer local-booking-integration-session")
 	response := httptest.NewRecorder()
-	contracthttp.NewHandler(integrationBookingAuth{accountID: actor}, service, []string{"http://localhost:8081"}).ServeHTTP(response, request)
+	contracthttp.NewHandler(integrationBookingAuth{accountID: actor}, service, []string{"http://localhost:4200"}).ServeHTTP(response, request)
 	return response
 }
 

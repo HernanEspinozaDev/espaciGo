@@ -59,7 +59,7 @@ CREATE TRIGGER local_booking_payment_notice_trg AFTER UPDATE OF estado ON public
   FOR EACH ROW EXECUTE FUNCTION public.enqueue_booking_payment_notices();
 
 -- Invitations identify a local resource only. The emailed link contains no
--- session token; the mock/API must authenticate and re-check participant ACL.
+-- session token; the browser/API must authenticate and re-check participant ACL.
 CREATE FUNCTION public.enqueue_contract_signature_notices() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE contract_row public.contrato_ensayo_local%ROWTYPE;
 BEGIN

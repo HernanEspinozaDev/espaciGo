@@ -39,7 +39,7 @@ func (r corsContracts) EnsureApproved(context.Context, func() time.Time) (int, e
 func (r corsContracts) ExpireDue(context.Context, func() time.Time) (int, error)      { return 0, nil }
 
 func TestContractRoutesApplyCORSOnErrorsPreflightAndDocumentDownload(t *testing.T) {
-	const origin = "http://localhost:8081"
+	const origin = "http://localhost:4200"
 	service, err := contract.NewService(corsContracts{item: contract.Contract{State: "firmado", Artifact: []byte("%PDF-synthetic")}}, time.Now)
 	if err != nil {
 		t.Fatal(err)

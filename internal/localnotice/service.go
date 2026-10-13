@@ -140,7 +140,7 @@ func render(n Notice) (string, string) {
 
 func contractLink(id string) string {
 	if len(id) != 36 {
-		return "http://127.0.0.1:8081/"
+		return "http://127.0.0.1:4200/"
 	}
-	return "http://127.0.0.1:8081/?contract=" + id
+	return "http://127.0.0.1:4200/?contract=" + id
 }

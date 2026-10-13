@@ -21,7 +21,7 @@ func TestLoadConfigReadsLocalPasswordFileAndParsesOrigins(t *testing.T) {
 		"DATABASE_NAME":          "espacigo_test",
 		"DATABASE_USER":          "espacigo_runtime",
 		"DATABASE_PASSWORD_FILE": passwordFile,
-		"CORS_ALLOWED_ORIGINS":   "http://localhost:8081, http://127.0.0.1:8081",
+		"CORS_ALLOWED_ORIGINS":   "http://localhost:4200, http://127.0.0.1:4200",
 	}
 
 	cfg, err := loadConfig(func(key string) string { return values[key] })
@@ -31,7 +31,7 @@ func TestLoadConfigReadsLocalPasswordFileAndParsesOrigins(t *testing.T) {
 	if cfg.dbPassword != "synthetic-test-value" {
 		t.Fatalf("password file was not trimmed/read correctly")
 	}
-	wantOrigins := []string{"http://localhost:8081", "http://127.0.0.1:8081"}
+	wantOrigins := []string{"http://localhost:4200", "http://127.0.0.1:4200"}
 	if !reflect.DeepEqual(cfg.allowedOrigins, wantOrigins) {
 		t.Fatalf("allowed origins = %#v, want %#v", cfg.allowedOrigins, wantOrigins)
 	}

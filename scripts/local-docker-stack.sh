@@ -6,7 +6,6 @@ LOCAL_DOCKER_PROJECT_NAME="${LOCAL_DOCKER_PROJECT_NAME:-espacigo_docker01}"
 LOCAL_DOCKER_IMAGE_PREFIX="${LOCAL_DOCKER_IMAGE_PREFIX:-$LOCAL_DOCKER_PROJECT_NAME}"
 LOCAL_DOCKER_STATE_DIR="${LOCAL_DOCKER_STATE_DIR:-$ROOT_DIR/.local/docker-isolated}"
 LOCAL_DOCKER_API_PORT="${LOCAL_DOCKER_API_PORT:-18080}"
-LOCAL_DOCKER_MOCK_PORT="${LOCAL_DOCKER_MOCK_PORT:-18081}"
 LOCAL_DOCKER_MAILPIT_PORT="${LOCAL_DOCKER_MAILPIT_PORT:-18025}"
 LOCAL_DOCKER_ANGULAR_PORT="${LOCAL_DOCKER_ANGULAR_PORT:-18420}"
 LOCAL_DOCKER_PGDATA_VOLUME="${LOCAL_DOCKER_PGDATA_VOLUME:-espacigo_docker01_pgdata}"
@@ -21,7 +20,6 @@ LOCAL_DATABASE_RUNTIME_USER="espacigo_runtime"
 export LOCAL_COMPOSE_PROJECT_NAME="$LOCAL_DOCKER_PROJECT_NAME"
 export LOCAL_IMAGE_PREFIX="$LOCAL_DOCKER_IMAGE_PREFIX"
 export LOCAL_API_PORT="$LOCAL_DOCKER_API_PORT"
-export LOCAL_MOCK_PORT="$LOCAL_DOCKER_MOCK_PORT"
 export LOCAL_MAILPIT_PORT="$LOCAL_DOCKER_MAILPIT_PORT"
 export LOCAL_ANGULAR_PORT="$LOCAL_DOCKER_ANGULAR_PORT"
 export LOCAL_PGDATA_VOLUME="$LOCAL_DOCKER_PGDATA_VOLUME"
@@ -43,15 +41,14 @@ export DATABASE_SSLKEY="${DATABASE_SSLKEY:-}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/local-docker-stack.sh {config|config-frontend|build-backend|build-mock|up|up-frontend|verify-frontend|run-e2e|run-fe14-clock-e2e|stop-backend|down|down-frontend|status}
+Usage: scripts/local-docker-stack.sh {config|config-frontend|build-backend|build-angular|up|up-frontend|verify-frontend|run-e2e|run-fe14-clock-e2e|stop-backend|down|down-frontend|status}
 
 This stack uses a dedicated Compose project, volume, ports, secrets and private
 directories. `down` retains its named PostgreSQL volume. There is intentionally
 no command here that deletes the volume or its secrets.
 
 Configuration overrides: LOCAL_DOCKER_PROJECT_NAME, LOCAL_DOCKER_STATE_DIR,
-LOCAL_DOCKER_API_PORT, LOCAL_DOCKER_MOCK_PORT, LOCAL_DOCKER_MAILPIT_PORT,
-LOCAL_DOCKER_ANGULAR_PORT,
+LOCAL_DOCKER_API_PORT, LOCAL_DOCKER_MAILPIT_PORT, LOCAL_DOCKER_ANGULAR_PORT,
 LOCAL_DOCKER_PGDATA_VOLUME, LOCAL_DOCKER_IMAGE_PREFIX,
 DATABASE_HOST/PORT/NAME/USER through their
 LOCAL_DATABASE_* equivalents, and DATABASE_SSLMODE/SSLROOTCERT/SSLCERT/SSLKEY.
@@ -81,7 +78,7 @@ validate_port() {
     printf '%s must be an unprivileged TCP port from 1024 to 65535\n' "$label" >&2
     exit 2
   fi
-  if (( numeric_port == 8080 || numeric_port == 8081 || numeric_port == 8025 )); then
+  if (( numeric_port == 8080 || numeric_port == 8025 || numeric_port == 4200 )); then
     printf '%s must not reuse a port from the development stack\n' "$label" >&2
     exit 2
   fi
@@ -126,7 +123,6 @@ validate_name LOCAL_DOCKER_PROJECT_NAME "$LOCAL_DOCKER_PROJECT_NAME"
 validate_name LOCAL_DOCKER_PGDATA_VOLUME "$LOCAL_DOCKER_PGDATA_VOLUME"
 validate_name LOCAL_DOCKER_IMAGE_PREFIX "$LOCAL_DOCKER_IMAGE_PREFIX"
 validate_port LOCAL_DOCKER_API_PORT "$LOCAL_DOCKER_API_PORT"
-validate_port LOCAL_DOCKER_MOCK_PORT "$LOCAL_DOCKER_MOCK_PORT"
 validate_port LOCAL_DOCKER_MAILPIT_PORT "$LOCAL_DOCKER_MAILPIT_PORT"
 validate_port LOCAL_DOCKER_ANGULAR_PORT "$LOCAL_DOCKER_ANGULAR_PORT"
 if [[ "$LOCAL_DOCKER_PROJECT_NAME" == "espacigo" || "$LOCAL_DOCKER_PGDATA_VOLUME" == "espacigo_pgdata" ]]; then
@@ -137,7 +133,7 @@ if [[ "$LOCAL_DOCKER_IMAGE_PREFIX" == "espacigo-local" ]]; then
   printf 'isolated image prefix must differ from the development image prefix espacigo-local\n' >&2
   exit 2
 fi
-if (( 10#$LOCAL_DOCKER_API_PORT == 10#$LOCAL_DOCKER_MOCK_PORT || 10#$LOCAL_DOCKER_API_PORT == 10#$LOCAL_DOCKER_MAILPIT_PORT || 10#$LOCAL_DOCKER_API_PORT == 10#$LOCAL_DOCKER_ANGULAR_PORT || 10#$LOCAL_DOCKER_MOCK_PORT == 10#$LOCAL_DOCKER_MAILPIT_PORT || 10#$LOCAL_DOCKER_MOCK_PORT == 10#$LOCAL_DOCKER_ANGULAR_PORT || 10#$LOCAL_DOCKER_MAILPIT_PORT == 10#$LOCAL_DOCKER_ANGULAR_PORT )); then
+if (( 10#$LOCAL_DOCKER_API_PORT == 10#$LOCAL_DOCKER_MAILPIT_PORT || 10#$LOCAL_DOCKER_API_PORT == 10#$LOCAL_DOCKER_ANGULAR_PORT || 10#$LOCAL_DOCKER_MAILPIT_PORT == 10#$LOCAL_DOCKER_ANGULAR_PORT )); then
   printf 'isolated host ports must be distinct\n' >&2
   exit 2
 fi
@@ -250,10 +246,10 @@ case "$command" in
     prepare
     compose build backend migrate
     ;;
-  build-mock)
+  build-angular)
     validate_isolated_paths
     prepare
-    compose build mock-frontend
+    compose build angular-frontend
     ;;
   up)
     validate_isolated_paths

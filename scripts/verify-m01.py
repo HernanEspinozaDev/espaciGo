@@ -17,12 +17,12 @@ import yaml
 parser = argparse.ArgumentParser()
 parser.add_argument('--api', default='http://127.0.0.1:8080')
 parser.add_argument('--mailpit', default='http://127.0.0.1:8025')
-parser.add_argument('--mock', default='http://127.0.0.1:8081')
-parser.add_argument('--cors-origin', default='http://localhost:8081')
+parser.add_argument('--angular', default='http://127.0.0.1:4200')
+parser.add_argument('--cors-origin', default='http://localhost:4200')
 parser.add_argument('--compose-project', default='espacigo')
 parser.add_argument('--email', help='optional synthetic email for a fresh local run')
 args = parser.parse_args()
-for base in (args.api, args.mailpit, args.mock, args.cors_origin):
+for base in (args.api, args.mailpit, args.angular, args.cors_origin):
     assert urlparse(base).hostname in ('localhost', '127.0.0.1'), 'requires local prototype'
 root = pathlib.Path(__file__).resolve().parent.parent
 spec = yaml.safe_load((root / 'planning/openapi.yaml').read_text())
@@ -183,10 +183,10 @@ assert status == 204 and headers['Access-Control-Allow-Origin'] == args.cors_ori
 status, _, _ = raw('GET', args.api + '/api/v1/auth/session', headers={'Origin': 'http://unexpected.invalid'})
 assert status == 403
 print('PASS CORS allowed/preflight and forbidden origin')
-for path in ('/', '/app.js', '/styles.css'):
-    with urllib.request.urlopen(args.mock + path) as response:
+for path in ('/', '/acceso', '/healthz', '/config.json'):
+    with urllib.request.urlopen(args.angular + path) as response:
         assert response.status == 200
-print('PASS separate mock serves HTML, compiled TypeScript and CSS')
+print('PASS Angular serves the application, identity route, health and runtime config')
 # Capture logs in memory only. Never print either logs or matching credentials.
 logs = subprocess.check_output(['docker', 'logs', f'{args.compose_project}-backend-1'], stderr=subprocess.DEVNULL, text=True)
 assert all(secret not in logs for secret in secrets + [password]), 'credential found in container logs'

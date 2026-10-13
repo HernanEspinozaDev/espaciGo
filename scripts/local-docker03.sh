@@ -9,7 +9,7 @@ DOCKER03_RESTORE_VOLUME="${LOCAL_DOCKER03_RESTORE_VOLUME:-espacigo_docker03_rest
 DOCKER03_TEST_VOLUME="${LOCAL_DOCKER03_TEST_PGDATA_VOLUME:-espacigo_docker03_test_pgdata_20261011}"
 DOCKER03_RESTORE_DATABASE="${LOCAL_DOCKER03_RESTORE_DATABASE_NAME:-espacigo_local_restored}"
 DOCKER03_API_PORT="${LOCAL_DOCKER03_API_PORT:-18280}"
-DOCKER03_MOCK_PORT="${LOCAL_DOCKER03_MOCK_PORT:-18281}"
+DOCKER03_ANGULAR_PORT="${LOCAL_DOCKER03_ANGULAR_PORT:-18284}"
 DOCKER03_MAILPIT_PORT="${LOCAL_DOCKER03_MAILPIT_PORT:-18225}"
 DOCKER03_DATABASE_PORT="${LOCAL_DOCKER03_DATABASE_PORT:-18132}"
 DOCKER03_RESTORE_API_PORT="${LOCAL_DOCKER03_RESTORE_API_PORT:-18282}"
@@ -25,7 +25,7 @@ if [[ ! "$DOCKER03_RESTORE_DATABASE" =~ ^[a-z][a-z0-9_]{2,62}$ ]]; then
 fi
 
 validate() {
-python3 - "$ROOT_DIR" "$DOCKER03_STATE" "$DOCKER03_PROJECT" "$DOCKER03_VOLUME" "$DOCKER03_RESTORE_VOLUME" "$DOCKER03_TEST_VOLUME" "$DOCKER03_API_PORT" "$DOCKER03_MOCK_PORT" "$DOCKER03_MAILPIT_PORT" "$DOCKER03_DATABASE_PORT" "$DOCKER03_RESTORE_API_PORT" "$DOCKER03_TLS_PROBE_PORT" <<'PY'
+python3 - "$ROOT_DIR" "$DOCKER03_STATE" "$DOCKER03_PROJECT" "$DOCKER03_VOLUME" "$DOCKER03_RESTORE_VOLUME" "$DOCKER03_TEST_VOLUME" "$DOCKER03_API_PORT" "$DOCKER03_MAILPIT_PORT" "$DOCKER03_DATABASE_PORT" "$DOCKER03_RESTORE_API_PORT" "$DOCKER03_TLS_PROBE_PORT" "$DOCKER03_ANGULAR_PORT" <<'PY'
 import os, pathlib, pwd, sys
 root, state = pathlib.Path(sys.argv[1]).resolve(), pathlib.Path(sys.argv[2]).resolve(strict=False)
 project, volume, restore_volume, test_volume = sys.argv[3:7]
@@ -38,7 +38,7 @@ if project == "espacigo_docker03" or volume == "espacigo_docker03_pgdata" or res
     raise SystemExit("DOCKER-03 names must include a unique run suffix")
 if len({volume, restore_volume, test_volume}) != 3:
     raise SystemExit("DOCKER-03 source, restore, and test volume names must be distinct")
-if len(set(ports)) != len(ports) or any(p < 1024 or p > 65535 for p in ports) or any(p in {8080,8081,8025,18080,18081,18025} for p in ports):
+if len(set(ports)) != len(ports) or any(p < 1024 or p > 65535 for p in ports) or any(p in {8080,8025,4200,18080,18025,18420} for p in ports):
     raise SystemExit("DOCKER-03 ports must be unique and differ from development and DOCKER-02")
 home = pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir)
 data_home = pathlib.Path(os.environ.get("XDG_DATA_HOME", home / ".local/share"))
@@ -57,7 +57,7 @@ PY
 export LOCAL_DOCKER_PROJECT_NAME="$DOCKER03_PROJECT"
 export LOCAL_IMAGE_PREFIX="$DOCKER03_PROJECT"
 export LOCAL_API_PORT="$DOCKER03_API_PORT"
-export LOCAL_MOCK_PORT="$DOCKER03_MOCK_PORT"
+export LOCAL_ANGULAR_PORT="$DOCKER03_ANGULAR_PORT"
 export LOCAL_MAILPIT_PORT="$DOCKER03_MAILPIT_PORT"
 export LOCAL_PGDATA_VOLUME="$DOCKER03_VOLUME"
 export LOCAL_DOCKER03_RESTORE_VOLUME="$DOCKER03_RESTORE_VOLUME"
@@ -160,7 +160,7 @@ EOF
 command="${1:-}"; [[ $# -eq 0 ]] || shift
 case "$command" in
   config) ensure; compose config --quiet; echo "DOCKER-03 config valid: $DOCKER03_PROJECT" ;;
-  up) ensure; compose up --build --wait database restore-database mailpit migrate backend mock-frontend ;;
+  up) ensure; compose up --build --wait database restore-database mailpit migrate backend angular-frontend ;;
   status) ensure; compose ps ;;
   restart-backend) ensure; compose restart backend; compose ps backend ;;
   dump)
