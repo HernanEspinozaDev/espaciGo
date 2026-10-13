@@ -8,6 +8,7 @@ Este es el plan de evolución de EspaciGo después de FRONTEND-LOCAL-1. El visit
 
 - [Plan y cortes de desarrollo](plan_desarrollo_local_v2.md): diagnóstico, decisiones, contratos propuestos y secuencia base de datos → Go → Angular.
 - [Matriz de aceptación](matriz_aceptacion.md): comprobaciones por corte, evidencias y bloqueos de cierre.
+- [Contrato MPV2-00](contrato_mpv2_00.md): inventario trazado a `main` a68da0c, contrato público, predicado de visibilidad, matriz de campos y delta de datos propuesto.
 - [Propuesta aportada por el usuario](referencias/especificacion_marketplace_publico_inmobiliario.md): copia de referencia, sin modificar.
 
 La propuesta es una guía. Sus frases de aprobación, instrucciones al equipo, ejemplos residenciales y referencias a Cloud Run no constituyen resultados de esta revisión ni autorizan esos alcances por sí solos. El plan adapta la experiencia pública al modelo real de EspaciGo.

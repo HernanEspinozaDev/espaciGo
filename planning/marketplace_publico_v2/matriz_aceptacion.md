@@ -49,7 +49,7 @@ Cada evidencia debe indicar commit probado, entorno, resultado y límite. Un tes
 
 | Corte | PR / HEAD / merge | Datos | Go/OpenAPI | Angular | Evidencia / límites | Decisión |
 | --- | --- | --- | --- | --- | --- | --- |
-| MPV2-00 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
+| MPV2-00 | PR en preparación | Sin migración; delta documentado | Operaciones públicas/visibilidad/search contract documentados; implementación pendiente | Rutas/guards/SSR/retorno auditados; implementación pendiente | Contrato `contrato_mpv2_00.md`; sin pruebas runtime | Pendiente de revisión técnica |
 | MPV2-01 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
 | MPV2-02 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
 | MPV2-03 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |

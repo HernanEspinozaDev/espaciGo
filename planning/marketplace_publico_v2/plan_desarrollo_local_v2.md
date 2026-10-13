@@ -7,7 +7,7 @@
 
 Una persona sin cuenta debe poder entrar a EspaciGo, buscar espacios, filtrar por categoría y características, consultar tarjetas y fichas públicas y compartirlas. La autenticación se solicita al comenzar una reserva u otra operación privada realmente implementada. Al identificarse, conserva el espacio y los criterios elegidos, y Go vuelve a validar la operación.
 
-La base de código inspeccionada es `5405a82e90bc429aa89666ead430fe2cb39f102e`, merge de #292: Angular como frontend predeterminado, mock retirado y migraciones hasta V54. El checkout principal estaba en `08b3d7a` y tenía cambios locales de planificación; se inspeccionó el worktree actualizado `frontend-fe15` sin modificar esos archivos. Sus documentos locales de cierre no se confunden con commits publicados.
+La base de código para iniciar MARKETPLACE-LOCAL-2 es `a68da0c` (main, merge de #293), con Angular como frontend predeterminado, mock retirado y migraciones hasta V54. El historial V1–V54 es inmutable. El inventario/contrato actualizado para este baseline está en [MPV2-00](contrato_mpv2_00.md); las referencias del diagnóstico original al merge #292 describían el estado anterior al corte de gobernanza.
 
 Al comenzar la implementación se debe actualizar la referencia de `origin/main` y registrar su SHA exacto. No desarrollar sobre el checkout antiguo por coincidencia de ruta. Conservar los cambios locales ajenos y usar una rama `codex/` desde la base vigente.
 
@@ -45,7 +45,7 @@ Conclusión: se necesita trabajo en **base de datos, backend y frontend**. La im
 
 ### 3.2. Adaptación al producto real
 
-Se conservan las ocho categorías: `oficina`, `sala_multiproposito`, `bodega`, `estacionamiento`, `local_flexible`, `stand`, `quincho`, `parcela_eventos`. MPV2-00 confirmará los códigos contra la base y OpenAPI antes de fijar fixtures; no introducir alias no respaldados. No convertir el producto en arriendos residenciales ni agregar casa/departamento como categorías por copiar los ejemplos de la propuesta.
+Se conservan los códigos insertados en V5: `oficina`, `sala_multiproposito`, `bodega`, `estacionamiento`, `local_flexible`, `stand`, `quincho`, `parcela_eventos`. MPV2-00 los confirmó contra la migración y el uso de catálogo; no introducir alias no respaldados. No convertir el producto en arriendos residenciales ni agregar casa/departamento como categorías por copiar los ejemplos de la propuesta. Las modalidades CLP son `hora`, `dia`, `mes` según V5/V10; cada oferta publica su unidad vigente, no se presume que cada categoría tenga toda unidad.
 
 CLP y modalidades **hora/día/mes** permanecen. Los precios de tarjetas muestran su unidad; no se normalizan todas las tarifas a un mes. Baños, equipamiento u otros atributos aparecen como filtros solo si el perfil de la categoría los admite. No se inventan dormitorios, mascotas, UF o datos ausentes.
 
@@ -65,13 +65,7 @@ Ejemplo de URL de producto: `/explorar?q=oficina&categoria=oficina&comuna=...&mo
 
 ### 4.1. Predicado único de lectura pública
 
-Listado, ficha, fotos, sugerencias derivadas del inventario, facetas y sitemap deben aplicar la misma política:
-
-1. Espacio en estado `activa` y categoría activa; nunca `borrador`, `oculta` o `eliminada`.
-2. Propietario activo y no bloqueado administrativamente; elegibilidad de publicación vigente según Go y las reglas KYC/KYB existentes.
-3. Sin retirada por privacidad, moderación o revocación que impida difusión.
-4. Exclusión de borradores/espacios de ensayo restringidos a participantes. La allowlist de fixtures no concede visibilidad pública.
-5. Solo campos declarados publicables; metadatos nuevos con validación y semántica explícita.
+Listado, ficha, fotos, sugerencias derivadas del inventario, facetas y sitemap deben aplicar el predicado común fijado en [contrato MPV2-00](contrato_mpv2_00.md). Condiciones verificadas: estado activo y categoría activa; cuenta activa y sin fila de bloqueo administrativo; KYC aprobado/elegibilidad vigente; no pertenecer al fixture de ensayo; tarifa/perfil válidos. `oculta`/`eliminada`, bloqueo, KYC/elegibilidad revocados y fixture retiran la lectura con respuesta genérica. El esquema carece de un estado de moderación publicitaria independiente; no afirmar que esté resuelto por migraciones existentes.
 
 El catálogo no depende del UUID del visitante ni excluye la publicación por ser su propietario. La lectura anónima y autenticada tiene la misma proyección pública. El propietario conserva su editor privado y allí puede ver sus borradores.
 
@@ -123,18 +117,15 @@ Usar PostgreSQL inicialmente. Buscar texto con normalización definida (espacios
 
 ### 5.3. Precio y disponibilidad
 
-Separar dos filtros para no comparar importes distintos:
+Contrato elegido: cada tarjeta muestra precio unitario exacto en CLP junto con `hora`, `dia` o `mes`. El filtro y orden por precio del resultado público usa **total estimado para un intervalo obligatorio**, no compara tarifas base de distintas unidades. Go calcula unidades con `PriceUnits` y zona horaria; límites son inclusivos y `min≤max`. La estimación no es cotización ni garantía de disponibilidad. El visitante puede navegar sin fechas, pero entonces no se ofrece rango/orden por total. El navegador no multiplica ni convierte a `Number` impreciso. Cambiar esta semántica requiere decisión de producto y parámetros OpenAPI distintos.
 
-1. **Tarifa base:** CLP por modalidad seleccionada; al fijar precio mínimo/máximo debe indicarse `hora`, `dia` o `mes`. Sin modalidad se permite navegar todas las categorías, pero no ordenar/filtrar por importe como si fueran equivalentes.
-2. **Estimación por intervalo:** si se ofrece, exige inicio/fin y devuelve total estimado calculado por Go, sin crear cotización ni reserva. Sigue las reglas y zona IANA existentes.
-
-Montos `int64` siguen exactos de extremo a extremo, usando la estrategia de normalización ya existente. El navegador no calcula un precio definitivo ni un split. Disponibilidad pública no incluye ocupantes ni motivos internos; Go revalida tarifa/intervalo al cotizar y reservar. La búsqueda no debe ejecutar transiciones de reservas por ser consultada por un rastreador: separar el mantenimiento de vencimientos de la lectura pública y evaluar vencimientos efectivos al consultar.
+Disponibilidad pública, si forma parte del filtro, no incluye ocupantes ni motivos internos. Go revalida tarifa/intervalo al cotizar y reservar. La búsqueda no debe ejecutar transiciones de reservas por ser consultada por un rastreador: hoy `Catalog` llama `repo.Expire`; separar el mantenimiento de vencimientos de la lectura pública y asegurar que GET público no muta reservas/ocupaciones.
 
 ### 5.4. Orden y paginación
 
-Predeterminado: publicaciones recientes con ID como desempate. Texto permite orden por relevancia; menor/mayor precio solo dentro de la modalidad compatible (o total por intervalo). No mostrar «recomendados» sin criterio definido.
+Predeterminado: orden de categoría, título y `space_id` como desempate estable; el esquema actual no contiene fecha pública de publicación. Texto puede habilitar relevancia en una iteración posterior; menor/mayor total estimado solo con intervalo. No mostrar «recientes» ni «recomendados» sin fecha/criterio implementado.
 
-Paginación en SQL: tamaño default propuesto 24, máximo 48, `LIMIT + 1` y cursor basado en clave de orden/ID/fingerprint de filtros. El cursor no contiene Bearer ni identidad privada, no concede acceso y se valida contra los filtros/orden. Usar clave configurable estable si se firma; no generarla por proceso si varias réplicas/reinicios deben aceptar los mismos enlaces. Ante cursor inválido o vencido mostrar reinicio de resultados. Con inventario mutable no prometer un snapshot congelado: documentar la consistencia y probar retirada/alta entre páginas.
+Paginación en SQL: tamaño default propuesto 20, máximo 25, `LIMIT + 1` y cursor basado en clave de orden/ID/fingerprint de filtros. El cursor no contiene Bearer, actor ni identidad privada, no concede acceso y se valida contra los filtros/orden. Usar firma/configuración estable compartida entre réplicas/reinicios. Ante cursor inválido o vencido, 422 genérico y Angular reinicia resultados. Con inventario mutable no prometer un snapshot congelado: documentar la consistencia y probar retirada/alta entre páginas.
 
 Evitar recuperar todo el catálogo para ordenar en Go. Recuentos totales/facetas solo si se calculan de forma correcta y con coste acotado; en su ausencia mostrar «N espacios en esta página» y siguiente página, sin inventar total. Probar planes SQL con dataset sintético y registrar mediciones antes de añadir índices indiscriminados.
 
