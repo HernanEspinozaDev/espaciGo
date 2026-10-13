@@ -1,6 +1,6 @@
 # Evidencia MPV2-04 · Fotos y ficha pública
 
-**Fecha:** 2026-10-13. **Base:** merge de MPV2-03 #297, `0fe7785352ba91972d4ec403d24b4cd085d5477e`. **Rama/PR:** `codex/marketplace/feature/mpv2-04-public-images-detail`, #298. HEAD probado actualizado al publicar esta revisión.
+**Fecha:** 2026-10-13. **Base:** merge de MPV2-03 #297, `0fe7785352ba91972d4ec403d24b4cd085d5477e`. **Rama/PR:** `codex/marketplace/feature/mpv2-04-public-images-detail`, #298. **HEAD de código probado:** `145067b907f79c4d557c7cf7c0c0a293814af173`.
 
 ## Recorrido FE-14 conectado
 
@@ -12,7 +12,7 @@ Resultado: **2/2 pruebas FE-14 aprobadas**. El anfitrión generó tres PNG sint�
 
 - `go test ./...` — aprobado.
 - PostgreSQL/PostGIS desechable, `scripts/test-local-comm-mailpit.sh ./internal/adapters/postgres/spaces -run '^TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions$' -count=1` — aprobado con V56. Prueba GET 404 genérico/no-store para foto privada por defecto, asociación cruzada, ID de evidencia KYC, publicación revocada, cuenta bloqueada, elegibilidad KYC revocada, espacio oculto/eliminado y foto retirada; verifica lectura binaria anónima con headers y que propietario publica/retira mientras tercero no puede hacerlo.
-- `npm test -- --watch=false` — actualizado en esta revisión.
+- `npm test -- --watch=false` — 204/204 pruebas aprobadas.
 - `npm run api:check`, `npm run lint` y `npm run build` — aprobados en esta revisión.
 - FE-14 aislado: `FE14_PUBLIC_ONLY=1 FE14_EVIDENCE_OUTPUT_DIR=planning/marketplace_publico_v2/evidencia/mpv2_04 bash scripts/test-frontend-e2e.sh` — 2/2 aprobadas, con dos fotos públicas, una privada y retirada/recarga.
 - GitHub Actions de PR #298, ejecución [38423547641](https://github.com/HernanEspinozaDev/espaciGo/actions/runs/38423547641) — frontend aprobado: lint, `api:check`, unitarias, build y `npm audit --omit=dev`.
