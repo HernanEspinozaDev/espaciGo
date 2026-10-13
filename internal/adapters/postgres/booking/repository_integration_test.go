@@ -3,6 +3,7 @@ package bookingpg
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -70,6 +72,24 @@ type migrationHistorySnapshot struct {
 	Checksum  string
 	AppliedAt time.Time
 }
+
+type publicCatalogQueryCapture struct {
+	mu    sync.Mutex
+	query string
+	args  []any
+}
+
+func (c *publicCatalogQueryCapture) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if strings.HasPrefix(strings.TrimSpace(data.SQL), "WITH candidates AS") {
+		c.mu.Lock()
+		c.query = data.SQL
+		c.args = append([]any(nil), data.Args...)
+		c.mu.Unlock()
+	}
+	return ctx
+}
+
+func (*publicCatalogQueryCapture) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
 func readMigrationHistory(t *testing.T, ctx context.Context, databaseURL string) []migrationHistorySnapshot {
 	t.Helper()
@@ -4780,6 +4800,298 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 		t.Fatalf("revoked KYC public detail=%v", err)
 	}
 
+}
+
+func TestLocalPublicCatalogQueryPlanAndSitemapPaging(t *testing.T) {
+	adminURL := os.Getenv("TEST_DATABASE_URL")
+	if adminURL == "" {
+		t.Skip("TEST_DATABASE_URL is required for disposable PostgreSQL catalog query-plan integration")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	admin, err := pgx.Connect(ctx, adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close(context.Background())
+	databaseName := fmt.Sprintf("mpv2_08_catalog_%d", time.Now().UnixNano())
+	if _, err := admin.Exec(ctx, `CREATE DATABASE `+pgx.Identifier{databaseName}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	databaseURL, err := url.Parse(adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	databaseURL.Path = "/" + databaseName
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cleanupCancel()
+		if _, dropErr := admin.Exec(cleanupCtx, `DROP DATABASE `+pgx.Identifier{databaseName}.Sanitize()+` WITH (FORCE)`); dropErr != nil {
+			t.Errorf("drop disposable MPV2-08 catalog database: %v", dropErr)
+		}
+	}()
+	if _, err = migrator.Run(ctx, databaseURL.String(), "../../../../db/migrations"); err != nil {
+		t.Fatal(err)
+	}
+	setup, err := pgx.Connect(ctx, databaseURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer setup.Close(context.Background())
+	ownerID, reviewerID := "10101010-1010-4010-8010-101010101010", "20202020-2020-4020-8020-202020202020"
+	for _, id := range []string{ownerID, reviewerID} {
+		if _, err = setup.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'fixture-only','activo')`, id, "mpv2-08-"+id+"@example.test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var verificationID string
+	if err = setup.QueryRow(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,proveedor_ref,referencia_evidencia,clave_idempotencia,revisor_id,creada_en,resuelta_en)
+		VALUES(gen_random_uuid(),$1,'kyc','aprobada','local-fixture-v1','fixture:'||gen_random_uuid()::text,'mpv2-08-benchmark-kyc',$2,now(),now()) RETURNING id::text`, ownerID, reviewerID).Scan(&verificationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, ownerID, verificationID); err != nil {
+		t.Fatal(err)
+	}
+	var locationVersion string
+	if err = setup.QueryRow(ctx, `SELECT version FROM public.catalogo_ubicacion_publica WHERE activo`).Scan(&locationVersion); err != nil {
+		t.Fatal(err)
+	}
+	locationRows, err := setup.Query(ctx, `SELECT region_code,commune_code FROM (SELECT DISTINCT ON (r.codigo) r.codigo AS region_code,c.codigo AS commune_code FROM public.region_publica r JOIN public.comuna_publica c ON c.catalogo_version=r.catalogo_version AND c.region_codigo=r.codigo WHERE r.catalogo_version=$1 ORDER BY r.codigo,c.codigo) pairs ORDER BY region_code LIMIT 3`, locationVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var regionCodes, communeCodes []string
+	for locationRows.Next() {
+		var region, commune string
+		if err = locationRows.Scan(&region, &commune); err != nil {
+			locationRows.Close()
+			t.Fatal(err)
+		}
+		regionCodes, communeCodes = append(regionCodes, region), append(communeCodes, commune)
+	}
+	if err = locationRows.Err(); err != nil {
+		locationRows.Close()
+		t.Fatal(err)
+	}
+	locationRows.Close()
+	if len(regionCodes) != 3 {
+		t.Fatalf("official synthetic location pairs=%d, want 3", len(regionCodes))
+	}
+	var seededOffers, seededTariffs, seededProfiles int
+	seedSQL := `WITH source AS (
+  SELECT series.n, cats.codigo AS category_code,
+         CASE WHEN cats.codigo='oficina' AND series.n<=640 THEN 1 ELSE ((series.n-1)%3)+1 END AS location_index
+  FROM generate_series(1,1000) AS series(n)
+  JOIN LATERAL (SELECT codigo FROM public.categoria_espacio ORDER BY orden OFFSET ((series.n-1)%8) LIMIT 1) cats ON true
+), inserted AS (
+  INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,
+      reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria,ubicacion_catalogo_version,region_codigo,comuna_codigo)
+  SELECT gen_random_uuid(),$1,s.category_code,'Benchmark synthetic offer '||lpad(s.n::text,4,'0'),
+      'Synthetic public catalog benchmark listing with enough descriptive text for the publication contract.',
+      25+(s.n%40),4,'Synthetic benchmark rules','hora',
+      CASE WHEN s.n=1 THEN 9000000000000000000::bigint ELSE 8000+((s.n*137)%12000)::bigint END,
+      'Synthetic private address '||s.n,
+      CASE WHEN s.n<=950 THEN 'activa' WHEN s.n<=975 THEN 'oculta' ELSE 'borrador' END,
+      (ARRAY['America/Santiago','UTC','America/Los_Angeles'])[(s.n-1)%3+1],$2,
+      ($3::text[])[s.location_index],($4::text[])[s.location_index]
+  FROM source s RETURNING id,categoria_codigo,modalidad_tarifa,precio_base_clp,titulo
+), tariffs AS (
+  INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
+  SELECT id,1,modalidad_tarifa,precio_base_clp FROM inserted RETURNING espacio_id
+), profiles AS (
+  INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores)
+  SELECT i.id,i.categoria_codigo,1,
+    CASE WHEN i.categoria_codigo='oficina' AND right(i.titulo,4)::int%32<>1 THEN '{"wifi":true}'::jsonb ELSE '{}'::jsonb END
+  FROM inserted i RETURNING espacio_id
+)
+SELECT (SELECT count(*) FROM inserted),(SELECT count(*) FROM tariffs),(SELECT count(*) FROM profiles)`
+	if err = setup.QueryRow(ctx, seedSQL, ownerID, locationVersion, regionCodes, communeCodes).Scan(&seededOffers, &seededTariffs, &seededProfiles); err != nil {
+		t.Fatal(err)
+	}
+	if seededOffers != 1000 || seededTariffs != seededOffers || seededProfiles != seededOffers {
+		t.Fatalf("synthetic fixture offers/tariffs/profiles=%d/%d/%d", seededOffers, seededTariffs, seededProfiles)
+	}
+	var seededActive, seededHidden, seededDraft int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FILTER(WHERE estado='activa'),count(*) FILTER(WHERE estado='oculta'),count(*) FILTER(WHERE estado='borrador') FROM public.espacio WHERE titulo LIKE 'Benchmark synthetic offer %'`).Scan(&seededActive, &seededHidden, &seededDraft); err != nil {
+		t.Fatal(err)
+	}
+	if seededActive != 950 || seededHidden != 25 || seededDraft != 25 {
+		t.Fatalf("fixture publication states active/hidden/draft=%d/%d/%d", seededActive, seededHidden, seededDraft)
+	}
+	if _, err = setup.Exec(ctx, `ANALYZE public.espacio; ANALYZE public.tarifa_espacio; ANALYZE public.espacio_caracteristicas; ANALYZE public.usuario; ANALYZE public.elegibilidad_verificacion_local; ANALYZE public.verificacion;`); err != nil {
+		t.Fatal(err)
+	}
+
+	capture := &publicCatalogQueryCapture{}
+	poolConfig, err := pgxpool.ParseConfig(databaseURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	poolConfig.ConnConfig.Tracer = capture
+	planPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer planPool.Close()
+	repository := publiccatalogpg.New(planPool)
+	service, err := publiccatalog.New(repository, []byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	allIDs := make(map[string]struct{}, 1000)
+	allPages := 0
+	allBenchmarkOffers := 0
+	var sitemapQuerySQL string
+	var sitemapQueryArgs []any
+	filters := publiccatalog.Filters{PageSize: publiccatalog.MaxPageSize, PageSizeSet: true}
+	for {
+		page, listErr := service.List(ctx, filters)
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		allPages++
+		if allPages == 1 {
+			capture.mu.Lock()
+			sitemapQuerySQL = capture.query
+			sitemapQueryArgs = append([]any(nil), capture.args...)
+			capture.mu.Unlock()
+		}
+		for _, item := range page.Items {
+			if _, exists := allIDs[item.SpaceID]; exists {
+				t.Fatalf("sitemap-equivalent inventory repeated space %s", item.SpaceID)
+			}
+			allIDs[item.SpaceID] = struct{}{}
+			if strings.HasPrefix(item.Title, "Benchmark synthetic offer ") {
+				allBenchmarkOffers++
+				if strings.Contains(item.Title, "0976") || strings.Contains(item.Title, "0980") || strings.Contains(item.Title, "0999") {
+					t.Fatalf("hidden/draft listing leaked into full inventory: %s", item.Title)
+				}
+			}
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		filters.Cursor = page.NextCursor
+	}
+	if allPages < 38 || allBenchmarkOffers != 950 || len(allIDs) < 950 {
+		t.Fatalf("sitemap-equivalent walk pages=%d benchmark-visible=%d total-visible=%d; want many pages and all 950 active seeded listings", allPages, allBenchmarkOffers, len(allIDs))
+	}
+
+	startAt := time.Date(2026, 10, 15, 15, 0, 0, 0, time.UTC)
+	endAt := startAt.Add(time.Hour)
+	minUnitPrice, maxUnitPrice := int64(9000), int64(20000)
+	minTotal, maxTotal := int64(9000), int64(20000)
+	filtered := publiccatalog.Filters{
+		CategoryCode: "oficina", RateUnit: "hora", MinUnitPriceCLP: &minUnitPrice, MaxUnitPriceCLP: &maxUnitPrice,
+		Sort: "estimated_total_asc", PageSize: publiccatalog.MaxPageSize, PageSizeSet: true, Query: "benchmark",
+		RegionCode: regionCodes[0], MinAreaM2: "24.50", Attributes: map[string]bool{"wifi": true}, AttributeVersion: 1,
+		StartAt: &startAt, EndAt: &endAt, MinTotalCLP: &minTotal, MaxTotalCLP: &maxTotal,
+	}
+	filteredIDs := make(map[string]struct{})
+	filteredPages := 0
+	for {
+		page, listErr := service.List(ctx, filtered)
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		filteredPages++
+		for _, item := range page.Items {
+			if _, exists := filteredIDs[item.SpaceID]; exists {
+				t.Fatalf("filtered cursor pages repeated space %s", item.SpaceID)
+			}
+			filteredIDs[item.SpaceID] = struct{}{}
+			if item.CategoryCode != "oficina" || item.RegionCode == nil || *item.RegionCode != regionCodes[0] || item.EstimatedTotalCLP == nil || *item.EstimatedTotalCLP < minTotal || *item.EstimatedTotalCLP > maxTotal || item.BasePriceCLP < minUnitPrice || item.BasePriceCLP > maxUnitPrice {
+				t.Fatalf("filtered result violates criteria or CLP bounds: %+v", item)
+			}
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		filtered.Cursor = page.NextCursor
+	}
+	var expectedFiltered int
+
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.espacio e JOIN public.espacio_caracteristicas a ON a.espacio_id=e.id
+		WHERE e.titulo LIKE 'Benchmark synthetic offer %' AND e.estado='activa' AND e.categoria_codigo='oficina'
+		AND e.region_codigo=$1 AND e.superficie_m2>=24.5 AND e.precio_base_clp BETWEEN 9000 AND 20000
+		AND e.busqueda_publica @@ plainto_tsquery('public.espacigo_es_unaccent','benchmark') AND a.perfil_version=1 AND a.valores @> '{"wifi":true}'::jsonb`, regionCodes[0]).Scan(&expectedFiltered); err != nil {
+		t.Fatal(err)
+	}
+	if filteredPages < 2 || len(filteredIDs) != expectedFiltered || expectedFiltered <= publiccatalog.MaxPageSize {
+		t.Fatalf("filtered pages=%d results=%d expected=%d; need >25 results over multiple cursor pages", filteredPages, len(filteredIDs), expectedFiltered)
+	}
+	capture.mu.Lock()
+	querySQL := capture.query
+	queryArgs := append([]any(nil), capture.args...)
+	capture.mu.Unlock()
+
+	// Exercise int64 base/estimated prices separately from the 9k–20k filter.
+	var highPrice int64 = 9000000000000000000
+	highPriceFilter := publiccatalog.Filters{Sort: "unit_price_desc", RateUnit: "hora", PageSize: publiccatalog.MaxPageSize, PageSizeSet: true, StartAt: &startAt, EndAt: &endAt}
+	highPricePage, err := service.List(ctx, highPriceFilter)
+	if err != nil || len(highPricePage.Items) == 0 || highPricePage.Items[0].BasePriceCLP != highPrice || highPricePage.Items[0].EstimatedTotalCLP == nil || *highPricePage.Items[0].EstimatedTotalCLP != highPrice {
+		t.Fatalf("int64 price/one-hour total preservation: first=%+v err=%v", highPricePage.Items, err)
+	}
+
+	if querySQL == "" || !strings.Contains(querySQL, "AND (estimated_total >") || len(queryArgs) < 16 {
+		t.Fatalf("captured production page-two SQL lacks estimated-total cursor: sql=%q args=%d", querySQL, len(queryArgs))
+	}
+	if sitemapQuerySQL == "" || len(sitemapQueryArgs) != 15 {
+		t.Fatalf("captured sitemap Repository.List SQL args=%d", len(sitemapQueryArgs))
+	}
+	explainQuery := func(query string, args []any) (json.RawMessage, error) {
+		rows, queryErr := planPool.Query(ctx, `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) `+query, args...)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		defer rows.Close()
+		if !rows.Next() {
+			return nil, fmt.Errorf("EXPLAIN returned no plan")
+		}
+		var output []byte
+		if scanErr := rows.Scan(&output); scanErr != nil {
+			return nil, scanErr
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			return nil, rowsErr
+		}
+		return output, nil
+	}
+	sitemapPlanJSON, err := explainQuery(sitemapQuerySQL, sitemapQueryArgs)
+	if err != nil {
+		t.Fatalf("EXPLAIN captured sitemap Repository.List query: %v", err)
+	}
+	filteredPlanJSON, err := explainQuery(querySQL, queryArgs)
+	if err != nil {
+		t.Fatalf("EXPLAIN captured filtered cursor Repository.List query: %v", err)
+	}
+	var databaseVersion string
+	if err = setup.QueryRow(ctx, `SELECT version()`).Scan(&databaseVersion); err != nil {
+		t.Fatal(err)
+	}
+	gitHead := "unknown"
+	if head, headErr := exec.CommandContext(ctx, "git", "rev-parse", "HEAD").Output(); headErr == nil {
+		gitHead = strings.TrimSpace(string(head))
+	}
+	sitemapSQLHash := sha256.Sum256([]byte(sitemapQuerySQL))
+	filteredSQLHash := sha256.Sum256([]byte(querySQL))
+	report := map[string]any{
+		"case":            "MPV2-08 real Repository.List SQL; filtered catalog cursor page",
+		"git_head":        gitHead,
+		"go_version":      runtime.Version(),
+		"platform":        runtime.GOOS + "/" + runtime.GOARCH,
+		"database":        databaseVersion,
+		"dataset":         map[string]any{"offers": seededOffers, "active": seededActive, "hidden": seededHidden, "draft": seededDraft, "categories": 8, "official_region_codes": regionCodes, "official_commune_codes": communeCodes, "eligible_sitemap_walk_rows": len(allIDs), "sitemap_pages": allPages},
+		"filtered_query":  map[string]any{"category": "oficina", "query": "benchmark", "region": regionCodes[0], "min_area_m2": 24.5, "wifi": true, "price_clp": []int64{minUnitPrice, maxUnitPrice}, "start_at": startAt.Format(time.RFC3339), "end_at": endAt.Format(time.RFC3339), "total_clp": []int64{minTotal, maxTotal}, "sort": filtered.Sort, "page_size": publiccatalog.MaxPageSize, "pages": filteredPages, "distinct_results": len(filteredIDs), "expected_results": expectedFiltered, "plan_page": filteredPages},
+		"int64_price_clp": highPrice, "sitemap_query_sha256": fmt.Sprintf("%x", sitemapSQLHash), "sitemap_query_parameter_count": len(sitemapQueryArgs),
+		"filtered_query_sha256": fmt.Sprintf("%x", filteredSQLHash), "filtered_query_parameter_count": len(queryArgs),
+		"sitemap_first_page_plan": json.RawMessage(sitemapPlanJSON), "filtered_cursor_page_plan": json.RawMessage(filteredPlanJSON),
+	}
+	reportJSON, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("MPV2-08_PUBLIC_QUERY_PLAN=%s", reportJSON)
 }
 
 func validateBookingOpenAPIJSON(t *testing.T, payload []byte, schemaName string) {
