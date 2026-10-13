@@ -72,9 +72,9 @@
       @if(items().length){<div class="results">
         @for(item of items();track item.space_id;let index=$index){<article class="space-card panel">
           <div class="space-art" aria-label="Ilustración de referencia"><span>{{item.category_name}}</span><b>0{{index+1}}</b></div>
-          <div class="space-summary"><p class="eyebrow">{{item.category_name}} · {{item.area_m2}} m²</p><h2><a [routerLink]="['/espacios',item.space_id]">{{item.title}}</a></h2>
+          <div class="space-summary"><p class="eyebrow">{{item.category_name}} · {{item.area_m2}} m²</p><h2><a [routerLink]="detailLink(item.space_id)">{{item.title}}</a></h2>
             <p>{{item.description}}</p>@if(item.region_name&&item.comuna_name){<p>{{item.comuna_name}}, {{item.region_name}}</p>}<div class="price-row"><strong>{{price(item.base_price_clp)}} / {{item.rate_unit}}</strong>@if(item.estimated_total_clp){<strong>Total estimado: {{price(item.estimated_total_clp)}}</strong>}</div>
-            <a class="card-link" [routerLink]="['/espacios',item.space_id]">Ver detalle <span aria-hidden="true">↗</span></a></div>
+            <a class="card-link" [routerLink]="detailLink(item.space_id)">Ver detalle <span aria-hidden="true">↗</span></a></div>
         </article>}
       </div>}
       @if(nextCursor()){<button appButton="primary" class="button more" type="button" [disabled]="busy()" (click)="loadMore()">{{busy()?'Cargando…':'Ver más espacios'}}</button>}

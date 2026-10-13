@@ -76,6 +76,8 @@ export class IdentityPage {
   get changeForm() {
     return this.facade.changeForm;
   }
+  readonly identityQueryParams = this.facade.identityQueryParams.bind(this.facade);
+  readonly contextualCancelUrl = this.facade.contextualCancelUrl.bind(this.facade);
   readonly onLogin = this.facade.onLogin.bind(this.facade);
   readonly onRegister = this.facade.onRegister.bind(this.facade);
   readonly onReissue = this.facade.onReissue.bind(this.facade);

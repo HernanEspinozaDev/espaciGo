@@ -20,6 +20,8 @@ services:
       FE14_ACCOUNT_FILE: /run/fe14/accounts.json
       FE14_ARTIFACT_DIR: /run/fe14/artifacts
       FE14_RESULTS_DIR: /run/fe14/results/playwright
+      FE14_HEAD: ${FE14_HEAD:-unknown}
+      PLAYWRIGHT_INSECURE_ORIGINS: http://angular-frontend:4000
     volumes:
       - type: bind
         source: ${FE14_ACCOUNT_FILE_HOST:?FE14_ACCOUNT_FILE_HOST is required for the E2E runner}
@@ -36,5 +38,8 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     networks:
       - api
+      - mail

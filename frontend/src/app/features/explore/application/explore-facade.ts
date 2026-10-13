@@ -1,7 +1,7 @@
 import { DestroyRef, Injectable, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Meta, Title } from '@angular/platform-browser';
-import { ActivatedRoute, ParamMap, Router } from '@angular/router';
+import { ActivatedRoute, ParamMap, Router, UrlTree } from '@angular/router';
 import {
   ExplorePort,
   PublicCatalogFilters,
@@ -188,6 +188,16 @@ export class ExploreFacade implements OnInit {
     this.filters.set({ ...this.appliedFilters(), sort, cursor: '' });
     this.invalidateCriteria();
     void this.search();
+  }
+
+  detailLink(spaceId: string): UrlTree {
+    const queryParams = encodeFilters({ ...this.appliedFilters(), cursor: '' });
+    const listing = this.router.serializeUrl(
+      this.router.createUrlTree(['/explorar'], { queryParams }),
+    );
+    return this.router.createUrlTree(['/espacios', spaceId], {
+      queryParams: { returnTo: listing },
+    });
   }
 
   clearFilters(): void {

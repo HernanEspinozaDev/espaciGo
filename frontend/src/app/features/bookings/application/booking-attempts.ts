@@ -6,6 +6,9 @@ export type { BookingAttempt, ConfirmedRefundSnapshot } from '../domain/booking-
 @Injectable({ providedIn: 'root' })
 export class BookingAttempts extends BookingAttemptRegistry {
   constructor() {
-    super(() => crypto.randomUUID());
+    super(() =>
+      globalThis.crypto?.randomUUID?.() ??
+      `booking-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
   }
 }

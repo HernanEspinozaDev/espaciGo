@@ -33,6 +33,10 @@ export class SpaceDetailPage {
   }
   get privateSpace() { return this.facade.privateSpace; }
   get canBook() { return this.facade.canBook.bind(this.facade); }
+  get session() { return this.facade.session; }
+  get identityReturnUrl() { return this.facade.identityReturnUrl; }
+  get listingReturnUrl() { return this.facade.listingReturnUrl; }
+  get hasReservationContext() { return this.facade.hasReservationContext; }
   get profile() {
     return this.facade.profile;
   }

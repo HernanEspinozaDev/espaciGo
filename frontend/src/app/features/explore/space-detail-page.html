@@ -1,5 +1,5 @@
 <main class="detail page-width">
-  <a class="back-link" routerLink="/explorar">← Volver a explorar</a>
+  <a class="back-link" [routerLink]="listingReturnUrl">← Volver a explorar</a>
   @if(error()){<p class="error" role="alert">{{error()}}</p>}
   @if(busy()&&!space()){<p class="status" role="status">Cargando publicación…</p>}
   @if(space();as item){
@@ -19,6 +19,7 @@
         </div>
       </article>
       <section class="booking panel"><p class="eyebrow">SIGUIENTE PASO</p><h2>Consulta horarios</h2>
+        @if(hasReservationContext){<p class="context-return" role="status">Volviste a esta ficha. Go volverá a consultar horarios y tarifa; elige un intervalo, revisa la cotización y confirma la solicitud cuando estés listo.</p>}
         @if(canBook()) {
           <p>Los horarios se consultan de forma privada después de confirmar tu sesión.</p>
           <label>Fecha local<input type="date" [value]="date()" (change)="chooseDate($any($event.target).value)" /></label>
@@ -34,7 +35,16 @@
           @if(quote();as currentQuote){<section class="quote"><p>{{formatInterval({start_at:currentQuote.start_at,end_at:currentQuote.end_at})}}</p><p><strong>Total arriendo:</strong> {{formatClp(currentQuote.subtotal_clp)}}</p><p><strong>Garantía esperada (ensayo local):</strong> {{formatClp(currentQuote.guarantee_expected_clp)}}</p>
             <button appButton="primary" class="button" type="button" [disabled]="requestingReservation()" (click)="requestReservation()">{{requestingReservation()?'Enviando…':'Solicitar reserva'}}</button>
             <p class="no-charge">Solicitar no confirma pago ni aprobación del anfitrión.</p></section>}
-        } @else {<p>Los horarios y solicitudes requieren una sesión de arrendatario.</p><a appButton="primary" class="button" routerLink="/acceso">Iniciar sesión</a>}
+        } @else if (!session()) {
+          <p>Para consultar horarios y solicitar una reserva, inicia sesión con una cuenta de arrendatario. Volverás a esta ficha para elegir y confirmar la operación.</p>
+          <a appButton="primary" class="button" routerLink="/acceso" [queryParams]="{returnUrl: identityReturnUrl}">Iniciar sesión</a>
+        } @else if (session()?.restricted_mode) {
+          <p role="status">Go confirmó que esta cuenta está en modo restringido. Solo permite operaciones sobre reservas existentes; esta solicitud no está disponible.</p>
+          <a appButton="secondary" class="button" routerLink="/mi-cuenta">Revisar mi sesión</a>
+        } @else {
+          <p role="status">La sesión actual no tiene el rol de arrendatario requerido para solicitar este espacio.</p>
+          <a appButton="secondary" class="button" routerLink="/mi-cuenta">Revisar mi sesión</a>
+        }
         <p class="no-charge">La tarifa publicada es un valor unitario en CLP. El total se confirma según fechas y modalidad.</p>
       </section>
     </div>
