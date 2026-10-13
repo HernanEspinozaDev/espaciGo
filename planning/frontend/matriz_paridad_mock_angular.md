@@ -394,9 +394,9 @@ Las capturas usan viewport de navegador 390×844 CSS px y 1365×900 CSS px. El J
 Origen base: `origin/main` tras merge #287 (`106942ff`); código validado en `c6b46db9bb62ed7ba0ab943e1398e32b7645c450`, rama `codex/frontend-local-1-fe13-docker`. PR #288 abierto por `HernanMEC`, revisión solicitada a `HernanEspinozaDev`. El script `scripts/test-frontend-docker.sh` crea un proyecto y volumen nuevos con puertos propios, secretos/directorios fuera de datos locales y limpieza acotada a esos recursos. La instalación/ejecución no incluye credenciales ni cambia configuración privada. FE-13 aceptado y fusionado en #288. FE-14 se prepara en el corte actual; FE-15 (retirar el mock) requiere aceptación explícita de FE-14.
 
 
-## FE-14 — Regresión consolidada y matriz completa (en revisión)
+## FE-14 — Regresión consolidada y matriz completa (demo preparada; aceptación explícita pendiente)
 
-**Base:** `main` actualizado desde #288, merge `4eaf98fcd0a46326c884e4f3236d7e55ff39e0df`. **Source commit E2E:** `6277140b8fef7226fe29d10284b67d36d943d780`. El inventario conserva 118 paths/144 operaciones, vinculadas a cortes de UI o excepción técnica; 0 operaciones nuevas en FE-14. Los estados de FE-04 y FE-11 se actualizaron a aceptados/fusionados, y FE-13 a #288. La matriz registra el estado completo, no afirma que las 144 operaciones se hayan repetido en una sola prueba E2E.
+**Base de aceptación:** `main` con #289 y PR #290 aprobado/fusionado, merge `b94dba37d80fa63c92d3e8aedffe8d6740ce2e0d`. **Source commit E2E:** `6277140b8fef7226fe29d10284b67d36d943d780`. El inventario conserva 118 paths/144 operaciones, vinculadas a cortes de UI o excepción técnica; 0 operaciones nuevas en FE-14. Los estados de FE-04 y FE-11 se actualizaron a aceptados/fusionados, y FE-13 a #288. La matriz registra el estado completo, no afirma que las 144 operaciones se hayan repetido en una sola prueba E2E.
 
 | Recorrido FE-14 | Comprobación real | Resultado | Evidencia |
 | --- | --- | --- | --- |
@@ -406,7 +406,7 @@ Origen base: `origin/main` tras merge #287 (`106942ff`); código validado en `c6
 | Aislamiento del runner | Montajes limitados a accounts.json read-only y artefactos/resultados read-write; comprobación de paths privados/secretos y env ausentes. | Solo 3 entradas `/run/fe14`; secretos, evidencia y replay no existen/no son legibles; pasa | [manifiesto de evidencia](evidencia/FE14_aceptacion.md) |
 | Responsive/foco | Playwright Chromium 390×844 y 1365×900; screenshots full-page y JSON con medidas viewport/documento; Tab visible en enlace/heading. | Dimensiones exactas, overflow horizontal ausente en vistas evaluadas; ver capturas JPEG | [manifiesto de evidencia](evidencia/FE14_aceptacion.md) |
 
-**Regresión consolidada:** 169 pruebas Angular/28 archivos; `api:check` pasa; build/prerender completa tres rutas; Playwright 3/3 pruebas pasan. Config y descarga privada evaluadas en Go/Compose desechable. Artefactos exactos, imágenes Docker, hashes, medidas, cleanup y límites quedan en [`evidencia/FE14_aceptacion.md`](evidencia/FE14_aceptacion.md). Stack `espacigo_fe14_98d604e66706`; API 18780, Angular 18783, Mailpit 18782; readiness/frontend HTTP 200 antes del login; cuentas/roles sintéticos creados en DB nueva; al cierre se retiraron contenedores, redes y volumen con ese prefijo. La ejecución E2E final usó un volumen propio nuevo. Un intento previo abortado por el puerto ocupado de Mailpit reinició el contenedor DB persistente, sin aprovisionar cuentas, pruebas destructivas o eliminar ese volumen; detalle en `evidencia/FE14_aceptacion.md`.
+**Regresión consolidada (actualización):** 179 pruebas Angular/32 archivos; `api:check` pasa; build/prerender completa tres rutas; Playwright E2E 3/3 son evidencia del corte FE-14 anterior. La regresión nueva conserva el resumen del pago a través de aprobación y firmas. La prueba de liquidación aislada con reloj sustituible pasa. Evidencia exacta, hashes, medidas y límites quedan en [`evidencia/FE14_aceptacion.md`](evidencia/FE14_aceptacion.md). Stack de demo `espacigo_fe14_demo_18a028644c87`; API 18880, Angular 18883, Mailpit 18882; readiness/runtime Angular HTTP 200. El volumen de demo es exclusivo; no se usó el volumen persistente.
 
 **Paridad y aceptación:** matriz completa en términos de operación, FE-02–FE-13 aceptados y fusiones anotadas. FE-14 valida los invariantes transversales; no repite cada mutación/combinación Go. No se simularon datos productivos ni se introdujeron credenciales. El mock se conserva; FE-15 y su retirada dependen de aceptación explícita del usuario sobre FE-14.
 
@@ -415,3 +415,18 @@ Origen base: `origin/main` tras merge #287 (`106942ff`); código validado en `c6
 El merge técnico FE-14 no cierra la aceptación arquitectónica. El [PR #290](https://github.com/HernanEspinozaDev/espaciGo/pull/290) separa vistas/fachadas/puertos/adaptadores, introduce núcleo puro, formularios tipados, UI compartida y gates estrictos de dependencias/estilos. [Auditoría](revision_arquitectura.md), [manifiesto del código probado `70a97c4`](evidencia/arquitectura/manifest.json) y [recorrido preparado](demo_aceptacion_arquitectura.md). Validación: 178 pruebas Angular, lint/arquitectura, contrato, build/prerender, Docker aislado y 4 E2E autenticadas. Las capturas de esta repetición no sustituyen las históricas; la demo completa y la aceptación explícita FE-14 siguen pendientes. FE-15 no se inicia con esta actualización.
 
 La revisión de #290 detectó dos brechas de control en `f461c2e`; se corrigieron con namespaces derivados de OpenAPI/YAML y controles de métricas/breakpoints sin excepciones por feature. Gate: 28 pruebas del tooling, 178 Angular, contrato/build y E2E 4/4 posteriores. [Evidencia](evidencia/arquitectura/controles/manifest.json). Los 20 estilos afectados compilan a CSS idéntico al baseline; no se hizo un rediseño. La aceptación del usuario de FE-14 sigue pendiente de demo sobre el merge aprobado.
+
+**Demo sobre el merge #290 (inventario inicial supersedido):** el estado de borrador/KYC pendiente corresponde a la preparación anterior al recorrido. El inventario vigente, sin credenciales, está en `.local/testing/fe14-demo/fixture-manifest.md`; ambas verificaciones fueron aprobadas, Go confirma elegibilidad, el espacio está publicado y la reserva sigue `lista_para_checkin`.
+
+
+### FE-14 — Transacciones de aceptación en Go (2026-10-13)
+
+| Escenario | Resultado |
+| --- | --- |
+| KYC y publicación elegible | KYC de anfitrión/arrendatario aprobado por el panel admin; Go confirmó elegibilidad. Guardado tarifa horaria CLP 12.000, zona IANA, y publicación del espacio por el flujo del dueño. Búsqueda/cotización desde Angular con respuestas Go exitosas. |
+| Reserva y pago fake | `POST` reserva HTTP 201, pago fake HTTP 200. Garantía: el POST devolvió 202 (operación aceptada/confirmada) y la lectura Go confirmó `autorizada`; aprobación de anfitrión HTTP 200. |
+| Contrato/PDF | Firmas de anfitrión y arrendatario, estado Go `lista_para_checkin`, descarga PDF privado válida. |
+| Exportaciones/permisos | JSON/ZIP del titular validados y tercero denegado. |
+| Operación/finanzas | Check-in Go HTTP 409 porque aún no es el día IANA de inicio; no se alteró reloj/fecha. Check-out/recepción pendientes. `TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay` pasó con PostgreSQL aislado y reloj sustituible, incluida liquidación/cierre/comprobante tras +24 h; la reserva viva no se presenta como liquidada. |
+
+Capturas JPEG/medidas/hashes y artefactos están en [evidencia/FE14_aceptacion.md](evidencia/FE14_aceptacion.md), incluida [reserva lista / check-in 409](evidencia/aceptacion-fe14-b94dba37/fe14_acceptance_checkin_waiting_for_iana_day_mobile.jpg). La ausencia de check-in/check-out es una condición temporal impuesta por Go; FE-14 queda pendiente de nueva revisión y aceptación explícita, mock preservado y FE-15 pendiente.

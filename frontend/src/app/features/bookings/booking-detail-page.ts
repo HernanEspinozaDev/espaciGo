@@ -62,4 +62,5 @@ export class BookingDetailPage {
   readonly money = this.facade.money.bind(this.facade);
   readonly when = this.facade.when.bind(this.facade);
   readonly resultLabel = this.facade.resultLabel.bind(this.facade);
+  readonly paymentConfirmed = this.facade.paymentConfirmed.bind(this.facade);
 }
