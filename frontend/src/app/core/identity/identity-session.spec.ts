@@ -2,10 +2,11 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { LoginResponse, SessionResponse } from '../../../generated/api/types.gen';
 import { client } from '../../../generated/api/client.gen';
-import { IdentityApi } from './identity-api';
-import { IdentitySession, StaleIdentityRequest } from './identity-session';
+import { provideFrontendPorts } from '../../frontend.providers';
+import type { LoginResponse, SessionResponse } from '../contracts/models';
+import { IdentitySession, StaleIdentityRequest } from './application/identity-session';
+import { IdentityApi } from './infrastructure/identity-api';
 import { PrivateSessionState } from './private-session-state';
 
 const makeLogin = (accountId: string, token: string): LoginResponse => ({
@@ -49,14 +50,22 @@ describe('IdentitySession', () => {
   it('refreshes Go-confirmed roles for the current bearer without clearing a valid session', async () => {
     const api = {
       login: vi.fn().mockResolvedValue(makeLogin('account-1', 'opaque-token')),
-      session: vi.fn().mockResolvedValueOnce({ account_id: 'account-1', roles: ['administrador'], restricted_mode: false })
+      session: vi
+        .fn()
+        .mockResolvedValueOnce({
+          account_id: 'account-1',
+          roles: ['administrador'],
+          restricted_mode: false,
+        })
         .mockResolvedValueOnce(makeSession('account-1', true)),
       logout: vi.fn(),
     };
     const identity = createIdentity(api);
     await identity.signIn('person@example.invalid', 'Synthetic#123');
 
-    await expect(identity.refreshSessionIfCurrent('opaque-token')).resolves.toEqual(makeSession('account-1', true));
+    await expect(identity.refreshSessionIfCurrent('opaque-token')).resolves.toEqual(
+      makeSession('account-1', true),
+    );
 
     expect(identity.accessToken()).toBe('opaque-token');
     expect(identity.session()?.roles).toEqual(['arrendatario']);
@@ -66,8 +75,14 @@ describe('IdentitySession', () => {
 
   it('does not refresh or replace the capabilities of a newer bearer', async () => {
     const api = {
-      login: vi.fn().mockResolvedValueOnce(makeLogin('account-1', 'old-token')).mockResolvedValueOnce(makeLogin('account-2', 'new-token')),
-      session: vi.fn().mockResolvedValueOnce(makeSession('account-1')).mockResolvedValueOnce(makeSession('account-2', true)),
+      login: vi
+        .fn()
+        .mockResolvedValueOnce(makeLogin('account-1', 'old-token'))
+        .mockResolvedValueOnce(makeLogin('account-2', 'new-token')),
+      session: vi
+        .fn()
+        .mockResolvedValueOnce(makeSession('account-1'))
+        .mockResolvedValueOnce(makeSession('account-2', true)),
       logout: vi.fn(),
     };
     const identity = createIdentity(api);
@@ -256,7 +271,12 @@ describe('IdentitySession', () => {
 
 function createIdentity(api: object): IdentitySession {
   TestBed.configureTestingModule({
-    providers: [provideRouter([]), { provide: IdentityApi, useValue: api }, PrivateSessionState],
+    providers: [
+      ...provideFrontendPorts(),
+      provideRouter([]),
+      { provide: IdentityApi, useValue: api },
+      PrivateSessionState,
+    ],
   });
   return TestBed.inject(IdentitySession);
 }

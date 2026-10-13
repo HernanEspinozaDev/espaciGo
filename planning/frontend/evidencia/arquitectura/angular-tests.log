@@ -1,0 +1,18 @@
+npm notice run frontend@0.0.0 test
+npm notice run ng test --watch=false
+❯ Building...
+✔ Building...
+Application bundle generation complete. [6.130 seconds] - 2026-10-13T00:00:37.045Z
+
+
+ RUN  v5.0.3 /home/nandev/.codex/worktrees/frontend-architecture/espaciGo/frontend
+
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+ Test Files  32 passed (32)
+      Tests  178 passed (178)
+   Start at  21:00:37
+   Duration  5.37s (environment 55%, tests 15%, setup 13%, transform 12%, import 5%)
+

@@ -52,3 +52,13 @@ Instalación limpia y regresión desde `frontend/`: `npm ci`, `npm test -- --wat
 ## Identidad (FE-02)
 
 Las pantallas `/acceso`, `/registro`, `/verificar-correo`, `/recuperar-acceso`, `/mi-cuenta` y `/mi-cuenta/seguridad` consumen operaciones `/auth/*` de Go. Tokens de verificación/recuperación se envían solo en el cuerpo del formulario; Bearer nunca se persiste en localStorage/sessionStorage ni se coloca en URLs o logs. Los requisitos locales de términos son metadatos versionados/hash, no texto legal.
+
+## Fronteras de arquitectura
+
+Las vistas standalone delegan la coordinación a fachadas por feature. Las fachadas dependen de puertos propios y proyecciones puras; los adaptadores HTTP/SDK están en `infrastructure/`. `frontend.providers.ts` es la composición DI. Administración/finanzas usan operaciones semánticas, cuya traducción REST está exclusivamente en infraestructura. Sesión, reintentos inciertos y snapshots conservan sus contratos previos; el registro de reservas es TypeScript puro.
+
+`npm run lint` aplica Angular ESLint, Stylelint y el chequeo de capas; `npm run api:check` valida el contrato y la compatibilidad de proyecciones. TypeScript y templates son estrictos. UI común y formularios tipados se documentan en `planning/frontend/catalogo_ui.md`; auditoría y decisiones en `planning/frontend/revision_arquitectura.md`. La demo/aceptación FE-14 se repite después de aprobar esta adecuación; FE-15 continúa bloqueado.
+
+Ver [auditoría y evidencia de adecuación](../planning/frontend/revision_arquitectura.md) y [recorrido de aceptación después de la revisión](../planning/frontend/demo_aceptacion_arquitectura.md). El ensayo autenticado incluye crear/editar un borrador desde los formularios tipados y confirmar ambas escrituras con Go.
+
+Los controles de arquitectura derivan namespaces de OpenAPI mediante YAML; `npm run lint` también ejecuta 28 pruebas del tooling. Tipografía/espaciado consumen `styles/_metrics.scss` y responsive usa el mixin de `styles/_breakpoints.scss`. No usar CSS inline de componentes ni estilos literales en templates para eludir Stylelint. La escala heredada y la comprobación de CSS idéntico están documentadas en el catálogo UI.

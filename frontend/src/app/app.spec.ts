@@ -1,18 +1,18 @@
-import { Component, inject, signal } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { map } from 'rxjs/operators';
-import { TestBed } from '@angular/core/testing';
-import { provideRouter, Router } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { ActivatedRoute } from '@angular/router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Component, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { TestBed } from '@angular/core/testing';
+import { ActivatedRoute, provideRouter, Router } from '@angular/router';
 import axe from 'axe-core';
-import type { LoginResponse, SessionResponse } from '../generated/api/types.gen';
-import { IdentityApi } from './core/identity/identity-api';
-import { IdentitySession } from './core/identity/identity-session';
-import { Readiness } from './core/readiness';
+import { map } from 'rxjs/operators';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
+import type { LoginResponse, SessionResponse } from './core/contracts/models';
+import { IdentitySession } from './core/identity/application/identity-session';
+import { IdentityApi } from './core/identity/infrastructure/identity-api';
+import { Readiness } from './core/readiness';
+import { provideFrontendPorts } from './frontend.providers';
 
 @Component({
   selector: 'test-reservation-route',
@@ -34,6 +34,7 @@ describe('App logout navigation', () => {
     TestBed.configureTestingModule({
       imports: [App],
       providers: [
+        ...provideFrontendPorts(),
         provideRouter([]),
         { provide: IdentitySession, useValue: identity },
         { provide: Readiness, useValue: readiness },
@@ -57,6 +58,7 @@ describe('App logout navigation', () => {
     TestBed.configureTestingModule({
       imports: [App],
       providers: [
+        ...provideFrontendPorts(),
         provideRouter([]),
         { provide: IdentitySession, useValue: identity },
         { provide: Readiness, useValue: readiness },
@@ -79,6 +81,7 @@ describe('App logout navigation', () => {
     TestBed.configureTestingModule({
       imports: [App],
       providers: [
+        ...provideFrontendPorts(),
         provideRouter([]),
         { provide: IdentitySession, useValue: identity },
         { provide: Readiness, useValue: { status: signal('checking'), refresh: vi.fn() } },
@@ -94,6 +97,7 @@ describe('App logout navigation', () => {
     TestBed.configureTestingModule({
       imports: [App],
       providers: [
+        ...provideFrontendPorts(),
         provideRouter([]),
         { provide: IdentitySession, useValue: identity },
         { provide: Readiness, useValue: { status: signal('checking'), refresh: vi.fn() } },
@@ -112,6 +116,7 @@ describe('App logout navigation', () => {
     TestBed.configureTestingModule({
       imports: [App],
       providers: [
+        ...provideFrontendPorts(),
         provideRouter([]),
         { provide: IdentitySession, useValue: identity },
         { provide: Readiness, useValue: { status: signal('ready'), refresh: vi.fn() } },
@@ -137,6 +142,7 @@ describe('App logout navigation', () => {
     TestBed.configureTestingModule({
       imports: [App],
       providers: [
+        ...provideFrontendPorts(),
         provideRouter([]),
         { provide: IdentitySession, useValue: identity },
         { provide: Readiness, useValue: { status: signal('ready'), refresh: vi.fn() } },
@@ -173,6 +179,7 @@ describe('App logout navigation', () => {
     TestBed.configureTestingModule({
       imports: [App],
       providers: [
+        ...provideFrontendPorts(),
         provideRouter([]),
         { provide: IdentitySession, useValue: identity },
         { provide: Readiness, useValue: readiness },
@@ -200,6 +207,7 @@ describe('App logout navigation', () => {
     TestBed.configureTestingModule({
       imports: [App],
       providers: [
+        ...provideFrontendPorts(),
         provideRouter([{ path: 'reservas/:id', component: TestReservationRoute }]),
         { provide: IdentitySession, useValue: identity },
         { provide: Readiness, useValue: { status: signal('ready'), refresh: vi.fn() } },
@@ -240,6 +248,7 @@ describe('App logout navigation', () => {
     TestBed.configureTestingModule({
       imports: [App],
       providers: [
+        ...provideFrontendPorts(),
         provideRouter([
           { path: 'administracion', component: Destination },
           { path: 'administracion/disputas', component: Destination },
@@ -292,6 +301,7 @@ describe('App API outage recovery with a real identity session', () => {
     TestBed.configureTestingModule({
       imports: [App],
       providers: [
+        ...provideFrontendPorts(),
         provideRouter([]),
         provideHttpClient(),
         provideHttpClientTesting(),

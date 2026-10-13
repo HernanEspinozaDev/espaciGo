@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { provideFrontendPorts } from '../frontend.providers';
 import { ApiRuntimeConfig } from './api-runtime-config';
 
 describe('ApiRuntimeConfig', () => {
@@ -9,7 +10,7 @@ describe('ApiRuntimeConfig', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideHttpClientTesting()],
     });
     service = TestBed.inject(ApiRuntimeConfig);
     http = TestBed.inject(HttpTestingController);

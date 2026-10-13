@@ -1,8 +1,9 @@
+import { UiButton } from '../../shared/ui/button/button';
 import { Component, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 @Component({
-  imports: [RouterLink],
+  imports: [UiButton, RouterLink],
   selector: 'app-coming-soon',
   styleUrl: './coming-soon.scss',
   templateUrl: './coming-soon.html',

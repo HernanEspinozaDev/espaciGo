@@ -1,36 +1,37 @@
+@use '../../../styles/metrics';
 .notice-page {
   max-width: 44rem;
   min-height: 60vh;
-  padding-block: 5rem;
+  padding-block: metrics.$space-5rem;
 }
 .eyebrow {
   color: var(--brand-primary);
-  font-size: 0.78rem;
-  font-weight: 750;
-  letter-spacing: 0.11em;
+  font-size: metrics.$font-size-0-78rem;
+  font-weight: metrics.$font-weight-750;
+  letter-spacing: metrics.$letter-spacing-0-11em;
 }
 h1 {
-  margin: 1rem 0;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(2.5rem, 5vw, 4rem);
-  font-weight: 500;
-  letter-spacing: -0.04em;
+  margin: metrics.$space-1rem 0;
+  font-family: metrics.$font-family-variant-1;
+  font-size: metrics.$font-size-variant-24;
+  font-weight: metrics.$font-weight-500;
+  letter-spacing: metrics.$letter-spacing-neg-0-04em;
 }
 p:not(.eyebrow) {
   color: var(--color-text-muted);
-  font-size: 1.1rem;
-  line-height: 1.6;
+  font-size: metrics.$font-size-1-1rem;
+  line-height: metrics.$line-height-1-6;
 }
 .button {
   display: inline-flex;
   min-height: 3rem;
   align-items: center;
-  margin-top: 0.75rem;
+  margin-top: metrics.$space-0-75rem;
   border-radius: 0.625rem;
-  padding: 0.7rem 1.1rem;
+  padding: metrics.$space-0-7rem metrics.$space-1-1rem;
   background: var(--brand-primary);
-  color: #fff;
-  font-weight: 700;
+  color: var(--color-surface);
+  font-weight: metrics.$font-weight-700;
   text-decoration: none;
 }
 .button:hover {

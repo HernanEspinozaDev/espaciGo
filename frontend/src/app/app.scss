@@ -1,3 +1,5 @@
+@use '../styles/metrics';
+@use '../styles/breakpoints' as bp;
 .skip-link {
   position: fixed;
   z-index: 10;
@@ -5,8 +7,8 @@
   left: 0.5rem;
   transform: translateY(-160%);
   border-radius: 0.4rem;
-  padding: 0.75rem 1rem;
-  background: #fff;
+  padding: metrics.$space-0-75rem metrics.$space-1rem;
+  background: var(--color-surface);
   color: var(--color-text);
   box-shadow: 0 0.25rem 1rem rgb(51 39 32 / 18%);
 }
@@ -18,11 +20,11 @@
   min-height: 2.25rem;
   align-items: center;
   justify-content: center;
-  gap: 0.55rem;
-  padding: 0.45rem 1rem;
+  gap: metrics.$space-0-55rem;
+  padding: metrics.$space-0-45rem metrics.$space-1rem;
   background: var(--color-surface-subtle);
   color: var(--color-text-muted);
-  font-size: 0.83rem;
+  font-size: metrics.$font-size-0-83rem;
   text-align: center;
 }
 .announcement-dot,
@@ -44,16 +46,16 @@
   min-height: 5rem;
   align-items: center;
   justify-content: space-between;
-  gap: 2rem;
+  gap: metrics.$space-2rem;
 }
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: metrics.$space-0-55rem;
   color: var(--color-text);
-  font-size: 1.35rem;
-  font-weight: 780;
-  letter-spacing: -0.055em;
+  font-size: metrics.$font-size-1-35rem;
+  font-weight: metrics.$font-weight-780;
+  letter-spacing: metrics.$letter-spacing-neg-0-055em;
   text-decoration: none;
 }
 .brand-mark {
@@ -64,10 +66,10 @@
   border-radius: 50% 50% 50% 0;
   background: var(--brand-primary);
   color: white;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 1.35rem;
+  font-family: metrics.$font-family-variant-1;
+  font-size: metrics.$font-size-1-35rem;
   font-style: italic;
-  font-weight: 500;
+  font-weight: metrics.$font-weight-500;
   transform: rotate(-15deg);
 }
 .brand-go {
@@ -78,12 +80,12 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: clamp(0.65rem, 1.5vw, 1.25rem);
+  gap: clamp(metrics.$space-0-65rem, metrics.$space-1-5vw, metrics.$space-1-25rem);
 }
 .main-navigation a,
 .footer-links a {
   color: var(--color-text-muted);
-  font-weight: 600;
+  font-weight: metrics.$font-weight-600;
   text-decoration: none;
 }
 .main-navigation a,
@@ -99,14 +101,14 @@
   display: inline-flex;
   min-height: 2.75rem;
   align-items: center;
-  gap: 0.5rem;
+  gap: metrics.$space-0-5rem;
   border: 1px solid var(--color-border-control);
   border-radius: 0.6rem;
-  padding-inline: 1rem;
+  padding-inline: metrics.$space-1rem;
   color: var(--brand-primary);
   background: transparent;
   font: inherit;
-  font-weight: 700;
+  font-weight: metrics.$font-weight-700;
   cursor: pointer;
 }
 .main-navigation .nav-sign-in:hover {
@@ -121,7 +123,7 @@
   border-radius: 0.5rem;
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: 1.15rem;
+  font-size: metrics.$font-size-1-15rem;
 }
 .sr-only {
   position: absolute;
@@ -134,42 +136,42 @@
 }
 .site-footer {
   border-top: 1px solid var(--color-border);
-  padding-top: 2.5rem;
+  padding-top: metrics.$space-2-5rem;
   background: var(--color-surface-subtle);
 }
 .footer-main {
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: start;
-  gap: 3rem;
-  padding-bottom: 2.25rem;
+  gap: metrics.$space-3rem;
+  padding-bottom: metrics.$space-2-25rem;
 }
 .footer-brand {
-  font-size: 1.15rem;
+  font-size: metrics.$font-size-1-15rem;
 }
 .footer-brand .brand-mark {
   width: 1.75rem;
-  font-size: 1.15rem;
+  font-size: metrics.$font-size-1-15rem;
 }
 .footer-main > div:first-child p {
-  margin: 0.65rem 0 0;
+  margin: metrics.$space-0-65rem 0 0;
   color: var(--color-text-muted);
-  font-size: 0.9rem;
+  font-size: metrics.$font-size-0-9rem;
 }
 .footer-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 1.5rem;
-  padding-top: 0.5rem;
-  font-size: 0.9rem;
+  gap: metrics.$space-1-5rem;
+  padding-top: metrics.$space-0-5rem;
+  font-size: metrics.$font-size-0-9rem;
 }
 .api-health {
   display: flex;
   min-height: 2.5rem;
   align-items: center;
-  gap: 0.5rem;
+  gap: metrics.$space-0-5rem;
   color: var(--color-text-muted);
-  font-size: 0.85rem;
+  font-size: metrics.$font-size-0-85rem;
 }
 .health-dot {
   width: 0.6rem;
@@ -183,11 +185,11 @@
 }
 .retry-button {
   border: 0;
-  padding: 0.25rem;
+  padding: metrics.$space-0-25rem;
   background: transparent;
   color: var(--brand-primary);
   font: inherit;
-  font-weight: 700;
+  font-weight: metrics.$font-weight-700;
   text-decoration: underline;
   text-underline-offset: 0.15em;
   cursor: pointer;
@@ -195,11 +197,11 @@
 .footer-bottom {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: metrics.$space-1rem;
   border-top: 1px solid var(--color-border);
-  padding-block: 1rem;
+  padding-block: metrics.$space-1rem;
   color: var(--color-text-muted);
-  font-size: 0.82rem;
+  font-size: metrics.$font-size-0-82rem;
 }
 
 .restricted-banner,
@@ -208,18 +210,18 @@
   max-width: 80rem;
   min-height: 3rem;
   align-items: center;
-  gap: 0.75rem;
+  gap: metrics.$space-0-75rem;
   margin: 0 auto;
-  padding: 0.75rem 1.5rem;
-  color: #78350f;
-  line-height: 1.45;
+  padding: metrics.$space-0-75rem metrics.$space-1-5rem;
+  color: var(--brand-primary-active);
+  line-height: metrics.$line-height-1-45;
 }
 .restricted-banner {
-  border-bottom: 1px solid #b45309;
-  background: #fffbeb;
+  border-bottom: 1px solid var(--color-warning);
+  background: var(--color-warning-soft);
 }
 .identity-notice {
-  margin-top: 0.5rem;
+  margin-top: metrics.$space-0-5rem;
   border: 1px solid var(--color-border);
   border-radius: 0.5rem;
 }
@@ -228,21 +230,21 @@
   max-width: 80rem;
   min-height: 3.5rem;
   align-items: center;
-  gap: 0.75rem;
-  margin: 0.75rem auto;
+  gap: metrics.$space-0-75rem;
+  margin: metrics.$space-0-75rem auto;
   border: 2px solid var(--color-warning);
   border-radius: 0.75rem;
-  padding: 0.75rem 1rem;
+  padding: metrics.$space-0-75rem metrics.$space-1rem;
   background: var(--color-warning-soft);
   color: var(--color-text);
-  line-height: 1.45;
+  line-height: metrics.$line-height-1-45;
 }
 .offline-banner strong {
   color: var(--color-warning);
   white-space: nowrap;
 }
 
-@media (max-width: 48rem) {
+@include bp.down('viewport-48rem') {
   .header-inner {
     min-height: 4.5rem;
   }
@@ -260,7 +262,7 @@
     align-items: stretch;
     gap: 0;
     border-bottom: 1px solid var(--color-border);
-    padding: 0.5rem 1.25rem 1rem;
+    padding: metrics.$space-0-5rem metrics.$space-1-25rem metrics.$space-1rem;
     background: var(--color-canvas);
     box-shadow: 0 0.75rem 1rem rgb(51 39 32 / 8%);
   }
@@ -274,26 +276,26 @@
   .main-navigation button.nav-sign-in {
     width: 100%;
     justify-content: center;
-    margin-top: 0.35rem;
+    margin-top: metrics.$space-0-35rem;
   }
   .main-navigation .nav-sign-in {
     justify-content: center;
-    margin-top: 0.35rem;
+    margin-top: metrics.$space-0-35rem;
   }
   .footer-main {
     grid-template-columns: 1fr;
-    gap: 1.25rem;
+    gap: metrics.$space-1-25rem;
   }
   .footer-links {
-    gap: 1rem 1.4rem;
+    gap: metrics.$space-1rem metrics.$space-1-4rem;
   }
   .footer-bottom {
     flex-direction: column;
-    gap: 0.35rem;
+    gap: metrics.$space-0-35rem;
   }
   .offline-banner {
     align-items: flex-start;
     flex-direction: column;
-    margin-inline: 1rem;
+    margin-inline: metrics.$space-1rem;
   }
 }

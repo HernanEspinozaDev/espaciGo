@@ -1,4 +1,7 @@
+@use './styles/metrics';
+@use './styles/breakpoints' as bp;
 @use 'styles/tokens';
+@use 'styles/ui';
 
 * {
   box-sizing: border-box;
@@ -12,14 +15,9 @@ body {
   margin: 0;
   background: var(--color-canvas);
   color: var(--color-text);
-  font-family:
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    sans-serif;
-  font-size: 1rem;
-  line-height: 1.5;
+  font-family: metrics.$font-family-variant-2;
+  font-size: metrics.$font-size-1rem;
+  line-height: metrics.$line-height-1-5;
 }
 button,
 input,
@@ -71,7 +69,7 @@ input[type='reset'] {
   margin-inline: auto;
 }
 
-@media (max-width: 40rem) {
+@include bp.down('viewport-40rem') {
   html {
     scroll-behavior: auto;
   }

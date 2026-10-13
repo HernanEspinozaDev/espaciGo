@@ -2,11 +2,12 @@ import { provideHttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { IdentityApi } from '../../core/identity/identity-api';
-import { IdentitySession } from '../../core/identity/identity-session';
+import { IdentitySession } from '../../core/identity/application/identity-session';
+import { IdentityApi } from '../../core/identity/infrastructure/identity-api';
 import { PrivateSessionState } from '../../core/identity/private-session-state';
-import { ExploreApi } from './explore-api';
+import { provideFrontendPorts } from '../../frontend.providers';
 import { ExplorePage } from './explore-page';
+import { ExploreApi } from './infrastructure/explore-api';
 
 const accountA = { account_id: 'account-a', roles: ['arrendatario'], restricted_mode: false };
 const accountB = { account_id: 'account-b', roles: ['arrendatario'], restricted_mode: false };
@@ -33,6 +34,7 @@ describe('ExplorePage', () => {
     TestBed.configureTestingModule({
       imports: [ExplorePage],
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
         provideRouter([]),
         PrivateSessionState,
@@ -92,6 +94,7 @@ describe('ExplorePage', () => {
     TestBed.configureTestingModule({
       imports: [ExplorePage],
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
         provideRouter([]),
         PrivateSessionState,
@@ -131,19 +134,29 @@ describe('ExplorePage', () => {
       categories: vi.fn().mockResolvedValue({ items: [] }),
       search: vi
         .fn()
-        .mockResolvedValueOnce({ safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL', data: { items: [], next_cursor: 'cursor-old' } })
+        .mockResolvedValueOnce({
+          safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
+          data: { items: [], next_cursor: 'cursor-old' },
+        })
         .mockImplementationOnce(() => pending),
       profile: vi.fn(),
     };
     TestBed.configureTestingModule({
       imports: [ExplorePage],
       providers: [
-        provideHttpClient(), provideRouter([]), PrivateSessionState,
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([]),
+        PrivateSessionState,
         { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
-        { provide: IdentityApi, useValue: {
-          login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
-          session: vi.fn().mockResolvedValue(accountA), logout: vi.fn(),
-        } },
+        {
+          provide: IdentityApi,
+          useValue: {
+            login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
+            session: vi.fn().mockResolvedValue(accountA),
+            logout: vi.fn(),
+          },
+        },
         { provide: ExploreApi, useValue: explore },
       ],
     });
@@ -163,7 +176,10 @@ describe('ExplorePage', () => {
     page.updateFilter('q', 'new criteria');
     page.setAttribute('capacity', '5');
     expect(page.nextCursor()).toBeUndefined();
-    finishSearch({ safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL', data: { items: [{ space_id: 'stale' }], next_cursor: 'stale-cursor' } });
+    finishSearch({
+      safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
+      data: { items: [{ space_id: 'stale' }], next_cursor: 'stale-cursor' },
+    });
     await pendingSearch;
     expect(page.items()).toEqual([]);
     expect(page.nextCursor()).toBeUndefined();
@@ -177,19 +193,29 @@ describe('ExplorePage', () => {
       categories: vi.fn().mockResolvedValue({ items: [] }),
       search: vi
         .fn()
-        .mockResolvedValueOnce({ safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL', data: { items: [], next_cursor: 'cursor-old' } })
+        .mockResolvedValueOnce({
+          safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
+          data: { items: [], next_cursor: 'cursor-old' },
+        })
         .mockImplementationOnce(() => pending401),
       profile: vi.fn(),
     };
     TestBed.configureTestingModule({
       imports: [ExplorePage],
       providers: [
-        provideHttpClient(), provideRouter([]), PrivateSessionState,
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([]),
+        PrivateSessionState,
         { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
-        { provide: IdentityApi, useValue: {
-          login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
-          session: vi.fn().mockResolvedValue(accountA), logout: vi.fn(),
-        } },
+        {
+          provide: IdentityApi,
+          useValue: {
+            login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
+            session: vi.fn().mockResolvedValue(accountA),
+            logout: vi.fn(),
+          },
+        },
         { provide: ExploreApi, useValue: explore },
       ],
     });
@@ -224,13 +250,22 @@ describe('ExplorePage', () => {
     TestBed.configureTestingModule({
       imports: [ExplorePage],
       providers: [
-        provideHttpClient(), provideRouter([]), PrivateSessionState,
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([]),
+        PrivateSessionState,
         { provide: ActivatedRoute, useValue: { snapshot: { data: {} } } },
-        { provide: IdentityApi, useValue: {
-          login: vi.fn().mockResolvedValueOnce(login('account-a', 'bearer-a')).mockResolvedValueOnce(login('account-b', 'bearer-b')),
-          session: vi.fn().mockResolvedValueOnce(accountA).mockResolvedValueOnce(accountB),
-          logout: vi.fn().mockResolvedValue(undefined),
-        } },
+        {
+          provide: IdentityApi,
+          useValue: {
+            login: vi
+              .fn()
+              .mockResolvedValueOnce(login('account-a', 'bearer-a'))
+              .mockResolvedValueOnce(login('account-b', 'bearer-b')),
+            session: vi.fn().mockResolvedValueOnce(accountA).mockResolvedValueOnce(accountB),
+            logout: vi.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: ExploreApi, useValue: explore },
       ],
     });
@@ -258,6 +293,7 @@ describe('ExplorePage', () => {
     TestBed.configureTestingModule({
       imports: [ExplorePage],
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
         provideRouter([]),
         PrivateSessionState,
@@ -299,6 +335,7 @@ describe('ExplorePage', () => {
     TestBed.configureTestingModule({
       imports: [ExplorePage],
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
         provideRouter([]),
         PrivateSessionState,

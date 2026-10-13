@@ -1,3 +1,5 @@
+import { isPlatformBrowser } from '@angular/common';
+import { provideHttpClient, withFetch } from '@angular/common/http';
 import {
   ApplicationConfig,
   inject,
@@ -5,17 +7,17 @@ import {
   provideAppInitializer,
   provideBrowserGlobalErrorListeners,
 } from '@angular/core';
-import { provideHttpClient, withFetch } from '@angular/common/http';
-import { isPlatformBrowser } from '@angular/common';
-import { provideRouter } from '@angular/router';
-import { routes } from './app.routes';
 import { provideClientHydration } from '@angular/platform-browser';
+import { provideRouter } from '@angular/router';
 import { client } from '../generated/api/client.gen';
 import { provideHeyApiClient } from '../generated/api/client/client.gen';
+import { routes } from './app.routes';
 import { ApiRuntimeConfig } from './core/api-runtime-config';
+import { provideFrontendPorts } from './frontend.providers';
 
 export const appConfig: ApplicationConfig = {
   providers: [
+    ...provideFrontendPorts(),
     provideBrowserGlobalErrorListeners(),
     provideHttpClient(withFetch()),
     provideHeyApiClient(client),

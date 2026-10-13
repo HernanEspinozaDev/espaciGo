@@ -103,6 +103,7 @@
           <p class="empty">No hay horarios disponibles para esta fecha y duración.</p>
         }
         <button
+          appButton="primary"
           class="button"
           type="button"
           [disabled]="busy() || !selected()"
@@ -142,10 +143,18 @@
               Cotizar no reserva ni retiene disponibilidad. Cambiar fecha, duración u horario
               invalida esta cotización.
             </p>
-            <button class="button" type="button" [disabled]="requestingReservation()" (click)="requestReservation()">
+            <button
+              appButton="primary"
+              class="button"
+              type="button"
+              [disabled]="requestingReservation()"
+              (click)="requestReservation()"
+            >
               {{ requestingReservation() ? 'Enviando solicitud…' : 'Solicitar reserva' }}
             </button>
-            <p class="no-charge">Solicitar no confirma pago ni aprobación del anfitrión. Go confirmará cada estado.</p>
+            <p class="no-charge">
+              Solicitar no confirma pago ni aprobación del anfitrión. Go confirmará cada estado.
+            </p>
           </section>
         }
         <p class="no-charge">Ensayo local: la cotización no genera un cobro real ni una reserva.</p>

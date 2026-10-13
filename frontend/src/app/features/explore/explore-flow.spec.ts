@@ -1,15 +1,16 @@
-import { Component } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
+import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { Router, RouterOutlet, provideRouter } from '@angular/router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { IdentityApi } from '../../core/identity/identity-api';
-import { IdentitySession } from '../../core/identity/identity-session';
+import { IdentitySession } from '../../core/identity/application/identity-session';
 import { roleGuard } from '../../core/identity/identity.guard';
+import { IdentityApi } from '../../core/identity/infrastructure/identity-api';
 import { PrivateSessionState } from '../../core/identity/private-session-state';
-import { ExploreApi } from './explore-api';
+import { provideFrontendPorts } from '../../frontend.providers';
 import { ExplorePage } from './explore-page';
+import { ExploreApi } from './infrastructure/explore-api';
 import { SpaceDetailPage } from './space-detail-page';
 
 @Component({ standalone: true, imports: [RouterOutlet], template: '<router-outlet />' })
@@ -87,6 +88,7 @@ describe('authenticated explore to quote flow', () => {
     TestBed.configureTestingModule({
       imports: [ExploreFlowHost],
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
         PrivateSessionState,
         provideRouter([

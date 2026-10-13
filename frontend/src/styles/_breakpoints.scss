@@ -1,0 +1,24 @@
+@use 'sass:map';
+// Baseline thresholds for existing feature layouts; additions require design review.
+$viewports: (
+  'viewport-48rem': 48rem,
+  'viewport-42rem': 42rem,
+  'viewport-620px': 620px,
+  'viewport-40rem': 40rem,
+  'viewport-760px': 760px,
+  'viewport-850px': 850px,
+  'viewport-520px': 520px,
+  'viewport-740px': 740px,
+  'viewport-64rem': 64rem,
+  'viewport-24rem': 24rem,
+  'viewport-600px': 600px,
+);
+@mixin down($name) {
+  $width: map.get($viewports, $name);
+  @if $width == null {
+    @error 'Unknown viewport token: #{$name}';
+  }
+  @media (max-width: $width) {
+    @content;
+  }
+}

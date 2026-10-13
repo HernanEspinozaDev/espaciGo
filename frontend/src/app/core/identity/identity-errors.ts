@@ -1,5 +1,3 @@
-import { HttpErrorResponse } from '@angular/common/http';
-
 export class IdentityApiError extends Error {
   constructor(readonly status: number) {
     super('La operación de identidad no fue aceptada por Go.');
@@ -8,7 +6,12 @@ export class IdentityApiError extends Error {
 
 export function identityErrorMessage(error: unknown): string {
   if (error instanceof IdentityApiError) return messageForStatus(error.status);
-  if (!(error instanceof HttpErrorResponse)) {
+  if (
+    typeof error !== 'object' ||
+    error === null ||
+    !('status' in error) ||
+    typeof error.status !== 'number'
+  ) {
     return 'No pudimos completar la solicitud. Revisa tu conexión e inténtalo otra vez.';
   }
 

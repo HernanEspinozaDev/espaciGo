@@ -15,7 +15,7 @@
     <p class="alert success" role="status">{{ notice() }}</p>
   }
   @if (loading()) {
-    <p role="status" class="loading">Consultando casos y elegibilidad con Go…</p>
+    <app-state kind="loading">Consultando casos y elegibilidad con Go…</app-state>
   }
   @if (session()) {
     <section class="panel section" aria-labelledby="eligibility-heading">
@@ -65,7 +65,7 @@
         >
           <option value="kyc">Persona (KYC)</option>
           <option value="kyb">Organización (KYB)</option></select
-        ><button class="primary-button" [disabled]="!!operation()">
+        ><button appButton="primary" class="primary-button" [disabled]="!!operation()">
           {{ operation() === 'create' ? 'Creando…' : 'Iniciar caso' }}
         </button>
       </form>
@@ -87,6 +87,7 @@
             @for (item of cases(); track item.id) {
               <li>
                 <button
+                  appButton="primary"
                   type="button"
                   class="case-select"
                   [class.active]="selected()?.id === item.id"
@@ -186,6 +187,7 @@
                 <p class="empty-state">Este caso todavía no tiene evidencia sintética.</p>
               }
               <button
+                appButton="secondary"
                 class="secondary-button"
                 type="button"
                 [disabled]="!!operation() || item.state !== 'en_revision'"
@@ -214,7 +216,12 @@
                   <option value="inicio_actividades_fixture_actualizadas">
                     Inicio de actividades fixture actualizado
                   </option></select
-                ><button class="secondary-button" [disabled]="!!operation()" (click)="retryCase()">
+                ><button
+                  appButton="secondary"
+                  class="secondary-button"
+                  [disabled]="!!operation()"
+                  (click)="retryCase()"
+                >
                   {{ operation() === 'retry' ? 'Enviando…' : 'Enviar subsanación a Go' }}
                 </button>
               </section>

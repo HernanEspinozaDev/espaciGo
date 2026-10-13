@@ -1,0 +1,600 @@
+FE-13 disposable project: espacigo_fe13_20261013000741_2603346
+Fresh database volume: espacigo_fe13_20261013000741_2603346_pgdata
+Published API/Angular ports: 18680/18683
+Isolated API/mail/data subnets: 10.240.0.0/24, 10.240.1.0/24, 10.240.2.0/24
+ Image espacigo_fe13_20261013000741_2603346-api:dev Building 
+ Image espacigo_fe13_20261013000741_2603346-api:dev Building 
+ Image espacigo_fe13_20261013000741_2603346-database:dev Building 
+ Image espacigo_fe13_20261013000741_2603346-angular:dev Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 2.20kB done
+#1 DONE 0.0s
+
+#2 [angular-frontend internal] load build definition from Dockerfile
+#2 transferring dockerfile: 934B done
+#2 DONE 0.0s
+
+#3 [database internal] load build definition from Dockerfile
+#3 transferring dockerfile: 2.18kB done
+#3 DONE 0.0s
+
+#4 [angular-frontend internal] load metadata for docker.io/library/node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2
+#4 DONE 0.0s
+
+#5 [migrate internal] load metadata for docker.io/library/golang:1.27.1-alpine3.24
+#5 ...
+
+#6 [database internal] load metadata for docker.io/postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+#6 DONE 0.0s
+
+#7 [angular-frontend internal] load .dockerignore
+#7 transferring context: 93B done
+#7 DONE 0.0s
+
+#8 [database internal] load .dockerignore
+#8 transferring context: 109B done
+#8 DONE 0.0s
+
+#9 [angular-frontend build 1/7] FROM docker.io/library/node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2
+#9 resolve docker.io/library/node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 0.0s done
+#9 DONE 0.0s
+
+#10 [database database 1/4] FROM docker.io/postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+#10 resolve docker.io/postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677 0.0s done
+#10 DONE 0.0s
+
+#11 [database internal] load build context
+#11 transferring context: 180B done
+#11 DONE 0.0s
+
+#12 [angular-frontend internal] load build context
+#12 transferring context: 14.63kB 0.0s done
+#12 DONE 0.0s
+
+#13 [database database 3/4] COPY scripts/postgres/init-runtime-user.sh /docker-entrypoint-initdb.d/20-espacigo-runtime-user.sh
+#13 CACHED
+
+#14 [database database 2/4] COPY scripts/postgres/entrypoint-wrapper.sh /usr/local/bin/espacigo-postgres-entrypoint
+#14 CACHED
+
+#15 [database database 4/4] RUN chmod 0755 /usr/local/bin/espacigo-postgres-entrypoint /docker-entrypoint-initdb.d/20-espacigo-runtime-user.sh
+#15 CACHED
+
+#16 [angular-frontend build 7/7] RUN npm run build
+#16 CACHED
+
+#17 [angular-frontend build 5/7] RUN npm ci
+#17 CACHED
+
+#18 [angular-frontend runtime 3/6] RUN npm install --global npm@12.1.0
+#18 CACHED
+
+#19 [angular-frontend build 4/7] COPY package.json package-lock.json ./
+#19 CACHED
+
+#20 [angular-frontend build 6/7] COPY . .
+#20 CACHED
+
+#21 [angular-frontend build 3/7] RUN npm install --global npm@12.1.0
+#21 CACHED
+
+#22 [angular-frontend build 2/7] WORKDIR /app
+#22 CACHED
+
+#23 [angular-frontend runtime 4/6] COPY package.json package-lock.json ./
+#23 CACHED
+
+#24 [angular-frontend runtime 5/6] RUN npm ci --omit=dev && npm cache clean --force
+#24 CACHED
+
+#25 [angular-frontend runtime 6/6] COPY --from=build /app/dist/frontend ./dist/frontend
+#25 CACHED
+
+#26 [angular-frontend] exporting to image
+#26 exporting layers done
+#26 exporting manifest sha256:5e564a110adbb6023deb085c851d09e2ea082acbc068fd72100bced71d6c1383 0.0s done
+#26 exporting config sha256:e90c9d970235b302417217dd1d2389f7472f0ea99878cdba659aab324c486cff 0.0s done
+#26 exporting attestation manifest sha256:755a2c632572521c73cd986e0847696e09676862c68856ecb2aaf59609301126 0.0s done
+#26 exporting manifest list sha256:ff2edd5a9580dac98655ebf93be7f0d2e48cc8ec5b06d135b7541946252ae85a 0.0s done
+#26 naming to docker.io/library/espacigo_fe13_20261013000741_2603346-angular:dev done
+#26 unpacking to docker.io/library/espacigo_fe13_20261013000741_2603346-angular:dev done
+#26 DONE 0.1s
+
+#27 [database] exporting to image
+#27 exporting layers done
+#27 exporting manifest sha256:b929e7450d52efb24a7373cf2ddaa0309018a69d74dc97187bcedcd76058fc75 0.0s done
+#27 exporting config sha256:e2fa92bbafa4b8f84c83b6ba200b2d3c915782a5fffbcd934095e42068101cf2 0.0s done
+#27 exporting attestation manifest sha256:e16043e187fe07c86fd0d6e0c6543fb933d869f5e94b7c8711c679836019506f 0.0s done
+#27 exporting manifest list sha256:682690ca4dd54d85f321b182924eb7fa9394a0d1d8522d2ad2d6346e31307715 0.0s done
+#27 naming to docker.io/library/espacigo_fe13_20261013000741_2603346-database:dev done
+#27 unpacking to docker.io/library/espacigo_fe13_20261013000741_2603346-database:dev done
+#27 DONE 0.2s
+
+#28 [angular-frontend] resolving provenance for metadata file
+#28 DONE 0.0s
+
+#29 [database] resolving provenance for metadata file
+#29 DONE 0.0s
+
+#5 [backend internal] load metadata for docker.io/library/golang:1.27.1-alpine3.24
+#5 DONE 0.5s
+
+#8 [migrate internal] load .dockerignore
+#8 CACHED
+
+#30 [backend go-deps 1/4] FROM docker.io/library/golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414
+#30 resolve docker.io/library/golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 0.0s done
+#30 DONE 0.0s
+
+#31 [migrate internal] load build context
+#31 transferring context: 14.54MB 0.2s done
+#31 DONE 0.2s
+
+#32 [backend go-deps 3/4] COPY go.mod go.sum ./
+#32 CACHED
+
+#33 [backend go-deps 4/4] RUN go mod download
+#33 CACHED
+
+#34 [backend go-deps 2/4] WORKDIR /src
+#34 CACHED
+
+#35 [backend api-build 1/3] WORKDIR /src
+#35 CACHED
+
+#36 [backend api-build 2/3] COPY . .
+#36 DONE 0.2s
+
+#37 [migrate api-build 3/3] RUN mkdir -p /out     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/api ./cmd/api     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/netprobe ./cmd/netprobe
+#37 DONE 11.6s
+
+#38 [backend api 1/3] COPY --from=api-build --chown=65532:65532 /out/api /api
+#38 CACHED
+
+#39 [backend api 2/3] COPY db/migrations /migrations
+#39 CACHED
+
+#40 [backend api 3/3] COPY planning/openapi.yaml /openapi.yaml
+#40 CACHED
+
+#41 [backend] exporting to image
+#41 exporting layers done
+#41 exporting manifest sha256:40411afd242d48843200dd4f4d67a0ba7b24738d3b1fefd2515f1b4f882264fc 0.0s done
+#41 exporting config sha256:29141e619658d987eb9a1b9f1f94d81e149942325fcf7fb436ab899d5df03b68 0.0s done
+#41 exporting attestation manifest sha256:ddc2b99759fc8a893693344a0d4dd63c584bebca50f51e03af0a05ef97b2f8d2
+#41 exporting attestation manifest sha256:ddc2b99759fc8a893693344a0d4dd63c584bebca50f51e03af0a05ef97b2f8d2 0.0s done
+#41 exporting manifest list sha256:964b738357b9b256f58c88dec717c4de2f8d9fca772aef76eb4389e591ae83b4 0.0s done
+#41 naming to docker.io/library/espacigo_fe13_20261013000741_2603346-api:dev done
+#41 unpacking to docker.io/library/espacigo_fe13_20261013000741_2603346-api:dev done
+#41 DONE 0.2s
+
+#42 [migrate] exporting to image
+#42 exporting layers done
+#42 exporting manifest sha256:694586361ea1091aa2f8567386b5c2a0c8e0f939073e7c1dd71b098741a3d116 0.0s done
+#42 exporting config sha256:ae599f7eccdbfb6a2756c83fa825d4133c71d3000c6777c2c7d478545ff02e9e 0.0s done
+#42 exporting attestation manifest sha256:7d7e8f99dcb6cd72a7740315bf666ee732786f358660fac50f1c24620389ede9 0.0s done
+#42 exporting manifest list sha256:f7dc67444759b3c307b6cc6119eb741545fe8489915508aefbe00525cfbcbc70 0.0s done
+#42 naming to docker.io/library/espacigo_fe13_20261013000741_2603346-api:dev done
+#42 unpacking to docker.io/library/espacigo_fe13_20261013000741_2603346-api:dev done
+#42 DONE 0.1s
+
+#43 [migrate] resolving provenance for metadata file
+#43 DONE 0.1s
+
+#44 [backend] resolving provenance for metadata file
+#44 DONE 0.0s
+ Image espacigo_fe13_20261013000741_2603346-api:dev Built 
+ Image espacigo_fe13_20261013000741_2603346-api:dev Built 
+ Image espacigo_fe13_20261013000741_2603346-angular:dev Built 
+ Image espacigo_fe13_20261013000741_2603346-database:dev Built 
+ Network espacigo_fe13_20261013000741_2603346_api Creating 
+ Network espacigo_fe13_20261013000741_2603346_api Creating 
+ Network espacigo_fe13_20261013000741_2603346_mail Creating 
+ Network espacigo_fe13_20261013000741_2603346_mail Creating 
+ Network espacigo_fe13_20261013000741_2603346_data Creating 
+ Volume espacigo_fe13_20261013000741_2603346_pgdata Creating 
+ Volume espacigo_fe13_20261013000741_2603346_pgdata Creating 
+ Network espacigo_fe13_20261013000741_2603346_data Creating 
+ Volume espacigo_fe13_20261013000741_2603346_pgdata Created 
+ Volume espacigo_fe13_20261013000741_2603346_pgdata Created 
+ Network espacigo_fe13_20261013000741_2603346_api Created 
+ Network espacigo_fe13_20261013000741_2603346_api Created 
+ Network espacigo_fe13_20261013000741_2603346_data Created 
+ Network espacigo_fe13_20261013000741_2603346_data Created 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Creating 
+ Network espacigo_fe13_20261013000741_2603346_mail Created 
+ Network espacigo_fe13_20261013000741_2603346_mail Created 
+ Container espacigo_fe13_20261013000741_2603346-mailpit-1 Creating 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Created 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Creating 
+ Container espacigo_fe13_20261013000741_2603346-mailpit-1 Created 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Created 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Creating 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Created 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Creating 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Created 
+ Container espacigo_fe13_20261013000741_2603346-mailpit-1 Starting 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Starting 
+ Container espacigo_fe13_20261013000741_2603346-mailpit-1 Started 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Started 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Starting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Started 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Exited 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Starting 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Started 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Starting 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Started 
+ Container espacigo_fe13_20261013000741_2603346-mailpit-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Exited 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-mailpit-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Healthy 
+PASS Angular has no DB credentials, only the API network, and no mock dependency
+PASS Angular SSR shell is reachable on the published host URL
+ Image espacigo_fe13_20261013000741_2603346-angular-runner:dev Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 2.67kB done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 2.18kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 109B done
+#4 DONE 0.0s
+
+#5 [frontend-runner 1/3] FROM docker.io/library/node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2
+#5 resolve docker.io/library/node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 0.0s done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 82B 0.1s done
+#6 DONE 0.1s
+
+#7 [frontend-runner 2/3] WORKDIR /runner
+#7 CACHED
+
+#8 [frontend-runner 3/3] COPY scripts/verify-frontend-stack.mjs ./verify-frontend-stack.mjs
+#8 CACHED
+
+#9 exporting to image
+#9 exporting layers done
+#9 exporting manifest sha256:6fb35e5eeea97adcd7839e21b11cf90a50f575906af95905912743e0688b739b 0.0s done
+#9 exporting config sha256:24ed332081559d8977c0abc26d3c8fb0955172e9dc364ca51ca94d7ec1c5e22d 0.0s done
+#9 exporting attestation manifest sha256:fc1737474e4ec7b62abcf9d9397567d5e6f358ac658ab7fa9e6b8cb7958b4026 0.0s done
+#9 exporting manifest list sha256:ee38cb3223860049705f9ef8549005a8a2c378de2602ac4142bfc78fcc556469 0.0s done
+#9 naming to docker.io/library/espacigo_fe13_20261013000741_2603346-angular-runner:dev done
+#9 unpacking to docker.io/library/espacigo_fe13_20261013000741_2603346-angular-runner:dev done
+#9 DONE 0.1s
+
+#10 resolving provenance for metadata file
+#10 DONE 0.0s
+ Image espacigo_fe13_20261013000741_2603346-angular-runner:dev Built 
+ Container espacigo_fe13_20261013000741_2603346-mailpit-1 Running 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Running 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Running 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Running 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Starting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Started 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Exited 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-angular-runner-run-128ca2687db3 Creating 
+ Container espacigo_fe13_20261013000741_2603346-angular-runner-run-128ca2687db3 Created 
+PASS Angular root is healthy over the Compose API network
+PASS Runtime config exposes the host-reachable API URL without credentials
+PASS Go readiness is reachable from the frontend network with browser CORS
+PASS Go accepts the browser login preflight from the published Angular origin
+Stopping only the isolated backend to verify outage behavior
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Stopping 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Stopped 
+curl: (7) Failed to connect to 127.0.0.1 port 18680 after 0 ms: Could not connect to server
+PASS Angular process stays healthy while Go is stopped; Go readiness is unavailable
+ Image espacigo_fe13_20261013000741_2603346-database:dev Building 
+ Image espacigo_fe13_20261013000741_2603346-api:dev Building 
+ Image espacigo_fe13_20261013000741_2603346-angular:dev Building 
+ Image espacigo_fe13_20261013000741_2603346-api:dev Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 2.20kB done
+#1 DONE 0.0s
+
+#2 [angular-frontend internal] load build definition from Dockerfile
+#2 transferring dockerfile: 934B done
+#2 DONE 0.0s
+
+#3 [backend internal] load build definition from Dockerfile
+#3 transferring dockerfile: 2.18kB done
+#3 DONE 0.0s
+
+#4 [angular-frontend internal] load metadata for docker.io/library/node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2
+#4 DONE 0.0s
+
+#5 [database internal] load metadata for docker.io/postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+#5 DONE 0.0s
+
+#6 [angular-frontend internal] load .dockerignore
+#6 transferring context: 32B
+#6 transferring context: 93B done
+#6 DONE 0.0s
+
+#7 [database internal] load .dockerignore
+#7 transferring context: 109B done
+#7 DONE 0.0s
+
+#8 [angular-frontend build 1/7] FROM docker.io/library/node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2
+#8 resolve docker.io/library/node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 0.0s done
+#8 DONE 0.0s
+
+#9 [database database 1/4] FROM docker.io/postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+#9 resolve docker.io/postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677 0.0s done
+#9 DONE 0.0s
+
+#10 [database internal] load build context
+#10 transferring context: 1.43kB done
+#10 DONE 0.0s
+
+#11 [database database 3/4] COPY scripts/postgres/init-runtime-user.sh /docker-entrypoint-initdb.d/20-espacigo-runtime-user.sh
+#11 CACHED
+
+#12 [database database 2/4] COPY scripts/postgres/entrypoint-wrapper.sh /usr/local/bin/espacigo-postgres-entrypoint
+#12 CACHED
+
+#13 [database database 4/4] RUN chmod 0755 /usr/local/bin/espacigo-postgres-entrypoint /docker-entrypoint-initdb.d/20-espacigo-runtime-user.sh
+#13 CACHED
+
+#14 [angular-frontend internal] load build context
+#14 transferring context: 14.63kB 0.0s done
+#14 DONE 0.0s
+
+#15 [angular-frontend build 4/7] COPY package.json package-lock.json ./
+#15 CACHED
+
+#16 [angular-frontend build 5/7] RUN npm ci
+#16 CACHED
+
+#17 [angular-frontend build 7/7] RUN npm run build
+#17 CACHED
+
+#18 [angular-frontend runtime 4/6] COPY package.json package-lock.json ./
+#18 CACHED
+
+#19 [angular-frontend runtime 5/6] RUN npm ci --omit=dev && npm cache clean --force
+#19 CACHED
+
+#20 [angular-frontend build 6/7] COPY . .
+#20 CACHED
+
+#21 [angular-frontend runtime 3/6] RUN npm install --global npm@12.1.0
+#21 CACHED
+
+#22 [angular-frontend build 3/7] RUN npm install --global npm@12.1.0
+#22 CACHED
+
+#23 [angular-frontend build 2/7] WORKDIR /app
+#23 CACHED
+
+#24 [angular-frontend runtime 6/6] COPY --from=build /app/dist/frontend ./dist/frontend
+#24 CACHED
+
+#25 [angular-frontend] exporting to image
+#25 exporting layers done
+#25 exporting manifest sha256:5e564a110adbb6023deb085c851d09e2ea082acbc068fd72100bced71d6c1383 done
+#25 exporting config sha256:e90c9d970235b302417217dd1d2389f7472f0ea99878cdba659aab324c486cff done
+#25 exporting attestation manifest sha256:09ffd4afb51777f4338b4475534fba7b9eb592b01275bbf2cab58c1487c7fc27
+#25 exporting attestation manifest sha256:09ffd4afb51777f4338b4475534fba7b9eb592b01275bbf2cab58c1487c7fc27 0.0s done
+#25 exporting manifest list sha256:70d42601f555192c2cb911f697313dcd99cff0206b9f4bd58862037c2fbe5d15 0.0s done
+#25 naming to docker.io/library/espacigo_fe13_20261013000741_2603346-angular:dev done
+#25 unpacking to docker.io/library/espacigo_fe13_20261013000741_2603346-angular:dev 0.0s done
+#25 DONE 0.1s
+
+#26 [database] exporting to image
+#26 exporting layers done
+#26 exporting manifest sha256:b929e7450d52efb24a7373cf2ddaa0309018a69d74dc97187bcedcd76058fc75 done
+#26 exporting config sha256:e2fa92bbafa4b8f84c83b6ba200b2d3c915782a5fffbcd934095e42068101cf2 done
+#26 exporting attestation manifest sha256:1e36f1b043468a6b334628b32278d7465476a32ef2a26e93c11b80223b812293 0.0s done
+#26 exporting manifest list sha256:92cd44dc47ceefdd2e7361e708c7de37b6a6f4ebaf8457088b02690b9f984236 0.0s done
+#26 naming to docker.io/library/espacigo_fe13_20261013000741_2603346-database:dev done
+#26 unpacking to docker.io/library/espacigo_fe13_20261013000741_2603346-database:dev done
+#26 DONE 0.1s
+
+#27 [angular-frontend] resolving provenance for metadata file
+#27 DONE 0.0s
+
+#28 [database] resolving provenance for metadata file
+#28 DONE 0.0s
+
+#29 [migrate internal] load metadata for docker.io/library/golang:1.27.1-alpine3.24
+#29 DONE 0.5s
+
+#7 [migrate internal] load .dockerignore
+#7 CACHED
+
+#30 [backend go-deps 1/4] FROM docker.io/library/golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414
+#30 resolve docker.io/library/golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 0.0s done
+#30 DONE 0.0s
+
+#31 [backend internal] load build context
+#31 transferring context: 14.54MB 0.2s done
+#31 transferring context: 14.54MB 0.2s done
+#31 DONE 0.2s
+
+#32 [backend api 1/3] COPY --from=api-build --chown=65532:65532 /out/api /api
+#32 CACHED
+
+#33 [backend go-deps 4/4] RUN go mod download
+#33 CACHED
+
+#34 [backend go-deps 3/4] COPY go.mod go.sum ./
+#34 CACHED
+
+#35 [backend go-deps 2/4] WORKDIR /src
+#35 CACHED
+
+#36 [backend api-build 3/3] RUN mkdir -p /out     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/api ./cmd/api     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/netprobe ./cmd/netprobe
+#36 CACHED
+
+#37 [backend api-build 1/3] WORKDIR /src
+#37 CACHED
+
+#38 [backend api-build 2/3] COPY . .
+#38 CACHED
+
+#39 [backend api 2/3] COPY db/migrations /migrations
+#39 CACHED
+
+#40 [backend api 3/3] COPY planning/openapi.yaml /openapi.yaml
+#40 CACHED
+
+#41 [backend] exporting to image
+#41 exporting layers done
+#41 exporting manifest sha256:40411afd242d48843200dd4f4d67a0ba7b24738d3b1fefd2515f1b4f882264fc done
+#41 exporting config sha256:29141e619658d987eb9a1b9f1f94d81e149942325fcf7fb436ab899d5df03b68 done
+#41 exporting attestation manifest sha256:c0da530eb59260ff6f94d6c31a76145547a714fdb7008debda8a5ed116e6686b 0.0s done
+#41 exporting manifest list sha256:8b6c62710c06894fcb49d17df689602ac32aa6b9c05ab75f5591ae00b629cc21 0.0s done
+#41 naming to docker.io/library/espacigo_fe13_20261013000741_2603346-api:dev
+#41 naming to docker.io/library/espacigo_fe13_20261013000741_2603346-api:dev done
+#41 unpacking to docker.io/library/espacigo_fe13_20261013000741_2603346-api:dev done
+#41 DONE 0.1s
+
+#42 [migrate] exporting to image
+#42 exporting layers done
+#42 exporting manifest sha256:694586361ea1091aa2f8567386b5c2a0c8e0f939073e7c1dd71b098741a3d116 done
+#42 exporting config sha256:ae599f7eccdbfb6a2756c83fa825d4133c71d3000c6777c2c7d478545ff02e9e 0.0s done
+#42 exporting attestation manifest sha256:6a167c4fae4f82c65f93e2ae705d8ef745309d1d18f1e1673b3862850ef54bdb 0.0s done
+#42 exporting manifest list sha256:a6c27d6a233945893b89a220aff9cb4357c9cdfabc36b00db69136712749f87f 0.0s done
+#42 naming to docker.io/library/espacigo_fe13_20261013000741_2603346-api:dev done
+#42 unpacking to docker.io/library/espacigo_fe13_20261013000741_2603346-api:dev done
+#42 DONE 0.1s
+
+#43 [backend] resolving provenance for metadata file
+#43 DONE 0.0s
+
+#44 [migrate] resolving provenance for metadata file
+#44 DONE 0.0s
+ Image espacigo_fe13_20261013000741_2603346-api:dev Built 
+ Image espacigo_fe13_20261013000741_2603346-api:dev Built 
+ Image espacigo_fe13_20261013000741_2603346-angular:dev Built 
+ Image espacigo_fe13_20261013000741_2603346-database:dev Built 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Running 
+ Container espacigo_fe13_20261013000741_2603346-mailpit-1 Running 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Running 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Recreate 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Recreated 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Recreate 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Recreated 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Starting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Started 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Exited 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Starting 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Started 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-mailpit-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Exited 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-mailpit-1 Healthy 
+ Image espacigo_fe13_20261013000741_2603346-angular-runner:dev Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 2.67kB done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 2.18kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 109B done
+#4 DONE 0.0s
+
+#5 [frontend-runner 1/3] FROM docker.io/library/node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2
+#5 resolve docker.io/library/node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 0.0s done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 82B 0.0s done
+#6 DONE 0.0s
+
+#7 [frontend-runner 2/3] WORKDIR /runner
+#7 CACHED
+
+#8 [frontend-runner 3/3] COPY scripts/verify-frontend-stack.mjs ./verify-frontend-stack.mjs
+#8 CACHED
+
+#9 exporting to image
+#9 exporting layers done
+#9 exporting manifest sha256:6fb35e5eeea97adcd7839e21b11cf90a50f575906af95905912743e0688b739b done
+#9 exporting config sha256:24ed332081559d8977c0abc26d3c8fb0955172e9dc364ca51ca94d7ec1c5e22d done
+#9 exporting attestation manifest sha256:d9a3c01b88de0a45e0443d3b95ee25d8ffe08f74fe28d71e0a180c0d8519e67a 0.0s done
+#9 exporting manifest list sha256:b9ffb090f9cfffb0abc59c3eb8a50452f0cdb933de82e5d5f501da6ccb7c54b8 0.0s done
+#9 naming to docker.io/library/espacigo_fe13_20261013000741_2603346-angular-runner:dev
+#9 naming to docker.io/library/espacigo_fe13_20261013000741_2603346-angular-runner:dev done
+#9 unpacking to docker.io/library/espacigo_fe13_20261013000741_2603346-angular-runner:dev done
+#9 DONE 0.1s
+
+#10 resolving provenance for metadata file
+#10 DONE 0.0s
+ Image espacigo_fe13_20261013000741_2603346-angular-runner:dev Built 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Running 
+ Container espacigo_fe13_20261013000741_2603346-mailpit-1 Running 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Running 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Running 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Starting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Started 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-migrate-1 Exited 
+ Container espacigo_fe13_20261013000741_2603346-database-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Waiting 
+ Container espacigo_fe13_20261013000741_2603346-angular-frontend-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-backend-1 Healthy 
+ Container espacigo_fe13_20261013000741_2603346-angular-runner-run-632cee44391f Creating 
+ Container espacigo_fe13_20261013000741_2603346-angular-runner-run-632cee44391f Created 
+PASS Angular root is healthy over the Compose API network
+PASS Runtime config exposes the host-reachable API URL without credentials
+PASS Go readiness is reachable from the frontend network with browser CORS
+PASS Go accepts the browser login preflight from the published Angular origin
+PASS Go readiness restored after restarting the isolated stack

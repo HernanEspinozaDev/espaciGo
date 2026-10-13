@@ -4,7 +4,8 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { M04Local, M04M06Local, M06Local } from '../../../generated/api/sdk.gen';
 import { ApiRuntimeConfig } from '../../core/api-runtime-config';
-import { HostingApi } from './hosting-api';
+import { provideFrontendPorts } from '../../frontend.providers';
+import { HostingApi } from './infrastructure/hosting-api';
 
 describe('HostingApi', () => {
   afterEach(() => TestBed.resetTestingModule());
@@ -13,6 +14,7 @@ describe('HostingApi', () => {
     const catalog = { listSpaceCategories: vi.fn().mockResolvedValue({ data: { items: [] } }) };
     TestBed.configureTestingModule({
       providers: [
+        ...provideFrontendPorts(),
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: M04Local, useValue: catalog },

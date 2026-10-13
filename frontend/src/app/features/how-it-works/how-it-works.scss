@@ -1,78 +1,80 @@
+@use '../../../styles/metrics';
+@use '../../../styles/breakpoints' as bp;
 .content-page {
   max-width: 54rem;
-  padding-block: 4.5rem 5rem;
+  padding-block: metrics.$space-4-5rem metrics.$space-5rem;
 }
 .eyebrow {
   color: var(--brand-primary);
-  font-size: 0.78rem;
-  font-weight: 750;
-  letter-spacing: 0.11em;
+  font-size: metrics.$font-size-0-78rem;
+  font-weight: metrics.$font-weight-750;
+  letter-spacing: metrics.$letter-spacing-0-11em;
 }
 h1 {
-  margin: 1rem 0;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(2.8rem, 6vw, 4.5rem);
-  font-weight: 500;
-  letter-spacing: -0.05em;
-  line-height: 1.04;
+  margin: metrics.$space-1rem 0;
+  font-family: metrics.$font-family-variant-1;
+  font-size: metrics.$font-size-variant-20;
+  font-weight: metrics.$font-weight-500;
+  letter-spacing: metrics.$letter-spacing-neg-0-05em;
+  line-height: metrics.$line-height-1-04;
 }
 .lead {
   max-width: 42rem;
   color: var(--color-text-muted);
-  font-size: 1.1rem;
-  line-height: 1.65;
+  font-size: metrics.$font-size-1-1rem;
+  line-height: metrics.$line-height-1-65;
 }
 ol {
   display: grid;
   gap: 0;
-  margin: 2.5rem 0;
+  margin: metrics.$space-2-5rem 0;
   padding: 0;
   list-style: none;
 }
 li {
   display: grid;
   grid-template-columns: 3rem 1fr;
-  gap: 1rem;
+  gap: metrics.$space-1rem;
   border-bottom: 1px solid var(--color-border);
-  padding: 1.25rem 0;
+  padding: metrics.$space-1-25rem 0;
 }
 li > span {
   color: var(--brand-primary);
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 1.5rem;
+  font-family: metrics.$font-family-variant-1;
+  font-size: metrics.$font-size-1-5rem;
 }
 h2 {
-  margin: 0 0 0.4rem;
-  font-size: 1.2rem;
+  margin: 0 0 metrics.$space-0-4rem;
+  font-size: metrics.$font-size-1-2rem;
 }
 li p {
   margin: 0;
   color: var(--color-text-muted);
-  line-height: 1.55;
+  line-height: metrics.$line-height-1-55;
 }
 .notice {
   border-left: 3px solid var(--brand-secondary);
-  padding: 0.6rem 1rem;
+  padding: metrics.$space-0-6rem metrics.$space-1rem;
   color: var(--color-text-muted);
-  line-height: 1.6;
+  line-height: metrics.$line-height-1-6;
 }
 .button {
   display: inline-flex;
   min-height: 3rem;
   align-items: center;
   border-radius: 0.625rem;
-  padding: 0.7rem 1.1rem;
+  padding: metrics.$space-0-7rem metrics.$space-1-1rem;
   background: var(--brand-primary);
-  color: #fff;
-  font-weight: 700;
+  color: var(--color-surface);
+  font-weight: metrics.$font-weight-700;
   text-decoration: none;
 }
 .button:hover {
   background: var(--brand-primary-hover);
 }
 
-@media (max-width: 40rem) {
+@include bp.down('viewport-40rem') {
   .content-page {
-    padding-block: 3rem;
+    padding-block: metrics.$space-3rem;
   }
 }
