@@ -13,18 +13,18 @@ Cada evidencia debe indicar commit probado, entorno, resultado y límite. Un tes
 | PUB-05 | 01/08 | Cambio de elegibilidad/propietario | Revocación KYC, bloqueo, baja y moderación impiden nuevas lecturas sin exponer motivos. | Integración Go/DB. | Pendiente |
 | PUB-06 | 01/08 | Minimización | Sin dirección precisa, contactos, ownerID, sesiones, KYC, rutas de archivo ni datos de ocupantes. | Asserts de DTO/JSON, HTML y binarios. | Pendiente |
 | PUB-07 | 01/06 | Operaciones privadas | Sin Bearer siguen rechazadas; tercero no accede a reservas, contratos, pagos ni editor. | Contratos y handlers Go. | Pendiente |
-| PUB-08 | 02 | Búsqueda textual | Normalización y coincidencias previstas, tildes/mayúsculas/espacios; no buscar campos privados. | Fixtures SQL + API. | Pendiente |
-| PUB-09 | 02/05 | Categoría como filtro | Selección/enlace muestra únicamente categoría(s) seleccionadas, sin pantalla de acceso. | API + E2E. | Pendiente |
+| PUB-08 | 02 | Búsqueda textual | `q` usa PostgreSQL FTS español-unaccent, términos AND con stemming y ranking `relevance`; campos públicos únicamente; puntuación/stopwords sin lexemas da cero resultados. | Fixtures SQL + API. | Pendiente |
+| PUB-09 | 01/05 | Categoría como filtro | `category_code` activo, único por primera versión; listado/enlace muestra solo esa categoría sin pantalla de acceso. | API + E2E. | Pendiente |
 | PUB-10 | 02/03 | Región/comuna | Códigos válidos y sugerencias acotadas; zona ausente no inventada. | FK + API + editor. | Pendiente |
 | PUB-11 | 02 | Atributos por categoría | Tipos/versiones correctos; boolean false válido; atributos ausentes no coinciden; perfil incompatible rechazado. | Dominio/DB/API. | Pendiente |
-| PUB-12 | 02 | Precio/unidad | No comparar hora/día/mes como equivalentes; intervalos coherentes; límites inclusivos, min≤max. | Casos CLP y API. | Pendiente |
+| PUB-12 | 01/02 | Precio base y estimado | Sin fechas se filtra/ordena tarifa base solo con `rate_unit` explícito; CLP por hora/día/mes no se mezcla. Total estimado es opcional, exige start/end y usa PriceUnits/TZ; filtros/sorts separados, inclusivos, min≤max. | Casos CLP, límites int64, modalidad y API. | Pendiente |
 | PUB-13 | 02/06 | Dinero exacto | Valores int64 se conservan al renderizar/cotizar; estimación diferenciada de confirmación Go. | Contrato + Angular. | Pendiente |
-| PUB-14 | 02 | Parámetros inválidos | q demasiado larga, orden desconocido, rango imposible, categorías inválidas, cursor alterado o de otros filtros rechazados. | API. | Pendiente |
-| PUB-15 | 02/08 | Paginación y orden | SQL limitado; empate estable; siguientes páginas correctas; cambio de filtro reinicia; reinicio/réplicas compatible según contrato. | Integración + inspección SQL. | Pendiente |
+| PUB-14 | 01/02 | Parámetros inválidos | q >120, códigos inactivos, unit price sin modalidad, rango invertido, intervalo incompleto, sort sin requisitos, page_size fuera 1–25 y cursor inválido dan 422 genérico; ficha/imagen no visible 404 genérico. | API. | Pendiente |
+| PUB-15 | 01/02/08 | Paginación y orden | SQL `LIMIT n+1`, default 20/max25, cursor firmado no ligado a actor y fingerprint de filtros/orden/tamaño; sort default, unit price, estimated total, relevance según requisitos; empate ID estable. | Integración + inspección SQL/réplicas. | Pendiente |
 | PUB-16 | 02/08 | Consulta pública sin efectos privados | No crea cotizaciones/ocupaciones ni ejecuta mutaciones por visita del rastreador. | Comparación de estado DB. | Pendiente |
 | PUB-17 | 03 | Publicar desde editor | Anfitrión completa zona pública, publica y se encuentra en catálogo; actualización autorizada sin SQL manual. | E2E Go y UI. | Pendiente |
 | PUB-18 | 03 | Migraciones compatibles | Base vacía y V54 existente funcionan; V1–V54/checksums/historial sin alteración. | PostgreSQL efímero. | Pendiente |
-| PUB-19 | 04 | Imagen pública | Foto activa de espacio visible sirve contenido esperado; photoID ajeno, retirada o evidencia privada no sirve. | Binario, API, hashes. | Pendiente |
+| PUB-19 | 04 | Imagen pública | Solo `imageID` marcado publicable en `/spaces/{spaceID}/images/{imageID}`; retirada, imagen ajena o evidencia privada no sirve. | Binario, API, hashes. | Pendiente |
 | PUB-20 | 04/07 | Retirada de publicación/foto | Nueva petición de JSON/HTML/imagen y sitemap no expone contenido retirado; sin copia estática persistente. | Integración Go + SSR. | Pendiente |
 | PUB-21 | 05 | URL y navegación | Filtros, chips, orden, limpiar, Atrás/adelante, ficha→resultados y enlaces compartidos consistentes. | Router real + E2E. | Pendiente |
 | PUB-22 | 05 | Móvil/escritorio | Sidebar escritorio y filtros móviles accesibles; no overflow a 390 px; fotografías/tarjetas legibles. | Capturas con dimensiones/viewport. | Pendiente |
@@ -49,7 +49,7 @@ Cada evidencia debe indicar commit probado, entorno, resultado y límite. Un tes
 
 | Corte | PR / HEAD / merge | Datos | Go/OpenAPI | Angular | Evidencia / límites | Decisión |
 | --- | --- | --- | --- | --- | --- | --- |
-| MPV2-00 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
+| MPV2-00 | [PR #294](https://github.com/HernanEspinozaDev/espaciGo/pull/294); HEAD actual en PR | Sin migración; delta documentado | Operaciones públicas/visibilidad/search contract documentados; implementación pendiente | Rutas/guards/SSR/retorno auditados; implementación pendiente | Contrato `contrato_mpv2_00.md`; sin pruebas runtime | Pendiente de revisión técnica |
 | MPV2-01 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
 | MPV2-02 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
 | MPV2-03 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
