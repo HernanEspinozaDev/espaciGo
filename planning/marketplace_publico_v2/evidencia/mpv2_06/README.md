@@ -16,7 +16,7 @@ Ambas capturas corresponden al detalle con sesión contextual retornada; la acci
 
 | Archivo | Viewport | Documento | SHA-256 |
 | --- | ---: | ---: | --- |
-| `fe14_mpv2_06_context_desktop.jpg` | 1365×900 | 1365×1315 | `3e2e39c89c51676a39d2bc94ad303069f94fd28412be555acbdffe7bc376e5af` |
+| `fe14_mpv2_06_context_desktop.jpg` | 1365×900 | 1365×1315 | `6b4bd391542f40fabb6e68096225504784aef2bab6accbb69e0cb812302854b3` |
 | `fe14_mpv2_06_context_mobile.jpg` | 390×844 | 390×2151 | `d76e12eb1fe439ec0dd68c01bffab452abfb82411f24fee5074d51ab179e2445` |
 
-Los JSON adyacentes guardan viewport, dimensiones de documento y HEAD de código probado. Las pruebas iniciales se ejecutaron sobre la base `fe8d720e1ce0e2e6f296fcf01953f334a5adec52`; la evidencia se regenerará contra el commit final del corte antes de abrir el PR.
+Los JSON adyacentes guardan viewport, dimensiones de documento y HEAD de código probado: `db4adc6851eb75206205315dbfacf2e982e3e6fb`. Esa revisión del código volvió a pasar las seis pruebas FE-14 antes de registrar las capturas.
