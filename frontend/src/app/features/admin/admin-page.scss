@@ -1,10 +1,12 @@
+@use '../../../styles/metrics';
+@use '../../../styles/breakpoints' as bp;
 :host {
   display: block;
 }
 .admin-page {
   max-width: 1180px;
   margin: 0 auto;
-  padding: clamp(1rem, 3vw, 2.5rem);
+  padding: clamp(metrics.$space-1rem, metrics.$space-3vw, metrics.$space-2-5rem);
   color: var(--color-text);
 }
 .admin-heading,
@@ -12,24 +14,24 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: metrics.$space-1rem;
 }
 .admin-heading h1 {
-  margin: 0.2rem 0;
-  font-size: clamp(2rem, 4vw, 3rem);
-  letter-spacing: -0.04em;
+  margin: metrics.$space-0-2rem 0;
+  font-size: metrics.$font-size-variant-13;
+  letter-spacing: metrics.$letter-spacing-neg-0-04em;
 }
 .admin-heading p:not(.eyebrow),
 .muted {
   color: var(--color-text-muted);
-  line-height: 1.55;
+  line-height: metrics.$line-height-1-55;
 }
 .eyebrow {
   margin: 0;
   color: var(--brand-primary-hover);
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
+  font-size: metrics.$font-size-0-76rem;
+  font-weight: metrics.$font-weight-800;
+  letter-spacing: metrics.$letter-spacing-0-1em;
   text-transform: uppercase;
 }
 .local-badge {
@@ -37,23 +39,23 @@
   border-radius: 999px;
   color: var(--brand-primary-active);
   background: var(--brand-primary-soft);
-  padding: 0.45rem 0.75rem;
-  font-size: 0.8rem;
-  font-weight: 750;
+  padding: metrics.$space-0-45rem metrics.$space-0-75rem;
+  font-size: metrics.$font-size-0-8rem;
+  font-weight: metrics.$font-weight-750;
   white-space: nowrap;
 }
 .safety-note {
-  margin: 1.25rem 0;
-  padding: 0.9rem 1rem;
+  margin: metrics.$space-1-25rem 0;
+  padding: metrics.$space-0-9rem metrics.$space-1rem;
   border-left: 4px solid var(--brand-primary);
   background: var(--color-surface-subtle);
-  line-height: 1.5;
+  line-height: metrics.$line-height-1-5;
 }
 .admin-tabs {
   display: flex;
-  gap: 0.5rem;
+  gap: metrics.$space-0-5rem;
   overflow-x: auto;
-  padding: 0.5rem 0 1rem;
+  padding: metrics.$space-0-5rem 0 metrics.$space-1rem;
   border-bottom: 1px solid var(--color-border);
   scrollbar-width: thin;
 }
@@ -64,9 +66,9 @@
   min-height: 2.7rem;
   border-radius: 0.65rem;
   border: 1px solid var(--color-border-control);
-  padding: 0.55rem 0.85rem;
+  padding: metrics.$space-0-55rem metrics.$space-0-85rem;
   font: inherit;
-  font-weight: 700;
+  font-weight: metrics.$font-weight-700;
   cursor: pointer;
 }
 .admin-tabs button {
@@ -80,24 +82,24 @@
   color: white;
 }
 .admin-content {
-  padding: 1.25rem 0;
+  padding: metrics.$space-1-25rem 0;
 }
 .section-heading {
   align-items: center;
-  margin-bottom: 1rem;
+  margin-bottom: metrics.$space-1rem;
 }
 .section-heading h2 {
-  margin: 0.2rem 0;
-  font-size: clamp(1.4rem, 3vw, 2rem);
+  margin: metrics.$space-0-2rem 0;
+  font-size: metrics.$font-size-variant-15;
 }
 .filters,
 .report-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 0.7rem;
-  margin: 1rem 0;
-  padding: 1rem;
+  gap: metrics.$space-0-7rem;
+  margin: metrics.$space-1rem 0;
+  padding: metrics.$space-1rem;
   border-radius: 0.9rem;
   background: var(--color-surface-subtle);
 }
@@ -105,10 +107,10 @@
 .report-filters label,
 .action-panel label {
   display: grid;
-  gap: 0.4rem;
+  gap: metrics.$space-0-4rem;
   color: var(--color-text);
-  font-size: 0.9rem;
-  font-weight: 700;
+  font-size: metrics.$font-size-0-9rem;
+  font-weight: metrics.$font-weight-700;
 }
 .filters input,
 .report-filters input,
@@ -117,7 +119,7 @@
   border: 1px solid var(--color-border-control);
   border-radius: 0.55rem;
   background: white;
-  padding: 0.45rem 0.65rem;
+  padding: metrics.$space-0-45rem metrics.$space-0-65rem;
   color: var(--color-text);
   font: inherit;
 }
@@ -126,7 +128,7 @@
 }
 .report-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: metrics.$space-0-5rem;
   flex-wrap: wrap;
 }
 .primary-button {
@@ -152,8 +154,8 @@ button:disabled {
 .empty-state,
 .action-panel,
 .report-result {
-  margin: 1rem 0;
-  padding: 1rem;
+  margin: metrics.$space-1rem 0;
+  padding: metrics.$space-1rem;
   border: 1px solid var(--color-border);
   border-radius: 0.9rem;
   background: var(--color-canvas);
@@ -169,7 +171,7 @@ button:disabled {
   background: var(--color-success-soft);
 }
 .empty-state {
-  padding: 1.5rem;
+  padding: metrics.$space-1-5rem;
   text-align: center;
 }
 .empty-state h3 {
@@ -181,12 +183,12 @@ button:disabled {
 }
 .records {
   display: grid;
-  gap: 0.75rem;
-  margin-top: 1rem;
+  gap: metrics.$space-0-75rem;
+  margin-top: metrics.$space-1rem;
 }
 .record-card {
   min-width: 0;
-  padding: 1rem;
+  padding: metrics.$space-1rem;
   border: 1px solid var(--color-border);
   border-radius: 0.85rem;
   background: var(--color-surface);
@@ -194,36 +196,32 @@ button:disabled {
 .record-card summary {
   display: flex;
   justify-content: space-between;
-  gap: 0.8rem;
+  gap: metrics.$space-0-8rem;
   cursor: pointer;
-  font-weight: 750;
+  font-weight: metrics.$font-weight-750;
   overflow-wrap: anywhere;
 }
 .record-state {
   color: var(--brand-primary-active);
-  font-size: 0.85rem;
+  font-size: metrics.$font-size-0-85rem;
 }
 pre {
   overflow: auto;
   max-height: 22rem;
-  padding: 0.85rem;
+  padding: metrics.$space-0-85rem;
   border-radius: 0.6rem;
   background: var(--color-surface-subtle);
   color: var(--color-text);
-  font:
-    0.82rem/1.45 ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    monospace;
+  font: metrics.$font-code;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .record-card button {
-  margin: 0.45rem 0.45rem 0 0;
+  margin: metrics.$space-0-45rem metrics.$space-0-45rem 0 0;
 }
 .action-panel {
   display: grid;
-  gap: 0.75rem;
+  gap: metrics.$space-0-75rem;
   border-color: var(--brand-accent);
 }
 .action-panel h3,
@@ -237,21 +235,21 @@ pre {
 .pagination {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: metrics.$space-0-65rem;
   flex-wrap: wrap;
 }
 .pagination {
   justify-content: space-between;
-  margin-top: 1rem;
-  padding-top: 1rem;
+  margin-top: metrics.$space-1rem;
+  padding-top: metrics.$space-1rem;
   border-top: 1px solid var(--color-border);
 }
 .pagination span {
   color: var(--color-text-muted);
 }
 .evidence-panel {
-  margin: 1rem 0;
-  padding: 1rem;
+  margin: metrics.$space-1rem 0;
+  padding: metrics.$space-1rem;
   border: 1px solid var(--brand-accent);
   border-radius: 0.9rem;
   background: var(--color-canvas);
@@ -263,27 +261,27 @@ pre {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: metrics.$space-0-75rem;
   flex-wrap: wrap;
-  padding: 0.75rem 0;
+  padding: metrics.$space-0-75rem 0;
   border-top: 1px solid var(--color-border);
 }
 .evidence-row p {
-  margin: 0.3rem 0 0;
+  margin: metrics.$space-0-3rem 0 0;
   color: var(--color-text-muted);
 }
 .evidence-preview {
   display: block;
   width: min(100%, 32rem);
   height: auto;
-  margin: 1rem auto 0;
+  margin: metrics.$space-1rem auto 0;
   border: 1px solid var(--color-border);
   border-radius: 0.7rem;
 }
 .error-text {
   color: var(--brand-primary-active);
 }
-@media (max-width: 620px) {
+@include bp.down('viewport-620px') {
   .admin-heading {
     flex-direction: column;
   }

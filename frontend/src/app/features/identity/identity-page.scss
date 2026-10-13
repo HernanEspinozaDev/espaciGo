@@ -1,56 +1,58 @@
+@use '../../../styles/metrics';
+@use '../../../styles/breakpoints' as bp;
 .identity-page {
   display: grid;
   justify-items: center;
-  padding-block: clamp(2rem, 6vw, 5rem);
+  padding-block: clamp(metrics.$space-2rem, metrics.$space-6vw, metrics.$space-5rem);
 }
 
 .identity-card {
   width: min(100%, 42rem);
   border: 1px solid var(--color-border);
   border-radius: 1rem;
-  padding: clamp(1.25rem, 5vw, 3rem);
+  padding: clamp(metrics.$space-1-25rem, metrics.$space-5vw, metrics.$space-3rem);
   background: var(--color-surface);
   box-shadow: 0 1.25rem 3rem rgb(51 39 32 / 7%);
 }
 
 .eyebrow {
-  margin: 0 0 0.75rem;
+  margin: 0 0 metrics.$space-0-75rem;
   color: var(--brand-primary);
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-size: metrics.$font-size-0-76rem;
+  font-weight: metrics.$font-weight-800;
+  letter-spacing: metrics.$letter-spacing-0-08em;
 }
 
 h1 {
   margin: 0;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(2rem, 6vw, 2.75rem);
-  font-weight: 500;
-  letter-spacing: -0.035em;
-  line-height: 1.1;
+  font-family: metrics.$font-family-variant-1;
+  font-size: metrics.$font-size-variant-43;
+  font-weight: metrics.$font-weight-500;
+  letter-spacing: metrics.$letter-spacing-neg-0-035em;
+  line-height: metrics.$line-height-1-1;
 }
 
 .intro {
-  margin: 0.8rem 0 1.75rem;
+  margin: metrics.$space-0-8rem 0 metrics.$space-1-75rem;
   color: var(--color-text-muted);
-  line-height: 1.55;
+  line-height: metrics.$line-height-1-55;
 }
 
 form {
   display: grid;
-  gap: 1.15rem;
+  gap: metrics.$space-1-15rem;
 }
 
 .field {
   display: grid;
-  gap: 0.42rem;
+  gap: metrics.$space-0-42rem;
 }
 
 .field label,
 .preference-fieldset legend,
 .terms-fieldset legend {
   color: var(--color-text);
-  font-weight: 700;
+  font-weight: metrics.$font-weight-700;
 }
 
 .field input,
@@ -59,7 +61,7 @@ form {
   min-height: 2.9rem;
   border: 1px solid var(--color-border-control);
   border-radius: 0.55rem;
-  padding: 0.65rem 0.75rem;
+  padding: metrics.$space-0-65rem metrics.$space-0-75rem;
   background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
@@ -80,20 +82,20 @@ form {
 .field-hint,
 .loading-note {
   color: var(--color-text-muted);
-  font-size: 0.88rem;
-  line-height: 1.45;
+  font-size: metrics.$font-size-0-88rem;
+  line-height: metrics.$line-height-1-45;
 }
 
 .field-error {
   color: var(--color-error);
-  font-size: 0.9rem;
-  font-weight: 650;
+  font-size: metrics.$font-size-0-9rem;
+  font-weight: metrics.$font-weight-650;
 }
 
 .preference-fieldset,
 .terms-fieldset {
   display: grid;
-  gap: 0.75rem;
+  gap: metrics.$space-0-75rem;
   min-width: 0;
   margin: 0;
   border: 0;
@@ -103,7 +105,7 @@ form {
 .choice-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: metrics.$space-0-75rem;
 }
 
 .choice-card,
@@ -111,12 +113,12 @@ form {
   display: flex;
   min-height: 2.9rem;
   align-items: center;
-  gap: 0.7rem;
+  gap: metrics.$space-0-7rem;
   border: 1px solid var(--color-border-control);
   border-radius: 0.6rem;
-  padding: 0.7rem;
+  padding: metrics.$space-0-7rem;
   background: var(--color-surface);
-  line-height: 1.4;
+  line-height: metrics.$line-height-1-4;
 }
 
 .choice-card:has(input:checked),
@@ -135,11 +137,11 @@ form {
 
 .check-row {
   align-items: flex-start;
-  font-size: 0.9rem;
+  font-size: metrics.$font-size-0-9rem;
 }
 
 .check-row input {
-  margin-top: 0.15rem;
+  margin-top: metrics.$space-0-15rem;
 }
 
 .primary-button,
@@ -150,11 +152,11 @@ form {
   justify-content: center;
   border: 1px solid var(--brand-primary);
   border-radius: 0.6rem;
-  padding: 0.65rem 1rem;
+  padding: metrics.$space-0-65rem metrics.$space-1rem;
   background: var(--brand-primary);
   color: var(--color-surface);
   font: inherit;
-  font-weight: 750;
+  font-weight: metrics.$font-weight-750;
   cursor: pointer;
 }
 
@@ -184,8 +186,8 @@ form {
   margin: 0;
   border: 1px solid;
   border-radius: 0.55rem;
-  padding: 0.8rem 0.9rem;
-  line-height: 1.45;
+  padding: metrics.$space-0-8rem metrics.$space-0-9rem;
+  line-height: metrics.$line-height-1-45;
 }
 
 .is-error {
@@ -204,8 +206,8 @@ form {
 .bottom-link {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem 1.2rem;
-  margin: 1.35rem 0 0;
+  gap: metrics.$space-0-75rem metrics.$space-1-2rem;
+  margin: metrics.$space-1-35rem 0 0;
   color: var(--color-text-muted);
 }
 
@@ -213,42 +215,42 @@ form {
 .bottom-link a,
 .account-links a {
   color: var(--brand-primary);
-  font-weight: 700;
+  font-weight: metrics.$font-weight-700;
   text-underline-offset: 0.18em;
 }
 
 .secondary-action {
   display: grid;
-  gap: 1rem;
-  margin-top: 2rem;
+  gap: metrics.$space-1rem;
+  margin-top: metrics.$space-2rem;
   border-top: 1px solid var(--color-border);
-  padding-top: 1.5rem;
+  padding-top: metrics.$space-1-5rem;
 }
 
 .secondary-action h2,
 .session-summary h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: metrics.$font-size-1-15rem;
 }
 
 .session-summary {
   display: grid;
-  gap: 0.75rem;
+  gap: metrics.$space-0-75rem;
   border: 1px solid var(--color-border);
   border-radius: 0.7rem;
-  padding: 1rem;
+  padding: metrics.$space-1rem;
   background: var(--color-surface-subtle);
 }
 
 .session-summary p {
   margin: 0;
-  line-height: 1.5;
+  line-height: metrics.$line-height-1-5;
 }
 
 .role-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: metrics.$space-0-5rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -256,23 +258,23 @@ form {
 
 .role-list li {
   border-radius: 999px;
-  padding: 0.35rem 0.7rem;
+  padding: metrics.$space-0-35rem metrics.$space-0-7rem;
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: 0.9rem;
-  font-weight: 700;
+  font-size: metrics.$font-size-0-9rem;
+  font-weight: metrics.$font-weight-700;
 }
 
 .restricted-copy {
   border-left: 3px solid var(--color-warning);
-  padding-left: 0.75rem;
+  padding-left: metrics.$space-0-75rem;
   color: var(--color-text-muted);
 }
 
 .account-links {
   display: grid;
-  gap: 0.75rem;
-  margin-top: 1.25rem;
+  gap: metrics.$space-0-75rem;
+  margin-top: metrics.$space-1-25rem;
 }
 
 .account-links a {
@@ -280,18 +282,18 @@ form {
   min-height: 2.9rem;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: metrics.$space-1rem;
   border-bottom: 1px solid var(--color-border);
-  padding: 0.5rem 0;
+  padding: metrics.$space-0-5rem 0;
 }
 
 .account-links a span {
   color: var(--color-text-muted);
-  font-size: 0.84rem;
-  font-weight: 500;
+  font-size: metrics.$font-size-0-84rem;
+  font-weight: metrics.$font-weight-500;
 }
 
-@media (max-width: 40rem) {
+@include bp.down('viewport-40rem') {
   .identity-page {
     padding-inline: 0;
   }
@@ -307,6 +309,6 @@ form {
   .account-links a {
     align-items: flex-start;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: metrics.$space-0-15rem;
   }
 }

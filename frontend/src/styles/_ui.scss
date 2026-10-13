@@ -1,3 +1,4 @@
+@use './/metrics';
 /* Shared native controls. Feature styles may add layout, not redefine the palette. */
 :where(button[appButton], a[appButton]) {
   display: inline-flex;
@@ -10,7 +11,7 @@
   border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
   font: inherit;
-  font-weight: 700;
+  font-weight: metrics.$font-weight-700;
   cursor: pointer;
   transition: background-color 120ms ease;
 }

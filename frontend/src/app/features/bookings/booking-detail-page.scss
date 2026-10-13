@@ -1,53 +1,54 @@
+@use '../../../styles/metrics';
 .detail {
-  padding-block: 2rem 5rem;
+  padding-block: metrics.$space-2rem metrics.$space-5rem;
   max-width: 900px;
 }
 .back {
   display: inline-block;
   color: var(--brand-primary-hover);
-  font-weight: 750;
-  margin-bottom: 1rem;
+  font-weight: metrics.$font-weight-750;
+  margin-bottom: metrics.$space-1rem;
 }
 .safety,
 .panel {
   border: 1px solid var(--color-border);
   border-radius: 1rem;
   background: var(--color-surface);
-  padding: clamp(1rem, 3vw, 1.5rem);
-  margin-bottom: 1rem;
+  padding: clamp(metrics.$space-1rem, metrics.$space-3vw, metrics.$space-1-5rem);
+  margin-bottom: metrics.$space-1rem;
 }
 .safety {
   color: var(--brand-primary-hover);
   background: var(--brand-primary-soft);
-  font-weight: 750;
+  font-weight: metrics.$font-weight-750;
 }
 .eyebrow {
   color: var(--brand-primary-hover);
-  font-weight: 800;
-  font-size: 0.75rem;
-  letter-spacing: 0.1em;
+  font-weight: metrics.$font-weight-800;
+  font-size: metrics.$font-size-0-75rem;
+  letter-spacing: metrics.$letter-spacing-0-1em;
   overflow-wrap: anywhere;
 }
 h1 {
-  font-size: clamp(1.9rem, 5vw, 3rem);
-  margin: 0.25rem 0 0.5rem;
+  font-size: metrics.$font-size-variant-16;
+  margin: metrics.$space-0-25rem 0 metrics.$space-0-5rem;
 }
 h2 {
   margin-top: 0;
 }
 p {
-  line-height: 1.55;
+  line-height: metrics.$line-height-1-55;
   color: var(--color-text-muted);
 }
 dl {
-  margin: 1.2rem 0 0;
+  margin: metrics.$space-1-2rem 0 0;
 }
 dl div {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: metrics.$space-1rem;
   border-top: 1px solid var(--brand-primary-soft);
-  padding: 0.65rem 0;
+  padding: metrics.$space-0-65rem 0;
 }
 dt {
   color: var(--color-text-muted);
@@ -55,17 +56,17 @@ dt {
 dd {
   margin: 0;
   text-align: end;
-  font-weight: 800;
+  font-weight: metrics.$font-weight-800;
   overflow-wrap: anywhere;
 }
 .actions {
   display: grid;
-  gap: 0.8rem;
+  gap: metrics.$space-0-8rem;
 }
 label {
   display: grid;
-  gap: 0.45rem;
-  font-weight: 700;
+  gap: metrics.$space-0-45rem;
+  font-weight: metrics.$font-weight-700;
   color: var(--color-text-muted);
 }
 select,
@@ -74,7 +75,7 @@ textarea {
   border: 1px solid var(--color-border-control);
   border-radius: 0.55rem;
   min-height: 2.8rem;
-  padding: 0.6rem;
+  padding: metrics.$space-0-6rem;
   color: var(--color-text);
   background: white;
   font: inherit;
@@ -91,17 +92,17 @@ textarea {
 .buttons {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.7rem;
+  gap: metrics.$space-0-7rem;
 }
 .button {
   min-height: 2.8rem;
   border: 0;
   border-radius: 999px;
-  padding: 0.7rem 1.1rem;
+  padding: metrics.$space-0-7rem metrics.$space-1-1rem;
   background: var(--brand-primary);
   color: var(--color-canvas);
   font: inherit;
-  font-weight: 800;
+  font-weight: metrics.$font-weight-800;
   cursor: pointer;
 }
 .button.secondary {
@@ -113,39 +114,39 @@ textarea {
   cursor: wait;
 }
 .error {
-  padding: 0.8rem;
+  padding: metrics.$space-0-8rem;
   border-radius: 0.6rem;
   background: var(--color-error-soft);
   color: var(--brand-primary-hover);
 }
 .uncertain {
-  padding: 0.9rem;
+  padding: metrics.$space-0-9rem;
   border: 2px solid var(--brand-primary);
   border-radius: 0.7rem;
   background: var(--color-warning-soft);
   color: var(--brand-primary-hover);
-  font-weight: 750;
+  font-weight: metrics.$font-weight-750;
 }
 .success {
-  padding: 0.9rem;
+  padding: metrics.$space-0-9rem;
   border-radius: 0.7rem;
   background: var(--color-surface-subtle);
   color: var(--color-success);
-  font-weight: 750;
+  font-weight: metrics.$font-weight-750;
 }
 .history ol {
   display: grid;
-  gap: 0.8rem;
-  padding-left: 1.2rem;
+  gap: metrics.$space-0-8rem;
+  padding-left: metrics.$space-1-2rem;
 }
 .history li {
-  padding: 0.3rem 0.2rem;
+  padding: metrics.$space-0-3rem metrics.$space-0-2rem;
 }
 .history li span {
   display: block;
   color: var(--color-text-muted);
-  font-size: 0.9rem;
+  font-size: metrics.$font-size-0-9rem;
 }
 .history li p {
-  margin: 0.25rem 0;
+  margin: metrics.$space-0-25rem 0;
 }

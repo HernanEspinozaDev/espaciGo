@@ -1,10 +1,10 @@
 name: Frontend architecture and quality
 on:
   pull_request:
-    paths: ['frontend/**', 'planning/openapi.yaml', 'scripts/check-frontend-architecture.mjs', '.github/workflows/frontend-quality.yml']
+    paths: ['frontend/**', 'planning/openapi.yaml', 'scripts/check-frontend-architecture*.mjs', '.github/workflows/frontend-quality.yml']
   push:
     branches: [main]
-    paths: ['frontend/**', 'planning/openapi.yaml', 'scripts/check-frontend-architecture.mjs', '.github/workflows/frontend-quality.yml']
+    paths: ['frontend/**', 'planning/openapi.yaml', 'scripts/check-frontend-architecture*.mjs', '.github/workflows/frontend-quality.yml']
 permissions:
   contents: read
 jobs:

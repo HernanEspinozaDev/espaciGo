@@ -1,3 +1,5 @@
+@use '../../../styles/metrics';
+@use '../../../styles/breakpoints' as bp;
 $ink: var(--color-text);
 $cream: var(--color-canvas);
 $terracotta-700: var(--brand-primary-hover);
@@ -6,7 +8,7 @@ $terracotta-500: var(--brand-primary);
 .hosting-shell {
   max-width: 1240px;
   margin: 0 auto;
-  padding: 2rem 1.25rem 5rem;
+  padding: metrics.$space-2rem metrics.$space-1-25rem metrics.$space-5rem;
   color: $ink;
 }
 .hosting-intro,
@@ -17,35 +19,35 @@ $terracotta-500: var(--brand-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: metrics.$space-1rem;
 }
 .hosting-intro {
-  margin: 0 auto 1.8rem;
-  padding: 1.6rem;
+  margin: 0 auto metrics.$space-1-8rem;
+  padding: metrics.$space-1-6rem;
   border-radius: 1.4rem;
   color: $cream;
   background: linear-gradient(120deg, $terracotta-700, $terracotta-500);
 }
 .hosting-intro h1 {
-  margin: 0.1rem 0 0.4rem;
-  font-size: clamp(1.8rem, 4vw, 2.7rem);
+  margin: metrics.$space-0-1rem 0 metrics.$space-0-4rem;
+  font-size: metrics.$font-size-variant-41;
 }
 .hosting-intro p {
   max-width: 650px;
-  margin: 0.4rem 0 0;
-  line-height: 1.5;
+  margin: metrics.$space-0-4rem 0 0;
+  line-height: metrics.$line-height-1-5;
 }
 .eyebrow {
-  margin: 0 0 0.3rem;
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.11em;
+  margin: 0 0 metrics.$space-0-3rem;
+  font-size: metrics.$font-size-0-7rem;
+  font-weight: metrics.$font-weight-800;
+  letter-spacing: metrics.$letter-spacing-0-11em;
   opacity: 0.78;
 }
 .hosting-layout {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  gap: 1.2rem;
+  gap: metrics.$space-1-2rem;
   align-items: start;
 }
 .space-rail,
@@ -60,30 +62,30 @@ $terracotta-500: var(--brand-primary);
 .space-rail {
   position: sticky;
   top: 1rem;
-  padding: 1rem;
+  padding: metrics.$space-1rem;
 }
 .space-rail h2 {
   margin: 0;
-  font-size: 1rem;
+  font-size: metrics.$font-size-1rem;
 }
 .rail-heading span {
   border-radius: 99px;
   background: var(--brand-primary-soft);
-  padding: 0.2rem 0.55rem;
+  padding: metrics.$space-0-2rem metrics.$space-0-55rem;
 }
 .space-rail ul {
   list-style: none;
   padding: 0;
-  margin: 1rem 0;
+  margin: metrics.$space-1rem 0;
   display: grid;
-  gap: 0.45rem;
+  gap: metrics.$space-0-45rem;
 }
 .space-choice {
   display: grid;
-  gap: 0.28rem;
+  gap: metrics.$space-0-28rem;
   width: 100%;
   text-align: left;
-  padding: 0.75rem;
+  padding: metrics.$space-0-75rem;
   border: 1px solid transparent;
   border-radius: 0.8rem;
   color: inherit;
@@ -91,7 +93,7 @@ $terracotta-500: var(--brand-primary);
 }
 .space-choice span {
   color: var(--color-text-muted);
-  font-size: 0.8rem;
+  font-size: metrics.$font-size-0-8rem;
 }
 .space-choice:hover,
 .space-choice--active {
@@ -100,25 +102,25 @@ $terracotta-500: var(--brand-primary);
 }
 .rail-create {
   width: 100%;
-  margin-top: 1rem;
+  margin-top: metrics.$space-1rem;
 }
 .editor {
-  padding: clamp(1rem, 2.5vw, 1.7rem);
+  padding: clamp(metrics.$space-1rem, metrics.$space-2-5vw, metrics.$space-1-7rem);
   min-width: 0;
 }
 .editor-heading {
-  margin-bottom: 1rem;
+  margin-bottom: metrics.$space-1rem;
 }
 .editor-heading h2 {
-  margin: 0.15rem 0 0;
-  font-size: 1.45rem;
+  margin: metrics.$space-0-15rem 0 0;
+  font-size: metrics.$font-size-1-45rem;
 }
 .state-pill {
-  padding: 0.35rem 0.65rem;
+  padding: metrics.$space-0-35rem metrics.$space-0-65rem;
   border-radius: 99px;
   background: var(--brand-primary-soft);
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: metrics.$font-size-0-78rem;
+  font-weight: metrics.$font-weight-700;
 }
 .state-pill[data-state='activa'] {
   color: var(--color-success);
@@ -131,14 +133,14 @@ $terracotta-500: var(--brand-primary);
 .section-tabs {
   display: flex;
   overflow: auto;
-  gap: 0.35rem;
+  gap: metrics.$space-0-35rem;
   border-bottom: 1px solid var(--brand-primary-soft);
-  margin: 0 -0.1rem 1.2rem;
+  margin: 0 metrics.$space-neg-0-1rem metrics.$space-1-2rem;
 }
 .section-tabs button {
   border: 0;
   border-bottom: 3px solid transparent;
-  padding: 0.75rem 0.9rem;
+  padding: metrics.$space-0-75rem metrics.$space-0-9rem;
   color: var(--color-text-muted);
   background: transparent;
   white-space: nowrap;
@@ -146,51 +148,51 @@ $terracotta-500: var(--brand-primary);
 .section-tabs button.selected {
   color: var(--brand-primary-hover);
   border-color: var(--brand-primary);
-  font-weight: 750;
+  font-weight: metrics.$font-weight-750;
 }
 .panel-card {
-  padding: clamp(1rem, 2vw, 1.5rem);
+  padding: clamp(metrics.$space-1rem, metrics.$space-2vw, metrics.$space-1-5rem);
 }
 .card-heading {
   align-items: flex-start;
-  margin-bottom: 1rem;
+  margin-bottom: metrics.$space-1rem;
 }
 .card-heading h3,
 .sub-card h3,
 .published-editor h3 {
-  margin: 0.15rem 0;
+  margin: metrics.$space-0-15rem 0;
 }
 .card-heading > p {
   max-width: 390px;
-  margin: 0.2rem 0;
+  margin: metrics.$space-0-2rem 0;
   text-align: right;
   color: var(--brand-secondary);
-  font-size: 0.88rem;
+  font-size: metrics.$font-size-0-88rem;
 }
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: metrics.$space-1rem;
 }
 label {
   display: grid;
-  gap: 0.4rem;
-  font-weight: 650;
-  font-size: 0.9rem;
+  gap: metrics.$space-0-4rem;
+  font-weight: metrics.$font-weight-650;
+  font-size: metrics.$font-size-0-9rem;
 }
 label small,
 .published-editor p,
 .sub-card p {
   color: var(--brand-secondary);
-  font-size: 0.8rem;
-  line-height: 1.45;
-  font-weight: 400;
+  font-size: metrics.$font-size-0-8rem;
+  line-height: metrics.$line-height-1-45;
+  font-weight: metrics.$font-weight-400;
 }
 input,
 select,
 textarea {
   border-radius: 0.65rem;
-  padding: 0.68rem 0.75rem;
+  padding: metrics.$space-0-68rem metrics.$space-0-75rem;
 }
 textarea {
   resize: vertical;
@@ -199,18 +201,18 @@ textarea {
   grid-column: 1/-1;
 }
 .attributes {
-  margin: 1.4rem 0 0;
-  padding: 1rem;
+  margin: metrics.$space-1-4rem 0 0;
+  padding: metrics.$space-1rem;
   border: 1px solid var(--brand-primary-soft);
   border-radius: 0.8rem;
 }
 .attributes legend {
-  padding: 0 0.35rem;
-  font-weight: 750;
+  padding: 0 metrics.$space-0-35rem;
+  font-weight: metrics.$font-weight-750;
 }
 .attributes label span {
   color: var(--brand-secondary);
-  font-weight: 400;
+  font-weight: metrics.$font-weight-400;
 }
 .form-actions,
 .publication-actions,
@@ -218,29 +220,29 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.7rem;
-  margin-top: 1.2rem;
+  gap: metrics.$space-0-7rem;
+  margin-top: metrics.$space-1-2rem;
 }
 .publication-actions {
   border-top: 1px solid var(--brand-primary-soft);
-  padding-top: 1.1rem;
+  padding-top: metrics.$space-1-1rem;
 }
 .publication-actions > div {
   flex: 1;
   min-width: 220px;
 }
 .publication-actions p {
-  margin: 0.25rem 0;
+  margin: metrics.$space-0-25rem 0;
   color: var(--brand-secondary);
-  font-size: 0.82rem;
+  font-size: metrics.$font-size-0-82rem;
 }
 .alert,
 .notice,
 .status {
-  margin: 0.7rem 0;
-  padding: 0.8rem 1rem;
+  margin: metrics.$space-0-7rem 0;
+  padding: metrics.$space-0-8rem metrics.$space-1rem;
   border-radius: 0.7rem;
-  line-height: 1.45;
+  line-height: metrics.$line-height-1-45;
 }
 .alert {
   color: var(--brand-primary-active);
@@ -258,39 +260,39 @@ textarea {
 }
 .empty {
   color: var(--brand-secondary);
-  font-size: 0.88rem;
-  line-height: 1.5;
+  font-size: metrics.$font-size-0-88rem;
+  line-height: metrics.$line-height-1-5;
 }
 .published-editor {
-  margin-top: 1.5rem;
-  padding-top: 1.2rem;
+  margin-top: metrics.$space-1-5rem;
+  padding-top: metrics.$space-1-2rem;
   border-top: 1px solid var(--brand-primary-soft);
 }
 .published-editor > p {
-  margin: 0.3rem 0 1rem;
+  margin: metrics.$space-0-3rem 0 metrics.$space-1rem;
 }
 .published-editor .button {
-  margin-top: 1rem;
+  margin-top: metrics.$space-1rem;
 }
 .current-rate {
   display: flex;
   align-items: baseline;
-  gap: 0.8rem;
-  padding: 1rem;
-  margin-bottom: 1rem;
+  gap: metrics.$space-0-8rem;
+  padding: metrics.$space-1rem;
+  margin-bottom: metrics.$space-1rem;
   border-radius: 0.75rem;
   background: var(--color-surface-subtle);
 }
 .current-rate strong {
-  font-size: 1.35rem;
+  font-size: metrics.$font-size-1-35rem;
   color: var(--brand-primary-hover);
 }
 .current-rate span {
   color: var(--color-text-muted);
 }
 .simulation-form {
-  margin-top: 1.2rem;
-  padding-top: 1.2rem;
+  margin-top: metrics.$space-1-2rem;
+  padding-top: metrics.$space-1-2rem;
   border-top: 1px solid var(--brand-primary-soft);
 }
 .history-list,
@@ -298,33 +300,33 @@ textarea {
   display: grid;
   list-style: none;
   padding: 0;
-  gap: 0.5rem;
+  gap: metrics.$space-0-5rem;
 }
 .history-list li,
 .block-list li {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
-  padding: 0.75rem;
+  gap: metrics.$space-1rem;
+  padding: metrics.$space-0-75rem;
   border: 1px solid var(--brand-primary-soft);
   border-radius: 0.7rem;
 }
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-  margin: 1.3rem 0;
+  gap: metrics.$space-1rem;
+  margin: metrics.$space-1-3rem 0;
 }
 .sub-card {
-  padding: 1rem;
+  padding: metrics.$space-1rem;
   box-shadow: none;
 }
 .sub-card > label {
-  margin: 0.8rem 0;
+  margin: metrics.$space-0-8rem 0;
 }
 .availability {
-  padding: 0.7rem;
+  padding: metrics.$space-0-7rem;
   background: var(--color-error-soft);
   border-radius: 0.6rem;
 }
@@ -335,43 +337,43 @@ textarea {
 .check-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
+  gap: metrics.$space-0-5rem;
+  font-size: metrics.$font-size-0-85rem;
 }
 .check-row input {
   width: auto;
 }
 .block-list li span {
   display: block;
-  margin-top: 0.25rem;
+  margin-top: metrics.$space-0-25rem;
   color: var(--color-text-muted);
-  font-size: 0.83rem;
+  font-size: metrics.$font-size-0-83rem;
 }
 .weekly {
-  margin-top: 1.5rem;
-  padding-top: 1.3rem;
+  margin-top: metrics.$space-1-5rem;
+  padding-top: metrics.$space-1-3rem;
   border-top: 1px solid var(--brand-primary-soft);
 }
 .weekly-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.7rem;
-  margin: 1rem 0;
+  gap: metrics.$space-0-7rem;
+  margin: metrics.$space-1rem 0;
 }
 .week-day {
-  padding: 0.8rem;
+  padding: metrics.$space-0-8rem;
   border: 1px solid var(--brand-primary-soft);
   border-radius: 0.8rem;
 }
 .period {
   display: grid;
   grid-template-columns: 1fr 1fr auto;
-  gap: 0.45rem;
+  gap: metrics.$space-0-45rem;
   align-items: end;
-  margin: 0.55rem 0;
+  margin: metrics.$space-0-55rem 0;
 }
 .period label {
-  font-size: 0.75rem;
+  font-size: metrics.$font-size-0-75rem;
 }
 .icon-button {
   border: 0;
@@ -386,18 +388,18 @@ textarea {
 }
 .gallery-summary {
   justify-content: space-between;
-  margin-bottom: 1rem;
+  margin-bottom: metrics.$space-1rem;
 }
 .gallery-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.8rem;
+  gap: metrics.$space-0-8rem;
 }
 .photo-card {
   display: grid;
   align-content: start;
-  gap: 0.5rem;
-  padding: 0.7rem;
+  gap: metrics.$space-0-5rem;
+  padding: metrics.$space-0-7rem;
   border: 1px solid var(--color-border);
   border-radius: 0.85rem;
 }
@@ -428,12 +430,12 @@ textarea {
 .photo-card > div {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: metrics.$space-0-45rem;
 }
 .empty-gallery {
   display: grid;
   justify-items: center;
-  padding: 3rem 1rem;
+  padding: metrics.$space-3rem metrics.$space-1rem;
   text-align: center;
   color: var(--brand-secondary);
   border: 1px dashed var(--color-border);
@@ -443,9 +445,9 @@ textarea {
   display: grid;
   grid-template-columns: minmax(0, 400px) auto;
   align-items: center;
-  gap: 1rem;
-  margin-top: 1.2rem;
-  padding: 1rem;
+  gap: metrics.$space-1rem;
+  margin-top: metrics.$space-1-2rem;
+  padding: metrics.$space-1rem;
   border: 1px solid var(--color-border);
   border-radius: 0.8rem;
 }
@@ -454,7 +456,7 @@ textarea {
   border-radius: 0.5rem;
 }
 
-@media (max-width: 850px) {
+@include bp.down('viewport-850px') {
   .hosting-layout {
     grid-template-columns: 1fr;
   }
@@ -468,14 +470,14 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-@media (max-width: 600px) {
+@include bp.down('viewport-600px') {
   .hosting-shell {
-    padding: 1rem 0.8rem 3rem;
+    padding: metrics.$space-1rem metrics.$space-0-8rem metrics.$space-3rem;
   }
   .hosting-intro {
     align-items: flex-start;
     flex-direction: column;
-    padding: 1.2rem;
+    padding: metrics.$space-1-2rem;
   }
   .space-rail ul,
   .form-grid,

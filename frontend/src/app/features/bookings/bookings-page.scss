@@ -1,16 +1,17 @@
+@use '../../../styles/metrics';
 .bookings {
-  padding-block: 3rem 5rem;
+  padding-block: metrics.$space-3rem metrics.$space-5rem;
   min-height: 55vh;
 }
 .eyebrow {
   color: var(--brand-primary-hover);
-  font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
+  font-size: metrics.$font-size-0-75rem;
+  font-weight: metrics.$font-weight-800;
+  letter-spacing: metrics.$letter-spacing-0-1em;
 }
 h1 {
-  font-size: clamp(2.2rem, 6vw, 3.6rem);
-  margin: 0.3rem 0 1rem;
+  font-size: metrics.$font-size-variant-17;
+  margin: metrics.$space-0-3rem 0 metrics.$space-1rem;
 }
 .safety,
 .empty,
@@ -18,31 +19,31 @@ h1 {
   border: 1px solid var(--color-border);
   border-radius: 1rem;
   background: var(--color-surface);
-  padding: 1.2rem;
+  padding: metrics.$space-1-2rem;
 }
 .safety {
   color: var(--brand-primary-hover);
   background: var(--brand-primary-soft);
-  font-weight: 700;
+  font-weight: metrics.$font-weight-700;
 }
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
-  gap: 1rem;
+  gap: metrics.$space-1rem;
 }
 .card {
   display: grid;
-  gap: 0.8rem;
+  gap: metrics.$space-0-8rem;
   box-shadow: 0 10px 24px rgb(64 42 27 / 5%);
 }
 .card h2,
 .empty h2 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: metrics.$font-size-1-25rem;
 }
 .card p {
   color: var(--color-text-muted);
-  line-height: 1.5;
+  line-height: metrics.$line-height-1-5;
 }
 dl {
   margin: 0;
@@ -50,8 +51,8 @@ dl {
 dl div {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.5rem 0;
+  gap: metrics.$space-1rem;
+  padding: metrics.$space-0-5rem 0;
   border-top: 1px solid var(--brand-primary-soft);
 }
 dt {
@@ -59,7 +60,7 @@ dt {
 }
 dd {
   margin: 0;
-  font-weight: 800;
+  font-weight: metrics.$font-weight-800;
 }
 .button {
   display: inline-flex;
@@ -68,14 +69,14 @@ dd {
   min-height: 2.8rem;
   border: 0;
   border-radius: 999px;
-  padding: 0.7rem 1.1rem;
+  padding: metrics.$space-0-7rem metrics.$space-1-1rem;
   background: var(--brand-primary);
   color: var(--color-canvas);
-  font-weight: 800;
+  font-weight: metrics.$font-weight-800;
   text-decoration: none;
 }
 .error {
-  padding: 0.8rem;
+  padding: metrics.$space-0-8rem;
   border-radius: 0.6rem;
   background: var(--color-error-soft);
   color: var(--brand-primary-hover);

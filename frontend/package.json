@@ -12,8 +12,8 @@
     "api:generate": "openapi-ts",
     "api:check": "npm run api:generate && tsc --noEmit -p tsconfig.app.json",
     "lint": "eslint src && npm run lint:styles && npm run architecture:check",
-    "lint:styles": "stylelint \"src/**/*.scss\"",
-    "architecture:check": "node ../scripts/check-frontend-architecture.mjs"
+    "lint:styles": "node --test tooling/design-token-rule.test.mjs && stylelint \"src/**/*.scss\"",
+    "architecture:check": "node --test ../scripts/check-frontend-architecture.test.mjs && node ../scripts/check-frontend-architecture.mjs"
   },
   "private": true,
   "packageManager": "npm@12.1.0",

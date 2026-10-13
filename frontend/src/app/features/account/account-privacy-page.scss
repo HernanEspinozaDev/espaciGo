@@ -1,23 +1,25 @@
+@use '../../../styles/metrics';
+@use '../../../styles/breakpoints' as bp;
 @use '../../../styles/tokens' as *;
 
 .account {
-  padding-block: 2.5rem 5rem;
+  padding-block: metrics.$space-2-5rem metrics.$space-5rem;
   display: grid;
-  gap: 1.2rem;
+  gap: metrics.$space-1-2rem;
 }
 .back-link,
 .text-link {
   color: var(--brand-primary-hover);
-  font-weight: 650;
+  font-weight: metrics.$font-weight-650;
   width: fit-content;
 }
 .page-heading {
   max-width: 48rem;
-  margin-block: 0.4rem 0.7rem;
+  margin-block: metrics.$space-0-4rem metrics.$space-0-7rem;
   h1 {
-    margin: 0.25rem 0 0.6rem;
-    font-size: clamp(2rem, 5vw, 3rem);
-    line-height: 1.08;
+    margin: metrics.$space-0-25rem 0 metrics.$space-0-6rem;
+    font-size: metrics.$font-size-variant-7;
+    line-height: metrics.$line-height-1-08;
   }
   > p:last-child {
     color: var(--color-text-muted);
@@ -26,10 +28,10 @@
 }
 .eyebrow {
   color: var(--brand-secondary);
-  font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  margin: 0 0 0.3rem;
+  font-size: metrics.$font-size-0-75rem;
+  font-weight: metrics.$font-weight-800;
+  letter-spacing: metrics.$letter-spacing-0-12em;
+  margin: 0 0 metrics.$space-0-3rem;
 }
 .panel {
   border: 1px solid var(--color-border);
@@ -38,14 +40,14 @@
   box-shadow: 0 0.5rem 1.5rem rgb(51 39 32 / 5%);
 }
 .identity-card {
-  padding: 1.2rem 1.4rem;
+  padding: metrics.$space-1-2rem metrics.$space-1-4rem;
   display: flex;
-  gap: 1rem;
+  gap: metrics.$space-1rem;
   align-items: center;
   justify-content: space-between;
   background: linear-gradient(115deg, var(--color-surface), var(--color-surface-subtle));
   h2 {
-    margin: 0.1rem 0;
+    margin: metrics.$space-0-1rem 0;
   }
   p:not(.eyebrow) {
     color: var(--color-text-muted);
@@ -55,46 +57,47 @@
 }
 .role-list {
   display: flex;
-  gap: 0.4rem;
+  gap: metrics.$space-0-4rem;
   list-style: none;
   padding: 0;
-  margin: 0.75rem 0 0;
+  margin: metrics.$space-0-75rem 0 0;
   li {
-    padding: 0.2rem 0.6rem;
+    padding: metrics.$space-0-2rem metrics.$space-0-6rem;
     border-radius: 999px;
     background: var(--brand-primary-soft);
     color: var(--brand-primary-hover);
-    font-size: 0.8rem;
-    font-weight: 700;
+    font-size: metrics.$font-size-0-8rem;
+    font-weight: metrics.$font-weight-700;
   }
 }
 .section {
-  padding: 1.35rem clamp(1rem, 3vw, 1.8rem);
+  padding: metrics.$space-1-35rem
+    clamp(metrics.$space-1rem, metrics.$space-3vw, metrics.$space-1-8rem);
 }
 .section-heading {
   display: flex;
   align-items: start;
   justify-content: space-between;
-  margin-bottom: 1rem;
+  margin-bottom: metrics.$space-1rem;
   h2 {
-    font-size: 1.45rem;
+    font-size: metrics.$font-size-1-45rem;
     margin: 0;
   }
 }
 .profile-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: metrics.$space-1rem;
   align-items: start;
   label {
     display: grid;
-    gap: 0.35rem;
-    font-weight: 650;
+    gap: metrics.$space-0-35rem;
+    font-weight: metrics.$font-weight-650;
   }
   input {
     min-width: 0;
     width: 100%;
-    padding: 0.72rem 0.8rem;
+    padding: metrics.$space-0-72rem metrics.$space-0-8rem;
     border: 1px solid var(--color-border-control);
     border-radius: 0.65rem;
     background: var(--color-surface);
@@ -109,11 +112,11 @@
 .updated {
   display: block;
   color: var(--color-text-muted);
-  font-size: 0.88rem;
-  margin: 0.8rem 0 0;
+  font-size: metrics.$font-size-0-88rem;
+  margin: metrics.$space-0-8rem 0 0;
 }
 .updated {
-  margin-top: 1rem;
+  margin-top: metrics.$space-1rem;
 }
 .profile-photo {
   display: block;
@@ -127,18 +130,18 @@
 .metadata {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.6rem 1.4rem;
-  margin: 1rem 0;
+  gap: metrics.$space-0-6rem metrics.$space-1-4rem;
+  margin: metrics.$space-1rem 0;
   div {
     min-width: 0;
   }
   dt {
     color: var(--color-text-muted);
-    font-size: 0.82rem;
+    font-size: metrics.$font-size-0-82rem;
   }
   dd {
-    margin: 0.1rem 0 0;
-    font-weight: 650;
+    margin: metrics.$space-0-1rem 0 0;
+    font-weight: metrics.$font-weight-650;
     overflow-wrap: anywhere;
   }
 }
@@ -148,16 +151,16 @@
 .button-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem;
-  margin-top: 0.9rem;
+  gap: metrics.$space-0-65rem;
+  margin-top: metrics.$space-0-9rem;
 }
 .primary-button,
 .secondary-button,
 .quiet-button {
   min-height: 2.75rem;
   border-radius: 0.7rem;
-  padding: 0.65rem 1rem;
-  font-weight: 750;
+  padding: metrics.$space-0-65rem metrics.$space-1rem;
+  font-weight: metrics.$font-weight-750;
   cursor: pointer;
 }
 .primary-button {
@@ -181,7 +184,7 @@ button:disabled {
 }
 .empty-state,
 .artifact-retired {
-  padding: 0.95rem 1rem;
+  padding: metrics.$space-0-95rem metrics.$space-1rem;
   border: 1px dashed var(--color-border-control);
   border-radius: 0.75rem;
   background: var(--color-surface-subtle);
@@ -190,13 +193,13 @@ button:disabled {
 .request-list {
   list-style: none;
   padding: 0;
-  margin: 1rem 0 0;
+  margin: metrics.$space-1rem 0 0;
   border-top: 1px solid var(--color-border);
   li {
     display: grid;
     grid-template-columns: minmax(5rem, 0.6fr) minmax(8rem, 1fr) minmax(10rem, 1fr);
-    gap: 0.8rem;
-    padding: 0.8rem 0;
+    gap: metrics.$space-0-8rem;
+    padding: metrics.$space-0-8rem 0;
     border-bottom: 1px solid var(--color-border);
     align-items: center;
   }
@@ -206,7 +209,7 @@ button:disabled {
   }
   time {
     color: var(--color-text-muted);
-    font-size: 0.88rem;
+    font-size: metrics.$font-size-0-88rem;
   }
 }
 .export-section {
@@ -214,18 +217,18 @@ button:disabled {
 }
 .export-status {
   color: var(--color-success);
-  font-weight: 700;
+  font-weight: metrics.$font-weight-700;
 }
 .scope-list {
-  padding-left: 1.25rem;
+  padding-left: metrics.$space-1-25rem;
   color: var(--color-text-muted);
-  font-size: 0.92rem;
+  font-size: metrics.$font-size-0-92rem;
   li + li {
-    margin-top: 0.35rem;
+    margin-top: metrics.$space-0-35rem;
   }
 }
 .alert {
-  padding: 0.8rem 1rem;
+  padding: metrics.$space-0-8rem metrics.$space-1rem;
   border-radius: 0.7rem;
   margin: 0;
 }
@@ -241,10 +244,10 @@ button:disabled {
   color: var(--color-text-muted);
 }
 
-@media (max-width: 42rem) {
+@include bp.down('viewport-42rem') {
   .account {
-    padding-block: 1.3rem 3.5rem;
-    gap: 0.9rem;
+    padding-block: metrics.$space-1-3rem metrics.$space-3-5rem;
+    gap: metrics.$space-0-9rem;
   }
   .identity-card {
     align-items: start;
@@ -267,7 +270,7 @@ button:disabled {
   }
   .request-list li {
     grid-template-columns: 1fr auto;
-    gap: 0.2rem 0.7rem;
+    gap: metrics.$space-0-2rem metrics.$space-0-7rem;
   }
   .request-list time {
     grid-column: 1 / -1;

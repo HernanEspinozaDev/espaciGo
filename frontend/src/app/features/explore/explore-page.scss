@@ -1,16 +1,18 @@
+@use '../../../styles/metrics';
+@use '../../../styles/breakpoints' as bp;
 @use '../../../styles/tokens' as *;
 
 .explore {
-  padding-block: 3rem 5rem;
+  padding-block: metrics.$space-3rem metrics.$space-5rem;
 }
 .page-heading {
   max-width: 48rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: metrics.$space-1-5rem;
 }
 .page-heading h1 {
-  margin: 0.35rem 0 0.65rem;
-  font-size: clamp(2.2rem, 5vw, 4rem);
-  line-height: 1.02;
+  margin: metrics.$space-0-35rem 0 metrics.$space-0-65rem;
+  font-size: metrics.$font-size-variant-25;
+  line-height: metrics.$line-height-1-02;
 }
 .page-heading p:last-child {
   color: var(--color-text-muted);
@@ -18,9 +20,9 @@
 }
 .eyebrow {
   color: var(--brand-primary);
-  font-size: 0.75rem;
-  font-weight: 750;
-  letter-spacing: 0.12em;
+  font-size: metrics.$font-size-0-75rem;
+  font-weight: metrics.$font-weight-750;
+  letter-spacing: metrics.$letter-spacing-0-12em;
   text-transform: uppercase;
 }
 .panel {
@@ -32,29 +34,29 @@
 .safety {
   background: var(--brand-primary-soft);
   color: var(--brand-primary-hover);
-  padding: 0.8rem 1rem;
+  padding: metrics.$space-0-8rem metrics.$space-1rem;
   border-radius: 0.75rem;
-  margin: 1rem 0;
-  font-weight: 750;
+  margin: metrics.$space-1rem 0;
+  font-weight: metrics.$font-weight-750;
 }
 .safety span {
   color: var(--brand-accent);
-  margin-right: 0.5rem;
+  margin-right: metrics.$space-0-5rem;
 }
 .filters {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-  padding: 1.25rem;
+  gap: metrics.$space-1rem;
+  padding: metrics.$space-1-25rem;
 }
 .filters label,
 .price-filter label,
 .proximity-filter label {
   display: grid;
-  gap: 0.4rem;
+  gap: metrics.$space-0-4rem;
   color: var(--color-text-muted);
-  font-size: 0.9rem;
-  font-weight: 650;
+  font-size: metrics.$font-size-0-9rem;
+  font-weight: metrics.$font-weight-650;
 }
 .filters input,
 .filters select {
@@ -64,7 +66,7 @@
   border-radius: 0.55rem;
   background: white;
   color: var(--color-text);
-  padding: 0.55rem 0.7rem;
+  padding: metrics.$space-0-55rem metrics.$space-0-7rem;
   font: inherit;
 }
 .wide {
@@ -76,24 +78,24 @@
   border-radius: 0.75rem;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.75rem;
-  padding: 0.8rem;
+  gap: metrics.$space-0-75rem;
+  padding: metrics.$space-0-8rem;
 }
 .price-filter legend,
 .proximity-filter legend {
-  font-weight: 750;
-  padding-inline: 0.35rem;
+  font-weight: metrics.$font-weight-750;
+  padding-inline: metrics.$space-0-35rem;
 }
 .price-filter p,
 .proximity-filter p {
   grid-column: 1 / -1;
   margin: 0;
   color: var(--brand-secondary);
-  font-size: 0.85rem;
+  font-size: metrics.$font-size-0-85rem;
 }
 .filter-actions {
   display: flex;
-  gap: 0.75rem;
+  gap: metrics.$space-0-75rem;
   align-items: center;
   flex-wrap: wrap;
 }
@@ -102,9 +104,9 @@
   border-radius: 999px;
   background: var(--brand-primary);
   color: var(--color-canvas);
-  padding: 0.8rem 1.3rem;
+  padding: metrics.$space-0-8rem metrics.$space-1-3rem;
   font: inherit;
-  font-weight: 750;
+  font-weight: metrics.$font-weight-750;
   cursor: pointer;
 }
 .button:hover:not(:disabled) {
@@ -123,17 +125,17 @@
   border: 0;
   background: transparent;
   font: inherit;
-  font-weight: 700;
+  font-weight: metrics.$font-weight-700;
   text-decoration: underline;
   cursor: pointer;
-  padding: 0.65rem;
+  padding: metrics.$space-0-65rem;
 }
 .error,
 .status,
 .empty {
   border-radius: 0.75rem;
-  padding: 1rem;
-  margin-block: 1.25rem;
+  padding: metrics.$space-1rem;
+  margin-block: metrics.$space-1-25rem;
 }
 .error {
   background: var(--color-error-soft);
@@ -146,8 +148,8 @@
 }
 .results {
   display: grid;
-  gap: 1rem;
-  margin-top: 1.5rem;
+  gap: metrics.$space-1rem;
+  margin-top: metrics.$space-1-5rem;
 }
 .space-card {
   display: grid;
@@ -166,19 +168,19 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 1.2rem;
+  padding: metrics.$space-1-2rem;
 }
 .space-art b {
   align-self: end;
-  font-size: 3rem;
+  font-size: metrics.$font-size-3rem;
   opacity: 0.8;
 }
 .space-summary {
-  padding: 1.35rem;
+  padding: metrics.$space-1-35rem;
 }
 .space-summary h2 {
-  margin: 0.3rem 0;
-  font-size: 1.55rem;
+  margin: metrics.$space-0-3rem 0;
+  font-size: metrics.$font-size-1-55rem;
 }
 .space-summary h2 a {
   color: var(--color-text);
@@ -191,29 +193,29 @@
   color: var(--color-text-muted);
 }
 .attributes {
-  font-size: 0.85rem;
+  font-size: metrics.$font-size-0-85rem;
   overflow-wrap: anywhere;
 }
 .price-row {
   display: flex;
-  gap: 1rem;
+  gap: metrics.$space-1rem;
   flex-wrap: wrap;
-  margin-block: 1rem;
+  margin-block: metrics.$space-1rem;
 }
 .price-row strong {
   color: var(--brand-primary-hover);
 }
 .card-link {
   color: var(--brand-primary-hover);
-  font-weight: 750;
+  font-weight: metrics.$font-weight-750;
   display: inline-flex;
-  gap: 0.5rem;
-  margin-top: 0.4rem;
+  gap: metrics.$space-0-5rem;
+  margin-top: metrics.$space-0-4rem;
 }
 .synthetic-map {
   height: min(62vh, 34rem);
   min-height: 22rem;
-  margin-top: 1.5rem;
+  margin-top: metrics.$space-1-5rem;
   border: 1px solid var(--color-border);
   border-radius: 1rem;
   position: relative;
@@ -228,7 +230,7 @@
   position: absolute;
   inset: 0 0 auto;
   margin: 0;
-  padding: 0.7rem;
+  padding: metrics.$space-0-7rem;
   background: rgb(255 253 248 / 88%);
   z-index: 1;
 }
@@ -243,7 +245,7 @@
   place-items: center;
   background: var(--brand-primary);
   color: white;
-  font-weight: 800;
+  font-weight: metrics.$font-weight-800;
   text-decoration: none;
   box-shadow: 0 2px 8px var(--shadow-color);
 }
@@ -252,15 +254,15 @@
 }
 .more {
   display: block;
-  margin: 1.5rem auto 0;
+  margin: metrics.$space-1-5rem auto 0;
 }
-@media (max-width: 760px) {
+@include bp.down('viewport-760px') {
   .explore {
-    padding-block: 2rem 3rem;
+    padding-block: metrics.$space-2rem metrics.$space-3rem;
   }
   .filters {
     grid-template-columns: 1fr;
-    padding: 0.9rem;
+    padding: metrics.$space-0-9rem;
   }
   .wide {
     grid-column: auto;
