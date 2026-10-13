@@ -299,6 +299,22 @@ export class BookingDetailFacade {
     );
   }
 
+  paymentConfirmed(item: LocalBookingDetail): boolean {
+    return (
+      item.history.some((transition) => transition.to === 'pagada') ||
+      [
+        'pagada',
+        'aprobada_host',
+        'firma_parcial',
+        'lista_para_checkin',
+        'en_curso',
+        'finalizada',
+        'cerrada',
+        'en_disputa',
+      ].includes(item.state)
+    );
+  }
+
   private async mutate<T>(
     operation: string,
     payload: unknown,

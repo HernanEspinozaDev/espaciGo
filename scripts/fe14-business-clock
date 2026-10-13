@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Set or advance the FE-14 disposable demo's business clock only."""
+import datetime as dt
+import json
+import os
+import pathlib
+import re
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+STATE_DIR = ROOT / ".local/testing/fe14-demo/business-clock"
+STATE = STATE_DIR / "business-clock.json"
+
+def fail(message):
+    print(message, file=sys.stderr)
+    raise SystemExit(2)
+
+def load():
+    if STATE.is_symlink():
+        fail("FE-14 clock file cannot be a symlink")
+    try:
+        raw = json.loads(STATE.read_text(encoding="ascii"))["now"]
+        value = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if value.tzinfo is None:
+            fail("clock date must include an explicit UTC offset")
+        return value.astimezone(dt.timezone.utc)
+    except (OSError, ValueError, KeyError, TypeError):
+        fail("clock is not initialized; use: scripts/fe14-business-clock set RFC3339")
+
+def save(value):
+    if STATE_DIR.is_symlink():
+        fail("FE-14 clock directory cannot be a symlink")
+    STATE_DIR.mkdir(mode=0o755, parents=True, exist_ok=True)
+    os.chmod(STATE_DIR, 0o755)
+    if STATE.is_symlink():
+        fail("FE-14 clock file cannot be a symlink")
+    text = json.dumps({"now": value.isoformat(timespec="seconds").replace("+00:00", "Z")}, separators=(",", ":")) + "\n"
+    temp = STATE.with_name("business-clock.json.tmp")
+    fd = os.open(temp, os.O_CREAT | os.O_TRUNC | os.O_WRONLY | os.O_NOFOLLOW, 0o644)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, STATE)
+        os.chmod(STATE, 0o644)
+    finally:
+        temp.unlink(missing_ok=True)
+    print(text, end="")
+
+def parse_duration(value):
+    if not re.fullmatch(r"(?:[0-9]+(?:\.[0-9]+)?(?:h|m|s))+", value):
+        fail("duration must use positive Go-style units such as 24h, 90m, or 1h30m")
+    parts = re.findall(r"([0-9]+(?:\.[0-9]+)?)(h|m|s)", value)
+    seconds = sum(float(n) * {"h": 3600, "m": 60, "s": 1}[unit] for n, unit in parts)
+    if seconds <= 0 or seconds > 365 * 24 * 3600:
+        fail("duration must be greater than zero and at most one year")
+    return dt.timedelta(seconds=seconds)
+
+if len(sys.argv) == 2 and sys.argv[1] == "show":
+    print(json.dumps({"now": load().isoformat(timespec="seconds").replace("+00:00", "Z")}))
+elif len(sys.argv) == 3 and sys.argv[1] == "set":
+    try:
+        value = dt.datetime.fromisoformat(sys.argv[2].replace("Z", "+00:00"))
+    except ValueError:
+        fail("date must be RFC3339 with an explicit offset, for example 2026-10-13T02:00:00-03:00")
+    if value.tzinfo is None:
+        fail("date must include an explicit UTC offset")
+    save(value.astimezone(dt.timezone.utc))
+elif len(sys.argv) == 3 and sys.argv[1] == "advance":
+    save(load() + parse_duration(sys.argv[2]))
+else:
+    fail("usage: scripts/fe14-business-clock {show|set RFC3339|advance DURATION}")

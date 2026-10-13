@@ -13,10 +13,11 @@ import (
 )
 
 type Service struct {
-	repo  Repository
-	files FileStore
-	ids   IDGenerator
-	now   func() time.Time
+	repo      Repository
+	files     FileStore
+	ids       IDGenerator
+	now       func() time.Time
+	technical func() time.Time
 }
 
 func NewService(repo Repository, files FileStore, ids IDGenerator, now func() time.Time) (*Service, error) {
@@ -26,7 +27,7 @@ func NewService(repo Repository, files FileStore, ids IDGenerator, now func() ti
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repo: repo, files: files, ids: ids, now: now}, nil
+	return &Service{repo: repo, files: files, ids: ids, now: now, technical: time.Now}, nil
 }
 
 // Record adds one fixed server-generated PNG and commits its operation while
@@ -44,23 +45,25 @@ func (s *Service) Record(ctx context.Context, actor, reservation, key string, in
 	if err != nil || !idPattern.MatchString(fileID) {
 		return Item{}, ErrInvalid
 	}
-	created := s.now().UTC().Truncate(time.Microsecond)
+	// Candidate recovery is storage housekeeping, not a business transition;
+	// keep it on wall time so advancing the demo clock cannot trigger cleanup.
+	created := s.technical().UTC().Truncate(time.Microsecond)
 	if err = s.repo.ReserveCandidate(ctx, actor, reservation, input.Kind, fileID, created); err != nil {
 		return Item{}, fmt.Errorf("reserve private evidence candidate: %w", err)
 	}
 	writer, err := s.repo.BeginCandidate(ctx, actor, reservation, input.Kind, fileID)
 	if err != nil {
-		_ = s.repo.QueueCandidateCleanup(context.Background(), fileID, s.now().UTC())
+		_ = s.repo.QueueCandidateCleanup(context.Background(), fileID, s.technical().UTC())
 		return Item{}, fmt.Errorf("lock rental operation: %w", err)
 	}
 	defer func() { _ = writer.Close() }()
 	if err = s.files.Put(ctx, fileID, blob); err != nil {
-		_ = writer.QueueCleanup(context.Background(), s.now().UTC())
+		_ = writer.QueueCleanup(context.Background(), s.technical().UTC())
 		return Item{}, ErrFileStore
 	}
 	canonical, err := json.Marshal(input)
 	if err != nil {
-		_ = writer.QueueCleanup(context.Background(), s.now().UTC())
+		_ = writer.QueueCleanup(context.Background(), s.technical().UTC())
 		return Item{}, ErrInvalid
 	}
 	fingerprint := sha256.Sum256(canonical)
@@ -72,7 +75,7 @@ func (s *Service) Record(ctx context.Context, actor, reservation, key string, in
 		// QueueCandidateCleanup is harmless after such a commit, and recovers a
 		// file when the operation was rejected or the result was ambiguous.
 		_ = writer.Close()
-		_ = s.repo.QueueCandidateCleanup(context.Background(), fileID, s.now().UTC())
+		_ = s.repo.QueueCandidateCleanup(context.Background(), fileID, s.technical().UTC())
 		return Item{}, fmt.Errorf("commit rental operation: %w", err)
 	}
 	item.Reused = reused
@@ -132,13 +135,13 @@ func (s *Service) CleanRetiredOnce(ctx context.Context, limit int) error {
 	if limit < 1 || limit > 500 {
 		return ErrInvalid
 	}
-	ids, err := s.repo.ClaimCandidateCleanup(ctx, s.now().UTC(), limit)
+	ids, err := s.repo.ClaimCandidateCleanup(ctx, s.technical().UTC(), limit)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
 		if err = s.files.Delete(ctx, id); err != nil {
-			if err = s.repo.FailCandidateCleanup(ctx, id, s.now().UTC()); err != nil {
+			if err = s.repo.FailCandidateCleanup(ctx, id, s.technical().UTC()); err != nil {
 				return err
 			}
 			continue

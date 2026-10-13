@@ -1,0 +1,14 @@
+# Loaded only for the manual-clock acceptance run. The spec is local and ignored.
+services:
+  angular-frontend:
+    environment:
+      API_PUBLIC_BASE_URL: http://backend:8080/api/v1
+  angular-e2e:
+    environment:
+      FRONTEND_BASE_URL: http://angular-frontend:4000
+      PLAYWRIGHT_INSECURE_ORIGINS: http://angular-frontend:4000
+    volumes:
+      - type: bind
+        source: ${FE14_ACCEPTANCE_SPEC_HOST:?set the local FE14 acceptance spec path}
+        target: /workspace/e2e/fe14-business-clock.spec.cjs
+        read_only: true

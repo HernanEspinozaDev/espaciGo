@@ -54,6 +54,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
 	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/platform/businessclock"
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/health"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
@@ -126,6 +127,10 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid API configuration")
 	}
+	businessNow, err := businessclock.FromEnv(os.Getenv)
+	if err != nil {
+		return errors.New("invalid isolated business clock configuration")
+	}
 
 	pool, err := pgxpool.New(context.Background(), cfg.databaseURL())
 	if err != nil {
@@ -189,7 +194,7 @@ func run() error {
 		}
 		localPrivacyService = privacyService
 		privacyReplayRegistryPath = os.Getenv("LOCAL_PRIVACY_REPLAY_FILE")
-		disputeService, err := dispute.NewService(disputepg.New(pool), time.Now)
+		disputeService, err := dispute.NewService(disputepg.New(pool), businessNow)
 		if err != nil {
 			return errors.New("local dispute initialization failed")
 		}
@@ -265,11 +270,11 @@ func run() error {
 			if err != nil || len(paymentKey) < 32 {
 				return errors.New("local payment event authentication secret is invalid")
 			}
-			paymentAdapter, err := fakebooking.NewWithStore(paymentKey, bookingpg.New(pool))
+			paymentAdapter, err := fakebooking.NewWithStoreAndClock(paymentKey, bookingpg.New(pool), businessNow)
 			if err != nil {
 				return errors.New("local payment event authentication initialization failed")
 			}
-			bookingService, err := booking.NewServiceWithTTLs(bookingpg.New(pool), credentials.Generator{}, time.Now, paymentAdapter, quoteTTL, payTTL, hostTTL)
+			bookingService, err := booking.NewServiceWithTTLs(bookingpg.New(pool), credentials.Generator{}, businessNow, paymentAdapter, quoteTTL, payTTL, hostTTL)
 			if err != nil {
 				return errors.New("local booking trial initialization failed")
 			}
@@ -305,7 +310,7 @@ func run() error {
 			if err != nil {
 				return errors.New("local booking conversation initialization failed")
 			}
-			bookingHandler := bookinghttp.NewHandler(service, bookingService, cfg.allowedOrigins, conversationService)
+			bookingHandler := bookinghttp.NewHandlerWithClock(service, bookingService, cfg.allowedOrigins, businessNow, conversationService)
 			adminLocalService, err := adminlocal.New(pool, time.Now)
 			if err != nil {
 				return errors.New("local administration service initialization failed")
@@ -323,19 +328,19 @@ func run() error {
 			if localContractRepository == nil {
 				return errors.New("local contract encryption key is unavailable")
 			}
-			contractService, err := contract.NewService(localContractRepository, time.Now)
+			contractService, err := contract.NewService(localContractRepository, businessNow)
 			if err != nil {
 				return errors.New("local contract rehearsal initialization failed")
 			}
 			localContractService = contractService
 			registerContractRoutes(mux, contracthttp.NewHandler(service, contractService, cfg.allowedOrigins))
-			operationService, err := operation.NewService(operationspg.New(pool), evidenceStore, credentials.Generator{}, time.Now)
+			operationService, err := operation.NewService(operationspg.New(pool), evidenceStore, credentials.Generator{}, businessNow)
 			if err != nil {
 				return errors.New("local rental operation initialization failed")
 			}
 			localOperationService = operationService
 			registerOperationRoutes(mux, operationhttp.NewHandler(service, operationService, cfg.allowedOrigins))
-			claimService, err := damageclaim.NewWithEvidenceStore(damageclaimpg.New(pool), evidenceStore, time.Now)
+			claimService, err := damageclaim.NewWithEvidenceStore(damageclaimpg.New(pool), evidenceStore, businessNow)
 			if err != nil {
 				return errors.New("local damage claim initialization failed")
 			}

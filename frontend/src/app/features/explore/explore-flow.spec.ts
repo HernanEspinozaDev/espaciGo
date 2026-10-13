@@ -72,6 +72,7 @@ describe('authenticated explore to quote flow', () => {
       profile: vi
         .fn()
         .mockResolvedValue({ category_code: 'oficina', schema_version: 1, attributes: [] }),
+      businessClock: vi.fn().mockResolvedValue({ data: { now: '2026-10-13T05:30:00Z' } }),
       availability: vi.fn().mockResolvedValue({
         safety_notice: 'ENSAYO LOCAL — SIN COBRO REAL',
         data: {

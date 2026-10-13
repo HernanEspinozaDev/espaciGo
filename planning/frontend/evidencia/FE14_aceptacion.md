@@ -43,3 +43,100 @@ Cada JPEG es una captura real de Chromium con sesión sintética ya autenticada.
 ## Límites
 
 Estas capturas cubren estado de cuenta/privacidad, panel de anfitrión, cola administrativa y KYC después de restauración; las pruebas específicas por operación y sus capturas permanecen en FE-02–FE-13. FE-14 no repite todas las mutaciones de cada dominio. No es certificación WCAG. El mock sigue presente y no se retira antes de la aceptación explícita del usuario.
+
+
+## Demo de aceptación sobre main con la adecuación de #290
+
+- PR #290: aprobado y fusionado. SHA exacto de `main`: `b94dba37d80fa63c92d3e8aedffe8d6740ce2e0d`. La imagen Angular del stack se reconstruyó desde ese checkout y prerenderizó 3 rutas.
+- Stack aislado y activo: proyecto `espacigo_fe14_demo_18a028644c87`; volumen exclusivo `espacigo_fe14_demo_18a028644c87_pgdata`; Angular `http://127.0.0.1:18883/`, Go `http://127.0.0.1:18880/api/v1`, Mailpit `http://127.0.0.1:18882/`. Verificaciones: frontend HTTP 200, `/health/ready` de Go HTTP 200, CORS preflight HTTP 204, runtime config con `apiBaseUrl=http://127.0.0.1:18880/api/v1`.
+- Cuatro cuentas `.invalid` creadas por registro/verificación con Go y Mailpit. Go confirma `arrendatario`, `arrendador` y `administrador`; los roles especiales se añadieron únicamente al PostgreSQL exclusivo de demo. El tercero recibe HTTP 404 al consultar recursos ajenos.
+- El anfitrión y el arrendatario completaron KYC sintético por los formularios normales; la revisión/decisión fue realizada desde la cola Angular de administración, Go confirmó el resultado y ambas elegibilidades aparecieron como `Elegible`. El anfitrión guardó una tarifa horaria CLP 12.000, zona `America/Santiago` y publicó el borrador desde su panel normal; Go respondió HTTP 200 y la publicación apareció en búsqueda/detalle/horarios. No se asignaron roles por la UI.
+- Los secretos están en `.local/testing/fe14-demo/cuentas.md` y el JSON temporal local, ambos con modo `0600`, excluidos por `.git/info/exclude`/`.gitignore`; Bearer solo se usó en memoria durante las verificaciones. La guía local es `.local/testing/fe14-demo/README.md`; la pestaña del navegador quedó abierta en `/acceso`. No se publicaron secretos ni se cambió el worktree principal con cambios ajenos.
+- El mock permanece en el repositorio. FE-15 y la aceptación de FE-14 siguen pendientes de la decisión explícita del usuario.
+- Imágenes exactas reconstruidas desde el merge `b94dba37d80fa63c92d3e8aedffe8d6740ce2e0d`: Angular `sha256:9d7b0d000819b4596e8a5871d246aad8c5858519ac9e0ff16b338ae69e98f7a8`; API Go `sha256:44515588d20e8b551b083b7b10ee4e6d34d3fffb972f1ad5467551e353cebd6c`; PostgreSQL/PostGIS `sha256:1e1155e20be35662342e7edf68ed835da05f7bde5721a4d0119f0a2d8eefec1e`. La configuración local de endpoints y el inventario sintético permanecen bajo `.local/testing/fe14-demo/`; el inventario no contiene credenciales.
+
+
+## Recorrido Angular conectado a Go — 2026-10-13, HEAD `b94dba37`
+
+**Alcance demostrado:** se ejecutó sobre el merge exacto de #290, con Angular `http://127.0.0.1:18883` y Go `http://127.0.0.1:18880/api/v1`, proyecto/volumen desechables `espacigo_fe14_demo_18a028644c87` / `espacigo_fe14_demo_18a028644c87_pgdata`. Angular respondió HTTP 200, readiness Go HTTP 200 y CORS preflight HTTP 204. La cuenta runtime apuntó al API local. Las credenciales permanecen solo en `.local/testing/fe14-demo/cuentas.md` y `accounts.json` (0600, localmente excluidos); el runner solo puede leer el fixture de cuentas y no monta secretos del backend. El Bearer no se persistió en `localStorage` ni `sessionStorage`.
+
+| Paso | Resultado observado |
+| --- | --- |
+| KYC y elegibilidad | Dos participantes cargaron evidencia PNG fixture permitida; la cuenta admin revisó/aprobó en Angular. Go confirmó ambas elegibilidades. |
+| Publicación | El anfitrión guardó tarifa horaria CLP 12.000 y `America/Santiago`, luego publicó desde el panel normal. Go respondió 200; la búsqueda autenticada, el detalle y la disponibilidad de Go devolvieron datos. |
+| Búsqueda, cotización, reserva y pago | Angular consultó búsqueda/horarios, cotizó HTTP 200, creó reserva HTTP 201 y confirmó pago fake HTTP 200. Se usaron fechas/intervalos que devolvió Go. |
+| Garantía y decisión | La operación de autorización de garantía devolvió HTTP 202 con operación confirmada; la lectura posterior de Go mostró estado `autorizada`. La aprobación del anfitrión respondió HTTP 200. |
+| Contrato y PDF privado | El anfitrión y luego el arrendatario firmaron por Angular; Go dejó la reserva `lista_para_checkin` y el contrato `firmado` con dos firmas. La descarga autenticada de PDF comienza con `%PDF`. |
+| Exportaciones/tercero | JSON y ZIP se descargaron desde la vista privada del titular; se validaron alcance propio, `PK`, `manifest.json`/`data.json`, y ausencia de Bearer/contraseña en el JSON. La cuenta tercera obtuvo rechazo/404 y no vio el panel de contrato. |
+| Operación y finanzas | **Límite real:** el POST de check-in desde la UI recibió HTTP 409. Go exige que el check-in ocurra en el mismo día IANA del inicio; la reserva seleccionada inicia el 13-10-2026 a las 02:00 America/Santiago y la demo se ejecutó el 12-10 local a las 23:xx. La consulta Angular de intervalos para el día 12 no ofreció horarios. No se alteró reloj, inicio/fin, volumen persistente ni estado para sortear esta regla. Sin check-out confirmado no se solicita liquidación: Go aplica un plazo de 24 horas desde check-out. No se declara completada recepción, operación ni liquidación. |
+
+La reserva anterior del ensayo, cuyo inicio ya había pasado durante la ejecución prolongada, quedó `cancelada_por_firma` por expiración normal de Go. Se conserva como historial y no se reescribió. La reserva nueva para el 13-10 quedó firmada y lista para check-in, sin forzar operaciones. Los ensayos UI que validan 409 no cambiaron el estado.
+
+### Capturas de Chromium (JPEG real)
+
+Todas las medidas son CSS; el test comprobó que el ancho del documento no excediera el viewport. Los JPEG y JSON están en [`aceptacion-fe14-b94dba37/`](aceptacion-fe14-b94dba37/), capturados sobre el stack anterior y la vista señalada, sin correo ni contraseña.
+
+| Vista | Viewport | Documento | SHA-256 JPEG |
+| --- | ---: | ---: | --- |
+| Búsqueda móvil | 390×844 | 390×2461 | `37cedfae84b50da519b18f6e408d67083e3a2dcb257a294e3af2b4d4a820eb48` |
+| Búsqueda escritorio | 1365×900 | 1365×1672 | `467fbfcfa51726733975c1e1377c64dc885a02bec5cebd5dc69abfa37499fbb2` |
+| Detalle/horarios móvil | 390×844 | 390×2073 | `d15f2ee7b4a855c5a5c217df8a314efc038a5a162e6cd8064f14caa7a5aa7439` |
+| Detalle/horarios escritorio | 1365×900 | 1365×1320 | `e7db7714c8c58877d2f580ff4ec6164d11e069f4b85de9e5c8228f9c0f36f701` |
+| Pago fake móvil | 390×844 | 390×3643 | `6aa0b796bbd48ead3e81cb852b1eae841a758bfb8b5854e3a2dbd61733b893d8` |
+| Contrato/PDF privado móvil | 390×844 | 390×4688 | `c56665aae8e577e3fe3105d4a20a8f3facc9d0da25b288eeb0a233db58c349a2` |
+| Contrato/PDF privado escritorio | 1365×900 | 1365×4177 | `24154801bfb72b423044f009fd3fa10a192668491f6a143a911a995f0314afd0` |
+| Finanzas móvil | 390×844 | 390×3155 | `00a1b5e8fb65e6f0d069e02299397543c6cfaf420622718f11679687305cce15` |
+| Finanzas escritorio | 1365×900 | 1365×2144 | `b18e6b4d42db8b0e64b290d06943f4a5175c3fe06cac05e338eed8bb958d5aab` |
+| Privacidad/descargas móvil | 390×844 | 390×3216 | `19a3b3f020aa49c639bd15d79c2a2b04ec3c1b7e715c440ad14db2f7cad6caae` |
+| Privacidad/descargas escritorio | 1365×900 | 1365×2379 | `638a164d3c48a3c35f46ed6df665954cb10bcc66eaa55323bb46185c8ca366fa` |
+| Check-in rechazado por fecha | 390×844 | 390×4213 | `5caab99c973c7f17e9b7930efed7678500cfc18b7c74fe94a599f67799728949` |
+| Reserva `lista_para_checkin`, pago conservado y HTTP 409 vigente | 390×844 | 390×4213 | `801032ba7c8ba9b2e22956c6d4083b5d371d754b2b19a508766571ca0ecb48f8` |
+
+**Estado de aceptación:** evidencias y límites listos para revisión del usuario. La secuencia de operación posterior a la firma está pendiente porque el calendario de Go no habilita un intervalo local hoy; no se reemplaza con mocks ni con manipulación de fechas. No se declara FE-14 aceptado. El mock sigue presente y FE-15 no comenzó.
+
+## Reloj de negocio manual y operación completa — 2026-10-13
+
+Este seguimiento sustituye el límite temporal del recorrido anterior: el HTTP 409 anterior ocurrió antes del día IANA de check-in; no se cambió la fecha de reserva. Se añadió un reloj manual que aprovecha la inyección de `now` de los servicios y solo se activa en el compose desechable de FE-14. Al iniciar sin `LOCAL_DEMO_BUSINESS_CLOCK_FILE`, `businessclock.FromEnv` retorna `time.Now`; para demo exige también `LOCAL_BOOKING_TRIAL=1` y el path exacto `/run/fe14-demo/business-clock.json` (rechaza rutas alternativas y traversal). El override `compose.fe14-demo-clock.yaml` no pertenece al stack normal. `scripts/fe14-business-clock set RFC3339`, `advance DURATION` y `show` reemplazan atómicamente el archivo en el directorio dedicado montado al contenedor; la API ve el valor nuevo en caliente. El comando no usa `date`, privilegios ni cambios de reloj del host, y el modo de reloj no altera las reglas de negocio.
+
+Código publicado para esta revisión: `8c6e047ee06879b63f4e6b0f404000cdd5182fc6` (sobre PR #291 y base `b94dba37d80fa63c92d3e8aedffe8d6740ce2e0d`). La corrida visual del stack usó la imagen Angular `sha256:b295807aff562a443579df2429ca0f44606e137e5936be00b59c00f7074ea460`, API `sha256:b1c1ca391454f5d8cd8b319f213f2357a8b1ea3cf8083b326cef2dfd3431efc3` y PostgreSQL/PostGIS `sha256:a7f26f824f996e550f740445a4264611c172a688e679c3e1806908788343bd5f`, dentro del proyecto aislado `espacigo_fe14_demo_18a028644c87`. Las últimas correcciones separan la limpieza técnica de evidencia a hora real; no cambian la UI ni las reglas/horas de la secuencia registrada. Los tests del commit cubren que los eventos usan reloj inyectado mientras candidato/reintento de limpieza conserva hora de pared.
+
+| Hora local lógica | UTC | Resultado Angular/Go |
+| --- | --- | --- |
+| 2026-10-13 02:00:00 −03:00 | 05:00Z | Ambas firmas confirmadas; check-in por Angular HTTP 201; Go registró `registrada`. |
+| 2026-10-13 03:00:00 −03:00 | 06:00Z | Check-out Angular HTTP 201; recepción del anfitrión Angular HTTP 201 y `recepcion_conforme` confirmado por Go. Se solicitó liquidar antes del plazo: HTTP 409. |
+| 2026-10-14 03:00:00 −03:00 | 06:00Z | Al cumplirse checkout + 24 h, liberación de garantía por Angular HTTP 202. El primer intento de liquidación fue incierto; Angular concilió conservando el intento y Go respondió HTTP 200 con estado `liquidada` por CLP 12.000. |
+| 2026-10-14 03:30:00 −03:00 | 06:30Z | Prueba posterior del reloj en caliente: Go autenticado devolvió el nuevo instante sin reiniciar backend; Angular usó fecha `2026-10-14` en el selector de horarios del espacio `America/Santiago`. |
+
+El reloj lógico llega a reserva, contrato, operación, disputa y adaptador de pago fake a través de las dependencias existentes. Se revisaron fuentes SQL del corte: `now()` en `espacio_horario_semanal.actualizado_en` y `operacion_arriendo_evidencia_ensayo_local.archivo_retirado_en` solo registra escritura/limpieza, no decide elegibilidad de horario, operación ni liquidación; `clock_timestamp()` en retención de auditoría aplica una expiración técnica. La agenda/reintento de limpieza de evidencia y sus esperas usan hora real, separadas del timestamp del evento de operación. Autenticación y vencimiento de sesión conservan `time.Now`; límites, backoff y timeouts de transporte/DB siguen reales. Los fallbacks `time.Now` de adaptadores se usan si se construyen sin reloj y no reemplazan la inyección de `businessNow` en el API. También se dejaron en reloj real los metadatos de otros dominios que no participan en esta demostración (p. ej. cuenta, KYC, galería, conversación y avisos). Ningún timestamp se actualizó manualmente en SQL para producir los resultados.
+
+### Capturas de Chromium de la secuencia temporal
+
+Son JPEG reales de la vista conectada al stack Go sintético; las dimensiones son CSS de la imagen full-page. SHA-256 se calcula sobre los archivos publicados aquí.
+
+| Estado | Viewport o captura | Documento/JPEG | SHA-256 |
+| --- | ---: | ---: | --- |
+| Detalle firmado listo para check-in | móvil 390×844 | 390×4688 | `86c2e4bfc6290409d547fae3d696f1069fb077aa80e42e6dbe73bb1d33ff5ebf` |
+| “Hoy” leído de Go (`2026-10-14`) | móvil 390×844 | 390×2073 | `bfcaf05b0624eb3c4769b5e9158f1197bca8b802002fb015336c5bc0a6f4ff00` |
+| Check-out confirmado | escritorio 1365×900 | 1365×4060 | `2a67d10e009286d4271dc9fda42c79d4306e2099902619c13a70721910cb29a9` |
+| Recepción confirmada | móvil 390×844 | 390×4512 | `4c6365ebb2175ad52691b67e894f4d25da7d22251769e657c39549135e0ec113` |
+| Rechazo antes de 24 h | escritorio 1365×900 | 1365×2209 | `2f6625079580187c491af0ba8f38dce4de72473f2552c1ba2703e082ee80ec49` |
+| Liquidación fake confirmada | escritorio 1365×900 | 1365×2144 | `bff8f56997a551ea416b8934fc278c4cb8438e293d8c977c0fdff4d73dd8b289` |
+
+Los JSON completos de prueba están en `.local/testing/fe14-demo/artifacts/`, excluidos localmente; el artefacto de aceptación público omite cuentas, tokens, logs y archivos privados. La imagen Android hoy muestra la fecha devuelta por Go y la zona, no datos de identidad. Resultados estructurados no secretos: `fe14_manual_clock_predeadline_results.json` (409 antes del plazo, check-out y recepción 201) y `fe14_manual_clock_results.json` (plazo, operación incierta y conciliación HTTP 200 con `liquidada`). La configuración de reloj terminó en 2026-10-14T06:30:00Z solo después de la liquidación, para verificar propagación en caliente.
+
+**Gates del árbol actualizado:** Go: paquete del reloj, pago fake, HTTP booking y servicios de reserva/contrato/operación/disputa/reclamo: pasan; Angular: 180 pruebas en 32 archivos; generación OpenAPI/`api:check`: pasa con `ng serve` detenido; `npm run build`: pasa con tres rutas prerenderizadas. Los E2E de roles/descargas/caída y restauración de #289 se conservan como ejecución anterior. Sin efecto sobre la aceptación: FE-14 sigue esperando decisión explícita, mock presente y FE-15 no iniciado.
+
+
+## Revisión adicional de FE-14 — pago confirmado y operaciones (2026-10-13)
+
+El inventario inicial que decía `borrador`/KYC `en_revision` quedó supersedido por el recorrido conectado. `.local/testing/fe14-demo/fixture-manifest.md` ahora enumera KYC aprobado/elegible para ambos participantes, publicación normal activa y reserva `2e80f28e-6bbf-4213-bb59-a06079dd31c3` en `lista_para_checkin`. No contiene credenciales; las credenciales siguen solo en los archivos locales ignorados con modo 0600.
+
+Se corrigió el resumen del detalle para que no pierda el pago ya confirmado por Go cuando la reserva avanza. La regresión de componente con `IdentitySession` real recorre `pagada → aprobada_host → firma_parcial → lista_para_checkin`, refresca desde Go en cada avance y mantiene “Confirmado por Go”. En la sesión Angular conectada el resumen aparece también para la reserva viva en `lista_para_checkin`.
+
+El runtime local de Angular se corrigió fuera del código del PR: `/config.json` anuncia `apiBaseUrl=http://127.0.0.1:18880/api/v1`. Readiness Go y Angular devolvieron HTTP 200. A las 23:xx del 12-10 en `America/Santiago`, Go rechazó el check-in desde la UI con HTTP 409: la reserva inicia el 13-10 a las 02:00 IANA. No se cambió fecha, hora, reloj, estado ni volumen. Por la misma regla no se registraron check-out ni recepción; ambos siguen pendientes hasta que Go autorice el check-in y la operación. La captura real de Chromium/Angular es [`fe14_acceptance_checkin_waiting_for_iana_day_mobile.jpg`](aceptacion-fe14-b94dba37/fe14_acceptance_checkin_waiting_for_iana_day_mobile.jpg); su JSON asociado registra viewport 390×844 CSS px y documento 390×4213. SHA-256 JPEG `801032ba7c8ba9b2e22956c6d4083b5d371d754b2b19a508766571ca0ecb48f8`. La imagen muestra el pago confirmado, reserva lista y el resultado del check-in; no muestra correo ni contraseña.
+
+La liquidación viva no es elegible sin check-out y 24 horas reales. Se ejecutó, en cambio, `TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay` con un PostgreSQL/PostGIS nuevo efímero sobre `tmpfs`, ajeno al stack de demo y al volumen persistente. Pasó el avance de reloj sustituible hasta el límite exacto, liquidación fake, cierre, comprobante único/replay y conciliación; el contenedor temporal se eliminó al terminar. Esto cubre el camino aislado previsto en el plan y no modifica las fechas del fixture vivo.
+
+**Gates del cambio:** Angular 179 pruebas/32 archivos; `npm run api:check` pasó; `npm run build` pasó y prerenderizó 3 rutas; la prueba Go aislada indicada pasó. E2E de roles, descargas y caída/restauración siguen como evidencia previa del merge #290; el recorrido vivo de check-in quedó bloqueado por el día local IANA, así que no se reportan check-out/recepción completados.
+
+Se solicita revisión adicional en [PR #291](https://github.com/HernanEspinozaDev/espaciGo/pull/291) antes de cerrar la aceptación FE-14. El mock permanece y FE-15 no se inicia hasta la aceptación explícita del usuario.

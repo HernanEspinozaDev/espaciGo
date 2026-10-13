@@ -101,6 +101,9 @@ type PageAccess = {
   pay(): Promise<void>;
   cancel(): Promise<void>;
   refund(): Promise<void>;
+  decide(value: 'aprobar' | 'rechazar'): Promise<void>;
+  refreshAfterLifecycle(): void;
+  paymentConfirmed(item: LocalBookingDetail): boolean;
   reservation(): LocalBookingDetail | null;
   uncertainNotice(): string;
   error(): string;
@@ -189,6 +192,116 @@ describe('BookingDetailPage with real IdentitySession', () => {
     expect(api.payment).toHaveBeenNthCalledWith(2, 'token-a', 'r1', 'sin_respuesta', first?.key);
     expect(attempts.find('renter-a', 'r1:payment')?.key).toBe(first?.key);
     expect(view.paymentOutcome()).toBe('exito');
+    fixture.destroy();
+  });
+
+  it('keeps Go-confirmed payment visible after host approval and later contract lifecycle transitions', async () => {
+    const paid = makeReservation('r1', 'renter-a', 'pagada', {
+      history: [
+        {
+          sequence: 2,
+          from: 'pendiente_de_pago',
+          to: 'pagada',
+          reason: '',
+          at: '2026-10-12T12:00:00Z',
+        },
+      ],
+    });
+    let refreshed = paid;
+    const api = {
+      detail: vi.fn(async () => envelope(refreshed)),
+      payment: vi.fn(),
+      decision: vi.fn(async () => {
+        refreshed = makeReservation('r1', 'renter-a', 'aprobada_host', {
+          history: [
+            ...paid.history,
+            {
+              sequence: 3,
+              from: 'pagada',
+              to: 'aprobada_host',
+              reason: '',
+              at: '2026-10-12T12:01:00Z',
+            },
+          ],
+        });
+        return envelope(refreshed);
+      }),
+      cancellationPreview: vi.fn(),
+      cancel: vi.fn(),
+      refund: vi.fn(),
+    };
+    const { fixture, identity } = setup(api, {
+      login: vi.fn(async () => makeLogin('host-1', 'token-host')),
+      session: vi.fn(async () => ({
+        account_id: 'host-1',
+        roles: ['arrendador'],
+        restricted_mode: false,
+      })),
+    });
+    await identity.signIn('host@example.invalid', 'secret');
+    await settle(fixture);
+    const view = page(fixture);
+    expect(fixture.nativeElement.textContent).toContain('Confirmado por Go');
+
+    await view.decide('aprobar');
+    await settle(fixture);
+    expect(view.reservation()?.state).toBe('aprobada_host');
+    expect(fixture.nativeElement.textContent).toContain('Confirmado por Go');
+
+    refreshed = makeReservation('r1', 'renter-a', 'firma_parcial', {
+      history: [
+        ...paid.history,
+        {
+          sequence: 3,
+          from: 'pagada',
+          to: 'aprobada_host',
+          reason: '',
+          at: '2026-10-12T12:01:00Z',
+        },
+        {
+          sequence: 4,
+          from: 'aprobada_host',
+          to: 'firma_parcial',
+          reason: '',
+          at: '2026-10-12T12:02:00Z',
+        },
+      ],
+    });
+    view.refreshAfterLifecycle();
+    await settle(fixture);
+    expect(view.reservation()?.state).toBe('firma_parcial');
+    expect(fixture.nativeElement.textContent).toContain('Confirmado por Go');
+
+    refreshed = makeReservation('r1', 'renter-a', 'lista_para_checkin', {
+      history: [
+        ...paid.history,
+        {
+          sequence: 3,
+          from: 'pagada',
+          to: 'aprobada_host',
+          reason: '',
+          at: '2026-10-12T12:01:00Z',
+        },
+        {
+          sequence: 4,
+          from: 'aprobada_host',
+          to: 'firma_parcial',
+          reason: '',
+          at: '2026-10-12T12:02:00Z',
+        },
+        {
+          sequence: 5,
+          from: 'firma_parcial',
+          to: 'lista_para_checkin',
+          reason: '',
+          at: '2026-10-12T12:03:00Z',
+        },
+      ],
+    });
+    view.refreshAfterLifecycle();
+    await settle(fixture);
+    expect(view.reservation()?.state).toBe('lista_para_checkin');
+    expect(fixture.nativeElement.textContent).toContain('Confirmado por Go');
     fixture.destroy();
   });
 

@@ -521,6 +521,12 @@ export type LocalAvailabilityOptionsEnvelope = {
     data: LocalAvailabilityOptions;
 };
 
+export type LocalBusinessClockEnvelope = {
+    data: {
+        now: string;
+    };
+};
+
 export type LocalAvailabilityOptions = {
     space_id: string;
     time_zone: string;
@@ -4713,6 +4719,31 @@ export type GetAuthorizedLocalFixtureAvailabilityOptionsResponses = {
 };
 
 export type GetAuthorizedLocalFixtureAvailabilityOptionsResponse = GetAuthorizedLocalFixtureAvailabilityOptionsResponses[keyof GetAuthorizedLocalFixtureAvailabilityOptionsResponses];
+
+export type GetLocalBusinessClockData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/local/booking-trial/business-clock';
+};
+
+export type GetLocalBusinessClockErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+};
+
+export type GetLocalBusinessClockError = GetLocalBusinessClockErrors[keyof GetLocalBusinessClockErrors];
+
+export type GetLocalBusinessClockResponses = {
+    /**
+     * Instante lógico UTC confirmado por Go.
+     */
+    200: LocalBusinessClockEnvelope;
+};
+
+export type GetLocalBusinessClockResponse = GetLocalBusinessClockResponses[keyof GetLocalBusinessClockResponses];
 
 export type GetOwnSyntheticHourlyWeeklyHoursData = {
     body?: never;

@@ -26,10 +26,15 @@ type Handler struct {
 	auth         Authenticator
 	service      *booking.Service
 	conversation *conversation.Service
+	now          func() time.Time
 	origins      map[string]bool
 }
 
 func NewHandler(auth Authenticator, service *booking.Service, origins []string, conversations ...*conversation.Service) http.Handler {
+	return NewHandlerWithClock(auth, service, origins, time.Now, conversations...)
+}
+
+func NewHandlerWithClock(auth Authenticator, service *booking.Service, origins []string, now func() time.Time, conversations ...*conversation.Service) http.Handler {
 	allowed := map[string]bool{}
 	for _, o := range origins {
 		allowed[o] = true
@@ -38,7 +43,10 @@ func NewHandler(auth Authenticator, service *booking.Service, origins []string, 
 	if len(conversations) > 0 {
 		conversationService = conversations[0]
 	}
-	return &Handler{auth: auth, service: service, conversation: conversationService, origins: allowed}
+	if now == nil {
+		now = time.Now
+	}
+	return &Handler{auth: auth, service: service, conversation: conversationService, now: now, origins: allowed}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +117,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := principal.AccountID
+	if path == base+"/business-clock" && r.Method == http.MethodGet {
+		write(w, http.StatusOK, map[string]any{"data": map[string]string{"now": h.now().UTC().Format(time.RFC3339Nano)}})
+		return
+	}
 	if path == "/api/v1/admin/local/audit-events" || path == "/api/v1/admin/local/audit-events/export" || path == "/api/v1/admin/local/reservations" || strings.HasPrefix(path, "/api/v1/admin/local/reservations/") {
 		admin, authErr := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), identity.RoleAdministrator, identity.UserOperation)
 		if authErr != nil {

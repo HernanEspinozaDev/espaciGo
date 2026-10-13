@@ -286,7 +286,9 @@ export class SpaceDetailFacade implements OnInit {
       const profile = await this.api.profile(token, item.category_code);
       if (!this.isCurrent(generation, token, session, id)) return;
       this.profile.set(profile);
-      this.date.set(localDateInZone(item.time_zone));
+      const clock = await this.api.businessClock(token);
+      if (!this.isCurrent(generation, token, session, id)) return;
+      this.date.set(localDateInZone(item.time_zone, clock.data.now));
       await this.loadAvailability();
     } catch (error) {
       if (this.handleUnauthorized(error, token)) return;
@@ -333,13 +335,13 @@ export class SpaceDetailFacade implements OnInit {
   }
 }
 
-function localDateInZone(timeZone: string): string {
+function localDateInZone(timeZone: string, instant: string): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).formatToParts(new Date());
+  }).formatToParts(new Date(instant));
   const value = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
   return `${value('year')}-${value('month')}-${value('day')}`;
 }

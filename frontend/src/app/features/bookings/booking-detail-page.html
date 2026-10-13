@@ -19,7 +19,10 @@
         {{ item.time_zone }}
       </p>
       <p>
-        <a appButton="secondary" class="button secondary" [routerLink]="['/reservas', item.id, 'disputas']"
+        <a
+          appButton="secondary"
+          class="button secondary"
+          [routerLink]="['/reservas', item.id, 'disputas']"
           >Incidencias y finanzas de esta reserva</a
         >
       </p>
@@ -44,9 +47,9 @@
           <dt>Pago fake</dt>
           <dd>
             {{
-              item.state === 'pendiente_de_pago'
+              item.state === 'pendiente_de_pago' && !paymentConfirmed(item)
                 ? 'Sin confirmar'
-                : item.state === 'pagada' || item.state === 'aprobada_host'
+                : paymentConfirmed(item)
                   ? 'Confirmado por Go'
                   : 'No confirmado o no aplicable'
             }}
