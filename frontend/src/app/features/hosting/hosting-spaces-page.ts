@@ -39,6 +39,12 @@ export class HostingSpacesPage {
     ),
     title: this.controls.forProperty(this.facade.form, 'title'),
     address: this.controls.forProperty(this.facade.form, 'address'),
+    region_code: this.controls.forProperty(
+      this.facade.form,
+      'region_code',
+      this.facade.regionChanged.bind(this.facade),
+    ),
+    comuna_code: this.controls.forProperty(this.facade.form, 'comuna_code'),
     description: this.controls.forProperty(this.facade.form, 'description'),
     area_m2: this.controls.forProperty(this.facade.form, 'area_m2'),
     capacity: this.controls.forProperty(this.facade.form, 'capacity'),
@@ -55,6 +61,25 @@ export class HostingSpacesPage {
   }
   get categories() {
     return this.facade.categories;
+  }
+  get publicLocations() {
+    return this.facade.publicLocations;
+  }
+  get publicRegions() {
+    const regions = new Map<string, string>();
+    for (const location of this.facade.publicLocations())
+      regions.set(location.region_code, location.region_name);
+    return [...regions].map(([code, name]) => ({ code, name }));
+  }
+  get publicCommunes() {
+    const regionCode = this.facade.form.region_code;
+    return this.facade.publicLocations().filter((location) => location.region_code === regionCode);
+  }
+  get locationsLoading() {
+    return this.facade.locationsLoading;
+  }
+  get locationsError() {
+    return this.facade.locationsError;
   }
   get selectedSpace() {
     return this.facade.selectedSpace;
@@ -161,6 +186,7 @@ export class HostingSpacesPage {
   readonly load = this.facade.load.bind(this.facade);
   readonly loadSpace = this.facade.loadSpace.bind(this.facade);
   readonly categoryChanged = this.facade.categoryChanged.bind(this.facade);
+  readonly regionChanged = this.facade.regionChanged.bind(this.facade);
   readonly createDraft = this.facade.createDraft.bind(this.facade);
   readonly saveDraft = this.facade.saveDraft.bind(this.facade);
   readonly savePublishedContent = this.facade.savePublishedContent.bind(this.facade);

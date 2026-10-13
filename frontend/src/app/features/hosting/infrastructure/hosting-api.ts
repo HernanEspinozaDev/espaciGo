@@ -11,6 +11,7 @@ import type {
   ManualBlockList,
   PriceSimulation,
   PriceSimulationInput,
+  PublicLocationList,
   PublishedSpaceContentInput,
   Rate,
   RateInput,
@@ -43,6 +44,14 @@ export class HostingApi extends HostingPort {
   }
   async categories(token: string): Promise<SpaceCategoryList> {
     return unwrap(await this.sdk.listSpaceCategories({ headers: auth(token) }));
+  }
+  async publicLocations(): Promise<PublicLocationList> {
+    const base = this.runtime.apiBaseUrl();
+    if (!base) throw new HostingApiError('La API todavía no está configurada.');
+    const text = await firstValueFrom(
+      this.http.get(`${base}/public/locations`, { responseType: 'text' }),
+    );
+    return parseExactClpJson<PublicLocationList>(text);
   }
   async profile(
     token: string,

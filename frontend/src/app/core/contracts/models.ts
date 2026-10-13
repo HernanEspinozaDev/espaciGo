@@ -401,6 +401,8 @@ export type PublishedSpaceContentInput = {
   capacity?: number;
   usage_rules?: string;
   base_price_clp?: number;
+  region_code?: string;
+  comuna_code?: string;
 };
 
 export type Rate = {
@@ -464,6 +466,17 @@ export type SpaceCategoryList = {
   items: Array<SpaceCategory>;
 };
 
+export type PublicLocation = {
+  region_code: string;
+  region_name: string;
+  comuna_code: string;
+  comuna_name: string;
+};
+
+export type PublicLocationList = {
+  items: Array<PublicLocation>;
+};
+
 export type SpaceDeletionReceipt = {
   space_id: string;
   state: 'eliminada';
@@ -491,6 +504,8 @@ export type SpaceDraft = {
    * Zona IANA propia; puede ser nula en datos heredados pendientes de reparación.
    */
   time_zone?: string;
+  region_code?: string;
+  comuna_code?: string;
   attribute_schema_version: number;
   /**
    * Características declaradas y validadas por el perfil versionado.
@@ -517,6 +532,8 @@ export type SpaceDraftInput = {
    * Dirección privada del borrador.
    */
   address: string;
+  region_code?: string;
+  comuna_code?: string;
   /**
    * Versión del perfil de atributos; se asume la vigente si se omite.
    */

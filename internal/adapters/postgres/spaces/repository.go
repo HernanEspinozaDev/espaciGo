@@ -26,14 +26,14 @@ func New(pool *pgxpool.Pool, ids identity.CredentialGenerator) *Repository {
 	return &Repository{pool: pool, ids: ids}
 }
 
-const fields = `e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::float8,e.capacidad_maxima,e.reglas_uso,e.modalidad_tarifa,e.precio_base_clp,e.direccion,e.estado,COALESCE(ec.perfil_version,1),COALESCE(ec.valores,'{}'::jsonb),e.zona_horaria,COALESCE(e.portada_foto_id::text,'')`
+const fields = `e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::float8,e.capacidad_maxima,e.reglas_uso,e.modalidad_tarifa,e.precio_base_clp,e.direccion,e.estado,COALESCE(ec.perfil_version,1),COALESCE(ec.valores,'{}'::jsonb),e.zona_horaria,COALESCE(e.portada_foto_id::text,''),e.region_codigo,e.comuna_codigo`
 const joins = ` FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo LEFT JOIN public.espacio_caracteristicas ec ON ec.espacio_id=e.id`
 
 func scan(row pgx.Row) (spaces.Draft, error) {
 	var d spaces.Draft
 	var raw []byte
 	var coverPhotoID string
-	err := row.Scan(&d.ID, &d.CategoryCode, &d.CategoryName, &d.Title, &d.Description, &d.AreaM2, &d.Capacity, &d.UsageRules, &d.RateUnit, &d.BasePriceCLP, &d.Address, &d.State, &d.AttributeSchemaVersion, &raw, &d.TimeZone, &coverPhotoID)
+	err := row.Scan(&d.ID, &d.CategoryCode, &d.CategoryName, &d.Title, &d.Description, &d.AreaM2, &d.Capacity, &d.UsageRules, &d.RateUnit, &d.BasePriceCLP, &d.Address, &d.State, &d.AttributeSchemaVersion, &raw, &d.TimeZone, &coverPhotoID, &d.RegionCode, &d.CommuneCode)
 	if err == nil {
 		if coverPhotoID != "" {
 			d.CoverPhotoID = &coverPhotoID
@@ -109,7 +109,7 @@ func (r *Repository) Create(ctx context.Context, owner string, in spaces.Input) 
 	if err := lockActiveOwner(ctx, tx, owner); err != nil {
 		return spaces.Draft{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, owner, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address)
+	_, err = tx.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,ubicacion_catalogo_version,region_codigo,comuna_codigo) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CASE WHEN $12='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,NULLIF($12,''),NULLIF($13,''))`, id, owner, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address, in.RegionCode, in.CommuneCode)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
@@ -380,11 +380,11 @@ func (r *Repository) UpdatePublishedOwn(ctx context.Context, owner, id string, i
 	if err := lockActiveOwner(ctx, tx, owner); err != nil {
 		return spaces.Draft{}, err
 	}
-	var oldTitle, oldDescription, oldUsageRules, rateUnit string
+	var oldTitle, oldDescription, oldUsageRules, rateUnit, oldRegionCode, oldCommuneCode string
 	var oldCapacity int32
 	var oldPrice int64
-	err = tx.QueryRow(ctx, `SELECT titulo,descripcion,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp FROM public.espacio
-		WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta') FOR UPDATE`, owner, id).Scan(&oldTitle, &oldDescription, &oldCapacity, &oldUsageRules, &rateUnit, &oldPrice)
+	err = tx.QueryRow(ctx, `SELECT titulo,descripcion,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,COALESCE(region_codigo,''),COALESCE(comuna_codigo,'') FROM public.espacio
+		WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta') FOR UPDATE`, owner, id).Scan(&oldTitle, &oldDescription, &oldCapacity, &oldUsageRules, &rateUnit, &oldPrice, &oldRegionCode, &oldCommuneCode)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
@@ -416,9 +416,17 @@ func (r *Repository) UpdatePublishedOwn(ctx context.Context, owner, id string, i
 	if in.UsageRules != nil && *in.UsageRules != oldUsageRules {
 		nextUsageRules = *in.UsageRules
 	}
-	if nextTitle != nil || nextDescription != nil || nextCapacity != nil || nextUsageRules != nil || nextPrice != nil {
-		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),descripcion=COALESCE($4,descripcion),capacidad_maxima=COALESCE($5,capacidad_maxima),reglas_uso=COALESCE($6,reglas_uso),precio_base_clp=COALESCE($7,precio_base_clp),actualizado_en=now()
-			WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta')`, owner, id, nextTitle, nextDescription, nextCapacity, nextUsageRules, nextPrice); err != nil {
+	var nextLocationVersion, nextRegionCode, nextCommuneCode any
+	updateLocation := false
+	if in.RegionCode != nil && in.CommuneCode != nil && (*in.RegionCode != oldRegionCode || *in.CommuneCode != oldCommuneCode) {
+		updateLocation = true
+		if *in.RegionCode != "" {
+			nextLocationVersion, nextRegionCode, nextCommuneCode = spaces.PublicLocationCatalogVersion, *in.RegionCode, *in.CommuneCode
+		}
+	}
+	if nextTitle != nil || nextDescription != nil || nextCapacity != nil || nextUsageRules != nil || nextPrice != nil || updateLocation {
+		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),descripcion=COALESCE($4,descripcion),capacidad_maxima=COALESCE($5,capacidad_maxima),reglas_uso=COALESCE($6,reglas_uso),precio_base_clp=COALESCE($7,precio_base_clp),ubicacion_catalogo_version=CASE WHEN $8 THEN $9 ELSE ubicacion_catalogo_version END,region_codigo=CASE WHEN $8 THEN $10 ELSE region_codigo END,comuna_codigo=CASE WHEN $8 THEN $11 ELSE comuna_codigo END,actualizado_en=now()
+			WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta')`, owner, id, nextTitle, nextDescription, nextCapacity, nextUsageRules, nextPrice, updateLocation, nextLocationVersion, nextRegionCode, nextCommuneCode); err != nil {
 			return spaces.Draft{}, mapError(err)
 		}
 	}
@@ -451,7 +459,7 @@ func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
-	tag, err := tx.Exec(ctx, `UPDATE public.espacio SET categoria_codigo=$3,titulo=$4,descripcion=$5,superficie_m2=$6,capacidad_maxima=$7,reglas_uso=$8,modalidad_tarifa=$9,precio_base_clp=$10,direccion=$11,actualizado_en=now() WHERE propietario_id=$1 AND id=$2 AND estado='borrador'`, owner, id, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address)
+	tag, err := tx.Exec(ctx, `UPDATE public.espacio SET categoria_codigo=$3,titulo=$4,descripcion=$5,superficie_m2=$6,capacidad_maxima=$7,reglas_uso=$8,modalidad_tarifa=$9,precio_base_clp=$10,direccion=$11,ubicacion_catalogo_version=CASE WHEN $12='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,region_codigo=NULLIF($12,''),comuna_codigo=NULLIF($13,''),actualizado_en=now() WHERE propietario_id=$1 AND id=$2 AND estado='borrador'`, owner, id, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address, in.RegionCode, in.CommuneCode)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}

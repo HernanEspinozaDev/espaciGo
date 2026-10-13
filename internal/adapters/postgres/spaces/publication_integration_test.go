@@ -22,6 +22,7 @@ import (
 	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
 	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
+	publiccatalogpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/publiccatalog"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
@@ -30,6 +31,8 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
+	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
+	publiccataloghttp "github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
 	"github.com/jackc/pgx/v5"
@@ -471,6 +474,22 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if err != nil || updated.State != "activa" || updated.Title != newTitle || updated.BasePriceCLP != newPrice {
 		t.Fatalf("stale title-only listing edit=%+v err=%v", updated, err)
 	}
+	regionCode, communeCode := "13", "13123"
+	updated, err = svc.UpdatePublishedOwn(ctx, owner, fixtureDraft.ID, spaces.PublishedContentInput{RegionCode: &regionCode, CommuneCode: &communeCode})
+	if err != nil || updated.State != "activa" || updated.RegionCode == nil || *updated.RegionCode != regionCode || updated.CommuneCode == nil || *updated.CommuneCode != communeCode {
+		t.Fatalf("active public location edit=%+v err=%v", updated, err)
+	}
+	publicService, err := publiccatalog.New(publiccatalogpg.New(pool), []byte("space-public-search-test-master-key-32"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicHandler := publiccataloghttp.New(publicService)
+	publicQuery := "/api/v1/public/spaces?q=" + url.QueryEscape("Título publicado editado") + "&region_code=13&comuna_code=13123"
+	publicResponse := httptest.NewRecorder()
+	publicHandler.ServeHTTP(publicResponse, httptest.NewRequest(http.MethodGet, publicQuery, nil))
+	if publicResponse.Code != http.StatusOK || !strings.Contains(publicResponse.Body.String(), fixtureDraft.ID) || !strings.Contains(publicResponse.Body.String(), `"region_code":"13"`) || strings.Contains(publicResponse.Body.String(), "Dirección privada") {
+		t.Fatalf("public search after owner content/location edit status=%d body=%s", publicResponse.Code, publicResponse.Body.String())
+	}
 	newDescription := "Descripción sintética nueva para validar la edición de los datos propios que se muestran en la publicación local."
 	newCapacity := int32(6)
 	newRules := "Respetar los horarios y dejar el espacio limpio"
@@ -493,6 +512,11 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	}
 	if _, err = svc.SetPublicationState(ctx, owner, fixtureDraft.ID, "oculta", "hide-after-edit"); err != nil {
 		t.Fatal(err)
+	}
+	publicResponse = httptest.NewRecorder()
+	publicHandler.ServeHTTP(publicResponse, httptest.NewRequest(http.MethodGet, publicQuery, nil))
+	if publicResponse.Code != http.StatusOK || strings.Contains(publicResponse.Body.String(), fixtureDraft.ID) {
+		t.Fatalf("hidden listing remained in public search status=%d body=%s", publicResponse.Code, publicResponse.Body.String())
 	}
 	newHiddenTitle := "Título oculto editado"
 	updated, err = svc.UpdatePublishedOwn(ctx, owner, fixtureDraft.ID, spaces.PublishedContentInput{Title: &newHiddenTitle})

@@ -156,6 +156,81 @@ test('Typed hosting form creates and edits a synthetic draft through Go', async 
   await takeScreenshot(page, 'fe14_architecture_host_mobile');
 });
 
+test('MPV2-03 host publishes public region and commune; anonymous visitor finds minimized listing', async ({ browser }) => {
+  const title = `Sala MPV2-03 ${Date.now()}`;
+  const host = await browser.newPage({ viewport: { width: 1365, height: 900 }, deviceScaleFactor: 1 });
+  await login(host, accounts.host);
+  await host.getByRole('link', { name: 'Anfitrión', exact: true }).click();
+  await expect(host.getByRole('heading', { name: 'Mis espacios' })).toBeVisible();
+  await host.getByRole('combobox', { name: 'Categoría', exact: true }).selectOption('oficina');
+  await expect(host.locator('[name="publicRegion"]')).toBeEnabled();
+  await host.getByLabel('Título', { exact: true }).fill('Borrador MPV2-03');
+  await host.getByLabel('Descripción', { exact: true }).fill('Descripción sintética suficientemente extensa para publicar y validar la búsqueda pública en la región seleccionada.');
+  await host.getByLabel('Superficie (m²)', { exact: true }).fill('35');
+  await host.getByLabel('Capacidad', { exact: true }).fill('5');
+  await host.getByLabel('Tarifa base inicial (CLP)', { exact: false }).fill('12000');
+  await host.getByLabel('Dirección privada', { exact: false }).fill('Dirección confidencial MPV2-03 987');
+  await host.locator('[name="publicRegion"]').selectOption('13');
+  await host.locator('[name="publicCommune"]').selectOption('13123');
+  await host.getByLabel('Reglas de uso', { exact: true }).fill('Prueba de publicación sintética.');
+  const createdResponse = host.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/api/v1/spaces'));
+  await host.getByRole('button', { name: 'Crear borrador', exact: true }).click();
+  const created = await createdResponse;
+  expect(created.status()).toBe(201);
+  const draft = await created.json();
+  expect(draft.region_code).toBe('13');
+  expect(draft.comuna_code).toBe('13123');
+  await expect(host.getByLabel('Título', { exact: true })).toHaveValue('Borrador MPV2-03');
+  await host.getByLabel('Título', { exact: true }).fill(title);
+  const updatedResponse = host.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/api/v1/spaces/${draft.id}`));
+  await host.getByRole('button', { name: 'Guardar cambios del borrador', exact: true }).click();
+  expect((await updatedResponse).status()).toBe(200);
+  await host.getByRole('button', { name: 'Calendario', exact: true }).click();
+  await host.getByLabel('Zona horaria IANA').fill('America/Santiago');
+  const zoneResponse = host.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/api/v1/spaces/${draft.id}/availability`));
+  await host.getByRole('button', { name: 'Guardar zona', exact: true }).click();
+  expect((await zoneResponse).status()).toBe(200);
+  await host.getByRole('button', { name: 'Datos', exact: true }).click();
+  const publishResponse = host.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/api/v1/spaces/${draft.id}/publication`));
+  await host.getByRole('button', { name: 'Publicar', exact: true }).click();
+  expect((await publishResponse).status()).toBe(200);
+  await expect(host.getByText('Publicada', { exact: true })).toBeVisible();
+  await takeScreenshot(host, 'fe14_mpv2_03_host_desktop');
+  await host.setViewportSize({ width: 390, height: 844 });
+  await takeScreenshot(host, 'fe14_mpv2_03_host_mobile', true);
+  await host.close();
+
+  const visitor = await browser.newPage({ viewport: { width: 1365, height: 900 }, deviceScaleFactor: 1 });
+  let searchRequest;
+  visitor.on('request', request => {
+    if (request.method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(request.url())) searchRequest = request;
+  });
+  await visitor.goto('/explorar');
+  await visitor.getByLabel('Buscar', { exact: true }).fill(title);
+  await visitor.getByLabel('Región').selectOption('13');
+  await visitor.getByLabel('Comuna').selectOption('13123');
+  const searchResponse = visitor.waitForResponse(response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url()));
+  await visitor.getByRole('button', { name: 'Buscar espacios' }).click();
+  expect((await searchResponse).status()).toBe(200);
+  expect(searchRequest).toBeTruthy();
+  expect((await searchRequest.allHeaders()).authorization).toBeUndefined();
+  await expect(visitor.getByRole('link', { name: title })).toBeVisible();
+  await expect(visitor.getByText('Providencia, Metropolitana de Santiago')).toBeVisible();
+  await takeScreenshot(visitor, 'fe14_mpv2_03_visitor_search_desktop', true);
+  await visitor.setViewportSize({ width: 390, height: 844 });
+  await takeScreenshot(visitor, 'fe14_mpv2_03_visitor_search_mobile', true);
+  await visitor.getByRole('link', { name: title }).click();
+  await expect(visitor.getByRole('heading', { name: title })).toBeVisible();
+  await expect(visitor.getByText(/Dirección confidencial MPV2-03/)).toHaveCount(0);
+  await visitor.close();
+
+  const thirdParty = await browser.newPage();
+  await login(thirdParty, accounts.thirdParty);
+  await navigateSpa(thirdParty, `/panel/espacios/${draft.id}/editar`);
+  await expect(thirdParty).toHaveURL(/\/mi-cuenta$/);
+  await thirdParty.close();
+});
+
 test('Go-backed role navigation, private JSON/ZIP exports, and responsive evidence', async ({ browser }) => {
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   await login(mobile, accounts.renter);

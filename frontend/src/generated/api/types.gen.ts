@@ -1026,6 +1026,14 @@ export type SpaceDraftInput = {
      */
     address: string;
     /**
+     * Código de región del catálogo público SUBDERE_DPA_2018; omitir ambos códigos deja la ubicación pública sin declarar.
+     */
+    region_code?: string;
+    /**
+     * Código de comuna de la región seleccionada; debe enviarse junto con region_code.
+     */
+    comuna_code?: string;
+    /**
      * Versión del perfil de atributos; se asume la vigente si se omite.
      */
     attribute_schema_version?: number;
@@ -1054,6 +1062,14 @@ export type SpaceDraft = {
      * Zona IANA propia; puede ser nula en datos heredados pendientes de reparación.
      */
     time_zone?: string;
+    /**
+     * Código regional público declarado por el anfitrión; ausente para espacios anteriores sin ubicación pública.
+     */
+    region_code?: string;
+    /**
+     * Código comunal público declarado por el anfitrión; ausente para espacios anteriores sin ubicación pública.
+     */
+    comuna_code?: string;
     attribute_schema_version: number;
     /**
      * Características declaradas y validadas por el perfil versionado.
@@ -1104,6 +1120,14 @@ export type PublishedSpaceContentInput = {
     capacity?: number;
     usage_rules?: string;
     base_price_clp?: number;
+    /**
+     * Enviar junto a comuna_code para cambiar ubicación; enviar ambos vacíos la retira del catálogo público.
+     */
+    region_code?: string;
+    /**
+     * Código de comuna dentro de region_code; enviar ambos vacíos retira la ubicación.
+     */
+    comuna_code?: string;
 };
 
 export type AvailabilityConfig = {

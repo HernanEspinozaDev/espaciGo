@@ -101,9 +101,19 @@ func TestPostgresDraftCRUDAndOwnerScope(t *testing.T) {
 	editV1 := in
 	editV1.AttributeSchemaVersion = 0 // The service must preserve the draft's stored version.
 	editV1.Title = "Oficina editada con el perfil v1"
+	editV1.RegionCode, editV1.CommuneCode = "13", "13123"
 	updatedV1, err := service.UpdateOwn(ctx, ownerA, created.ID, editV1)
-	if err != nil || updatedV1.AttributeSchemaVersion != 1 || updatedV1.Title != editV1.Title {
+	if err != nil || updatedV1.AttributeSchemaVersion != 1 || updatedV1.Title != editV1.Title || updatedV1.RegionCode == nil || *updatedV1.RegionCode != "13" || updatedV1.CommuneCode == nil || *updatedV1.CommuneCode != "13123" {
 		t.Fatalf("editing v1 draft after v2: %+v err=%v", updatedV1, err)
+	}
+	invalidLocation := editV1
+	invalidLocation.CommuneCode = "13999"
+	if _, err = service.UpdateOwn(ctx, ownerA, created.ID, invalidLocation); err != spaces.ErrInvalid {
+		t.Fatalf("draft with an unknown commune code error=%v", err)
+	}
+	stillLocated, err := repo.GetOwn(ctx, ownerA, created.ID)
+	if err != nil || stillLocated.CommuneCode == nil || *stillLocated.CommuneCode != "13123" {
+		t.Fatalf("invalid location update changed saved location: %+v err=%v", stillLocated, err)
 	}
 	// PostgreSQL normalizes UUID output to lowercase; uppercase input remains the same identifier.
 	editV1.AttributeSchemaVersion = 1
@@ -151,6 +161,9 @@ func TestPostgresDraftCRUDAndOwnerScope(t *testing.T) {
 	}
 	if updated.AttributeSchemaVersion != 1 || updated.Attributes["proyector"] != true || updated.Attributes["wifi"] != nil {
 		t.Fatalf("category change retained incompatible attributes: %+v", updated)
+	}
+	if updated.RegionCode != nil || updated.CommuneCode != nil {
+		t.Fatalf("full draft replacement did not clear omitted optional location: %+v", updated)
 	}
 	updated.BasePriceCLP = 12000
 	if _, err = service.UpdateOwn(ctx, ownerA, created.ID, updatedInput(in, updated)); err != nil {

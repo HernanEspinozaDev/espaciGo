@@ -13,6 +13,20 @@ func TestDraftInputRequiresAllCU15FieldsAndLimits(t *testing.T) {
 	if err := validInput().Validate(); err != nil {
 		t.Fatalf("valid input rejected: %v", err)
 	}
+	for _, location := range []struct{ region, commune string }{{"13", "13123"}, {"", ""}} {
+		in := validInput()
+		in.RegionCode, in.CommuneCode = location.region, location.commune
+		if err := in.Validate(); err != nil {
+			t.Errorf("valid optional location %q/%q rejected: %v", location.region, location.commune, err)
+		}
+	}
+	for _, location := range []struct{ region, commune string }{{"13", ""}, {"", "13123"}, {"13", "14101"}, {"1x", "13123"}} {
+		in := validInput()
+		in.RegionCode, in.CommuneCode = location.region, location.commune
+		if !errors.Is(in.Validate(), ErrInvalid) {
+			t.Errorf("invalid location %q/%q accepted", location.region, location.commune)
+		}
+	}
 	checks := []struct {
 		name   string
 		mutate func(*Input)
@@ -51,20 +65,24 @@ func TestPublishedContentInputValidatesPartialTitleAndPrice(t *testing.T) {
 		"rules only":       {UsageRules: &usageRules},
 		"price only":       {BasePriceCLP: &price},
 		"both":             {Title: &title, BasePriceCLP: &price},
+		"public location":  {RegionCode: ptrString("13"), CommuneCode: ptrString("13123")},
+		"clear location":   {RegionCode: ptrString(""), CommuneCode: ptrString("")},
 	} {
 		if err := input.Validate(); err != nil {
 			t.Errorf("%s rejected: %v", name, err)
 		}
 	}
 	for name, input := range map[string]PublishedContentInput{
-		"empty":             {},
-		"blank":             {Title: ptrString("  ")},
-		"too long":          {Title: ptrString(strings.Repeat("x", 71))},
-		"short description": {Description: ptrString("Descripción breve")},
-		"zero capacity":     {Capacity: ptrInt32(0)},
-		"blank rules":       {UsageRules: ptrString(" ")},
-		"long rules":        {UsageRules: ptrString(strings.Repeat("x", 251))},
-		"low price":         {BasePriceCLP: ptrInt64(5000)},
+		"empty":               {},
+		"blank":               {Title: ptrString("  ")},
+		"too long":            {Title: ptrString(strings.Repeat("x", 71))},
+		"short description":   {Description: ptrString("Descripción breve")},
+		"zero capacity":       {Capacity: ptrInt32(0)},
+		"blank rules":         {UsageRules: ptrString(" ")},
+		"long rules":          {UsageRules: ptrString(strings.Repeat("x", 251))},
+		"low price":           {BasePriceCLP: ptrInt64(5000)},
+		"partial location":    {RegionCode: ptrString("13")},
+		"mismatched location": {RegionCode: ptrString("13"), CommuneCode: ptrString("14101")},
 	} {
 		if err := input.Validate(); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s error=%v, want ErrInvalid", name, err)

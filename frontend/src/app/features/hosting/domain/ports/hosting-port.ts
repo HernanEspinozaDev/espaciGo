@@ -11,6 +11,7 @@ import type {
   RateInput,
   SpaceAttributeProfile,
   SpaceCategoryList,
+  PublicLocationList,
   SpaceDeletionReceipt,
   SpaceDraft,
   SpaceDraftInput,
@@ -34,6 +35,7 @@ export class HostingApiError extends Error {
 export abstract class HostingPort {
   abstract list(token: string): Promise<SpaceDraftList>;
   abstract categories(token: string): Promise<SpaceCategoryList>;
+  abstract publicLocations(): Promise<PublicLocationList>;
   abstract profile(
     token: string,
     categoryCode: string,
