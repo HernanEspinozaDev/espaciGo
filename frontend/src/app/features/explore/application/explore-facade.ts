@@ -1,4 +1,4 @@
-import { DestroyRef, Injectable, OnInit, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
@@ -68,6 +68,12 @@ export class ExploreFacade implements OnInit {
     region_code: '', comuna_code: '', min_area_m2: '', start_at: '', end_at: '',
     min_total_clp: '', max_total_clp: '', attributes: {},
   });
+  readonly appliedFilters = signal<ExploreFilters>({
+    q: '', category_code: '', rate_unit: '', min_unit_price_clp: '', max_unit_price_clp: '',
+    sort: 'default', page_size: 20, cursor: '', region_code: '', comuna_code: '', min_area_m2: '',
+    start_at: '', end_at: '', min_total_clp: '', max_total_clp: '', attributes: {},
+  });
+  readonly hasUnappliedChanges = computed(() => criteriaSignature(this.filters()) !== criteriaSignature(this.appliedFilters()));
 
   constructor() {
     this.title.setTitle('Explorar espacios | EspaciGo');
@@ -123,7 +129,7 @@ export class ExploreFacade implements OnInit {
       await this.router.navigate([], {
         relativeTo: this.route,
         queryParams,
-        replaceUrl: true,
+        replaceUrl: false,
       });
       this.navigationPending = false;
       return;
@@ -133,6 +139,55 @@ export class ExploreFacade implements OnInit {
       this.routeRequestKey = `${this.criteriaKey}|cursor=${filters.cursor}`;
       await this.loadPage(filters, false);
     }
+  }
+
+  removeAppliedFilter(key: string): void {
+    const current = this.appliedFilters();
+    const next: ExploreFilters = { ...current, attributes: { ...current.attributes }, cursor: '' };
+    if (key.startsWith('attribute:')) {
+      delete next.attributes[key.slice('attribute:'.length)];
+    } else if (key === 'q') {
+      next.q = '';
+      if (next.sort === 'relevance') next.sort = 'default';
+    } else if (key === 'rate_unit') {
+      next.rate_unit = '';
+      next.min_unit_price_clp = '';
+      next.max_unit_price_clp = '';
+      if (next.sort === 'unit_price_asc' || next.sort === 'unit_price_desc') next.sort = 'default';
+    } else if (key === 'start_at' || key === 'end_at') {
+      next.start_at = '';
+      next.end_at = '';
+      next.min_total_clp = '';
+      next.max_total_clp = '';
+      if (next.sort === 'estimated_total_asc' || next.sort === 'estimated_total_desc') next.sort = 'default';
+    } else if (key === 'region_code') {
+      next.region_code = '';
+      next.comuna_code = '';
+    } else if (key === 'category_code') {
+      next.category_code = '';
+      next.attributes = {};
+    } else if (key === 'sort') {
+      next.sort = 'default';
+    } else {
+      switch (key) {
+        case 'comuna_code': next.comuna_code = ''; break;
+        case 'min_unit_price_clp': next.min_unit_price_clp = ''; break;
+        case 'max_unit_price_clp': next.max_unit_price_clp = ''; break;
+        case 'min_area_m2': next.min_area_m2 = ''; break;
+        case 'min_total_clp': next.min_total_clp = ''; break;
+        case 'max_total_clp': next.max_total_clp = ''; break;
+      }
+    }
+    this.filters.set(next);
+    this.selectAttributeFilterCategory(next.category_code);
+    this.invalidateCriteria();
+    void this.search();
+  }
+
+  applySort(sort: string): void {
+    this.filters.set({ ...this.appliedFilters(), sort, cursor: '' });
+    this.invalidateCriteria();
+    void this.search();
   }
 
   clearFilters(): void {
@@ -177,6 +232,7 @@ export class ExploreFacade implements OnInit {
       return;
     }
     const filters = decoded.filters;
+    this.appliedFilters.set(filters);
     this.filters.set(filters);
     this.selectAttributeFilterCategory(filters.category_code);
     const nextCriteriaKey = criteriaSignature(filters);

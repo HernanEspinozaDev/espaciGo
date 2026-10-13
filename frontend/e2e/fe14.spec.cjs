@@ -82,7 +82,6 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   await page.getByRole('link', { name: /Oficina/ }).click();
   await expect(page).toHaveURL(/\/explorar\?category_code=oficina/);
   await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
-  await page.goto('/explorar');
   let publicRequest;
   page.on('request', request => {
     if (request.method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(request.url())) publicRequest = request;
@@ -103,9 +102,11 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   await page.getByLabel('Desde (fecha y hora)', { exact: true }).fill('2026-10-20T10:00');
   await page.getByLabel('Hasta (fecha y hora)', { exact: true }).fill('2026-10-20T11:00');
   await page.getByLabel('Total estimado mínimo (CLP)', { exact: true }).fill('18000');
-  await page.getByLabel('Ordenar por').selectOption('estimated_total_asc');
-  const filteredResponse = page.waitForResponse(response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url()) && response.url().includes('estimated_total_asc'));
+  const baseFilterResponse = page.waitForResponse(response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url()) && response.url().includes('min_total_clp=18000'));
   await page.getByRole('button', { name: 'Buscar espacios' }).click();
+  expect((await baseFilterResponse).status()).toBe(200);
+  const filteredResponse = page.waitForResponse(response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url()) && response.url().includes('estimated_total_asc'));
+  await page.locator('.desktop-sort select').selectOption('estimated_total_asc');
   const filtered = await filteredResponse;
   expect(filtered.status()).toBe(200);
   const filteredUrl = new URL(filtered.url());
@@ -157,6 +158,92 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   await expect(page).toHaveURL(/page_size=1/);
   await page.goForward();
   await expect(page).toHaveURL(nextPageUrl);
+});
+
+test('Removing applied filter chips normalizes dependencies and supports browser history', async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 });
+  const publicSearch = response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url());
+
+  await page.goto('/explorar?q=oficina&sort=relevance');
+  await expect(page.getByRole('button', { name: 'Quitar filtro Búsqueda: oficina' })).toBeVisible();
+  let responsePromise = page.waitForResponse(response => publicSearch(response) && !new URL(response.url()).searchParams.has('q'));
+  await page.getByRole('button', { name: 'Quitar filtro Búsqueda: oficina' }).click();
+  let response = await responsePromise;
+  expect(response.status()).toBe(200);
+  let url = new URL(response.url());
+  expect(url.searchParams.has('q')).toBe(false);
+  expect(new URL(page.url()).searchParams.has('sort')).toBe(false);
+  expect((await response.request().allHeaders()).authorization).toBeUndefined();
+  await expect(page).toHaveURL('/explorar');
+  await page.goBack();
+  await expect(page).toHaveURL(/q=oficina.*sort=relevance|sort=relevance.*q=oficina/);
+  await expect(page.getByRole('button', { name: 'Quitar filtro Búsqueda: oficina' })).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL('/explorar');
+
+  await page.goto('/explorar?rate_unit=hora&min_unit_price_clp=10000&sort=unit_price_asc');
+  await expect(page.getByRole('button', { name: 'Quitar filtro Tarifa: Hora' })).toBeVisible();
+  responsePromise = page.waitForResponse(response => publicSearch(response) && !new URL(response.url()).searchParams.has('rate_unit'));
+  await page.getByRole('button', { name: 'Quitar filtro Tarifa: Hora' }).click();
+  response = await responsePromise;
+  expect(response.status()).toBe(200);
+  url = new URL(response.url());
+  for (const key of ['rate_unit', 'min_unit_price_clp', 'cursor']) expect(url.searchParams.has(key)).toBe(false);
+  for (const key of ['rate_unit', 'min_unit_price_clp', 'sort', 'cursor']) expect(new URL(page.url()).searchParams.has(key)).toBe(false);
+  await expect(page).toHaveURL('/explorar');
+  await page.goBack();
+  await expect(page).toHaveURL(/rate_unit=hora/);
+  await page.goForward();
+  await expect(page).toHaveURL('/explorar');
+
+  await page.goto('/explorar?rate_unit=hora&start_at=2026-10-20T10%3A00%3A00.000Z&end_at=2026-10-20T11%3A00%3A00.000Z&min_total_clp=18000&sort=estimated_total_asc');
+  await expect(page.getByRole('button', { name: /Quitar filtro Desde:/ })).toBeVisible();
+  responsePromise = page.waitForResponse(response => publicSearch(response) && !new URL(response.url()).searchParams.has('start_at'));
+  await page.getByRole('button', { name: /Quitar filtro Desde:/ }).click();
+  response = await responsePromise;
+  expect(response.status()).toBe(200);
+  url = new URL(response.url());
+  for (const key of ['start_at', 'end_at', 'min_total_clp', 'cursor']) expect(url.searchParams.has(key)).toBe(false);
+  for (const key of ['start_at', 'end_at', 'min_total_clp', 'sort', 'cursor']) expect(new URL(page.url()).searchParams.has(key)).toBe(false);
+  expect(url.searchParams.get('rate_unit')).toBe('hora');
+  await expect(page).toHaveURL(/rate_unit=hora/);
+  await page.goBack();
+  await expect(page).toHaveURL(/start_at=/);
+  await page.goForward();
+  await expect(page).toHaveURL(/rate_unit=hora/);
+});
+
+test('Mobile filter dialog preserves applied chips, focus, and closes on desktop resize', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/explorar?q=publico');
+  const trigger = page.getByRole('button', { name: 'Filtrar y ordenar' });
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: 'Filtros de espacios' });
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('.filter-close')).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.filter-close')).toBeFocused();
+
+  await dialog.getByLabel('Buscar', { exact: true }).fill('borrador de búsqueda');
+  await expect(page.getByText('Tienes cambios sin aplicar.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Quitar filtro Búsqueda: publico' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  await trigger.click();
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.filters input').first()).toBeFocused();
+  const bounds = await page.evaluate(() => ({
+    filters: document.querySelector('.filter-sidebar').getBoundingClientRect(),
+    results: document.querySelector('.catalog-results').getBoundingClientRect(),
+  }));
+  expect(bounds.filters.right).toBeLessThanOrEqual(bounds.results.left);
+  expect(bounds.results.top).toBeLessThan(bounds.filters.bottom);
 });
 
 test('Typed hosting form creates and edits a synthetic draft through Go', async ({ page }) => {

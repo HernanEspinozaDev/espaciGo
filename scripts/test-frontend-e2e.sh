@@ -232,7 +232,7 @@ printf 'PASS disposable FE-14 database contains two eligible synthetic public li
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
 if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
   printf 'Running focused anonymous public catalog journey\n'
-  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep 'Anonymous visitor explores|MPV2-04 host declares' >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
+  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep 'Anonymous visitor explores|MPV2-04 host declares|Removing applied filter chips|Mobile filter dialog' >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
   cat "$STATE_DIR/e2e.log"
 else
 printf 'Waiting for same-tab outage and restore test\n'
