@@ -57,9 +57,9 @@ Se mantiene la paleta Terracota + Crema, con tokens vigentes y controles accesib
 
 Se conservan `/explorar` y `/espacios/:id` para evitar romper enlaces. La primera es el catálogo público y la segunda la ficha pública por identificador estable de publicación. Un ID de espacio no es una credencial; la autorización depende de Go.
 
-`/categorias` puede conservar una explicación editorial y enlaces a `/explorar?categoria=...`; las categorías filtrantes también están en la landing y la PLP. No obliga a pasar por esa página. No es obligatorio renombrar a `/arriendos` ni introducir slugs para entregar valor. Slugs legibles serán evolutivos si se necesitan; deben tener identificador estable y política de redirección, sin copiar direcciones ni datos personales.
+`/categorias` puede conservar una explicación editorial y enlaces a `/explorar?category_code=...`; las categorías filtrantes también están en la landing y la PLP. No obliga a pasar por esa página. No es obligatorio renombrar a `/arriendos` ni introducir slugs para entregar valor. Slugs legibles serán evolutivos si se necesitan; deben tener identificador estable y política de redirección, sin copiar direcciones ni datos personales.
 
-Ejemplo de URL de producto: `/explorar?q=oficina&categoria=oficina&comuna=...&modalidad=hora&precio_min=10000&orden=precio_asc`. El codec Angular traduce a nombres canónicos OpenAPI; no crear otra semántica oculta. Parámetros vacíos/default se omiten y los valores se normalizan de forma determinista.
+Ejemplo canónico de URL de producto: `/explorar?category_code=oficina&rate_unit=hora&min_unit_price_clp=10000&sort=unit_price_asc&page_size=20`. MPV2-02 agrega, con los mismos nombres en URL/OpenAPI, `q`, `region_code` y `comuna_code`; el codec Angular no inventa alias. Parámetros vacíos/default se omiten y los valores se normalizan de forma determinista.
 
 ## 4. Política de visibilidad y minimización
 
@@ -96,7 +96,7 @@ Reutilizar `espacio`, categorías/perfiles/atributos versionados, tarifas, galer
 Agregar por migraciones **nuevas posteriores a V54**, reservando la numeración vigente al implementarlas:
 
 - Ubicación pública validada: región/comuna y nombre público; tablas de referencia locales con códigos estables y FK. No descomponer automáticamente la dirección privada para obtener comuna.
-- Fecha pública de publicación/actualización y versión de contenido donde sea necesaria para orden y retirada. Reutilizar hechos existentes cuando su semántica coincida; documentar cualquier nueva columna.
+- No agregar fecha de publicación para ordenar el catálogo inicial: su orden es categoría/título/ID. Agregar versión de contenido solo si una necesidad probada de retirada/moderación la requiere.
 - Metadatos o vista/proyección para seleccionar contenido público y atributos habilitados. La política de visibilidad no se resuelve con un flag independiente que pueda quedar activo tras ocultar el espacio.
 - Documento de búsqueda basado solo en campos públicos (título, descripción, categoría, zona). Índices para texto, orden, categoría, zona y tarifa según consultas reales.
 
@@ -106,24 +106,28 @@ No modificar V1–V54 ni sus checksums. Probar actualización desde V54 y arranq
 
 ### 5.2. Método de búsqueda
 
-Usar PostgreSQL inicialmente. Buscar texto con normalización definida (espacios, mayúsculas, tildes), `tsvector`/consulta de texto y GIN cuando corresponda. MPV2-02 comprobará con fixtures la configuración lingüística; `unaccent` solo si se adopta y valida su disponibilidad y la forma indexable de normalizar. No añadir Elasticsearch ni un servicio externo para este alcance.
+Usar PostgreSQL inicialmente. En MPV2-02 buscar con configuración de texto `espacigo_es_unaccent`: `unaccent` más stemming español, `to_tsvector` materializado/actualizado desde campos públicos y GIN; `plainto_tsquery` con AND de lexemas para `q`; `ts_rank` para orden `relevance`. Trim/NFC/espacios se normalizan igual al indexar y consultar. No subcadena literal ni fallback silencioso a `strpos`. No añadir Elasticsearch ni servicio externo. Si la imagen PostgreSQL del repo no incluye `unaccent`, MPV2-02 añade/verifica la extensión en su migración; ese corte debe probar su instalación antes de aceptar.
 
 - Buscar título, descripción pública, categoría y zona pública; nunca dirección privada ni datos KYC.
 - Texto máximo propuesto: 120 caracteres, sin controles. Consulta parametrizada, timeouts y tamaño máximo; sin SQL construido a partir del usuario.
 - Coincidencias de palabras y ranking explicitados mediante fixtures; no prometer tolerancia a errores, sinónimos o autocompletado avanzado si no se implementan.
 - Ubicación por códigos de región/comuna; sugerencias de ese catálogo local. No enviar la búsqueda a un geocodificador externo.
-- Filtros AND entre dimensiones; OR entre categorías seleccionadas. Una categoría inicial y selección múltiple acotada después, si su contrato se entrega en el mismo corte. No mezclar atributos de perfiles incompatibles.
+- Filtros AND entre dimensiones; `category_code` recibe exactamente una categoría en MPV2-01/02. Selección múltiple se deja evolutiva y requerirá otro parámetro/versionado OpenAPI. No mezclar atributos de perfiles incompatibles.
 - Perfiles versionados: campos filtrables y públicos con tipos, límites y unidades. No reinterpretar atributos guardados bajo versiones antiguas.
 
 ### 5.3. Precio y disponibilidad
 
-Contrato elegido: cada tarjeta muestra precio unitario exacto en CLP junto con `hora`, `dia` o `mes`. El filtro y orden por precio del resultado público usa **total estimado para un intervalo obligatorio**, no compara tarifas base de distintas unidades. Go calcula unidades con `PriceUnits` y zona horaria; límites son inclusivos y `min≤max`. La estimación no es cotización ni garantía de disponibilidad. El visitante puede navegar sin fechas, pero entonces no se ofrece rango/orden por total. El navegador no multiplica ni convierte a `Number` impreciso. Cambiar esta semántica requiere decisión de producto y parámetros OpenAPI distintos.
+Contrato elegido (parámetros canónicos en MPV2-01/02):
+
+- Tarifa base: `rate_unit=hora|dia|mes` filtra modalidad; `min_unit_price_clp`/`max_unit_price_clp` filtran tarifa vigente inclusivamente en CLP, sin fechas. Cualquier rango u orden de tarifa base exige seleccionar unidad; `sort=unit_price_asc|unit_price_desc` solo compara la misma unidad.
+- Total estimado (MPV2-02, opcional): requiere `start_at` y `end_at`; `min_total_clp`/`max_total_clp` filtran el total calculado por Go mediante `PriceUnits` y zona horaria, sin crear cotización. `sort=estimated_total_asc|estimated_total_desc` requiere intervalo. Puede combinarse con modalidad/rango de tarifa base. No es cotización ni garantía de disponibilidad.
+- Todos los montos son enteros CLP exactos (`int64`), límites inclusivos, min≤max. La UI muestra siempre precio y unidad; Angular no multiplica ni convierte a `Number` impreciso.
 
 Disponibilidad pública, si forma parte del filtro, no incluye ocupantes ni motivos internos. Go revalida tarifa/intervalo al cotizar y reservar. La búsqueda no debe ejecutar transiciones de reservas por ser consultada por un rastreador: hoy `Catalog` llama `repo.Expire`; separar el mantenimiento de vencimientos de la lectura pública y asegurar que GET público no muta reservas/ocupaciones.
 
 ### 5.4. Orden y paginación
 
-Predeterminado: orden de categoría, título y `space_id` como desempate estable; el esquema actual no contiene fecha pública de publicación. Texto puede habilitar relevancia en una iteración posterior; menor/mayor total estimado solo con intervalo. No mostrar «recientes» ni «recomendados» sin fecha/criterio implementado.
+`sort` acepta exactamente `default` (orden de categoría, título normalizado, ID), `unit_price_asc|unit_price_desc` (requiere rate_unit), `estimated_total_asc|estimated_total_desc` (requiere intervalo) y `relevance` (requiere q, MPV2-02). Toda opción termina en `space_id` estable. La query de relevancia rankea texto; default no depende de una fecha de publicación que hoy no existe. No mostrar «recientes» ni «recomendados» sin criterio implementado.
 
 Paginación en SQL: tamaño default propuesto 20, máximo 25, `LIMIT + 1` y cursor basado en clave de orden/ID/fingerprint de filtros. El cursor no contiene Bearer, actor ni identidad privada, no concede acceso y se valida contra los filtros/orden. Usar firma/configuración estable compartida entre réplicas/reinicios. Ante cursor inválido o vencido, 422 genérico y Angular reinicia resultados. Con inventario mutable no prometer un snapshot congelado: documentar la consistencia y probar retirada/alta entre páginas.
 
@@ -137,7 +141,7 @@ Contrato propuesto en `planning/openapi.yaml` (ajustable en MPV2-00 si se encuen
 
 | Operación | Autenticación | Entrega |
 | --- | --- | --- |
-| `GET /api/v1/public/spaces` | Ninguna | Tarjetas públicas filtradas y paginadas. |
+| `GET /api/v1/public/spaces` | Ninguna | MPV2-01: tarjeta, categoría, tarifa base/unidad, modalidad, min/max unitario y cursor. MPV2-02: q, ubicación, atributos, total por intervalo y relevancia. |
 | `GET /api/v1/public/spaces/{spaceID}` | Ninguna | Ficha pública; 404 genérico para no difundible. |
 | `GET /api/v1/public/space-categories` | Ninguna | Taxonomía activa y etiquetas. |
 | `GET /api/v1/public/space-categories/{code}/filters` | Ninguna | Perfil público minimizado de filtros admitidos. |
@@ -204,8 +208,8 @@ Usar preferentemente un PR coherente por corte. Si se separan PR de DB, Go y Ang
 | Corte | Base de datos primero | Go/OpenAPI después | Angular al integrar | Criterio de salida |
 | --- | --- | --- | --- | --- |
 | **MPV2-00 · Inventario y contrato** | Confirmar V54/schema, categorías, perfiles y datos publicables; diseñar delta. | Auditar permisos/rutas, política única y DTO; fijar semántica de búsqueda/precio. | Revisar guards, sesión, retorno, tokens y SSR; bosquejar PLP/PDP. | Decisiones y matriz de datos aprobadas; alcance sin ambigüedades. |
-| **MPV2-01 · Primer catálogo público** | Migración mínima de metadatos/orden y compatibilidad; backfill seguro. | Listado/detalle públicos con DTO mínimo, categoría, paginación acotada y 404 seguro. | `/explorar` y ficha inicial sin sesión; links directos; estado de error y placeholder honesto de foto. | Anónimo recorre publicación activa, borrador/oculta no existen públicamente; flujos privados protegidos. |
-| **MPV2-02 · Búsqueda y filtros Go** | Referencias de zona e índices; documento de búsqueda; fixtures de todas las categorías. | q, categoría, región/comuna, modalidad/precio, superficie, atributos, orden y cursor SQL; perfiles públicos. | Fachada pública y codec URL; controles funcionales básicos. | Resultados Go correctos, paginación SQL y validación exhaustiva de parámetros. |
+| **MPV2-01 · Primer catálogo público** | Sin migración si campos actuales bastan; jamás backfill geográfico. | Listado/detalle GET públicos, categorías activas, filtro categoría y modalidad/tarifa base, paginación SQL tamaño 20 (máx. 25) cursor estable, DTO mínimo y 404 genérico. | `/explorar` y ficha sin sesión; URL category/rate_unit/base-price/sort/page_size/cursor; precio con unidad, sin fecha obligatoria. | Anónimo recorre publicación activa, borrador/oculta no existen públicamente; puede comparar tarifas de una unidad; flujos privados protegidos. |
+| **MPV2-02 · Búsqueda y filtros Go** | Ubicación pública nullable, catálogo region/comuna, tsvector español-unaccent e índices; sin derivar dirección. | q por términos/FTS, ubicación, filtros de atributos aprobados, filtros/sort de tarifa base, total estimado opcional con intervalo, sort relevancia y cursor común. | Codec canónico y controles de texto/zona/precio base/total. | Búsqueda PostgreSQL estable, filtros coherentes, limitados y paginados; no efectos privados. |
 | **MPV2-03 · Editor y metadatos públicos** | Restricciones/versiones de metadatos; sin tocar snapshots históricos. | Lectura/escritura propia de zona y contenido publicable, autorización y publicación. | Editor anfitrión muestra qué se difundirá y permite completar datos. | Crear/editar/publicar un espacio sin SQL manual y verlo públicamente; tercero rechazado. |
 | **MPV2-04 · Fotos y ficha completa** | Reutilizar V32/V49; migrar solo metadatos/relaciones nuevos imprescindibles. | Lectura pública controlada de imagen activa por publicación; retirada, portada y minimización. | Galería, tarifa/unidad, características, reglas y CTA coherentes. | Foto de activa visible; privada, ajena/retirada y evidencia KYC inaccesibles; ficha retirable. |
 | **MPV2-05 · PLP, portada y categorías** | Sin migración salvo necesidad probada por consultas. | Ajustes de filtros/resumen si la UI los requiere, con contrato primero. | Panel escritorio/móvil, chips, orden, búsqueda en landing, categorías filtrantes, Atrás/adelante. | Exploración completa sin cuenta a 390×844 y escritorio, URL persistente y teclado accesible. |
@@ -214,7 +218,7 @@ Usar preferentemente un PR coherente por corte. Si se separan PR de DB, Go y Ang
 | **MPV2-08 · Regresión y operación local** | Actualización V54→V2 y base vacía; dataset y planes SQL medidos. | Pruebas seguridad/negocio, abuso limitado, CORS y caída/restauración; revisar consultas costosas. | E2E de visitante y retorno privado, carreras de rutas/criterios/sesión; accesibilidad y responsive. | Stack aislado reproducible, recorridos reales completos y límites documentados. |
 | **MPV2-09 · Aceptación y cierre** | Registrar versiones de migración y estrategia de conservación/retirada. | Guía API y diagnóstico; evidencias de compatibilidad privadas. | Demo de aceptación y guía final de arranque, búsqueda, cuenta y reloj de ensayo. | Aceptación explícita del usuario sobre commit fusionado; plan/matriz cerrados sin brechas críticas. |
 
-MPV2-00 es documentación e inventario; no necesita construir los filtros para aprobarse. MPV2-01 tiene alcance mínimo y no cierra el diseño completo. MPV2-03 puede prepararse después del contrato de MPV2-02, pero no debe retrasarse hasta el cierre porque los nuevos datos necesitan un recorrido de mantenimiento.
+MPV2-00 es documentación e inventario; no construye filtros ni API. El alcance mínimo de MPV2-01 está fijado arriba y deja búsqueda textual, localización, atributos, total estimado, fotos y SSR a los cortes siguientes. MPV2-03 puede prepararse después del contrato de MPV2-02, pero no debe retrasarse hasta el cierre porque los nuevos datos necesitan un recorrido de mantenimiento.
 
 ## 10. PR, pruebas y evidencia
 
