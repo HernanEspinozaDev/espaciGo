@@ -43,3 +43,5 @@ test('rejects local variables, unknown tokens and arbitrary fallbacks', async ()
     assert.ok((await lint(`.fixture { padding: ${value}; }`)).length, value);
   }
 });
+
+test('rejects viewport range syntax as well as colon thresholds', async () => { assert.ok((await lint('@media (width <= 731px) { .fixture { display: grid; } }')).length); });

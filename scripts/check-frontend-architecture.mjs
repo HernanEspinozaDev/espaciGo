@@ -11,7 +11,7 @@ export function contractRoots(openapi) {
   return new Set([...openapi.matchAll(/^  \/([^/ :]+)(?:[^\n]*):\s*$/gm)].map(match => match[1]));
 }
 export function isBackendPath(value, roots) {
-  const path = value.replace(/^https?:\/\/[^/]+/i, '');
+  const path = value.replace(/^(?:https?:)?\/\/[^/]+/i, '');
   if (/^\/api\/v\d+(?:\/|$)/.test(path)) return true;
   return roots.has(path.match(/^\/([^/?#]+)/)?.[1]);
 }

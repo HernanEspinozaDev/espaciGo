@@ -23,6 +23,7 @@ test('rejects templates, absolute endpoint URLs and versioned bases', () => {
     "const endpoint = 'https://example.test/auth/login';",
     "const endpoint = '/api/v1/auth/login';",
     "const endpoint = '/auth';",
+    "const endpoint = '//example.test/spaces/1';",
     "const endpoint = '/' + 'spaces/' + id;",
   ]) assert.ok(inspect(source).length, source);
 });

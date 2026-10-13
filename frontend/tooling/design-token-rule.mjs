@@ -32,7 +32,7 @@ const rule = (enabled) => (root, result) => {
     }
   });
   root.walkAtRules('media', (rule) => {
-    if (/(?:min-|max-)?(?:width|height)\s*:/.test(rule.params)) {
+    if (/\b(?:min-|max-)?(?:width|height)\b/.test(rule.params)) {
       stylelint.utils.report({ ruleName, result, node: rule, message: messages.breakpoint });
     }
   });
