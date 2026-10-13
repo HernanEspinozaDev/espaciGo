@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"math"
 	"regexp"
@@ -22,8 +23,9 @@ const cursorVersion = 2
 var areaPattern = regexp.MustCompile(`^(?:0|[1-9][0-9]{0,6})(?:\.[0-9]{1,2})?$`)
 
 type Service struct {
-	repo Repository
-	key  []byte
+	repo       Repository
+	key        []byte
+	imageStore PublicImageStore
 }
 
 // New derives a purpose-specific cursor key from a stable local application
@@ -39,6 +41,44 @@ func New(repo Repository, masterKey []byte) (*Service, error) {
 	expand := hmac.New(sha256.New, prk)
 	_, _ = expand.Write([]byte("public-catalog/cursor-signing\x01"))
 	return &Service{repo: repo, key: expand.Sum(nil)}, nil
+}
+
+func NewWithImageStore(repo Repository, masterKey []byte, files PublicImageStore) (*Service, error) {
+	s, err := New(repo, masterKey)
+	if err != nil {
+		return nil, err
+	}
+	if files == nil {
+		return nil, ErrInvalid
+	}
+	s.imageStore = files
+	return s, nil
+}
+
+func (s *Service) ImageContent(ctx context.Context, spaceID, imageID string) (PublicImage, []byte, error) {
+	if !validUUID(spaceID) || !validUUID(imageID) || s.imageStore == nil {
+		return PublicImage{}, nil, ErrNotFound
+	}
+	repo, ok := s.repo.(PublicImageRepository)
+	if !ok {
+		return PublicImage{}, nil, ErrNotFound
+	}
+	item, err := repo.PublicImage(ctx, strings.ToLower(spaceID), strings.ToLower(imageID))
+	if err != nil {
+		return PublicImage{}, nil, err
+	}
+	if item.MIME != "image/png" || item.Size < 1 || item.Size > 1<<20 || item.FileID == "" {
+		return PublicImage{}, nil, ErrNotFound
+	}
+	blob, err := s.imageStore.Get(ctx, item.FileID)
+	if err != nil || int64(len(blob)) != item.Size {
+		return PublicImage{}, nil, ErrNotFound
+	}
+	digest := sha256.Sum256(blob)
+	if hex.EncodeToString(digest[:]) != item.SHA256 || len(blob) < 8 || string(blob[:8]) != "\x89PNG\r\n\x1a\n" {
+		return PublicImage{}, nil, ErrNotFound
+	}
+	return item, blob, nil
 }
 
 func (s *Service) Categories(ctx context.Context) ([]Category, error) {

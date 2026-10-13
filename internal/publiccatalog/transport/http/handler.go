@@ -53,6 +53,33 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	const imagesPrefix = "/api/v1/public/spaces/"
+	if strings.HasPrefix(r.URL.Path, imagesPrefix) && strings.Contains(strings.TrimPrefix(r.URL.Path, imagesPrefix), "/images/") {
+		if r.URL.RawQuery != "" {
+			publicError(w, 404)
+			return
+		}
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, imagesPrefix), "/images/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" || strings.Contains(parts[0], "/") || strings.Contains(parts[1], "/") {
+			publicError(w, 404)
+			return
+		}
+		item, blob, err := h.service.ImageContent(r.Context(), parts[0], parts[1])
+		if errors.Is(err, publiccatalog.ErrNotFound) {
+			publicError(w, 404)
+			return
+		}
+		if err != nil {
+			publicError(w, 500)
+			return
+		}
+		w.Header().Set("Content-Type", item.MIME)
+		w.Header().Set("Content-Length", strconv.Itoa(len(blob)))
+		w.Header().Set("Content-Disposition", "inline; filename=espacigo-public-image.png")
+		w.WriteHeader(200)
+		_, _ = w.Write(blob)
+		return
+	}
 	switch {
 	case r.URL.Path == "/api/v1/public/space-categories":
 		if len(r.URL.Query()) != 0 {

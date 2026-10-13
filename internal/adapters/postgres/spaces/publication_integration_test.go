@@ -496,7 +496,16 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	publicDetail, detailErr := publicService.Detail(ctx, fixtureDraft.ID)
+	if detailErr != nil || publicDetail.UsageRules == "" || publicDetail.Images == nil || publicDetail.Features == nil {
+		t.Fatalf("public detail projection=%+v err=%v", publicDetail, detailErr)
+	}
 	publicHandler := publiccataloghttp.New(publicService)
+	publicDetailResponse := httptest.NewRecorder()
+	publicHandler.ServeHTTP(publicDetailResponse, httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces/"+fixtureDraft.ID, nil))
+	if publicDetailResponse.Code != http.StatusOK || !strings.Contains(publicDetailResponse.Body.String(), `"images":[]`) || strings.Contains(publicDetailResponse.Body.String(), "Dirección sintética") {
+		t.Fatalf("public detail HTTP status=%d body=%s", publicDetailResponse.Code, publicDetailResponse.Body.String())
+	}
 	publicQuery := "/api/v1/public/spaces?q=" + url.QueryEscape("Título publicado editado") + "&region_code=13&comuna_code=13123"
 	publicResponse := httptest.NewRecorder()
 	publicHandler.ServeHTTP(publicResponse, httptest.NewRequest(http.MethodGet, publicQuery, nil))

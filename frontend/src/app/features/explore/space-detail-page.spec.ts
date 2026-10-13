@@ -35,7 +35,7 @@ describe('SpaceDetailPage public detail',()=>{
   TestBed.configureTestingModule({imports:[SpaceDetailPage],providers:[...provideFrontendPorts(),provideHttpClient(),provideRouter([]),PrivateSessionState,{provide:ActivatedRoute,useValue:{paramMap:params.asObservable()}},{provide:IdentityApi,useValue:{login:vi.fn().mockResolvedValue({account_id:'renter',roles:['arrendatario'],access_token:'private-bearer',token_type:'Bearer',expires_at:'2027-01-01T00:00:00Z',restricted_mode:false}),session:vi.fn().mockResolvedValue({account_id:'renter',roles:['arrendatario'],restricted_mode:false}),logout:vi.fn()},},{provide:ExploreApi,useValue:api}]});
   const fixture=TestBed.createComponent(SpaceDetailPage);fixture.detectChanges();await vi.waitFor(()=>expect(api.publicDetail).toHaveBeenCalledWith('space-123'));expect(api.detail).not.toHaveBeenCalled();
   await TestBed.inject(IdentitySession).signIn('renter@example.invalid','Synthetic#123');await vi.waitFor(()=>expect(api.availability).toHaveBeenCalled());
-  expect(api.detail).toHaveBeenCalledWith('private-bearer','space-123');expect(fixture.nativeElement.textContent).toContain('Cotizar horario');
+  expect(api.detail).toHaveBeenCalledWith('private-bearer','space-123');await vi.waitFor(()=>expect(fixture.nativeElement.textContent).toContain('Cotizar horario'));
   const page=fixture.componentInstance as unknown as {chooseInterval(value:string):void;createQuote():Promise<void>;quote:()=>unknown};page.chooseInterval('0');await page.createQuote();
   expect(api.quote).toHaveBeenCalledWith('private-bearer','space-123',interval.start_at,interval.end_at);expect(page.quote()).toBeTruthy();fixture.destroy();
  });

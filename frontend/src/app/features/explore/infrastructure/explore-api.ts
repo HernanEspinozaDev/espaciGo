@@ -14,7 +14,7 @@ import {
   ExploreApiError,
   ExplorePort,
   QuoteEnvelope,
-  PublicCatalogFilters, PublicCategory, PublicSpace, PublicSpacePage, PublicLocation, PublicAttributeFilter,
+  PublicCatalogFilters, PublicCategory, PublicSpace, PublicSpaceDetail, PublicSpacePage, PublicLocation, PublicAttributeFilter,
 } from '../domain/ports/explore-port';
 export { parseExactClpJson } from '../../../core/exact-json';
 
@@ -34,7 +34,8 @@ export class ExploreApi extends ExplorePort {
     for(const [code,value] of Object.entries(filters.attributes??{})) params=params.append('attribute',`${code}:${value}`);
     return this.publicRaw<PublicSpacePage>('/public/spaces',params);
   }
-  async publicDetail(spaceId:string):Promise<PublicSpace>{return (await this.publicRaw<{data:PublicSpace}>(`/public/spaces/${encodeURIComponent(spaceId)}`)).data;}
+  async publicDetail(spaceId:string):Promise<PublicSpaceDetail>{return (await this.publicRaw<{data:PublicSpaceDetail}>(`/public/spaces/${encodeURIComponent(spaceId)}`)).data;}
+  publicImageUrl(spaceId:string,imageId:string):string{return `${(this.runtime.apiBaseUrl()??'').replace(/\/$/,'')}/public/spaces/${encodeURIComponent(spaceId)}/images/${encodeURIComponent(imageId)}`;}
   async publicCategories():Promise<PublicCategory[]>{return (await this.publicRaw<{items:PublicCategory[]}>('/public/space-categories')).items;}
   async publicLocations():Promise<PublicLocation[]>{return (await this.publicRaw<{items:PublicLocation[]}>('/public/locations')).items;}
   async publicAttributeFilters(categoryCode:string):Promise<PublicAttributeFilter[]>{return (await this.publicRaw<{items:PublicAttributeFilter[]}>(`/public/space-categories/${encodeURIComponent(categoryCode)}/filters`)).items;}

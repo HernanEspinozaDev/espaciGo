@@ -954,6 +954,14 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     }
   }
 
+  async setPhotoPublic(photoId:string,enabled:boolean):Promise<void>{
+    const context=this.context();const space=this.selectedSpace();if(!context||!space)return;
+    const revision=++this.resourceGeneration;this.saving.set(true);this.error.set('');
+    try{const updated=await this.api.setPhotoPublic(context.token,space.id,photoId,enabled);if(!this.contextCurrent(context)||revision!==this.resourceGeneration||this.selectedSpace()?.id!==space.id)return;this.gallery.update(items=>items.map(item=>item.id===photoId?updated:item));}
+    catch{this.error.set('No se pudo actualizar la visibilidad de la imagen.');}
+    finally{this.saving.set(false);}
+  }
+
   setRateUnit(unit: 'hora' | 'dia' | 'mes'): void {
     if (this.rateForm.rate_unit === unit) return;
     this.rateForm.rate_unit = unit;

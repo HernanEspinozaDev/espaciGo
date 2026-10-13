@@ -15,7 +15,7 @@ type Repository struct{ pool *pgxpool.Pool }
 
 func New(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
 
-const activePhotoColumns = `id::text,fixture_code,mime_type,sha256,size_bytes,creada_en`
+const activePhotoColumns = `id::text,fixture_code,mime_type,sha256,size_bytes,creada_en,publicada_en_catalogo`
 
 func (r *Repository) ReserveCandidate(ctx context.Context, owner, spaceID, fileID string, at time.Time) error {
 	tx, err := r.pool.Begin(ctx)
@@ -231,7 +231,7 @@ func (r *Repository) FailCandidateCleanup(ctx context.Context, fileID string, at
 
 func scanPhoto(row pgx.Row) (gallery.Photo, error) {
 	var item gallery.Photo
-	err := row.Scan(&item.ID, &item.Fixture, &item.MIME, &item.SHA256, &item.Size, &item.CreatedAt)
+	err := row.Scan(&item.ID, &item.Fixture, &item.MIME, &item.SHA256, &item.Size, &item.CreatedAt, &item.PublicInCatalog)
 	return item, err
 }
 
@@ -259,7 +259,7 @@ func (r *Repository) List(ctx context.Context, owner, spaceID string) ([]gallery
 }
 
 func (r *Repository) Get(ctx context.Context, owner, spaceID, photoID string) (gallery.Photo, error) {
-	item, err := scanPhoto(r.pool.QueryRow(ctx, `SELECT g.id::text,g.fixture_code,g.mime_type,g.sha256,g.size_bytes,g.creada_en
+	item, err := scanPhoto(r.pool.QueryRow(ctx, `SELECT g.id::text,g.fixture_code,g.mime_type,g.sha256,g.size_bytes,g.creada_en,g.publicada_en_catalogo
 		FROM public.espacio_galeria_sintetica_local g
 		JOIN public.espacio s ON s.id=g.espacio_id AND s.propietario_id=g.propietario_id
 		JOIN public.usuario u ON u.id=s.propietario_id AND u.estado='activo'
@@ -268,6 +268,37 @@ func (r *Repository) Get(ctx context.Context, owner, spaceID, photoID string) (g
 		return gallery.Photo{}, gallery.ErrNotFound
 	}
 	return item, err
+}
+
+func (r *Repository) SetPublicInCatalog(ctx context.Context, owner, spaceID, photoID string, enabled bool) (gallery.Photo, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return gallery.Photo{}, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return gallery.Photo{}, err
+	}
+	if !active {
+		return gallery.Photo{}, gallery.ErrNotFound
+	}
+	item, err := scanPhoto(tx.QueryRow(ctx, `UPDATE public.espacio_galeria_sintetica_local g
+SET publicada_en_catalogo=$4
+FROM public.espacio s
+WHERE g.id=$1 AND g.espacio_id=$2 AND g.propietario_id=$3 AND g.estado='activa' AND g.archivo_id IS NOT NULL
+  AND s.id=g.espacio_id AND s.propietario_id=g.propietario_id AND s.estado<>'eliminada'
+RETURNING g.id::text,g.fixture_code,g.mime_type,g.sha256,g.size_bytes,g.creada_en,g.publicada_en_catalogo`, photoID, spaceID, owner, enabled))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return gallery.Photo{}, gallery.ErrNotFound
+	}
+	if err != nil {
+		return gallery.Photo{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return gallery.Photo{}, err
+	}
+	return item, nil
 }
 
 func (r *Repository) Remove(ctx context.Context, owner, spaceID, photoID string) (gallery.Removal, error) {

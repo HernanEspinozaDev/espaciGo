@@ -5,10 +5,12 @@
   @if(space();as item){
     <div class="detail-grid">
       <article class="space-detail panel">
-        <div class="cover" aria-label="Ilustración de referencia; fotografía no disponible"><span>Fotografía no disponible</span><b aria-hidden="true">✳</b></div>
+        @if(item.images?.length){<div class="cover"><img [src]="publicImageUrl(item.images[0].image_id)" alt="Fotografía pública del espacio" loading="lazy" /></div>}@else{<div class="cover" aria-label="Fotografía no disponible"><span>Fotografía no disponible</span><b aria-hidden="true">✳</b></div>}
         <div class="copy"><p class="eyebrow">{{item.category_name}} · {{item.area_m2}} m²</p><h1>{{item.title}}</h1>
           <p class="description">{{item.description}}</p><div class="facts"><p><span>Tarifa base</span><strong>{{formatClp(item.base_price_clp)}} / {{item.rate_unit}}</strong></p><p><span>Superficie</span><strong>{{item.area_m2}} m²</strong></p></div>
-          <p class="privacy-note">Esta ficha pública no incluye dirección, identidad del anfitrión, características privadas ni fotografías.</p>
+          @if(item.usage_rules){<h2>Reglas de uso</h2><p>{{item.usage_rules}}</p>}
+          @if(item.features?.length){<h2>Características</h2><ul>@for(feature of item.features;track feature.code){<li>{{feature.label}}: {{feature.value?'Sí':'No'}}</li>}</ul>}
+          <p class="privacy-note">La ficha muestra solo fotografías y características declaradas públicas. No incluye dirección ni identidad del anfitrión.</p>
         </div>
       </article>
       <section class="booking panel"><p class="eyebrow">SIGUIENTE PASO</p><h2>Consulta horarios</h2>

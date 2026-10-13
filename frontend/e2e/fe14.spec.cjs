@@ -156,8 +156,8 @@ test('Typed hosting form creates and edits a synthetic draft through Go', async 
   await takeScreenshot(page, 'fe14_architecture_host_mobile');
 });
 
-test('MPV2-03 host publishes public region and commune; anonymous visitor finds minimized listing', async ({ browser }) => {
-  const title = `Sala MPV2-03 ${Date.now()}`;
+test('MPV2-04 host declares a photo public; anonymous visitor reads it and withdrawal returns 404', async ({ browser }) => {
+  const title = `Sala MPV2-04 ${Date.now()}`;
   const host = await browser.newPage({ viewport: { width: 1365, height: 900 }, deviceScaleFactor: 1 });
   await login(host, accounts.host);
   await host.getByRole('link', { name: 'Anfitrión', exact: true }).click();
@@ -195,10 +195,18 @@ test('MPV2-03 host publishes public region and commune; anonymous visitor finds 
   await host.getByRole('button', { name: 'Publicar', exact: true }).click();
   expect((await publishResponse).status()).toBe(200);
   await expect(host.getByText('Publicada', { exact: true })).toBeVisible();
-  await takeScreenshot(host, 'fe14_mpv2_03_host_desktop');
+  await host.getByRole('button', { name: 'Galería', exact: true }).click();
+  const photoResponsePromise=host.waitForResponse(response=>response.request().method()==='POST'&&response.url().endsWith(`/api/v1/spaces/${draft.id}/gallery`));
+  await host.getByRole('button',{name:'Generar imagen sintética'}).click();
+  const photoResponse=await photoResponsePromise;expect(photoResponse.status()).toBe(201);
+  const photoId=(await photoResponse.json()).photo.id;
+  await expect(host.getByText('Privada',{exact:true})).toBeVisible();
+  const publicResponse=host.waitForResponse(response=>response.request().method()==='PUT'&&response.url().endsWith(`/api/v1/spaces/${draft.id}/gallery/${photoId}/publication`));
+  await host.getByRole('button',{name:'Mostrar en ficha pública'}).click();
+  expect((await publicResponse).status()).toBe(200);
+  await takeScreenshot(host, 'fe14_mpv2_04_host_desktop');
   await host.setViewportSize({ width: 390, height: 844 });
-  await takeScreenshot(host, 'fe14_mpv2_03_host_mobile', true);
-  await host.close();
+  await takeScreenshot(host, 'fe14_mpv2_04_host_mobile', true);
 
   const visitor = await browser.newPage({ viewport: { width: 1365, height: 900 }, deviceScaleFactor: 1 });
   let searchRequest;
@@ -216,12 +224,36 @@ test('MPV2-03 host publishes public region and commune; anonymous visitor finds 
   expect((await searchRequest.allHeaders()).authorization).toBeUndefined();
   await expect(visitor.getByRole('link', { name: title })).toBeVisible();
   await expect(visitor.getByText('Providencia, Metropolitana de Santiago')).toBeVisible();
-  await takeScreenshot(visitor, 'fe14_mpv2_03_visitor_search_desktop', true);
+  await takeScreenshot(visitor, 'fe14_mpv2_04_visitor_search_desktop', true);
   await visitor.setViewportSize({ width: 390, height: 844 });
-  await takeScreenshot(visitor, 'fe14_mpv2_03_visitor_search_mobile', true);
+  await takeScreenshot(visitor, 'fe14_mpv2_04_visitor_search_mobile', true);
+  await visitor.setViewportSize({ width: 1365, height: 900 });
+  const imageResponsePromise=visitor.waitForResponse(response=>response.request().method()==='GET'&&response.url().includes(`/api/v1/public/spaces/${draft.id}/images/${photoId}`));
+  const publicDetailResponsePromise=visitor.waitForResponse(response=>response.request().method()==='GET'&&response.url().endsWith(`/api/v1/public/spaces/${draft.id}`));
   await visitor.getByRole('link', { name: title }).click();
+  const publicDetailResponse=await publicDetailResponsePromise;
+  expect(publicDetailResponse.status()).toBe(200);
+  const detailDTO=(await publicDetailResponse.json()).data;
+  expect(detailDTO.images).toEqual([{image_id:photoId,is_cover:false}]);
+  expect(detailDTO.usage_rules).toBe('Prueba de publicación sintética.');
+  expect(JSON.stringify(detailDTO)).not.toContain('Dirección confidencial');
   await expect(visitor.getByRole('heading', { name: title })).toBeVisible();
   await expect(visitor.getByText(/Dirección confidencial MPV2-03/)).toHaveCount(0);
+  await expect(visitor.getByRole('img',{name:'Fotografía pública del espacio'})).toBeVisible();
+  const imageResponse=await imageResponsePromise;expect(imageResponse.status()).toBe(200);
+  expect((await imageResponse.request().allHeaders()).authorization).toBeUndefined();
+  const imageHeaders=await imageResponse.allHeaders();
+  expect(imageHeaders['content-type']).toContain('image/png');
+  expect(imageHeaders['cache-control']).toBe('no-store');
+  expect(imageHeaders['x-content-type-options']).toBe('nosniff');
+  await takeScreenshot(visitor,'fe14_mpv2_04_detail_desktop',true);
+  await visitor.setViewportSize({width:390,height:844});
+  await takeScreenshot(visitor,'fe14_mpv2_04_detail_mobile',true);
+  await host.setViewportSize({width:1365,height:900});
+  await host.getByRole('button',{name:'Retirar de ficha pública'}).click();
+  const withdrawn=await visitor.request.get(imageResponse.url());
+  expect(withdrawn.status()).toBe(404);
+  await host.close();
   await visitor.close();
 
   const thirdParty = await browser.newPage();

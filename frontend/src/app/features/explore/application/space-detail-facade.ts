@@ -12,6 +12,7 @@ import {
   CatalogItem,
   ExplorePort,
   PublicSpace,
+  PublicSpaceDetail,
 } from '../domain/ports/explore-port';
 
 @Injectable()
@@ -31,7 +32,7 @@ export class SpaceDetailFacade implements OnInit {
   private activeSession = this.identity.session();
   private activeToken = this.identity.accessToken();
 
-  readonly space = signal<(PublicSpace & Partial<CatalogItem>) | null>(null);
+  readonly space = signal<(PublicSpaceDetail & Partial<CatalogItem>) | null>(null);
   readonly privateSpace = signal<CatalogItem | null>(null);
   readonly profile = signal<SpaceAttributeProfile | null>(null);
   readonly date = signal('');
@@ -267,6 +268,8 @@ export class SpaceDetailFacade implements OnInit {
     if (Array.isArray(value)) return value.join(', ');
     return String(value ?? '—');
   }
+
+  publicImageUrl(imageId:string):string { const item=this.space(); return item ? this.api.publicImageUrl(item.space_id,imageId) : ''; }
 
   private async loadSpace(id: string): Promise<void> {
     this.activeSpaceId = id;

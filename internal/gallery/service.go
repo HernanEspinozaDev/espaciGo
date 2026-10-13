@@ -119,6 +119,13 @@ func (s *Service) SelectCover(ctx context.Context, owner, spaceID, photoID strin
 	return s.repo.SelectCover(ctx, owner, spaceID, photoID)
 }
 
+func (s *Service) SetPublicInCatalog(ctx context.Context, owner, spaceID, photoID string, enabled bool) (Photo, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Photo{}, ErrNotFound
+	}
+	return s.repo.SetPublicInCatalog(ctx, owner, spaceID, photoID, enabled)
+}
+
 // CleanRetiredOnce drains withdrawn photos and files that never became photos.
 // Both paths are durable, retryable and safe across Backend restarts.
 func (s *Service) CleanRetiredOnce(ctx context.Context, limit int) error {

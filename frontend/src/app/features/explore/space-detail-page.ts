@@ -62,4 +62,5 @@ export class SpaceDetailPage {
   readonly formatDateTime = this.facade.formatDateTime.bind(this.facade);
   readonly attributeLabel = this.facade.attributeLabel.bind(this.facade);
   readonly attributeValue = this.facade.attributeValue.bind(this.facade);
+  readonly publicImageUrl = this.facade.publicImageUrl.bind(this.facade);
 }

@@ -137,7 +137,10 @@ cleanup() {
     mkdir -p "$FE14_EVIDENCE_OUTPUT_DIR"
     for artifact in fe14_public_search_desktop.jpg fe14_public_search_desktop.json fe14_public_search_mobile.jpg fe14_public_search_mobile.json \
       fe14_mpv2_03_host_desktop.jpg fe14_mpv2_03_host_desktop.json fe14_mpv2_03_host_mobile.jpg fe14_mpv2_03_host_mobile.json \
-      fe14_mpv2_03_visitor_search_desktop.jpg fe14_mpv2_03_visitor_search_desktop.json fe14_mpv2_03_visitor_search_mobile.jpg fe14_mpv2_03_visitor_search_mobile.json; do
+      fe14_mpv2_04_visitor_search_desktop.jpg fe14_mpv2_04_visitor_search_desktop.json fe14_mpv2_04_visitor_search_mobile.jpg fe14_mpv2_04_visitor_search_mobile.json \
+      fe14_mpv2_04_host_desktop.jpg fe14_mpv2_04_host_desktop.json fe14_mpv2_04_host_mobile.jpg fe14_mpv2_04_host_mobile.json \
+      fe14_mpv2_04_visitor_search_desktop.jpg fe14_mpv2_04_visitor_search_desktop.json fe14_mpv2_04_visitor_search_mobile.jpg fe14_mpv2_04_visitor_search_mobile.json \
+      fe14_mpv2_04_detail_desktop.jpg fe14_mpv2_04_detail_desktop.json fe14_mpv2_04_detail_mobile.jpg fe14_mpv2_04_detail_mobile.json; do
       if [[ -f "$STATE_DIR/artifacts/$artifact" ]]; then cp -- "$STATE_DIR/artifacts/$artifact" "$FE14_EVIDENCE_OUTPUT_DIR/$artifact"; fi
     done
   fi
@@ -151,7 +154,7 @@ printf 'FE-14 disposable project: %s\n' "$PROJECT"
 printf 'API/Angular/Mailpit ports: %s/%s/%s\n' "$LOCAL_DOCKER_API_PORT" "$LOCAL_DOCKER_ANGULAR_PORT" "$LOCAL_DOCKER_MAILPIT_PORT"
 printf 'New database volume: %s; no persistent volume is referenced\n' "$LOCAL_DOCKER_PGDATA_VOLUME"
 printf 'E2E bind mounts: read-only accounts file, artifacts directory, results directory only\n'
-bash "$ROOT_DIR/scripts/local-docker-stack.sh" up-frontend >"$STATE_DIR/stack-build.log" 2>&1
+bash "$ROOT_DIR/scripts/local-docker-stack.sh" up-frontend >"$STATE_DIR/stack-build.log" 2>&1 || { tail -n 120 "$STATE_DIR/stack-build.log" >&2; exit 1; }
 curl --silent --show-error --fail --max-time 5 "http://127.0.0.1:${LOCAL_DOCKER_API_PORT}/health/ready" >/dev/null
 curl --silent --show-error --fail --max-time 5 "http://127.0.0.1:${LOCAL_DOCKER_ANGULAR_PORT}/healthz" >/dev/null
 printf 'PASS Angular and Go readiness are HTTP 200 before authenticated E2E\n'
@@ -218,7 +221,7 @@ printf 'PASS disposable FE-14 database contains one eligible synthetic public li
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
 if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
   printf 'Running focused anonymous public catalog journey\n'
-  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep 'Anonymous visitor explores|MPV2-03 host publishes' >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
+  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep 'Anonymous visitor explores|MPV2-04 host declares' >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
   cat "$STATE_DIR/e2e.log"
 else
 printf 'Waiting for same-tab outage and restore test\n'
@@ -275,7 +278,7 @@ PY
 mkdir -p "$ROOT_DIR/planning/frontend/evidencia" "$ROOT_DIR/planning/marketplace_publico_v2/evidencia/mpv2_03"
 for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
   [[ -f "$image" ]] || continue
-  if [[ "$(basename "$image")" == fe14_mpv2_03_* && -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
+  if [[ "$(basename "$image")" == fe14_mpv2_03_* || "$(basename "$image")" == fe14_mpv2_04_* ]] && [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
     destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$image")"
     cp -- "$image" "$destination"
     chmod 0644 "$destination"
@@ -291,7 +294,7 @@ for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
 done
 for measurements in "$STATE_DIR"/artifacts/fe14_*.json; do
   [[ -f "$measurements" ]] || continue
-  if [[ "$(basename "$measurements")" == fe14_mpv2_03_* && -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
+  if [[ "$(basename "$measurements")" == fe14_mpv2_03_* || "$(basename "$measurements")" == fe14_mpv2_04_* ]] && [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then
     destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$measurements")"
     cp -- "$measurements" "$destination"
     chmod 0644 "$destination"

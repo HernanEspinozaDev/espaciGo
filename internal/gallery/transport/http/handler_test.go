@@ -104,6 +104,15 @@ func (r *repoStub) SelectCover(_ context.Context, _, spaceID, photoID string) (g
 	}
 	return gallery.Cover{SpaceID: spaceID, PhotoID: photoID, Selected: true}, nil
 }
+func (r *repoStub) SetPublicInCatalog(_ context.Context, _, spaceID, photoID string, enabled bool) (gallery.Photo, error) {
+	for i := range r.items {
+		if r.items[i].ID == photoID {
+			r.items[i].PublicInCatalog = enabled
+			return r.items[i], nil
+		}
+	}
+	return gallery.Photo{}, gallery.ErrNotFound
+}
 func (r *repoStub) PendingCleanup(context.Context, int) ([]string, error)    { return nil, nil }
 func (r *repoStub) CompleteCleanup(context.Context, string, time.Time) error { return nil }
 func (r *repoStub) FailCleanup(context.Context, string, time.Time) error     { return nil }

@@ -138,6 +138,27 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-SHA256", item.SHA256)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(blob)
+	case photoID != "" && strings.HasSuffix(r.URL.Path, "/publication") && r.Method == http.MethodPut:
+		var input struct {
+			PublicInCatalog *bool `json:"public_in_catalog"`
+		}
+		decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil || input.PublicInCatalog == nil {
+			failure(w, 422, "validation_error", "Indica public_in_catalog como booleano.")
+			return
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			failure(w, 422, "validation_error", "El cuerpo JSON debe contener un único objeto.")
+			return
+		}
+		result, err := h.service.SetPublicInCatalog(r.Context(), principal.AccountID, spaceID, photoID, *input.PublicInCatalog)
+		if err != nil {
+			galleryError(w, err)
+			return
+		}
+		write(w, 200, result)
 	case photoID != "" && !content && r.Method == http.MethodGet:
 		item, err := h.service.Metadata(r.Context(), principal.AccountID, spaceID, photoID)
 		if err != nil {
@@ -177,6 +198,9 @@ func route(path string) (spaceID, photoID string, content, ok bool) {
 	}
 	if len(parts) == 4 && parts[2] != "" && parts[3] == "content" {
 		return parts[0], parts[2], true, true
+	}
+	if len(parts) == 4 && parts[2] != "" && parts[3] == "publication" {
+		return parts[0], parts[2], false, true
 	}
 	return "", "", false, false
 }

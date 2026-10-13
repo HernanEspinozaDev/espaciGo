@@ -168,6 +168,20 @@ func TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup(t *testing.T
 	if err != nil || reused {
 		t.Fatalf("first add reused=%v err=%v", reused, err)
 	}
+	if first.PublicInCatalog {
+		t.Fatal("new gallery photo was public by default")
+	}
+	publicPhoto, err := svc.SetPublicInCatalog(ctx, owner, spaceA, first.ID, true)
+	if err != nil || !publicPhoto.PublicInCatalog {
+		t.Fatalf("explicit photo publication=%+v err=%v", publicPhoto, err)
+	}
+	if _, err = svc.SetPublicInCatalog(ctx, other, spaceA, first.ID, false); !errors.Is(err, gallery.ErrNotFound) {
+		t.Fatalf("foreign photo publication error=%v", err)
+	}
+	privatePhoto, err := svc.SetPublicInCatalog(ctx, owner, spaceA, first.ID, false)
+	if err != nil || privatePhoto.PublicInCatalog {
+		t.Fatalf("photo withdrawal=%+v err=%v", privatePhoto, err)
+	}
 	retry, reused, err := svc.AddSynthetic(ctx, owner, spaceA, "gallery-key-0001")
 	if err != nil || !reused || retry.ID != first.ID {
 		t.Fatalf("idempotent add=%+v reused=%v err=%v", retry, reused, err)
