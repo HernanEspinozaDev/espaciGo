@@ -16,6 +16,7 @@ Resultado: **2/2 pruebas FE-14 aprobadas**. Un anfitrión creó un PNG sintétic
 - `npm test` — 199/199 pruebas aprobadas.
 - `npm run api:check`, `npm run lint` y `npm run build` — aprobados.
 - FE-14: `FE14_PUBLIC_ONLY=1 FE14_PORT_BASE=19020 FE14_EVIDENCE_OUTPUT_DIR=planning/marketplace_publico_v2/evidencia/mpv2_04 bash scripts/test-frontend-e2e.sh` — 2/2 aprobadas.
+- GitHub Actions de PR #298, ejecución [38423547641](https://github.com/HernanEspinozaDev/espaciGo/actions/runs/38423547641) — frontend aprobado: lint, `api:check`, unitarias, build y `npm audit --omit=dev`.
 
 ## Capturas
 
