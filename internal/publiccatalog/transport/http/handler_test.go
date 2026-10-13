@@ -66,3 +66,42 @@ func TestPublicPageSizeAbsentAndExplicitBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestPublicCORSOriginPolicy(t *testing.T) {
+	repo := &pageSizeRepository{}
+	service, err := publiccatalog.New(repo, []byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(service, "https://catalog.example")
+	cases := []struct {
+		name, method, origin string
+		wantStatus           int
+		wantAllowOrigin      string
+	}{
+		{name: "SSR request without Origin", method: http.MethodGet, wantStatus: http.StatusOK},
+		{name: "allowed browser origin", method: http.MethodGet, origin: "https://catalog.example", wantStatus: http.StatusOK, wantAllowOrigin: "https://catalog.example"},
+		{name: "allowed preflight", method: http.MethodOptions, origin: "https://catalog.example", wantStatus: http.StatusNoContent, wantAllowOrigin: "https://catalog.example"},
+		{name: "untrusted origin", method: http.MethodGet, origin: "https://attacker.example", wantStatus: http.StatusForbidden},
+		{name: "untrusted preflight", method: http.MethodOptions, origin: "https://attacker.example", wantStatus: http.StatusForbidden},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(tc.method, "/api/v1/public/space-categories", nil)
+			if tc.origin != "" {
+				request.Header.Set("Origin", tc.origin)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != tc.wantStatus {
+				t.Fatalf("status=%d, want %d; body=%s", response.Code, tc.wantStatus, response.Body.String())
+			}
+			if got := response.Header().Get("Access-Control-Allow-Origin"); got != tc.wantAllowOrigin {
+				t.Fatalf("Access-Control-Allow-Origin=%q, want %q", got, tc.wantAllowOrigin)
+			}
+			if tc.method == http.MethodOptions && tc.wantStatus == http.StatusNoContent && response.Header().Get("Access-Control-Allow-Methods") != "GET, OPTIONS" {
+				t.Fatalf("preflight methods=%q", response.Header().Get("Access-Control-Allow-Methods"))
+			}
+		})
+	}
+}

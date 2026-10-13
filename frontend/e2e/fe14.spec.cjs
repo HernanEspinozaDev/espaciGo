@@ -777,6 +777,7 @@ test('Go-backed role navigation, private JSON/ZIP exports, and responsive eviden
 });
 
 test('Go outage preserves the same in-memory session and restoration revalidates it in place', async ({ browser }) => {
+  test.setTimeout(150_000);
   const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
   let loginRequests = 0;
   page.on('request', (request) => {

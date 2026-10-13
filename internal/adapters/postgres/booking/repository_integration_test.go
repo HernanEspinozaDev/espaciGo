@@ -64,6 +64,39 @@ type operationTestFiles struct {
 	files map[string][]byte
 }
 
+type migrationHistorySnapshot struct {
+	Version   int64
+	Name      string
+	Checksum  string
+	AppliedAt time.Time
+}
+
+func readMigrationHistory(t *testing.T, ctx context.Context, databaseURL string) []migrationHistorySnapshot {
+	t.Helper()
+	conn, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(context.Background())
+	rows, err := conn.Query(ctx, `SELECT version,name,checksum,applied_at FROM public.schema_migrations ORDER BY version`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var history []migrationHistorySnapshot
+	for rows.Next() {
+		var row migrationHistorySnapshot
+		if err := rows.Scan(&row.Version, &row.Name, &row.Checksum, &row.AppliedAt); err != nil {
+			t.Fatal(err)
+		}
+		history = append(history, row)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return history
+}
+
 func (f *operationTestFiles) Put(_ context.Context, id string, blob []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -325,7 +358,7 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, file := range migrationFiles {
-		if file.IsDir() || strings.HasPrefix(file.Name(), "V000055__") {
+		if file.IsDir() || strings.HasPrefix(file.Name(), "V000055__") || strings.HasPrefix(file.Name(), "V000056__") {
 			continue
 		}
 		source, pathErr := filepath.Abs(filepath.Join("../../../../db/migrations", file.Name()))
@@ -339,9 +372,39 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if _, err = migrator.Run(ctx, upgradeURL.String(), priorDir); err != nil {
 		t.Fatalf("migrate disposable database through V54: %v", err)
 	}
+	historyBeforeUpgrade := readMigrationHistory(t, ctx, upgradeURL.String())
+	if len(historyBeforeUpgrade) != 54 {
+		t.Fatalf("V54 baseline history rows=%d, want 54", len(historyBeforeUpgrade))
+	}
+	if historyBeforeUpgrade[53].Version != 54 {
+		t.Fatalf("V54 baseline ended at version %d", historyBeforeUpgrade[53].Version)
+	}
 	upgradeResult, err := migrator.Run(ctx, upgradeURL.String(), "../../../../db/migrations")
-	if err != nil || len(upgradeResult.Applied) != 1 || upgradeResult.Applied[0] != 55 {
-		t.Fatalf("V54 upgrade applied=%v err=%v; want only V55", upgradeResult.Applied, err)
+	if err != nil || !reflect.DeepEqual(upgradeResult.Applied, []int64{55, 56}) {
+		t.Fatalf("V54 upgrade applied=%v err=%v; want V55 and V56", upgradeResult.Applied, err)
+	}
+	historyAfterUpgrade := readMigrationHistory(t, ctx, upgradeURL.String())
+	if len(historyAfterUpgrade) != 56 || !reflect.DeepEqual(historyBeforeUpgrade, historyAfterUpgrade[:54]) {
+		t.Fatalf("V54 upgrade rewrote earlier history or ended at wrong version: before=%d after=%d", len(historyBeforeUpgrade), len(historyAfterUpgrade))
+	}
+	var locationColumns, publicPhotoColumn bool
+	upgradeConn, err := pgx.Connect(ctx, upgradeURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgradeConn.Close(context.Background())
+	if err = upgradeConn.QueryRow(ctx, `SELECT count(*)=3 FROM information_schema.columns
+		WHERE table_schema='public' AND table_name='espacio'
+		AND column_name=ANY(ARRAY['ubicacion_catalogo_version','region_codigo','comuna_codigo'])`).Scan(&locationColumns); err != nil {
+		t.Fatal(err)
+	}
+	if err = upgradeConn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM information_schema.columns
+		WHERE table_schema='public' AND table_name='espacio_galeria_sintetica_local'
+		AND column_name='publicada_en_catalogo')`).Scan(&publicPhotoColumn); err != nil {
+		t.Fatal(err)
+	}
+	if !locationColumns || !publicPhotoColumn {
+		t.Fatalf("V54→V56 schema columns absent: location=%v public-photo=%v", locationColumns, publicPhotoColumn)
 	}
 	if _, err = admin.Exec(ctx, `CREATE ROLE espacigo_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD 'local-booking-test'`); err != nil {
 		t.Fatal(err)
