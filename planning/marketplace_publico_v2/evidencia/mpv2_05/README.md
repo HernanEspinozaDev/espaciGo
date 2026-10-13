@@ -1,6 +1,6 @@
 # Evidencia MPV2-05 · Portada, categorías y catálogo público
 
-**Fecha:** 2026-10-13. **Rama:** codex/marketplace/feature/mpv2-05-public-listing-ux. **Base:** merge de MPV2-04 #298, c3e5cd297a32863446df33d271931aacb6fc2a8b. HEAD probado: 6ded98ad4db67a751023c24cdad04d7f8d6f4435; PR #299 abierto.
+**Fecha:** 2026-10-13. **Rama:** codex/marketplace/feature/mpv2-05-public-listing-ux. **Base:** merge de MPV2-04 #298, c3e5cd297a32863446df33d271931aacb6fc2a8b. HEAD de código probado: f64c12427cd5e1a07b972c0bb4fd367315d9baa2; PR #299 abierto en revisión.
 
 ## Recorrido conectado FE-14
 
