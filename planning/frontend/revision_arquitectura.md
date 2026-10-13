@@ -55,10 +55,37 @@ Se conserva el contrato Promise de los puertos del SDK y las guardas de generaci
 - `npm run api:check`: generación SDK y TypeScript estricto/compatibilidad de proyecciones.
 - `npm test -- --watch=false`: regresiones existentes y pruebas nuevas de puertos, registro puro, mapper y formularios.
 - `npm run build`: compilación Angular con templates estrictos y 3 rutas prerenderizadas.
-- Docker/E2E: aislamiento del runner, roles/descargas y caída/restauración; repetir en el nuevo árbol antes de la aceptación.
+- Docker/E2E: repetidos sobre el árbol adecuado; aislamiento del runner, borrador desde formularios reales, roles/descargas y caída/restauración. Evidencia abajo.
 - La integración conserva datos sintéticos y no afirma certificación WCAG ni readiness productiva.
 - Los lints se ejecutan con patrones locales fijos. La dependencia de desarrollo Stylelint arrastra el aviso sin versión corregida de `braces` (GHSA-vfj7-8cjw-p6xm); `npm audit --omit=dev` no reporta vulnerabilidades. El tooling no recibe patrones externos. Registrar/actualizar el aviso cuando exista corrección; no ocultarlo en la aceptación.
 
 ## Siguiente paso
 
 Revisar el PR de esta adecuación y su evidencia. Después preparar la demo del commit aprobado con cuentas sintéticas y contenido representativo. Solo tras aceptación explícita del usuario se inicia FE-15. Los documentos locales de aceptación en `2492661` y los cambios ajenos del checkout original no se modifican ni se incorporan a este corte.
+
+## Resultado de la validación de la adecuación
+
+PR: [#290](https://github.com/HernanEspinozaDev/espaciGo/pull/290), autor **HernanMEC**. Código de la repetición final: `70a97c42db810705360142b3907fe35c016744c2`. La actualización posterior de evidencia no cambia ese código de aplicación.
+
+| Gate | Resultado |
+| --- | --- |
+| ESLint + Stylelint + frontera AST | PASS; 11 puertos, 12 fachadas, 18 componentes |
+| Angular | **178/178**, 32 archivos; conserva las 169 regresiones del baseline |
+| OpenAPI y proyecciones propias | `api:check` PASS con TypeScript estricto |
+| Build | PASS, 3 rutas prerenderizadas; bundle inicial 422,62 kB, sin advertencias de presupuesto |
+| Docker FE-13 | PASS en proyecto desechable `espacigo_fe13_20261013000741_2603346`; redes, runtime, CORS, preflight, caída y recuperación |
+| E2E autenticado | **4/4** en `espacigo_fe14_833978ce068c`: aislamiento, creación/edición de borrador con POST 201 y PUT 200, roles/JSON/ZIP, misma sesión tras caída/restauración |
+| CI GitHub | [Run 38325464841](https://github.com/HernanEspinozaDev/espaciGo/actions/runs/38325464841) PASS sobre el commit de código probado |
+| Auditoría npm de producción | 0 vulnerabilidades; aviso de tooling de desarrollo documentado arriba |
+
+La primera ejecución de la nueva prueba de borrador falló por el localizador exacto de la categoría; la traza señaló `selectOption`. Se corrigió a combobox por nombre accesible y se repitió el stack completo: 4/4. No se cuenta la corrida fallida como evidencia aprobada.
+
+[Manifiesto](evidencia/arquitectura/manifest.json) con SHA-256 de imágenes, viewport/documento y IDs Docker. [Log Angular](evidencia/arquitectura/angular-tests.log), [Docker](evidencia/arquitectura/docker.log) y [E2E](evidencia/arquitectura/e2e.log). Capturas nuevas separadas de las históricas: [oferta móvil](evidencia/arquitectura/host_mobile.jpg) y [oferta escritorio](evidencia/arquitectura/host_desktop.jpg). Las capturas `architecture_host_*` muestran el formulario desplazado después de guardar; las `host_*` muestran el encabezado y el borrador de Go.
+
+Los viewports fueron **390×844** y **1365×900**, sin desbordamiento horizontal en estas muestras. El anfitrión del E2E no tiene KYC: Go conserva restricciones/409 en recursos de elegibilidad; el borrador sigue en ese estado y no se presenta como publicación activa. Administración usa colas sintéticas vacías. Este ensayo no sustituye la demo de todos los estados de contratos, finanzas y administración.
+
+Los contenedores, redes y volúmenes propios de ambas repeticiones se retiraron. No se modificó la configuración privada del checkout original, sus cambios ajenos ni el registro local `2492661`.
+
+La biblioteca UI entregada es una base usada por la aplicación (controles nativos, estado, formularios y foco), no una biblioteca exhaustiva de todos los widgets de la guía. Se conservan las medidas de layout existentes por feature para no alterar su geometría durante esta adecuación; los controles compartidos y la paleta sí consumen tokens. La página pública indexable de propiedad, staging y Cloud Run pertenecen al alcance objetivo y no se declaran implementados por este corte local.
+
+El [recorrido de aceptación](demo_aceptacion_arquitectura.md) está preparado. **La demo acompañada, la aceptación explícita del usuario de FE-14 y FE-15 permanecen pendientes** hasta revisar y aprobar esta adecuación.
