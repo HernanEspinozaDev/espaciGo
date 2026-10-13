@@ -14,3 +14,7 @@ Los cuatro JPEG son capturas de página completa con metadatos JSON de viewport 
 | `fe14_mpv2_03_visitor_search_mobile.jpg` | 390×2620 | `0f8471c10202cf247eb71b9078c9dc9d4a457bc1fd34b38889c5ba6ddd426e70` |
 
 El corte no cambia migraciones V1–V55 ni agrega otra migración: usa el catálogo territorial nullable existente de V55. No incluye fotos reales, SSR público ni aceptación final de producto.
+
+## Correcciones de revisión
+
+El 2026-10-13 se corrigió la fusión concurrente de región/comuna como par indivisible y se endureció la validación para rechazar ambos sentidos de par parcialmente vacío. Verificaciones ejecutadas para esas correcciones: `go test ./...` PASS; integración PostgreSQL aislada `TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions` PASS (las dos variantes HTTP responden 422 y conservan región/comuna persistidas); suite Angular 199/199 PASS (incluye cambio solo de comuna, selección desde vacío, retirada y conservación de actualización remota); `npm run lint`, `npm run api:check` y `npm run build` PASS, sin avisos de presupuesto. Las capturas de arriba corresponden al recorrido FE-14 2/2 del 2026-10-13 anterior a estas correcciones; no se repitió FE-14 para esta revisión porque los cambios se verificaron mediante regresiones Angular y PostgreSQL enfocadas.
