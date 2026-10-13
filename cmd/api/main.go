@@ -30,6 +30,7 @@ import (
 	operationspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/operations"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
 	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
+	publiccatalogpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/publiccatalog"
 	reputationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/reputation"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
@@ -58,6 +59,8 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/health"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
+	publiccataloghttp "github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/reputation"
 	reputationhttp "github.com/HernanEspinozaDev/espaciGo/internal/reputation/transport/http"
 	spacesdomain "github.com/HernanEspinozaDev/espaciGo/internal/spaces"
@@ -148,6 +151,7 @@ func run() error {
 	var localOperationService *operation.Service
 	var localNoticeService *localnotice.Service
 	var localContractRepository *contractpg.Repository
+	var publicCatalogMasterKey []byte
 	var privacyReplayRegistryPath string
 	var privacyEvidenceCleaner privacy.SyntheticEvidenceCleaner
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
@@ -177,6 +181,7 @@ func run() error {
 			if decodeErr != nil || len(contractKey) != 32 {
 				return errors.New("local contract encryption key is invalid")
 			}
+			publicCatalogMasterKey = append([]byte(nil), contractKey...)
 			localContractRepository, err = contractpg.New(pool, contractKey)
 			if err != nil {
 				return errors.New("local contract repository initialization failed")
@@ -250,6 +255,14 @@ func run() error {
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}", galleryHandler)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/content", galleryHandler)
 		if os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {
+			publicCatalogService, err := publiccatalog.New(publiccatalogpg.New(pool), publicCatalogMasterKey)
+			if err != nil {
+				return errors.New("public catalog initialization failed")
+			}
+			publicCatalogHandler := publiccataloghttp.New(publicCatalogService, cfg.allowedOrigins...)
+			mux.Handle("/api/v1/public/spaces", publicCatalogHandler)
+			mux.Handle("/api/v1/public/spaces/", publicCatalogHandler)
+			mux.Handle("/api/v1/public/space-categories", publicCatalogHandler)
 			quoteTTL, err := localTrialDuration("LOCAL_BOOKING_QUOTE_TTL", 15*time.Minute)
 			if err != nil {
 				return errors.New("invalid local quote lifetime")

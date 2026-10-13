@@ -72,6 +72,27 @@ test('E2E runner can read only the accounts fixture and write artifacts/results,
   }
 });
 
+test('Anonymous visitor explores the Go-backed public catalog and minimized detail', async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 });
+  let publicRequest;
+  page.on('request', request => {
+    if (request.method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(request.url())) publicRequest = request;
+  });
+  await page.goto('/explorar');
+  await expect(page.getByRole('heading', { name: 'Encuentra tu próximo espacio' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
+  expect(publicRequest).toBeTruthy();
+  expect((await publicRequest.allHeaders()).authorization).toBeUndefined();
+  await page.getByRole('link', { name: 'Espacio sintético público FE-14' }).click();
+  await expect(page.getByRole('heading', { name: 'Espacio sintético público FE-14' })).toBeVisible();
+  await expect(page.getByText('CLP 18.000 / hora')).toBeVisible();
+  await expect(page.getByText('Fotografía no disponible')).toBeVisible();
+  await expect(page.getByText(/Dirección privada de prueba/)).toHaveCount(0);
+  await takeScreenshot(page, 'fe14_public_catalog_desktop');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await takeScreenshot(page, 'fe14_public_catalog_mobile');
+});
+
 test('Typed hosting form creates and edits a synthetic draft through Go', async ({ page }) => {
   await page.setViewportSize({ width: 1365, height: 900 });
   await login(page, accounts.host);

@@ -9,6 +9,42 @@ servers:
 security:
 - bearerAuth: []
 paths:
+  /public/spaces:
+    get:
+      operationId: listPublicSpaces
+      security: []
+      tags: [Public catalog]
+      summary: Explorar publicaciones públicas elegibles
+      parameters:
+      - {in: query, name: category_code, schema: {type: string}}
+      - {in: query, name: rate_unit, schema: {type: string, enum: [hora, dia, mes]}}
+      - {in: query, name: min_unit_price_clp, schema: {type: integer, format: int64, minimum: 0}}
+      - {in: query, name: max_unit_price_clp, schema: {type: integer, format: int64, minimum: 0}}
+      - {in: query, name: sort, schema: {type: string, enum: [default, unit_price_asc, unit_price_desc], default: default}}
+      - {in: query, name: page_size, schema: {type: integer, minimum: 1, maximum: 25, default: 20}}
+      - {in: query, name: cursor, schema: {type: string, maxLength: 4096}}
+      responses:
+        '200': {description: Página pública minimizada, content: {application/json: {schema: {$ref: '#/components/schemas/PublicSpacePage'}}}}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /public/spaces/{spaceID}:
+    get:
+      operationId: getPublicSpace
+      security: []
+      tags: [Public catalog]
+      summary: Consultar publicación pública elegible
+      parameters:
+      - {in: path, name: spaceID, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200': {description: Detalle público minimizado, content: {application/json: {schema: {$ref: '#/components/schemas/PublicSpaceEnvelope'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /public/space-categories:
+    get:
+      operationId: listPublicSpaceCategories
+      security: []
+      tags: [Public catalog]
+      summary: Listar categorías activas
+      responses:
+        '200': {description: Categorías activas, content: {application/json: {schema: {$ref: '#/components/schemas/PublicSpaceCategories'}}}}
   /spaces/{spaceID}/reviews:
     get:
       operationId: listActiveSpaceReviews
@@ -2659,6 +2695,47 @@ components:
         type: string
         minLength: 1
   schemas:
+    PublicSpace:
+      type: object
+      additionalProperties: false
+      required: [space_id, category_code, category_name, title, description, area_m2, rate_unit, base_price_clp, currency]
+      properties:
+        space_id: {type: string, format: uuid}
+        category_code: {type: string}
+        category_name: {type: string}
+        title: {type: string}
+        description: {type: string}
+        area_m2: {type: number}
+        rate_unit: {type: string, enum: [hora, dia, mes]}
+        base_price_clp: {type: integer, format: int64}
+        currency: {type: string, const: CLP}
+    PublicSpaceEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/PublicSpace'}
+    PublicSpacePage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/PublicSpace'}}
+        next_cursor: {type: string}
+    PublicSpaceCategory:
+      type: object
+      additionalProperties: false
+      required: [code, name, order]
+      properties:
+        code: {type: string}
+        name: {type: string}
+        order: {type: integer}
+    PublicSpaceCategories:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/PublicSpaceCategory'}}
     AdminLocalBlockInput:
       type: object
       additionalProperties: false

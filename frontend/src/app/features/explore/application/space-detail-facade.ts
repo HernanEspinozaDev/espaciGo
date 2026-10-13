@@ -11,6 +11,7 @@ import {
   BookingQuote,
   CatalogItem,
   ExplorePort,
+  PublicSpace,
 } from '../domain/ports/explore-port';
 
 @Injectable()
@@ -29,7 +30,8 @@ export class SpaceDetailFacade implements OnInit {
   private activeSession = this.identity.session();
   private activeToken = this.identity.accessToken();
 
-  readonly space = signal<CatalogItem | null>(null);
+  readonly space = signal<(PublicSpace & Partial<CatalogItem>) | null>(null);
+  readonly privateSpace = signal<CatalogItem | null>(null);
   readonly profile = signal<SpaceAttributeProfile | null>(null);
   readonly date = signal('');
   readonly duration = signal(1);
@@ -51,16 +53,19 @@ export class SpaceDetailFacade implements OnInit {
       if (session !== this.activeSession || token !== this.activeToken) {
         this.activeSession = session;
         this.activeToken = token;
-        this.generation++;
-        this.space.set(null);
-        this.profile.set(null);
-        this.options.set([]);
-        this.selected.set(null);
-        this.quote.set(null);
-        this.date.set('');
-        this.duration.set(1);
-        this.busy.set(false);
-        this.error.set('La sesión cambió. Vuelve a abrir el espacio desde la búsqueda.');
+        if (this.space()) {
+          this.generation++;
+          this.profile.set(null);
+          this.privateSpace.set(null);
+          this.options.set([]);
+          this.selected.set(null);
+          this.quote.set(null);
+          this.date.set('');
+          this.duration.set(1);
+          this.busy.set(false);
+          this.error.set('La sesión cambió. La información pública sigue disponible.');
+        }
+        if (this.canBook()) void this.loadPrivateBookingData();
       }
     });
   }
@@ -99,7 +104,7 @@ export class SpaceDetailFacade implements OnInit {
   }
 
   durationOptions(): number[] {
-    switch (this.space()?.rate_unit) {
+    switch (this.privateSpace()?.rate_unit) {
       case 'hora':
         return [1, 2, 4];
       case 'dia':
@@ -112,7 +117,7 @@ export class SpaceDetailFacade implements OnInit {
   }
 
   async loadAvailability(): Promise<void> {
-    const space = this.space();
+    const space = this.privateSpace();
     const date = this.date();
     const token = this.identity.accessToken();
     const session = this.identity.session();
@@ -141,7 +146,7 @@ export class SpaceDetailFacade implements OnInit {
   }
 
   async createQuote(): Promise<void> {
-    const space = this.space();
+    const space = this.privateSpace();
     const interval = this.selected();
     const token = this.identity.accessToken();
     const session = this.identity.session();
@@ -223,7 +228,7 @@ export class SpaceDetailFacade implements OnInit {
   }
 
   formatInterval(interval: AvailabilityInterval): string {
-    const zone = this.space()?.time_zone ?? 'UTC';
+    const zone = this.privateSpace()?.time_zone ?? 'UTC';
     const formatter = new Intl.DateTimeFormat('es-CL', {
       timeZone: zone,
       year: 'numeric',
@@ -241,7 +246,7 @@ export class SpaceDetailFacade implements OnInit {
   }
   formatDateTime(value: string): string {
     return new Intl.DateTimeFormat('es-CL', {
-      timeZone: this.space()?.time_zone ?? 'UTC',
+      timeZone: this.privateSpace()?.time_zone ?? 'UTC',
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -261,10 +266,9 @@ export class SpaceDetailFacade implements OnInit {
 
   private async loadSpace(id: string): Promise<void> {
     this.activeSpaceId = id;
-    const token = this.identity.accessToken();
-    const session = this.identity.session();
     const generation = ++this.generation;
     this.space.set(null);
+    this.privateSpace.set(null);
     this.profile.set(null);
     this.options.set([]);
     this.selected.set(null);
@@ -272,29 +276,46 @@ export class SpaceDetailFacade implements OnInit {
     this.date.set('');
     this.duration.set(1);
     this.error.set('');
-    if (!token || !session || session.restricted_mode || !session.roles.includes('arrendatario')) {
-      this.error.set('Go no confirmó permisos de arrendatario para ver este espacio.');
-      return;
-    }
     this.busy.set(true);
     try {
-      const item = await this.api.detail(token, id);
-      if (!this.isCurrent(generation, token, session, id)) return;
+      const item = await this.api.publicDetail(id);
+      if (generation !== this.generation || this.activeSpaceId !== id) return;
       this.space.set(item);
-      if (!this.durationOptions().includes(this.duration())) this.duration.set(1);
       this.title.setTitle(`${item.title} | EspaciGo`);
-      const profile = await this.api.profile(token, item.category_code);
-      if (!this.isCurrent(generation, token, session, id)) return;
-      this.profile.set(profile);
-      const clock = await this.api.businessClock(token);
-      if (!this.isCurrent(generation, token, session, id)) return;
-      this.date.set(localDateInZone(item.time_zone, clock.data.now));
-      await this.loadAvailability();
+      if (this.canBook()) await this.loadPrivateBookingData();
     } catch (error) {
-      if (this.handleUnauthorized(error, token)) return;
-      if (this.isCurrent(generation, token, session, id)) this.error.set(apiError(error));
+      if (generation === this.generation && this.activeSpaceId === id) this.error.set(apiError(error));
     } finally {
-      if (this.isCurrent(generation, token, session, id)) this.busy.set(false);
+      if (generation === this.generation && this.activeSpaceId === id) this.busy.set(false);
+    }
+  }
+
+  canBook(): boolean {
+    const session=this.identity.session();
+    return !!this.identity.accessToken() && !!session && !session.restricted_mode && session.roles.includes('arrendatario');
+  }
+
+  private async loadPrivateBookingData(): Promise<void> {
+    const item=this.space();const token=this.identity.accessToken();const session=this.identity.session();
+    if(!item||!token||!session||!this.canBook())return;
+    const generation=++this.generation;const id=item.space_id;this.busy.set(true);this.error.set('');
+    this.options.set([]);this.selected.set(null);this.quote.set(null);
+    try {
+      const full=await this.api.detail(token,id);
+      if(!this.isCurrent(generation,token,session,id))return;
+      this.privateSpace.set(full);
+      const profile=await this.api.profile(token,full.category_code);
+      if(!this.isCurrent(generation,token,session,id))return;
+      this.profile.set(profile);
+      const clock=await this.api.businessClock(token);
+      if(!this.isCurrent(generation,token,session,id))return;
+      this.date.set(localDateInZone(full.time_zone,clock.data.now));
+      await this.loadAvailability();
+    } catch(error) {
+      if(this.handleUnauthorized(error,token))return;
+      if(this.isCurrent(generation,token,session,id))this.error.set(apiError(error));
+    } finally {
+      if(this.isCurrent(generation,token,session,id))this.busy.set(false);
     }
   }
 
@@ -308,7 +329,7 @@ export class SpaceDetailFacade implements OnInit {
   private handleUnauthorized(error: unknown, token: string): boolean {
     if (apiStatus(error) !== 401 || !this.identity.expireIfCurrent(token)) return false;
     ++this.generation;
-    this.space.set(null);
+    this.privateSpace.set(null);
     this.profile.set(null);
     this.options.set([]);
     this.selected.set(null);

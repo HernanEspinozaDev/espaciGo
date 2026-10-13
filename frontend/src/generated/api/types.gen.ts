@@ -4,6 +4,37 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}/api/v1` | (string & {});
 };
 
+export type PublicSpace = {
+    space_id: string;
+    category_code: string;
+    category_name: string;
+    title: string;
+    description: string;
+    area_m2: number;
+    rate_unit: 'hora' | 'dia' | 'mes';
+    base_price_clp: number;
+    currency: 'CLP';
+};
+
+export type PublicSpaceEnvelope = {
+    data: PublicSpace;
+};
+
+export type PublicSpacePage = {
+    items: Array<PublicSpace>;
+    next_cursor?: string;
+};
+
+export type PublicSpaceCategory = {
+    code: string;
+    name: string;
+    order: number;
+};
+
+export type PublicSpaceCategories = {
+    items: Array<PublicSpaceCategory>;
+};
+
 export type AdminLocalBlockInput = {
     reason_code: 'riesgo_seguridad' | 'uso_indebido' | 'revision_administrativa';
 };
@@ -1508,6 +1539,82 @@ export type LoginResponseWritable = {
  * Clave opaca que identifica una misma operación para reintentos seguros.
  */
 export type IdempotencyKey = string;
+
+export type ListPublicSpacesData = {
+    body?: never;
+    path?: never;
+    query?: {
+        category_code?: string;
+        rate_unit?: 'hora' | 'dia' | 'mes';
+        min_unit_price_clp?: number;
+        max_unit_price_clp?: number;
+        sort?: 'default' | 'unit_price_asc' | 'unit_price_desc';
+        page_size?: number;
+        cursor?: string;
+    };
+    url: '/public/spaces';
+};
+
+export type ListPublicSpacesErrors = {
+    /**
+     * validation_error o invalid_token: regla semántica no satisfecha.
+     */
+    422: Error;
+};
+
+export type ListPublicSpacesError = ListPublicSpacesErrors[keyof ListPublicSpacesErrors];
+
+export type ListPublicSpacesResponses = {
+    /**
+     * Página pública minimizada
+     */
+    200: PublicSpacePage;
+};
+
+export type ListPublicSpacesResponse = ListPublicSpacesResponses[keyof ListPublicSpacesResponses];
+
+export type GetPublicSpaceData = {
+    body?: never;
+    path: {
+        spaceID: string;
+    };
+    query?: never;
+    url: '/public/spaces/{spaceID}';
+};
+
+export type GetPublicSpaceErrors = {
+    /**
+     * Recurso inexistente o no visible para esta identidad.
+     */
+    404: Error;
+};
+
+export type GetPublicSpaceError = GetPublicSpaceErrors[keyof GetPublicSpaceErrors];
+
+export type GetPublicSpaceResponses = {
+    /**
+     * Detalle público minimizado
+     */
+    200: PublicSpaceEnvelope;
+};
+
+export type GetPublicSpaceResponse = GetPublicSpaceResponses[keyof GetPublicSpaceResponses];
+
+export type ListPublicSpaceCategoriesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/public/space-categories';
+};
+
+export type ListPublicSpaceCategoriesResponses = {
+    /**
+     * Categorías activas
+     */
+    200: PublicSpaceCategories;
+};
+
+export type ListPublicSpaceCategoriesResponse = ListPublicSpaceCategoriesResponses[keyof ListPublicSpaceCategoriesResponses];
 
 export type ListActiveSpaceReviewsData = {
     body?: never;

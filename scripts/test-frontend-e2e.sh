@@ -92,6 +92,22 @@ networks:
 EOF
 
 compose=(docker compose --project-directory "$ROOT_DIR" -f "$ROOT_DIR/compose.yaml" -f "$ROOT_DIR/compose.frontend.yaml" -f "$ROOT_DIR/compose.frontend-e2e.yaml" -f "$LOCAL_DOCKER_COMPOSE_OVERRIDE" -p "$PROJECT")
+"${compose[@]}" config --format json >"$STATE_DIR/compose.resolved.json"
+python3 - "$STATE_DIR/compose.resolved.json" "$PROJECT" "$LOCAL_DOCKER_PGDATA_VOLUME" <<'PY'
+import json, pathlib, sys
+config=json.loads(pathlib.Path(sys.argv[1]).read_text())
+project, expected_volume=sys.argv[2:]
+volumes=config.get('volumes') or {}
+if not volumes or expected_volume not in {item.get('name') for item in volumes.values()}:
+    raise SystemExit('resolved FE-14 Compose does not use its unique database volume')
+if any(item.get('name') == 'espacigo_pgdata' or not item.get('name','').startswith(project+'_') for item in volumes.values()):
+    raise SystemExit('resolved FE-14 Compose references an unexpected named volume')
+for service in (config.get('services') or {}).values():
+    for mount in service.get('volumes') or []:
+        if mount.get('type') == 'volume' and mount.get('source') == 'espacigo_pgdata':
+            raise SystemExit('resolved FE-14 Compose references persistent espacigo_pgdata')
+print('PASS resolved FE-14 Compose uses only run-specific named volumes')
+PY
 E2E_PID=""
 print_sanitized_e2e_log() {
   python3 - "$STATE_DIR/accounts.json" "$STATE_DIR/e2e.log" <<'PY'
@@ -154,7 +170,44 @@ ROLE_COUNT="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples
 [[ "${ROLE_COUNT//[[:space:]]/}" == "6" ]] || { printf 'Synthetic role grant verification failed\n' >&2; exit 1; }
 printf 'PASS Go verified four synthetic accounts; only this disposable database received host/admin roles\n'
 
+"${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+  --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local <<'SQL' >/dev/null
+INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado)
+VALUES(gen_random_uuid(),'fe14-'||:'run_id'||'-public-owner@ejemplo.invalid',
+       'fe14-'||:'run_id'||'-public-owner@ejemplo.invalid','not-a-login-account','activo');
+WITH approved AS (
+  INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,resuelta_en)
+  SELECT gen_random_uuid(),host.id,'kyc','aprobada','fixture:'||gen_random_uuid(),
+         'fe14-public-'||:'run_id',admin.id,now()
+  FROM public.usuario host CROSS JOIN public.usuario admin
+  WHERE host.correo_normalizado='fe14-'||:'run_id'||'-public-owner@ejemplo.invalid'
+    AND admin.correo_normalizado='fe14-'||:'run_id'||'-admin@ejemplo.invalid'
+  RETURNING id,usuario_id
+)
+INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en)
+SELECT usuario_id,'kyc',id,'elegible',now() FROM approved;
+
+WITH host AS (
+  SELECT id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-public-owner@ejemplo.invalid'
+), space AS (
+  INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,
+      reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado)
+  SELECT gen_random_uuid(),host.id,'oficina','Espacio sintético público FE-14',
+      'Publicación sintética recreable para comprobar el catálogo público anónimo, el detalle minimizado y sus filtros desde el navegador en el entorno FE-14 desechable.',
+      32,6,'Uso de prueba recreable','hora',18000,'Dirección privada de prueba 123, Santiago','activa'
+  FROM host RETURNING id
+)
+INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
+SELECT id,1,'hora',18000 FROM space;
+SQL
+printf 'PASS disposable FE-14 database contains one eligible synthetic public listing\n'
+
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
+if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
+  printf 'Running focused anonymous public catalog journey\n'
+  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep 'Anonymous visitor explores' >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
+  cat "$STATE_DIR/e2e.log"
+else
 printf 'Waiting for same-tab outage and restore test\n'
 "${compose[@]}" --profile e2e run --rm angular-e2e >"$STATE_DIR/e2e.log" 2>&1 &
 E2E_PID=$!
@@ -191,6 +244,7 @@ if (( E2E_STATUS != 0 )); then
   exit "$E2E_STATUS"
 fi
 cat "$STATE_DIR/e2e.log"
+fi
 
 python3 - "$STATE_DIR/accounts.json" "${compose[*]}" <<'PY'
 import json
@@ -208,12 +262,22 @@ PY
 mkdir -p "$ROOT_DIR/planning/frontend/evidencia"
 for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
   [[ -f "$image" ]] || continue
-  cp -- "$image" "$ROOT_DIR/planning/frontend/evidencia/$(basename "$image")"
-  chmod 0644 "$ROOT_DIR/planning/frontend/evidencia/$(basename "$image")"
+  destination="$ROOT_DIR/planning/frontend/evidencia/$(basename "$image")"
+  if [[ -e "$destination" ]]; then
+    extension="${destination##*.}"
+    destination="${destination%.*}_${RUN_ID}.${extension}"
+  fi
+  cp -- "$image" "$destination"
+  chmod 0644 "$destination"
 done
 for measurements in "$STATE_DIR"/artifacts/fe14_*.json; do
   [[ -f "$measurements" ]] || continue
-  cp -- "$measurements" "$ROOT_DIR/planning/frontend/evidencia/$(basename "$measurements")"
-  chmod 0644 "$ROOT_DIR/planning/frontend/evidencia/$(basename "$measurements")"
+  destination="$ROOT_DIR/planning/frontend/evidencia/$(basename "$measurements")"
+  if [[ -e "$destination" ]]; then
+    extension="${destination##*.}"
+    destination="${destination%.*}_${RUN_ID}.${extension}"
+  fi
+  cp -- "$measurements" "$destination"
+  chmod 0644 "$destination"
 done
 printf 'PASS authenticated screenshots and viewport measurements copied; temporary accounts and private state are removed on exit\n'

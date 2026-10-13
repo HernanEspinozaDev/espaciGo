@@ -25,6 +25,7 @@ import (
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
 	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
 	operationspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/operations"
+	publiccatalogpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/publiccatalog"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adminlocal"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
@@ -39,6 +40,8 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
 	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
+	publiccataloghttp "github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -2852,6 +2855,48 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err != nil || len(publicItems) != 1 || publicItems[0].SpaceID != activeSpace || publicItems[0].Price != 9000 {
 		t.Fatalf("active eligible catalog=%+v err=%v", publicItems, err)
 	}
+	publicService, err := publiccatalog.New(publiccatalogpg.New(pool), []byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicHandler := publiccataloghttp.New(publicService)
+	publicRequest := httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces", nil)
+	publicResponse := httptest.NewRecorder()
+	publicHandler.ServeHTTP(publicResponse, publicRequest)
+	if publicResponse.Code != http.StatusOK || strings.Contains(publicResponse.Body.String(), "Dirección privada") || strings.Contains(publicResponse.Body.String(), host) || !strings.Contains(publicResponse.Body.String(), activeSpace) || strings.Contains(publicResponse.Body.String(), noKYCActiveSpace) || strings.Contains(publicResponse.Body.String(), hiddenSpace) {
+		t.Fatalf("anonymous public projection status=%d body=%s", publicResponse.Code, publicResponse.Body.String())
+	}
+	if !strings.Contains(publicResponse.Body.String(), unconfiguredTimeZoneSpace) {
+		t.Fatalf("public catalog incorrectly depends on a timezone: %s", publicResponse.Body.String())
+	}
+	// Pagination uses a stable signed cursor and rejects query-shape changes.
+	pageOne, err := publicService.List(ctx, publiccatalog.Filters{PageSize: 1})
+	if err != nil || pageOne.NextCursor == "" {
+		t.Fatalf("public first page=%+v err=%v", pageOne, err)
+	}
+	restartedPublicService, err := publiccatalog.New(publiccatalogpg.New(pool), []byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageTwo, err := restartedPublicService.List(ctx, publiccatalog.Filters{PageSize: 1, Cursor: pageOne.NextCursor})
+	if err != nil || len(pageTwo.Items) != 1 || pageTwo.Items[0].SpaceID == pageOne.Items[0].SpaceID {
+		t.Fatalf("public cursor after service restart page=%+v err=%v", pageTwo, err)
+	}
+	if _, err = publicService.Detail(ctx, hiddenSpace); !errors.Is(err, publiccatalog.ErrNotFound) {
+		t.Fatalf("hidden detail is not generic 404: %v", err)
+	}
+	if _, err = publicService.Detail(ctx, noKYCActiveSpace); !errors.Is(err, publiccatalog.ErrNotFound) {
+		t.Fatalf("ineligible detail is not generic 404: %v", err)
+	}
+	if _, err = publicService.List(ctx, publiccatalog.Filters{PageSize: 1, RateUnit: "dia", Cursor: pageOne.NextCursor}); !errors.Is(err, publiccatalog.ErrInvalid) {
+		t.Fatalf("public cursor accepted changed criteria: %v", err)
+	}
+	invalidPublicRequest := httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces?min_unit_price_clp=1&min_unit_price_clp=2", nil)
+	invalidPublicResponse := httptest.NewRecorder()
+	publicHandler.ServeHTTP(invalidPublicResponse, invalidPublicRequest)
+	if invalidPublicResponse.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("duplicate public query status=%d", invalidPublicResponse.Code)
+	}
 	// LOCAL-M05-SEARCH-GAPS-01: literal public-field text and inclusive surface
 	// filtering compose with category while explicit enabled fixtures alone
 	// contribute normalized map positions. Private addresses are never searched
@@ -4513,6 +4558,21 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	minimizedDetail := publishedBookingAPI(t, adminID, svc, http.MethodGet, "/api/v1/admin/local/reservations/"+minimizedReservation.ID, "", nil, true)
 	if minimizedDetail.Code != http.StatusOK || !strings.Contains(minimizedDetail.Body.String(), `"host_id":null`) || !strings.Contains(minimizedDetail.Body.String(), `"renter_id":null`) {
 		t.Fatalf("minimized historic row=%d %s", minimizedDetail.Code, minimizedDetail.Body.String())
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.bloqueo_cuenta_administrativo_local(cuenta_id,bloqueada_por,motivo_codigo,bloqueada_en,correlacion_id) VALUES($1,$2,'revision_administrativa',now(),'public-catalog-block-test')`, host, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = publicService.Detail(ctx, activeSpace); !errors.Is(err, publiccatalog.ErrNotFound) {
+		t.Fatalf("blocked owner public detail=%v", err)
+	}
+	if _, err = setup.Exec(ctx, `DELETE FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id=$1`, host); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `UPDATE public.elegibilidad_verificacion_local SET estado='revocada',revocada_en=now(),revocada_por=$2,motivo_revocacion_codigo='revision_fixture_actualizada' WHERE usuario_id=$1 AND tipo='kyc'`, host, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = publicService.Detail(ctx, activeSpace); !errors.Is(err, publiccatalog.ErrNotFound) {
+		t.Fatalf("revoked KYC public detail=%v", err)
 	}
 
 }
