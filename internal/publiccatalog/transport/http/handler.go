@@ -116,6 +116,7 @@ func publicFilters(r *http.Request) (publiccatalog.Filters, bool) {
 			return f, false
 		}
 		f.PageSize = n
+		f.PageSizeSet = true
 	}
 	for key, target := range map[string]**int64{"min_unit_price_clp": &f.MinUnitPriceCLP, "max_unit_price_clp": &f.MaxUnitPriceCLP} {
 		if raw, ok := q[key]; ok {

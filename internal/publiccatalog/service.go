@@ -84,7 +84,7 @@ func (s *Service) Detail(ctx context.Context, spaceID string) (Space, error) {
 }
 
 func validate(filters *Filters) error {
-	if filters.PageSize == 0 {
+	if filters.PageSize == 0 && !filters.PageSizeSet {
 		filters.PageSize = DefaultPageSize
 	}
 	if filters.PageSize < 1 || filters.PageSize > MaxPageSize {

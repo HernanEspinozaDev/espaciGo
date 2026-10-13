@@ -45,6 +45,7 @@ type Filters struct {
 	MaxUnitPriceCLP *int64
 	Sort            string
 	PageSize        int
+	PageSizeSet     bool
 	Cursor          string
 }
 

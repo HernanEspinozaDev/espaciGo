@@ -26,6 +26,7 @@ export class SpaceDetailFacade implements OnInit {
   private readonly title = inject(Title);
   private readonly destroyRef = inject(DestroyRef);
   private generation = 0;
+  private reservationGeneration = 0;
   private activeSpaceId = '';
   private activeSession = this.identity.session();
   private activeToken = this.identity.accessToken();
@@ -53,6 +54,8 @@ export class SpaceDetailFacade implements OnInit {
       if (session !== this.activeSession || token !== this.activeToken) {
         this.activeSession = session;
         this.activeToken = token;
+        this.reservationGeneration++;
+        this.requestingReservation.set(false);
         if (this.space()) {
           this.generation++;
           this.profile.set(null);
@@ -199,11 +202,12 @@ export class SpaceDetailFacade implements OnInit {
       return;
     }
     this.requestingReservation.set(true);
+    const reservationGeneration = ++this.reservationGeneration;
     this.error.set('');
     try {
       const result = await this.bookingApi.requestReservation(token, quote.id, attempt.key);
-      if (!this.isCurrent(generation, token, session, quote.space_id)) return;
       this.bookingAttempts.settle(session.account_id, `quote:${quote.id}`, attempt.key);
+      if (!this.isCurrent(generation, token, session, quote.space_id)) return;
       this.notice.set(result.safety_notice);
       await this.router.navigate(['/reservas', result.data.id]);
     } catch (error) {
@@ -222,7 +226,7 @@ export class SpaceDetailFacade implements OnInit {
       if (this.isCurrent(generation, token, session, quote.space_id))
         this.error.set(apiError(error));
     } finally {
-      if (token === this.identity.accessToken() && session === this.identity.session())
+      if (reservationGeneration === this.reservationGeneration)
         this.requestingReservation.set(false);
     }
   }
