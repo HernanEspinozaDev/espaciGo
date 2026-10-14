@@ -1,6 +1,10 @@
 # Cierre del desarrollo local de EspaciGo — backend, Angular y DB
 
-Fecha: 2026-10-14, America/Santiago. Estado: LOCAL-CLOSE-00 fusionado en PR #308; LOCAL-CLOSE-01 fusionado en PR #309 (merge `701dabbf7d381c69d240f8cbed823c69de5e4ca1`, confirmado por revisión `HernanEspinozaDev`). LOCAL-CLOSE-02 en curso desde ese HEAD; resultados y límites actuales en [`evidencia/local-close-02/README.md`](evidencia/local-close-02/README.md) y [`acta_cierre_local.md`](acta_cierre_local.md). La aceptación final local sigue pendiente. Cierre integral todavía pendiente de evidencia y decisión humana. No es una autorización de despliegue ni de creación de recursos GCP.
+Fecha de actualización: 2026-10-14, America/Santiago. **Estado vigente: cierre local sintético aceptado por el usuario; LOCAL-CLOSE-00 (#308), 01 (#309) y 02 (#310) fusionados.** PR #310 merge `3bf7588d45563145d2e64441446d34070646bd38`, HEAD de aplicación/evidencia revisado `1b8744af73df98b6aa5a7759e13b94ced3c90963`. La declaración literal, criterios, limitaciones y estado funcional de #267/#269 están en [`aceptacion_cierre_local_20261014.md`](aceptacion_cierre_local_20261014.md). La evidencia técnica y sus procedencias se mantienen en [`matriz_cierre_local.md`](matriz_cierre_local.md), [`acta_cierre_local.md`](acta_cierre_local.md) y [`evidencia/local-close-02/README.md`](evidencia/local-close-02/README.md).
+
+El trabajo queda aceptado dentro del alcance local y sintético. No se recuperó el volumen original del ensayo DOCKER-02 ni se completó la reserva histórica; la aceptación se apoya en la evidencia nueva de #310, sin alterar la historia de 2026-10-11. La demo/worktree vigente permanece retenida. No se autoriza producción, proveedores/fondos/personas reales, nuevos recursos ni GCP; estos requieren otro encargo.
+
+El resto de este plan conserva el baseline y la secuencia originalmente autorizada para auditoría histórica; su redacción de estado anterior a #310 no prevalece sobre este resumen y el registro de aceptación.
 
 ## Objetivo y fuentes
 
@@ -8,11 +12,11 @@ Terminar el alcance **local y sintético** con una base reproducible, paridad fu
 
 Fuente diagnóstica: auditoría original `planning/auditorias/revision_integral_local_y_gcp_20261014.md`, conservada sin modificación en el checkout habitual y en una copia excluida; sus propuestas no se ejecutan sin contrastarlas con el código. Resumen y corroboraciones del corte 00 se registran en la matriz/evidencia versionadas; no se publican los logs/JSON de origen. Baseline inicial: `28f63f3dcba5d1b6a57b47b0c229e0caf2bba7eb` (#307); LOCAL-CLOSE-00 se fusionó en #308 por `HernanEspinozaDev`, merge `a26e1dacbe23cbc4b73528c69ee0e6b4daf394ea`. LOCAL-CLOSE-01 parte de ese `main`. Si main avanza, registrar el nuevo baseline y revisar el delta antes de ensayar.
 
-Contrastado contra el árbol de `origin/main`: `VerificationPort` carece de retirada; `nullableExactClpKeys` solo incluye `estimated_total_clp`. GitHub #267 está abierto y #269 se cerró administrativamente el 2026-10-12, con aceptación funcional expresamente incompleta. Cinco modificaciones frontend y los documentos de auditoría permanecen en el checkout habitual sin integrar; se preservaron en `.local/preservation/local-close-00-20261014/`, fuera de Git, con copia, patch, hashes y manifest. El checkout `main` habitual sigue en `c797f0e` y no se sincronizó porque conserva ese trabajo. El worktree de release limpio/canónico para estos cortes es `/home/nandev/.codex/worktrees/local-close-00-baseline-plan/espaciGo`, rama `codex/docs/chore/local-close-00-baseline-plan`, HEAD `28f63f3`.
+En el baseline histórico al iniciar LOCAL-CLOSE-00, el árbol de `origin/main` mostraba `VerificationPort` sin retirada y `nullableExactClpKeys` con solo `estimated_total_clp`; #267 estaba abierta y #269 acababa de cerrarse administrativamente con aceptación funcional incompleta. Cinco modificaciones frontend y los documentos de auditoría permanecen en el checkout habitual sin integrar; se preservaron en `.local/preservation/local-close-00-20261014/`, fuera de Git, con copia, patch, hashes y manifest. El checkout `main` habitual sigue en `c797f0e` y no se sincronizó porque conserva ese trabajo. El worktree de release limpio/canónico para estos cortes es `/home/nandev/.codex/worktrees/local-close-00-baseline-plan/espaciGo`, rama `codex/docs/chore/local-close-00-baseline-plan`, HEAD `28f63f3`.
 
-Este plan está versionado como `planning/cierre_local/plan_cierre_desarrollo_local.md`, acompañado por `matriz_cierre_local.md` y una carpeta de evidencia por corte. La aceptación humana de MPV2-13 permanece acotada al estado UX/demo/código `736f81a` aceptado en #307; el PR #307 se fusionó por `HernanEspinozaDev` en `28f63f3`. Esa aceptación no cierra DOCKER-02 ni el cierre local integral. El documento de auditoría es diagnóstico, no instrucciones ejecutables: validar sus propuestas contra contrato/código vigente. La copia completa revisada no es necesaria en este PR; se publican solo los findings resumidos/verificados en el plan y la matriz, y se excluyen logs/JSON sin revisar.
+En el baseline inicial, la aceptación humana de MPV2-13 se limitaba al estado UX/demo/código `736f81a` aceptado en #307; esa aceptación por sí sola no cerraba DOCKER-02 ni el cierre local integral. La decisión posterior e independiente de cierre local está registrada al inicio de este plan. El documento de auditoría es diagnóstico, no instrucciones ejecutables: validar sus propuestas contra contrato/código vigente. La copia completa revisada no es necesaria en este PR; se publican solo los findings resumidos/verificados en el plan y la matriz, y se excluyen logs/JSON sin revisar.
 
-## Estado conciliado al 2026-10-14
+## Estado conciliado al iniciar el plan — baseline histórico (2026-10-14)
 
 - **FE-15:** PR #292 fusionado por `HernanEspinozaDev` en `5405a82e90bc429aa89666ead430fe2cb39f102e`; Angular reemplazó el mock como frontend predeterminado. Evidencia anterior a esa fusión que dice “FE-15 no se inicia” se conserva como historial, no como estado actual. Toda nueva corrida usa Angular/Go/PostgreSQL vigentes, no exige el mock retirado.
 - **MPV2-13:** PR #307 fusionado en `28f63f3dcba5d1b6a57b47b0c229e0caf2bba7eb`; el usuario aceptó el estado UX/demo/código `736f81a` el 2026-10-14. Es una aceptación de producto acotada, no una aprobación retroactiva de Docker ni del cierre local.
@@ -27,7 +31,7 @@ Este plan está versionado como `planning/cierre_local/plan_cierre_desarrollo_lo
 2. LOCAL-AUD-05 queda resuelto mediante un árbol canónico de release limpio, cambios ajenos conservados y trazados.
 3. LOCAL-AUD-03 tiene evidencia nueva por criterio de DOCKER-02, incluyendo liquidación, `cerrada`, historial, comprobante e idempotencia; ninguna casilla se completa solo porque un Issue/PR está cerrado.
 4. Un único SHA de código probado, imágenes identificadas, contrato/SDK, V1–V57 y demo corresponden al mismo release. El acta posterior puede añadir solo documentación y debe acreditar que el código no cambió.
-5. Se ratifican límites sintéticos, procedimientos de instalación/restore y pendientes de destino. Revisión técnica y fusión son distintas de aceptación humana final del cierre local.
+5. Se ratifican límites sintéticos y procedimientos locales de instalación/restore; producción y GCP siguen siendo decisiones/fases separadas. La aceptación humana del cierre local sintético ya está registrada en el estado vigente del plan.
 
 ## Ejecución y ramas
 
@@ -35,7 +39,7 @@ Tres cortes secuenciales, un PR por corte, base main; corregir comentarios en el
 
 Desarrollo/commits/push/PR/respuestas: HernanMEC; revisión/aprobación/fusión y administración solicitada: HernanEspinozaDev. Mantener GPT-6 Luna con razonamiento medio en el chat de desarrollo. Comunicación bidireccional autorizada: avisar a revisión al publicar, corregir, terminar o bloquearse. No detenerse por decisiones rutinarias que el contrato ya resuelve.
 
-### LOCAL-CLOSE-00 — base reproducible y matriz de cierre
+### LOCAL-CLOSE-00 — base reproducible y matriz de cierre (completado; PR #308 fusionado)
 
 Rama sugerida: `codex/docs/chore/local-close-00-baseline-plan`.
 
@@ -110,6 +114,6 @@ El cierre permite pasar a **diseño de staging sintético**, no a producción co
 
 No crear recursos ni desplegar con este plan. Proveedores reales de pagos/correo/KYC/firma, textos legales, fotos reales y apertura pública siguen siendo decisiones y fases distintas. El staging cerrado puede mantener fakes explícitos; no basta ocultar avisos de ensayo para llamar al producto productivo.
 
-## Encargo inicial al chat de desarrollo
+## Encargo inicial al chat de desarrollo (archivado; secuencia completada)
 
-Ejecutar la secuencia LOCAL-CLOSE-00 → 01 → 02 ya autorizada, manteniendo un PR abierto a la vez. LOCAL-CLOSE-00 (#308) ya se fusionó; LOCAL-CLOSE-01 es el corte actual y LOCAL-CLOSE-02 no empieza antes de fusionar PR01. Tras revisar y fusionar cada PR, desarrollo espera el encargo del chat de revisión para iniciar el corte sucesor, sin pedir una autorización nueva del usuario para la secuencia aprobada. En cada publicación, corrección, término o bloqueo, avisar al chat de revisión mediante `send_message_to_thread` antes de finalizar. No iniciar GCP: requiere otro alcance/encargo. Mantener pendiente la aceptación final del cierre local integral.
+Instrucción original para iniciar la secuencia ya completada: LOCAL-CLOSE-00 (#308) → 01 (#309) → 02 (#310), un PR a la vez. Tras la fusión de #310, el usuario aceptó explícitamente el cierre local sintético. No queda pendiente esa aceptación ni se inicia un nuevo corte por este plan. No iniciar GCP: requiere otro alcance/encargo.

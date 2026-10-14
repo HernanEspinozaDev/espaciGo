@@ -2,15 +2,15 @@
 
 Fecha de inicio: 2026-10-11. LOCAL-1 fue aceptado explícitamente por el propietario dentro del alcance sintético ratificado; #246 está cerrada/Hecho en Projects. LOCAL-DOCKER es una fase local posterior de empaquetado, instalación reproducible y recuperación. No vuelve a abrir LOCAL-1 ni cierra Issues padre con criterios generales/productivos.
 
-## Conciliación de estado a 2026-10-14
+## Estado vigente tras PR #310 — 2026-10-14
 
 - FE-15 sustituyó el mock por Angular como frontend predeterminado en PR #292, merge `5405a82e90bc429aa89666ead430fe2cb39f102e`. Este documento y la evidencia DOCKER-02 de 2026-10-11 describen el stack/mock de esa fecha; el próximo ensayo debe recorrer el frontend Angular vigente y conservar los registros históricos sin reescribirlos.
 - **DOCKER-01/#268:** cerrado y aceptado en su alcance tras PR #271, merge `e074d78f126cd3a5bbe9c108da26178bdb726ad4`.
-- **DOCKER-02/#269:** cerrada administrativamente el 2026-10-12, pero no aceptada funcionalmente. Su comentario de cierre dice que faltan liquidación post-plazo, estado `cerrada`, historial, comprobante e idempotencia. La issue padre #267 permanece abierta. Ver matriz vigente en [`cierre_local/matriz_cierre_local.md`](cierre_local/matriz_cierre_local.md).
+- **DOCKER-02/#269 y padre #267:** aceptados dentro del cierre local sintético tras la evidencia de PR #310 y aceptación explícita del usuario el 2026-10-14; ambas Issues se cerraron como completadas. Merge #310 `3bf7588d45563145d2e64441446d34070646bd38`, HEAD revisado `1b8744af73df98b6aa5a7759e13b94ced3c90963`. Ver [registro de aceptación](cierre_local/aceptacion_cierre_local_20261014.md) y [matriz de cierre](cierre_local/matriz_cierre_local.md). El cierre administrativo de #269 del 2026-10-12 no fue su aceptación funcional.
 - **DOCKER-03/#270:** cerrada y aceptada en su alcance tras PR #273, merge `b0f62b976c9586d260cea15ed9acc29ab12257a7`. Su aceptación no cierra DOCKER-02.
-- La aceptación de UX/demo MPV2-13 registrada para código `736f81a` no constituye aceptación retroactiva de Docker ni del cierre local integral.
+- La aceptación de UX/demo MPV2-13 (`736f81a`) permanece acotada e independiente. La aceptación del cierre local posterior no significa aceptación del marketplace completo, producción o GCP.
 
-La tabla y los apartados originales describen el estado inicial/corridas fechadas del 2026-10-11. Los estados actuales de Issues se documentan arriba y en la matriz de cierre. LOCAL-CLOSE-02 revalidó Go y Angular en un entorno aislado: 91 integraciones obligatorias sin omisiones, 281 pruebas Angular y 18/18 E2E servido contra Go/PostgreSQL en base vacía. La integración financiera PostgreSQL confirma el límite checkout+24 h y el cierre contable; el E2E servido aún no recorrió liquidación/recibo ni restore. El acta y los límites actuales están en [`cierre_local/acta_cierre_local.md`](cierre_local/acta_cierre_local.md). #269 sigue sin aceptación funcional; no se reescribe la evidencia histórica de 2026-10-11.
+Los capítulos y la tabla DOCKER-02 posteriores describen las corridas originales del 2026-10-11; sus límites reflejan lo que se sabía entonces y se conservan como historia. La evidencia de LOCAL-CLOSE-02 y la aceptación posterior están en [`cierre_local/acta_cierre_local.md`](cierre_local/acta_cierre_local.md), [`cierre_local/matriz_cierre_local.md`](cierre_local/matriz_cierre_local.md) y [`cierre_local/aceptacion_cierre_local_20261014.md`](cierre_local/aceptacion_cierre_local_20261014.md).
 
 ## Estado de Compose existente
 
@@ -21,10 +21,10 @@ El Compose vigente tiene servicios separados para `backend`, `angular-frontend`,
 | Corte | Issue | Estado al iniciar (2026-10-11) | Alcance | Criterios de aceptación |
 |---|---:|---|---|---|
 | DOCKER-01 — Empaquetado/configuración | #268 | Aceptado/Cerrado/Hecho | Builds independientes para API y mock; parámetros PostgreSQL y TLS; Compose aislado con proyecto, puertos, volumen, secretos y directorios propios; conservar roles runtime/migrador. | Aceptado tras PR #271 (`e074d78` en `main`). Renderer y pruebas rechazan rutas de desarrollo, usuario runtime incompatible y prefijo de imagen que colisiona antes de modificar archivos o arrancar servicios. Evidencia: `evidence/local-docker-01-20261011.md`. |
-| DOCKER-02 — Instalación limpia y recorrido integral | #269 | En revisión; falta el paso temporal de liquidación/cierre | Arranque del proyecto aislado en volumen vacío y recorrido sintético integral sobre los servicios Compose ya existentes. | Se verificó un volumen nuevo, 54 migraciones desde vacío, permisos separados, servicios saludables y un recorrido de reserva mediante mock/API/PostgreSQL con mensajes Mailpit. Falta comprobar liquidación, cierre, historial, comprobante e idempotencia al cumplirse las 24 horas. Evidencia: `evidence/local-docker-02-20261011.md`. #269 sigue abierta. |
+| DOCKER-02 — Instalación limpia y recorrido integral | #269 | En revisión; falta el paso temporal de liquidación/cierre | Arranque del proyecto aislado en volumen vacío y recorrido sintético integral sobre los servicios Compose ya existentes. | Se verificó un volumen nuevo, 54 migraciones desde vacío, permisos separados, servicios saludables y un recorrido de reserva mediante mock/API/PostgreSQL con mensajes Mailpit. Falta comprobar liquidación, cierre, historial, comprobante e idempotencia al cumplirse las 24 horas. Evidencia: `evidence/local-docker-02-20261011.md`. #269 seguía abierta al documentar esta corrida original de 2026-10-11. |
 | DOCKER-03 — Recuperación y PostgreSQL sustituible | #270 | En revisión mediante PR #273; autorizado el 2026-10-11 en paralelo | Reinicios de Backend/workers; PostgreSQL/PostGIS local alternativa con TLS y usuario runtime separado; restauración aislada de DB/archivos y reaplicación del registro externo de bajas antes de exponer la API. | Corrida limpia aislada con worker real tras reinicio, operación financiera durable, TLS confiable/no confiable, migración/roles, restore y archivos verificados. Evidencia: `evidence/local-docker-03-20261011.md`. Esta autorización no acepta DOCKER-02 ni cierra #269. |
 
-Issue contenedora: #267. El orden de dependencias está registrado en GitHub Projects; una integración pendiente de Project no bloquea el trabajo local autorizado. Los padres funcionales y de producto permanecen abiertos según sus criterios.
+La Issue contenedora #267 y #269 están cerradas como completadas por la aceptación del cierre local sintético posterior a PR #310. La evidencia de cierre y su límite histórico están registrados en la matriz y el acta enlazadas arriba.
 
 ## DOCKER-01 — ejecución focalizada
 
@@ -67,11 +67,11 @@ El mock queda disponible en `http://127.0.0.1:18081/`; API y Mailpit en `http://
 
 ## DOCKER-03 — recuperación, TLS y restore aislado
 
-El propietario autorizó el 2026-10-11 iniciar #270 mientras #269 sigue abierta por su paso de liquidación/cierre tras 24 horas. Esto es una ejecución paralela aislada; no modifica ni sustituye el criterio de aceptación de DOCKER-02. La validación completa de DOCKER-03, recursos y comandos está en [`evidence/local-docker-03-20261011.md`](evidence/local-docker-03-20261011.md).
+Histórico al 2026-10-11: se autorizó iniciar #270 mientras #269 seguía abierta por su paso de liquidación/cierre tras 24 horas. Esa autorización era una ejecución paralela aislada y no sustituía el criterio de aceptación DOCKER-02, que se resolvió posteriormente mediante #310 y la aceptación del 2026-10-14. La validación completa de DOCKER-03, recursos y comandos está en [`evidence/local-docker-03-20261011.md`](evidence/local-docker-03-20261011.md).
 
 El stack aceptado de prueba usa un proyecto, tres volúmenes PostgreSQL separados (fuente, restore y pruebas), puertos, CA/certificado, archivos privados y secretos propios bajo `~/.local/state/espacigo/docker03-20261011r8`. El Backend y migrador conectan con `verify-full`; el migrador conserva `espacigo_admin` y la aplicación `espacigo_runtime`. Una CA independiente fue rechazada tanto por el cliente TLS de Postgres como por una instancia temporal del Backend. El restore conserva DB y árbol privado de forma aislada, requiere aplicar el sidecar externo y un marcador con hash antes de arrancar el Backend restaurado. El sidecar de esta corrida limpia tenía cero bajas completadas; la reaplicación no vacía está cubierta por la integración PostgreSQL `TestLocalSuppressionReplayAfterPgDumpRestore`.
 
-El runner DOCKER-03 crea nombres nuevos con sufijo por corrida. No repite `dump` sobre un archivo existente y no tiene un comando que borre volúmenes o secretos. Los servicios de desarrollo y DOCKER-02 permanecen independientes. No se probó GCP/Cloud SQL ni se afirma compatibilidad con esos destinos.
+El runner DOCKER-03 crea nombres nuevos con sufijo por corrida. No repite `dump` sobre un archivo existente y no tiene un comando que borre volúmenes o secretos. Los servicios de desarrollo y el ensayo original DOCKER-02 permanecieron independientes. La demo de revisión vigente LOCAL-CLOSE-02 es un stack distinto y queda retenida para consulta. No se probó GCP/Cloud SQL ni se afirma compatibilidad con esos destinos.
 
 ## Límites
 

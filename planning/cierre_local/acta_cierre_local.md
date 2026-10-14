@@ -1,10 +1,16 @@
 # Acta de cierre local — estado de verificación
 
-Fecha: 2026-10-14 (America/Santiago). Estado: **verificación técnica completada para LOCAL-CLOSE-02; aceptación humana de producto pendiente**.
+Fecha: 2026-10-14 (America/Santiago). Estado: **cierre del desarrollo local aceptado por el usuario dentro del alcance sintético documentado**. LOCAL-CLOSE-00–02 están fusionados; no equivale a lanzamiento/aceptación productiva ni autorización GCP.
 
 ## Alcance ensayado
 
 Código de PR #310: `0da50a3a7c3f201b50c4aa7abcfd475bddbd9052` sobre merge #309 `701dabbf7d381c69d240f8cbed823c69de5e4ca1`; la imagen de app corresponde a `0da50a3a7c3f201b50c4aa7abcfd475bddbd9052`. La corrida inicial 7/7 ocurrió en un worktree con HEAD base `0885abf17bd31f57e914b08e48942b4eb4f64b19` y cambios de test lifecycle/reloj/runner aún sin commit; estos se versionaron después en `b2613d5d75d13aba4df8b46b26dfbd5d49b74931`. Los sidecars reflejan el HEAD base, no el hash del harness sin commit. La verificación read-only reproducible sobre la demo se ejecutó luego desde `6bf465ae0566702c3e40f78c61c1ea424706a479`. README de [`evidencia/local-close-02`](evidencia/local-close-02/README.md) y [guía de revisión](evidencia/local-close-02/guia_revision_demo.md) registran URLs, SHA, IDs, imágenes, runner, recursos, restore, resultados y límites. Migraciones V1–V57 y `planning/openapi.yaml` permanecen sin cambios. No se usó `espacigo_pgdata`.
+
+## Aceptación humana y cierre de Issues
+
+El 2026-10-14, después de revisar y fusionar PR #310, el usuario confirmó: «Acepto el cierre del desarrollo local de backend, frontend y base de datos, dentro del alcance sintético documentado». Release: merge `3bf7588d45563145d2e64441446d34070646bd38`; HEAD de aplicación/evidencia revisado `1b8744af73df98b6aa5a7759e13b94ced3c90963`. El registro versionado está en [aceptación de cierre local](aceptacion_cierre_local_20261014.md).
+
+DOCKER-02/#269 y su padre #267 se cerraron como completadas por la evidencia nueva de #310 y esta aceptación, no por el cierre administrativo previo de #269. Comentarios: [#269](https://github.com/HernanEspinozaDev/espaciGo/issues/269#issuecomment-6180587238), [#267](https://github.com/HernanEspinozaDev/espaciGo/issues/267#issuecomment-6180588057). No se recuperó el volumen original DOCKER-02 ni se completó aquella reserva histórica; los resultados nuevos no reescriben esa evidencia.
 
 ## Resultado por grupo
 
@@ -20,4 +26,4 @@ La ejecución lifecycle usó proyecto/volumen/directorios de su ID y el runner l
 
 ## Exclusiones y decisión
 
-No se usaron proveedores reales, fondos/personas reales ni GCP. No se cerraron Issue #267 ni #269 ni se afirma aceptación de DOCKER-02; la decisión final de producto sigue pendiente del usuario. La aceptación MPV2-13 sigue limitada al producto/UX que cubrió #307. El cierre integral local requiere que el usuario revise la evidencia completa y decida explícitamente; este acta no anticipa esa decisión.
+El usuario aceptó el cierre local sintético documentado el 2026-10-14 y #267/#269 se cerraron como completadas por esa evidencia nueva, no por el cierre administrativo anterior. No se recuperó el volumen original DOCKER-02 ni se completó aquella reserva histórica. La aceptación MPV2-13 sigue limitada al producto/UX de #307; el cierre local no acepta el marketplace completo ni autoriza GCP. No se usaron proveedores reales ni fondos/personas reales.
