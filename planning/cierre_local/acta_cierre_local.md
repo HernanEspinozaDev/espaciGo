@@ -1,32 +1,23 @@
 # Acta de cierre local — estado de verificación
 
-Fecha: 2026-10-14 (America/Santiago). Estado: **no aceptada; LOCAL-CLOSE-02 sigue abierto por evidencias faltantes**.
+Fecha: 2026-10-14 (America/Santiago). Estado: **verificación técnica completada para LOCAL-CLOSE-02; aceptación humana de producto pendiente**.
 
 ## Alcance ensayado
 
-Release base `701dabbf7d381c69d240f8cbed823c69de5e4ca1` (merge #309 por `HernanEspinozaDev`). Se verificaron Go, Angular/SSR y un stack aislado Angular→Go→PostgreSQL sobre base vacía con datos sintéticos. La evidencia detallada de comandos, resultados, entorno, migraciones, capturas y límites está en [`evidencia/local-close-02/README.md`](evidencia/local-close-02/README.md). No se alteraron migraciones V1–V57 ni se usó `espacigo_pgdata`.
-
-El contrato `planning/openapi.yaml` contabiliza 152 operaciones (`operationId`) en el HEAD base. `api:check` pasó; el corte no cambió endpoints ni migraciones.
+Código de PR #310: `0da50a3a7c3f201b50c4aa7abcfd475bddbd9052` sobre merge #309 `701dabbf7d381c69d240f8cbed823c69de5e4ca1`. README de [`evidencia/local-close-02`](evidencia/local-close-02/README.md) registra comandos, HEAD, runner, resultados, recursos, restore, capturas y límites. Migraciones V1–V57 y `planning/openapi.yaml` permanecen sin cambios. No se usó `espacigo_pgdata`.
 
 ## Resultado por grupo
 
-- **Go:** QA completo PASS: tests unitarios, `go vet`, PostgreSQL/PostGIS + Mailpit, 91 integraciones requeridas sin skips y cinco repeticiones exitosas de check-in.
-- **Angular:** lockfile, lint/arquitectura/tokens, SDK OpenAPI, 281 pruebas, build SSR/prerender y auditoría de dependencias de producción PASS.
-- **Navegador servido:** 18/18 pruebas Playwright PASS para recorrido público, reserva, oferta/foto, roles, exportaciones, responsive y caída/restauración de Go.
-- **Liquidación:** integración PostgreSQL Go cubre frontera checkout+24 h, éxito, CLP y comisión, `cerrada`, historial, recibo, no duplicación ante replay concurrente, timeout y recuperación de conciliación; el handler prueba reglas admin/anfitrión/tercero. No fue un recorrido de navegador de liquidación ni ocurrió en el mismo stack de la suite Playwright.
-- **Instalación repetible/restauración:** la suite E2E partió de base vacía y retiró su stack. No se realizó un restore de DB/archivos en un segundo stack.
+- **Backend:** `bash scripts/test-local-qa-backend.sh` PASS: 132 eventos `passed`, 91 integraciones obligatorias, cero skips; cinco repeticiones PASS de check-in. Incluye regresión PostgreSQL del ciclo de booking, reclamo resuelto y terminalidad.
+- **Navegador servido:** ciclo LOCAL-CLOSE-02 PASS (1/1) en proyecto independiente `espacigo_localclose02_2c120234abcd`, puertos loopback 21410–21413 y volumen propio. Angular cubrió cotización, reserva/pago fake, aprobación, firma del anfitrión y PDF privado; el resto de mutaciones fue API Playwright al Go servido, con lecturas e historial verificados en Angular. El runner verificó outage SSR/sitemap 503 y recuperación.
+- **Reglas de negocio:** reloj file-backed exclusivo; operación previa a checkout+24 h rechazada; disputa, descargo, evidencia, resolución financiera, liberación fake, liquidación, recibo, cierre e idempotencia/tercero comprobados. No se manipuló estado/fecha por SQL. La garantía se mantiene retenida por cualquier reclamo, y la liberación tras resolverlo requiere conciliación admin explícita.
+- **Restauración DOCKER-03:** PASS en proyecto `espacigo_docker03_localclose02_345678`, con volúmenes/destinos aislados. Readiness/API quedó cerrada hasta replay de bajas. Conteos origen/restauración `users|notices|migrations = 1|1|57`; fixture privado de 69 bytes restaurado idéntico, dump/marker 0600, TLS runtime/grants/readiness verificados, exit 0. No se tocaron demos ajenas ni la base persistente.
+- **Suite histórica:** 18/18 Playwright, Angular 281 pruebas, lint, api:check, build y audit de producción se habían ejecutado sobre la base #309 y siguen consignados como evidencia histórica. No se afirma que esa suite completa se repitiera sobre `0da50a3`; la corrida nueva enfocada sí está vinculada al commit indicado.
 
 ## Aislamiento y recursos
 
-El Compose temporal `espacigo_localclose02_4a7c2d9e610b`, volumen, red, contenedores y estado privado se retiraron al acabar. Config resuelta validó volumen nuevo, API/Angular/Mailpit en loopback, base sin puerto host y ausencia de referencias a `espacigo_pgdata`. El inventario mostró en ejecución y sin cambios los stacks retenidos MPV2-13 (`a2bf4ff1f4ef`, `316ee26df160`), MPV2-09 y la base de desarrollo. No se tocaron ni se reutilizaron. No quedó una demo LOCAL-CLOSE-02 propia retenida.
-
-## Pendientes que impiden la aceptación
-
-1. Recorrido servido en el mismo release que complete firma, check-in/out, recepción, disputa/descargo/resolución, liberación de garantía, rechazo pre-24 h, liquidación posterior, estado `cerrada`, comprobante visible, reintento idempotente y autorización/no acceso de tercero.
-2. Reloj lógico montado desde una ruta única de este corte, con evidencia de hora IANA y registro del límite. El host, datos históricos y sesiones no deben modificarse.
-3. Completar el ciclo funcional dentro de la demo retenida, empezando por la cobertura actual acotada a catálogo/roles.
-4. Restore real de la base/archivos del ensayo y registro de ciclo de vida de la demo.
+La ejecución lifecycle usó proyecto/volumen/directorios de su ID y el runner los retiró junto a las credenciales sintéticas. El restore DOCKER-03 tuvo volúmenes origen/restore/prueba propios. La demo de LOCAL-CLOSE-02 retenida se reemplazó por `espacigo_localclose02_demo_b51175677392`, con titular HernanMEC, motivo y recursos documentados en el README. No se modificaron otras demos.
 
 ## Exclusiones y decisión
 
-No se usaron proveedores reales, fondos/personas reales ni GCP. No se cerraron Issue #267 ni #269 ni se afirma aceptación de DOCKER-02. La aceptación MPV2-13 sigue limitada al producto/UX que cubrió #307. El cierre integral local requiere que el usuario revise la evidencia completa y decida explícitamente; este acta no anticipa esa decisión.
+No se usaron proveedores reales, fondos/personas reales ni GCP. No se cerraron Issue #267 ni #269 ni se afirma aceptación de DOCKER-02; la decisión final de producto sigue pendiente del usuario. La aceptación MPV2-13 sigue limitada al producto/UX que cubrió #307. El cierre integral local requiere que el usuario revise la evidencia completa y decida explícitamente; este acta no anticipa esa decisión.
