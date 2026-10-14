@@ -21,30 +21,12 @@ export class ExplorePage {
   private readonly document = inject(DOCUMENT);
   private readonly facade = inject(ExploreFacade);
   readonly filtersOpen = signal(false);
-  readonly resultsWidth = signal(0);
-  readonly effectiveColumns = computed(() => {
-    const width = this.resultsWidth();
-    const presentation = this.presentation();
-    if (width > 0 && width <= 480) return presentation.mobileColumns;
-    if (width > 0 && width <= 704 && presentation.desktopColumns === 4) return 2;
-    return presentation.desktopColumns;
-  });
-  readonly layoutNotice = computed(() => {
-    const presentation = this.presentation();
-    const width = this.resultsWidth();
-    if (presentation.view !== 'grid' || !width) return '';
-    if (width <= 480) return `Vista adaptada a ${this.effectiveColumns()} ${this.effectiveColumns() === 1 ? 'columna' : 'columnas'} para móvil.`;
-    if (presentation.desktopColumns === 4 && this.effectiveColumns() === 2) return '4 columnas seleccionadas; el ancho disponible muestra 2.';
-    return '';
-  });
-  private resizeObserver?: ResizeObserver;
   private filterTrigger: HTMLElement | null = null;
   readonly activeFilters = computed(() => this.buildActiveFilters());
   readonly sortRequirement = computed(() => {
     const sort = this.facade.pendingSort() || this.facade.appliedFilters().sort;
     return this.facade.sortRequirement(sort, this.facade.filters());
   });
-  readonly mobileSortRequirement = computed(() => this.facade.sortRequirement(this.facade.filters().sort, this.facade.filters()));
   get categories() {
     return this.facade.categories;
   }
@@ -66,20 +48,11 @@ export class ExplorePage {
     return this.facade.filters;
   }
   get appliedFilters() { return this.facade.appliedFilters; }
-  get presentation() { return this.facade.presentation; }
   get hasUnappliedChanges() { return this.facade.hasUnappliedChanges; }
   get pendingSort() { return this.facade.pendingSort; }
   ngOnInit(): void {
     this.facade.ngOnInit();
   }
-  ngAfterViewInit(): void {
-    const target = (this.host.nativeElement as HTMLElement).querySelector('.catalog-results');
-    if (target && typeof ResizeObserver !== 'undefined') {
-      this.resizeObserver = new ResizeObserver(([entry]) => this.resultsWidth.set(entry.contentRect.width));
-      this.resizeObserver.observe(target);
-    }
-  }
-  ngOnDestroy(): void { this.resizeObserver?.disconnect(); }
   readonly updateFilter = this.facade.updateFilter.bind(this.facade);
   readonly setAttribute = this.facade.setAttribute.bind(this.facade);
   readonly updateDate = this.facade.updateDate.bind(this.facade);
@@ -97,9 +70,6 @@ export class ExplorePage {
   readonly loadMore = this.facade.loadMore.bind(this.facade);
   readonly price = this.facade.price.bind(this.facade);
   readonly detailLink = this.facade.detailLink.bind(this.facade);
-  readonly setPresentation = this.facade.setPresentation.bind(this.facade);
-  readonly setDesktopColumns = (value: string): void => this.setPresentation({ desktopColumns: Number(value) as 2 | 3 | 4 });
-  readonly setMobileColumns = (value: string): void => this.setPresentation({ mobileColumns: Number(value) as 1 | 2 });
   readonly changePageSize = this.facade.changePageSize.bind(this.facade);
   readonly imageFailures = signal(new Set<string>());
   readonly imageUrl = this.facade.publicImageUrl.bind(this.facade);
@@ -126,13 +96,17 @@ export class ExplorePage {
   }
 
   focusSortRequirement(): void {
-    const target = this.sortRequirement() ?? this.mobileSortRequirement();
+    const target = this.sortRequirement();
     if (!target) return;
     const selector = target.target === 'query' ? '#catalog-search' : target.target === 'rate_unit' ? '#rate-unit' : '#start-at';
     setTimeout(() => (this.host.nativeElement.querySelector(selector) as HTMLElement | null)?.focus());
   }
 
   removeFilter(key: string): void { this.facade.removeAppliedFilter(key); }
+
+  onViewportResize(): void {
+    if (this.filtersOpen() && (this.document.defaultView?.innerWidth ?? 0) > 760) this.closeFilters();
+  }
 
   private buildActiveFilters(): { key: string; label: string }[] {
     const f = this.facade.appliedFilters();
@@ -175,7 +149,4 @@ export class ExplorePage {
     else if (!event.shiftKey && this.document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
 
-  onViewportResize(): void {
-    if (this.filtersOpen() && (this.document.defaultView?.innerWidth ?? 0) > 760) this.closeFilters();
-  }
 }

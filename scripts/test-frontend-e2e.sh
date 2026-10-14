@@ -2,11 +2,24 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-RUN_ID="$(python3 -c 'import secrets; print(secrets.token_hex(6))')"
-PROJECT="espacigo_fe14_${RUN_ID}"
-STATE_DIR="${TMPDIR:-/tmp}/espacigo-fe14-${RUN_ID}"
+RUN_ID="${FE14_RUN_ID:-$(python3 -c 'import secrets; print(secrets.token_hex(6))')}"
+PROJECT="${FE14_PROJECT_NAME:-espacigo_fe14_${RUN_ID}}"
+STATE_DIR="${FE14_STATE_DIR:-${TMPDIR:-/tmp}/espacigo-fe14-${RUN_ID}}"
 STATE_DIR="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).expanduser().resolve(strict=False))' "$STATE_DIR")"
 BASE_PORT="${FE14_PORT_BASE:-18780}"
+if [[ ! "$RUN_ID" =~ ^[0-9a-f]{12}$ ]]; then
+  printf 'FE14_RUN_ID must be 12 lowercase hexadecimal characters\n' >&2
+  exit 2
+fi
+if [[ "${FE14_RETAIN_STACK:-0}" == "1" ]]; then
+  expected_state="$ROOT_DIR/.local/testing/mpv2-13-demo/$RUN_ID"
+  expected_project="espacigo_mpv2_13_demo_${RUN_ID}"
+  [[ "${FE14_PUBLIC_ONLY:-0}" == "1" && "$PROJECT" == "$expected_project" && "$STATE_DIR" == "$expected_state" ]] || {
+    printf 'retained FE-14 stack is restricted to the dedicated MPV2-13 demo wrapper and state path\n' >&2
+    exit 2
+  }
+  [[ ! -e "$STATE_DIR" ]] || { printf 'retained demo state path already exists\n' >&2; exit 2; }
+fi
 if [[ ! "$BASE_PORT" =~ ^[0-9]{4,5}$ ]] || (( BASE_PORT < 1024 || BASE_PORT > 65000 )); then
   printf 'FE14_PORT_BASE must be an unprivileged TCP port from 1024 to 65000\n' >&2
   exit 2
@@ -48,6 +61,7 @@ case "${FE14_EVIDENCE_OUTPUT_DIR:-}" in
   */mpv2_10) FE14_EVIDENCE_PREFIX='fe14_mpv2_10_' ;;
   */mpv2_11) FE14_EVIDENCE_PREFIX='fe14_mpv2_11_' ;;
   */mpv2_12) FE14_EVIDENCE_PREFIX='fe14_mpv2_12_' ;;
+  */mpv2_13) FE14_EVIDENCE_PREFIX='fe14_mpv2_13_' ;;
 esac
 export LOCAL_UID="$(id -u)"
 export LOCAL_GID="$(id -g)"
@@ -116,6 +130,9 @@ if not volumes or expected_volume not in {item.get('name') for item in volumes.v
 if any(item.get('name') == 'espacigo_pgdata' or not item.get('name','').startswith(project+'_') for item in volumes.values()):
     raise SystemExit('resolved FE-14 Compose references an unexpected named volume')
 for service in (config.get('services') or {}).values():
+    for port in service.get('ports') or []:
+        if port.get('host_ip') != '127.0.0.1':
+            raise SystemExit('resolved FE-14 Compose publishes a service outside loopback')
     for mount in service.get('volumes') or []:
         if mount.get('type') == 'volume' and mount.get('source') == 'espacigo_pgdata':
             raise SystemExit('resolved FE-14 Compose references persistent espacigo_pgdata')
@@ -146,6 +163,33 @@ cleanup() {
     kill -TERM "$LOCAL_SSR_PID" >/dev/null 2>&1 || true
     wait "$LOCAL_SSR_PID" >/dev/null 2>&1 || true
   fi
+  if [[ "${FE14_RETAIN_STACK:-0}" == "1" && "$status" == "0" ]]; then
+    if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" && "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
+      mkdir -p "$FE14_EVIDENCE_OUTPUT_DIR"
+      case "$FE14_EVIDENCE_PREFIX" in
+        fe14_mpv2_13_) evidence_artifacts=(fe14_mpv2_13_catalog_desktop.jpg fe14_mpv2_13_catalog_desktop.json fe14_mpv2_13_catalog_mobile.jpg fe14_mpv2_13_catalog_mobile.json) ;;
+        *) evidence_artifacts=() ;;
+      esac
+      for artifact in "${evidence_artifacts[@]}"; do
+        if [[ -f "$STATE_DIR/artifacts/$artifact" ]]; then cp -- "$STATE_DIR/artifacts/$artifact" "$FE14_EVIDENCE_OUTPUT_DIR/$artifact"; chmod 0644 "$FE14_EVIDENCE_OUTPUT_DIR/$artifact"; fi
+      done
+    fi
+    cat >"$STATE_DIR/runtime.env" <<EOF
+LOCAL_DOCKER_PROJECT_NAME=$PROJECT
+LOCAL_DOCKER_IMAGE_PREFIX=$PROJECT
+LOCAL_DOCKER_STATE_DIR=$STATE_DIR
+LOCAL_DOCKER_PGDATA_VOLUME=${PROJECT}_pgdata
+LOCAL_DOCKER_API_PORT=$BASE_PORT
+LOCAL_DOCKER_MAILPIT_PORT=$((BASE_PORT + 1))
+LOCAL_DOCKER_ANGULAR_PORT=$((BASE_PORT + 2))
+EOF
+    chmod 0600 "$STATE_DIR/runtime.env"
+    rm -rf -- "$STATE_DIR/results"
+    rm -f -- "$STATE_DIR/stack-build.log" "$STATE_DIR/e2e-build.log" "$STATE_DIR/e2e.log" "$STATE_DIR/local-ssr.log"
+    printf 'RETAINED MPV2-13 review demo: project=%s volume=%s ports=%s-%s state=%s\n' "$PROJECT" "${PROJECT}_pgdata" "$BASE_PORT" "$((BASE_PORT + 2))" "$STATE_DIR"
+    printf 'Owner: HernanMEC. Reason: user-requested isolated marketplace review demo; retain until the user records a product decision. Reviewer credentials: %s/accounts.json (mode 0600).\n' "$STATE_DIR"
+    return "$status"
+  fi
   bash "$ROOT_DIR/scripts/local-docker-stack.sh" down-frontend >/dev/null 2>&1 || true
   local -a ids=()
   mapfile -t ids < <(docker ps --all --quiet --filter "label=com.docker.compose.project=${PROJECT}")
@@ -162,6 +206,7 @@ cleanup() {
       fe14_mpv2_10_) evidence_artifacts=(fe14_mpv2_10_sort_desktop.jpg fe14_mpv2_10_sort_desktop.json fe14_mpv2_10_sort_mobile.jpg fe14_mpv2_10_sort_mobile.json) ;;
       fe14_mpv2_11_) evidence_artifacts=(fe14_mpv2_11_typed_filters_desktop.jpg fe14_mpv2_11_typed_filters_desktop.json fe14_mpv2_11_typed_filters_mobile.jpg fe14_mpv2_11_typed_filters_mobile.json) ;;
       fe14_mpv2_12_) evidence_artifacts=(fe14_mpv2_12_grid_4_desktop.jpg fe14_mpv2_12_grid_4_desktop.json fe14_mpv2_12_grid_2_mobile.jpg fe14_mpv2_12_grid_2_mobile.json) ;;
+      fe14_mpv2_13_) evidence_artifacts=(fe14_mpv2_13_catalog_desktop.jpg fe14_mpv2_13_catalog_desktop.json fe14_mpv2_13_catalog_mobile.jpg fe14_mpv2_13_catalog_mobile.json) ;;
       *) evidence_artifacts=() ;;
     esac
     for artifact in "${evidence_artifacts[@]}"; do
@@ -300,7 +345,7 @@ WITH host AS (
       'Publicación sintética comercial para filtros tipados, recreable en el Compose desechable de FE-14. Solo datos ficticios para verificar la búsqueda pública.',
       30,20,'Uso sintético','hora',12000,'Dirección privada sintética','activa','America/Santiago',
       'SUBDERE_DPA_2018','13','13123'
-  FROM host CROSS JOIN fixtures CROSS JOIN generate_series(1,4) AS series(n)
+  FROM host CROSS JOIN fixtures CROSS JOIN generate_series(1,7) AS series(n)
   RETURNING id,categoria_codigo,titulo
 )
 INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
@@ -319,7 +364,9 @@ WITH host AS (
   ('parcela_eventos','{"salon_cubierto":true,"quincho_disponible":true,"superficie_exterior_util_m2":100.0,"superficie_cubierta_util_m2":45.5,"estacionamientos_disponibles":12,"cocina_disponible":true,"piscina_disponible":false,"acceso_bus":true}'::jsonb)
 ), inserted AS (
   SELECT e.id,e.categoria_codigo,
-         CASE WHEN right(e.titulo,1) IN ('2','4') THEN fixtures.valores-'muelle_carga' ELSE fixtures.valores END
+         CASE WHEN right(e.titulo,1) IN ('2','4') THEN fixtures.valores-'muelle_carga'
+              WHEN right(e.titulo,1)='3' THEN jsonb_set(fixtures.valores,'{muelle_carga}','true'::jsonb)
+              ELSE fixtures.valores END
   FROM public.espacio e JOIN fixtures USING(categoria_codigo)
   WHERE e.titulo LIKE 'MPV2-12 % fixture %'
 )
@@ -339,12 +386,12 @@ if [[ "${FE14_RUN_PUBLIC_CATALOG_ORDERING_INTEGRATION:-0}" == "1" ]]; then
     golang:1.27.1-alpine3.24 /tmp/publiccatalog-ordering.test -test.run '^TestLocalPublicCatalogQueryPlanAndSitemapPaging$' -test.count=1 -test.v
   unset admin_password
 fi
-printf 'PASS disposable FE-14 database contains more than 24 eligible synthetic public listings with varied categories, rates, and attributes\n'
+printf 'PASS disposable FE-14 database contains more than 48 eligible synthetic public listings with varied categories, rates, and attributes\n'
 
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
 if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
   printf 'Running focused anonymous public catalog journey\n'
-  PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-MPV2-07 serves public catalog|MPV2-10 orders real Go results|MPV2-12 catalog layout|MPV2-04 host declares|Removing applied filter chips|Mobile filter dialog|Contextual registration and verification|Contextual login returns}"
+  PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-MPV2-07 serves public catalog|MPV2-10 orders real Go results|MPV2-13 serves real 48-item keyset pages|MPV2-13 renders a fixed four-column desktop catalog and a one-column mobile list|MPV2-04 host declares|Removing applied filter chips|Mobile filter dialog|Contextual registration and verification|Contextual login returns}"
   "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep "$PUBLIC_TEST_GREP" >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
   cat "$STATE_DIR/e2e.log"
   "${compose[@]}" stop backend >/dev/null
@@ -445,4 +492,8 @@ for measurements in "$STATE_DIR"/artifacts/fe14_*.json; do
   cp -- "$measurements" "$destination"
   chmod 0644 "$destination"
 done
-printf 'PASS authenticated screenshots and viewport measurements copied; temporary accounts and private state are removed on exit\n'
+if [[ "${FE14_RETAIN_STACK:-0}" == "1" ]]; then
+  printf 'PASS review screenshots and viewport measurements copied; synthetic demo accounts and required stack secrets remain private in the retained state directory\n'
+else
+  printf 'PASS authenticated screenshots and viewport measurements copied; temporary accounts and private state are removed on exit\n'
+fi

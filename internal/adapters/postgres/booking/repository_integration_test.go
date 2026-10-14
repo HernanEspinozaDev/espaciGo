@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -356,19 +357,19 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Exercise the production upgrade path independently: a second disposable
-	// database receives V1–V54 first, then only the new migration is applied.
+	// database receives V1–V54 first, then V55–V57 are applied.
 	upgradeName := fmt.Sprintf("mpv2_02_upgrade_%d", time.Now().UnixNano())
 	if _, err = admin.Exec(ctx, `CREATE DATABASE `+pgx.Identifier{upgradeName}.Sanitize()); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
 		if _, dropErr := admin.Exec(context.Background(), `DROP DATABASE `+pgx.Identifier{upgradeName}.Sanitize()+` WITH (FORCE)`); dropErr != nil {
-			t.Errorf("drop disposable V54 upgrade database: %v", dropErr)
+			t.Errorf("drop disposable V54-to-V57 upgrade database: %v", dropErr)
 		}
 	}()
 	upgradeURL := *u
 	upgradeURL.Path = "/" + upgradeName
-	priorDir, err := os.MkdirTemp("", "espacigo-mpv2-02-v54-")
+	priorDir, err := os.MkdirTemp("", "espacigo-mpv2-13-v54-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +379,15 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, file := range migrationFiles {
-		if file.IsDir() || strings.HasPrefix(file.Name(), "V000055__") || strings.HasPrefix(file.Name(), "V000056__") {
+		if file.IsDir() || !strings.HasPrefix(file.Name(), "V") {
+			continue
+		}
+		versionText := strings.SplitN(strings.TrimPrefix(file.Name(), "V"), "__", 2)[0]
+		version, parseErr := strconv.ParseInt(versionText, 10, 64)
+		if parseErr != nil {
+			t.Fatalf("parse migration version from %s: %v", file.Name(), parseErr)
+		}
+		if version > 54 {
 			continue
 		}
 		source, pathErr := filepath.Abs(filepath.Join("../../../../db/migrations", file.Name()))
@@ -400,11 +409,11 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatalf("V54 baseline ended at version %d", historyBeforeUpgrade[53].Version)
 	}
 	upgradeResult, err := migrator.Run(ctx, upgradeURL.String(), "../../../../db/migrations")
-	if err != nil || !reflect.DeepEqual(upgradeResult.Applied, []int64{55, 56}) {
-		t.Fatalf("V54 upgrade applied=%v err=%v; want V55 and V56", upgradeResult.Applied, err)
+	if err != nil || !reflect.DeepEqual(upgradeResult.Applied, []int64{55, 56, 57}) {
+		t.Fatalf("V54 upgrade applied=%v err=%v; want V55, V56, and V57", upgradeResult.Applied, err)
 	}
 	historyAfterUpgrade := readMigrationHistory(t, ctx, upgradeURL.String())
-	if len(historyAfterUpgrade) != 56 || !reflect.DeepEqual(historyBeforeUpgrade, historyAfterUpgrade[:54]) {
+	if len(historyAfterUpgrade) != 57 || !reflect.DeepEqual(historyBeforeUpgrade, historyAfterUpgrade[:54]) {
 		t.Fatalf("V54 upgrade rewrote earlier history or ended at wrong version: before=%d after=%d", len(historyBeforeUpgrade), len(historyAfterUpgrade))
 	}
 	var locationColumns, publicPhotoColumn bool
@@ -424,7 +433,7 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !locationColumns || !publicPhotoColumn {
-		t.Fatalf("V54→V56 schema columns absent: location=%v public-photo=%v", locationColumns, publicPhotoColumn)
+		t.Fatalf("V54→V57 schema columns absent: location=%v public-photo=%v", locationColumns, publicPhotoColumn)
 	}
 	if _, err = admin.Exec(ctx, `CREATE ROLE espacigo_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD 'local-booking-test'`); err != nil {
 		t.Fatal(err)
@@ -5097,7 +5106,8 @@ FROM selected WHERE a.espacio_id=selected.id`); err != nil {
 		}
 		filters.Cursor = page.NextCursor
 	}
-	if allPages < 38 || allBenchmarkOffers != 950 || len(allIDs) < 950 {
+	minimumPages := (950 + publiccatalog.MaxPageSize - 1) / publiccatalog.MaxPageSize
+	if allPages < minimumPages || allBenchmarkOffers != 950 || len(allIDs) < 950 {
 		t.Fatalf("sitemap-equivalent walk pages=%d benchmark-visible=%d total-visible=%d; want many pages and all 950 active seeded listings", allPages, allBenchmarkOffers, len(allIDs))
 	}
 

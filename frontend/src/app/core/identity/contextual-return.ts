@@ -148,19 +148,19 @@ export function canonicalCatalogReturn(value: string): string | null {
 
     const pageSize = get('page_size');
     if (pageSize) {
-      if (!/^[1-9]\d*$/.test(pageSize) || Number(pageSize) > 25) return null;
+      if (!/^[1-9]\d*$/.test(pageSize) || Number(pageSize) > 48) return null;
       if (Number(pageSize) !== 24) query.set('page_size', String(Number(pageSize)));
     }
 
     const view = get('view');
     if (view && !['list', 'grid'].includes(view)) return null;
-    if (view === 'grid') query.set('view', view);
+    // Legacy presentation preferences are validated above, then dropped. Layout is fixed by viewport.
     const desktopColumns = get('desktop_columns');
     if (desktopColumns && !['2', '3', '4'].includes(desktopColumns)) return null;
-    if (desktopColumns && desktopColumns !== '3') query.set('desktop_columns', desktopColumns);
+
     const mobileColumns = get('mobile_columns');
     if (mobileColumns && !['1', '2'].includes(mobileColumns)) return null;
-    if (mobileColumns && mobileColumns !== '2') query.set('mobile_columns', mobileColumns);
+
 
     for (const [key, pattern] of [
       ['region_code', /^\d{1,2}$/],

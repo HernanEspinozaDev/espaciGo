@@ -71,3 +71,6 @@ La evidencia del corte Docker está en [`evidence/local-docker-01-20261011.md`](
 La inspección inicial de `espaciGo/` encontró el README y el archivo de instrucciones; entonces no se encontró implementación de aplicación, esquema físico, migraciones, API, compose ni tablero Kanban. Posteriormente el backlog se importó al tablero local Hermes `espacigo`. Al 2026-10-01, `PLAN-ARCH-01` está `done`, `CORE-ARCH-01` en `review` y las tarjetas posteriores siguen pendientes según sus dependencias; esto no es evidencia de implementación.
 
 La planificación incluye los once módulos académicos y considera el producto completo, con construcción incremental. Las propuestas evolucionan mediante tickets nuevos y cambios trazables; ningún cambio de esquema se hará fuera de una migración explícita. `referencias/` incorpora los anexos completos y el diseño ES2 necesarios para que agentes trabajando solo desde este repo puedan resolver los IDs de trazabilidad.
+
+
+- Marketplace público V2: [plan de desarrollo local](marketplace_publico_v2/plan_desarrollo_local_v2.md), [matriz de aceptación](marketplace_publico_v2/matriz_aceptacion.md), [guía MPV2-13](marketplace_publico_v2/aceptacion_mpv2_13.md) y [evidencia MPV2-13](marketplace_publico_v2/evidencia/mpv2_13/README.md).

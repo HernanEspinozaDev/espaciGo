@@ -14,7 +14,7 @@ var (
 
 const (
 	DefaultPageSize = 20
-	MaxPageSize     = 25
+	MaxPageSize     = 48
 )
 
 type Category struct {

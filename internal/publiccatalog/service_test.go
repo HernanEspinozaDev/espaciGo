@@ -42,6 +42,44 @@ func (m memoryRepository) List(_ context.Context, f Filters, after *Cursor, limi
 	return append([]Space(nil), m.rows[start:end]...), nil
 }
 
+func TestListSupportsRealFortyEightItemPagesWithStableCursor(t *testing.T) {
+	rows := make([]Space, 60)
+	for i := range rows {
+		rows[i] = Space{SpaceID: fmt.Sprintf("00000000-0000-4000-8000-%012d", i+1), CategoryOrder: 1, TitleKey: fmt.Sprintf("space-%02d", i+1)}
+	}
+	svc, err := New(memoryRepository{rows}, []byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := svc.List(context.Background(), Filters{PageSize: 48, PageSizeSet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Items) != 48 || first.NextCursor == "" {
+		t.Fatalf("first page size=%d cursor=%t", len(first.Items), first.NextCursor != "")
+	}
+	second, err := svc.List(context.Background(), Filters{PageSize: 48, PageSizeSet: true, Cursor: first.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Items) != 12 || second.NextCursor != "" {
+		t.Fatalf("second page size=%d cursor=%t", len(second.Items), second.NextCursor != "")
+	}
+	seen := make(map[string]bool, 60)
+	for _, item := range append(first.Items, second.Items...) {
+		if seen[item.SpaceID] {
+			t.Fatalf("duplicate space across cursor pages: %s", item.SpaceID)
+		}
+		seen[item.SpaceID] = true
+	}
+	if len(seen) != 60 {
+		t.Fatalf("unique items=%d, want 60", len(seen))
+	}
+	if _, err = svc.List(context.Background(), Filters{PageSize: 24, PageSizeSet: true, Cursor: first.NextCursor}); err != ErrInvalid {
+		t.Fatalf("cursor accepted after changing page size: %v", err)
+	}
+}
+
 func TestListCursorIsStableAndBoundToFilters(t *testing.T) {
 	rows := []Space{{SpaceID: "00000000-0000-0000-0000-000000000001", CategoryOrder: 1, TitleKey: "a", BasePriceCLP: 6000}, {SpaceID: "00000000-0000-0000-0000-000000000002", CategoryOrder: 1, TitleKey: "b", BasePriceCLP: 7000}, {SpaceID: "00000000-0000-0000-0000-000000000003", CategoryOrder: 1, TitleKey: "c", BasePriceCLP: 8000}}
 	svc, err := New(memoryRepository{rows}, []byte("01234567890123456789012345678901"))

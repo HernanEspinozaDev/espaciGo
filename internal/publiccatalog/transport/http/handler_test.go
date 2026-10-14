@@ -45,9 +45,9 @@ func TestPublicPageSizeAbsentAndExplicitBounds(t *testing.T) {
 		{name: "zero is rejected", query: "?page_size=0", status: http.StatusUnprocessableEntity},
 		{name: "negative is rejected", query: "?page_size=-1", status: http.StatusUnprocessableEntity},
 		{name: "one is accepted", query: "?page_size=1", status: http.StatusOK, pageSize: 1},
-		{name: "twenty five is accepted", query: "?page_size=25", status: http.StatusOK, pageSize: 25},
-		{name: "twenty six is rejected", query: "?page_size=26", status: http.StatusUnprocessableEntity},
-		{name: "duplicate is rejected", query: "?page_size=1&page_size=25", status: http.StatusUnprocessableEntity},
+		{name: "forty eight is accepted", query: "?page_size=48", status: http.StatusOK, pageSize: 48},
+		{name: "forty nine is rejected", query: "?page_size=49", status: http.StatusUnprocessableEntity},
+		{name: "duplicate is rejected", query: "?page_size=1&page_size=48", status: http.StatusUnprocessableEntity},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
