@@ -1,6 +1,10 @@
 # Continuar EspaciGo desde un PC con GitHub Projects
 
-## Actualización vigente — 2026-10-11, DOCKER-03 en paralelo
+## Estado vigente — cierre local sintético aceptado (2026-10-14)
+
+LOCAL-CLOSE-00–02 están fusionados; PR #310 merge `3bf7588d45563145d2e64441446d34070646bd38`, HEAD revisado `1b8744af73df98b6aa5a7759e13b94ced3c90963`. El usuario aceptó explícitamente el cierre del desarrollo local de backend, frontend y base de datos dentro del alcance sintético documentado. DOCKER-02/#269 y su padre #267 se cerraron como completadas por la evidencia nueva de #310 y esta aceptación. El cierre administrativo de #269 del 2026-10-12 no fue su aceptación funcional. No se recuperó el volumen original DOCKER-02 ni se completó aquella reserva histórica. Registro literal y límites: [`cierre_local/aceptacion_cierre_local_20261014.md`](cierre_local/aceptacion_cierre_local_20261014.md). Sin GCP/producción; cualquier preparación requiere otro encargo.
+
+## Snapshot histórico — 2026-10-11, DOCKER-03 en paralelo
 
 LOCAL-1 fue aceptado explícitamente; #246 está Hecho y sus padres productivos/exclusiones siguen abiertos. `main` incluye el cierre documental LOCAL-CLOSE-01 (#265), DOCKER-01 (#268, PR #271) y DOCKER-02 (#269, PR #272). #269 sigue abierta únicamente por su paso pendiente después del plazo: liquidación fake, estado `cerrada`, historial, comprobante e idempotencia. El propietario autorizó comenzar DOCKER-03/#270 en paralelo, sin adelantar ni cerrar #269; su PR #273 está En revisión. Esta entrega usa instancias PostgreSQL/PostGIS, volúmenes, secretos, CA, puertos y archivos privados separados; mantiene el entorno de desarrollo. Evidencia reproducible: [`evidence/local-docker-03-20261011.md`](evidence/local-docker-03-20261011.md). Sin GCP.
 

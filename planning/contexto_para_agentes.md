@@ -1,6 +1,10 @@
 # Contexto operativo para agentes de desarrollo
 
-## Actualización vigente — LOCAL-DOCKER / DOCKER-03 en paralelo — 2026-10-11
+## Estado vigente — cierre local sintético aceptado (2026-10-14)
+
+LOCAL-CLOSE-00–02 están fusionados; PR #310 merge `3bf7588d45563145d2e64441446d34070646bd38`, HEAD revisado `1b8744af73df98b6aa5a7759e13b94ced3c90963`. El usuario aceptó explícitamente el cierre del desarrollo local de backend, frontend y base de datos dentro del alcance sintético documentado. DOCKER-02/#269 y su padre #267 se cerraron como completadas por la evidencia nueva de #310 y esta aceptación. El cierre administrativo de #269 del 2026-10-12 no fue su aceptación funcional. No se recuperó el volumen original DOCKER-02 ni se completó aquella reserva histórica. Registro literal y límites: [`cierre_local/aceptacion_cierre_local_20261014.md`](cierre_local/aceptacion_cierre_local_20261014.md). Sin GCP/producción; cualquier preparación requiere otro encargo.
+
+## Snapshot histórico — LOCAL-DOCKER / DOCKER-03 en paralelo — 2026-10-11
 
 LOCAL-1 fue aceptado explícitamente y #246 está Hecho. PR #271 se fusionó en `main` (`e074d78`) y DOCKER-01/#268 fue aceptada/Cerrada/Hecho. DOCKER-02/#269 sigue abierta mientras se espera su paso de liquidación/cierre al cumplirse 24 horas; no se declara aceptada todavía. El propietario autorizó explícitamente comenzar DOCKER-03/#270 en paralelo sin alterar ese criterio. PR #273 está En revisión con la corrida y sus recursos independientes descritos en `planning/evidence/local-docker-03-20261011.md`. El entorno de desarrollo, volumen y secretos continúan preservados. Sin GCP.
 
