@@ -73,3 +73,12 @@ func TestListRejectsUnitPriceComparisonsWithoutModality(t *testing.T) {
 		t.Fatalf("valid int64 rejected: %v", err)
 	}
 }
+
+func TestListAcceptsStableTitleSorts(t *testing.T) {
+	svc, _ := New(memoryRepository{}, []byte("01234567890123456789012345678901"))
+	for _, order := range []string{"title_asc", "title_desc"} {
+		if _, err := svc.List(context.Background(), Filters{Sort: order, PageSize: 20}); err != nil {
+			t.Fatalf("%s rejected: %v", order, err)
+		}
+	}
+}

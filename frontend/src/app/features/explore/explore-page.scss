@@ -60,6 +60,10 @@
 .desktop-sort { display: grid; grid-template-columns: auto minmax(12rem, 16rem); align-items: center; gap: metrics.$space-0-5rem; color: var(--color-text-muted); font-size: metrics.$font-size-0-9rem; font-weight: metrics.$font-weight-650; }
 .desktop-sort select { min-width: 0; min-height: 2.8rem; border: 1px solid var(--color-border-control); border-radius: 0.55rem; background: white; color: var(--color-text); padding: metrics.$space-0-55rem metrics.$space-0-7rem; font: inherit; }
 .pending-filters { padding: metrics.$space-0-65rem metrics.$space-0-8rem; border-radius: 0.55rem; background: var(--color-surface-subtle); color: var(--color-text-muted); }
+.sort-note { margin: 0; color: var(--color-text-muted); font-size: metrics.$font-size-0-85rem; }
+.sort-guidance { display: flex; flex-wrap: wrap; align-items: center; gap: metrics.$space-0-5rem metrics.$space-0-8rem; margin-block: metrics.$space-0-65rem; padding: metrics.$space-0-8rem; border: 1px solid var(--color-border-control); border-radius: 0.75rem; background: var(--color-surface-subtle); color: var(--color-text); }
+.sort-guidance p { flex-basis: 100%; margin: 0; }
+.text-action { min-height: 2.5rem; padding: metrics.$space-0-4rem metrics.$space-0-65rem; border: 1px solid var(--color-border-control); border-radius: 999px; background: var(--color-surface); color: var(--brand-primary-hover); font: inherit; font-weight: metrics.$font-weight-700; cursor: pointer; }
 .active-filters { display: flex; align-items: center; flex-wrap: wrap; gap: metrics.$space-0-5rem; margin-block: metrics.$space-1rem; }
 .filter-chip { min-height: 2.5rem; border: 1px solid var(--color-border-control); border-radius: 999px; padding: metrics.$space-0-4rem metrics.$space-0-75rem; background: var(--color-surface); color: var(--color-text); font: inherit; cursor: pointer; }
 .clear-chips { min-height: 2.5rem; border: 0; background: transparent; color: var(--brand-primary-hover); font: inherit; text-decoration: underline; cursor: pointer; }

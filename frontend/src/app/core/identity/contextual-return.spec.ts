@@ -17,6 +17,8 @@ describe('contextual identity return', () => {
       '/explorar?sort=relevance&q=%20Oficina%20%20centro%20&category_code=oficina&page_size=20',
     );
     expect(validListing).toBe('/explorar?q=Oficina+centro&category_code=oficina&sort=relevance');
+    expect(canonicalCatalogReturn('/explorar?category_code=oficina&sort=title_asc'))
+      .toBe('/explorar?category_code=oficina&sort=title_asc');
     const context = buildContextualReturn(spaceId, validListing);
     expect(context).toBe(
       `/espacios/${spaceId}?action=reserve&returnTo=${encodeURIComponent(validListing!)}`,

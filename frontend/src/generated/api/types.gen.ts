@@ -1662,7 +1662,10 @@ export type ListPublicSpacesData = {
         end_at?: string;
         min_total_clp?: number;
         max_total_clp?: number;
-        sort?: 'default' | 'unit_price_asc' | 'unit_price_desc' | 'relevance' | 'estimated_total_asc' | 'estimated_total_desc';
+        /**
+         * default ordena por categoría y título; title_asc/title_desc comparan título normalizado con space_id estable. Las tarifas requieren rate_unit explícito, relevance requiere q y total estimado requiere inicio/fin.
+         */
+        sort?: 'default' | 'title_asc' | 'title_desc' | 'unit_price_asc' | 'unit_price_desc' | 'relevance' | 'estimated_total_asc' | 'estimated_total_desc';
         page_size?: number;
         cursor?: string;
     };

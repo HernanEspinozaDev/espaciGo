@@ -8,9 +8,15 @@
   <div class="catalog-layout">
     <aside class="filter-sidebar" aria-label="Filtros del catálogo">
       @if(filtersOpen()){<button class="filter-backdrop" type="button" aria-label="Cerrar filtros" (click)="closeFilters()"></button>}
-      <form id="catalog-filters" class="filters panel" [class.filters-open]="filtersOpen()" [attr.aria-modal]="filtersOpen() ? 'true' : null" [attr.role]="filtersOpen() ? 'dialog' : 'region'" aria-label="Filtros de espacios" (submit)="$event.preventDefault(); search(); closeFilters()">
+      <form id="catalog-filters" class="filters panel" [class.filters-open]="filtersOpen()" [attr.aria-modal]="filtersOpen() ? 'true' : null" [attr.role]="filtersOpen() ? 'dialog' : 'region'" aria-label="Filtros de espacios" (submit)="$event.preventDefault(); submitSearch()">
         <div class="mobile-filter-header"><h2>Filtros y orden</h2><button class="filter-close" type="button" aria-label="Cerrar filtros" (click)="closeFilters()">×</button></div>
-        <label>Buscar<input type="search" maxlength="120" [value]="filters().q" (input)="updateFilter('q',$any($event.target).value)" /></label>
+        <label>Buscar<input id="catalog-search" type="search" maxlength="120" [value]="filters().q" (input)="updateFilter('q',$any($event.target).value)" /></label>
+        <label>Categoría
+          <select [value]="filters().category_code" (change)="updateFilter('category_code',$any($event.target).value)">
+            <option value="">Todas las categorías</option>
+            @for(category of categories();track category.code){<option [value]="category.code">{{category.name}}</option>}
+          </select>
+        </label>
         <label>Región
           <select [value]="filters().region_code" (change)="updateFilter('region_code',$any($event.target).value); updateFilter('comuna_code','')">
             <option value="">Todas las regiones</option>
@@ -23,14 +29,8 @@
             @for(location of locations();track location.comuna_code){@if(!filters().region_code || filters().region_code===location.region_code){<option [value]="location.comuna_code">{{location.comuna_name}}</option>}}
           </select>
         </label>
-        <label>Categoría
-          <select [value]="filters().category_code" (change)="updateFilter('category_code',$any($event.target).value)">
-            <option value="">Todas las categorías</option>
-            @for(category of categories();track category.code){<option [value]="category.code">{{category.name}}</option>}
-          </select>
-        </label>
         <label>Modalidad de tarifa
-          <select [value]="filters().rate_unit" (change)="updateFilter('rate_unit',$any($event.target).value)">
+          <select id="rate-unit" [value]="filters().rate_unit" (change)="updateFilter('rate_unit',$any($event.target).value)">
             <option value="">Cualquiera</option><option value="hora">Hora</option><option value="dia">Día</option><option value="mes">Mes</option>
           </select>
         </label>
@@ -46,9 +46,11 @@
         </label>}</fieldset>}
         <label class="mobile-sort-label">Ordenar por
           <select [value]="filters().sort" (change)="updateFilter('sort',$any($event.target).value)">
-            <option value="default">Categoría y nombre</option><option value="unit_price_asc" [disabled]="!filters().rate_unit">Precio menor</option><option value="unit_price_desc" [disabled]="!filters().rate_unit">Precio mayor</option><option value="relevance" [disabled]="!filters().q.trim()">Relevancia</option><option value="estimated_total_asc" [disabled]="!filters().start_at || !filters().end_at">Total estimado menor</option><option value="estimated_total_desc" [disabled]="!filters().start_at || !filters().end_at">Total estimado mayor</option>
+            <option value="default">Orden predeterminado</option><option value="title_asc">Nombre A–Z</option><option value="title_desc">Nombre Z–A</option><option value="unit_price_asc">Precio menor (misma modalidad)</option><option value="unit_price_desc">Precio mayor (misma modalidad)</option><option value="relevance">Relevancia</option><option value="estimated_total_asc">Total estimado menor</option><option value="estimated_total_desc">Total estimado mayor</option>
           </select>
         </label>
+        <p class="sort-note">Los precios comparan solo la modalidad seleccionada (hora, día o mes); nunca se mezclan unidades.</p>
+        @if(mobileSortRequirement(); as requirement){<div class="sort-guidance" role="status"><p>{{requirement.message}}</p><button type="button" class="text-action" (click)="focusSortRequirement()">{{requirement.action}}</button></div>}
         <div class="filter-actions wide"><button appButton="primary" class="button" type="submit" [disabled]="busy()">{{busy()?'Buscando…':'Buscar espacios'}}</button>
           <button appButton="secondary" class="button button-secondary" type="button" (click)="clearFilters(); closeFilters()">Limpiar filtros</button></div>
       </form>
@@ -58,12 +60,16 @@
       <div class="catalog-toolbar">
         <p class="results-count" role="status">{{items().length}} espacios en esta página</p>
         <label class="desktop-sort">Ordenar por
-          <select [value]="appliedFilters().sort" (change)="applySort($any($event.target).value)">
-            <option value="default">Categoría y nombre</option><option value="unit_price_asc" [disabled]="!appliedFilters().rate_unit">Precio menor</option><option value="unit_price_desc" [disabled]="!appliedFilters().rate_unit">Precio mayor</option><option value="relevance" [disabled]="!appliedFilters().q.trim()">Relevancia</option><option value="estimated_total_asc" [disabled]="!appliedFilters().start_at || !appliedFilters().end_at">Total estimado menor</option><option value="estimated_total_desc" [disabled]="!appliedFilters().start_at || !appliedFilters().end_at">Total estimado mayor</option>
+          <select [value]="pendingSort() || appliedFilters().sort" (change)="requestSort($any($event.target).value)">
+            <option value="default">Orden predeterminado</option><option value="title_asc">Nombre A–Z</option><option value="title_desc">Nombre Z–A</option><option value="unit_price_asc">Precio menor (misma modalidad)</option><option value="unit_price_desc">Precio mayor (misma modalidad)</option><option value="relevance">Relevancia</option><option value="estimated_total_asc">Total estimado menor</option><option value="estimated_total_desc">Total estimado mayor</option>
           </select>
         </label>
         <button class="filter-toggle" type="button" [attr.aria-expanded]="filtersOpen()" aria-controls="catalog-filters" (click)="openFilters($any($event.currentTarget))">Filtrar y ordenar</button>
       </div>
+      @if(pendingSort()){
+        @if(sortRequirement(); as requirement){<div class="sort-guidance" role="status"><p>{{requirement.message}}</p><button type="button" class="text-action" (click)="focusSortRequirement()">{{requirement.action}}</button><button type="button" class="text-action" (click)="cancelSort()">Cancelar</button></div>}
+        @else if(hasUnappliedChanges()){<div class="sort-guidance" role="group" aria-label="Confirmar cambios de orden"><p>El orden usa filtros aplicados. ¿Quieres aplicar tus borradores junto con el orden o descartarlos?</p><button type="button" class="text-action" (click)="confirmSort(true)">Aplicar cambios y ordenar</button><button type="button" class="text-action" (click)="confirmSort(false)">Descartar cambios y ordenar</button><button type="button" class="text-action" (click)="cancelSort()">Cancelar</button></div>}
+      }
       @if(hasUnappliedChanges()){<p class="pending-filters" role="status">Tienes cambios sin aplicar. Pulsa “Buscar espacios” para actualizar resultados.</p>}
       @if(activeFilters().length){<section class="active-filters" aria-label="Filtros aplicados a estos resultados"><span>Aplicados:</span>@for(chip of activeFilters();track chip.key){<button type="button" class="filter-chip" [attr.aria-label]="'Quitar filtro ' + chip.label" (click)="removeFilter(chip.key)">{{chip.label}} <span aria-hidden="true">×</span></button>}<button type="button" class="clear-chips" (click)="clearFilters()">Quitar todos</button></section>}
       @if(error()){<p class="error" role="alert">{{error()}}</p>}

@@ -31,6 +31,8 @@ type ExploreFilters = {
   attributes: Record<string, boolean>;
 };
 type ExploreCriterion = Exclude<keyof ExploreFilters, 'cursor'>;
+export type SortRequirement = { target: 'query' | 'rate_unit' | 'start_at'; message: string; action: string };
+type CriteriaPageCache = { cursors: string[]; pages: Map<string, PublicSpace[]>; nextCursors: Map<string, string> };
 
 @Injectable()
 export class ExploreFacade implements OnInit {
@@ -44,9 +46,7 @@ export class ExploreFacade implements OnInit {
   private requestGeneration = 0;
   private criteriaKey: string | undefined;
   private routeRequestKey: string | undefined;
-  private pageCursors: string[] = [];
-  private readonly pages = new Map<string, PublicSpace[]>();
-  private readonly pageNextCursors = new Map<string, string>();
+  private readonly criteriaPageCaches = new Map<string, CriteriaPageCache>();
   private navigationPending = false;
   private attributeFilterCategory = '';
   private attributeFilterGeneration = 0;
@@ -76,6 +76,7 @@ export class ExploreFacade implements OnInit {
     start_at: '', end_at: '', min_total_clp: '', max_total_clp: '', attributes: {},
   });
   readonly hasUnappliedChanges = computed(() => criteriaSignature(this.filters()) !== criteriaSignature(this.appliedFilters()));
+  readonly pendingSort = signal('');
 
   constructor() {
     this.title.setTitle('Explorar espacios | EspaciGo');
@@ -186,10 +187,50 @@ export class ExploreFacade implements OnInit {
     void this.search();
   }
 
-  applySort(sort: string): void {
-    this.filters.set({ ...this.appliedFilters(), sort, cursor: '' });
+  requestSort(sort: string): void {
+    if (!isSort(sort)) return;
+    this.pendingSort.set(sort);
+    if (this.sortRequirement(sort, this.filters())) return;
+    if (this.hasUnappliedChanges()) {
+      return;
+    }
+    this.confirmSort(true);
+  }
+
+  confirmSort(applyDraftChanges: boolean): void {
+    const sort = this.pendingSort();
+    if (!sort) return;
+    const current = applyDraftChanges ? this.filters() : this.appliedFilters();
+    const requirement = this.sortRequirement(sort, current);
+    if (requirement) {
+      this.filters.set({ ...current, sort, cursor: '' });
+      this.pendingSort.set(sort);
+      this.error.set(requirement.message);
+      return;
+    }
+    const next = { ...current, sort, cursor: '' };
+    this.filters.set(next);
+    this.selectAttributeFilterCategory(next.category_code);
+    this.pendingSort.set('');
     this.invalidateCriteria();
     void this.search();
+  }
+
+  cancelSort(): void {
+    this.pendingSort.set('');
+  }
+
+  sortRequirement(sort: string, filters: ExploreFilters): SortRequirement | null {
+    if ((sort === 'unit_price_asc' || sort === 'unit_price_desc') && !filters.rate_unit) {
+      return { target: 'rate_unit', message: 'Para comparar precios, elige explícitamente hora, día o mes. No se mezclan tarifas de distintas unidades.', action: 'Elegir modalidad' };
+    }
+    if (sort === 'relevance' && !filters.q.trim()) {
+      return { target: 'query', message: 'La relevancia necesita un texto en Buscar.', action: 'Escribir búsqueda' };
+    }
+    if (sort.startsWith('estimated_total_') && (!filters.start_at || !filters.end_at)) {
+      return { target: 'start_at', message: 'El total estimado necesita las fechas Desde y Hasta.', action: 'Completar intervalo' };
+    }
+    return null;
   }
 
   detailLink(spaceId: string): UrlTree {
@@ -203,6 +244,7 @@ export class ExploreFacade implements OnInit {
   }
 
   clearFilters(): void {
+    this.cancelSort();
     this.filters.set({
       category_code: '',
       q: '',
@@ -237,6 +279,7 @@ export class ExploreFacade implements OnInit {
   }
 
   private loadFromRoute(params: ParamMap): void {
+    this.cancelSort();
     const decoded = decodeFilters(params);
     if (!decoded.filters) {
       this.invalidateCriteria();
@@ -257,19 +300,18 @@ export class ExploreFacade implements OnInit {
     this.busy.set(false);
     if (criteriaChanged) {
       this.criteriaKey = nextCriteriaKey;
-      this.pages.clear();
-      this.pageNextCursors.clear();
-      this.pageCursors = [];
       this.items.set([]);
       this.nextCursor.set('');
     }
     this.routeRequestKey = requestKey;
     if (!this.validateForSearch(filters)) return;
-    const cachedIndex = this.pageCursors.indexOf(filters.cursor);
-    if (!criteriaChanged && cachedIndex >= 0) {
-      this.items.set(this.pageCursors.slice(0, cachedIndex + 1).flatMap((cursor) => this.pages.get(cursor) ?? []));
-      const cached = this.pages.get(filters.cursor) ?? [];
-      this.nextCursor.set(cached.length ? (this.pageNextCursors.get(filters.cursor) ?? '') : '');
+    this.error.set('');
+    const cache = this.pageCache(nextCriteriaKey);
+    const cachedIndex = cache.cursors.indexOf(filters.cursor);
+    if (cachedIndex >= 0) {
+      this.items.set(cache.cursors.slice(0, cachedIndex + 1).flatMap((cursor) => cache.pages.get(cursor) ?? []));
+      const cached = cache.pages.get(filters.cursor) ?? [];
+      this.nextCursor.set(cached.length ? (cache.nextCursors.get(filters.cursor) ?? '') : '');
       this.busy.set(false);
       return;
     }
@@ -280,7 +322,7 @@ export class ExploreFacade implements OnInit {
     const generation = ++this.requestGeneration;
     this.error.set('');
     this.busy.set(true);
-    if (!append && this.pages.size === 0) this.items.set([]);
+    if (!append && this.items().length === 0) this.items.set([]);
     const request: PublicCatalogFilters = {
       category_code: filters.category_code || undefined,
       q: filters.q || undefined,
@@ -299,9 +341,10 @@ export class ExploreFacade implements OnInit {
       const page = await this.api.publicSearch(request);
       if (generation !== this.requestGeneration) return;
       this.seo.catalog(this.route.snapshot.queryParamMap.keys.length > 0);
-      this.pages.set(filters.cursor, page.items);
-      this.pageNextCursors.set(filters.cursor, page.next_cursor ?? '');
-      if (!this.pageCursors.includes(filters.cursor)) this.pageCursors.push(filters.cursor);
+      const cache = this.pageCache(criteriaSignature(filters));
+      cache.pages.set(filters.cursor, page.items);
+      cache.nextCursors.set(filters.cursor, page.next_cursor ?? '');
+      if (!cache.cursors.includes(filters.cursor)) cache.cursors.push(filters.cursor);
       this.items.update((current) => (append ? [...current, ...page.items] : page.items));
       this.nextCursor.set(page.next_cursor ?? '');
     } catch (error) {
@@ -317,13 +360,27 @@ export class ExploreFacade implements OnInit {
   private invalidateCriteria(): void {
     this.requestGeneration++;
     this.routeRequestKey = undefined;
-    this.pages.clear();
-    this.pageNextCursors.clear();
-    this.pageCursors = [];
     this.items.set([]);
     this.nextCursor.set('');
     this.error.set('');
     this.busy.set(false);
+  }
+
+  private pageCache(key: string): CriteriaPageCache {
+    const existing = this.criteriaPageCaches.get(key);
+    if (existing) {
+      this.criteriaPageCaches.delete(key);
+      this.criteriaPageCaches.set(key, existing);
+      return existing;
+    }
+    const cache: CriteriaPageCache = { cursors: [], pages: new Map(), nextCursors: new Map() };
+    this.criteriaPageCaches.set(key, cache);
+    while (this.criteriaPageCaches.size > 8) {
+      const oldest = this.criteriaPageCaches.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.criteriaPageCaches.delete(oldest);
+    }
+    return cache;
   }
 
   private validateForSearch(filters: ExploreFilters): boolean {
@@ -337,17 +394,16 @@ export class ExploreFacade implements OnInit {
       this.busy.set(false);
       return false;
     }
-    if (
-      (filters.min_unit_price_clp || filters.max_unit_price_clp || filters.sort === 'unit_price_asc' || filters.sort === 'unit_price_desc') &&
-      !filters.rate_unit
-    ) {
-      this.error.set('Elige hora, día o mes para comparar tarifas.');
+    const sortRequirement = this.sortRequirement(filters.sort, filters);
+    if (sortRequirement || ((filters.min_total_clp || filters.max_total_clp) && (!filters.start_at || !filters.end_at))) {
+      this.error.set(sortRequirement?.message ?? 'Los filtros de total estimado necesitan las fechas Desde y Hasta.');
       this.busy.set(false);
       return false;
     }
-    if ((filters.sort === 'relevance' && !filters.q.trim()) ||
-        ((filters.min_total_clp || filters.max_total_clp || filters.sort.startsWith('estimated_total_')) && (!filters.start_at || !filters.end_at))) {
-      this.error.set('La relevancia requiere texto y el total estimado requiere un intervalo.');
+    if (
+      (filters.min_unit_price_clp || filters.max_unit_price_clp) && !filters.rate_unit
+    ) {
+      this.error.set('Elige hora, día o mes para filtrar una tarifa sin mezclar unidades.');
       this.busy.set(false);
       return false;
     }
@@ -421,6 +477,7 @@ function decodeFilters(params: ParamMap): { filters: ExploreFilters | null; erro
   if (Object.keys(attributes).length > 8) return { filters: null, error: 'La URL supera el máximo de filtros.' };
   if ([q, category, unit, minimum, maximum, sort, rawSize, cursor, region, comuna, area, start, end, minTotal, maxTotal].some((value) => value === null))
     return { filters: null, error: 'La URL contiene parámetros públicos duplicados.' };
+  if (!isSort(sort!)) return { filters: null, error: 'El orden de la URL no es válido.' };
   const pageSize = rawSize === '' ? 20 : Number(rawSize);
   if (rawSize !== '' && !/^\d+$/.test(rawSize!))
     return { filters: null, error: 'El tamaño de página de la URL no es válido.' };
@@ -484,4 +541,8 @@ function criteriaSignature(filters: ExploreFilters): string {
 
 function validPrice(value: string): boolean {
   return !value || /^(0|[1-9]\d*)$/.test(value);
+}
+
+function isSort(value: string): boolean {
+  return ['default', 'title_asc', 'title_desc', 'unit_price_asc', 'unit_price_desc', 'relevance', 'estimated_total_asc', 'estimated_total_desc'].includes(value);
 }

@@ -22,6 +22,11 @@ export class ExplorePage {
   readonly filtersOpen = signal(false);
   private filterTrigger: HTMLElement | null = null;
   readonly activeFilters = computed(() => this.buildActiveFilters());
+  readonly sortRequirement = computed(() => {
+    const sort = this.facade.pendingSort() || this.facade.appliedFilters().sort;
+    return this.facade.sortRequirement(sort, this.facade.filters());
+  });
+  readonly mobileSortRequirement = computed(() => this.facade.sortRequirement(this.facade.filters().sort, this.facade.filters()));
   get categories() {
     return this.facade.categories;
   }
@@ -44,6 +49,7 @@ export class ExplorePage {
   }
   get appliedFilters() { return this.facade.appliedFilters; }
   get hasUnappliedChanges() { return this.facade.hasUnappliedChanges; }
+  get pendingSort() { return this.facade.pendingSort; }
   ngOnInit(): void {
     this.facade.ngOnInit();
   }
@@ -54,10 +60,17 @@ export class ExplorePage {
   readonly booleanValue = (value: boolean | undefined): string => value === undefined ? '' : String(value);
   readonly search = this.facade.search.bind(this.facade);
   readonly clearFilters = this.facade.clearFilters.bind(this.facade);
-  readonly applySort = this.facade.applySort.bind(this.facade);
+  readonly requestSort = this.facade.requestSort.bind(this.facade);
+  readonly confirmSort = this.facade.confirmSort.bind(this.facade);
+  readonly cancelSort = this.facade.cancelSort.bind(this.facade);
   readonly loadMore = this.facade.loadMore.bind(this.facade);
   readonly price = this.facade.price.bind(this.facade);
   readonly detailLink = this.facade.detailLink.bind(this.facade);
+
+  async submitSearch(): Promise<void> {
+    await this.facade.search();
+    if (!this.facade.error()) this.closeFilters();
+  }
 
   openFilters(trigger: HTMLElement): void {
     this.filterTrigger = trigger;
@@ -71,6 +84,13 @@ export class ExplorePage {
       if (this.filterTrigger?.getClientRects().length) this.filterTrigger.focus();
       else (this.host.nativeElement as HTMLElement).querySelector<HTMLElement>('.filters input')?.focus();
     });
+  }
+
+  focusSortRequirement(): void {
+    const target = this.sortRequirement() ?? this.mobileSortRequirement();
+    if (!target) return;
+    const selector = target.target === 'query' ? '#catalog-search' : target.target === 'rate_unit' ? '#rate-unit' : '#start-at';
+    setTimeout(() => (this.host.nativeElement.querySelector(selector) as HTMLElement | null)?.focus());
   }
 
   removeFilter(key: string): void { this.facade.removeAppliedFilter(key); }
@@ -94,7 +114,7 @@ export class ExplorePage {
             : key === 'rate_unit'
               ? ({ hora: 'Hora', dia: 'Día', mes: 'Mes' } as Record<string, string>)[value] ?? value
                   : key === 'sort'
-                    ? ({ unit_price_asc: 'Precio menor', unit_price_desc: 'Precio mayor', relevance: 'Relevancia', estimated_total_asc: 'Total estimado menor', estimated_total_desc: 'Total estimado mayor' } as Record<string, string>)[value] ?? value
+                    ? ({ title_asc: 'Nombre A–Z', title_desc: 'Nombre Z–A', unit_price_asc: 'Precio menor (misma modalidad)', unit_price_desc: 'Precio mayor (misma modalidad)', relevance: 'Relevancia', estimated_total_asc: 'Total estimado menor', estimated_total_desc: 'Total estimado mayor' } as Record<string, string>)[value] ?? value
               : key === 'start_at' || key === 'end_at'
                 ? this.dateInput(value).replace('T', ' ')
                 : key.includes('price') || key.includes('total')

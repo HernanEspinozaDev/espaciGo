@@ -224,7 +224,7 @@ func validate(filters *Filters) error {
 	if filters.Sort == "" {
 		filters.Sort = "default"
 	}
-	if filters.Sort != "default" && filters.Sort != "unit_price_asc" && filters.Sort != "unit_price_desc" && filters.Sort != "relevance" && filters.Sort != "estimated_total_asc" && filters.Sort != "estimated_total_desc" {
+	if filters.Sort != "default" && filters.Sort != "title_asc" && filters.Sort != "title_desc" && filters.Sort != "unit_price_asc" && filters.Sort != "unit_price_desc" && filters.Sort != "relevance" && filters.Sort != "estimated_total_asc" && filters.Sort != "estimated_total_desc" {
 		return ErrInvalid
 	}
 	if utf8.RuneCountInString(filters.Query) > 120 {
