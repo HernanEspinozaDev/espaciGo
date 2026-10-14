@@ -1,16 +1,17 @@
 # Guía de revisión técnica MPV2-13
 
 **Estado:** demo preparada para revisión; aceptación de producto pendiente.
-**Código de aplicación:** merge de MPV2-12 `c797f0eb734e2c7eda37eb70a50d4d509e82677d` (PR #306). MPV2-13 consolida pruebas y documentación; no agrega funcionalidad de marketplace.
+**Decisión UX registrada:** 2026-10-14 — escritorio fijo a 4 columnas, móvil en lista de 1 columna; selector 12/24/48 junto al orden y visible en móvil.
+**Código de aplicación:** `736f81a367eed79bd87950e2dc64716adc6469db`, cambio MPV2-13 en PR #307 (base `c797f0eb734e2c7eda37eb70a50d4d509e82677d`).
 **Responsable del ensayo:** HernanMEC. **Motivo:** demo aislada solicitada para revisión del catálogo público.
 
 ## Abrir la demo
 
-El navegador local puede abrir `http://127.0.0.1:19902/explorar`. La API está publicada solo en loopback en `127.0.0.1:19900`; Mailpit usa `127.0.0.1:19901`. PostgreSQL no publica un puerto al host. El proyecto Compose es `espacigo_mpv2_13_demo_316ee26df160` y su único volumen de base de datos es `espacigo_mpv2_13_demo_316ee26df160_pgdata`.
+El navegador local puede abrir `http://127.0.0.1:20002/explorar`. La API está publicada solo en loopback en `127.0.0.1:20000`; Mailpit usa `127.0.0.1:20001`. PostgreSQL no publica un puerto al host. El proyecto Compose es `espacigo_mpv2_13_demo_a2bf4ff1f4ef` y su único volumen de base de datos es `espacigo_mpv2_13_demo_a2bf4ff1f4ef_pgdata`.
 
-La demo tiene más de 24 publicaciones ficticias en las ocho categorías, tarifas CLP por hora/día/mes y valores de filtros tipados. Se puede explorar sin iniciar sesión: cambiar categoría, aplicar filtros, ordenar, cambiar cuadrícula y tamaño de página, abrir fichas y consultar las fotos sintéticas. Para revisar el límite de acceso, usa **Reservar** en una ficha; el acceso privado debe requerir autenticación. La reserva es simulada y no procesa pagos.
+La demo tiene más de 48 publicaciones ficticias en las ocho categorías, tarifas CLP por hora/día/mes y valores de filtros tipados. Se puede explorar sin iniciar sesión: cambiar categoría, aplicar filtros, ordenar, elegir 12/24/48 resultados por página y abrir fichas con fotos sintéticas. El catálogo muestra cuatro columnas en escritorio y tarjetas en una lista de una columna en móvil. Para revisar el límite de acceso, usa **Reservar** en una ficha; el acceso privado requiere autenticación. La reserva es simulada y no procesa pagos.
 
-Las cuatro cuentas sintéticas están en `.local/testing/mpv2-13-demo/316ee26df160/accounts.json`, con permisos `0600`. Consulta ese archivo localmente para las credenciales; no copies su contenido en capturas, logs ni archivos compartidos. El archivo de configuración operativo es `.local/testing/mpv2-13-demo/316ee26df160/runtime.env`, también `0600`.
+Las cuatro cuentas sintéticas están en `.local/testing/mpv2-13-demo/a2bf4ff1f4ef/accounts.json`, con permisos `0600`. Consulta ese archivo localmente para las credenciales; no copies su contenido en capturas, logs ni archivos compartidos. El archivo de configuración operativo es `.local/testing/mpv2-13-demo/a2bf4ff1f4ef/runtime.env`, también `0600`.
 
 ## Estado y ciclo de vida
 
@@ -18,7 +19,7 @@ Para consultar los contenedores de esta demo, desde la raíz del repositorio:
 
 ```sh
 set -a
-. .local/testing/mpv2-13-demo/316ee26df160/runtime.env
+. .local/testing/mpv2-13-demo/a2bf4ff1f4ef/runtime.env
 set +a
 bash scripts/local-docker-stack.sh status
 ```
@@ -30,8 +31,10 @@ Al terminar la revisión y una vez que el usuario decida retirar esta demo, elim
 ## Recorrido y límites
 
 1. Entra anónimamente a `/explorar`; comprueba ocho categorías, filtros, orden y navegación.
-2. Verifica tamaños de página 12/24, disposición de cuadrícula y retorno con Atrás/Adelante.
+2. Verifica tamaños de página 12/24/48, cuatro columnas en escritorio, lista móvil y retorno con Atrás/Adelante. Una URL antigua con `page_size=20` se conserva; los parámetros viejos de vista/columnas se eliminan al normalizar la navegación.
 3. Abre una ficha y pulsa **Reservar** para comprobar el límite de autenticación.
 4. Ten presente que fotos y cuentas son fixtures recreables; no hay fotos reales, pagos reales ni despliegue GCP.
 
-La fusión técnica de MPV2-12 y el recorrido de esta demo no equivalen a aceptación del producto. La decisión final corresponde al usuario.
+La demo previa `espacigo_mpv2_13_demo_316ee26df160` en 19900–19902 se conserva sin cambios como evidencia histórica; esta demo nueva usa un proyecto y volumen separados. La pila MPV2-09 y `espacigo_pgdata` también permanecen intactos. No se reinició ni borró ninguno de esos recursos.
+
+La validación técnica del PR #307 y el recorrido de esta demo no equivalen a aceptación del producto. La decisión final corresponde al usuario.
