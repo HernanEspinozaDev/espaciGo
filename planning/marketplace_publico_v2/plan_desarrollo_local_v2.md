@@ -1,7 +1,7 @@
 # Desarrollo local versión 2 del marketplace público
 
 **Identificador:** MARKETPLACE-LOCAL-2. **Cortes:** MPV2-00–MPV2-13.
-**Fecha:** 2026-10-13. **Estado:** MPV2-00–10 fusionados técnicamente; MPV2-10 en PR #304 (`5029a1ab73f4e9c365d5352299849b7dbe80991f`); MPV2-11 implementado y verificado técnicamente; abierto en [PR #305](https://github.com/HernanEspinozaDev/espaciGo/pull/305). Revisión y aceptación de producto pendientes.
+**Fecha:** 2026-10-14. **Estado:** MPV2-00–10 fusionados técnicamente; MPV2-10 en PR #304 (`5029a1ab73f4e9c365d5352299849b7dbe80991f`); MPV2-11 implementado y verificado técnicamente; [PR #305](https://github.com/HernanEspinozaDev/espaciGo/pull/305) actualizado con correcciones solicitadas en `f35c143ba95d872566093131b7d3eeae6ef1f93b`. Revisión y aceptación de producto pendientes.
 
 ## 1. Objetivo y base de trabajo
 
