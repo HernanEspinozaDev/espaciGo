@@ -106,4 +106,4 @@ No crear recursos ni desplegar con este plan. Proveedores reales de pagos/correo
 
 ## Encargo inicial al chat de desarrollo
 
-Empezar solo LOCAL-CLOSE-00. Publicar el plan/matriz en un PR como HernanMEC, solicitar revisión a HernanEspinozaDev y avisar a este chat. Tras revisión/fusión, esperar el encargo explícito del usuario para el siguiente corte. Aunque este plan define y autoriza el trabajo futuro, en esta tarea no iniciar LOCAL-CLOSE-01/02 ni GCP. Mantener pendiente la aceptación final del cierre local integral.
+Ejecutar la secuencia LOCAL-CLOSE-00 → 01 → 02 ya autorizada, manteniendo un PR abierto a la vez. En este encargo ejecutar solo LOCAL-CLOSE-00. Tras revisar y fusionar cada PR, desarrollo espera el encargo del chat de revisión para iniciar el corte sucesor, sin pedir una autorización nueva del usuario para la secuencia aprobada. En cada publicación, corrección, término o bloqueo, avisar al chat de revisión mediante `send_message_to_thread` antes de finalizar. No iniciar GCP: requiere otro alcance/encargo. Mantener pendiente la aceptación final del cierre local integral.

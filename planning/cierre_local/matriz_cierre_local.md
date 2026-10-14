@@ -38,6 +38,7 @@ Fuente del alcance: cuerpo de Issue #269 y [evidencia del ensayo 2026-10-11](../
 
 | Área | Estado comprobado a 2026-10-14 | Fuente | Tratamiento en LOCAL-CLOSE-00 |
 | --- | --- | --- | --- |
+| FE-14 | Aceptación explícita del usuario el 2026-10-13 sobre `main` `d02f9c81c35b4979fd20d8b027783ab00e1d1ab4`, con evidencia revisada y PR #290/#291 fusionados. | [`plan_frontend_angular.md`](../frontend/plan_frontend_angular.md), sección de estado; [`FE14_aceptacion.md`](../frontend/evidencia/FE14_aceptacion.md). | Conservar como aceptación vigente de FE-14 dentro de su alcance; no revocarla ni extenderla para afirmar aceptación de DOCKER-02/cierre integral. |
 | FE-15 / mock → Angular | PR #292 fusionado; Angular predeterminado desde merge `5405a82e90bc429aa89666ead430fe2cb39f102e`. | [PR #292](https://github.com/HernanEspinozaDev/espaciGo/pull/292). | Marcar implementación FE-15 fusionada. Mantener documentos FE-14 pre-FE15 como historial fechado; no reabrir ni copiar “mock” a instrucciones actuales. |
 | MPV2-13 | PR #307 fusionado en `28f63f3`; usuario aceptó UX/demo/código `736f81a` el 2026-10-14, con alcance acotado. | [PR #307](https://github.com/HernanEspinozaDev/espaciGo/pull/307); guía y evidencia MPV2-13. | Conservar aceptación; no extrapolarla a DOCKER-02 ni al cierre local integral. |
 | DOCKER-01 / #268 | Issue cerrada/aceptada; PR #271 merge `e074d78...`. | [PR #271](https://github.com/HernanEspinozaDev/espaciGo/pull/271), evidencia DOCKER-01. | Historial aceptado para su alcance. No usar sus imágenes/mock como estado actual. |
