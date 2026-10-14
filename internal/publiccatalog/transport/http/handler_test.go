@@ -67,6 +67,31 @@ func TestPublicPageSizeAbsentAndExplicitBounds(t *testing.T) {
 	}
 }
 
+func TestPublicTypedAttributeSyntaxRejectsAmbiguity(t *testing.T) {
+	cases := []struct {
+		name   string
+		values []string
+		ok     bool
+	}{
+		{"legacy false", []string{"wifi:false"}, true},
+		{"two-sided range", []string{"altura:gte:1.25", "altura:lte:2.50"}, true},
+		{"enum list OR", []string{"equipo:in:wifi", "equipo:in:proyector"}, true},
+		{"duplicate bound", []string{"altura:gte:1", "altura:gte:2"}, false},
+		{"mixed bool and range", []string{"wifi:false", "wifi:gte:1"}, false},
+		{"unknown operator", []string{"altura:gt:2"}, false},
+		{"duplicate option", []string{"equipo:in:wifi", "equipo:in:wifi"}, false},
+		{"bad decimal", []string{"altura:gte:1e2"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, ok := parsePublicAttributeFilters(tc.values)
+			if ok != tc.ok {
+				t.Fatalf("accepted=%v want=%v", ok, tc.ok)
+			}
+		})
+	}
+}
+
 func TestPublicCORSOriginPolicy(t *testing.T) {
 	repo := &pageSizeRepository{}
 	service, err := publiccatalog.New(repo, []byte("01234567890123456789012345678901"))

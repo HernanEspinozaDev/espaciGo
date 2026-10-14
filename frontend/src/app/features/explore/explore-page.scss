@@ -71,6 +71,11 @@
 .wide {
   grid-column: 1 / -1;
 }
+.attribute-filters { display: grid; gap: metrics.$space-0-8rem; min-width: 0; margin: 0; border: 1px solid var(--color-border); border-radius: 0.75rem; padding: metrics.$space-0-8rem; }
+.attribute-control { display: grid; gap: metrics.$space-0-35rem; min-width: 0; }
+.attribute-control > label { min-height: 0; border: 0; padding: 0; background: transparent; font-weight: metrics.$font-weight-650; }
+.attribute-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: metrics.$space-0-5rem; }
+.attribute-control select[multiple] { min-height: 6rem; }
 .filter-actions {
   display: flex;
   gap: metrics.$space-0-75rem;

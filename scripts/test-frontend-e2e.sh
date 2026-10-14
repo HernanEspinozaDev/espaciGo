@@ -46,6 +46,7 @@ case "${FE14_EVIDENCE_OUTPUT_DIR:-}" in
   */mpv2_06) FE14_EVIDENCE_PREFIX='fe14_mpv2_06_' ;;
   */mpv2_07) FE14_EVIDENCE_PREFIX='fe14_mpv2_07_' ;;
   */mpv2_10) FE14_EVIDENCE_PREFIX='fe14_mpv2_10_' ;;
+  */mpv2_11) FE14_EVIDENCE_PREFIX='fe14_mpv2_11_' ;;
 esac
 export LOCAL_UID="$(id -u)"
 export LOCAL_GID="$(id -g)"
@@ -158,6 +159,7 @@ cleanup() {
       fe14_mpv2_06_) evidence_artifacts=(fe14_mpv2_06_context_desktop.jpg fe14_mpv2_06_context_desktop.json fe14_mpv2_06_context_mobile.jpg fe14_mpv2_06_context_mobile.json) ;;
       fe14_mpv2_07_) evidence_artifacts=(fe14_mpv2_07_catalog_desktop.jpg fe14_mpv2_07_catalog_desktop.json fe14_mpv2_07_catalog_mobile.jpg fe14_mpv2_07_catalog_mobile.json fe14_mpv2_07_detail_desktop.jpg fe14_mpv2_07_detail_desktop.json fe14_mpv2_07_detail_mobile.jpg fe14_mpv2_07_detail_mobile.json) ;;
       fe14_mpv2_10_) evidence_artifacts=(fe14_mpv2_10_sort_desktop.jpg fe14_mpv2_10_sort_desktop.json fe14_mpv2_10_sort_mobile.jpg fe14_mpv2_10_sort_mobile.json) ;;
+      fe14_mpv2_11_) evidence_artifacts=(fe14_mpv2_11_typed_filters_desktop.jpg fe14_mpv2_11_typed_filters_desktop.json fe14_mpv2_11_typed_filters_mobile.jpg fe14_mpv2_11_typed_filters_mobile.json) ;;
       *) evidence_artifacts=() ;;
     esac
     for artifact in "${evidence_artifacts[@]}"; do
@@ -174,7 +176,7 @@ printf 'FE-14 disposable project: %s\n' "$PROJECT"
 printf 'API/Angular/Mailpit ports: %s/%s/%s\n' "$LOCAL_DOCKER_API_PORT" "$LOCAL_DOCKER_ANGULAR_PORT" "$LOCAL_DOCKER_MAILPIT_PORT"
 printf 'New database volume: %s; no persistent volume is referenced\n' "$LOCAL_DOCKER_PGDATA_VOLUME"
 printf 'E2E bind mounts: read-only accounts file, artifacts directory, results directory only\n'
-bash "$ROOT_DIR/scripts/local-docker-stack.sh" up-frontend >"$STATE_DIR/stack-build.log" 2>&1 || { tail -n 120 "$STATE_DIR/stack-build.log" >&2; exit 1; }
+bash "$ROOT_DIR/scripts/local-docker-stack.sh" up-frontend >"$STATE_DIR/stack-build.log" 2>&1 || { tail -n 120 "$STATE_DIR/stack-build.log" >&2; "${compose[@]}" ps --all >&2 || true; "${compose[@]}" logs --no-color migrate >&2 || true; exit 1; }
 curl --silent --show-error --fail --max-time 5 "http://127.0.0.1:${LOCAL_DOCKER_API_PORT}/health/ready" >/dev/null
 curl --silent --show-error --fail --max-time 5 "http://127.0.0.1:${LOCAL_DOCKER_ANGULAR_PORT}/healthz" >/dev/null
 printf 'PASS Angular and Go readiness are HTTP 200 before authenticated E2E\n'
@@ -276,6 +278,50 @@ WITH host AS (
 )
 INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
 SELECT id,1,'hora',35000 FROM space;
+WITH host AS (
+  SELECT id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-public-owner@ejemplo.invalid'
+), fixtures(categoria_codigo, valores) AS (VALUES
+  ('oficina','{"wifi":true,"mobiliario_incluido":true,"puestos_trabajo":6,"tipo_uso_oficina":"privada","escritorios":4,"climatizacion":["aire_acondicionado"]}'::jsonb),
+  ('sala_multiproposito','{"wifi":true,"proyector":true,"disposiciones_admitidas":["auditorio","aula"],"sillas_disponibles":40,"mesas_disponibles":8,"pantalla":true,"videoconferencia":true}'::jsonb),
+  ('bodega','{"carro_carga_disponible":true,"muelle_carga":false,"altura_util_m":3.5,"volumen_util_m3":120.25,"acceso_carga":"vehiculo_liviano","ancho_acceso_m":2.5,"altura_acceso_m":3.0,"tipo_almacenamiento":"seco"}'::jsonb),
+  ('estacionamiento','{"techado":true,"carga_electrica":false,"largo_plaza_m":5.0,"ancho_plaza_m":2.5,"vehiculos_admitidos":["automovil","suv"],"altura_maxima_m":2.1,"tipo_acceso":"porton_automatico"}'::jsonb),
+  ('local_flexible','{"acceso_nivel_calle":true,"vitrina":true,"frente_m":4.5,"probadores":2,"bodega_apoyo_m2":6.25,"climatizacion":["aire_acondicionado"]}'::jsonb),
+  ('stand','{"montaje_incluido":true,"wifi":true,"ancho_stand_m":3.0,"fondo_stand_m":2.0,"lados_abiertos":2,"altura_maxima_m":2.5,"potencia_disponible_w":1500,"mesas_incluidas":1,"sillas_incluidas":2}'::jsonb),
+  ('quincho','{"techado":true,"agua_potable":true,"tipo_parrilla":"carbon","asientos_disponibles":12,"parrillas_disponibles":1,"mesas_disponibles":2,"lavaplatos":true,"refrigerador":true}'::jsonb),
+  ('parcela_eventos','{"salon_cubierto":true,"quincho_disponible":true,"superficie_exterior_util_m2":100.0,"superficie_cubierta_util_m2":45.5,"estacionamientos_disponibles":12,"cocina_disponible":true,"piscina_disponible":false,"acceso_bus":true}'::jsonb)
+), inserted AS (
+  INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,
+      reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria,
+      ubicacion_catalogo_version,region_codigo,comuna_codigo)
+  SELECT gen_random_uuid(),host.id,fixtures.categoria_codigo,
+      'MPV2-11 '||fixtures.categoria_codigo||' fixture '||series.n,
+      'Publicación sintética comercial para filtros tipados, recreable en el Compose desechable de FE-14. Solo datos ficticios para verificar la búsqueda pública.',
+      30,20,'Uso sintético','hora',12000,'Dirección privada sintética','activa','America/Santiago',
+      'SUBDERE_DPA_2018','13','13123'
+  FROM host CROSS JOIN fixtures CROSS JOIN generate_series(1,2) AS series(n)
+  RETURNING id,categoria_codigo,titulo
+)
+INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
+SELECT id,1,'hora',12000 FROM inserted;
+WITH host AS (
+  SELECT id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-public-owner@ejemplo.invalid'
+), fixtures(categoria_codigo, valores) AS (VALUES
+  ('oficina','{"wifi":true,"mobiliario_incluido":true,"puestos_trabajo":6,"tipo_uso_oficina":"privada","escritorios":4,"climatizacion":["aire_acondicionado"]}'::jsonb),
+  ('sala_multiproposito','{"wifi":true,"proyector":true,"disposiciones_admitidas":["auditorio","aula"],"sillas_disponibles":40,"mesas_disponibles":8,"pantalla":true,"videoconferencia":true}'::jsonb),
+  ('bodega','{"carro_carga_disponible":true,"muelle_carga":false,"altura_util_m":3.5,"volumen_util_m3":120.25,"acceso_carga":"vehiculo_liviano","ancho_acceso_m":2.5,"altura_acceso_m":3.0,"tipo_almacenamiento":"seco"}'::jsonb),
+  ('estacionamiento','{"techado":true,"carga_electrica":false,"largo_plaza_m":5.0,"ancho_plaza_m":2.5,"vehiculos_admitidos":["automovil","suv"],"altura_maxima_m":2.1,"tipo_acceso":"porton_automatico"}'::jsonb),
+  ('local_flexible','{"acceso_nivel_calle":true,"vitrina":true,"frente_m":4.5,"probadores":2,"bodega_apoyo_m2":6.25,"climatizacion":["aire_acondicionado"]}'::jsonb),
+  ('stand','{"montaje_incluido":true,"wifi":true,"ancho_stand_m":3.0,"fondo_stand_m":2.0,"lados_abiertos":2,"altura_maxima_m":2.5,"potencia_disponible_w":1500,"mesas_incluidas":1,"sillas_incluidas":2}'::jsonb),
+  ('quincho','{"techado":true,"agua_potable":true,"tipo_parrilla":"carbon","asientos_disponibles":12,"parrillas_disponibles":1,"mesas_disponibles":2,"lavaplatos":true,"refrigerador":true}'::jsonb),
+  ('parcela_eventos','{"salon_cubierto":true,"quincho_disponible":true,"superficie_exterior_util_m2":100.0,"superficie_cubierta_util_m2":45.5,"estacionamientos_disponibles":12,"cocina_disponible":true,"piscina_disponible":false,"acceso_bus":true}'::jsonb)
+), inserted AS (
+  SELECT e.id,e.categoria_codigo,
+         CASE WHEN right(e.titulo,1)='2' THEN fixtures.valores-'muelle_carga' ELSE fixtures.valores END
+  FROM public.espacio e JOIN fixtures USING(categoria_codigo)
+  WHERE e.titulo LIKE 'MPV2-11 % fixture %'
+)
+INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores)
+SELECT id,categoria_codigo,1,valores FROM inserted;
 SQL
 if [[ "${FE14_RUN_PUBLIC_CATALOG_ORDERING_INTEGRATION:-0}" == "1" ]]; then
   admin_password="$(<"$LOCAL_SECRETS_DIR/db_admin_password")"
@@ -287,7 +333,7 @@ if [[ "${FE14_RUN_PUBLIC_CATALOG_ORDERING_INTEGRATION:-0}" == "1" ]]; then
     --volume "$STATE_DIR/publiccatalog-ordering.test:/tmp/publiccatalog-ordering.test:ro" \
     --workdir /workspace/internal/adapters/postgres/booking \
     --env "TEST_DATABASE_URL=postgres://espacigo_admin:${admin_password}@database:5432/espacigo_local?sslmode=disable" \
-    golang:1.27.1-alpine3.24 /tmp/publiccatalog-ordering.test -test.run '^TestLocalPublicCatalogQueryPlanAndSitemapPaging$' -test.count=1
+    golang:1.27.1-alpine3.24 /tmp/publiccatalog-ordering.test -test.run '^TestLocalPublicCatalogQueryPlanAndSitemapPaging$' -test.count=1 -test.v
   unset admin_password
 fi
 printf 'PASS disposable FE-14 database contains two eligible synthetic public listings\n'

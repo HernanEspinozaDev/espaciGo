@@ -61,4 +61,9 @@ describe('contextual identity return', () => {
     expect(canonicalCatalogReturn('/explorar?utm_source=outside')).toBeNull();
     expect(canonicalCatalogReturn('/explorar?attribute=a:true&attribute=a:false&category_code=oficina')).toBeNull();
   });
+
+  it('preserves typed repeated ranges and multi-select values in login return context',()=>{
+    expect(canonicalCatalogReturn('/explorar?category_code=bodega&attribute=altura:gte:1.25&attribute=altura:lte:2.5&attribute=equipo:in:wifi&attribute=equipo:in:proyector')).toContain('attribute=altura%3Agte%3A1.25');
+    expect(canonicalCatalogReturn('/explorar?category_code=bodega&attribute=altura:gte:1&attribute=altura:gte:2')).toBeNull();
+  });
 });

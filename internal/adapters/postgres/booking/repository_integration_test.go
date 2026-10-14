@@ -5007,6 +5007,61 @@ SELECT count(*) FROM inserted`, ownerID, locationVersion, regionCodes[0], commun
 			t.Fatalf("%s fixtures pages=%d categories=%d units=%v", sortOrder, pages, len(categorySet), unitSet)
 		}
 	}
+	// A small selective typed cohort exercises the parameterized numeric and
+	// enum predicates, stable cursor binding, and the V57 jsonb_ops key index.
+	if _, err := setup.Exec(ctx, `WITH selected AS (
+  SELECT e.id FROM public.espacio e JOIN public.espacio_caracteristicas a ON a.espacio_id=e.id
+  WHERE e.categoria_codigo='bodega' AND e.estado='activa' AND e.titulo LIKE 'Benchmark synthetic offer %' ORDER BY e.id LIMIT 5
+)
+UPDATE public.espacio_caracteristicas a SET valores='{"altura_util_m":3.5,"tipo_almacenamiento":"seco"}'::jsonb
+FROM selected WHERE a.espacio_id=selected.id`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setup.Exec(ctx, `ANALYZE public.espacio_caracteristicas`); err != nil {
+		t.Fatal(err)
+	}
+	minimum, maximum, storage := "3.50", "3.50", "seco"
+	typedFilters := publiccatalog.Filters{CategoryCode: "bodega", PageSize: 3, PageSizeSet: true, TypedAttributes: map[string]publiccatalog.AttributePredicate{
+		"altura_util_m": {Minimum: &minimum, Maximum: &maximum}, "tipo_almacenamiento": {Value: &storage},
+	}}
+	typedPage, err := service.List(ctx, typedFilters)
+	if err != nil {
+		t.Fatalf("typed public filters: %v", err)
+	}
+	if len(typedPage.Items) != 3 || typedPage.NextCursor == "" {
+		t.Fatalf("typed filter first page=%d cursor=%t", len(typedPage.Items), typedPage.NextCursor != "")
+	}
+	typedFilters.Cursor = typedPage.NextCursor
+	typedSecond, err := service.List(ctx, typedFilters)
+	if err != nil || len(typedSecond.Items) != 2 {
+		t.Fatalf("typed filter cursor page=%d err=%v", len(typedSecond.Items), err)
+	}
+	capture.mu.Lock()
+	typedSQL := capture.query
+	typedArgs := append([]any(nil), capture.args...)
+	capture.mu.Unlock()
+	planRows, err := setup.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) "+typedSQL, typedArgs...)
+	if err != nil {
+		t.Fatalf("EXPLAIN typed public query: %v", err)
+	}
+	var plan []string
+	for planRows.Next() {
+		var line string
+		if err := planRows.Scan(&line); err != nil {
+			planRows.Close()
+			t.Fatal(err)
+		}
+		plan = append(plan, line)
+	}
+	if err := planRows.Err(); err != nil {
+		planRows.Close()
+		t.Fatal(err)
+	}
+	planRows.Close()
+	if len(plan) == 0 || !strings.Contains(strings.Join(plan, "\n"), "Execution Time") {
+		t.Fatalf("typed query plan missing timing: %v", plan)
+	}
+	t.Logf("MPV2-11 representative typed range+enum EXPLAIN (ANALYZE, BUFFERS):\n%s", strings.Join(plan, "\n"))
 	allIDs := make(map[string]struct{}, 1000)
 	allPages := 0
 	allBenchmarkOffers := 0

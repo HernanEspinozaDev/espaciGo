@@ -83,7 +83,13 @@ export type PublicSpaceCategories = {
 export type PublicCategoryFilter = {
     code: string;
     label: string;
-    type: 'boolean';
+    type: 'boolean' | 'integer' | 'number' | 'enum' | 'enum_list';
+    order: number;
+    unit?: string;
+    options?: Array<string>;
+    minimum?: number;
+    maximum?: number;
+    step?: number;
     profile_version: number;
 };
 
@@ -1649,7 +1655,7 @@ export type ListPublicSpacesData = {
          */
         min_area_m2?: number;
         /**
-         * Repetible hasta ocho veces como `codigo:true|false`; requiere category_code y código allowlisted en su versión de perfil.
+         * Repetible hasta 32 veces y requiere category_code. Booleanos conservan `codigo:true|false`; integer/number usan `codigo:gte:valor` y/o `codigo:lte:valor`; enum usa `codigo:eq:opcion`; enum_list usa `codigo:in:opcion1,opcion2` (OR dentro del atributo). Códigos, operadores, opciones, límites y versión se validan contra la allowlist pública y el perfil; duplicados ambiguos dan 422.
          */
         attribute?: Array<string>;
         rate_unit?: 'hora' | 'dia' | 'mes';

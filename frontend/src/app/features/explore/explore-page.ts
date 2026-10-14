@@ -58,6 +58,10 @@ export class ExplorePage {
   readonly updateDate = this.facade.updateDate.bind(this.facade);
   readonly dateInput = this.facade.dateInput.bind(this.facade);
   readonly booleanValue = (value: boolean | undefined): string => value === undefined ? '' : String(value);
+  readonly attributeValue = (code:string,kind:'minimum'|'maximum'|'enum'|'boolean'):string => {const p=this.filters().attributes[code]; if(kind==='boolean')return p?.kind==='boolean'?String(p.value):'';if(kind==='enum')return p?.kind==='enum'?p.value:'';return p?.kind==='range'?p[kind]??'':'';};
+  readonly setAttributeRange = (code:string,side:'minimum'|'maximum',raw:string):void => {const old=this.filters().attributes[code];const next=old?.kind==='range'?{...old}:{kind:'range' as const};if(raw)next[side]=raw;else delete next[side];this.setAttribute(code,next.minimum||next.maximum?next:null);};
+  readonly setAttributeOptions = (code:string,event:Event):void => {const values=[...((event.target as HTMLSelectElement).selectedOptions)].map(o=>o.value);this.setAttribute(code,values.length?{kind:'enum_list',values}:null);};
+  readonly optionSelected = (code:string,value:string):boolean => {const p=this.filters().attributes[code];return p?.kind==='enum_list'&&p.values.includes(value);};
   readonly search = this.facade.search.bind(this.facade);
   readonly clearFilters = this.facade.clearFilters.bind(this.facade);
   readonly requestSort = this.facade.requestSort.bind(this.facade);
@@ -122,7 +126,7 @@ export class ExplorePage {
                   : key === 'min_area_m2' ? `${value} m²` : value;
       return { key, label: `${label}: ${formatted}` };
     });
-    return [...active, ...Object.entries(f.attributes).map(([key, value]) => ({ key: `attribute:${key}`, label: `${this.attributeFilters().find((filter) => filter.code === key)?.label ?? key}: ${value ? 'Sí' : 'No'}` }))];
+    return [...active, ...Object.entries(f.attributes).map(([key, value]) => ({ key: `attribute:${key}`, label: `${this.attributeFilters().find((filter) => filter.code === key)?.label ?? key}: ${value.kind==='boolean'?(value.value?'Sí':'No'):value.kind==='range'?`${value.minimum??'…'}–${value.maximum??'…'}`:value.kind==='enum'?value.value:value.values.join(', ')}` }))];
   }
 
   onDialogKeydown(event: KeyboardEvent): void {

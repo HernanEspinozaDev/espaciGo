@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"sort"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
 	"github.com/jackc/pgx/v5"
@@ -38,10 +39,18 @@ func (r *Repository) HasActiveCategory(ctx context.Context, code string) (bool, 
 }
 
 func (r *Repository) AttributeFilters(ctx context.Context, category string) ([]publiccatalog.AttributeFilter, error) {
-	rows, err := r.pool.Query(ctx, `SELECT f.codigo,f.etiqueta,f.tipo,f.perfil_version
+	rows, err := r.pool.Query(ctx, `SELECT a.value->>'code',a.value->>'label',a.value->>'type',
+       (a.value->>'order')::integer,COALESCE(a.value->>'unit',''),
+       COALESCE(a.value->'options','[]'::jsonb),a.value->>'minimum',a.value->>'maximum',a.value->>'step',f.perfil_version
 FROM public.atributo_filtro_publico f
 JOIN public.categoria_espacio c ON c.codigo=f.categoria_codigo AND c.activa
-WHERE f.categoria_codigo=$1 ORDER BY f.orden,f.codigo`, category)
+JOIN public.categoria_perfil_atributos p
+  ON p.categoria_codigo=f.categoria_codigo AND p.version=f.perfil_version
+CROSS JOIN LATERAL jsonb_array_elements(p.perfil->'attributes') a(value)
+WHERE f.categoria_codigo=$1
+  AND a.value->>'code'=f.codigo
+  AND a.value->>'type'=f.tipo
+ORDER BY (a.value->>'order')::integer,a.value->>'code'`, category)
 	if err != nil {
 		return nil, err
 	}
@@ -49,12 +58,28 @@ WHERE f.categoria_codigo=$1 ORDER BY f.orden,f.codigo`, category)
 	items := make([]publiccatalog.AttributeFilter, 0, 4)
 	for rows.Next() {
 		var item publiccatalog.AttributeFilter
-		if err := rows.Scan(&item.Code, &item.Label, &item.Type, &item.ProfileVersion); err != nil {
+		var options []byte
+		var minimumText, maximumText, stepText sql.NullString
+		if err := rows.Scan(&item.Code, &item.Label, &item.Type, &item.Order, &item.Unit, &options, &minimumText, &maximumText, &stepText, &item.ProfileVersion); err != nil {
 			return nil, err
 		}
+		if err := json.Unmarshal(options, &item.Options); err != nil {
+			return nil, err
+		}
+		item.Minimum = jsonNumber(minimumText)
+		item.Maximum = jsonNumber(maximumText)
+		item.Step = jsonNumber(stepText)
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func jsonNumber(value sql.NullString) *json.Number {
+	if !value.Valid {
+		return nil
+	}
+	number := json.Number(value.String)
+	return &number
 }
 
 func (r *Repository) HasRegion(ctx context.Context, code string) (bool, error) {
@@ -139,7 +164,8 @@ SELECT e.id::text AS space_id,e.categoria_codigo,c.nombre AS category_name,e.tit
             WHEN public.public_catalog_billed_units(t.modalidad,$11::timestamptz,$12::timestamptz,e.zona_horaria) IS NULL THEN NULL
             WHEN t.precio_base_clp::numeric * public.public_catalog_billed_units(t.modalidad,$11::timestamptz,$12::timestamptz,e.zona_horaria)::numeric > 9223372036854775807::numeric THEN NULL
             ELSE (t.precio_base_clp::numeric * public.public_catalog_billed_units(t.modalidad,$11::timestamptz,$12::timestamptz,e.zona_horaria)::numeric)::bigint END AS estimated_total,
-       CASE WHEN $5='' THEN 0::real ELSE ts_rank(e.busqueda_publica,plainto_tsquery('public.espacigo_es_unaccent'::regconfig,$5)) END AS relevance_rank
+       CASE WHEN $5='' THEN 0::real ELSE ts_rank(e.busqueda_publica,plainto_tsquery('public.espacigo_es_unaccent'::regconfig,$5)) END AS relevance_rank,
+       attrs.valores AS filter_values,attrs.perfil_version AS filter_profile_version
 ` + eligiblePublicSQL + `
 AND ($1='' OR e.categoria_codigo=$1)
   AND ($2='' OR t.modalidad=$2)
@@ -188,6 +214,43 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 			query += ` AND (category_order,title_key COLLATE "C",space_id::uuid) > ($15::smallint,$16::text COLLATE "C",$17::uuid)`
 			args = append(args, after.LastCategoryOrder, after.LastTitleKey, after.LastSpaceID)
 		}
+	}
+	attributeCodes := make([]string, 0, len(f.TypedAttributes))
+	for code := range f.TypedAttributes {
+		attributeCodes = append(attributeCodes, code)
+	}
+	sort.Strings(attributeCodes)
+	for _, code := range attributeCodes {
+		predicate := f.TypedAttributes[code]
+		args = append(args, code)
+		codeArg := "$" + itoa(len(args))
+		condition := " AND filter_profile_version=" + itoa(f.AttributeVersion) + " AND filter_values ? " + codeArg + " AND "
+		switch predicate.Type {
+		case "integer", "number":
+			numericValue := "(CASE WHEN jsonb_typeof(filter_values->" + codeArg + ")='number' THEN (filter_values->>" + codeArg + ")::numeric END)"
+			condition += numericValue + " IS NOT NULL"
+			if predicate.Type == "integer" {
+				condition += " AND " + numericValue + "=trunc(" + numericValue + ")"
+			}
+			for _, bound := range []struct {
+				value *string
+				op    string
+			}{{predicate.Minimum, ">="}, {predicate.Maximum, "<="}} {
+				if bound.value != nil {
+					args = append(args, *bound.value)
+					condition += " AND " + numericValue + " " + bound.op + " $" + itoa(len(args)) + "::numeric"
+				}
+			}
+		case "enum":
+			args = append(args, *predicate.Value)
+			condition += "jsonb_typeof(filter_values->" + codeArg + ")='string' AND filter_values->>" + codeArg + "=$" + itoa(len(args))
+		case "enum_list":
+			args = append(args, predicate.Values)
+			condition += "jsonb_typeof(filter_values->" + codeArg + ")='array' AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(filter_values->" + codeArg + ")='array' THEN filter_values->" + codeArg + " ELSE '[]'::jsonb END) item WHERE jsonb_typeof(item)='string' AND item#>>'{}'=ANY($" + itoa(len(args)) + "::text[]))"
+		default:
+			return nil, publiccatalog.ErrInvalid
+		}
+		query += condition
 	}
 	switch f.Sort {
 	case "unit_price_asc":

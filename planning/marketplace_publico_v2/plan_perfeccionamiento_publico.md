@@ -6,7 +6,7 @@ El usuario NO acepta todavía MPV2-09. Las fusiones técnicas MPV2-00–09 sigue
 
 Se autorizan mejoras de ordenamiento, cuadrícula/cantidad visible, filtros propios de cada categoría y categoría inmediatamente después de Buscar. Las dos capturas del usuario son referencias de distribución, no requisitos de copiar marcas, colores, taxonomía residencial, mapas, UF ni capacidades ajenas.
 
-Este plan es una ampliación de MARKETPLACE-LOCAL-2: cortes MPV2-10–13, uno por rama/PR y revisión/fusión entre cortes. Desarrollo debe versionarlo en planning/marketplace_publico_v2/plan_perfeccionamiento_publico.md y actualizar plan, matriz y rango de identificadores de AGENTS.md; no crear una rama permanente nueva. Este archivo local es el encargo preparado, no una implementación.
+Este plan es una ampliación de MARKETPLACE-LOCAL-2: cortes MPV2-10–13, uno por rama/PR y revisión/fusión entre cortes. Desarrollo debe versionarlo en planning/marketplace_publico_v2/plan_perfeccionamiento_publico.md y actualizar plan, matriz y rango de identificadores de AGENTS.md; no crear una rama permanente nueva. Este archivo local es el encargo preparado, no una implementación. Estado 2026-10-13: MPV2-10 está fusionado en PR #304, merge `5029a1ab73f4e9c365d5352299849b7dbe80991f`, sin aceptación final de producto. MPV2-11 es el corte autorizado vigente; su rama parte de ese SHA.
 
 ## Diagnóstico verificado
 

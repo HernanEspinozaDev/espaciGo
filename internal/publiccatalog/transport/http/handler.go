@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +18,12 @@ type Handler struct {
 	service *publiccatalog.Service
 	origins map[string]bool
 }
+
+var (
+	publicAttributeCodePattern   = regexp.MustCompile(`^[a-z][a-z0-9_]{0,59}$`)
+	publicAttributeValuePattern  = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.[0-9]+)?$`)
+	publicAttributeOptionPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,79}$`)
+)
 
 func New(service *publiccatalog.Service, allowedOrigins ...string) http.Handler {
 	origins := map[string]bool{}
@@ -174,7 +182,7 @@ func publicFilters(r *http.Request) (publiccatalog.Filters, bool) {
 		"end_at": true, "min_total_clp": true, "max_total_clp": true,
 	}
 	for key, values := range q {
-		if !allowed[key] || (key != "attribute" && len(values) != 1) || (key == "attribute" && len(values) > 8) {
+		if !allowed[key] || (key != "attribute" && len(values) != 1) || (key == "attribute" && len(values) > 32) {
 			return publiccatalog.Filters{}, false
 		}
 	}
@@ -200,16 +208,10 @@ func publicFilters(r *http.Request) (publiccatalog.Filters, bool) {
 		}
 	}
 	if len(q["attribute"]) > 0 {
-		f.Attributes = make(map[string]bool, len(q["attribute"]))
-		for _, raw := range q["attribute"] {
-			code, value, found := strings.Cut(raw, ":")
-			if !found || code == "" || (value != "true" && value != "false") {
-				return f, false
-			}
-			if _, duplicate := f.Attributes[code]; duplicate {
-				return f, false
-			}
-			f.Attributes[code] = value == "true"
+		var ok bool
+		f.Attributes, f.TypedAttributes, ok = parsePublicAttributeFilters(q["attribute"])
+		if !ok {
+			return f, false
 		}
 	}
 	for key, target := range map[string]**int64{"min_total_clp": &f.MinTotalCLP, "max_total_clp": &f.MaxTotalCLP} {
@@ -232,6 +234,89 @@ func publicFilters(r *http.Request) (publiccatalog.Filters, bool) {
 		}
 	}
 	return f, true
+}
+
+func parsePublicAttributeFilters(entries []string) (map[string]bool, map[string]publiccatalog.AttributePredicate, bool) {
+	booleans := make(map[string]bool)
+	typed := make(map[string]publiccatalog.AttributePredicate)
+	for _, raw := range entries {
+		if len(raw) > 180 {
+			return nil, nil, false
+		}
+		parts := strings.SplitN(raw, ":", 3)
+		if len(parts) < 2 || !publicAttributeCodePattern.MatchString(parts[0]) {
+			return nil, nil, false
+		}
+		code := parts[0]
+		if len(parts) == 2 {
+			if parts[1] != "true" && parts[1] != "false" {
+				return nil, nil, false
+			}
+			if _, duplicate := booleans[code]; duplicate {
+				return nil, nil, false
+			}
+			if _, duplicate := typed[code]; duplicate {
+				return nil, nil, false
+			}
+			booleans[code] = parts[1] == "true"
+			continue
+		}
+		if _, duplicate := booleans[code]; duplicate {
+			return nil, nil, false
+		}
+		predicate := typed[code]
+		value := parts[2]
+		switch parts[1] {
+		case "gte", "lte":
+			if !publicAttributeValuePattern.MatchString(value) || predicate.Value != nil || len(predicate.Values) > 0 {
+				return nil, nil, false
+			}
+			bound := value
+			if parts[1] == "gte" {
+				if predicate.Minimum != nil {
+					return nil, nil, false
+				}
+				predicate.Minimum = &bound
+			} else {
+				if predicate.Maximum != nil {
+					return nil, nil, false
+				}
+				predicate.Maximum = &bound
+			}
+		case "eq":
+			if !publicAttributeOptionPattern.MatchString(value) || predicate.Minimum != nil || predicate.Maximum != nil || predicate.Value != nil || len(predicate.Values) > 0 {
+				return nil, nil, false
+			}
+			predicate.Value = &value
+		case "in":
+			if predicate.Minimum != nil || predicate.Maximum != nil || predicate.Value != nil {
+				return nil, nil, false
+			}
+			values := strings.Split(value, ",")
+			if len(values) < 1 || len(values) > 32 {
+				return nil, nil, false
+			}
+			seen := make(map[string]bool, len(predicate.Values)+len(values))
+			for _, previous := range predicate.Values {
+				seen[previous] = true
+			}
+			for _, option := range values {
+				if !publicAttributeOptionPattern.MatchString(option) || seen[option] {
+					return nil, nil, false
+				}
+				seen[option] = true
+			}
+			predicate.Values = append(predicate.Values, values...)
+			sort.Strings(predicate.Values)
+		default:
+			return nil, nil, false
+		}
+		typed[code] = predicate
+	}
+	if len(booleans)+len(typed) > 16 {
+		return nil, nil, false
+	}
+	return booleans, typed, true
 }
 
 func publicLocationFilters(r *http.Request) (query, region string, limit int, ok bool) {

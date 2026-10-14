@@ -267,6 +267,82 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   await expect(page).toHaveURL(nextPageUrl);
 });
 
+test('MPV2-11 validates typed public filters and pagination across all eight categories',async({request,page})=>{
+  const categories=await (await request.get('http://backend:8080/api/v1/public/space-categories')).json();
+  expect(categories.items).toHaveLength(8);
+  const cases=[
+    ['oficina','tipo_uso_oficina:eq:privada'],
+    ['sala_multiproposito','disposiciones_admitidas:in:aula'],
+    ['bodega','altura_util_m:gte:3.50','altura_util_m:lte:3.50','tipo_almacenamiento:eq:seco'],
+    ['estacionamiento','vehiculos_admitidos:in:automovil'],
+    ['local_flexible','frente_m:gte:4.50'],
+    ['stand','lados_abiertos:gte:2'],
+    ['quincho','tipo_parrilla:eq:carbon'],
+    ['parcela_eventos','superficie_exterior_util_m2:gte:100.00'],
+  ];
+  for(const [category,...attributes] of cases){
+    const metadataResponse=await request.get(`http://backend:8080/api/v1/public/space-categories/${category}/filters`);
+    expect(metadataResponse.status()).toBe(200);
+    const metadata=(await metadataResponse.json()).items;
+    expect(metadata.length).toBeGreaterThan(0);
+    expect(metadata.every(item=>item.order>0&&item.profile_version===1&&item.label&&item.type)).toBeTruthy();
+    const params=new URLSearchParams({category_code:category,page_size:'1'});
+    for(const attribute of attributes)params.append('attribute',attribute);
+    const first=await request.get(`http://backend:8080/api/v1/public/spaces?${params}`);
+    expect(first.status(),`${category}: ${await first.text()}`).toBe(200);
+    const firstPage=await first.json();
+    expect(firstPage.items).toHaveLength(1);
+    expect(firstPage.next_cursor).toBeTruthy();
+    params.set('cursor',firstPage.next_cursor);
+    const second=await request.get(`http://backend:8080/api/v1/public/spaces?${params}`);
+    expect(second.status()).toBe(200);
+    const secondPage=await second.json();
+    expect(secondPage.items).toHaveLength(1);
+    expect(secondPage.items[0].space_id).not.toBe(firstPage.items[0].space_id);
+  }
+  const legacyFalse=await request.get('http://backend:8080/api/v1/public/spaces?category_code=bodega&attribute=muelle_carga:false&page_size=10');
+  expect(legacyFalse.status()).toBe(200);
+  expect((await legacyFalse.json()).items).toHaveLength(1);
+  for(const query of [
+    '?category_code=bodega&attribute=altura_util_m:gte:1.23&attribute=altura_util_m:gte:2.00',
+    '?category_code=bodega&attribute=altura_util_m:gte:1e2',
+    '?category_code=bodega&attribute=tipo_almacenamiento:eq:no_existe',
+    '?category_code=oficina&attribute=altura_util_m:gte:1',
+    '?category_code=bodega&attribute=altura_util_m:gte:9.00&attribute=altura_util_m:lte:2.00',
+    '?attribute=wifi:true',
+  ])expect((await request.get(`http://backend:8080/api/v1/public/spaces${query}`)).status()).toBe(422);
+
+  await page.setViewportSize({width:1365,height:900});
+  await page.goto('/explorar');
+  await page.locator('.filters label').filter({hasText:/^Categoría/}).locator('select').selectOption('bodega');
+  await expect(page.getByLabel('Altura útil (m) mínimo')).toBeVisible();
+  await page.getByLabel('Altura útil (m) mínimo').fill('3.50');
+  await page.getByLabel('Altura útil (m) máximo').fill('3.50');
+  const uiSearch=page.waitForResponse(response=>response.request().method()==='GET'&&/\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url()));
+  await page.getByRole('button',{name:'Buscar espacios'}).click();
+  const uiSearchResponse=await uiSearch;
+  expect(uiSearchResponse.status(),await uiSearchResponse.text()).toBe(200);
+  await expect(page).toHaveURL(/attribute=altura_util_m:gte:3\.50/);
+  await expect(page.getByText('MPV2-11 bodega fixture 1',{exact:true})).toBeVisible();
+  await page.goBack();
+  await page.goForward();
+  await expect(page.getByLabel('Altura útil (m) mínimo')).toHaveValue('3.50');
+  await takeScreenshot(page,'fe14_mpv2_11_typed_filters_desktop',true);
+  await page.locator('.filters label').filter({hasText:/^Categoría/}).locator('select').selectOption('sala_multiproposito');
+  await expect(page.getByLabel('Disposiciones admitidas (selección múltiple)')).toBeVisible();
+  await page.getByLabel('Disposiciones admitidas (selección múltiple)').selectOption(['auditorio','aula']);
+  const listSearch=page.waitForResponse(response=>response.request().method()==='GET'&&/\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url()));
+  await page.getByRole('button',{name:'Buscar espacios'}).click();
+  const listResponse=await listSearch;
+  expect(listResponse.status()).toBe(200);
+  expect(new URL(listResponse.url()).searchParams.getAll('attribute')).toEqual(['disposiciones_admitidas:in:auditorio','disposiciones_admitidas:in:aula']);
+  await expect(page.getByText('MPV2-11 sala_multiproposito fixture 1',{exact:true})).toBeVisible();
+  await page.setViewportSize({width:390,height:844});
+  await page.getByRole('button',{name:'Filtrar y ordenar'}).click();
+  await expect(page.getByRole('dialog',{name:'Filtros de espacios'})).toBeVisible();
+  await takeScreenshot(page,'fe14_mpv2_11_typed_filters_mobile',true);
+});
+
 test('MPV2-10 orders real Go results by title, resets cursor, and restores order through browser history', async ({ page }) => {
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.goto('/explorar?category_code=oficina&page_size=1');
