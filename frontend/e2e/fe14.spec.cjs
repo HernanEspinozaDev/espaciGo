@@ -904,6 +904,7 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
   await visitor.setViewportSize({ width: 390, height: 844 });
   await takeScreenshot(visitor, 'fe14_mpv2_04_visitor_search_mobile', true);
   await visitor.setViewportSize({ width: 1365, height: 900 });
+  const originalCardCoverSrc = await cardCover.evaluate(image => image.src);
   await visitor.route(`**/public/spaces/${draft.id}/images/${photo2Id}*`, route =>
     route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"temporary"}' }),
   );
@@ -913,6 +914,9 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
   await visitor.setViewportSize({ width: 390, height: 844 });
   await takeScreenshot(visitor, 'fe14_local_close_01_placeholder_error_mobile', true);
   await visitor.setViewportSize({ width: 1365, height: 900 });
+  await visitor.unroute(`**/public/spaces/${draft.id}/images/${photo2Id}*`);
+  await cardCover.evaluate((image, src) => { image.src = src; }, originalCardCoverSrc);
+  await expect.poll(() => cardCover.evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
   const imageResponsePromise=visitor.waitForResponse(response=>response.request().method()==='GET'&&response.url().includes(`/public/spaces/${draft.id}/images/${photo2Id}`));
   const publicDetailResponsePromise=visitor.waitForResponse(response=>response.request().method()==='GET'&&response.url().endsWith(`/api/v1/public/spaces/${draft.id}`));
   await visitor.getByRole('link', { name: title }).click();
