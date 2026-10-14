@@ -71,7 +71,7 @@ describe('ExplorePage public catalog URL state', () => {
     await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(page.items()).toHaveLength(1));
     harness.detectChanges();
-    expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('1 espacios cargados · 1 por solicitud');
+    expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('1 espacio cargado · 1 por solicitud');
     page.loadMore();
     await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(page.items()).toHaveLength(2));
@@ -79,7 +79,7 @@ describe('ExplorePage public catalog URL state', () => {
     expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('2 espacios cargados · 1 por solicitud');
     await TestBed.inject(Router).navigateByUrl('/explorar?page_size=1');
     harness.detectChanges();
-    expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('1 espacios cargados · 1 por solicitud');
+    expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('1 espacio cargado · 1 por solicitud');
     await TestBed.inject(Router).navigateByUrl('/explorar?page_size=1&cursor=two');
     harness.detectChanges();
     expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('2 espacios cargados · 1 por solicitud');

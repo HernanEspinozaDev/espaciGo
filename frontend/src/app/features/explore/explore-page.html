@@ -61,7 +61,7 @@
 
     <section class="catalog-results" aria-label="Resultados de espacios" [attr.inert]="filtersOpen() ? '' : null">
       <div class="catalog-toolbar">
-        <p class="results-count" role="status">{{items().length}} espacios cargados · {{appliedFilters().page_size}} por solicitud</p>
+        <p class="results-count" role="status">{{items().length}} {{items().length === 1 ? 'espacio cargado' : 'espacios cargados'}} · {{appliedFilters().page_size}} por solicitud</p>
         <div class="presentation-controls" role="group" aria-label="Presentación de resultados">
           <label>Vista<select aria-label="Vista de resultados" [value]="presentation().view" (change)="setPresentation({view:$any($event.target).value})"><option value="list">Lista</option><option value="grid">Cuadrícula</option></select></label>
           <label>Columnas escritorio<select aria-label="Columnas en escritorio" [value]="presentation().desktopColumns" (change)="setDesktopColumns($any($event.target).value)"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
