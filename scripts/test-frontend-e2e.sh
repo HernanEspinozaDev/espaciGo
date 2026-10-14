@@ -62,6 +62,7 @@ case "${FE14_EVIDENCE_OUTPUT_DIR:-}" in
   */mpv2_11) FE14_EVIDENCE_PREFIX='fe14_mpv2_11_' ;;
   */mpv2_12) FE14_EVIDENCE_PREFIX='fe14_mpv2_12_' ;;
   */mpv2_13) FE14_EVIDENCE_PREFIX='fe14_mpv2_13_' ;;
+  */local-close-01) FE14_EVIDENCE_PREFIX='fe14_local_close_01_' ;;
 esac
 export LOCAL_UID="$(id -u)"
 export LOCAL_GID="$(id -g)"

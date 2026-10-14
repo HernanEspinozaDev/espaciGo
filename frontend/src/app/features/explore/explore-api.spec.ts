@@ -53,6 +53,31 @@ describe('parseExactClpJson', () => {
     expect(() => parseExactClpJson('{"base_price_clp":null}')).toThrow();
   });
 
+  it('preserves guarantee null, absence, zero, and int64 literals without coercing other fields', () => {
+    const nullable = parseExactClpJson<{
+      guarantee_expected_clp: string | null;
+      subtotal_clp: string;
+      refund_amount_clp: string;
+    }>(
+      '{"guarantee_expected_clp":null,"subtotal_clp":0,"refund_amount_clp":9223372036854775807}',
+    );
+    expect(nullable).toEqual({
+      guarantee_expected_clp: null,
+      subtotal_clp: '0',
+      refund_amount_clp: '9223372036854775807',
+    });
+    const absent = parseExactClpJson<{ guarantee_expected_clp?: string | null }>('{}');
+    expect(Object.hasOwn(absent, 'guarantee_expected_clp')).toBe(false);
+    expect(
+      parseExactClpJson<{ guarantee_expected_clp: string | null }>(
+        '{"guarantee_expected_clp":50000}',
+      ),
+    ).toEqual({ guarantee_expected_clp: '50000' });
+    expect(() => parseExactClpJson('{"subtotal_clp":null}')).toThrow();
+    expect(() => parseExactClpJson('{"guarantee_expected_clp":50000.5}')).toThrow();
+    expect(() => parseExactClpJson('{"base_price_clp":1e3}')).toThrow();
+  });
+
   it('loads public search through HttpClient when an estimate is null and keeps large CLP exact', async () => {
     TestBed.configureTestingModule({
       providers: [...provideFrontendPorts(), provideHttpClient(), provideHttpClientTesting()],

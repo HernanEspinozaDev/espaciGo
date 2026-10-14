@@ -904,6 +904,15 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
   await visitor.setViewportSize({ width: 390, height: 844 });
   await takeScreenshot(visitor, 'fe14_mpv2_04_visitor_search_mobile', true);
   await visitor.setViewportSize({ width: 1365, height: 900 });
+  await visitor.route(`**/public/spaces/${draft.id}/images/${photo2Id}*`, route =>
+    route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"temporary"}' }),
+  );
+  await cardCover.evaluate(image => { image.src = `${image.src}?forced-error=local-close-01`; });
+  await expect(visitor.getByRole('img', { name: 'Sin fotografía pública' })).toBeVisible();
+  await takeScreenshot(visitor, 'fe14_local_close_01_placeholder_error_desktop', true);
+  await visitor.setViewportSize({ width: 390, height: 844 });
+  await takeScreenshot(visitor, 'fe14_local_close_01_placeholder_error_mobile', true);
+  await visitor.setViewportSize({ width: 1365, height: 900 });
   const imageResponsePromise=visitor.waitForResponse(response=>response.request().method()==='GET'&&response.url().includes(`/public/spaces/${draft.id}/images/${photo2Id}`));
   const publicDetailResponsePromise=visitor.waitForResponse(response=>response.request().method()==='GET'&&response.url().endsWith(`/api/v1/public/spaces/${draft.id}`));
   await visitor.getByRole('link', { name: title }).click();
@@ -997,6 +1006,10 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
   await expect(visitor.getByRole('link', { name: title })).toBeVisible();
   await expect(visitor.locator('.space-card .space-cover')).toHaveCount(0);
   await expect(visitor.getByRole('img', { name: 'Sin fotografía pública' })).toBeVisible();
+  await visitor.setViewportSize({ width: 390, height: 844 });
+  await takeScreenshot(visitor, 'fe14_local_close_01_placeholder_retired_mobile', true);
+  await visitor.setViewportSize({ width: 1365, height: 900 });
+  await takeScreenshot(visitor, 'fe14_local_close_01_placeholder_retired_desktop', true);
   await host.getByRole('button', { name: 'Datos', exact: true }).click();
   const hideResponsePromise = host.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/api/v1/spaces/${draft.id}/publication`));
   await host.getByRole('button', { name: 'Ocultar', exact: true }).click();
