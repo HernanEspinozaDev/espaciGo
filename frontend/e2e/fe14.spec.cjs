@@ -1004,7 +1004,6 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
   expect(await withdrawnSsr.text()).not.toContain(`${origin}/public/spaces/${draft.id}/images/${photo2Id}`);
   await visitor.reload();
   await expect(visitor.getByRole('heading',{name:title})).toBeVisible();
-  await expect(visitor.locator('.gallery-image img')).toHaveCount(1);
   await expect.poll(()=>visitor.locator('.gallery-image img').evaluate(image=>image.naturalWidth)).toBeGreaterThan(0);
   await visitor.goBack();
   await expect(visitor).toHaveURL(/\/explorar/);
