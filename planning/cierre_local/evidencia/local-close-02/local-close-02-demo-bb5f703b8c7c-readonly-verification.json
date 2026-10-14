@@ -1,0 +1,49 @@
+{
+  "run_id": "bb5f703b8c7c",
+  "application_commit": "0da50a3a7c3f201b50c4aa7abcfd475bddbd9052",
+  "verification_harness_commit": "6bf465ae0566702c3e40f78c61c1ea424706a479",
+  "read_only_business_state": true,
+  "successful_business_mutations": 0,
+  "checks": [
+    "UI login as renter",
+    "Angular closed reservation desktop",
+    "Angular closed history desktop",
+    "desktop no horizontal overflow",
+    "Angular closed reservation mobile",
+    "Angular closed history mobile",
+    "mobile no horizontal overflow",
+    "Angular resolved claim mobile",
+    "Angular receipt and settlement mobile",
+    "dispute mobile no horizontal overflow",
+    "Angular resolved claim desktop",
+    "Angular receipt desktop",
+    "dispute desktop no horizontal overflow",
+    "renter auth for read-only receipt check",
+    "authorized renter receipt GET 200",
+    "receipt id and kind persisted",
+    "third-party auth",
+    "third-party reservation/receipt/settlement GETs all 404",
+    "terminal-state validation rejects outsider write after settlement",
+    "authorized renter settlement GET after outsider attempt",
+    "outsider attempt left terminal settlement unchanged"
+  ],
+  "third_party_status_codes": {
+    "reservation": 404,
+    "receipt": 404,
+    "settlement_read": 404,
+    "settlement_write": 422
+  },
+  "note": "Original lifecycle E2E tested the outsider POST before settlement and recorded 404. This read-only recheck was run after the persisted terminal settlement, where business-state validation returned 422; authorized GET confirmed no mutation.",
+  "renter_receipt_status": 200,
+  "checked_at": "2026-10-14T23:10:18.605Z",
+  "business_clock_read_only": {
+    "scope": "demo",
+    "now": "2026-10-17T04:00:01Z",
+    "command": "LOCAL_CLOSE02_CLOCK_KIND=demo python3 scripts/local-close-02-business-clock bb5f703b8c7c show"
+  },
+  "clock_guard": {
+    "negative_case": "wrong project/state rejected before resources start",
+    "exit_status": 2,
+    "command": "FE14_LOCAL_CLOSE02_CLOCK=1 with FE14_PROJECT_NAME=wrong and FE14_STATE_DIR=/tmp/wrong"
+  }
+}
