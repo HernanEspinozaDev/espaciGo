@@ -156,13 +156,13 @@ describe('parseExactClpJson', () => {
 });
 
 describe('public typed attribute query encoding',()=>{
-  it('keeps legacy booleans and serializes range, enum, and enum-list predicates as repeated parameters',async()=>{
+  it('keeps legacy booleans and serializes ranges, enums, and enum-lists canonically',async()=>{
     TestBed.configureTestingModule({providers:[...provideFrontendPorts(),provideHttpClient(),provideHttpClientTesting()]});
     TestBed.inject(ApiRuntimeConfig).apiBaseUrl.set('http://api.test/api/v1');
     const api=TestBed.inject(ExploreApi),http=TestBed.inject(HttpTestingController);
     const result=api.publicSearch({category_code:'bodega',attributes:{wifi:{kind:'boolean',value:false},altura:{kind:'range',minimum:'1.25',maximum:'2.50'},uso:{kind:'enum',value:'privada'},equipo:{kind:'enum_list',values:['wifi','proyector']}}});
     const request=http.expectOne(req=>req.url==='http://api.test/api/v1/public/spaces');
-    expect(request.request.params.getAll('attribute')).toEqual(['wifi:false','altura:gte:1.25','altura:lte:2.50','uso:eq:privada','equipo:in:wifi','equipo:in:proyector']);
+    expect(request.request.params.getAll('attribute')).toEqual(['altura:gte:1.25','altura:lte:2.50','equipo:in:proyector,wifi','uso:eq:privada','wifi:false']);
     request.flush({items:[]});await result;http.verify();
   });
 });

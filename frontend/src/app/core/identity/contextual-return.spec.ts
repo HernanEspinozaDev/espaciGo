@@ -66,4 +66,11 @@ describe('contextual identity return', () => {
     expect(canonicalCatalogReturn('/explorar?category_code=bodega&attribute=altura:gte:1.25&attribute=altura:lte:2.5&attribute=equipo:in:wifi&attribute=equipo:in:proyector')).toContain('attribute=altura%3Agte%3A1.25');
     expect(canonicalCatalogReturn('/explorar?category_code=bodega&attribute=altura:gte:1&attribute=altura:gte:2')).toBeNull();
   });
+
+  it('canonicalizes CSV and repeated enum-list selections for identity returns', () => {
+    const canonical = canonicalCatalogReturn('/explorar?category_code=oficina&attribute=climatizacion:in:calefaccion,aire_acondicionado&attribute=climatizacion:in:refrigeracion');
+    expect(canonical).toBe('/explorar?category_code=oficina&attribute=climatizacion%3Ain%3Aaire_acondicionado%2Ccalefaccion%2Crefrigeracion');
+    expect(canonicalCatalogReturn('/explorar?category_code=oficina&attribute=climatizacion:in:aire_acondicionado,aire_acondicionado')).toBeNull();
+    expect(canonicalCatalogReturn('/explorar?category_code=oficina&attribute=climatizacion:in:aire_acondicionado&attribute=climatizacion:eq:aire_acondicionado')).toBeNull();
+  });
 });

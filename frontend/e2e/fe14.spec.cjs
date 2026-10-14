@@ -335,8 +335,16 @@ test('MPV2-11 validates typed public filters and pagination across all eight cat
   await page.getByRole('button',{name:'Buscar espacios'}).click();
   const listResponse=await listSearch;
   expect(listResponse.status()).toBe(200);
-  expect(new URL(listResponse.url()).searchParams.getAll('attribute')).toEqual(['disposiciones_admitidas:in:auditorio','disposiciones_admitidas:in:aula']);
+  expect(new URL(listResponse.url()).searchParams.getAll('attribute')).toEqual(['disposiciones_admitidas:in:auditorio,aula']);
+  await expect(page).toHaveURL(/attribute=disposiciones_admitidas:in:auditorio,aula/);
+  await page.goBack();
+  await expect(page.getByLabel('Altura útil (m) mínimo')).toHaveValue('3.50');
+  await page.goForward();
+  await expect(page.getByLabel('Disposiciones admitidas (selección múltiple)')).toHaveValues(['auditorio','aula']);
   await expect(page.getByText('MPV2-11 sala_multiproposito fixture 1',{exact:true})).toBeVisible();
+  const ssrCsvResponse = await request.get(`${process.env.FRONTEND_BASE_URL || 'http://angular-frontend:4000'}/explorar?category_code=sala_multiproposito&attribute=disposiciones_admitidas%3Ain%3Aauditorio%2Caula`);
+  expect(ssrCsvResponse.status()).toBe(200);
+  expect(await ssrCsvResponse.text()).toContain('MPV2-11 sala_multiproposito fixture 1');
   await page.setViewportSize({width:390,height:844});
   await page.getByRole('button',{name:'Filtrar y ordenar'}).click();
   await expect(page.getByRole('dialog',{name:'Filtros de espacios'})).toBeVisible();
@@ -524,7 +532,7 @@ test('Mobile filter dialog preserves applied chips, focus, and closes on desktop
 });
 
 test('Contextual registration and verification preserve the pending return until login', async ({ page }) => {
-  await page.goto('/explorar?q=publico&category_code=oficina&attribute=wifi:true&attribute=puestos_trabajo:gte:4');
+  await page.goto('/explorar?q=publico&category_code=oficina&attribute=wifi:true&attribute=puestos_trabajo:gte:4&attribute=climatizacion:in:calefaccion,aire_acondicionado');
   await page.getByRole('link', { name: 'Espacio sintético público FE-14' }).first().click();
   await expect(page).toHaveURL(/\/espacios\/[0-9a-f-]+/);
   const spaceId = new URL(page.url()).pathname.split('/').at(-1);
@@ -587,7 +595,7 @@ test('Contextual login returns to the selected space and requires explicit quote
     if (/\/local\/booking-trial\/(quotes|reservations)$/.test(pathname)) bookingWrites.push(pathname);
   });
 
-  await page.goto('/explorar?q=publico&category_code=oficina&attribute=wifi:true&attribute=puestos_trabajo:gte:4');
+  await page.goto('/explorar?q=publico&category_code=oficina&attribute=wifi:true&attribute=puestos_trabajo:gte:4&attribute=climatizacion:in:calefaccion,aire_acondicionado');
   const listing = page.getByRole('link', { name: 'Espacio sintético público FE-14' }).first();
   await expect(listing).toBeVisible();
   await listing.click();
@@ -599,15 +607,16 @@ test('Contextual login returns to the selected space and requires explicit quote
   const returnUrl = accessUrl.searchParams.get('returnUrl');
   expect(returnUrl).toContain(`/espacios/${detailId}?action=reserve&returnTo=`);
   expect(returnUrl).toContain('q%3Dpublico');
-  expect(returnUrl).toContain('attribute%3Dwifi%253Atrue');
+  expect(returnUrl).toContain('attribute%3Dclimatizacion%253Ain%253Aaire_acondicionado%252Ccalefaccion');
   expect(returnUrl).toContain('attribute%3Dpuestos_trabajo%253Agte%253A4');
+  expect(returnUrl).toContain('attribute%3Dwifi%253Atrue');
   expect(returnUrl).not.toMatch(/bearer|token|password/i);
 
   await access.click();
   await expect(page.getByRole('heading', { name: 'Inicia sesión' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Cancelar y volver al catálogo' })).toHaveAttribute('href', '/explorar?q=publico&category_code=oficina&attribute=wifi%3Atrue&attribute=puestos_trabajo%3Agte%3A4');
+  await expect(page.getByRole('link', { name: 'Cancelar y volver al catálogo' })).toHaveAttribute('href', '/explorar?q=publico&category_code=oficina&attribute=climatizacion:in:aire_acondicionado,calefaccion&attribute=puestos_trabajo:gte:4&attribute=wifi:true');
   await page.getByRole('link', { name: 'Cancelar y volver al catálogo' }).click();
-  await expect(page).toHaveURL('/explorar?q=publico&category_code=oficina&attribute=wifi%3Atrue&attribute=puestos_trabajo%3Agte%3A4');
+  await expect(page).toHaveURL('/explorar?q=publico&category_code=oficina&attribute=climatizacion:in:aire_acondicionado,calefaccion&attribute=puestos_trabajo:gte:4&attribute=wifi:true');
   await page.getByRole('link', { name: 'Espacio sintético público FE-14' }).first().click();
   await expect(page.getByRole('heading', { name: 'Espacio sintético público FE-14' })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/espacios/${detailId}`));

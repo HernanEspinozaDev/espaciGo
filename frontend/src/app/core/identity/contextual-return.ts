@@ -1,3 +1,5 @@
+import { decodePublicAttributeFilters, encodePublicAttributeFilters } from '../public-attribute-filter-codec';
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CATALOG_KEYS = new Set([
   'q',
@@ -176,22 +178,10 @@ export function canonicalCatalogReturn(value: string): string | null {
     if (sort.startsWith('estimated_total_') && !start) return null;
 
     const attributes = values.get('attribute') ?? [];
-    if (attributes.length > 32 || (attributes.length && !category)) return null;
-    const seen = new Map<string, { operators:Set<string>; options:Set<string> }>();
-    for (const attribute of attributes) {
-      const match = /^([a-z][a-z0-9_]{0,59}):(.+)$/.exec(attribute);
-      if (!match) return null;
-      const expression=match[2];
-      if(!['true','false'].includes(expression)&&! /^(gte|lte):(0|[1-9]\d*)(\.\d+)?$/.test(expression)&&!/^eq:[a-z][a-z0-9_]{0,79}$/.test(expression)&&!/^in:[a-z][a-z0-9_]{0,79}(,[a-z][a-z0-9_]{0,79})*$/.test(expression))return null;
-      const prior=seen.get(match[1])??{operators:new Set<string>(),options:new Set<string>()};
-      const operator=expression.split(':',1)[0];
-      const options=operator==='in'?expression.slice(3).split(','):[];
-      const compatible=prior.operators.size===0 || (operator==='gte'&& !prior.operators.has('gte') && [...prior.operators].every(value=>value==='lte')) || (operator==='lte'&&!prior.operators.has('lte')&&[...prior.operators].every(value=>value==='gte')) || (operator==='in'&&[...prior.operators].every(value=>value==='in'));
-      if(!compatible||((operator!=='in')&&prior.operators.has(operator))||options.some(value=>prior.options.has(value)))return null;
-      options.forEach(value=>prior.options.add(value));prior.operators.add(operator);seen.set(match[1],prior);
-      if(seen.size>16)return null;
-    }
-    for (const attribute of [...attributes].sort()) query.append('attribute', attribute);
+    if (attributes.length && !category) return null;
+    const decodedAttributes = decodePublicAttributeFilters(attributes);
+    if (decodedAttributes === null) return null;
+    for (const attribute of encodePublicAttributeFilters(decodedAttributes)) query.append('attribute', attribute);
 
     const encoded = query.toString();
     return encoded ? `/explorar?${encoded}` : '/explorar';

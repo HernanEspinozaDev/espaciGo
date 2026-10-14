@@ -1,3 +1,4 @@
+import { encodePublicAttributeFilters } from '../../../core/public-attribute-filter-codec';
 import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom, timeout } from 'rxjs';
@@ -31,12 +32,7 @@ export class ExploreApi extends ExplorePort {
       const value=filters[key]; if(value!==undefined&&value!=='')values[key]=value;
     }
     let params=new HttpParams({fromObject:values});
-    for(const [code,predicate] of Object.entries(filters.attributes??{})) {
-      if(predicate.kind==='boolean') params=params.append('attribute',`${code}:${predicate.value}`);
-      else if(predicate.kind==='range') {if(predicate.minimum)params=params.append('attribute',`${code}:gte:${predicate.minimum}`);if(predicate.maximum)params=params.append('attribute',`${code}:lte:${predicate.maximum}`);}
-      else if(predicate.kind==='enum') params=params.append('attribute',`${code}:eq:${predicate.value}`);
-      else for(const value of predicate.values) params=params.append('attribute',`${code}:in:${value}`);
-    }
+    for (const attribute of encodePublicAttributeFilters(filters.attributes ?? {})) params=params.append('attribute', attribute);
     return this.publicRaw<PublicSpacePage>('/public/spaces',params);
   }
   async publicDetail(spaceId:string):Promise<PublicSpaceDetail>{return (await this.publicRaw<{data:PublicSpaceDetail}>(`/public/spaces/${encodeURIComponent(spaceId)}`)).data;}
