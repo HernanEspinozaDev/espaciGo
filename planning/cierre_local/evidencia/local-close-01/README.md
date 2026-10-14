@@ -37,7 +37,18 @@ Capturas JPEG (desktop 1365×900; mobile 390×844):
 - `fe14_local_close_01_placeholder_error_desktop.jpg`, `fe14_local_close_01_placeholder_error_mobile.jpg`
 - `fe14_local_close_01_placeholder_retired_desktop.jpg`, `fe14_local_close_01_placeholder_retired_mobile.jpg`
 
-Sus archivos JSON adyacentes registran viewport, dimensiones del documento y SHA. Las sumas SHA-256 se adjuntan en el PR y se pueden regenerar con `sha256sum planning/cierre_local/evidencia/local-close-01/*.jpg`.
+Sus archivos JSON adyacentes registran viewport, dimensiones del documento y SHA. SHA-256 de los JPEG:
+
+| Captura | SHA-256 |
+| --- | --- |
+| `fe14_local_close_01_placeholder_desktop.jpg` | `6803273c26454dfac08c9efa8dd9904dbbfc3f460abdceba33f1527bb548e841` |
+| `fe14_local_close_01_placeholder_mobile.jpg` | `6125d6ffa9d9d424ee80c8b42079d409d71540ad4f943dd7819e88bccc16beec` |
+| `fe14_local_close_01_placeholder_error_desktop.jpg` | `66dcad0fdc003539b7ebe36fef313d43a7d777844017f4a5a879a21b2260954e` |
+| `fe14_local_close_01_placeholder_error_mobile.jpg` | `ff88fd1caed2884d4bf0c48fe62238c09975eb6dbe311aa204ec47f887e2cced` |
+| `fe14_local_close_01_placeholder_retired_desktop.jpg` | `db751c11ee0bee0dbbc4de0ebfd2def9337e4adc3df4ba39e38ce1407aa80afd` |
+| `fe14_local_close_01_placeholder_retired_mobile.jpg` | `d4288c9f246b21896255dd6c4befdd34b8536cd26a6928658a93cad80e5d0553` |
+
+Se pueden regenerar con `sha256sum planning/cierre_local/evidencia/local-close-01/*.jpg`.
 
 ## Incidencias de la verificación
 
