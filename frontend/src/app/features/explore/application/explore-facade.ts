@@ -123,8 +123,19 @@ export class ExploreFacade implements OnInit {
   }
 
   async search(): Promise<void> {
-    const filters = { ...this.filters(), cursor: '' };
+    const requestedSort = this.pendingSort();
+    const filters = {
+      ...this.filters(),
+      ...(requestedSort ? { sort: requestedSort } : {}),
+      cursor: '',
+    };
+    const sortRequirement = requestedSort ? this.sortRequirement(requestedSort, filters) : null;
+    if (sortRequirement) {
+      this.error.set(sortRequirement.message);
+      return;
+    }
     if (!this.validateForSearch(filters)) return;
+    if (requestedSort) this.pendingSort.set('');
     this.filters.set(filters);
     const queryParams = encodeFilters(filters);
     if (!sameOwnedQuery(this.route.snapshot.queryParamMap, queryParams)) {

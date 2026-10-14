@@ -37,8 +37,8 @@
         <label>Precio unitario mínimo (CLP)<input inputmode="numeric" [value]="filters().min_unit_price_clp" (input)="updateFilter('min_unit_price_clp',$any($event.target).value)" /></label>
         <label>Precio unitario máximo (CLP)<input inputmode="numeric" [value]="filters().max_unit_price_clp" (input)="updateFilter('max_unit_price_clp',$any($event.target).value)" /></label>
         <label>Superficie mínima (m²)<input inputmode="decimal" [value]="filters().min_area_m2" (input)="updateFilter('min_area_m2',$any($event.target).value)" /></label>
-        <label>Desde (fecha y hora)<input type="datetime-local" [value]="dateInput(filters().start_at)" (change)="updateDate('start_at',$any($event.target).value)" /></label>
-        <label>Hasta (fecha y hora)<input type="datetime-local" [value]="dateInput(filters().end_at)" (change)="updateDate('end_at',$any($event.target).value)" /></label>
+        <label>Desde (fecha y hora)<input id="start-at" type="datetime-local" [value]="dateInput(filters().start_at)" (change)="updateDate('start_at',$any($event.target).value)" /></label>
+        <label>Hasta (fecha y hora)<input id="end-at" type="datetime-local" [value]="dateInput(filters().end_at)" (change)="updateDate('end_at',$any($event.target).value)" /></label>
         <label>Total estimado mínimo (CLP)<input inputmode="numeric" [value]="filters().min_total_clp" (input)="updateFilter('min_total_clp',$any($event.target).value)" /></label>
         <label>Total estimado máximo (CLP)<input inputmode="numeric" [value]="filters().max_total_clp" (input)="updateFilter('max_total_clp',$any($event.target).value)" /></label>
         @if(attributeFilters().length){<fieldset class="wide attribute-filters"><legend>Características públicas</legend>@for(attribute of attributeFilters();track attribute.code){<label>{{attribute.label}}
@@ -51,7 +51,7 @@
         </label>
         <p class="sort-note">Los precios comparan solo la modalidad seleccionada (hora, día o mes); nunca se mezclan unidades.</p>
         @if(mobileSortRequirement(); as requirement){<div class="sort-guidance" role="status"><p>{{requirement.message}}</p><button type="button" class="text-action" (click)="focusSortRequirement()">{{requirement.action}}</button></div>}
-        <div class="filter-actions wide"><button appButton="primary" class="button" type="submit" [disabled]="busy()">{{busy()?'Buscando…':'Buscar espacios'}}</button>
+        <div class="filter-actions wide"><button appButton="primary" class="button" type="submit" [disabled]="busy()">{{busy()?'Buscando…':pendingSort()&&!sortRequirement()?'Aplicar y ordenar':'Buscar espacios'}}</button>
           <button appButton="secondary" class="button button-secondary" type="button" (click)="clearFilters(); closeFilters()">Limpiar filtros</button></div>
       </form>
     </aside>

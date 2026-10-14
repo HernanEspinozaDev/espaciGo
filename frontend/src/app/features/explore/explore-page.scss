@@ -31,18 +31,6 @@
   border-radius: 1.15rem;
   box-shadow: 0 12px 28px rgb(64 42 27 / 6%);
 }
-.safety {
-  background: var(--brand-primary-soft);
-  color: var(--brand-primary-hover);
-  padding: metrics.$space-0-8rem metrics.$space-1rem;
-  border-radius: 0.75rem;
-  margin: metrics.$space-1rem 0;
-  font-weight: metrics.$font-weight-750;
-}
-.safety span {
-  color: var(--brand-accent);
-  margin-right: metrics.$space-0-5rem;
-}
 .filters {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -69,14 +57,6 @@
 .clear-chips { min-height: 2.5rem; border: 0; background: transparent; color: var(--brand-primary-hover); font: inherit; text-decoration: underline; cursor: pointer; }
 .filter-backdrop { display: none; }
 .filters label,
-.price-filter label,
-.proximity-filter label {
-  display: grid;
-  gap: metrics.$space-0-4rem;
-  color: var(--color-text-muted);
-  font-size: metrics.$font-size-0-9rem;
-  font-weight: metrics.$font-weight-650;
-}
 .filters input,
 .filters select {
   min-width: 0;
@@ -90,27 +70,6 @@
 }
 .wide {
   grid-column: 1 / -1;
-}
-.price-filter,
-.proximity-filter {
-  border: 1px solid var(--color-border);
-  border-radius: 0.75rem;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: metrics.$space-0-75rem;
-  padding: metrics.$space-0-8rem;
-}
-.price-filter legend,
-.proximity-filter legend {
-  font-weight: metrics.$font-weight-750;
-  padding-inline: metrics.$space-0-35rem;
-}
-.price-filter p,
-.proximity-filter p {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: var(--brand-secondary);
-  font-size: metrics.$font-size-0-85rem;
 }
 .filter-actions {
   display: flex;
@@ -138,16 +97,6 @@
 .button-secondary {
   background: var(--brand-primary-soft);
   color: var(--brand-primary-active);
-}
-.text-button {
-  color: var(--brand-primary-hover);
-  border: 0;
-  background: transparent;
-  font: inherit;
-  font-weight: metrics.$font-weight-700;
-  text-decoration: underline;
-  cursor: pointer;
-  padding: metrics.$space-0-65rem;
 }
 .error,
 .status,
@@ -231,46 +180,6 @@
   gap: metrics.$space-0-5rem;
   margin-top: metrics.$space-0-4rem;
 }
-.synthetic-map {
-  height: min(62vh, 34rem);
-  min-height: 22rem;
-  margin-top: metrics.$space-1-5rem;
-  border: 1px solid var(--color-border);
-  border-radius: 1rem;
-  position: relative;
-  overflow: hidden;
-  background-color: var(--brand-primary-soft);
-  background-image:
-    linear-gradient(30deg, transparent 49%, var(--color-border) 50%, transparent 51%),
-    linear-gradient(120deg, transparent 49%, var(--color-border) 50%, transparent 51%);
-  background-size: 9rem 8rem;
-}
-.synthetic-map p {
-  position: absolute;
-  inset: 0 0 auto;
-  margin: 0;
-  padding: metrics.$space-0-7rem;
-  background: rgb(255 253 248 / 88%);
-  z-index: 1;
-}
-.map-pin {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: 50% 50% 50% 0;
-  rotate: -45deg;
-  display: grid;
-  place-items: center;
-  background: var(--brand-primary);
-  color: white;
-  font-weight: metrics.$font-weight-800;
-  text-decoration: none;
-  box-shadow: 0 2px 8px var(--shadow-color);
-}
-.map-pin::first-letter {
-  rotate: 45deg;
-}
 .more {
   display: block;
   margin: metrics.$space-1-5rem auto 0;
@@ -296,10 +205,6 @@
   .filter-backdrop { position: fixed; z-index: 1000; inset: 0; display: block; width: 100%; border: 0; background: rgb(20 20 20 / 55%); }
   .wide {
     grid-column: auto;
-  }
-  .price-filter,
-  .proximity-filter {
-    grid-template-columns: 1fr 1fr;
   }
   .space-card {
     grid-template-columns: 1fr;

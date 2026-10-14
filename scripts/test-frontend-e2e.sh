@@ -270,12 +270,12 @@ WITH host AS (
       ubicacion_catalogo_version,region_codigo,comuna_codigo)
   SELECT gen_random_uuid(),host.id,'oficina','Segundo espacio público FE-14',
       'Segunda publicación sintética recreable para validar cursores y navegación de páginas en el catálogo público desde la interfaz anónima.',
-      24,4,'Uso de prueba recreable','dia',35000,'Dirección privada de prueba 456, Santiago','activa','America/Santiago',
+      24,4,'Uso de prueba recreable','hora',35000,'Dirección privada de prueba 456, Santiago','activa','America/Santiago',
       'SUBDERE_DPA_2018','13','13123'
   FROM host RETURNING id
 )
 INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
-SELECT id,1,'dia',35000 FROM space;
+SELECT id,1,'hora',35000 FROM space;
 SQL
 if [[ "${FE14_RUN_PUBLIC_CATALOG_ORDERING_INTEGRATION:-0}" == "1" ]]; then
   admin_password="$(<"$LOCAL_SECRETS_DIR/db_admin_password")"

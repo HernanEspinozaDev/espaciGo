@@ -118,6 +118,98 @@ describe('ExplorePage public catalog URL state', () => {
     expect(api.publicSearch).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    {
+      sort: 'unit_price_asc',
+      update: (page: ExplorePage) => page.updateFilter('rate_unit', 'hora'),
+      expected: { sort: 'unit_price_asc', rate_unit: 'hora' },
+    },
+    {
+      sort: 'relevance',
+      update: (page: ExplorePage) => page.updateFilter('q', 'sala'),
+      expected: { sort: 'relevance', q: 'sala' },
+    },
+    {
+      sort: 'estimated_total_asc',
+      update: (page: ExplorePage) => {
+        page.updateDate('start_at', '2026-10-20T13:00:00.000Z');
+        page.updateDate('end_at', '2026-10-20T14:00:00.000Z');
+      },
+      expected: { sort: 'estimated_total_asc', start_at: '2026-10-20T13:00:00.000Z', end_at: '2026-10-20T14:00:00.000Z' },
+    },
+  ])('applies pending $sort together with completed prerequisites when submitting Search', async ({ sort, update, expected }) => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }],
+    });
+    const harness = await RouterTestingHarness.create('/explorar');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+
+    page.requestSort(sort);
+    expect(page.pendingSort()).toBe(sort);
+    update(page);
+    await page.submitSearch();
+
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+    expect(page.pendingSort()).toBe('');
+    expect(TestBed.inject(Router).url).toContain(`sort=${sort}`);
+    expect(api.publicSearch.mock.calls[1][0]).toMatchObject(expected);
+  });
+
+  it('keeps a prerequisite intent pending when Search is submitted incomplete', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }],
+    });
+    const harness = await RouterTestingHarness.create('/explorar');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    page.requestSort('unit_price_asc');
+
+    await page.submitSearch();
+
+    expect(page.pendingSort()).toBe('unit_price_asc');
+    expect(page.error()).toContain('elige explícitamente hora, día o mes');
+    expect(api.publicSearch).toHaveBeenCalledOnce();
+    expect(TestBed.inject(Router).url).toBe('/explorar');
+  });
+
+  it('focuses the real interval start input from desktop and mobile sort guidance', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }],
+    });
+    const harness = await RouterTestingHarness.create('/explorar');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    const element = harness.routeNativeElement!;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+
+    page.requestSort('estimated_total_asc');
+    harness.detectChanges();
+    expect(element.querySelector('#start-at')).not.toBeNull();
+    element.querySelector<HTMLButtonElement>('.catalog-results .sort-guidance .text-action')!.click();
+    await vi.waitFor(() => expect(element.ownerDocument.activeElement).toBe(element.querySelector('#start-at')));
+
+    page.cancelSort();
+    page.openFilters(element.querySelector('.filter-toggle') as HTMLElement);
+    harness.detectChanges();
+    page.updateFilter('sort', 'estimated_total_asc');
+    harness.detectChanges();
+    expect(element.querySelector('[role="dialog"]')).not.toBeNull();
+    element.querySelector<HTMLButtonElement>('.filters .sort-guidance .text-action')!.click();
+    await vi.waitFor(() => expect(element.ownerDocument.activeElement).toBe(element.querySelector('#start-at')));
+  });
+
   it('keeps the mobile filter dialog open when a sort prerequisite needs completion', async () => {
     const api = {
       publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]),
