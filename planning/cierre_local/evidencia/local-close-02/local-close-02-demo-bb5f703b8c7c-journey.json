@@ -1,0 +1,33 @@
+{
+  "head": "0885abf17bd31f57e914b08e48942b4eb4f64b19",
+  "reservation_id": "67db3ab1-7bbe-43ad-b415-8eff5cbba463",
+  "space_id": "c93431ac-5980-4a38-80d1-2c2dd452dadf",
+  "contract_id": "4f9c3c16-0b0b-4679-a60f-3bbc310c1a63",
+  "claim_id": "f6fbebb3-3e4c-4114-be79-802b67287234",
+  "incident_id": "f86fe030-c0e2-4951-96f9-7a08e5633609",
+  "resolved_claim_state": "resuelta",
+  "resolved_claim_outcome": "rechazado",
+  "release_operation_id": "ab37cdc4-b563-4e83-bf15-9d70c00b63af",
+  "checkin_operation_id": "0a283c93-d8ff-4e7f-bde5-f564deba8c95",
+  "third_party_status_codes": {
+    "reservation": 404,
+    "receipt": 404,
+    "settlement_write": 404,
+    "settlement_read": 404
+  },
+  "quote": {
+    "start_at": "2026-10-16T03:00:00Z",
+    "end_at": "2026-10-16T04:00:00Z",
+    "time_zone": "America/Santiago",
+    "subtotal_clp": 18000
+  },
+  "checkout_at": "2026-10-16T04:00:00Z",
+  "settlement_id": "974e7850-a547-420d-9c5b-34b7b589a749",
+  "settlement_state": "liquidada",
+  "gross_clp": 18000,
+  "commission_clp": 0,
+  "transfer_clp": 18000,
+  "receipt_id": "e5f663da-81e5-4ede-aa13-da8d8944c83f",
+  "clock_after_24h": "2026-10-17T04:00:01.000Z",
+  "settlement_idempotency_key_sha256": "7813631faa5888369194d431ce764e82966bfbb97ff54f5735976fdaaccf4d2e"
+}

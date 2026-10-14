@@ -786,6 +786,7 @@ test('Typed hosting form creates and edits a synthetic draft through Go', async 
   await login(page, accounts.host);
   await navigateSpa(page, '/panel/espacios');
   await expect(page.getByRole('heading', { name: 'Mis espacios' })).toBeVisible();
+  await page.getByRole('button', { name: '+ Nuevo borrador' }).click();
   await page.getByRole('combobox', { name: 'Categoría', exact: true }).selectOption('oficina');
   await expect(page.locator('.attributes legend')).toContainText('perfil versión');
   await page.getByLabel('Título', { exact: true }).fill('Oficina sintética · arquitectura');

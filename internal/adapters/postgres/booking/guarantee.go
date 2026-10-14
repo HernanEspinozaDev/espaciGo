@@ -233,7 +233,7 @@ func (r *Repository) RunGuaranteeOperation(ctx context.Context, actor, reservati
 		if kind == "liberacion" {
 			if !decisionFound { // No claim: release only after the persisted 24-hour checkout window.
 				var eligible bool
-				if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.operacion_arriendo_ensayo_local o WHERE o.reserva_id=$1 AND o.tipo='checkout' AND o.ocurrio_en+interval '24 hours'<=$2) AND NOT EXISTS(SELECT 1 FROM public.reclamo_dano_ensayo_local c WHERE c.reserva_id=$1 AND c.estado='abierto')`, reservationID, now).Scan(&eligible); err != nil {
+				if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.operacion_arriendo_ensayo_local o WHERE o.reserva_id=$1 AND o.tipo='checkout' AND o.ocurrio_en+interval '24 hours'<=$2) AND NOT EXISTS(SELECT 1 FROM public.reclamo_dano_ensayo_local c WHERE c.reserva_id=$1)`, reservationID, now).Scan(&eligible); err != nil {
 					return old, false, err
 				}
 				if !eligible {

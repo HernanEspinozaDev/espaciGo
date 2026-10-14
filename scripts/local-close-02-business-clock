@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Clock file scoped to one disposable LOCAL-CLOSE-02 test run."""
+import datetime as dt
+import json
+import os
+import pathlib
+import re
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+clock_kind = os.environ.get("LOCAL_CLOSE02_CLOCK_KIND", "run")
+if clock_kind not in {"run", "demo"}:
+    print("LOCAL_CLOSE02_CLOCK_KIND must be run or demo", file=sys.stderr)
+    raise SystemExit(2)
+run_root = "local-close-02-demo" if clock_kind == "demo" else "local-close-02"
+RUNS = ROOT / ".local/testing" / run_root
+
+def fail(message):
+    print(message, file=sys.stderr)
+    raise SystemExit(2)
+
+if len(sys.argv) < 3:
+    fail("usage: LOCAL_CLOSE02_CLOCK_KIND={run|demo} scripts/local-close-02-business-clock RUN_ID {show|set RFC3339|advance DURATION}")
+run_id, command, *args = sys.argv[1:]
+if not re.fullmatch(r"[0-9a-f]{12}", run_id):
+    fail("RUN_ID must be 12 lowercase hexadecimal characters")
+run_dir = RUNS / run_id
+clock_dir = run_dir / "business-clock"
+state = clock_dir / "business-clock.json"
+for path in (RUNS, run_dir, clock_dir, state):
+    if path.is_symlink():
+        fail("clock path components cannot be symlinks")
+resolved = state.resolve(strict=False)
+if RUNS.resolve() not in resolved.parents:
+    fail("clock path escaped the LOCAL-CLOSE-02 private state")
+
+def load():
+    try:
+        raw = json.loads(state.read_text(encoding="ascii"))["now"]
+        value = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if value.tzinfo is None:
+            fail("clock value must include a timezone offset")
+        return value.astimezone(dt.timezone.utc)
+    except (OSError, ValueError, KeyError, TypeError):
+        fail("clock is not initialized for this run")
+
+def save(value):
+    if value.tzinfo is None:
+        fail("clock date must include an explicit UTC offset")
+    clock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(run_dir, 0o700)
+    os.chmod(clock_dir, 0o700)
+    raw = json.dumps({"now": value.astimezone(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")}, separators=(",", ":")) + "\n"
+    temp = clock_dir / "business-clock.json.tmp"
+    fd = os.open(temp, os.O_CREAT | os.O_TRUNC | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, state)
+        os.chmod(state, 0o600)
+    finally:
+        temp.unlink(missing_ok=True)
+    print(raw, end="")
+
+def duration(raw):
+    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)(s|m|h|d)", raw)
+    if not match:
+        fail("duration must be a positive number followed by s, m, h, or d")
+    number, unit = match.groups()
+    seconds = float(number) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
+    if not 0 < seconds <= 365 * 86400:
+        fail("duration must be greater than zero and at most one year")
+    return dt.timedelta(seconds=seconds)
+
+if command == "init" and not args:
+    if state.exists():
+        fail("clock file already exists for this run")
+    save(dt.datetime.now(dt.timezone.utc))
+elif command == "show" and not args:
+    print(json.dumps({"now": load().isoformat(timespec="seconds").replace("+00:00", "Z")}))
+elif command == "set" and len(args) == 1:
+    try:
+        value = dt.datetime.fromisoformat(args[0].replace("Z", "+00:00"))
+    except ValueError:
+        fail("date must be RFC3339 with an explicit offset")
+    save(value)
+elif command == "advance" and len(args) == 1:
+    save(load() + duration(args[0]))
+else:
+    fail("usage: LOCAL_CLOSE02_CLOCK_KIND={run|demo} scripts/local-close-02-business-clock RUN_ID {init|show|set RFC3339|advance DURATION}")

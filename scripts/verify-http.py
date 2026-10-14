@@ -47,7 +47,10 @@ require(status == 200 and json.loads(body) == {"status": "ok"}, "Angular process
 
 status, headers, body = request(f"{ANGULAR_ORIGIN}/config.json")
 config = json.loads(body)
-require(status == 200 and config == {"apiBaseUrl": API_BASE}, "Angular runtime config exposes only the expected public API URL")
+require(
+    status == 200 and config == {"apiBaseUrl": API_BASE, "siteOrigin": ANGULAR_ORIGIN},
+    "Angular runtime config exposes only the expected public API URL and site origin",
+)
 
 status, headers, body = request(f"{ANGULAR_ORIGIN}/acceso")
 require(status == 200 and "text/html" in headers.get("Content-Type", "") and b"EspaciGo" in body, "Angular SSR serves the identity route shell")

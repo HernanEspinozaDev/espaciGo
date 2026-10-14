@@ -350,6 +350,12 @@ func (r *Repository) Resolve(ctx context.Context, admin, claimID, key string, in
 	if _, err = tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=GREATEST(COALESCE(vinculos_retirar_en,$2::timestamptz),$2::timestamptz+interval '24 months') WHERE id=$1`, reservation, now); err != nil {
 		return damageclaim.Claim{}, mapError(err)
 	}
+	if _, err = tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='finalizada',actualizada_en=$2 WHERE id=$1 AND estado='en_disputa'`, reservation, now); err != nil {
+		return damageclaim.Claim{}, mapError(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en) SELECT gen_random_uuid(),$1,COALESCE(MAX(secuencia),0)+1,'en_disputa','finalizada',$2,'reclamo_dano_resuelto',$3 FROM public.reserva_ensayo_transicion WHERE reserva_id=$1`, reservation, admin, now); err != nil {
+		return damageclaim.Claim{}, mapError(err)
+	}
 	if _, err = tx.Exec(ctx, `INSERT INTO public.reclamo_dano_historial_ensayo_local(reclamo_id,accion,actor_id,ocurrida_en) VALUES($1,'reclamo_resuelto',$2,$3)`, claimID, admin, now); err != nil {
 		return damageclaim.Claim{}, mapError(err)
 	}
