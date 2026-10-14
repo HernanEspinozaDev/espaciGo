@@ -84,7 +84,7 @@ test('LOCAL-CLOSE-01 deletes only the owner fixture through Angular→Go→Postg
   await signIn(page, owner);
   await navigateSpa(page, '/mi-cuenta/verificaciones');
   await expect(page.getByRole('heading', { name: 'Casos de verificación' })).toBeVisible();
-  await expect(page.getByText('synthetic-png-v1')).toBeVisible();
+  await expect(page.locator('strong').filter({ hasText: 'synthetic-png-v1' })).toBeVisible();
   const deleteResponse = page.waitForResponse(
     (response) => response.request().method() === 'DELETE' && response.url().endsWith(evidencePath),
   );

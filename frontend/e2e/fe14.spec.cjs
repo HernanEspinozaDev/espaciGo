@@ -977,7 +977,7 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
 
   await expect(visitor.getByRole('heading', { name: title })).toBeVisible();
   await expect(visitor.getByText(/Dirección confidencial MPV2-03/)).toHaveCount(0);
-  await expect(visitor.getByRole('img', { name: `Fotografía de portada de ${title}` })).toBeVisible();
+  await expect(visitor.getByRole('img', { name: 'Fotografía de portada', exact: true })).toBeVisible();
   await expect(visitor.getByRole('img',{name:'Fotografía pública 2'})).toBeVisible();
   const imageResponse=await imageResponsePromise;expect(imageResponse.status()).toBe(200);
   expect((await imageResponse.request().allHeaders()).authorization).toBeUndefined();
