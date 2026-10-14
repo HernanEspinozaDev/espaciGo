@@ -9,8 +9,10 @@ import {
   PublicSpace,
   PublicLocation,
   PublicAttributeFilter,
+  PublicAttributePredicate,
 } from '../domain/ports/explore-port';
 import { PublicPageSeo } from '../../../core/public-page-seo';
+import { decodePublicAttributeFilters, encodePublicAttributeFilters } from '../../../core/public-attribute-filter-codec';
 
 type ExploreFilters = {
   q: string;
@@ -28,7 +30,7 @@ type ExploreFilters = {
   end_at: string;
   min_total_clp: string;
   max_total_clp: string;
-  attributes: Record<string, boolean>;
+  attributes: Record<string, PublicAttributePredicate>;
 };
 type ExploreCriterion = Exclude<keyof ExploreFilters, 'cursor'>;
 export type SortRequirement = { target: 'query' | 'rate_unit' | 'start_at'; message: string; action: string };
@@ -105,9 +107,9 @@ export class ExploreFacade implements OnInit {
     this.invalidateCriteria();
   }
 
-  setAttribute(code: string, value: boolean | null): void {
+  setAttribute(code: string, value: PublicAttributePredicate | boolean | null): void {
     const attributes = { ...this.filters().attributes };
-    if (value === null) delete attributes[code]; else attributes[code] = value;
+    if (value === null) delete attributes[code]; else attributes[code] = typeof value==='boolean'?{kind:'boolean',value}:value;
     this.filters.update((filters) => ({ ...filters, attributes, cursor: '' }));
     this.invalidateCriteria();
   }
@@ -478,14 +480,10 @@ function decodeFilters(params: ParamMap): { filters: ExploreFilters | null; erro
   const region = singleValue('region_code'); const comuna = singleValue('comuna_code');
   const area = singleValue('min_area_m2'); const start = singleValue('start_at'); const end = singleValue('end_at');
   const minTotal = singleValue('min_total_clp'); const maxTotal = singleValue('max_total_clp');
-  const attributes: Record<string, boolean> = {};
-  for (const entry of params.getAll('attribute')) {
-    const split = entry.lastIndexOf(':');
-    if (split < 1 || !/^[a-z][a-z0-9_]{0,79}$/.test(entry.slice(0, split)) || !['true','false'].includes(entry.slice(split + 1)) || attributes[entry.slice(0, split)] !== undefined)
-      return { filters: null, error: 'Los atributos de la URL no son válidos.' };
-    attributes[entry.slice(0, split)] = entry.slice(split + 1) === 'true';
-  }
-  if (Object.keys(attributes).length > 8) return { filters: null, error: 'La URL supera el máximo de filtros.' };
+  const rawAttributes = params.getAll('attribute');
+  const attributes = decodePublicAttributeFilters(rawAttributes);
+  if (attributes === null) return { filters: null, error: rawAttributes.length > 32 ? 'La URL supera el máximo de filtros.' : 'Los atributos de la URL no son válidos.' };
+  if (Object.keys(attributes).length > 16) return { filters: null, error: 'La URL supera el máximo de filtros.' };
   if ([q, category, unit, minimum, maximum, sort, rawSize, cursor, region, comuna, area, start, end, minTotal, maxTotal].some((value) => value === null))
     return { filters: null, error: 'La URL contiene parámetros públicos duplicados.' };
   if (!isSort(sort!)) return { filters: null, error: 'El orden de la URL no es válido.' };
@@ -523,7 +521,7 @@ function encodeFilters(filters: ExploreFilters): Record<string, string | string[
     region_code: filters.region_code || null, comuna_code: filters.comuna_code || null,
     min_area_m2: filters.min_area_m2 || null, start_at: filters.start_at || null, end_at: filters.end_at || null,
     min_total_clp: filters.min_total_clp || null, max_total_clp: filters.max_total_clp || null,
-    attribute: Object.entries(filters.attributes).sort(([a],[b]) => a.localeCompare(b)).map(([k,v]) => `${k}:${v}`),
+    attribute: encodePublicAttributeFilters(filters.attributes),
   };
 }
 

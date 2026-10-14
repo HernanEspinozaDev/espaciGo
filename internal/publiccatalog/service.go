@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"math"
+	"math/big"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -18,9 +20,10 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-const cursorVersion = 2
+const cursorVersion = 3
 
 var areaPattern = regexp.MustCompile(`^(?:0|[1-9][0-9]{0,6})(?:\.[0-9]{1,2})?$`)
+var attributeDecimalPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.[0-9]+)?$`)
 
 type Service struct {
 	repo       Repository
@@ -145,7 +148,7 @@ func (s *Service) List(ctx context.Context, filters Filters) (Page, error) {
 			return Page{}, ErrInvalid
 		}
 	}
-	if len(filters.Attributes) > 0 {
+	if len(filters.Attributes)+len(filters.TypedAttributes) > 0 {
 		if filters.CategoryCode == "" {
 			return Page{}, ErrInvalid
 		}
@@ -153,16 +156,35 @@ func (s *Service) List(ctx context.Context, filters Filters) (Page, error) {
 		if err != nil {
 			return Page{}, err
 		}
-		valid := make(map[string]int, len(allowed))
+		valid := make(map[string]AttributeFilter, len(allowed))
 		for _, filter := range allowed {
-			valid[filter.Code] = filter.ProfileVersion
-		}
-		for code := range filters.Attributes {
-			version, ok := valid[code]
-			if !ok || (filters.AttributeVersion != 0 && filters.AttributeVersion != version) {
+			if _, duplicate := valid[filter.Code]; duplicate {
 				return Page{}, ErrInvalid
 			}
-			filters.AttributeVersion = version
+			valid[filter.Code] = filter
+		}
+		for code := range filters.Attributes {
+			definition, ok := valid[code]
+			if !ok || definition.Type != "boolean" || (filters.AttributeVersion != 0 && filters.AttributeVersion != definition.ProfileVersion) {
+				return Page{}, ErrInvalid
+			}
+			filters.AttributeVersion = definition.ProfileVersion
+		}
+		for code, predicate := range filters.TypedAttributes {
+			definition, ok := valid[code]
+			_, legacyPresent := filters.Attributes[code]
+			if !ok || definition.Type == "boolean" || legacyPresent ||
+				(filters.AttributeVersion != 0 && filters.AttributeVersion != definition.ProfileVersion) ||
+				!validateAttributePredicate(definition, predicate) {
+				return Page{}, ErrInvalid
+			}
+			predicate.Type = definition.Type
+			sort.Strings(predicate.Values)
+			filters.TypedAttributes[code] = predicate
+			filters.AttributeVersion = definition.ProfileVersion
+		}
+		if len(filters.Attributes)+len(filters.TypedAttributes) > 16 {
+			return Page{}, ErrInvalid
 		}
 	}
 	fingerprint := filtersFingerprint(filters)
@@ -207,6 +229,103 @@ func (s *Service) List(ctx context.Context, filters Filters) (Page, error) {
 	return page, nil
 }
 
+func validateAttributePredicate(definition AttributeFilter, predicate AttributePredicate) bool {
+	if predicate.Type != "" && predicate.Type != definition.Type {
+		return false
+	}
+	if predicate.Value != nil {
+		return definition.Type == "enum" && predicate.Minimum == nil && predicate.Maximum == nil && len(predicate.Values) == 0 && contains(definition.Options, *predicate.Value)
+	}
+	if len(predicate.Values) > 0 {
+		if definition.Type != "enum_list" || predicate.Minimum != nil || predicate.Maximum != nil || len(predicate.Values) > len(definition.Options) {
+			return false
+		}
+		seen := make(map[string]bool, len(predicate.Values))
+		for _, value := range predicate.Values {
+			if seen[value] || !contains(definition.Options, value) {
+				return false
+			}
+			seen[value] = true
+		}
+		return true
+	}
+	if predicate.Minimum == nil && predicate.Maximum == nil || (definition.Type != "integer" && definition.Type != "number") {
+		return false
+	}
+	var minimum, maximum *big.Rat
+	var ok bool
+	if predicate.Minimum != nil {
+		minimum, ok = validateAttributeBound(definition, *predicate.Minimum)
+		if !ok {
+			return false
+		}
+	}
+	if predicate.Maximum != nil {
+		maximum, ok = validateAttributeBound(definition, *predicate.Maximum)
+		if !ok {
+			return false
+		}
+	}
+	return minimum == nil || maximum == nil || minimum.Cmp(maximum) <= 0
+}
+
+func validateAttributeBound(definition AttributeFilter, value string) (*big.Rat, bool) {
+	if len(value) > 64 || !attributeDecimalPattern.MatchString(value) {
+		return nil, false
+	}
+	parsed, ok := new(big.Rat).SetString(value)
+	if !ok {
+		return nil, false
+	}
+	if definition.Type == "integer" && !parsed.IsInt() {
+		return nil, false
+	}
+	if definition.Minimum != nil {
+		limit, valid := profileNumber(*definition.Minimum)
+		if !valid || parsed.Cmp(limit) < 0 {
+			return nil, false
+		}
+	}
+	if definition.Maximum != nil {
+		limit, valid := profileNumber(*definition.Maximum)
+		if !valid || parsed.Cmp(limit) > 0 {
+			return nil, false
+		}
+	}
+	if definition.Step != nil {
+		step, valid := profileNumber(*definition.Step)
+		if !valid || step.Sign() <= 0 {
+			return nil, false
+		}
+		origin := new(big.Rat)
+		if definition.Minimum != nil {
+			origin, valid = profileNumber(*definition.Minimum)
+			if !valid {
+				return nil, false
+			}
+		}
+		delta := new(big.Rat).Sub(parsed, origin)
+		quotient := new(big.Rat).Quo(delta, step)
+		if !quotient.IsInt() {
+			return nil, false
+		}
+	}
+	return parsed, true
+}
+
+func profileNumber(value json.Number) (*big.Rat, bool) {
+	return new(big.Rat).SetString(value.String())
+}
+
+func contains(options []string, value string) bool {
+	for _, option := range options {
+		if option == value {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) Detail(ctx context.Context, spaceID string) (Space, error) {
 	if !validUUID(spaceID) {
 		return Space{}, ErrNotFound
@@ -244,7 +363,7 @@ func validate(filters *Filters) error {
 	if filters.CommuneCode != "" && (!validCommuneCode(filters.CommuneCode) || filters.RegionCode == "") {
 		return ErrInvalid
 	}
-	if len(filters.Attributes) > 8 {
+	if len(filters.Attributes) > 16 || len(filters.TypedAttributes) > 16 || len(filters.Attributes)+len(filters.TypedAttributes) > 16 {
 		return ErrInvalid
 	}
 	for key := range filters.Attributes {
@@ -325,24 +444,25 @@ func digitsOnly(value string) bool {
 
 func filtersFingerprint(filters Filters) string {
 	canonical := struct {
-		Category         string          `json:"category"`
-		Unit             string          `json:"unit"`
-		Min              *int64          `json:"min,omitempty"`
-		Max              *int64          `json:"max,omitempty"`
-		Sort             string          `json:"sort"`
-		Size             int             `json:"size"`
-		Query            string          `json:"query"`
-		Region           string          `json:"region"`
-		Commune          string          `json:"commune"`
-		MinArea          string          `json:"min_area"`
-		Attributes       map[string]bool `json:"attributes"`
-		AttributeVersion int             `json:"attribute_version"`
-		StartAt          *time.Time      `json:"start_at"`
-		EndAt            *time.Time      `json:"end_at"`
-		MinTotal         *int64          `json:"min_total"`
-		MaxTotal         *int64          `json:"max_total"`
+		Category         string                        `json:"category"`
+		Unit             string                        `json:"unit"`
+		Min              *int64                        `json:"min,omitempty"`
+		Max              *int64                        `json:"max,omitempty"`
+		Sort             string                        `json:"sort"`
+		Size             int                           `json:"size"`
+		Query            string                        `json:"query"`
+		Region           string                        `json:"region"`
+		Commune          string                        `json:"commune"`
+		MinArea          string                        `json:"min_area"`
+		Attributes       map[string]bool               `json:"attributes"`
+		TypedAttributes  map[string]AttributePredicate `json:"typed_attributes"`
+		AttributeVersion int                           `json:"attribute_version"`
+		StartAt          *time.Time                    `json:"start_at"`
+		EndAt            *time.Time                    `json:"end_at"`
+		MinTotal         *int64                        `json:"min_total"`
+		MaxTotal         *int64                        `json:"max_total"`
 	}{filters.CategoryCode, filters.RateUnit, filters.MinUnitPriceCLP, filters.MaxUnitPriceCLP, filters.Sort, filters.PageSize,
-		filters.Query, filters.RegionCode, filters.CommuneCode, filters.MinAreaM2, filters.Attributes, filters.AttributeVersion,
+		filters.Query, filters.RegionCode, filters.CommuneCode, filters.MinAreaM2, filters.Attributes, filters.TypedAttributes, filters.AttributeVersion,
 		filters.StartAt, filters.EndAt, filters.MinTotalCLP, filters.MaxTotalCLP}
 	raw, _ := json.Marshal(canonical)
 	digest := sha256.Sum256(raw)
@@ -356,13 +476,13 @@ func (s *Service) encodeCursor(cursor Cursor) (string, error) {
 	}
 	mac := hmac.New(sha256.New, s.key)
 	_, _ = mac.Write(raw)
-	return "v2." + base64.RawURLEncoding.EncodeToString(raw) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+	return "v3." + base64.RawURLEncoding.EncodeToString(raw) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
 }
 
 func (s *Service) decodeCursor(value string) (Cursor, error) {
 	var cursor Cursor
 	parts := strings.Split(value, ".")
-	if len(parts) != 3 || parts[0] != "v2" || len(value) > 4096 {
+	if len(parts) != 3 || parts[0] != "v3" || len(value) > 4096 {
 		return cursor, ErrInvalid
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(parts[1])

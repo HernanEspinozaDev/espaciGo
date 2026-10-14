@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
@@ -64,6 +65,45 @@ func TestPublicPageSizeAbsentAndExplicitBounds(t *testing.T) {
 				t.Fatalf("repository page size=%d, want %d", repo.pageSize, tc.pageSize)
 			}
 		})
+	}
+}
+
+func TestPublicTypedAttributeSyntaxRejectsAmbiguity(t *testing.T) {
+	cases := []struct {
+		name   string
+		values []string
+		ok     bool
+	}{
+		{"legacy false", []string{"wifi:false"}, true},
+		{"two-sided range", []string{"altura:gte:1.25", "altura:lte:2.50"}, true},
+		{"enum list OR", []string{"equipo:in:wifi", "equipo:in:proyector"}, true},
+		{"enum list CSV", []string{"equipo:in:wifi,proyector"}, true},
+		{"enum list mixed CSV and repeated", []string{"equipo:in:wifi,proyector", "equipo:in:calefaccion"}, true},
+		{"duplicate bound", []string{"altura:gte:1", "altura:gte:2"}, false},
+		{"mixed bool and range", []string{"wifi:false", "wifi:gte:1"}, false},
+		{"unknown operator", []string{"altura:gt:2"}, false},
+		{"duplicate option", []string{"equipo:in:wifi", "equipo:in:wifi"}, false},
+		{"duplicate CSV option", []string{"equipo:in:wifi,proyector,wifi"}, false},
+		{"bad decimal", []string{"altura:gte:1e2"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, ok := parsePublicAttributeFilters(tc.values)
+			if ok != tc.ok {
+				t.Fatalf("accepted=%v want=%v", ok, tc.ok)
+			}
+		})
+	}
+}
+
+func TestPublicAttributeQueryLimit(t *testing.T) {
+	values := url.Values{}
+	for i := 0; i < 33; i++ {
+		values.Add("attribute", "equipo:in:option")
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces?"+values.Encode(), nil)
+	if _, ok := publicFilters(request); ok {
+		t.Fatal("accepted more than 32 repeated attribute filter values")
 	}
 }
 

@@ -10,7 +10,7 @@
     "serve:ssr:frontend": "node dist/frontend/server/server.mjs",
     "e2e": "playwright test --config=playwright.config.cjs",
     "api:generate": "openapi-ts && node ../scripts/normalize-openapi-generated.mjs src/generated/api",
-    "api:check": "npm run api:generate && tsc --noEmit -p tsconfig.app.json",
+    "api:check": "npm run api:generate && node --test tooling/openapi-attribute-pattern.test.mjs && tsc --noEmit -p tsconfig.app.json",
     "lint": "eslint src && npm run lint:styles && npm run architecture:check",
     "lint:styles": "node --test tooling/design-token-rule.test.mjs && stylelint \"src/**/*.scss\"",
     "architecture:check": "node --test ../scripts/check-frontend-architecture.test.mjs && node ../scripts/check-frontend-architecture.mjs"

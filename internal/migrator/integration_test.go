@@ -52,6 +52,114 @@ func TestRunnerAppliesFromEmptyAndRepeatIsNoop(t *testing.T) {
 	})
 }
 
+func TestMPV211MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve migration source path")
+	}
+	sourceDir := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "db", "migrations"))
+	migrations, err := DiscoverMigrations(sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrations) < 57 || migrations[len(migrations)-1].Version != 57 {
+		t.Fatalf("expected V57 as latest migration, got %d migrations", len(migrations))
+	}
+	latest := migrations[len(migrations)-1]
+	if latest.Name != "V000057__mpv2_11_typed_public_category_filters.sql" {
+		t.Fatalf("unexpected V57 migration %q", latest.Name)
+	}
+
+	t.Run("fresh base", func(t *testing.T) {
+		withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+			result, err := Run(ctx, databaseURL, sourceDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Applied) != len(migrations) || result.Applied[len(result.Applied)-1] != 57 {
+				t.Fatalf("fresh migration result=%v", result.Applied)
+			}
+			conn := connectTestDB(t, ctx, databaseURL)
+			defer conn.Close(ctx)
+			var allowlisted, typed, indexExists int
+			if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.atributo_filtro_publico`).Scan(&allowlisted); err != nil {
+				t.Fatal(err)
+			}
+			if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.atributo_filtro_publico WHERE tipo IN ('integer','number','enum','enum_list')`).Scan(&typed); err != nil {
+				t.Fatal(err)
+			}
+			if err := conn.QueryRow(ctx, `SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname='espacio_caracteristicas_public_filter_keys_idx'`).Scan(&indexExists); err != nil {
+				t.Fatal(err)
+			}
+			if allowlisted < 50 || typed < 30 || indexExists != 1 {
+				t.Fatalf("V57 policy/index mismatch: allowlisted=%d typed=%d index=%d", allowlisted, typed, indexExists)
+			}
+		})
+	})
+
+	t.Run("upgrade from V56", func(t *testing.T) {
+		withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+			v56Dir := t.TempDir()
+			for _, migration := range migrations {
+				if migration.Version > 56 {
+					continue
+				}
+				if err := os.WriteFile(filepath.Join(v56Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			result, err := Run(ctx, databaseURL, v56Dir)
+			if err != nil || len(result.Applied) != 56 || result.Applied[55] != 56 {
+				t.Fatalf("apply V1-V56: %v %v", result.Applied, err)
+			}
+			conn := connectTestDB(t, ctx, databaseURL)
+			before := map[int64]string{}
+			rows, err := conn.Query(ctx, `SELECT version,checksum FROM public.schema_migrations ORDER BY version`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for rows.Next() {
+				var version int64
+				var checksum string
+				if err := rows.Scan(&version, &checksum); err != nil {
+					t.Fatal(err)
+				}
+				before[version] = checksum
+			}
+			rows.Close()
+			if err := conn.Close(ctx); err != nil {
+				t.Fatal(err)
+			}
+			result, err = Run(ctx, databaseURL, sourceDir)
+			if err != nil || len(result.Applied) != 1 || result.Applied[0] != 57 {
+				t.Fatalf("upgrade from V56: %v %v", result.Applied, err)
+			}
+			conn = connectTestDB(t, ctx, databaseURL)
+			defer conn.Close(ctx)
+			rows, err = conn.Query(ctx, `SELECT version,checksum FROM public.schema_migrations WHERE version<=56 ORDER BY version`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			count := 0
+			for rows.Next() {
+				var version int64
+				var checksum string
+				if err := rows.Scan(&version, &checksum); err != nil {
+					t.Fatal(err)
+				}
+				count++
+				if before[version] != checksum {
+					t.Fatalf("V%d checksum changed: before=%q after=%q", version, before[version], checksum)
+				}
+			}
+			rows.Close()
+			if count != 56 {
+				t.Fatalf("preserved migration rows=%d, want 56", count)
+			}
+		})
+	})
+}
+
 func TestUpgradeFromExistingV46BasePreservesMigrationHistory(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
 		_, sourceFile, _, ok := runtime.Caller(0)

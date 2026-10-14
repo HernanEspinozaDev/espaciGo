@@ -240,9 +240,42 @@ describe('ExplorePage public catalog URL state', () => {
     await RouterTestingHarness.create('/explorar?q=sala+abierta&region_code=13&comuna_code=13123&attribute=wifi%3Atrue&start_at=2026-10-15T12%3A00%3A00.000Z&end_at=2026-10-15T13%3A00%3A00.000Z&min_total_clp=9000&sort=estimated_total_asc');
     await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
     expect(api.publicSearch).toHaveBeenCalledWith(expect.objectContaining({
-      q: 'sala abierta', region_code: '13', comuna_code: '13123', attributes: { wifi: true },
+      q: 'sala abierta', region_code: '13', comuna_code: '13123', attributes: { wifi: { kind: 'boolean', value: true } },
       start_at: '2026-10-15T12:00:00.000Z', end_at: '2026-10-15T13:00:00.000Z', min_total_clp: '9000', sort: 'estimated_total_asc',
     }));
+  });
+
+  it('restores typed range and repeated enum-list values from real Router query parameters',async()=>{
+    const api={publicCategories:vi.fn().mockResolvedValue([]),publicLocations:vi.fn().mockResolvedValue([]),publicAttributeFilters:vi.fn().mockResolvedValue([]),publicSearch:vi.fn().mockResolvedValue({items:[]})};
+    TestBed.configureTestingModule({providers:[...provideFrontendPorts(),provideHttpClient(),provideRouter([{path:'explorar',component:ExplorePage}]),{provide:ExploreApi,useValue:api}]});
+    await RouterTestingHarness.create('/explorar?category_code=sala_multiproposito&attribute=disposiciones_admitidas%3Ain%3Aauditorio&attribute=disposiciones_admitidas%3Ain%3Aaula&attribute=sillas_disponibles%3Agte%3A20');
+    await vi.waitFor(()=>expect(api.publicSearch).toHaveBeenCalledOnce());
+    expect(api.publicSearch.mock.calls[0][0].attributes).toEqual({disposiciones_admitidas:{kind:'enum_list',values:['auditorio','aula']},sillas_disponibles:{kind:'range',minimum:'20'}});
+  });
+
+  it('restores CSV enum-list values and canonicalizes them in the Router URL', async () => {
+    const api = { publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }) };
+    TestBed.configureTestingModule({ providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }] });
+    const harness = await RouterTestingHarness.create('/explorar?category_code=oficina&attribute=climatizacion%3Ain%3Acalefaccion%2Caire_acondicionado&attribute=climatizacion%3Ain%3Arefrigeracion');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    expect(api.publicSearch.mock.calls[0][0].attributes).toEqual({ climatizacion: { kind: 'enum_list', values: ['calefaccion', 'aire_acondicionado', 'refrigeracion'] } });
+    await page.search();
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+    expect(TestBed.inject(Router).url).toContain('attribute=climatizacion:in:aire_acondicionado,calefaccion,refrigeracion');
+    expect(page.filters().attributes['climatizacion']).toEqual({ kind: 'enum_list', values: ['aire_acondicionado', 'calefaccion', 'refrigeracion'] });
+  });
+
+  it.each([
+    'climatizacion:in:aire_acondicionado,aire_acondicionado',
+    'climatizacion:in:aire_acondicionado&attribute=climatizacion:in:aire_acondicionado',
+    'climatizacion:in:aire_acondicionado&attribute=climatizacion:eq:aire_acondicionado',
+  ])('rejects duplicate or ambiguous list options in the Router URL: %s', async (raw) => {
+    const api = { publicCategories: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }) };
+    TestBed.configureTestingModule({ providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }] });
+    await RouterTestingHarness.create(`/explorar?category_code=oficina&attribute=${encodeURIComponent(raw.split('&')[0])}${raw.includes('&attribute=') ? `&attribute=${encodeURIComponent(raw.split('&attribute=')[1])}` : ''}`);
+    await vi.waitFor(() => expect(api.publicCategories).toHaveBeenCalledOnce());
+    expect(api.publicSearch).not.toHaveBeenCalled();
   });
 
   it.each(['success', 'error'] as const)(

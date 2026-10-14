@@ -2,6 +2,7 @@ package publiccatalog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -30,10 +31,27 @@ type Location struct {
 }
 
 type AttributeFilter struct {
-	Code           string `json:"code"`
-	Label          string `json:"label"`
-	Type           string `json:"type"`
-	ProfileVersion int    `json:"profile_version"`
+	Code           string       `json:"code"`
+	Label          string       `json:"label"`
+	Type           string       `json:"type"`
+	Order          int          `json:"order"`
+	Unit           string       `json:"unit,omitempty"`
+	Options        []string     `json:"options,omitempty"`
+	Minimum        *json.Number `json:"minimum,omitempty"`
+	Maximum        *json.Number `json:"maximum,omitempty"`
+	Step           *json.Number `json:"step,omitempty"`
+	ProfileVersion int          `json:"profile_version"`
+}
+
+// AttributePredicate is a validated public filter expression. Boolean filters
+// retain the legacy Attributes map; other profile types use one equality/list
+// value or an inclusive decimal range. Type is filled from the server profile.
+type AttributePredicate struct {
+	Type    string   `json:"type,omitempty"`
+	Minimum *string  `json:"minimum,omitempty"`
+	Maximum *string  `json:"maximum,omitempty"`
+	Value   *string  `json:"value,omitempty"`
+	Values  []string `json:"values,omitempty"`
 }
 
 // Space is an intentional public projection. It contains no owner, address,
@@ -87,6 +105,7 @@ type Filters struct {
 	CommuneCode      string
 	MinAreaM2        string
 	Attributes       map[string]bool
+	TypedAttributes  map[string]AttributePredicate
 	AttributeVersion int
 	StartAt          *time.Time
 	EndAt            *time.Time

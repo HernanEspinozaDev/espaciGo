@@ -1,3 +1,5 @@
+import { decodePublicAttributeFilters, encodePublicAttributeFilters } from '../public-attribute-filter-codec';
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CATALOG_KEYS = new Set([
   'q',
@@ -176,14 +178,10 @@ export function canonicalCatalogReturn(value: string): string | null {
     if (sort.startsWith('estimated_total_') && !start) return null;
 
     const attributes = values.get('attribute') ?? [];
-    if (attributes.length > 8 || (attributes.length && !category)) return null;
-    const seen = new Set<string>();
-    for (const attribute of attributes) {
-      const match = /^([a-z][a-z0-9_]{0,79}):(true|false)$/.exec(attribute);
-      if (!match || seen.has(match[1])) return null;
-      seen.add(match[1]);
-    }
-    for (const attribute of [...attributes].sort()) query.append('attribute', attribute);
+    if (attributes.length && !category) return null;
+    const decodedAttributes = decodePublicAttributeFilters(attributes);
+    if (decodedAttributes === null) return null;
+    for (const attribute of encodePublicAttributeFilters(decodedAttributes)) query.append('attribute', attribute);
 
     const encoded = query.toString();
     return encoded ? `/explorar?${encoded}` : '/explorar';

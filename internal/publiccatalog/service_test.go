@@ -2,7 +2,10 @@ package publiccatalog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -13,7 +16,8 @@ func (m memoryRepository) Categories(context.Context) ([]Category, error) {
 }
 func (m memoryRepository) HasActiveCategory(context.Context, string) (bool, error) { return true, nil }
 func (m memoryRepository) AttributeFilters(context.Context, string) ([]AttributeFilter, error) {
-	return []AttributeFilter{{Code: "wifi", Type: "boolean", ProfileVersion: 1}}, nil
+	min, max, step := json.Number("0.01"), json.Number("99.99"), json.Number("0.01")
+	return []AttributeFilter{{Code: "wifi", Type: "boolean", ProfileVersion: 1}, {Code: "altura", Type: "number", Minimum: &min, Maximum: &max, Step: &step, ProfileVersion: 1}, {Code: "uso", Type: "enum", Options: []string{"privada", "compartida"}, ProfileVersion: 1}, {Code: "equipo", Type: "enum_list", Options: []string{"wifi", "proyector"}, ProfileVersion: 1}}, nil
 }
 func (m memoryRepository) HasRegion(context.Context, string) (bool, error)          { return true, nil }
 func (m memoryRepository) HasCommune(context.Context, string, string) (bool, error) { return true, nil }
@@ -82,3 +86,40 @@ func TestListAcceptsStableTitleSorts(t *testing.T) {
 		}
 	}
 }
+
+func TestTypedPredicatesAreProfileValidatedAndCursorVersioned(t *testing.T) {
+	svc, _ := New(memoryRepository{}, []byte("01234567890123456789012345678901"))
+	min := "1.23"
+	valid := Filters{CategoryCode: "oficina", PageSize: 20, TypedAttributes: map[string]AttributePredicate{"altura": {Minimum: &min}, "uso": {Value: stringPointer("privada")}, "equipo": {Values: []string{"wifi", "proyector"}}}}
+	if _, err := svc.List(context.Background(), valid); err != nil {
+		t.Fatalf("valid typed predicates rejected: %v", err)
+	}
+	for _, predicate := range []AttributePredicate{{Minimum: stringPointer("1.234")}, {Minimum: stringPointer("100")}, {Value: stringPointer("foreign")}, {Values: []string{"wifi", "wifi"}}} {
+		f := Filters{CategoryCode: "oficina", PageSize: 20, TypedAttributes: map[string]AttributePredicate{"altura": predicate}}
+		if _, err := svc.List(context.Background(), f); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("invalid predicate accepted: %#v / %v", predicate, err)
+		}
+	}
+	if _, err := svc.List(context.Background(), Filters{CategoryCode: "oficina", TypedAttributes: map[string]AttributePredicate{"altura": {Type: "integer", Minimum: &min}}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("type-mismatched predicate accepted: %v", err)
+	}
+	if _, err := svc.List(context.Background(), Filters{TypedAttributes: map[string]AttributePredicate{"altura": {Minimum: &min}}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("filter without category accepted: %v", err)
+	}
+	tooMany := Filters{TypedAttributes: make(map[string]AttributePredicate, 17)}
+	for i := 0; i < 17; i++ {
+		tooMany.TypedAttributes[fmt.Sprintf("attribute_%02d", i)] = AttributePredicate{Minimum: &min}
+	}
+	if err := validate(&tooMany); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("more than 16 typed fields accepted: %v", err)
+	}
+	cursor, err := svc.encodeCursor(Cursor{Version: cursorVersion, LastSpaceID: "00000000-0000-0000-0000-000000000001"})
+	if err != nil || !strings.HasPrefix(cursor, "v3.") {
+		t.Fatalf("typed cursor version missing: %q %v", cursor, err)
+	}
+	if _, err := svc.decodeCursor(strings.Replace(cursor, "v3.", "v2.", 1)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("old cursor unexpectedly accepted: %v", err)
+	}
+}
+
+func stringPointer(value string) *string { return &value }

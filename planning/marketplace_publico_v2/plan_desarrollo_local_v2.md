@@ -1,7 +1,7 @@
 # Desarrollo local versión 2 del marketplace público
 
 **Identificador:** MARKETPLACE-LOCAL-2. **Cortes:** MPV2-00–MPV2-13.
-**Fecha:** 2026-10-13. **Estado:** MPV2-00–09 fusionados técnicamente; MPV2-09 NO aceptado, cambios solicitados por el usuario; MPV2-10 autorizado y en desarrollo. La aceptación final de producto sigue pendiente.
+**Fecha:** 2026-10-14. **Estado:** MPV2-00–10 fusionados técnicamente; MPV2-10 en PR #304 (`5029a1ab73f4e9c365d5352299849b7dbe80991f`); MPV2-11 implementado y verificado técnicamente; [PR #305](https://github.com/HernanEspinozaDev/espaciGo/pull/305) actualizado con correcciones solicitadas en `f35c143ba95d872566093131b7d3eeae6ef1f93b`. Revisión y aceptación de producto pendientes.
 
 ## 1. Objetivo y base de trabajo
 
@@ -250,4 +250,4 @@ MPV2-00 está revisado y fusionado en PR #294 (merge 916176c85186fa95fa84d999112
 
 MPV2-09 fusionó documentación y evidencia para revisión sobre el código `6075b7800b45f15e779d11c3ab5853dadd26238e`; no añade migraciones, cambios Go/OpenAPI ni alcance funcional. El usuario revisó y pidió cambios: ordenamiento usable, ubicación de categoría después de Buscar, filtros/resultados por categoría y jerarquía explícita entre borradores y criterios aplicados. Por tanto MPV2-09 se registra **NO aceptado / cambios solicitados**, aunque sus fusiones técnicas e historial siguen válidos. La pila local aislada, los datos y las credenciales privadas continúan conservados en su worktree dedicado, sin actualizarlo durante los nuevos cortes. La evidencia FE-14 temporal pasó 7/7; la pila de revisión se mantiene a petición del usuario. Guía y criterio de decisión: [aceptacion_mpv2_09.md](aceptacion_mpv2_09.md); capturas/hashes: [evidencia MPV2-09](evidencia/mpv2_09/README.md).
 
-La ampliación autorizada y las decisiones UX/contrato se versionan en [plan de perfeccionamiento público](plan_perfeccionamiento_publico.md). MPV2-10–13 son cortes de la misma MARKETPLACE-LOCAL-2, no una rama permanente nueva. No iniciar MPV2-11 hasta fusionar MPV2-10.
+La ampliación autorizada y las decisiones UX/contrato se versionan en [plan de perfeccionamiento público](plan_perfeccionamiento_publico.md). MPV2-10–13 son cortes de la misma MARKETPLACE-LOCAL-2, no una rama permanente nueva. MPV2-10 se fusionó en PR #304, merge `5029a1ab73f4e9c365d5352299849b7dbe80991f`; aceptación de producto pendiente. MPV2-11 es el corte actual; su evidencia técnica está en `evidencia/mpv2_11/README.md`. No iniciar MPV2-12 hasta la fusión de MPV2-11.

@@ -31,9 +31,9 @@ Estas instrucciones se aplican al monorepo. Se complementan con `frontend/AGENTS
 
 ## MARKETPLACE-LOCAL-2
 
-- Seguir `planning/marketplace_publico_v2/plan_desarrollo_local_v2.md`, `planning/marketplace_publico_v2/plan_perfeccionamiento_publico.md` y su matriz. MPV2-00–09 conservan su historial técnico fusionado; el usuario solicitó cambios a MPV2-09 y su aceptación de producto sigue pendiente. Continuar con MPV2-10–13, uno por rama/PR y con revisión/fusión entre cortes.
+- Seguir `planning/marketplace_publico_v2/plan_desarrollo_local_v2.md`, `planning/marketplace_publico_v2/plan_perfeccionamiento_publico.md` y su matriz. MPV2-00–09 conservan su historial técnico fusionado. MPV2-10 se fusionó en PR #304 (merge `5029a1ab73f4e9c365d5352299849b7dbe80991f`); su aceptación de producto sigue pendiente. MPV2-11 es el corte vigente; no iniciar MPV2-12 antes de fusionarlo.
 - Orden dentro del corte: datos/migraciones → Go/OpenAPI → Angular → evidencia del recorrido. Preparar trabajo entre capas cuando el contrato lo permita, sin aceptar integración solo con respuestas simuladas.
-- Mantener V1–V56 y toda migración aplicada byte a byte. Agregar nuevas migraciones, probar base vacía y actualización; no reescribir historial.
+- Mantener V1–V56 y toda migración aplicada byte a byte. MPV2-11 puede agregar V57; probar base vacía y actualización desde V56, sin reescribir historial.
 - Go conserva reglas y autorización; Angular usa features, hexagonal ligera selectiva, TypeScript estricto, Signals, adaptadores OpenAPI y SCSS/tokens. No hacer HTTP en presentación ni introducir rutas/transporte en fachadas de aplicación.
 - No basta quitar guards: lecturas públicas necesitan DTO minimizado, política de publicación y acceso controlado a fotos. Mantener privadas reservas, identidad, contratos, pagos, evidencia y administración.
 - Conservar las ocho categorías y unidades CLP hora/día/mes hasta una nueva decisión de producto. No presentar visitas/postulaciones, fotos reales, pagos reales o GCP como implementados.
