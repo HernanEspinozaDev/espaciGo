@@ -10,7 +10,7 @@ Capturas nuevas tomadas contra la demo local de la fusión MPV2-08 `6075b7800b45
 | Go API (imagen local) | `sha256:1386ace7e953ebd7667b871c06680083ee12c882c1578dad6ff96cc3ae26e0bd` |
 | Angular SSR (imagen local) | `sha256:21ab9438ee9ff7b2acbad2630de9cd8da6126f20eff31fd3511bae556692e5be`; Angular/CLI 22.2.2; Node 24.21.0 |
 | PostgreSQL/PostGIS (imagen local) | `sha256:f9a5b07f10547e721d54ef765bb3fca8b2ec67684e57f829e1f154ddcbb409d2`; PostgreSQL 18.6 |
-| Playwright E2E runner (solo test, no servicio de demo) | `sha256:f22408b7928ef53f709d11c3ab5853dadd26238e` — build local del runner v1.56.1 |
+| Playwright E2E runner (solo test, no servicio de demo) | `sha256:f22408b7928ef53f709d0cd0447c410e7e9882b1b9f1296348d55f0515f8f0ab` — build local del runner v1.56.1 |
 | Mailpit | v1.31.4, imagen fijada `sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48` |
 | Base PostGIS | PostgreSQL 18 / PostGIS 3.6, digest `sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677` |
 | Migraciones en la demo | V1–V56; máximo aplicado V56; MPV2-09 no agrega migración |
