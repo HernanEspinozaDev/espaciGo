@@ -1,0 +1,28 @@
+{
+  "source_commit": "6075b7800b45f15e779d11c3ab5853dadd26238e",
+  "captured_at": "2026-10-13T23:59:33.788Z",
+  "role": "visitor anonymous",
+  "state": "synthetic data",
+  "page": "http://angular-frontend:4000/espacios/78c89560-1e18-4dcd-9526-bd4c524f5f66?returnTo=%2Fexplorar%3Fq%3DDemo%2520sint%25C3%25A9tica%2520MPV2-09%2520Bodega",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "document": {
+    "width": 390,
+    "height": 1829
+  },
+  "image_sha256": "c42b47057b2c3c926b0470371dbcd8d9ad1d07903952ff91fd12c35f59cec7de",
+  "listing": {
+    "id": "78c89560-1e18-4dcd-9526-bd4c524f5f66",
+    "title": "Demo sintética MPV2-09 Bodega",
+    "category": "bodega",
+    "rate_unit": "dia",
+    "price_clp": 35000,
+    "photo_id": "59c9eaf9-b684-44dd-9e6d-5ab6a172d7ec",
+    "withdrawn": false
+  },
+  "public_site_origin": "http://127.0.0.1:18782",
+  "capture_browser_origin": "http://angular-frontend:4000 (E2E container attached to this isolated Compose network)",
+  "capture_method": "Playwright Chromium; application source commit recorded in sidecar"
+}
