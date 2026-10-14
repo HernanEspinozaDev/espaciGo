@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -99,8 +100,18 @@ func TestTypedPredicatesAreProfileValidatedAndCursorVersioned(t *testing.T) {
 			t.Fatalf("invalid predicate accepted: %#v / %v", predicate, err)
 		}
 	}
+	if _, err := svc.List(context.Background(), Filters{CategoryCode: "oficina", TypedAttributes: map[string]AttributePredicate{"altura": {Type: "integer", Minimum: &min}}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("type-mismatched predicate accepted: %v", err)
+	}
 	if _, err := svc.List(context.Background(), Filters{TypedAttributes: map[string]AttributePredicate{"altura": {Minimum: &min}}}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("filter without category accepted: %v", err)
+	}
+	tooMany := Filters{TypedAttributes: make(map[string]AttributePredicate, 17)}
+	for i := 0; i < 17; i++ {
+		tooMany.TypedAttributes[fmt.Sprintf("attribute_%02d", i)] = AttributePredicate{Minimum: &min}
+	}
+	if err := validate(&tooMany); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("more than 16 typed fields accepted: %v", err)
 	}
 	cursor, err := svc.encodeCursor(Cursor{Version: cursorVersion, LastSpaceID: "00000000-0000-0000-0000-000000000001"})
 	if err != nil || !strings.HasPrefix(cursor, "v3.") {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
@@ -89,6 +90,17 @@ func TestPublicTypedAttributeSyntaxRejectsAmbiguity(t *testing.T) {
 				t.Fatalf("accepted=%v want=%v", ok, tc.ok)
 			}
 		})
+	}
+}
+
+func TestPublicAttributeQueryLimit(t *testing.T) {
+	values := url.Values{}
+	for i := 0; i < 33; i++ {
+		values.Add("attribute", "equipo:in:option")
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces?"+values.Encode(), nil)
+	if _, ok := publicFilters(request); ok {
+		t.Fatal("accepted more than 32 repeated attribute filter values")
 	}
 }
 
