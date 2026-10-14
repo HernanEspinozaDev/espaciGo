@@ -34,9 +34,9 @@ type ExploreFilters = {
 };
 type ExploreCriterion = Exclude<keyof ExploreFilters, 'cursor'>;
 export type SortRequirement = { target: 'query' | 'rate_unit' | 'start_at'; message: string; action: string };
-export type CatalogPresentation = { view: 'list' | 'grid'; desktopColumns: 2 | 3 | 4; mobileColumns: 1 | 2 };
 type CriteriaPageCache = { cursors: string[]; pages: Map<string, PublicSpace[]>; nextCursors: Map<string, string> };
-const DEFAULT_PRESENTATION: CatalogPresentation = { view: 'list', desktopColumns: 3, mobileColumns: 2 };
+const LEGACY_PRESENTATION_PARAMS = { view: null, desktop_columns: null, mobile_columns: null };
+const LEGACY_PRESENTATION_KEYS = Object.keys(LEGACY_PRESENTATION_PARAMS);
 
 @Injectable()
 export class ExploreFacade implements OnInit {
@@ -81,7 +81,6 @@ export class ExploreFacade implements OnInit {
   });
   readonly hasUnappliedChanges = computed(() => criteriaSignature(this.filters()) !== criteriaSignature(this.appliedFilters()));
   readonly pendingSort = signal('');
-  readonly presentation = signal<CatalogPresentation>(DEFAULT_PRESENTATION);
 
   constructor() {
     this.title.setTitle('Explorar espacios | EspaciGo');
@@ -110,17 +109,13 @@ export class ExploreFacade implements OnInit {
     this.invalidateCriteria();
   }
 
-  setPresentation(patch: Partial<CatalogPresentation>): void {
-    const next = { ...this.presentation(), ...patch };
-    this.presentation.set(next);
-    void this.router.navigate([], { relativeTo: this.route, queryParams: encodePresentation(next), queryParamsHandling: 'merge', replaceUrl: false });
-  }
-
   async changePageSize(value: number): Promise<void> {
-    if (![12, 20, 24].includes(value) || this.busy() || this.hasUnappliedChanges()) return;
+    const current = this.appliedFilters().page_size;
+    if (![12, 24, 48].includes(value) && !(value === 20 && current === 20)) return;
+    if (this.busy() || this.hasUnappliedChanges()) return;
     const next = { ...this.appliedFilters(), page_size: value, cursor: '' };
     this.filters.set(next);
-    await this.router.navigate([], { relativeTo: this.route, queryParams: { ...encodeFilters(next), ...encodePresentation(this.presentation()) }, replaceUrl: false });
+    await this.router.navigate([], { relativeTo: this.route, queryParams: { ...encodeFilters(next), ...LEGACY_PRESENTATION_PARAMS }, replaceUrl: false });
   }
 
   setAttribute(code: string, value: PublicAttributePredicate | boolean | null): void {
@@ -155,7 +150,7 @@ export class ExploreFacade implements OnInit {
     if (!this.validateForSearch(filters)) return;
     if (requestedSort) this.pendingSort.set('');
     this.filters.set(filters);
-    const queryParams = { ...encodeFilters(filters), ...encodePresentation(this.presentation()) };
+    const queryParams = { ...encodeFilters(filters), ...LEGACY_PRESENTATION_PARAMS };
     if (!sameOwnedQuery(this.route.snapshot.queryParamMap, queryParams)) {
       this.navigationPending = true;
       await this.router.navigate([], {
@@ -264,7 +259,7 @@ export class ExploreFacade implements OnInit {
 
   detailLink(spaceId: string): UrlTree {
     const routeFilters = decodeFilters(this.route.snapshot.queryParamMap).filters ?? this.appliedFilters();
-    const queryParams = { ...encodeFilters({ ...routeFilters, cursor: '' }), ...encodePresentation(decodePresentation(this.route.snapshot.queryParamMap)) };
+    const queryParams = { ...encodeFilters({ ...routeFilters, cursor: '' }), ...LEGACY_PRESENTATION_PARAMS };
     const listing = this.router.serializeUrl(
       this.router.createUrlTree(['/explorar'], { queryParams }),
     );
@@ -296,7 +291,7 @@ export class ExploreFacade implements OnInit {
     const next = this.nextCursor();
     if (!next || this.busy() || this.navigationPending) return;
     const filters = { ...this.appliedFilters(), cursor: next };
-    const queryParams = { ...encodeFilters(filters), ...encodePresentation(this.presentation()) };
+    const queryParams = { ...encodeFilters(filters), ...LEGACY_PRESENTATION_PARAMS };
     if (sameOwnedQuery(this.route.snapshot.queryParamMap, queryParams)) return;
     this.navigationPending = true;
     void this.router
@@ -311,8 +306,10 @@ export class ExploreFacade implements OnInit {
   publicImageUrl(spaceId: string, imageId: string): string { return this.api.publicImageUrl(spaceId, imageId); }
 
   private loadFromRoute(params: ParamMap): void {
-    const presentation = decodePresentation(params);
-    this.presentation.set(presentation);
+    if (LEGACY_PRESENTATION_KEYS.some((key) => params.has(key))) {
+      void this.router.navigate([], { relativeTo: this.route, queryParams: LEGACY_PRESENTATION_PARAMS, queryParamsHandling: 'merge', replaceUrl: true });
+      return;
+    }
     const decoded = decodeFilters(params);
     if (!decoded.filters) {
       this.invalidateCriteria();
@@ -436,8 +433,8 @@ export class ExploreFacade implements OnInit {
   }
 
   private validateForSearch(filters: ExploreFilters): boolean {
-    if (!Number.isInteger(filters.page_size) || filters.page_size < 1 || filters.page_size > 25) {
-      this.error.set('El tamaño de página debe estar entre 1 y 25.');
+    if (!Number.isInteger(filters.page_size) || filters.page_size < 1 || filters.page_size > 48) {
+      this.error.set('El tamaño de página debe estar entre 1 y 48.');
       this.busy.set(false);
       return false;
     }
@@ -561,25 +558,6 @@ function encodeFilters(filters: ExploreFilters): Record<string, string | string[
     min_area_m2: filters.min_area_m2 || null, start_at: filters.start_at || null, end_at: filters.end_at || null,
     min_total_clp: filters.min_total_clp || null, max_total_clp: filters.max_total_clp || null,
     attribute: encodePublicAttributeFilters(filters.attributes),
-  };
-}
-
-function decodePresentation(params: ParamMap): CatalogPresentation {
-  const view = params.get('view');
-  const desktop = Number(params.get('desktop_columns'));
-  const mobile = Number(params.get('mobile_columns'));
-  return {
-    view: view === 'grid' ? 'grid' : 'list',
-    desktopColumns: desktop === 2 || desktop === 4 ? desktop : 3,
-    mobileColumns: mobile === 1 ? 1 : 2,
-  };
-}
-
-function encodePresentation(value: CatalogPresentation): Record<string, string | null> {
-  return {
-    view: value.view === 'list' ? null : value.view,
-    desktop_columns: value.desktopColumns === 3 ? null : String(value.desktopColumns),
-    mobile_columns: value.mobileColumns === 2 ? null : String(value.mobileColumns),
   };
 }
 

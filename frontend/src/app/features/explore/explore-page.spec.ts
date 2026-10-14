@@ -24,31 +24,26 @@ const publicSpace = (id: string) => ({
 describe('ExplorePage public catalog URL state', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('changes presentation in the URL without refetching or overwriting filter drafts', async () => {
+  it('strips safe legacy layout parameters without refetching or overwriting filter drafts', async () => {
     const api = { publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }) };
     TestBed.configureTestingModule({ providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }] });
-    const harness = await RouterTestingHarness.create('/explorar?q=aplicado&view=grid&desktop_columns=4&page_size=20');
+    const harness = await RouterTestingHarness.create('/explorar?q=aplicado&view=grid&desktop_columns=4&mobile_columns=1&page_size=20');
     const page = harness.routeDebugElement!.componentInstance as ExplorePage;
     await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(TestBed.inject(Router).url).not.toMatch(/view=|desktop_columns=|mobile_columns=/));
     page.updateFilter('q', 'borrador');
-    expect(page.presentation()).toMatchObject({ view: 'grid', desktopColumns: 4 });
-    page.setPresentation({ mobileColumns: 1 });
-    await vi.waitFor(() => expect(TestBed.inject(Router).url).toContain('mobile_columns=1'));
+    const detailHref = TestBed.inject(Router).serializeUrl(page.detailLink('space-1'));
+    expect(detailHref).toContain('page_size%3D20');
+    expect(detailHref).not.toMatch(/view|desktop_columns|mobile_columns/);
+    await TestBed.inject(Router).navigateByUrl('/explorar?q=aplicado&page_size=20&view=list');
+    await vi.waitFor(() => expect(TestBed.inject(Router).url).not.toContain('view='));
     expect(api.publicSearch).toHaveBeenCalledOnce();
     expect(page.filters().q).toBe('borrador');
     expect(page.appliedFilters().q).toBe('aplicado');
-    const detailHref = TestBed.inject(Router).serializeUrl(page.detailLink('space-1'));
-    expect(detailHref).toContain('view%3Dgrid');
-    expect(detailHref).toContain('desktop_columns%3D4');
-    expect(detailHref).toContain('mobile_columns%3D1');
-    expect(detailHref).toContain('page_size%3D20');
-    await TestBed.inject(Router).navigateByUrl('/explorar?q=aplicado&page_size=20&view=list');
-    expect(page.presentation().view).toBe('list');
-    expect(page.filters().q).toBe('borrador');
-    expect(api.publicSearch).toHaveBeenCalledOnce();
+    expect(harness.routeNativeElement!.querySelector('[aria-label="Vista de resultados"]')).toBeNull();
   });
 
-  it('updates catalog robots metadata on base, presentation, and draft navigation without refetching', async () => {
+  it('updates catalog robots metadata while canonicalizing legacy layout URLs without another fetch', async () => {
     const seo = { catalog: vi.fn(), responseForApiError: vi.fn() };
     const api = { publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }) };
     TestBed.configureTestingModule({ providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }, { provide: PublicPageSeo, useValue: seo }] });
@@ -56,16 +51,17 @@ describe('ExplorePage public catalog URL state', () => {
     const page = harness.routeDebugElement!.componentInstance as ExplorePage;
     await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(seo.catalog).toHaveBeenLastCalledWith(false));
-    page.setPresentation({ view: 'grid' });
-    await vi.waitFor(() => expect(TestBed.inject(Router).url).toContain('view=grid'));
-    expect(seo.catalog).toHaveBeenLastCalledWith(true);
-    await TestBed.inject(Router).navigateByUrl('/explorar');
+    await TestBed.inject(Router).navigateByUrl('/explorar?view=grid&desktop_columns=4&mobile_columns=1');
+    await vi.waitFor(() => expect(TestBed.inject(Router).url).toBe('/explorar'));
     expect(seo.catalog).toHaveBeenLastCalledWith(false);
     page.updateFilter('q', 'draft');
-    page.setPresentation({ view: 'grid' });
-    await vi.waitFor(() => expect(TestBed.inject(Router).url).toContain('view=grid'));
+    await page.search();
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
     expect(seo.catalog).toHaveBeenLastCalledWith(true);
-    expect(api.publicSearch).toHaveBeenCalledOnce();
+    await TestBed.inject(Router).navigateByUrl('/explorar?q=draft&view=list');
+    await vi.waitFor(() => expect(TestBed.inject(Router).url).toBe('/explorar?q=draft'));
+    expect(seo.catalog).toHaveBeenLastCalledWith(true);
+    expect(api.publicSearch).toHaveBeenCalledTimes(2);
   });
 
   it('reports loaded results and request batch size across pagination history', async () => {
@@ -194,7 +190,7 @@ describe('ExplorePage public catalog URL state', () => {
     await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
     page.requestSort('unit_price_asc');
     harness.detectChanges();
-    const option = harness.routeNativeElement!.querySelector<HTMLSelectElement>('.desktop-sort select option[value="unit_price_asc"]');
+    const option = harness.routeNativeElement!.querySelector<HTMLSelectElement>('.catalog-sort select option[value="unit_price_asc"]');
     expect(option?.disabled).toBe(false);
     expect(harness.routeNativeElement!.textContent).toContain('No se mezclan tarifas de distintas unidades');
     const chooseUnit = [...harness.routeNativeElement!.querySelectorAll('button')]
@@ -266,7 +262,7 @@ describe('ExplorePage public catalog URL state', () => {
     expect(TestBed.inject(Router).url).toBe('/explorar');
   });
 
-  it('focuses the real interval start input from desktop and mobile sort guidance', async () => {
+  it('focuses the real interval start input from catalog sort guidance', async () => {
     const api = {
       publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]),
       publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }),
@@ -286,16 +282,9 @@ describe('ExplorePage public catalog URL state', () => {
     await vi.waitFor(() => expect(element.ownerDocument.activeElement).toBe(element.querySelector('#start-at')));
 
     page.cancelSort();
-    page.openFilters(element.querySelector('.filter-toggle') as HTMLElement);
-    harness.detectChanges();
-    page.updateFilter('sort', 'estimated_total_asc');
-    harness.detectChanges();
-    expect(element.querySelector('[role="dialog"]')).not.toBeNull();
-    element.querySelector<HTMLButtonElement>('.filters .sort-guidance .text-action')!.click();
-    await vi.waitFor(() => expect(element.ownerDocument.activeElement).toBe(element.querySelector('#start-at')));
   });
 
-  it('keeps the mobile filter dialog open when a sort prerequisite needs completion', async () => {
+  it('keeps the mobile filter dialog open while editing filters', async () => {
     const api = {
       publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]),
       publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }),
@@ -308,12 +297,10 @@ describe('ExplorePage public catalog URL state', () => {
     await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
     page.openFilters(harness.routeNativeElement!.querySelector('.filter-toggle') as HTMLElement);
     harness.detectChanges();
-    page.updateFilter('sort', 'unit_price_asc');
-    await page.submitSearch();
+    page.updateFilter('q', 'sala');
     harness.detectChanges();
     expect(harness.routeNativeElement!.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(harness.routeNativeElement!.textContent).toContain('Para comparar precios');
-    expect([...harness.routeNativeElement!.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Elegir modalidad')).toBe(true);
+    expect(harness.routeNativeElement!.querySelector<HTMLInputElement>('#catalog-search')?.value).toBe('sala');
     expect(api.publicSearch).toHaveBeenCalledOnce();
   });
 

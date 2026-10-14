@@ -345,7 +345,7 @@ WITH host AS (
       'Publicación sintética comercial para filtros tipados, recreable en el Compose desechable de FE-14. Solo datos ficticios para verificar la búsqueda pública.',
       30,20,'Uso sintético','hora',12000,'Dirección privada sintética','activa','America/Santiago',
       'SUBDERE_DPA_2018','13','13123'
-  FROM host CROSS JOIN fixtures CROSS JOIN generate_series(1,4) AS series(n)
+  FROM host CROSS JOIN fixtures CROSS JOIN generate_series(1,7) AS series(n)
   RETURNING id,categoria_codigo,titulo
 )
 INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
@@ -386,12 +386,12 @@ if [[ "${FE14_RUN_PUBLIC_CATALOG_ORDERING_INTEGRATION:-0}" == "1" ]]; then
     golang:1.27.1-alpine3.24 /tmp/publiccatalog-ordering.test -test.run '^TestLocalPublicCatalogQueryPlanAndSitemapPaging$' -test.count=1 -test.v
   unset admin_password
 fi
-printf 'PASS disposable FE-14 database contains more than 24 eligible synthetic public listings with varied categories, rates, and attributes\n'
+printf 'PASS disposable FE-14 database contains more than 48 eligible synthetic public listings with varied categories, rates, and attributes\n'
 
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
 if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
   printf 'Running focused anonymous public catalog journey\n'
-  PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-MPV2-07 serves public catalog|MPV2-10 orders real Go results|MPV2-12 catalog layout|MPV2-04 host declares|Removing applied filter chips|Mobile filter dialog|Contextual registration and verification|Contextual login returns}"
+  PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-MPV2-07 serves public catalog|MPV2-10 orders real Go results|MPV2-13 serves real 48-item keyset pages|MPV2-13 renders a fixed four-column desktop catalog and a one-column mobile list|MPV2-04 host declares|Removing applied filter chips|Mobile filter dialog|Contextual registration and verification|Contextual login returns}"
   "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep "$PUBLIC_TEST_GREP" >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
   cat "$STATE_DIR/e2e.log"
   "${compose[@]}" stop backend >/dev/null

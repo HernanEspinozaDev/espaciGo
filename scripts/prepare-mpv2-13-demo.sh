@@ -46,5 +46,5 @@ FE14_RETAIN_STACK=1 \
 FE14_PUBLIC_ONLY=1 \
 FE14_PORT_BASE="$BASE_PORT" \
 FE14_EVIDENCE_OUTPUT_DIR="$EVIDENCE_DIR" \
-FE14_PUBLIC_TEST_GREP='MPV2-07 serves public catalog|Anonymous visitor explores the Go-backed public catalog and minimized detail|MPV2-12 catalog layout|MPV2-13 captures the served catalog|MPV2-04 host declares a photo public' \
+FE14_PUBLIC_TEST_GREP='MPV2-07 serves public catalog|Anonymous visitor explores the Go-backed public catalog and minimized detail|MPV2-13 renders a fixed four-column desktop catalog and a one-column mobile list|MPV2-13 serves real 48-item keyset pages|MPV2-04 host declares a photo public' \
   bash "$ROOT_DIR/scripts/test-frontend-e2e.sh"

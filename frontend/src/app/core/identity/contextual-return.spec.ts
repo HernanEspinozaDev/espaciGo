@@ -67,9 +67,11 @@ describe('contextual identity return', () => {
     expect(canonicalCatalogReturn('/explorar?category_code=bodega&attribute=altura:gte:1&attribute=altura:gte:2')).toBeNull();
   });
 
-  it('preserves valid presentation choices and rejects unsupported values', () => {
+  it('accepts safe legacy presentation URLs, strips preferences, and rejects unsupported values', () => {
     expect(canonicalCatalogReturn('/explorar?view=grid&desktop_columns=4&mobile_columns=1&page_size=20'))
-      .toBe('/explorar?page_size=20&view=grid&desktop_columns=4&mobile_columns=1');
+      .toBe('/explorar?page_size=20');
+    expect(canonicalCatalogReturn('/explorar?view=list&desktop_columns=2&mobile_columns=2&page_size=48'))
+      .toBe('/explorar?page_size=48');
     expect(canonicalCatalogReturn('/explorar?view=cards')).toBeNull();
     expect(canonicalCatalogReturn('/explorar?desktop_columns=5')).toBeNull();
   });

@@ -30,7 +30,7 @@ paths:
       - {in: query, name: min_total_clp, schema: {type: integer, format: int64, minimum: 0}}
       - {in: query, name: max_total_clp, schema: {type: integer, format: int64, minimum: 0}}
       - {in: query, name: sort, description: "default ordena por categoría y título; title_asc/title_desc comparan título normalizado con space_id estable. Las tarifas requieren rate_unit explícito, relevance requiere q y total estimado requiere inicio/fin.", schema: {type: string, enum: [default, title_asc, title_desc, unit_price_asc, unit_price_desc, relevance, estimated_total_asc, estimated_total_desc], default: default}}
-      - {in: query, name: page_size, schema: {type: integer, minimum: 1, maximum: 25, default: 20}}
+      - {in: query, name: page_size, description: 'Tamaño de página limitado por cursor keyset. Conserva valores históricos 1–25 y admite hasta 48.', schema: {type: integer, minimum: 1, maximum: 48, default: 20}}
       - {in: query, name: cursor, schema: {type: string, maxLength: 4096}}
       responses:
         '200': {description: Página pública minimizada, content: {application/json: {schema: {$ref: '#/components/schemas/PublicSpacePage'}}}}

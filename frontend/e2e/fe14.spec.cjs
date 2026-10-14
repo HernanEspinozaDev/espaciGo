@@ -113,8 +113,10 @@ test('MPV2-07 serves public catalog, detail, metadata, and sitemap from Go witho
   expect(filteredHtml).toContain('name="robots" content="noindex, follow"');
   expect(filteredHtml).toContain(`<link rel="canonical" href="${origin}/explorar">`);
   const presentationHtml = await (await request.get(`${frontend}/explorar?view=grid&desktop_columns=4&mobile_columns=1`)).text();
-  expect(presentationHtml).toContain('name="robots" content="noindex, follow"');
+  expect(presentationHtml).toContain('name="robots" content="index, follow"');
   expect(presentationHtml).toContain(`<link rel="canonical" href="${origin}/explorar">`);
+  expect(presentationHtml).not.toContain('Vista de resultados');
+  expect(presentationHtml).not.toContain('Columnas en escritorio');
 
   const detailResponse = await request.get(`${frontend}/espacios/${space.space_id}`);
   expect(detailResponse.status()).toBe(200);
@@ -224,7 +226,7 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   expect(filteredResponseWithStatus.status()).toBe(200);
   expect((await filteredResponseWithStatus.request().allHeaders()).authorization).toBeUndefined();
   const filteredResponse = page.waitForResponse(response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url()) && response.url().includes('estimated_total_asc'));
-  await page.locator('.desktop-sort select').selectOption('estimated_total_asc');
+  await page.locator('.catalog-sort select').selectOption('estimated_total_asc');
   const filtered = await filteredResponse;
   expect(filtered.status()).toBe(200);
   const filteredUrl = new URL(filtered.url());
@@ -242,7 +244,7 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
 
   // Keep the same filtered SPA state while capturing its narrow layout.
   await page.setViewportSize({ width: 390, height: 844 });
-  const filterTrigger = page.getByRole('button', { name: 'Filtrar y ordenar' });
+  const filterTrigger = page.getByRole('button', { name: 'Filtrar' });
   await filterTrigger.click();
   const filterDialog = page.getByRole('dialog', { name: 'Filtros de espacios' });
   await expect(filterDialog).toBeVisible();
@@ -280,69 +282,85 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   await expect(page.locator('.space-card')).toHaveCount(2);
 });
 
-test('MPV2-12 catalog layout and page size use real Go results without presentation refetches', async ({ page }) => {
+test('MPV2-13 serves real 48-item keyset pages and changes page size without stale cursors', async ({ page, request }) => {
+  const firstResponse = await request.get('http://backend:8080/api/v1/public/spaces?page_size=48&sort=default');
+  expect(firstResponse.status()).toBe(200);
+  const first = await firstResponse.json();
+  expect(first.items).toHaveLength(48);
+  expect(first.next_cursor).toBeTruthy();
+  const secondResponse = await request.get(`http://backend:8080/api/v1/public/spaces?page_size=48&sort=default&cursor=${encodeURIComponent(first.next_cursor)}`);
+  expect(secondResponse.status()).toBe(200);
+  const second = await secondResponse.json();
+  expect(second.items.length).toBeGreaterThan(0);
+  expect(new Set([...first.items, ...second.items].map(item => item.space_id)).size).toBe(first.items.length + second.items.length);
+  expect((await request.get(`http://backend:8080/api/v1/public/spaces?page_size=24&sort=default&cursor=${encodeURIComponent(first.next_cursor)}`)).status()).toBe(422);
+
   await page.setViewportSize({ width: 1365, height: 900 });
-  let searches = 0;
-  page.on('request', request => { if (request.method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(request.url())) searches++; });
-  await page.goto('/explorar');
-  await expect(page.locator('.space-card')).toHaveCount(24);
-  const initialSearches = searches;
-  await page.getByLabel('Vista de resultados').selectOption('grid');
-  await page.getByLabel('Columnas en escritorio').selectOption('4');
-  await expect(page.locator('.results.grid-view')).toHaveAttribute('data-desktop-columns', '4');
-  const computedColumns = () => page.locator('.results.grid-view').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
-  for (const desktop of ['2', '3', '4']) {
-    await page.getByLabel('Columnas en escritorio').selectOption(desktop);
-    expect(await computedColumns()).toBe(Number(desktop));
-    for (const mobile of ['1', '2']) {
-      await page.getByLabel('Columnas en móvil').selectOption(mobile);
-      expect(await computedColumns()).toBe(Number(desktop));
-    }
-  }
-  expect(searches).toBe(initialSearches);
-  await page.getByLabel('Columnas en escritorio').selectOption('4');
-  await takeScreenshot(page, 'fe14_mpv2_12_grid_4_desktop', true);
-  await page.setViewportSize({ width: 390, height: 844 });
-  for (const desktop of ['2', '3', '4']) {
-    await page.getByLabel('Columnas en escritorio').selectOption(desktop);
-    for (const mobile of ['1', '2']) {
-      await page.getByLabel('Columnas en móvil').selectOption(mobile);
-      await expect.poll(computedColumns).toBe(Number(mobile));
-      await expect(page.locator('.results.grid-view')).toHaveAttribute('data-mobile-columns', mobile);
-    }
-  }
-  await page.getByLabel('Columnas en móvil').selectOption('2');
-  const dimensions = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, page: document.documentElement.scrollWidth }));
-  expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
-  await takeScreenshot(page, 'fe14_mpv2_12_grid_2_mobile', true);
-  await page.setViewportSize({ width: 850, height: 900 });
-  await page.getByLabel('Columnas en escritorio').selectOption('4');
-  await expect.poll(computedColumns).toBe(2);
-  await expect(page.getByRole('status').filter({ hasText: '4 columnas seleccionadas; el ancho disponible muestra 2.' })).toBeVisible();
-  expect(searches).toBe(initialSearches);
-  const pageSizeResponse = page.waitForResponse(response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces\?/.test(response.url()) && new URL(response.url()).searchParams.get('page_size') === '12');
-  await page.getByLabel('Espacios por página').selectOption('12');
-  expect((await pageSizeResponse).status()).toBe(200);
+  await page.goto('/explorar?page_size=12');
   await expect(page.locator('.space-card')).toHaveCount(12);
+  const sort = page.getByLabel('Ordenar por');
+  const size = page.getByLabel('Espacios por página');
+  await expect(sort).toBeVisible();
+  await expect(size).toBeVisible();
+  await sort.focus();
+  await page.keyboard.press('Tab');
+  await expect(size).toBeFocused();
+  const setSize = async (value, count, expectNetworkRequest = true) => {
+    await expect(size).toBeEnabled();
+    const response = expectNetworkRequest
+      ? page.waitForResponse(r => r.request().method() === 'GET'
+        && /\/api\/v1\/public\/spaces(?:\?|$)/.test(r.url())
+        && new URL(r.url()).searchParams.get('page_size') === String(value))
+      : null;
+    await size.selectOption(String(value));
+    if (response) expect((await response).status()).toBe(200);
+    await expect(page.locator('.space-card')).toHaveCount(count);
+    if (value === 24) await expect(page).not.toHaveURL(/page_size=/);
+    else await expect(page).toHaveURL(new RegExp(`page_size=${value}`));
+    await expect(page).not.toHaveURL(/cursor=/);
+  };
+  await setSize(24, 24);
+  await setSize(48, 48);
+  await page.getByRole('button', { name: 'Ver más espacios' }).click();
+  await expect(page.locator('.space-card')).toHaveCount(first.items.length + second.items.length);
+  // These criteria/page-size combinations are already cached from the first
+  // requests. Returning from page two must restore the correct first page and
+  // clear its cursor without forcing a duplicate API request.
+  await setSize(12, 12, false);
+  await setSize(24, 24, false);
+  await setSize(48, 48, false);
 });
 
-test('MPV2-13 captures the served catalog at desktop and mobile review sizes', async ({ page }) => {
+test('MPV2-13 renders a fixed four-column desktop catalog and a one-column mobile list', async ({ page }) => {
   await page.setViewportSize({ width: 1365, height: 900 });
-  await page.goto('/explorar?view=grid&desktop_columns=4&mobile_columns=1&page_size=24');
+  await page.goto('/explorar?view=grid&desktop_columns=3&mobile_columns=2&page_size=24');
   await expect(page.locator('.space-card')).toHaveCount(24);
-  await expect(page.locator('.results-count')).toContainText('24 espacios cargados · 24 por solicitud');
-  const gridColumns = () => page.locator('.results.grid-view').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
-  await expect.poll(gridColumns).toBe(4);
+  await expect(page).not.toHaveURL(/view=|desktop_columns=|mobile_columns=/);
+  for (const label of ['Vista de resultados', 'Columnas en escritorio', 'Columnas en móvil']) await expect(page.getByLabel(label)).toHaveCount(0);
+  const columns = () => page.locator('.results').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  await expect.poll(columns).toBe(4);
   await page.evaluate(() => (document.activeElement instanceof HTMLElement) && document.activeElement.blur());
-  await takeScreenshot(page, 'fe14_mpv2_13_catalog_desktop', true);
-
+  await takeScreenshot(page, 'fe14_mpv2_13_catalog_desktop');
+  let dimensions;
+  for (const width of [768, 900, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(columns).toBe(4);
+    dimensions = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth }));
+    expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
+  }
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByLabel('Columnas en móvil').selectOption('2');
-  await expect.poll(gridColumns).toBe(2);
-  const dimensions = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth }));
+  await expect.poll(columns).toBe(1);
+  const sort = page.getByLabel('Ordenar por');
+  const size = page.getByLabel('Espacios por página');
+  await expect(sort).toBeVisible();
+  await expect(size).toBeVisible();
+  await sort.focus();
+  await page.keyboard.press('Tab');
+  await expect(size).toBeFocused();
+  dimensions = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth }));
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
   await page.evaluate(() => (document.activeElement instanceof HTMLElement) && document.activeElement.blur());
-  await takeScreenshot(page, 'fe14_mpv2_13_catalog_mobile', true);
+  await takeScreenshot(page, 'fe14_mpv2_13_catalog_mobile');
 });
 
 test('MPV2-11 validates typed public filters and pagination across all eight categories',async({request,page})=>{
@@ -380,7 +398,7 @@ test('MPV2-11 validates typed public filters and pagination across all eight cat
   }
   const legacyFalse=await request.get('http://backend:8080/api/v1/public/spaces?category_code=bodega&attribute=muelle_carga:false&page_size=10');
   expect(legacyFalse.status()).toBe(200);
-  expect((await legacyFalse.json()).items).toHaveLength(1);
+  expect((await legacyFalse.json()).items).toHaveLength(4);
   const legacyTrue=await request.get('http://backend:8080/api/v1/public/spaces?category_code=bodega&attribute=muelle_carga:true&page_size=10');
   expect(legacyTrue.status()).toBe(200);
   expect((await legacyTrue.json()).items).toHaveLength(1);
@@ -430,7 +448,7 @@ test('MPV2-11 validates typed public filters and pagination across all eight cat
   expect(ssrCsvResponse.status()).toBe(200);
   expect(await ssrCsvResponse.text()).toContain('MPV2-12 sala_multiproposito fixture 1');
   await page.setViewportSize({width:390,height:844});
-  await page.getByRole('button',{name:'Filtrar y ordenar'}).click();
+  await page.getByRole('button',{name:'Filtrar'}).click();
   await expect(page.getByRole('dialog',{name:'Filtros de espacios'})).toBeVisible();
   await takeScreenshot(page,'fe14_mpv2_11_typed_filters_mobile',true);
 });
@@ -447,7 +465,7 @@ test('MPV2-10 orders real Go results by title, resets cursor, and restores order
   const ascResponse = page.waitForResponse(response => response.request().method() === 'GET'
     && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url())
     && new URL(response.url()).searchParams.get('sort') === 'title_asc');
-  await page.locator('.desktop-sort select').selectOption('title_asc');
+  await page.locator('.catalog-sort select').selectOption('title_asc');
   const asc = await ascResponse;
   expect(asc.status()).toBe(200);
   const ascFirst = (await asc.json()).items[0];
@@ -466,7 +484,7 @@ test('MPV2-10 orders real Go results by title, resets cursor, and restores order
   const descResponse = page.waitForResponse(response => response.request().method() === 'GET'
     && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url())
     && new URL(response.url()).searchParams.get('sort') === 'title_desc');
-  await page.locator('.desktop-sort select').selectOption('title_desc');
+  await page.locator('.catalog-sort select').selectOption('title_desc');
   const desc = await descResponse;
   expect(desc.status()).toBe(200);
   const descFirst = (await desc.json()).items[0];
@@ -502,7 +520,7 @@ test('MPV2-10 applies a pending price order after completing its tariff requirem
   await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Segundo espacio público FE-14' })).toBeVisible();
 
-  await page.locator('.desktop-sort select').selectOption('unit_price_asc');
+  await page.locator('.catalog-sort select').selectOption('unit_price_asc');
   await expect(page.getByText(/elige explícitamente hora, día o mes/)).toBeVisible();
   await page.locator('#rate-unit').selectOption('hora');
   const applyPrice = page.getByRole('button', { name: 'Aplicar y ordenar' });
@@ -529,7 +547,7 @@ test('MPV2-10 applies a pending price order after completing its tariff requirem
   const descendingResponse = page.waitForResponse(response => response.request().method() === 'GET'
     && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url())
     && new URL(response.url()).searchParams.get('sort') === 'unit_price_desc');
-  await page.locator('.desktop-sort select').selectOption('unit_price_desc');
+  await page.locator('.catalog-sort select').selectOption('unit_price_desc');
   const descending = await descendingResponse;
   expect(descending.status()).toBe(200);
   const descendingItems = (await descending.json()).items;
@@ -592,7 +610,7 @@ test('Removing applied filter chips normalizes dependencies and supports browser
 test('Mobile filter dialog preserves applied chips, focus, and closes on desktop resize', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/explorar?q=publico');
-  const trigger = page.getByRole('button', { name: 'Filtrar y ordenar' });
+  const trigger = page.getByRole('button', { name: 'Filtrar' });
   await trigger.click();
   const dialog = page.getByRole('dialog', { name: 'Filtros de espacios' });
   await expect(dialog).toBeVisible();
@@ -623,7 +641,7 @@ test('Mobile filter dialog preserves applied chips, focus, and closes on desktop
 });
 
 test('Contextual registration and verification preserve the pending return until login', async ({ page }) => {
-  await page.goto('/explorar?q=publico&category_code=oficina&attribute=wifi:true&attribute=puestos_trabajo:gte:4&attribute=climatizacion:in:calefaccion,aire_acondicionado&view=grid&desktop_columns=4&mobile_columns=1&page_size=20');
+  await page.goto('/explorar?q=publico&category_code=oficina&attribute=wifi:true&attribute=puestos_trabajo:gte:4&attribute=climatizacion:in:calefaccion,aire_acondicionado&page_size=20');
   await page.getByRole('link', { name: 'Espacio sintético público FE-14' }).first().click();
   await expect(page).toHaveURL(/\/espacios\/[0-9a-f-]+/);
   const spaceId = new URL(page.url()).pathname.split('/').at(-1);
@@ -686,7 +704,7 @@ test('Contextual login returns to the selected space and requires explicit quote
     if (/\/local\/booking-trial\/(quotes|reservations)$/.test(pathname)) bookingWrites.push(pathname);
   });
 
-  await page.goto('/explorar?q=publico&category_code=oficina&attribute=wifi:true&attribute=puestos_trabajo:gte:4&attribute=climatizacion:in:calefaccion,aire_acondicionado&view=grid&desktop_columns=4&mobile_columns=1&page_size=20');
+  await page.goto('/explorar?q=publico&category_code=oficina&attribute=wifi:true&attribute=puestos_trabajo:gte:4&attribute=climatizacion:in:calefaccion,aire_acondicionado&page_size=20');
   const listing = page.getByRole('link', { name: 'Espacio sintético público FE-14' }).first();
   await expect(listing).toBeVisible();
   await listing.click();
@@ -698,9 +716,10 @@ test('Contextual login returns to the selected space and requires explicit quote
   const returnUrl = accessUrl.searchParams.get('returnUrl');
   expect(returnUrl).toContain(`/espacios/${detailId}?action=reserve&returnTo=`);
   expect(returnUrl).toContain('q%3Dpublico');
-  expect(returnUrl).toContain('view%3Dgrid');
-  expect(returnUrl).toContain('desktop_columns%3D4');
-  expect(returnUrl).toContain('mobile_columns%3D1');
+  expect(returnUrl).not.toContain('view%3D');
+  expect(returnUrl).not.toContain('desktop_columns');
+  expect(returnUrl).not.toContain('mobile_columns');
+  expect(returnUrl).not.toContain('view%3D');
   expect(returnUrl).toContain('page_size%3D20');
   expect(returnUrl).toContain('attribute%3Dclimatizacion%253Ain%253Aaire_acondicionado%252Ccalefaccion');
   expect(returnUrl).toContain('attribute%3Dpuestos_trabajo%253Agte%253A4');
@@ -712,13 +731,13 @@ test('Contextual login returns to the selected space and requires explicit quote
   const cancelListingHref = await page.getByRole('link', { name: 'Cancelar y volver al catálogo' }).getAttribute('href');
   const cancelListingUrl = new URL(cancelListingHref, page.url());
   expect(cancelListingUrl.pathname).toBe('/explorar');
-  expect(cancelListingUrl.searchParams.get('view')).toBe('grid');
-  expect(cancelListingUrl.searchParams.get('desktop_columns')).toBe('4');
-  expect(cancelListingUrl.searchParams.get('mobile_columns')).toBe('1');
+  expect(cancelListingUrl.searchParams.has('view')).toBe(false);
+  expect(cancelListingUrl.searchParams.has('desktop_columns')).toBe(false);
+  expect(cancelListingUrl.searchParams.has('mobile_columns')).toBe(false);
   expect(cancelListingUrl.searchParams.get('page_size')).toBe('20');
   await page.getByRole('link', { name: 'Cancelar y volver al catálogo' }).click();
   await expect(page).toHaveURL(/\/explorar\?/);
-  expect(new URL(page.url()).searchParams.get('view')).toBe('grid');
+  expect(new URL(page.url()).searchParams.has('view')).toBe(false);
   await page.getByRole('link', { name: 'Espacio sintético público FE-14' }).first().click();
   await expect(page.getByRole('heading', { name: 'Espacio sintético público FE-14' })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/espacios/${detailId}`));

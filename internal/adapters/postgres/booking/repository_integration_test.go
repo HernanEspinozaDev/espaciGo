@@ -5106,7 +5106,8 @@ FROM selected WHERE a.espacio_id=selected.id`); err != nil {
 		}
 		filters.Cursor = page.NextCursor
 	}
-	if allPages < 38 || allBenchmarkOffers != 950 || len(allIDs) < 950 {
+	minimumPages := (950 + publiccatalog.MaxPageSize - 1) / publiccatalog.MaxPageSize
+	if allPages < minimumPages || allBenchmarkOffers != 950 || len(allIDs) < 950 {
 		t.Fatalf("sitemap-equivalent walk pages=%d benchmark-visible=%d total-visible=%d; want many pages and all 950 active seeded listings", allPages, allBenchmarkOffers, len(allIDs))
 	}
 
