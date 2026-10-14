@@ -128,9 +128,11 @@ export function canonicalCatalogReturn(value: string): string | null {
     if (minUnit && maxUnit && BigInt(minUnit) > BigInt(maxUnit)) return null;
 
     const sort = get('sort');
-    if (sort && !['default', 'unit_price_asc', 'unit_price_desc', 'estimated_total_asc', 'estimated_total_desc', 'relevance'].includes(sort)) return null;
+    if (sort && !['default', 'title_asc', 'title_desc', 'unit_price_asc', 'unit_price_desc', 'estimated_total_asc', 'estimated_total_desc', 'relevance'].includes(sort)) return null;
     if (sort === 'unit_price_asc' || sort === 'unit_price_desc') {
       if (!unit) return null;
+      query.set('sort', sort);
+    } else if (sort === 'title_asc' || sort === 'title_desc') {
       query.set('sort', sort);
     } else if (sort.startsWith('estimated_total_')) {
       query.set('sort', sort);

@@ -9,7 +9,7 @@ Estas instrucciones se aplican al monorepo. Se complementan con `frontend/AGENTS
 - Una rama temporal por tarea/corte y un PR coherente hacia `main`. Reutilizar la rama del PR abierto para corregir su revisión; no crear una rama por cada comentario.
 - Nombres: `codex/<área>/<tipo>/<identificador>-<descripción>`.
 - Áreas: `marketplace`, `backend`, `frontend`, `database`, `infra`, `docs`. Tipos: `feature`, `fix`, `chore`. Descripción breve en minúsculas y guiones.
-- Para V2 usar identificadores `mpv2-00`–`mpv2-09`. Un corte transversal usa `marketplace`; no crear tres ramas permanentes para DB, Go y Angular.
+- Para V2 usar identificadores `mpv2-00`–`mpv2-13`. Un corte transversal usa `marketplace`; no crear tres ramas permanentes para DB, Go y Angular.
 - Ejemplo: `codex/marketplace/feature/mpv2-01-public-catalog`.
 - No crear ramas sin trabajo autorizado; no reabrir ramas de PR fusionados. Al fusionar, eliminar rama remota y local y archivar/retirar su worktree una vez conservado cualquier trabajo ajeno.
 - No hacer push directo o force-push a `main`. Fusionar mediante PR con checks y revisión. No borrar ramas activas/PR abiertos sin autorización explícita. La limpieza histórica del 2026-10-13 fue una petición puntual, no una autorización permanente para eliminar todo.
@@ -31,9 +31,9 @@ Estas instrucciones se aplican al monorepo. Se complementan con `frontend/AGENTS
 
 ## MARKETPLACE-LOCAL-2
 
-- Seguir `planning/marketplace_publico_v2/plan_desarrollo_local_v2.md` y su matriz. Primero MPV2-00; después MPV2-01 y sucesores con revisión/fusión entre cortes.
+- Seguir `planning/marketplace_publico_v2/plan_desarrollo_local_v2.md`, `planning/marketplace_publico_v2/plan_perfeccionamiento_publico.md` y su matriz. MPV2-00–09 conservan su historial técnico fusionado; el usuario solicitó cambios a MPV2-09 y su aceptación de producto sigue pendiente. Continuar con MPV2-10–13, uno por rama/PR y con revisión/fusión entre cortes.
 - Orden dentro del corte: datos/migraciones → Go/OpenAPI → Angular → evidencia del recorrido. Preparar trabajo entre capas cuando el contrato lo permita, sin aceptar integración solo con respuestas simuladas.
-- Mantener V1–V54 y toda migración aplicada byte a byte. Agregar nuevas migraciones, probar base vacía y actualización; no reescribir historial.
+- Mantener V1–V56 y toda migración aplicada byte a byte. Agregar nuevas migraciones, probar base vacía y actualización; no reescribir historial.
 - Go conserva reglas y autorización; Angular usa features, hexagonal ligera selectiva, TypeScript estricto, Signals, adaptadores OpenAPI y SCSS/tokens. No hacer HTTP en presentación ni introducir rutas/transporte en fachadas de aplicación.
 - No basta quitar guards: lecturas públicas necesitan DTO minimizado, política de publicación y acceso controlado a fotos. Mantener privadas reservas, identidad, contratos, pagos, evidencia y administración.
 - Conservar las ocho categorías y unidades CLP hora/día/mes hasta una nueva decisión de producto. No presentar visitas/postulaciones, fotos reales, pagos reales o GCP como implementados.

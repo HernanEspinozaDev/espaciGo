@@ -45,6 +45,7 @@ case "${FE14_EVIDENCE_OUTPUT_DIR:-}" in
   */mpv2_05) FE14_EVIDENCE_PREFIX='fe14_mpv2_05_' ;;
   */mpv2_06) FE14_EVIDENCE_PREFIX='fe14_mpv2_06_' ;;
   */mpv2_07) FE14_EVIDENCE_PREFIX='fe14_mpv2_07_' ;;
+  */mpv2_10) FE14_EVIDENCE_PREFIX='fe14_mpv2_10_' ;;
 esac
 export LOCAL_UID="$(id -u)"
 export LOCAL_GID="$(id -g)"
@@ -101,7 +102,6 @@ networks:
       config:
         - subnet: ${FE14_SUBNETS[2]}
 EOF
-
 compose=(docker compose --project-directory "$ROOT_DIR" -f "$ROOT_DIR/compose.yaml" -f "$ROOT_DIR/compose.frontend.yaml" -f "$ROOT_DIR/compose.frontend-e2e.yaml" -f "$LOCAL_DOCKER_COMPOSE_OVERRIDE" -p "$PROJECT")
 "${compose[@]}" config --format json >"$STATE_DIR/compose.resolved.json"
 python3 - "$STATE_DIR/compose.resolved.json" "$PROJECT" "$LOCAL_DOCKER_PGDATA_VOLUME" <<'PY'
@@ -118,6 +118,8 @@ for service in (config.get('services') or {}).values():
         if mount.get('type') == 'volume' and mount.get('source') == 'espacigo_pgdata':
             raise SystemExit('resolved FE-14 Compose references persistent espacigo_pgdata')
 print('PASS resolved FE-14 Compose uses only run-specific named volumes')
+if (config.get('services') or {}).get('database',{}).get('ports'):
+    raise SystemExit('resolved FE-14 Compose unexpectedly exposes the database port')
 PY
 E2E_PID=""
 LOCAL_SSR_PID=""
@@ -155,6 +157,7 @@ cleanup() {
       fe14_mpv2_05_) evidence_artifacts=(fe14_mpv2_05_catalog_desktop.jpg fe14_mpv2_05_catalog_desktop.json fe14_mpv2_05_filters_mobile.jpg fe14_mpv2_05_filters_mobile.json) ;;
       fe14_mpv2_06_) evidence_artifacts=(fe14_mpv2_06_context_desktop.jpg fe14_mpv2_06_context_desktop.json fe14_mpv2_06_context_mobile.jpg fe14_mpv2_06_context_mobile.json) ;;
       fe14_mpv2_07_) evidence_artifacts=(fe14_mpv2_07_catalog_desktop.jpg fe14_mpv2_07_catalog_desktop.json fe14_mpv2_07_catalog_mobile.jpg fe14_mpv2_07_catalog_mobile.json fe14_mpv2_07_detail_desktop.jpg fe14_mpv2_07_detail_desktop.json fe14_mpv2_07_detail_mobile.jpg fe14_mpv2_07_detail_mobile.json) ;;
+      fe14_mpv2_10_) evidence_artifacts=(fe14_mpv2_10_sort_desktop.jpg fe14_mpv2_10_sort_desktop.json fe14_mpv2_10_sort_mobile.jpg fe14_mpv2_10_sort_mobile.json) ;;
       *) evidence_artifacts=() ;;
     esac
     for artifact in "${evidence_artifacts[@]}"; do
@@ -267,19 +270,32 @@ WITH host AS (
       ubicacion_catalogo_version,region_codigo,comuna_codigo)
   SELECT gen_random_uuid(),host.id,'oficina','Segundo espacio público FE-14',
       'Segunda publicación sintética recreable para validar cursores y navegación de páginas en el catálogo público desde la interfaz anónima.',
-      24,4,'Uso de prueba recreable','dia',35000,'Dirección privada de prueba 456, Santiago','activa','America/Santiago',
+      24,4,'Uso de prueba recreable','hora',35000,'Dirección privada de prueba 456, Santiago','activa','America/Santiago',
       'SUBDERE_DPA_2018','13','13123'
   FROM host RETURNING id
 )
 INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
-SELECT id,1,'dia',35000 FROM space;
+SELECT id,1,'hora',35000 FROM space;
 SQL
+if [[ "${FE14_RUN_PUBLIC_CATALOG_ORDERING_INTEGRATION:-0}" == "1" ]]; then
+  admin_password="$(<"$LOCAL_SECRETS_DIR/db_admin_password")"
+  printf 'Building PostgreSQL public catalog ordering integration binary\n'
+  CGO_ENABLED=0 go -C "$ROOT_DIR" test -c -o "$STATE_DIR/publiccatalog-ordering.test" ./internal/adapters/postgres/booking
+  printf 'Running PostgreSQL integration inside the disposable data network\n'
+  docker run --rm --network "${PROJECT}_data" \
+    --volume "$ROOT_DIR:/workspace:ro" \
+    --volume "$STATE_DIR/publiccatalog-ordering.test:/tmp/publiccatalog-ordering.test:ro" \
+    --workdir /workspace/internal/adapters/postgres/booking \
+    --env "TEST_DATABASE_URL=postgres://espacigo_admin:${admin_password}@database:5432/espacigo_local?sslmode=disable" \
+    golang:1.27.1-alpine3.24 /tmp/publiccatalog-ordering.test -test.run '^TestLocalPublicCatalogQueryPlanAndSitemapPaging$' -test.count=1
+  unset admin_password
+fi
 printf 'PASS disposable FE-14 database contains two eligible synthetic public listings\n'
 
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
 if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
   printf 'Running focused anonymous public catalog journey\n'
-  PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-MPV2-07 serves public catalog|Anonymous visitor explores|MPV2-04 host declares|Removing applied filter chips|Mobile filter dialog|Contextual registration and verification|Contextual login returns}"
+  PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-MPV2-07 serves public catalog|MPV2-10 orders real Go results|Anonymous visitor explores|MPV2-04 host declares|Removing applied filter chips|Mobile filter dialog|Contextual registration and verification|Contextual login returns}"
   "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep "$PUBLIC_TEST_GREP" >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
   cat "$STATE_DIR/e2e.log"
   "${compose[@]}" stop backend >/dev/null

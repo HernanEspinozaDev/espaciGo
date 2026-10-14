@@ -267,6 +267,100 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   await expect(page).toHaveURL(nextPageUrl);
 });
 
+test('MPV2-10 orders real Go results by title, resets cursor, and restores order through browser history', async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto('/explorar?category_code=oficina&page_size=1');
+  await expect(page.getByRole('heading', { name: 'Encuentra tu próximo espacio' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
+
+  const ascResponse = page.waitForResponse(response => response.request().method() === 'GET'
+    && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url())
+    && new URL(response.url()).searchParams.get('sort') === 'title_asc');
+  await page.locator('.desktop-sort select').selectOption('title_asc');
+  expect((await ascResponse).status()).toBe(200);
+  await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
+
+  const nextPage = page.waitForResponse(response => response.request().method() === 'GET'
+    && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url())
+    && new URL(response.url()).searchParams.has('cursor'));
+  await page.getByRole('button', { name: 'Ver más espacios' }).click();
+  expect((await nextPage).status()).toBe(200);
+  await expect(page.getByRole('link', { name: 'Segundo espacio público FE-14' })).toBeVisible();
+  expect(new URL(page.url()).searchParams.has('cursor')).toBe(true);
+
+  const descResponse = page.waitForResponse(response => response.request().method() === 'GET'
+    && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url())
+    && new URL(response.url()).searchParams.get('sort') === 'title_desc');
+  await page.locator('.desktop-sort select').selectOption('title_desc');
+  const desc = await descResponse;
+  expect(desc.status()).toBe(200);
+  expect(new URL(desc.url()).searchParams.has('cursor')).toBe(false);
+  await expect(page).toHaveURL(/sort=title_desc/);
+  await expect(page.getByRole('link', { name: 'Segundo espacio público FE-14' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toHaveCount(0);
+  expect((await desc.request().allHeaders()).authorization).toBeUndefined();
+
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await takeScreenshot(page, 'fe14_mpv2_10_sort_desktop', true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('link', { name: 'Segundo espacio público FE-14' })).toBeVisible();
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await takeScreenshot(page, 'fe14_mpv2_10_sort_mobile', true);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/sort=title_asc.*cursor=|cursor=.*sort=title_asc/);
+  await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(/sort=title_desc/);
+  await expect(page.getByRole('link', { name: 'Segundo espacio público FE-14' })).toBeVisible();
+});
+
+test('MPV2-10 applies a pending price order after completing its tariff requirement', async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto('/explorar?category_code=oficina&page_size=20');
+  await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Segundo espacio público FE-14' })).toBeVisible();
+
+  await page.locator('.desktop-sort select').selectOption('unit_price_asc');
+  await expect(page.getByText(/elige explícitamente hora, día o mes/)).toBeVisible();
+  await page.locator('#rate-unit').selectOption('hora');
+  const applyPrice = page.getByRole('button', { name: 'Aplicar y ordenar' });
+  await expect(applyPrice).toBeVisible();
+  const ascendingResponse = page.waitForResponse(response => response.request().method() === 'GET'
+    && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url())
+    && new URL(response.url()).searchParams.get('sort') === 'unit_price_asc');
+  await applyPrice.click();
+  const ascending = await ascendingResponse;
+  expect(ascending.status()).toBe(200);
+  const ascendingUrl = new URL(ascending.url());
+  expect(ascendingUrl.searchParams.get('rate_unit')).toBe('hora');
+  expect(ascendingUrl.searchParams.get('category_code')).toBe('oficina');
+  expect(ascendingUrl.searchParams.has('cursor')).toBe(false);
+  const ascendingItems = (await ascending.json()).items;
+  expect(ascendingItems.length).toBeGreaterThan(1);
+  expect(new Set(ascendingItems.map(item => item.base_price_clp)).size).toBeGreaterThan(1);
+  expect(ascendingItems.every(item => item.rate_unit === 'hora')).toBe(true);
+  expect(ascendingItems[0].base_price_clp).toBeLessThan(ascendingItems.at(-1).base_price_clp);
+  await expect(page.getByRole('link', { name: 'Espacio sintético público FE-14' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Segundo espacio público FE-14' })).toBeVisible();
+  await expect(page).toHaveURL(/sort=unit_price_asc.*rate_unit=hora|rate_unit=hora.*sort=unit_price_asc/);
+
+  const descendingResponse = page.waitForResponse(response => response.request().method() === 'GET'
+    && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url())
+    && new URL(response.url()).searchParams.get('sort') === 'unit_price_desc');
+  await page.locator('.desktop-sort select').selectOption('unit_price_desc');
+  const descending = await descendingResponse;
+  expect(descending.status()).toBe(200);
+  const descendingItems = (await descending.json()).items;
+  expect(descendingItems.map(item => item.space_id)).toEqual(ascendingItems.map(item => item.space_id).reverse());
+});
+
 test('Removing applied filter chips normalizes dependencies and supports browser history', async ({ page }) => {
   await page.setViewportSize({ width: 1365, height: 900 });
   const publicSearch = response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url());

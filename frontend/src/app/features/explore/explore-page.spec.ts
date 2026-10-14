@@ -47,6 +47,191 @@ describe('ExplorePage public catalog URL state', () => {
     expect(harness.routeDebugElement!.componentInstance.items()).toEqual([]);
   });
 
+  it('puts category immediately after search and sorts by title through the real Router', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([{ code: 'oficina', name: 'Oficina', order: 1 }]),
+      publicLocations: vi.fn().mockResolvedValue([]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]),
+      publicSearch: vi.fn().mockResolvedValue({ items: [publicSpace('first')], next_cursor: 'cursor-next' }),
+    };
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }],
+    });
+    const harness = await RouterTestingHarness.create('/explorar?cursor=old-cursor');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    const labels = [...harness.routeNativeElement!.querySelectorAll<HTMLElement>('.filters > label')];
+    expect(labels[0].querySelector('#catalog-search')).not.toBeNull();
+    expect(labels[1].textContent?.trim().startsWith('Categoría')).toBe(true);
+
+    page.requestSort('title_asc');
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+    expect(TestBed.inject(Router).url).toContain('sort=title_asc');
+    expect(TestBed.inject(Router).url).not.toContain('cursor=');
+    expect(api.publicSearch.mock.calls[1][0]).toMatchObject({ sort: 'title_asc', cursor: undefined });
+  });
+
+  it('asks whether to apply or discard filter drafts before changing the desktop sort', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }],
+    });
+    const harness = await RouterTestingHarness.create('/explorar?q=aplicado');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    page.updateFilter('q', 'borrador');
+    page.requestSort('title_desc');
+    harness.detectChanges();
+    expect(api.publicSearch).toHaveBeenCalledOnce();
+    expect(harness.routeNativeElement!.textContent).toContain('¿Quieres aplicar tus borradores');
+    const apply = [...harness.routeNativeElement!.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === 'Aplicar cambios y ordenar');
+    apply?.click();
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+    expect(api.publicSearch.mock.calls[1][0]).toMatchObject({ q: 'borrador', sort: 'title_desc' });
+    expect(TestBed.inject(Router).url).toContain('q=borrador');
+    expect(TestBed.inject(Router).url).toContain('sort=title_desc');
+  });
+
+  it('keeps price order available and directs the user to select a tariff unit', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }],
+    });
+    const harness = await RouterTestingHarness.create('/explorar');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    page.requestSort('unit_price_asc');
+    harness.detectChanges();
+    const option = harness.routeNativeElement!.querySelector<HTMLSelectElement>('.desktop-sort select option[value="unit_price_asc"]');
+    expect(option?.disabled).toBe(false);
+    expect(harness.routeNativeElement!.textContent).toContain('No se mezclan tarifas de distintas unidades');
+    const chooseUnit = [...harness.routeNativeElement!.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === 'Elegir modalidad');
+    expect(chooseUnit).toBeDefined();
+    expect(api.publicSearch).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      sort: 'unit_price_asc',
+      update: (page: ExplorePage) => page.updateFilter('rate_unit', 'hora'),
+      expected: { sort: 'unit_price_asc', rate_unit: 'hora' },
+    },
+    {
+      sort: 'relevance',
+      update: (page: ExplorePage) => page.updateFilter('q', 'sala'),
+      expected: { sort: 'relevance', q: 'sala' },
+    },
+    {
+      sort: 'estimated_total_asc',
+      update: (page: ExplorePage) => {
+        page.updateDate('start_at', '2026-10-20T13:00:00.000Z');
+        page.updateDate('end_at', '2026-10-20T14:00:00.000Z');
+      },
+      expected: { sort: 'estimated_total_asc', start_at: '2026-10-20T13:00:00.000Z', end_at: '2026-10-20T14:00:00.000Z' },
+    },
+  ])('applies pending $sort together with completed prerequisites when submitting Search', async ({ sort, update, expected }) => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }],
+    });
+    const harness = await RouterTestingHarness.create('/explorar');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+
+    page.requestSort(sort);
+    expect(page.pendingSort()).toBe(sort);
+    update(page);
+    await page.submitSearch();
+
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+    expect(page.pendingSort()).toBe('');
+    expect(TestBed.inject(Router).url).toContain(`sort=${sort}`);
+    expect(api.publicSearch.mock.calls[1][0]).toMatchObject(expected);
+  });
+
+  it('keeps a prerequisite intent pending when Search is submitted incomplete', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }],
+    });
+    const harness = await RouterTestingHarness.create('/explorar');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    page.requestSort('unit_price_asc');
+
+    await page.submitSearch();
+
+    expect(page.pendingSort()).toBe('unit_price_asc');
+    expect(page.error()).toContain('elige explícitamente hora, día o mes');
+    expect(api.publicSearch).toHaveBeenCalledOnce();
+    expect(TestBed.inject(Router).url).toBe('/explorar');
+  });
+
+  it('focuses the real interval start input from desktop and mobile sort guidance', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }],
+    });
+    const harness = await RouterTestingHarness.create('/explorar');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    const element = harness.routeNativeElement!;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+
+    page.requestSort('estimated_total_asc');
+    harness.detectChanges();
+    expect(element.querySelector('#start-at')).not.toBeNull();
+    element.querySelector<HTMLButtonElement>('.catalog-results .sort-guidance .text-action')!.click();
+    await vi.waitFor(() => expect(element.ownerDocument.activeElement).toBe(element.querySelector('#start-at')));
+
+    page.cancelSort();
+    page.openFilters(element.querySelector('.filter-toggle') as HTMLElement);
+    harness.detectChanges();
+    page.updateFilter('sort', 'estimated_total_asc');
+    harness.detectChanges();
+    expect(element.querySelector('[role="dialog"]')).not.toBeNull();
+    element.querySelector<HTMLButtonElement>('.filters .sort-guidance .text-action')!.click();
+    await vi.waitFor(() => expect(element.ownerDocument.activeElement).toBe(element.querySelector('#start-at')));
+  });
+
+  it('keeps the mobile filter dialog open when a sort prerequisite needs completion', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }],
+    });
+    const harness = await RouterTestingHarness.create('/explorar');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    page.openFilters(harness.routeNativeElement!.querySelector('.filter-toggle') as HTMLElement);
+    harness.detectChanges();
+    page.updateFilter('sort', 'unit_price_asc');
+    await page.submitSearch();
+    harness.detectChanges();
+    expect(harness.routeNativeElement!.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(harness.routeNativeElement!.textContent).toContain('Para comparar precios');
+    expect([...harness.routeNativeElement!.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Elegir modalidad')).toBe(true);
+    expect(api.publicSearch).toHaveBeenCalledOnce();
+  });
+
   it('restores search, location, attributes, and interval estimates from the real Router URL', async () => {
     const api = { publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }) };
     TestBed.configureTestingModule({

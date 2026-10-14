@@ -1,6 +1,6 @@
 # Demo local y guía de aceptación MPV2-09
 
-**Estado:** lista para revisión humana; no implica aceptación de producto.
+**Estado:** **NO aceptada; el usuario solicitó cambios.** La fusión técnica de MPV2-09 sigue válida como historial, pero no es aceptación de producto. Esta guía/evidencia conserva el baseline de aplicación de MPV2-08; la mejora autorizada se desarrolla por separado en MPV2-10–13.
 **Código de aplicación:** `6075b7800b45f15e779d11c3ab5853dadd26238e` (fusión de MPV2-08).
 **Demo local:** `http://127.0.0.1:18782`. Solo loopback; no usar túnel ni exponer los puertos.
 
@@ -69,7 +69,7 @@ La pila usa proyecto Compose `espacigo_mpv2_09_acceptance`, volumen exclusivo `e
 
 ## Criterio humano y límites
 
-La decisión de producto sigue pendiente. Al aceptar, comprobar explícitamente: (a) catálogo y ficha legibles sin cuenta; (b) filtros/URL e historial coherentes; (c) fotografía y tarifa/unidad visibles, sin datos privados; (d) identidad solicitada al reservar, retorno a la ficha y confirmación deliberada; (e) retirada, permisos y estados de error; (f) experiencia móvil y teclado. Indicar aceptación del commit `6075b7800b45f15e779d11c3ab5853dadd26238e` o enviar cambios concretos; esta guía no registra aceptación en nombre del usuario.
+El usuario revisó la demo y pidió cambios concretos: ordenamiento usable que compare nombre y precio con su modalidad, controles de categoría inmediatamente después de Buscar, filtros propios completos por categoría y una jerarquía explícita entre borradores y filtros aplicados; además, pidió cuadrícula/densidad y cantidad visible. Esos cambios están autorizados y se distribuyen en [MPV2-10–13](plan_perfeccionamiento_publico.md). La decisión final de producto continúa pendiente. Cuando se presente una nueva demo tras MPV2-13, comprobar explícitamente: (a) catálogo y ficha legibles sin cuenta; (b) filtros/URL/orden e historial coherentes; (c) fotografía y tarifa/unidad visibles, sin datos privados; (d) identidad solicitada al reservar, retorno a la ficha y confirmación deliberada; (e) retirada, permisos y estados de error; (f) filtros tipados de las ocho categorías; (g) lista/cuadrícula responsive, cantidad y teclado. Esta guía no registra aceptación en nombre del usuario.
 
 Fuera de este corte: fotos reales, mapas/proveedores externos, pagos reales, GCP y visitas/postulaciones. No hay cuota por IP ni respuesta 429/`Retry-After` para lectura pública; debe definirse antes de exposición externa. Los tiempos de EXPLAIN de fixtures de MPV2-08 no son rendimiento de producción. No es una certificación legal ni WCAG, ni prueba de indexación/ranking en Google.
 

@@ -178,6 +178,12 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		case "relevance":
 			query += ` AND (relevance_rank < $15::real OR (relevance_rank=$15::real AND space_id::uuid>$16::uuid))`
 			args = append(args, after.LastRelevanceRank, after.LastSpaceID)
+		case "title_asc":
+			query += ` AND (title_key COLLATE "C",space_id::uuid) > ($15::text COLLATE "C",$16::uuid)`
+			args = append(args, after.LastTitleKey, after.LastSpaceID)
+		case "title_desc":
+			query += ` AND (title_key COLLATE "C",space_id::uuid) < ($15::text COLLATE "C",$16::uuid)`
+			args = append(args, after.LastTitleKey, after.LastSpaceID)
 		default:
 			query += ` AND (category_order,title_key COLLATE "C",space_id::uuid) > ($15::smallint,$16::text COLLATE "C",$17::uuid)`
 			args = append(args, after.LastCategoryOrder, after.LastTitleKey, after.LastSpaceID)
@@ -194,6 +200,10 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		query += ` ORDER BY estimated_total DESC NULLS LAST,space_id::uuid`
 	case "relevance":
 		query += ` ORDER BY relevance_rank DESC,space_id::uuid`
+	case "title_asc":
+		query += ` ORDER BY title_key COLLATE "C",space_id::uuid`
+	case "title_desc":
+		query += ` ORDER BY title_key COLLATE "C" DESC,space_id::uuid DESC`
 	default:
 		query += ` ORDER BY category_order,title_key COLLATE "C",space_id::uuid`
 	}

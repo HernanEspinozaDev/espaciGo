@@ -4938,6 +4938,75 @@ SELECT (SELECT count(*) FROM inserted),(SELECT count(*) FROM tariffs),(SELECT co
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Dedicated ordering offers add ties, all active categories, and the three
+	// tariff modalities without changing the historical benchmark population.
+	var orderingOffers int
+	if err = setup.QueryRow(ctx, `WITH fixture AS (
+  SELECT c.codigo AS category_code, n,
+         CASE WHEN n<=2 THEN 'Alpha — '||c.codigo ELSE 'Zulu — '||c.codigo END AS title,
+         CASE n WHEN 1 THEN 'hora' WHEN 2 THEN 'dia' WHEN 3 THEN 'mes' ELSE 'hora' END AS rate_unit
+  FROM public.categoria_espacio c CROSS JOIN generate_series(1,4) AS g(n) WHERE c.activa
+), inserted AS (
+  INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,
+      reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria,ubicacion_catalogo_version,region_codigo,comuna_codigo)
+  SELECT gen_random_uuid(),$1,category_code,title,'Synthetic MPV2-10 fixture validates stable public title sorting across categories and tariff modalities.',30,4,
+      'Synthetic ordering fixture',rate_unit,15000,'Synthetic private address','activa','America/Santiago',$2,$3,$4
+  FROM fixture RETURNING id,categoria_codigo,modalidad_tarifa,precio_base_clp
+), tariffs AS (
+  INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
+  SELECT id,1,modalidad_tarifa,precio_base_clp FROM inserted RETURNING espacio_id
+), profiles AS (
+  INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores)
+  SELECT id,categoria_codigo,1,'{}'::jsonb FROM inserted RETURNING espacio_id
+)
+SELECT count(*) FROM inserted`, ownerID, locationVersion, regionCodes[0], communeCodes[0]).Scan(&orderingOffers); err != nil {
+		t.Fatal(err)
+	}
+	if orderingOffers != 32 {
+		t.Fatalf("ordering offers=%d; want 4 for each of 8 categories", orderingOffers)
+	}
+	for _, sortOrder := range []string{"title_asc", "title_desc"} {
+		filters := publiccatalog.Filters{Sort: sortOrder, PageSize: 7, PageSizeSet: true}
+		seen := make(map[string]struct{})
+		categorySet, unitSet := make(map[string]bool), make(map[string]bool)
+		pages := 0
+		var previousTitle, previousID string
+		for {
+			page, listErr := service.List(ctx, filters)
+			if listErr != nil {
+				t.Fatalf("%s page %d: %v", sortOrder, pages+1, listErr)
+			}
+			pages++
+			for _, item := range page.Items {
+				if _, duplicate := seen[item.SpaceID]; duplicate {
+					t.Fatalf("%s repeated %s across pages", sortOrder, item.SpaceID)
+				}
+				seen[item.SpaceID] = struct{}{}
+				if previousID != "" {
+					key, priorKey := item.TitleKey, previousTitle
+					ordered := key > priorKey || (key == priorKey && item.SpaceID > previousID)
+					if sortOrder == "title_desc" {
+						ordered = key < priorKey || (key == priorKey && item.SpaceID < previousID)
+					}
+					if !ordered {
+						t.Fatalf("%s cursor order broke at (%q,%s) after (%q,%s)", sortOrder, key, item.SpaceID, priorKey, previousID)
+					}
+				}
+				previousTitle, previousID = item.TitleKey, item.SpaceID
+				if strings.HasPrefix(item.Title, "Alpha — ") || strings.HasPrefix(item.Title, "Zulu — ") {
+					categorySet[item.CategoryCode] = true
+					unitSet[item.RateUnit] = true
+				}
+			}
+			if page.NextCursor == "" {
+				break
+			}
+			filters.Cursor = page.NextCursor
+		}
+		if pages < 2 || len(categorySet) != 8 || len(unitSet) != 3 {
+			t.Fatalf("%s fixtures pages=%d categories=%d units=%v", sortOrder, pages, len(categorySet), unitSet)
+		}
+	}
 	allIDs := make(map[string]struct{}, 1000)
 	allPages := 0
 	allBenchmarkOffers := 0
