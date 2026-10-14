@@ -2,7 +2,7 @@ import type { SpaceAttributeProfile, SpaceCategoryList } from '../../../../core/
 import type { PublicAttributePredicate } from '../../../../core/public-attribute-filter-codec';
 export type { PublicAttributePredicate } from '../../../../core/public-attribute-filter-codec';
 export type ClpAmount = string;
-export type PublicSpace = Pick<CatalogItem, 'space_id'|'category_code'|'category_name'|'title'|'description'|'area_m2'|'rate_unit'|'base_price_clp'|'currency'|'estimated_total_clp'|'region_code'|'region_name'|'comuna_code'|'comuna_name'>;
+export type PublicSpace = Pick<CatalogItem, 'space_id'|'category_code'|'category_name'|'title'|'description'|'area_m2'|'rate_unit'|'base_price_clp'|'currency'|'estimated_total_clp'|'region_code'|'region_name'|'comuna_code'|'comuna_name'> & {cover_image_id?: string};
 export type PublicSpaceDetail = PublicSpace & { usage_rules:string; features?:{code:string;label:string;value:boolean}[]; images?:{image_id:string;is_cover:boolean}[] };
 export type PublicCategory = {code:string;name:string;order:number};
 export type PublicCatalogFilters = {q?:string;category_code?:string;rate_unit?:string;min_unit_price_clp?:string;max_unit_price_clp?:string;region_code?:string;comuna_code?:string;min_area_m2?:string;attributes?:Record<string,PublicAttributePredicate>;start_at?:string;end_at?:string;min_total_clp?:string;max_total_clp?:string;sort?:string;page_size?:number;cursor?:string};

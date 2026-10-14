@@ -2784,6 +2784,7 @@ components:
         comuna_code: {type: [string, 'null'], pattern: '^[0-9]{5}$'}
         comuna_name: {type: [string, 'null']}
         estimated_total_clp: {type: [integer, 'null'], format: int64, minimum: 0, description: Estimación calculada con PriceUnits, tarifa y zona vigentes; null cuando falta zona válida o el subtotal excede int64. No es cotización ni disponibilidad.}
+        cover_image_id: {type: string, format: uuid, description: Solo se incluye cuando la publicación tiene una portada PNG activa y declarada pública. El endpoint público vuelve a validar la visibilidad al servirla.}
         features: {type: array, items: {$ref: '#/components/schemas/PublicSpaceFeature'}}
         images: {type: array, items: {$ref: '#/components/schemas/PublicSpaceImageRef'}}
     PublicSpaceEnvelope:

@@ -16,7 +16,7 @@ describe('contextual identity return', () => {
     const validListing = canonicalCatalogReturn(
       '/explorar?sort=relevance&q=%20Oficina%20%20centro%20&category_code=oficina&page_size=20',
     );
-    expect(validListing).toBe('/explorar?q=Oficina+centro&category_code=oficina&sort=relevance');
+    expect(validListing).toBe('/explorar?q=Oficina+centro&category_code=oficina&sort=relevance&page_size=20');
     expect(canonicalCatalogReturn('/explorar?category_code=oficina&sort=title_asc'))
       .toBe('/explorar?category_code=oficina&sort=title_asc');
     const context = buildContextualReturn(spaceId, validListing);
@@ -65,6 +65,13 @@ describe('contextual identity return', () => {
   it('preserves typed repeated ranges and multi-select values in login return context',()=>{
     expect(canonicalCatalogReturn('/explorar?category_code=bodega&attribute=altura:gte:1.25&attribute=altura:lte:2.5&attribute=equipo:in:wifi&attribute=equipo:in:proyector')).toContain('attribute=altura%3Agte%3A1.25');
     expect(canonicalCatalogReturn('/explorar?category_code=bodega&attribute=altura:gte:1&attribute=altura:gte:2')).toBeNull();
+  });
+
+  it('preserves valid presentation choices and rejects unsupported values', () => {
+    expect(canonicalCatalogReturn('/explorar?view=grid&desktop_columns=4&mobile_columns=1&page_size=20'))
+      .toBe('/explorar?page_size=20&view=grid&desktop_columns=4&mobile_columns=1');
+    expect(canonicalCatalogReturn('/explorar?view=cards')).toBeNull();
+    expect(canonicalCatalogReturn('/explorar?desktop_columns=5')).toBeNull();
   });
 
   it('canonicalizes CSV and repeated enum-list selections for identity returns', () => {

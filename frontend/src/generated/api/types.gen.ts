@@ -22,6 +22,10 @@ export type PublicSpace = {
      * Estimación calculada con PriceUnits
      */
     estimated_total_clp: number | null;
+    /**
+     * Solo se incluye cuando la publicación tiene una portada PNG activa y declarada pública. El endpoint público vuelve a validar la visibilidad al servirla.
+     */
+    cover_image_id?: string;
     features?: Array<PublicSpaceFeature>;
     images?: Array<PublicSpaceImageRef>;
 };
