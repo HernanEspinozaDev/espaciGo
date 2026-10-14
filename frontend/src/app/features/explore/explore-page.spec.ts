@@ -23,6 +23,43 @@ const publicSpace = (id: string) => ({
 describe('ExplorePage public catalog URL state', () => {
   afterEach(() => TestBed.resetTestingModule());
 
+  it('changes presentation in the URL without refetching or overwriting filter drafts', async () => {
+    const api = { publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }) };
+    TestBed.configureTestingModule({ providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }] });
+    const harness = await RouterTestingHarness.create('/explorar?q=aplicado&view=grid&desktop_columns=4&page_size=20');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    page.updateFilter('q', 'borrador');
+    expect(page.presentation()).toMatchObject({ view: 'grid', desktopColumns: 4 });
+    page.setPresentation({ mobileColumns: 1 });
+    await vi.waitFor(() => expect(TestBed.inject(Router).url).toContain('mobile_columns=1'));
+    expect(api.publicSearch).toHaveBeenCalledOnce();
+    expect(page.filters().q).toBe('borrador');
+    expect(page.appliedFilters().q).toBe('aplicado');
+    const detailHref = TestBed.inject(Router).serializeUrl(page.detailLink('space-1'));
+    expect(detailHref).toContain('view%3Dgrid');
+    expect(detailHref).toContain('desktop_columns%3D4');
+    expect(detailHref).toContain('mobile_columns%3D1');
+    expect(detailHref).toContain('page_size%3D20');
+    await TestBed.inject(Router).navigateByUrl('/explorar?q=aplicado&page_size=20&view=list');
+    expect(page.presentation().view).toBe('list');
+    expect(page.filters().q).toBe('borrador');
+    expect(api.publicSearch).toHaveBeenCalledOnce();
+  });
+
+  it('changes to 12 real results, clears the cursor and preserves legacy 20 deep links', async () => {
+    const api = { publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }) };
+    TestBed.configureTestingModule({ providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }] });
+    const harness = await RouterTestingHarness.create('/explorar?page_size=20&cursor=old');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    await page.changePageSize(12);
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+    expect(TestBed.inject(Router).url).toContain('page_size=12');
+    expect(TestBed.inject(Router).url).not.toContain('cursor=');
+    expect(api.publicSearch.mock.calls[1][0]).toMatchObject({ page_size: 12, cursor: undefined });
+  });
+
   it('restores page_size and cursor from the real Router URL', async () => {
     const api = {
       publicCategories: vi.fn().mockResolvedValue([]),

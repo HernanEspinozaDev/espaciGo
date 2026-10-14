@@ -126,6 +126,15 @@ JOIN public.usuario owner ON owner.id=e.propietario_id AND owner.estado='activo'
 LEFT JOIN public.region_publica r ON r.catalogo_version=e.ubicacion_catalogo_version AND r.codigo=e.region_codigo
 LEFT JOIN public.comuna_publica m ON m.catalogo_version=e.ubicacion_catalogo_version AND m.region_codigo=e.region_codigo AND m.codigo=e.comuna_codigo
 LEFT JOIN public.espacio_caracteristicas attrs ON attrs.espacio_id=e.id AND attrs.categoria_codigo=e.categoria_codigo
+LEFT JOIN LATERAL (
+ SELECT g.id::text AS image_id
+ FROM public.espacio_galeria_sintetica_local g
+ WHERE g.espacio_id=e.id AND g.propietario_id=e.propietario_id
+   AND g.id=e.portada_foto_id AND g.estado='activa' AND g.publicada_en_catalogo
+   AND g.archivo_id IS NOT NULL AND g.mime_type='image/png' AND g.size_bytes BETWEEN 1 AND 1048576
+ ORDER BY g.creada_en,g.id
+ LIMIT 1
+) cover ON true
 WHERE e.estado='activa'
 AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=owner.id)
 AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
@@ -158,7 +167,7 @@ func (r *Repository) List(ctx context.Context, f publiccatalog.Filters, after *p
 SELECT e.id::text AS space_id,e.categoria_codigo,c.nombre AS category_name,e.titulo,e.descripcion,
        e.superficie_m2::double precision AS area_m2,t.modalidad,t.precio_base_clp,t.moneda,c.orden AS category_order,
        lower(e.titulo) COLLATE "C" AS title_key,e.zona_horaria,
-       r.codigo AS region_code,r.nombre AS region_name,m.codigo AS commune_code,m.nombre AS commune_name,
+       r.codigo AS region_code,r.nombre AS region_name,m.codigo AS commune_code,m.nombre AS commune_name,cover.image_id AS cover_image_id,
        public.public_catalog_billed_units(t.modalidad,$11::timestamptz,$12::timestamptz,e.zona_horaria) AS billed_units,
        CASE WHEN $11::timestamptz IS NULL THEN NULL
             WHEN public.public_catalog_billed_units(t.modalidad,$11::timestamptz,$12::timestamptz,e.zona_horaria) IS NULL THEN NULL
@@ -178,7 +187,7 @@ AND ($1='' OR e.categoria_codigo=$1)
   AND ($10::jsonb='{}'::jsonb OR (attrs.perfil_version=$9 AND attrs.valores @> $10::jsonb))
 )
 SELECT space_id, categoria_codigo, category_name,titulo,descripcion,area_m2,modalidad,precio_base_clp,moneda,
-       category_order,title_key,zona_horaria,region_code,region_name,commune_code,commune_name,estimated_total,relevance_rank
+       category_order,title_key,zona_horaria,region_code,region_name,commune_code,commune_name,cover_image_id,estimated_total,relevance_rank
 FROM candidates
 WHERE ($13::bigint IS NULL OR estimated_total >= $13)
   AND ($14::bigint IS NULL OR estimated_total <= $14)`
@@ -282,9 +291,9 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		var v publiccatalog.Space
 		v.Features = []publiccatalog.PublicFeature{}
 		v.Images = []publiccatalog.PublicImageRef{}
-		var timeZone, regionCode, regionName, communeCode, communeName sql.NullString
+		var timeZone, regionCode, regionName, communeCode, communeName, coverImageID sql.NullString
 		var estimatedTotal sql.NullInt64
-		if err := rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &timeZone, &regionCode, &regionName, &communeCode, &communeName, &estimatedTotal, &v.RelevanceRank); err != nil {
+		if err := rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &timeZone, &regionCode, &regionName, &communeCode, &communeName, &coverImageID, &estimatedTotal, &v.RelevanceRank); err != nil {
 			return nil, err
 		}
 		if timeZone.Valid {
@@ -304,6 +313,9 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		}
 		if estimatedTotal.Valid {
 			v.EstimatedTotalCLP = &estimatedTotal.Int64
+		}
+		if coverImageID.Valid {
+			v.CoverImageID = &coverImageID.String
 		}
 		out = append(out, v)
 	}

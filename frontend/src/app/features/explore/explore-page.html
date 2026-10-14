@@ -2,7 +2,7 @@
   <header class="page-heading" [attr.inert]="filtersOpen() ? '' : null">
     <p class="eyebrow">ESPACIOS PUBLICADOS</p>
     <h1>Encuentra tu próximo espacio</h1>
-    <p>Explora publicaciones visibles. Las tarjetas usan una ilustración de referencia cuando no incluyen una foto pública; la ficha puede mostrar fotografías declaradas.</p>
+    <p>Explora publicaciones visibles y ajusta la presentación del catálogo.</p>
   </header>
 
   <div class="catalog-layout">
@@ -62,6 +62,12 @@
     <section class="catalog-results" aria-label="Resultados de espacios" [attr.inert]="filtersOpen() ? '' : null">
       <div class="catalog-toolbar">
         <p class="results-count" role="status">{{items().length}} espacios en esta página</p>
+        <div class="presentation-controls" role="group" aria-label="Presentación de resultados">
+          <label>Vista<select aria-label="Vista de resultados" [value]="presentation().view" (change)="setPresentation({view:$any($event.target).value})"><option value="list">Lista</option><option value="grid">Cuadrícula</option></select></label>
+          <label>Columnas escritorio<select aria-label="Columnas en escritorio" [value]="presentation().desktopColumns" (change)="setDesktopColumns($any($event.target).value)"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+          <label>Columnas móvil<select aria-label="Columnas en móvil" [value]="presentation().mobileColumns" (change)="setMobileColumns($any($event.target).value)"><option value="1">1</option><option value="2">2</option></select></label>
+          <label>Por página<select aria-label="Espacios por página" [disabled]="busy()||hasUnappliedChanges()" title="Aplica primero los filtros pendientes" [value]="appliedFilters().page_size" (change)="changePageSize(+$any($event.target).value)"><option value="12">12</option><option value="24">24</option>@if(appliedFilters().page_size===20){<option value="20">20 (enlace anterior)</option>}</select></label>
+        </div>
         <label class="desktop-sort">Ordenar por
           <select [value]="pendingSort() || appliedFilters().sort" (change)="requestSort($any($event.target).value)">
             <option value="default">Orden predeterminado</option><option value="title_asc">Nombre A–Z</option><option value="title_desc">Nombre Z–A</option><option value="unit_price_asc">Precio menor (misma modalidad)</option><option value="unit_price_desc">Precio mayor (misma modalidad)</option><option value="relevance">Relevancia</option><option value="estimated_total_asc">Total estimado menor</option><option value="estimated_total_desc">Total estimado mayor</option>
@@ -78,9 +84,9 @@
       @if(error()){<p class="error" role="alert">{{error()}}</p>}
       @if(busy()&&!items().length){<p class="status" role="status">Cargando publicaciones públicas…</p>}
       @if(!busy()&&!error()&&!items().length){<p class="empty" role="status">No hay espacios que coincidan con estos filtros.</p>}
-      @if(items().length){<div class="results">
+      @if(items().length){<div class="results" [class.grid-view]="presentation().view==='grid'" [attr.data-desktop-columns]="presentation().desktopColumns" [attr.data-mobile-columns]="presentation().mobileColumns">
         @for(item of items();track item.space_id;let index=$index){<article class="space-card panel">
-          <div class="space-art" aria-label="Ilustración de referencia"><span>{{item.category_name}}</span><b>0{{index+1}}</b></div>
+          @if(item.cover_image_id&&!imageFailed(item.space_id)){<img class="space-cover" [ngSrc]="imageUrl(item.space_id,item.cover_image_id)" [alt]="'Fotografía de portada de '+item.title" width="640" height="480" [priority]="index<2" (error)="markImageFailed(item.space_id)" />}@else{<div class="space-art" role="img" aria-label="Sin fotografía pública"><span>Sin fotografía pública</span><b>{{item.category_name}}</b></div>}
           <div class="space-summary"><p class="eyebrow">{{item.category_name}} · {{item.area_m2}} m²</p><h2><a [routerLink]="detailLink(item.space_id)">{{item.title}}</a></h2>
             <p>{{item.description}}</p>@if(item.region_name&&item.comuna_name){<p>{{item.comuna_name}}, {{item.region_name}}</p>}<div class="price-row"><strong>{{price(item.base_price_clp)}} / {{item.rate_unit}}</strong>@if(item.estimated_total_clp){<strong>Total estimado: {{price(item.estimated_total_clp)}}</strong>}</div>
             <a class="card-link" [routerLink]="detailLink(item.space_id)">Ver detalle <span aria-hidden="true">↗</span></a></div>

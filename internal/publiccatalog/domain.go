@@ -74,6 +74,7 @@ type Space struct {
 	UsageRules        string           `json:"usage_rules,omitempty"`
 	Features          []PublicFeature  `json:"features"`
 	Images            []PublicImageRef `json:"images"`
+	CoverImageID      *string          `json:"cover_image_id,omitempty"`
 	TimeZone          string           `json:"-"`
 
 	CategoryOrder int     `json:"-"`

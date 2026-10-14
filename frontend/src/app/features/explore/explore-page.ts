@@ -1,13 +1,14 @@
 import { UiButton } from '../../shared/ui/button/button';
 import { DOCUMENT } from '@angular/common';
 import { Component, ElementRef, computed, inject, signal } from '@angular/core';
+import { NgOptimizedImage } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { ExploreFacade } from './application/explore-facade';
 
 @Component({
   providers: [ExploreFacade],
   selector: 'app-explore-page',
-  imports: [UiButton, RouterLink],
+  imports: [UiButton, RouterLink, NgOptimizedImage],
   host: {
     '(document:keydown)': 'onDialogKeydown($event)',
     '(window:resize)': 'onViewportResize()',
@@ -48,6 +49,7 @@ export class ExplorePage {
     return this.facade.filters;
   }
   get appliedFilters() { return this.facade.appliedFilters; }
+  get presentation() { return this.facade.presentation; }
   get hasUnappliedChanges() { return this.facade.hasUnappliedChanges; }
   get pendingSort() { return this.facade.pendingSort; }
   ngOnInit(): void {
@@ -70,6 +72,14 @@ export class ExplorePage {
   readonly loadMore = this.facade.loadMore.bind(this.facade);
   readonly price = this.facade.price.bind(this.facade);
   readonly detailLink = this.facade.detailLink.bind(this.facade);
+  readonly setPresentation = this.facade.setPresentation.bind(this.facade);
+  readonly setDesktopColumns = (value: string): void => this.setPresentation({ desktopColumns: Number(value) as 2 | 3 | 4 });
+  readonly setMobileColumns = (value: string): void => this.setPresentation({ mobileColumns: Number(value) as 1 | 2 });
+  readonly changePageSize = this.facade.changePageSize.bind(this.facade);
+  readonly imageFailures = signal(new Set<string>());
+  readonly imageUrl = this.facade.publicImageUrl.bind(this.facade);
+  readonly imageFailed = (spaceId: string): boolean => this.imageFailures().has(spaceId);
+  readonly markImageFailed = (spaceId: string): void => this.imageFailures.update((items) => new Set(items).add(spaceId));
 
   async submitSearch(): Promise<void> {
     await this.facade.search();
