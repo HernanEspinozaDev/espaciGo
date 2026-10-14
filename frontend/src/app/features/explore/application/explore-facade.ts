@@ -367,8 +367,7 @@ export class ExploreFacade implements OnInit {
   }
 
   private isFilteredCatalogRoute(params: ParamMap): boolean {
-    const presentationAndPaging = new Set(['view', 'desktop_columns', 'mobile_columns', 'page_size', 'cursor']);
-    return params.keys.some((key) => !presentationAndPaging.has(key));
+    return params.keys.length > 0;
   }
 
   private async loadPage(filters: ExploreFilters, append: boolean): Promise<void> {

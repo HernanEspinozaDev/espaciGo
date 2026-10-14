@@ -48,39 +48,49 @@ describe('ExplorePage public catalog URL state', () => {
     expect(api.publicSearch).toHaveBeenCalledOnce();
   });
 
-  it('updates catalog robots metadata on presentation and cache navigation without refetching', async () => {
+  it('updates catalog robots metadata on base, presentation, and draft navigation without refetching', async () => {
     const seo = { catalog: vi.fn(), responseForApiError: vi.fn() };
     const api = { publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }) };
     TestBed.configureTestingModule({ providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }, { provide: PublicPageSeo, useValue: seo }] });
     const harness = await RouterTestingHarness.create('/explorar');
     const page = harness.routeDebugElement!.componentInstance as ExplorePage;
     await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(seo.catalog).toHaveBeenLastCalledWith(false));
     page.setPresentation({ view: 'grid' });
     await vi.waitFor(() => expect(TestBed.inject(Router).url).toContain('view=grid'));
-    await vi.waitFor(() => expect(seo.catalog).toHaveBeenLastCalledWith(false));
+    expect(seo.catalog).toHaveBeenLastCalledWith(true);
     await TestBed.inject(Router).navigateByUrl('/explorar');
     expect(seo.catalog).toHaveBeenLastCalledWith(false);
+    page.updateFilter('q', 'draft');
+    page.setPresentation({ view: 'grid' });
+    await vi.waitFor(() => expect(TestBed.inject(Router).url).toContain('view=grid'));
+    expect(seo.catalog).toHaveBeenLastCalledWith(true);
     expect(api.publicSearch).toHaveBeenCalledOnce();
   });
 
   it('reports loaded results and request batch size across pagination history', async () => {
+    const seo = { catalog: vi.fn(), responseForApiError: vi.fn() };
     const api = { publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValueOnce({ items: [publicSpace('one')], next_cursor: 'two' }).mockResolvedValueOnce({ items: [publicSpace('two')] }) };
-    TestBed.configureTestingModule({ providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }] });
+    TestBed.configureTestingModule({ providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }, { provide: PublicPageSeo, useValue: seo }] });
     const harness = await RouterTestingHarness.create('/explorar?page_size=1');
     const page = harness.routeDebugElement!.componentInstance as ExplorePage;
     await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(page.items()).toHaveLength(1));
+    expect(seo.catalog).toHaveBeenLastCalledWith(true);
     harness.detectChanges();
     expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('1 espacio cargado · 1 por solicitud');
     page.loadMore();
     await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(page.items()).toHaveLength(2));
+    expect(seo.catalog).toHaveBeenLastCalledWith(true);
     harness.detectChanges();
     expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('2 espacios cargados · 1 por solicitud');
     await TestBed.inject(Router).navigateByUrl('/explorar?page_size=1');
+    expect(seo.catalog).toHaveBeenLastCalledWith(true);
     harness.detectChanges();
     expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('1 espacio cargado · 1 por solicitud');
     await TestBed.inject(Router).navigateByUrl('/explorar?page_size=1&cursor=two');
+    expect(seo.catalog).toHaveBeenLastCalledWith(true);
     harness.detectChanges();
     expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('2 espacios cargados · 1 por solicitud');
   });
