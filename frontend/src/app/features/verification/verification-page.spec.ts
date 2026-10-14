@@ -77,6 +77,7 @@ const defaults = () => ({
   detail: vi.fn(async (_token: string, id: string) => item(id)),
   history: vi.fn(async (_token: string, _id: string) => emptyHistory),
   evidence: vi.fn(async (_token: string, _id: string) => [] as SyntheticEvidence[]),
+  deleteEvidence: vi.fn(async (_token: string, _id: string, _evidenceId: string) => undefined),
   create: vi.fn(async (_token: string, _type: 'kyc' | 'kyb', _key: string) => item('v-new')),
   retry: vi.fn(
     async (
@@ -128,9 +129,11 @@ const page = (f: ReturnType<typeof TestBed.createComponent>) =>
     createCase(): Promise<void>;
     retryCase(): Promise<void>;
     createEvidence(): Promise<void>;
+    deleteEvidence(entry: SyntheticEvidence): Promise<void>;
     stateLabel(state: VerificationCase['state']): string;
     cases(): VerificationCase[];
     selected(): VerificationCase | null;
+    evidence(): SyntheticEvidence[];
     evidenceUrl(): string | null;
     error(): string;
     notice(): string;
@@ -304,6 +307,161 @@ describe('VerificationPage', () => {
     expect(create).toHaveBeenCalled();
     await identity.signOut();
     expect(revoke).toHaveBeenCalledTimes(create.mock.calls.length);
+    f.destroy();
+  });
+  it('asks for accessible confirmation, leaves cancel unchanged, and refreshes only after owner DELETE succeeds', async () => {
+    const api = defaults();
+    let removed = false;
+    api.evidence.mockImplementation(async () => (removed ? [] : [evidence]));
+    api.deleteEvidence.mockImplementation(async () => {
+      removed = true;
+    });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:private');
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    await page(f).select(item('v-a'));
+    expect(page(f).evidence()).toEqual([evidence]);
+    await page(f).deleteEvidence(evidence);
+    expect(confirm).toHaveBeenCalledWith(
+      '¿Retirar este fixture PNG y sus metadatos del caso de verificación? Esta acción no elimina el volumen local.',
+    );
+    expect(api.deleteEvidence).not.toHaveBeenCalled();
+    expect(page(f).selected()?.id).toBe('v-a');
+
+    confirm.mockReturnValue(true);
+    const historyReads = api.history.mock.calls.length;
+    const deletion = page(f).deleteEvidence(evidence);
+    await vi.waitFor(() => expect(api.deleteEvidence).toHaveBeenCalledWith('ta', 'v-a', 'e-a'));
+    await vi.waitFor(() => expect(api.evidence.mock.calls.length).toBeGreaterThan(2));
+    await deletion;
+    expect(api.history.mock.calls.length).toBeGreaterThan(historyReads);
+    expect(page(f).selected()?.id).toBe('v-a');
+    expect(page(f).evidence()).toEqual([]);
+    expect(revoke).toHaveBeenCalledWith('blob:private');
+    expect(revoke).toHaveBeenCalledTimes(create.mock.calls.length);
+    f.destroy();
+  });
+  it('discards a late owner DELETE after logout/login, even when the same account signs in again', async () => {
+    const api = defaults();
+    api.evidence.mockResolvedValue([evidence]);
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:old-owner');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    let finishDelete!: () => void;
+    api.deleteEvidence.mockImplementationOnce(
+      () => new Promise<undefined>((resolve) => (finishDelete = () => resolve(undefined))),
+    );
+    const identityApi = {
+      login: vi.fn().mockResolvedValueOnce(login('a', 'ta')).mockResolvedValueOnce(login('a', 'ta-new')),
+      session: vi.fn().mockResolvedValue(sessionA),
+      logout: vi.fn().mockResolvedValue(undefined),
+    };
+    const { f, identity } = fixture(api, identityApi);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    await page(f).select(item('v-a'));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    page(f).deleteEvidence(evidence);
+    for (let attempt = 0; attempt < 10 && !finishDelete; attempt++) await Promise.resolve();
+    await identity.signOut();
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    const newSession = identity.session();
+    const historyAfterNewLogin = api.history.mock.calls.length;
+    finishDelete();
+    await vi.waitFor(() => expect(api.deleteEvidence).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    expect(identity.accessToken()).toBe('ta-new');
+    expect(identity.session()).toBe(newSession);
+    expect(page(f).selected()?.id).toBe('v-a');
+    expect(api.history.mock.calls.length).toBe(historyAfterNewLogin);
+    expect(page(f).evidence()).toEqual([evidence]);
+    expect(page(f).notice()).toBe('');
+    f.destroy();
+  });
+  it('keeps the new account selection and evidence when an older account DELETE resolves late', async () => {
+    const api = defaults();
+    api.list.mockResolvedValue({ items: [item('v-a'), item('v-b')] });
+    const evidenceB = { ...evidence, id: 'e-b', verification_id: 'v-b' };
+    api.evidence.mockImplementation(async (_token, id) => (id === 'v-b' ? [evidenceB] : [evidence]));
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:stale-owner');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    let finishDelete!: () => void;
+    api.deleteEvidence.mockImplementationOnce(
+      () => new Promise<undefined>((resolve) => (finishDelete = () => resolve(undefined))),
+    );
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    await page(f).select(item('v-a'));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    page(f).deleteEvidence(evidence);
+    for (let attempt = 0; attempt < 10 && !finishDelete; attempt++) await Promise.resolve();
+    await identity.signOut();
+    await identity.signIn('b', 'pw');
+    await ensureLoaded(f);
+    await page(f).select(item('v-b'));
+    const newSession = identity.session();
+    const historyAfterNewLogin = api.history.mock.calls.length;
+    finishDelete();
+    await Promise.resolve();
+    expect(identity.accessToken()).toBe('tb');
+    expect(identity.session()).toBe(newSession);
+    expect(page(f).selected()?.id).toBe('v-b');
+    expect(api.history.mock.calls.length).toBe(historyAfterNewLogin);
+    expect(page(f).evidence()).toEqual([evidenceB]);
+    expect(page(f).notice()).toBe('');
+    f.destroy();
+  });
+  it.each([403, 404])('keeps owner data on DELETE %i and shows Go’s safe error', async (status) => {
+    const api = defaults();
+    api.evidence.mockResolvedValue([evidence]);
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:failed-delete');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    api.deleteEvidence.mockRejectedValue(new VerificationApiError(status));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    await page(f).select(item('v-a'));
+    page(f).deleteEvidence(evidence);
+    await vi.waitFor(() => expect(api.deleteEvidence).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(page(f).error()).not.toBe(''));
+    expect(identity.accessToken()).toBe('ta');
+    expect(page(f).selected()?.id).toBe('v-a');
+    expect(page(f).evidence()).toEqual([evidence]);
+    f.destroy();
+  });
+  it('expires only the current session after owner DELETE returns 401', async () => {
+    const api = defaults();
+    api.evidence.mockResolvedValue([evidence]);
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:expired-delete');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    api.deleteEvidence.mockRejectedValue(new VerificationApiError(401));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    await page(f).select(item('v-a'));
+    page(f).deleteEvidence(evidence);
+    await vi.waitFor(() => expect(api.deleteEvidence).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(identity.accessToken()).toBeNull());
+    expect(page(f).selected()).toBeNull();
+    expect(page(f).evidence()).toEqual([]);
+    f.destroy();
+  });
+  it('does not submit a case’s evidence id from another verification', async () => {
+    const api = defaults();
+    const { f, identity } = fixture(api);
+    await identity.signIn('a', 'pw');
+    await ensureLoaded(f);
+    await page(f).select(item('v-a'));
+    await f.debugElement.injector
+      .get(VerificationFacade)
+      .deleteEvidence({ ...evidence, verification_id: 'v-other' });
+    expect(api.deleteEvidence).not.toHaveBeenCalled();
     f.destroy();
   });
   it('discards a late evidence response from A after switching to B', async () => {

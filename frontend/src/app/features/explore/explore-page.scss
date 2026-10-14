@@ -136,13 +136,8 @@
 .space-summary h2 { font-size: metrics.$font-size-1-2rem; }
 .space-art {
   min-height: 0;
-  background: linear-gradient(
-    145deg,
-    var(--color-border),
-    var(--brand-accent) 65%,
-    var(--brand-secondary)
-  );
-  color: var(--color-warning-soft);
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -151,7 +146,7 @@
 .space-art b {
   align-self: end;
   font-size: metrics.$font-size-1rem;
-  opacity: 0.8;
+  color: var(--color-text);
   text-align: end;
 }
 .space-summary {

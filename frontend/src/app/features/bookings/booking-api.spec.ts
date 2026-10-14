@@ -33,6 +33,35 @@ describe('BookingApi', () => {
     TestBed.resetTestingModule();
   });
 
+  it('decodes a full historical reservation response with nullable guarantee and exact amounts', async () => {
+    TestBed.configureTestingModule({
+      providers: [...provideFrontendPorts(), provideHttpClient(), provideHttpClientTesting()],
+    });
+    TestBed.inject(ApiRuntimeConfig).apiBaseUrl.set('http://api.test/api/v1');
+    const api = TestBed.inject(BookingApi);
+    const http = TestBed.inject(HttpTestingController);
+    const promise = api.detail('bearer-private', 'r-historical');
+    const request = http.expectOne(
+      'http://api.test/api/v1/local/booking-trial/reservations/r-historical',
+    );
+    expect(request.request.method).toBe('GET');
+    expect(request.request.headers.get('Authorization')).toBe('Bearer bearer-private');
+    request.flush(
+      '{"safety_notice":"ENSAYO LOCAL — SIN COBRO REAL","data":{"id":"r-historical","quote_id":"q-1","space_id":"s-1","host_id":"h-1","renter_id":"u-1","state":"finalizada","rate_unit":"dia","unit_price_clp":9223372036854775807,"currency":"CLP","units":1,"subtotal_clp":0,"start_at":"2026-10-01T00:00:00Z","end_at":"2026-10-02T00:00:00Z","time_zone":"America/Santiago","conditions":"Fixture sintético","cancellation_policy_version":"local_flexible_v1","guarantee_expected_clp":null,"pay_expires_at":"2026-10-01T00:00:00Z","created_at":"2026-09-01T00:00:00Z","updated_at":"2026-10-02T00:00:00Z","unread_count":0,"history":[]}}',
+    );
+    const result = await promise;
+    const decoded = result.data as unknown as {
+      guarantee_expected_clp: string | null;
+      unit_price_clp: string;
+      subtotal_clp: string;
+    };
+    expect(decoded.guarantee_expected_clp).toBeNull();
+    expect(decoded.unit_price_clp).toBe('9223372036854775807');
+    expect(decoded.subtotal_clp).toBe('0');
+    http.verify();
+    TestBed.resetTestingModule();
+  });
+
   it('retains timeout status and exact fake outcome payload for an uncertain payment', async () => {
     TestBed.configureTestingModule({
       providers: [...provideFrontendPorts(), provideHttpClient(), provideHttpClientTesting()],

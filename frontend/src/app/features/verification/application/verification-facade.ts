@@ -26,7 +26,7 @@ type SessionContext = {
 };
 type OperationContext = SessionContext & {
   id: number;
-  name: 'create' | 'retry' | 'evidence';
+  name: 'create' | 'retry' | 'evidence' | 'delete-evidence';
   selectionRevision: number;
   selectionId: string | null;
   accountId: string;
@@ -243,6 +243,34 @@ export class VerificationFacade implements OnInit, OnDestroy {
       this.notice.set('Go generó y adjuntó el fixture PNG sintético.');
     } catch (error) {
       this.handleWriteFailure(error, context, attempt.id, attempt.attempt);
+    } finally {
+      this.finishOperation(context);
+    }
+  }
+
+  async deleteEvidence(item: SyntheticEvidence): Promise<void> {
+    const selected = this.selected();
+    if (
+      !selected ||
+      item.verification_id !== selected.id ||
+      !this.evidence().some((entry) => entry.id === item.id && entry.verification_id === selected.id)
+    )
+      return;
+    const context = this.beginOperation('delete-evidence');
+    if (!context) return;
+    try {
+      await this.api.deleteEvidence(context.token, selected.id, item.id);
+      if (!this.operationCurrent(context) || !this.originSelectionCurrent(context)) return;
+      this.revoke();
+      const refreshed = await this.refreshSelected(context, context.selectionRevision);
+      if (!this.operationCurrent(context) || !this.originSelectionCurrent(context)) return;
+      if (refreshed) this.notice.set('Go retiró el fixture PNG sintético del caso.');
+    } catch (error) {
+      this.handleFailure(
+        error,
+        context.token,
+        this.operationCurrent(context) && this.originSelectionCurrent(context),
+      );
     } finally {
       this.finishOperation(context);
     }

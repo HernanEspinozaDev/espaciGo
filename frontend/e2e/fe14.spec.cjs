@@ -904,6 +904,21 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
   await visitor.setViewportSize({ width: 390, height: 844 });
   await takeScreenshot(visitor, 'fe14_mpv2_04_visitor_search_mobile', true);
   await visitor.setViewportSize({ width: 1365, height: 900 });
+  await visitor.route(`**/public/spaces/${draft.id}/images/${photo2Id}*`, route =>
+    route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"temporary"}' }),
+  );
+  await cardCover.evaluate(image => { image.src = `${image.src}?forced-error=local-close-01`; });
+  await expect(visitor.getByRole('img', { name: 'Sin fotografía pública' })).toBeVisible();
+  await takeScreenshot(visitor, 'fe14_local_close_01_placeholder_error_desktop', true);
+  await visitor.setViewportSize({ width: 390, height: 844 });
+  await takeScreenshot(visitor, 'fe14_local_close_01_placeholder_error_mobile', true);
+  await visitor.setViewportSize({ width: 1365, height: 900 });
+  await visitor.unroute(`**/public/spaces/${draft.id}/images/${photo2Id}*`);
+  await visitor.reload();
+  await expect(visitor.getByRole('link', { name: title })).toBeVisible();
+  const recoveredCover = visitor.getByRole('img', { name: `Fotografía de portada de ${title}` });
+  await expect(recoveredCover).toBeVisible();
+  await expect.poll(() => recoveredCover.evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
   const imageResponsePromise=visitor.waitForResponse(response=>response.request().method()==='GET'&&response.url().includes(`/public/spaces/${draft.id}/images/${photo2Id}`));
   const publicDetailResponsePromise=visitor.waitForResponse(response=>response.request().method()==='GET'&&response.url().endsWith(`/api/v1/public/spaces/${draft.id}`));
   await visitor.getByRole('link', { name: title }).click();
@@ -968,8 +983,7 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
 
   await expect(visitor.getByRole('heading', { name: title })).toBeVisible();
   await expect(visitor.getByText(/Dirección confidencial MPV2-03/)).toHaveCount(0);
-  await expect(visitor.getByRole('img',{name:'Fotografía de portada del espacio'})).toBeVisible();
-  await expect(visitor.getByRole('img',{name:'Fotografía pública 2'})).toBeVisible();
+  await expect(visitor.locator('.gallery-image img')).toHaveCount(2);
   const imageResponse=await imageResponsePromise;expect(imageResponse.status()).toBe(200);
   expect((await imageResponse.request().allHeaders()).authorization).toBeUndefined();
   const imageHeaders=await imageResponse.allHeaders();
@@ -990,13 +1004,16 @@ test('MPV2-04 host declares a photo public; anonymous visitor reads it and withd
   expect(await withdrawnSsr.text()).not.toContain(`${origin}/public/spaces/${draft.id}/images/${photo2Id}`);
   await visitor.reload();
   await expect(visitor.getByRole('heading',{name:title})).toBeVisible();
-  await expect(visitor.locator('.gallery-image img')).toHaveCount(1);
   await expect.poll(()=>visitor.locator('.gallery-image img').evaluate(image=>image.naturalWidth)).toBeGreaterThan(0);
   await visitor.goBack();
   await expect(visitor).toHaveURL(/\/explorar/);
   await expect(visitor.getByRole('link', { name: title })).toBeVisible();
   await expect(visitor.locator('.space-card .space-cover')).toHaveCount(0);
   await expect(visitor.getByRole('img', { name: 'Sin fotografía pública' })).toBeVisible();
+  await visitor.setViewportSize({ width: 390, height: 844 });
+  await takeScreenshot(visitor, 'fe14_local_close_01_placeholder_retired_mobile', true);
+  await visitor.setViewportSize({ width: 1365, height: 900 });
+  await takeScreenshot(visitor, 'fe14_local_close_01_placeholder_retired_desktop', true);
   await host.getByRole('button', { name: 'Datos', exact: true }).click();
   const hideResponsePromise = host.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/api/v1/spaces/${draft.id}/publication`));
   await host.getByRole('button', { name: 'Ocultar', exact: true }).click();

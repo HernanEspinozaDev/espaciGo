@@ -27,7 +27,7 @@ const exactClpKeys = new Set([
   'settlement_amount_clp',
   'requested_amount_clp',
 ]);
-const nullableExactClpKeys = new Set(['estimated_total_clp']);
+const nullableExactClpKeys = new Set(['estimated_total_clp', 'guarantee_expected_clp']);
 
 /** Quote CLP literals before JSON.parse so int64 amounts never pass through Number. */
 export function parseExactClpJson<T>(source: string): T {

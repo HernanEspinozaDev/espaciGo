@@ -707,7 +707,7 @@ describe('ExplorePage public catalog URL state', () => {
     const api = {
       publicCategories: vi.fn().mockResolvedValue([]),
       publicLocations: vi.fn().mockResolvedValue([]),
-      publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+      publicSearch: vi.fn().mockResolvedValue({ items: [publicSpace('no-photo')] }),
     };
     TestBed.configureTestingModule({
       providers: [
@@ -728,5 +728,34 @@ describe('ExplorePage public catalog URL state', () => {
     harness.fixture.detectChanges();
     const mobile = await axe.run(harness.fixture.nativeElement, { runOnly: { type: 'tag', values: tags } });
     expect(mobile.violations.map(({ id }) => id)).toEqual([]);
+  });
+
+  it('replaces a failed public cover with the accessible no-photo placeholder', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]),
+      publicLocations: vi.fn().mockResolvedValue([]),
+      publicSearch: vi.fn().mockResolvedValue({
+        items: [{ ...publicSpace('failed-cover'), cover_image_id: 'synthetic-photo' }],
+      }),
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([{ path: 'explorar', component: ExplorePage }]),
+        { provide: ExploreApi, useValue: api },
+      ],
+    });
+    const harness = await RouterTestingHarness.create('/explorar');
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(page.items()).toHaveLength(1));
+    expect(page.imageFailed('failed-cover')).toBe(false);
+    page.markImageFailed('failed-cover');
+    harness.fixture.detectChanges();
+    expect(harness.routeNativeElement!.querySelector('.space-cover')).toBeNull();
+    expect(
+      harness.routeNativeElement!.querySelector('[aria-label="Sin fotografía pública"]'),
+    ).not.toBeNull();
   });
 });

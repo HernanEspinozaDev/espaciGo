@@ -2,6 +2,7 @@ import { UiState } from '../../shared/ui/state/state';
 import { UiButton } from '../../shared/ui/button/button';
 import { Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import type { SyntheticEvidence } from '../../core/contracts/models';
 import { VerificationFacade } from './application/verification-facade';
 
 @Component({
@@ -66,6 +67,13 @@ export class VerificationPage {
   readonly createCase = this.facade.createCase.bind(this.facade);
   readonly retryCase = this.facade.retryCase.bind(this.facade);
   readonly createEvidence = this.facade.createEvidence.bind(this.facade);
+  readonly deleteEvidence = (entry: SyntheticEvidence): Promise<void> => {
+    if (typeof window === 'undefined') return Promise.resolve();
+    const confirmed = window.confirm(
+      '¿Retirar este fixture PNG y sus metadatos del caso de verificación? Esta acción no elimina el volumen local.',
+    );
+    return confirmed ? this.facade.deleteEvidence(entry) : Promise.resolve();
+  };
   readonly stateLabel = this.facade.stateLabel.bind(this.facade);
   readonly typeLabel = this.facade.typeLabel.bind(this.facade);
   readonly eligibilityFor = this.facade.eligibilityFor.bind(this.facade);

@@ -261,6 +261,15 @@ func TestEvidenceAPIIsPrivateOwnerScopedAndExplicitlyCleanable(t *testing.T) {
 	if got := call(h, "GET", "/api/v1/verifications/"+caseID+"/evidence/"+item.ID, "other", "", "").Code; got != 404 {
 		t.Fatalf("foreign content status=%d", got)
 	}
+	if got := call(h, "DELETE", "/api/v1/verifications/"+caseID+"/evidence/"+item.ID, "", "", "").Code; got != 401 {
+		t.Fatalf("unauthenticated owner deletion status=%d", got)
+	}
+	if got := call(h, "DELETE", "/api/v1/verifications/"+caseID+"/evidence/"+item.ID, "other", "", "").Code; got != 404 {
+		t.Fatalf("foreign owner deletion status=%d", got)
+	}
+	if got := call(h, "DELETE", "/api/v1/admin/verifications/"+caseID+"/evidence/"+item.ID, "user", "", "").Code; got != 403 {
+		t.Fatalf("non-review admin deletion status=%d", got)
+	}
 	if got := call(h, "GET", "/api/v1/admin/verifications/"+caseID+"/evidence/"+item.ID, "admin", "", "").Code; got != 200 {
 		t.Fatalf("review content status=%d", got)
 	}
@@ -272,6 +281,9 @@ func TestEvidenceAPIIsPrivateOwnerScopedAndExplicitlyCleanable(t *testing.T) {
 	}
 	if got := call(h, "DELETE", "/api/v1/verifications/"+caseID+"/evidence/"+item.ID, "user", "", "").Code; got != 204 {
 		t.Fatalf("explicit cleanup status=%d", got)
+	}
+	if got := call(h, "DELETE", "/api/v1/verifications/"+caseID+"/evidence/"+item.ID, "user", "", "").Code; got != 404 {
+		t.Fatalf("repeated owner deletion status=%d", got)
 	}
 	if len(storage.blobs) != 0 || len(metadata.items) != 0 {
 		t.Fatal("explicit cleanup did not remove blob and metadata")

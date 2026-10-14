@@ -1,12 +1,12 @@
 # Cierre del desarrollo local de EspaciGo — backend, Angular y DB
 
-Fecha: 2026-10-14, America/Santiago. Estado: plan autorizado para ejecutar; LOCAL-CLOSE-00 en preparación sobre worktree limpio. Cierre integral todavía pendiente de evidencia y decisión humana. No es una autorización de despliegue ni de creación de recursos GCP.
+Fecha: 2026-10-14, America/Santiago. Estado: LOCAL-CLOSE-00 fusionado en PR #308; LOCAL-CLOSE-01 implementado en rama `codex/marketplace/fix/local-close-01-parity-contract`, PR #309 abierto y pendiente de revisión. HEAD de código ensayado `726b419824a26a79797561b6b77db6d92af0170e`; HEAD actual y autores verificados en GitHub PR #309. Baseline de `main`: merge #308 `a26e1dacbe23cbc4b73528c69ee0e6b4daf394ea`. Cierre integral todavía pendiente de evidencia y decisión humana. No es una autorización de despliegue ni de creación de recursos GCP.
 
 ## Objetivo y fuentes
 
 Terminar el alcance **local y sintético** con una base reproducible, paridad funcional, contrato financiero compatible y acta verificable. Conservar la aceptación de la UX del marketplace registrada en #307; no convertirla en aceptación retroactiva de DOCKER-02 ni en lanzamiento productivo.
 
-Fuente diagnóstica: auditoría original `planning/auditorias/revision_integral_local_y_gcp_20261014.md`, conservada sin modificación en el checkout habitual y en una copia excluida; sus propuestas no se ejecutan sin contrastarlas con el código. Resumen y corroboraciones del corte 00 se registran en la matriz/evidencia versionadas; no se publican los logs/JSON de origen. Baseline integrado: `28f63f3dcba5d1b6a57b47b0c229e0caf2bba7eb` (#307), actual `origin/main` a 2026-10-14. Si main avanza, registrar el nuevo baseline y revisar el delta antes de ensayar.
+Fuente diagnóstica: auditoría original `planning/auditorias/revision_integral_local_y_gcp_20261014.md`, conservada sin modificación en el checkout habitual y en una copia excluida; sus propuestas no se ejecutan sin contrastarlas con el código. Resumen y corroboraciones del corte 00 se registran en la matriz/evidencia versionadas; no se publican los logs/JSON de origen. Baseline inicial: `28f63f3dcba5d1b6a57b47b0c229e0caf2bba7eb` (#307); LOCAL-CLOSE-00 se fusionó en #308 por `HernanEspinozaDev`, merge `a26e1dacbe23cbc4b73528c69ee0e6b4daf394ea`. LOCAL-CLOSE-01 parte de ese `main`. Si main avanza, registrar el nuevo baseline y revisar el delta antes de ensayar.
 
 Contrastado contra el árbol de `origin/main`: `VerificationPort` carece de retirada; `nullableExactClpKeys` solo incluye `estimated_total_clp`. GitHub #267 está abierto y #269 se cerró administrativamente el 2026-10-12, con aceptación funcional expresamente incompleta. Cinco modificaciones frontend y los documentos de auditoría permanecen en el checkout habitual sin integrar; se preservaron en `.local/preservation/local-close-00-20261014/`, fuera de Git, con copia, patch, hashes y manifest. El checkout `main` habitual sigue en `c797f0e` y no se sincronizó porque conserva ese trabajo. El worktree de release limpio/canónico para estos cortes es `/home/nandev/.codex/worktrees/local-close-00-baseline-plan/espaciGo`, rama `codex/docs/chore/local-close-00-baseline-plan`, HEAD `28f63f3`.
 
@@ -48,7 +48,7 @@ Rama sugerida: `codex/docs/chore/local-close-00-baseline-plan`.
 
 Salida: PR documental con base identificada, matriz utilizable, cambios locales preservados y ninguna afirmación de cierre integral todavía. Verificar enlaces, fuentes y diff; no repetir suites completas en este corte sin necesidad.
 
-Registro de ejecución LOCAL-CLOSE-00: el trabajo autorizado se realiza en el worktree limpio arriba indicado, creado desde `origin/main` `28f63f3`; `main` local no se actualizó. La copia verificable de cambios no integrados y auditoría local está identificada en `evidencia/local-close-00/README.md`. No se ejecutaron suites ni se iniciaron servicios en este corte documental.
+Registro LOCAL-CLOSE-00: PR #308 se fusionó en `main` por `HernanEspinozaDev`, merge `a26e1dacbe23cbc4b73528c69ee0e6b4daf394ea`. El corte fue documental: no ejecutó suites ni inició servicios. La copia verificable de cambios no integrados/auditoría local está descrita en `evidencia/local-close-00/README.md`.
 
 ### LOCAL-CLOSE-01 — paridad KYC, importes nulos y contraste
 
@@ -75,6 +75,8 @@ Orden dentro del corte: revisar datos y contrato → Go/OpenAPI si corresponde �
 - Conservar paleta, cuatro columnas desktop/lista móvil y selector 12/24/48 aceptados. Verificar visual real móvil/escritorio y foto retirada/error.
 
 Salida: pruebas enfocadas Angular/Go pertinentes, lint/arquitectura/tokens, api:check sin servidor concurrente, build y recorrido Angular→Go→PostgreSQL para retirada propia/tercero. Capturas y resultados con SHA; matriz actualizada. No hace falta sustituir proveedores ni rediseñar la arquitectura.
+
+Registro de ejecución LOCAL-CLOSE-01: PR #309 abierto desde `codex/marketplace/fix/local-close-01-parity-contract`, código probado en HEAD `726b419824a26a79797561b6b77db6d92af0170e`, sobre `main` `a26e1dacbe23cbc4b73528c69ee0e6b4daf394ea`. No se añadieron migraciones ni cambios Go/OpenAPI: el DELETE propietario ya estaba en contrato/autorización. Pasaron 80 pruebas Angular enfocadas, `go test ./internal/verification/transport/http`, lint/arquitectura/tokens, `api:check`, build SSR/prerender y E2E aislado 3/3 con base vacía, Angular→Go→PostgreSQL y capturas a 390×844/1365×900. El ensayo `espacigo_localclose01_726b41991ad6` usó puertos 20750–20753 y volumen dedicado que el runner retiró; estado/credenciales sintéticas 0600 eliminados. No tocó demos ni `espacigo_pgdata`. La medición de contraste calculada desde estilos computados fue 12,57:1 para ambos textos. Fallos iniciales de selectores E2E quedaron corregidos y el comando completo pasó al final; detalle, límites y capturas en `evidencia/local-close-01/README.md`. PR #309 solicita revisión de `HernanEspinozaDev`; no iniciar LOCAL-CLOSE-02 antes de fusionarlo.
 
 ### LOCAL-CLOSE-02 — regresión integral, Docker y acta final
 
@@ -106,4 +108,4 @@ No crear recursos ni desplegar con este plan. Proveedores reales de pagos/correo
 
 ## Encargo inicial al chat de desarrollo
 
-Ejecutar la secuencia LOCAL-CLOSE-00 → 01 → 02 ya autorizada, manteniendo un PR abierto a la vez. En este encargo ejecutar solo LOCAL-CLOSE-00. Tras revisar y fusionar cada PR, desarrollo espera el encargo del chat de revisión para iniciar el corte sucesor, sin pedir una autorización nueva del usuario para la secuencia aprobada. En cada publicación, corrección, término o bloqueo, avisar al chat de revisión mediante `send_message_to_thread` antes de finalizar. No iniciar GCP: requiere otro alcance/encargo. Mantener pendiente la aceptación final del cierre local integral.
+Ejecutar la secuencia LOCAL-CLOSE-00 → 01 → 02 ya autorizada, manteniendo un PR abierto a la vez. LOCAL-CLOSE-00 (#308) ya se fusionó; LOCAL-CLOSE-01 es el corte actual y LOCAL-CLOSE-02 no empieza antes de fusionar PR01. Tras revisar y fusionar cada PR, desarrollo espera el encargo del chat de revisión para iniciar el corte sucesor, sin pedir una autorización nueva del usuario para la secuencia aprobada. En cada publicación, corrección, término o bloqueo, avisar al chat de revisión mediante `send_message_to_thread` antes de finalizar. No iniciar GCP: requiere otro alcance/encargo. Mantener pendiente la aceptación final del cierre local integral.

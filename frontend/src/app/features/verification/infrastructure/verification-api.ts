@@ -82,6 +82,20 @@ export class VerificationApi extends VerificationPort {
       ),
     );
   }
+
+  async deleteEvidence(token: string, id: string, evidenceId: string): Promise<void> {
+    const result = await this.sdk.deleteOwnSyntheticEvidence({
+      path: { id, evidenceId },
+      headers: auth(token),
+    });
+    const response = result as {
+      error?: unknown;
+      response?: { status?: number };
+    };
+    if (response.error !== undefined || response.response?.status !== 204) {
+      throw new VerificationApiError(response.response?.status);
+    }
+  }
 }
 function auth(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };

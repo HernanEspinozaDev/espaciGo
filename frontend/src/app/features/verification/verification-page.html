@@ -181,6 +181,15 @@
                         estado informado por Go.
                       </p>
                     }
+                    <button
+                      appButton="secondary"
+                      class="secondary-button"
+                      type="button"
+                      [disabled]="!!operation()"
+                      (click)="deleteEvidence(entry)"
+                    >
+                      {{ operation() === 'delete-evidence' ? 'Retirando…' : 'Retirar mi evidencia' }}
+                    </button>
                   </article>
                 }
               } @else {

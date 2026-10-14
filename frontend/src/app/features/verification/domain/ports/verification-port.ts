@@ -37,4 +37,5 @@ export abstract class VerificationPort {
   ): Promise<VerificationCase>;
   abstract generateEvidence(token: string, id: string, key: string): Promise<SyntheticEvidence>;
   abstract content(token: string, id: string, evidenceId: string): Promise<Blob>;
+  abstract deleteEvidence(token: string, id: string, evidenceId: string): Promise<void>;
 }
