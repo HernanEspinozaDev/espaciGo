@@ -1,6 +1,7 @@
 # Guía de revisión técnica MPV2-13
 
-**Estado:** demo preparada para revisión; aceptación de producto pendiente.
+**Estado:** producto aceptado por el usuario para el estado UX/demo/código indicado abajo el 2026-10-14; revisión técnica y eventual aprobación/fusión del PR #307 continúan pendientes.
+**Fuente y alcance de aceptación:** mensaje explícito del usuario en este chat el 2026-10-14: revisó y aprueba el estado actual, con futuros cambios a solicitar después. Aplica a la presentación y estado de esta demo/código solamente; no implica aceptación de MPV2-09, otras capacidades, fotos/pagos reales o GCP. Cualquier cambio posterior será una tarea nueva.
 **Decisión UX registrada:** 2026-10-14 — escritorio fijo a 4 columnas, móvil en lista de 1 columna; selector 12/24/48 junto al orden y visible en móvil.
 **Código de aplicación:** `736f81a367eed79bd87950e2dc64716adc6469db`, cambio MPV2-13 en PR #307 (base `c797f0eb734e2c7eda37eb70a50d4d509e82677d`).
 **Responsable del ensayo:** HernanMEC. **Motivo:** demo aislada solicitada para revisión del catálogo público.
@@ -37,4 +38,4 @@ Al terminar la revisión y una vez que el usuario decida retirar esta demo, elim
 
 La demo previa `espacigo_mpv2_13_demo_316ee26df160` en 19900–19902 se conserva sin cambios como evidencia histórica; esta demo nueva usa un proyecto y volumen separados. La pila MPV2-09 y `espacigo_pgdata` también permanecen intactos. No se reinició ni borró ninguno de esos recursos.
 
-La validación técnica del PR #307 y el recorrido de esta demo no equivalen a aceptación del producto. La decisión final corresponde al usuario.
+El usuario aceptó el 2026-10-14 el estado de producto documentado para UX/demo/código `736f81a367eed79bd87950e2dc64716adc6469db`; su instrucción indica que solicitará futuros cambios después si los necesita. Esta decisión de producto no sustituye la revisión técnica, aprobación o fusión del PR #307, que siguen pendientes, ni amplía la aceptación a otras capacidades/cortes. La demo permanece retenida para que el usuario pueda seguir usándola.

@@ -1,6 +1,6 @@
 # Evidencia MPV2-13 — regresión consolidada
 
-**Fecha:** 2026-10-14. **Código bajo prueba:** `736f81a367eed79bd87950e2dc64716adc6469db` en PR #307, rama `codex/marketplace/chore/mpv2-13-regression-acceptance`; base `c797f0eb734e2c7eda37eb70a50d4d509e82677d`. La decisión de producto anotada ese día fija cuatro columnas en escritorio, lista de una columna en móvil y selector 12/24/48 junto al orden. La aceptación de producto sigue pendiente.
+**Fecha:** 2026-10-14. **Código bajo prueba:** `736f81a367eed79bd87950e2dc64716adc6469db` en PR #307, rama `codex/marketplace/chore/mpv2-13-regression-acceptance`; base `c797f0eb734e2c7eda37eb70a50d4d509e82677d`. El usuario registró en este chat aceptación de producto para este estado de UX/demo/código el 2026-10-14: cuatro columnas en escritorio, lista de una columna en móvil y selector 12/24/48 junto al orden. La revisión técnica, aprobación y fusión del PR siguen pendientes. El alcance aceptado no se extiende a otros cortes ni a fotos/pagos reales o GCP; MPV2-09 continúa no aceptado.
 
 ## Historial de migraciones
 
@@ -21,4 +21,4 @@ Las capturas se generaron desde resultados reales de Go en FE-14 con el código 
 - [Catálogo escritorio 1365×900](fe14_mpv2_13_catalog_desktop.jpg) · [mediciones](fe14_mpv2_13_catalog_desktop.json)
 - [Catálogo móvil 390×844](fe14_mpv2_13_catalog_mobile.jpg) · [mediciones](fe14_mpv2_13_catalog_mobile.json)
 
-Las publicaciones y fotos son sintéticas; no se validaron fotos reales, pagos reales, GCP ni aceptación de producto. Los recorridos prueban el contrato conectado a Go y PostgreSQL reales; las capturas solo muestran una vista del catálogo. Guía operativa: [aceptacion_mpv2_13.md](../../aceptacion_mpv2_13.md).
+Las publicaciones y fotos son sintéticas; no se validaron fotos reales, pagos reales ni GCP. Los recorridos prueban el contrato conectado a Go y PostgreSQL reales; las capturas solo muestran una vista del catálogo. La aceptación registrada no cubre futuros cambios: si el usuario solicita otros ajustes, se abrirán como tarea nueva. Guía operativa: [aceptacion_mpv2_13.md](../../aceptacion_mpv2_13.md).
