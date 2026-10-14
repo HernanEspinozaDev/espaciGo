@@ -4,7 +4,7 @@ Fecha: 2026-10-14 (America/Santiago). Estado: **verificación técnica completad
 
 ## Alcance ensayado
 
-Código de PR #310: `0da50a3a7c3f201b50c4aa7abcfd475bddbd9052` sobre merge #309 `701dabbf7d381c69d240f8cbed823c69de5e4ca1`. README de [`evidencia/local-close-02`](evidencia/local-close-02/README.md) registra comandos, HEAD, runner, resultados, recursos, restore, capturas y límites. Migraciones V1–V57 y `planning/openapi.yaml` permanecen sin cambios. No se usó `espacigo_pgdata`.
+Código de PR #310: `0da50a3a7c3f201b50c4aa7abcfd475bddbd9052` sobre merge #309 `701dabbf7d381c69d240f8cbed823c69de5e4ca1`; demo/UI ampliada en HEAD de ejecución `0885abf17bd31f57e914b08e48942b4eb4f64b19`. README de [`evidencia/local-close-02`](evidencia/local-close-02/README.md) y [guía de revisión](evidencia/local-close-02/guia_revision_demo.md) registran URLs, SHA, IDs, imágenes, runner, recursos, restore, resultados y límites. Migraciones V1–V57 y `planning/openapi.yaml` permanecen sin cambios. No se usó `espacigo_pgdata`.
 
 ## Resultado por grupo
 
@@ -16,7 +16,7 @@ Código de PR #310: `0da50a3a7c3f201b50c4aa7abcfd475bddbd9052` sobre merge #309 
 
 ## Aislamiento y recursos
 
-La ejecución lifecycle usó proyecto/volumen/directorios de su ID y el runner los retiró junto a las credenciales sintéticas. El restore DOCKER-03 tuvo volúmenes origen/restore/prueba propios. La demo de LOCAL-CLOSE-02 retenida se reemplazó por `espacigo_localclose02_demo_b51175677392`, con titular HernanMEC, motivo y recursos documentados en el README. No se modificaron otras demos.
+La ejecución lifecycle usó proyecto/volumen/directorios de su ID y el runner los retiró junto a las credenciales sintéticas. El restore DOCKER-03 tuvo volúmenes origen/restore/prueba propios. La demo retenida previa `espacigo_localclose02_demo_b51175677392` se reemplazó, solo tras validar el reemplazo, por `espacigo_localclose02_demo_bb5f703b8c7c` (API/Angular/Mailpit 21440–21442, volumen propio; SSR smoke independiente en 21443 solo durante la prueba). La nueva corrida pasó 7/7; dejó reserva cerrada, reclamo resuelto y recibo de liquidación legible para arrendatario en escritorio/móvil; tercero recibió 404 en cuatro operaciones. Guía, IDs, roles sintéticos y evidencia están documentados; credenciales solo en el archivo privado mode 0600. No se modificaron otras demos.
 
 ## Exclusiones y decisión
 

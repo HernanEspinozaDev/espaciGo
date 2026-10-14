@@ -13,12 +13,20 @@ if [[ ! "$RUN_ID" =~ ^[0-9a-f]{12}$ ]]; then
   exit 2
 fi
 if [[ "$LOCAL_CLOSE02_CLOCK" == "1" ]]; then
-  expected_state="$ROOT_DIR/.local/testing/local-close-02/$RUN_ID"
-  expected_project="espacigo_localclose02_${RUN_ID}"
-  [[ "${FE14_RETAIN_STACK:-0}" == "0" && "$PROJECT" == "$expected_project" && "$STATE_DIR" == "$expected_state" ]] || {
-    printf 'manual clock is restricted to this run\x27s disposable LOCAL-CLOSE-02 project/state path\n' >&2
+  if [[ "${FE14_RETAIN_STACK:-0}" == "1" && "${FE14_RETAIN_KIND:-}" == "local-close-02" ]]; then
+    LOCAL_CLOSE02_CLOCK_KIND=demo
+    expected_state="$ROOT_DIR/.local/testing/local-close-02-demo/$RUN_ID"
+    expected_project="espacigo_localclose02_demo_${RUN_ID}"
+  else
+    LOCAL_CLOSE02_CLOCK_KIND=run
+    expected_state="$ROOT_DIR/.local/testing/local-close-02/$RUN_ID"
+    expected_project="espacigo_localclose02_${RUN_ID}"
+  fi
+  [[ "$PROJECT" == "$expected_project" && "$STATE_DIR" == "$expected_state" ]] || {
+    printf 'manual clock is restricted to this run\x27s disposable LOCAL-CLOSE-02 project/state path or its retained LOCAL-CLOSE-02 demo path\n' >&2
     exit 2
   }
+  export LOCAL_CLOSE02_CLOCK_KIND
 fi
 if [[ "${FE14_RETAIN_STACK:-0}" == "1" ]]; then
   case "${FE14_RETAIN_KIND:-mpv2-13}" in
@@ -143,7 +151,7 @@ networks:
 EOF
 if [[ "$LOCAL_CLOSE02_CLOCK" == "1" ]]; then
   mkdir -m 0700 -p "$STATE_DIR/business-clock"
-  python3 "$ROOT_DIR/scripts/local-close-02-business-clock" "$RUN_ID" init >/dev/null
+  LOCAL_CLOSE02_CLOCK_KIND="${LOCAL_CLOSE02_CLOCK_KIND:-run}" python3 "$ROOT_DIR/scripts/local-close-02-business-clock" "$RUN_ID" init >/dev/null
   cat >> "$LOCAL_DOCKER_COMPOSE_OVERRIDE" <<EOF
 services:
   backend:
@@ -206,11 +214,16 @@ cleanup() {
       mkdir -p "$FE14_EVIDENCE_OUTPUT_DIR"
       case "$FE14_EVIDENCE_PREFIX" in
         fe14_mpv2_13_) evidence_artifacts=(fe14_mpv2_13_catalog_desktop.jpg fe14_mpv2_13_catalog_desktop.json fe14_mpv2_13_catalog_mobile.jpg fe14_mpv2_13_catalog_mobile.json) ;;
-        fe14_local_close_02_) evidence_artifacts=(fe14_local_close_02_closed_finance_desktop.jpg fe14_local_close_02_closed_finance_desktop.json fe14_local_close_02_dispute_resolution_desktop.jpg fe14_local_close_02_dispute_resolution_desktop.json) ;;
+        fe14_local_close_02_) evidence_artifacts=(fe14_local_close_02_closed_finance_desktop.jpg fe14_local_close_02_closed_finance_desktop.json fe14_local_close_02_closed_history_renter_desktop.jpg fe14_local_close_02_closed_history_renter_desktop.json fe14_local_close_02_closed_history_renter_mobile.jpg fe14_local_close_02_closed_history_renter_mobile.json fe14_local_close_02_resolved_receipt_renter_desktop.jpg fe14_local_close_02_resolved_receipt_renter_desktop.json fe14_local_close_02_resolved_receipt_renter_mobile.jpg fe14_local_close_02_resolved_receipt_renter_mobile.json) ;;
         *) evidence_artifacts=() ;;
       esac
       for artifact in "${evidence_artifacts[@]}"; do
-        if [[ -f "$STATE_DIR/artifacts/$artifact" ]]; then cp -- "$STATE_DIR/artifacts/$artifact" "$FE14_EVIDENCE_OUTPUT_DIR/$artifact"; chmod 0644 "$FE14_EVIDENCE_OUTPUT_DIR/$artifact"; fi
+        if [[ -f "$STATE_DIR/artifacts/$artifact" ]]; then
+          evidence_name="$artifact"
+          if [[ "${FE14_RETAIN_STACK:-0}" == "1" ]]; then evidence_name="${artifact%.*}_${RUN_ID}.${artifact##*.}"; fi
+          cp -- "$STATE_DIR/artifacts/$artifact" "$FE14_EVIDENCE_OUTPUT_DIR/$evidence_name"
+          chmod 0644 "$FE14_EVIDENCE_OUTPUT_DIR/$evidence_name"
+        fi
       done
     fi
     cat >"$STATE_DIR/runtime.env" <<EOF
@@ -246,11 +259,16 @@ EOF
       fe14_mpv2_11_) evidence_artifacts=(fe14_mpv2_11_typed_filters_desktop.jpg fe14_mpv2_11_typed_filters_desktop.json fe14_mpv2_11_typed_filters_mobile.jpg fe14_mpv2_11_typed_filters_mobile.json) ;;
       fe14_mpv2_12_) evidence_artifacts=(fe14_mpv2_12_grid_4_desktop.jpg fe14_mpv2_12_grid_4_desktop.json fe14_mpv2_12_grid_2_mobile.jpg fe14_mpv2_12_grid_2_mobile.json) ;;
       fe14_mpv2_13_) evidence_artifacts=(fe14_mpv2_13_catalog_desktop.jpg fe14_mpv2_13_catalog_desktop.json fe14_mpv2_13_catalog_mobile.jpg fe14_mpv2_13_catalog_mobile.json) ;;
-      fe14_local_close_02_) evidence_artifacts=(fe14_local_close_02_closed_finance_desktop.jpg fe14_local_close_02_closed_finance_desktop.json fe14_local_close_02_dispute_resolution_desktop.jpg fe14_local_close_02_dispute_resolution_desktop.json) ;;
+      fe14_local_close_02_) evidence_artifacts=(fe14_local_close_02_closed_finance_desktop.jpg fe14_local_close_02_closed_finance_desktop.json fe14_local_close_02_closed_history_renter_desktop.jpg fe14_local_close_02_closed_history_renter_desktop.json fe14_local_close_02_closed_history_renter_mobile.jpg fe14_local_close_02_closed_history_renter_mobile.json fe14_local_close_02_resolved_receipt_renter_desktop.jpg fe14_local_close_02_resolved_receipt_renter_desktop.json fe14_local_close_02_resolved_receipt_renter_mobile.jpg fe14_local_close_02_resolved_receipt_renter_mobile.json) ;;
       *) evidence_artifacts=() ;;
     esac
     for artifact in "${evidence_artifacts[@]}"; do
-      if [[ -f "$STATE_DIR/artifacts/$artifact" ]]; then cp -- "$STATE_DIR/artifacts/$artifact" "$FE14_EVIDENCE_OUTPUT_DIR/$artifact"; fi
+      if [[ -f "$STATE_DIR/artifacts/$artifact" ]]; then
+        evidence_name="$artifact"
+        if [[ "${FE14_RETAIN_STACK:-0}" == "1" ]]; then evidence_name="${artifact%.*}_${RUN_ID}.${artifact##*.}"; fi
+        cp -- "$STATE_DIR/artifacts/$artifact" "$FE14_EVIDENCE_OUTPUT_DIR/$evidence_name"
+        chmod 0644 "$FE14_EVIDENCE_OUTPUT_DIR/$evidence_name"
+      fi
     done
   fi
   if (( status != 0 )) && [[ "${FE14_PRESERVE_FAILURE_STATE:-0}" == "1" ]]; then
@@ -481,7 +499,7 @@ if pathlib.Path(sys.argv[1]).stem != 'clock-request-'+phase:
 print(value)
 PY
 )"
-        clock_value="$(python3 "$ROOT_DIR/scripts/local-close-02-business-clock" "$RUN_ID" set "$clock_value" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["now"])')"
+        clock_value="$(LOCAL_CLOSE02_CLOCK_KIND="${LOCAL_CLOSE02_CLOCK_KIND:-run}" python3 "$ROOT_DIR/scripts/local-close-02-business-clock" "$RUN_ID" set "$clock_value" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["now"])')"
         python3 - "$STATE_DIR/artifacts/clock-result-${phase}.json" "$clock_value" <<'PY'
 import json, pathlib, sys
 pathlib.Path(sys.argv[1]).write_text(json.dumps({'now':sys.argv[2]},separators=(',',':'))+'\n',encoding='ascii')
@@ -570,7 +588,9 @@ mkdir -p "$ROOT_DIR/planning/frontend/evidencia" "$ROOT_DIR/planning/marketplace
 for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
   [[ -f "$image" ]] || continue
   if [[ -n "$FE14_EVIDENCE_PREFIX" && "$(basename "$image")" == "$FE14_EVIDENCE_PREFIX"* ]]; then
-    destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$image")"
+    evidence_name="$(basename "$image")"
+    if [[ "${FE14_RETAIN_STACK:-0}" == "1" ]]; then evidence_name="${evidence_name%.jpg}_${RUN_ID}.jpg"; fi
+    destination="$FE14_EVIDENCE_OUTPUT_DIR/$evidence_name"
     cp -- "$image" "$destination"
     chmod 0644 "$destination"
     continue
@@ -587,7 +607,9 @@ done
 for measurements in "$STATE_DIR"/artifacts/fe14_*.json; do
   [[ -f "$measurements" ]] || continue
   if [[ -n "$FE14_EVIDENCE_PREFIX" && "$(basename "$measurements")" == "$FE14_EVIDENCE_PREFIX"* ]]; then
-    destination="$FE14_EVIDENCE_OUTPUT_DIR/$(basename "$measurements")"
+    evidence_name="$(basename "$measurements")"
+    if [[ "${FE14_RETAIN_STACK:-0}" == "1" ]]; then evidence_name="${evidence_name%.json}_${RUN_ID}.json"; fi
+    destination="$FE14_EVIDENCE_OUTPUT_DIR/$evidence_name"
     cp -- "$measurements" "$destination"
     chmod 0644 "$destination"
     continue

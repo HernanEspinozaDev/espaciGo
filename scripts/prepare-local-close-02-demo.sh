@@ -36,7 +36,9 @@ FE14_STATE_DIR="$STATE_DIR" \
 FE14_RETAIN_STACK=1 \
 FE14_RETAIN_KIND=local-close-02 \
 FE14_PUBLIC_ONLY=1 \
+FE14_LOCAL_CLOSE02_CLOCK=1 \
 FE14_PORT_BASE="$BASE_PORT" \
-FE14_PUBLIC_TEST_GREP='MPV2-07 serves public catalog|Anonymous visitor explores the Go-backed public catalog and minimized detail|MPV2-13 serves real 48-item keyset pages|MPV2-13 renders a fixed four-column desktop catalog and a one-column mobile list|MPV2-04 host declares a photo public|Go-backed role navigation, private JSON/ZIP exports' \
+FE14_EVIDENCE_OUTPUT_DIR="$ROOT_DIR/planning/cierre_local/evidencia/local-close-02" \
+FE14_PUBLIC_TEST_GREP='MPV2-07 serves public catalog|Anonymous visitor explores the Go-backed public catalog and minimized detail|MPV2-13 serves real 48-item keyset pages|MPV2-13 renders a fixed four-column desktop catalog and a one-column mobile list|MPV2-04 host declares a photo public|Go-backed role navigation, private JSON/ZIP exports|LOCAL-CLOSE-02 serves a signed reservation through its financial close' \
   bash "$ROOT_DIR/scripts/test-frontend-e2e.sh"
-printf 'LOCAL-CLOSE-02 review demo remains available at http://127.0.0.1:%s (SSR: http://127.0.0.1:%s). Credentials are private in %s/accounts.json.\n' "$((BASE_PORT + 2))" "$((BASE_PORT + 3))" "$STATE_DIR"
+printf 'Demo LOCAL-CLOSE-02 disponible en http://127.0.0.1:%s; el smoke SSR independiente se detuvo al finalizar. Credenciales privadas: %s/accounts.json.\n' "$((BASE_PORT + 2))" "$STATE_DIR"

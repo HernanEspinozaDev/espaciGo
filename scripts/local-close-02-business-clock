@@ -8,14 +8,19 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-RUNS = ROOT / ".local/testing/local-close-02"
+clock_kind = os.environ.get("LOCAL_CLOSE02_CLOCK_KIND", "run")
+if clock_kind not in {"run", "demo"}:
+    print("LOCAL_CLOSE02_CLOCK_KIND must be run or demo", file=sys.stderr)
+    raise SystemExit(2)
+run_root = "local-close-02-demo" if clock_kind == "demo" else "local-close-02"
+RUNS = ROOT / ".local/testing" / run_root
 
 def fail(message):
     print(message, file=sys.stderr)
     raise SystemExit(2)
 
 if len(sys.argv) < 3:
-    fail("usage: scripts/local-close-02-business-clock RUN_ID {show|set RFC3339|advance DURATION}")
+    fail("usage: LOCAL_CLOSE02_CLOCK_KIND={run|demo} scripts/local-close-02-business-clock RUN_ID {show|set RFC3339|advance DURATION}")
 run_id, command, *args = sys.argv[1:]
 if not re.fullmatch(r"[0-9a-f]{12}", run_id):
     fail("RUN_ID must be 12 lowercase hexadecimal characters")
@@ -84,4 +89,4 @@ elif command == "set" and len(args) == 1:
 elif command == "advance" and len(args) == 1:
     save(load() + duration(args[0]))
 else:
-    fail("usage: scripts/local-close-02-business-clock RUN_ID {init|show|set RFC3339|advance DURATION}")
+    fail("usage: LOCAL_CLOSE02_CLOCK_KIND={run|demo} scripts/local-close-02-business-clock RUN_ID {init|show|set RFC3339|advance DURATION}")

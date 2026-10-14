@@ -202,10 +202,11 @@ test('LOCAL-CLOSE-02 serves a signed reservation through its financial close', a
   const receptionRead = await request.get(`${backend}/local/booking-trial/reservations/${reservationId}`, { headers: hostAuth });
   expect((await bodyData(receptionRead)).state).toBe('finalizada');
 
-  expect((await request.get(`${backend}/local/booking-trial/reservations/${reservationId}`, { headers: thirdPartyAuth })).status()).toBe(404);
-  expect((await request.get(`${backend}/local/booking-trial/reservations/${reservationId}/receipt`, { headers: thirdPartyAuth })).status()).toBe(404);
-  expect((await request.post(`${backend}/local/booking-trial/reservations/${reservationId}/settlement`, { headers: { ...renterAuth, 'Idempotency-Key': `local-close-02-renter-${reservationId}` }, data: { outcome: 'exito' } })).status()).toBe(404);
-  expect((await request.get(`${backend}/local/booking-trial/reservations/${reservationId}/settlement`, { headers: thirdPartyAuth })).status()).toBe(404);
+  const thirdPartyReservationStatus = (await request.get(`${backend}/local/booking-trial/reservations/${reservationId}`, { headers: thirdPartyAuth })).status();
+  const thirdPartyReceiptStatus = (await request.get(`${backend}/local/booking-trial/reservations/${reservationId}/receipt`, { headers: thirdPartyAuth })).status();
+  const thirdPartySettlementWriteStatus = (await request.post(`${backend}/local/booking-trial/reservations/${reservationId}/settlement`, { headers: { ...thirdPartyAuth, 'Idempotency-Key': `local-close-02-outsider-${reservationId}` }, data: { outcome: 'exito' } })).status();
+  const thirdPartySettlementReadStatus = (await request.get(`${backend}/local/booking-trial/reservations/${reservationId}/settlement`, { headers: thirdPartyAuth })).status();
+  expect([thirdPartyReservationStatus, thirdPartyReceiptStatus, thirdPartySettlementWriteStatus, thirdPartySettlementReadStatus]).toEqual([404, 404, 404, 404]);
 
   const settlePath = `${backend}/local/booking-trial/reservations/${reservationId}/settlement`;
   const settleRequestKeys = [`local-close-02-host-${reservationId}`];
@@ -234,6 +235,8 @@ test('LOCAL-CLOSE-02 serves a signed reservation through its financial close', a
   expect(adminClaimsResponse.status()).toBe(200);
   const resolutionResponse = await request.post(`${backend}/admin/local/damage-claims/${claimId}/resolution`, { headers: { ...adminAuth, 'Idempotency-Key': crypto.randomUUID() }, data: { outcome: 'rechazado', reason_code: 'evidencia_insuficiente' } });
   expect([200, 201]).toContain(resolutionResponse.status());
+  const resolution = await bodyData(resolutionResponse);
+  expect(resolution.state ?? resolution.claim?.state).toBe('resuelta');
   const financialDecisionResponse = await request.post(`${backend}/local/booking-trial/reservations/${reservationId}/financial-decision`, { headers: { ...adminAuth, 'Idempotency-Key': crypto.randomUUID() }, data: { claim_id: claimId, outcome: 'rechazado', deduction_clp: 0, reason_code: 'sin_deduccion' } });
   expect(financialDecisionResponse.status()).toBe(200);
   const closeIncidentResponse = await request.post(`${backend}/admin/disputes/${incident.id}/close`, { headers: adminAuth, data: { reason_code: 'ensayo_finalizado' } });
@@ -266,7 +269,6 @@ test('LOCAL-CLOSE-02 serves a signed reservation through its financial close', a
   expect(settled.state).toBe('liquidada');
   await admin.getByRole('button', { name: 'Consultar garantía, liquidación y comprobante' }).click();
   await expect(admin.locator('section.card').filter({ has: admin.getByRole('heading', { name: 'Liquidación' }) })).toContainText('liquidada');
-  await screenshot(admin, 'fe14_local_close_02_admin_receipt_desktop');
 
   const replay = await request.post(`${backend}/local/booking-trial/reservations/${reservationId}/settlement`, {
     headers: { ...hostAuth, 'Idempotency-Key': settlementKey },
@@ -298,6 +300,23 @@ test('LOCAL-CLOSE-02 serves a signed reservation through its financial close', a
   await renter.getByRole('link', { name: 'Ver solicitud' }).first().click();
   await expect(renter.locator('main')).toContainText('Cerrada');
   await expect(renter.locator('.history')).toContainText('Cerrada');
+  await screenshot(renter, 'fe14_local_close_02_closed_history_renter_desktop');
+  await renter.setViewportSize({ width: 390, height: 844 });
+  await navigateSpa(renter, '/reservas');
+  await renter.getByRole('link', { name: 'Ver solicitud' }).first().click();
+  await expect(renter.locator('main')).toContainText('Cerrada');
+  await expect(renter.locator('.history')).toContainText('Cerrada');
+  await screenshot(renter, 'fe14_local_close_02_closed_history_renter_mobile');
+  await navigateSpa(renter, `/reservas/${reservationId}/disputas`);
+  await renter.getByRole('button', { name: 'Actualizar desde Go' }).click();
+  const resolvedClaimCard = renter.locator('section.card').filter({ has: renter.getByRole('heading', { name: 'Reclamo y descargo' }) });
+  await expect(resolvedClaimCard).toContainText('resuelta');
+  const renterSettlementCard = renter.locator('section.card').filter({ has: renter.getByRole('heading', { name: 'Comprobante de ensayo' }) });
+  await expect(renterSettlementCard).toContainText('liquidada');
+  await expect(renterSettlementCard).toContainText('comprobante_ensayo');
+  await screenshot(renter, 'fe14_local_close_02_resolved_receipt_renter_mobile');
+  await renter.setViewportSize({ width: 1365, height: 900 });
+  await screenshot(renter, 'fe14_local_close_02_resolved_receipt_renter_desktop');
   await navigateSpa(host, `/reservas/${reservationId}/disputas`);
   await host.getByRole('button', { name: 'Actualizar desde Go' }).click();
   await expect(host.locator('section.card').filter({ has: host.getByRole('heading', { name: 'Liquidación' }) })).toContainText('liquidada');
@@ -310,6 +329,17 @@ test('LOCAL-CLOSE-02 serves a signed reservation through its financial close', a
     space_id: space.id,
     contract_id: contractId,
     claim_id: claimId,
+    incident_id: incident.id,
+    resolved_claim_state: resolution.state ?? resolution.claim?.state,
+    resolved_claim_outcome: resolution.outcome ?? resolution.resolution?.outcome,
+    release_operation_id: (await bodyData(releaseReconciliation)).id,
+    checkin_operation_id: checkInOperation.id,
+    third_party_status_codes: {
+      reservation: thirdPartyReservationStatus,
+      receipt: thirdPartyReceiptStatus,
+      settlement_write: thirdPartySettlementWriteStatus,
+      settlement_read: thirdPartySettlementReadStatus,
+    },
     quote: { start_at: quote.start_at, end_at: quote.end_at, time_zone: quote.time_zone, subtotal_clp: quote.subtotal_clp },
     checkout_at: quote.end_at,
     settlement_id: settled.id,
