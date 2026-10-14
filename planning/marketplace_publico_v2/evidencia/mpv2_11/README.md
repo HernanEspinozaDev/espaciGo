@@ -1,6 +1,6 @@
 # Evidencia MPV2-11 — filtros tipados por categoría
 
-Fecha: 2026-10-13. Implementación probada en `632e47d94a20d62b83a0df2ea07276623d37cac9`, rama `codex/marketplace/feature/mpv2-11-typed-category-filters`, basada en el merge de MPV2-10 `5029a1ab73f4e9c365d5352299849b7dbe80991f` (PR #304). El PR de este corte queda pendiente de creación/revisión al preparar esta evidencia. No implica aceptación del producto.
+Fecha: 2026-10-13. Implementación probada en `632e47d94a20d62b83a0df2ea07276623d37cac9`, rama `codex/marketplace/feature/mpv2-11-typed-category-filters`, basada en el merge de MPV2-10 `5029a1ab73f4e9c365d5352299849b7dbe80991f` (PR #304). El PR de este corte es [#305](https://github.com/HernanEspinozaDev/espaciGo/pull/305), creado por `HernanMEC` con revisión solicitada a `HernanEspinozaDev`; el HEAD al abrirlo fue `de7e3b8fcca645f6e860b29794c95a5cb9e50329`. No implica aceptación del producto.
 
 ## Verificaciones ejecutadas
 
