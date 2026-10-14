@@ -31,6 +31,6 @@ Se excluyen identidad, propiedad, dirección precisa, contacto, KYC, reservas, c
 - Cada atributo se expresa una vez; duplicados, operadores, tipos, valores, categorías, rangos y opciones inválidos se rechazan. El máximo es 16 atributos y 32 valores repetidos de URL.
 - Los cursores firmados pasan a versión 3 e incluyen los predicados tipados en su fingerprint; un cursor v2 previo se rechaza explícitamente. Las URLs booleanas antiguas siguen aceptándose.
 
-## Verificación pendiente del corte
+## Estado de verificación
 
-La implementación y los recorridos reales Go/PostgreSQL/Angular Router, prueba desde base vacía y V56, fixture de ocho categorías, matrices/EXPLAIN, navegación atrás/adelante, contexto de identidad, SSR y capturas con hash están pendientes hasta ejecutarse y registrarse en la evidencia MPV2-11. No se atribuye aquí ninguna prueba no ejecutada.
+La implementación, la migración V57 desde base vacía y V56 con V1–V56 intactas, el fixture de ocho categorías, Go/PostgreSQL, Angular Router/Atrás-Adelante, contexto de identidad, SSR, y capturas con hash se registraron en [evidencia MPV2-11](evidencia/mpv2_11/README.md). Incluye límites del EXPLAIN local y del entorno sintético. Esto acredita pruebas técnicas, no aceptación de producto.
