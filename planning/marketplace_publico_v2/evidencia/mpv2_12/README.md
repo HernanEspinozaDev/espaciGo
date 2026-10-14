@@ -16,3 +16,15 @@
 - [Cuadrícula de dos columnas — móvil](fe14_mpv2_12_grid_2_mobile.jpg) · [mediciones](fe14_mpv2_12_grid_2_mobile.json)
 
 Las imágenes de espacios sintéticos usan el estado explícito “Sin fotografía pública”. Los datos/creds del ensayo fueron efímeros y no forman parte de estas capturas. Esta evidencia acredita comportamiento técnico en fixtures locales; no representa fotografías reales ni aceptación de producto.
+
+## Revalidación de correcciones del PR #306 — 2026-10-14
+
+**HEAD de código probado:** `05737e0f7d0715853a15b21d0ece0e34f9d47e7d`. Se ejecutó `FE14_PORT_BASE=19800 FE14_PUBLIC_ONLY=1 FE14_PUBLIC_TEST_GREP='MPV2-07 serves public catalog|MPV2-12 catalog layout|Anonymous visitor explores the Go-backed public catalog and minimized detail|MPV2-04 host declares a photo public' FE14_EVIDENCE_OUTPUT_DIR=planning/marketplace_publico_v2/evidencia/mpv2_12 bash scripts/test-frontend-e2e.sh`.
+
+- **Playwright: 4/4 aprobadas**. La regresión SSR confirma canonical `/explorar` y `noindex, follow` para filtros y parámetros de presentación. El recorrido de layout comprobó columnas CSS calculadas para escritorio 2/3/4 y móvil 1/2, el ajuste de 4 a 2 en el ancho intermedio, ausencia de refetch por presentación y el cambio real a 12 resultados.
+- La navegación por cursor comprobó Atrás/Adelante y la restauración de una y dos tarjetas. El recorrido de foto pública comprobó lectura anónima y retirada con 404.
+- **SSR durante caída/restauración de Go:** aprobado; catálogo y sitemap respondieron 503 durante la caída y 200 tras restaurar el servicio.
+- Entorno desechable `espacigo_fe14_8c2c9b425d44`; puertos loopback `19800–19803`, volumen `espacigo_fe14_8c2c9b425d44_pgdata` y cuatro cuentas sintéticas efímeras. La configuración Compose resolvió solo volúmenes propios y no publicó PostgreSQL. Al finalizar se retiraron contenedores, redes, volumen, secretos y estado temporal. Se verificó que `espacigo_pgdata`, la demo MPV2-09 y sus puertos permanecieron intactos.
+- Las mediciones de las capturas actuales corresponden a este HEAD: desktop `1365×900` (documento `1365×4947`) y móvil `390×844` (documento `390×9108`); ambos documentos conservan el ancho del viewport.
+
+Los dos recorridos públicos focalizados y la comprobación del estado de Go se ejecutaron contra Angular, Go y PostgreSQL reales del ensayo; no son respuestas simuladas. Las cuentas fueron sintéticas y las credenciales se eliminaron junto con el entorno.
