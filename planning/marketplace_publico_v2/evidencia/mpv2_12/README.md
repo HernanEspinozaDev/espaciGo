@@ -1,6 +1,6 @@
 # Evidencia FE-14 — MPV2-12
 
-**HEAD durante la ejecución:** `2856a304fbbfdbf1b5dcb0544b7c6d504e574898`, base de `origin/main`. Las capturas y pruebas se generaron con los cambios de MPV2-12 presentes en el worktree de ensayo, antes de crear el commit de implementación.
+**HEAD durante la ejecución:** `2856a304fbbfdbf1b5dcb0544b7c6d504e574898`, base de `origin/main`. Las capturas y pruebas se generaron con el worktree de MPV2-12; su implementación quedó fijada en `fc3cefda529d4ebf6fecaac5c3b50401a3fa832b`, sin cambios de código posteriores a la corrida.
 **Entorno:** Compose FE-14 desechable, Go + PostgreSQL, cuatro cuentas sintéticas; proyecto `espacigo_fe14_d816de2ad4b1`, puertos `19800–19803` y volumen exclusivos. `espacigo_pgdata`, la demo MPV2-09 y sus puertos no se usaron ni modificaron. El runner retiró servicios, redes, volumen, secretos temporales y estado al terminar.
 
 ## Recorrido ejecutado
