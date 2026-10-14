@@ -10,7 +10,7 @@ Fecha de inicio: 2026-10-11. LOCAL-1 fue aceptado explícitamente por el propiet
 - **DOCKER-03/#270:** cerrada y aceptada en su alcance tras PR #273, merge `b0f62b976c9586d260cea15ed9acc29ab12257a7`. Su aceptación no cierra DOCKER-02.
 - La aceptación de UX/demo MPV2-13 registrada para código `736f81a` no constituye aceptación retroactiva de Docker ni del cierre local integral.
 
-La tabla y los apartados originales describen el estado inicial/corridas fechadas del 2026-10-11. Los estados actuales de Issues se documentan arriba y en la matriz de cierre.
+La tabla y los apartados originales describen el estado inicial/corridas fechadas del 2026-10-11. Los estados actuales de Issues se documentan arriba y en la matriz de cierre. LOCAL-CLOSE-02 revalidó Go y Angular en un entorno aislado: 91 integraciones obligatorias sin omisiones, 281 pruebas Angular y 18/18 E2E servido contra Go/PostgreSQL en base vacía. La integración financiera PostgreSQL confirma el límite checkout+24 h y el cierre contable; el E2E servido aún no recorrió liquidación/recibo ni restore. El acta y los límites actuales están en [`cierre_local/acta_cierre_local.md`](cierre_local/acta_cierre_local.md). #269 sigue sin aceptación funcional; no se reescribe la evidencia histórica de 2026-10-11.
 
 ## Estado de Compose existente
 

@@ -1,6 +1,6 @@
 # Cierre del desarrollo local de EspaciGo — backend, Angular y DB
 
-Fecha: 2026-10-14, America/Santiago. Estado: LOCAL-CLOSE-00 fusionado en PR #308; LOCAL-CLOSE-01 implementado en rama `codex/marketplace/fix/local-close-01-parity-contract`, PR #309 abierto y pendiente de revisión. HEAD de código ensayado `726b419824a26a79797561b6b77db6d92af0170e`; HEAD actual y autores verificados en GitHub PR #309. Baseline de `main`: merge #308 `a26e1dacbe23cbc4b73528c69ee0e6b4daf394ea`. Cierre integral todavía pendiente de evidencia y decisión humana. No es una autorización de despliegue ni de creación de recursos GCP.
+Fecha: 2026-10-14, America/Santiago. Estado: LOCAL-CLOSE-00 fusionado en PR #308; LOCAL-CLOSE-01 fusionado en PR #309 (merge `701dabbf7d381c69d240f8cbed823c69de5e4ca1`, confirmado por revisión `HernanEspinozaDev`). LOCAL-CLOSE-02 en curso desde ese HEAD; resultados y límites actuales en [`evidencia/local-close-02/README.md`](evidencia/local-close-02/README.md) y [`acta_cierre_local.md`](acta_cierre_local.md). La aceptación final local sigue pendiente. Cierre integral todavía pendiente de evidencia y decisión humana. No es una autorización de despliegue ni de creación de recursos GCP.
 
 ## Objetivo y fuentes
 
@@ -95,6 +95,10 @@ Un ensayo limpio y aislado sobre el código fusionado de LOCAL-CLOSE-01. Registr
 - Producir acta `planning/cierre_local/acta_cierre_local.md`: alcance/exclusiones, SHA y hashes, comandos/resultados, cobertura y límites, incidencias, instalación/restore/rollback local, demos retenidas/responsable y pendientes GCP.
 
 Salida: PR técnico revisable y demo final vinculada al código corregido. Solicitar aceptación humana del **cierre integral local** después de revisar evidencia; la aceptación anterior del marketplace se conserva pero no sustituye esta decisión. Hasta entonces #267 no se cierra; #269 conserva historial administrativo. Después de aceptación y fusión, registrar evidencia nueva en Issues según alcance y cerrar solo los criterios realmente cumplidos; no cerrar padres globales por inferencia.
+
+### Registro de ejecución LOCAL-CLOSE-02 (actualización 2026-10-14)
+
+Sobre merge #309 `701dabbf7d381c69d240f8cbed823c69de5e4ca1`, pasaron QA Go (91 integraciones requeridas, 0 skips), QA Angular (281 pruebas y build SSR), auditoría de producción (0 vulnerabilidades) y E2E aislado servido 18/18. La integración de liquidación PostgreSQL verifica el plazo 24 h, importes, comprobante, `cerrada`, idempotencia y conciliación; el Playwright no recorrió las etapas de contrato/check-in/out/disputa/liquidación. Por tanto, los criterios DOCKER-02 no se declaran aceptados. El ensayo E2E se retiró; falta recorrido servido con reloj propio y demo LOCAL-CLOSE-02 retenida. Ver acta y tabla de límites; no cerrar #267/#269 ni inferir aceptación humana.
 
 ## Entornos y seguridad de ejecución
 

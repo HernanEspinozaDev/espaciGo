@@ -12,10 +12,21 @@ if [[ ! "$RUN_ID" =~ ^[0-9a-f]{12}$ ]]; then
   exit 2
 fi
 if [[ "${FE14_RETAIN_STACK:-0}" == "1" ]]; then
-  expected_state="$ROOT_DIR/.local/testing/mpv2-13-demo/$RUN_ID"
-  expected_project="espacigo_mpv2_13_demo_${RUN_ID}"
+  case "${FE14_RETAIN_KIND:-mpv2-13}" in
+    mpv2-13)
+      expected_state="$ROOT_DIR/.local/testing/mpv2-13-demo/$RUN_ID"
+      expected_project="espacigo_mpv2_13_demo_${RUN_ID}"
+      retain_label='MPV2-13'
+      ;;
+    local-close-02)
+      expected_state="$ROOT_DIR/.local/testing/local-close-02-demo/$RUN_ID"
+      expected_project="espacigo_localclose02_demo_${RUN_ID}"
+      retain_label='LOCAL-CLOSE-02'
+      ;;
+    *) printf 'unsupported retained demo kind\n' >&2; exit 2 ;;
+  esac
   [[ "${FE14_PUBLIC_ONLY:-0}" == "1" && "$PROJECT" == "$expected_project" && "$STATE_DIR" == "$expected_state" ]] || {
-    printf 'retained FE-14 stack is restricted to the dedicated MPV2-13 demo wrapper and state path\n' >&2
+    printf 'retained FE-14 stack is restricted to a dedicated demo wrapper and state path\n' >&2
     exit 2
   }
   [[ ! -e "$STATE_DIR" ]] || { printf 'retained demo state path already exists\n' >&2; exit 2; }
@@ -187,8 +198,8 @@ EOF
     chmod 0600 "$STATE_DIR/runtime.env"
     rm -rf -- "$STATE_DIR/results"
     rm -f -- "$STATE_DIR/stack-build.log" "$STATE_DIR/e2e-build.log" "$STATE_DIR/e2e.log" "$STATE_DIR/local-ssr.log"
-    printf 'RETAINED MPV2-13 review demo: project=%s volume=%s ports=%s-%s state=%s\n' "$PROJECT" "${PROJECT}_pgdata" "$BASE_PORT" "$((BASE_PORT + 2))" "$STATE_DIR"
-    printf 'Owner: HernanMEC. Reason: user-requested isolated marketplace review demo; retain until the user records a product decision. Reviewer credentials: %s/accounts.json (mode 0600).\n' "$STATE_DIR"
+    printf 'RETAINED %s review demo: project=%s volume=%s ports=%s-%s state=%s\n' "$retain_label" "$PROJECT" "${PROJECT}_pgdata" "$BASE_PORT" "$((BASE_PORT + 2))" "$STATE_DIR"
+    printf 'Owner: HernanMEC. Reason: user-requested isolated review demo; retain pending the user product decision. Synthetic account credentials: %s/accounts.json (mode 0600).\n' "$STATE_DIR"
     return "$status"
   fi
   bash "$ROOT_DIR/scripts/local-docker-stack.sh" down-frontend >/dev/null 2>&1 || true
