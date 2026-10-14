@@ -2,11 +2,11 @@
 
 ## Estado y alcance autorizado
 
-El usuario NO acepta todavía MPV2-09. Las fusiones técnicas MPV2-00–09 siguen válidas como historial, pero no constituyen aceptación de producto. Base actual de main al iniciar MPV2-12: `2856a304fbbfdbf1b5dcb0544b7c6d504e574898`, merge de PR #305; la demo retenida MPV2-09 sigue en `6075b7800b45f15e779d11c3ab5853dadd26238e`.
+El usuario NO acepta todavía MPV2-09 ni el marketplace como producto. Las fusiones técnicas MPV2-00–12 son historial de implementación y no constituyen aceptación de producto. Base de MPV2-13: `c797f0eb734e2c7eda37eb70a50d4d509e82677d`, merge de PR #306; la demo retenida MPV2-09 sigue en `6075b7800b45f15e779d11c3ab5853dadd26238e` y debe permanecer intacta.
 
 Se autorizan mejoras de ordenamiento, cuadrícula/cantidad visible, filtros propios de cada categoría y categoría inmediatamente después de Buscar. Las dos capturas del usuario son referencias de distribución, no requisitos de copiar marcas, colores, taxonomía residencial, mapas, UF ni capacidades ajenas.
 
-Este plan es una ampliación de MARKETPLACE-LOCAL-2: cortes MPV2-10–13, uno por rama/PR y revisión/fusión entre cortes. Desarrollo debe versionarlo en planning/marketplace_publico_v2/plan_perfeccionamiento_publico.md y actualizar plan, matriz y rango de identificadores de AGENTS.md; no crear una rama permanente nueva. Estado 2026-10-14: MPV2-10 está fusionado en PR #304, merge `5029a1ab73f4e9c365d5352299849b7dbe80991f`; MPV2-11 está aprobado y fusionado por `HernanEspinozaDev` en PR #305, merge `2856a304fbbfdbf1b5dcb0544b7c6d504e574898`. La aceptación de producto continúa pendiente. MPV2-12 es el corte autorizado vigente y parte de ese SHA. Este plan describe requisitos, no implementación.
+Este plan es una ampliación de MARKETPLACE-LOCAL-2: cortes MPV2-10–13, uno por rama/PR y revisión/fusión entre cortes. MPV2-10 se fusionó en PR #304 (`5029a1ab73f4e9c365d5352299849b7dbe80991f`), MPV2-11 en PR #305 (`2856a304fbbfdbf1b5dcb0544b7c6d504e574898`) y MPV2-12 fue revisado y fusionado por `HernanEspinozaDev` en PR #306 (`c797f0eb734e2c7eda37eb70a50d4d509e82677d`). El corte vigente es MPV2-13 sobre ese SHA. La aceptación de producto continúa pendiente. Este plan describe requisitos, no implementación.
 
 ## Diagnóstico verificado
 

@@ -1,7 +1,7 @@
 # Desarrollo local versión 2 del marketplace público
 
 **Identificador:** MARKETPLACE-LOCAL-2. **Cortes:** MPV2-00–MPV2-13.
-**Fecha:** 2026-10-14. **Estado:** MPV2-00–11 fusionados técnicamente. MPV2-11 se aprobó y fusionó en [PR #305](https://github.com/HernanEspinozaDev/espaciGo/pull/305), merge `2856a304fbbfdbf1b5dcb0544b7c6d504e574898`. MPV2-12 está abierto en [PR #306](https://github.com/HernanEspinozaDev/espaciGo/pull/306), HEAD `fc3cefda529d4ebf6fecaac5c3b50401a3fa832b`; revisión solicitada a `HernanEspinozaDev`. La aceptación de producto sigue pendiente.
+**Fecha:** 2026-10-14. **Estado:** MPV2-00–12 fusionados técnicamente. MPV2-12 se revisó en [PR #306](https://github.com/HernanEspinozaDev/espaciGo/pull/306) y fusionó por `HernanEspinozaDev`, merge `c797f0eb734e2c7eda37eb70a50d4d509e82677d`. MPV2-13 es el corte vigente sobre ese SHA. La aceptación de producto sigue pendiente.
 
 ## 1. Objetivo y base de trabajo
 
@@ -250,4 +250,9 @@ MPV2-00 está revisado y fusionado en PR #294 (merge 916176c85186fa95fa84d999112
 
 MPV2-09 fusionó documentación y evidencia para revisión sobre el código `6075b7800b45f15e779d11c3ab5853dadd26238e`; no añade migraciones, cambios Go/OpenAPI ni alcance funcional. El usuario revisó y pidió cambios: ordenamiento usable, ubicación de categoría después de Buscar, filtros/resultados por categoría y jerarquía explícita entre borradores y criterios aplicados. Por tanto MPV2-09 se registra **NO aceptado / cambios solicitados**, aunque sus fusiones técnicas e historial siguen válidos. La pila local aislada, los datos y las credenciales privadas continúan conservados en su worktree dedicado, sin actualizarlo durante los nuevos cortes. La evidencia FE-14 temporal pasó 7/7; la pila de revisión se mantiene a petición del usuario. Guía y criterio de decisión: [aceptacion_mpv2_09.md](aceptacion_mpv2_09.md); capturas/hashes: [evidencia MPV2-09](evidencia/mpv2_09/README.md).
 
-La ampliación autorizada y las decisiones UX/contrato se versionan en [plan de perfeccionamiento público](plan_perfeccionamiento_publico.md). MPV2-10–13 son cortes de la misma MARKETPLACE-LOCAL-2, no una rama permanente nueva. MPV2-10 se fusionó en PR #304, merge `5029a1ab73f4e9c365d5352299849b7dbe80991f`; MPV2-11 se aprobó y fusionó en PR #305, merge `2856a304fbbfdbf1b5dcb0544b7c6d504e574898`; ambas fusiones son técnicas, sin aceptación final de producto. La evidencia de MPV2-11 está en `evidencia/mpv2_11/README.md`. MPV2-12 está en PR #306; no iniciar MPV2-13 hasta su fusión.
+La ampliación autorizada y las decisiones UX/contrato se versionan en [plan de perfeccionamiento público](plan_perfeccionamiento_publico.md). MPV2-10–13 son cortes de la misma MARKETPLACE-LOCAL-2, no una rama permanente nueva. MPV2-10 se fusionó en PR #304 (`5029a1ab73f4e9c365d5352299849b7dbe80991f`); MPV2-11 se aprobó y fusionó en PR #305 (`2856a304fbbfdbf1b5dcb0544b7c6d504e574898`); MPV2-12 se aprobó y fusionó en PR #306 (`c797f0eb734e2c7eda37eb70a50d4d509e82677d`). Son fusiones técnicas, sin aceptación final de producto. La evidencia queda en `evidencia/mpv2_11/README.md` y `evidencia/mpv2_12/README.md`. MPV2-13 consolida regresión, registra límites y prepara una demo nueva; no declara el marketplace terminado ni aceptado.
+
+
+## MPV2-13 — estado de regresión y demo (2026-10-14)
+
+La regresión consolidada se ejecutó sobre la aplicación fusionada `c797f0eb734e2c7eda37eb70a50d4d509e82677d`: V1–V57 sin cambios; backend con 91 integraciones requeridas y cero skips; Angular 267 pruebas, lint/arquitectura, contrato OpenAPI y build SSR; FE-14 real 16/16. La demo aislada nueva pasó 5/5 recorridos públicos y se retiene para revisión en el proyecto documentado. Evidencia, entorno y límites: [MPV2-13](evidencia/mpv2_13/README.md); pasos de revisión: [guía de aceptación técnica](aceptacion_mpv2_13.md). Esto acredita resultados técnicos; aceptación de producto sigue pendiente.

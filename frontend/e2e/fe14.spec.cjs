@@ -326,6 +326,25 @@ test('MPV2-12 catalog layout and page size use real Go results without presentat
   await expect(page.locator('.space-card')).toHaveCount(12);
 });
 
+test('MPV2-13 captures the served catalog at desktop and mobile review sizes', async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto('/explorar?view=grid&desktop_columns=4&mobile_columns=1&page_size=24');
+  await expect(page.locator('.space-card')).toHaveCount(24);
+  await expect(page.locator('.results-count')).toContainText('24 espacios cargados · 24 por solicitud');
+  const gridColumns = () => page.locator('.results.grid-view').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  await expect.poll(gridColumns).toBe(4);
+  await page.evaluate(() => (document.activeElement instanceof HTMLElement) && document.activeElement.blur());
+  await takeScreenshot(page, 'fe14_mpv2_13_catalog_desktop', true);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByLabel('Columnas en móvil').selectOption('2');
+  await expect.poll(gridColumns).toBe(2);
+  const dimensions = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
+  await page.evaluate(() => (document.activeElement instanceof HTMLElement) && document.activeElement.blur());
+  await takeScreenshot(page, 'fe14_mpv2_13_catalog_mobile', true);
+});
+
 test('MPV2-11 validates typed public filters and pagination across all eight categories',async({request,page})=>{
   const categories=await (await request.get('http://backend:8080/api/v1/public/space-categories')).json();
   expect(categories.items).toHaveLength(8);
@@ -362,6 +381,12 @@ test('MPV2-11 validates typed public filters and pagination across all eight cat
   const legacyFalse=await request.get('http://backend:8080/api/v1/public/spaces?category_code=bodega&attribute=muelle_carga:false&page_size=10');
   expect(legacyFalse.status()).toBe(200);
   expect((await legacyFalse.json()).items).toHaveLength(1);
+  const legacyTrue=await request.get('http://backend:8080/api/v1/public/spaces?category_code=bodega&attribute=muelle_carga:true&page_size=10');
+  expect(legacyTrue.status()).toBe(200);
+  expect((await legacyTrue.json()).items).toHaveLength(1);
+  const booleanMiss=await request.get('http://backend:8080/api/v1/public/spaces?category_code=estacionamiento&attribute=carga_electrica:true&page_size=10');
+  expect(booleanMiss.status()).toBe(200);
+  expect((await booleanMiss.json()).items).toHaveLength(0);
   for(const query of [
     '?category_code=bodega&attribute=altura_util_m:gte:1.23&attribute=altura_util_m:gte:2.00',
     '?category_code=bodega&attribute=altura_util_m:gte:1e2',
@@ -382,7 +407,7 @@ test('MPV2-11 validates typed public filters and pagination across all eight cat
   const uiSearchResponse=await uiSearch;
   expect(uiSearchResponse.status(),await uiSearchResponse.text()).toBe(200);
   await expect(page).toHaveURL(/attribute=altura_util_m:gte:3\.50/);
-  await expect(page.getByText('MPV2-11 bodega fixture 1',{exact:true})).toBeVisible();
+  await expect(page.getByText('MPV2-12 bodega fixture 1',{exact:true})).toBeVisible();
   await page.goBack();
   await page.goForward();
   await expect(page.getByLabel('Altura útil (m) mínimo')).toHaveValue('3.50');
@@ -400,10 +425,10 @@ test('MPV2-11 validates typed public filters and pagination across all eight cat
   await expect(page.getByLabel('Altura útil (m) mínimo')).toHaveValue('3.50');
   await page.goForward();
   await expect(page.getByLabel('Disposiciones admitidas (selección múltiple)')).toHaveValues(['auditorio','aula']);
-  await expect(page.getByText('MPV2-11 sala_multiproposito fixture 1',{exact:true})).toBeVisible();
+  await expect(page.getByText('MPV2-12 sala_multiproposito fixture 1',{exact:true})).toBeVisible();
   const ssrCsvResponse = await request.get(`${process.env.FRONTEND_BASE_URL || 'http://angular-frontend:4000'}/explorar?category_code=sala_multiproposito&attribute=disposiciones_admitidas%3Ain%3Aauditorio%2Caula`);
   expect(ssrCsvResponse.status()).toBe(200);
-  expect(await ssrCsvResponse.text()).toContain('MPV2-11 sala_multiproposito fixture 1');
+  expect(await ssrCsvResponse.text()).toContain('MPV2-12 sala_multiproposito fixture 1');
   await page.setViewportSize({width:390,height:844});
   await page.getByRole('button',{name:'Filtrar y ordenar'}).click();
   await expect(page.getByRole('dialog',{name:'Filtros de espacios'})).toBeVisible();
