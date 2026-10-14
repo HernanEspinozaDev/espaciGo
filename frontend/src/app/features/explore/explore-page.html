@@ -61,7 +61,7 @@
 
     <section class="catalog-results" aria-label="Resultados de espacios" [attr.inert]="filtersOpen() ? '' : null">
       <div class="catalog-toolbar">
-        <p class="results-count" role="status">{{items().length}} espacios en esta página</p>
+        <p class="results-count" role="status">{{items().length}} espacios cargados · {{appliedFilters().page_size}} por solicitud</p>
         <div class="presentation-controls" role="group" aria-label="Presentación de resultados">
           <label>Vista<select aria-label="Vista de resultados" [value]="presentation().view" (change)="setPresentation({view:$any($event.target).value})"><option value="list">Lista</option><option value="grid">Cuadrícula</option></select></label>
           <label>Columnas escritorio<select aria-label="Columnas en escritorio" [value]="presentation().desktopColumns" (change)="setDesktopColumns($any($event.target).value)"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
@@ -75,6 +75,7 @@
         </label>
         <button class="filter-toggle" type="button" [attr.aria-expanded]="filtersOpen()" aria-controls="catalog-filters" (click)="openFilters($any($event.currentTarget))">Filtrar y ordenar</button>
       </div>
+      @if(layoutNotice()){<p class="layout-notice" role="status">{{layoutNotice()}}</p>}
       @if(pendingSort()){
         @if(sortRequirement(); as requirement){<div class="sort-guidance" role="status"><p>{{requirement.message}}</p><button type="button" class="text-action" (click)="focusSortRequirement()">{{requirement.action}}</button><button type="button" class="text-action" (click)="cancelSort()">Cancelar</button></div>}
         @else if(hasUnappliedChanges()){<div class="sort-guidance" role="group" aria-label="Confirmar cambios de orden"><p>El orden usa filtros aplicados. ¿Quieres aplicar tus borradores junto con el orden o descartarlos?</p><button type="button" class="text-action" (click)="confirmSort(true)">Aplicar cambios y ordenar</button><button type="button" class="text-action" (click)="confirmSort(false)">Descartar cambios y ordenar</button><button type="button" class="text-action" (click)="cancelSort()">Cancelar</button></div>}

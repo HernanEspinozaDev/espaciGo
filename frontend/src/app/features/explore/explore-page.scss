@@ -42,6 +42,7 @@
 .catalog-results { min-width: 0; container-type: inline-size; }
 .catalog-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; margin: metrics.$space-1rem 0; }
 .results-count { margin: 0; color: var(--color-text-muted); }
+.layout-notice { flex-basis: 100%; margin: 0; color: var(--color-text-muted); font-size: metrics.$font-size-0-85rem; }
 .presentation-controls { order: 3; display: flex; flex-wrap: wrap; width: 100%; gap: metrics.$space-0-4rem; }
 .presentation-controls label { display: grid; gap: metrics.$space-0-2rem; color: var(--color-text-muted); font-size: metrics.$font-size-0-75rem; }
 .presentation-controls select { min-width: 4.5rem; min-height: 2.5rem; border: 1px solid var(--color-border-control); border-radius: 0.55rem; padding: metrics.$space-0-35rem; background: var(--color-surface); color: var(--color-text); font: inherit; }
@@ -144,7 +145,7 @@
   .results.grid-view[data-desktop-columns='4'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @container (max-width: 30rem) {
-  .results.grid-view { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+  .results.grid-view[data-mobile-columns='1'] { grid-template-columns: repeat(1, minmax(0, 1fr)); }
   .results.grid-view[data-mobile-columns='2'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .results.grid-view[data-mobile-columns='2'] .space-summary { padding: metrics.$space-0-55rem; }
   .results.grid-view[data-mobile-columns='2'] .space-summary h2 { font-size: metrics.$font-size-1rem; }

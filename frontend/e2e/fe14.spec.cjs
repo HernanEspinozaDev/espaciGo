@@ -288,14 +288,36 @@ test('MPV2-12 catalog layout and page size use real Go results without presentat
   await page.getByLabel('Vista de resultados').selectOption('grid');
   await page.getByLabel('Columnas en escritorio').selectOption('4');
   await expect(page.locator('.results.grid-view')).toHaveAttribute('data-desktop-columns', '4');
+  const computedColumns = () => page.locator('.results.grid-view').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  for (const desktop of ['2', '3', '4']) {
+    await page.getByLabel('Columnas en escritorio').selectOption(desktop);
+    expect(await computedColumns()).toBe(Number(desktop));
+    for (const mobile of ['1', '2']) {
+      await page.getByLabel('Columnas en móvil').selectOption(mobile);
+      expect(await computedColumns()).toBe(Number(desktop));
+    }
+  }
   expect(searches).toBe(initialSearches);
+  await page.getByLabel('Columnas en escritorio').selectOption('4');
   await takeScreenshot(page, 'fe14_mpv2_12_grid_4_desktop', true);
   await page.setViewportSize({ width: 390, height: 844 });
+  for (const desktop of ['2', '3', '4']) {
+    await page.getByLabel('Columnas en escritorio').selectOption(desktop);
+    for (const mobile of ['1', '2']) {
+      await page.getByLabel('Columnas en móvil').selectOption(mobile);
+      await expect.poll(computedColumns).toBe(Number(mobile));
+      await expect(page.locator('.results.grid-view')).toHaveAttribute('data-mobile-columns', mobile);
+    }
+  }
   await page.getByLabel('Columnas en móvil').selectOption('2');
-  await expect(page.locator('.results.grid-view')).toHaveAttribute('data-mobile-columns', '2');
   const dimensions = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, page: document.documentElement.scrollWidth }));
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport);
   await takeScreenshot(page, 'fe14_mpv2_12_grid_2_mobile', true);
+  await page.setViewportSize({ width: 850, height: 900 });
+  await page.getByLabel('Columnas en escritorio').selectOption('4');
+  await expect.poll(computedColumns).toBe(2);
+  await expect(page.getByRole('status').filter({ hasText: '4 columnas seleccionadas; el ancho disponible muestra 2.' })).toBeVisible();
+  expect(searches).toBe(initialSearches);
   const pageSizeResponse = page.waitForResponse(response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces\?/.test(response.url()) && new URL(response.url()).searchParams.get('page_size') === '12');
   await page.getByLabel('Espacios por página').selectOption('12');
   expect((await pageSizeResponse).status()).toBe(200);

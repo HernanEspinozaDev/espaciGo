@@ -5,6 +5,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { provideFrontendPorts } from '../../frontend.providers';
+import { PublicPageSeo } from '../../core/public-page-seo';
 import { ExplorePage } from './explore-page';
 import { ExploreApi } from './infrastructure/explore-api';
 
@@ -45,6 +46,43 @@ describe('ExplorePage public catalog URL state', () => {
     expect(page.presentation().view).toBe('list');
     expect(page.filters().q).toBe('borrador');
     expect(api.publicSearch).toHaveBeenCalledOnce();
+  });
+
+  it('updates catalog robots metadata on presentation and cache navigation without refetching', async () => {
+    const seo = { catalog: vi.fn(), responseForApiError: vi.fn() };
+    const api = { publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }) };
+    TestBed.configureTestingModule({ providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }, { provide: PublicPageSeo, useValue: seo }] });
+    const harness = await RouterTestingHarness.create('/explorar');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    page.setPresentation({ view: 'grid' });
+    await vi.waitFor(() => expect(TestBed.inject(Router).url).toContain('view=grid'));
+    await vi.waitFor(() => expect(seo.catalog).toHaveBeenLastCalledWith(false));
+    await TestBed.inject(Router).navigateByUrl('/explorar');
+    expect(seo.catalog).toHaveBeenLastCalledWith(false);
+    expect(api.publicSearch).toHaveBeenCalledOnce();
+  });
+
+  it('reports loaded results and request batch size across pagination history', async () => {
+    const api = { publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValueOnce({ items: [publicSpace('one')], next_cursor: 'two' }).mockResolvedValueOnce({ items: [publicSpace('two')] }) };
+    TestBed.configureTestingModule({ providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }] });
+    const harness = await RouterTestingHarness.create('/explorar?page_size=1');
+    const page = harness.routeDebugElement!.componentInstance as ExplorePage;
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(page.items()).toHaveLength(1));
+    harness.detectChanges();
+    expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('1 espacios cargados · 1 por solicitud');
+    page.loadMore();
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(page.items()).toHaveLength(2));
+    harness.detectChanges();
+    expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('2 espacios cargados · 1 por solicitud');
+    await TestBed.inject(Router).navigateByUrl('/explorar?page_size=1');
+    harness.detectChanges();
+    expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('1 espacios cargados · 1 por solicitud');
+    await TestBed.inject(Router).navigateByUrl('/explorar?page_size=1&cursor=two');
+    harness.detectChanges();
+    expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('2 espacios cargados · 1 por solicitud');
   });
 
   it('changes to 12 real results, clears the cursor and preserves legacy 20 deep links', async () => {

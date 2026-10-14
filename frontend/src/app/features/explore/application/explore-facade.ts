@@ -321,10 +321,16 @@ export class ExploreFacade implements OnInit {
     }
     const filters = decoded.filters;
     const applied = this.appliedFilters();
-    if (criteriaSignature(filters) === criteriaSignature(applied) && filters.cursor === applied.cursor && this.hasUnappliedChanges()) return;
+    if (criteriaSignature(filters) === criteriaSignature(applied) && filters.cursor === applied.cursor && this.hasUnappliedChanges()) {
+      this.updateCatalogSeoIfResolved(params);
+      return;
+    }
     const nextCriteriaKey = criteriaSignature(filters);
     const requestKey = `${nextCriteriaKey}|cursor=${filters.cursor}`;
-    if (this.routeRequestKey === requestKey && this.criteriaKey === nextCriteriaKey) return;
+    if (this.routeRequestKey === requestKey && this.criteriaKey === nextCriteriaKey) {
+      this.updateCatalogSeoIfResolved(params);
+      return;
+    }
     this.cancelSort();
     this.appliedFilters.set(filters);
     this.filters.set(filters);
@@ -349,9 +355,20 @@ export class ExploreFacade implements OnInit {
       const cached = cache.pages.get(filters.cursor) ?? [];
       this.nextCursor.set(cached.length ? (cache.nextCursors.get(filters.cursor) ?? '') : '');
       this.busy.set(false);
+      this.seo.catalog(this.isFilteredCatalogRoute(params));
       return;
     }
     void this.loadPage(filters, !criteriaChanged && this.items().length > 0);
+  }
+
+  private updateCatalogSeoIfResolved(params: ParamMap): void {
+    // Do not change SSR/hydration metadata while a request is pending or failed.
+    if (!this.busy() && !this.error()) this.seo.catalog(this.isFilteredCatalogRoute(params));
+  }
+
+  private isFilteredCatalogRoute(params: ParamMap): boolean {
+    const presentationAndPaging = new Set(['view', 'desktop_columns', 'mobile_columns', 'page_size', 'cursor']);
+    return params.keys.some((key) => !presentationAndPaging.has(key));
   }
 
   private async loadPage(filters: ExploreFilters, append: boolean): Promise<void> {
@@ -376,7 +393,7 @@ export class ExploreFacade implements OnInit {
     try {
       const page = await this.api.publicSearch(request);
       if (generation !== this.requestGeneration) return;
-      this.seo.catalog(this.route.snapshot.queryParamMap.keys.length > 0);
+      this.seo.catalog(this.isFilteredCatalogRoute(this.route.snapshot.queryParamMap));
       const cache = this.pageCache(criteriaSignature(filters));
       cache.pages.set(filters.cursor, page.items);
       cache.nextCursors.set(filters.cursor, page.next_cursor ?? '');
