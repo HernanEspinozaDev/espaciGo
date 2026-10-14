@@ -270,12 +270,14 @@ test('Anonymous visitor explores the Go-backed public catalog and minimized deta
   const secondPage = page.waitForResponse(response => response.request().method() === 'GET' && /\/api\/v1\/public\/spaces(?:\?|$)/.test(response.url()) && response.url().includes('cursor='));
   await page.getByRole('button', { name: 'Ver más espacios' }).click();
   expect((await secondPage).status()).toBe(200);
-  await expect(page.getByRole('link', { name: 'Segundo espacio público FE-14' })).toBeVisible();
+  await expect(page.locator('.space-card')).toHaveCount(2);
   const nextPageUrl = page.url();
   await page.goBack();
   await expect(page).toHaveURL(/page_size=1/);
+  await expect(page.locator('.space-card')).toHaveCount(1);
   await page.goForward();
   await expect(page).toHaveURL(nextPageUrl);
+  await expect(page.locator('.space-card')).toHaveCount(2);
 });
 
 test('MPV2-12 catalog layout and page size use real Go results without presentation refetches', async ({ page }) => {
