@@ -22,6 +22,13 @@ async function signIn(page, account) {
   await expect(page).toHaveURL(/\/mi-cuenta$/);
 }
 
+async function navigateSpa(page, target) {
+  await page.evaluate((url) => {
+    history.pushState(null, '', url);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, target);
+}
+
 async function takeEvidenceScreenshot(page, name) {
   const measurements = await page.evaluate(() => ({
     viewport: { width: innerWidth, height: innerHeight },
@@ -75,7 +82,7 @@ test('LOCAL-CLOSE-01 deletes only the owner fixture through Angular→Go→Postg
   expect((await stillOwned.json()).items.map((item) => item.id)).toContain(evidence.id);
 
   await signIn(page, owner);
-  await page.goto('/mi-cuenta/verificaciones');
+  await navigateSpa(page, '/mi-cuenta/verificaciones');
   await expect(page.getByRole('heading', { name: 'Casos de verificación' })).toBeVisible();
   await expect(page.getByText('synthetic-png-v1')).toBeVisible();
   const deleteResponse = page.waitForResponse(
