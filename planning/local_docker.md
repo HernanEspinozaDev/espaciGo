@@ -2,13 +2,23 @@
 
 Fecha de inicio: 2026-10-11. LOCAL-1 fue aceptado explícitamente por el propietario dentro del alcance sintético ratificado; #246 está cerrada/Hecho en Projects. LOCAL-DOCKER es una fase local posterior de empaquetado, instalación reproducible y recuperación. No vuelve a abrir LOCAL-1 ni cierra Issues padre con criterios generales/productivos.
 
+## Conciliación de estado a 2026-10-14
+
+- FE-15 sustituyó el mock por Angular como frontend predeterminado en PR #292, merge `5405a82e90bc429aa89666ead430fe2cb39f102e`. Este documento y la evidencia DOCKER-02 de 2026-10-11 describen el stack/mock de esa fecha; el próximo ensayo debe recorrer el frontend Angular vigente y conservar los registros históricos sin reescribirlos.
+- **DOCKER-01/#268:** cerrado y aceptado en su alcance tras PR #271, merge `e074d78f126cd3a5bbe9c108da26178bdb726ad4`.
+- **DOCKER-02/#269:** cerrada administrativamente el 2026-10-12, pero no aceptada funcionalmente. Su comentario de cierre dice que faltan liquidación post-plazo, estado `cerrada`, historial, comprobante e idempotencia. La issue padre #267 permanece abierta. Ver matriz vigente en [`cierre_local/matriz_cierre_local.md`](cierre_local/matriz_cierre_local.md).
+- **DOCKER-03/#270:** cerrada y aceptada en su alcance tras PR #273, merge `b0f62b976c9586d260cea15ed9acc29ab12257a7`. Su aceptación no cierra DOCKER-02.
+- La aceptación de UX/demo MPV2-13 registrada para código `736f81a` no constituye aceptación retroactiva de Docker ni del cierre local integral.
+
+La tabla y los apartados originales describen el estado inicial/corridas fechadas del 2026-10-11. Los estados actuales de Issues se documentan arriba y en la matriz de cierre.
+
 ## Estado de Compose existente
 
-El repositorio ya tiene servicios separados para `backend`, `mock-frontend`, `database` (PostgreSQL/PostGIS), `mailpit` y `migrate`. Este plan reutiliza esa estructura. El migrador sigue como proceso y servicio separados; utiliza `espacigo_admin`. El Backend utiliza `espacigo_runtime`. El mock solo alcanza la red de API y no recibe credenciales de base de datos.
+El Compose vigente tiene servicios separados para `backend`, `angular-frontend`, `database` (PostgreSQL/PostGIS), `mailpit` y `migrate`. FE-15 retiró el mock como frontend predeterminado; no se requiere recuperarlo para cerrar Docker local. El migrador sigue como proceso y servicio separados con `espacigo_admin`; el Backend utiliza `espacigo_runtime`.
 
 ## Cortes y aceptación
 
-| Corte | Issue | Estado inicial | Alcance | Criterios de aceptación |
+| Corte | Issue | Estado al iniciar (2026-10-11) | Alcance | Criterios de aceptación |
 |---|---:|---|---|---|
 | DOCKER-01 — Empaquetado/configuración | #268 | Aceptado/Cerrado/Hecho | Builds independientes para API y mock; parámetros PostgreSQL y TLS; Compose aislado con proyecto, puertos, volumen, secretos y directorios propios; conservar roles runtime/migrador. | Aceptado tras PR #271 (`e074d78` en `main`). Renderer y pruebas rechazan rutas de desarrollo, usuario runtime incompatible y prefijo de imagen que colisiona antes de modificar archivos o arrancar servicios. Evidencia: `evidence/local-docker-01-20261011.md`. |
 | DOCKER-02 — Instalación limpia y recorrido integral | #269 | En revisión; falta el paso temporal de liquidación/cierre | Arranque del proyecto aislado en volumen vacío y recorrido sintético integral sobre los servicios Compose ya existentes. | Se verificó un volumen nuevo, 54 migraciones desde vacío, permisos separados, servicios saludables y un recorrido de reserva mediante mock/API/PostgreSQL con mensajes Mailpit. Falta comprobar liquidación, cierre, historial, comprobante e idempotencia al cumplirse las 24 horas. Evidencia: `evidence/local-docker-02-20261011.md`. #269 sigue abierta. |
@@ -44,6 +54,8 @@ Los valores por defecto están separados de desarrollo: proyecto `espacigo_docke
 `down` no elimina el volumen ni secretos. No hay comando `clean` en el helper aislado. DOCKER-01 no ejecuta `up`, migraciones, purgas ni cambios en el stack actual.
 
 ## DOCKER-02 — instalación y recorrido sintético
+
+El siguiente registro corresponde únicamente al recorrido histórico con mock del 2026-10-11. Su evidencia permanece válida para esa corrida, no acredita el frontend Angular posterior ni completa los criterios post-liquidación que quedaron sin verificar.
 
 PR #271 quedó integrado en `main` (`e074d78`), #268 fue aceptada por su alcance y DOCKER-02 se ejecuta en un proyecto nuevo. El proyecto Compose asigna tags de imagen separados por prefijo además de separar nombres de contenedores: reutilizar el tag de desarrollo haría que `up --build` reemplazara la referencia de imagen usada por el proyecto activo en una recreación futura. El helper usa el nombre de proyecto como prefijo y rechaza explícitamente `espacigo-local` antes de crear estado privado o llamar a Docker.
 
