@@ -7,9 +7,18 @@ PROJECT="${FE14_PROJECT_NAME:-espacigo_fe14_${RUN_ID}}"
 STATE_DIR="${FE14_STATE_DIR:-${TMPDIR:-/tmp}/espacigo-fe14-${RUN_ID}}"
 STATE_DIR="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).expanduser().resolve(strict=False))' "$STATE_DIR")"
 BASE_PORT="${FE14_PORT_BASE:-18780}"
+LOCAL_CLOSE02_CLOCK="${FE14_LOCAL_CLOSE02_CLOCK:-0}"
 if [[ ! "$RUN_ID" =~ ^[0-9a-f]{12}$ ]]; then
   printf 'FE14_RUN_ID must be 12 lowercase hexadecimal characters\n' >&2
   exit 2
+fi
+if [[ "$LOCAL_CLOSE02_CLOCK" == "1" ]]; then
+  expected_state="$ROOT_DIR/.local/testing/local-close-02/$RUN_ID"
+  expected_project="espacigo_localclose02_${RUN_ID}"
+  [[ "${FE14_RETAIN_STACK:-0}" == "0" && "$PROJECT" == "$expected_project" && "$STATE_DIR" == "$expected_state" ]] || {
+    printf 'manual clock is restricted to this run\x27s disposable LOCAL-CLOSE-02 project/state path\n' >&2
+    exit 2
+  }
 fi
 if [[ "${FE14_RETAIN_STACK:-0}" == "1" ]]; then
   case "${FE14_RETAIN_KIND:-mpv2-13}" in
@@ -74,6 +83,7 @@ case "${FE14_EVIDENCE_OUTPUT_DIR:-}" in
   */mpv2_12) FE14_EVIDENCE_PREFIX='fe14_mpv2_12_' ;;
   */mpv2_13) FE14_EVIDENCE_PREFIX='fe14_mpv2_13_' ;;
   */local-close-01) FE14_EVIDENCE_PREFIX='fe14_local_close_01_' ;;
+  */local-close-02) FE14_EVIDENCE_PREFIX='fe14_local_close_02_' ;;
 esac
 export LOCAL_UID="$(id -u)"
 export LOCAL_GID="$(id -g)"
@@ -86,6 +96,7 @@ mkdir -p "$STATE_DIR/artifacts"
 mkdir -p "$STATE_DIR/results"
 chmod 0700 "$STATE_DIR" "$STATE_DIR/artifacts" "$STATE_DIR/results"
 export LOCAL_DOCKER_COMPOSE_OVERRIDE="$STATE_DIR/network-pools.yaml"
+if [[ "$LOCAL_CLOSE02_CLOCK" == "1" ]]; then export LOCAL_CLOSE02_CLOCK_HOST="$STATE_DIR/business-clock"; fi
 
 mapfile -t FE14_SUBNETS < <(python3 - <<'PY'
 import ipaddress
@@ -130,6 +141,21 @@ networks:
       config:
         - subnet: ${FE14_SUBNETS[2]}
 EOF
+if [[ "$LOCAL_CLOSE02_CLOCK" == "1" ]]; then
+  mkdir -m 0700 -p "$STATE_DIR/business-clock"
+  python3 "$ROOT_DIR/scripts/local-close-02-business-clock" "$RUN_ID" init >/dev/null
+  cat >> "$LOCAL_DOCKER_COMPOSE_OVERRIDE" <<EOF
+services:
+  backend:
+    environment:
+      LOCAL_DEMO_BUSINESS_CLOCK_FILE: /run/fe14-demo/business-clock.json
+    volumes:
+      - type: bind
+        source: ${LOCAL_CLOSE02_CLOCK_HOST}
+        target: /run/fe14-demo
+        read_only: true
+EOF
+fi
 compose=(docker compose --project-directory "$ROOT_DIR" -f "$ROOT_DIR/compose.yaml" -f "$ROOT_DIR/compose.frontend.yaml" -f "$ROOT_DIR/compose.frontend-e2e.yaml" -f "$LOCAL_DOCKER_COMPOSE_OVERRIDE" -p "$PROJECT")
 "${compose[@]}" config --format json >"$STATE_DIR/compose.resolved.json"
 python3 - "$STATE_DIR/compose.resolved.json" "$PROJECT" "$LOCAL_DOCKER_PGDATA_VOLUME" <<'PY'
@@ -180,6 +206,7 @@ cleanup() {
       mkdir -p "$FE14_EVIDENCE_OUTPUT_DIR"
       case "$FE14_EVIDENCE_PREFIX" in
         fe14_mpv2_13_) evidence_artifacts=(fe14_mpv2_13_catalog_desktop.jpg fe14_mpv2_13_catalog_desktop.json fe14_mpv2_13_catalog_mobile.jpg fe14_mpv2_13_catalog_mobile.json) ;;
+        fe14_local_close_02_) evidence_artifacts=(fe14_local_close_02_closed_finance_desktop.jpg fe14_local_close_02_closed_finance_desktop.json fe14_local_close_02_dispute_resolution_desktop.jpg fe14_local_close_02_dispute_resolution_desktop.json) ;;
         *) evidence_artifacts=() ;;
       esac
       for artifact in "${evidence_artifacts[@]}"; do
@@ -219,14 +246,19 @@ EOF
       fe14_mpv2_11_) evidence_artifacts=(fe14_mpv2_11_typed_filters_desktop.jpg fe14_mpv2_11_typed_filters_desktop.json fe14_mpv2_11_typed_filters_mobile.jpg fe14_mpv2_11_typed_filters_mobile.json) ;;
       fe14_mpv2_12_) evidence_artifacts=(fe14_mpv2_12_grid_4_desktop.jpg fe14_mpv2_12_grid_4_desktop.json fe14_mpv2_12_grid_2_mobile.jpg fe14_mpv2_12_grid_2_mobile.json) ;;
       fe14_mpv2_13_) evidence_artifacts=(fe14_mpv2_13_catalog_desktop.jpg fe14_mpv2_13_catalog_desktop.json fe14_mpv2_13_catalog_mobile.jpg fe14_mpv2_13_catalog_mobile.json) ;;
+      fe14_local_close_02_) evidence_artifacts=(fe14_local_close_02_closed_finance_desktop.jpg fe14_local_close_02_closed_finance_desktop.json fe14_local_close_02_dispute_resolution_desktop.jpg fe14_local_close_02_dispute_resolution_desktop.json) ;;
       *) evidence_artifacts=() ;;
     esac
     for artifact in "${evidence_artifacts[@]}"; do
       if [[ -f "$STATE_DIR/artifacts/$artifact" ]]; then cp -- "$STATE_DIR/artifacts/$artifact" "$FE14_EVIDENCE_OUTPUT_DIR/$artifact"; fi
     done
   fi
-  rm -rf -- "$STATE_DIR/results"
-  rm -rf -- "$STATE_DIR"
+  if (( status != 0 )) && [[ "${FE14_PRESERVE_FAILURE_STATE:-0}" == "1" ]]; then
+    printf 'Preserved failed FE-14 state for inspection: %s\n' "$STATE_DIR" >&2
+  else
+    rm -rf -- "$STATE_DIR/results"
+    rm -rf -- "$STATE_DIR"
+  fi
   return "$status"
 }
 trap cleanup EXIT
@@ -308,7 +340,7 @@ INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_
 SELECT usuario_id,'kyc',id,'elegible',now() FROM approved;
 
 WITH host AS (
-  SELECT id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-public-owner@ejemplo.invalid'
+  SELECT id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-host@ejemplo.invalid'
 ), space AS (
   INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,
       reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria,
@@ -400,12 +432,77 @@ if [[ "${FE14_RUN_PUBLIC_CATALOG_ORDERING_INTEGRATION:-0}" == "1" ]]; then
 fi
 printf 'PASS disposable FE-14 database contains more than 48 eligible synthetic public listings with varied categories, rates, and attributes\n'
 
+if [[ "$LOCAL_CLOSE02_CLOCK" == "1" ]]; then
+  FE14_CLOCK_FIXTURE_SPACE_ID="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples-only \
+    --username "$LOCAL_DATABASE_ADMIN_USER" --dbname "$LOCAL_DATABASE_NAME" \
+    --command "SELECT id::text FROM public.espacio WHERE titulo='Espacio sintético público FE-14' AND estado='activa' AND propietario_id=(SELECT id FROM public.usuario WHERE correo_normalizado='fe14-${RUN_ID}-host@ejemplo.invalid')")"
+  FE14_CLOCK_FIXTURE_SPACE_ID="${FE14_CLOCK_FIXTURE_SPACE_ID//[[:space:]]/}"
+  [[ "$FE14_CLOCK_FIXTURE_SPACE_ID" =~ ^[0-9a-f-]{36}$ ]] || { printf 'LOCAL-CLOSE-02 host-owned public fixture verification failed\n' >&2; exit 1; }
+  export FE14_CLOCK_FIXTURE_SPACE_ID
+  printf 'PASS disposable database exposes an eligible public lifecycle fixture owned by the authenticated host\n'
+fi
+
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
 if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
   printf 'Running focused anonymous public catalog journey\n'
-  PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-MPV2-07 serves public catalog|MPV2-10 orders real Go results|MPV2-13 serves real 48-item keyset pages|MPV2-13 renders a fixed four-column desktop catalog and a one-column mobile list|MPV2-04 host declares|Removing applied filter chips|Mobile filter dialog|Contextual registration and verification|Contextual login returns}"
-  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep "$PUBLIC_TEST_GREP" >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
-  cat "$STATE_DIR/e2e.log"
+  if [[ "$LOCAL_CLOSE02_CLOCK" == "1" ]]; then
+    PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-LOCAL-CLOSE-02 serves a signed reservation through its financial close}"
+    "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep "$PUBLIC_TEST_GREP" >"$STATE_DIR/e2e.log" 2>&1 &
+    E2E_PID=$!
+    wait_for_clock_file() {
+      local target="$1" deadline=$((SECONDS + 900))
+      while (( SECONDS < deadline )); do
+        [[ -f "$target" ]] && return 0
+        kill -0 "$E2E_PID" >/dev/null 2>&1 || { print_sanitized_e2e_log >&2; return 1; }
+        sleep .2
+      done
+      printf 'Timed out coordinating the LOCAL-CLOSE-02 business clock\n' >&2
+      print_sanitized_e2e_log >&2
+      return 1
+    }
+    wait_for_clock_file "$STATE_DIR/artifacts/local-close-02-clock-started"
+    clock_deadline=$((SECONDS + 900))
+    while kill -0 "$E2E_PID" >/dev/null 2>&1 && (( SECONDS < clock_deadline )); do
+      for request_file in "$STATE_DIR"/artifacts/clock-request-*.json; do
+        [[ -f "$request_file" ]] || continue
+        phase="$(basename "$request_file" .json | sed 's/^clock-request-//')"
+        [[ "$phase" =~ ^[a-z0-9-]{1,32}$ ]] || { printf 'Invalid LOCAL-CLOSE-02 clock phase\n' >&2; exit 1; }
+        done_file="$STATE_DIR/artifacts/clock-done-${phase}"
+        [[ -e "$done_file" ]] && continue
+        clock_value="$(python3 - "$request_file" <<'PY'
+import json, pathlib, re, sys
+payload=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='ascii'))
+phase=payload.get('phase','')
+value=payload.get('now','')
+if not re.fullmatch(r'[a-z0-9-]{1,32}',phase) or not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)',value):
+    raise SystemExit('invalid LOCAL-CLOSE-02 clock payload')
+if pathlib.Path(sys.argv[1]).stem != 'clock-request-'+phase:
+    raise SystemExit('clock phase does not match its request filename')
+print(value)
+PY
+)"
+        clock_value="$(python3 "$ROOT_DIR/scripts/local-close-02-business-clock" "$RUN_ID" set "$clock_value" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["now"])')"
+        python3 - "$STATE_DIR/artifacts/clock-result-${phase}.json" "$clock_value" <<'PY'
+import json, pathlib, sys
+pathlib.Path(sys.argv[1]).write_text(json.dumps({'now':sys.argv[2]},separators=(',',':'))+'\n',encoding='ascii')
+PY
+        touch "$done_file"
+      done
+      sleep .2
+    done
+    (( SECONDS < clock_deadline )) || { printf 'Timed out during LOCAL-CLOSE-02 browser journey\n' >&2; exit 1; }
+    set +e
+    wait "$E2E_PID"
+    E2E_STATUS=$?
+    set -e
+    E2E_PID=""
+    if (( E2E_STATUS != 0 )); then print_sanitized_e2e_log >&2; exit "$E2E_STATUS"; fi
+    cat "$STATE_DIR/e2e.log"
+  else
+    PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-MPV2-07 serves public catalog|MPV2-10 orders real Go results|MPV2-13 serves real 48-item keyset pages|MPV2-13 renders a fixed four-column desktop catalog and a one-column mobile list|MPV2-04 host declares|Removing applied filter chips|Mobile filter dialog|Contextual registration and verification|Contextual login returns}"
+    "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep "$PUBLIC_TEST_GREP" >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
+    cat "$STATE_DIR/e2e.log"
+  fi
   "${compose[@]}" stop backend >/dev/null
   outage_status="$(curl --silent --show-error --max-time 10 --output "$STATE_DIR/ssr-outage.html" --write-out '%{http_code}' "http://127.0.0.1:${LOCAL_DOCKER_ANGULAR_PORT}/explorar")"
   [[ "$outage_status" == "503" ]] || { printf 'Expected public SSR to return 503 during Go outage; received %s\n' "$outage_status" >&2; exit 1; }

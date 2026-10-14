@@ -636,7 +636,7 @@ func TestResolvedDamageClaimPrivacyEvaluationMinimizesTextAndPurgesLinksAtRatifi
 		t.Fatal(err)
 	}
 	wantDeadline := resolved.Resolution.ResolvedAt.AddDate(0, 24, 0)
-	if claimText != "Texto libre retirado por baja local de privacidad." || defenseText != "Texto libre retirado por baja local de privacidad." || operationComments != "" || claimState != "resuelta" || reservationState != "en_disputa" || !deadline.Equal(wantDeadline) {
+	if claimText != "Texto libre retirado por baja local de privacidad." || defenseText != "Texto libre retirado por baja local de privacidad." || operationComments != "" || claimState != "resuelta" || reservationState != "finalizada" || !deadline.Equal(wantDeadline) {
 		t.Fatalf("privacy minimization/retention mismatch claim=%q defense=%q comments=%q claimState=%s reservation=%s deadline=%s want=%s", claimText, defenseText, operationComments, claimState, reservationState, deadline, wantDeadline)
 	}
 	var active bool
@@ -721,7 +721,7 @@ func TestResolvedDamageClaimPrivacyEvaluationMinimizesTextAndPurgesLinksAtRatifi
 	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1),(SELECT count(*) FROM public.ocupacion WHERE id=$2)`, reservationID, occupancyID).Scan(&transitionCount, &occupancyCount); err != nil {
 		t.Fatal(err)
 	}
-	if transitionCount != 1 || occupancyCount != 1 {
+	if transitionCount != 2 || occupancyCount != 1 {
 		t.Fatalf("historical facts were removed: transitions=%d occupancy=%d", transitionCount, occupancyCount)
 	}
 }

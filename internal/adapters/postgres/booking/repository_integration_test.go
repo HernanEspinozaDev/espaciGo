@@ -3904,8 +3904,8 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if denied := publishedDamageClaimAPI(t, outsider, claimService, http.MethodGet, operationPath+"/damage-claim", "", nil); denied.Code != http.StatusNotFound {
 		t.Fatalf("third-party resolved claim=%d", denied.Code)
 	}
-	if err = setup.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, completeReservation.ID).Scan(&operationState); err != nil || operationState != "en_disputa" {
-		t.Fatalf("claim transition state=%q err=%v", operationState, err)
+	if err = setup.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, completeReservation.ID).Scan(&operationState); err != nil || operationState != "finalizada" {
+		t.Fatalf("resolved claim transition state=%q err=%v", operationState, err)
 	}
 	var moneyAfter int
 	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.reserva_pago_ensayo WHERE reserva_id=$1)+(SELECT count(*) FROM public.reserva_devolucion_ensayo WHERE reserva_id=$1)`, completeReservation.ID).Scan(&moneyAfter); err != nil {
