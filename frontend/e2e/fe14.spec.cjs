@@ -524,7 +524,7 @@ test('Mobile filter dialog preserves applied chips, focus, and closes on desktop
 });
 
 test('Contextual registration and verification preserve the pending return until login', async ({ page }) => {
-  await page.goto('/explorar?q=publico&category_code=oficina');
+  await page.goto('/explorar?q=publico&category_code=oficina&attribute=wifi:true&attribute=puestos_trabajo:gte:4');
   await page.getByRole('link', { name: 'Espacio sintético público FE-14' }).first().click();
   await expect(page).toHaveURL(/\/espacios\/[0-9a-f-]+/);
   const spaceId = new URL(page.url()).pathname.split('/').at(-1);
@@ -587,7 +587,7 @@ test('Contextual login returns to the selected space and requires explicit quote
     if (/\/local\/booking-trial\/(quotes|reservations)$/.test(pathname)) bookingWrites.push(pathname);
   });
 
-  await page.goto('/explorar?q=publico&category_code=oficina');
+  await page.goto('/explorar?q=publico&category_code=oficina&attribute=wifi:true&attribute=puestos_trabajo:gte:4');
   const listing = page.getByRole('link', { name: 'Espacio sintético público FE-14' }).first();
   await expect(listing).toBeVisible();
   await listing.click();
@@ -599,13 +599,15 @@ test('Contextual login returns to the selected space and requires explicit quote
   const returnUrl = accessUrl.searchParams.get('returnUrl');
   expect(returnUrl).toContain(`/espacios/${detailId}?action=reserve&returnTo=`);
   expect(returnUrl).toContain('q%3Dpublico');
+  expect(returnUrl).toContain('attribute%3Dwifi%253Atrue');
+  expect(returnUrl).toContain('attribute%3Dpuestos_trabajo%253Agte%253A4');
   expect(returnUrl).not.toMatch(/bearer|token|password/i);
 
   await access.click();
   await expect(page.getByRole('heading', { name: 'Inicia sesión' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Cancelar y volver al catálogo' })).toHaveAttribute('href', '/explorar?q=publico&category_code=oficina');
+  await expect(page.getByRole('link', { name: 'Cancelar y volver al catálogo' })).toHaveAttribute('href', '/explorar?q=publico&category_code=oficina&attribute=wifi%3Atrue&attribute=puestos_trabajo%3Agte%3A4');
   await page.getByRole('link', { name: 'Cancelar y volver al catálogo' }).click();
-  await expect(page).toHaveURL('/explorar?q=publico&category_code=oficina');
+  await expect(page).toHaveURL('/explorar?q=publico&category_code=oficina&attribute=wifi%3Atrue&attribute=puestos_trabajo%3Agte%3A4');
   await page.getByRole('link', { name: 'Espacio sintético público FE-14' }).first().click();
   await expect(page.getByRole('heading', { name: 'Espacio sintético público FE-14' })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/espacios/${detailId}`));

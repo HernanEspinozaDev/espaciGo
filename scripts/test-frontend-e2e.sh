@@ -263,7 +263,7 @@ WITH host AS (
 INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
 SELECT id,1,'hora',18000 FROM space;
 INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores)
-SELECT id,'oficina',1,'{"wifi":true}'::jsonb FROM public.espacio WHERE titulo='Espacio sintético público FE-14';
+SELECT id,'oficina',1,'{"wifi":true,"puestos_trabajo":6,"tipo_uso_oficina":"privada"}'::jsonb FROM public.espacio WHERE titulo='Espacio sintético público FE-14';
 WITH host AS (
   SELECT id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-public-owner@ejemplo.invalid'
 ), space AS (
