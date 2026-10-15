@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,21 +25,32 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: gadm-admin bootstrap --account-id UUID | recover --account-id UUID")
+		return errors.New("usage: gadm-admin activate-local --action bootstrap|recover --account-id UUID --database espacigo_local --confirm 'ACTIVATE <action> <UUID> IN espacigo_local'")
 	}
 	command := args[0]
-	bootstrapAction, ok := actionForCommand(command)
-	if !ok {
-		return errors.New("bootstrap/recover requires --account-id UUID")
+	if command != "activate-local" && command != "bootstrap" && command != "recover" {
+		return errors.New("unknown command; use activate-local or local-test bootstrap/recover")
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	target := flags.String("account-id", "", "verified account UUID")
-	credentialFile := flags.String("credentials", ".local/testing/gadm01.env", "0600 local test credential file")
+	action := flags.String("action", "", "bootstrap or recover (activate-local)")
+	database := flags.String("database", "", "explicit database name (activate-local)")
+	confirmation := flags.String("confirm", "", "exact activation confirmation phrase")
+	credentialFile := flags.String("credentials", ".local/testing/gadm01.env", "0600 local credential file")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || *target == "" {
-		return errors.New("bootstrap/recover requires --account-id UUID")
+		return errors.New("a valid --account-id UUID is required")
+	}
+	bootstrapAction := command
+	if command == "activate-local" {
+		bootstrapAction = *action
+		if (bootstrapAction != "bootstrap" && bootstrapAction != "recover") || *database != "espacigo_local" || *confirmation != fmt.Sprintf("ACTIVATE %s %s IN %s", bootstrapAction, *target, *database) {
+			return errors.New("activation requires --action bootstrap|recover, --database espacigo_local, and the exact confirmation phrase")
+		}
+	} else if _, ok := actionForCommand(command); !ok || os.Getenv("GADM_BOOTSTRAP_ENV") != "local-test" {
+		return errors.New("bootstrap/recover are restricted to local-test mode")
 	}
 	root, err := filepath.Abs(*credentialFile)
 	if err != nil {
@@ -48,8 +60,8 @@ func run(args []string) error {
 	if !strings.HasPrefix(root, localDir+string(os.PathSeparator)) {
 		return errors.New("credential file must be under .local/testing")
 	}
-	info, err := os.Stat(root)
-	if err != nil {
+	info, err := os.Lstat(root)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return errors.New("unable to read local test credentials")
 	}
 	if info.Mode().Perm() != 0600 {
@@ -67,7 +79,12 @@ func run(args []string) error {
 		}
 	}
 	dsn, dbName := values["DATABASE_URL"], values["EXPECTED_DATABASE"]
-	if err = adminglobal.ValidateBootstrapTarget(os.Getenv("GADM_BOOTSTRAP_ENV"), dsn, dbName); err != nil {
+	if command == "activate-local" {
+		err = adminglobal.ValidateLocalActivationTarget(os.Getenv("GADM_BOOTSTRAP_ENV"), dsn, dbName)
+	} else {
+		err = adminglobal.ValidateBootstrapTarget(os.Getenv("GADM_BOOTSTRAP_ENV"), dsn, dbName)
+	}
+	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -82,8 +99,12 @@ func run(args []string) error {
 	}
 	defer pool.Close()
 	var actual string
-	if err = pool.QueryRow(ctx, "SELECT current_database()").Scan(&actual); err != nil || actual != dbName {
-		return errors.New("connected database does not match explicit test target")
+	var serverAddress, clientAddress net.IP
+	if err = pool.QueryRow(ctx, "SELECT current_database(), inet_server_addr(), inet_client_addr()").Scan(&actual, &serverAddress, &clientAddress); err != nil || actual != dbName {
+		return errors.New("connected database does not match explicit target")
+	}
+	if command == "activate-local" && (!adminglobal.IsLocalDatabaseAddress(serverAddress) || !adminglobal.IsLocalDatabaseAddress(clientAddress)) {
+		return errors.New("connected database endpoint is not loopback")
 	}
 	correlation, err := (credentials.Generator{}).ID()
 	if err != nil {
@@ -92,7 +113,7 @@ func run(args []string) error {
 	if err = adminglobal.Bootstrap(ctx, pool, *target, bootstrapAction, correlation); err != nil {
 		return err
 	}
-	fmt.Println("global administrator bootstrap completed")
+	fmt.Printf("global administrator %s completed for %s\n", bootstrapAction, dbName)
 	return nil
 }
 

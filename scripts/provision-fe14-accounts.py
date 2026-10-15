@@ -55,7 +55,7 @@ def main():
         raise RuntimeError('Go did not provide synthetic terms')
 
     result = {}
-    for role in ('renter', 'host', 'admin', 'thirdParty'):
+    for role in ('renter', 'host', 'admin', 'globalAdmin', 'thirdParty'):
         email = f'fe14-{run_id}-{role.lower()}@ejemplo.invalid'
         password = 'F14!' + secrets.token_urlsafe(24)
         status, _ = request(api, 'POST', '/api/v1/auth/register', {
@@ -70,7 +70,7 @@ def main():
         status, _ = request(api, 'POST', '/api/v1/auth/verification', {'token_id': token_id, 'token': token})
         if status != 204:
             raise RuntimeError('Go did not verify a synthetic account')
-        label = {'renter': 'arrendatario', 'host': 'arrendador', 'admin': 'administrador', 'thirdParty': 'arrendatario'}[role]
+        label = {'renter': 'arrendatario', 'host': 'arrendador', 'admin': 'administrador', 'globalAdmin': 'administrador_global', 'thirdParty': 'arrendatario'}[role]
         result[role] = {'email': email, 'password': password, 'roleLabel': label}
 
     target = pathlib.Path(output)
@@ -79,7 +79,7 @@ def main():
     with os.fdopen(fd, 'w', encoding='utf-8') as stream:
         json.dump(result, stream)
     os.chmod(target, 0o600)
-    print('PASS Go registered and verified four disposable synthetic accounts; credentials are stored in a mode-0600 temporary file')
+    print('PASS Go registered and verified five disposable synthetic accounts; credentials are stored in a mode-0600 temporary file')
 
 
 if __name__ == '__main__':
