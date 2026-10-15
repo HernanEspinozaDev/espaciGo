@@ -86,6 +86,10 @@ class FakeAPI:
         photo_id = path.rsplit("/", 2)[-2] if path.endswith("/content") else path.rsplit("/", 1)[-1]
         blob = type(self).files.get(photo_id)
         if blob is None:
+            if path.endswith("/content"):
+                # Gallery metadata may outlive a missing private file; the
+                # service reports that file-store mismatch as HTTP 503.
+                return 503, {"Content-Type": "application/json"}, b""
             return 404, {"Content-Type": "application/json"}, b""
         return 200, {"Content-Type": "image/png"}, blob
 

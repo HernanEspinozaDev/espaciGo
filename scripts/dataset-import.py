@@ -616,8 +616,13 @@ class Importer:
             content_path = path + f"/{quote(candidate_id, safe='')}/content"
             for base in owner.bases:
                 status, headers, blob = API([base]).request_bytes(content_path, owner.token)
+                # The gallery service maps an absent private file to 503 after
+                # loading valid gallery metadata. Treat it as missing content
+                # here so the idempotent replacement path can repair the
+                # metadata/file mismatch; a failed replacement write still
+                # fails the subsequent readability check.
                 if status == 503:
-                    raise RuntimeError("private image storage is temporarily unavailable")
+                    return False
                 if status != 200:
                     return False
                 expected = metadata.get("sha256")
