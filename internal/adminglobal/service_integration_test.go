@@ -931,6 +931,15 @@ func TestRestrictedActivationRejectsDirectLoginPrivilegesAndOwnership(t *testing
 		t.Fatal(err)
 	}
 	defer adminDB.Close(context.Background())
+	// Model the unrelated PUBLIC sequence ACL installed by PostGIS topology in
+	// the persistent database. It must not be mistaken for a grant to the GADM
+	// group, and the test-only schema is removed with this disposable database.
+	if _, err = adminDB.Exec(ctx, `CREATE SCHEMA gadm_public_acl_probe;
+		CREATE SEQUENCE gadm_public_acl_probe.topology_id_seq;
+		GRANT USAGE ON SCHEMA gadm_public_acl_probe TO PUBLIC;
+		GRANT SELECT ON SEQUENCE gadm_public_acl_probe.topology_id_seq TO PUBLIC`); err != nil {
+		t.Fatal(err)
+	}
 	const initialID = "00000000-0000-4000-8000-000000000031"
 	const differentID = "00000000-0000-4000-8000-000000000032"
 	const correlationID = "10000000-0000-4000-8000-000000000031"
@@ -984,6 +993,12 @@ func TestRestrictedActivationRejectsDirectLoginPrivilegesAndOwnership(t *testing
 	}
 	if err = restricted.Ping(ctx); err != nil {
 		t.Fatalf("clean restricted login was rejected: %v", err)
+	}
+	var publicSequenceVisible, groupHasNoDirectSequenceGrant bool
+	if err = restricted.QueryRow(ctx, `SELECT has_sequence_privilege(current_user,'gadm_public_acl_probe.topology_id_seq','SELECT'),
+		NOT EXISTS(SELECT 1 FROM pg_catalog.pg_class c CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) x
+		JOIN pg_catalog.pg_roles r ON r.oid=x.grantee WHERE c.oid='gadm_public_acl_probe.topology_id_seq'::regclass AND r.rolname=current_user)`).Scan(&publicSequenceVisible, &groupHasNoDirectSequenceGrant); err != nil || !publicSequenceVisible || !groupHasNoDirectSequenceGrant {
+		t.Fatalf("PUBLIC sequence fixture invalid: visible=%v no_direct_group_grant=%v err=%v", publicSequenceVisible, groupHasNoDirectSequenceGrant, err)
 	}
 	if err = adminglobal.Bootstrap(ctx, restricted, initialID, "bootstrap", correlationID); err != nil {
 		t.Fatalf("clean restricted login could not perform initial bootstrap: %v", err)

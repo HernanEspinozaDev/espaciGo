@@ -51,10 +51,10 @@ WITH roles AS (
 ), acl AS (
  SELECT
    NOT EXISTS (SELECT 1 FROM information_schema.table_privileges WHERE grantee=current_user) AS no_table_grants,
-   NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.relkind='S'
-     AND (has_sequence_privilege(current_user,c.oid,'USAGE')
-       OR has_sequence_privilege(current_user,c.oid,'SELECT')
-       OR has_sequence_privilege(current_user,c.oid,'UPDATE'))) AS no_sequence_grants,
+   -- Check sequence ACLs assigned to the GADM group; unrelated PUBLIC grants may predate this role.
+   NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+     CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) x
+     WHERE c.relkind='S' AND x.grantee=current_oid) AS no_sequence_grants,
    NOT EXISTS (SELECT 1 FROM information_schema.routine_privileges WHERE grantee=current_user) AS no_routine_grants,
    NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
      CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) x
