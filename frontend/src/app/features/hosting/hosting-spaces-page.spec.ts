@@ -12,13 +12,14 @@ import { zonedIsoLabel, zonedLocalToRfc3339 } from './calendar-time';
 import { HostingSpacesPage } from './hosting-spaces-page';
 import { HostingApi, HostingApiError } from './infrastructure/hosting-api';
 
-const ownerSession = { account_id: 'owner-a', roles: ['arrendador'], restricted_mode: false };
+const ownerSession = { account_id: 'owner-a', roles: ['arrendador'], capabilities: [], restricted_mode: false };
 const login = (account_id: string, access_token: string) => ({
   account_id,
   roles: ['arrendador'],
   access_token,
   token_type: 'Bearer',
   expires_at: '2027-01-01T00:00:00Z',
+  capabilities: [],
   restricted_mode: false,
 });
 const space = (id = 'space-a', state: 'borrador' | 'activa' | 'oculta' = 'borrador') => ({
@@ -366,7 +367,7 @@ describe('FE-06 HostingSpacesPage', () => {
       login: vi.fn().mockResolvedValue(login('other', 'bearer-other')),
       session: vi
         .fn()
-        .mockResolvedValue({ account_id: 'other', roles: ['arrendador'], restricted_mode: false }),
+        .mockResolvedValue({ account_id: 'other', roles: ['arrendador'], capabilities: [], restricted_mode: false }),
     };
     setup(api, 'secret-space-id', idApi);
     await TestBed.inject(IdentitySession).signIn('other@example.invalid', 'secret');
@@ -743,6 +744,7 @@ describe('FE-06 HostingSpacesPage', () => {
       session: vi.fn().mockImplementation(async (token: string) => ({
         account_id: token === 'bearer-a' ? 'owner-a' : 'owner-b',
         roles: ['arrendador'],
+        capabilities: [],
         restricted_mode: false,
       })),
       logout: vi.fn().mockResolvedValue(undefined),
@@ -904,6 +906,7 @@ describe('FE-06 HostingSpacesPage', () => {
       session: vi.fn().mockImplementation(async (token: string) => ({
         account_id: token === 'bearer-a' ? 'owner-a' : 'owner-b',
         roles: ['arrendador'],
+        capabilities: [],
         restricted_mode: false,
       })),
       logout: vi.fn().mockResolvedValue(undefined),
@@ -952,6 +955,7 @@ describe('FE-06 HostingSpacesPage', () => {
       session: vi.fn().mockImplementation(async (token: string) => ({
         account_id: token === 'bearer-a' ? 'owner-a' : 'owner-b',
         roles: ['arrendador'],
+        capabilities: [],
         restricted_mode: false,
       })),
       logout: vi.fn().mockResolvedValue(undefined),
@@ -1015,7 +1019,7 @@ describe('FE-06 HostingSpacesPage', () => {
 
   it('ignores stale photo publication failures without clearing a newer save or session', async () => {
     const api=apiFor();
-    const idApi={login:vi.fn().mockResolvedValueOnce(login('owner-a','bearer-a')).mockResolvedValueOnce(login('owner-b','bearer-b')),session:vi.fn().mockImplementation(async(token:string)=>({account_id:token==='bearer-a'?'owner-a':'owner-b',roles:['arrendador'],restricted_mode:false})),logout:vi.fn().mockResolvedValue(undefined)};
+    const idApi={login:vi.fn().mockResolvedValueOnce(login('owner-a','bearer-a')).mockResolvedValueOnce(login('owner-b','bearer-b')),session:vi.fn().mockImplementation(async(token:string)=>({account_id:token==='bearer-a'?'owner-a':'owner-b',roles:['arrendador'],capabilities: [], restricted_mode:false})),logout:vi.fn().mockResolvedValue(undefined)};
     const {identity}=setup(api,null,idApi);await identity.signIn('owner-a@example.invalid','secret');
     const fixture=TestBed.createComponent(HostingSpacesPage);fixture.detectChanges();await flush();
     const component=page(fixture);const first=deferred<never>();const second=deferred<never>();

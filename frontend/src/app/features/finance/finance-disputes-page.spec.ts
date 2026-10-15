@@ -21,6 +21,7 @@ describe('FinanceDisputesPage', () => {
         access_token: 'admin-memory-token',
         token_type: 'Bearer',
         expires_at: '2027-01-01T00:00:00Z',
+        capabilities: [],
         restricted_mode: false,
       }),
       session: vi
@@ -28,6 +29,7 @@ describe('FinanceDisputesPage', () => {
         .mockResolvedValue({
           account_id: 'admin-1',
           roles: ['administrador'],
+          capabilities: [],
           restricted_mode: false,
         }),
       logout: vi.fn(),
@@ -131,6 +133,7 @@ describe('FinanceDisputesPage', () => {
           access_token: 'admin-context-token',
           token_type: 'Bearer',
           expires_at: '2027-01-01T00:00:00Z',
+          capabilities: [],
           restricted_mode: false,
         }),
       session: vi
@@ -138,6 +141,7 @@ describe('FinanceDisputesPage', () => {
         .mockResolvedValue({
           account_id: 'admin-2',
           roles: ['administrador'],
+          capabilities: [],
           restricted_mode: false,
         }),
       logout: vi.fn(),
@@ -233,6 +237,7 @@ describe('FinanceDisputesPage', () => {
           access_token: `${account}-token`,
           token_type: 'Bearer',
           expires_at: '2027-01-01T00:00:00Z',
+          capabilities: [],
           restricted_mode: false,
         };
       }),
@@ -241,6 +246,7 @@ describe('FinanceDisputesPage', () => {
         .mockImplementation(async (token: string) => ({
           account_id: token.startsWith('admin-a') ? 'admin-a' : 'admin-b',
           roles: ['administrador'],
+          capabilities: [],
           restricted_mode: false,
         })),
       logout: vi.fn(),

@@ -409,11 +409,11 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatalf("V54 baseline ended at version %d", historyBeforeUpgrade[53].Version)
 	}
 	upgradeResult, err := migrator.Run(ctx, upgradeURL.String(), "../../../../db/migrations")
-	if err != nil || !reflect.DeepEqual(upgradeResult.Applied, []int64{55, 56, 57}) {
-		t.Fatalf("V54 upgrade applied=%v err=%v; want V55, V56, and V57", upgradeResult.Applied, err)
+	if err != nil || !reflect.DeepEqual(upgradeResult.Applied, []int64{55, 56, 57, 58}) {
+		t.Fatalf("V54 upgrade applied=%v err=%v; want V55–V58", upgradeResult.Applied, err)
 	}
 	historyAfterUpgrade := readMigrationHistory(t, ctx, upgradeURL.String())
-	if len(historyAfterUpgrade) != 57 || !reflect.DeepEqual(historyBeforeUpgrade, historyAfterUpgrade[:54]) {
+	if len(historyAfterUpgrade) != 58 || !reflect.DeepEqual(historyBeforeUpgrade, historyAfterUpgrade[:54]) {
 		t.Fatalf("V54 upgrade rewrote earlier history or ended at wrong version: before=%d after=%d", len(historyBeforeUpgrade), len(historyAfterUpgrade))
 	}
 	var locationColumns, publicPhotoColumn bool
@@ -433,7 +433,7 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !locationColumns || !publicPhotoColumn {
-		t.Fatalf("V54→V57 schema columns absent: location=%v public-photo=%v", locationColumns, publicPhotoColumn)
+		t.Fatalf("V54→V58 schema columns absent: location=%v public-photo=%v", locationColumns, publicPhotoColumn)
 	}
 	if _, err = admin.Exec(ctx, `CREATE ROLE espacigo_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD 'local-booking-test'`); err != nil {
 		t.Fatal(err)

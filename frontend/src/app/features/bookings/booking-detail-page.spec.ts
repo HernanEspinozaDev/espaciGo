@@ -17,6 +17,7 @@ const makeLogin = (account_id: string, access_token: string) => ({
   access_token,
   token_type: 'Bearer',
   expires_at: '2027-01-01T00:00:00Z',
+  capabilities: [],
   restricted_mode: false,
 });
 const makeReservation = (
@@ -71,6 +72,7 @@ function setup(
     session: vi.fn(async (token: string) => ({
       account_id: token === 'token-b' ? 'renter-b' : 'renter-a',
       roles: ['arrendatario'],
+      capabilities: [],
       restricted_mode: false,
     })),
     logout: vi.fn(async () => undefined),
@@ -235,6 +237,7 @@ describe('BookingDetailPage with real IdentitySession', () => {
       session: vi.fn(async () => ({
         account_id: 'host-1',
         roles: ['arrendador'],
+        capabilities: [],
         restricted_mode: false,
       })),
     });

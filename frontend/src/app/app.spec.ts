@@ -172,6 +172,7 @@ describe('App logout navigation', () => {
     const activeSession = {
       account_id: 'offline-account',
       roles: ['arrendatario'],
+      capabilities: [],
       restricted_mode: false,
     };
     const identity = { session: signal(activeSession), notice: signal(''), signOut: vi.fn() };
@@ -239,7 +240,7 @@ describe('App logout navigation', () => {
 
   it('sets aria-current page on only the exact nested destination', async () => {
     const identity = {
-      session: signal({ roles: ['administrador', 'arrendatario'], restricted_mode: false }),
+      session: signal({ roles: ['administrador', 'arrendatario'], capabilities: [], restricted_mode: false }),
       notice: signal(''),
       signOut: vi.fn(),
     };
@@ -291,11 +292,13 @@ describe('App API outage recovery with a real identity session', () => {
       token_type: 'Bearer',
       expires_at: '2026-10-13T00:00:00Z',
       roles: ['arrendatario'],
+      capabilities: [],
       restricted_mode: false,
     };
     const session: SessionResponse = {
       account_id: 'offline-account',
       roles: ['arrendatario'],
+      capabilities: [],
       restricted_mode: false,
     };
     TestBed.configureTestingModule({

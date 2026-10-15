@@ -34,6 +34,8 @@ import (
 	reputationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/reputation"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adminglobal"
+	adminglobalhttp "github.com/HernanEspinozaDev/espaciGo/internal/adminglobal/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adminlocal"
 	adminlocalhttp "github.com/HernanEspinozaDev/espaciGo/internal/adminlocal/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
@@ -220,6 +222,11 @@ func run() error {
 		mux.Handle("/api/v1/profile/photo/", m02Handler)
 		mux.Handle("/api/v1/payout-account", m02Handler)
 		mux.Handle("/api/v1/", identityhttp.NewHandlerWithSuppressionRegistry(service, repo, cfg.allowedOrigins, privacyService, evidenceStore, privacyReplayRegistryPath))
+		globalAdminService, err := adminglobal.New(pool, time.Now)
+		if err != nil {
+			return errors.New("global administration service initialization failed")
+		}
+		mux.Handle("/api/v1/admin/global/", adminglobalhttp.NewHandler(service, globalAdminService, cfg.allowedOrigins))
 		evidenceService, err := verification.NewEvidenceService(verificationRepository, verificationRepository, evidenceStore, credentials.Generator{}, time.Now)
 		if err != nil {
 			return errors.New("local evidence initialization failed")

@@ -3,6 +3,7 @@ package identity
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,10 +32,57 @@ func (s AccountState) Valid() bool {
 type Role string
 
 const (
-	RoleTenant        Role = "arrendatario"
-	RoleLandlord      Role = "arrendador"
-	RoleAdministrator Role = "administrador"
+	RoleTenant              Role = "arrendatario"
+	RoleLandlord            Role = "arrendador"
+	RoleAdministrator       Role = "administrador"
+	RoleGlobalAdministrator Role = "administrador_global"
 )
+
+// Capability is a server-authoritative permission for one administrative area.
+// It is derived from current roles on every request; the browser never grants it.
+type Capability string
+
+const (
+	CapabilityLegacyAdministration Capability = "legacy.administration"
+	CapabilityAccountsList         Capability = "accounts.list"
+	CapabilityAccountsRead         Capability = "accounts.read"
+	CapabilityAdminAccessManage    Capability = "admin_access.manage"
+)
+
+// CapabilitiesForRoles keeps the old administrator surface intact while
+// granting the global role only the GADM-01 directory/bootstrap capabilities.
+func CapabilitiesForRoles(roles []Role) []Capability {
+	set := make(map[Capability]struct{})
+	for _, role := range roles {
+		switch role {
+		case RoleAdministrator:
+			set[CapabilityLegacyAdministration] = struct{}{}
+		case RoleGlobalAdministrator:
+			set[CapabilityLegacyAdministration] = struct{}{}
+			set[CapabilityAccountsList] = struct{}{}
+			set[CapabilityAccountsRead] = struct{}{}
+			set[CapabilityAdminAccessManage] = struct{}{}
+		}
+	}
+	capabilities := make([]Capability, 0, len(set))
+	for capability := range set {
+		capabilities = append(capabilities, capability)
+	}
+	sort.Slice(capabilities, func(i, j int) bool { return capabilities[i] < capabilities[j] })
+	return capabilities
+}
+
+func HasCapability(roles []Role, required Capability) bool {
+	if required == "" {
+		return false
+	}
+	for _, capability := range CapabilitiesForRoles(roles) {
+		if capability == required {
+			return true
+		}
+	}
+	return false
+}
 
 // Role is deliberately explicit: registration must never grant administrator privileges.
 func RegistrationRoles() []Role { return []Role{RoleTenant} }

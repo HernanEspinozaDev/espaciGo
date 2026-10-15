@@ -1,8 +1,21 @@
-# Matriz GADM-00 — capacidades, pruebas y cortes
+# Matriz GADM-00–04 — capacidades, pruebas y cortes
 
-- Estado: inventario y propuesta para revisión; **ninguna capacidad GADM está implementada por este documento**.
-- Base: `4cabb943a295569cadd330ed656d9d941e4f9517`.
-- La columna “actual” describe evidencia en el código de base. Las capacidades son vocabulario del plan/ADR, no claims sobre endpoints existentes.
+- Estado: GADM-00 se fusionó en PR #312 (`2589aa1139232f419cf1d1aebdd79a69c1f4007b`); GADM-01 se implementa en el PR de la rama `codex/marketplace/feature/gadm-01-master-access-directory`.
+- Base de GADM-01: `2589aa1139232f419cf1d1aebdd79a69c1f4007b`.
+- La columna “actual” conserva el inventario anterior a GADM-01; la columna de pruebas del corte registra evidencia ejecutada, no intención futura.
+
+## Evidencia GADM-01 (2026-10-14)
+
+| Validación | Entorno / alcance | Resultado |
+| --- | --- | --- |
+| Runner backend local | `scripts/test-local-qa-backend.sh`; suite Go sin servicios persistentes + vet + integraciones PostgreSQL/PostGIS/Mailpit por paquete | Correcto; 132 eventos Go reportados, 91 integraciones requeridas aprobadas, 0 skips; el runner repite la integración de booking 5 veces como estabilidad. |
+| Servicio/directorio y concurrencia | PostGIS 18-3.6, proyecto Compose aislado `espacigo_gadm01_20261014`; `go test ./internal/adminglobal -run TestGlobalBootstrapDirectoryAndLastMasterConcurrency -count=3 -v` | 3 ejecuciones correctas; bootstrap concurrente/replay, filtros, detalle, capabilities, revocación de permiso por cambio de rol, cuenta restringida y protección concurrente del último maestro. Datos solamente sintéticos. |
+| Migración | Mismo runtime PostGIS aislado; `go test ./internal/migrator -run TestMPV211MigrationWorksFromEmptyAndV56WithoutChangingHistory -count=1 -v` | Correcta desde base vacía y desde V56; historial anterior preservado y V58 aplicado. |
+| Angular | `npm test -- --watch=false`; `npm run api:check`; `npm run lint`; `npm run build` | 38 archivos / 282 pruebas; contrato generado y TypeScript; lint/estilos/arquitectura; build SSR y navegador, correcto. |
+| Recorrido real / capturas | API Go y Angular SSR locales, usuario maestro sintético creado únicamente en DB de ensayo; Playwright Chromium; viewport desktop 1365×900 y móvil 390×844 | Login real, navegación autorizada y lectura desde API real; directorio indica 31 cuentas, filtros y primera página de 25. Capturas: `evidencia/gadm-01/directorio-desktop-1365x900.png` y `evidencia/gadm-01/directorio-mobile-390x844.png`. |
+| Protección del historial / diff | `git diff -- db/migrations/V000001__* db/migrations/V000057__*`; `git diff --check` | Sin cambios a migraciones V1–V57; sin errores de whitespace. |
+
+La matriz completa de autorización/casos pendientes sigue siendo guía para cortes futuros; esta sección registra solo las comprobaciones ejecutadas en GADM-01. Los datos de DB, credenciales y configuración local permanecen excluidos en `.local/testing/` y no forman parte de las capturas versionadas.
 
 ## Inventario de autorización existente
 
@@ -71,10 +84,10 @@ La política de compatibilidad se define por operación, no por etiqueta de rol:
 
 | Corte | Entrega versionada | Terminado cuando | Gate siguiente |
 | --- | --- | --- | --- |
-| GADM-00 | plan, ADR, matriz, este inventario y actualización AGENTS; sin DB/código | revisión documental confirma compatibilidad y pruebas trazadas, `diff --check`, PR revisado/fusionado | usuario/revisión envía GADM-01 después de fusión; no crear cuenta/rol |
-| GADM-01 | rol global/catálogo Go, migración mínima si necesaria, bootstrap/recuperación, sesión y directorio inicial | autorización negativa/positiva, admin previo sin escalada, revocación/último global, base vacía y upgrade; maestro de ensayo aislado | PR fusionado y revisión envía GADM-02 |
+| GADM-00 | plan, ADR, matriz, inventario y AGENTS; sin DB/código | fusionado en PR #312, merge `2589aa1139232f419cf1d1aebdd79a69c1f4007b` | GADM-01 autorizado tras fusión |
+| GADM-01 | rol/capacidades, V58, bootstrap local/recuperación, sesión, OpenAPI y directorio inicial | evidencia automatizada de migración y servicio se añadirá al cierre del PR; falta recorrido visual real con cuenta sintética | no iniciar GADM-02 hasta fusión y mensaje del chat revisor |
 | GADM-02 | gestión de cuentas/publicaciones y fichas/recursos | allowlists, motivos, concurrencia, auditoría atómica, snapshots y reglas de privacidad/ocupación | PR fusionado y revisión envía GADM-03 |
 | GADM-03 | KPI, auditoría cuenta/global, exportaciones JSON/CSV | definiciones y números conciliados con DB, paginación/snapshot, límites y seguridad; análisis de N+1 | PR fusionado y revisión envía GADM-04 |
 | GADM-04 | regresión y entrega/guía de cuenta maestra | recorrido/evidencia por SHA, credenciales aisladas, aceptación humana del propietario; sin soporte/GCP | cierre solo dentro del alcance aceptado |
 
-No comenzar ningún sucesor antes de fusionar el corte anterior. Los casos de esta matriz son criterios futuros y no resultados de pruebas ejecutadas en GADM-00.
+No comenzar ningún sucesor antes de fusionar el corte anterior. La evidencia de GADM-01 se actualizará con HEAD, entorno y resultados comprobados antes de publicar.

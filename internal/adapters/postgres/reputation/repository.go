@@ -266,7 +266,10 @@ func (r *Repository) Moderate(ctx context.Context, id, admin, report, decision, 
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	var allowed bool
-	e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.usuario u JOIN public.rol_usuario rr ON rr.usuario_id=u.id WHERE u.id=$1 AND u.estado='activo' AND rr.rol='administrador')`, admin).Scan(&allowed)
+	e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.usuario u WHERE u.id=$1 AND u.estado='activo'
+		AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)
+		AND (EXISTS(SELECT 1 FROM public.rol_usuario rr WHERE rr.usuario_id=u.id AND rr.rol='administrador')
+		OR EXISTS(SELECT 1 FROM public.administrador_global g WHERE g.usuario_id=u.id)))`, admin).Scan(&allowed)
 	if e != nil {
 		return domain.Report{}, e
 	}

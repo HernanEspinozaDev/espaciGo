@@ -100,7 +100,7 @@ export class AdminFacade {
       }
       if (capabilitiesRevision !== this.previousCapabilitiesRevision) {
         this.previousCapabilitiesRevision = capabilitiesRevision;
-        if (!this.identity.session()?.roles.includes('administrador'))
+        if (!this.identity.session()?.capabilities?.includes('legacy.administration') && !this.identity.session()?.roles.includes('administrador'))
           void this.router.navigateByUrl('/mi-cuenta');
       }
       const token = this.identity.accessToken();
@@ -111,7 +111,7 @@ export class AdminFacade {
       this.clearAdminControls();
       this.error.set('');
       this.success.set('');
-      if (token && this.identity.session()?.roles.includes('administrador')) void this.load();
+      if (token && (this.identity.session()?.capabilities?.includes('legacy.administration') || this.identity.session()?.roles.includes('administrador'))) void this.load();
     });
   }
 

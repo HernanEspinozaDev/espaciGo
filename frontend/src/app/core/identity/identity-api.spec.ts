@@ -47,6 +47,7 @@ describe('IdentityApi generated SDK integration', () => {
       access_token: 'opaque-bearer-a',
       token_type: 'Bearer',
       expires_at: '2026-10-12T00:00:00Z',
+      capabilities: [],
       restricted_mode: false,
     } satisfies LoginResponse);
 
@@ -57,12 +58,14 @@ describe('IdentityApi generated SDK integration', () => {
     current.flush({
       account_id: 'account-a',
       roles: ['arrendador'],
+      capabilities: [],
       restricted_mode: true,
     } satisfies SessionResponse);
 
     await expect(signIn).resolves.toEqual({
       account_id: 'account-a',
       roles: ['arrendador'],
+      capabilities: [],
       restricted_mode: true,
     });
     expect(identity.session()?.roles).toEqual(['arrendador']);
@@ -95,12 +98,14 @@ describe('IdentityApi generated SDK integration', () => {
       access_token: 'logout-bearer',
       token_type: 'Bearer',
       expires_at: '2026-10-12T00:00:00Z',
+      capabilities: [],
       restricted_mode: false,
     } satisfies LoginResponse);
     await new Promise((resolve) => setTimeout(resolve, 0));
     http.expectOne('http://localhost:8080/api/v1/auth/session').flush({
       account_id: 'account-a',
       roles: ['arrendatario'],
+      capabilities: [],
       restricted_mode: false,
     } satisfies SessionResponse);
     await signIn;

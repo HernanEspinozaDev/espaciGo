@@ -21,11 +21,13 @@ describe('IdentityPage private forms', () => {
         access_token: 'login-bearer',
         token_type: 'Bearer',
         expires_at: '2026-10-12T00:00:00Z',
+        capabilities: [],
         restricted_mode: false,
       }),
       session: vi.fn().mockResolvedValue({
         account_id: 'account-login',
         roles: ['arrendatario'],
+        capabilities: [],
         restricted_mode: false,
       }),
       logout: vi.fn(),
@@ -75,11 +77,13 @@ describe('IdentityPage private forms', () => {
         access_token: 'context-bearer',
         token_type: 'Bearer',
         expires_at: '2026-10-12T00:00:00Z',
+        capabilities: [],
         restricted_mode: false,
       }),
       session: vi.fn().mockResolvedValue({
         account_id: 'renter-context',
         roles: ['arrendatario'],
+        capabilities: [],
         restricted_mode: false,
       }),
       logout: vi.fn(),
@@ -147,11 +151,13 @@ describe('IdentityPage private forms', () => {
         access_token: 'safe-bearer',
         token_type: 'Bearer',
         expires_at: '2026-10-12T00:00:00Z',
+        capabilities: [],
         restricted_mode: false,
       }),
       session: vi.fn().mockResolvedValue({
         account_id: 'renter-safe',
         roles: ['arrendatario'],
+        capabilities: [],
         restricted_mode: false,
       }),
       logout: vi.fn(),
@@ -201,8 +207,8 @@ describe('IdentityPage private forms', () => {
   it('preserves the legacy contract invitation return after confirmed login', async () => {
     const contractId = '123e4567-e89b-42d3-a456-426614174000';
     const api = {
-      login: vi.fn().mockResolvedValue({ account_id: 'renter-invite', roles: ['arrendatario'], access_token: 'invite-bearer', token_type: 'Bearer', expires_at: '2026-10-12T00:00:00Z', restricted_mode: false }),
-      session: vi.fn().mockResolvedValue({ account_id: 'renter-invite', roles: ['arrendatario'], restricted_mode: false }),
+      login: vi.fn().mockResolvedValue({ account_id: 'renter-invite', roles: ['arrendatario'], access_token: 'invite-bearer', token_type: 'Bearer', expires_at: '2026-10-12T00:00:00Z', capabilities: [], restricted_mode: false }),
+      session: vi.fn().mockResolvedValue({ account_id: 'renter-invite', roles: ['arrendatario'], capabilities: [], restricted_mode: false }),
       logout: vi.fn(),
     };
     TestBed.configureTestingModule({
@@ -223,8 +229,8 @@ describe('IdentityPage private forms', () => {
   });
 
   it.each([
-    { label: 'restricted', roles: ['arrendatario'], restricted_mode: true },
-    { label: 'incompatible role', roles: ['arrendador'], restricted_mode: false },
+    { label: 'restricted', roles: ['arrendatario'], capabilities: [], restricted_mode: true },
+    { label: 'incompatible role', roles: ['arrendador'], capabilities: [], restricted_mode: false },
   ] as const)('returns a $label account to the contextual detail for an explanatory state', async ({ roles, restricted_mode }) => {
     const spaceId = '550e8400-e29b-41d4-a716-446655440000';
     const returnUrl = `/espacios/${spaceId}?action=reserve&returnTo=%2Fexplorar%3Fq%3Dpublico`;
@@ -321,11 +327,13 @@ describe('IdentityPage private forms', () => {
         access_token: 'test-token',
         token_type: 'Bearer',
         expires_at: '2026-10-12T00:00:00Z',
+        capabilities: [],
         restricted_mode: false,
       }),
       session: vi.fn().mockResolvedValue({
         account_id: 'account-a',
         roles: ['arrendatario'],
+        capabilities: [],
         restricted_mode: false,
       }),
       logout: vi.fn().mockRejectedValue(new Error('offline')),
@@ -382,6 +390,7 @@ describe('IdentityPage private forms', () => {
         access_token: 'test-token',
         token_type: 'Bearer',
         expires_at: '2026-10-12T00:00:00Z',
+        capabilities: [],
         restricted_mode: false,
       }),
       session: vi
@@ -389,6 +398,7 @@ describe('IdentityPage private forms', () => {
         .mockResolvedValueOnce({
           account_id: 'account-a',
           roles: ['arrendatario'],
+          capabilities: [],
           restricted_mode: false,
         })
         .mockRejectedValueOnce(new HttpErrorResponse({ status: 401 })),
@@ -464,11 +474,13 @@ describe('IdentityPage private forms', () => {
         access_token: 'test-token',
         token_type: 'Bearer',
         expires_at: '2026-10-12T00:00:00Z',
+        capabilities: [],
         restricted_mode: false,
       }),
       session: vi.fn().mockResolvedValue({
         account_id: 'account-a',
         roles: ['arrendatario'],
+        capabilities: [],
         restricted_mode: false,
       }),
       logout: vi.fn().mockResolvedValue(undefined),

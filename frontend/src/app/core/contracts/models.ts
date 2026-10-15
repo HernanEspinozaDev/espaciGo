@@ -304,7 +304,8 @@ export type LocalWeeklyPeriod = {
 
 export type LoginResponse = {
   account_id: string;
-  roles: Array<'arrendatario' | 'arrendador' | 'administrador'>;
+  roles: Array<'arrendatario' | 'arrendador' | 'administrador' | 'administrador_global'>;
+  capabilities: AdminCapability[];
   /**
    * Bearer opaco; solo en esta respuesta, nunca URL/log. Mantener en memoria en mock.
    */
@@ -354,7 +355,7 @@ export type OwnIdentityExport = {
     phone?: string | null;
     updated_at: string;
   };
-  roles: Array<'arrendatario' | 'arrendador' | 'administrador'>;
+  roles: Array<'arrendatario' | 'arrendador' | 'administrador' | 'administrador_global'>;
   terms_acceptances: Array<{
     code: string;
     type: 'terminos' | 'privacidad' | 'politica_arrendador';
@@ -432,12 +433,19 @@ export type RightsRequestList = {
 
 export type SessionResponse = {
   account_id: string;
-  roles: Array<'arrendatario' | 'arrendador' | 'administrador'>;
+  roles: Array<'arrendatario' | 'arrendador' | 'administrador' | 'administrador_global'>;
+  capabilities: AdminCapability[];
   /**
    * La cuenta sigue bloqueada administrativamente y requiere operaciones de reserva existentes.
    */
   restricted_mode: boolean;
 };
+
+export type AdminCapability =
+  | 'legacy.administration'
+  | 'accounts.list'
+  | 'accounts.read'
+  | 'admin_access.manage';
 
 export type SpaceAttributeProfile = {
   category_code: string;

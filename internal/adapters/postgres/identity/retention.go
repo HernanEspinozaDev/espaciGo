@@ -271,7 +271,12 @@ func (r *IdentityRepository) PrepareSuppressionReplay(ctx context.Context, entry
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	var actorRole string
-	if err := tx.QueryRow(ctx, `SELECT ru.rol FROM public.usuario u JOIN public.rol_usuario ru ON ru.usuario_id=u.id WHERE u.id=$1 AND u.estado='activo' AND ru.rol='administrador' FOR UPDATE OF u`, actorID).Scan(&actorRole); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT CASE WHEN EXISTS(SELECT 1 FROM public.administrador_global ag WHERE ag.usuario_id=u.id)
+		THEN 'administrador_global' ELSE 'administrador' END
+		FROM public.usuario u WHERE u.id=$1 AND u.estado='activo'
+		AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)
+		AND (EXISTS(SELECT 1 FROM public.rol_usuario ru WHERE ru.usuario_id=u.id AND ru.rol='administrador')
+		OR EXISTS(SELECT 1 FROM public.administrador_global ag WHERE ag.usuario_id=u.id)) FOR UPDATE OF u`, actorID).Scan(&actorRole); err != nil {
 		return "", "", "", false, mapError(err)
 	}
 	var state string

@@ -48,6 +48,7 @@ describe('booking application through its port', () => {
       session: signal<SessionResponse>({
         account_id: 'renter-a',
         roles: ['arrendatario'],
+        capabilities: [],
         restricted_mode: false,
       }),
       accessToken: signal('in-memory-token'),

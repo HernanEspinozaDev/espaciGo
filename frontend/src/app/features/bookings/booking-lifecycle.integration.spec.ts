@@ -30,6 +30,7 @@ const participant = (account_id: string, access_token: string) => ({
   access_token,
   token_type: 'Bearer',
   expires_at: '2027-01-01T00:00:00Z',
+  capabilities: [],
   restricted_mode: false,
 });
 const detail = (state: string) =>
@@ -141,6 +142,7 @@ function integratedSetup(
       account_id:
         token === 'token-host' ? 'host-a' : token === 'token-third' ? 'third-party' : 'renter-a',
       roles: ['arrendatario'],
+      capabilities: [],
       restricted_mode: false,
     })),
     logout: vi.fn(async () => undefined),

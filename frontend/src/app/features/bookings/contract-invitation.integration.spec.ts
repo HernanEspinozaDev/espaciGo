@@ -31,6 +31,7 @@ describe('contract invitation navigation', () => {
           access_token: token,
           token_type: 'Bearer',
           expires_at: '2026-10-13T00:00:00Z',
+          capabilities: [],
           restricted_mode: false,
         };
       }),
@@ -40,6 +41,7 @@ describe('contract invitation navigation', () => {
             ? 'participant'
             : 'third-party',
         roles: ['arrendatario'],
+        capabilities: [],
         restricted_mode: false,
       })),
       logout: vi.fn(),

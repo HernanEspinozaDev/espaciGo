@@ -17,7 +17,13 @@ export const roleGuard: CanActivateFn = (route): boolean | UrlTree => {
   if (!session) return router.createUrlTree(['/acceso']);
   if (session.restricted_mode) return router.createUrlTree(['/mi-cuenta']);
   const role = route.data['requiredRole'] as string | undefined;
-  return role && session.roles.includes(role as (typeof session.roles)[number])
+  const capability = route.data['requiredCapability'] as string | undefined;
+  const allowed = capability
+    ? session.capabilities?.includes(capability as (typeof session.capabilities)[number]) === true
+    : role === 'administrador'
+      ? session.capabilities?.includes('legacy.administration') === true || session.roles.includes('administrador')
+      : role !== undefined && session.roles.includes(role as (typeof session.roles)[number]);
+  return allowed
     ? true
     : router.createUrlTree(['/mi-cuenta']);
 };

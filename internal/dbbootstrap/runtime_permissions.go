@@ -33,6 +33,8 @@ func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
  GRANT UPDATE (actor_id) ON public.disputa_ensayo_historial TO espacigo_runtime;
  GRANT USAGE, SELECT ON SEQUENCE public.disputa_ensayo_historial_secuencia_seq TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.rol_usuario, public.aceptacion_terminos TO espacigo_runtime;
+ GRANT SELECT ON public.administrador_global, public.administrador_global_bootstrap TO espacigo_runtime;
+ REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.administrador_global, public.administrador_global_bootstrap, public.administrador_global_bootstrap_evento FROM espacigo_runtime;
  GRANT DELETE ON public.rol_usuario TO espacigo_runtime;
  GRANT UPDATE (concedido_por) ON public.rol_usuario TO espacigo_runtime;
  GRANT UPDATE (retirar_en) ON public.aceptacion_terminos TO espacigo_runtime;

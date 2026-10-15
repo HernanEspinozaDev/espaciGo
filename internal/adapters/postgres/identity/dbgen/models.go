@@ -17,6 +17,89 @@ type AceptacionTermino struct {
 	RetirarEn  pgtype.Timestamptz `json:"retirar_en"`
 }
 
+// Membresía global de aplicación. Se concede por herramienta local auditada; el runtime solo puede leerla.
+type AdministradorGlobal struct {
+	UsuarioID    string             `json:"usuario_id"`
+	ConcedidoEn  pgtype.Timestamptz `json:"concedido_en"`
+	ConcedidoPor pgtype.UUID        `json:"concedido_por"`
+	MotivoCodigo string             `json:"motivo_codigo"`
+}
+
+// Vincula el bootstrap inicial y permite recuperación local únicamente de la misma cuenta registrada/verificada.
+type AdministradorGlobalBootstrap struct {
+	Singleton bool               `json:"singleton"`
+	UsuarioID string             `json:"usuario_id"`
+	CreadoEn  pgtype.Timestamptz `json:"creado_en"`
+}
+
+// Auditoría mínima append-only de bootstrap/recuperación local, sin credenciales ni datos de contacto.
+type AdministradorGlobalBootstrapEvento struct {
+	ID                string             `json:"id"`
+	UsuarioObjetivoID string             `json:"usuario_objetivo_id"`
+	ActorTipo         string             `json:"actor_tipo"`
+	Accion            string             `json:"accion"`
+	Resultado         string             `json:"resultado"`
+	MotivoCodigo      string             `json:"motivo_codigo"`
+	CorrelacionID     string             `json:"correlacion_id"`
+	OcurridaEn        pgtype.Timestamptz `json:"ocurrida_en"`
+}
+
+type AtributoFiltroPublico struct {
+	CategoriaCodigo string `json:"categoria_codigo"`
+	PerfilVersion   int32  `json:"perfil_version"`
+	Codigo          string `json:"codigo"`
+	Etiqueta        string `json:"etiqueta"`
+	Tipo            string `json:"tipo"`
+	Orden           int16  `json:"orden"`
+}
+
+// Durable local Mailpit notice intent. SMTP may duplicate after uncertain acceptance; no exactly-once guarantee.
+type AvisoLocal struct {
+	ID                 string             `json:"id"`
+	TipoEvento         string             `json:"tipo_evento"`
+	AgregadoTipo       string             `json:"agregado_tipo"`
+	AgregadoID         string             `json:"agregado_id"`
+	DestinatarioID     string             `json:"destinatario_id"`
+	ClaveDeduplicacion string             `json:"clave_deduplicacion"`
+	Estado             string             `json:"estado"`
+	Ciclo              int32              `json:"ciclo"`
+	IntentosTotal      int32              `json:"intentos_total"`
+	IntentosCiclo      int32              `json:"intentos_ciclo"`
+	CreadaEn           pgtype.Timestamptz `json:"creada_en"`
+	ProximoIntentoEn   pgtype.Timestamptz `json:"proximo_intento_en"`
+	LeaseHasta         pgtype.Timestamptz `json:"lease_hasta"`
+	EntregadaEn        pgtype.Timestamptz `json:"entregada_en"`
+	FalloTerminalEn    pgtype.Timestamptz `json:"fallo_terminal_en"`
+	CanceladaEn        pgtype.Timestamptz `json:"cancelada_en"`
+	CodigoError        *string            `json:"codigo_error"`
+	RetirarEn          pgtype.Timestamptz `json:"retirar_en"`
+}
+
+type AvisoLocalCiclo struct {
+	AvisoID                string             `json:"aviso_id"`
+	Ciclo                  int32              `json:"ciclo"`
+	Estado                 string             `json:"estado"`
+	IniciadaEn             pgtype.Timestamptz `json:"iniciada_en"`
+	FinalizadaEn           pgtype.Timestamptz `json:"finalizada_en"`
+	Intentos               int32              `json:"intentos"`
+	CodigoResultado        *string            `json:"codigo_resultado"`
+	ActorReaperturaID      pgtype.UUID        `json:"actor_reapertura_id"`
+	MotivoReaperturaCodigo *string            `json:"motivo_reapertura_codigo"`
+	CorrelacionID          *string            `json:"correlacion_id"`
+	ClaveIdempotencia      *string            `json:"clave_idempotencia"`
+}
+
+type AvisoLocalRecuperacionAuditorium struct {
+	ID                string             `json:"id"`
+	AvisoID           string             `json:"aviso_id"`
+	ActorID           string             `json:"actor_id"`
+	MotivoCodigo      string             `json:"motivo_codigo"`
+	OcurridaEn        pgtype.Timestamptz `json:"ocurrida_en"`
+	CorrelacionID     string             `json:"correlacion_id"`
+	ClaveIdempotencia string             `json:"clave_idempotencia"`
+	RetirarEn         pgtype.Timestamptz `json:"retirar_en"`
+}
+
 type BajaArchivoPendienteLocal struct {
 	EjecucionID       string             `json:"ejecucion_id"`
 	EvidenciaID       string             `json:"evidencia_id"`
@@ -24,6 +107,35 @@ type BajaArchivoPendienteLocal struct {
 	DisponibleEn      pgtype.Timestamptz `json:"disponible_en"`
 	UltimoCodigoError *string            `json:"ultimo_codigo_error"`
 	CompletadaEn      pgtype.Timestamptz `json:"completada_en"`
+}
+
+// Bloqueo sintético separado de usuario.estado, KYC y baja; conserva reservas y obligaciones.
+type BloqueoCuentaAdministrativoLocal struct {
+	CuentaID string `json:"cuenta_id"`
+	// Nullable when the administrator actor is retired; the active block remains effective without retaining that personal link.
+	BloqueadaPor  pgtype.UUID        `json:"bloqueada_por"`
+	MotivoCodigo  string             `json:"motivo_codigo"`
+	BloqueadaEn   pgtype.Timestamptz `json:"bloqueada_en"`
+	CorrelacionID string             `json:"correlacion_id"`
+}
+
+// Historial append-only de gobierno local de cuentas; auditoría de cinco años también queda en evento_auditoria_local.
+type BloqueoCuentaHistorialLocal struct {
+	ID       string `json:"id"`
+	CuentaID string `json:"cuenta_id"`
+	// Nullable when the actor account is retired; privacy execution may remove the personal link while preserving the structured event.
+	ActorID       pgtype.UUID        `json:"actor_id"`
+	Accion        string             `json:"accion"`
+	MotivoCodigo  string             `json:"motivo_codigo"`
+	OcurridaEn    pgtype.Timestamptz `json:"ocurrida_en"`
+	CorrelacionID string             `json:"correlacion_id"`
+}
+
+type CatalogoUbicacionPublica struct {
+	Version     string      `json:"version"`
+	Fuente      string      `json:"fuente"`
+	PublicadoEn pgtype.Date `json:"publicado_en"`
+	Activo      bool        `json:"activo"`
 }
 
 type CategoriaEspacio struct {
@@ -38,6 +150,46 @@ type CategoriaPerfilAtributo struct {
 	Version         int32              `json:"version"`
 	Perfil          []byte             `json:"perfil"`
 	CreadoEn        pgtype.Timestamptz `json:"creado_en"`
+}
+
+type ComunaPublica struct {
+	CatalogoVersion string `json:"catalogo_version"`
+	Codigo          string `json:"codigo"`
+	RegionCodigo    string `json:"region_codigo"`
+	Nombre          string `json:"nombre"`
+}
+
+type ContratoEnsayoFirma struct {
+	ContratoID    string             `json:"contrato_id"`
+	FirmanteID    string             `json:"firmante_id"`
+	Rol           string             `json:"rol"`
+	Estado        string             `json:"estado"`
+	Motivo        string             `json:"motivo"`
+	ActualizadaEn pgtype.Timestamptz `json:"actualizada_en"`
+}
+
+type ContratoEnsayoHistorial struct {
+	ID         string             `json:"id"`
+	ContratoID string             `json:"contrato_id"`
+	Secuencia  int64              `json:"secuencia"`
+	ActorID    pgtype.UUID        `json:"actor_id"`
+	Accion     string             `json:"accion"`
+	Motivo     string             `json:"motivo"`
+	CreadaEn   pgtype.Timestamptz `json:"creada_en"`
+}
+
+type ContratoEnsayoLocal struct {
+	ID            string             `json:"id"`
+	ReservaID     string             `json:"reserva_id"`
+	Version       int32              `json:"version"`
+	Estado        string             `json:"estado"`
+	Snapshot      []byte             `json:"snapshot"`
+	DocumentoID   pgtype.UUID        `json:"documento_id"`
+	Sha256        []byte             `json:"sha256"`
+	CreadaEn      pgtype.Timestamptz `json:"creada_en"`
+	ActualizadaEn pgtype.Timestamptz `json:"actualizada_en"`
+	FirmadoEn     pgtype.Timestamptz `json:"firmado_en"`
+	PdfRetiradoEn pgtype.Timestamptz `json:"pdf_retirado_en"`
 }
 
 type CotizacionReservaEnsayo struct {
@@ -62,6 +214,32 @@ type CotizacionReservaEnsayo struct {
 	PerfilValoresSnapshot      []byte             `json:"perfil_valores_snapshot"`
 	PoliticaCancelacionVersion string             `json:"politica_cancelacion_version"`
 	RetirarEn                  pgtype.Timestamptz `json:"retirar_en"`
+	GarantiaPoliticaVersion    *string            `json:"garantia_politica_version"`
+	GarantiaMoneda             *string            `json:"garantia_moneda"`
+	GarantiaPrevistaClp        pgtype.Numeric     `json:"garantia_prevista_clp"`
+	LiquidacionPoliticaVersion *string            `json:"liquidacion_politica_version"`
+	LiquidacionComisionBps     *int32             `json:"liquidacion_comision_bps"`
+}
+
+type CuentaCobroSinteticaHistorialLocal struct {
+	ID                int64              `json:"id"`
+	CuentaID          string             `json:"cuenta_id"`
+	UsuarioID         string             `json:"usuario_id"`
+	Accion            string             `json:"accion"`
+	OcurridaEn        pgtype.Timestamptz `json:"ocurrida_en"`
+	CorrelacionID     string             `json:"correlacion_id"`
+	ClaveIdempotencia string             `json:"clave_idempotencia"`
+}
+
+type CuentaCobroSinteticaLocal struct {
+	ID                 string             `json:"id"`
+	UsuarioID          string             `json:"usuario_id"`
+	Adaptador          string             `json:"adaptador"`
+	ReferenciaFicticia *string            `json:"referencia_ficticia"`
+	Estado             string             `json:"estado"`
+	CreadaEn           pgtype.Timestamptz `json:"creada_en"`
+	ActualizadaEn      pgtype.Timestamptz `json:"actualizada_en"`
+	RevocadaEn         pgtype.Timestamptz `json:"revocada_en"`
 }
 
 type DisputaEnsayoHistorial struct {
@@ -88,6 +266,17 @@ type DisputaEnsayoLocal struct {
 	CerradaPor         pgtype.UUID        `json:"cerrada_por"`
 	MotivoCierreCodigo *string            `json:"motivo_cierre_codigo"`
 	CerradaEn          pgtype.Timestamptz `json:"cerrada_en"`
+}
+
+type DocumentoPrivadoSinteticoLocal struct {
+	ID                  string             `json:"id"`
+	ReservaID           string             `json:"reserva_id"`
+	MimeType            string             `json:"mime_type"`
+	EncryptionAlgorithm string             `json:"encryption_algorithm"`
+	Sha256              []byte             `json:"sha256"`
+	SizeBytes           int32              `json:"size_bytes"`
+	Contenido           []byte             `json:"contenido"`
+	CreadaEn            pgtype.Timestamptz `json:"creada_en"`
 }
 
 type EjecucionBajaLocal struct {
@@ -131,6 +320,12 @@ type Espacio struct {
 	CreadoEn        pgtype.Timestamptz `json:"creado_en"`
 	ActualizadoEn   pgtype.Timestamptz `json:"actualizado_en"`
 	ZonaHoraria     *string            `json:"zona_horaria"`
+	// Selección de portada sintética propia; NULL cuando no hay selección vigente.
+	PortadaFotoID            pgtype.UUID `json:"portada_foto_id"`
+	UbicacionCatalogoVersion *string     `json:"ubicacion_catalogo_version"`
+	RegionCodigo             *string     `json:"region_codigo"`
+	ComunaCodigo             *string     `json:"comuna_codigo"`
+	BusquedaPublica          interface{} `json:"busqueda_publica"`
 }
 
 type EspacioCaracteristica struct {
@@ -139,6 +334,48 @@ type EspacioCaracteristica struct {
 	PerfilVersion   int32              `json:"perfil_version"`
 	Valores         []byte             `json:"valores"`
 	ActualizadoEn   pgtype.Timestamptz `json:"actualizado_en"`
+}
+
+type EspacioEliminacionHistorialLocal struct {
+	ID                 int64              `json:"id"`
+	EspacioID          string             `json:"espacio_id"`
+	ActorID            string             `json:"actor_id"`
+	OcurridaEn         pgtype.Timestamptz `json:"ocurrida_en"`
+	CorrelacionID      string             `json:"correlacion_id"`
+	ArchivosPendientes int32              `json:"archivos_pendientes"`
+	Resumen            []byte             `json:"resumen"`
+	RetirarEn          pgtype.Timestamptz `json:"retirar_en"`
+}
+
+type EspacioGaleriaArchivoCandidatoLocal struct {
+	ArchivoID         string             `json:"archivo_id"`
+	PropietarioID     string             `json:"propietario_id"`
+	EspacioID         string             `json:"espacio_id"`
+	Estado            string             `json:"estado"`
+	CreadaEn          pgtype.Timestamptz `json:"creada_en"`
+	ProximoIntentoEn  pgtype.Timestamptz `json:"proximo_intento_en"`
+	IntentosLimpieza  int32              `json:"intentos_limpieza"`
+	UltimoCodigoError *string            `json:"ultimo_codigo_error"`
+}
+
+type EspacioGaleriaSinteticaLocal struct {
+	ID                  string             `json:"id"`
+	EspacioID           string             `json:"espacio_id"`
+	PropietarioID       string             `json:"propietario_id"`
+	ArchivoID           pgtype.UUID        `json:"archivo_id"`
+	FixtureCode         string             `json:"fixture_code"`
+	MimeType            string             `json:"mime_type"`
+	Sha256              string             `json:"sha256"`
+	SizeBytes           int64              `json:"size_bytes"`
+	Estado              string             `json:"estado"`
+	CreadaEn            pgtype.Timestamptz `json:"creada_en"`
+	RetiradaEn          pgtype.Timestamptz `json:"retirada_en"`
+	ProximoIntentoEn    pgtype.Timestamptz `json:"proximo_intento_en"`
+	LimpiaEn            pgtype.Timestamptz `json:"limpia_en"`
+	IntentosLimpieza    int32              `json:"intentos_limpieza"`
+	UltimoCodigoError   *string            `json:"ultimo_codigo_error"`
+	ClaveIdempotencia   string             `json:"clave_idempotencia"`
+	PublicadaEnCatalogo bool               `json:"publicada_en_catalogo"`
 }
 
 type EspacioHorarioSemanal struct {
@@ -153,6 +390,17 @@ type EspacioHorarioSemanalTramo struct {
 	Orden          int16  `json:"orden"`
 	AperturaMinuto int16  `json:"apertura_minuto"`
 	CierreMinuto   int16  `json:"cierre_minuto"`
+}
+
+type EspacioPublicacionHistorialLocal struct {
+	ID             int64              `json:"id"`
+	EspacioID      string             `json:"espacio_id"`
+	ActorID        string             `json:"actor_id"`
+	EstadoAnterior string             `json:"estado_anterior"`
+	EstadoNuevo    string             `json:"estado_nuevo"`
+	OcurridaEn     pgtype.Timestamptz `json:"ocurrida_en"`
+	CorrelacionID  string             `json:"correlacion_id"`
+	RetirarEn      pgtype.Timestamptz `json:"retirar_en"`
 }
 
 type EventoAuditoriaLocal struct {
@@ -170,6 +418,24 @@ type EventoAuditoriaLocal struct {
 	DetalleCodigos    []byte             `json:"detalle_codigos"`
 }
 
+type FotoPerfilSinteticaLocal struct {
+	ID                string             `json:"id"`
+	UsuarioID         string             `json:"usuario_id"`
+	ArchivoID         pgtype.UUID        `json:"archivo_id"`
+	MimeType          *string            `json:"mime_type"`
+	FixtureCode       string             `json:"fixture_code"`
+	Sha256            *string            `json:"sha256"`
+	SizeBytes         *int64             `json:"size_bytes"`
+	Estado            string             `json:"estado"`
+	CreadaEn          pgtype.Timestamptz `json:"creada_en"`
+	RetiradaEn        pgtype.Timestamptz `json:"retirada_en"`
+	LimpiaEn          pgtype.Timestamptz `json:"limpia_en"`
+	IntentosLimpieza  int32              `json:"intentos_limpieza"`
+	ProximoIntentoEn  pgtype.Timestamptz `json:"proximo_intento_en"`
+	UltimoCodigoError *string            `json:"ultimo_codigo_error"`
+	ClaveIdempotencia string             `json:"clave_idempotencia"`
+}
+
 type HistorialClaveLocal struct {
 	ID                 string             `json:"id"`
 	UsuarioID          string             `json:"usuario_id"`
@@ -177,6 +443,15 @@ type HistorialClaveLocal struct {
 	DejoDeSerVigenteEn pgtype.Timestamptz `json:"dejo_de_ser_vigente_en"`
 	RetirarEn          pgtype.Timestamptz `json:"retirar_en"`
 	CreadoEn           pgtype.Timestamptz `json:"creado_en"`
+}
+
+type M02OperacionIdempotenteLocal struct {
+	UsuarioID         string             `json:"usuario_id"`
+	Recurso           string             `json:"recurso"`
+	ClaveIdempotencia string             `json:"clave_idempotencia"`
+	SolicitudSha256   string             `json:"solicitud_sha256"`
+	Respuesta         []byte             `json:"respuesta"`
+	CreadaEn          pgtype.Timestamptz `json:"creada_en"`
 }
 
 type MensajeReservaEnsayo struct {
@@ -190,6 +465,12 @@ type MensajeReservaEnsayo struct {
 	CreadaEn          pgtype.Timestamptz `json:"creada_en"`
 }
 
+type Mpv211PublicFilterManifest struct {
+	CategoriaCodigo string `json:"categoria_codigo"`
+	PerfilVersion   int32  `json:"perfil_version"`
+	Codigo          string `json:"codigo"`
+}
+
 type Ocupacion struct {
 	ID            string                           `json:"id"`
 	EspacioID     string                           `json:"espacio_id"`
@@ -201,6 +482,58 @@ type Ocupacion struct {
 	Motivo        *string                          `json:"motivo"`
 	CreadaEn      pgtype.Timestamptz               `json:"creada_en"`
 	DesactivadaEn pgtype.Timestamptz               `json:"desactivada_en"`
+}
+
+type OperacionArriendoArchivoCandidatoLocal struct {
+	ArchivoID         string             `json:"archivo_id"`
+	ReservaID         pgtype.UUID        `json:"reserva_id"`
+	ActorID           pgtype.UUID        `json:"actor_id"`
+	Tipo              string             `json:"tipo"`
+	Estado            string             `json:"estado"`
+	CreadaEn          pgtype.Timestamptz `json:"creada_en"`
+	ProximoIntentoEn  pgtype.Timestamptz `json:"proximo_intento_en"`
+	LeaseIniciadoEn   pgtype.Timestamptz `json:"lease_iniciado_en"`
+	IntentosLimpieza  int32              `json:"intentos_limpieza"`
+	UltimoCodigoError *string            `json:"ultimo_codigo_error"`
+}
+
+type OperacionArriendoEnsayoLocal struct {
+	ID                 string             `json:"id"`
+	ReservaID          pgtype.UUID        `json:"reserva_id"`
+	Tipo               string             `json:"tipo"`
+	ActorID            pgtype.UUID        `json:"actor_id"`
+	OcurrioEn          pgtype.Timestamptz `json:"ocurrio_en"`
+	ZonaHoraria        string             `json:"zona_horaria"`
+	UbicacionSintetica []byte             `json:"ubicacion_sintetica"`
+	Comentarios        string             `json:"comentarios"`
+	Observacion        string             `json:"observacion"`
+	Resultado          string             `json:"resultado"`
+	ClaveIdempotencia  string             `json:"clave_idempotencia"`
+	HuellaSolicitud    []byte             `json:"huella_solicitud"`
+	CreadaEn           pgtype.Timestamptz `json:"creada_en"`
+}
+
+type OperacionArriendoEvidenciaEnsayoLocal struct {
+	ID          string             `json:"id"`
+	OperacionID string             `json:"operacion_id"`
+	FixtureCode string             `json:"fixture_code"`
+	MimeType    string             `json:"mime_type"`
+	Sha256      string             `json:"sha256"`
+	SizeBytes   int64              `json:"size_bytes"`
+	CreadaEn    pgtype.Timestamptz `json:"creada_en"`
+	// Plazo derivado de la retención ratificada de reservas sintéticas: 24 meses desde el último cierre relacionado.
+	RetirarArchivoEn pgtype.Timestamptz `json:"retirar_archivo_en"`
+	// Marca mínima de limpieza durable del blob; metadatos/historial pueden permanecer minimizados.
+	ArchivoRetiradoEn pgtype.Timestamptz `json:"archivo_retirado_en"`
+}
+
+type OperacionArriendoHistorialEnsayoLocal struct {
+	Secuencia   int64              `json:"secuencia"`
+	ReservaID   pgtype.UUID        `json:"reserva_id"`
+	OperacionID string             `json:"operacion_id"`
+	Accion      string             `json:"accion"`
+	ActorID     pgtype.UUID        `json:"actor_id"`
+	OcurridaEn  pgtype.Timestamptz `json:"ocurrida_en"`
 }
 
 type OutboxEventoCicloLocal struct {
@@ -255,6 +588,108 @@ type ReaplicacionBajaLocal struct {
 	AplicadaEn        pgtype.Timestamptz `json:"aplicada_en"`
 }
 
+type ReclamoDanoDescargoEnsayoLocal struct {
+	ID                string             `json:"id"`
+	ReclamoID         string             `json:"reclamo_id"`
+	ActorID           pgtype.UUID        `json:"actor_id"`
+	Descripcion       string             `json:"descripcion"`
+	ClaveIdempotencia string             `json:"clave_idempotencia"`
+	HuellaSolicitud   []byte             `json:"huella_solicitud"`
+	CreadoEn          pgtype.Timestamptz `json:"creado_en"`
+}
+
+type ReclamoDanoEnsayoLocal struct {
+	ID string `json:"id"`
+	// Retained until the reservation privacy deadline; nulled by the local 24-month history-link purger.
+	ReservaID           pgtype.UUID        `json:"reserva_id"`
+	AnfitrionID         pgtype.UUID        `json:"anfitrion_id"`
+	ArrendatarioID      pgtype.UUID        `json:"arrendatario_id"`
+	CheckoutOperacionID pgtype.UUID        `json:"checkout_operacion_id"`
+	CheckoutEvidenciaID pgtype.UUID        `json:"checkout_evidencia_id"`
+	Descripcion         string             `json:"descripcion"`
+	Estado              string             `json:"estado"`
+	ClaveIdempotencia   string             `json:"clave_idempotencia"`
+	HuellaSolicitud     []byte             `json:"huella_solicitud"`
+	AbiertoEn           pgtype.Timestamptz `json:"abierto_en"`
+	PlazoReclamoHasta   pgtype.Timestamptz `json:"plazo_reclamo_hasta"`
+}
+
+type ReclamoDanoHistorialEnsayoLocal struct {
+	Secuencia  int64              `json:"secuencia"`
+	ReclamoID  string             `json:"reclamo_id"`
+	Accion     string             `json:"accion"`
+	ActorID    pgtype.UUID        `json:"actor_id"`
+	OcurridaEn pgtype.Timestamptz `json:"ocurrida_en"`
+}
+
+// Synthetic local adjudication only. It stores no guarantee amount and performs no capture, release, refund or settlement; those effects are deferred to LOCAL-FIN-01.
+type ReclamoDanoResolucionEnsayoLocal struct {
+	ReclamoID         string             `json:"reclamo_id"`
+	Resultado         string             `json:"resultado"`
+	MotivoCodigo      string             `json:"motivo_codigo"`
+	AdministradorID   pgtype.UUID        `json:"administrador_id"`
+	ResueltaEn        pgtype.Timestamptz `json:"resuelta_en"`
+	ClaveIdempotencia string             `json:"clave_idempotencia"`
+	HuellaSolicitud   []byte             `json:"huella_solicitud"`
+}
+
+type RegionPublica struct {
+	CatalogoVersion string `json:"catalogo_version"`
+	Codigo          string `json:"codigo"`
+	Nombre          string `json:"nombre"`
+}
+
+// Synthetic local moderation report; retain while pending and 24 months after resolution. Not a legal retention determination.
+type ReporteResenaEnsayoLocal struct {
+	ID                     string             `json:"id"`
+	ResenaID               string             `json:"resena_id"`
+	EspacioID              string             `json:"espacio_id"`
+	AnfitrionID            pgtype.UUID        `json:"anfitrion_id"`
+	MotivoCodigo           string             `json:"motivo_codigo"`
+	Estado                 string             `json:"estado"`
+	CreadaEn               pgtype.Timestamptz `json:"creada_en"`
+	ResolverEn             pgtype.Timestamptz `json:"resolver_en"`
+	ResueltaPor            pgtype.UUID        `json:"resuelta_por"`
+	MotivoResolucionCodigo *string            `json:"motivo_resolucion_codigo"`
+	RetirarEn              pgtype.Timestamptz `json:"retirar_en"`
+	ClaveIdempotencia      string             `json:"clave_idempotencia"`
+	HuellaSolicitud        []byte             `json:"huella_solicitud"`
+}
+
+type ReporteResenaHistorialLocal struct {
+	Secuencia      int64              `json:"secuencia"`
+	ReporteID      string             `json:"reporte_id"`
+	EstadoAnterior *string            `json:"estado_anterior"`
+	EstadoNuevo    string             `json:"estado_nuevo"`
+	ActorID        pgtype.UUID        `json:"actor_id"`
+	MotivoCodigo   string             `json:"motivo_codigo"`
+	OcurridaEn     pgtype.Timestamptz `json:"ocurrida_en"`
+}
+
+// Opaque uniqueness marker only; no rating/comment/account identifier. A NULL retirement date means the reservation still permits reviews; otherwise retained through the reservation-link deadline.
+type ResenaAutoriaMarcaLocal struct {
+	HuellaAutoria []byte             `json:"huella_autoria"`
+	CreadaEn      pgtype.Timestamptz `json:"creada_en"`
+	RetirarEn     pgtype.Timestamptz `json:"retirar_en"`
+}
+
+// Synthetic local reviews; remove after 24 calendar months from creation. Not a legal retention determination.
+type ResenaEnsayoLocal struct {
+	ID                string             `json:"id"`
+	ReservaID         string             `json:"reserva_id"`
+	EspacioID         string             `json:"espacio_id"`
+	AutorID           pgtype.UUID        `json:"autor_id"`
+	DestinatarioTipo  string             `json:"destinatario_tipo"`
+	DestinatarioID    pgtype.UUID        `json:"destinatario_id"`
+	Puntuacion        int16              `json:"puntuacion"`
+	Comentario        string             `json:"comentario"`
+	Estado            string             `json:"estado"`
+	CreadaEn          pgtype.Timestamptz `json:"creada_en"`
+	RetirarEn         pgtype.Timestamptz `json:"retirar_en"`
+	HuellaSolicitud   []byte             `json:"huella_solicitud"`
+	ClaveIdempotencia string             `json:"clave_idempotencia"`
+}
+
 type ReservaCancelacionEnsayo struct {
 	ID                string             `json:"id"`
 	ReservaID         string             `json:"reserva_id"`
@@ -263,6 +698,32 @@ type ReservaCancelacionEnsayo struct {
 	HuellaSolicitud   []byte             `json:"huella_solicitud"`
 	Motivo            string             `json:"motivo"`
 	CreadaEn          pgtype.Timestamptz `json:"creada_en"`
+}
+
+type ReservaComprobanteEnsayoLocal struct {
+	ID            string             `json:"id"`
+	LiquidacionID string             `json:"liquidacion_id"`
+	Version       int16              `json:"version"`
+	Contenido     []byte             `json:"contenido"`
+	EmitidoEn     pgtype.Timestamptz `json:"emitido_en"`
+}
+
+// Decisión económica local inmutable y separada de la resolución histórica del reclamo.
+type ReservaDecisionFinancieraEnsayoLocal struct {
+	ID                string             `json:"id"`
+	GarantiaID        string             `json:"garantia_id"`
+	ReservaID         string             `json:"reserva_id"`
+	ReclamoID         pgtype.UUID        `json:"reclamo_id"`
+	ResultadoReclamo  string             `json:"resultado_reclamo"`
+	DeduccionClp      pgtype.Numeric     `json:"deduccion_clp"`
+	MotivoCodigo      string             `json:"motivo_codigo"`
+	EvidenciaID       pgtype.UUID        `json:"evidencia_id"`
+	AdministradorID   string             `json:"administrador_id"`
+	ClaveIdempotencia string             `json:"clave_idempotencia"`
+	HuellaSolicitud   []byte             `json:"huella_solicitud"`
+	Estado            string             `json:"estado"`
+	CreadaEn          pgtype.Timestamptz `json:"creada_en"`
+	ActualizadaEn     pgtype.Timestamptz `json:"actualizada_en"`
 }
 
 type ReservaDevolucionEnsayo struct {
@@ -311,6 +772,11 @@ type ReservaEnsayoLocal struct {
 	CondicionesSnapshot        string             `json:"condiciones_snapshot"`
 	PoliticaCancelacionVersion string             `json:"politica_cancelacion_version"`
 	VinculosRetirarEn          pgtype.Timestamptz `json:"vinculos_retirar_en"`
+	GarantiaPoliticaVersion    *string            `json:"garantia_politica_version"`
+	GarantiaMoneda             *string            `json:"garantia_moneda"`
+	GarantiaPrevistaClp        pgtype.Numeric     `json:"garantia_prevista_clp"`
+	LiquidacionPoliticaVersion *string            `json:"liquidacion_politica_version"`
+	LiquidacionComisionBps     *int32             `json:"liquidacion_comision_bps"`
 }
 
 type ReservaEnsayoLocalFixture struct {
@@ -339,6 +805,116 @@ type ReservaEnsayoTransicion struct {
 	Motivo         string             `json:"motivo"`
 	CreadaEn       pgtype.Timestamptz `json:"creada_en"`
 	Secuencia      int64              `json:"secuencia"`
+}
+
+type ReservaFinanzasHistorialEnsayoLocal struct {
+	ID            string             `json:"id"`
+	Secuencia     int64              `json:"secuencia"`
+	ReservaID     string             `json:"reserva_id"`
+	Tipo          string             `json:"tipo"`
+	ActorID       pgtype.UUID        `json:"actor_id"`
+	DetalleCodigo string             `json:"detalle_codigo"`
+	OcurridaEn    pgtype.Timestamptz `json:"ocurrida_en"`
+}
+
+// Obligación fake independiente del pago del arriendo; no representa dinero ni custodia real.
+type ReservaGarantiaEnsayoLocal struct {
+	ID              string             `json:"id"`
+	ReservaID       string             `json:"reserva_id"`
+	PoliticaVersion string             `json:"politica_version"`
+	Moneda          string             `json:"moneda"`
+	PrevistoClp     pgtype.Numeric     `json:"previsto_clp"`
+	AutorizadoClp   pgtype.Numeric     `json:"autorizado_clp"`
+	CapturadoClp    pgtype.Numeric     `json:"capturado_clp"`
+	LiberadoClp     pgtype.Numeric     `json:"liberado_clp"`
+	Estado          string             `json:"estado"`
+	CreadaEn        pgtype.Timestamptz `json:"creada_en"`
+	ActualizadaEn   pgtype.Timestamptz `json:"actualizada_en"`
+}
+
+type ReservaGarantiaEventoAplicacionEnsayoLocal struct {
+	EventoID        string             `json:"evento_id"`
+	Estado          string             `json:"estado"`
+	CodigoResultado *string            `json:"codigo_resultado"`
+	CreadaEn        pgtype.Timestamptz `json:"creada_en"`
+	ProcesadaEn     pgtype.Timestamptz `json:"procesada_en"`
+}
+
+type ReservaGarantiaEventoEnsayoLocal struct {
+	ID            string             `json:"id"`
+	OperacionID   string             `json:"operacion_id"`
+	EventoID      string             `json:"evento_id"`
+	Resultado     string             `json:"resultado"`
+	AutenticadoEn pgtype.Timestamptz `json:"autenticado_en"`
+}
+
+type ReservaGarantiaOperacionEnsayoLocal struct {
+	ID                  string             `json:"id"`
+	GarantiaID          string             `json:"garantia_id"`
+	Tipo                string             `json:"tipo"`
+	ClaveIdempotencia   string             `json:"clave_idempotencia"`
+	HuellaSolicitud     []byte             `json:"huella_solicitud"`
+	ImporteClp          pgtype.Numeric     `json:"importe_clp"`
+	ResultadoSolicitado string             `json:"resultado_solicitado"`
+	Estado              string             `json:"estado"`
+	PrimerIntentoEn     pgtype.Timestamptz `json:"primer_intento_en"`
+	VenceEn             pgtype.Timestamptz `json:"vence_en"`
+	UltimoResultado     *string            `json:"ultimo_resultado"`
+	CompletadaEn        pgtype.Timestamptz `json:"completada_en"`
+	CreadaEn            pgtype.Timestamptz `json:"creada_en"`
+	ActualizadaEn       pgtype.Timestamptz `json:"actualizada_en"`
+}
+
+type ReservaGarantiaResultadoFakeEnsayoLocal struct {
+	ID           string             `json:"id"`
+	OperacionID  string             `json:"operacion_id"`
+	EventoID     *string            `json:"evento_id"`
+	Resultado    string             `json:"resultado"`
+	RegistradaEn pgtype.Timestamptz `json:"registrada_en"`
+}
+
+type ReservaLiquidacionEnsayoLocal struct {
+	ID                         string             `json:"id"`
+	ReservaID                  string             `json:"reserva_id"`
+	AnfitrionID                pgtype.UUID        `json:"anfitrion_id"`
+	PoliticaVersion            string             `json:"politica_version"`
+	Moneda                     string             `json:"moneda"`
+	ArriendoConfirmadoClp      int64              `json:"arriendo_confirmado_clp"`
+	DevolucionesConfirmadasClp int64              `json:"devoluciones_confirmadas_clp"`
+	ComisionBps                int32              `json:"comision_bps"`
+	ComisionClp                int64              `json:"comision_clp"`
+	TransferenciaClp           int64              `json:"transferencia_clp"`
+	Estado                     string             `json:"estado"`
+	UltimoResultado            *string            `json:"ultimo_resultado"`
+	ClaveIdempotencia          string             `json:"clave_idempotencia"`
+	HuellaSolicitud            []byte             `json:"huella_solicitud"`
+	CreadaEn                   pgtype.Timestamptz `json:"creada_en"`
+	ActualizadaEn              pgtype.Timestamptz `json:"actualizada_en"`
+	CompletadaEn               pgtype.Timestamptz `json:"completada_en"`
+}
+
+type ReservaLiquidacionHistorialEnsayoLocal struct {
+	Secuencia     int64              `json:"secuencia"`
+	LiquidacionID string             `json:"liquidacion_id"`
+	Accion        string             `json:"accion"`
+	ActorID       pgtype.UUID        `json:"actor_id"`
+	Codigo        string             `json:"codigo"`
+	OcurridaEn    pgtype.Timestamptz `json:"ocurrida_en"`
+}
+
+type ReservaLiquidacionOperacionEnsayoLocal struct {
+	ID                  string             `json:"id"`
+	LiquidacionID       string             `json:"liquidacion_id"`
+	ResultadoSolicitado string             `json:"resultado_solicitado"`
+	CreadaEn            pgtype.Timestamptz `json:"creada_en"`
+	ActualizadaEn       pgtype.Timestamptz `json:"actualizada_en"`
+}
+
+type ReservaLiquidacionResultadoFakeEnsayoLocal struct {
+	OperacionID  string             `json:"operacion_id"`
+	EventID      *string            `json:"event_id"`
+	Resultado    string             `json:"resultado"`
+	RegistradaEn pgtype.Timestamptz `json:"registrada_en"`
 }
 
 type ReservaMensajeLectura struct {
@@ -506,14 +1082,27 @@ type Verificacion struct {
 	MotivoRevocacionCodigo *string            `json:"motivo_revocacion_codigo"`
 }
 
+// Durable, retryable deletion of local synthetic verification blobs; contains no user or provider payload.
+type VerificacionArchivoRetiroPendienteLocal struct {
+	EvidenciaID       string             `json:"evidencia_id"`
+	ArchivoID         string             `json:"archivo_id"`
+	DisponibleEn      pgtype.Timestamptz `json:"disponible_en"`
+	LeaseHasta        pgtype.Timestamptz `json:"lease_hasta"`
+	Intentos          int32              `json:"intentos"`
+	UltimoCodigoError *string            `json:"ultimo_codigo_error"`
+}
+
 type VerificacionEvidenciaSintetica struct {
-	ID             string             `json:"id"`
-	VerificacionID string             `json:"verificacion_id"`
-	CodigoFixture  string             `json:"codigo_fixture"`
-	MimeType       string             `json:"mime_type"`
-	TamanoBytes    int64              `json:"tamano_bytes"`
-	Sha256         string             `json:"sha256"`
-	CreadaEn       pgtype.Timestamptz `json:"creada_en"`
+	ID                string             `json:"id"`
+	VerificacionID    string             `json:"verificacion_id"`
+	CodigoFixture     string             `json:"codigo_fixture"`
+	MimeType          string             `json:"mime_type"`
+	TamanoBytes       int64              `json:"tamano_bytes"`
+	Sha256            string             `json:"sha256"`
+	CreadaEn          pgtype.Timestamptz `json:"creada_en"`
+	ArchivoID         pgtype.UUID        `json:"archivo_id"`
+	RetirarArchivoEn  pgtype.Timestamptz `json:"retirar_archivo_en"`
+	ArchivoRetiradoEn pgtype.Timestamptz `json:"archivo_retirado_en"`
 }
 
 type VerificacionHistorialLocal struct {
