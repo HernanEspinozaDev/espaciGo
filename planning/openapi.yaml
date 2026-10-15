@@ -171,6 +171,25 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '409': {$ref: '#/components/responses/Conflict'}
         '428': {description: Se requiere sesión reciente}
+  /admin/global/accounts/{accountID}/legacy-administrator:
+    put:
+      operationId: setGlobalAdminLegacyAdministratorRole
+      tags: [Global administration]
+      summary: Establecer de forma idempotente el rol legado de administrador
+      description: Requiere capacidad admin_access.manage y sesión reciente. Concede solo el rol administrador legado; nunca altera ni concede la membresía administrador_global. Cada transición, incluida una repetición idempotente, queda auditada.
+      parameters:
+      - {in: path, name: accountID, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false, required: [granted, reason], properties: {granted: {type: boolean}, reason: {type: string, enum: [aprovisionamiento_sintetico, revision_administrativa, retirada_acceso]}}}
+      responses:
+        '200': {description: Estado deseado aplicado o ya vigente; evento auditado}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {description: Se requiere sesión reciente}
   /admin/global/accounts/{accountID}/sessions/revoke:
     post:
       operationId: revokeGlobalAdminAccountSessions
@@ -301,11 +320,15 @@ paths:
     get:
       operationId: getGlobalAdminPublicationSchedule
       tags: [Global administration]
+      summary: Consultar el horario semanal de una publicación por hora
+      description: Requiere permiso administrativo de lectura y owner_id. La lectura genera auditoría y no revela horarios de otros propietarios a usuarios normales.
       parameters: [{in: path, name: publicationID, required: true, schema: {type: string, format: uuid}}, {in: query, name: owner_id, required: true, schema: {type: string, format: uuid}}]
       responses: {'200': {description: Horario semanal vigente}, '403': {$ref: '#/components/responses/Forbidden'}}
     put:
       operationId: updateGlobalAdminPublicationSchedule
       tags: [Global administration]
+      summary: Guardar el horario semanal mediante revisión administrativa
+      description: Solo publicaciones no eliminadas con tarifa por hora. Exige sesión reciente, owner_id, versión actual y motivo permitido. No crea cotizaciones, reservas ni fixture de participantes.
       parameters: [{in: path, name: publicationID, required: true, schema: {type: string, format: uuid}}]
       requestBody:
         required: true

@@ -506,6 +506,8 @@ func (h *Handler) serveAccountMutation(w http.ResponseWriter, r *http.Request, p
 		capability = identity.CapabilityAccountsUpdate
 	case len(parts) == 3 && parts[1] == "roles" && r.Method == http.MethodPut:
 		capability = identity.CapabilityAccountsRoles
+	case len(parts) == 2 && parts[1] == "legacy-administrator" && r.Method == http.MethodPut:
+		capability = identity.CapabilityAdminAccessManage
 	case len(parts) == 3 && parts[1] == "sessions" && parts[2] == "revoke" && r.Method == http.MethodPost:
 		capability = identity.CapabilityAccountsBlock
 	case len(parts) == 2 && parts[1] == "block" && r.Method == http.MethodPost:
@@ -522,6 +524,23 @@ func (h *Handler) serveAccountMutation(w http.ResponseWriter, r *http.Request, p
 		return true
 	}
 	if len(parts) == 2 {
+		if parts[1] == "legacy-administrator" {
+			var input struct {
+				Granted bool   `json:"granted"`
+				Reason  string `json:"reason"`
+			}
+			if !decodeManagementBody(w, r, &input) {
+				writeError(w, 422, "invalid_request", requestID)
+				return true
+			}
+			value, err := h.service.SetLegacyAdministrator(r.Context(), principal.AccountID, parts[0], input.Reason, requestID, input.Granted)
+			if err != nil {
+				replyError(w, err, requestID)
+				return true
+			}
+			writeJSON(w, 200, map[string]any{"data": value})
+			return true
+		}
 		if parts[1] == "block" {
 			var input struct {
 				Blocked bool   `json:"blocked"`

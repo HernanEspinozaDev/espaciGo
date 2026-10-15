@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"strings"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
