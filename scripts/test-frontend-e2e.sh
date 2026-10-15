@@ -384,6 +384,19 @@ SQL
     golang:1.27.1-alpine3.24 /tmp/migrator-gadm03.test -test.run '^TestGADM03MigrationWorksFromEmptyAndV56WithoutChangingHistory$' -test.count=1 -test.v
   unset admin_password
   printf 'PASS GADM-03 fresh, V56, and V58 migration integration scenarios ran against disposable PostgreSQL 18\n'
+  admin_password="$(<"$LOCAL_SECRETS_DIR/db_admin_password")"
+  CGO_ENABLED=0 go -C "$ROOT_DIR" test -c -o "$STATE_DIR/adminglobal-gadm03.test" ./internal/adminglobal
+  mkdir -m 0700 "$STATE_DIR/gadm03-local-testing"
+  docker run --rm --network "container:${PROJECT}-database-1" \
+    --volume "$ROOT_DIR:$ROOT_DIR:ro" \
+    --volume "$STATE_DIR/gadm03-local-testing:$ROOT_DIR/.local/testing" \
+    --volume "$(go env GOMODCACHE):/opt/gomod:ro" \
+    --volume "$STATE_DIR/adminglobal-gadm03.test:/tmp/adminglobal-gadm03.test:ro" \
+    --workdir "$ROOT_DIR" --env GOMODCACHE=/opt/gomod \
+    --env "TEST_DATABASE_URL=postgres://espacigo_admin:${admin_password}@127.0.0.1:5432/espacigo_local?sslmode=disable" \
+    golang:1.27.1-alpine3.24 /tmp/adminglobal-gadm03.test -test.run '^TestGlobalBootstrapDirectoryAndLastMasterConcurrency$' -test.count=1 -test.v
+  unset admin_password
+  printf 'PASS required GADM-03/PostGIS service and HTTP integration suite ran; no TEST_DATABASE_URL skips\n'
 fi
 
 "${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
@@ -724,6 +737,7 @@ if [[ "${FE14_TEST_GREP:-}" == *GADM-03* ]]; then
     ('account-read-target-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario actor ON actor.id=a.actor_id JOIN public.usuario target ON target.id=a.cuenta_objetivo_id WHERE actor.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND target.correo_normalizado='fe14-${RUN_ID}-renter@ejemplo.invalid' AND a.accion='admin.global.accounts.read' AND a.resultado='exito')),
     ('audit-read-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.audit.read' AND a.resultado='exito')),
     ('audit-export-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.audit.export' AND a.resultado='exito'))
+    ,('missing-account-404-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.recurso_id='00000000-0000-4000-8000-000000000099' AND a.accion='admin.global.accounts.read' AND a.resultado='rechazo' AND a.motivo_codigo='cuenta_no_encontrada' AND a.cuenta_objetivo_id IS NULL))
   ) SELECT COALESCE(string_agg(name,','),'') FROM checks WHERE NOT passed")"
   [[ -z "${GADM03_FAILED//[[:space:]]/}" ]] || { printf 'GADM-03 KPI/audit persistence assertions failed: %s\n' "${GADM03_FAILED//[[:space:]]/}" >&2; exit 1; }
   printf 'PASS GADM-03 KPI, actor/target scope, read and export audits match real API/browser requests\n'

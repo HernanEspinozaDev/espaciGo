@@ -316,6 +316,9 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	const bookingID = "82000000-0000-4000-8000-000000000001"
 	const quoteID = "82000000-0000-4000-8000-000000000002"
 	const occupancyID = "82000000-0000-4000-8000-000000000003"
+	const rejectedBookingID = "82000000-0000-4000-8000-000000000004"
+	const rejectedQuoteID = "82000000-0000-4000-8000-000000000005"
+	const rejectedOccupancyID = "82000000-0000-4000-8000-000000000006"
 	bookingTx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -335,16 +338,117 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	if _, err = bookingTx.Exec(ctx, `INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,pago_vence_en,creada_en,actualizada_en) VALUES($1,$2,$3,$4,$5,'gadm02-resource-booking',decode(repeat('00',32),'hex'),$6,'pagada',12000,1,12000,'hora','CLP',$7,$8,'America/Santiago','Condiciones sintéticas de ensayo',now()+interval '15 minutes',now(),now())`, bookingID, quoteID, publicationB, landlord, renter, occupancyID, bookingStart, bookingEnd); err != nil {
 		t.Fatal(err)
 	}
+	rejectedStart, rejectedEnd := bookingStart.Add(2*time.Hour), bookingEnd.Add(2*time.Hour)
+	if _, err = bookingTx.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo) VALUES($1,$2,$3,tstzrange($4,$5,'[)'),'reserva',true)`, rejectedOccupancyID, publicationB, rejectedBookingID, rejectedStart, rejectedEnd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = bookingTx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,categoria_codigo,perfil_version,perfil_valores_snapshot,creada_en,vence_en) VALUES($1,$2,$3,$4,1,'hora',12000,'CLP',1,12000,$5,$6,'America/Santiago','Condiciones sintéticas de ensayo','oficina',1,'{}'::jsonb,now(),now()+interval '15 minutes')`, rejectedQuoteID, publicationB, landlord, renter, rejectedStart, rejectedEnd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = bookingTx.Exec(ctx, `INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,pago_vence_en,creada_en,actualizada_en) VALUES($1,$2,$3,$4,$5,'gadm02-resource-booking-rejected',decode(repeat('00',32),'hex'),$6,'rechazada_arrendador',12000,1,12000,'hora','CLP',$7,$8,'America/Santiago','Condiciones sintéticas de ensayo',now()+interval '15 minutes',now(),now())`, rejectedBookingID, rejectedQuoteID, publicationB, landlord, renter, rejectedOccupancyID, rejectedStart, rejectedEnd); err != nil {
+		t.Fatal(err)
+	}
 	if err = bookingTx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	resourcePage, err := service.ListAccountResources(ctx, master, renter, corr, "reservations", "", 1)
-	if err != nil || resourcePage.MatchingTotal != 1 || len(resourcePage.Items) != 1 || resourcePage.Items[0].ID != bookingID || resourcePage.Items[0].Participant != "arrendatario" {
+	resourcePage, err := service.ListAccountResources(ctx, master, renter, corr, "reservations", "", 10)
+	if err != nil || resourcePage.MatchingTotal != 2 || len(resourcePage.Items) != 2 || resourcePage.Items[0].Participant != "arrendatario" || resourcePage.Items[1].Participant != "arrendatario" {
 		t.Fatalf("account reservation resources: %+v err=%v", resourcePage, err)
+	}
+	resourceIDs := map[string]bool{}
+	for _, item := range resourcePage.Items {
+		resourceIDs[item.ID] = true
+	}
+	if !resourceIDs[bookingID] || !resourceIDs[rejectedBookingID] {
+		t.Fatalf("account reservation resources omitted fixture rows: %+v", resourcePage.Items)
 	}
 	resourceDetail, err := service.GetAccountResource(ctx, master, renter, bookingID, corr, "reservations")
 	if err != nil || resourceDetail["state"] != "pagada" {
 		t.Fatalf("account reservation detail: %+v err=%v", resourceDetail, err)
+	}
+	decisionAt := time.Now().UTC()
+	if _, err = pool.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='aprobada_host' WHERE id=$1`, bookingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en)
+		VALUES('82000000-0000-4000-8000-000000000007',$1,1,'pagada','aprobada_host',$2,'fixture KPI aprobación',$3),
+		('82000000-0000-4000-8000-000000000008',$4,1,'pendiente_de_pago','rechazada_arrendador',$2,'fixture KPI rechazo',$3)`, bookingID, landlord, decisionAt, rejectedBookingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.reserva_pago_ensayo(id,reserva_id,resultado,clave_idempotencia,creada_en,importe_clp) VALUES('82000000-0000-4000-8000-000000000009',$1,'exito_simulado','gadm03-kpi-payment', $2,12000)`, bookingID, decisionAt); err != nil {
+		t.Fatal(err)
+	}
+	checkoutFixture := func(reservation, operation, evidence, claim string, claimState string, at time.Time) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `INSERT INTO public.operacion_arriendo_ensayo_local(id,reserva_id,tipo,actor_id,ocurrio_en,zona_horaria,ubicacion_sintetica,resultado,clave_idempotencia,huella_solicitud,creada_en)
+			VALUES($1,$2,'checkout',$3,$4,'America/Santiago','{"source":"synthetic-fixture-v1","location_code":"santiago-demo-center-v1","latitude":-33.456,"longitude":-70.6693}'::jsonb,'registrada',$5,decode(repeat('44',32),'hex'),$4)`, operation, reservation, renter, at, "gadm03-checkout-"+operation); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO public.operacion_arriendo_evidencia_ensayo_local(id,operacion_id,fixture_code,mime_type,sha256,size_bytes,creada_en) VALUES($1,$2,'synthetic-png-v1','image/png',repeat('a',64),128,$3)`, evidence, operation, at); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO public.reclamo_dano_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,checkout_operacion_id,checkout_evidencia_id,descripcion,estado,clave_idempotencia,huella_solicitud,abierto_en,plazo_reclamo_hasta)
+			VALUES($1,$2,$3,$4,$5,$6,'reclamo sintético de KPI',$7,$8,decode(repeat('55',32),'hex'),$9::timestamptz,$9::timestamptz+interval '24 hours')`, claim, reservation, landlord, renter, operation, evidence, claimState, "gadm03-claim-"+claim, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	checkoutFixture(bookingID, "82000000-0000-4000-8000-000000000010", "82000000-0000-4000-8000-000000000011", "82000000-0000-4000-8000-000000000012", "abierto", decisionAt)
+	checkoutFixture(rejectedBookingID, "82000000-0000-4000-8000-000000000013", "82000000-0000-4000-8000-000000000014", "82000000-0000-4000-8000-000000000015", "resuelta", decisionAt)
+	if _, err = pool.Exec(ctx, `INSERT INTO public.reclamo_dano_resolucion_ensayo_local(reclamo_id,resultado,motivo_codigo,administrador_id,resuelta_en,clave_idempotencia,huella_solicitud) VALUES('82000000-0000-4000-8000-000000000015','rechazado','hecho_no_acreditado',$1,$2,'gadm03-kpi-resolution',decode(repeat('66',32),'hex'))`, master, decisionAt); err != nil {
+		t.Fatal(err)
+	}
+	period := adminglobal.ReportPeriod{From: decisionAt.Add(-time.Hour), Until: decisionAt.Add(time.Hour), TimeZone: "America/Santiago"}
+	kpis, err := service.KPIs(ctx, master, corr, period)
+	if err != nil {
+		t.Fatalf("persisted KPI report: %v", err)
+	}
+	var decisionCount, approvedCount int64
+	if err = pool.QueryRow(ctx, `SELECT count(DISTINCT reserva_id),count(DISTINCT reserva_id) FILTER(WHERE estado_nuevo='aprobada_host') FROM public.reserva_ensayo_transicion WHERE creada_en >= $1 AND creada_en < $2 AND estado_nuevo IN ('aprobada_host','rechazada_arrendador')`, period.From, period.Until).Scan(&decisionCount, &approvedCount); err != nil {
+		t.Fatal(err)
+	}
+	var approvalRate *adminglobal.KPIValue
+	for i := range kpis.Reservations {
+		if kpis.Reservations[i].Key == "approval_rate" {
+			approvalRate = &kpis.Reservations[i]
+		}
+	}
+	if approvalRate == nil || approvalRate.Value != approvedCount || approvalRate.Denominator != decisionCount || approvalRate.Value != 1 || approvalRate.Denominator != 2 {
+		t.Fatalf("host approval KPI differs from SQL fixture: metric=%+v SQL approved=%d decisions=%d", approvalRate, approvedCount, decisionCount)
+	}
+	var openClaims int64
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reclamo_dano_ensayo_local WHERE estado='abierto' AND id IN ('82000000-0000-4000-8000-000000000012','82000000-0000-4000-8000-000000000015')`).Scan(&openClaims); err != nil {
+		t.Fatal(err)
+	}
+	findKPI := func(values []adminglobal.KPIValue, key string) *adminglobal.KPIValue {
+		for i := range values {
+			if values[i].Source == key || values[i].Definition == key || values[i].Key == key {
+				return &values[i]
+			}
+		}
+		return nil
+	}
+	claimMetric := findKPI(kpis.Queues, "reclamo_dano_ensayo_local")
+	operationMetric := findKPI(kpis.Operations, "operacion_arriendo_ensayo_local")
+	var expectedOperations int64
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.operacion_arriendo_ensayo_local WHERE reserva_id IN($1,$2) AND tipo IN ('checkout','recepcion') AND ocurrio_en >= $3 AND ocurrio_en < $4`, bookingID, rejectedBookingID, period.From, period.Until).Scan(&expectedOperations); err != nil {
+		t.Fatal(err)
+	}
+	if claimMetric == nil || claimMetric.Value != openClaims || claimMetric.Value != 1 || operationMetric == nil || operationMetric.Value != expectedOperations || operationMetric.Value != 2 || !strings.Contains(operationMetric.Definition, "no equivalen a reservas cerradas") {
+		t.Fatalf("claim/operation KPI mismatch: claim=%+v operations=%+v SQL open=%d checkout=%d", claimMetric, operationMetric, openClaims, expectedOperations)
+	}
+	var paymentCount int64
+	var paymentAmount string
+	if err = pool.QueryRow(ctx, `SELECT count(*),coalesce(sum(importe_clp),0)::text FROM public.reserva_pago_ensayo WHERE reserva_id=$1 AND resultado='exito_simulado' AND creada_en >= $2 AND creada_en < $3`, bookingID, period.From, period.Until).Scan(&paymentCount, &paymentAmount); err != nil {
+		t.Fatal(err)
+	}
+	var financeMetric *adminglobal.FinanceKPI
+	for i := range kpis.Finance {
+		if kpis.Finance[i].Kind == "cobro_arriendo" {
+			financeMetric = &kpis.Finance[i]
+		}
+	}
+	if financeMetric == nil || financeMetric.Count != paymentCount || financeMetric.AmountCLP != paymentAmount || paymentAmount != "12000" {
+		t.Fatalf("financial KPI differs from exact SQL CLP: metric=%+v SQL count=%d amount=%s", financeMetric, paymentCount, paymentAmount)
 	}
 	const photoID = "81000000-0000-4000-8000-000000000001"
 	const fileID = "81000000-0000-4000-8000-000000000002"
@@ -504,8 +608,73 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	if err != nil || lookup.AccountID != legacy {
 		t.Fatalf("minimal detail lookup: %+v %v", lookup, err)
 	}
-	if _, err = service.LookupAccount(ctx, master, "00000000-0000-4000-8000-000000000099", corr); !errors.Is(err, adminglobal.ErrNotFound) {
+	const missingAccountID = "00000000-0000-4000-8000-000000000099"
+	if _, err = service.LookupAccount(ctx, master, missingAccountID, corr); !errors.Is(err, adminglobal.ErrNotFound) {
 		t.Fatalf("missing detail returned %v", err)
+	}
+	var missingAudit bool
+	if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.evento_auditoria_local WHERE actor_id=$1 AND recurso_id=$2 AND accion='admin.global.accounts.read' AND resultado='rechazo' AND motivo_codigo='cuenta_no_encontrada' AND cuenta_objetivo_id IS NULL)`, master, missingAccountID).Scan(&missingAudit); err != nil || !missingAudit {
+		t.Fatalf("missing account rejection was not audited safely: exists=%v err=%v", missingAudit, err)
+	}
+	for range 3 {
+		if _, err = service.LookupAccount(ctx, master, legacy, corr); err != nil {
+			t.Fatalf("create audit page fixture: %v", err)
+		}
+	}
+	const auditTieTime = "2026-10-15T01:00:00Z"
+	if _, err = pool.Exec(ctx, `UPDATE public.evento_auditoria_local SET ocurrido_en=$1,retirar_en=$1::timestamptz+interval '5 years' WHERE actor_id=$2 AND cuenta_objetivo_id=$3 AND accion='admin.global.accounts.read' AND resultado='exito' AND correlacion_id=$4`, auditTieTime, master, legacy, corr); err != nil {
+		t.Fatal(err)
+	}
+	auditFilter := adminglobal.AuditFilter{From: time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC), Until: time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC), ActorID: master, TargetID: legacy, ResourceType: "cuenta_global", ResourceID: legacy, Action: "admin.global.accounts.read", Result: "exito", ReasonCode: "consulta_administrativa", CorrelationID: corr, PageSize: 1}
+	seenAuditIDs := map[string]bool{}
+	var firstAuditPage adminglobal.AuditPage
+	for pageNumber := 0; pageNumber < 10; pageNumber++ {
+		page, auditErr := service.Audit(ctx, master, corr, auditFilter, false)
+		if auditErr != nil {
+			t.Fatalf("audit page %d: %v", pageNumber+1, auditErr)
+		}
+		if pageNumber == 0 {
+			firstAuditPage = page
+		}
+		for _, event := range page.Items {
+			if seenAuditIDs[event.ID] {
+				t.Fatalf("audit cursor repeated event %s on page %d", event.ID, pageNumber+1)
+			}
+			seenAuditIDs[event.ID] = true
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		auditFilter.Cursor = page.NextCursor
+		auditFilter.SnapshotCutoff = &page.SnapshotCutoff
+	}
+	if len(seenAuditIDs) < 3 {
+		t.Fatalf("audit cursor did not traverse multiple pages: %d events", len(seenAuditIDs))
+	}
+	changedAuditFilter := auditFilter
+	changedAuditFilter.Action = "admin.global.accounts.update"
+	if _, err = service.Audit(ctx, master, corr, changedAuditFilter, false); !errors.Is(err, adminglobal.ErrInvalid) {
+		t.Fatalf("audit cursor accepted changed filters: %v", err)
+	}
+	if _, err = service.LookupAccount(ctx, master, legacy, corr); err != nil {
+		t.Fatal(err)
+	}
+	exportFilter := firstAuditPage.AppliedFilters
+	exportFilter.Format = "json"
+	for _, format := range []string{"json", "csv"} {
+		exportFilter.Format = format
+		exported, exportErr := service.Audit(ctx, master, corr, exportFilter, true)
+		if exportErr != nil {
+			t.Fatalf("audit %s export: %v", format, exportErr)
+		}
+		for _, event := range exported.Items {
+			if event.RecordedAt.After(firstAuditPage.SnapshotCutoff) {
+				t.Fatalf("%s export contains event after displayed snapshot cutoff", format)
+			}
+		}
+		if !exported.GeneratedAt.After(exported.SnapshotCutoff) {
+			t.Fatalf("%s export generation time should be distinct from the pinned data cutoff", format)
+		}
 	}
 	var profileVersion time.Time
 	if err = pool.QueryRow(ctx, `SELECT actualizado_en FROM public.perfil_usuario WHERE usuario_id=$1`, legacy).Scan(&profileVersion); err != nil {

@@ -680,7 +680,7 @@ func parseReportPeriod(q url.Values) (adminglobal.ReportPeriod, bool) {
 }
 
 func parseAuditFilter(q url.Values) (adminglobal.AuditFilter, bool) {
-	allowed := map[string]bool{"from": true, "until": true, "actor_id": true, "target_account_id": true, "resource_type": true, "resource_id": true, "action": true, "result": true, "page_size": true, "cursor": true, "format": true}
+	allowed := map[string]bool{"from": true, "until": true, "actor_id": true, "target_account_id": true, "resource_type": true, "resource_id": true, "action": true, "result": true, "reason_code": true, "correlation_id": true, "page_size": true, "cursor": true, "snapshot_cutoff": true, "format": true}
 	for k, v := range q {
 		if !allowed[k] || len(v) != 1 {
 			return adminglobal.AuditFilter{}, false
@@ -696,7 +696,14 @@ func parseAuditFilter(q url.Values) (adminglobal.AuditFilter, bool) {
 			return adminglobal.AuditFilter{}, false
 		}
 	}
-	f := adminglobal.AuditFilter{From: from, Until: until, ActorID: q.Get("actor_id"), TargetID: q.Get("target_account_id"), ResourceType: q.Get("resource_type"), ResourceID: q.Get("resource_id"), Action: q.Get("action"), Result: q.Get("result"), PageSize: size, Cursor: q.Get("cursor"), Format: q.Get("format")}
+	f := adminglobal.AuditFilter{From: from, Until: until, ActorID: q.Get("actor_id"), TargetID: q.Get("target_account_id"), ResourceType: q.Get("resource_type"), ResourceID: q.Get("resource_id"), Action: q.Get("action"), Result: q.Get("result"), ReasonCode: q.Get("reason_code"), CorrelationID: q.Get("correlation_id"), PageSize: size, Cursor: q.Get("cursor"), Format: q.Get("format")}
+	if q.Get("snapshot_cutoff") != "" {
+		cutoff, err := time.Parse(time.RFC3339Nano, q.Get("snapshot_cutoff"))
+		if err != nil {
+			return adminglobal.AuditFilter{}, false
+		}
+		f.SnapshotCutoff = &cutoff
+	}
 	format := q.Get("format")
 	if format != "" && format != "json" && format != "csv" {
 		return adminglobal.AuditFilter{}, false

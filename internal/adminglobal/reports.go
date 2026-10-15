@@ -176,28 +176,55 @@ func (s *Service) KPIs(ctx context.Context, actor, correlation string, p ReportP
 		return KPIReport{}, err
 	}
 	rows.Close()
-	rows, err = tx.Query(ctx, `SELECT estado_nuevo,count(DISTINCT reserva_id),(SELECT count(DISTINCT reserva_id) FROM reserva_ensayo_transicion WHERE creada_en >= $1 AND creada_en < $2 AND estado_nuevo IN ('aprobada_host','rechazada_arrendador','cancelada_por_pago','cancelada_arrendatario','cancelada_por_firma')) FROM reserva_ensayo_transicion WHERE creada_en >= $1 AND creada_en < $2 AND estado_nuevo IN ('aprobada_host','rechazada_arrendador','cancelada_por_pago','cancelada_arrendatario','cancelada_por_firma') GROUP BY estado_nuevo ORDER BY estado_nuevo`, p.From, p.Until)
+	rows, err = tx.Query(ctx, `WITH decisions AS (
+		SELECT estado_nuevo,count(DISTINCT reserva_id) AS total
+		FROM reserva_ensayo_transicion
+		WHERE creada_en >= $1 AND creada_en < $2 AND estado_nuevo IN ('aprobada_host','rechazada_arrendador')
+		GROUP BY estado_nuevo
+	), cancellations AS (
+		SELECT estado_nuevo,count(DISTINCT reserva_id) AS total
+		FROM reserva_ensayo_transicion
+		WHERE creada_en >= $1 AND creada_en < $2 AND estado_nuevo IN ('cancelada_por_pago','cancelada_por_firma','cancelada_arrendatario')
+		GROUP BY estado_nuevo
+	), unioned AS (
+		SELECT 'decision_anfitrion'::text AS group_key,estado_nuevo,total FROM decisions
+		UNION ALL SELECT 'cancelacion',estado_nuevo,total FROM cancellations
+	)
+	SELECT group_key,estado_nuevo,total,
+		CASE WHEN group_key='decision_anfitrion' THEN (SELECT count(DISTINCT reserva_id) FROM reserva_ensayo_transicion WHERE creada_en >= $1 AND creada_en < $2 AND estado_nuevo IN ('aprobada_host','rechazada_arrendador'))
+		ELSE (SELECT count(DISTINCT reserva_id) FROM reserva_ensayo_transicion WHERE creada_en >= $1 AND creada_en < $2 AND estado_nuevo IN ('cancelada_por_pago','cancelada_por_firma','cancelada_arrendatario')) END
+	FROM unioned ORDER BY group_key,estado_nuevo`, p.From, p.Until)
 	if err != nil {
 		return KPIReport{}, err
 	}
 	for rows.Next() {
-		var state string
+		var groupKey, state string
 		var n, den int64
-		if err = rows.Scan(&state, &n, &den); err != nil {
+		if err = rows.Scan(&groupKey, &state, &n, &den); err != nil {
 			rows.Close()
 			return KPIReport{}, err
 		}
-		out.Reservations = append(out.Reservations, KPIValue{Key: "outcome:" + state, State: state, Denominator: den, Source: "reserva_ensayo_transicion.creada_en", Definition: "Reservas únicas con decisión/cancelación en la ventana; denominador = reservas únicas con decisión/cancelación en la ventana.", Value: n, Available: true})
+		definition := fmt.Sprintf("%s: reservas únicas con estado terminal %s en el período; denominador = %s terminales del mismo grupo.", groupKey, state, groupKey)
+		out.Reservations = append(out.Reservations, KPIValue{Key: groupKey + ":" + state, Category: groupKey, State: state, Denominator: den, Source: "reserva_ensayo_transicion.creada_en", Definition: definition, Value: n, Available: true})
 	}
 	if err = rows.Err(); err != nil {
 		rows.Close()
 		return KPIReport{}, err
 	}
 	rows.Close()
+	var approvedDecisionCount, decisionDenominator int64
+	if err = tx.QueryRow(ctx, `SELECT count(DISTINCT reserva_id) FILTER (WHERE estado_nuevo='aprobada_host'),count(DISTINCT reserva_id) FROM reserva_ensayo_transicion WHERE creada_en >= $1 AND creada_en < $2 AND estado_nuevo IN ('aprobada_host','rechazada_arrendador')`, p.From, p.Until).Scan(&approvedDecisionCount, &decisionDenominator); err != nil {
+		return KPIReport{}, err
+	}
+	if decisionDenominator > 0 {
+		out.Reservations = append(out.Reservations, KPIValue{Key: "approval_rate", Category: "decision_anfitrion", State: "aprobada_host", Denominator: decisionDenominator, Source: "reserva_ensayo_transicion", Definition: "Aprobaciones del anfitrión / decisiones terminales del anfitrión (aprobadas + rechazadas); no incluye cancelaciones.", Value: approvedDecisionCount, Available: true})
+	} else {
+		out.Reservations = append(out.Reservations, KPIValue{Key: "approval_rate", Category: "decision_anfitrion", Source: "reserva_ensayo_transicion", Definition: "Aprobaciones del anfitrión / decisiones terminales del anfitrión (aprobadas + rechazadas); no incluye cancelaciones.", Available: false, Reason: "sin_decisiones_terminales"})
+	}
 	for _, q := range []struct {
 		label, sql, source, def string
 		period                  bool
-	}{{"operaciones_completadas", `SELECT count(*) FROM operacion_arriendo_ensayo_local WHERE ocurrio_en >= $1 AND ocurrio_en < $2 AND tipo IN ('checkout','recepcion')`, "operacion_arriendo_ensayo_local", "Check-out/recepción registrados en el período; cuenta eventos, no reservas únicas.", true}, {"kyc_pendiente", `SELECT count(*) FROM verificacion WHERE estado='en_revision'`, "verificacion", "Cola vigente al generar; sin historial de entradas.", false}, {"privacidad_pendiente", `SELECT count(*) FROM solicitud_titular WHERE estado IN ('recibida','identidad_pendiente','en_revision')`, "solicitud_titular", "Solicitudes en estados pendientes vigentes.", false}, {"reclamos_abiertos", `SELECT count(*) FROM reclamo_dano_ensayo_local WHERE estado NOT IN ('cerrado','resuelto')`, "reclamo_dano_ensayo_local", "Reclamos vigentes sin cierre.", false}, {"avisos_pendientes", `SELECT count(*) FROM aviso_local WHERE estado IN ('pendiente','procesando','fallo_terminal')`, "aviso_local", "Avisos en cola o fallo terminal al generar.", false}, {"reconciliacion_pendiente", `SELECT count(*) FROM reserva_pago_ensayo_operacion WHERE estado IN ('pendiente','vencida')`, "reserva_pago_ensayo_operacion", "Operaciones de pago pendientes/vencidas; sin sumar garantías.", false}} {
+	}{{"operaciones_registradas", `SELECT count(*) FROM operacion_arriendo_ensayo_local WHERE ocurrio_en >= $1 AND ocurrio_en < $2 AND tipo IN ('checkout','recepcion')`, "operacion_arriendo_ensayo_local", "Eventos check-out/recepción registrados en el período; no equivalen a reservas cerradas ni a liquidaciones financieras.", true}, {"kyc_pendiente", `SELECT count(*) FROM verificacion WHERE estado='en_revision'`, "verificacion", "Cola vigente al generar; sin historial de entradas.", false}, {"privacidad_pendiente", `SELECT count(*) FROM solicitud_titular WHERE estado IN ('recibida','identidad_pendiente','en_revision')`, "solicitud_titular", "Solicitudes en estados pendientes vigentes.", false}, {"reclamos_abiertos", `SELECT count(*) FROM reclamo_dano_ensayo_local WHERE estado='abierto'`, "reclamo_dano_ensayo_local", "Reclamos vigentes cuyo estado de dominio es abierto; excluye resuelta.", false}, {"avisos_pendientes", `SELECT count(*) FROM aviso_local WHERE estado IN ('pendiente','procesando','fallo_terminal')`, "aviso_local", "Avisos en cola o fallo terminal al generar.", false}, {"reconciliacion_pendiente", `SELECT count(*) FROM reserva_pago_ensayo_operacion WHERE estado IN ('pendiente','vencida')`, "reserva_pago_ensayo_operacion", "Operaciones de pago pendientes/vencidas; sin sumar garantías.", false}} {
 		var n int64
 		if q.period {
 			err = tx.QueryRow(ctx, q.sql, p.From, p.Until).Scan(&n)
@@ -208,7 +235,7 @@ func (s *Service) KPIs(ctx context.Context, actor, correlation string, p ReportP
 			return KPIReport{}, err
 		}
 		v := KPIValue{Source: q.source, Definition: q.def, Value: n, Available: true}
-		if q.label == "operaciones_completadas" {
+		if q.label == "operaciones_registradas" {
 			out.Operations = append(out.Operations, v)
 		} else {
 			v.Definition = q.label + ": " + v.Definition
@@ -247,17 +274,20 @@ func (s *Service) KPIs(ctx context.Context, actor, correlation string, p ReportP
 }
 
 type AuditFilter struct {
-	From         time.Time `json:"from"`
-	Until        time.Time `json:"until"`
-	ActorID      string    `json:"actor_id,omitempty"`
-	TargetID     string    `json:"target_account_id,omitempty"`
-	ResourceType string    `json:"resource_type,omitempty"`
-	ResourceID   string    `json:"resource_id,omitempty"`
-	Action       string    `json:"action,omitempty"`
-	Result       string    `json:"result,omitempty"`
-	PageSize     int       `json:"page_size"`
-	Cursor       string    `json:"cursor,omitempty"`
-	Format       string    `json:"format,omitempty"`
+	From           time.Time  `json:"from"`
+	Until          time.Time  `json:"until"`
+	ActorID        string     `json:"actor_id,omitempty"`
+	TargetID       string     `json:"target_account_id,omitempty"`
+	ResourceType   string     `json:"resource_type,omitempty"`
+	ResourceID     string     `json:"resource_id,omitempty"`
+	Action         string     `json:"action,omitempty"`
+	Result         string     `json:"result,omitempty"`
+	ReasonCode     string     `json:"reason_code,omitempty"`
+	CorrelationID  string     `json:"correlation_id,omitempty"`
+	PageSize       int        `json:"page_size"`
+	Cursor         string     `json:"cursor,omitempty"`
+	SnapshotCutoff *time.Time `json:"snapshot_cutoff,omitempty"`
+	Format         string     `json:"format,omitempty"`
 }
 type AuditEntry struct {
 	ID            string    `json:"id"`
@@ -290,11 +320,44 @@ type auditCursor struct {
 }
 
 func (s *Service) Audit(ctx context.Context, actor, correlation string, f AuditFilter, export bool) (AuditPage, error) {
-	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(correlation) || f.From.IsZero() || !f.From.Before(f.Until) || f.Until.Sub(f.From) > 31*24*time.Hour || f.PageSize < 1 || f.PageSize > 100 || !optionalUUID(f.ActorID) || !optionalUUID(f.TargetID) || !optionalUUID(f.ResourceID) || len(f.ResourceType) > 40 || len(f.Action) > 60 || (f.Result != "" && f.Result != "exito" && f.Result != "rechazo") || (f.Format != "" && f.Format != "json" && f.Format != "csv") {
+	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(correlation) || f.From.IsZero() || !f.From.Before(f.Until) || f.Until.Sub(f.From) > 31*24*time.Hour || f.PageSize < 1 || f.PageSize > 100 || len(f.Cursor) > 2048 || !optionalUUID(f.ActorID) || !optionalUUID(f.TargetID) || !optionalUUID(f.ResourceID) || !optionalUUID(f.CorrelationID) || len(f.ResourceType) > 40 || len(f.Action) > 60 || len(f.ReasonCode) > 80 || (f.Result != "" && f.Result != "exito" && f.Result != "rechazo") || (f.Format != "" && f.Format != "json" && f.Format != "csv") {
 		return AuditPage{}, ErrInvalid
 	}
-	if export {
-		f.PageSize = 10001
+	f.From = f.From.UTC()
+	f.Until = f.Until.UTC()
+	requestedCursor := f.Cursor
+	f.Cursor = ""
+	now := s.now().UTC()
+	cutoff := now
+	if f.SnapshotCutoff != nil {
+		cutoff = f.SnapshotCutoff.UTC()
+		if cutoff.After(now) {
+			return AuditPage{}, ErrInvalid
+		}
+	}
+	if export && (requestedCursor != "" || f.SnapshotCutoff == nil) {
+		return AuditPage{}, ErrInvalid
+	}
+	filterForHash := f
+	filterForHash.PageSize = 0
+	filterForHash.Format = ""
+	filterForHash.SnapshotCutoff = nil
+	fingerprintBytes, _ := json.Marshal(filterForHash)
+	fingerprint := fmt.Sprintf("%x", fingerprintBytes)
+	var cursor auditCursor
+	if requestedCursor != "" {
+		data, e := base64.RawURLEncoding.DecodeString(requestedCursor)
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if e != nil || len(data) > 2048 || decoder.Decode(&cursor) != nil || cursor.Filter != fingerprint || cursor.Snapshot.IsZero() || !canonicalUUID.MatchString(cursor.ID) || cursor.Occurred.IsZero() {
+			return AuditPage{}, ErrInvalid
+		}
+		if f.SnapshotCutoff != nil && !f.SnapshotCutoff.UTC().Equal(cursor.Snapshot.UTC()) {
+			return AuditPage{}, ErrInvalid
+		}
+		cutoff = cursor.Snapshot.UTC()
+	} else if export && f.SnapshotCutoff != nil {
+		cutoff = f.SnapshotCutoff.UTC()
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadWrite})
 	if err != nil {
@@ -304,35 +367,24 @@ func (s *Service) Audit(ctx context.Context, actor, correlation string, f AuditF
 	if err = requireGlobalActor(ctx, tx, actor); err != nil {
 		return AuditPage{}, err
 	}
-	// Exports and pages share a fixed occurrence window. Exports refuse excess rows.
-	cutoff := s.now().UTC()
-	f.Cursor = ""
-	fingerprintBytes, _ := json.Marshal(f)
-	fingerprint := fmt.Sprintf("%x", fingerprintBytes)
-	var cursor auditCursor
-	if !export && f.Cursor != "" {
-		data, e := base64.RawURLEncoding.DecodeString(f.Cursor)
-		if e != nil || len(data) > 2048 || json.Unmarshal(data, &cursor) != nil || cursor.Filter != fingerprint || cursor.Snapshot.IsZero() || !canonicalUUID.MatchString(cursor.ID) {
-			return AuditPage{}, ErrInvalid
-		}
-		cutoff = cursor.Snapshot
-	}
-	query := `SELECT id::text,actor_id::text,cuenta_objetivo_id::text,recurso_tipo,recurso_id::text,accion,resultado,motivo_codigo,correlacion_id::text,ocurrido_en,registrado_en FROM evento_auditoria_local WHERE ocurrido_en >= $1 AND ocurrido_en < $2 AND registrado_en <= $3 AND ($4='' OR actor_id::text=$4) AND ($5='' OR cuenta_objetivo_id::text=$5) AND ($6='' OR recurso_tipo=$6) AND ($7='' OR recurso_id::text=$7) AND ($8='' OR accion=$8) AND ($9='' OR resultado=$9) AND ($11::timestamptz IS NULL OR (ocurrido_en,id)<($11,$12::uuid)) ORDER BY ocurrido_en DESC,id DESC LIMIT $10`
+	// Pages and exports are pinned to registro time, independently from when the file is generated.
+	query := `SELECT id::text,actor_id::text,cuenta_objetivo_id::text,recurso_tipo,recurso_id::text,accion,resultado,motivo_codigo,correlacion_id::text,ocurrido_en,registrado_en FROM evento_auditoria_local WHERE ocurrido_en >= $1 AND ocurrido_en < $2 AND registrado_en <= $3 AND ($4='' OR actor_id::text=$4) AND ($5='' OR cuenta_objetivo_id::text=$5) AND ($6='' OR recurso_tipo=$6) AND ($7::uuid IS NULL OR recurso_id=$7::uuid) AND ($8='' OR accion=$8) AND ($9='' OR resultado=$9) AND ($10='' OR motivo_codigo=$10) AND ($11='' OR correlacion_id::text=$11) AND ($13::timestamptz IS NULL OR (ocurrido_en,id)<($13,$14::uuid)) ORDER BY ocurrido_en DESC,id DESC LIMIT $12`
 	limit := f.PageSize + 1
 	if export {
 		limit = 10001
 	}
 	var lastAt any
 	var lastID any
-	if f.Cursor != "" && !export {
+	if requestedCursor != "" && !export {
 		lastAt = cursor.Occurred
 		lastID = cursor.ID
 	}
-	rows, err := tx.Query(ctx, query, f.From.UTC(), f.Until.UTC(), cutoff, f.ActorID, f.TargetID, f.ResourceType, f.ResourceID, f.Action, f.Result, limit, lastAt, lastID)
+	rows, err := tx.Query(ctx, query, f.From, f.Until, cutoff, f.ActorID, f.TargetID, f.ResourceType, nullableUUID(f.ResourceID), f.Action, f.Result, f.ReasonCode, f.CorrelationID, limit, lastAt, lastID)
 	if err != nil {
 		return AuditPage{}, err
 	}
-	out := AuditPage{Items: []AuditEntry{}, From: f.From.UTC(), Until: f.Until.UTC(), GeneratedAt: cutoff, SnapshotCutoff: cutoff, AppliedFilters: f}
+	f.SnapshotCutoff = &cutoff
+	out := AuditPage{Items: []AuditEntry{}, From: f.From, Until: f.Until, GeneratedAt: now, SnapshotCutoff: cutoff, AppliedFilters: f}
 	for rows.Next() {
 		var e AuditEntry
 		var actorID, target *string
@@ -397,19 +449,26 @@ func (s *Service) Audit(ctx context.Context, actor, correlation string, f AuditF
 }
 
 func optionalUUID(s string) bool { return s == "" || canonicalUUID.MatchString(s) }
+func nullableUUID(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 func WriteAuditCSV(w io.Writer, p AuditPage) error {
 	cw := csv.NewWriter(w)
-	if err := cw.Write([]string{"id", "actor_id", "target_account_id", "resource_type", "resource_id", "action", "result", "reason_code", "correlation_id", "occurred_at", "recorded_at", "query_from", "query_until", "snapshot_cutoff", "applied_filters"}); err != nil {
+	if err := cw.Write([]string{"id", "actor_id", "target_account_id", "resource_type", "resource_id", "action", "result", "reason_code", "correlation_id", "occurred_at", "recorded_at", "query_from", "query_until", "snapshot_cutoff", "generated_at", "applied_filters"}); err != nil {
 		return err
 	}
 	filterBytes, _ := json.Marshal(p.AppliedFilters)
-	metadata := []string{p.From.UTC().Format(time.RFC3339Nano), p.Until.UTC().Format(time.RFC3339Nano), p.SnapshotCutoff.UTC().Format(time.RFC3339Nano), string(filterBytes)}
+	metadata := []string{p.From.UTC().Format(time.RFC3339Nano), p.Until.UTC().Format(time.RFC3339Nano), p.SnapshotCutoff.UTC().Format(time.RFC3339Nano), p.GeneratedAt.UTC().Format(time.RFC3339Nano), string(filterBytes)}
 	items := p.Items
 	if len(items) == 0 {
 		items = []AuditEntry{{}}
 	}
 	for _, e := range items {
-		vals := []string{e.ID, pstr(e.ActorID), pstr(e.TargetID), e.ResourceType, e.ResourceID, e.Action, e.Result, e.Reason, e.CorrelationID, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.RecordedAt.UTC().Format(time.RFC3339Nano), metadata[0], metadata[1], metadata[2], metadata[3]}
+		vals := []string{e.ID, pstr(e.ActorID), pstr(e.TargetID), e.ResourceType, e.ResourceID, e.Action, e.Result, e.Reason, e.CorrelationID, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.RecordedAt.UTC().Format(time.RFC3339Nano), metadata[0], metadata[1], metadata[2], metadata[3], metadata[4]}
 		for i, v := range vals {
 			if i >= 3 && i <= 8 && len(v) > 0 && strings.ContainsRune("=+-@\t\r", rune(v[0])) {
 				vals[i] = "'" + v

@@ -57,8 +57,11 @@ paths:
       - {in: query, name: resource_id, schema: {type: string, format: uuid}}
       - {in: query, name: action, schema: {type: string, maxLength: 60}}
       - {in: query, name: result, schema: {type: string, enum: [exito, rechazo]}}
+      - {in: query, name: reason_code, schema: {type: string, maxLength: 80}}
+      - {in: query, name: correlation_id, schema: {type: string, format: uuid}}
       - {in: query, name: page_size, schema: {type: integer, minimum: 1, maximum: 100, default: 25}}
       - {in: query, name: cursor, schema: {type: string, maxLength: 2048}}
+      - {in: query, name: snapshot_cutoff, description: Corte registrado devuelto por la primera página; debe coincidir con el corte codificado en el cursor., schema: {type: string, format: date-time}}
       responses:
         '200': {description: Página auditada, content: {application/json: {schema: {type: object}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
@@ -79,6 +82,9 @@ paths:
       - {in: query, name: resource_id, schema: {type: string, format: uuid}}
       - {in: query, name: action, schema: {type: string, maxLength: 60}}
       - {in: query, name: result, schema: {type: string, enum: [exito, rechazo]}}
+      - {in: query, name: reason_code, schema: {type: string, maxLength: 80}}
+      - {in: query, name: correlation_id, schema: {type: string, format: uuid}}
+      - {in: query, name: snapshot_cutoff, required: true, description: Corte obtenido con la página consultada; la generación del archivo queda reportada por separado., schema: {type: string, format: date-time}}
       - {in: query, name: format, schema: {type: string, enum: [json, csv], default: json}}
       responses:
         '200':

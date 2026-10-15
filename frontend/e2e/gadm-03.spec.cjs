@@ -33,20 +33,48 @@ test('GADM-03 reports and scoped audit work through Angular, Go, and disposable 
   expect(accountsPage.status()).toBe(200);
   const targetId = (await accountsPage.json()).data.items[0]?.account_id;
   expect(targetId).toBeTruthy();
-  const targetRead = await page.request.get(`${api}/admin/global/accounts/${targetId}`, { headers });
-  expect(targetRead.status()).toBe(200);
+  let targetRead;
+  for (let i = 0; i < 3; i++) {
+    targetRead = await page.request.get(`${api}/admin/global/accounts/${targetId}`, { headers });
+    expect(targetRead.status()).toBe(200);
+  }
   const actorId = (await page.request.get(`${api}/admin/global/me`, { headers }).then(r => r.json())).data.account_id;
-  const auditParams = new URLSearchParams({ from, until: new Date().toISOString(), actor_id: actorId, target_account_id: targetId, page_size: '25' });
+  const auditParams = new URLSearchParams({ from, until: new Date(Date.now() + 60_000).toISOString(), actor_id: actorId, target_account_id: targetId, resource_type: 'cuenta_global', resource_id: targetId, action: 'admin.global.accounts.read', result: 'exito', reason_code: 'consulta_administrativa', page_size: '1' });
   const audit = await page.request.get(`${api}/admin/global/audit-events?${auditParams}`, { headers });
   expect(audit.status()).toBe(200);
   const events = (await audit.json()).data;
   expect(events.applied_filters.actor_id).toBe(auditParams.get('actor_id'));
   expect(events.applied_filters.target_account_id).toBe(targetId);
   expect(events.items.some((event) => event.target_account_id === targetId && event.actor_id === auditParams.get('actor_id'))).toBeTruthy();
-  const csv = await page.request.get(`${api}/admin/global/audit-events/export?${new URLSearchParams({ ...Object.fromEntries(auditParams), format: 'csv' })}`, { headers });
+  expect(events.next_cursor).toBeTruthy();
+  const lateRead = await page.request.get(`${api}/admin/global/accounts/${targetId}`, { headers });
+  expect(lateRead.status()).toBe(200);
+  const continuedParams = new URLSearchParams({ ...Object.fromEntries(auditParams), cursor: events.next_cursor, snapshot_cutoff: events.snapshot_cutoff });
+  const continued = await page.request.get(`${api}/admin/global/audit-events?${continuedParams}`, { headers });
+  expect(continued.status()).toBe(200);
+  const continuedEvents = (await continued.json()).data;
+  expect(continuedEvents.items.some((event) => event.id === events.items[0].id)).toBeFalsy();
+  expect(continuedEvents.items.every((event) => event.recorded_at <= events.snapshot_cutoff)).toBeTruthy();
+  const correlationId = targetRead.headers()['x-request-id'];
+  const correlationParams = new URLSearchParams({ ...Object.fromEntries(auditParams), correlation_id: correlationId, page_size: '25' });
+  const correlationResult = await page.request.get(`${api}/admin/global/audit-events?${correlationParams}`, { headers });
+  expect(correlationResult.status()).toBe(200);
+  expect((await correlationResult.json()).data.items).toHaveLength(1);
+  const exportParams = new URLSearchParams({ ...Object.fromEntries(auditParams), snapshot_cutoff: events.snapshot_cutoff });
+  const jsonExport = await page.request.get(`${api}/admin/global/audit-events/export?${new URLSearchParams({ ...Object.fromEntries(exportParams), format: 'json' })}`, { headers });
+  expect(jsonExport.status()).toBe(200);
+  const jsonExportBody = (await jsonExport.json()).data;
+  expect(jsonExportBody.snapshot_cutoff).toBe(events.snapshot_cutoff);
+  expect(jsonExportBody.items.some((event) => event.correlation_id === lateRead.headers()['x-request-id'])).toBeFalsy();
+  expect(jsonExportBody.items.every((event) => event.recorded_at <= events.snapshot_cutoff)).toBeTruthy();
+  const csv = await page.request.get(`${api}/admin/global/audit-events/export?${new URLSearchParams({ ...Object.fromEntries(exportParams), format: 'csv' })}`, { headers });
   expect(csv.status()).toBe(200);
   expect(csv.headers()['content-type']).toContain('text/csv');
   expect(await csv.text()).toContain('target_account_id');
+
+  const missingAccount = '00000000-0000-4000-8000-000000000099';
+  const missingDetail = await page.request.get(`${api}/admin/global/accounts/${missingAccount}`, { headers });
+  expect(missingDetail.status()).toBe(404);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/acceso');
@@ -64,6 +92,9 @@ test('GADM-03 reports and scoped audit work through Angular, Go, and disposable 
   await page.getByLabel('Hasta (exclusivo)', { exact: true }).last().fill(localInput(new Date(Date.now() + 60000)));
   await page.getByLabel('Actor UUID').fill(actorId);
   await page.getByLabel('Cuenta objetivo UUID').fill(targetId);
+  await page.getByLabel('Recurso UUID').fill(targetId);
+  await page.getByLabel('Motivo').fill('consulta_administrativa');
+  await page.getByLabel('Correlation/request ID').fill(targetRead.headers()['x-request-id']);
   const uiAuditResponsePromise = page.waitForResponse((response) => response.url().includes('/admin/global/audit-events?') && response.request().method() === 'GET');
   await page.getByRole('button', { name: 'Aplicar filtros' }).click();
   const uiAuditResponse = await uiAuditResponsePromise;

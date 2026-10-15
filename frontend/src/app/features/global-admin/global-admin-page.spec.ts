@@ -426,7 +426,7 @@ it('loads owner-scoped resources and ignores a detail response after changing ac
   expect(facade.accountResourceDetail()).toBeNull();
 });
 
-it('loads persisted KPI values as exact CLP text and audit only uses applied filters', async () => {
+it('loads exact KPI text and exports the applied audit filters at the displayed snapshot', async () => {
   const { api, component, facade, fixture } = await setup();
   component.showTab('reports');
   await vi.waitFor(() => expect(facade.kpis()?.finance[0].amount_clp).toBe('9007199254740993'));
@@ -434,9 +434,28 @@ it('loads persisted KPI values as exact CLP text and audit only uses applied fil
   expect(fixture.nativeElement.textContent).toContain('9007199254740993');
   component.searchAudit();
   const applied = component.appliedAudit()!;
+  await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
   component.auditActor.setValue('changed-after-apply');
-  const result = await facade.exportAudit(applied, 'csv');
-  expect(result?.blob.size).toBeGreaterThan(0);
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:gadm-audit');
+  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+  await component.downloadAudit('csv');
   expect(api.audit).toHaveBeenCalledWith('token-a', expect.objectContaining({ actor_id: undefined, target_account_id: undefined }));
-  expect(api.exportAudit).toHaveBeenCalledWith('token-a', applied, 'csv');
+  expect(api.exportAudit).toHaveBeenCalledWith('token-a', expect.objectContaining({ ...applied, snapshot_cutoff: overview.generated_at }), 'csv');
+  expect(create).toHaveBeenCalledOnce();
+  expect(click).toHaveBeenCalledOnce();
+  expect(revoke).toHaveBeenCalledWith('blob:gadm-audit');
+});
+
+it('discards an export response after a newer audit query is applied', async () => {
+  const { api, component, facade } = await setup();
+  component.showTab('reports');
+  component.searchAudit();
+  const filters = { ...component.appliedAudit()!, snapshot_cutoff: overview.generated_at };
+  let finish!: (blob: Blob) => void;
+  api.exportAudit.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  const staleExport = facade.exportAudit(filters, 'json');
+  component.searchAudit();
+  finish(new Blob(['private export']));
+  expect(await staleExport).toBeNull();
 });

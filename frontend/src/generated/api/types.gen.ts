@@ -1852,8 +1852,14 @@ export type ListGlobalAdminAuditEventsData = {
         resource_id?: string;
         action?: string;
         result?: 'exito' | 'rechazo';
+        reason_code?: string;
+        correlation_id?: string;
         page_size?: number;
         cursor?: string;
+        /**
+         * Corte registrado devuelto por la primera página; debe coincidir con el corte codificado en el cursor.
+         */
+        snapshot_cutoff?: string;
     };
     url: '/admin/global/audit-events';
 };
@@ -1898,6 +1904,12 @@ export type ExportGlobalAdminAuditEventsData = {
         resource_id?: string;
         action?: string;
         result?: 'exito' | 'rechazo';
+        reason_code?: string;
+        correlation_id?: string;
+        /**
+         * Corte obtenido con la página consultada; la generación del archivo queda reportada por separado.
+         */
+        snapshot_cutoff: string;
         format?: 'json' | 'csv';
     };
     url: '/admin/global/audit-events/export';
