@@ -23,8 +23,8 @@ func SetRestrictedLocalBootstrapRole(ctx context.Context, conn *pgx.Conn) error 
 }
 
 // ValidateRestrictedLocalBootstrapConnection rejects superuser/admin logins,
-// broad role memberships, table-level grants, and any column privilege outside
-// the narrow allowlist installed by V60.
+// broad role memberships, direct grants to the pre-SET ROLE login, ownership,
+// table-level grants, and any column privilege outside the V60 allowlist.
 func ValidateRestrictedLocalBootstrapConnection(ctx context.Context, conn *pgx.Conn) error {
 	if conn == nil {
 		return ErrInvalid
@@ -56,17 +56,31 @@ WITH roles AS (
        OR has_sequence_privilege(current_user,c.oid,'SELECT')
        OR has_sequence_privilege(current_user,c.oid,'UPDATE'))) AS no_sequence_grants,
    NOT EXISTS (SELECT 1 FROM information_schema.routine_privileges WHERE grantee=current_user) AS no_routine_grants,
+   NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+     CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) x
+     WHERE c.relkind IN ('r','p','v','m','f') AND x.grantee=session_oid) AS no_session_table_grants,
+   NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+     JOIN pg_catalog.pg_class c ON c.oid=a.attrelid
+     CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) x
+     WHERE c.relkind IN ('r','p','v','m','f') AND a.attnum>0 AND NOT a.attisdropped
+       AND x.grantee=session_oid) AS no_session_column_grants,
+   NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+     CROSS JOIN LATERAL pg_catalog.aclexplode(p.proacl) x
+     WHERE x.grantee=session_oid) AS no_session_routine_grants,
+   NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+     CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('S',c.relowner))) x
+     WHERE c.relkind='S' AND x.grantee=session_oid) AS no_session_sequence_grants,
+   NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n
+     CROSS JOIN LATERAL pg_catalog.aclexplode(n.nspacl) x
+     WHERE x.grantee=session_oid) AS no_session_schema_grants,
+   NOT EXISTS (SELECT 1 FROM pg_catalog.pg_database d
+     CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(d.datacl,pg_catalog.acldefault('d',d.datdba))) x
+     WHERE d.datname=current_database() AND x.grantee=session_oid AND x.privilege_type<>'CONNECT') AS no_excess_session_database_grants,
    (SELECT count(*) FROM information_schema.column_privileges WHERE grantee=current_user) AS column_grant_count,
-   NOT EXISTS (
-     SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_roles r ON r.oid=c.relowner
-     WHERE r.rolname=current_user
-   ) AND NOT EXISTS (
-     SELECT 1 FROM pg_catalog.pg_namespace n JOIN pg_catalog.pg_roles r ON r.oid=n.nspowner
-     WHERE r.rolname=current_user
-   ) AND NOT EXISTS (
-     SELECT 1 FROM pg_catalog.pg_database d JOIN pg_catalog.pg_roles r ON r.oid=d.datdba
-     WHERE r.rolname=current_user
-   ) AS owns_no_objects
+   NOT EXISTS (SELECT 1 FROM pg_catalog.pg_shdepend sd
+     WHERE sd.refclassid='pg_catalog.pg_authid'::regclass AND sd.refobjid IN (session_oid,current_oid)
+       AND sd.deptype='o') AS owns_no_objects
+ FROM memberships
 )
 SELECT
  session_user<>current_user AND session_name ~ '^gadm_activation_[0-9a-f]{12}$'
@@ -80,6 +94,11 @@ SELECT
  AND has_schema_privilege(current_user,'public','USAGE')
  AND NOT has_schema_privilege(current_user,'public','CREATE')
  AND no_table_grants AND no_sequence_grants AND no_routine_grants AND owns_no_objects
+ AND no_session_table_grants AND no_session_column_grants AND no_session_routine_grants
+ AND no_session_sequence_grants AND no_session_schema_grants AND no_excess_session_database_grants
+ AND has_database_privilege(session_name,current_database(),'CONNECT')
+ AND NOT has_database_privilege(session_name,current_database(),'CREATE')
+ AND NOT has_schema_privilege(session_name,'public','CREATE')
 	 AND column_grant_count=23
  AND has_column_privilege(current_user,'public.usuario','id','SELECT')
  AND has_column_privilege(current_user,'public.usuario','estado','SELECT')

@@ -27,6 +27,7 @@ Pruebas de evidencia ejecutadas en contenedores desechables PostgreSQL 18/PostGI
 
 - `TestGADM04RestrictedBootstrapRoleMigrationFromV59`: PASS; upgrade desde V59, integridad de historial V1–V59, atributos/membresías del rol y allowlist exacta de 23 grants por columna.
 - `TestGlobalBootstrapDirectoryAndLastMasterConcurrency`: PASS; la misma configuración de conexión restringida que usa `activate-local` rechaza una sesión sobreprivilegiada y admite bootstrap idempotente/recovery del UUID ligado, rechaza otro UUID, no lee hash de clave ni ejecuta cambios fuera de alcance, y al final elimina login y membership. Las verificaciones negativas cubren UPDATE de estado/identidad, DELETE/TRUNCATE de bootstrap/auditoría y lectura de reservas.
+- `TestRestrictedActivationRejectsDirectLoginPrivilegesAndOwnership`: PASS; un login temporal limpio ejecuta bootstrap inicial y recovery del mismo UUID. Rechaza el mismo login si recibe `SELECT(hash_clave)` directo o propiedad de una tabla en la DB desechable.
 - `scripts/test-local-qa-backend.sh`: PASS; suite unitaria, `go vet`, 92 integraciones obligatorias, cero pruebas omitidas, y cinco repeticiones estables de la integración de booking. Se corrigió el fixture histórico V54 para limitar su upgrade de regresión a V59, sin cambiar migraciones.
 
 Esto prueba la implementación técnica en entorno desechable, no la activación de la cuenta persistente ni aceptación de producto.
