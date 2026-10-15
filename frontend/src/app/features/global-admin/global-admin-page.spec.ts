@@ -10,7 +10,7 @@ import { GlobalAdminPage } from './global-admin-page';
 const globalSession = {
   account_id: 'master',
   roles: ['administrador_global'],
-  capabilities: ['accounts.list', 'accounts.read'],
+  capabilities: ['accounts.list', 'accounts.read','accounts.update','accounts.roles','accounts.block','publications.list','publications.read','publications.update','publications.moderate'],
   restricted_mode: false,
 };
 const overview = {
@@ -25,6 +25,8 @@ const account = {
   account_id: 'customer',
   email: 'private@example.invalid',
   display_name: 'Private customer',
+  phone: null,
+  profile_updated_at: '2026-10-14T00:00:00Z',
   state: 'activo',
   created_at: '2026-10-14T00:00:00Z',
   administrative_blocked: false,
@@ -55,6 +57,13 @@ async function setup() {
     overview: vi.fn().mockResolvedValue(overview),
     list: vi.fn().mockResolvedValue({ items: [account], next_cursor: 'cursor-initial', matching_total: 2, generated_at: overview.generated_at }),
     account: vi.fn().mockResolvedValue(account),
+    updateProfile:vi.fn().mockResolvedValue({account_id:'customer',email:account.email,display_name:'Updated customer',phone:'987654321',updated_at:'2026-10-14T01:00:00Z'}),
+    updateRole:vi.fn().mockResolvedValue(undefined),
+    revokeSessions:vi.fn().mockResolvedValue(2),
+    setBlocked:vi.fn().mockResolvedValue(undefined),
+    listPublications:vi.fn().mockResolvedValue({items:[{publication_id:'space-1',owner_id:'customer',owner_name:'Private customer',owner_email:account.email,category_code:'oficina',category_name:'Oficina',title:'Test space',description:'d'.repeat(120),area_m2:'20.00',capacity:4,usage_rules:'Reglas',address:'Privada',state:'activa',rate_unit:'hora',base_price_clp:'9007199254740999',updated_at:'2026-10-14T00:00:00Z',publicly_visible:false,public_cover_available:false}],next_cursor:'',matching_total:1,generated_at:overview.generated_at}),
+    setPublicationState:vi.fn().mockResolvedValue(undefined),
+    updatePublication:vi.fn().mockResolvedValue(undefined),
   };
   TestBed.configureTestingModule({
     providers: [
@@ -202,4 +211,33 @@ it('keeps a pending detail response when a new filtered page finishes first', as
 
   expect(facade.page()?.items[0].account_id).toBe('customer');
   expect(facade.selected()?.display_name).toBe('Details finished later');
+});
+
+it('sends allowlisted account edits, ordinary roles, blocks, and session revocation through the port', async () => {
+  const { component, api, facade } = await setup();
+  await component.open('customer');
+  await facade.updateProfile({display_name:'Updated customer',phone:'987654321',expected_updated_at:account.profile_updated_at,reason:'correccion_perfil'});
+  await facade.updateRole('arrendador',{granted:true,reason:'revision_administrativa'});
+  await facade.setBlocked({blocked:true,reason:'revision_administrativa'});
+  const revoked=await facade.revokeSessions({reason:'gestion_operativa'});
+
+  expect(api.updateProfile).toHaveBeenCalledWith('token-a','customer',expect.objectContaining({expected_updated_at:account.profile_updated_at}));
+  expect(api.updateRole).toHaveBeenCalledWith('token-a','customer','arrendador',expect.objectContaining({granted:true}));
+  expect(api.setBlocked).toHaveBeenCalledWith('token-a','customer',expect.objectContaining({blocked:true}));
+  expect(revoked).toBe(2);
+  expect(facade.selected()?.display_name).toBe('Updated customer');
+  expect(facade.selected()?.administrative_blocked).toBe(true);
+});
+
+it('loads global publications by owner and preserves exact CLP strings while editing', async () => {
+  const { component, api, facade } = await setup();
+  component.showTab('publications');
+  await vi.waitFor(()=>expect(facade.publications()?.items).toHaveLength(1));
+  const publication=facade.publications()!.items[0];
+  expect(publication.base_price_clp).toBe('9007199254740999');
+  expect(api.listPublications).toHaveBeenCalledWith('token-a',expect.objectContaining({page_size:25}));
+
+  component.editPublication(publication);
+  await component.savePublication();
+  expect(api.updatePublication).toHaveBeenCalledWith('token-a','space-1',expect.objectContaining({base_price_clp:'9007199254740999',expected_updated_at:publication.updated_at}));
 });

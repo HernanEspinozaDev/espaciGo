@@ -50,6 +50,14 @@ func TestGlobalAdministrationCapabilitiesAreExplicit(t *testing.T) {
 			t.Fatalf("non-admin received admin access: roles=%v", roles)
 		}
 	}
+	for _, required := range []Capability{CapabilityAccountsUpdate, CapabilityAccountsBlock, CapabilityAccountsRoles, CapabilityPublicationsList, CapabilityPublicationsRead, CapabilityPublicationsUpdate, CapabilityPublicationsModerate, CapabilityPublicationsRetire} {
+		if !HasCapability([]Role{RoleGlobalAdministrator}, required) {
+			t.Errorf("global administrator lacks %s", required)
+		}
+		if HasCapability([]Role{RoleAdministrator}, required) {
+			t.Errorf("legacy administrator unexpectedly has %s", required)
+		}
+	}
 }
 func TestAccountValidationAndErrorIdentity(t *testing.T) {
 	a := Account{ID: "id", Email: "a@example.invalid", NormalizedEmail: "a@example.invalid", PasswordHash: Secret("hash"), State: AccountEmailPending}

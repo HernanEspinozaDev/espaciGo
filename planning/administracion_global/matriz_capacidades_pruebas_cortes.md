@@ -1,8 +1,20 @@
 # Matriz GADM-00–04 — capacidades, pruebas y cortes
 
-- Estado: GADM-00 se fusionó en PR #312 (`2589aa1139232f419cf1d1aebdd79a69c1f4007b`); GADM-01 se implementa en el PR de la rama `codex/marketplace/feature/gadm-01-master-access-directory`.
-- Base de GADM-01: `2589aa1139232f419cf1d1aebdd79a69c1f4007b`.
+- Estado: GADM-00 se fusionó en PR #312 (`2589aa1139232f419cf1d1aebdd79a69c1f4007b`); GADM-01 se fusionó en PR #313 (`6dffcc92ae528d8a790956a8dd73960df1501802`); GADM-02 es el corte vigente en `codex/marketplace/feature/gadm-02-account-publication-management`; GADM-03 permanece pendiente.
+- Base de GADM-02: `6dffcc92ae528d8a790956a8dd73960df1501802` (HEAD revisado de GADM-01: `0dcaa68e78d377d7ad5d0831366a73e5d72c3e3f`).
 - La columna “actual” conserva el inventario anterior a GADM-01; la columna de pruebas del corte registra evidencia ejecutada, no intención futura.
+
+## Evidencia GADM-02 (2026-10-14)
+
+| Validación | Entorno / alcance | Resultado |
+| --- | --- | --- |
+| Go unitario | `go test ./internal/adminglobal/... ./internal/identity/... ./internal/adminlocal/...` | Correcto. |
+| Mutaciones PostGIS | `GO_TEST_RUN='^TestGlobalBootstrapDirectoryAndLastMasterConcurrency$' bash scripts/test-local-comm-mailpit.sh ./internal/adminglobal`; proyecto temporal administrado por el runner | Correcto: edición allowlist/versionada, roles ordinarios idempotentes, bloqueo y revocación, publicación/visibilidad KYC, CLP exacto, paginación/cursor y conflicto de versiones, más la carrera del último maestro. Datos sintéticos del test. |
+| Contrato y frontend | `npm run api:check`, `npm run lint`, `npm test -- --watch=false`, `npm run build` en `frontend/` | Correcto: OpenAPI/SDK/TypeScript, lint/arquitectura/SCSS; 291 pruebas en 39 archivos; build SSR y navegador con 3 rutas prerenderizadas. |
+| Historial / whitespace | `git diff -- db/migrations` y `git diff --check` | Sin cambios de migraciones; diff limpio. No se necesitó V59. |
+| Recorrido servido / capturas | No ejecutado en este corte | Pendiente antes de aceptar GADM-02: recorrido Angular→Go→PostGIS con maestro sintético aislado, y evidencia 390×844 / 1365×900. La cobertura automatizada no se presenta como recorrido real. |
+
+Límites del corte a revisar antes de fusión: no existe en el modelo vigente una transición de retiro definitivo de publicaciones (la tabla acepta borrador únicamente al crear y GADM-01 introdujo activa/oculta); no se implementó un editor de galería/horarios ni listados por cuenta de reservas/incidencias. No se añadió DELETE ni se inventó un estado terminal. Estas capacidades quedan expresamente pendientes de un contrato de dominio compatible con ocupaciones y retención.
 
 ## Evidencia GADM-01 (2026-10-14)
 
@@ -86,8 +98,8 @@ La política de compatibilidad se define por operación, no por etiqueta de rol:
 | Corte | Entrega versionada | Terminado cuando | Gate siguiente |
 | --- | --- | --- | --- |
 | GADM-00 | plan, ADR, matriz, inventario y AGENTS; sin DB/código | fusionado en PR #312, merge `2589aa1139232f419cf1d1aebdd79a69c1f4007b` | GADM-01 autorizado tras fusión |
-| GADM-01 | rol/capacidades, V58, bootstrap local/recuperación, sesión, OpenAPI y directorio inicial | migración, servicio, revisión de regresiones y recorrido visual con cuenta sintética registrados en este PR; cuenta real y aceptación de producto siguen pendientes | no iniciar GADM-02 hasta fusión y mensaje del chat revisor |
-| GADM-02 | gestión de cuentas/publicaciones y fichas/recursos | allowlists, motivos, concurrencia, auditoría atómica, snapshots y reglas de privacidad/ocupación | PR fusionado y revisión envía GADM-03 |
+| GADM-01 | rol/capacidades, V58, bootstrap local/recuperación, sesión, OpenAPI y directorio inicial | Fusionado en PR #313, merge `6dffcc92ae528d8a790956a8dd73960df1501802`; HEAD revisado `0dcaa68e78d377d7ad5d0831366a73e5d72c3e3f`; aceptación de producto y cuenta real pendientes | GADM-02 inicia desde el merge de #313 |
+| GADM-02 | gestión de cuentas/publicaciones y fichas/recursos | allowlists, motivo/autenticación reciente en servidor, concurrencia, auditoría atómica, snapshots, reglas de privacidad/ocupación y recorrido real comprobados. Correo validado queda fuera de edición directa; supresión requiere transferencia del UUID bootstrap. Historial V1–V58 inmutable. | PR fusionado; no iniciar GADM-03 antes de instrucción sucesora |
 | GADM-03 | KPI, auditoría cuenta/global, exportaciones JSON/CSV | definiciones y números conciliados con DB, paginación/snapshot, límites y seguridad; análisis de N+1 | PR fusionado y revisión envía GADM-04 |
 | GADM-04 | regresión y entrega/guía de cuenta maestra | recorrido/evidencia por SHA, credenciales aisladas, aceptación humana del propietario; sin soporte/GCP | cierre solo dentro del alcance aceptado |
 

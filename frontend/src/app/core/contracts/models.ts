@@ -445,6 +445,14 @@ export type AdminCapability =
   | 'legacy.administration'
   | 'accounts.list'
   | 'accounts.read'
+  | 'accounts.update'
+  | 'accounts.block'
+  | 'accounts.roles'
+  | 'publications.list'
+  | 'publications.read'
+  | 'publications.update'
+  | 'publications.moderate'
+  | 'publications.retire'
   | 'admin_access.manage';
 
 export type SpaceAttributeProfile = {

@@ -4,7 +4,7 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}/api/v1` | (string & {});
 };
 
-export type AdminCapability = 'legacy.administration' | 'accounts.list' | 'accounts.read' | 'admin_access.manage';
+export type AdminCapability = 'legacy.administration' | 'accounts.list' | 'accounts.read' | 'accounts.update' | 'accounts.block' | 'accounts.roles' | 'publications.list' | 'publications.read' | 'publications.update' | 'publications.moderate' | 'publications.retire' | 'admin_access.manage';
 
 export type GlobalAdminMeEnvelope = {
     data: {
@@ -34,6 +34,8 @@ export type GlobalAdminAccount = {
     account_id: string;
     email: string;
     display_name?: string | null;
+    phone?: string | null;
+    profile_updated_at?: string | null;
     state: 'correo_pendiente' | 'activo' | 'bloqueado' | 'baja_solicitada' | 'desidentificado';
     created_at: string;
     administrative_blocked: boolean;
@@ -50,6 +52,39 @@ export type GlobalAdminAccountEnvelope = {
 export type GlobalAdminAccountPageEnvelope = {
     data: {
         items: Array<GlobalAdminAccount>;
+        next_cursor: string;
+        matching_total: number;
+        generated_at: string;
+    };
+};
+
+export type GlobalAdminPublication = {
+    publication_id: string;
+    owner_id: string;
+    owner_name?: string | null;
+    owner_email: string;
+    category_code: string;
+    category_name: string;
+    title: string;
+    description: string;
+    area_m2: string;
+    capacity: number;
+    usage_rules: string;
+    address: string;
+    state: 'borrador' | 'activa' | 'oculta' | 'eliminada';
+    rate_unit: 'hora' | 'dia' | 'mes';
+    /**
+     * CLP decimal string; preserves all PostgreSQL bigint digits
+     */
+    base_price_clp: string;
+    updated_at: string;
+    publicly_visible: boolean;
+    public_cover_available: boolean;
+};
+
+export type GlobalAdminPublicationPageEnvelope = {
+    data: {
+        items: Array<GlobalAdminPublication>;
         next_cursor: string;
         matching_total: number;
         generated_at: string;
@@ -1844,6 +1879,302 @@ export type GetGlobalAdminAccountResponses = {
 };
 
 export type GetGlobalAdminAccountResponse = GetGlobalAdminAccountResponses[keyof GetGlobalAdminAccountResponses];
+
+export type UpdateGlobalAdminAccountProfileData = {
+    body: {
+        display_name: string;
+        phone?: string | null;
+        expected_updated_at: string;
+        reason: 'correccion_perfil' | 'revision_administrativa' | 'gestion_operativa';
+    };
+    path: {
+        accountID: string;
+    };
+    query?: never;
+    url: '/admin/global/accounts/{accountID}/profile';
+};
+
+export type UpdateGlobalAdminAccountProfileErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Conflicto con el estado actual, versión o clave de idempotencia.
+     */
+    409: Error;
+    /**
+     * validation_error o invalid_token: regla semántica no satisfecha.
+     */
+    422: Error;
+    /**
+     * Se requiere sesión reciente
+     */
+    428: unknown;
+};
+
+export type UpdateGlobalAdminAccountProfileError = UpdateGlobalAdminAccountProfileErrors[keyof UpdateGlobalAdminAccountProfileErrors];
+
+export type UpdateGlobalAdminAccountProfileResponses = {
+    /**
+     * Perfil actualizado y auditado
+     */
+    200: unknown;
+};
+
+export type SetGlobalAdminMarketplaceRoleData = {
+    body: {
+        granted: boolean;
+        reason: 'correccion_perfil' | 'revision_administrativa' | 'gestion_operativa';
+    };
+    path: {
+        accountID: string;
+        role: 'arrendatario' | 'arrendador';
+    };
+    query?: never;
+    url: '/admin/global/accounts/{accountID}/roles/{role}';
+};
+
+export type SetGlobalAdminMarketplaceRoleErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Conflicto con el estado actual, versión o clave de idempotencia.
+     */
+    409: Error;
+    /**
+     * Se requiere sesión reciente
+     */
+    428: unknown;
+};
+
+export type SetGlobalAdminMarketplaceRoleError = SetGlobalAdminMarketplaceRoleErrors[keyof SetGlobalAdminMarketplaceRoleErrors];
+
+export type SetGlobalAdminMarketplaceRoleResponses = {
+    /**
+     * Estado deseado aplicado o ya vigente; evento auditado
+     */
+    200: unknown;
+};
+
+export type RevokeGlobalAdminAccountSessionsData = {
+    body: {
+        reason: 'correccion_perfil' | 'revision_administrativa' | 'gestion_operativa';
+    };
+    path: {
+        accountID: string;
+    };
+    query?: never;
+    url: '/admin/global/accounts/{accountID}/sessions/revoke';
+};
+
+export type RevokeGlobalAdminAccountSessionsErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Se requiere sesión reciente
+     */
+    428: unknown;
+};
+
+export type RevokeGlobalAdminAccountSessionsError = RevokeGlobalAdminAccountSessionsErrors[keyof RevokeGlobalAdminAccountSessionsErrors];
+
+export type RevokeGlobalAdminAccountSessionsResponses = {
+    /**
+     * Sesiones revocadas y acción auditada
+     */
+    200: unknown;
+};
+
+export type SetGlobalAdminAccountBlockedData = {
+    body: {
+        blocked: boolean;
+        reason: 'riesgo_seguridad' | 'uso_indebido' | 'revision_administrativa' | 'revision_concluida' | 'error_bloqueo' | 'riesgo_resuelto';
+    };
+    path: {
+        accountID: string;
+    };
+    query?: never;
+    url: '/admin/global/accounts/{accountID}/block';
+};
+
+export type SetGlobalAdminAccountBlockedErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Conflicto con el estado actual, versión o clave de idempotencia.
+     */
+    409: Error;
+    /**
+     * Se requiere sesión reciente
+     */
+    428: unknown;
+};
+
+export type SetGlobalAdminAccountBlockedError = SetGlobalAdminAccountBlockedErrors[keyof SetGlobalAdminAccountBlockedErrors];
+
+export type SetGlobalAdminAccountBlockedResponses = {
+    /**
+     * Estado cambiado; historial y auditoría atómicos
+     */
+    200: unknown;
+};
+
+export type ListGlobalAdminPublicationsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        owner_id?: string;
+        category?: string;
+        state?: 'borrador' | 'activa' | 'oculta' | 'eliminada';
+        search?: string;
+        publicly_visible?: boolean;
+        page_size?: number;
+        cursor?: string;
+    };
+    url: '/admin/global/publications';
+};
+
+export type ListGlobalAdminPublicationsErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * validation_error o invalid_token: regla semántica no satisfecha.
+     */
+    422: Error;
+};
+
+export type ListGlobalAdminPublicationsError = ListGlobalAdminPublicationsErrors[keyof ListGlobalAdminPublicationsErrors];
+
+export type ListGlobalAdminPublicationsResponses = {
+    /**
+     * Inventario paginado; visible distingue el estado activa de la política pública vigente
+     */
+    200: GlobalAdminPublicationPageEnvelope;
+};
+
+export type ListGlobalAdminPublicationsResponse = ListGlobalAdminPublicationsResponses[keyof ListGlobalAdminPublicationsResponses];
+
+export type ChangeGlobalAdminPublicationStateData = {
+    body: {
+        state: 'activa' | 'oculta';
+        expected_updated_at: string;
+        reason: 'correccion_perfil' | 'revision_administrativa' | 'gestion_operativa';
+    };
+    path: {
+        publicationID: string;
+    };
+    query?: never;
+    url: '/admin/global/publications/{publicationID}/state';
+};
+
+export type ChangeGlobalAdminPublicationStateErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Conflicto con el estado actual, versión o clave de idempotencia.
+     */
+    409: Error;
+    /**
+     * Se requiere sesión reciente
+     */
+    428: unknown;
+};
+
+export type ChangeGlobalAdminPublicationStateError = ChangeGlobalAdminPublicationStateErrors[keyof ChangeGlobalAdminPublicationStateErrors];
+
+export type ChangeGlobalAdminPublicationStateResponses = {
+    /**
+     * Estado cambiado con reglas de publicación e historial transaccional
+     */
+    200: unknown;
+};
+
+export type UpdateGlobalAdminPublicationContentData = {
+    body: {
+        title?: string;
+        description?: string;
+        capacity?: number;
+        usage_rules?: string;
+        base_price_clp?: string;
+        region_code?: string;
+        comuna_code?: string;
+        cover_photo_id?: string;
+        expected_updated_at: string;
+        reason: 'correccion_perfil' | 'revision_administrativa' | 'gestion_operativa';
+    };
+    path: {
+        publicationID: string;
+    };
+    query?: never;
+    url: '/admin/global/publications/{publicationID}/content';
+};
+
+export type UpdateGlobalAdminPublicationContentErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Conflicto con el estado actual, versión o clave de idempotencia.
+     */
+    409: Error;
+    /**
+     * validation_error o invalid_token: regla semántica no satisfecha.
+     */
+    422: Error;
+    /**
+     * Se requiere sesión reciente
+     */
+    428: unknown;
+};
+
+export type UpdateGlobalAdminPublicationContentError = UpdateGlobalAdminPublicationContentErrors[keyof UpdateGlobalAdminPublicationContentErrors];
+
+export type UpdateGlobalAdminPublicationContentResponses = {
+    /**
+     * Campos allowlisted actualizados y auditados
+     */
+    200: unknown;
+};
 
 export type ListPublicSpacesData = {
     body?: never;

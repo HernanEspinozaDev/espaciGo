@@ -159,6 +159,66 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	const publicationA = "80000000-0000-4000-8000-000000000001"
+	const publicationB = "80000000-0000-4000-8000-000000000002"
+	for _, id := range []string{publicationA, publicationB} {
+		if _, err = pool.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado) VALUES($1,$2,'oficina','Global managed space','Descripción sintética suficientemente larga para cumplir el mínimo de cien caracteres en una ficha local de ensayo.',20,4,'Cuidar los bienes y respetar el horario','hora',12000,'Dirección de ensayo','borrador')`, id, landlord); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = pool.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',12000)`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publicationPage, err := service.ListPublications(ctx, master, corr, adminglobal.PublicationFilter{OwnerID: landlord, Category: "oficina", State: "borrador", PageSize: 1})
+	if err != nil || publicationPage.MatchingTotal != 2 || len(publicationPage.Items) != 1 || publicationPage.NextCursor == "" || publicationPage.Items[0].PubliclyVisible || publicationPage.Items[0].BasePriceCLP != "12000" {
+		t.Fatalf("publication inventory/filter/page: %+v err=%v", publicationPage, err)
+	}
+	publicationNext, err := service.ListPublications(ctx, master, corr, adminglobal.PublicationFilter{OwnerID: landlord, Category: "oficina", State: "borrador", PageSize: 1, Cursor: publicationPage.NextCursor})
+	if err != nil || len(publicationNext.Items) != 1 || publicationNext.Items[0].ID == publicationPage.Items[0].ID {
+		t.Fatalf("publication cursor repeated item: %+v err=%v", publicationNext, err)
+	}
+	if _, err = service.ListPublications(ctx, master, corr, adminglobal.PublicationFilter{OwnerID: landlord, Category: "bodega", State: "borrador", PageSize: 1, Cursor: publicationPage.NextCursor}); !errors.Is(err, adminglobal.ErrInvalid) {
+		t.Fatalf("publication cursor accepted changed filter: %v", err)
+	}
+	var publicationVersion time.Time
+	if err = pool.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, publicationA).Scan(&publicationVersion); err != nil {
+		t.Fatal(err)
+	}
+	newTitle := "Global correction"
+	newPrice := "18000"
+	updatedPublication, err := service.UpdatePublication(ctx, master, publicationA, corr, adminglobal.PublicationContentUpdate{Title: &newTitle, BasePriceCLP: &newPrice, ExpectedUpdatedAt: publicationVersion, Reason: "revision_administrativa"})
+	if err != nil || updatedPublication.ID != publicationA || updatedPublication.OwnerID != landlord {
+		t.Fatalf("global publication update: %+v err=%v", updatedPublication, err)
+	}
+	if _, err = service.UpdatePublication(ctx, master, publicationA, corr, adminglobal.PublicationContentUpdate{Title: &newTitle, ExpectedUpdatedAt: publicationVersion, Reason: "revision_administrativa"}); !errors.Is(err, adminglobal.ErrConflict) {
+		t.Fatalf("stale publication update returned %v", err)
+	}
+	var rateCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$1`, publicationA).Scan(&rateCount); err != nil || rateCount != 2 {
+		t.Fatalf("tariff version history count=%d err=%v", rateCount, err)
+	}
+	const verificationID = "90000000-0000-4000-8000-000000000001"
+	if _, err = pool.Exec(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,creada_en,resuelta_en) VALUES($1,$2,'kyc','aprobada','fixture:90000000-0000-4000-8000-000000000001','gadm02-kyc',$3,now(),now())`, verificationID, landlord, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, landlord, verificationID); err != nil {
+		t.Fatal(err)
+	}
+	var draftVersion time.Time
+	if err = pool.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, publicationA).Scan(&draftVersion); err != nil {
+		t.Fatal(err)
+	}
+	activated, err := service.SetPublicationState(ctx, master, publicationA, corr, adminglobal.PublicationStateInput{State: "activa", ExpectedUpdatedAt: draftVersion, Reason: "revision_administrativa"})
+	if err != nil || activated.State != "activa" || activated.OwnerID != landlord {
+		t.Fatalf("policy-authorized publish: %+v err=%v", activated, err)
+	}
+	publicVisible, err := service.ListPublications(ctx, master, corr, adminglobal.PublicationFilter{Visible: ptr(true), PageSize: 10})
+	if err != nil || publicVisible.MatchingTotal != 1 || publicVisible.Items[0].ID != publicationA {
+		t.Fatalf("actual visibility filter: %+v err=%v", publicVisible, err)
+	}
+	if _, err = service.SetPublicationState(ctx, master, publicationA, corr, adminglobal.PublicationStateInput{State: "activa", ExpectedUpdatedAt: draftVersion, Reason: "revision_administrativa"}); !errors.Is(err, adminglobal.ErrConflict) {
+		t.Fatalf("stale publication transition returned %v", err)
+	}
 	auth, err := identity.NewAuthenticationService(identitypg.NewIdentityRepository(pool), password.Hasher{}, devauth.Mailer{}, devauth.NewIPLimiter(50), credentials.Generator{}, time.Now)
 	if err != nil {
 		t.Fatal(err)
@@ -167,6 +227,10 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	legacyToken := issueSyntheticSession(t, ctx, pool, legacy, "synthetic-legacy-bearer")
 	if _, err = auth.AuthorizeCapability(ctx, globalToken, identity.CapabilityAccountsList, identity.UserOperation); err != nil {
 		t.Fatalf("global capability denied: %v", err)
+	}
+	managementPrincipal, err := auth.AuthorizeCapability(ctx, globalToken, identity.CapabilityAccountsUpdate, identity.UserOperation)
+	if err != nil || time.Since(managementPrincipal.AuthenticatedAt) > time.Minute {
+		t.Fatalf("recent authentication timestamp missing/stale: %+v err=%v", managementPrincipal, err)
 	}
 	if _, err = auth.AuthorizeCapability(ctx, legacyToken, identity.CapabilityLegacyAdministration, identity.UserOperation); err != nil {
 		t.Fatalf("legacy capability changed: %v", err)
@@ -231,6 +295,39 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	if _, err = service.LookupAccount(ctx, master, "00000000-0000-4000-8000-000000000099", corr); !errors.Is(err, adminglobal.ErrNotFound) {
 		t.Fatalf("missing detail returned %v", err)
 	}
+	var profileVersion time.Time
+	if err = pool.QueryRow(ctx, `SELECT actualizado_en FROM public.perfil_usuario WHERE usuario_id=$1`, legacy).Scan(&profileVersion); err != nil {
+		t.Fatal(err)
+	}
+	newPhone := "987654321"
+	profile, err := service.UpdateAccountProfile(ctx, master, legacy, corr, adminglobal.AccountProfileInput{DisplayName: "Legacy Updated", Phone: &newPhone, ExpectedAt: profileVersion, Reason: "correccion_perfil"})
+	if err != nil || profile.Name != "Legacy Updated" || profile.Email != "legacy@example.invalid" {
+		t.Fatalf("allowlisted profile update: %+v err=%v", profile, err)
+	}
+	if _, err = service.UpdateAccountProfile(ctx, master, legacy, corr, adminglobal.AccountProfileInput{DisplayName: "Stale", ExpectedAt: profileVersion, Reason: "correccion_perfil"}); !errors.Is(err, adminglobal.ErrConflict) {
+		t.Fatalf("stale profile version returned %v", err)
+	}
+	if _, err = service.SetAccountRole(ctx, master, legacy, "arrendador", "revision_administrativa", corr, true); err != nil {
+		t.Fatalf("grant ordinary role: %v", err)
+	}
+	if _, err = service.SetAccountRole(ctx, master, legacy, "arrendador", "revision_administrativa", corr, true); err != nil {
+		t.Fatalf("idempotent role grant: %v", err)
+	}
+	if _, err = service.SetAccountRole(ctx, master, legacy, "administrador_global", "revision_administrativa", corr, true); !errors.Is(err, adminglobal.ErrInvalid) {
+		t.Fatalf("runtime global role grant accepted: %v", err)
+	}
+	if _, err = service.SetAccountBlocked(ctx, master, legacy, "revision_administrativa", corr, true); err != nil {
+		t.Fatalf("global account block: %v", err)
+	}
+	if _, err = auth.AuthorizeCapability(ctx, legacyToken, identity.CapabilityLegacyAdministration, identity.UserOperation); !errors.Is(err, identity.ErrUnauthorized) {
+		t.Fatalf("blocked account bearer remained active: %v", err)
+	}
+	if _, err = service.SetAccountBlocked(ctx, master, legacy, "riesgo_resuelto", corr, false); err != nil {
+		t.Fatalf("global account unblock: %v", err)
+	}
+	if _, err = service.RevokeAccountSessions(ctx, master, landlord, "gestion_operativa", corr); err != nil {
+		t.Fatalf("revoke sessions: %v", err)
+	}
 	if _, err = service.ListAccounts(ctx, legacy, corr, adminglobal.AccountFilter{PageSize: 10}); !errors.Is(err, adminglobal.ErrForbidden) {
 		t.Fatalf("legacy admin accessed global directory: %v", err)
 	}
@@ -242,6 +339,41 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO public.administrador_global(usuario_id,concedido_en,motivo_codigo) VALUES($1,now(),'concesion_administrativa'),($2,now(),'concesion_administrativa') ON CONFLICT DO NOTHING`, owner, other); err != nil {
 		t.Fatal(err)
+	}
+	var globalWG sync.WaitGroup
+	globalBlockResults := make(chan error, 2)
+	for _, pair := range [][2]string{{owner, other}, {other, owner}} {
+		globalWG.Add(1)
+		go func(actor, target string) {
+			defer globalWG.Done()
+			_, e := service.SetAccountBlocked(ctx, actor, target, "revision_administrativa", corr, true)
+			globalBlockResults <- e
+		}(pair[0], pair[1])
+	}
+	globalWG.Wait()
+	close(globalBlockResults)
+	globalSuccess, globalRejected := 0, 0
+	for e := range globalBlockResults {
+		if e == nil {
+			globalSuccess++
+		} else if errors.Is(e, adminglobal.ErrForbidden) || errors.Is(e, adminglobal.ErrConflict) {
+			globalRejected++
+		} else {
+			t.Errorf("unexpected concurrent global block: %v", e)
+		}
+	}
+	if globalSuccess != 1 || globalRejected != 1 {
+		t.Fatalf("global-block last-master race success=%d rejected=%d", globalSuccess, globalRejected)
+	}
+	var survivor, blockedMaster string
+	if err = pool.QueryRow(ctx, `SELECT u.id::text FROM public.administrador_global g JOIN public.usuario u ON u.id=g.usuario_id WHERE NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id) LIMIT 1`).Scan(&survivor); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT cuenta_id::text FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id IN($1,$2)`, owner, other).Scan(&blockedMaster); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.SetAccountBlocked(ctx, survivor, blockedMaster, "riesgo_resuelto", corr, false); err != nil {
+		t.Fatalf("restore second master after concurrency test: %v", err)
 	}
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)

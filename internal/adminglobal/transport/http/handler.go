@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -50,15 +51,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, PATCH, PUT, POST, OPTIONS")
 	}
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodGet {
-		writeError(w, 405, "method_not_allowed", requestID)
 		return
 	}
 	if h.auth == nil || h.service == nil {
@@ -66,6 +63,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := strings.TrimSuffix(r.URL.Path, "/")
+	if h.serveAccountMutation(w, r, path, requestID) {
+		return
+	}
+	if h.servePublicationMutation(w, r, path, requestID) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeError(w, 405, "method_not_allowed", requestID)
+		return
+	}
 	switch path {
 	case "/api/v1/admin/global/me":
 		principal, ok := h.authorize(w, r, identity.CapabilityAccountsList, requestID)
@@ -105,6 +112,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": value})
+	case "/api/v1/admin/global/publications":
+		principal, ok := h.authorize(w, r, identity.CapabilityPublicationsList, requestID)
+		if !ok {
+			return
+		}
+		filter, valid := parsePublicationFilter(r.URL.Query())
+		if !valid {
+			writeError(w, 422, "invalid_request", requestID)
+			return
+		}
+		value, err := h.service.ListPublications(r.Context(), principal.AccountID, requestID, filter)
+		if err != nil {
+			replyError(w, err, requestID)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"data": value})
 	default:
 		const base = "/api/v1/admin/global/accounts/"
 		if !strings.HasPrefix(path, base) || strings.Contains(strings.TrimPrefix(path, base), "/") || strings.TrimPrefix(path, base) == "" {
@@ -122,6 +145,203 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": value})
 	}
+}
+
+func (h *Handler) servePublicationMutation(w http.ResponseWriter, r *http.Request, path, requestID string) bool {
+	const base = "/api/v1/admin/global/publications/"
+	if !strings.HasPrefix(path, base) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, base), "/")
+	if len(parts) != 2 {
+		return false
+	}
+	var capability identity.Capability
+	switch {
+	case parts[1] == "state" && r.Method == http.MethodPost:
+		capability = identity.CapabilityPublicationsModerate
+	case parts[1] == "content" && r.Method == http.MethodPatch:
+		capability = identity.CapabilityPublicationsUpdate
+	default:
+		return false
+	}
+	principal, ok := h.authorize(w, r, capability, requestID)
+	if !ok {
+		return true
+	}
+	if !recentlyAuthenticated(principal.AuthenticatedAt, time.Now().UTC()) {
+		writeError(w, http.StatusPreconditionRequired, "recent_authentication_required", requestID)
+		return true
+	}
+	if parts[1] == "content" {
+		var input adminglobal.PublicationContentUpdate
+		if !decodeManagementBody(w, r, &input) {
+			writeError(w, 422, "invalid_request", requestID)
+			return true
+		}
+		value, err := h.service.UpdatePublication(r.Context(), principal.AccountID, parts[0], requestID, input)
+		if err != nil {
+			replyError(w, err, requestID)
+			return true
+		}
+		writeJSON(w, 200, map[string]any{"data": value})
+		return true
+	}
+	var input adminglobal.PublicationStateInput
+	if !decodeManagementBody(w, r, &input) {
+		writeError(w, 422, "invalid_request", requestID)
+		return true
+	}
+	value, err := h.service.SetPublicationState(r.Context(), principal.AccountID, parts[0], requestID, input)
+	if err != nil {
+		replyError(w, err, requestID)
+		return true
+	}
+	writeJSON(w, 200, map[string]any{"data": value})
+	return true
+}
+
+func parsePublicationFilter(query url.Values) (adminglobal.PublicationFilter, bool) {
+	allowed := map[string]bool{"owner_id": true, "category": true, "state": true, "search": true, "publicly_visible": true, "page_size": true, "cursor": true}
+	for key, values := range query {
+		if !allowed[key] || len(values) != 1 {
+			return adminglobal.PublicationFilter{}, false
+		}
+	}
+	get := func(k string) string {
+		if len(query[k]) == 0 {
+			return ""
+		}
+		return query.Get(k)
+	}
+	f := adminglobal.PublicationFilter{OwnerID: get("owner_id"), Category: get("category"), State: get("state"), Search: get("search"), Cursor: get("cursor"), PageSize: 25}
+	if value := get("publicly_visible"); value != "" {
+		v, err := strconv.ParseBool(value)
+		if err != nil {
+			return f, false
+		}
+		f.Visible = &v
+	}
+	if value := get("page_size"); value != "" {
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return f, false
+		}
+		f.PageSize = n
+	}
+	return f, true
+}
+
+func (h *Handler) serveAccountMutation(w http.ResponseWriter, r *http.Request, path, requestID string) bool {
+	const base = "/api/v1/admin/global/accounts/"
+	if !strings.HasPrefix(path, base) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, base), "/")
+	if len(parts) < 2 || parts[0] == "" {
+		return false
+	}
+	var capability identity.Capability
+	switch {
+	case len(parts) == 2 && parts[1] == "profile" && r.Method == http.MethodPatch:
+		capability = identity.CapabilityAccountsUpdate
+	case len(parts) == 3 && parts[1] == "roles" && r.Method == http.MethodPut:
+		capability = identity.CapabilityAccountsRoles
+	case len(parts) == 3 && parts[1] == "sessions" && parts[2] == "revoke" && r.Method == http.MethodPost:
+		capability = identity.CapabilityAccountsBlock
+	case len(parts) == 2 && parts[1] == "block" && r.Method == http.MethodPost:
+		capability = identity.CapabilityAccountsBlock
+	default:
+		return false
+	}
+	principal, ok := h.authorize(w, r, capability, requestID)
+	if !ok {
+		return true
+	}
+	if !recentlyAuthenticated(principal.AuthenticatedAt, time.Now().UTC()) {
+		writeError(w, http.StatusPreconditionRequired, "recent_authentication_required", requestID)
+		return true
+	}
+	if len(parts) == 2 {
+		if parts[1] == "block" {
+			var input struct {
+				Blocked bool   `json:"blocked"`
+				Reason  string `json:"reason"`
+			}
+			if !decodeManagementBody(w, r, &input) {
+				writeError(w, 422, "invalid_request", requestID)
+				return true
+			}
+			value, err := h.service.SetAccountBlocked(r.Context(), principal.AccountID, parts[0], input.Reason, requestID, input.Blocked)
+			if err != nil {
+				replyError(w, err, requestID)
+				return true
+			}
+			writeJSON(w, 200, map[string]any{"data": value})
+			return true
+		}
+		var input adminglobal.AccountProfileInput
+		if !decodeManagementBody(w, r, &input) {
+			writeError(w, 422, "invalid_request", requestID)
+			return true
+		}
+		value, err := h.service.UpdateAccountProfile(r.Context(), principal.AccountID, parts[0], requestID, input)
+		if err != nil {
+			replyError(w, err, requestID)
+			return true
+		}
+		writeJSON(w, 200, map[string]any{"data": value})
+		return true
+	}
+	if parts[1] == "sessions" {
+		var input struct {
+			Reason string `json:"reason"`
+		}
+		if !decodeManagementBody(w, r, &input) {
+			writeError(w, 422, "invalid_request", requestID)
+			return true
+		}
+		value, err := h.service.RevokeAccountSessions(r.Context(), principal.AccountID, parts[0], input.Reason, requestID)
+		if err != nil {
+			replyError(w, err, requestID)
+			return true
+		}
+		writeJSON(w, 200, map[string]any{"data": value})
+		return true
+	}
+	var input struct {
+		Granted bool   `json:"granted"`
+		Reason  string `json:"reason"`
+	}
+	if !decodeManagementBody(w, r, &input) {
+		writeError(w, 422, "invalid_request", requestID)
+		return true
+	}
+	value, err := h.service.SetAccountRole(r.Context(), principal.AccountID, parts[0], parts[2], input.Reason, requestID, input.Granted)
+	if err != nil {
+		replyError(w, err, requestID)
+		return true
+	}
+	writeJSON(w, 200, map[string]any{"data": value})
+	return true
+}
+
+const recentAuthenticationTTL = 10 * time.Minute
+
+func recentlyAuthenticated(at, now time.Time) bool {
+	age := now.Sub(at)
+	return !at.IsZero() && age >= 0 && age <= recentAuthenticationTTL
+}
+
+func decodeManagementBody(w http.ResponseWriter, r *http.Request, target any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(target) != nil {
+		return false
+	}
+	var extra any
+	return decoder.Decode(&extra) == io.EOF
 }
 
 func (h *Handler) authorize(w http.ResponseWriter, r *http.Request, capability identity.Capability, requestID string) (identity.Principal, bool) {
@@ -206,6 +426,8 @@ func replyError(w http.ResponseWriter, err error, requestID string) {
 		writeError(w, 403, "forbidden", requestID)
 	case errors.Is(err, adminglobal.ErrNotFound):
 		writeError(w, 404, "not_found", requestID)
+	case errors.Is(err, adminglobal.ErrConflict):
+		writeError(w, 409, "conflict", requestID)
 	default:
 		writeError(w, 500, "internal_error", requestID)
 	}

@@ -743,10 +743,11 @@ const (
 )
 
 type Principal struct {
-	AccountID      string
-	Roles          []Role
-	Capabilities   []Capability
-	RestrictedMode bool
+	AccountID       string
+	Roles           []Role
+	Capabilities    []Capability
+	RestrictedMode  bool
+	AuthenticatedAt time.Time
 }
 
 type restrictedAccessContextKey struct{}
@@ -836,7 +837,7 @@ func (s *AuthenticationService) authorize(ctx context.Context, raw Secret, activ
 				return nil
 			}
 		}
-		result = Principal{AccountID: account.ID, Roles: roles, Capabilities: CapabilitiesForRoles(roles), RestrictedMode: account.AdministrativeBlocked}
+		result = Principal{AccountID: account.ID, Roles: roles, Capabilities: CapabilitiesForRoles(roles), RestrictedMode: account.AdministrativeBlocked, AuthenticatedAt: session.CreatedAt.UTC()}
 		return nil
 	})
 	if errors.Is(err, ErrNotFound) {

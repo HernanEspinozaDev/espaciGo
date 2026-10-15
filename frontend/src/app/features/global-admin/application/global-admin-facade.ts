@@ -3,7 +3,7 @@ import { Meta } from '@angular/platform-browser';
 import { IdentitySession } from '../../../core/identity/application/identity-session';
 import { PrivateSessionState } from '../../../core/identity/private-session-state';
 import { GlobalAdminPort } from '../domain/ports/global-admin-port';
-import { Account, Overview, Page } from '../domain/global-admin-models';
+import { Account, Overview, Page, AccountBlockUpdate, ProfileUpdate, RoleUpdate, SessionRevocation, PublicationPage, PublicationStateUpdate, PublicationContentUpdate } from '../domain/global-admin-models';
 
 export type DirectoryCriteria = Record<string, string | number | undefined>;
 
@@ -23,16 +23,20 @@ export class GlobalAdminFacade {
   private readonly meta = inject(Meta);
   private directoryRevision = 0;
   private detailRevision = 0;
+  private publicationRevision = 0;
   private identityContext = '';
   private unregisterPrivateState: (() => void) | null = null;
 
   readonly overview = signal<Overview | null>(null);
   readonly page = signal<Page | null>(null);
+  readonly publications = signal<PublicationPage | null>(null);
+  readonly loadingPublications = signal(false);
   readonly selected = signal<Account | null>(null);
   readonly loadingDirectory = signal(false);
   readonly loadingDetail = signal(false);
   readonly error = signal('');
   readonly controlsResetRevision = signal(0);
+  readonly saving = signal(false);
 
   constructor() {
     this.meta.addTag({ name: 'robots', content: 'noindex, nofollow' });
@@ -122,6 +126,27 @@ export class GlobalAdminFacade {
     }
   }
 
+  async loadPublications(filters:DirectoryCriteria,cursor=''):Promise<void>{const context=this.currentContext(),revision=++this.publicationRevision;this.publications.set(null);if(!context||!this.identity.session()?.capabilities?.includes('publications.list'))return;this.loadingPublications.set(true);this.error.set('');try{const page=await this.api.listPublications(context.token,{...filters,page_size:25,cursor:cursor||undefined});if(revision===this.publicationRevision&&this.hasCurrentContext(context))this.publications.set(page);}catch(error){if(revision===this.publicationRevision&&this.hasCurrentContext(context)){if(statusOf(error)===403)await this.revalidateDeniedRequest(context,'Go rechazó el inventario y se revalidaron tus permisos.');else this.error.set(messageOf(error));}}finally{if(revision===this.publicationRevision&&this.hasCurrentContext(context))this.loadingPublications.set(false);}}
+
+  async setPublicationState(id:string,input:PublicationStateUpdate):Promise<void>{const context=this.currentContext();if(!context||this.saving())return;this.saving.set(true);this.error.set('');try{await this.api.setPublicationState(context.token,id,input);}catch(error){if(this.hasCurrentContext(context)){if(statusOf(error)===403)await this.revalidateDeniedRequest(context,'Go rechazó el cambio de publicación y revalidó tus permisos.');else this.error.set(messageOf(error));}}finally{this.saving.set(false);}}
+
+  async updatePublication(id:string,input:PublicationContentUpdate):Promise<void>{const context=this.currentContext();if(!context||this.saving())return;this.saving.set(true);this.error.set('');try{await this.api.updatePublication(context.token,id,input);}catch(error){if(this.hasCurrentContext(context)){if(statusOf(error)===403)await this.revalidateDeniedRequest(context,'Go rechazó la edición y revalidó tus permisos.');else this.error.set(messageOf(error));}}finally{this.saving.set(false);}}
+
+  async updateProfile(input: ProfileUpdate): Promise<void> {
+    const context=this.currentContext(), account=this.selected();
+    if(!context||!account||this.saving())return;
+    this.saving.set(true);this.error.set('');
+    try { const updated=await this.api.updateProfile(context.token,account.account_id,input);if(this.hasCurrentContext(context))this.selected.set({...account,display_name:updated.display_name,phone:updated.phone,profile_updated_at:updated.updated_at}); }
+    catch(error){if(this.hasCurrentContext(context)){if(statusOf(error)===403)await this.revalidateDeniedRequest(context,'Go rechazó el cambio y se revalidaron tus permisos.');else this.error.set(messageOf(error));}}
+    finally{this.saving.set(false);}
+  }
+
+  async updateRole(role:string,input:RoleUpdate):Promise<void>{const context=this.currentContext(),account=this.selected();if(!context||!account||this.saving())return;this.saving.set(true);this.error.set('');try{await this.api.updateRole(context.token,account.account_id,role,input);if(this.hasCurrentContext(context)){const roles=new Set(account.roles);input.granted?roles.add(role):roles.delete(role);this.selected.set({...account,roles:[...roles].sort()});}}catch(error){if(this.hasCurrentContext(context)){if(statusOf(error)===403)await this.revalidateDeniedRequest(context,'Go rechazó la gestión de roles y se revalidaron tus permisos.');else this.error.set(messageOf(error));}}finally{this.saving.set(false);}}
+
+  async revokeSessions(input:SessionRevocation):Promise<number>{const context=this.currentContext(),account=this.selected();if(!context||!account||this.saving())return 0;this.saving.set(true);this.error.set('');try{return await this.api.revokeSessions(context.token,account.account_id,input);}catch(error){if(this.hasCurrentContext(context)){if(statusOf(error)===403)await this.revalidateDeniedRequest(context,'Go rechazó la revocación y se revalidaron tus permisos.');else this.error.set(messageOf(error));}return 0;}finally{this.saving.set(false);}}
+
+  async setBlocked(input:AccountBlockUpdate):Promise<void>{const context=this.currentContext(),account=this.selected();if(!context||!account||this.saving())return;this.saving.set(true);this.error.set('');try{await this.api.setBlocked(context.token,account.account_id,input);if(this.hasCurrentContext(context))this.selected.set({...account,administrative_blocked:input.blocked});}catch(error){if(this.hasCurrentContext(context)){if(statusOf(error)===403)await this.revalidateDeniedRequest(context,'Go rechazó el cambio de bloqueo y se revalidaron tus permisos.');else this.error.set(messageOf(error));}}finally{this.saving.set(false);}}
+
   private currentContext(): RequestContext | null {
     const token = this.identity.accessToken();
     const session = this.identity.session();
@@ -182,8 +207,11 @@ export class GlobalAdminFacade {
   private invalidate(): void {
     ++this.directoryRevision;
     ++this.detailRevision;
+    ++this.publicationRevision;
     this.controlsResetRevision.update((revision) => revision + 1);
     this.clearData();
+    this.publications.set(null);
+    this.loadingPublications.set(false);
     this.loadingDirectory.set(false);
     this.loadingDetail.set(false);
     this.error.set('');
