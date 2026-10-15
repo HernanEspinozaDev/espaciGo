@@ -857,6 +857,34 @@ func (s *Service) SaveWeeklyHours(ctx context.Context, host, spaceID string, val
 	return repo.SaveWeeklyHours(ctx, host, spaceID, value)
 }
 
+func (s *Service) SaveWeeklyHoursAsAdministrator(ctx context.Context, actor, owner, spaceID string, value WeeklyHours, expectedUpdatedAt time.Time, correlation, reason string) (WeeklyHours, error) {
+	if !uuid.MatchString(actor) || !uuid.MatchString(owner) || !uuid.MatchString(spaceID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || !adminScheduleReasons[reason] || ValidateWeeklyHours(value) != nil {
+		return WeeklyHours{}, ErrInvalid
+	}
+	repository, ok := s.repo.(AdministrativeWeeklyHoursRepository)
+	if !ok {
+		return WeeklyHours{}, ErrNotFound
+	}
+	value.Days = normalizeWeeklyDays(value.Days)
+	return repository.SaveWeeklyHoursAsAdministrator(ctx, actor, owner, spaceID, value, expectedUpdatedAt.UTC(), correlation, reason)
+}
+
+func (s *Service) WeeklyHoursAsAdministrator(ctx context.Context, actor, owner, spaceID, correlation string) (WeeklyHours, error) {
+	if !uuid.MatchString(actor) || !uuid.MatchString(owner) || !uuid.MatchString(spaceID) || !uuid.MatchString(correlation) || actor == owner {
+		return WeeklyHours{}, ErrNotFound
+	}
+	repository, ok := s.repo.(AdministrativeWeeklyHoursRepository)
+	if !ok {
+		return WeeklyHours{}, ErrNotFound
+	}
+	return repository.WeeklyHoursAsAdministrator(ctx, actor, owner, spaceID, correlation)
+}
+
+var adminScheduleReasons = map[string]bool{
+	"revision_administrativa": true,
+	"correccion_operativa":    true,
+}
+
 func (s *Service) Quote(ctx context.Context, renter string, in QuoteInput) (Quote, error) {
 	if !uuid.MatchString(in.SpaceID) {
 		return Quote{}, ErrInvalid

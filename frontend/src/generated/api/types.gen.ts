@@ -80,6 +80,13 @@ export type GlobalAdminPublication = {
     updated_at: string;
     publicly_visible: boolean;
     public_cover_available: boolean;
+    attribute_schema_version: number;
+    attributes: {
+        [key: string]: unknown;
+    };
+    attribute_schema: {
+        [key: string]: unknown;
+    };
 };
 
 export type GlobalAdminPublicationPageEnvelope = {
@@ -2042,6 +2049,70 @@ export type SetGlobalAdminAccountBlockedResponses = {
     200: unknown;
 };
 
+export type ListGlobalAdminAccountResourcesData = {
+    body?: never;
+    path: {
+        accountID: string;
+        resourceKind: 'reservations' | 'incidents';
+    };
+    query?: {
+        page_size?: number;
+        cursor?: string;
+    };
+    url: '/admin/global/accounts/{accountID}/resources/{resourceKind}';
+};
+
+export type ListGlobalAdminAccountResourcesErrors = {
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Recurso inexistente o no visible para esta identidad.
+     */
+    404: Error;
+};
+
+export type ListGlobalAdminAccountResourcesError = ListGlobalAdminAccountResourcesErrors[keyof ListGlobalAdminAccountResourcesErrors];
+
+export type ListGlobalAdminAccountResourcesResponses = {
+    /**
+     * Recursos vinculados a la cuenta
+     */
+    200: unknown;
+};
+
+export type GetGlobalAdminAccountResourceData = {
+    body?: never;
+    path: {
+        accountID: string;
+        resourceKind: 'reservations' | 'incidents';
+        resourceID: string;
+    };
+    query?: never;
+    url: '/admin/global/accounts/{accountID}/resources/{resourceKind}/{resourceID}';
+};
+
+export type GetGlobalAdminAccountResourceErrors = {
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Recurso inexistente o no visible para esta identidad.
+     */
+    404: Error;
+};
+
+export type GetGlobalAdminAccountResourceError = GetGlobalAdminAccountResourceErrors[keyof GetGlobalAdminAccountResourceErrors];
+
+export type GetGlobalAdminAccountResourceResponses = {
+    /**
+     * Recurso autorizado con datos mínimos necesarios
+     */
+    200: unknown;
+};
+
 export type ListGlobalAdminPublicationsData = {
     body?: never;
     path?: never;
@@ -2134,6 +2205,10 @@ export type UpdateGlobalAdminPublicationContentData = {
         region_code?: string;
         comuna_code?: string;
         cover_photo_id?: string;
+        attribute_schema_version?: number;
+        attributes?: {
+            [key: string]: unknown;
+        };
         expected_updated_at: string;
         reason: 'correccion_perfil' | 'revision_administrativa' | 'gestion_operativa';
     };
@@ -2172,6 +2247,222 @@ export type UpdateGlobalAdminPublicationContentError = UpdateGlobalAdminPublicat
 export type UpdateGlobalAdminPublicationContentResponses = {
     /**
      * Campos allowlisted actualizados y auditados
+     */
+    200: unknown;
+};
+
+export type RetireGlobalAdminPublicationData = {
+    body: {
+        owner_id: string;
+        expected_updated_at: string;
+        reason: 'moderacion_contenido' | 'riesgo_seguridad' | 'solicitud_titular' | 'revision_administrativa';
+    };
+    path: {
+        publicationID: string;
+    };
+    query?: never;
+    url: '/admin/global/publications/{publicationID}/retire';
+};
+
+export type RetireGlobalAdminPublicationErrors = {
+    /**
+     * Conflicto con el estado actual, versión o clave de idempotencia.
+     */
+    409: Error;
+    /**
+     * Se requiere sesión reciente
+     */
+    428: unknown;
+};
+
+export type RetireGlobalAdminPublicationError = RetireGlobalAdminPublicationErrors[keyof RetireGlobalAdminPublicationErrors];
+
+export type RetireGlobalAdminPublicationResponses = {
+    /**
+     * Retiro append-only con actor administrativo y limpieza durable
+     */
+    200: unknown;
+};
+
+export type GetGlobalAdminPublicationScheduleData = {
+    body?: never;
+    path: {
+        publicationID: string;
+    };
+    query: {
+        owner_id: string;
+    };
+    url: '/admin/global/publications/{publicationID}/schedule';
+};
+
+export type GetGlobalAdminPublicationScheduleErrors = {
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+};
+
+export type GetGlobalAdminPublicationScheduleError = GetGlobalAdminPublicationScheduleErrors[keyof GetGlobalAdminPublicationScheduleErrors];
+
+export type GetGlobalAdminPublicationScheduleResponses = {
+    /**
+     * Horario semanal vigente
+     */
+    200: unknown;
+};
+
+export type UpdateGlobalAdminPublicationScheduleData = {
+    body: {
+        owner_id: string;
+        enabled: boolean;
+        days: Array<unknown>;
+        expected_updated_at: string;
+        reason: 'correccion_perfil' | 'revision_administrativa' | 'gestion_operativa';
+    };
+    path: {
+        publicationID: string;
+    };
+    query?: never;
+    url: '/admin/global/publications/{publicationID}/schedule';
+};
+
+export type UpdateGlobalAdminPublicationScheduleErrors = {
+    /**
+     * Conflicto con el estado actual, versión o clave de idempotencia.
+     */
+    409: Error;
+    /**
+     * Se requiere sesión reciente
+     */
+    428: unknown;
+};
+
+export type UpdateGlobalAdminPublicationScheduleError = UpdateGlobalAdminPublicationScheduleErrors[keyof UpdateGlobalAdminPublicationScheduleErrors];
+
+export type UpdateGlobalAdminPublicationScheduleResponses = {
+    /**
+     * Horario semanal y auditoría guardados transaccionalmente
+     */
+    200: unknown;
+};
+
+export type ListGlobalAdminPublicationGalleryData = {
+    body?: never;
+    path: {
+        publicationID: string;
+    };
+    query: {
+        owner_id: string;
+    };
+    url: '/admin/global/publications/{publicationID}/gallery';
+};
+
+export type ListGlobalAdminPublicationGalleryResponses = {
+    /**
+     * Metadatos minimizados de galería con portada y limpieza pendiente
+     */
+    200: unknown;
+};
+
+export type SetGlobalAdminPublicationPhotoVisibilityData = {
+    body: {
+        owner_id: string;
+        enabled: boolean;
+        expected_updated_at: string;
+        reason: string;
+    };
+    path: {
+        publicationID: string;
+        photoID: string;
+    };
+    query?: never;
+    url: '/admin/global/publications/{publicationID}/gallery/{photoID}/visibility';
+};
+
+export type SetGlobalAdminPublicationPhotoVisibilityErrors = {
+    /**
+     * Conflicto con el estado actual, versión o clave de idempotencia.
+     */
+    409: Error;
+    /**
+     * Se requiere sesión reciente
+     */
+    428: unknown;
+};
+
+export type SetGlobalAdminPublicationPhotoVisibilityError = SetGlobalAdminPublicationPhotoVisibilityErrors[keyof SetGlobalAdminPublicationPhotoVisibilityErrors];
+
+export type SetGlobalAdminPublicationPhotoVisibilityResponses = {
+    /**
+     * Visibilidad de foto actualizada y auditada
+     */
+    200: unknown;
+};
+
+export type SelectGlobalAdminPublicationCoverData = {
+    body: {
+        owner_id: string;
+        expected_updated_at: string;
+        reason: string;
+    };
+    path: {
+        publicationID: string;
+        photoID: string;
+    };
+    query?: never;
+    url: '/admin/global/publications/{publicationID}/gallery/{photoID}/cover';
+};
+
+export type SelectGlobalAdminPublicationCoverErrors = {
+    /**
+     * Conflicto con el estado actual, versión o clave de idempotencia.
+     */
+    409: Error;
+    /**
+     * Se requiere sesión reciente
+     */
+    428: unknown;
+};
+
+export type SelectGlobalAdminPublicationCoverError = SelectGlobalAdminPublicationCoverErrors[keyof SelectGlobalAdminPublicationCoverErrors];
+
+export type SelectGlobalAdminPublicationCoverResponses = {
+    /**
+     * Portada seleccionada
+     */
+    200: unknown;
+};
+
+export type RemoveGlobalAdminPublicationPhotoData = {
+    body: {
+        owner_id: string;
+        expected_updated_at: string;
+        reason: string;
+    };
+    path: {
+        publicationID: string;
+        photoID: string;
+    };
+    query?: never;
+    url: '/admin/global/publications/{publicationID}/gallery/{photoID}/remove';
+};
+
+export type RemoveGlobalAdminPublicationPhotoErrors = {
+    /**
+     * Conflicto con el estado actual, versión o clave de idempotencia.
+     */
+    409: Error;
+    /**
+     * Se requiere sesión reciente
+     */
+    428: unknown;
+};
+
+export type RemoveGlobalAdminPublicationPhotoError = RemoveGlobalAdminPublicationPhotoErrors[keyof RemoveGlobalAdminPublicationPhotoErrors];
+
+export type RemoveGlobalAdminPublicationPhotoResponses = {
+    /**
+     * Foto retirada con limpieza durable
      */
     200: unknown;
 };

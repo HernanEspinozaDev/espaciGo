@@ -14,7 +14,7 @@
 | Historial / whitespace | `git diff -- db/migrations` y `git diff --check` | Sin cambios de migraciones; diff limpio. No se necesitó V59. |
 | Recorrido servido / capturas | No ejecutado en este corte | Pendiente antes de aceptar GADM-02: recorrido Angular→Go→PostGIS con maestro sintético aislado, y evidencia 390×844 / 1365×900. La cobertura automatizada no se presenta como recorrido real. |
 
-Límites del corte a revisar antes de fusión: no existe en el modelo vigente una transición de retiro definitivo de publicaciones (la tabla acepta borrador únicamente al crear y GADM-01 introdujo activa/oculta); no se implementó un editor de galería/horarios ni listados por cuenta de reservas/incidencias. No se añadió DELETE ni se inventó un estado terminal. Estas capacidades quedan expresamente pendientes de un contrato de dominio compatible con ocupaciones y retención.
+Estado GADM-02 a 2026-10-15: el dominio existente ya contempla `eliminada` (V50), conserva tarifas/snapshots y obligaciones según V52; este corte agrega la invocación administrativa del servicio de retiro y controles de versión/auditoría. También hay recursos de reservas/incidencias por propietario, esquema versionado de atributos, galería sintética y horario semanal. El recorrido servido de toda la UI, las capturas responsive y la respuesta a revisión siguen pendientes; por tanto, no declarar el corte completo ni aceptado hasta registrar esas pruebas y revisión. No se añadió `DELETE` ni un estado de dominio nuevo.
 
 ## Evidencia GADM-01 (2026-10-14)
 

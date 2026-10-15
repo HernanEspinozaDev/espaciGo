@@ -14,7 +14,10 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -30,9 +33,32 @@ const collectionID = "00000000-0000-0000-0000-000000000000"
 var canonicalUUID = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 type Service struct {
-	pool *pgxpool.Pool
-	now  func() time.Time
-	ids  credentials.Generator
+	pool               *pgxpool.Pool
+	now                func() time.Time
+	ids                credentials.Generator
+	publicationRetirer interface {
+		DeleteAsAdministrator(context.Context, string, string, string, string, time.Time, string) (spaces.Deletion, error)
+	}
+	weeklyHoursManager interface {
+		WeeklyHours(context.Context, string, string) (booking.WeeklyHours, error)
+		WeeklyHoursAsAdministrator(context.Context, string, string, string, string) (booking.WeeklyHours, error)
+		SaveWeeklyHoursAsAdministrator(context.Context, string, string, string, booking.WeeklyHours, time.Time, string, string) (booking.WeeklyHours, error)
+	}
+	publicationGallery interface {
+		ListAsAdministrator(context.Context, string, string, string, string) ([]gallery.Photo, error)
+		SetPublicInCatalogAsAdministrator(context.Context, string, string, string, string, bool, time.Time, string, string) (gallery.Photo, error)
+		SelectCoverAsAdministrator(context.Context, string, string, string, string, time.Time, string, string) (gallery.Cover, error)
+		RemoveAsAdministrator(context.Context, string, string, string, string, time.Time, string, string) (gallery.Removal, error)
+	}
+}
+
+func (s *Service) SetPublicationGallery(manager interface {
+	ListAsAdministrator(context.Context, string, string, string, string) ([]gallery.Photo, error)
+	SetPublicInCatalogAsAdministrator(context.Context, string, string, string, string, bool, time.Time, string, string) (gallery.Photo, error)
+	SelectCoverAsAdministrator(context.Context, string, string, string, string, time.Time, string, string) (gallery.Cover, error)
+	RemoveAsAdministrator(context.Context, string, string, string, string, time.Time, string, string) (gallery.Removal, error)
+}) {
+	s.publicationGallery = manager
 }
 
 func New(pool *pgxpool.Pool, now func() time.Time) (*Service, error) {
@@ -40,6 +66,20 @@ func New(pool *pgxpool.Pool, now func() time.Time) (*Service, error) {
 		return nil, ErrInvalid
 	}
 	return &Service{pool: pool, now: now, ids: credentials.Generator{}}, nil
+}
+
+func (s *Service) SetPublicationRetirer(retirer interface {
+	DeleteAsAdministrator(context.Context, string, string, string, string, time.Time, string) (spaces.Deletion, error)
+}) {
+	s.publicationRetirer = retirer
+}
+
+func (s *Service) SetWeeklyHoursManager(manager interface {
+	WeeklyHours(context.Context, string, string) (booking.WeeklyHours, error)
+	WeeklyHoursAsAdministrator(context.Context, string, string, string, string) (booking.WeeklyHours, error)
+	SaveWeeklyHoursAsAdministrator(context.Context, string, string, string, booking.WeeklyHours, time.Time, string, string) (booking.WeeklyHours, error)
+}) {
+	s.weeklyHoursManager = manager
 }
 
 type AccountFilter struct {

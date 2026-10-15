@@ -13,6 +13,7 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adminglobal"
+	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 )
 
@@ -67,6 +68,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.servePublicationMutation(w, r, path, requestID) {
+		return
+	}
+	if h.servePublicationSchedule(w, r, path, requestID) {
+		return
+	}
+	if h.servePublicationGallery(w, r, path, requestID) {
+		return
+	}
+	if h.serveAccountResources(w, r, path, requestID) {
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -147,21 +157,202 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handler) servePublicationGallery(w http.ResponseWriter, r *http.Request, path, requestID string) bool {
+	const prefix = "/api/v1/admin/global/publications/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] != "gallery" {
+		return false
+	}
+	if len(parts) == 2 && r.Method == http.MethodGet {
+		principal, ok := h.authorize(w, r, identity.CapabilityPublicationsRead, requestID)
+		if !ok {
+			return true
+		}
+		owner := r.URL.Query().Get("owner_id")
+		value, err := h.service.PublicationGallery(r.Context(), principal.AccountID, parts[0], owner, requestID)
+		if err != nil {
+			replyError(w, err, requestID)
+			return true
+		}
+		writeJSON(w, 200, map[string]any{"data": value})
+		return true
+	}
+	if len(parts) != 4 || parts[2] == "" {
+		return false
+	}
+	action := parts[3]
+	methodOK := (action == "visibility" && r.Method == http.MethodPatch) || ((action == "cover" || action == "remove") && r.Method == http.MethodPost)
+	if !methodOK {
+		return false
+	}
+	capability := identity.CapabilityPublicationsUpdate
+	if action == "remove" {
+		capability = identity.CapabilityPublicationsRetire
+	}
+	principal, ok := h.authorize(w, r, capability, requestID)
+	if !ok {
+		return true
+	}
+	if !recentlyAuthenticated(principal.AuthenticatedAt, time.Now().UTC()) {
+		writeError(w, 428, "recent_authentication_required", requestID)
+		return true
+	}
+	var input struct {
+		OwnerID           string    `json:"owner_id"`
+		Enabled           bool      `json:"enabled"`
+		ExpectedUpdatedAt time.Time `json:"expected_updated_at"`
+		Reason            string    `json:"reason"`
+	}
+	if !decodeManagementBody(w, r, &input) {
+		writeError(w, 422, "invalid_request", requestID)
+		return true
+	}
+	var value any
+	var err error
+	switch action {
+	case "visibility":
+		value, err = h.service.SetPublicationPhotoVisibility(r.Context(), principal.AccountID, parts[0], input.OwnerID, parts[2], requestID, input.Enabled, input.ExpectedUpdatedAt, input.Reason)
+	case "cover":
+		value, err = h.service.SelectPublicationCover(r.Context(), principal.AccountID, parts[0], input.OwnerID, parts[2], requestID, input.ExpectedUpdatedAt, input.Reason)
+	case "remove":
+		value, err = h.service.RemovePublicationPhoto(r.Context(), principal.AccountID, parts[0], input.OwnerID, parts[2], requestID, input.ExpectedUpdatedAt, input.Reason)
+	}
+	if err != nil {
+		replyError(w, err, requestID)
+		return true
+	}
+	writeJSON(w, 200, map[string]any{"data": value})
+	return true
+}
+
+func (h *Handler) serveAccountResources(w http.ResponseWriter, r *http.Request, path, requestID string) bool {
+	const prefix = "/api/v1/admin/global/accounts/"
+	if !strings.HasPrefix(path, prefix) || r.Method != http.MethodGet {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) != 3 && len(parts) != 4 {
+		return false
+	}
+	if parts[0] == "" || parts[1] != "resources" || (parts[2] != "reservations" && parts[2] != "incidents") {
+		return false
+	}
+	principal, ok := h.authorize(w, r, identity.CapabilityAccountsRead, requestID)
+	if !ok {
+		return true
+	}
+	if len(parts) == 4 {
+		if parts[3] == "" || r.URL.RawQuery != "" {
+			writeError(w, 422, "invalid_request", requestID)
+			return true
+		}
+		value, err := h.service.GetAccountResource(r.Context(), principal.AccountID, parts[0], parts[3], requestID, parts[2])
+		if err != nil {
+			replyError(w, err, requestID)
+			return true
+		}
+		writeJSON(w, 200, map[string]any{"data": value})
+		return true
+	}
+	for key, values := range r.URL.Query() {
+		if (key != "page_size" && key != "cursor") || len(values) != 1 {
+			writeError(w, 422, "invalid_request", requestID)
+			return true
+		}
+	}
+	pageSize := 25
+	if raw := r.URL.Query().Get("page_size"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			writeError(w, 422, "invalid_request", requestID)
+			return true
+		}
+		pageSize = value
+	}
+	value, err := h.service.ListAccountResources(r.Context(), principal.AccountID, parts[0], requestID, parts[2], r.URL.Query().Get("cursor"), pageSize)
+	if err != nil {
+		replyError(w, err, requestID)
+		return true
+	}
+	writeJSON(w, 200, map[string]any{"data": value})
+	return true
+}
+
+func (h *Handler) servePublicationSchedule(w http.ResponseWriter, r *http.Request, path, requestID string) bool {
+	const prefix = "/api/v1/admin/global/publications/"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, "/schedule") || (r.Method != http.MethodGet && r.Method != http.MethodPut) {
+		return false
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), "/schedule")
+	if id == "" || strings.Contains(id, "/") {
+		writeError(w, 422, "invalid_request", requestID)
+		return true
+	}
+	capability := identity.CapabilityPublicationsRead
+	if r.Method == http.MethodPut {
+		capability = identity.CapabilityPublicationsUpdate
+	}
+	principal, ok := h.authorize(w, r, capability, requestID)
+	if !ok {
+		return true
+	}
+	if r.Method == http.MethodGet {
+		if len(r.URL.Query()) != 1 || r.URL.Query().Get("owner_id") == "" {
+			writeError(w, 422, "invalid_request", requestID)
+			return true
+		}
+		value, err := h.service.PublicationSchedule(r.Context(), principal.AccountID, id, r.URL.Query().Get("owner_id"), requestID)
+		if err != nil {
+			replyError(w, err, requestID)
+			return true
+		}
+		writeJSON(w, 200, map[string]any{"data": value})
+		return true
+	}
+	if !recentlyAuthenticated(principal.AuthenticatedAt, time.Now().UTC()) {
+		writeError(w, http.StatusPreconditionRequired, "recent_authentication_required", requestID)
+		return true
+	}
+	var input struct {
+		OwnerID           string              `json:"owner_id"`
+		ExpectedUpdatedAt time.Time           `json:"expected_updated_at"`
+		Reason            string              `json:"reason"`
+		Enabled           bool                `json:"enabled"`
+		Days              []booking.WeeklyDay `json:"days"`
+	}
+	if !decodeManagementBody(w, r, &input) {
+		writeError(w, 422, "invalid_request", requestID)
+		return true
+	}
+	value, err := h.service.SavePublicationSchedule(r.Context(), principal.AccountID, id, input.OwnerID, requestID, input.ExpectedUpdatedAt, input.Reason, booking.WeeklyHours{SpaceID: id, Enabled: input.Enabled, Days: input.Days})
+	if err != nil {
+		replyError(w, err, requestID)
+		return true
+	}
+	writeJSON(w, 200, map[string]any{"data": value})
+	return true
+}
+
 func (h *Handler) servePublicationMutation(w http.ResponseWriter, r *http.Request, path, requestID string) bool {
 	const base = "/api/v1/admin/global/publications/"
 	if !strings.HasPrefix(path, base) {
 		return false
 	}
 	parts := strings.Split(strings.TrimPrefix(path, base), "/")
-	if len(parts) != 2 {
+	if len(parts) != 2 || parts[0] == "" {
 		return false
 	}
 	var capability identity.Capability
 	switch {
-	case parts[1] == "state" && r.Method == http.MethodPost:
+	case len(parts) == 2 && parts[1] == "state" && r.Method == http.MethodPost:
 		capability = identity.CapabilityPublicationsModerate
-	case parts[1] == "content" && r.Method == http.MethodPatch:
+	case len(parts) == 2 && parts[1] == "content" && r.Method == http.MethodPatch:
 		capability = identity.CapabilityPublicationsUpdate
+	case len(parts) == 2 && parts[1] == "retire" && r.Method == http.MethodPost:
+		capability = identity.CapabilityPublicationsRetire
 	default:
 		return false
 	}
@@ -171,6 +362,24 @@ func (h *Handler) servePublicationMutation(w http.ResponseWriter, r *http.Reques
 	}
 	if !recentlyAuthenticated(principal.AuthenticatedAt, time.Now().UTC()) {
 		writeError(w, http.StatusPreconditionRequired, "recent_authentication_required", requestID)
+		return true
+	}
+	if capability == identity.CapabilityPublicationsRetire {
+		var input struct {
+			OwnerID           string    `json:"owner_id"`
+			ExpectedUpdatedAt time.Time `json:"expected_updated_at"`
+			Reason            string    `json:"reason"`
+		}
+		if !decodeManagementBody(w, r, &input) {
+			writeError(w, 422, "invalid_request", requestID)
+			return true
+		}
+		value, err := h.service.RetirePublication(r.Context(), principal.AccountID, parts[0], input.OwnerID, requestID, input.ExpectedUpdatedAt, input.Reason)
+		if err != nil {
+			replyError(w, err, requestID)
+			return true
+		}
+		writeJSON(w, 200, map[string]any{"data": value})
 		return true
 	}
 	if parts[1] == "content" {

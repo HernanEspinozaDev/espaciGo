@@ -57,13 +57,21 @@ async function setup() {
     overview: vi.fn().mockResolvedValue(overview),
     list: vi.fn().mockResolvedValue({ items: [account], next_cursor: 'cursor-initial', matching_total: 2, generated_at: overview.generated_at }),
     account: vi.fn().mockResolvedValue(account),
+    listAccountResources: vi.fn().mockResolvedValue({items:[],next_cursor:'',matching_total:0,generated_at:overview.generated_at}),
+    accountResource: vi.fn().mockResolvedValue({id:'resource-1',state:'pagada'}),
     updateProfile:vi.fn().mockResolvedValue({account_id:'customer',email:account.email,display_name:'Updated customer',phone:'987654321',updated_at:'2026-10-14T01:00:00Z'}),
     updateRole:vi.fn().mockResolvedValue(undefined),
     revokeSessions:vi.fn().mockResolvedValue(2),
     setBlocked:vi.fn().mockResolvedValue(undefined),
-    listPublications:vi.fn().mockResolvedValue({items:[{publication_id:'space-1',owner_id:'customer',owner_name:'Private customer',owner_email:account.email,category_code:'oficina',category_name:'Oficina',title:'Test space',description:'d'.repeat(120),area_m2:'20.00',capacity:4,usage_rules:'Reglas',address:'Privada',state:'activa',rate_unit:'hora',base_price_clp:'9007199254740999',updated_at:'2026-10-14T00:00:00Z',publicly_visible:false,public_cover_available:false}],next_cursor:'',matching_total:1,generated_at:overview.generated_at}),
+    listPublications:vi.fn().mockResolvedValue({items:[{publication_id:'space-1',owner_id:'customer',owner_name:'Private customer',owner_email:account.email,category_code:'oficina',category_name:'Oficina',title:'Test space',description:'d'.repeat(120),area_m2:'20.00',capacity:4,usage_rules:'Reglas',address:'Privada',state:'activa',rate_unit:'hora',base_price_clp:'9007199254740999',updated_at:'2026-10-14T00:00:00Z',publicly_visible:false,public_cover_available:false,attribute_schema_version:1,attributes:{wifi:true},attribute_schema:{category_code:'oficina',schema_version:1,attributes:[{code:'wifi',label:'Wi-Fi',type:'boolean'}]}}],next_cursor:'',matching_total:1,generated_at:overview.generated_at}),
     setPublicationState:vi.fn().mockResolvedValue(undefined),
     updatePublication:vi.fn().mockResolvedValue(undefined),
+    publicationGallery:vi.fn().mockResolvedValue([]),
+    setPublicationPhotoVisibility:vi.fn().mockResolvedValue(undefined),
+    selectPublicationCover:vi.fn().mockResolvedValue(undefined),
+    removePublicationPhoto:vi.fn().mockResolvedValue(undefined),
+    publicationSchedule:vi.fn().mockResolvedValue({space_id:'space-1',time_zone:'America/Santiago',enabled:false,days:Array.from({length:7},(_,index)=>({weekday:index+1,periods:[]}))}),
+    savePublicationSchedule:vi.fn().mockResolvedValue(undefined),
   };
   TestBed.configureTestingModule({
     providers: [
@@ -224,7 +232,7 @@ it('sends allowlisted account edits, ordinary roles, blocks, and session revocat
   expect(api.updateProfile).toHaveBeenCalledWith('token-a','customer',expect.objectContaining({expected_updated_at:account.profile_updated_at}));
   expect(api.updateRole).toHaveBeenCalledWith('token-a','customer','arrendador',expect.objectContaining({granted:true}));
   expect(api.setBlocked).toHaveBeenCalledWith('token-a','customer',expect.objectContaining({blocked:true}));
-  expect(revoked).toBe(2);
+  expect(revoked).toEqual({ status: 'success', value: 2 });
   expect(facade.selected()?.display_name).toBe('Updated customer');
   expect(facade.selected()?.administrative_blocked).toBe(true);
 });
@@ -240,4 +248,85 @@ it('loads global publications by owner and preserves exact CLP strings while edi
   component.editPublication(publication);
   await component.savePublication();
   expect(api.updatePublication).toHaveBeenCalledWith('token-a','space-1',expect.objectContaining({base_price_clp:'9007199254740999',expected_updated_at:publication.updated_at}));
+});
+
+it('clears the private publication editor and its fields on real logout', async () => {
+  const { identity, component, facade } = await setup();
+  component.showTab('publications');
+  await vi.waitFor(() => expect(facade.publications()?.items).toHaveLength(1));
+  component.editPublication(facade.publications()!.items[0]);
+  expect(component.publicationEditForm.controls.description.value).not.toBe('');
+
+  await identity.signOut();
+  TestBed.tick();
+
+  expect(component.editingPublication()).toBeNull();
+  expect(component.publicationEditForm.getRawValue()).toEqual({
+    title: '', description: '', capacity: '', usageRules: '', price: '',
+  });
+});
+
+it('keeps selected account B when a profile update for A completes later', async () => {
+  const { api, component, facade } = await setup();
+  await component.open('customer');
+  let finish!: (value: Awaited<ReturnType<typeof api.updateProfile>>) => void;
+  api.updateProfile.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  const update = facade.updateProfile({
+    display_name: 'Saved A', phone: null,
+    expected_updated_at: account.profile_updated_at,
+    reason: 'correccion_perfil',
+  });
+  api.account.mockResolvedValueOnce({ ...account, account_id: 'customer-b', email: 'b@example.invalid' });
+  await component.open('customer-b');
+
+  finish({ account_id: 'customer', email: account.email, display_name: 'Saved A', phone: null, updated_at: '2026-10-14T01:00:00Z' });
+  await update;
+
+  expect(facade.selected()?.account_id).toBe('customer-b');
+});
+
+it('does not announce an old session revocation in a later login', async () => {
+  const { identity, api, component } = await setup();
+  await component.open('customer');
+  let finish!: (value: number) => void;
+  api.revokeSessions.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  component.confirmSessionRevocation.set(true);
+  const revocation = component.revokeSessions();
+
+  await identity.signOut();
+  await identity.signIn('master@example.invalid', 'synthetic-test-only');
+  TestBed.tick();
+  finish(3);
+  await revocation;
+
+  expect(component.notice()).toBe('');
+});
+
+it('does not report session revocation success when the API rejects', async () => {
+  const { api, component } = await setup();
+  await component.open('customer');
+  api.revokeSessions.mockRejectedValueOnce(new Error('backend unavailable'));
+  component.confirmSessionRevocation.set(true);
+
+  await component.revokeSessions();
+
+  expect(component.notice()).toBe('');
+  expect(component.error()).toContain('backend unavailable');
+});
+
+it('loads owner-scoped resources and ignores a detail response after changing accounts', async () => {
+  const { api, component, facade } = await setup();
+  await component.open('customer');
+  api.listAccountResources.mockResolvedValueOnce({items:[{id:'reservation-1',kind:'reservation',space_id:'space-1',reservation_id:'reservation-1',state:'pagada',participant_role:'arrendador',occurred_at:overview.generated_at}],next_cursor:'next',matching_total:1,generated_at:overview.generated_at});
+  await component.loadAccountResources('reservations');
+  expect(facade.accountResources()?.items[0].reservation_id).toBe('reservation-1');
+
+  let finish!: (value: Record<string, unknown>) => void;
+  api.accountResource.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  const detail = component.openResourceDetail('reservation-1');
+  api.account.mockResolvedValueOnce({...account,account_id:'customer-b',email:'b@example.invalid'});
+  await component.open('customer-b');
+  finish({id:'reservation-1',state:'pagada'});
+  await detail;
+  expect(facade.accountResourceDetail()).toBeNull();
 });

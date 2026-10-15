@@ -126,6 +126,34 @@ func (s *Service) SetPublicInCatalog(ctx context.Context, owner, spaceID, photoI
 	return s.repo.SetPublicInCatalog(ctx, owner, spaceID, photoID, enabled)
 }
 
+func (s *Service) ListAsAdministrator(ctx context.Context, actor, owner, spaceID, correlation string) ([]Photo, error) {
+	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(correlation) { return nil, ErrNotFound }
+	repository, ok := s.repo.(AdministrativeRepository)
+	if !ok { return nil, ErrNotFound }
+	return repository.ListAsAdministrator(ctx, actor, owner, spaceID, correlation)
+}
+
+func (s *Service) SetPublicInCatalogAsAdministrator(ctx context.Context, actor, owner, spaceID, photoID string, enabled bool, expectedUpdatedAt time.Time, correlation, reason string) (Photo, error) {
+	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 { return Photo{}, ErrInvalid }
+	repository, ok := s.repo.(AdministrativeRepository)
+	if !ok { return Photo{}, ErrNotFound }
+	return repository.SetPublicInCatalogAsAdministrator(ctx, actor, owner, spaceID, photoID, enabled, expectedUpdatedAt.UTC(), correlation, reason)
+}
+
+func (s *Service) SelectCoverAsAdministrator(ctx context.Context, actor, owner, spaceID, photoID string, expectedUpdatedAt time.Time, correlation, reason string) (Cover, error) {
+	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 { return Cover{}, ErrInvalid }
+	repository, ok := s.repo.(AdministrativeRepository)
+	if !ok { return Cover{}, ErrNotFound }
+	return repository.SelectCoverAsAdministrator(ctx, actor, owner, spaceID, photoID, expectedUpdatedAt.UTC(), correlation, reason)
+}
+
+func (s *Service) RemoveAsAdministrator(ctx context.Context, actor, owner, spaceID, photoID string, expectedUpdatedAt time.Time, correlation, reason string) (Removal, error) {
+	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 { return Removal{}, ErrInvalid }
+	repository, ok := s.repo.(AdministrativeRepository)
+	if !ok { return Removal{}, ErrNotFound }
+	return repository.RemoveAsAdministrator(ctx, actor, owner, spaceID, photoID, expectedUpdatedAt.UTC(), correlation, reason)
+}
+
 // CleanRetiredOnce drains withdrawn photos and files that never became photos.
 // Both paths are durable, retryable and safe across Backend restarts.
 func (s *Service) CleanRetiredOnce(ctx context.Context, limit int) error {

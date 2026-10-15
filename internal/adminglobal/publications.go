@@ -13,9 +13,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"github.com/jackc/pgx/v5"
 )
+
+var retirementReasons = map[string]bool{
+	"moderacion_contenido":    true,
+	"riesgo_seguridad":        true,
+	"solicitud_titular":       true,
+	"revision_administrativa": true,
+}
 
 type PublicationFilter struct {
 	OwnerID  string `json:"owner_id,omitempty"`
@@ -27,24 +36,27 @@ type PublicationFilter struct {
 	Cursor   string `json:"cursor,omitempty"`
 }
 type Publication struct {
-	ID                   string    `json:"publication_id"`
-	OwnerID              string    `json:"owner_id"`
-	OwnerName            *string   `json:"owner_name"`
-	OwnerEmail           string    `json:"owner_email"`
-	Category             string    `json:"category_code"`
-	CategoryName         string    `json:"category_name"`
-	Title                string    `json:"title"`
-	Description          string    `json:"description"`
-	AreaM2               string    `json:"area_m2"`
-	Capacity             int32     `json:"capacity"`
-	UsageRules           string    `json:"usage_rules"`
-	Address              string    `json:"address"`
-	State                string    `json:"state"`
-	RateUnit             string    `json:"rate_unit"`
-	BasePriceCLP         string    `json:"base_price_clp"`
-	UpdatedAt            time.Time `json:"updated_at"`
-	PubliclyVisible      bool      `json:"publicly_visible"`
-	PublicCoverAvailable bool      `json:"public_cover_available"`
+	ID                     string         `json:"publication_id"`
+	OwnerID                string         `json:"owner_id"`
+	OwnerName              *string        `json:"owner_name"`
+	OwnerEmail             string         `json:"owner_email"`
+	Category               string         `json:"category_code"`
+	CategoryName           string         `json:"category_name"`
+	Title                  string         `json:"title"`
+	Description            string         `json:"description"`
+	AreaM2                 string         `json:"area_m2"`
+	Capacity               int32          `json:"capacity"`
+	UsageRules             string         `json:"usage_rules"`
+	Address                string         `json:"address"`
+	State                  string         `json:"state"`
+	RateUnit               string         `json:"rate_unit"`
+	BasePriceCLP           string         `json:"base_price_clp"`
+	UpdatedAt              time.Time      `json:"updated_at"`
+	PubliclyVisible        bool           `json:"publicly_visible"`
+	PublicCoverAvailable   bool           `json:"public_cover_available"`
+	AttributeSchemaVersion int            `json:"attribute_schema_version"`
+	Attributes             map[string]any `json:"attributes"`
+	AttributeSchema        spaces.Profile `json:"attribute_schema"`
 }
 type PublicationPage struct {
 	Items         []Publication `json:"items"`
@@ -64,16 +76,18 @@ type PublicationStateInput struct {
 	Reason            string    `json:"reason"`
 }
 type PublicationContentUpdate struct {
-	Title             *string   `json:"title,omitempty"`
-	Description       *string   `json:"description,omitempty"`
-	Capacity          *int32    `json:"capacity,omitempty"`
-	UsageRules        *string   `json:"usage_rules,omitempty"`
-	BasePriceCLP      *string   `json:"base_price_clp,omitempty"`
-	RegionCode        *string   `json:"region_code,omitempty"`
-	CommuneCode       *string   `json:"comuna_code,omitempty"`
-	CoverPhotoID      *string   `json:"cover_photo_id,omitempty"`
-	ExpectedUpdatedAt time.Time `json:"expected_updated_at"`
-	Reason            string    `json:"reason"`
+	Title                  *string        `json:"title,omitempty"`
+	Description            *string        `json:"description,omitempty"`
+	Capacity               *int32         `json:"capacity,omitempty"`
+	UsageRules             *string        `json:"usage_rules,omitempty"`
+	BasePriceCLP           *string        `json:"base_price_clp,omitempty"`
+	RegionCode             *string        `json:"region_code,omitempty"`
+	CommuneCode            *string        `json:"comuna_code,omitempty"`
+	CoverPhotoID           *string        `json:"cover_photo_id,omitempty"`
+	AttributeSchemaVersion *int           `json:"attribute_schema_version,omitempty"`
+	Attributes             map[string]any `json:"attributes,omitempty"`
+	ExpectedUpdatedAt      time.Time      `json:"expected_updated_at"`
+	Reason                 string         `json:"reason"`
 }
 
 func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation string, in PublicationContentUpdate) (Publication, error) {
@@ -89,11 +103,11 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 		price = &n
 	}
 	content := spaces.PublishedContentInput{Title: in.Title, Description: in.Description, Capacity: in.Capacity, UsageRules: in.UsageRules, BasePriceCLP: price, RegionCode: in.RegionCode, CommuneCode: in.CommuneCode}
-	hasContent := in.Title != nil || in.Description != nil || in.Capacity != nil || in.UsageRules != nil || in.BasePriceCLP != nil || in.RegionCode != nil || in.CommuneCode != nil
+	hasContent := in.Title != nil || in.Description != nil || in.Capacity != nil || in.UsageRules != nil || in.BasePriceCLP != nil || in.RegionCode != nil || in.CommuneCode != nil || in.Attributes != nil
 	if !hasContent && in.CoverPhotoID == nil {
 		return Publication{}, ErrInvalid
 	}
-	if hasContent && content.Validate() != nil {
+	if (in.Title != nil || in.Description != nil || in.Capacity != nil || in.UsageRules != nil || in.BasePriceCLP != nil || in.RegionCode != nil || in.CommuneCode != nil) && content.Validate() != nil {
 		return Publication{}, ErrInvalid
 	}
 	if in.CoverPhotoID != nil && *in.CoverPhotoID != "" && !canonicalUUID.MatchString(*in.CoverPhotoID) {
@@ -110,6 +124,7 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 	} else if err != nil {
 		return Publication{}, err
 	}
+	if actor == owner { return Publication{}, ErrNotFound }
 	if err = lockManagedAccounts(ctx, tx, actor, owner); err != nil {
 		return Publication{}, err
 	}
@@ -143,6 +158,21 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 			}
 		}
 	}
+	var profile spaces.Profile
+	if in.Attributes != nil {
+		var raw []byte
+		var currentVersion int
+		err = tx.QueryRow(ctx, `SELECT c.categoria_codigo,c.perfil_version,p.perfil FROM public.espacio_caracteristicas c JOIN public.categoria_perfil_atributos p ON p.categoria_codigo=c.categoria_codigo AND p.version=c.perfil_version WHERE c.espacio_id=$1 FOR UPDATE OF c`, id).Scan(&profile.CategoryCode, &currentVersion, &raw)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Publication{}, ErrConflict
+		}
+		if err != nil {
+			return Publication{}, err
+		}
+		if json.Unmarshal(raw, &profile) != nil || in.AttributeSchemaVersion == nil || *in.AttributeSchemaVersion != currentVersion || profile.ValidateAttributes(in.Attributes) != nil {
+			return Publication{}, ErrInvalid
+		}
+	}
 	at := s.now().UTC()
 	if price != nil && *price != oldPrice {
 		var version int32
@@ -150,6 +180,11 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 			return Publication{}, err
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,$2,$3,$4)`, id, version, unit, *price); err != nil {
+			return Publication{}, err
+		}
+	}
+	if in.Attributes != nil {
+		if _, err = tx.Exec(ctx, `UPDATE public.espacio_caracteristicas SET valores=$2::jsonb,actualizado_en=$3 WHERE espacio_id=$1 AND perfil_version=$4`, id, in.Attributes, at, *in.AttributeSchemaVersion); err != nil {
 			return Publication{}, err
 		}
 	}
@@ -176,6 +211,85 @@ func coalesceString(v *string) string {
 	return strings.TrimSpace(*v)
 }
 
+func (s *Service) RetirePublication(ctx context.Context, actor, id, owner, correlation string, expectedUpdatedAt time.Time, reason string) (spaces.Deletion, error) {
+	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(id) || !canonicalUUID.MatchString(owner) || actor == owner || !canonicalUUID.MatchString(correlation) || expectedUpdatedAt.IsZero() || !retirementReasons[reason] {
+		return spaces.Deletion{}, ErrInvalid
+	}
+	if s.publicationRetirer == nil {
+		return spaces.Deletion{}, ErrConflict
+	}
+	var actualOwner string
+	if err := s.pool.QueryRow(ctx, `SELECT propietario_id::text FROM public.espacio WHERE id=$1`, id).Scan(&actualOwner); errors.Is(err, pgx.ErrNoRows) {
+		return spaces.Deletion{}, ErrNotFound
+	} else if err != nil {
+		return spaces.Deletion{}, err
+	}
+	if actualOwner != owner {
+		return spaces.Deletion{}, ErrConflict
+	}
+	return s.publicationRetirer.DeleteAsAdministrator(ctx, actor, owner, id, correlation, expectedUpdatedAt.UTC(), reason)
+}
+
+func (s *Service) PublicationSchedule(ctx context.Context, actor, id, owner, correlation string) (booking.WeeklyHours, error) {
+	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(id) || !canonicalUUID.MatchString(owner) || !canonicalUUID.MatchString(correlation) || actor == owner || s.weeklyHoursManager == nil {
+		return booking.WeeklyHours{}, ErrInvalid
+	}
+	var actualOwner string
+	if err := s.pool.QueryRow(ctx, `SELECT propietario_id::text FROM public.espacio WHERE id=$1`, id).Scan(&actualOwner); errors.Is(err, pgx.ErrNoRows) {
+		return booking.WeeklyHours{}, ErrNotFound
+	} else if err != nil {
+		return booking.WeeklyHours{}, err
+	}
+	if actualOwner != owner {
+		return booking.WeeklyHours{}, ErrConflict
+	}
+	return s.weeklyHoursManager.WeeklyHoursAsAdministrator(ctx, actor, owner, id, correlation)
+}
+
+func (s *Service) SavePublicationSchedule(ctx context.Context, actor, id, owner, correlation string, expectedUpdatedAt time.Time, reason string, value booking.WeeklyHours) (booking.WeeklyHours, error) {
+	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(id) || !canonicalUUID.MatchString(owner) || !canonicalUUID.MatchString(correlation) || expectedUpdatedAt.IsZero() || !accountReasons[reason] || s.weeklyHoursManager == nil {
+		return booking.WeeklyHours{}, ErrInvalid
+	}
+	return s.weeklyHoursManager.SaveWeeklyHoursAsAdministrator(ctx, actor, owner, id, value, expectedUpdatedAt.UTC(), correlation, reason)
+}
+
+func (s *Service) PublicationGallery(ctx context.Context, actor, id, owner, correlation string) ([]gallery.Photo, error) {
+	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(id) || !canonicalUUID.MatchString(owner) || !canonicalUUID.MatchString(correlation) || s.publicationGallery == nil {
+		return nil, ErrInvalid
+	}
+	var actualOwner string
+	if err := s.pool.QueryRow(ctx, `SELECT propietario_id::text FROM public.espacio WHERE id=$1`, id).Scan(&actualOwner); errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if actualOwner != owner {
+		return nil, ErrConflict
+	}
+	return s.publicationGallery.ListAsAdministrator(ctx, actor, owner, id, correlation)
+}
+
+func (s *Service) SetPublicationPhotoVisibility(ctx context.Context, actor, id, owner, photoID, correlation string, enabled bool, expected time.Time, reason string) (gallery.Photo, error) {
+	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(id) || !canonicalUUID.MatchString(owner) || !canonicalUUID.MatchString(photoID) || !canonicalUUID.MatchString(correlation) || expected.IsZero() || !accountReasons[reason] || s.publicationGallery == nil {
+		return gallery.Photo{}, ErrInvalid
+	}
+	return s.publicationGallery.SetPublicInCatalogAsAdministrator(ctx, actor, owner, id, photoID, enabled, expected.UTC(), correlation, reason)
+}
+
+func (s *Service) SelectPublicationCover(ctx context.Context, actor, id, owner, photoID, correlation string, expected time.Time, reason string) (gallery.Cover, error) {
+	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(id) || !canonicalUUID.MatchString(owner) || !canonicalUUID.MatchString(photoID) || !canonicalUUID.MatchString(correlation) || expected.IsZero() || !accountReasons[reason] || s.publicationGallery == nil {
+		return gallery.Cover{}, ErrInvalid
+	}
+	return s.publicationGallery.SelectCoverAsAdministrator(ctx, actor, owner, id, photoID, expected.UTC(), correlation, reason)
+}
+
+func (s *Service) RemovePublicationPhoto(ctx context.Context, actor, id, owner, photoID, correlation string, expected time.Time, reason string) (gallery.Removal, error) {
+	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(id) || !canonicalUUID.MatchString(owner) || !canonicalUUID.MatchString(photoID) || !canonicalUUID.MatchString(correlation) || expected.IsZero() || !retirementReasons[reason] || s.publicationGallery == nil {
+		return gallery.Removal{}, ErrInvalid
+	}
+	return s.publicationGallery.RemoveAsAdministrator(ctx, actor, owner, id, photoID, expected.UTC(), correlation, reason)
+}
+
 func (s *Service) SetPublicationState(ctx context.Context, actor, id, correlation string, in PublicationStateInput) (PublicationStateChange, error) {
 	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(id) || !canonicalUUID.MatchString(correlation) || in.ExpectedUpdatedAt.IsZero() || !accountReasons[in.Reason] || (in.State != "activa" && in.State != "oculta") {
 		return PublicationStateChange{}, ErrInvalid
@@ -191,6 +305,7 @@ func (s *Service) SetPublicationState(ctx context.Context, actor, id, correlatio
 	} else if err != nil {
 		return PublicationStateChange{}, err
 	}
+	if actor == owner { return PublicationStateChange{}, ErrNotFound }
 	if err = lockManagedAccounts(ctx, tx, actor, owner); err != nil {
 		return PublicationStateChange{}, err
 	}
@@ -343,7 +458,8 @@ func (s *Service) ListPublications(ctx context.Context, actor, correlation strin
 	limit := len(pageArgs)
 	query := fmt.Sprintf(`SELECT e.id::text,e.propietario_id::text,p.nombre_visible,u.correo_original,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::text,e.capacidad_maxima,e.reglas_uso,e.direccion,e.estado,COALESCE(rt.modalidad,e.modalidad_tarifa),COALESCE(rt.precio_base_clp,e.precio_base_clp)::text,e.actualizado_en,%s,
 	EXISTS(SELECT 1 FROM public.espacio_galeria_sintetica_local g WHERE g.espacio_id=e.id AND g.propietario_id=e.propietario_id AND g.id=e.portada_foto_id AND g.estado='activa' AND g.publicada_en_catalogo AND g.archivo_id IS NOT NULL AND g.mime_type='image/png' AND g.size_bytes BETWEEN 1 AND 1048576)
-	FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo JOIN public.usuario u ON u.id=e.propietario_id LEFT JOIN public.perfil_usuario p ON p.usuario_id=u.id LEFT JOIN LATERAL(SELECT modalidad,precio_base_clp FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)rt ON true WHERE %s ORDER BY e.actualizado_en DESC,e.id DESC LIMIT $%d`, visibleExpr, pageWhere, limit)
+	,COALESCE(ec.perfil_version,0),COALESCE(ec.valores,'{}'::jsonb),COALESCE(cp.perfil,'{}'::jsonb)
+	FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo JOIN public.usuario u ON u.id=e.propietario_id LEFT JOIN public.perfil_usuario p ON p.usuario_id=u.id LEFT JOIN public.espacio_caracteristicas ec ON ec.espacio_id=e.id LEFT JOIN public.categoria_perfil_atributos cp ON cp.categoria_codigo=ec.categoria_codigo AND cp.version=ec.perfil_version LEFT JOIN LATERAL(SELECT modalidad,precio_base_clp FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)rt ON true WHERE %s ORDER BY e.actualizado_en DESC,e.id DESC LIMIT $%d`, visibleExpr, pageWhere, limit)
 	rows, err := tx.Query(ctx, query, pageArgs...)
 	if err != nil {
 		return PublicationPage{}, err
@@ -351,7 +467,17 @@ func (s *Service) ListPublications(ctx context.Context, actor, correlation strin
 	out := PublicationPage{Items: []Publication{}, MatchingTotal: total, GeneratedAt: now}
 	for rows.Next() {
 		var p Publication
-		if err = rows.Scan(&p.ID, &p.OwnerID, &p.OwnerName, &p.OwnerEmail, &p.Category, &p.CategoryName, &p.Title, &p.Description, &p.AreaM2, &p.Capacity, &p.UsageRules, &p.Address, &p.State, &p.RateUnit, &p.BasePriceCLP, &p.UpdatedAt, &p.PubliclyVisible, &p.PublicCoverAvailable); err != nil {
+		var attributeValues, schemaRaw []byte
+		if err = rows.Scan(&p.ID, &p.OwnerID, &p.OwnerName, &p.OwnerEmail, &p.Category, &p.CategoryName, &p.Title, &p.Description, &p.AreaM2, &p.Capacity, &p.UsageRules, &p.Address, &p.State, &p.RateUnit, &p.BasePriceCLP, &p.UpdatedAt, &p.PubliclyVisible, &p.PublicCoverAvailable, &p.AttributeSchemaVersion, &attributeValues, &schemaRaw); err != nil {
+			rows.Close()
+			return PublicationPage{}, err
+		}
+		p.Attributes = map[string]any{}
+		if err = json.Unmarshal(attributeValues, &p.Attributes); err != nil {
+			rows.Close()
+			return PublicationPage{}, err
+		}
+		if err = json.Unmarshal(schemaRaw, &p.AttributeSchema); err != nil {
 			rows.Close()
 			return PublicationPage{}, err
 		}

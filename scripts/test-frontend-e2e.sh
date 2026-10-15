@@ -90,6 +90,7 @@ case "${FE14_EVIDENCE_OUTPUT_DIR:-}" in
   */mpv2_11) FE14_EVIDENCE_PREFIX='fe14_mpv2_11_' ;;
   */mpv2_12) FE14_EVIDENCE_PREFIX='fe14_mpv2_12_' ;;
   */mpv2_13) FE14_EVIDENCE_PREFIX='fe14_mpv2_13_' ;;
+  */gadm_02) FE14_EVIDENCE_PREFIX='fe14_gadm_02_' ;;
   */local-close-01) FE14_EVIDENCE_PREFIX='fe14_local_close_01_' ;;
   */local-close-02) FE14_EVIDENCE_PREFIX='fe14_local_close_02_' ;;
 esac
@@ -331,6 +332,13 @@ INSERT INTO public.rol_usuario (usuario_id, rol)
 SELECT id, 'administrador' FROM public.usuario
 WHERE correo_normalizado = 'fe14-' || :'run_id' || '-admin@ejemplo.invalid'
 ON CONFLICT (usuario_id, rol) DO NOTHING;
+INSERT INTO public.administrador_global(usuario_id,concedido_en,concedido_por,motivo_codigo)
+SELECT id,now(),id,'bootstrap_propietario' FROM public.usuario
+WHERE correo_normalizado='fe14-'||:'run_id'||'-admin@ejemplo.invalid'
+ON CONFLICT(usuario_id) DO NOTHING;
+INSERT INTO public.administrador_global_bootstrap(singleton,usuario_id,creado_en)
+SELECT true,id,now() FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-admin@ejemplo.invalid'
+ON CONFLICT(singleton) DO NOTHING;
 SQL
 ROLE_COUNT="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples-only \
   --username espacigo_admin --dbname espacigo_local \
@@ -373,6 +381,9 @@ INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
 SELECT id,1,'hora',18000 FROM space;
 INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores)
 SELECT id,'oficina',1,'{"wifi":true,"puestos_trabajo":6,"tipo_uso_oficina":"privada","climatizacion":["aire_acondicionado"]}'::jsonb FROM public.espacio WHERE titulo='Espacio sintético público FE-14';
+INSERT INTO public.espacio_galeria_sintetica_local(id,espacio_id,propietario_id,archivo_id,fixture_code,mime_type,sha256,size_bytes,estado,creada_en,clave_idempotencia)
+SELECT gen_random_uuid(),id,propietario_id,gen_random_uuid(),'synthetic-png-v1','image/png',repeat('a',64),100,'activa',now(),'fe14-gadm02-gallery'
+FROM public.espacio WHERE titulo='Espacio sintético público FE-14';
 WITH host AS (
   SELECT id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-public-owner@ejemplo.invalid'
 ), space AS (
@@ -461,7 +472,11 @@ if [[ "$LOCAL_CLOSE02_CLOCK" == "1" ]]; then
 fi
 
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
-if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
+if [[ -n "${FE14_TEST_GREP:-}" ]]; then
+  printf 'Running focused connected FE-14 journey: %s\n' "$FE14_TEST_GREP"
+  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep "$FE14_TEST_GREP" >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
+  cat "$STATE_DIR/e2e.log"
+elif [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
   printf 'Running focused anonymous public catalog journey\n'
   if [[ "$LOCAL_CLOSE02_CLOCK" == "1" ]]; then
     PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-LOCAL-CLOSE-02 serves a signed reservation through its financial close}"

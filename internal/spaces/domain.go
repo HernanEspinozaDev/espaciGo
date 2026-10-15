@@ -149,6 +149,13 @@ type Repository interface {
 	DeleteOwn(ctx context.Context, owner, id, correlationID string) (Deletion, error)
 }
 
+// AdministrativeDeletionRepository keeps the administrator actor separate
+// from the publication owner while reusing the domain's terminal-retirement
+// and retention rules.
+type AdministrativeDeletionRepository interface {
+	DeleteAsAdministrator(context.Context, string, string, string, string, time.Time, string) (Deletion, error)
+}
+
 // ArchiveSectionRepository exports only drafts owned by the authenticated
 // account, including their saved category/profile versions.
 type ArchiveSectionRepository interface {

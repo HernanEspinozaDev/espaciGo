@@ -16,12 +16,18 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
+	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
+	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adminglobal"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adminlocal"
+	bookingdomain "github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
+	spacesdomain "github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -169,6 +175,12 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) SELECT $1,'oficina',max(version),'{}'::jsonb FROM public.categoria_perfil_atributos WHERE categoria_codigo='oficina'`, publicationB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) SELECT $1,'oficina',max(version),' {"wifi":true}'::jsonb FROM public.categoria_perfil_atributos WHERE categoria_codigo='oficina'`, publicationA); err != nil {
+		t.Fatal(err)
+	}
 	publicationPage, err := service.ListPublications(ctx, master, corr, adminglobal.PublicationFilter{OwnerID: landlord, Category: "oficina", State: "borrador", PageSize: 1})
 	if err != nil || publicationPage.MatchingTotal != 2 || len(publicationPage.Items) != 1 || publicationPage.NextCursor == "" || publicationPage.Items[0].PubliclyVisible || publicationPage.Items[0].BasePriceCLP != "12000" {
 		t.Fatalf("publication inventory/filter/page: %+v err=%v", publicationPage, err)
@@ -192,6 +204,22 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	}
 	if _, err = service.UpdatePublication(ctx, master, publicationA, corr, adminglobal.PublicationContentUpdate{Title: &newTitle, ExpectedUpdatedAt: publicationVersion, Reason: "revision_administrativa"}); !errors.Is(err, adminglobal.ErrConflict) {
 		t.Fatalf("stale publication update returned %v", err)
+	}
+	var attributeSchemaVersion int
+	if err = pool.QueryRow(ctx, `SELECT perfil_version FROM public.espacio_caracteristicas WHERE espacio_id=$1`, publicationA).Scan(&attributeSchemaVersion); err != nil {
+		t.Fatal(err)
+	}
+	var attributesVersion time.Time
+	if err = pool.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, publicationA).Scan(&attributesVersion); err != nil {
+		t.Fatal(err)
+	}
+	updatedAttributes, err := service.UpdatePublication(ctx, master, publicationA, corr, adminglobal.PublicationContentUpdate{AttributeSchemaVersion: &attributeSchemaVersion, Attributes: map[string]any{"wifi": false}, ExpectedUpdatedAt: attributesVersion, Reason: "correccion_perfil"})
+	if err != nil || updatedAttributes.ID != publicationA {
+		t.Fatalf("category attribute correction: %+v err=%v", updatedAttributes, err)
+	}
+	var wifi bool
+	if err = pool.QueryRow(ctx, `SELECT (valores->>'wifi')::boolean FROM public.espacio_caracteristicas WHERE espacio_id=$1`, publicationA).Scan(&wifi); err != nil || wifi {
+		t.Fatalf("versioned category attribute not persisted: wifi=%v err=%v", wifi, err)
 	}
 	var rateCount int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$1`, publicationA).Scan(&rateCount); err != nil || rateCount != 2 {
@@ -218,6 +246,131 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	}
 	if _, err = service.SetPublicationState(ctx, master, publicationA, corr, adminglobal.PublicationStateInput{State: "activa", ExpectedUpdatedAt: draftVersion, Reason: "revision_administrativa"}); !errors.Is(err, adminglobal.ErrConflict) {
 		t.Fatalf("stale publication transition returned %v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE public.espacio SET zona_horaria='America/Santiago' WHERE id=$1`, publicationB); err != nil {
+		t.Fatal(err)
+	}
+	localPayment, err := fakebooking.New([]byte("integration-only-local-payment-webhook-key-32-bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bookingService, err := bookingdomain.NewService(bookingpg.New(pool), credentials.Generator{}, time.Now, localPayment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.SetWeeklyHoursManager(bookingService)
+	adminSchedule, err := service.PublicationSchedule(ctx, master, publicationB, landlord, corr)
+	if err != nil || adminSchedule.SpaceID != publicationB || adminSchedule.TimeZone != "America/Santiago" {
+		t.Fatalf("global schedule read: %+v err=%v", adminSchedule, err)
+	}
+	var scheduleVersion time.Time
+	if err = pool.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, publicationB).Scan(&scheduleVersion); err != nil {
+		t.Fatal(err)
+	}
+	weekly := bookingdomain.WeeklyHours{SpaceID: publicationB, Enabled: false, Days: make([]bookingdomain.WeeklyDay, 7)}
+	for index := range weekly.Days {
+		weekly.Days[index] = bookingdomain.WeeklyDay{Weekday: index + 1, Periods: []bookingdomain.WeeklyPeriod{}}
+	}
+	savedSchedule, err := service.SavePublicationSchedule(ctx, master, publicationB, landlord, corr, scheduleVersion, "revision_administrativa", weekly)
+	if err != nil || savedSchedule.SpaceID != publicationB || savedSchedule.Enabled {
+		t.Fatalf("global schedule write: %+v err=%v", savedSchedule, err)
+	}
+	const bookingID = "82000000-0000-4000-8000-000000000001"
+	const quoteID = "82000000-0000-4000-8000-000000000002"
+	const occupancyID = "82000000-0000-4000-8000-000000000003"
+	bookingTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bookingTx.Rollback(ctx)
+	if _, err = bookingTx.Exec(ctx, `SET CONSTRAINTS ALL DEFERRED`); err != nil {
+		t.Fatal(err)
+	}
+	bookingStart := time.Now().UTC().Add(48 * time.Hour).Truncate(time.Minute)
+	bookingEnd := bookingStart.Add(time.Hour)
+	if _, err = bookingTx.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo) VALUES($1,$2,$3,tstzrange($4,$5,'[)'),'reserva',true)`, occupancyID, publicationB, bookingID, bookingStart, bookingEnd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = bookingTx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,categoria_codigo,perfil_version,perfil_valores_snapshot,creada_en,vence_en) VALUES($1,$2,$3,$4,1,'hora',12000,'CLP',1,12000,$5,$6,'America/Santiago','Condiciones sintéticas de ensayo','oficina',1,'{}'::jsonb,now(),now()+interval '15 minutes')`, quoteID, publicationB, landlord, renter, bookingStart, bookingEnd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = bookingTx.Exec(ctx, `INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,pago_vence_en,creada_en,actualizada_en) VALUES($1,$2,$3,$4,$5,'gadm02-resource-booking',decode(repeat('00',32),'hex'),$6,'pagada',12000,1,12000,'hora','CLP',$7,$8,'America/Santiago','Condiciones sintéticas de ensayo',now()+interval '15 minutes',now(),now())`, bookingID, quoteID, publicationB, landlord, renter, occupancyID, bookingStart, bookingEnd); err != nil {
+		t.Fatal(err)
+	}
+	if err = bookingTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	resourcePage, err := service.ListAccountResources(ctx, master, renter, corr, "reservations", "", 1)
+	if err != nil || resourcePage.MatchingTotal != 1 || len(resourcePage.Items) != 1 || resourcePage.Items[0].ID != bookingID || resourcePage.Items[0].Participant != "arrendatario" {
+		t.Fatalf("account reservation resources: %+v err=%v", resourcePage, err)
+	}
+	resourceDetail, err := service.GetAccountResource(ctx, master, renter, bookingID, corr, "reservations")
+	if err != nil || resourceDetail["state"] != "pagada" {
+		t.Fatalf("account reservation detail: %+v err=%v", resourceDetail, err)
+	}
+	const photoID = "81000000-0000-4000-8000-000000000001"
+	const fileID = "81000000-0000-4000-8000-000000000002"
+	if _, err = pool.Exec(ctx, `INSERT INTO public.espacio_galeria_sintetica_local(id,espacio_id,propietario_id,archivo_id,fixture_code,mime_type,sha256,size_bytes,estado,creada_en,clave_idempotencia) VALUES($1,$2,$3,$4,'synthetic-png-v1','image/png',repeat('a',64),100,'activa',now(),'gadm02-gallery')`, photoID, publicationB, landlord, fileID); err != nil {
+		t.Fatal(err)
+	}
+	service.SetPublicationGallery(gallerypg.New(pool))
+	photos, err := service.PublicationGallery(ctx, master, publicationB, landlord, corr)
+	if err != nil || len(photos) != 1 || photos[0].ID != photoID || photos[0].State != "activa" {
+		t.Fatalf("global gallery read: %+v err=%v", photos, err)
+	}
+	var galleryVersion time.Time
+	if err = pool.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, publicationB).Scan(&galleryVersion); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.SetPublicationPhotoVisibility(ctx, master, publicationB, landlord, photoID, corr, true, galleryVersion, "revision_administrativa"); err != nil {
+		t.Fatalf("global photo visibility: %v", err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, publicationB).Scan(&galleryVersion); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.SelectPublicationCover(ctx, master, publicationB, landlord, photoID, corr, galleryVersion, "revision_administrativa"); err != nil {
+		t.Fatalf("global cover select: %v", err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, publicationB).Scan(&galleryVersion); err != nil {
+		t.Fatal(err)
+	}
+	removedPhoto, err := service.RemovePublicationPhoto(ctx, master, publicationB, landlord, photoID, corr, galleryVersion, "moderacion_contenido")
+	if err != nil || !removedPhoto.Removed {
+		t.Fatalf("global photo remove: %+v err=%v", removedPhoto, err)
+	}
+	retirementService, err := spacesdomain.NewService(spacespg.New(pool, credentials.Generator{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.SetPublicationRetirer(retirementService)
+	var retirementVersion time.Time
+	if err = pool.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, publicationA).Scan(&retirementVersion); err != nil {
+		t.Fatal(err)
+	}
+	retired, err := service.RetirePublication(ctx, master, publicationA, landlord, corr, retirementVersion, "revision_administrativa")
+	if err != nil || retired.State != "eliminada" || retired.SpaceID != publicationA {
+		t.Fatalf("global retirement: %+v err=%v", retired, err)
+	}
+	retriedRetirement, err := service.RetirePublication(ctx, master, publicationA, landlord, corr, retirementVersion, "revision_administrativa")
+	if err != nil || !retriedRetirement.Reused {
+		t.Fatalf("global retirement retry: %+v err=%v", retriedRetirement, err)
+	}
+	var retirementActor string
+	if err = pool.QueryRow(ctx, `SELECT actor_id::text FROM public.espacio_eliminacion_historial_local WHERE espacio_id=$1`, publicationA).Scan(&retirementActor); err != nil || retirementActor != master {
+		t.Fatalf("retirement actor=%s err=%v", retirementActor, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE public.espacio SET estado='activa' WHERE id=$1`, publicationB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, publicationB, landlord, renter); err != nil {
+		t.Fatal(err)
+	}
+	var blockedRetirementVersion time.Time
+	if err = pool.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, publicationB).Scan(&blockedRetirementVersion); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.RetirePublication(ctx, master, publicationB, landlord, corr, blockedRetirementVersion, "revision_administrativa"); !errors.Is(err, spacesdomain.ErrDeleteBlocked) {
+		t.Fatalf("retirement ignored active booking fixture: %v", err)
 	}
 	auth, err := identity.NewAuthenticationService(identitypg.NewIdentityRepository(pool), password.Hasher{}, devauth.Mailer{}, devauth.NewIPLimiter(50), credentials.Generator{}, time.Now)
 	if err != nil {

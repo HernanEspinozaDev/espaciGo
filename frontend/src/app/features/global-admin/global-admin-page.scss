@@ -31,3 +31,6 @@ dt { color: var(--color-text-muted); }
 dd { margin: 0; }
 @include bp.down('viewport-760px') { .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .totals { grid-template-columns: 1fr; } .totals p { grid-column: auto; } }
 @include bp.down('viewport-40rem') { .filters { grid-template-columns: 1fr; } th, td { padding: var(--space-2); } }
+.filters > * { min-width: 0; }
+.filters article, .filters h3, .filters p { min-width: 0; overflow-wrap: anywhere; }
+.filters input[type='checkbox'] { width: auto; min-height: auto; justify-self: start; }

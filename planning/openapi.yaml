@@ -136,6 +136,25 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '409': {$ref: '#/components/responses/Conflict'}
         '428': {description: Se requiere sesión reciente}
+  /admin/global/accounts/{accountID}/resources/{resourceKind}:
+    get:
+      operationId: listGlobalAdminAccountResources
+      tags: [Global administration]
+      parameters:
+      - {in: path, name: accountID, required: true, schema: {type: string, format: uuid}}
+      - {in: path, name: resourceKind, required: true, schema: {type: string, enum: [reservations, incidents]}}
+      - {in: query, name: page_size, schema: {type: integer, minimum: 1, maximum: 50, default: 25}}
+      - {in: query, name: cursor, schema: {type: string, maxLength: 2048}}
+      responses: {'200': {description: Recursos vinculados a la cuenta, minimizados y paginados}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {$ref: '#/components/responses/NotFound'}}
+  /admin/global/accounts/{accountID}/resources/{resourceKind}/{resourceID}:
+    get:
+      operationId: getGlobalAdminAccountResource
+      tags: [Global administration]
+      parameters:
+      - {in: path, name: accountID, required: true, schema: {type: string, format: uuid}}
+      - {in: path, name: resourceKind, required: true, schema: {type: string, enum: [reservations, incidents]}}
+      - {in: path, name: resourceID, required: true, schema: {type: string, format: uuid}}
+      responses: {'200': {description: Recurso autorizado con datos mínimos necesarios}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {$ref: '#/components/responses/NotFound'}}
   /admin/global/publications:
     get:
       operationId: listGlobalAdminPublications
@@ -185,7 +204,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: {type: object, additionalProperties: false, required: [expected_updated_at, reason], properties: {title: {type: string, maxLength: 70}, description: {type: string, minLength: 100}, capacity: {type: integer, minimum: 1}, usage_rules: {type: string, maxLength: 250}, base_price_clp: {type: string, pattern: '^[0-9]+$'}, region_code: {type: string, pattern: '^[0-9]{2}$'}, comuna_code: {type: string, pattern: '^[0-9]{5}$'}, cover_photo_id: {type: string, format: uuid}, expected_updated_at: {type: string, format: date-time}, reason: {type: string, enum: [correccion_perfil, revision_administrativa, gestion_operativa]}}}
+            schema: {type: object, additionalProperties: false, required: [expected_updated_at, reason], properties: {title: {type: string, maxLength: 70}, description: {type: string, minLength: 100}, capacity: {type: integer, minimum: 1}, usage_rules: {type: string, maxLength: 250}, base_price_clp: {type: string, pattern: '^[0-9]+$'}, region_code: {type: string, pattern: '^[0-9]{2}$'}, comuna_code: {type: string, pattern: '^[0-9]{5}$'}, cover_photo_id: {type: string, format: uuid}, attribute_schema_version: {type: integer, minimum: 1}, attributes: {type: object, additionalProperties: true}, expected_updated_at: {type: string, format: date-time}, reason: {type: string, enum: [correccion_perfil, revision_administrativa, gestion_operativa]}}}
       responses:
         '200': {description: Campos allowlisted actualizados y auditados}
         '401': {$ref: '#/components/responses/Unauthorized'}
@@ -193,6 +212,76 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
         '428': {description: Se requiere sesión reciente}
+  /admin/global/publications/{publicationID}/retire:
+    post:
+      operationId: retireGlobalAdminPublication
+      tags: [Global administration]
+      summary: Retirar publicación con retención y obligación controladas
+      parameters: [{in: path, name: publicationID, required: true, schema: {type: string, format: uuid}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false, required: [owner_id, expected_updated_at, reason], properties: {owner_id: {type: string, format: uuid}, expected_updated_at: {type: string, format: date-time}, reason: {type: string, enum: [moderacion_contenido, riesgo_seguridad, solicitud_titular, revision_administrativa]}}}
+      responses:
+        '200': {description: Retiro append-only con actor administrativo y limpieza durable}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {description: Se requiere sesión reciente}
+  /admin/global/publications/{publicationID}/schedule:
+    get:
+      operationId: getGlobalAdminPublicationSchedule
+      tags: [Global administration]
+      parameters: [{in: path, name: publicationID, required: true, schema: {type: string, format: uuid}}, {in: query, name: owner_id, required: true, schema: {type: string, format: uuid}}]
+      responses: {'200': {description: Horario semanal vigente}, '403': {$ref: '#/components/responses/Forbidden'}}
+    put:
+      operationId: updateGlobalAdminPublicationSchedule
+      tags: [Global administration]
+      parameters: [{in: path, name: publicationID, required: true, schema: {type: string, format: uuid}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false, required: [owner_id, enabled, days, expected_updated_at, reason], properties: {owner_id: {type: string, format: uuid}, enabled: {type: boolean}, days: {type: array}, expected_updated_at: {type: string, format: date-time}, reason: {type: string, enum: [correccion_perfil, revision_administrativa, gestion_operativa]}}}
+      responses: {'200': {description: Horario semanal y auditoría guardados transaccionalmente}, '409': {$ref: '#/components/responses/Conflict'}, '428': {description: Se requiere sesión reciente}}
+  /admin/global/publications/{publicationID}/gallery:
+    get:
+      operationId: listGlobalAdminPublicationGallery
+      tags: [Global administration]
+      parameters: [{in: path, name: publicationID, required: true, schema: {type: string, format: uuid}}, {in: query, name: owner_id, required: true, schema: {type: string, format: uuid}}]
+      responses: {'200': {description: Metadatos minimizados de galería con portada y limpieza pendiente}}
+  /admin/global/publications/{publicationID}/gallery/{photoID}/visibility:
+    patch:
+      operationId: setGlobalAdminPublicationPhotoVisibility
+      tags: [Global administration]
+      parameters: [{in: path, name: publicationID, required: true, schema: {type: string, format: uuid}}, {in: path, name: photoID, required: true, schema: {type: string, format: uuid}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false, required: [owner_id, enabled, expected_updated_at, reason], properties: {owner_id: {type: string, format: uuid}, enabled: {type: boolean}, expected_updated_at: {type: string, format: date-time}, reason: {type: string}}}
+      responses: {'200': {description: Visibilidad de foto actualizada y auditada}, '409': {$ref: '#/components/responses/Conflict'}, '428': {description: Se requiere sesión reciente}}
+  /admin/global/publications/{publicationID}/gallery/{photoID}/cover:
+    post:
+      operationId: selectGlobalAdminPublicationCover
+      tags: [Global administration]
+      parameters: [{in: path, name: publicationID, required: true, schema: {type: string, format: uuid}}, {in: path, name: photoID, required: true, schema: {type: string, format: uuid}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false, required: [owner_id, expected_updated_at, reason], properties: {owner_id: {type: string, format: uuid}, expected_updated_at: {type: string, format: date-time}, reason: {type: string}}}
+      responses: {'200': {description: Portada seleccionada}, '409': {$ref: '#/components/responses/Conflict'}, '428': {description: Se requiere sesión reciente}}
+  /admin/global/publications/{publicationID}/gallery/{photoID}/remove:
+    post:
+      operationId: removeGlobalAdminPublicationPhoto
+      tags: [Global administration]
+      parameters: [{in: path, name: publicationID, required: true, schema: {type: string, format: uuid}}, {in: path, name: photoID, required: true, schema: {type: string, format: uuid}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false, required: [owner_id, expected_updated_at, reason], properties: {owner_id: {type: string, format: uuid}, expected_updated_at: {type: string, format: date-time}, reason: {type: string}}}
+      responses: {'200': {description: Foto retirada con limpieza durable}, '409': {$ref: '#/components/responses/Conflict'}, '428': {description: Se requiere sesión reciente}}
   /public/spaces:
     get:
       operationId: listPublicSpaces
@@ -2989,7 +3078,7 @@ components:
         data: {type: object, required: [items, next_cursor, matching_total, generated_at], properties: {items: {type: array, items: {$ref: '#/components/schemas/GlobalAdminAccount'}}, next_cursor: {type: string}, matching_total: {type: integer, format: int64}, generated_at: {type: string, format: date-time}}}
     GlobalAdminPublication:
       type: object
-      required: [publication_id, owner_id, owner_email, category_code, category_name, title, description, area_m2, capacity, usage_rules, address, state, rate_unit, base_price_clp, updated_at, publicly_visible, public_cover_available]
+      required: [publication_id, owner_id, owner_email, category_code, category_name, title, description, area_m2, capacity, usage_rules, address, state, rate_unit, base_price_clp, updated_at, publicly_visible, public_cover_available, attribute_schema_version, attributes, attribute_schema]
       properties:
         publication_id: {type: string, format: uuid}
         owner_id: {type: string, format: uuid}
@@ -3009,6 +3098,9 @@ components:
         updated_at: {type: string, format: date-time}
         publicly_visible: {type: boolean}
         public_cover_available: {type: boolean}
+        attribute_schema_version: {type: integer, minimum: 0}
+        attributes: {type: object, additionalProperties: true}
+        attribute_schema: {type: object, additionalProperties: true}
     GlobalAdminPublicationPageEnvelope:
       type: object
       required: [data]
