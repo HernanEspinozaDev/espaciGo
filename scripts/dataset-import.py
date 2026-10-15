@@ -664,6 +664,11 @@ class Importer:
                 if (status != 200 or mime != "image/png" or not blob.startswith(b"\x89PNG\r\n\x1a\n")
                         or hashlib.sha256(blob).hexdigest() != selected.get("sha256")):
                     raise RuntimeError("public synthetic cover is not readable from every API instance")
+        else:
+            private_photo = next((item for item in items if item.get("id") == photo_id), None)
+            if private_photo is not None and private_photo.get("public_in_catalog") is True:
+                owner.request("PUT", path + f"/{quote(photo_id, safe='')}/publication",
+                              {"public_in_catalog": False}, expect=(200,))
 
         if photo_id != previous_id:
             # Save the replacement mapping before retiring the broken fixture;
@@ -681,12 +686,11 @@ class Importer:
             self.save()
         return photo_id
 
-    def repair_active_photos(self, assignments: list[dict]) -> int:
+    def repair_photos(self, assignments: list[dict]) -> tuple[int, int]:
         grouped = defaultdict(list)
         for row in assignments:
-            if row["intended_visibility"] == "publica":
-                grouped[row["owner_ref"]].append(row)
-        repaired = 0
+            grouped[row["owner_ref"]].append(row)
+        repaired = active_covers = 0
         for host_ref in sorted(grouped):
             if not self.state["users"].get(host_ref):
                 raise RuntimeError("active listing owner is missing from the private checkpoint")
@@ -700,12 +704,14 @@ class Importer:
                 gallery = owner.request("GET", f"/api/v1/spaces/{quote(space_id, safe='')}/gallery").get("items", [])
                 if not any(item.get("id") == photo_id for item in gallery):
                     raise RuntimeError("checkpoint photo is absent from the owner gallery")
-                new_id = self.ensure_photo_content(owner, space_id, ref, photo_id, gallery, public=True)
+                is_public = assignment["intended_visibility"] == "publica"
+                new_id = self.ensure_photo_content(owner, space_id, ref, photo_id, gallery, public=is_public)
                 listing["photo_id"] = new_id
                 self.save()
                 repaired += 1
+                active_covers += int(is_public)
             self.close_session(owner.token)
-        return repaired
+        return repaired, active_covers
 
     @staticmethod
     def find_existing_space(candidates: list[dict], body: dict):
@@ -819,8 +825,9 @@ def main() -> int:
         importer.save()
 
         if args.mode == "repair-images":
-            repaired = importer.repair_active_photos(listing_assignments)
-            print(json.dumps({"mode": args.mode, "active_photos_repaired_or_verified": repaired,
+            repaired, active_covers = importer.repair_photos(listing_assignments)
+            print(json.dumps({"mode": args.mode, "photos_repaired_or_verified": repaired,
+                              "active_covers_verified": active_covers,
                               "note": "domain API operations only; no PostgreSQL row mutations"}, sort_keys=True))
             return 0
 

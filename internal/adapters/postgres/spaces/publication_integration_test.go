@@ -557,6 +557,30 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if response := markPublic(true); response.Code != http.StatusOK {
 		t.Fatalf("owner publish photo status=%d body=%s", response.Code, response.Body.String())
 	}
+	selectCover := invokePublicationAPI(publicPhotoHandler, http.MethodPut, "/api/v1/spaces/"+fixtureDraft.ID+"/cover", "owner-token", []byte(`{"photo_id":"`+publicPhoto.ID+`"}`))
+	if selectCover.Code != http.StatusOK || !strings.Contains(selectCover.Body.String(), `"selected":true`) {
+		t.Fatalf("owner cover selection status=%d body=%s", selectCover.Code, selectCover.Body.String())
+	}
+	publicPage, listErr := publicService.List(ctx, publiccatalog.Filters{PageSize: 48})
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	listedCover := false
+	for _, item := range publicPage.Items {
+		if item.SpaceID != fixtureDraft.ID {
+			continue
+		}
+		listedCover = item.CoverImageID != nil && *item.CoverImageID == publicPhoto.ID && len(item.Images) == 1 &&
+			item.Images[0].ImageID == publicPhoto.ID && item.Images[0].IsCover
+	}
+	if !listedCover {
+		t.Fatalf("public catalog page did not expose the selected cover reference: %+v", publicPage.Items)
+	}
+	publicListResponse := httptest.NewRecorder()
+	publicHandler.ServeHTTP(publicListResponse, httptest.NewRequest(http.MethodGet, "/api/v1/public/spaces?page_size=48", nil))
+	if publicListResponse.Code != http.StatusOK || !strings.Contains(publicListResponse.Body.String(), `"image_id":"`+publicPhoto.ID+`","is_cover":true`) {
+		t.Fatalf("public catalog cover DTO status=%d body=%s", publicListResponse.Code, publicListResponse.Body.String())
+	}
 	publicImage := readPublicImage(publicImagePath)
 	if publicImage.Code != http.StatusOK || publicImage.Header().Get("Content-Type") != "image/png" || publicImage.Header().Get("Cache-Control") != "no-store" || publicImage.Header().Get("X-Content-Type-Options") != "nosniff" || len(publicImage.Body.Bytes()) == 0 {
 		t.Fatalf("public image status=%d headers=%v bodylen=%d", publicImage.Code, publicImage.Header(), publicImage.Body.Len())

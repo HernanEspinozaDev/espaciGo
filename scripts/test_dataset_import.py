@@ -200,6 +200,21 @@ class DatasetImporterTests(unittest.TestCase):
         self.assertEqual(loader.local_url("http://127.0.0.1:8080", pilot=False, allow_shared_api=True),
                          "http://127.0.0.1:8080")
 
+    def test_private_listing_replacement_stays_unpublished_without_cover(self):
+        blob = b"\x89PNG\r\n\x1a\nmissing"
+        old = {"id": "old-private-photo", "fixture_code": "synthetic-png-v1", "mime_type": "image/png",
+               "sha256": hashlib.sha256(blob).hexdigest(), "size_bytes": len(blob), "public_in_catalog": False}
+        FakeAPI.galleries["space-private"] = [old]
+        self.importer.state["listings"]["listing-private"] = {"id": "space-private", "photo_id": old["id"]}
+        owner = loader.API(["http://127.0.0.1:8080"], "owner-session")
+
+        replacement = self.importer.ensure_photo_content(owner, "space-private", "listing-private", old["id"],
+                                                         [old], public=False)
+        self.assertEqual(replacement, "new-photo-1")
+        self.assertFalse(FakeAPI.galleries["space-private"][0]["public_in_catalog"])
+        self.assertFalse(any(path.endswith("/cover") for _, path, _, _ in FakeAPI.calls))
+        self.assertFalse(any(path.startswith("/api/v1/public/") for _, path, _, _ in FakeAPI.calls))
+
 
 if __name__ == "__main__":
     unittest.main()
