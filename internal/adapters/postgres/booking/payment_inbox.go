@@ -306,6 +306,19 @@ VALUES(gen_random_uuid(),$1,$2,$3,$4,$5,$5) RETURNING id::text`, event.Operation
 	return false, nil
 }
 
+// ApplyPaymentEventForOperation applies just the authenticated event recorded
+// for one operation. Isolated-clock API processes use this instead of listing
+// global pending events, so completing a current payment cannot reconcile
+// unrelated reservations in the shared database.
+func (r *Repository) ApplyPaymentEventForOperation(ctx context.Context, operationID, providerEventID string, clock func() time.Time, hostTTL time.Duration) (booking.Reservation, error) {
+	var eventRowID string
+	err := r.pool.QueryRow(ctx, `SELECT id::text FROM public.reserva_pago_evento_ensayo WHERE operacion_id=$1 AND proveedor_evento_id=$2`, operationID, providerEventID).Scan(&eventRowID)
+	if err != nil {
+		return booking.Reservation{}, mapErr(err)
+	}
+	return r.ApplyPaymentEvent(ctx, eventRowID, clock, hostTTL)
+}
+
 func (r *Repository) ApplyPaymentEvent(ctx context.Context, eventRowID string, clock func() time.Time, hostTTL time.Duration) (booking.Reservation, error) {
 	var operationID, reservationID string
 	err := r.pool.QueryRow(ctx, `SELECT e.operacion_id::text,o.reserva_id::text FROM public.reserva_pago_evento_ensayo e

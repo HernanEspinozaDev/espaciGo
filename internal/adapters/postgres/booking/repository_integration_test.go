@@ -4837,6 +4837,167 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if _, err = publicService.Detail(ctx, activeSpace); !errors.Is(err, publiccatalog.ErrNotFound) {
 		t.Fatalf("revoked KYC public detail=%v", err)
 	}
+	// Restore the synthetic fixture eligibility after the publication-policy
+	// assertion so the booking clock regression can create its own valid rows.
+	if _, err = setup.Exec(ctx, `UPDATE public.elegibilidad_verificacion_local SET estado='elegible',revocada_en=NULL,revocada_por=NULL,motivo_revocacion_codigo=NULL WHERE usuario_id=$1 AND tipo='kyc'`, host); err != nil {
+		t.Fatal(err)
+	}
+
+	// The dataset's run-scoped clock must not let this API process expire rows
+	// belonging to earlier work in the shared database. Use real PostgreSQL
+	// rows for every state a global booking/guarantee/contract sweep can mutate,
+	// then compare full row/history snapshots after actual HTTP operations.
+	isolatedStart := time.Date(2042, 6, 1, 12, 0, 0, 0, time.UTC)
+	clockMu.Lock()
+	fixedNow = isolatedStart
+	clockMu.Unlock()
+	baselinePendingQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: isolatedStart.Add(72 * time.Hour).Format(time.RFC3339), EndAt: isolatedStart.Add(73 * time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatalf("quote baseline pending-payment booking: %v", err)
+	}
+	baselinePending, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: baselinePendingQuote.ID}, "isolated-clock-baseline-pending")
+	if err != nil || baselinePending.State != "pendiente_de_pago" {
+		t.Fatalf("create baseline pending-payment booking: %+v err=%v", baselinePending, err)
+	}
+	baselineContractReservation := newReservation(2*time.Hour, "isolated-clock-baseline-contract", true)
+	baselineContract, err := contractService.Create(ctx, renter, baselineContractReservation.ID)
+	if err != nil || baselineContract.State != "generado" {
+		t.Fatalf("create baseline contract: %+v err=%v", baselineContract, err)
+	}
+	baselineContract, err = contractService.Sign(ctx, host, baselineContract.ID)
+	if err != nil || baselineContract.State != "firma_parcial" {
+		t.Fatalf("create baseline partial signature: %+v err=%v", baselineContract, err)
+	}
+	svc.SetLocalGuaranteeOutcome(nil)
+	baselineGuaranteeQuote, err := svc.Quote(ctx, renter, booking.QuoteInput{SpaceID: space, StartAt: isolatedStart.Add(5 * time.Hour).Format(time.RFC3339), EndAt: isolatedStart.Add(6 * time.Hour).Format(time.RFC3339)})
+	if err != nil {
+		t.Fatalf("quote baseline pending-guarantee booking: %v", err)
+	}
+	baselineGuaranteeReservation, err := svc.Request(ctx, renter, booking.RequestInput{QuoteID: baselineGuaranteeQuote.ID}, "isolated-clock-baseline-guarantee")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Pay(ctx, renter, baselineGuaranteeReservation.ID, "exito", "isolated-clock-baseline-guarantee-payment"); err != nil {
+		t.Fatalf("create pending guarantee authorization: %v", err)
+	}
+	if _, err = svc.RunGuaranteeOperation(ctx, renter, baselineGuaranteeReservation.ID, "autorizacion", "isolated-clock-baseline-guarantee-authorization", 50000, "sin_respuesta", "", false); err != nil {
+		t.Fatalf("persist expirable guarantee authorization: %v", err)
+	}
+	svc.SetLocalGuaranteeOutcome(func() string { return "exito" })
+	var baselineGuaranteeState, baselineAuthorizationState string
+	if err = setup.QueryRow(ctx, `SELECT g.estado,o.estado FROM public.reserva_garantia_ensayo_local g JOIN public.reserva_garantia_operacion_ensayo_local o ON o.garantia_id=g.id AND o.tipo='autorizacion' WHERE g.reserva_id=$1`, baselineGuaranteeReservation.ID).Scan(&baselineGuaranteeState, &baselineAuthorizationState); err != nil {
+		t.Fatal(err)
+	}
+	if baselineGuaranteeState != "por_conciliar" || baselineAuthorizationState != "por_conciliar" {
+		t.Fatalf("fixture lacks a live expirable guarantee operation: guarantee=%s authorization=%s", baselineGuaranteeState, baselineAuthorizationState)
+	}
+	baselineIDs := []string{baselinePending.ID, baselineContractReservation.ID, baselineGuaranteeReservation.ID}
+	snapshotBaseline := func() []byte {
+		t.Helper()
+		const query = `SELECT jsonb_build_object(
+  'quotes',(SELECT COALESCE(jsonb_agg(to_jsonb(q) ORDER BY q.id),'[]'::jsonb) FROM public.cotizacion_reserva_ensayo q WHERE q.id=ANY(ARRAY(SELECT cotizacion_id FROM public.reserva_ensayo_local WHERE id=ANY($1::uuid[])))),
+  'reservations',(SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY r.id),'[]'::jsonb) FROM public.reserva_ensayo_local r WHERE r.id=ANY($1::uuid[])),
+  'transitions',(SELECT COALESCE(jsonb_agg(to_jsonb(h) ORDER BY h.reserva_id,h.creada_en,h.id),'[]'::jsonb) FROM public.reserva_ensayo_transicion h WHERE h.reserva_id=ANY($1::uuid[])),
+  'occupancies',(SELECT COALESCE(jsonb_agg(to_jsonb(o) ORDER BY o.id),'[]'::jsonb) FROM public.ocupacion o WHERE o.reserva_id=ANY($1::uuid[])),
+  'payments',(SELECT COALESCE(jsonb_agg(to_jsonb(p) ORDER BY p.id),'[]'::jsonb) FROM public.reserva_pago_ensayo p WHERE p.reserva_id=ANY($1::uuid[])),
+  'guarantees',(SELECT COALESCE(jsonb_agg(to_jsonb(g) ORDER BY g.id),'[]'::jsonb) FROM public.reserva_garantia_ensayo_local g WHERE g.reserva_id=ANY($1::uuid[])),
+  'guarantee_operations',(SELECT COALESCE(jsonb_agg(to_jsonb(o) ORDER BY o.id),'[]'::jsonb) FROM public.reserva_garantia_operacion_ensayo_local o JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id WHERE g.reserva_id=ANY($1::uuid[])),
+  'guarantee_fake_results',(SELECT COALESCE(jsonb_agg(to_jsonb(f) ORDER BY f.id),'[]'::jsonb) FROM public.reserva_garantia_resultado_fake_ensayo_local f JOIN public.reserva_garantia_operacion_ensayo_local o ON o.id=f.operacion_id JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id WHERE g.reserva_id=ANY($1::uuid[])),
+  'guarantee_events',(SELECT COALESCE(jsonb_agg(to_jsonb(e) ORDER BY e.id),'[]'::jsonb) FROM public.reserva_garantia_evento_ensayo_local e JOIN public.reserva_garantia_operacion_ensayo_local o ON o.id=e.operacion_id JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id WHERE g.reserva_id=ANY($1::uuid[])),
+  'guarantee_event_applications',(SELECT COALESCE(jsonb_agg(to_jsonb(a) ORDER BY a.evento_id),'[]'::jsonb) FROM public.reserva_garantia_evento_aplicacion_ensayo_local a JOIN public.reserva_garantia_evento_ensayo_local e ON e.id=a.evento_id JOIN public.reserva_garantia_operacion_ensayo_local o ON o.id=e.operacion_id JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id WHERE g.reserva_id=ANY($1::uuid[])),
+  'contracts',(SELECT COALESCE(jsonb_agg(to_jsonb(c) ORDER BY c.id),'[]'::jsonb) FROM public.contrato_ensayo_local c WHERE c.reserva_id=ANY($1::uuid[])),
+  'contract_signatures',(SELECT COALESCE(jsonb_agg(to_jsonb(s) ORDER BY s.contrato_id,s.firmante_id),'[]'::jsonb) FROM public.contrato_ensayo_firma s JOIN public.contrato_ensayo_local c ON c.id=s.contrato_id WHERE c.reserva_id=ANY($1::uuid[])),
+  'contract_history',(SELECT COALESCE(jsonb_agg(to_jsonb(h) ORDER BY h.contrato_id,h.secuencia),'[]'::jsonb) FROM public.contrato_ensayo_historial h JOIN public.contrato_ensayo_local c ON c.id=h.contrato_id WHERE c.reserva_id=ANY($1::uuid[])))`
+		var snapshot []byte
+		if scanErr := setup.QueryRow(ctx, query, baselineIDs).Scan(&snapshot); scanErr != nil {
+			t.Fatal(scanErr)
+		}
+		return snapshot
+	}
+	baselineSnapshot := snapshotBaseline()
+	clockMu.Lock()
+	fixedNow = isolatedStart.Add(48 * time.Hour)
+	advancedNow := fixedNow
+	clockMu.Unlock()
+	isolatedPaymentAdapter := newTestPaymentAdapter(t)
+	isolatedService, err := booking.NewServiceWithTTLsAndGlobalExpirySweeps(repo, credentials.Generator{}, clock, isolatedPaymentAdapter, 15*time.Minute, 15*time.Minute, 24*time.Hour, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	isolatedService.SetLocalGuaranteeOutcome(func() string { return "exito" })
+	isolatedHandler := bookinghttp.NewHandler(integrationBookingAuth{accountID: renter}, isolatedService, nil)
+	serveIsolated := func(method, path string, payload any, key string) *httptest.ResponseRecorder {
+		t.Helper()
+		var body io.Reader
+		if payload != nil {
+			encoded, marshalErr := json.Marshal(payload)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			body = strings.NewReader(string(encoded))
+		}
+		req := httptest.NewRequest(method, path, body)
+		req.Header.Set("Authorization", "Bearer local-booking-integration-session")
+		req.Header.Set("Content-Type", "application/json")
+		if key != "" {
+			req.Header.Set("Idempotency-Key", key)
+		}
+		response := httptest.NewRecorder()
+		isolatedHandler.ServeHTTP(response, req)
+		return response
+	}
+	const bookingBase = "/api/v1/local/booking-trial"
+	staleRead := serveIsolated(http.MethodGet, bookingBase+"/reservations/"+baselinePending.ID, nil, "")
+	if staleRead.Code != http.StatusOK || !strings.Contains(staleRead.Body.String(), `"state":"pendiente_de_pago"`) {
+		t.Fatalf("isolated-clock GET swept earlier pending booking: status=%d body=%s", staleRead.Code, staleRead.Body.String())
+	}
+	newQuoteStart := advancedNow.Add(72 * time.Hour)
+	quoteReply := serveIsolated(http.MethodPost, bookingBase+"/quotes", booking.QuoteInput{SpaceID: space, StartAt: newQuoteStart.Format(time.RFC3339), EndAt: newQuoteStart.Add(time.Hour).Format(time.RFC3339)}, "")
+	var isolatedQuoteEnvelope struct {
+		Data booking.Quote `json:"data"`
+	}
+	if quoteReply.Code != http.StatusOK || json.Unmarshal(quoteReply.Body.Bytes(), &isolatedQuoteEnvelope) != nil || isolatedQuoteEnvelope.Data.ID == "" {
+		t.Fatalf("isolated-clock API quote did not progress: status=%d body=%s", quoteReply.Code, quoteReply.Body.String())
+	}
+	createdReply := serveIsolated(http.MethodPost, bookingBase+"/reservations", booking.RequestInput{QuoteID: isolatedQuoteEnvelope.Data.ID}, "isolated-clock-new-reservation")
+	var isolatedReservationEnvelope struct {
+		Data booking.Reservation `json:"data"`
+	}
+	if createdReply.Code != http.StatusCreated || json.Unmarshal(createdReply.Body.Bytes(), &isolatedReservationEnvelope) != nil || isolatedReservationEnvelope.Data.State != "pendiente_de_pago" {
+		t.Fatalf("isolated-clock API create did not progress: status=%d body=%s", createdReply.Code, createdReply.Body.String())
+	}
+	paidReply := serveIsolated(http.MethodPost, bookingBase+"/reservations/"+isolatedReservationEnvelope.Data.ID+"/payment", booking.PaymentInput{Outcome: "exito"}, "isolated-clock-new-payment")
+	if paidReply.Code != http.StatusOK || !strings.Contains(paidReply.Body.String(), `"state":"pagada"`) {
+		t.Fatalf("isolated-clock API payment did not progress: status=%d body=%s", paidReply.Code, paidReply.Body.String())
+	}
+	guaranteeReply := serveIsolated(http.MethodGet, bookingBase+"/reservations/"+isolatedReservationEnvelope.Data.ID+"/guarantee", nil, "")
+	if guaranteeReply.Code != http.StatusOK || !strings.Contains(guaranteeReply.Body.String(), `"state":"autorizada"`) {
+		t.Fatalf("isolated-clock API guarantee read/progress=%d body=%s", guaranteeReply.Code, guaranteeReply.Body.String())
+	}
+	cancelledWorkers, cancelWorkers := context.WithCancel(ctx)
+	cancelWorkers()
+	isolatedService.RunPaymentReconciler(cancelledWorkers, time.Millisecond)
+	isolatedService.RunGuaranteeReconciler(cancelledWorkers, time.Millisecond)
+	isolatedService.RunSettlementReconciler(cancelledWorkers, time.Millisecond)
+	if afterSnapshot := snapshotBaseline(); !bytes.Equal(baselineSnapshot, afterSnapshot) {
+		t.Fatalf("run-scoped clock changed preexisting booking/contract/guarantee rows or histories\nbefore=%s\nafter=%s", baselineSnapshot, afterSnapshot)
+	}
+	if _, err = svc.Get(ctx, renter, baselinePending.ID); err != nil {
+		t.Fatal(err)
+	}
+	var normalExpiredState, normalGuaranteeOperationState, normalGuaranteeLastResult string
+	if err = setup.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1`, baselinePending.ID).Scan(&normalExpiredState); err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.ReconcileGuarantees(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = setup.QueryRow(ctx, `SELECT o.estado,o.ultimo_resultado FROM public.reserva_garantia_operacion_ensayo_local o JOIN public.reserva_garantia_ensayo_local g ON g.id=o.garantia_id WHERE g.reserva_id=$1 AND o.tipo='autorizacion'`, baselineGuaranteeReservation.ID).Scan(&normalGuaranteeOperationState, &normalGuaranteeLastResult); err != nil {
+		t.Fatal(err)
+	}
+	if normalExpiredState != "vencida_pago" || normalGuaranteeOperationState != "por_conciliar" || normalGuaranteeLastResult != "autorizacion_vencida" {
+		t.Fatalf("normal business clock stopped sweeping after isolated-clock support: booking=%s authorization=%s/%s", normalExpiredState, normalGuaranteeOperationState, normalGuaranteeLastResult)
+	}
 
 }
 

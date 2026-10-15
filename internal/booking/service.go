@@ -1124,6 +1124,18 @@ func (s *Service) IngestPaymentEvent(ctx context.Context, event PaymentEvent) (P
 	if err != nil {
 		return PaymentEventReceipt{}, err
 	}
+	if !s.globalExpirySweeps {
+		// The dedicated dataset process still completes its own synchronous
+		// payment. Restrict application to this verified operation/event pair;
+		// the global reconciliation workers remain disabled.
+		applicator, ok := s.repo.(PaymentEventApplicationRepository)
+		if !ok {
+			return PaymentEventReceipt{}, ErrInvalid
+		}
+		if _, applyErr := applicator.ApplyPaymentEventForOperation(ctx, event.OperationID, event.EventID, s.now, s.hostTTL); applyErr != nil && !errors.Is(applyErr, ErrConflict) {
+			return PaymentEventReceipt{}, applyErr
+		}
+	}
 	return PaymentEventReceipt{Accepted: true, Reused: reused}, nil
 }
 

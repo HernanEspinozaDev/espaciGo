@@ -594,6 +594,12 @@ type PaymentLifecycleRepository interface {
 	ApplyPaymentEvent(context.Context, string, func() time.Time, time.Duration) (Reservation, error)
 }
 
+// PaymentEventApplicationRepository applies one authenticated event without
+// enumerating unrelated pending events in the shared database.
+type PaymentEventApplicationRepository interface {
+	ApplyPaymentEventForOperation(context.Context, string, string, func() time.Time, time.Duration) (Reservation, error)
+}
+
 // WeeklyHoursRepository is optional in test doubles and required by the
 // PostgreSQL local-trial repository. Schedule writes are host-owned and
 // serialized on the space row with quote/request transactions.
