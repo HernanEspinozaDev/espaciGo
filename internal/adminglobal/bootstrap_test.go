@@ -22,3 +22,19 @@ func TestBootstrapTargetRequiresExplicitLoopbackTestDatabase(t *testing.T) {
 		}
 	}
 }
+
+func TestCanonicalBootstrapActionAcceptsCLIAndPersistedRecoveryName(t *testing.T) {
+	for input, expected := range map[string]string{
+		"bootstrap":    "bootstrap",
+		"recover":      "recuperacion",
+		"recuperacion": "recuperacion",
+	} {
+		actual, ok := canonicalBootstrapAction(input)
+		if !ok || actual != expected {
+			t.Fatalf("canonicalBootstrapAction(%q) = %q, %v; want %q, true", input, actual, ok, expected)
+		}
+	}
+	if _, ok := canonicalBootstrapAction("unknown"); ok {
+		t.Fatal("unknown bootstrap action was accepted")
+	}
+}

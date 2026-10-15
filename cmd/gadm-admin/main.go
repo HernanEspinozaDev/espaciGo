@@ -27,13 +27,17 @@ func run(args []string) error {
 		return errors.New("usage: gadm-admin bootstrap --account-id UUID | recover --account-id UUID")
 	}
 	command := args[0]
+	bootstrapAction, ok := actionForCommand(command)
+	if !ok {
+		return errors.New("bootstrap/recover requires --account-id UUID")
+	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	target := flags.String("account-id", "", "verified account UUID")
 	credentialFile := flags.String("credentials", ".local/testing/gadm01.env", "0600 local test credential file")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || command != "bootstrap" && command != "recover" || *target == "" {
+	if flags.NArg() != 0 || *target == "" {
 		return errors.New("bootstrap/recover requires --account-id UUID")
 	}
 	root, err := filepath.Abs(*credentialFile)
@@ -85,9 +89,20 @@ func run(args []string) error {
 	if err != nil {
 		return errors.New("unable to create audit correlation")
 	}
-	if err = adminglobal.Bootstrap(ctx, pool, *target, command, correlation); err != nil {
+	if err = adminglobal.Bootstrap(ctx, pool, *target, bootstrapAction, correlation); err != nil {
 		return err
 	}
 	fmt.Println("global administrator bootstrap completed")
 	return nil
+}
+
+func actionForCommand(command string) (string, bool) {
+	switch command {
+	case "bootstrap":
+		return "bootstrap", true
+	case "recover":
+		return "recover", true
+	default:
+		return "", false
+	}
 }

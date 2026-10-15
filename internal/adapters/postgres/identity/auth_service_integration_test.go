@@ -2446,6 +2446,91 @@ func TestEligibleSuppressionPreservesTerminalAndCancelsPendingCredentialNoticeCy
 	}
 }
 
+func TestGlobalAdministratorSuppressionRequiresAnotherActiveMasterAndSerializesLastTransition(t *testing.T) {
+	h := newAuthHarness(t)
+	masterA := h.register(t, "global-suppression-a@ejemplo.invalid")
+	h.verify(t)
+	actor := h.register(t, "global-suppression-legacy-admin@ejemplo.invalid")
+	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador')`, actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.administrador_global(usuario_id,concedido_en,motivo_codigo) VALUES($1,$2,'bootstrap_propietario')`, masterA, h.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.administrador_global_bootstrap(singleton,usuario_id,creado_en) VALUES(true,$1,$2)`, masterA, h.now); err != nil {
+		t.Fatal(err)
+	}
+	requestA, err := h.repo.CreateRightsRequest(h.ctx, masterA, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.repo.ExecuteSuppression(h.ctx, actor, requestA.ID, "global-suppression-single", "global-suppression-single", func() time.Time { return h.now })
+	if !errors.Is(err, identity.ErrConflict) {
+		t.Fatalf("suppression of sole global administrator should require transfer first: %v", err)
+	}
+	var state string
+	if err = h.pool.QueryRow(h.ctx, `SELECT estado FROM public.usuario WHERE id=$1`, masterA).Scan(&state); err != nil || state != "activo" {
+		t.Fatalf("single master was changed by rejected suppression: state=%q err=%v", state, err)
+	}
+
+	masterB := h.register(t, "global-suppression-b@ejemplo.invalid")
+	h.verify(t)
+	if _, err = h.pool.Exec(h.ctx, `INSERT INTO public.administrador_global(usuario_id,concedido_en,motivo_codigo) VALUES($1,$2,'concesion_administrativa')`, masterB, h.now); err != nil {
+		t.Fatal(err)
+	}
+	requestB, err := h.repo.CreateRightsRequest(h.ctx, masterB, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocker, err := adminlocal.New(h.pool, func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		err error
+	}
+	start := make(chan struct{})
+	results := make(chan outcome, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		_, executeErr := h.repo.ExecuteSuppression(h.ctx, actor, requestB.ID, "global-suppression-race-b", "global-suppression-race-b", func() time.Time { return h.now })
+		results <- outcome{err: executeErr}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		_, blockErr := blocker.BlockAccount(h.ctx, actor, masterA, "revision_administrativa", "global-block-race-root")
+		results <- outcome{err: blockErr}
+	}()
+	close(start)
+	wg.Wait()
+	close(results)
+	succeeded, conflicted := 0, 0
+	for result := range results {
+		switch {
+		case result.err == nil:
+			succeeded++
+		case errors.Is(result.err, identity.ErrConflict), errors.Is(result.err, adminlocal.ErrConflict):
+			conflicted++
+		default:
+			t.Fatalf("unexpected concurrent suppression result: %v", result.err)
+		}
+	}
+	if succeeded != 1 || conflicted != 1 {
+		t.Fatalf("concurrent master suppression outcomes success=%d conflict=%d, want 1/1", succeeded, conflicted)
+	}
+	var activeMasters int
+	if err = h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.administrador_global ag JOIN public.usuario u ON u.id=ag.usuario_id
+		WHERE u.estado='activo' AND (u.bloqueado_hasta IS NULL OR u.bloqueado_hasta<=now())
+		AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)`).Scan(&activeMasters); err != nil || activeMasters != 1 {
+		t.Fatalf("concurrent suppression left active global administrators=%d err=%v; want exactly one", activeMasters, err)
+	}
+}
+
 func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *testing.T) {
 	h := newAuthHarness(t)
 	targetID := h.register(t, "suppression-target@ejemplo.invalid")

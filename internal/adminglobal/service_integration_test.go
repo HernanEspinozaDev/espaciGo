@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -36,7 +38,7 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer admin.Close(context.Background())
-	dbName := fmt.Sprintf("gadm01_%d", time.Now().UnixNano())
+	dbName := fmt.Sprintf("espacigo_gadm01_%08x", uint32(time.Now().UnixNano()))
 	if _, err = admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{dbName}.Sanitize()); err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +129,27 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	if err = adminglobal.Bootstrap(ctx, pool, loser, "bootstrap", corr); err == nil {
 		t.Fatal("different-target replay accepted")
 	}
-	if err = adminglobal.Bootstrap(ctx, pool, master, "recuperacion", corr); err != nil {
+	if _, err = pool.Exec(ctx, `DELETE FROM public.administrador_global WHERE usuario_id=$1`, master); err != nil {
 		t.Fatal(err)
+	}
+	credentialFile := makeLocalCLICredentials(t, u.String(), dbName)
+	root := repositoryRoot(source)
+	if err = runBootstrapCLI(ctx, root, credentialFile, "recover", master); err != nil {
+		t.Fatalf("gadm-admin recover failed to restore the bound UUID: %v", err)
+	}
+	var restored bool
+	if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.administrador_global WHERE usuario_id=$1)`, master).Scan(&restored); err != nil || !restored {
+		t.Fatalf("recover did not restore membership: restored=%v err=%v", restored, err)
+	}
+	if err = runBootstrapCLI(ctx, root, credentialFile, "recover", loser); err == nil {
+		t.Fatal("gadm-admin recover accepted a different UUID")
+	}
+	var recoverySuccess, recoveryReject int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE resultado='exito'),count(*) FILTER (WHERE resultado='rechazo') FROM public.administrador_global_bootstrap_evento WHERE accion='recuperacion'`).Scan(&recoverySuccess, &recoveryReject); err != nil {
+		t.Fatal(err)
+	}
+	if recoverySuccess != 1 || recoveryReject != 1 {
+		t.Fatalf("recover audit counts success=%d rejection=%d; want 1/1", recoverySuccess, recoveryReject)
 	}
 	var rejected int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.administrador_global_bootstrap_evento WHERE resultado='rechazo'`).Scan(&rejected); err != nil || rejected < 3 {
@@ -251,6 +272,58 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.administrador_global g JOIN public.usuario u ON u.id=g.usuario_id WHERE u.estado='activo' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)`).Scan(&active); err != nil || active != 1 {
 		t.Fatalf("global admins after concurrent blocks=%d err=%v", active, err)
 	}
+}
+
+func repositoryRoot(source string) string {
+	return filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
+}
+
+func makeLocalCLICredentials(t *testing.T, databaseURL, databaseName string) string {
+	t.Helper()
+	root := repositoryRootFromTest(t)
+	localTesting := filepath.Join(root, ".local", "testing")
+	if err := os.MkdirAll(localTesting, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	directory, err := os.MkdirTemp(localTesting, "gadm01-cli-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	path := filepath.Join(directory, "credentials.env")
+	data := []byte("DATABASE_URL=" + databaseURL + "\nEXPECTED_DATABASE=" + databaseName + "\n")
+	if err = os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func repositoryRootFromTest(t *testing.T) string {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve integration test source directory")
+	}
+	return repositoryRoot(source)
+}
+
+func runBootstrapCLI(ctx context.Context, root, credentialFile, command, accountID string) error {
+	process := exec.CommandContext(ctx, "go", "run", "./cmd/gadm-admin", command, "--account-id", accountID, "--credentials", credentialFile)
+	process.Dir = root
+	process.Env = make([]string, 0, len(os.Environ())+1)
+	for _, item := range os.Environ() {
+		if !strings.HasPrefix(item, "GADM_BOOTSTRAP_ENV=") {
+			process.Env = append(process.Env, item)
+		}
+	}
+	process.Env = append(process.Env, "GADM_BOOTSTRAP_ENV=local-test")
+	return process.Run()
 }
 
 func ptr[T any](value T) *T { return &value }

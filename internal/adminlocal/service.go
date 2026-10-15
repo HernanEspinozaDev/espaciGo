@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -50,7 +51,7 @@ func (s *Service) BlockAccount(ctx context.Context, actor, accountID, reason, co
 		return BlockResult{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err = lockGlobalAdminSet(ctx, tx); err != nil {
+	if err = accountlock.LockGlobalAdministratorSet(ctx, tx); err != nil {
 		return BlockResult{}, err
 	}
 	if err = lockAccounts(ctx, tx, actor, accountID); err != nil {
@@ -100,17 +101,6 @@ func (s *Service) BlockAccount(ctx context.Context, actor, accountID, reason, co
 		return BlockResult{}, err
 	}
 	return BlockResult{AccountID: accountID, Blocked: true, ChangedAt: at}, nil
-}
-
-const globalAdminLockClass int32 = 0x4741444d  // "GADM"
-const globalAdminLockObject int32 = 0x53455431 // "SET1"
-
-// Membership creation/recovery, revocation and blocking share this lock. It
-// protects the empty-set case as well as concurrent changes that could leave
-// the database without an active global administrator.
-func lockGlobalAdminSet(ctx context.Context, tx pgx.Tx) error {
-	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1,$2)`, globalAdminLockClass, globalAdminLockObject)
-	return err
 }
 
 func protectLastGlobalAdministrator(ctx context.Context, tx pgx.Tx, target string, now time.Time) error {

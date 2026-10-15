@@ -38,7 +38,8 @@ func ValidateBootstrapTarget(environment, databaseURL, expectedDatabase string) 
 // Bootstrap binds one verified, active account as the initial global administrator.
 // Recovery only restores the account recorded by the first successful bootstrap.
 func Bootstrap(ctx context.Context, pool *pgxpool.Pool, target, action, correlation string) error {
-	if pool == nil || !canonicalUUID.MatchString(target) || !canonicalUUID.MatchString(correlation) || action != "bootstrap" && action != "recuperacion" {
+	action, validAction := canonicalBootstrapAction(action)
+	if pool == nil || !canonicalUUID.MatchString(target) || !canonicalUUID.MatchString(correlation) || !validAction {
 		return ErrInvalid
 	}
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
@@ -102,4 +103,15 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool, target, action, correlat
 		return fmt.Errorf("bootstrap rejected: %s", reason)
 	}
 	return nil
+}
+
+func canonicalBootstrapAction(action string) (string, bool) {
+	switch action {
+	case "bootstrap":
+		return "bootstrap", true
+	case "recover", "recuperacion":
+		return "recuperacion", true
+	default:
+		return "", false
+	}
 }
