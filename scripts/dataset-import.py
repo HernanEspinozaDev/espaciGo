@@ -8,6 +8,7 @@ rows directly and keeps IDs/checkpoints only in a mode-0600 file.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import html
 import json
@@ -299,6 +300,8 @@ class Importer:
         self.state = state
         self.dataset_id = dataset_id
         self.admin_token = ""
+        self.sessions: dict[str, dict] = {}
+        self.admin_created = 0.0
         self.terms_ids = []
 
     def login(self, email: str, password: str, require_global=False) -> str:
@@ -308,6 +311,9 @@ class Importer:
         token = object_data(response, "access_token")
         if not isinstance(token, str) or not token:
             raise RuntimeError("login response did not include an access token")
+        # A token exists even if the role/capability check below fails, so it
+        # must already be owned by this run's cleanup registry.
+        self.sessions[token] = {"email": email, "active": True, "created": time.monotonic()}
         if require_global:
             roles = response.get("roles", [])
             caps = response.get("capabilities", [])
@@ -317,8 +323,32 @@ class Importer:
 
     def admin(self) -> API:
         # GADM account-role updates require authentication within the last 10 minutes.
+        if self.admin_token and time.monotonic() - self.admin_created < 8 * 60:
+            return API(self.api.bases, self.admin_token)
+        if self.admin_token:
+            self.close_session(self.admin_token)
         self.admin_token = self.login(self.email, self.password, require_global=True)
+        self.admin_created = time.monotonic()
         return API(self.api.bases, self.admin_token)
+
+    def close_session(self, token: str) -> None:
+        session = self.sessions.get(token)
+        if not session or not session["active"]:
+            return
+        API(self.api.bases, token).request("POST", "/api/v1/auth/logout", {}, expect=(204,))
+        session["active"] = False
+        if token == self.admin_token:
+            self.admin_token = ""
+
+    def cleanup_sessions(self) -> int:
+        failures = 0
+        for token, session in list(self.sessions.items()):
+            if session["active"]:
+                try:
+                    self.close_session(token)
+                except (SafeHTTPError, OSError, RuntimeError):
+                    failures += 1
+        return failures
 
     def register_or_recover(self, user: dict, profile: dict) -> str:
         ref = user["user_ref"]
@@ -327,7 +357,18 @@ class Importer:
         if ref in self.state["users"]:
             account_id = self.state["users"][ref]
         else:
-            self.state.setdefault("pending_users", {})[ref] = True
+            attempts = self.state.setdefault("registration_attempts", {})
+            attempt = attempts.get(ref)
+            recovering_attempt = attempt is not None
+            if attempt is None:
+                if self.find_account(email) is not None:
+                    raise RuntimeError("registration stopped: deterministic email already belongs to an account")
+                attempt = {"email": email, "baseline_absent": True,
+                           "checked_at": datetime.now(timezone.utc).isoformat()}
+                attempts[ref] = attempt
+            if attempt.get("email") != email or attempt.get("baseline_absent") is not True:
+                raise RuntimeError("registration provenance checkpoint is invalid")
+            self.state.setdefault("pending_users", {})[ref] = {"attempt": attempt["checked_at"]}
             self.save()
             preference = "ofrecer" if user["roles"][0] == ROLE_LANDLORD else "arrendar"
             try:
@@ -342,7 +383,12 @@ class Importer:
             except SafeHTTPError as error:
                 if error.status != 409:
                     raise
-                account_id = self.find_account(email)
+                if not recovering_attempt:
+                    raise RuntimeError("registration conflict occurred after the baseline; refusing to adopt a concurrent account")
+                account = self.find_account(email)
+                if account is None or not account.get("created_at") or datetime.fromisoformat(account["created_at"].replace("Z", "+00:00")) < datetime.fromisoformat(attempt["checked_at"]):
+                    raise RuntimeError("registration conflict lacks matching post-baseline provenance")
+                account_id = account["account_id"]
             self.state["users"][ref] = account_id
             self.state["pending_users"].pop(ref, None)
             self.save()
@@ -392,19 +438,21 @@ class Importer:
             )
         if role == ROLE_LANDLORD:
             self.ensure_kyc(user_api, ref)
-        user_api.request("POST", "/api/v1/auth/logout", {}, expect=(204,))
+        self.close_session(user_api.token)
         return account_id
 
-    def find_account(self, email: str) -> str:
+    def find_account(self, email: str) -> dict | None:
         admin = self.admin()
         query = urlencode({"email_prefix": email, "page_size": 10})
         response = admin.request("GET", "/api/v1/admin/global/accounts?" + query)
         data = response.get("data", {})
         accounts = data.get("items", []) if isinstance(data, dict) else []
         matches = [row for row in accounts if row.get("email", "").lower() == email.lower()]
+        if not matches:
+            return None
         if len(matches) != 1:
             raise RuntimeError("registration conflict could not be reconciled to one account")
-        return matches[0]["account_id"]
+        return matches[0]
 
     def ensure_kyc(self, user_api: API, ref: str) -> None:
         if ref not in self.state["verifications"]:
@@ -417,7 +465,7 @@ class Importer:
         current = user_api.request("GET", "/api/v1/verifications/" + quote(case_id, safe=""))
         if current.get("state") == "aprobada":
             return
-        admin = API(self.api.bases, self.login(self.email, self.password, require_global=True))
+        admin = self.admin()
         admin.request(
             "POST", "/api/v1/admin/verifications/" + quote(case_id, safe="") + "/review",
             {"decision": "aprobada"}, expect=(200,),
@@ -520,7 +568,7 @@ class Importer:
             prepared.append(ref)
             self.state["listings"][ref] = {"id": space_id, "photo_id": photo_id}
             self.save()
-        owner.request("POST", "/api/v1/auth/logout", {}, expect=(204,))
+        self.close_session(owner.token)
 
     @staticmethod
     def find_existing_space(candidates: list[dict], body: dict):
@@ -575,6 +623,7 @@ def main() -> int:
     parser.add_argument("--backup-manifest", default="")
     args = parser.parse_args()
 
+    importer = None
     try:
         repo = Path(args.repo).resolve(strict=True)
         dataset = Path(args.dataset_dir).resolve(strict=True)
@@ -609,7 +658,7 @@ def main() -> int:
                 raise RuntimeError("checkpoint belongs to a different dataset content hash")
         else:
             state = {"format_version": 1, "dataset_id": "espacigo-1000-v1", "source_hashes": hashes,
-                     "users": {}, "pending_users": {}, "verifications": {}, "listings": {}}
+                     "users": {}, "pending_users": {}, "registration_attempts": {}, "verifications": {}, "listings": {}}
         importer = Importer(bases, mailpit, policy, state, "espacigo-1000-v1")
         importer._state_path = state_path
         terms_response = API(bases).request("GET", "/api/v1/auth/terms")
@@ -618,7 +667,7 @@ def main() -> int:
         if not importer.terms_ids or not any(item.get("type") == "terminos" for item in active_terms):
             raise RuntimeError("active synthetic terms were not available from the identity service")
         importer.api.request("GET", "/health/ready")
-        importer.admin_token = importer.login(importer.email, importer.password, require_global=True)
+        importer.admin()
         importer.save()
 
         # Register accounts and apply role/KYC transitions through the existing APIs.
@@ -648,6 +697,12 @@ def main() -> int:
         else:
             print(f"dataset import stopped: {str(error)}", file=sys.stderr)
         return 2
+    finally:
+        if importer is not None:
+            failures = importer.cleanup_sessions()
+            if failures:
+                print(f"dataset import session cleanup incomplete: {failures} session(s)", file=sys.stderr)
+                raise SystemExit(2)
 
 
 if __name__ == "__main__":
