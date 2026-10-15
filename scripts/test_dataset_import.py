@@ -1,4 +1,5 @@
 import importlib.util
+import socket
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -57,6 +58,18 @@ class DatasetImporterTests(unittest.TestCase):
         FakeAPI.fail_registration_once = False
         FakeAPI.token_counter = 0
         FakeAPI.active_tokens = {"operator-session-that-predates-importer"}
+        self.network_block = patch.object(
+            socket, "create_connection",
+            side_effect=AssertionError("network access is disabled in dataset importer tests"),
+        )
+        self.network_block.start()
+        self.socket_connect_block = patch.object(
+            socket.socket, "connect",
+            side_effect=AssertionError("network access is disabled in dataset importer tests"),
+        )
+        self.socket_connect_block.start()
+        self.api_patch = patch.object(loader, "API", FakeAPI)
+        self.api_patch.start()
         self.temp = tempfile.TemporaryDirectory()
         self.importer = loader.Importer(["http://127.0.0.1:8080"], "http://127.0.0.1:8025",
                                         {"owner_test_email": "operator@example.invalid", "test_password": "secret"},
@@ -66,17 +79,22 @@ class DatasetImporterTests(unittest.TestCase):
         self.importer.terms_ids = ["terms-version"]
 
     def tearDown(self):
-        self.importer.cleanup_sessions()
-        self.temp.cleanup()
+        try:
+            self.assertEqual(self.importer.cleanup_sessions(), 0)
+            self.assertEqual(FakeAPI.active_tokens, {"operator-session-that-predates-importer"})
+        finally:
+            self.temp.cleanup()
+            self.api_patch.stop()
+            self.socket_connect_block.stop()
+            self.network_block.stop()
 
     def test_preexisting_same_email_collision_is_rejected_before_any_mutation(self):
         FakeAPI.account = {"account_id": "unrelated-account", "email": "u0001@dataset.invalid",
                            "created_at": "2026-10-14T12:00:00+00:00", "display_name": "Existing profile",
                            "password": "secret", "roles": ["administrador"]}
-        with patch.object(loader, "API", FakeAPI):
-            with self.assertRaisesRegex(RuntimeError, "already belongs"):
-                self.importer.register_or_recover(
-                    {"user_ref": "u0001", "roles": ["arrendatario"]}, {"display_name": "Synthetic User"})
+        with self.assertRaisesRegex(RuntimeError, "already belongs"):
+            self.importer.register_or_recover(
+                {"user_ref": "u0001", "roles": ["arrendatario"]}, {"display_name": "Synthetic User"})
         self.assertFalse(any(path == "/api/v1/auth/register" or path.startswith("/api/v1/profile") or "/roles/" in path or "legacy-administrator" in path
                              for method, path, _, _ in FakeAPI.calls))
         self.assertEqual(FakeAPI.account["roles"], ["administrador"])
@@ -87,34 +105,32 @@ class DatasetImporterTests(unittest.TestCase):
         FakeAPI.fail_registration_once = True
         user = {"user_ref": "u0001", "roles": ["arrendatario"]}
         profile = {"display_name": "Synthetic User"}
-        with patch.object(loader, "API", FakeAPI):
-            with self.assertRaises(loader.SafeHTTPError):
-                self.importer.register_or_recover(user, profile)
-            self.assertNotIn("u0001", self.importer.state["users"])
-            self.assertTrue(self.importer.state["registration_attempts"]["u0001"]["baseline_absent"])
-            self.assertEqual(self.importer.register_or_recover(user, profile), "account-created-by-import")
+        with self.assertRaises(loader.SafeHTTPError):
+            self.importer.register_or_recover(user, profile)
+        self.assertNotIn("u0001", self.importer.state["users"])
+        self.assertTrue(self.importer.state["registration_attempts"]["u0001"]["baseline_absent"])
+        self.assertEqual(self.importer.register_or_recover(user, profile), "account-created-by-import")
         self.assertIn("u0001", self.importer.state["users"])
         self.assertEqual(FakeAPI.account["roles"], [])
 
     def test_success_and_injected_failure_cleanup_only_importer_sessions(self):
-        with patch.object(loader, "API", FakeAPI):
-            self.importer.email = "operator@example.invalid"
-            self.importer.password = "secret"
-            self.importer.admin()
-            first = self.importer.admin_token
-            self.importer.admin()
-            self.assertEqual(self.importer.admin_token, first)
-            self.assertEqual(self.importer.cleanup_sessions(), 0)
-            self.assertEqual(FakeAPI.active_tokens, {"operator-session-that-predates-importer"})
+        self.importer.email = "operator@example.invalid"
+        self.importer.password = "secret"
+        self.importer.admin()
+        first = self.importer.admin_token
+        self.importer.admin()
+        self.assertEqual(self.importer.admin_token, first)
+        self.assertEqual(self.importer.cleanup_sessions(), 0)
+        self.assertEqual(FakeAPI.active_tokens, {"operator-session-that-predates-importer"})
 
-            try:
-                self.importer.login("user@example.invalid", "secret")
-                raise RuntimeError("injected import failure")
-            except RuntimeError as error:
-                self.assertEqual(str(error), "injected import failure")
-            finally:
-                self.assertEqual(self.importer.cleanup_sessions(), 0)
-            self.assertEqual(FakeAPI.active_tokens, {"operator-session-that-predates-importer"})
+        try:
+            self.importer.login("user@example.invalid", "secret")
+            raise RuntimeError("injected import failure")
+        except RuntimeError as error:
+            self.assertEqual(str(error), "injected import failure")
+        finally:
+            self.assertEqual(self.importer.cleanup_sessions(), 0)
+        self.assertEqual(FakeAPI.active_tokens, {"operator-session-that-predates-importer"})
 
 
 if __name__ == "__main__":

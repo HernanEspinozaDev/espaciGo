@@ -3,6 +3,7 @@ package migrator
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestRunnerAppliesFromEmptyAndRepeatIsNoop(t *testing.T) {
@@ -240,12 +242,18 @@ func TestGADM04RestrictedBootstrapRoleMigrationFromV59(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 60 || migrations[59].Name != "V000060__gadm_local_bootstrap_restricted_role.sql" {
+	if len(migrations) < 61 || migrations[59].Name != "V000060__gadm_local_bootstrap_restricted_role.sql" {
 		t.Fatalf("unexpected latest migration: count=%d latest=%q", len(migrations), migrations[len(migrations)-1].Name)
 	}
 	v59Dir := t.TempDir()
 	for _, migration := range migrations[:59] {
 		if err := os.WriteFile(filepath.Join(v59Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v60Dir := t.TempDir()
+	for _, migration := range migrations[:60] {
+		if err := os.WriteFile(filepath.Join(v60Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -259,7 +267,7 @@ func TestGADM04RestrictedBootstrapRoleMigrationFromV59(t *testing.T) {
 		if err := conn.QueryRow(ctx, `SELECT string_agg(version::text||':'||checksum, ',' ORDER BY version) FROM public.schema_migrations`).Scan(&before); err != nil {
 			t.Fatal(err)
 		}
-		result, err := Run(ctx, databaseURL, sourceDir)
+		result, err := Run(ctx, databaseURL, v60Dir)
 		if err != nil || len(result.Applied) != 1 || result.Applied[0] != 60 {
 			t.Fatalf("upgrade V59 to V60: applied=%v err=%v", result.Applied, err)
 		}
@@ -337,6 +345,113 @@ func TestGADM04RestrictedBootstrapRoleMigrationFromV59(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestMPV212HourlyScheduleMigrationFromFreshAndV60(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve migration source path")
+	}
+	sourceDir := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "db", "migrations"))
+	migrations, err := DiscoverMigrations(sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrations) < 61 || migrations[60].Name != "V000061__mpv2_12_hourly_publication_schedules.sql" {
+		t.Fatalf("unexpected latest migration: count=%d latest=%q", len(migrations), migrations[len(migrations)-1].Name)
+	}
+	v60Dir := t.TempDir()
+	for _, migration := range migrations[:60] {
+		if err := os.WriteFile(filepath.Join(v60Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("fresh V1-V61", func(t *testing.T) {
+		withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+			result, err := Run(ctx, databaseURL, sourceDir)
+			if err != nil || len(result.Applied) != len(migrations) || result.Applied[len(result.Applied)-1] != 61 {
+				t.Fatalf("fresh migration result=%v err=%v", result.Applied, err)
+			}
+			assertHourlyScheduleMigrationBehavior(t, ctx, databaseURL)
+		})
+	})
+
+	t.Run("upgrade V60 to V61", func(t *testing.T) {
+		withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+			result, err := Run(ctx, databaseURL, v60Dir)
+			if err != nil || len(result.Applied) != 60 || result.Applied[59] != 60 {
+				t.Fatalf("apply historical V1-V60: applied=%v err=%v", result.Applied, err)
+			}
+			conn := connectTestDB(t, ctx, databaseURL)
+			var before string
+			if err := conn.QueryRow(ctx, `SELECT string_agg(version::text||':'||checksum, ',' ORDER BY version) FROM public.schema_migrations`).Scan(&before); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			result, err = Run(ctx, databaseURL, sourceDir)
+			if err != nil || len(result.Applied) != 1 || result.Applied[0] != 61 {
+				_ = conn.Close(ctx)
+				t.Fatalf("upgrade V60 to V61: applied=%v err=%v", result.Applied, err)
+			}
+			var after string
+			if err := conn.QueryRow(ctx, `SELECT string_agg(version::text||':'||checksum, ',' ORDER BY version) FROM public.schema_migrations WHERE version<61`).Scan(&after); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			if err := conn.Close(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if before != after {
+				t.Fatal("V61 changed an applied V1-V60 migration checksum or history row")
+			}
+			assertHourlyScheduleMigrationBehavior(t, ctx, databaseURL)
+		})
+	})
+}
+
+func assertHourlyScheduleMigrationBehavior(t *testing.T, ctx context.Context, databaseURL string) {
+	t.Helper()
+	conn := connectTestDB(t, ctx, databaseURL)
+	defer conn.Close(ctx)
+	ownerID := "00000000-0000-4000-8000-000000000101"
+	if _, err := conn.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado)
+		VALUES ($1,'mpv212-migration@example.invalid','mpv212-migration@example.invalid','test-hash','activo')`, ownerID); err != nil {
+		t.Fatal(err)
+	}
+	spaces := []struct {
+		id    string
+		unit  string
+		state string
+	}{
+		{"00000000-0000-4000-8000-000000000111", "hora", "activa"},
+		{"00000000-0000-4000-8000-000000000112", "dia", "activa"},
+		{"00000000-0000-4000-8000-000000000113", "mes", "activa"},
+		{"00000000-0000-4000-8000-000000000114", "hora", "eliminada"},
+	}
+	for i, space := range spaces {
+		if _, err := conn.Exec(ctx, `INSERT INTO public.espacio
+			(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,
+			 modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria)
+			VALUES ($1,$2,'oficina',$3,repeat('Synthetic description ',6),20,2,'Synthetic rules',
+			$4,12000,$5,$6,'UTC')`, space.id, ownerID, fmt.Sprintf("MPV2-12 schedule case %d", i), space.unit,
+			fmt.Sprintf("Migration address %d", i), space.state); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,$2,12000)`, space.id, space.unit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO public.espacio_horario_semanal(espacio_id,activo) VALUES($1,true)`, spaces[0].id); err != nil {
+		t.Fatalf("active schedule for ordinary hourly publication was rejected: %v", err)
+	}
+	for _, space := range []struct{ id, unit string }{{spaces[1].id, "day"}, {spaces[2].id, "month"}, {spaces[3].id, "deleted hourly"}} {
+		_, err := conn.Exec(ctx, `INSERT INTO public.espacio_horario_semanal(espacio_id,activo) VALUES($1,true)`, space.id)
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "horario_semanal_publicacion_hora_ck" {
+			t.Errorf("active schedule for %s publication error=%v; want check violation horario_semanal_publicacion_hora_ck", space.unit, err)
+		}
+	}
 }
 
 func TestUpgradeFromExistingV46BasePreservesMigrationHistory(t *testing.T) {
