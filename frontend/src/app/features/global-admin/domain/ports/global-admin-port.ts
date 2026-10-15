@@ -1,7 +1,11 @@
 import type { Account, Overview, Page, AccountBlockUpdate, ProfileUpdate, ProfileUpdateResult, RoleUpdate, SessionRevocation, PublicationPage, PublicationStateUpdate, PublicationContentUpdate, PublicationRetireUpdate, AccountResourceKind, AccountResourcePage, PublicationPhoto, PublicationPhotoMutation, PublicationSchedule, PublicationScheduleUpdate } from '../global-admin-models';
+import type { KPIReport, AuditFilter, AuditPage } from '../global-admin-models';
 
 export abstract class GlobalAdminPort {
   abstract overview(token: string): Promise<Overview>;
+  abstract kpis(token:string,period:{from:string;until:string;time_zone:string}):Promise<KPIReport>;
+  abstract audit(token:string,filters:AuditFilter):Promise<AuditPage>;
+  abstract exportAudit(token:string,filters:AuditFilter,format:'json'|'csv'):Promise<Blob>;
   abstract list(
     token: string,
     filters: Record<string, string | number | undefined>,

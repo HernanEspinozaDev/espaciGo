@@ -471,12 +471,12 @@ func lockAdministrativeSpace(ctx context.Context, tx pgx.Tx, owner, spaceID stri
 	return state, updated, nil
 }
 
-func auditAdministrativeGallery(ctx context.Context, tx pgx.Tx, actor, spaceID, action, reason, correlation string, at time.Time) error {
+func auditAdministrativeGallery(ctx context.Context, tx pgx.Tx, actor, owner, spaceID, action, reason, correlation string, at time.Time) error {
 	id, err := (credentials.Generator{}).ID()
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en) VALUES($1,$2,'publicacion_global',$3,$4,'exito',$5,$6,$7,$7::timestamptz+interval '5 years')`, id, actor, spaceID, action, reason, correlation, at.UTC())
+	_, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,cuenta_objetivo_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,registrado_en,retirar_en) VALUES($1,$2,$3,'publicacion_global',$4,$5,'exito',$6,$7,$8,clock_timestamp(),$8::timestamptz+interval '5 years')`, id, actor, owner, spaceID, action, reason, correlation, at.UTC())
 	return err
 }
 
@@ -514,7 +514,7 @@ func (r *Repository) ListAsAdministrator(ctx context.Context, actor, owner, spac
 		return nil, err
 	}
 	rows.Close()
-	if err = auditAdministrativeGallery(ctx, tx, actor, spaceID, "admin.global.publications.gallery.read", "consulta_recurso", correlation, time.Now()); err != nil {
+	if err = auditAdministrativeGallery(ctx, tx, actor, owner, spaceID, "admin.global.publications.gallery.read", "consulta_recurso", correlation, time.Now()); err != nil {
 		return nil, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -549,7 +549,7 @@ func (r *Repository) SetPublicInCatalogAsAdministrator(ctx context.Context, acto
 	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
 		return gallery.Photo{}, err
 	}
-	if err = auditAdministrativeGallery(ctx, tx, actor, spaceID, "admin.global.publications.gallery.visibility", reason, correlation, at); err != nil {
+	if err = auditAdministrativeGallery(ctx, tx, actor, owner, spaceID, "admin.global.publications.gallery.visibility", reason, correlation, at); err != nil {
 		return gallery.Photo{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -588,7 +588,7 @@ func (r *Repository) SelectCoverAsAdministrator(ctx context.Context, actor, owne
 	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
 		return gallery.Cover{}, err
 	}
-	if err = auditAdministrativeGallery(ctx, tx, actor, spaceID, "admin.global.publications.gallery.cover", reason, correlation, at); err != nil {
+	if err = auditAdministrativeGallery(ctx, tx, actor, owner, spaceID, "admin.global.publications.gallery.cover", reason, correlation, at); err != nil {
 		return gallery.Cover{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -638,7 +638,7 @@ func (r *Repository) RemoveAsAdministrator(ctx context.Context, actor, owner, sp
 	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
 		return gallery.Removal{}, err
 	}
-	if err = auditAdministrativeGallery(ctx, tx, actor, spaceID, "admin.global.publications.gallery.remove", reason, correlation, at); err != nil {
+	if err = auditAdministrativeGallery(ctx, tx, actor, owner, spaceID, "admin.global.publications.gallery.remove", reason, correlation, at); err != nil {
 		return gallery.Removal{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {

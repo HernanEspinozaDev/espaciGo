@@ -4,7 +4,7 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}/api/v1` | (string & {});
 };
 
-export type AdminCapability = 'legacy.administration' | 'accounts.list' | 'accounts.read' | 'accounts.update' | 'accounts.block' | 'accounts.roles' | 'publications.list' | 'publications.read' | 'publications.update' | 'publications.moderate' | 'publications.retire' | 'admin_access.manage';
+export type AdminCapability = 'legacy.administration' | 'accounts.list' | 'accounts.read' | 'accounts.update' | 'accounts.block' | 'accounts.roles' | 'publications.list' | 'publications.read' | 'publications.update' | 'publications.moderate' | 'publications.retire' | 'admin_access.manage' | 'kpi.read' | 'audit.read' | 'audit.export';
 
 export type GlobalAdminMeEnvelope = {
     data: {
@@ -1797,6 +1797,139 @@ export type GetGlobalAdminOverviewResponses = {
 };
 
 export type GetGlobalAdminOverviewResponse = GetGlobalAdminOverviewResponses[keyof GetGlobalAdminOverviewResponses];
+
+export type GetGlobalAdminKpisData = {
+    body?: never;
+    path?: never;
+    query: {
+        from: string;
+        /**
+         * Exclusivo
+         */
+        until: string;
+        time_zone: string;
+    };
+    url: '/admin/global/kpis';
+};
+
+export type GetGlobalAdminKpisErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * validation_error o invalid_token: regla semántica no satisfecha.
+     */
+    422: Error;
+};
+
+export type GetGlobalAdminKpisError = GetGlobalAdminKpisErrors[keyof GetGlobalAdminKpisErrors];
+
+export type GetGlobalAdminKpisResponses = {
+    /**
+     * Indicadores persistidos y auditados
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type GetGlobalAdminKpisResponse = GetGlobalAdminKpisResponses[keyof GetGlobalAdminKpisResponses];
+
+export type ListGlobalAdminAuditEventsData = {
+    body?: never;
+    path?: never;
+    query: {
+        from: string;
+        until: string;
+        actor_id?: string;
+        target_account_id?: string;
+        resource_type?: string;
+        resource_id?: string;
+        action?: string;
+        result?: 'exito' | 'rechazo';
+        page_size?: number;
+        cursor?: string;
+    };
+    url: '/admin/global/audit-events';
+};
+
+export type ListGlobalAdminAuditEventsErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * validation_error o invalid_token: regla semántica no satisfecha.
+     */
+    422: Error;
+};
+
+export type ListGlobalAdminAuditEventsError = ListGlobalAdminAuditEventsErrors[keyof ListGlobalAdminAuditEventsErrors];
+
+export type ListGlobalAdminAuditEventsResponses = {
+    /**
+     * Página auditada
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ListGlobalAdminAuditEventsResponse = ListGlobalAdminAuditEventsResponses[keyof ListGlobalAdminAuditEventsResponses];
+
+export type ExportGlobalAdminAuditEventsData = {
+    body?: never;
+    path?: never;
+    query: {
+        from: string;
+        until: string;
+        actor_id?: string;
+        target_account_id?: string;
+        resource_type?: string;
+        resource_id?: string;
+        action?: string;
+        result?: 'exito' | 'rechazo';
+        format?: 'json' | 'csv';
+    };
+    url: '/admin/global/audit-events/export';
+};
+
+export type ExportGlobalAdminAuditEventsErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Filtros inválidos o exceso de filas
+     */
+    422: unknown;
+};
+
+export type ExportGlobalAdminAuditEventsError = ExportGlobalAdminAuditEventsErrors[keyof ExportGlobalAdminAuditEventsErrors];
+
+export type ExportGlobalAdminAuditEventsResponses = {
+    /**
+     * Archivo exportado sin cache
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type ExportGlobalAdminAuditEventsResponse = ExportGlobalAdminAuditEventsResponses[keyof ExportGlobalAdminAuditEventsResponses];
 
 export type ListGlobalAdminAccountsData = {
     body?: never;

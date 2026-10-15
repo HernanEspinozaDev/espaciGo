@@ -453,6 +453,9 @@ export type AdminCapability =
   | 'publications.update'
   | 'publications.moderate'
   | 'publications.retire'
+  | 'audit.read'
+  | 'audit.export'
+  | 'kpi.read'
   | 'admin_access.manage';
 
 export type SpaceAttributeProfile = {

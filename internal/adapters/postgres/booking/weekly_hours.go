@@ -232,7 +232,7 @@ func (r *Repository) WeeklyHoursAsAdministrator(ctx context.Context, actor, owne
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&at); err != nil {
 		return booking.WeeklyHours{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en) VALUES($1,$2,'publicacion_global',$3,'admin.global.publications.schedule.read','exito','consulta_recurso',$4,$5,$5::timestamptz+interval '5 years')`, auditID, actor, spaceID, correlation, at); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,cuenta_objetivo_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,registrado_en,retirar_en) VALUES($1,$2,$3,'publicacion_global',$4,'admin.global.publications.schedule.read','exito','consulta_recurso',$5,$6,clock_timestamp(),$6::timestamptz+interval '5 years')`, auditID, actor, owner, spaceID, correlation, at); err != nil {
 		return booking.WeeklyHours{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -332,7 +332,7 @@ func (r *Repository) SaveWeeklyHoursAsAdministrator(ctx context.Context, actor, 
 	if err != nil {
 		return booking.WeeklyHours{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en) VALUES($1,$2,'publicacion_global',$3,'admin.global.publications.schedule','exito',$4,$5,$6,$6::timestamptz+interval '5 years')`, auditID, actor, spaceID, reason, correlation, at); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,cuenta_objetivo_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,registrado_en,retirar_en) VALUES($1,$2,$3,'publicacion_global',$4,'admin.global.publications.schedule','exito',$5,$6,$7,clock_timestamp(),$7::timestamptz+interval '5 years')`, auditID, actor, owner, spaceID, reason, correlation, at); err != nil {
 		return booking.WeeklyHours{}, err
 	}
 	saved, err := r.weeklyHoursTx(ctx, tx, spaceID)

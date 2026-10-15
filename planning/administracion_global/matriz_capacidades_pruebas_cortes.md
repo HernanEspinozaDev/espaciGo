@@ -1,6 +1,6 @@
 # Matriz GADM-00–04 — capacidades, pruebas y cortes
 
-- Estado: GADM-00 se fusionó en PR #312 (`2589aa1139232f419cf1d1aebdd79a69c1f4007b`); GADM-01 se fusionó en PR #313 (`6dffcc92ae528d8a790956a8dd73960df1501802`); GADM-02 es el corte vigente en `codex/marketplace/feature/gadm-02-account-publication-management`; GADM-03 permanece pendiente.
+- Estado: GADM-00 se fusionó en PR #312 (`2589aa1139232f419cf1d1aebdd79a69c1f4007b`); GADM-01 se fusionó en PR #313 (`6dffcc92ae528d8a790956a8dd73960df1501802`); GADM-02 se aprobó y fusionó en PR #314 (HEAD revisado `e81cfbf9db67eef1d09801b55b98fce2336c64f6`, merge `6a721adc96ac5192e6bfcf8b672d052e272ed048`); GADM-03 está activo en `codex/marketplace/feature/gadm-03-kpi-account-audit` por instrucción sucesora de este chat; GADM-04 queda pendiente.
 - Base de GADM-02: `6dffcc92ae528d8a790956a8dd73960df1501802` (HEAD revisado de GADM-01: `0dcaa68e78d377d7ad5d0831366a73e5d72c3e3f`).
 - La columna “actual” conserva el inventario anterior a GADM-01; la columna de pruebas del corte registra evidencia ejecutada, no intención futura.
 
@@ -17,7 +17,26 @@ HEAD de código probado: `8ffeffa0704a7bfea989afd5674f55a49f9298f0` (branch `cod
 | Capturas / medidas | Artefactos de [FE-14 móvil](../frontend/evidencia/fe14_gadm_02_admin_mobile_1637077c57c1.jpg) y [escritorio](../frontend/evidencia/fe14_gadm_02_admin_desktop_1637077c57c1.jpg) | 390×844: documento 390 px; 1365×900: documento 1365 px. Capturas incluyen inventario, galería y horario; correos de ensayo redactados. JSON registra el HEAD de código probado. |
 | Historial / whitespace | `git diff -- db/migrations` y `git diff --check` | Sin migraciones nuevas ni cambios históricos; V1–V58 intactas. No se necesitó V59. |
 
-El recorrido y la verificación técnica están registrados; el corte queda para revisión técnica en PR #314 y aceptación del producto por el usuario. La fusión técnica no equivale a esa aceptación. No se añadió `DELETE` ni estado de dominio nuevo: V50 ya contiene `eliminada`, V52 conserva tarifas/snapshots/obligaciones. No se activaron cuenta real, soporte, GCP ni demo retenida.
+El recorrido y la verificación técnica están registrados. PR #314 fue aprobado por HernanEspinozaDev y fusionado en `6a721adc96ac5192e6bfcf8b672d052e272ed048`; HEAD revisado `e81cfbf9db67eef1d09801b55b98fce2336c64f6`, CI SUCCESS y siete hilos resueltos. Esta fusión técnica no equivale a aceptación de producto. No se añadió `DELETE` ni estado de dominio nuevo: V50 ya contiene `eliminada`, V52 conserva tarifas/snapshots/obligaciones. No se activaron cuenta real, soporte, GCP ni demo retenida.
+
+## Sucesión GADM-02 → GADM-03 (2026-10-15)
+
+Por instrucción explícita de este chat, GADM-03 está en desarrollo desde `origin/main` en `codex/marketplace/feature/gadm-03-kpi-account-audit`. El alcance es KPI conciliados con persistencia, auditoría global/por cuenta con actor y objetivo distintos y exportaciones privadas JSON/CSV; se conserva la lista de definiciones, límites, pruebas y exclusiones de `plan_admin_global_master.md`. GADM-04 sigue pendiente hasta fusionar GADM-03 y recibir instrucción.
+
+## Evidencia GADM-03 (2026-10-15)
+
+Código probado: rama `codex/marketplace/feature/gadm-03-kpi-account-audit`, partiendo de `6a721adc96ac5192e6bfcf8b672d052e272ed048` (se registrará el SHA del corte implementado en el PR). La migración V59 añade columnas para objetivo e instante de registro e índices de auditoría; V1–V58 quedan intactas. El recorrido usa Compose FE-14 con proyecto, volumen y cuentas sintéticas efímeros; no referencia `espacigo_pgdata`; elimina la base/credenciales al salir.
+
+| Validación | Entorno / alcance | Resultado |
+| --- | --- | --- |
+| Go / dominio | `go test ./internal/adminglobal/... ./internal/adapters/postgres/booking ./internal/adapters/postgres/gallery ./internal/adapters/postgres/spaces ./internal/identity/... ./internal/migrator` | Correcto. El runner FE-14 ejecuta además la integración del migrador contra PostgreSQL 18 para base vacía y upgrades desde V56 y V58, comprobando checksums previos. |
+| Contrato y Angular | `npm run api:check`, `npm run lint`, `npm test -- --watch=false`, `npm run build` | Correcto: OpenAPI/SDK generado; 39 archivos y 302 pruebas Angular; lint, SCSS, arquitectura y build SSR/navegador. |
+| Recorrido conectado FE-14 | Playwright Chromium contra Angular y API Go, PostgreSQL/PostGIS de Compose aislado | Login global, panel KPI desde DB, filtros de actor y cuenta objetivo por separado, consulta auditada, exportación CSV auditada/descargada; rol administrador no global recibe 403 en KPI, consulta y exportación. Persistencia verificada directamente en DB; sin credenciales en logs. |
+| Rendimiento de directorio | Misma DB desechable; se insertan 1.000 cuentas sintéticas con correo único y no autenticable; consulta por prefijo y página de 25 con `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` | Plan capturado en `evidencia/gadm_03/gadm03-account-query-plan.txt`: 1,155 ms de tiempo total medido, 1.043 bloques compartidos en caché, sin lecturas físicas ni temporales. Dato indicativo del contenedor de ensayo, no SLO de producción. |
+| Capturas / medidas | `evidencia/gadm_03/fe14_gadm_03_admin_{mobile,desktop}.{jpg,json}` | Móvil 390×844, documento 390 px; escritorio 1365×900, documento 1365 px; no hay desbordamiento horizontal. Las capturas no contienen correo/credencial de ensayo. |
+| Límites | Contratos OpenAPI, datos de producto | Cobros/devoluciones y comisión son datos de ensayo; disponibilidad o cola no se transforma en cero cuando la fuente no existe. No se presentan DAU/visitas, pagos reales, aceptación de producto ni capacidad GCP. |
+
+La matriz registra verificaciones técnicas, no aceptación de producto. GADM-04 sigue en espera de la fusión de GADM-03 y una instrucción sucesora.
 
 ## Evidencia GADM-01 (2026-10-14)
 
@@ -102,8 +121,8 @@ La política de compatibilidad se define por operación, no por etiqueta de rol:
 | --- | --- | --- | --- |
 | GADM-00 | plan, ADR, matriz, inventario y AGENTS; sin DB/código | fusionado en PR #312, merge `2589aa1139232f419cf1d1aebdd79a69c1f4007b` | GADM-01 autorizado tras fusión |
 | GADM-01 | rol/capacidades, V58, bootstrap local/recuperación, sesión, OpenAPI y directorio inicial | Fusionado en PR #313, merge `6dffcc92ae528d8a790956a8dd73960df1501802`; HEAD revisado `0dcaa68e78d377d7ad5d0831366a73e5d72c3e3f`; aceptación de producto y cuenta real pendientes | GADM-02 inicia desde el merge de #313 |
-| GADM-02 | gestión de cuentas/publicaciones y fichas/recursos | allowlists, motivo/autenticación reciente en servidor, concurrencia, auditoría atómica, snapshots, reglas de privacidad/ocupación y recorrido real comprobados. Correo validado queda fuera de edición directa; supresión requiere transferencia del UUID bootstrap. Historial V1–V58 inmutable. | PR fusionado; no iniciar GADM-03 antes de instrucción sucesora |
-| GADM-03 | KPI, auditoría cuenta/global, exportaciones JSON/CSV | definiciones y números conciliados con DB, paginación/snapshot, límites y seguridad; análisis de N+1 | PR fusionado y revisión envía GADM-04 |
+| GADM-02 | gestión de cuentas/publicaciones y fichas/recursos | allowlists, motivo/autenticación reciente en servidor, concurrencia, auditoría atómica, snapshots, reglas de privacidad/ocupación y recorrido real comprobados. Correo validado queda fuera de edición directa; supresión requiere transferencia del UUID bootstrap. Historial V1–V58 inmutable. | Aprobado y fusionado #314; aceptación de producto pendiente |
+| GADM-03 | KPI, auditoría cuenta/global, exportaciones JSON/CSV | definiciones y números conciliados con DB, paginación/ventana temporal, límites y seguridad; análisis de N+1 | Activo en rama temporal; iniciar GADM-04 solo tras fusión y nueva instrucción |
 | GADM-04 | regresión y entrega/guía de cuenta maestra | recorrido/evidencia por SHA, credenciales aisladas, aceptación humana del propietario; sin soporte/GCP | cierre solo dentro del alcance aceptado |
 
 No comenzar ningún sucesor antes de fusionar el corte anterior. La evidencia de GADM-01 se actualizará con HEAD, entorno y resultados comprobados antes de publicar.

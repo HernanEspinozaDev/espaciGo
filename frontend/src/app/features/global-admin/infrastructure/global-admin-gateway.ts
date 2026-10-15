@@ -9,6 +9,9 @@ export class GlobalAdminGateway extends GlobalAdminPort {
   override overview(token: string) {
     return this.api.overview(token);
   }
+  override kpis(token:string,period:Parameters<GlobalAdminPort['kpis']>[1]){return this.api.kpis(token,period);}
+  override audit(token:string,filters:Parameters<GlobalAdminPort['audit']>[1]){return this.api.audit(token,filters);}
+  override exportAudit(token:string,filters:Parameters<GlobalAdminPort['exportAudit']>[1],format:'json'|'csv'){return this.api.exportAudit(token,filters,format);}
 
   override list(token: string, filters: Record<string, string | number | undefined>) {
     return this.api.list(token, filters);

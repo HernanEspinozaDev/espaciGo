@@ -26,6 +26,8 @@ var retirementReasons = map[string]bool{
 	"revision_administrativa": true,
 }
 
+const publicCatalogVisibleExpr = `(e.estado='activa' AND c.activa AND u.estado='activo' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local bl WHERE bl.cuenta_id=u.id) AND EXISTS(SELECT 1 FROM public.tarifa_espacio tr WHERE tr.espacio_id=e.id) AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local el JOIN public.verificacion v ON v.id=el.verificacion_id AND v.usuario_id=el.usuario_id AND v.tipo=el.tipo AND v.estado='aprobada' WHERE el.usuario_id=u.id AND el.tipo='kyc' AND el.estado='elegible') AND NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local_fixture fx WHERE fx.espacio_id=e.id AND fx.anfitrion_id=e.propietario_id AND fx.habilitada))`
+
 type PublicationFilter struct {
 	OwnerID  string `json:"owner_id,omitempty"`
 	Category string `json:"category,omitempty"`
@@ -203,7 +205,7 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 	if err != nil {
 		return Publication{}, err
 	}
-	if err = s.audit(ctx, tx, actor, id, "admin.global.publications.update", "exito", in.Reason, correlation, at); err != nil {
+	if err = s.auditWithTarget(ctx, tx, actor, id, "admin.global.publications.update", "exito", in.Reason, correlation, at, owner); err != nil {
 		return Publication{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -382,7 +384,7 @@ func (s *Service) SetPublicationState(ctx context.Context, actor, id, correlatio
 	if tag.RowsAffected() != 1 {
 		return PublicationStateChange{}, ErrConflict
 	}
-	if err = s.audit(ctx, tx, actor, id, "admin.global.publications.state", "exito", in.Reason, correlation, at); err != nil {
+	if err = s.auditWithTarget(ctx, tx, actor, id, "admin.global.publications.state", "exito", in.Reason, correlation, at, owner); err != nil {
 		return PublicationStateChange{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -467,7 +469,7 @@ func (s *Service) ListPublications(ctx context.Context, actor, correlation strin
 		v := add("%" + escapeLikePrefix(strings.ToLower(f.Search)) + "%")
 		where = append(where, "(lower(e.titulo) LIKE "+v+" ESCAPE E'\\\\' OR lower(u.correo_normalizado) LIKE "+v+" ESCAPE E'\\\\')")
 	}
-	visibleExpr := `(e.estado='activa' AND c.activa AND u.estado='activo' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local bl WHERE bl.cuenta_id=u.id) AND EXISTS(SELECT 1 FROM public.tarifa_espacio tr WHERE tr.espacio_id=e.id) AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local el JOIN public.verificacion v ON v.id=el.verificacion_id AND v.usuario_id=el.usuario_id AND v.tipo=el.tipo AND v.estado='aprobada' WHERE el.usuario_id=u.id AND el.tipo='kyc' AND el.estado='elegible') AND NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local_fixture fx WHERE fx.espacio_id=e.id AND fx.anfitrion_id=e.propietario_id AND fx.habilitada))`
+	visibleExpr := publicCatalogVisibleExpr
 	if f.Visible != nil {
 		where = append(where, visibleExpr+"="+add(*f.Visible))
 	}

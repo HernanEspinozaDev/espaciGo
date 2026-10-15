@@ -49,3 +49,9 @@ export type Overview = {
   generated_at: string;
   definition: string;
 };
+
+export type KPIValue={key?:string;category?:string;state?:string;denominator?:number;source:string;definition:string;value:number;available:boolean;reason?:string};
+export type KPIReport={generated_at:string;period:{from:string;until:string;time_zone:string};accounts:Record<string,number>;account_roles:Record<string,number>;registrations_in_period:number;publication_owner_distribution:KPIValue[];publications:KPIValue[];reservations:KPIValue[];operations:KPIValue[];finance:{kind:string;state:string;count:number;amount_clp:string;source:string;definition:string}[];queues:KPIValue[]};
+export type AuditFilter={from:string;until:string;actor_id?:string;target_account_id?:string;resource_type?:string;resource_id?:string;action?:string;result?:string;page_size?:number;cursor?:string};
+export type AuditEntry={id:string;actor_id:string|null;target_account_id:string|null;resource_type:string;resource_id:string;action:string;result:string;reason_code:string;correlation_id:string;occurred_at:string;recorded_at:string};
+export type AuditPage={items:AuditEntry[];next_cursor:string;from:string;until:string;generated_at:string;snapshot_cutoff:string;applied_filters:AuditFilter};

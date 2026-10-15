@@ -10,7 +10,7 @@ import { GlobalAdminPage } from './global-admin-page';
 const globalSession = {
   account_id: 'master',
   roles: ['administrador_global'],
-  capabilities: ['accounts.list', 'accounts.read','accounts.update','accounts.roles','accounts.block','publications.list','publications.read','publications.update','publications.moderate'],
+  capabilities: ['accounts.list', 'accounts.read','accounts.update','accounts.roles','accounts.block','publications.list','publications.read','publications.update','publications.moderate','kpi.read','audit.read','audit.export'],
   restricted_mode: false,
 };
 const overview = {
@@ -55,6 +55,9 @@ async function setup() {
   };
   const api = {
     overview: vi.fn().mockResolvedValue(overview),
+    kpis: vi.fn().mockResolvedValue({generated_at:overview.generated_at,period:{from:overview.generated_at,until:overview.generated_at,time_zone:'America/Santiago'},accounts:{activo:2},account_roles:{arrendatario:2},registrations_in_period:1,publication_owner_distribution:[],publications:[],reservations:[],operations:[],finance:[{kind:'cobro',state:'confirmado',count:1,amount_clp:'9007199254740993',source:'fake',definition:'Importe exacto'}],queues:[]}),
+    audit: vi.fn().mockResolvedValue({items:[],next_cursor:'',from:overview.generated_at,until:overview.generated_at,generated_at:overview.generated_at,snapshot_cutoff:overview.generated_at,applied_filters:{from:overview.generated_at,until:overview.generated_at,page_size:25}}),
+    exportAudit: vi.fn().mockResolvedValue(new Blob(['csv'])),
     list: vi.fn().mockResolvedValue({ items: [account], next_cursor: 'cursor-initial', matching_total: 2, generated_at: overview.generated_at }),
     account: vi.fn().mockResolvedValue(account),
     listAccountResources: vi.fn().mockResolvedValue({items:[],next_cursor:'',matching_total:0,generated_at:overview.generated_at}),
@@ -91,6 +94,7 @@ async function setup() {
     identity,
     identityApi,
     api,
+    fixture,
     facade,
     component: fixture.componentInstance,
     setConfirmed(value: typeof globalSession) { confirmed = value; },
@@ -420,4 +424,19 @@ it('loads owner-scoped resources and ignores a detail response after changing ac
   finish({id:'reservation-1',state:'pagada'});
   await detail;
   expect(facade.accountResourceDetail()).toBeNull();
+});
+
+it('loads persisted KPI values as exact CLP text and audit only uses applied filters', async () => {
+  const { api, component, facade, fixture } = await setup();
+  component.showTab('reports');
+  await vi.waitFor(() => expect(facade.kpis()?.finance[0].amount_clp).toBe('9007199254740993'));
+  fixture.detectChanges();
+  expect(fixture.nativeElement.textContent).toContain('9007199254740993');
+  component.searchAudit();
+  const applied = component.appliedAudit()!;
+  component.auditActor.setValue('changed-after-apply');
+  const result = await facade.exportAudit(applied, 'csv');
+  expect(result?.blob.size).toBeGreaterThan(0);
+  expect(api.audit).toHaveBeenCalledWith('token-a', expect.objectContaining({ actor_id: undefined, target_account_id: undefined }));
+  expect(api.exportAudit).toHaveBeenCalledWith('token-a', applied, 'csv');
 });

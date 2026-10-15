@@ -129,7 +129,7 @@ func (s *Service) SetAccountBlocked(ctx context.Context, actor, target, reason, 
 	if !blocked {
 		auditAction = "admin.global.accounts.unblock"
 	}
-	if err = s.audit(ctx, tx, actor, target, auditAction, "exito", reason, correlation, at); err != nil {
+	if err = s.auditWithTarget(ctx, tx, actor, target, auditAction, "exito", reason, correlation, at, target); err != nil {
 		return AccountBlockChange{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -183,7 +183,7 @@ func (s *Service) UpdateAccountProfile(ctx context.Context, actor, target, corre
 	if err != nil {
 		return AccountProfile{}, err
 	}
-	if err = s.audit(ctx, tx, actor, target, "admin.global.accounts.update", "exito", in.Reason, correlation, out.UpdatedAt); err != nil {
+	if err = s.auditWithTarget(ctx, tx, actor, target, "admin.global.accounts.update", "exito", in.Reason, correlation, out.UpdatedAt, target); err != nil {
 		return AccountProfile{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -237,7 +237,7 @@ func (s *Service) SetAccountRole(ctx context.Context, actor, target, role, reaso
 	if !changed {
 		auditReason = "estado_idempotente"
 	}
-	if err = s.audit(ctx, tx, actor, target, "admin.global.accounts.roles."+map[bool]string{true: "grant", false: "revoke"}[granted]+"."+role, result, auditReason, correlation, at); err != nil {
+	if err = s.auditWithTarget(ctx, tx, actor, target, "admin.global.accounts.roles."+map[bool]string{true: "grant", false: "revoke"}[granted]+"."+role, result, auditReason, correlation, at, target); err != nil {
 		return RoleChange{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -274,7 +274,7 @@ func (s *Service) RevokeAccountSessions(ctx context.Context, actor, target, reas
 	if err != nil {
 		return SessionRevocation{}, err
 	}
-	if err = s.audit(ctx, tx, actor, target, "admin.global.accounts.sessions.revoke", "exito", reason, correlation, at); err != nil {
+	if err = s.auditWithTarget(ctx, tx, actor, target, "admin.global.accounts.sessions.revoke", "exito", reason, correlation, at, target); err != nil {
 		return SessionRevocation{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {

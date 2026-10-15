@@ -55,6 +55,9 @@ const (
 	CapabilityPublicationsUpdate   Capability = "publications.update"
 	CapabilityPublicationsModerate Capability = "publications.moderate"
 	CapabilityPublicationsRetire   Capability = "publications.retire"
+	CapabilityAuditRead            Capability = "audit.read"
+	CapabilityAuditExport          Capability = "audit.export"
+	CapabilityKPIRead              Capability = "kpi.read"
 )
 
 // CapabilitiesForRoles keeps the old administrator surface intact while
@@ -78,6 +81,9 @@ func CapabilitiesForRoles(roles []Role) []Capability {
 			set[CapabilityPublicationsUpdate] = struct{}{}
 			set[CapabilityPublicationsModerate] = struct{}{}
 			set[CapabilityPublicationsRetire] = struct{}{}
+			set[CapabilityAuditRead] = struct{}{}
+			set[CapabilityAuditExport] = struct{}{}
+			set[CapabilityKPIRead] = struct{}{}
 		}
 	}
 	capabilities := make([]Capability, 0, len(set))

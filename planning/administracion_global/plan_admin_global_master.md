@@ -4,7 +4,7 @@ Fecha: 2026-10-14, America/Santiago. **Autorizado para desarrollar por cortes y 
 
 ## 1. Diagnóstico verificado
 
-Base integrada para GADM-02: `6dffcc92ae528d8a790956a8dd73960df1501802`, merge de PR #313 (GADM-01). HEAD revisado del PR: `0dcaa68e78d377d7ad5d0831366a73e5d72c3e3f`. GADM-02 está en revisión técnica en PR #314, rama `codex/marketplace/feature/gadm-02-account-publication-management`; ver evidencia reproducible en `matriz_capacidades_pruebas_cortes.md`. La aceptación de producto sigue pendiente.
+Base integrada para GADM-02: `6dffcc92ae528d8a790956a8dd73960df1501802`, merge de PR #313 (GADM-01). GADM-02 se aprobó y fusionó por HernanEspinozaDev en PR #314: HEAD revisado `e81cfbf9db67eef1d09801b55b98fce2336c64f6`, merge `6a721adc96ac5192e6bfcf8b672d052e272ed048`. Por instrucción sucesora de este chat, GADM-03 está autorizado y en desarrollo en `codex/marketplace/feature/gadm-03-kpi-account-audit`; la aceptación de producto continúa pendiente. Se requiere únicamente V59 para guardar objetivo explícito/instante de registro e indexar consultas de auditoría; V1–V58 se preservan y el upgrade desde V58 se prueba.
 
 - Existe `identity.RoleAdministrator = administrador`, además de arrendatario/arrendador; el registro solo concede arrendatario.
 - Hay una cuenta administrativa de ensayo en la demo LOCAL-CLOSE-02; no se exportan sus credenciales ni se la convierte automáticamente en cuenta del propietario.
@@ -106,11 +106,11 @@ Todos los cambios usan control de concurrencia (revisión/updated_at o versión 
 | --- | --- | --- |
 | GADM-00 | Inventario de capacidades actuales, ADR, matriz permisos/operaciones y plan versionado | Fusionado en PR #312, merge `2589aa1139232f419cf1d1aebdd79a69c1f4007b`; sin concesiones de privilegios ni cuentas nuevas. |
 | GADM-01 | Rol global/capacidades, V58, bootstrap/recuperación, sesión y directorio de cuentas con totales reales | Fusionado en PR #313, merge `6dffcc92ae528d8a790956a8dd73960df1501802`, HEAD revisado `0dcaa68e78d377d7ad5d0831366a73e5d72c3e3f`. La cuenta real y aceptación de producto siguen pendientes. |
-| GADM-02 | Gestión de cuentas/publicaciones: edición allowlist, bloqueo/sesiones/roles bajo política, estados y recursos por propietario; moderación, publicación, ocultamiento y retiro según dominio | Acciones Angular→Go→DB; motivo y autenticación reciente verificados por servidor; auditoría atómica, control de versión/idempotencia, snapshots y ocupaciones conservados, privacidad/retención respetadas y carreras cubiertas. Correo verificado no editable desde ficha. Supresión exige transferencia previa del UUID bootstrap. V1–V58 inmutables; V59 solo si el modelo lo exige. |
-| GADM-03 | Tablero KPI y auditoría por cuenta/global, exportaciones JSON/CSV | Definiciones/fuentes/intervalos exactos, cifras contrastadas con DB, sin doble conteo/N+1 ni exposición de secretos, paginación/export coherentes. |
+| GADM-02 | Gestión de cuentas/publicaciones: edición allowlist, bloqueo/sesiones/roles bajo política, estados y recursos por propietario; moderación, publicación, ocultamiento y retiro según dominio | Aprobado y fusionado por HernanEspinozaDev en PR #314; HEAD revisado `e81cfbf9db67eef1d09801b55b98fce2336c64f6`, merge `6a721adc96ac5192e6bfcf8b672d052e272ed048`. Sin aceptación de producto inferida. |
+| GADM-03 | Tablero KPI y auditoría por cuenta/global, exportaciones JSON/CSV | Activo en `codex/marketplace/feature/gadm-03-kpi-account-audit`; definición/fuentes/intervalos exactos, cifras conciliadas con DB, sin doble conteo/N+1 ni exposición de secretos, paginación/export coherentes; requiere PR fusionado y revisión antes de GADM-04. |
 | GADM-04 | Regresión y entrega de la cuenta maestra con guía/demo e inventario de capacidades | Pruebas de permisos y recorridos completos, dataset de ensayo recreable, evidencia por SHA, aceptación del propietario; ningún soporte o GCP activado. |
 
-Ramas: `codex/marketplace/<feature|fix|chore>/gadm-00-descripcion` y sucesores, una rama temporal/PR por corte sobre main; no ramas por capa ni reutilizar ramas fusionadas. Si el hook requiere patrón, ampliarlo de forma acotada y probada sin deshabilitar identidades. Iniciar solo00; revisión envía el sucesor tras fusión, sin pedir otra autorización de la secuencia al usuario.
+Ramas: `codex/marketplace/<feature|fix|chore>/gadm-00-descripcion` y sucesores, una rama temporal/PR por corte sobre main; no ramas por capa ni reutilizar ramas fusionadas. Si el hook requiere patrón, ampliarlo de forma acotada y probada sin deshabilitar identidades. GADM-03 fue iniciado desde `origin/main` tras la fusión de #314 y la instrucción sucesora de este chat. No iniciar GADM-04 hasta fusionar este corte y recibir instrucción.
 
 ## 8. Pruebas y entrega
 

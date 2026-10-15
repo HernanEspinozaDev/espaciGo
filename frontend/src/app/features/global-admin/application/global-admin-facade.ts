@@ -4,6 +4,7 @@ import { IdentitySession } from '../../../core/identity/application/identity-ses
 import { PrivateSessionState } from '../../../core/identity/private-session-state';
 import { GlobalAdminPort } from '../domain/ports/global-admin-port';
 import { Account, Overview, Page, AccountBlockUpdate, ProfileUpdate, RoleUpdate, SessionRevocation, PublicationPage, PublicationStateUpdate, PublicationContentUpdate, PublicationRetireUpdate, AccountResourceKind, AccountResourcePage, PublicationPhoto, PublicationPhotoMutation, PublicationSchedule, PublicationScheduleUpdate } from '../domain/global-admin-models';
+import type { KPIReport, AuditFilter, AuditPage } from '../domain/global-admin-models';
 
 export type DirectoryCriteria = Record<string, string | number | undefined>;
 
@@ -40,6 +41,8 @@ export class GlobalAdminFacade {
   private resourceRevision = 0;
   private galleryRevision = 0;
   private scheduleRevision = 0;
+  private reportRevision = 0;
+  private auditRevision = 0;
   private identityContext = '';
   private unregisterPrivateState: (() => void) | null = null;
 
@@ -60,6 +63,10 @@ export class GlobalAdminFacade {
   readonly error = signal('');
   readonly controlsResetRevision = signal(0);
   readonly saving = signal(false);
+  readonly kpis = signal<KPIReport|null>(null);
+  readonly auditPage = signal<AuditPage|null>(null);
+  readonly loadingReport = signal(false);
+  readonly loadingAudit = signal(false);
 
   constructor() {
     this.meta.addTag({ name: 'robots', content: 'noindex, nofollow' });
@@ -205,6 +212,10 @@ export class GlobalAdminFacade {
   }
 
   async loadPublications(filters:DirectoryCriteria,cursor=''):Promise<void>{const context=this.currentContext(),revision=++this.publicationRevision;this.publications.set(null);if(!context||!this.identity.session()?.capabilities?.includes('publications.list'))return;this.loadingPublications.set(true);this.error.set('');try{const page=await this.api.listPublications(context.token,{...filters,page_size:25,cursor:cursor||undefined});if(revision===this.publicationRevision&&this.hasCurrentContext(context))this.publications.set(page);}catch(error){if(revision===this.publicationRevision&&this.hasCurrentContext(context)){if(statusOf(error)===403)await this.revalidateDeniedRequest(context,'Go rechazó el inventario y se revalidaron tus permisos.');else this.error.set(messageOf(error));}}finally{if(revision===this.publicationRevision&&this.hasCurrentContext(context))this.loadingPublications.set(false);}}
+
+  async loadKPIs(period:{from:string;until:string;time_zone:string}):Promise<void>{const context=this.currentContext(),rev=++this.reportRevision;this.kpis.set(null);if(!context||!this.identity.session()?.capabilities?.includes('kpi.read'))return;this.loadingReport.set(true);try{const result=await this.api.kpis(context.token,period);if(rev===this.reportRevision&&this.hasCurrentContext(context))this.kpis.set(result);}catch(e){if(rev===this.reportRevision&&this.hasCurrentContext(context)){if(statusOf(e)===403)await this.revalidateDeniedRequest(context,'Go rechazó el reporte y se revalidaron tus permisos.');else this.error.set(messageOf(e));}}finally{if(rev===this.reportRevision&&this.hasCurrentContext(context))this.loadingReport.set(false);}}
+  async loadAudit(filters:AuditFilter):Promise<void>{const context=this.currentContext(),rev=++this.auditRevision;this.auditPage.set(null);if(!context||!this.identity.session()?.capabilities?.includes('audit.read'))return;this.loadingAudit.set(true);try{const result=await this.api.audit(context.token,filters);if(rev===this.auditRevision&&this.hasCurrentContext(context))this.auditPage.set(result);}catch(e){if(rev===this.auditRevision&&this.hasCurrentContext(context)){if(statusOf(e)===403)await this.revalidateDeniedRequest(context,'Go rechazó la consulta de auditoría y se revalidaron tus permisos.');else this.error.set(messageOf(e));}}finally{if(rev===this.auditRevision&&this.hasCurrentContext(context))this.loadingAudit.set(false);}}
+  async exportAudit(filters:AuditFilter,format:'json'|'csv'):Promise<{blob:Blob;revision:number}|null>{const context=this.currentContext(),revision=++this.auditRevision;if(!context||!this.identity.session()?.capabilities?.includes('audit.export'))return null;try{const blob=await this.api.exportAudit(context.token,filters,format);return revision===this.auditRevision&&this.hasCurrentContext(context)?{blob,revision}:null;}catch(e){if(revision===this.auditRevision&&this.hasCurrentContext(context)){if(statusOf(e)===403)await this.revalidateDeniedRequest(context,'Go rechazó la exportación y se revalidaron tus permisos.');else this.error.set(messageOf(e));}return null;}}
 
   async setPublicationState(id: string, input: PublicationStateUpdate): Promise<MutationResult> {
     const operation = this.beginMutation();
@@ -464,6 +475,7 @@ export class GlobalAdminFacade {
 
   private clearData(): void {
     this.overview.set(null);
+    this.kpis.set(null);this.auditPage.set(null);
     this.page.set(null);
     this.selected.set(null);
     this.publicationGallery.set(null);
@@ -492,6 +504,7 @@ export class GlobalAdminFacade {
     ++this.publicationRevision;
     ++this.galleryRevision;
     ++this.scheduleRevision;
+    ++this.reportRevision;++this.auditRevision;
     this.controlsResetRevision.update((revision) => revision + 1);
     this.clearData();
     this.publications.set(null);
@@ -501,6 +514,7 @@ export class GlobalAdminFacade {
     this.loadingPublicationSchedule.set(false);
     this.loadingPublications.set(false);
     this.loadingDirectory.set(false);
+    this.loadingReport.set(false);this.loadingAudit.set(false);
     this.loadingDetail.set(false);
     this.error.set('');
   }

@@ -6,6 +6,7 @@ import { PrivateSessionState } from '../../core/identity/private-session-state';
 import { GlobalAdminFacade, type DirectoryCriteria } from './application/global-admin-facade';
 import type { Publication } from './domain/global-admin-models';
 import type { AccountResourceKind } from './domain/global-admin-models';
+import type { AuditFilter } from './domain/global-admin-models';
 
 type DirectoryFilters = FormGroup<{
   accountId: FormControl<string>;
@@ -37,6 +38,8 @@ export class GlobalAdminPage {
   private galleryPanelGeneration = 0;
   private schedulePanelGeneration = 0;
   readonly vm = inject(GlobalAdminFacade);
+  readonly hasCapability=(capability:import('../../core/contracts/models').AdminCapability)=>this.identity.session()?.capabilities?.includes(capability)??false;
+  readonly objectKeys=(value:Record<string,unknown>)=>Object.keys(value);
   readonly overview = this.vm.overview;
   readonly page = this.vm.page;
   readonly selected = this.vm.selected;
@@ -48,7 +51,10 @@ export class GlobalAdminPage {
   readonly loadingDetail = this.vm.loadingDetail;
   readonly publications = this.vm.publications;
   readonly loadingPublications = this.vm.loadingPublications;
-  readonly activeTab = signal<'accounts'|'publications'>('accounts');
+  readonly activeTab = signal<'accounts'|'publications'|'reports'>('accounts');
+  readonly reportFrom=new FormControl('',{nonNullable:true});readonly reportUntil=new FormControl('',{nonNullable:true});readonly reportZone=new FormControl('America/Santiago',{nonNullable:true});
+  readonly auditFrom=new FormControl('',{nonNullable:true});readonly auditUntil=new FormControl('',{nonNullable:true});readonly auditActor=new FormControl('',{nonNullable:true});readonly auditTarget=new FormControl('',{nonNullable:true});readonly auditResource=new FormControl('',{nonNullable:true});readonly auditAction=new FormControl('',{nonNullable:true});readonly auditResult=new FormControl('',{nonNullable:true});
+  readonly appliedAudit=signal<AuditFilter|null>(null);
   readonly appliedPublicationCriteria = signal<DirectoryCriteria>({});
   readonly publicationFilters:PublicationFilters=new FormGroup({search:new FormControl('',{nonNullable:true}),ownerId:new FormControl('',{nonNullable:true}),category:new FormControl('',{nonNullable:true}),state:new FormControl('',{nonNullable:true}),visible:new FormControl('',{nonNullable:true})});
   readonly error = this.vm.error;
@@ -171,7 +177,11 @@ export class GlobalAdminPage {
     void this.vm.load({});
   }
 
-  showTab(tab:'accounts'|'publications'):void{this.activeTab.set(tab);if(tab==='publications'&&!this.publications())void this.searchPublications();}
+  showTab(tab:'accounts'|'publications'|'reports'):void{this.activeTab.set(tab);if(tab==='publications'&&!this.publications())void this.searchPublications();if(tab==='reports'){const now=new Date(),week=new Date(now.getTime()-7*86400000);const local=(d:Date)=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);if(!this.reportFrom.value){this.reportFrom.setValue(local(week));this.auditFrom.setValue(local(week));}if(!this.reportUntil.value){this.reportUntil.setValue(local(now));this.auditUntil.setValue(local(now));}if(this.identity.session()?.capabilities?.includes('kpi.read'))void this.searchKPIs();}}
+  searchKPIs():void{if(!this.reportFrom.value||!this.reportUntil.value)return;void this.vm.loadKPIs({from:new Date(this.reportFrom.value).toISOString(),until:new Date(this.reportUntil.value).toISOString(),time_zone:this.reportZone.value});}
+  searchAudit():void{if(!this.auditFrom.value||!this.auditUntil.value)return;const applied:AuditFilter={from:new Date(this.auditFrom.value).toISOString(),until:new Date(this.auditUntil.value).toISOString(),actor_id:this.auditActor.value.trim()||undefined,target_account_id:this.auditTarget.value.trim()||undefined,resource_type:this.auditResource.value.trim()||undefined,action:this.auditAction.value.trim()||undefined,result:this.auditResult.value||undefined,page_size:25};this.appliedAudit.set(applied);void this.vm.loadAudit(applied);}
+  nextAudit():void{const f=this.appliedAudit(),cursor=this.vm.auditPage()?.next_cursor;if(f&&cursor)void this.vm.loadAudit({...f,cursor});}
+  async downloadAudit(format:'json'|'csv'):Promise<void>{const f=this.appliedAudit();if(!f)return;const result=await this.vm.exportAudit(f,format);if(!result)return;const url=URL.createObjectURL(result.blob);try{const a=document.createElement('a');a.href=url;a.download=`gadm-audit.${format}`;a.click();}finally{URL.revokeObjectURL(url);}}
   searchPublications():Promise<void>{const v=this.publicationFilters.getRawValue();const criteria:DirectoryCriteria={search:v.search.trim()||undefined,owner_id:v.ownerId.trim()||undefined,category:v.category||undefined,state:v.state||undefined,publicly_visible:v.visible||undefined};this.appliedPublicationCriteria.set(criteria);return this.vm.loadPublications(criteria);}
   nextPublications():void{const cursor=this.publications()?.next_cursor;if(cursor)void this.vm.loadPublications(this.appliedPublicationCriteria(),cursor);}
   async changePublicationState(
@@ -349,6 +359,7 @@ export class GlobalAdminPage {
     this.appliedCriteria.set({});
     this.profileForm.reset({displayName:'',phone:'',reason:'correccion_perfil'});
     this.publicationFilters.reset();this.appliedPublicationCriteria.set({});
+    this.appliedAudit.set(null);this.auditFrom.reset();this.auditUntil.reset();this.auditActor.reset();this.auditTarget.reset();this.auditResource.reset();this.auditAction.reset();this.auditResult.reset();this.reportFrom.reset();this.reportUntil.reset();this.reportZone.setValue('America/Santiago');
     this.clearPublicationEditor();
     this.closePublicationGallery();
     this.closePublicationSchedule();
