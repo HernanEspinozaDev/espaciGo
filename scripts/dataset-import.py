@@ -253,6 +253,7 @@ def load_sources(dataset: Path):
     users = read_jsonl(assignment_dir / "usuarios_planificados.jsonl")
     user_content = {row["user_ref"]: row for row in read_jsonl(dataset / "salida_validada" / "usuarios.jsonl")}
     listings = read_jsonl(assignment_dir / "publicaciones_planificadas.jsonl")
+    scenarios = read_jsonl(assignment_dir / "escenarios_planificados.jsonl")
     listing_content = {row["listing_ref"]: row for row in read_jsonl(dataset / "salida_validada" / "publicaciones.jsonl")}
     if len(user_content) != 1000 or len(listing_content) != 1200:
         raise RuntimeError("generated content does not match the expected reference counts")
@@ -262,12 +263,53 @@ def load_sources(dataset: Path):
     for listing in listings:
         if listing["listing_ref"] not in listing_content:
             raise RuntimeError("a planned publication is missing generated content")
-    return users, user_content, listings, listing_content
+    return users, user_content, listings, listing_content, scenarios
 
 
-def choose_users(users: list[dict], mode: str, listing_assignments: list[dict]) -> list[dict]:
+def choose_users(users: list[dict], mode: str, listing_assignments: list[dict], scenarios: list[dict] | None = None) -> list[dict]:
     if mode == "import":
         return sorted(users, key=lambda row: row["user_ref"])
+    if mode == "deal-pilot":
+        if scenarios is None:
+            raise RuntimeError("deal pilot requires scenario assignments")
+        requested = [
+            ("ciclo_cerrado", "oficina"), ("ciclo_cerrado", "bodega"),
+            ("pendiente_pago", "estacionamiento"), ("pendiente_pago", "sala_multiproposito"),
+            ("cancelacion_con_devolucion", "local_flexible"), ("cancelacion_con_devolucion", "quincho"),
+            ("rechazo_anfitrion", "parcela_eventos"), ("rechazo_anfitrion", "stand"),
+            ("reclamo_abierto", "oficina"), ("reclamo_abierto", "bodega"),
+        ]
+        chosen_scenarios = []
+        chosen_hosts: set[str] = set()
+        chosen_renters: set[str] = set()
+        used_listings: set[str] = set()
+        for scenario_code, category in requested:
+            candidates = [
+                row for row in scenarios
+                if row.get("scenario_code") == scenario_code
+                and row.get("category_code") == category
+                and row.get("listing_ref") not in used_listings
+            ]
+            if not candidates:
+                raise RuntimeError("deal pilot scenario selection is incomplete")
+            choice = min(candidates, key=lambda row: (
+                int(row["host_ref"] not in chosen_hosts) + int(row["renter_ref"] not in chosen_renters),
+                row["scenario_ref"],
+            ))
+            chosen_scenarios.append(choice)
+            used_listings.add(choice["listing_ref"])
+            chosen_hosts.add(choice["host_ref"])
+            chosen_renters.add(choice["renter_ref"])
+        refs = chosen_hosts | chosen_renters
+        selected = [row for row in users if row["user_ref"] in refs]
+        if len(selected) > 20 or len(chosen_hosts) != 8 or len(chosen_renters) > 12:
+            raise RuntimeError("deal pilot account selection exceeds its isolated scope")
+        if len(chosen_scenarios) != 10 or {row["category_code"] for row in chosen_scenarios} != {
+            "bodega", "estacionamiento", "local_flexible", "oficina", "parcela_eventos",
+            "quincho", "sala_multiproposito", "stand",
+        }:
+            raise RuntimeError("deal pilot must cover five scenarios and all eight categories")
+        return sorted(selected, key=lambda row: row["user_ref"])
     by_role = defaultdict(list)
     for user in users:
         by_role[user["roles"][0]].append(user)
@@ -738,7 +780,7 @@ class Importer:
 
 def verify_target(mode: str, urls: list[str], args) -> None:
     for value in urls:
-        local_url(value, pilot=(mode == "pilot"), allow_shared_api=(mode == "repair-images"))
+        local_url(value, pilot=(mode in ("pilot", "deal-pilot")), allow_shared_api=(mode == "repair-images"))
     if mode == "import":
         if len(urls) < 3:
             raise RuntimeError("persistent account import requires three dedicated API processes to stay within the per-IP verification quota")
@@ -765,7 +807,7 @@ def verify_target(mode: str, urls: list[str], args) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Domain-backed EspaciGo synthetic dataset loader")
-    parser.add_argument("--mode", choices=("pilot", "import", "repair-images"), required=True)
+    parser.add_argument("--mode", choices=("pilot", "deal-pilot", "import", "repair-images"), required=True)
     parser.add_argument("--repo", required=True, help="repository root containing cmd/dataset-loader")
     parser.add_argument("--dataset-dir", required=True)
     parser.add_argument("--api-base", action="append", required=True, help="dedicated loopback API origin; may be repeated")
@@ -782,15 +824,16 @@ def main() -> int:
         dataset = Path(args.dataset_dir).resolve(strict=True)
         policy_path = Path(args.policy_file).resolve(strict=True)
         state_path = Path(args.state_file).absolute()
-        bases = [local_url(value, pilot=args.mode == "pilot", allow_shared_api=args.mode == "repair-images") for value in args.api_base]
-        mailpit = local_url(args.mailpit_base, pilot=args.mode == "pilot")
+        isolated_pilot = args.mode in ("pilot", "deal-pilot")
+        bases = [local_url(value, pilot=isolated_pilot, allow_shared_api=args.mode == "repair-images") for value in args.api_base]
+        mailpit = local_url(args.mailpit_base, pilot=isolated_pilot)
         verify_target(args.mode, bases, args)
         preflight(repo, dataset)
         policy = private_json(policy_path)
         ensure_private_parent(state_path)
 
-        users, user_content, listing_assignments, listing_content = load_sources(dataset)
-        selected = choose_users(users, "import" if args.mode == "repair-images" else args.mode, listing_assignments)
+        users, user_content, listing_assignments, listing_content, scenarios = load_sources(dataset)
+        selected = choose_users(users, "import" if args.mode == "repair-images" else args.mode, listing_assignments, scenarios)
         selected_refs = {user["user_ref"] for user in selected}
         selected_listings = [row for row in listing_assignments if row["owner_ref"] in selected_refs]
         user_counts = Counter(user["roles"][0] for user in selected)
@@ -801,6 +844,8 @@ def main() -> int:
             "listings": sha256(dataset / "salida_validada" / "publicaciones.jsonl"),
             "listing_assignments": sha256(dataset / "para_la_ia" / "asignaciones" / "publicaciones_planificadas.jsonl"),
         }
+        if args.mode == "deal-pilot":
+            hashes["scenario_assignments"] = sha256(dataset / "para_la_ia" / "asignaciones" / "escenarios_planificados.jsonl")
         if state_path.exists():
             if state_path.is_symlink():
                 raise RuntimeError("checkpoint must not be a symlink")
@@ -847,7 +892,7 @@ def main() -> int:
             "accounts_checkpointed": len(selected),
             "roles": dict(user_counts),
             "listings_checkpointed": len(selected_listings),
-            "note": "domain API operations only; no DB-row import; deals excluded from this cut",
+            "note": "account/listing operations through Go APIs; deal-pilot accounts are a scenario-balanced input for dataset-deals.py",
         }
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0

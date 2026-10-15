@@ -40,7 +40,16 @@ python3 scripts/dataset-import.py --mode repair-images \
 
 ## Corte 2: tratos
 
-Pendiente para el corte siguiente: generar calendarios de intervalos compatibles por zona, unidades y modalidad; ejecutar los 1.200 escenarios con APIs Go y proveedores fake vigentes; manejar vencimientos por checkpoints; verificar historias/ledger/contratos únicamente como resultado del servicio. Los pendientes de pago y reclamos abiertos se crean al final cuando corresponda. El reloj lógico se limitará a un proceso/base efímeros del piloto; no habrá avance del reloj compartido.
+El cargador de tratos selecciona un piloto balanceado de 10 escenarios y puede reanudarse desde checkpoints privados. Genera intervalos solo a partir de disponibilidad consultada a Go, y ejecuta reserva, pago, garantía, decisión del anfitrión, contrato, firma, check-in/out, recepción, reclamo, liquidación, liberación y comprobante mediante APIs Go y proveedores fake. No inserta estados por SQL. Los pendientes de pago y reclamos abiertos se crean al final para conservar sus estados/plazos. Requiere cuentas/publicaciones previamente cargadas y KYC sintético aprobado para anfitriones y arrendatarios.
+
+El usuario amplió explícitamente el alcance el 2026-10-15: piloto y después importación persistente de los 1.200 escenarios; también autorizó ampliar este plan para usar un reloj aislado con la base persistente. La importación completa solo se inicia después de fusionar el corte y validar el piloto. El proceso API dedicado de la carga completa montará un archivo de reloj exclusivo de esa ejecución en modo de solo lectura; el helper del proceso lo avanza mediante checkpoints y comprueba que API y archivo coincidan. Nunca se cambia el reloj de máquina ni el reloj compartido del backend habitual, y el backend habitual no se reinicia ni se reconfigura. Como las operaciones del proceso dedicado escriben en la base persistente, sus marcas de tiempo de negocio reflejarán el avance lógico autorizado; no se debe presentar ese reloj como hora real. Se hará backup verificable antes de la carga y se comprobarán conteos/estados e idempotencia por API al finalizar.
+
+### Piloto aislado de tratos (2026-10-15)
+
+- Compose exclusivo `espacigo_deals_pilot_2b7f622eb59e`, API loopback `21980`, volumen propio `espacigo_deals_pilot_2b7f622eb59e_pgdata`; restaurado desde backup privado verificado. No se modificó la base persistente.
+- Se ejecutaron 10 escenarios (dos por cada uno de los cinco desenlaces): 2 cerrados, 2 pendientes de pago, 2 cancelados con devolución, 2 rechazados por anfitrión y 2 reclamos abiertos. Verificación del checkpoint: `cerrada=2`, `pendiente_de_pago=2`, `cancelada_arrendatario=2`, `rechazada_arrendador=2`, `en_disputa=2`.
+- El recorrido usó API Go y proveedores fake. Se verificaron historia, liquidación, liberación de garantía y comprobante para los dos cierres. El reloj de negocio fue el archivo exclusivo del run `2b7f622eb59e`, modo 0600, y la API confirmó igualdad con él; hora final lógica `2026-10-20T12:00:00Z`.
+- Estado y cuentas sintéticas permanecen privados, permisos 0600. El ensayo no se retirará hasta completar registro de evidencia y luego se detendrán y eliminarán solo sus recursos/credenciales.
 
 ## Límites y evidencia
 
