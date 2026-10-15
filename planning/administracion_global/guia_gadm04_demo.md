@@ -6,14 +6,14 @@ La demo es local, sintética y sin pagos ni efectos reales. Para prepararla ejec
 bash scripts/prepare-gadm-04-demo.sh
 ```
 
-Al terminar, el script muestra la URL Angular (`http://127.0.0.1:<puerto>/`), URL de health, carpeta del estado privado y el RUN_ID. Las cinco cuentas y contraseñas están en `.local/testing/gadm-04-demo/<RUN_ID>/accounts.json` (0600); no las copies a capturas, tickets ni archivos versionados. Usa `globalAdmin` para administración global, `admin` para el administrador heredado, `host` para dueño de publicación, `renter` para la cuenta objetivo y `thirdParty` como tercero sin permisos administrativos.
+Al terminar, el script muestra la URL Angular (`http://127.0.0.1:<puerto>/`), URL de health, carpeta del estado privado y el RUN_ID. Las cinco cuentas y contraseñas están en `.local/testing/gadm-04-demo/<RUN_ID>/accounts.json` (0600); en la ejecución retenida actual el RUN_ID es `f564278ed6b7` y URL `http://127.0.0.1:20942/`. No las copies a capturas, tickets ni archivos versionados. Usa `globalAdmin` para administración global, `admin` para el administrador heredado, `host` para dueño de publicación, `renter` para la cuenta objetivo y `thirdParty` como tercero sin permisos administrativos.
 
 ## Recorrido de cuenta y publicaciones
 
 1. Abre la URL Angular e inicia sesión como `globalAdmin`. En **Administración global → Directorio de cuentas**, busca por correo o prefijo; abre la ficha minimizada. Edita solo los campos permitidos y guarda. Los cambios de perfil no agregan roles.
 2. En la misma ficha usa **Bloquear cuenta y revocar sesiones** con un motivo habilitado. Confirma que la sesión de `renter` queda revocada; luego desbloquea con motivo y autentica una sesión nueva. Tanto la acción como su autor quedan auditados.
 3. Ve a **Publicaciones**. Abre una publicación sintética y revisa su ficha, galería y horario. Cambia visibilidad de una foto sintética y un bloque de horario; la interfaz muestra que las fotos son fixtures locales y no almacenamiento real.
-4. Prueba **Retirar** primero sobre “Retiro con obligación FE-14”: debe rechazarlo mientras existe una reserva/obligación abierta. Retira “Retiro permitido FE-14” y comprueba su estado/historial. No se borran físicamente reservas, contratos, snapshots ni evidencia.
+4. Prueba **Retirar** primero sobre “Retiro con obligación FE-14”: el fixture conserva una reserva pagada sintética asociada al espacio, anfitrión, arrendatario y ocupación, por lo que debe responder 409 y mantenerlo activo. El wrapper valida esa relación en SQL antes de retener la demo. `FE14_TEST_GREP` no condiciona el fixture. El test API 409/200 se ejecuta aparte en otro Compose desechable, que el runner retira. “Retiro permitido FE-14” permanece activo y sin reservas. Para demostrar también el 200, usa la prueba API aislada (consume únicamente sus fixtures desechables); la demo retenida no preconsume ninguno de los casos. No se borran físicamente reservas, contratos, snapshots ni evidencia.
 5. Cambia a `admin` y comprueba que las rutas globales son 403; las rutas heredadas siguen disponibles. Cambia a `thirdParty` y verifica que las superficies globales y heredadas deniegan acceso.
 
 ## KPI, auditoría y recuperación

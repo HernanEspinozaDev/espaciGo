@@ -38,7 +38,8 @@ func ValidateBootstrapTarget(environment, databaseURL, expectedDatabase string) 
 
 // ValidateLocalActivationTarget allows the owner bootstrap only against an explicitly
 // named ordinary local database. URL query parameters are rejected to prevent libpq
-// host/service redirection; private container-network addresses are permitted.
+// host/service redirection. Docker callers must join the database container's network
+// namespace so both effective PostgreSQL endpoints remain loopback.
 func ValidateLocalActivationTarget(environment, databaseURL, expectedDatabase string) error {
 	if environment != "local-activation" || expectedDatabase != "espacigo_local" {
 		return errors.New("activation is restricted to the explicit espacigo_local database")

@@ -578,7 +578,7 @@ WITH host AS (
 INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores)
 SELECT id,categoria_codigo,1,valores FROM inserted;
 SQL
-if [[ "${FE14_TEST_GREP:-}" == *GADM-02* ]]; then
+if [[ "${FE14_TEST_GREP:-}" == *GADM-02* || "${FE14_SEED_GADM04_RETIREMENT:-0}" == "1" ]]; then
   "${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
     --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local <<'SQL' >/dev/null
 BEGIN;
@@ -598,6 +598,26 @@ INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendat
 VALUES(:'space_id',:'host_id',:'renter_id',true);
 COMMIT;
 SQL
+fi
+
+if [[ "${FE14_SEED_GADM04_RETIREMENT:-0}" == "1" ]]; then
+  RETIREMENT_FIXTURE_FAILED="$(${compose[@]} exec -T database psql --no-psqlrc --quiet --tuples-only --username espacigo_admin --dbname espacigo_local --command "WITH fixtures AS (
+    SELECT
+      EXISTS(SELECT 1 FROM public.espacio e JOIN public.usuario owner ON owner.id=e.propietario_id
+        WHERE e.titulo='Retiro permitido FE-14' AND e.estado='activa' AND owner.correo_normalizado='fe14-${RUN_ID}-host@ejemplo.invalid'
+        AND NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local r WHERE r.espacio_id=e.id)
+        AND NOT EXISTS(SELECT 1 FROM public.espacio_eliminacion_historial_local h WHERE h.espacio_id=e.id)) AS allowed_case,
+      EXISTS(SELECT 1 FROM public.espacio e JOIN public.usuario owner ON owner.id=e.propietario_id
+        JOIN public.reserva_ensayo_local r ON r.espacio_id=e.id AND r.anfitrion_id=e.propietario_id
+        JOIN public.usuario renter ON renter.id=r.arrendatario_id
+        JOIN public.ocupacion o ON o.id=r.ocupacion_id AND o.reserva_id=r.id AND o.espacio_id=e.id AND o.activo AND o.tipo='reserva'
+        JOIN public.reserva_ensayo_local_fixture fx ON fx.espacio_id=e.id AND fx.anfitrion_id=e.propietario_id AND fx.arrendatario_id=r.arrendatario_id AND fx.habilitada
+        WHERE e.titulo='Retiro con obligación FE-14' AND e.estado='activa' AND r.estado='pagada'
+        AND owner.correo_normalizado='fe14-${RUN_ID}-host@ejemplo.invalid'
+        AND renter.correo_normalizado='fe14-${RUN_ID}-renter@ejemplo.invalid') AS blocked_case
+  ) SELECT CASE WHEN allowed_case AND blocked_case THEN '' ELSE 'retirement_fixture_invalid' END FROM fixtures")"
+  [[ -z "${RETIREMENT_FIXTURE_FAILED//[[:space:]]/}" ]] || { printf 'GADM-04 retirement fixture failed its linked-obligation/allowed-case SQL assertions\n' >&2; exit 1; }
+  printf 'PASS GADM-04 fixture SQL: protected active publication has linked paid reservation/participants/occupancy; allowed publication remains active with no obligations\n'
 fi
 
 

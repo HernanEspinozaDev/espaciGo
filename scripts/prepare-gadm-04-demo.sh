@@ -24,6 +24,7 @@ printf 'Creating disposable, retained GADM-04 review demo. Project=%s, PostGIS v
 cd "$ROOT_DIR"
 FE14_RUN_ID="$RUN_ID" FE14_PROJECT_NAME="$PROJECT" FE14_STATE_DIR="$STATE_DIR" \
 FE14_RETAIN_STACK=1 FE14_RETAIN_KIND=gadm-04 FE14_PORT_BASE="$BASE_PORT" \
+FE14_SEED_GADM04_RETIREMENT=1 \
 FE14_EVIDENCE_OUTPUT_DIR="$ROOT_DIR/planning/administracion_global/evidencia/gadm_04" \
 FE14_TEST_GREP='GADM-04 verifies global-only legacy access, legacy-only access, and outsider denial' \
   bash "$ROOT_DIR/scripts/test-frontend-e2e.sh"
