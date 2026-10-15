@@ -802,6 +802,26 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	if _, err = service.SetAccountRole(ctx, master, legacy, "administrador_global", "revision_administrativa", corr, true); !errors.Is(err, adminglobal.ErrInvalid) {
 		t.Fatalf("runtime global role grant accepted: %v", err)
 	}
+	legacyGrant, err := service.SetLegacyAdministrator(ctx, master, landlord, "aprovisionamiento_sintetico", corr, true)
+	if err != nil || !legacyGrant.Granted || legacyGrant.Role != "administrador" {
+		t.Fatalf("explicit legacy administrator grant: %+v err=%v", legacyGrant, err)
+	}
+	if _, err = service.SetLegacyAdministrator(ctx, master, landlord, "aprovisionamiento_sintetico", corr, true); err != nil {
+		t.Fatalf("idempotent legacy administrator grant: %v", err)
+	}
+	var legacyRole, globalMembership bool
+	if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.rol_usuario WHERE usuario_id=$1 AND rol='administrador'),
+		EXISTS(SELECT 1 FROM public.administrador_global WHERE usuario_id=$1)`, landlord).Scan(&legacyRole, &globalMembership); err != nil || !legacyRole || globalMembership {
+		t.Fatalf("legacy role/global membership separation failed: legacy=%v global=%v err=%v", legacyRole, globalMembership, err)
+	}
+	if _, err = service.SetLegacyAdministrator(ctx, master, landlord, "retirada_acceso", corr, false); err != nil {
+		t.Fatalf("legacy administrator revoke: %v", err)
+	}
+	var legacyAuditEvents int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.evento_auditoria_local
+		WHERE recurso_id=$1 AND accion LIKE 'admin.global.accounts.legacy-administrator.%'`, landlord).Scan(&legacyAuditEvents); err != nil || legacyAuditEvents != 3 {
+		t.Fatalf("legacy administrator grant/replay/revoke audit events=%d err=%v", legacyAuditEvents, err)
+	}
 	if _, err = service.SetAccountBlocked(ctx, master, legacy, "revision_administrativa", corr, true); err != nil {
 		t.Fatalf("global account block: %v", err)
 	}

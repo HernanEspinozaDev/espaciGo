@@ -36,6 +36,68 @@ type RoleChange struct {
 	ChangedAt time.Time `json:"changed_at"`
 }
 
+var legacyAdminReasons = map[string]bool{"aprovisionamiento_sintetico": true, "revision_administrativa": true, "retirada_acceso": true}
+
+// SetLegacyAdministrator manages only the legacy administrator role. Global
+// administrator membership remains governed by the separate bootstrap flow.
+func (s *Service) SetLegacyAdministrator(ctx context.Context, actor, target, reason, correlation string, granted bool) (RoleChange, error) {
+	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(target) || actor == target || !canonicalUUID.MatchString(correlation) || !legacyAdminReasons[reason] {
+		return RoleChange{}, ErrInvalid
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return RoleChange{}, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err = accountlock.LockGlobalAdministratorSet(ctx, tx); err != nil {
+		return RoleChange{}, err
+	}
+	if err = lockManagedAccounts(ctx, tx, actor, target); err != nil {
+		return RoleChange{}, err
+	}
+	if err = requireGlobalActor(ctx, tx, actor); err != nil {
+		return RoleChange{}, err
+	}
+	var active bool
+	if err = tx.QueryRow(ctx, `SELECT estado='activo' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id) FROM public.usuario u WHERE id=$1`, target).Scan(&active); errors.Is(err, pgx.ErrNoRows) {
+		return RoleChange{}, ErrNotFound
+	} else if err != nil {
+		return RoleChange{}, err
+	} else if !active {
+		return RoleChange{}, ErrConflict
+	}
+	var changed bool
+	if granted {
+		tag, execErr := tx.Exec(ctx, `INSERT INTO public.rol_usuario(usuario_id,rol,concedido_por) VALUES($1,'administrador',$2) ON CONFLICT(usuario_id,rol) DO NOTHING`, target, actor)
+		if execErr != nil {
+			return RoleChange{}, execErr
+		}
+		changed = tag.RowsAffected() > 0
+	} else {
+		tag, execErr := tx.Exec(ctx, `DELETE FROM public.rol_usuario WHERE usuario_id=$1 AND rol='administrador'`, target)
+		if execErr != nil {
+			return RoleChange{}, execErr
+		}
+		changed = tag.RowsAffected() > 0
+	}
+	at := s.now().UTC()
+	auditReason := reason
+	if !changed {
+		auditReason = "estado_idempotente"
+	}
+	action := "grant"
+	if !granted {
+		action = "revoke"
+	}
+	if err = s.auditWithTarget(ctx, tx, actor, target, "admin.global.accounts.legacy-administrator."+action, "exito", auditReason, correlation, at, target); err != nil {
+		return RoleChange{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return RoleChange{}, err
+	}
+	return RoleChange{AccountID: target, Role: string(identity.RoleAdministrator), Granted: granted, ChangedAt: at}, nil
+}
+
 type SessionRevocation struct {
 	AccountID string    `json:"account_id"`
 	Revoked   int64     `json:"revoked_sessions"`
