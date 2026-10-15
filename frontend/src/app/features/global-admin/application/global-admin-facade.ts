@@ -21,14 +21,16 @@ export class GlobalAdminFacade {
   private readonly privateSession = inject(PrivateSessionState);
   private readonly destroy = inject(DestroyRef);
   private readonly meta = inject(Meta);
-  private requestRevision = 0;
+  private directoryRevision = 0;
+  private detailRevision = 0;
   private identityContext = '';
   private unregisterPrivateState: (() => void) | null = null;
 
   readonly overview = signal<Overview | null>(null);
   readonly page = signal<Page | null>(null);
   readonly selected = signal<Account | null>(null);
-  readonly loading = signal(false);
+  readonly loadingDirectory = signal(false);
+  readonly loadingDetail = signal(false);
   readonly error = signal('');
   readonly controlsResetRevision = signal(0);
 
@@ -63,13 +65,15 @@ export class GlobalAdminFacade {
 
   async load(criteria: DirectoryCriteria, cursor = ''): Promise<void> {
     const context = this.currentContext();
-    const revision = ++this.requestRevision;
+    const revision = ++this.directoryRevision;
+    this.page.set(null);
+    this.loadingDirectory.set(false);
     if (!context || !this.canList()) {
       this.clearData();
       return;
     }
 
-    this.loading.set(true);
+    this.loadingDirectory.set(true);
     this.error.set('');
     try {
       const [overview, page] = await Promise.all([
@@ -80,11 +84,11 @@ export class GlobalAdminFacade {
           cursor: cursor || undefined,
         }),
       ]);
-      if (!this.isCurrent(revision, context)) return;
+      if (!this.isDirectoryCurrent(revision, context)) return;
       this.overview.set(overview);
       this.page.set(page);
     } catch (error) {
-      if (!this.isCurrent(revision, context)) return;
+      if (!this.isDirectoryCurrent(revision, context)) return;
       if (statusOf(error) === 403) {
         await this.revalidateDeniedRequest(context, 'Go rechazó el acceso al directorio. Se revalidaron tus permisos.');
         return;
@@ -92,29 +96,29 @@ export class GlobalAdminFacade {
       this.clearData();
       this.error.set(messageOf(error));
     } finally {
-      if (this.isCurrent(revision, context)) this.loading.set(false);
+      if (this.isDirectoryCurrent(revision, context)) this.loadingDirectory.set(false);
     }
   }
 
   async open(accountId: string): Promise<void> {
     const context = this.currentContext();
-    const revision = ++this.requestRevision;
+    const revision = ++this.detailRevision;
     this.selected.set(null);
     if (!context || !this.canRead()) return;
-    this.loading.set(true);
+    this.loadingDetail.set(true);
     this.error.set('');
     try {
       const account = await this.api.account(context.token, accountId);
-      if (this.isCurrent(revision, context)) this.selected.set(account);
+      if (this.isDetailCurrent(revision, context)) this.selected.set(account);
     } catch (error) {
-      if (!this.isCurrent(revision, context)) return;
+      if (!this.isDetailCurrent(revision, context)) return;
       if (statusOf(error) === 403) {
         await this.revalidateDeniedRequest(context, 'Go rechazó el acceso al detalle. Se revalidaron tus permisos.');
         return;
       }
       this.error.set(messageOf(error));
     } finally {
-      if (this.isCurrent(revision, context)) this.loading.set(false);
+      if (this.isDetailCurrent(revision, context)) this.loadingDetail.set(false);
     }
   }
 
@@ -138,10 +142,17 @@ export class GlobalAdminFacade {
     return this.identity.session()?.capabilities?.includes('accounts.read') ?? false;
   }
 
-  private isCurrent(revision: number, context: RequestContext): boolean {
+  private isDirectoryCurrent(revision: number, context: RequestContext): boolean {
+    return revision === this.directoryRevision && this.hasCurrentContext(context);
+  }
+
+  private isDetailCurrent(revision: number, context: RequestContext): boolean {
+    return revision === this.detailRevision && this.hasCurrentContext(context);
+  }
+
+  private hasCurrentContext(context: RequestContext): boolean {
     const current = this.currentContext();
     return (
-      revision === this.requestRevision &&
       current?.token === context.token &&
       current.accountId === context.accountId &&
       current.capabilities === context.capabilities &&
@@ -169,10 +180,12 @@ export class GlobalAdminFacade {
   }
 
   private invalidate(): void {
-    ++this.requestRevision;
+    ++this.directoryRevision;
+    ++this.detailRevision;
     this.controlsResetRevision.update((revision) => revision + 1);
     this.clearData();
-    this.loading.set(false);
+    this.loadingDirectory.set(false);
+    this.loadingDetail.set(false);
     this.error.set('');
   }
 }

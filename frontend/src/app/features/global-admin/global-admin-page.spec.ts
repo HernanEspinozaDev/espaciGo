@@ -129,8 +129,9 @@ it('clears controls and revalidates capabilities after a current 403 without clo
 
 it('paginates using applied filters even when the form contains an unsubmitted draft', async () => {
   const { component, api } = await setup();
-  component.search();
+  const search = component.search();
   await vi.waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+  await search;
   component.filters.controls.emailPrefix.setValue('draft-not-applied');
 
   component.next();
@@ -157,4 +158,48 @@ it('does not let a stale error from a previous login clear or announce over the 
 
   expect(facade.page()?.items[0].email).toBe(account.email);
   expect(facade.error()).toBe('');
+});
+
+it('keeps a pending filter search and its cursor when opening an account', async () => {
+  const { component, api, facade } = await setup();
+  let resolveSearch!: (value: Awaited<ReturnType<typeof api.list>>) => void;
+  api.list.mockImplementationOnce(() => new Promise((resolve) => { resolveSearch = resolve; }));
+  component.filters.controls.emailPrefix.setValue('new-filter');
+  const search = component.search();
+
+  await component.open('customer');
+  expect(facade.page()).toBeNull();
+  component.next();
+  expect(api.list).toHaveBeenCalledTimes(2);
+
+  resolveSearch({
+    items: [{ ...account, account_id: 'new-customer', email: 'new-filter@example.invalid' }],
+    next_cursor: 'cursor-new-filter',
+    matching_total: 2,
+    generated_at: overview.generated_at,
+  });
+  await search;
+  expect(facade.page()?.items[0].account_id).toBe('new-customer');
+
+  component.next();
+  expect(api.list).toHaveBeenLastCalledWith('token-a', expect.objectContaining({
+    email_prefix: 'new-filter',
+    cursor: 'cursor-new-filter',
+  }));
+});
+
+it('keeps a pending detail response when a new filtered page finishes first', async () => {
+  const { component, api, facade } = await setup();
+  let resolveDetail!: (value: typeof account) => void;
+  api.account.mockImplementationOnce(() => new Promise((resolve) => { resolveDetail = resolve; }));
+  const detail = component.open('customer');
+  component.filters.controls.emailPrefix.setValue('second-filter');
+  await component.search();
+  expect(facade.page()?.items[0].account_id).toBe('customer');
+
+  resolveDetail({ ...account, display_name: 'Details finished later' });
+  await detail;
+
+  expect(facade.page()?.items[0].account_id).toBe('customer');
+  expect(facade.selected()?.display_name).toBe('Details finished later');
 });

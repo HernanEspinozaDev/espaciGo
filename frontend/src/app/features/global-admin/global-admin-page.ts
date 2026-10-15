@@ -33,7 +33,8 @@ export class GlobalAdminPage {
   readonly overview = this.vm.overview;
   readonly page = this.vm.page;
   readonly selected = this.vm.selected;
-  readonly loading = this.vm.loading;
+  readonly loadingDirectory = this.vm.loadingDirectory;
+  readonly loadingDetail = this.vm.loadingDetail;
   readonly error = this.vm.error;
   readonly appliedCriteria = signal<DirectoryCriteria>({});
   readonly filters: DirectoryFilters = new FormGroup({
@@ -72,7 +73,7 @@ export class GlobalAdminPage {
     });
   }
 
-  search(): void {
+  search(): Promise<void> {
     const form = this.filters.getRawValue();
     const criteria: DirectoryCriteria = {
       account_id: form.accountId.trim() || undefined,
@@ -85,11 +86,11 @@ export class GlobalAdminPage {
       created_until: form.createdUntil ? new Date(form.createdUntil).toISOString() : undefined,
     };
     this.appliedCriteria.set(criteria);
-    void this.vm.load(criteria);
+    return this.vm.load(criteria);
   }
 
-  open(accountId: string): void {
-    void this.vm.open(accountId);
+  open(accountId: string): Promise<void> {
+    return this.vm.open(accountId);
   }
 
   clearFilters(): void {

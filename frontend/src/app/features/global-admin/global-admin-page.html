@@ -46,7 +46,8 @@
   </form>
 
   @if (error()) { <p role="alert" class="error">{{ error() }}</p> }
-  @if (loading()) { <p role="status">Cargando cuentas…</p> }
+  @if (loadingDirectory()) { <p role="status">Cargando cuentas…</p> }
+  @if (loadingDetail()) { <p role="status">Cargando detalle…</p> }
 
   @if (page(); as result) {
     <p aria-live="polite">{{ result.matching_total }} cuentas coinciden</p>
@@ -65,7 +66,7 @@
         </tbody>
       </table>
     </div>
-    <button class="next" type="button" [disabled]="!result.next_cursor || loading()" (click)="next()">Siguiente página</button>
+    <button class="next" type="button" [disabled]="!result.next_cursor || loadingDirectory()" (click)="next()">Siguiente página</button>
   }
 
   @if (selected(); as account) {
