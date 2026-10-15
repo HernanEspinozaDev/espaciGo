@@ -91,4 +91,4 @@ El contenido cargado es sintético y no valida identidades reales. Las fotos son
 - Lectura final del piloto: 65 cuentas, 63 espacios, las mismas 28 reservas, 1 administrador global, 5 roles administradores legados y 61 migraciones. Se eliminó el proyecto, su volumen y contenedores al registrar la evidencia; no se guardó una demo.
 - Limitación: las imágenes siguen siendo el fixture PNG determinista local; no hay fotos de usuario ni proveedor externo.
 
-Los correos y contraseñas no aparecen en estos resultados. El mapa UUID, las credenciales y los logs detallados permanecen en `.local/testing/` con permisos privados. Las reservas y los cinco grupos de escenarios siguen para el corte 2.
+Los correos y contraseñas no aparecen en estos resultados. El mapa UUID, las credenciales y los logs detallados permanecen en `.local/testing/` con permisos privados. Los cortes 1 y 2 están ejecutados y verificados; la aceptación de producto queda pendiente de la revisión humana.
