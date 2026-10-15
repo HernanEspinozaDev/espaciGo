@@ -48,11 +48,37 @@ if [[ "${FE14_RETAIN_STACK:-0}" == "1" ]]; then
   }
   [[ ! -e "$STATE_DIR" ]] || { printf 'retained demo state path already exists\n' >&2; exit 2; }
 fi
-if [[ ! "$BASE_PORT" =~ ^[0-9]{4,5}$ ]] || (( BASE_PORT < 1024 || BASE_PORT > 65000 )); then
-  printf 'FE14_PORT_BASE must be an unprivileged TCP port from 1024 to 65000\n' >&2
+if [[ ! "$BASE_PORT" =~ ^[0-9]{4,5}$ ]] || (( BASE_PORT < 1024 || BASE_PORT > 64997 )); then
+  printf 'FE14_PORT_BASE must leave four unprivileged TCP ports available (1024–64997)\n' >&2
   exit 2
 fi
 LOCAL_SSR_PORT="$((BASE_PORT + 3))"
+python3 - "$BASE_PORT" <<'PY'
+import re
+import socket
+import subprocess
+import sys
+
+base = int(sys.argv[1])
+ports = range(base, base + 4)
+try:
+    published = subprocess.run(
+        ["docker", "ps", "--format", "{{.Ports}}"],
+        check=True, capture_output=True, text=True,
+    ).stdout
+except (OSError, subprocess.CalledProcessError) as exc:
+    raise SystemExit(f"unable to inspect published Docker ports before FE-14: {exc}")
+for port in ports:
+    if any(re.search(rf"(?:127\.0\.0\.1|0\.0\.0\.0|\[::\]|::):{port}->", line) for line in published.splitlines()):
+        raise SystemExit(f"FE-14 host port {port} is already published by a running container; choose a free FE14_PORT_BASE")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("127.0.0.1", port))
+    except OSError as exc:
+        raise SystemExit(f"FE-14 host port {port} is already in use; choose a free FE14_PORT_BASE: {exc}")
+    finally:
+        sock.close()
+PY
 
 export LOCAL_DOCKER_PROJECT_NAME="$PROJECT"
 export LOCAL_DOCKER_IMAGE_PREFIX="$PROJECT"
@@ -92,6 +118,7 @@ case "${FE14_EVIDENCE_OUTPUT_DIR:-}" in
   */mpv2_13) FE14_EVIDENCE_PREFIX='fe14_mpv2_13_' ;;
   */gadm_02) FE14_EVIDENCE_PREFIX='fe14_gadm_02_' ;;
   */gadm_03) FE14_EVIDENCE_PREFIX='fe14_gadm_03_' ;;
+  */gadm_04) FE14_EVIDENCE_PREFIX='fe14_gadm_' ;;
   */local-close-01) FE14_EVIDENCE_PREFIX='fe14_local_close_01_' ;;
   */local-close-02) FE14_EVIDENCE_PREFIX='fe14_local_close_02_' ;;
 esac

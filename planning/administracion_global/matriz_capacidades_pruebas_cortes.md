@@ -1,6 +1,6 @@
 # Matriz GADM-00–04 — capacidades, pruebas y cortes
 
-- Estado: GADM-00 se fusionó en PR #312 (`2589aa1139232f419cf1d1aebdd79a69c1f4007b`); GADM-01 se fusionó en PR #313 (`6dffcc92ae528d8a790956a8dd73960df1501802`); GADM-02 se aprobó y fusionó en PR #314 (HEAD revisado `e81cfbf9db67eef1d09801b55b98fce2336c64f6`, merge `6a721adc96ac5192e6bfcf8b672d052e272ed048`); GADM-03 está activo en `codex/marketplace/feature/gadm-03-kpi-account-audit` por instrucción sucesora de este chat; GADM-04 queda pendiente.
+- Estado: GADM-00 se fusionó en PR #312 (`2589aa1139232f419cf1d1aebdd79a69c1f4007b`); GADM-01 se fusionó en PR #313 (`6dffcc92ae528d8a790956a8dd73960df1501802`); GADM-02 se aprobó y fusionó en PR #314 (HEAD revisado `e81cfbf9db67eef1d09801b55b98fce2336c64f6`, merge `6a721adc96ac5192e6bfcf8b672d052e272ed048`); GADM-03 se aprobó y fusionó en PR #315 (HEAD revisado `436b52695043dd572e4bbb5981c43d3936ea145c`, merge `2fffd42fc0085084b045832ba15e16b1258592cd`); GADM-04 está activo en `codex/marketplace/chore/gadm-04-regression-master-delivery`.
 - Base de GADM-02: `6dffcc92ae528d8a790956a8dd73960df1501802` (HEAD revisado de GADM-01: `0dcaa68e78d377d7ad5d0831366a73e5d72c3e3f`).
 - La columna “actual” conserva el inventario anterior a GADM-01; la columna de pruebas del corte registra evidencia ejecutada, no intención futura.
 
@@ -36,7 +36,7 @@ Código probado: `436b52695043dd572e4bbb5981c43d3936ea145c` (rama `codex/marketp
 | Capturas / medidas | `evidencia/gadm_03/fe14_gadm_03_admin_{mobile,desktop}.{jpg,json}` | Móvil 390×844, documento 390×5125; escritorio 1365×900, documento 1365×2879; sin desbordamiento horizontal. Sidecars registran HEAD `436b52695043dd572e4bbb5981c43d3936ea145c`; capturas sin credenciales de ensayo. |
 | Límites | Contratos OpenAPI, datos de producto | Cobros/devoluciones y comisión son datos de ensayo; disponibilidad o cola no se transforma en cero cuando la fuente no existe. No se presentan DAU/visitas, pagos reales, aceptación de producto ni capacidad GCP. |
 
-La matriz registra verificaciones técnicas, no aceptación de producto. GADM-04 sigue en espera de la fusión de GADM-03 y una instrucción sucesora.
+La matriz registra verificaciones técnicas, no aceptación de producto. La cuenta del propietario y aceptación de producto siguen pendientes.
 
 ## Evidencia GADM-01 (2026-10-14)
 
