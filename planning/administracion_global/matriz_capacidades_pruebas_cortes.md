@@ -4,17 +4,20 @@
 - Base de GADM-02: `6dffcc92ae528d8a790956a8dd73960df1501802` (HEAD revisado de GADM-01: `0dcaa68e78d377d7ad5d0831366a73e5d72c3e3f`).
 - La columna “actual” conserva el inventario anterior a GADM-01; la columna de pruebas del corte registra evidencia ejecutada, no intención futura.
 
-## Evidencia GADM-02 (2026-10-14)
+## Evidencia GADM-02 (2026-10-15)
+
+HEAD de código probado: `8ffeffa0704a7bfea989afd5674f55a49f9298f0` (branch `codex/marketplace/feature/gadm-02-account-publication-management`, PR #314). Entorno de integración PostGIS aislado y recorrido FE-14 desechable con nombres de proyecto, volumen y puertos exclusivos; sin `espacigo_pgdata`, credenciales eliminadas al salir y backend verificado sin correos/contraseñas sintéticos en logs.
 
 | Validación | Entorno / alcance | Resultado |
 | --- | --- | --- |
-| Go unitario | `go test ./internal/adminglobal/... ./internal/identity/... ./internal/adminlocal/...` | Correcto. |
-| Mutaciones PostGIS | `GO_TEST_RUN='^TestGlobalBootstrapDirectoryAndLastMasterConcurrency$' bash scripts/test-local-comm-mailpit.sh ./internal/adminglobal`; proyecto temporal administrado por el runner | Correcto: edición allowlist/versionada, roles ordinarios idempotentes, bloqueo y revocación, publicación/visibilidad KYC, CLP exacto, paginación/cursor y conflicto de versiones, más la carrera del último maestro. Datos sintéticos del test. |
-| Contrato y frontend | `npm run api:check`, `npm run lint`, `npm test -- --watch=false`, `npm run build` en `frontend/` | Correcto: OpenAPI/SDK/TypeScript, lint/arquitectura/SCSS; 291 pruebas en 39 archivos; build SSR y navegador con 3 rutas prerenderizadas. |
-| Historial / whitespace | `git diff -- db/migrations` y `git diff --check` | Sin cambios de migraciones; diff limpio. No se necesitó V59. |
-| Recorrido servido / capturas | No ejecutado en este corte | Pendiente antes de aceptar GADM-02: recorrido Angular→Go→PostGIS con maestro sintético aislado, y evidencia 390×844 / 1365×900. La cobertura automatizada no se presenta como recorrido real. |
+| Go unitario | `go test ./...` en el worktree | Correcto; los paquetes pasaron. Las integraciones que requieren `TEST_DATABASE_URL` se ejecutaron aparte en el runner PostGIS. |
+| Mutaciones PostGIS | `GO_TEST_RUN='^TestGlobalBootstrapDirectoryAndLastMasterConcurrency$' bash scripts/test-local-comm-mailpit.sh ./internal/adminglobal` | Correcto: edición de perfil/atributos con versión, recursos de cuenta, galería, horario semanal, transiciones/retirada, visibilidad KYC, tarifas CLP, obligaciones y carrera del último maestro. Datos sintéticos recreables; contenedor temporal retirado. |
+| Contrato y frontend | `npm run api:check`, `npm run lint`, `npm test -- --watch=false`, `npm run build` en `frontend/` | Correcto: OpenAPI/SDK generado, lint/arquitectura/SCSS, 296 pruebas en 39 archivos y build SSR/navegador con 3 rutas prerenderizadas. |
+| E2E servido | `FE14_TEST_GREP='GADM-02 serves account publication management' bash scripts/test-frontend-e2e.sh` con FE-14 aislado | 1/1 recorrido pasó por autenticación del administrador sintético, inventario filtrado, galería y horario desde Angular→Go→PostGIS. El runner retiró stack/volumen/datos de ensayo. |
+| Capturas / medidas | Artefactos de [FE-14 móvil](../frontend/evidencia/fe14_gadm_02_admin_mobile_1637077c57c1.jpg) y [escritorio](../frontend/evidencia/fe14_gadm_02_admin_desktop_1637077c57c1.jpg) | 390×844: documento 390 px; 1365×900: documento 1365 px. Capturas incluyen inventario, galería y horario; correos de ensayo redactados. JSON registra el HEAD de código probado. |
+| Historial / whitespace | `git diff -- db/migrations` y `git diff --check` | Sin migraciones nuevas ni cambios históricos; V1–V58 intactas. No se necesitó V59. |
 
-Estado GADM-02 a 2026-10-15: el dominio existente ya contempla `eliminada` (V50), conserva tarifas/snapshots y obligaciones según V52; este corte agrega la invocación administrativa del servicio de retiro y controles de versión/auditoría. También hay recursos de reservas/incidencias por propietario, esquema versionado de atributos, galería sintética y horario semanal. El recorrido servido de toda la UI, las capturas responsive y la respuesta a revisión siguen pendientes; por tanto, no declarar el corte completo ni aceptado hasta registrar esas pruebas y revisión. No se añadió `DELETE` ni un estado de dominio nuevo.
+El recorrido y la verificación técnica están registrados; el corte queda para revisión técnica en PR #314 y aceptación del producto por el usuario. La fusión técnica no equivale a esa aceptación. No se añadió `DELETE` ni estado de dominio nuevo: V50 ya contiene `eliminada`, V52 conserva tarifas/snapshots/obligaciones. No se activaron cuenta real, soporte, GCP ni demo retenida.
 
 ## Evidencia GADM-01 (2026-10-14)
 

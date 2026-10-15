@@ -4,7 +4,7 @@ Fecha: 2026-10-14, America/Santiago. **Autorizado para desarrollar por cortes y 
 
 ## 1. Diagnóstico verificado
 
-Base integrada para GADM-02: `6dffcc92ae528d8a790956a8dd73960df1501802`, merge de PR #313 (GADM-01). HEAD revisado del PR: `0dcaa68e78d377d7ad5d0831366a73e5d72c3e3f`. GADM-02 se desarrolla en `codex/marketplace/feature/gadm-02-account-publication-management`.
+Base integrada para GADM-02: `6dffcc92ae528d8a790956a8dd73960df1501802`, merge de PR #313 (GADM-01). HEAD revisado del PR: `0dcaa68e78d377d7ad5d0831366a73e5d72c3e3f`. GADM-02 está en revisión técnica en PR #314, rama `codex/marketplace/feature/gadm-02-account-publication-management`; ver evidencia reproducible en `matriz_capacidades_pruebas_cortes.md`. La aceptación de producto sigue pendiente.
 
 - Existe `identity.RoleAdministrator = administrador`, además de arrendatario/arrendador; el registro solo concede arrendatario.
 - Hay una cuenta administrativa de ensayo en la demo LOCAL-CLOSE-02; no se exportan sus credenciales ni se la convierte automáticamente en cuenta del propietario.
