@@ -232,6 +232,23 @@ class Runner:
         if current.get("state") != "aprobada":
             raise RuntimeError("synthetic KYC review did not become approved")
 
+    def ensure_contract_signed(self, contract_id: str, user_ref: str, token: str):
+        user_id = self.source_state["users"][user_ref]
+        path = f"{BASE}/contracts/{quote(contract_id, safe='')}"
+        contract = data(self.call("GET", path, token))
+        signature = next((item for item in contract.get("signatures", []) if item.get("signer_id") == user_id), None)
+        if signature is None:
+            raise RuntimeError("synthetic contract omitted the participant signature")
+        if signature.get("state") == "firmada":
+            return
+        if signature.get("state") != "pendiente":
+            raise RuntimeError("synthetic contract participant signature is not pending")
+        self.call("POST", f"{path}/sign", token, expect=(200,))
+        contract = data(self.call("GET", path, token))
+        signature = next((item for item in contract.get("signatures", []) if item.get("signer_id") == user_id), None)
+        if signature is None or signature.get("state") != "firmada":
+            raise RuntimeError("synthetic contract signature did not persist")
+
     def call(self, method: str, path: str, token: str, body=None, key="", expect=(200,)):
         try:
             return self.api.request(method, path, token, body, key, expect)
@@ -367,8 +384,8 @@ class Runner:
         contract = data(contract_response)
         record["contract_id"] = contract["id"]
         self.save()
-        self.call("POST", f"{BASE}/contracts/{contract['id']}/sign", host, expect=(200,))
-        self.call("POST", f"{BASE}/contracts/{contract['id']}/sign", renter, expect=(200,))
+        self.ensure_contract_signed(contract["id"], row["host_ref"], host)
+        self.ensure_contract_signed(contract["id"], row["renter_ref"], renter)
         record["contract_signed"] = True
         self.save()
         return record
