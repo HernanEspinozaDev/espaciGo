@@ -8,7 +8,7 @@
 
 - Registra las 1.000 cuentas con el mismo secreto del archivo privado 0600 de política local, nombres sintéticos y correos deterministas bajo `.invalid`. Acepta términos publicados, verifica por el correo local y actualiza el perfil por la API. La contraseña y los correos no aparecen en stdout, errores ni checkpoints.
 - Conserva la asignación de arrendatario por defecto. Un administrador global operador, autenticado desde la política privada, otorga los roles de anfitrión a través de la API auditada. Las diez cuentas administradoras reciben solo el rol legado mediante el nuevo flujo explícito `admin_access.manage`, sesión reciente y auditoría. El cargador no concede ni modifica membresías `administrador_global`.
-- Crea y aprueba KYC sintético a través de los servicios de verificación, nunca insertando estados. Crea 1.200 espacios, tarifas CLP `int64`, atributos de categoría, zona IANA y horario semanal para modalidad hora. El horario se guarda por la ruta administrativa auditada, con sesión reciente y control optimista de versión. La migración aditiva V61 elimina la restricción heredada que permitía activar horarios solo en el fixture singleton; habilita horarios para publicaciones por hora no eliminadas. Añade la imagen `synthetic-png-v1`; solo declara pública su foto para espacios efectivamente activos. Publica, oculta o deja en borrador mediante las rutas de dominio y verifica la respuesta guardada.
+- Crea y aprueba KYC sintético a través de los servicios de verificación, nunca insertando estados. Crea 1.200 espacios, tarifas CLP `int64`, atributos de categoría, zona IANA y horario semanal para modalidad hora. El horario se guarda por la ruta administrativa auditada, con sesión reciente y control optimista de versión. La migración aditiva V61 elimina la restricción heredada que permitía activar horarios solo en el fixture singleton; habilita horarios para publicaciones por hora no eliminadas. Añade la imagen `synthetic-png-v1`; valida bytes PNG/tamaño/SHA-256 en cada proceso API, selecciona portada por `/spaces/{spaceId}/cover` y declara pública la foto solo para espacios activos. Publica, oculta o deja en borrador mediante las rutas de dominio y verifica la respuesta guardada.
 - Guarda referencias externas a UUID devueltos por Go en un mapa privado bajo `.local/testing/` con modo 0600. Persiste el checkpoint de cada cuenta/publicación con reemplazo atómico. Claves estables y conciliación de espacios existentes permiten reanudar tras interrupciones. El estado privado se liga por hash al contenido generado.
 - No crea tratos en este corte. No hay SQL de importación ni mutaciones del reloj de negocio.
 
@@ -18,7 +18,25 @@ Preflight, que no requiere credenciales:
 go run ./cmd/dataset-loader --dataset-dir /ruta/privada/.local/datasets/espacigo-1000
 ```
 
-El modo piloto limita la ejecución a 20 cuentas balanceadas por rol y sus publicaciones. Requiere servicios de API y Mailpit dedicados, en puertos loopback altos (`>=10000`), conectados a una restauración efímera del backup. `--mode import` recorre el dataset completo; exige confirmar el destino `espacigo_local`, un manifiesto 0600 y el dump cuyo SHA-256 coincide. La carga persistente se ejecuta solo después de fusionar este corte y comprobar el piloto. Para el modo completo se requieren tres procesos API dedicados con `LOCAL_VERIFICATION_IP_LIMIT=1000`; sus cuotas quedan aisladas del backend habitual. No se reinicia ni reconfigura el stack persistente.
+El modo piloto limita la ejecución a 20 cuentas balanceadas por rol y sus publicaciones. Requiere servicios de API y Mailpit dedicados, en puertos loopback altos (`>=10000`), conectados a una restauración efímera del backup. `--mode import` recorre el dataset completo; exige confirmar el destino `espacigo_local`, un manifiesto 0600 y el dump cuyo SHA-256 coincide. La carga persistente se ejecuta solo después de fusionar este corte y comprobar el piloto. Para el modo completo se requieren tres procesos API dedicados con `LOCAL_VERIFICATION_IP_LIMIT=1000`; sus cuotas quedan aisladas del backend habitual. Todos comparten el mismo `M03_EVIDENCE_DIR` privado montado en lectura/escritura. El importador lee cada PNG por cada proceso antes de avanzar. No se reinicia ni reconfigura el stack persistente.
+
+### Reparación de imágenes de una carga persistente
+
+`--mode repair-images` usa el checkpoint privado para identificar las referencias por API. Comprueba el contenido autenticado de cada portada, reemplaza por API la foto sintética si falta el archivo, guarda la nueva referencia en el checkpoint, selecciona la portada y habilita su publicación solo para publicaciones activas. Confirma PNG, tamaño, SHA-256 y lectura pública desde cada proceso API antes de retirar por API la referencia rota. Requiere una API loopback persistente, `--confirm-target espacigo_local`, checkpoint 0600 y manifiesto/backup 0600. No ejecuta escrituras SQL.
+
+Una carga hecha por procesos API con almacenes efímeros puede conservar metadata de galería en PostgreSQL y haber perdido los bytes al retirar esos procesos. El reparador actúa solo sobre publicaciones activas. Mantiene ocultas las galerías de publicaciones ocultas y borradores.
+
+```sh
+python3 scripts/dataset-import.py --mode repair-images \
+  --repo /ruta/al/worktree/main \
+  --dataset-dir /ruta/privada/.local/datasets/espacigo-1000 \
+  --api-base http://127.0.0.1:8080 \
+  --mailpit-base http://127.0.0.1:8025 \
+  --policy-file /ruta/privada/.local/testing/test-account-policy.json \
+  --state-file /ruta/privada/.local/testing/dataset-import-persistent.json \
+  --confirm-target espacigo_local \
+  --backup-manifest /ruta/privada/.local/testing/dataset-load/preload-inventory.json
+```
 
 ## Corte 2: tratos
 
