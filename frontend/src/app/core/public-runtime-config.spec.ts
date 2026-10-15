@@ -1,4 +1,4 @@
-import { configuredApiBase, configuredPublicOrigin, publicTransferRequest } from './public-runtime-config';
+import { configuredApiBase, configuredPublicApiBase, configuredPublicOrigin, publicTransferRequest } from './public-runtime-config';
 
 describe('public SSR runtime configuration', () => {
   it('accepts only an HTTP API base at the versioned API path', () => {
@@ -7,6 +7,13 @@ describe('public SSR runtime configuration', () => {
     expect(configuredApiBase('https://user:secret@api.example.test/api/v1')).toBeNull();
     expect(configuredApiBase('http://api.example.test/private')).toBeNull();
     expect(configuredApiBase('javascript:alert(1)')).toBeNull();
+  });
+
+  it('supports the same-origin API gateway while retaining validated absolute local bases', () => {
+    expect(configuredPublicApiBase('/api/v1')).toBe('/api/v1');
+    expect(configuredPublicApiBase('/api/v1/')).toBe('/api/v1');
+    expect(configuredPublicApiBase('/api/v1/private')).toBeNull();
+    expect(configuredPublicApiBase('https://api.example.test/api/v1')).toBe('https://api.example.test/api/v1');
   });
 
   it('accepts only a fixed public origin without path or credentials', () => {

@@ -16,7 +16,6 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
-	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
@@ -70,7 +69,6 @@ import (
 	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	verificationhttp "github.com/HernanEspinozaDev/espaciGo/internal/verification/transport/http"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const readyURL = "http://127.0.0.1:8080/health/ready"
@@ -141,11 +139,16 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid dataset isolated clock configuration")
 	}
+	prototypeEnabled, err := authPrototypeEnabled(os.Getenv)
+	if err != nil {
+		return errors.New("invalid API profile configuration")
+	}
 
-	pool, err := pgxpool.New(context.Background(), cfg.databaseURL())
+	pool, closeConnector, err := newDatabasePool(context.Background(), cfg)
 	if err != nil {
 		return errors.New("could not initialize PostgreSQL connection pool")
 	}
+	defer closeConnector()
 	defer pool.Close()
 
 	mux := http.NewServeMux()
@@ -162,7 +165,7 @@ func run() error {
 	var privacyReplayRegistryPath string
 	var privacyEvidenceCleaner privacy.SyntheticEvidenceCleaner
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
-	if os.Getenv("LOCAL_AUTH_PROTOTYPE") == "1" {
+	if prototypeEnabled {
 		limit, err := strconv.Atoi(os.Getenv("LOCAL_VERIFICATION_IP_LIMIT"))
 		if err != nil || limit < 1 || limit > 1000 {
 			return errors.New("invalid local quota")
@@ -175,9 +178,12 @@ func run() error {
 		localIdentityService = service
 		verificationRepository := verificationpg.New(pool)
 		evidenceRoot := os.Getenv("M03_EVIDENCE_DIR")
-		evidenceStore, err := evidencefs.New(evidenceRoot)
+		evidenceStore, err := newRuntimeFileStore(context.Background(), os.Getenv, evidenceRoot)
 		if err != nil {
-			return errors.New("local private evidence storage is unavailable")
+			return errors.New("private evidence storage is unavailable")
+		}
+		if closer, ok := evidenceStore.(interface{ Close() error }); ok {
+			defer closer.Close()
 		}
 		if keyPath := strings.TrimSpace(os.Getenv("LOCAL_CONTRACT_ENCRYPTION_KEY_FILE")); keyPath != "" {
 			contractKeyText, readErr := os.ReadFile(keyPath)

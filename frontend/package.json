@@ -7,6 +7,7 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
+    "test:server-gateway": "node --test tooling/server-api-gateway.test.mjs",
     "serve:ssr:frontend": "node dist/frontend/server/server.mjs",
     "e2e": "playwright test --config=playwright.config.cjs",
     "api:generate": "openapi-ts && node ../scripts/normalize-openapi-generated.mjs src/generated/api",

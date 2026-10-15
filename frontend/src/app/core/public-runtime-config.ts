@@ -22,6 +22,11 @@ export function configuredApiBase(value: string | undefined): string | null {
   }
 }
 
+export function configuredPublicApiBase(value: string | undefined): string | null {
+  if (value?.trim() === '/api/v1' || value?.trim() === '/api/v1/') return '/api/v1';
+  return configuredApiBase(value);
+}
+
 export function configuredPublicOrigin(value: string | undefined): string | null {
   if (!value) return null;
   try {
