@@ -38,6 +38,10 @@ Código probado: `436b52695043dd572e4bbb5981c43d3936ea145c` (rama `codex/marketp
 
 La matriz registra verificaciones técnicas, no aceptación de producto. La cuenta del propietario y aceptación de producto siguen pendientes.
 
+## Evidencia GADM-04 (2026-10-15)
+
+HEAD de código bajo prueba `27c656aeaf0c8436143f99013960d6cbebcef08f`. El runner backend pasó suite Go, `go vet`, 92 integraciones requeridas sin skips y cinco repeticiones del lifecycle booking. OpenAPI/SDK, lint/arquitectura, 306 pruebas Angular y build SSR/browser pasaron. E2E servido FE-14 seleccionó 5/5 casos GADM-02/03, roles/foco y catálogo anónimo; verificó persistencia/auditoría SQL, seed de 1.000 cuentas y plan SQL real. LOCAL-CLOSE-02 pasó 1/1 escenario con reloj coordinado y limpieza. No se ejecutó toda la suite FE-14. Capturas viewport 390×844 y 1365×900, dimensiones completas, sidecars de SHA y hashes están en [`evidencia/gadm_04/`](evidencia/gadm_04/resultado_gadm04.md). La cuenta real, soporte, GCP y aceptación de producto siguen pendientes; `operations.*` y `finance.*` requieren decisión.
+
 ## Evidencia GADM-01 (2026-10-14)
 
 | Validación | Entorno / alcance | Resultado |
