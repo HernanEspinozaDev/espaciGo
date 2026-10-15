@@ -202,8 +202,10 @@ func (r *Repository) Quote(ctx context.Context, renter, spaceID, id string, star
 	if !start.After(preNow) {
 		return booking.Quote{}, booking.ErrInvalid
 	}
-	if err := r.Expire(ctx, preNow); err != nil {
-		return booking.Quote{}, err
+	if !booking.GlobalExpirySweepsDisabled(ctx) {
+		if err := r.Expire(ctx, preNow); err != nil {
+			return booking.Quote{}, err
+		}
 	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -320,8 +322,10 @@ func scanReservationColumns(row pgx.Row, v *booking.Reservation, withUnread bool
 
 func (r *Repository) Create(ctx context.Context, renter, quoteID, key string, fingerprint []byte, id, occupancyID string, payTTL time.Duration, clock func() time.Time) (booking.Reservation, error) {
 	preNow := clock().UTC()
-	if err := r.Expire(ctx, preNow); err != nil {
-		return booking.Reservation{}, err
+	if !booking.GlobalExpirySweepsDisabled(ctx) {
+		if err := r.Expire(ctx, preNow); err != nil {
+			return booking.Reservation{}, err
+		}
 	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

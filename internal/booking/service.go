@@ -32,6 +32,7 @@ type Service struct {
 	settlement                LocalSettlementAdapter
 	now                       func() time.Time
 	quoteTTL, payTTL, hostTTL time.Duration
+	globalExpirySweeps        bool
 	catalogCursorKey          [32]byte
 }
 
@@ -42,6 +43,31 @@ func (s *Service) SetLocalRefundAdapter(adapter LocalRefundAdapter)         { s.
 func (s *Service) SetLocalNoticeSender(sender LocalNoticeSender)            { s.notices = sender }
 func (s *Service) SetLocalGuaranteeOutcome(outcome func() string)           { s.guaranteeOutcome = outcome }
 func (s *Service) SetLocalSettlementAdapter(adapter LocalSettlementAdapter) { s.settlement = adapter }
+
+func (s *Service) repositoryContext(ctx context.Context) context.Context {
+	if s.globalExpirySweeps {
+		return ctx
+	}
+	return WithGlobalExpirySweepsDisabled(ctx)
+}
+
+func (s *Service) expireDueBookings(ctx context.Context) error {
+	if !s.globalExpirySweeps {
+		return nil
+	}
+	return s.repo.Expire(ctx, s.now().UTC())
+}
+
+func (s *Service) expireDueGuarantees(ctx context.Context) error {
+	if !s.globalExpirySweeps {
+		return nil
+	}
+	repo, ok := s.repo.(GuaranteeLifecycleRepository)
+	if !ok {
+		return nil
+	}
+	return repo.ExpireDueGuarantees(ctx, s.now)
+}
 
 func (s *Service) StartSettlement(ctx context.Context, host, reservationID, key, outcome string) (Settlement, error) {
 	repo, ok := s.repo.(SettlementLifecycleRepository)
@@ -152,6 +178,9 @@ func (s *Service) ResolveSettlement(ctx context.Context, admin, reservationID, o
 }
 
 func (s *Service) ReconcileSettlements(ctx context.Context) error {
+	if !s.globalExpirySweeps {
+		return nil
+	}
 	repo, ok := s.repo.(SettlementLifecycleRepository)
 	if !ok || s.settlement == nil {
 		return nil
@@ -188,6 +217,9 @@ func (s *Service) ReconcileSettlements(ctx context.Context) error {
 }
 
 func (s *Service) RunSettlementReconciler(ctx context.Context, interval time.Duration) {
+	if !s.globalExpirySweeps {
+		return
+	}
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
@@ -239,7 +271,7 @@ func (s *Service) Guarantee(ctx context.Context, actor, reservationID string) (G
 	if !ok || !uuid.MatchString(actor) || !uuid.MatchString(reservationID) {
 		return GuaranteeSnapshot{}, ErrNotFound
 	}
-	if err := repo.ExpireDueGuarantees(ctx, s.now); err != nil {
+	if err := s.expireDueGuarantees(ctx); err != nil {
 		return GuaranteeSnapshot{}, err
 	}
 	return repo.Guarantee(ctx, actor, reservationID)
@@ -250,7 +282,7 @@ func (s *Service) GuaranteeForAdministrator(ctx context.Context, administrator, 
 	if !ok || !uuid.MatchString(administrator) || !uuid.MatchString(reservationID) {
 		return GuaranteeSnapshot{}, ErrNotFound
 	}
-	if err := repo.ExpireDueGuarantees(ctx, s.now); err != nil {
+	if err := s.expireDueGuarantees(ctx); err != nil {
 		return GuaranteeSnapshot{}, err
 	}
 	return repo.GuaranteeForAdministrator(ctx, reservationID)
@@ -331,7 +363,7 @@ func (s *Service) RunGuaranteeOperation(ctx context.Context, actor, reservationI
 	if amount < 0 {
 		return GuaranteeOperation{}, ErrInvalid
 	}
-	if err := repo.ExpireDueGuarantees(ctx, s.now); err != nil {
+	if err := s.expireDueGuarantees(ctx); err != nil {
 		return GuaranteeOperation{}, err
 	}
 	id, err := s.ids.ID()
@@ -366,14 +398,16 @@ func (s *Service) ResolveGuaranteeOperation(ctx context.Context, admin, reservat
 }
 
 func (s *Service) ReconcileGuarantees(ctx context.Context) error {
-	repo, ok := s.repo.(GuaranteeLifecycleRepository)
-	if !ok {
+	if !s.globalExpirySweeps {
 		return nil
 	}
-	return repo.ExpireDueGuarantees(ctx, s.now)
+	return s.expireDueGuarantees(ctx)
 }
 
 func (s *Service) RunGuaranteeReconciler(ctx context.Context, interval time.Duration) {
+	if !s.globalExpirySweeps {
+		return
+	}
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
@@ -394,10 +428,14 @@ func NewService(repo Repository, ids identity.CredentialGenerator, now func() ti
 	return NewServiceWithTTLs(repo, ids, now, payment, 15*time.Minute, 15*time.Minute, 24*time.Hour)
 }
 func NewServiceWithTTLs(repo Repository, ids identity.CredentialGenerator, now func() time.Time, payment LocalPaymentAdapter, quoteTTL, payTTL, hostTTL time.Duration) (*Service, error) {
+	return NewServiceWithTTLsAndGlobalExpirySweeps(repo, ids, now, payment, quoteTTL, payTTL, hostTTL, true)
+}
+
+func NewServiceWithTTLsAndGlobalExpirySweeps(repo Repository, ids identity.CredentialGenerator, now func() time.Time, payment LocalPaymentAdapter, quoteTTL, payTTL, hostTTL time.Duration, globalExpirySweeps bool) (*Service, error) {
 	if repo == nil || ids == nil || now == nil || payment == nil || quoteTTL < time.Minute || quoteTTL > time.Hour || payTTL < time.Minute || payTTL > time.Hour || hostTTL < time.Hour || hostTTL > 72*time.Hour {
 		return nil, ErrInvalid
 	}
-	s := &Service{repo: repo, ids: ids, payment: payment, now: now, quoteTTL: quoteTTL, payTTL: payTTL, hostTTL: hostTTL, guaranteeOutcome: func() string { return "exito" }}
+	s := &Service{repo: repo, ids: ids, payment: payment, now: now, quoteTTL: quoteTTL, payTTL: payTTL, hostTTL: hostTTL, guaranteeOutcome: func() string { return "exito" }, globalExpirySweeps: globalExpirySweeps}
 	if _, err := rand.Read(s.catalogCursorKey[:]); err != nil {
 		return nil, err
 	}
@@ -475,7 +513,7 @@ func (s *Service) Catalog(ctx context.Context, actor string, filter CatalogFilte
 	// Resolve expired payment/host holds before computing availability. Catalog
 	// reads must not leave an expired reservation blocking a space until some
 	// unrelated reservation endpoint happens to trigger the expiry mechanism.
-	if err := s.repo.Expire(ctx, s.now().UTC()); err != nil {
+	if err := s.expireDueBookings(ctx); err != nil {
 		return nil, err
 	}
 	items, err := s.repo.Catalog(ctx, actor, filter)
@@ -792,7 +830,7 @@ func (s *Service) AvailableIntervals(ctx context.Context, actor, spaceID string,
 	}
 	// Apply the shared expiry transition mechanism before treating active
 	// occupancy rows as blocking. This is a read-only query; it creates no quote.
-	if err = s.repo.Expire(ctx, now); err != nil {
+	if err = s.expireDueBookings(ctx); err != nil {
 		return AvailabilityOptions{}, err
 	}
 	available, err := s.repo.AvailableIntervals(ctx, actor, spaceID, candidates)
@@ -905,7 +943,7 @@ func (s *Service) Quote(ctx context.Context, renter string, in QuoteInput) (Quot
 	if !start.After(now) {
 		return Quote{}, ErrInvalid
 	}
-	return s.repo.Quote(ctx, renter, in.SpaceID, id, start, end, s.now, s.quoteTTL)
+	return s.repo.Quote(s.repositoryContext(ctx), renter, in.SpaceID, id, start, end, s.now, s.quoteTTL)
 }
 
 func validCategory(code string) bool {
@@ -930,14 +968,13 @@ func (s *Service) Request(ctx context.Context, renter string, in RequestInput, k
 	}
 	body, _ := json.Marshal(in)
 	fingerprint := sha256.Sum256(body)
-	return s.repo.Create(ctx, renter, in.QuoteID, key, fingerprint[:], id, occupancyID, s.payTTL, s.now)
+	return s.repo.Create(s.repositoryContext(ctx), renter, in.QuoteID, key, fingerprint[:], id, occupancyID, s.payTTL, s.now)
 }
 func (s *Service) Get(ctx context.Context, actor, id string) (Detail, error) {
 	if !uuid.MatchString(actor) || !uuid.MatchString(id) {
 		return Detail{}, ErrNotFound
 	}
-	now := s.now().UTC()
-	if err := s.repo.Expire(ctx, now); err != nil {
+	if err := s.expireDueBookings(ctx); err != nil {
 		return Detail{}, err
 	}
 	return s.repo.Get(ctx, actor, id)
@@ -946,8 +983,7 @@ func (s *Service) List(ctx context.Context, actor string) ([]Reservation, error)
 	if !uuid.MatchString(actor) {
 		return nil, ErrNotFound
 	}
-	now := s.now().UTC()
-	if err := s.repo.Expire(ctx, now); err != nil {
+	if err := s.expireDueBookings(ctx); err != nil {
 		return nil, err
 	}
 	return s.repo.List(ctx, actor)
@@ -966,7 +1002,7 @@ func (s *Service) Pay(ctx context.Context, renter, id, outcome, key string) (Res
 	if err := s.ReconcilePendingPayments(ctx); err != nil {
 		return Reservation{}, err
 	}
-	if err := s.repo.Expire(ctx, s.now().UTC()); err != nil {
+	if err := s.expireDueBookings(ctx); err != nil {
 		return Reservation{}, err
 	}
 	operationID, err := s.ids.ID()
@@ -1088,6 +1124,18 @@ func (s *Service) IngestPaymentEvent(ctx context.Context, event PaymentEvent) (P
 	if err != nil {
 		return PaymentEventReceipt{}, err
 	}
+	if !s.globalExpirySweeps {
+		// The dedicated dataset process still completes its own synchronous
+		// payment. Restrict application to this verified operation/event pair;
+		// the global reconciliation workers remain disabled.
+		applicator, ok := s.repo.(PaymentEventApplicationRepository)
+		if !ok {
+			return PaymentEventReceipt{}, ErrInvalid
+		}
+		if _, applyErr := applicator.ApplyPaymentEventForOperation(ctx, event.OperationID, event.EventID, s.now, s.hostTTL); applyErr != nil && !errors.Is(applyErr, ErrConflict) {
+			return PaymentEventReceipt{}, applyErr
+		}
+	}
 	return PaymentEventReceipt{Accepted: true, Reused: reused}, nil
 }
 
@@ -1096,6 +1144,9 @@ func (s *Service) IngestPaymentEvent(ctx context.Context, event PaymentEvent) (P
 // fake was never started, it starts it using the fake's operation-scoped
 // idempotency key. Finally it expires remaining deadlines.
 func (s *Service) ReconcilePendingPayments(ctx context.Context) error {
+	if !s.globalExpirySweeps {
+		return nil
+	}
 	repo, ok := s.repo.(PaymentLifecycleRepository)
 	if !ok {
 		return ErrInvalid
@@ -1155,12 +1206,15 @@ func (s *Service) ReconcilePendingPayments(ctx context.Context) error {
 			}
 		}
 	}
-	return s.repo.Expire(ctx, s.now().UTC())
+	return s.expireDueBookings(ctx)
 }
 
 // RunPaymentReconciler retries durable work at startup and periodically. A
 // failure leaves records pending for the next pass; it does not log payloads.
 func (s *Service) RunPaymentReconciler(ctx context.Context, interval time.Duration) {
+	if !s.globalExpirySweeps {
+		return
+	}
 	if interval < time.Second {
 		interval = 5 * time.Second
 	}
@@ -1181,7 +1235,7 @@ func (s *Service) Decide(ctx context.Context, host, id, decision, reason string)
 	if !uuid.MatchString(host) || !uuid.MatchString(id) || (decision != "aprobar" && decision != "rechazar") || decision == "rechazar" && reason == "" {
 		return Reservation{}, ErrInvalid
 	}
-	if err := s.repo.Expire(ctx, s.now().UTC()); err != nil {
+	if err := s.expireDueBookings(ctx); err != nil {
 		return Reservation{}, err
 	}
 	return s.repo.Decide(ctx, host, id, decision, reason, s.now)
@@ -1191,7 +1245,7 @@ func (s *Service) CancellationPreview(ctx context.Context, renter, id string) (C
 		return CancellationPreview{}, ErrNotFound
 	}
 	now := s.now().UTC()
-	if err := s.repo.Expire(ctx, now); err != nil {
+	if err := s.expireDueBookings(ctx); err != nil {
 		return CancellationPreview{}, err
 	}
 	return s.repo.CancellationPreview(ctx, renter, id, now)

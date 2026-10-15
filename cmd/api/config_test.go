@@ -9,6 +9,27 @@ import (
 	"testing"
 )
 
+func TestIsolatedDatasetClockRequiresTheRunScopedManualClock(t *testing.T) {
+	lookup := map[string]string{}
+	getenv := func(key string) string { return lookup[key] }
+	if enabled, err := isolatedDatasetClockFromEnv(getenv); err != nil || enabled {
+		t.Fatalf("default isolated clock mode enabled=%v err=%v", enabled, err)
+	}
+	lookup["LOCAL_DATASET_DEALS_ISOLATED_CLOCK"] = "1"
+	if _, err := isolatedDatasetClockFromEnv(getenv); err == nil {
+		t.Fatal("isolated dataset clock accepted without a local trial clock")
+	}
+	lookup["LOCAL_BOOKING_TRIAL"] = "1"
+	lookup["LOCAL_DEMO_BUSINESS_CLOCK_FILE"] = "/tmp/shared-clock.json"
+	if _, err := isolatedDatasetClockFromEnv(getenv); err == nil {
+		t.Fatal("isolated dataset clock accepted a non-run-scoped clock file")
+	}
+	lookup["LOCAL_DEMO_BUSINESS_CLOCK_FILE"] = "/run/fe14-demo/business-clock.json"
+	if enabled, err := isolatedDatasetClockFromEnv(getenv); err != nil || !enabled {
+		t.Fatalf("run-scoped isolated clock enabled=%v err=%v", enabled, err)
+	}
+}
+
 func TestLoadConfigReadsLocalPasswordFileAndParsesOrigins(t *testing.T) {
 	passwordFile := filepath.Join(t.TempDir(), "runtime-password")
 	if err := os.WriteFile(passwordFile, []byte("synthetic-test-value\n"), 0o600); err != nil {

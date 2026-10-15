@@ -1,0 +1,12 @@
+# Run-scoped logical time for dataset deal processing. The clock directory is
+# private, unique to one run, and mounted read-only into the API process.
+services:
+  backend:
+    environment:
+      LOCAL_DEMO_BUSINESS_CLOCK_FILE: /run/fe14-demo/business-clock.json
+      LOCAL_DATASET_DEALS_ISOLATED_CLOCK: "1"
+    volumes:
+      - type: bind
+        source: ${LOCAL_DATASET_DEALS_CLOCK_HOST:?initialize a unique local-close-02 clock run}
+        target: /run/fe14-demo
+        read_only: true

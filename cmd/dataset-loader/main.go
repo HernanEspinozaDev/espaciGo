@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var categories = map[string]bool{
@@ -44,16 +45,22 @@ type listingAssignment struct {
 	Ref        string `json:"listing_ref"`
 	Owner      string `json:"owner_ref"`
 	Category   string `json:"category_code"`
+	RateUnit   string `json:"rate_unit"`
+	TimeZone   string `json:"time_zone"`
 	Visibility string `json:"intended_visibility"`
 }
 
 type scenarioAssignment struct {
-	Ref      string `json:"scenario_ref"`
-	Host     string `json:"host_ref"`
-	Renter   string `json:"renter_ref"`
-	Listing  string `json:"listing_ref"`
-	Category string `json:"category_code"`
-	Code     string `json:"scenario_code"`
+	Ref           string `json:"scenario_ref"`
+	Host          string `json:"host_ref"`
+	Renter        string `json:"renter_ref"`
+	Listing       string `json:"listing_ref"`
+	Category      string `json:"category_code"`
+	Code          string `json:"scenario_code"`
+	RateUnit      string `json:"rate_unit"`
+	ListingSlot   int    `json:"schedule_slot_for_listing"`
+	Execution     string `json:"execution"`
+	CalendarState string `json:"calendar_status"`
 }
 
 func main() {
@@ -75,6 +82,7 @@ type summary struct {
 	Assigned  map[string]int `json:"assigned"`
 	Visible   map[string]int `json:"visibility"`
 	Scenarios map[string]int `json:"scenarios"`
+	RateUnits map[string]int `json:"rate_units"`
 }
 
 func validate(root string) (summary, error) {
@@ -170,17 +178,39 @@ func validate(root string) (summary, error) {
 		}
 	}
 	scenarioCounts := map[string]int{}
+	unitCounts := map[string]int{}
+	categoryScenarioCounts := map[string]int{}
 	scenarioRefs := make(map[string]bool, len(scenarios))
+	listingSlots := make(map[string]map[int]bool)
 	for _, scenario := range scenarios {
 		listing, ok := listingRefs[scenario.Listing]
 		if !ok || !userRefs[scenario.Host] || !userRefs[scenario.Renter] || scenario.Host == scenario.Renter || userRoles[scenario.Host] != "arrendador" || userRoles[scenario.Renter] != "arrendatario" || listing.Owner != scenario.Host || listing.Visibility != "publica" || listing.Category != scenario.Category {
 			return result, errors.New("scenario references must resolve to its public host listing and renter")
 		}
-		if scenario.Ref == "" || scenarioRefs[scenario.Ref] || scenario.Code == "" {
-			return result, errors.New("scenario references must be non-empty and unique")
+		if scenario.Ref == "" || scenarioRefs[scenario.Ref] || scenario.Code == "" ||
+			(scenario.RateUnit != "hora" && scenario.RateUnit != "dia" && scenario.RateUnit != "mes") ||
+			scenario.ListingSlot < 0 || scenario.ListingSlot > 1 ||
+			scenario.Execution != "Go services/API; no direct state inserts" ||
+			scenario.CalendarState != "must_be_planned_by_loader" {
+			return result, errors.New("scenario row is incomplete or violates the loader contract")
 		}
+		if scenario.RateUnit != listing.RateUnit {
+			return result, errors.New("scenario rate unit differs from its listing")
+		}
+		if _, err := time.LoadLocation(listing.TimeZone); err != nil {
+			return result, errors.New("listing time zone is invalid")
+		}
+		if listingSlots[scenario.Listing] == nil {
+			listingSlots[scenario.Listing] = make(map[int]bool)
+		}
+		if listingSlots[scenario.Listing][scenario.ListingSlot] {
+			return result, errors.New("scenario calendar slot is duplicated for a listing")
+		}
+		listingSlots[scenario.Listing][scenario.ListingSlot] = true
 		scenarioRefs[scenario.Ref] = true
 		scenarioCounts[scenario.Code]++
+		unitCounts[scenario.RateUnit]++
+		categoryScenarioCounts[scenario.Category+"/"+scenario.Code]++
 	}
 	wantScenarios := map[string]int{"ciclo_cerrado": 600, "pendiente_pago": 240, "cancelacion_con_devolucion": 120, "rechazo_anfitrion": 120, "reclamo_abierto": 120}
 	if len(scenarioCounts) != len(wantScenarios) {
@@ -191,7 +221,20 @@ func validate(root string) (summary, error) {
 			return result, errors.New("scenario distribution differs from the agreed plan")
 		}
 	}
-	result = summary{DatasetID: m.DatasetID, Assigned: roleCounts, Visible: visibility, Scenarios: scenarioCounts}
+	if unitCounts["hora"] != 400 || unitCounts["dia"] != 400 || unitCounts["mes"] != 400 {
+		return result, errors.New("scenario rate-unit distribution differs from the agreed plan")
+	}
+	for category := range categories {
+		for scenario, expected := range map[string]int{
+			"ciclo_cerrado": 75, "pendiente_pago": 30,
+			"cancelacion_con_devolucion": 15, "rechazo_anfitrion": 15, "reclamo_abierto": 15,
+		} {
+			if categoryScenarioCounts[category+"/"+scenario] != expected {
+				return result, errors.New("category and scenario assignments are not balanced")
+			}
+		}
+	}
+	result = summary{DatasetID: m.DatasetID, Assigned: roleCounts, Visible: visibility, Scenarios: scenarioCounts, RateUnits: unitCounts}
 	return result, nil
 }
 
