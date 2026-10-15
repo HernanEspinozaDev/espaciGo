@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import socket
 import tempfile
 import unittest
@@ -19,6 +20,9 @@ class FakeAPI:
     fail_registration_once = False
     token_counter = 0
     active_tokens = {"operator-session-that-predates-importer"}
+    galleries = {}
+    files = {}
+    serial = 0
 
     def __init__(self, bases, token=""):
         self.bases = bases
@@ -48,7 +52,42 @@ class FakeAPI:
             raise loader.SafeHTTPError(path, 409, "email_registered")
         if path == "/api/v1/profile":
             return {"display_name": "Synthetic User", "phone": None}
+        if path.endswith("/gallery") and method == "GET":
+            space = path.split("/")[-2]
+            return {"items": list(type(self).galleries.get(space, []))}
+        if path.endswith("/gallery") and method == "POST":
+            space = path.split("/")[-2]
+            type(self).serial += 1
+            photo_id = f"new-photo-{type(self).serial}"
+            blob = b"\x89PNG\r\n\x1a\nfixture"
+            item = {"id": photo_id, "fixture_code": "synthetic-png-v1", "mime_type": "image/png",
+                    "sha256": hashlib.sha256(blob).hexdigest(), "size_bytes": len(blob),
+                    "public_in_catalog": False}
+            type(self).galleries.setdefault(space, []).append(item)
+            type(self).files[photo_id] = blob
+            return {"photo": item, "reused": False}
+        if path.endswith("/cover") and method == "PUT":
+            return {"photo_id": body["photo_id"], "selected": True}
+        if path.endswith("/publication") and method == "PUT":
+            parts = path.split("/")
+            space, photo_id = parts[-4], parts[-2]
+            item = next(row for row in type(self).galleries[space] if row["id"] == photo_id)
+            item["public_in_catalog"] = body["public_in_catalog"]
+            return item
+        if "/gallery/" in path and method == "DELETE":
+            parts = path.split("/")
+            space, photo_id = parts[-3], parts[-1]
+            type(self).galleries[space] = [row for row in type(self).galleries.get(space, []) if row["id"] != photo_id]
+            type(self).files.pop(photo_id, None)
+            return {"removed": True}
         raise AssertionError(f"unexpected API request: {method} {path}")
+
+    def request_bytes(self, path, token=""):
+        photo_id = path.rsplit("/", 2)[-2] if path.endswith("/content") else path.rsplit("/", 1)[-1]
+        blob = type(self).files.get(photo_id)
+        if blob is None:
+            return 404, {"Content-Type": "application/json"}, b""
+        return 200, {"Content-Type": "image/png"}, blob
 
 
 class DatasetImporterTests(unittest.TestCase):
@@ -58,6 +97,9 @@ class DatasetImporterTests(unittest.TestCase):
         FakeAPI.fail_registration_once = False
         FakeAPI.token_counter = 0
         FakeAPI.active_tokens = {"operator-session-that-predates-importer"}
+        FakeAPI.galleries = {}
+        FakeAPI.files = {}
+        FakeAPI.serial = 0
         self.network_block = patch.object(
             socket, "create_connection",
             side_effect=AssertionError("network access is disabled in dataset importer tests"),
@@ -122,7 +164,6 @@ class DatasetImporterTests(unittest.TestCase):
         self.assertEqual(self.importer.admin_token, first)
         self.assertEqual(self.importer.cleanup_sessions(), 0)
         self.assertEqual(FakeAPI.active_tokens, {"operator-session-that-predates-importer"})
-
         try:
             self.importer.login("user@example.invalid", "secret")
             raise RuntimeError("injected import failure")
@@ -131,6 +172,48 @@ class DatasetImporterTests(unittest.TestCase):
         finally:
             self.assertEqual(self.importer.cleanup_sessions(), 0)
         self.assertEqual(FakeAPI.active_tokens, {"operator-session-that-predates-importer"})
+
+    def test_missing_fixture_file_is_replaced_idempotently_and_selected_as_public_cover(self):
+        blob = b"\x89PNG\r\n\x1a\nmissing"
+        old = {"id": "old-photo", "fixture_code": "synthetic-png-v1", "mime_type": "image/png",
+               "sha256": hashlib.sha256(blob).hexdigest(), "size_bytes": len(blob), "public_in_catalog": True}
+        FakeAPI.galleries["space-1"] = [old]
+        self.importer.state["listings"]["listing-1"] = {"id": "space-1", "photo_id": "old-photo"}
+        owner = loader.API(["http://127.0.0.1:8080"], "owner-session")
+
+        replacement = self.importer.ensure_photo_content(owner, "space-1", "listing-1", "old-photo", [old], public=True)
+        self.assertEqual(replacement, "new-photo-1")
+        self.assertEqual(self.importer.state["listings"]["listing-1"]["photo_id"], replacement)
+        self.assertEqual([row["id"] for row in FakeAPI.galleries["space-1"]], [replacement])
+        self.assertTrue(FakeAPI.galleries["space-1"][0]["public_in_catalog"])
+        self.assertTrue(any(path == "/api/v1/spaces/space-1/cover" and body == {"photo_id": replacement}
+                            for method, path, body, _ in FakeAPI.calls))
+
+        second = self.importer.ensure_photo_content(owner, "space-1", "listing-1", replacement,
+                                                   FakeAPI.galleries["space-1"], public=True)
+        self.assertEqual(second, replacement)
+        self.assertEqual(sum(method == "POST" and path.endswith("/gallery") for method, path, _, _ in FakeAPI.calls), 1)
+
+    def test_shared_api_port_is_allowed_only_for_explicit_repair_mode(self):
+        with self.assertRaisesRegex(RuntimeError, "shared persistent API"):
+            loader.local_url("http://127.0.0.1:8080", pilot=False)
+        self.assertEqual(loader.local_url("http://127.0.0.1:8080", pilot=False, allow_shared_api=True),
+                         "http://127.0.0.1:8080")
+
+    def test_private_listing_replacement_stays_unpublished_without_cover(self):
+        blob = b"\x89PNG\r\n\x1a\nmissing"
+        old = {"id": "old-private-photo", "fixture_code": "synthetic-png-v1", "mime_type": "image/png",
+               "sha256": hashlib.sha256(blob).hexdigest(), "size_bytes": len(blob), "public_in_catalog": False}
+        FakeAPI.galleries["space-private"] = [old]
+        self.importer.state["listings"]["listing-private"] = {"id": "space-private", "photo_id": old["id"]}
+        owner = loader.API(["http://127.0.0.1:8080"], "owner-session")
+
+        replacement = self.importer.ensure_photo_content(owner, "space-private", "listing-private", old["id"],
+                                                         [old], public=False)
+        self.assertEqual(replacement, "new-photo-1")
+        self.assertFalse(FakeAPI.galleries["space-private"][0]["public_in_catalog"])
+        self.assertFalse(any(path.endswith("/cover") for _, path, _, _ in FakeAPI.calls))
+        self.assertFalse(any(path.startswith("/api/v1/public/") for _, path, _, _ in FakeAPI.calls))
 
 
 if __name__ == "__main__":

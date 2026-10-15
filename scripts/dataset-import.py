@@ -99,6 +99,31 @@ class API:
             raise last_error
         raise SafeHTTPError(path, 0, "no_api_endpoint")
 
+    def request_bytes(self, path: str, token: str = ""):
+        """Fetch binary content without decoding it as JSON or text."""
+        cursor_key = tuple(self.bases)
+        start = API_CURSORS.get(cursor_key, 0)
+        last_status = 0
+        last_headers = {}
+        for offset in range(len(self.bases)):
+            base = self.bases[(start + offset) % len(self.bases)]
+            API_CURSORS[cursor_key] = (start + offset + 1) % len(self.bases)
+            headers = {"Accept": "image/png"}
+            if token:
+                headers["Authorization"] = "Bearer " + token
+            request = Request(base + path, headers=headers, method="GET")
+            try:
+                with self.opener.open(request, timeout=30) as response:
+                    return response.status, dict(response.headers.items()), response.read(MAX_REPLY + 1)
+            except HTTPError as error:
+                last_status = error.code
+                last_headers = dict(error.headers.items()) if error.headers else {}
+                if error.code not in (404, 503):
+                    raise SafeHTTPError(path.split("?", 1)[0], error.code) from None
+            except (URLError, TimeoutError, OSError):
+                raise SafeHTTPError(path.split("?", 1)[0], 0, "connection_failed") from None
+        return last_status, last_headers, b""
+
 
 class Mailpit:
     def __init__(self, base: str) -> None:
@@ -209,7 +234,7 @@ def preflight(repo: Path, dataset: Path) -> None:
         raise RuntimeError("dataset structural preflight failed; no import actions started")
 
 
-def local_url(value: str, pilot: bool) -> str:
+def local_url(value: str, pilot: bool, allow_shared_api: bool = False) -> str:
     parsed = urlparse(value)
     if parsed.scheme != "http" or parsed.username or parsed.password or parsed.path not in ("", "/"):
         raise RuntimeError("API and Mailpit URLs must be plain local HTTP origins")
@@ -218,7 +243,7 @@ def local_url(value: str, pilot: bool) -> str:
     port = parsed.port or (80 if parsed.scheme == "http" else 443)
     if pilot and port < 10000:
         raise RuntimeError("pilot API ports must be dedicated high ports, separate from the persistent stack")
-    if port == 8080:
+    if port == 8080 and not allow_shared_api:
         raise RuntimeError("the shared persistent API port is not accepted")
     return value.rstrip("/")
 
@@ -556,12 +581,13 @@ class Importer:
             if current.get("state") != desired and desired != "borrador":
                 owner.request("PUT", f"/api/v1/spaces/{quote(space_id, safe='')}/publication", {"state": desired}, expect=(200,))
             if desired == "activa" and photo_id:
-                photo = next((item for item in gallery if item.get("id") == photo_id), None)
-                if photo is None or photo.get("public_in_catalog") is not True:
-                    owner.request(
-                        "PUT", f"/api/v1/spaces/{quote(space_id, safe='')}/gallery/{quote(photo_id, safe='')}/publication",
-                        {"public_in_catalog": True}, expect=(200,),
-                    )
+                photo_id = self.ensure_photo_content(owner, space_id, ref, photo_id, gallery, public=True)
+                self.state["listings"][ref]["photo_id"] = photo_id
+                self.save()
+            elif photo_id:
+                photo_id = self.ensure_photo_content(owner, space_id, ref, photo_id, gallery, public=False)
+                self.state["listings"][ref]["photo_id"] = photo_id
+                self.save()
             confirmed = owner.request("GET", f"/api/v1/spaces/{quote(space_id, safe='')}")
             if confirmed.get("state") != desired or confirmed.get("time_zone") != assignment["time_zone"]:
                 raise RuntimeError("listing domain state did not match the planned visibility or time zone")
@@ -569,6 +595,123 @@ class Importer:
             self.state["listings"][ref] = {"id": space_id, "photo_id": photo_id}
             self.save()
         self.close_session(owner.token)
+
+    def ensure_photo_content(self, owner: API, space_id: str, ref: str, photo_id: str,
+                             gallery: list[dict], public: bool) -> str:
+        """Ensure a checkpointed synthetic photo has durable bytes on every API instance.
+
+        Dedicated API processes must share their configured evidence store. A
+        missing private blob is repaired by creating a new domain photo with a
+        stable idempotency key; metadata is never written outside the API.
+        """
+        path = f"/api/v1/spaces/{quote(space_id, safe='')}/gallery"
+        # Refresh after any create/recovery earlier in this run so newly added
+        # metadata is included without trusting a stale pre-write page.
+        items = owner.request("GET", path).get("items", [])
+        current = next((item for item in items if item.get("id") == photo_id), None)
+        if current is None:
+            raise RuntimeError("checkpoint photo is absent from the owner gallery")
+
+        def content_is_valid(candidate_id: str, metadata: dict) -> bool:
+            content_path = path + f"/{quote(candidate_id, safe='')}/content"
+            for base in owner.bases:
+                status, headers, blob = API([base]).request_bytes(content_path, owner.token)
+                if status == 503:
+                    raise RuntimeError("private image storage is temporarily unavailable")
+                if status != 200:
+                    return False
+                expected = metadata.get("sha256")
+                mime = headers.get("Content-Type", "").split(";", 1)[0].lower()
+                if (mime != "image/png" or len(blob) > MAX_REPLY or not blob.startswith(b"\x89PNG\r\n\x1a\n")
+                        or not expected or hashlib.sha256(blob).hexdigest() != expected
+                        or metadata.get("size_bytes") != len(blob)):
+                    return False
+            return True
+
+        previous_id = photo_id
+        if not content_is_valid(photo_id, current):
+            state = self.state["listings"][ref]
+            replacement_id = state.get("replacement_photo_id", "")
+            replacement = next((item for item in items if item.get("id") == replacement_id), None)
+            if replacement is None or not content_is_valid(replacement_id, replacement):
+                created = owner.request("POST", path, key=self.key("photo-recovery", ref), expect=(200, 201))
+                replacement = object_data(created, "photo")
+                replacement_id = replacement.get("id", "")
+                if not replacement_id or not content_is_valid(replacement_id, replacement):
+                    raise RuntimeError("new synthetic gallery photo is not readable from every API instance")
+                state["replacement_photo_id"] = replacement_id
+                state["retire_photo_id"] = photo_id
+                self.save()
+                items.append(replacement)
+            photo_id = replacement_id
+
+        if public:
+            public_photo = next((item for item in items if item.get("id") == photo_id), None)
+            if public_photo is None or public_photo.get("public_in_catalog") is not True:
+                owner.request(
+                    "PUT", path + f"/{quote(photo_id, safe='')}/publication",
+                    {"public_in_catalog": True}, expect=(200,),
+                )
+            cover = owner.request("PUT", f"/api/v1/spaces/{quote(space_id, safe='')}/cover",
+                                  {"photo_id": photo_id}, expect=(200,))
+            if cover.get("photo_id") != photo_id or cover.get("selected") is not True:
+                raise RuntimeError("active listing did not confirm its synthetic cover")
+            public_path = f"/api/v1/public/spaces/{quote(space_id, safe='')}/images/{quote(photo_id, safe='')}"
+            selected = next(item for item in items if item.get("id") == photo_id)
+            for base in owner.bases:
+                status, headers, blob = API([base]).request_bytes(public_path)
+                mime = headers.get("Content-Type", "").split(";", 1)[0].lower()
+                if (status != 200 or mime != "image/png" or not blob.startswith(b"\x89PNG\r\n\x1a\n")
+                        or hashlib.sha256(blob).hexdigest() != selected.get("sha256")):
+                    raise RuntimeError("public synthetic cover is not readable from every API instance")
+        else:
+            private_photo = next((item for item in items if item.get("id") == photo_id), None)
+            if private_photo is not None and private_photo.get("public_in_catalog") is True:
+                owner.request("PUT", path + f"/{quote(photo_id, safe='')}/publication",
+                              {"public_in_catalog": False}, expect=(200,))
+
+        if photo_id != previous_id:
+            # Save the replacement mapping before retiring the broken fixture;
+            # a retry can resume through the same idempotency key.
+            self.state["listings"][ref]["photo_id"] = photo_id
+            self.save()
+        state = self.state["listings"][ref]
+        retired_id = state.get("retire_photo_id", "")
+        if retired_id and retired_id != photo_id:
+            refreshed = owner.request("GET", path).get("items", [])
+            if any(item.get("id") == retired_id for item in refreshed):
+                owner.request("DELETE", path + f"/{quote(retired_id, safe='')}", expect=(200,))
+            state.pop("retire_photo_id", None)
+            state.pop("replacement_photo_id", None)
+            self.save()
+        return photo_id
+
+    def repair_photos(self, assignments: list[dict]) -> tuple[int, int]:
+        grouped = defaultdict(list)
+        for row in assignments:
+            grouped[row["owner_ref"]].append(row)
+        repaired = active_covers = 0
+        for host_ref in sorted(grouped):
+            if not self.state["users"].get(host_ref):
+                raise RuntimeError("active listing owner is missing from the private checkpoint")
+            owner = API(self.api.bases, self.login(generated_email(host_ref), self.password))
+            for assignment in sorted(grouped[host_ref], key=lambda row: row["listing_ref"]):
+                ref = assignment["listing_ref"]
+                listing = self.state["listings"].get(ref, {})
+                space_id, photo_id = listing.get("id"), listing.get("photo_id")
+                if not space_id or not photo_id:
+                    raise RuntimeError("active listing is missing its checkpointed API references")
+                gallery = owner.request("GET", f"/api/v1/spaces/{quote(space_id, safe='')}/gallery").get("items", [])
+                if not any(item.get("id") == photo_id for item in gallery):
+                    raise RuntimeError("checkpoint photo is absent from the owner gallery")
+                is_public = assignment["intended_visibility"] == "publica"
+                new_id = self.ensure_photo_content(owner, space_id, ref, photo_id, gallery, public=is_public)
+                listing["photo_id"] = new_id
+                self.save()
+                repaired += 1
+                active_covers += int(is_public)
+            self.close_session(owner.token)
+        return repaired, active_covers
 
     @staticmethod
     def find_existing_space(candidates: list[dict], body: dict):
@@ -595,7 +738,7 @@ class Importer:
 
 def verify_target(mode: str, urls: list[str], args) -> None:
     for value in urls:
-        local_url(value, pilot=(mode == "pilot"))
+        local_url(value, pilot=(mode == "pilot"), allow_shared_api=(mode == "repair-images"))
     if mode == "import":
         if len(urls) < 3:
             raise RuntimeError("persistent account import requires three dedicated API processes to stay within the per-IP verification quota")
@@ -608,11 +751,21 @@ def verify_target(mode: str, urls: list[str], args) -> None:
         backup = manifest_path.parent / manifest.get("backup_file", "")
         if not backup.is_file() or sha256(backup) != manifest.get("backup_sha256"):
             raise RuntimeError("backup dump is missing or its hash does not match the private manifest")
+    if mode == "repair-images":
+        if len(urls) != 1 or args.confirm_target != "espacigo_local" or not args.backup_manifest:
+            raise RuntimeError("image repair requires one confirmed persistent API and the verified backup manifest")
+        manifest_path = Path(args.backup_manifest)
+        if not manifest_path.is_file() or stat.S_IMODE(manifest_path.stat().st_mode) != 0o600:
+            raise RuntimeError("backup manifest must be a private regular file with mode 0600")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        backup = manifest_path.parent / manifest.get("backup_file", "")
+        if not backup.is_file() or sha256(backup) != manifest.get("backup_sha256"):
+            raise RuntimeError("backup dump is missing or its hash does not match the private manifest")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Domain-backed EspaciGo synthetic dataset loader")
-    parser.add_argument("--mode", choices=("pilot", "import"), required=True)
+    parser.add_argument("--mode", choices=("pilot", "import", "repair-images"), required=True)
     parser.add_argument("--repo", required=True, help="repository root containing cmd/dataset-loader")
     parser.add_argument("--dataset-dir", required=True)
     parser.add_argument("--api-base", action="append", required=True, help="dedicated loopback API origin; may be repeated")
@@ -629,7 +782,7 @@ def main() -> int:
         dataset = Path(args.dataset_dir).resolve(strict=True)
         policy_path = Path(args.policy_file).resolve(strict=True)
         state_path = Path(args.state_file).absolute()
-        bases = [local_url(value, pilot=args.mode == "pilot") for value in args.api_base]
+        bases = [local_url(value, pilot=args.mode == "pilot", allow_shared_api=args.mode == "repair-images") for value in args.api_base]
         mailpit = local_url(args.mailpit_base, pilot=args.mode == "pilot")
         verify_target(args.mode, bases, args)
         preflight(repo, dataset)
@@ -637,7 +790,7 @@ def main() -> int:
         ensure_private_parent(state_path)
 
         users, user_content, listing_assignments, listing_content = load_sources(dataset)
-        selected = choose_users(users, args.mode, listing_assignments)
+        selected = choose_users(users, "import" if args.mode == "repair-images" else args.mode, listing_assignments)
         selected_refs = {user["user_ref"] for user in selected}
         selected_listings = [row for row in listing_assignments if row["owner_ref"] in selected_refs]
         user_counts = Counter(user["roles"][0] for user in selected)
@@ -667,8 +820,16 @@ def main() -> int:
         if not importer.terms_ids or not any(item.get("type") == "terminos" for item in active_terms):
             raise RuntimeError("active synthetic terms were not available from the identity service")
         importer.api.request("GET", "/health/ready")
-        importer.admin()
+        if args.mode != "repair-images":
+            importer.admin()
         importer.save()
+
+        if args.mode == "repair-images":
+            repaired, active_covers = importer.repair_photos(listing_assignments)
+            print(json.dumps({"mode": args.mode, "photos_repaired_or_verified": repaired,
+                              "active_covers_verified": active_covers,
+                              "note": "domain API operations only; no PostgreSQL row mutations"}, sort_keys=True))
+            return 0
 
         # Register accounts and apply role/KYC transitions through the existing APIs.
         for user in selected:

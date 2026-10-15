@@ -316,6 +316,7 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		}
 		if coverImageID.Valid {
 			v.CoverImageID = &coverImageID.String
+			v.Images = []publiccatalog.PublicImageRef{{ImageID: coverImageID.String, IsCover: true}}
 		}
 		out = append(out, v)
 	}

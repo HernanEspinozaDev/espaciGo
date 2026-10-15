@@ -8,7 +8,7 @@
 
 - Registra las 1.000 cuentas con el mismo secreto del archivo privado 0600 de política local, nombres sintéticos y correos deterministas bajo `.invalid`. Acepta términos publicados, verifica por el correo local y actualiza el perfil por la API. La contraseña y los correos no aparecen en stdout, errores ni checkpoints.
 - Conserva la asignación de arrendatario por defecto. Un administrador global operador, autenticado desde la política privada, otorga los roles de anfitrión a través de la API auditada. Las diez cuentas administradoras reciben solo el rol legado mediante el nuevo flujo explícito `admin_access.manage`, sesión reciente y auditoría. El cargador no concede ni modifica membresías `administrador_global`.
-- Crea y aprueba KYC sintético a través de los servicios de verificación, nunca insertando estados. Crea 1.200 espacios, tarifas CLP `int64`, atributos de categoría, zona IANA y horario semanal para modalidad hora. El horario se guarda por la ruta administrativa auditada, con sesión reciente y control optimista de versión. La migración aditiva V61 elimina la restricción heredada que permitía activar horarios solo en el fixture singleton; habilita horarios para publicaciones por hora no eliminadas. Añade la imagen `synthetic-png-v1`; solo declara pública su foto para espacios efectivamente activos. Publica, oculta o deja en borrador mediante las rutas de dominio y verifica la respuesta guardada.
+- Crea y aprueba KYC sintético a través de los servicios de verificación, nunca insertando estados. Crea 1.200 espacios, tarifas CLP `int64`, atributos de categoría, zona IANA y horario semanal para modalidad hora. El horario se guarda por la ruta administrativa auditada, con sesión reciente y control optimista de versión. La migración aditiva V61 elimina la restricción heredada que permitía activar horarios solo en el fixture singleton; habilita horarios para publicaciones por hora no eliminadas. Añade la imagen `synthetic-png-v1`; valida bytes PNG/tamaño/SHA-256 en cada proceso API, selecciona portada por `/spaces/{spaceId}/cover` y declara pública la foto solo para espacios activos. Publica, oculta o deja en borrador mediante las rutas de dominio y verifica la respuesta guardada.
 - Guarda referencias externas a UUID devueltos por Go en un mapa privado bajo `.local/testing/` con modo 0600. Persiste el checkpoint de cada cuenta/publicación con reemplazo atómico. Claves estables y conciliación de espacios existentes permiten reanudar tras interrupciones. El estado privado se liga por hash al contenido generado.
 - No crea tratos en este corte. No hay SQL de importación ni mutaciones del reloj de negocio.
 
@@ -18,7 +18,25 @@ Preflight, que no requiere credenciales:
 go run ./cmd/dataset-loader --dataset-dir /ruta/privada/.local/datasets/espacigo-1000
 ```
 
-El modo piloto limita la ejecución a 20 cuentas balanceadas por rol y sus publicaciones. Requiere servicios de API y Mailpit dedicados, en puertos loopback altos (`>=10000`), conectados a una restauración efímera del backup. `--mode import` recorre el dataset completo; exige confirmar el destino `espacigo_local`, un manifiesto 0600 y el dump cuyo SHA-256 coincide. La carga persistente se ejecuta solo después de fusionar este corte y comprobar el piloto. Para el modo completo se requieren tres procesos API dedicados con `LOCAL_VERIFICATION_IP_LIMIT=1000`; sus cuotas quedan aisladas del backend habitual. No se reinicia ni reconfigura el stack persistente.
+El modo piloto limita la ejecución a 20 cuentas balanceadas por rol y sus publicaciones. Requiere servicios de API y Mailpit dedicados, en puertos loopback altos (`>=10000`), conectados a una restauración efímera del backup. `--mode import` recorre el dataset completo; exige confirmar el destino `espacigo_local`, un manifiesto 0600 y el dump cuyo SHA-256 coincide. La carga persistente se ejecuta solo después de fusionar este corte y comprobar el piloto. Para el modo completo se requieren tres procesos API dedicados con `LOCAL_VERIFICATION_IP_LIMIT=1000`; sus cuotas quedan aisladas del backend habitual. Todos comparten el mismo `M03_EVIDENCE_DIR` privado montado en lectura/escritura. El importador lee cada PNG por cada proceso antes de avanzar. No se reinicia ni reconfigura el stack persistente.
+
+### Reparación de imágenes de una carga persistente
+
+`--mode repair-images` usa el checkpoint privado para identificar las referencias por API. Comprueba y repone las galerías de las 1.200 publicaciones mediante foto sintética, mantiene privadas las fotos de ocultas/borradores y selecciona portada/publicación explícita solo para las 960 activas. Guarda la referencia de sustitución en el checkpoint antes de retirar por API el archivo roto. Confirma PNG, tamaño y SHA-256 desde API autenticada; para activas también confirma portada y GET público desde cada proceso. Requiere una API loopback persistente, `--confirm-target espacigo_local`, checkpoint 0600 y manifiesto/backup 0600. No ejecuta escrituras SQL.
+
+Una carga hecha por procesos API con almacenes efímeros puede conservar metadata de galería en PostgreSQL y haber perdido los bytes al retirar esos procesos. El reparador reconstruye las 1.200 imágenes sintéticas mediante el servicio, sin cambiar la visibilidad de ocultas y borradores. Solo las activas reciben portada y autorización pública. Las referencias antiguas se retiran por API después de verificar la nueva imagen; el worker versionado drena la cola durable de archivos retirados cada 15 segundos y reintenta errores.
+
+```sh
+python3 scripts/dataset-import.py --mode repair-images \
+  --repo /ruta/al/worktree/main \
+  --dataset-dir /ruta/privada/.local/datasets/espacigo-1000 \
+  --api-base http://127.0.0.1:8080 \
+  --mailpit-base http://127.0.0.1:8025 \
+  --policy-file /ruta/privada/.local/testing/test-account-policy.json \
+  --state-file /ruta/privada/.local/testing/dataset-import-persistent.json \
+  --confirm-target espacigo_local \
+  --backup-manifest /ruta/privada/.local/testing/dataset-load/preload-inventory.json
+```
 
 ## Corte 2: tratos
 
@@ -35,6 +53,15 @@ El contenido cargado es sintético y no valida identidades reales. Las fotos son
 - Piloto real por API en PostgreSQL 18/PostGIS 3.6/Mailpit: 20 cuentas (12 arrendatarios, 6 anfitriones y 2 administradores legados) y 22 publicaciones; 6 quedaron activas, 8 ocultas y 8 en borrador. Las 22 recibieron foto sintética, las 12 publicaciones por hora recibieron horario activo y las 6 públicas quedaron con la foto visible. Conteos después del piloto: 65 cuentas, 63 espacios, las mismas 28 reservas, 1 administrador global total, 0 administradores globales entre las 20 cuentas importadas, 2 roles legados importados y 12 horarios activos.
 - Se repitió la ejecución desde el checkpoint privado 0600. Conservó 20 asignaciones de cuenta y 22 de publicación, sin duplicar filas; el UUID y rol del administrador global original no cambiaron. Las interrupciones durante la primera ejecución se reanudaron con el mismo checkpoint.
 - `go test ./internal/adminglobal/... -count=1` pasó contra el servicio de PostgreSQL aislado, incluyendo grant/replay/revoke auditado del rol legado. El test creó y retiró sus bases temporales dentro del piloto.
-- La API real se construyó desde el worktree del corte. El backend persistente y su reloj no se modificaron. El trabajo se probó antes de crear el PR; todavía no se cargó el conjunto persistente de 1.000/1.200.
+- Evidencia histórica anterior a la fusión #319: la API real se construyó desde el worktree del corte; el backend persistente y su reloj no se modificaron y todavía no se había cargado el conjunto 1.000/1.200. El estado persistente posterior se registra en la siguiente sección.
+
+### Reparación de portadas, regresión y piloto (2026-10-15)
+
+- Verificación de cierre de la carga persistente en `5f4c51c`: 1.000 cuentas activas, 1.200 publicaciones, 960 activas (120 por cada una de las ocho categorías), 120 ocultas y 120 en borrador. La consulta pública contiene las 960 activas y no las otras 240. El baseline persistente se conserva (45 cuentas y 41 espacios preexistentes, 28 reservas); el maestro global/bootstrap continúa activo. V1–V60 mantiene exactamente los hashes de entrada; V61 está aplicada.
+- `scripts/test_dataset_import.py`: 6/6. Incluye reemplazo idempotente de un archivo sintético ausente, verificación de la portada pública, modo privado para ocultas/borradores y restricción del puerto compartido al modo explícito de reparación.
+- `go test ./internal/adapters/postgres/spaces -run '^TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions$' -count=1`: pasó en PostgreSQL 18/PostGIS 3.6 desechable. Añade regresión de portada escogida y la inclusión de `images[{image_id,is_cover}]` en el DTO de listado. Se retiró la base de test.
+- Piloto API recreable en Compose exclusivo `espacigo-dataset-cover-pilot-20261015`, restaurado desde el backup previo; V61 se aplicó por el migrador. 20 cuentas y 22 publicaciones: 6 activas, 8 ocultas, 8 en borrador. El almacenamiento privado fue una carpeta host exclusiva compartida por el API y persistió cuando el contenedor API se eliminó y recreó. Tras la recreación, 22/22 galerías respondieron PNG autenticado con tamaño y SHA-256 correctos; 6/6 portadas activas aparecieron en `cover_image_id` e `images` y sus GET públicos devolvieron PNG 200 con SHA-256 coincidente. Ninguna de las 8 ocultas ni 8 borradores apareció en el catálogo. Las sesiones sintéticas quedaron cerradas.
+- Lectura final del piloto: 65 cuentas, 63 espacios, las mismas 28 reservas, 1 administrador global, 5 roles administradores legados y 61 migraciones. Se eliminó el proyecto, su volumen y contenedores al registrar la evidencia; no se guardó una demo.
+- Limitación: las imágenes siguen siendo el fixture PNG determinista local; no hay fotos de usuario ni proveedor externo. El reparador persistente de 1.200 galerías aún no se ejecuta: requiere revisar/fusionar este PR y luego reconstruir las referencias por API.
 
 Los correos y contraseñas no aparecen en estos resultados. El mapa UUID, las credenciales y los logs detallados permanecen en `.local/testing/` con permisos privados. Las reservas y los cinco grupos de escenarios siguen para el corte 2.
