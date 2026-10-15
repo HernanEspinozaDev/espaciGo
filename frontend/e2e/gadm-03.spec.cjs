@@ -8,7 +8,7 @@ const head = process.env.FE14_HEAD || 'unknown';
 
 test('GADM-03 reports and scoped audit work through Angular, Go, and disposable PostGIS', async ({ page }) => {
   const api = process.env.FE14_API_BASE_URL || 'http://backend:8080/api/v1';
-  const login = await page.request.post(`${api}/auth/login`, { data: { email: accounts.admin.email, password: accounts.admin.password } });
+  const login = await page.request.post(`${api}/auth/login`, { data: { email: accounts.globalAdmin.email, password: accounts.globalAdmin.password } });
   expect(login.status()).toBe(200);
   const token = (await login.json()).access_token;
   const headers = { Authorization: `Bearer ${token}` };
@@ -78,8 +78,8 @@ test('GADM-03 reports and scoped audit work through Angular, Go, and disposable 
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/acceso');
-  await page.getByLabel('Correo electrónico').fill(accounts.admin.email);
-  await page.getByLabel('Contraseña').fill(accounts.admin.password);
+  await page.getByLabel('Correo electrónico').fill(accounts.globalAdmin.email);
+  await page.getByLabel('Contraseña').fill(accounts.globalAdmin.password);
   await page.getByRole('button', { name: 'Iniciar sesión' }).click();
   await expect(page).toHaveURL(/\/mi-cuenta$/);
   await page.getByRole('button', { name: 'Abrir menú' }).click();

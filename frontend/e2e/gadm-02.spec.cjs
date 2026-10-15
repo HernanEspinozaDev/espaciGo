@@ -9,8 +9,8 @@ const head = process.env.FE14_HEAD || 'unknown';
 test('GADM-02 serves account publication management through Angular, Go, and disposable PostGIS', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/acceso');
-  await page.getByLabel('Correo electrónico').fill(accounts.admin.email);
-  await page.getByLabel('Contraseña').fill(accounts.admin.password);
+  await page.getByLabel('Correo electrónico').fill(accounts.globalAdmin.email);
+  await page.getByLabel('Contraseña').fill(accounts.globalAdmin.password);
   await page.getByRole('button', { name: 'Iniciar sesión' }).click();
   await expect(page).toHaveURL(/\/mi-cuenta$/);
   await page.getByRole('button', { name: 'Abrir menú' }).click();
@@ -54,15 +54,15 @@ test('GADM-02 persists account, gallery, schedule, and retirement changes throug
     return (await response.json()).access_token;
   };
   const mutation = (fragment, method) => page.waitForResponse((response) => response.url().includes(fragment) && response.request().method() === method);
-  const adminToken = await login(accounts.admin);
+  const adminToken = await login(accounts.globalAdmin);
   const thirdPartyToken = await login(accounts.thirdParty);
   const denied = await page.request.get(`${api}/admin/global/accounts`, { headers: { Authorization: `Bearer ${thirdPartyToken}` } });
   expect(denied.status()).toBe(403);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/acceso');
-  await page.getByLabel('Correo electrónico').fill(accounts.admin.email);
-  await page.getByLabel('Contraseña').fill(accounts.admin.password);
+  await page.getByLabel('Correo electrónico').fill(accounts.globalAdmin.email);
+  await page.getByLabel('Contraseña').fill(accounts.globalAdmin.password);
   await page.getByRole('button', { name: 'Iniciar sesión' }).click();
   await expect(page).toHaveURL(/\/mi-cuenta$/);
   await page.getByRole('button', { name: 'Abrir menú' }).click();

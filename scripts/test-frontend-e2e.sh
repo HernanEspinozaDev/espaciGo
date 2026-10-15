@@ -40,12 +40,21 @@ if [[ "${FE14_RETAIN_STACK:-0}" == "1" ]]; then
       expected_project="espacigo_localclose02_demo_${RUN_ID}"
       retain_label='LOCAL-CLOSE-02'
       ;;
+    gadm-04)
+      expected_state="$ROOT_DIR/.local/testing/gadm-04-demo/$RUN_ID"
+      expected_project="espacigo_gadm04_demo_${RUN_ID}"
+      retain_label='GADM-04'
+      ;;
     *) printf 'unsupported retained demo kind\n' >&2; exit 2 ;;
   esac
-  [[ "${FE14_PUBLIC_ONLY:-0}" == "1" && "$PROJECT" == "$expected_project" && "$STATE_DIR" == "$expected_state" ]] || {
+  if [[ "${FE14_RETAIN_KIND:-}" == "gadm-04" ]]; then
+    [[ "$PROJECT" == "$expected_project" && "$STATE_DIR" == "$expected_state" && "${FE14_TEST_GREP:-}" == *GADM-04* ]] || {
+      printf 'retained GADM-04 stack is restricted to its dedicated wrapper and state path\n' >&2; exit 2;
+    }
+  elif [[ "${FE14_PUBLIC_ONLY:-0}" != "1" || "$PROJECT" != "$expected_project" || "$STATE_DIR" != "$expected_state" ]]; then
     printf 'retained FE-14 stack is restricted to a dedicated demo wrapper and state path\n' >&2
     exit 2
-  }
+  fi
   [[ ! -e "$STATE_DIR" ]] || { printf 'retained demo state path already exists\n' >&2; exit 2; }
 fi
 if [[ ! "$BASE_PORT" =~ ^[0-9]{4,5}$ ]] || (( BASE_PORT < 1024 || BASE_PORT > 64997 )); then
@@ -360,27 +369,39 @@ INSERT INTO public.rol_usuario (usuario_id, rol)
 SELECT id, 'administrador' FROM public.usuario
 WHERE correo_normalizado = 'fe14-' || :'run_id' || '-admin@ejemplo.invalid'
 ON CONFLICT (usuario_id, rol) DO NOTHING;
-INSERT INTO public.rol_usuario (usuario_id, rol)
-SELECT id, 'administrador' FROM public.usuario
-WHERE correo_normalizado = 'fe14-' || :'run_id' || '-thirdparty@ejemplo.invalid'
-ON CONFLICT (usuario_id, rol) DO NOTHING;
 INSERT INTO public.perfil_usuario(usuario_id,nombre_visible)
 SELECT id,'Arrendatario Sintetico' FROM public.usuario
 WHERE correo_normalizado='fe14-'||:'run_id'||'-renter@ejemplo.invalid'
 ON CONFLICT(usuario_id) DO UPDATE SET nombre_visible=EXCLUDED.nombre_visible,actualizado_en=clock_timestamp();
-INSERT INTO public.administrador_global(usuario_id,concedido_en,concedido_por,motivo_codigo)
-SELECT id,now(),id,'bootstrap_propietario' FROM public.usuario
-WHERE correo_normalizado='fe14-'||:'run_id'||'-admin@ejemplo.invalid'
-ON CONFLICT(usuario_id) DO NOTHING;
-INSERT INTO public.administrador_global_bootstrap(singleton,usuario_id,creado_en)
-SELECT true,id,now() FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-admin@ejemplo.invalid'
-ON CONFLICT(singleton) DO NOTHING;
 SQL
+admin_password="$(<"$LOCAL_SECRETS_DIR/db_admin_password")"
+mkdir -m 0700 "$STATE_DIR/gadm04-local-testing"
+python3 - "$STATE_DIR/gadm04-local-testing/activate.env" "$admin_password" <<'PY'
+import os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+content = f"DATABASE_URL=postgres://espacigo_admin:{sys.argv[2]}@127.0.0.1:5432/espacigo_local\nEXPECTED_DATABASE=espacigo_local\n"
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, 'w') as stream: stream.write(content)
+PY
+global_admin_id="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples-only \
+  --username espacigo_admin --dbname espacigo_local \
+  --command "SELECT id::text FROM public.usuario WHERE correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid'")"
+global_admin_id="${global_admin_id//[[:space:]]/}"
+CGO_ENABLED=0 go -C "$ROOT_DIR" build -o "$STATE_DIR/gadm-admin" ./cmd/gadm-admin
+docker run --rm --network "container:${PROJECT}-database-1" \
+  --volume "$STATE_DIR/gadm-admin:/tmp/gadm-admin:ro" \
+  --volume "$STATE_DIR/gadm04-local-testing:$ROOT_DIR/.local/testing" \
+  --workdir "$ROOT_DIR" golang:1.27.1-alpine3.24 /bin/sh -c "GADM_BOOTSTRAP_ENV=local-activation /tmp/gadm-admin activate-local --action bootstrap --account-id '$global_admin_id' --database espacigo_local --confirm 'ACTIVATE bootstrap $global_admin_id IN espacigo_local' --credentials '$ROOT_DIR/.local/testing/activate.env'"
+unset admin_password
 ROLE_COUNT="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples-only \
   --username espacigo_admin --dbname espacigo_local \
   --command "SELECT count(*) FROM public.usuario u JOIN public.rol_usuario r ON r.usuario_id=u.id WHERE u.correo_normalizado LIKE 'fe14-${RUN_ID}-%' AND r.rol IN ('arrendatario','arrendador','administrador')")"
 [[ "${ROLE_COUNT//[[:space:]]/}" == "7" ]] || { printf 'Synthetic role grant verification failed\n' >&2; exit 1; }
-printf 'PASS Go verified four synthetic accounts; only this disposable database received host/admin roles\n'
+GLOBAL_ROLE_CHECK="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples-only --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local --command "SELECT count(*) FROM public.usuario u WHERE u.correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid' AND EXISTS(SELECT 1 FROM public.administrador_global g WHERE g.usuario_id=u.id) AND NOT EXISTS(SELECT 1 FROM public.rol_usuario r WHERE r.usuario_id=u.id AND r.rol='administrador')")"
+[[ "${GLOBAL_ROLE_CHECK//[[:space:]]/}" == "1" ]] || { printf 'Global-only fixture unexpectedly has an administrator role or lacks global membership\n' >&2; exit 1; }
+LEGACY_ROLE_CHECK="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples-only --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local --command "SELECT count(*) FROM public.usuario u WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND EXISTS(SELECT 1 FROM public.rol_usuario r WHERE r.usuario_id=u.id AND r.rol='administrador') AND NOT EXISTS(SELECT 1 FROM public.administrador_global g WHERE g.usuario_id=u.id)")"
+[[ "${LEGACY_ROLE_CHECK//[[:space:]]/}" == "1" ]] || { printf 'Legacy-only fixture unexpectedly has global membership\n' >&2; exit 1; }
+printf 'PASS Go verified five synthetic accounts; global-only, legacy-only, and ordinary actors are separated\n'
 
 if [[ "${FE14_TEST_GREP:-}" == *GADM-03* ]]; then
   "${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
@@ -746,13 +767,13 @@ if [[ "${FE14_TEST_GREP:-}" == *GADM-02* ]]; then
     ('publication-attributes',EXISTS(SELECT 1 FROM public.espacio e JOIN public.espacio_caracteristicas c ON c.espacio_id=e.id WHERE e.titulo='Espacio sintético público FE-14 editado' AND c.valores->>'wifi'='false')),
     ('gallery-visibility',EXISTS(SELECT 1 FROM public.espacio e JOIN public.espacio_galeria_sintetica_local g ON g.espacio_id=e.id WHERE e.titulo='Espacio sintético público FE-14 editado' AND g.estado='activa' AND g.publicada_en_catalogo)),
     ('schedule',EXISTS(SELECT 1 FROM public.espacio e JOIN public.espacio_horario_semanal h ON h.espacio_id=e.id WHERE e.titulo='Horario FE14' AND h.activo AND EXISTS(SELECT 1 FROM public.espacio_horario_semanal_tramo t WHERE t.espacio_id=e.id AND t.dia_iso=1 AND t.apertura_minuto=540 AND t.cierre_minuto=720))),
-    ('retire-allowed',EXISTS(SELECT 1 FROM public.espacio e JOIN public.espacio_eliminacion_historial_local h ON h.espacio_id=e.id JOIN public.usuario u ON u.id=h.actor_id WHERE e.titulo='Publicación retirada' AND e.estado='eliminada' AND u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid')),
+    ('retire-allowed',EXISTS(SELECT 1 FROM public.espacio e JOIN public.espacio_eliminacion_historial_local h ON h.espacio_id=e.id JOIN public.usuario u ON u.id=h.actor_id WHERE e.titulo='Publicación retirada' AND e.estado='eliminada' AND u.correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid')),
     ('retire-blocked',EXISTS(SELECT 1 FROM public.espacio e JOIN public.reserva_ensayo_local r ON r.espacio_id=e.id WHERE e.titulo='Retiro con obligación FE-14' AND e.estado='activa' AND r.estado='pagada')),
-    ('audit-session-revocation',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.accounts.sessions.revoke')),
-    ('audit-publication-update',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.publications.update')),
-    ('audit-gallery-visibility',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.publications.gallery.visibility')),
-    ('audit-schedule',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.publications.schedule')),
-    ('audit-retirement',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.publications.retire'))
+    ('audit-session-revocation',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid' AND a.accion='admin.global.accounts.sessions.revoke')),
+    ('audit-publication-update',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid' AND a.accion='admin.global.publications.update')),
+    ('audit-gallery-visibility',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid' AND a.accion='admin.global.publications.gallery.visibility')),
+    ('audit-schedule',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid' AND a.accion='admin.global.publications.schedule')),
+    ('audit-retirement',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid' AND a.accion='admin.global.publications.retire'))
   ) SELECT COALESCE(string_agg(name,','),'') FROM checks WHERE NOT passed")"
   [[ -z "${GADM_FAILED//[[:space:]]/}" ]] || { printf 'GADM-02 database persistence/audit assertions failed: %s\n' "${GADM_FAILED//[[:space:]]/}" >&2; exit 1; }
   printf 'PASS GADM-02 database state and administrative audit assertions match the served browser mutations\n'
@@ -760,11 +781,11 @@ fi
 
 if [[ "${FE14_TEST_GREP:-}" == *GADM-03* ]]; then
   GADM03_FAILED="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples-only --username espacigo_admin --dbname espacigo_local --command "WITH checks(name,passed) AS (VALUES
-    ('kpi-read-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.kpi.read' AND a.resultado='exito')),
-    ('account-read-target-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario actor ON actor.id=a.actor_id JOIN public.usuario target ON target.id=a.cuenta_objetivo_id WHERE actor.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND target.correo_normalizado='fe14-${RUN_ID}-renter@ejemplo.invalid' AND a.accion='admin.global.accounts.read' AND a.resultado='exito')),
-    ('audit-read-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.audit.read' AND a.resultado='exito')),
-    ('audit-export-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.audit.export' AND a.resultado='exito'))
-    ,('missing-account-404-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.recurso_id='00000000-0000-4000-8000-000000000099' AND a.accion='admin.global.accounts.read' AND a.resultado='rechazo' AND a.motivo_codigo='cuenta_no_encontrada' AND a.cuenta_objetivo_id IS NULL))
+    ('kpi-read-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid' AND a.accion='admin.global.kpi.read' AND a.resultado='exito')),
+    ('account-read-target-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario actor ON actor.id=a.actor_id JOIN public.usuario target ON target.id=a.cuenta_objetivo_id WHERE actor.correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid' AND target.correo_normalizado='fe14-${RUN_ID}-renter@ejemplo.invalid' AND a.accion='admin.global.accounts.read' AND a.resultado='exito')),
+    ('audit-read-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid' AND a.accion='admin.global.audit.read' AND a.resultado='exito')),
+    ('audit-export-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid' AND a.accion='admin.global.audit.export' AND a.resultado='exito'))
+    ,('missing-account-404-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-globaladmin@ejemplo.invalid' AND a.recurso_id='00000000-0000-4000-8000-000000000099' AND a.accion='admin.global.accounts.read' AND a.resultado='rechazo' AND a.motivo_codigo='cuenta_no_encontrada' AND a.cuenta_objetivo_id IS NULL))
   ) SELECT COALESCE(string_agg(name,','),'') FROM checks WHERE NOT passed")"
   [[ -z "${GADM03_FAILED//[[:space:]]/}" ]] || { printf 'GADM-03 KPI/audit persistence assertions failed: %s\n' "${GADM03_FAILED//[[:space:]]/}" >&2; exit 1; }
   printf 'PASS GADM-03 KPI, actor/target scope, read and export audits match real API/browser requests\n'

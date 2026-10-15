@@ -1,6 +1,6 @@
 # Evidencia GADM-04
 
-Código bajo prueba: `27c656aeaf0c8436143f99013960d6cbebcef08f` (`codex/marketplace/chore/gadm-04-regression-master-delivery`). Los sidecars `.json` de cada captura repiten este SHA y registran viewport y ancho/alto de documento. `SHA256SUMS` cubre este registro, sidecars, capturas y plan SQL.
+La tabla inicial registra el baseline de evidencia GADM-04 en `27c656aeaf0c8436143f99013960d6cbebcef08f`. Sus sidecars `.json` repiten ese SHA. Las nuevas pruebas de revisión, su SHA final, dimensiones y checksums se agregan después del cierre del recorrido actualizado.
 
 ## Pruebas
 
@@ -31,4 +31,4 @@ Los JPEG son capturas reales del navegador con `deviceScaleFactor=1`. Los tamañ
 
 ## Alcance y límites
 
-Las pruebas prueban regresión técnica con datos sintéticos. No equivalen a aceptación de producto, no activan cuenta real, soporte ni GCP y no prueban cobros reales. La cuenta personal del propietario y el entorno local destino no están identificados. El CLI vigente solo admite DB de ensayo loopback; la activación real permanece pendiente de UUID/correo verificado y nombre de entorno/base elegidos por el propietario. `operations.*` y `finance.*` siguen como capacidades propuestas, pendientes de decisión de alcance.
+Las pruebas prueban regresión técnica con datos sintéticos. No equivalen a aceptación de producto, no activan cuenta real, soporte ni GCP y no prueban cobros reales. La cuenta personal del propietario y el entorno local destino no están identificados. La CLI ofrece `activate-local` explícito para la DB ordinaria local `espacigo_local`, además del modo aislado `local-test`. GADM-04 la ejecuta solo sobre un destino Compose descartable y una cuenta sintética; la activación real permanece pendiente de UUID verificado y entorno local elegidos por el propietario. `operations.*` y `finance.*` siguen como capacidades propuestas, pendientes de decisión de alcance.

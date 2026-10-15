@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"strings"
@@ -33,6 +34,32 @@ func ValidateBootstrapTarget(environment, databaseURL, expectedDatabase string) 
 		return errors.New("database name does not match the explicit test target")
 	}
 	return nil
+}
+
+// ValidateLocalActivationTarget allows the owner bootstrap only against an explicitly
+// named ordinary local database. URL query parameters are rejected to prevent libpq
+// host/service redirection; private container-network addresses are permitted.
+func ValidateLocalActivationTarget(environment, databaseURL, expectedDatabase string) error {
+	if environment != "local-activation" || expectedDatabase != "espacigo_local" {
+		return errors.New("activation is restricted to the explicit espacigo_local database")
+	}
+	parsed, err := url.Parse(databaseURL)
+	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("invalid local activation database URL")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "localhost" && host != "127.0.0.1" && host != "::1" {
+		return errors.New("activation requires an explicit loopback database URL")
+	}
+	if parsed.Path != "/"+expectedDatabase {
+		return errors.New("database name does not match the explicit activation target")
+	}
+	return nil
+}
+
+// IsLocalDatabaseAddress accepts only loopback database endpoints.
+func IsLocalDatabaseAddress(address net.IP) bool {
+	return address != nil && address.IsLoopback()
 }
 
 // Bootstrap binds one verified, active account as the initial global administrator.
