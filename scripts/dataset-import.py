@@ -273,27 +273,28 @@ def choose_users(users: list[dict], mode: str, listing_assignments: list[dict], 
         if scenarios is None:
             raise RuntimeError("deal pilot requires scenario assignments")
         requested = [
-            ("ciclo_cerrado", "oficina"), ("ciclo_cerrado", "bodega"),
-            ("pendiente_pago", "estacionamiento"), ("pendiente_pago", "sala_multiproposito"),
-            ("cancelacion_con_devolucion", "local_flexible"), ("cancelacion_con_devolucion", "quincho"),
-            ("rechazo_anfitrion", "parcela_eventos"), ("rechazo_anfitrion", "stand"),
-            ("reclamo_abierto", "oficina"), ("reclamo_abierto", "bodega"),
+            ("ciclo_cerrado", "oficina", "hora"), ("ciclo_cerrado", "bodega", "dia"),
+            ("pendiente_pago", "estacionamiento", "mes"), ("pendiente_pago", "sala_multiproposito", "hora"),
+            ("cancelacion_con_devolucion", "local_flexible", "dia"), ("cancelacion_con_devolucion", "quincho", "mes"),
+            ("rechazo_anfitrion", "parcela_eventos", "hora"), ("rechazo_anfitrion", "stand", "dia"),
+            ("reclamo_abierto", "oficina", "mes"), ("reclamo_abierto", "bodega", "hora"),
         ]
         chosen_scenarios = []
         chosen_hosts: set[str] = set()
         chosen_renters: set[str] = set()
         used_listings: set[str] = set()
-        for scenario_code, category in requested:
+        for scenario_code, category, rate_unit in requested:
             candidates = [
                 row for row in scenarios
                 if row.get("scenario_code") == scenario_code
                 and row.get("category_code") == category
+                and row.get("rate_unit") == rate_unit
                 and row.get("listing_ref") not in used_listings
             ]
             if not candidates:
                 raise RuntimeError("deal pilot scenario selection is incomplete")
-            choice = min(candidates, key=lambda row: (
-                int(row["host_ref"] not in chosen_hosts) + int(row["renter_ref"] not in chosen_renters),
+            choice = max(candidates, key=lambda row: (
+                -(int(row["host_ref"] not in chosen_hosts) + int(row["renter_ref"] not in chosen_renters)),
                 row["scenario_ref"],
             ))
             chosen_scenarios.append(choice)
@@ -302,13 +303,15 @@ def choose_users(users: list[dict], mode: str, listing_assignments: list[dict], 
             chosen_renters.add(choice["renter_ref"])
         refs = chosen_hosts | chosen_renters
         selected = [row for row in users if row["user_ref"] in refs]
-        if len(selected) > 20 or len(chosen_hosts) != 8 or len(chosen_renters) > 12:
+        if len(selected) > 20 or len(chosen_hosts) > 10 or len(chosen_renters) > 10:
             raise RuntimeError("deal pilot account selection exceeds its isolated scope")
         if len(chosen_scenarios) != 10 or {row["category_code"] for row in chosen_scenarios} != {
             "bodega", "estacionamiento", "local_flexible", "oficina", "parcela_eventos",
             "quincho", "sala_multiproposito", "stand",
         }:
             raise RuntimeError("deal pilot must cover five scenarios and all eight categories")
+        if Counter(row["rate_unit"] for row in chosen_scenarios) != Counter({"hora": 4, "dia": 3, "mes": 3}):
+            raise RuntimeError("deal pilot must cover all three rate units")
         return sorted(selected, key=lambda row: row["user_ref"])
     by_role = defaultdict(list)
     for user in users:

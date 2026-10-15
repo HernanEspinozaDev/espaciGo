@@ -47,8 +47,8 @@ El usuario amplió explícitamente el alcance el 2026-10-15: piloto y después i
 ### Piloto aislado de tratos (2026-10-15)
 
 - Compose exclusivo `espacigo_deals_pilot_2b7f622eb59e`, API loopback `21980`, volumen propio `espacigo_deals_pilot_2b7f622eb59e_pgdata`; restaurado desde backup privado verificado. No se modificó la base persistente.
-- Se ejecutaron 10 escenarios (dos por cada uno de los cinco desenlaces): 2 cerrados, 2 pendientes de pago, 2 cancelados con devolución, 2 rechazados por anfitrión y 2 reclamos abiertos. Verificación del checkpoint: `cerrada=2`, `pendiente_de_pago=2`, `cancelada_arrendatario=2`, `rechazada_arrendador=2`, `en_disputa=2`.
-- El recorrido usó API Go y proveedores fake. Se verificaron historia, liquidación, liberación de garantía y comprobante para los dos cierres. El reloj de negocio fue el archivo exclusivo del run `2b7f622eb59e`, modo 0600, y la API confirmó igualdad con él; hora final lógica `2026-10-20T12:00:00Z`.
+- Se ejecutaron dos selecciones de 10 escenarios en el mismo Compose aislado (20 reservas sintéticas totales, sin duplicar referencias): ambas incluyeron dos casos por cada desenlace. La selección inicial usó 10 escenarios hora; la selección balanceada cubrió 4 hora, 3 día y 3 mes, además de las ocho categorías. Cada checkpoint confirmó `cerrada=2`, `pendiente_de_pago=2`, `cancelada_arrendatario=2`, `rechazada_arrendador=2`, `en_disputa=2`.
+- El recorrido usó API Go y proveedores fake. En ambas selecciones se verificaron historia, liquidación, liberación de garantía y comprobante para los dos cierres. Una repetición desde checkpoint procesó los mismos 10 escenarios sin duplicar estados ni volver a firmar contratos ya firmados. El reloj de negocio fue el archivo exclusivo del run `2b7f622eb59e`, modo 0600, y la API confirmó igualdad con él; hora final lógica `2026-10-23T03:00:00Z`.
 - Estado y cuentas sintéticas permanecen privados, permisos 0600. El ensayo no se retirará hasta completar registro de evidencia y luego se detendrán y eliminarán solo sus recursos/credenciales.
 
 ## Límites y evidencia

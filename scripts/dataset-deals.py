@@ -23,11 +23,11 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 BASE = "/api/v1/local/booking-trial"
 MAX_REPLY = 8 * 1024 * 1024
 PILOT_ROWS = [
-    ("ciclo_cerrado", "oficina"), ("ciclo_cerrado", "bodega"),
-    ("pendiente_pago", "estacionamiento"), ("pendiente_pago", "sala_multiproposito"),
-    ("cancelacion_con_devolucion", "local_flexible"), ("cancelacion_con_devolucion", "quincho"),
-    ("rechazo_anfitrion", "parcela_eventos"), ("rechazo_anfitrion", "stand"),
-    ("reclamo_abierto", "oficina"), ("reclamo_abierto", "bodega"),
+    ("ciclo_cerrado", "oficina", "hora"), ("ciclo_cerrado", "bodega", "dia"),
+    ("pendiente_pago", "estacionamiento", "mes"), ("pendiente_pago", "sala_multiproposito", "hora"),
+    ("cancelacion_con_devolucion", "local_flexible", "dia"), ("cancelacion_con_devolucion", "quincho", "mes"),
+    ("rechazo_anfitrion", "parcela_eventos", "hora"), ("rechazo_anfitrion", "stand", "dia"),
+    ("reclamo_abierto", "oficina", "mes"), ("reclamo_abierto", "bodega", "hora"),
 ]
 
 
@@ -153,17 +153,17 @@ def read_jsonl(path: Path) -> list[dict]:
 
 def choose_pilot_rows(rows: list[dict]) -> list[dict]:
     chosen, hosts, renters, listings = [], set(), set(), set()
-    for code, category in PILOT_ROWS:
-        candidates = [r for r in rows if r["scenario_code"] == code and r["category_code"] == category and r["listing_ref"] not in listings]
+    for code, category, unit in PILOT_ROWS:
+        candidates = [r for r in rows if r["scenario_code"] == code and r["category_code"] == category and r["rate_unit"] == unit and r["listing_ref"] not in listings]
         if not candidates:
             raise RuntimeError("the approved ten-scenario pilot cannot be selected from the source manifest")
-        row = min(candidates, key=lambda r: (int(r["host_ref"] not in hosts) + int(r["renter_ref"] not in renters), r["scenario_ref"]))
+        row = max(candidates, key=lambda r: (-(int(r["host_ref"] not in hosts) + int(r["renter_ref"] not in renters)), r["scenario_ref"]))
         chosen.append(row)
         hosts.add(row["host_ref"])
         renters.add(row["renter_ref"])
         listings.add(row["listing_ref"])
-    if len(chosen) != 10 or len({r["scenario_code"] for r in chosen}) != 5 or len({r["category_code"] for r in chosen}) != 8:
-        raise RuntimeError("pilot selection must cover ten rows, five scenarios, and eight categories")
+    if len(chosen) != 10 or len({r["scenario_code"] for r in chosen}) != 5 or len({r["category_code"] for r in chosen}) != 8 or Counter(r["rate_unit"] for r in chosen) != Counter({"hora": 4, "dia": 3, "mes": 3}):
+        raise RuntimeError("pilot selection must cover ten rows, five scenarios, eight categories, and all rate units")
     return chosen
 
 
@@ -435,9 +435,9 @@ class Runner:
             record = self.state["scenarios"][row["scenario_ref"]]
             reservation_id = record["reservation_id"]
             host = self.user(row["host_ref"])
-            settlement = data(self.call("POST", f"{BASE}/reservations/{reservation_id}/settlement", host, {"outcome": "exito"}, key=f"dataset-deal:{row['scenario_ref']}:settlement", expect=(202,)))
             self.call("POST", f"{BASE}/reservations/{reservation_id}/guarantee", admin, {"kind": "liberacion", "amount_clp": 50000, "outcome": "exito"}, key=f"dataset-deal:{row['scenario_ref']}:guarantee:release", expect=(202,))
             guarantee = data(self.call("GET", f"{BASE}/reservations/{reservation_id}/guarantee", admin))
+            settlement = data(self.call("POST", f"{BASE}/reservations/{reservation_id}/settlement", host, {"outcome": "exito"}, key=f"dataset-deal:{row['scenario_ref']}:settlement", expect=(202,)))
             receipt = self.call("GET", f"{BASE}/reservations/{reservation_id}/receipt", host, expect=(200,))
             detail = data(self.call("GET", f"{BASE}/reservations/{reservation_id}", host))
             receipt_data = data(receipt)
