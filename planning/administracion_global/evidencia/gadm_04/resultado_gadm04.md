@@ -2,9 +2,9 @@
 
 La tabla inicial registra el baseline de evidencia GADM-04 en `27c656aeaf0c8436143f99013960d6cbebcef08f`. Sus sidecars `.json` repiten ese SHA. Las nuevas pruebas de revisión, su SHA final, dimensiones y checksums se agregan después del cierre del recorrido actualizado.
 
-## Revisión GADM-04 actualizada — HEAD 94aba71dff8e6abc7d03bdef0daf01e441381cf0
+## Revisión GADM-04 actualizada — código probado ef2b4b1
 
-Ejecutada el 2026-10-15 en el worktree de `codex/marketplace/chore/gadm-04-regression-master-delivery`, con Go, FE-14 y PostgreSQL/PostGIS desechables. Esta sección reemplaza para el SHA indicado el inventario preliminar que sigue más abajo.
+Código probado en commit `ef2b4b1`; ejecución completada el 2026-10-15 en el worktree de `codex/marketplace/chore/gadm-04-regression-master-delivery`, con Go, FE-14 y PostgreSQL/PostGIS desechables. Esta sección reemplaza para el SHA indicado el inventario preliminar que sigue más abajo.
 
 | Capa | Entorno / alcance | Resultado |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ Ejecutada el 2026-10-15 en el worktree de `codex/marketplace/chore/gadm-04-regre
 | Secretos y limpieza | Mismo ensayo | Cinco cuentas sintéticas; archivos privados mode 0600; log backend sin correos/contraseñas; proyecto, volumen y estado temporal retirados por el runner. |
 | Retiro API aislado | Compose desechable `espacigo_fe14_d43538257ee2`, puertos 22100–22103; seed `FE14_SEED_GADM04_RETIREMENT=1` | SQL confirmó fixture ligado y caso libre. Playwright API 1/1: protected retirement 409 y publication con obligación cero 200. Stack/volumen/credenciales descartables se retiraron; la demo retenida no se modificó ni consumió. |
 | Demo retenida | Compose `espacigo_gadm04_demo_f564278ed6b7`, volumen `espacigo_gadm04_demo_f564278ed6b7_pgdata`, ports 20940–20943; `.local/testing/gadm-04-demo/f564278ed6b7` | Wrapper GADM-04 pasó 1/1 y fixture SQL confirmó reserva pagada con espacio/anfitrión/arrendatario/ocupación asociados. El caso permitido sigue activo y sin reservas. Frontend/API readiness 200. `accounts.json`, runtime y registro 0600. Owner HernanMEC; motivo revisión solicitada. Retirada: `scripts/remove-gadm-04-demo.sh f564278ed6b7`. |
-| Capturas / consultas | Capturas y sidecars vinculados al SHA en esta carpeta | 390×844: móvil documento 390×3474 (GADM-02) y 390×5341 (GADM-03). 1365×900: escritorio documento 1365×2122 y 1365×2951, respectivamente. Sin desborde horizontal. `gadm03-account-query-plan.txt` contiene el plan real del fixture de 1.000 cuentas. `SHA256SUMS` registra hashes de artefactos/registro. |
+| Capturas / consultas | Capturas históricas y consulta guardadas en esta carpeta | 390×844: móvil documento 390×3474 (GADM-02) y 390×5341 (GADM-03). 1365×900: escritorio documento 1365×2122 y 1365×2951, respectivamente. Sin desborde horizontal. `gadm03-account-query-plan.txt` contiene el plan real del fixture de 1.000 cuentas. `SHA256SUMS` registra los hashes de los artefactos actuales. Los sidecars de capturas conservan el SHA histórico de su recorrido; no se regeneraron porque este cambio no modifica la interfaz. |
 
 La QA Angular (API check, lint, pruebas de componentes y build) había pasado en el baseline GADM-04 anterior; este cambio solo agrega una especificación Playwright y no altera fuentes Angular. `frontend-quality.yml` aplica al PR por `frontend/**`, pero no ejecuta Playwright ni las integraciones Go; el workflow remoto se reportará solo tras consultar su estado en GitHub. `LOCAL-CLOSE-02` es evidencia histórica de una ejecución anterior, no parte de este recorrido final. No se declara FE-14 completo.
 
