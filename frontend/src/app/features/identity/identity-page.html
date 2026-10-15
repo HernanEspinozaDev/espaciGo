@@ -525,8 +525,11 @@
         @if (currentSession.roles.includes('arrendador') && !currentSession.restricted_mode) {
           <a routerLink="/panel-anfitrion">Panel de anfitrión <span>Disponible en FE-06</span></a>
         }
-        @if (currentSession.roles.includes('administrador') && !currentSession.restricted_mode) {
+        @if ((currentSession.capabilities.includes('legacy.administration') || currentSession.roles.includes('administrador')) && !currentSession.restricted_mode) {
           <a routerLink="/administracion">Administración <span>Disponible en FE-11</span></a>
+        }
+        @if (currentSession.capabilities.includes('accounts.list') && !currentSession.restricted_mode) {
+          <a routerLink="/administracion/global">Administración global <span>Acceso global</span></a>
         }
       </nav>
     }

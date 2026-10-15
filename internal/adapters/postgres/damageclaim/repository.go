@@ -294,7 +294,10 @@ func (r *Repository) Resolve(ctx context.Context, admin, claimID, key string, in
 		return damageclaim.Claim{}, mapError(err)
 	}
 	var adminRole bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.rol_usuario WHERE usuario_id=$1 AND rol='administrador')`, admin).Scan(&adminRole); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.usuario u WHERE u.id=$1 AND u.estado='activo'
+		AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)
+		AND (EXISTS(SELECT 1 FROM public.rol_usuario r WHERE r.usuario_id=u.id AND r.rol='administrador')
+		OR EXISTS(SELECT 1 FROM public.administrador_global g WHERE g.usuario_id=u.id)))`, admin).Scan(&adminRole); err != nil {
 		return damageclaim.Claim{}, mapError(err)
 	}
 	if !adminRole {

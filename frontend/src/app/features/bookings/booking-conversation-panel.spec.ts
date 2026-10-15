@@ -96,12 +96,14 @@ function setup(
           : 'token-renter',
       token_type: 'Bearer',
       expires_at: '2027-01-01T00:00:00Z',
+      capabilities: [],
       restricted_mode: false,
     })),
     session: vi.fn(async (token: string) => ({
       account_id:
         token === 'token-host' ? 'host-a' : token === 'token-third' ? 'third-party' : 'renter-a',
       roles: ['arrendatario'],
+      capabilities: [],
       restricted_mode: false,
     })),
     logout: vi.fn(async () => undefined),

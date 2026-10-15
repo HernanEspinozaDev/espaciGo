@@ -10,14 +10,15 @@ import { provideFrontendPorts } from '../../frontend.providers';
 import { AccountPrivacyPage } from './account-privacy-page';
 import { AccountPrivacyApi, AccountPrivacyApiError } from './infrastructure/account-privacy-api';
 
-const sessionA = { account_id: 'account-a', roles: ['arrendatario'], restricted_mode: false };
-const sessionB = { account_id: 'account-b', roles: ['arrendador'], restricted_mode: false };
+const sessionA = { account_id: 'account-a', roles: ['arrendatario'], capabilities: [], restricted_mode: false };
+const sessionB = { account_id: 'account-b', roles: ['arrendador'], capabilities: [], restricted_mode: false };
 const login = (account_id: string, access_token: string) => ({
   account_id,
   roles: [account_id === 'account-a' ? 'arrendatario' : 'arrendador'],
   access_token,
   token_type: 'Bearer',
   expires_at: '2027-01-01T00:00:00Z',
+  capabilities: [],
   restricted_mode: false,
 });
 const profile = (display_name: string): Profile => ({

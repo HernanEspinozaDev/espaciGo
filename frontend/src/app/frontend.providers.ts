@@ -21,6 +21,8 @@ import { HostingPort } from './features/hosting/domain/ports/hosting-port';
 import { HostingApi } from './features/hosting/infrastructure/hosting-api';
 import { VerificationPort } from './features/verification/domain/ports/verification-port';
 import { VerificationApi } from './features/verification/infrastructure/verification-api';
+import { GlobalAdminPort } from './features/global-admin/domain/ports/global-admin-port';
+import { GlobalAdminGateway } from './features/global-admin/infrastructure/global-admin-gateway';
 
 /** Composition root: application ports are bound to HTTP adapters only here. */
 export function provideFrontendPorts(): Provider[] {
@@ -36,5 +38,6 @@ export function provideFrontendPorts(): Provider[] {
     { provide: FinancePort, useExisting: FinanceGateway },
     { provide: HostingPort, useExisting: HostingApi },
     { provide: VerificationPort, useExisting: VerificationApi },
+    { provide: GlobalAdminPort, useExisting: GlobalAdminGateway },
   ];
 }

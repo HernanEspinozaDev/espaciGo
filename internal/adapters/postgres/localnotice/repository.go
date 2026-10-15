@@ -262,7 +262,11 @@ func (r *Repository) Reopen(ctx context.Context, id, admin, reason, key, correla
 	}
 	rows.Close()
 	var allowed, active bool
-	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.usuario u JOIN public.rol_usuario x ON x.usuario_id=u.id WHERE u.id=$1 AND u.estado='activo' AND x.rol='administrador'),EXISTS(SELECT 1 FROM public.usuario WHERE id=$2 AND estado='activo')`, admin, recipient).Scan(&allowed, &active); e != nil {
+	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.usuario u WHERE u.id=$1 AND u.estado='activo'
+		AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)
+		AND (EXISTS(SELECT 1 FROM public.rol_usuario x WHERE x.usuario_id=u.id AND x.rol='administrador')
+		OR EXISTS(SELECT 1 FROM public.administrador_global g WHERE g.usuario_id=u.id))),
+		EXISTS(SELECT 1 FROM public.usuario WHERE id=$2 AND estado='activo')`, admin, recipient).Scan(&allowed, &active); e != nil {
 		return domain.Recovery{}, e
 	}
 	if !allowed || !active {

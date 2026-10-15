@@ -84,6 +84,13 @@ export const routes: Routes = [
     data: { requiredRole: 'administrador', noindex: true },
   },
   {
+    path: 'administracion/global',
+    loadComponent: () => import('./features/global-admin/global-admin-page').then((module) => module.GlobalAdminPage),
+    canActivate: [roleGuard],
+    title: 'Administración global | EspaciGo',
+    data: { requiredCapability: 'accounts.list', noindex: true },
+  },
+  {
     path: 'acceso',
     loadComponent: () =>
       import('./features/identity/identity-page').then((module) => module.IdentityPage),

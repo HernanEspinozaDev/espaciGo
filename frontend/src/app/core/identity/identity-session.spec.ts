@@ -15,12 +15,14 @@ const makeLogin = (accountId: string, token: string): LoginResponse => ({
   access_token: token,
   token_type: 'Bearer',
   expires_at: '2026-10-12T00:00:00Z',
+  capabilities: [],
   restricted_mode: false,
 });
 
 const makeSession = (accountId: string, restricted = false): SessionResponse => ({
   account_id: accountId,
   roles: ['arrendatario'],
+  capabilities: [],
   restricted_mode: restricted,
 });
 
@@ -55,6 +57,7 @@ describe('IdentitySession', () => {
         .mockResolvedValueOnce({
           account_id: 'account-1',
           roles: ['administrador'],
+          capabilities: [],
           restricted_mode: false,
         })
         .mockResolvedValueOnce(makeSession('account-1', true)),

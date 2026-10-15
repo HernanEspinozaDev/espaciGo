@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -50,6 +51,9 @@ func (s *Service) BlockAccount(ctx context.Context, actor, accountID, reason, co
 		return BlockResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err = accountlock.LockGlobalAdministratorSet(ctx, tx); err != nil {
+		return BlockResult{}, err
+	}
 	if err = lockAccounts(ctx, tx, actor, accountID); err != nil {
 		return BlockResult{}, err
 	}
@@ -62,6 +66,9 @@ func (s *Service) BlockAccount(ctx context.Context, actor, accountID, reason, co
 	}
 	if state != "activo" {
 		return BlockResult{}, ErrConflict
+	}
+	if err = protectLastGlobalAdministrator(ctx, tx, accountID, s.now().UTC()); err != nil {
+		return BlockResult{}, err
 	}
 	var exists bool
 	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id=$1)`, accountID).Scan(&exists); err != nil {
@@ -94,6 +101,27 @@ func (s *Service) BlockAccount(ctx context.Context, actor, accountID, reason, co
 		return BlockResult{}, err
 	}
 	return BlockResult{AccountID: accountID, Blocked: true, ChangedAt: at}, nil
+}
+
+func protectLastGlobalAdministrator(ctx context.Context, tx pgx.Tx, target string, now time.Time) error {
+	var isGlobal bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.administrador_global WHERE usuario_id=$1)`, target).Scan(&isGlobal); err != nil {
+		return err
+	}
+	if !isGlobal {
+		return nil
+	}
+	var activeCount int64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM public.administrador_global ag
+		JOIN public.usuario u ON u.id=ag.usuario_id
+		WHERE u.estado='activo' AND (u.bloqueado_hasta IS NULL OR u.bloqueado_hasta <= $1)
+		AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)`, now).Scan(&activeCount); err != nil {
+		return err
+	}
+	if activeCount <= 1 {
+		return ErrConflict
+	}
+	return nil
 }
 
 func (s *Service) UnblockAccount(ctx context.Context, actor, accountID, reason, correlation string) (BlockResult, error) {
@@ -190,7 +218,11 @@ func unique(ids []string) []string {
 }
 func requireAdmin(ctx context.Context, tx pgx.Tx, id string) error {
 	var ok bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.usuario u JOIN public.rol_usuario r ON r.usuario_id=u.id WHERE u.id=$1 AND u.estado='activo' AND r.rol='administrador' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id))`, id).Scan(&ok); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.usuario u WHERE u.id=$1 AND u.estado='activo'
+		AND (u.bloqueado_hasta IS NULL OR u.bloqueado_hasta <= now())
+		AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)
+		AND (EXISTS(SELECT 1 FROM public.rol_usuario r WHERE r.usuario_id=u.id AND r.rol='administrador')
+		OR EXISTS(SELECT 1 FROM public.administrador_global g WHERE g.usuario_id=u.id)))`, id).Scan(&ok); err != nil {
 		return err
 	}
 	if !ok {

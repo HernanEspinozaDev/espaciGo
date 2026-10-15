@@ -7,13 +7,14 @@ import { PrivateSessionState } from '../../core/identity/private-session-state';
 import { provideFrontendPorts } from '../../frontend.providers';
 import { AdminApi, AdminApiError } from './infrastructure/admin-api';
 
-const admin = { account_id: 'admin-a', roles: ['administrador'], restricted_mode: false };
+const admin = { account_id: 'admin-a', roles: ['administrador'], capabilities: [], restricted_mode: false };
 const login = (token: string) => ({
   account_id: 'admin-a',
   roles: ['administrador' as const],
   access_token: token,
   token_type: 'Bearer' as const,
   expires_at: '2027-01-01T00:00:00Z',
+  capabilities: [],
   restricted_mode: false,
 });
 
@@ -78,6 +79,7 @@ describe('AdminApi', () => {
     vi.mocked(identityApi.session).mockResolvedValueOnce({
       account_id: 'admin-b',
       roles: ['arrendatario'],
+      capabilities: [],
       restricted_mode: true,
     });
     await identity.signOut();
@@ -195,6 +197,7 @@ describe('AdminApi', () => {
     vi.mocked(identityApi.session).mockResolvedValueOnce({
       account_id: 'admin-a',
       roles: ['arrendatario'],
+      capabilities: [],
       restricted_mode: false,
     });
     vi.spyOn(client, 'request').mockResolvedValue({

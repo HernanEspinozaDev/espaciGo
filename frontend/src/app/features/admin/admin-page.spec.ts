@@ -16,6 +16,7 @@ import { AdminApi, AdminApiError } from './infrastructure/admin-api';
 const adminSession = (account_id: string) => ({
   account_id,
   roles: ['administrador'],
+  capabilities: [],
   restricted_mode: false,
 });
 const login = (account_id: string, access_token: string) => ({
@@ -24,6 +25,7 @@ const login = (account_id: string, access_token: string) => ({
   access_token,
   token_type: 'Bearer',
   expires_at: '2027-01-01T00:00:00Z',
+  capabilities: [],
   restricted_mode: false,
 });
 

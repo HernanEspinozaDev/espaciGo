@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/jackc/pgx/v5"
@@ -93,6 +94,9 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := accountlock.LockGlobalAdministratorSet(ctx, tx); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
 	var subjectID, requestState string
 	if err := tx.QueryRow(ctx, `SELECT usuario_id::text,estado FROM public.solicitud_titular WHERE id=$1 AND tipo='supresion'`, requestID).Scan(&subjectID, &requestState); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -157,6 +161,9 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		now = time.Now
 	}
 	checkedAt := now().UTC().Truncate(time.Microsecond)
+	if err := protectLastGlobalAdministratorFromSuppression(ctx, tx, subjectID, checkedAt); err != nil {
+		return privacy.SuppressionExecution{}, err
+	}
 	obligations, err := activeSuppressionObligations(ctx, tx, subjectID)
 	if err != nil {
 		return privacy.SuppressionExecution{}, err
@@ -456,6 +463,36 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	return privacy.SuppressionExecution{RequestID: requestID, Status: "limpieza_pendiente", Outcome: "limpieza_pendiente", DecisionCode: detail.Decision, Obligations: []string{}, Removed: removed, Retained: retained, PendingFiles: len(evidenceIDs), StartedAt: checkedAt}, nil
+}
+
+func protectLastGlobalAdministratorFromSuppression(ctx context.Context, tx pgx.Tx, target string, at time.Time) error {
+	var isGlobal bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.administrador_global WHERE usuario_id=$1)`, target).Scan(&isGlobal); err != nil {
+		return suppressionError(err)
+	}
+	if !isGlobal {
+		return nil
+	}
+	var isBootstrapOwner bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.administrador_global_bootstrap WHERE singleton=true AND usuario_id=$1)`, target).Scan(&isBootstrapOwner); err != nil {
+		return suppressionError(err)
+	}
+	// The bootstrap binding is also the only supported local recovery target.
+	// A transfer must move that binding before privacy suppression can retire it.
+	if isBootstrapOwner {
+		return identity.ErrConflict
+	}
+	var activeCount int64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM public.administrador_global ag
+		JOIN public.usuario u ON u.id=ag.usuario_id
+		WHERE u.estado='activo' AND (u.bloqueado_hasta IS NULL OR u.bloqueado_hasta <= $1)
+		AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)`, at).Scan(&activeCount); err != nil {
+		return suppressionError(err)
+	}
+	if activeCount <= 1 {
+		return identity.ErrConflict
+	}
+	return nil
 }
 
 func (r *IdentityRepository) auditSuppression(ctx context.Context, tx pgx.Tx, actorID, requestID, key, correlation string, at time.Time, result, reason string, detail any) error {

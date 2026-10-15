@@ -30,6 +30,7 @@ describe('identity and role guards', () => {
     identity.session.set({
       account_id: 'synthetic-account',
       roles: ['arrendador'],
+      capabilities: [],
       restricted_mode: false,
     });
     const route = { data: { requiredRole: 'arrendador' } } as unknown as ActivatedRouteSnapshot;
@@ -41,6 +42,7 @@ describe('identity and role guards', () => {
     identity.session.set({
       account_id: 'synthetic-account',
       roles: ['arrendador'],
+      capabilities: [],
       restricted_mode: true,
     });
     const restricted = runInInjectionContext(TestBed.inject(EnvironmentInjector), () =>
@@ -54,6 +56,7 @@ describe('identity and role guards', () => {
     TestBed.inject(IdentitySession).session.set({
       account_id: 'synthetic-account',
       roles: ['arrendatario'],
+      capabilities: [],
       restricted_mode: false,
     });
     const route = { data: { requiredRole: 'administrador' } } as unknown as ActivatedRouteSnapshot;
@@ -61,6 +64,18 @@ describe('identity and role guards', () => {
       roleGuard(route, {} as never),
     );
     expect(TestBed.inject(Router).serializeUrl(result as UrlTree)).toBe('/mi-cuenta');
+  });
+
+  it('requires Go-confirmed accounts.list for the global directory', () => {
+    setup();
+    const identity = TestBed.inject(IdentitySession);
+    const route = { data: { requiredCapability: 'accounts.list' } } as unknown as ActivatedRouteSnapshot;
+    identity.session.set({ account_id: 'synthetic-account', roles: ['administrador_global'], capabilities: [], restricted_mode: false });
+    let result = runInInjectionContext(TestBed.inject(EnvironmentInjector), () => roleGuard(route, {} as never));
+    expect(TestBed.inject(Router).serializeUrl(result as UrlTree)).toBe('/mi-cuenta');
+    identity.session.set({ account_id: 'synthetic-account', roles: ['administrador_global'], capabilities: ['accounts.list'], restricted_mode: false });
+    result = runInInjectionContext(TestBed.inject(EnvironmentInjector), () => roleGuard(route, {} as never));
+    expect(result).toBe(true);
   });
 });
 

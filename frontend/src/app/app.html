@@ -64,7 +64,7 @@
             >Anfitrión</a
           >
         }
-        @if (!session.restricted_mode && session.roles.includes('administrador')) {
+        @if (!session.restricted_mode && (session.capabilities.includes('legacy.administration') || session.roles.includes('administrador'))) {
           <a
             routerLink="/administracion"
             routerLinkActive="is-current"
@@ -81,6 +81,9 @@
             (click)="closeMenu()"
             >Disputas y finanzas</a
           >
+        }
+        @if (!session.restricted_mode && session.capabilities.includes('accounts.list')) {
+          <a routerLink="/administracion/global" routerLinkActive="is-current" ariaCurrentWhenActive="page" (click)="closeMenu()">Administración global</a>
         }
         @if (session.roles.includes('arrendatario') || session.roles.includes('arrendador')) {
           <a

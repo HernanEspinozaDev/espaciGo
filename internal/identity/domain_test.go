@@ -33,6 +33,24 @@ func TestRegistrationRolesNeverAdmin(t *testing.T) {
 		}
 	}
 }
+
+func TestGlobalAdministrationCapabilitiesAreExplicit(t *testing.T) {
+	legacy := CapabilitiesForRoles([]Role{RoleAdministrator})
+	if !HasCapability([]Role{RoleAdministrator}, CapabilityLegacyAdministration) || HasCapability([]Role{RoleAdministrator}, CapabilityAccountsList) || HasCapability([]Role{RoleAdministrator}, CapabilityAdminAccessManage) {
+		t.Fatalf("legacy administrator capabilities escalated: %v", legacy)
+	}
+	global := CapabilitiesForRoles([]Role{RoleGlobalAdministrator})
+	for _, required := range []Capability{CapabilityLegacyAdministration, CapabilityAccountsList, CapabilityAccountsRead, CapabilityAdminAccessManage} {
+		if !HasCapability([]Role{RoleGlobalAdministrator}, required) {
+			t.Fatalf("global administrator missing %q in %v", required, global)
+		}
+	}
+	for _, roles := range [][]Role{{RoleTenant}, {RoleLandlord}, nil} {
+		if HasCapability(roles, CapabilityLegacyAdministration) || HasCapability(roles, CapabilityAccountsList) {
+			t.Fatalf("non-admin received admin access: roles=%v", roles)
+		}
+	}
+}
 func TestAccountValidationAndErrorIdentity(t *testing.T) {
 	a := Account{ID: "id", Email: "a@example.invalid", NormalizedEmail: "a@example.invalid", PasswordHash: Secret("hash"), State: AccountEmailPending}
 	if err := a.Validate(); err != nil {

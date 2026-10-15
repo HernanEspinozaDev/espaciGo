@@ -9,6 +9,58 @@ servers:
 security:
 - bearerAuth: []
 paths:
+  /admin/global/me:
+    get:
+      operationId: getGlobalAdminMe
+      tags: [Global administration]
+      summary: Confirmar capacidades vigentes del administrador global
+      responses:
+        '200': {description: Sesión global confirmada, content: {application/json: {schema: {$ref: '#/components/schemas/GlobalAdminMeEnvelope'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /admin/global/overview:
+    get:
+      operationId: getGlobalAdminOverview
+      tags: [Global administration]
+      summary: Obtener conteos reales de cuentas para administración global
+      responses:
+        '200': {description: Agregados actuales; activo no equivale a DAU, content: {application/json: {schema: {$ref: '#/components/schemas/GlobalAdminOverviewEnvelope'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /admin/global/accounts:
+    get:
+      operationId: listGlobalAdminAccounts
+      tags: [Global administration]
+      summary: Listar cuentas con filtros allowlisted y cursor keyset
+      parameters:
+      - {in: query, name: account_id, schema: {type: string, format: uuid}}
+      - {in: query, name: email_prefix, schema: {type: string, maxLength: 120}}
+      - {in: query, name: name_prefix, schema: {type: string, maxLength: 120}}
+      - {in: query, name: role, schema: {type: string, enum: [arrendatario, arrendador, administrador, administrador_global]}}
+      - {in: query, name: state, schema: {type: string, enum: [correo_pendiente, activo, bloqueado, baja_solicitada, desidentificado]}}
+      - {in: query, name: administrative_blocked, schema: {type: boolean}}
+      - {in: query, name: created_from, description: RFC3339 inclusivo UTC, schema: {type: string, format: date-time}}
+      - {in: query, name: created_until, description: RFC3339 exclusivo UTC, schema: {type: string, format: date-time}}
+      - {in: query, name: page_size, schema: {type: integer, minimum: 1, maximum: 50, default: 25}}
+      - {in: query, name: cursor, schema: {type: string, maxLength: 2048}}
+      responses:
+        '200': {description: Página mínima y conteo, content: {application/json: {schema: {$ref: '#/components/schemas/GlobalAdminAccountPageEnvelope'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+  /admin/global/accounts/{accountID}:
+    get:
+      operationId: getGlobalAdminAccount
+      tags: [Global administration]
+      summary: Consultar proyección mínima de una cuenta
+      parameters:
+      - {in: path, name: accountID, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200': {description: Cuenta y conteos de recursos, content: {application/json: {schema: {$ref: '#/components/schemas/GlobalAdminAccountEnvelope'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
   /public/spaces:
     get:
       operationId: listPublicSpaces
@@ -2765,6 +2817,42 @@ components:
         type: string
         minLength: 1
   schemas:
+    AdminCapability:
+      type: string
+      enum: [legacy.administration, accounts.list, accounts.read, admin_access.manage]
+    GlobalAdminMeEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {type: object, required: [account_id, roles, capabilities, generated_at], properties: {account_id: {type: string, format: uuid}, roles: {type: array, items: {type: string}}, capabilities: {type: array, items: {$ref: '#/components/schemas/AdminCapability'}}, generated_at: {type: string, format: date-time}}}
+    GlobalAdminOverviewEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {type: object, required: [total_accounts, administrative_blocked, by_state, by_role, generated_at, definition], properties: {total_accounts: {type: integer, format: int64}, administrative_blocked: {type: integer, format: int64}, by_state: {type: object, additionalProperties: {type: integer, format: int64}}, by_role: {type: object, additionalProperties: {type: integer, format: int64}}, generated_at: {type: string, format: date-time}, definition: {type: string}}}
+    GlobalAdminAccount:
+      type: object
+      required: [account_id, email, state, created_at, administrative_blocked, roles, publication_count, reservation_count, incident_count]
+      properties:
+        account_id: {type: string, format: uuid}
+        email: {type: string}
+        display_name: {type: [string, 'null']}
+        state: {type: string, enum: [correo_pendiente, activo, bloqueado, baja_solicitada, desidentificado]}
+        created_at: {type: string, format: date-time}
+        administrative_blocked: {type: boolean}
+        roles: {type: array, items: {type: string, enum: [arrendatario, arrendador, administrador, administrador_global]}}
+        publication_count: {type: integer, format: int64}
+        reservation_count: {type: integer, format: int64}
+        incident_count: {type: integer, format: int64}
+    GlobalAdminAccountEnvelope:
+      type: object
+      required: [data]
+      properties: {data: {$ref: '#/components/schemas/GlobalAdminAccount'}}
+    GlobalAdminAccountPageEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {type: object, required: [items, next_cursor, matching_total, generated_at], properties: {items: {type: array, items: {$ref: '#/components/schemas/GlobalAdminAccount'}}, next_cursor: {type: string}, matching_total: {type: integer, format: int64}, generated_at: {type: string, format: date-time}}}
     PublicSpace:
       type: object
       additionalProperties: false
@@ -2928,7 +3016,7 @@ components:
         state: { type: string, enum: [correo_pendiente, activo, bloqueado, baja_solicitada, desidentificado] }
         created_at: { type: string, format: date-time }
         blocked: { type: boolean }
-        roles: { type: array, items: { type: string, enum: [arrendatario, arrendador, administrador] } }
+        roles: { type: array, items: { type: string, enum: [arrendatario, arrendador, administrador, administrador_global] } }
     AdminLocalAccountEnvelope:
       type: object
       required: [data]
@@ -4186,7 +4274,7 @@ components:
             display_name: { type: string }
             phone: { type: [string, 'null'], pattern: '^[0-9]{9}$' }
             updated_at: { type: string, format: date-time }
-        roles: { type: array, items: { type: string, enum: [arrendatario, arrendador, administrador] } }
+        roles: { type: array, items: { type: string, enum: [arrendatario, arrendador, administrador, administrador_global] } }
         terms_acceptances:
           type: array
           items:
@@ -4535,6 +4623,7 @@ components:
       required:
       - account_id
       - roles
+      - capabilities
       - access_token
       - token_type
       - expires_at
@@ -4549,6 +4638,10 @@ components:
             - arrendatario
             - arrendador
             - administrador
+            - administrador_global
+        capabilities:
+          type: array
+          items: {$ref: '#/components/schemas/AdminCapability'}
         access_token:
           type: string
           readOnly: true
@@ -4566,6 +4659,7 @@ components:
       required:
       - account_id
       - roles
+      - capabilities
       - restricted_mode
       properties:
         account_id: *id010
@@ -4577,6 +4671,10 @@ components:
             - arrendatario
             - arrendador
             - administrador
+            - administrador_global
+        capabilities:
+          type: array
+          items: {$ref: '#/components/schemas/AdminCapability'}
         restricted_mode:
           type: boolean
           description: La cuenta sigue bloqueada administrativamente y requiere operaciones de reserva existentes.

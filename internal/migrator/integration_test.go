@@ -62,12 +62,12 @@ func TestMPV211MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) < 57 || migrations[len(migrations)-1].Version != 57 {
-		t.Fatalf("expected V57 as latest migration, got %d migrations", len(migrations))
+	if len(migrations) < 58 || migrations[len(migrations)-1].Version != 58 {
+		t.Fatalf("expected V58 as latest migration, got %d migrations", len(migrations))
 	}
 	latest := migrations[len(migrations)-1]
-	if latest.Name != "V000057__mpv2_11_typed_public_category_filters.sql" {
-		t.Fatalf("unexpected V57 migration %q", latest.Name)
+	if latest.Name != "V000058__gadm_01_global_administrator.sql" {
+		t.Fatalf("unexpected latest migration %q", latest.Name)
 	}
 
 	t.Run("fresh base", func(t *testing.T) {
@@ -76,7 +76,7 @@ func TestMPV211MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(result.Applied) != len(migrations) || result.Applied[len(result.Applied)-1] != 57 {
+			if len(result.Applied) != len(migrations) || result.Applied[len(result.Applied)-1] != 58 {
 				t.Fatalf("fresh migration result=%v", result.Applied)
 			}
 			conn := connectTestDB(t, ctx, databaseURL)
@@ -131,7 +131,7 @@ func TestMPV211MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T)
 				t.Fatal(err)
 			}
 			result, err = Run(ctx, databaseURL, sourceDir)
-			if err != nil || len(result.Applied) != 1 || result.Applied[0] != 57 {
+			if err != nil || len(result.Applied) != 2 || result.Applied[0] != 57 || result.Applied[1] != 58 {
 				t.Fatalf("upgrade from V56: %v %v", result.Applied, err)
 			}
 			conn = connectTestDB(t, ctx, databaseURL)

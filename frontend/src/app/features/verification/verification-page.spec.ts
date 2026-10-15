@@ -17,14 +17,15 @@ import { VerificationFacade } from './application/verification-facade';
 import { VerificationApi, VerificationApiError } from './infrastructure/verification-api';
 import { VerificationPage } from './verification-page';
 
-const sessionA = { account_id: 'a', roles: ['arrendatario'], restricted_mode: false };
-const sessionB = { account_id: 'b', roles: ['arrendador'], restricted_mode: true };
+const sessionA = { account_id: 'a', roles: ['arrendatario'], capabilities: [], restricted_mode: false };
+const sessionB = { account_id: 'b', roles: ['arrendador'], capabilities: [], restricted_mode: true };
 const login = (account_id: string, access_token: string) => ({
   account_id,
   roles: account_id === 'a' ? ['arrendatario'] : ['arrendador'],
   access_token,
   token_type: 'Bearer',
   expires_at: '2027-01-01T00:00:00Z',
+  capabilities: [],
   restricted_mode: account_id === 'b',
 });
 const item = (

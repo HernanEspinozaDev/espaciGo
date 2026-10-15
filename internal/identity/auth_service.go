@@ -645,6 +645,7 @@ type LoginInput struct {
 type LoginResult struct {
 	AccountID      string
 	Roles          []Role
+	Capabilities   []Capability
 	Token          Secret
 	ExpiresAt      time.Time
 	RestrictedMode bool
@@ -719,7 +720,7 @@ func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (Lo
 		if err := tx.SaveLoginState(ctx, account.ID, AccountActive, 0, nil); err != nil {
 			return err
 		}
-		result = LoginResult{AccountID: account.ID, Roles: roles, Token: raw, ExpiresAt: session.ExpiresAt, RestrictedMode: account.AdministrativeBlocked}
+		result = LoginResult{AccountID: account.ID, Roles: roles, Capabilities: CapabilitiesForRoles(roles), Token: raw, ExpiresAt: session.ExpiresAt, RestrictedMode: account.AdministrativeBlocked}
 		return nil
 	})
 	if errors.Is(err, ErrNotFound) {
@@ -744,6 +745,7 @@ const (
 type Principal struct {
 	AccountID      string
 	Roles          []Role
+	Capabilities   []Capability
 	RestrictedMode bool
 }
 
@@ -761,6 +763,33 @@ func HasRestrictedReservationAccess(ctx context.Context, accountID string) bool 
 }
 
 func (s *AuthenticationService) Authorize(ctx context.Context, raw Secret, required Role, activity ActivityKind) (Principal, error) {
+	adminGate := required == RoleAdministrator || required == RoleGlobalAdministrator
+	return s.authorize(ctx, raw, activity, adminGate, func(roles []Role) bool {
+		if required == "" {
+			return true
+		}
+		if required == RoleAdministrator {
+			return HasCapability(roles, CapabilityLegacyAdministration)
+		}
+		for _, role := range roles {
+			if role == required {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// AuthorizeCapability checks a server-defined capability against roles read
+// under the same account lock as session validity. Empty capabilities deny.
+func (s *AuthenticationService) AuthorizeCapability(ctx context.Context, raw Secret, required Capability, activity ActivityKind) (Principal, error) {
+	if required == "" {
+		return Principal{}, ErrForbidden
+	}
+	return s.authorize(ctx, raw, activity, true, func(roles []Role) bool { return HasCapability(roles, required) })
+}
+
+func (s *AuthenticationService) authorize(ctx context.Context, raw Secret, activity ActivityKind, adminGate bool, granted func([]Role) bool) (Principal, error) {
 	if raw == "" || activity < UserOperation || activity > TokenRenewal {
 		return Principal{}, ErrUnauthorized
 	}
@@ -785,7 +814,7 @@ func (s *AuthenticationService) Authorize(ctx context.Context, raw Secret, requi
 			denied = ErrRestrictedMode
 			return nil
 		}
-		if account.AdministrativeBlocked && required == RoleAdministrator {
+		if account.AdministrativeBlocked && adminGate {
 			denied = ErrRestrictedMode
 			return nil
 		}
@@ -793,15 +822,9 @@ func (s *AuthenticationService) Authorize(ctx context.Context, raw Secret, requi
 		if err != nil {
 			return err
 		}
-		if required != "" {
-			granted := false
-			for _, role := range roles {
-				granted = granted || role == required
-			}
-			if !granted {
-				denied = ErrForbidden
-				return nil
-			}
+		if !granted(roles) {
+			denied = ErrForbidden
+			return nil
 		}
 		if activity == UserOperation {
 			updated, err := tx.TouchSession(ctx, session.ID, now)
@@ -813,7 +836,7 @@ func (s *AuthenticationService) Authorize(ctx context.Context, raw Secret, requi
 				return nil
 			}
 		}
-		result = Principal{AccountID: account.ID, Roles: roles, RestrictedMode: account.AdministrativeBlocked}
+		result = Principal{AccountID: account.ID, Roles: roles, Capabilities: CapabilitiesForRoles(roles), RestrictedMode: account.AdministrativeBlocked}
 		return nil
 	})
 	if errors.Is(err, ErrNotFound) {

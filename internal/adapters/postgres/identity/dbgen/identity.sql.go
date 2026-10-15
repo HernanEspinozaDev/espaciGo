@@ -628,7 +628,11 @@ func (q *Queries) GetAccountByNormalizedEmail(ctx context.Context, normalizedEma
 }
 
 const getAccountRoles = `-- name: GetAccountRoles :many
-SELECT rol FROM public.rol_usuario WHERE usuario_id = $1 ORDER BY rol
+SELECT roles.rol FROM (
+    SELECT ru.rol FROM public.rol_usuario ru WHERE ru.usuario_id = $1
+    UNION ALL
+    SELECT 'administrador_global'::text AS rol FROM public.administrador_global ag WHERE ag.usuario_id = $1
+) roles ORDER BY roles.rol
 `
 
 func (q *Queries) GetAccountRoles(ctx context.Context, accountID string) ([]string, error) {

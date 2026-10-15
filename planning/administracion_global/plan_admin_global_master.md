@@ -4,7 +4,7 @@ Fecha: 2026-10-14, America/Santiago. **Autorizado para desarrollar por cortes y 
 
 ## 1. Diagnóstico verificado
 
-Base integrada: `4cabb943a295569cadd330ed656d9d941e4f9517`, tras #311; hacer fetch y comprobar el SHA vigente antes de cada corte.
+Base integrada para GADM-01: `2589aa1139232f419cf1d1aebdd79a69c1f4007b`, merge de PR #312 (GADM-00). GADM-01 se desarrolla en `codex/marketplace/feature/gadm-01-master-access-directory`; consultar el HEAD del PR al registrar evidencia final.
 
 - Existe `identity.RoleAdministrator = administrador`, además de arrendatario/arrendador; el registro solo concede arrendatario.
 - Hay una cuenta administrativa de ensayo en la demo LOCAL-CLOSE-02; no se exportan sus credenciales ni se la convierte automáticamente en cuenta del propietario.
@@ -90,11 +90,11 @@ Si el dato necesario no se conserva, mostrar “no disponible” y documentar la
 
 ## 6. Datos, Go/OpenAPI y Angular
 
-Orden por corte: DB/migraciones → Go/OpenAPI → Angular → recorrido real. Comprobar última versión antes de crear migraciones: baseline tiene V1–V57; conservarlas byte a byte y agregar desde V58 si necesarias.
+Orden por corte: DB/migraciones → Go/OpenAPI → Angular → recorrido real. V1–V57 se conservan byte a byte. GADM-01 agrega V58 y los cortes posteriores revisarán el historial antes de agregar desde V59.
 
 Diseñar cambios mínimos para rol/constraints, concesiones/auditoría, consultas e índices. Capacidad autoritativa en Go; una tabla por permiso o un motor ABAC genérico no son requisito si un catálogo explícito satisface el alcance. Recursos auxiliares del futuro soporte no se implementan aquí.
 
-OpenAPI debe declarar nuevos DTO/capacidades/operaciones, errores401/403/404/409/422, límites, filtros y versionado de escrituras; SDK regenerado. Propuesta de familias de rutas: `/admin/global/me`, `/accounts`, `/publications`, `/overview`, `/accounts/{id}/audit`, bajo prefijo acordado. Son propuestas, no endpoints existentes. Reutilizar operaciones admin actuales con autorización compatible cuando sea correcto, sin cambiar silenciosamente sus permisos.
+OpenAPI declara las operaciones implementadas por cada corte y el SDK generado debe corresponder a ese contrato. GADM-01 incorpora `/admin/global/me`, `/admin/global/overview`, `/admin/global/accounts` y `/admin/global/accounts/{accountID}` para el directorio de solo lectura. `/publications` y auditoría por cuenta/global siguen siendo propuestas de cortes posteriores.
 
 Angular: features/selective hexagonal, fachadas/puertos/adaptadores, Signals, TypeScript estricto, SCSS/tokens. CSR/noindex/no-store en área privada, menús por capacidades confirmadas por Go, navegación accesible móvil/escritorio; sin HTTP en presentación, transporte en aplicación ni rutas/JSON arbitrarios editables desde un formulario.
 
@@ -104,8 +104,8 @@ Todos los cambios usan control de concurrencia (revisión/updated_at o versión 
 
 | Corte | Entrega | Condición de terminado |
 | --- | --- | --- |
-| GADM-00 | Inventario de capacidades actuales, ADR, matriz permisos/operaciones y plan versionado; mapa de cambios DB/Go/Angular y de compatibilidad administrador existente | PR documental coherente, alcance y casos de prueba trazados; sin concesiones de privilegios o cuentas nuevas todavía. |
-| GADM-01 | Rol global/capacidades, migración mínima, bootstrap/recuperación, sesión y primer panel/directorio de cuentas con totales reales | Maestro de ensayo funciona, usuarios normales/admin previo no escalan; lista paginada, último master protegido, revocación vigente y bootstrap reejecutable controlado. |
+| GADM-00 | Inventario de capacidades actuales, ADR, matriz permisos/operaciones y plan versionado | Fusionado en PR #312, merge `2589aa1139232f419cf1d1aebdd79a69c1f4007b`; sin concesiones de privilegios ni cuentas nuevas. |
+| GADM-01 | Rol global/capacidades, V58, bootstrap/recuperación, sesión y directorio de cuentas con totales reales | Corte vigente en el PR de la rama indicada arriba. Cuenta global solo sintética local; pruebas de base vacía/V56, matriz de permisos, paginación, filtros, concurrencia del bootstrap y último master. No empezar GADM-02 antes de fusión y mensaje del chat revisor. |
 | GADM-02 | Gestión de cuentas y publicaciones: edición, bloqueo/roles y baja por reglas de privacidad/ocupaciones; fichas y recursos por propietario | Acciones dedicadas desde Angular→Go→DB, auditoría atómica, confirmación/motivo, snapshots conservados y carreras cubiertas. |
 | GADM-03 | Tablero KPI y auditoría por cuenta/global, exportaciones JSON/CSV | Definiciones/fuentes/intervalos exactos, cifras contrastadas con DB, sin doble conteo/N+1 ni exposición de secretos, paginación/export coherentes. |
 | GADM-04 | Regresión y entrega de la cuenta maestra con guía/demo e inventario de capacidades | Pruebas de permisos y recorridos completos, dataset de ensayo recreable, evidencia por SHA, aceptación del propietario; ningún soporte o GCP activado. |

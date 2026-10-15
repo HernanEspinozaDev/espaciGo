@@ -4,6 +4,58 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}/api/v1` | (string & {});
 };
 
+export type AdminCapability = 'legacy.administration' | 'accounts.list' | 'accounts.read' | 'admin_access.manage';
+
+export type GlobalAdminMeEnvelope = {
+    data: {
+        account_id: string;
+        roles: Array<string>;
+        capabilities: Array<AdminCapability>;
+        generated_at: string;
+    };
+};
+
+export type GlobalAdminOverviewEnvelope = {
+    data: {
+        total_accounts: number;
+        administrative_blocked: number;
+        by_state: {
+            [key: string]: number;
+        };
+        by_role: {
+            [key: string]: number;
+        };
+        generated_at: string;
+        definition: string;
+    };
+};
+
+export type GlobalAdminAccount = {
+    account_id: string;
+    email: string;
+    display_name?: string | null;
+    state: 'correo_pendiente' | 'activo' | 'bloqueado' | 'baja_solicitada' | 'desidentificado';
+    created_at: string;
+    administrative_blocked: boolean;
+    roles: Array<'arrendatario' | 'arrendador' | 'administrador' | 'administrador_global'>;
+    publication_count: number;
+    reservation_count: number;
+    incident_count: number;
+};
+
+export type GlobalAdminAccountEnvelope = {
+    data: GlobalAdminAccount;
+};
+
+export type GlobalAdminAccountPageEnvelope = {
+    data: {
+        items: Array<GlobalAdminAccount>;
+        next_cursor: string;
+        matching_total: number;
+        generated_at: string;
+    };
+};
+
 export type PublicSpace = {
     space_id: string;
     category_code: string;
@@ -137,7 +189,7 @@ export type AdminLocalAccount = {
     state: 'correo_pendiente' | 'activo' | 'bloqueado' | 'baja_solicitada' | 'desidentificado';
     created_at: string;
     blocked: boolean;
-    roles: Array<'arrendatario' | 'arrendador' | 'administrador'>;
+    roles: Array<'arrendatario' | 'arrendador' | 'administrador' | 'administrador_global'>;
 };
 
 export type AdminLocalAccountEnvelope = {
@@ -1338,7 +1390,7 @@ export type OwnIdentityExport = {
         phone?: string | null;
         updated_at: string;
     };
-    roles: Array<'arrendatario' | 'arrendador' | 'administrador'>;
+    roles: Array<'arrendatario' | 'arrendador' | 'administrador' | 'administrador_global'>;
     terms_acceptances: Array<{
         code: string;
         type: 'terminos' | 'privacidad' | 'politica_arrendador';
@@ -1556,7 +1608,8 @@ export type AccountCreated = {
 
 export type LoginResponse = {
     account_id: string;
-    roles: Array<'arrendatario' | 'arrendador' | 'administrador'>;
+    roles: Array<'arrendatario' | 'arrendador' | 'administrador' | 'administrador_global'>;
+    capabilities: Array<AdminCapability>;
     /**
      * Bearer opaco; solo en esta respuesta, nunca URL/log. Mantener en memoria en mock.
      */
@@ -1571,7 +1624,8 @@ export type LoginResponse = {
 
 export type SessionResponse = {
     account_id: string;
-    roles: Array<'arrendatario' | 'arrendador' | 'administrador'>;
+    roles: Array<'arrendatario' | 'arrendador' | 'administrador' | 'administrador_global'>;
+    capabilities: Array<AdminCapability>;
     /**
      * La cuenta sigue bloqueada administrativamente y requiere operaciones de reserva existentes.
      */
@@ -1629,7 +1683,8 @@ export type LoginRequestWritable = {
 
 export type LoginResponseWritable = {
     account_id: string;
-    roles: Array<'arrendatario' | 'arrendador' | 'administrador'>;
+    roles: Array<'arrendatario' | 'arrendador' | 'administrador' | 'administrador_global'>;
+    capabilities: Array<AdminCapability>;
     token_type: 'Bearer';
     expires_at: UtcTimestamp;
     /**
@@ -1642,6 +1697,153 @@ export type LoginResponseWritable = {
  * Clave opaca que identifica una misma operación para reintentos seguros.
  */
 export type IdempotencyKey = string;
+
+export type GetGlobalAdminMeData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/admin/global/me';
+};
+
+export type GetGlobalAdminMeErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+};
+
+export type GetGlobalAdminMeError = GetGlobalAdminMeErrors[keyof GetGlobalAdminMeErrors];
+
+export type GetGlobalAdminMeResponses = {
+    /**
+     * Sesión global confirmada
+     */
+    200: GlobalAdminMeEnvelope;
+};
+
+export type GetGlobalAdminMeResponse = GetGlobalAdminMeResponses[keyof GetGlobalAdminMeResponses];
+
+export type GetGlobalAdminOverviewData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/admin/global/overview';
+};
+
+export type GetGlobalAdminOverviewErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+};
+
+export type GetGlobalAdminOverviewError = GetGlobalAdminOverviewErrors[keyof GetGlobalAdminOverviewErrors];
+
+export type GetGlobalAdminOverviewResponses = {
+    /**
+     * Agregados actuales; activo no equivale a DAU
+     */
+    200: GlobalAdminOverviewEnvelope;
+};
+
+export type GetGlobalAdminOverviewResponse = GetGlobalAdminOverviewResponses[keyof GetGlobalAdminOverviewResponses];
+
+export type ListGlobalAdminAccountsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        account_id?: string;
+        email_prefix?: string;
+        name_prefix?: string;
+        role?: 'arrendatario' | 'arrendador' | 'administrador' | 'administrador_global';
+        state?: 'correo_pendiente' | 'activo' | 'bloqueado' | 'baja_solicitada' | 'desidentificado';
+        administrative_blocked?: boolean;
+        /**
+         * RFC3339 inclusivo UTC
+         */
+        created_from?: string;
+        /**
+         * RFC3339 exclusivo UTC
+         */
+        created_until?: string;
+        page_size?: number;
+        cursor?: string;
+    };
+    url: '/admin/global/accounts';
+};
+
+export type ListGlobalAdminAccountsErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * validation_error o invalid_token: regla semántica no satisfecha.
+     */
+    422: Error;
+};
+
+export type ListGlobalAdminAccountsError = ListGlobalAdminAccountsErrors[keyof ListGlobalAdminAccountsErrors];
+
+export type ListGlobalAdminAccountsResponses = {
+    /**
+     * Página mínima y conteo
+     */
+    200: GlobalAdminAccountPageEnvelope;
+};
+
+export type ListGlobalAdminAccountsResponse = ListGlobalAdminAccountsResponses[keyof ListGlobalAdminAccountsResponses];
+
+export type GetGlobalAdminAccountData = {
+    body?: never;
+    path: {
+        accountID: string;
+    };
+    query?: never;
+    url: '/admin/global/accounts/{accountID}';
+};
+
+export type GetGlobalAdminAccountErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Recurso inexistente o no visible para esta identidad.
+     */
+    404: Error;
+    /**
+     * validation_error o invalid_token: regla semántica no satisfecha.
+     */
+    422: Error;
+};
+
+export type GetGlobalAdminAccountError = GetGlobalAdminAccountErrors[keyof GetGlobalAdminAccountErrors];
+
+export type GetGlobalAdminAccountResponses = {
+    /**
+     * Cuenta y conteos de recursos
+     */
+    200: GlobalAdminAccountEnvelope;
+};
+
+export type GetGlobalAdminAccountResponse = GetGlobalAdminAccountResponses[keyof GetGlobalAdminAccountResponses];
 
 export type ListPublicSpacesData = {
     body?: never;

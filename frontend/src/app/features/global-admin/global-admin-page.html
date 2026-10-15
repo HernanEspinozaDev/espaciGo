@@ -1,0 +1,84 @@
+<main class="global-admin" aria-labelledby="title">
+  <header>
+    <p class="eyebrow">EspaciGo · Administración privada</p>
+    <h1 id="title">Directorio de cuentas</h1>
+    <p>Consulta paginada de cuentas y actividad asociada.</p>
+  </header>
+
+  @if (overview(); as totals) {
+    <section class="totals" aria-label="Totales">
+      <article><span>Cuentas</span><strong>{{ totals.total_accounts }}</strong></article>
+      <article><span>Bloqueos administrativos</span><strong>{{ totals.administrative_blocked }}</strong></article>
+      <article><span>Activas</span><strong>{{ totals.by_state['activo'] ?? 0 }}</strong></article>
+      <p>{{ totals.definition }}</p>
+    </section>
+  }
+
+  <form class="filters" [formGroup]="filters" (ngSubmit)="search()">
+    <label>UUID exacto<input formControlName="accountId" autocomplete="off"></label>
+    <label>Correo comienza con<input formControlName="emailPrefix" autocomplete="off"></label>
+    <label>Nombre comienza con<input formControlName="namePrefix" autocomplete="off"></label>
+    <label>Rol
+      <select formControlName="role">
+        <option value="">Todos</option><option value="arrendatario">Arrendatario</option>
+        <option value="arrendador">Anfitrión</option><option value="administrador">Administrador</option>
+        <option value="administrador_global">Administrador global</option>
+      </select>
+    </label>
+    <label>Estado
+      <select formControlName="state">
+        <option value="">Todos</option><option value="activo">Activo</option>
+        <option value="correo_pendiente">Correo pendiente</option><option value="bloqueado">Bloqueado</option>
+        <option value="baja_solicitada">Baja solicitada</option><option value="desidentificado">Desidentificado</option>
+      </select>
+    </label>
+    <label>Bloqueo administrativo
+      <select formControlName="blocked">
+        <option value="">Todos</option><option value="true">Bloqueadas</option><option value="false">Sin bloqueo</option>
+      </select>
+    </label>
+    <label>Creada desde<input type="datetime-local" formControlName="createdFrom"></label>
+    <label>Creada hasta<input type="datetime-local" formControlName="createdUntil"></label>
+    <div class="actions">
+      <button>Buscar</button>
+      <button type="button" class="secondary" (click)="clearFilters()">Limpiar</button>
+    </div>
+  </form>
+
+  @if (error()) { <p role="alert" class="error">{{ error() }}</p> }
+  @if (loadingDirectory()) { <p role="status">Cargando cuentas…</p> }
+  @if (loadingDetail()) { <p role="status">Cargando detalle…</p> }
+
+  @if (page(); as result) {
+    <p aria-live="polite">{{ result.matching_total }} cuentas coinciden</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Cuenta</th><th>Estado</th><th>Roles</th><th>Espacios</th><th>Reservas</th><th>Incidentes</th></tr></thead>
+        <tbody>
+          @for (account of result.items; track account.account_id) {
+            <tr>
+              <td><button class="account" type="button" (click)="open(account.account_id)">{{ account.display_name || account.email }}<small>{{ account.email }}</small></button></td>
+              <td>{{ account.state }} @if (account.administrative_blocked) { · Bloqueo }</td>
+              <td>{{ account.roles.join(', ') || 'Sin rol' }}</td>
+              <td>{{ account.publication_count }}</td><td>{{ account.reservation_count }}</td><td>{{ account.incident_count }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <button class="next" type="button" [disabled]="!result.next_cursor || loadingDirectory()" (click)="next()">Siguiente página</button>
+  }
+
+  @if (selected(); as account) {
+    <aside class="detail" aria-labelledby="detail-title">
+      <button class="close" type="button" (click)="selected.set(null)" aria-label="Cerrar detalle">×</button>
+      <h2 id="detail-title">{{ account.display_name || account.email }}</h2>
+      <dl>
+        <dt>UUID</dt><dd>{{ account.account_id }}</dd><dt>Correo</dt><dd>{{ account.email }}</dd>
+        <dt>Creada</dt><dd>{{ account.created_at | date: 'medium' }}</dd><dt>Estado</dt><dd>{{ account.state }}</dd>
+        <dt>Roles</dt><dd>{{ account.roles.join(', ') || 'Sin rol' }}</dd>
+        <dt>Espacios · reservas · incidentes</dt><dd>{{ account.publication_count }} · {{ account.reservation_count }} · {{ account.incident_count }}</dd>
+      </dl>
+    </aside>
+  }
+</main>
