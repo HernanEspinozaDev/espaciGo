@@ -5,6 +5,7 @@ Fecha de comprobación: 2026-10-15. Estado: **planificación, sin recursos aprov
 ## 1. Decisiones y límites del encargo
 
 - El usuario solicita preparar el traslado de la aplicación y los datos de prueba a `espacigo-testprod`.
+- Dominio de ensayo indicado por el usuario: `testingpage.store`; la dirección principal de EspaciGo será **`https://espacigo.testingpage.store`**. No sustituye al futuro dominio de producción ni autoriza cambios en la raíz u otros servicios del dominio.
 - **Catálogo público desde el inicio**, con búsqueda, categorías como filtros, detalle y fotos públicas autorizadas. No exigir cuenta EspaciGo para explorar.
 - No se fija un tope monetario mensual, según la respuesta del usuario. Esto no elimina el inventario de costos, las cuotas técnicas ni el control de consumo.
 - El usuario quiere utilizar la prueba gratuita sin actualizar a una cuenta de pago. **No activar/actualizar facturación de pago**. La parada al agotarse los créditos solo se puede asumir después de comprobar que la cuenta sigue siendo Free Trial; una cuenta de pago puede conservar crédito promocional y seguir cobrando después.
@@ -49,7 +50,7 @@ El origen no se elimina, se reinicia ni se sustituye durante el traslado. El che
 | Pieza | Propuesta inicial | Condición de aceptación |
 | --- | --- | --- |
 | Región | Proponer `southamerica-west1` (Santiago), según la dirección ES2 existente; confirmar disponibilidad de servicios/edición y costo antes de crear | Misma región para API, SQL y buckets cuando sea compatible; no sustituir por otra región silenciosamente |
-| Entrada pública | Angular SSR en Cloud Run, URL HTTPS gestionada inicialmente | Portada, catálogo, filtros y ficha pública funcionan sin login; conservar prerender y SEO público |
+| Entrada pública | Angular SSR en Cloud Run detrás de entrada HTTPS compatible; dominio `espacigo.testingpage.store` | Portada, catálogo, filtros y ficha pública funcionan sin login; conservar prerender y SEO público |
 | Entrada privada de ensayo | Segunda entrada Cloud Run con la misma imagen Angular y acceso Google/IAP para propietario/evaluadores | La clave compartida de pruebas no permite a cualquier visitante usar las 10 cuentas administrativas ni la cuenta maestra |
 | Gateway | Proxy de servidor con allowlist pública estricta; entrada privada proxy autenticado | La entrada pública solo reenvía operaciones públicas permitidas. No abrir `/auth`, reservas, administración o evidencia mediante bypass de rutas, codificación o cabeceras |
 | API Go | Cloud Run invocable por identidades de servicio de las entradas, sin acceso anónimo directo | Autorización Go conserva Bearer y permisos. Autenticación servicio-a-servicio separada del Bearer de EspaciGo; no enviar credenciales de servicio al navegador |
@@ -61,6 +62,23 @@ El origen no se elimina, se reinicia ni se sustituye durante el traslado. El che
 | Migración | Tarea única independiente del arranque web | Migrador/restore separados del usuario runtime; reintento seguro y exclusión mutua |
 | IaC/CI | Terraform en este repositorio, state remoto exclusivo; Artifact Registry; federación GitHub→GCP | Recursos identificados por proyecto exacto, plan revisable, imágenes por digest; no credenciales GCP permanentes en GitHub |
 | Correo | Sumidero de ensayo restringido, nunca correo de prueba a destinatarios reales | Recuperación y verificación accesibles solo a evaluadores; no publicar Mailpit en Internet sin protección |
+
+### Dominios de prueba, Cloudflare y TLS
+
+| Uso | Dirección | Decisión |
+| --- | --- | --- |
+| Marketplace público | `https://espacigo.testingpage.store` | Elegida por el usuario; entrada principal de este ensayo antes de producción |
+| Evaluadores y acceso privado | `https://espacigo-demo.testingpage.store` | Propuesta; misma aplicación detrás de Google/IAP. Mantener retorno permitido al espacio seleccionado |
+| API | `/api/v1` en cada entrada web | Preferencia: proxy de servidor del mismo origen, con allowlist pública y frontera privada. Go continúa privado mediante IAM |
+| Host API independiente | `https://espacigo-api.testingpage.store` | Nombre reservado como propuesta si una integración justifica otro origen; no crear ni abrir Go anónimamente por reservar este nombre |
+
+Evitar por defecto `api.espacigo.testingpage.store`: en una zona Cloudflare de configuración completa, Universal SSL cubre la raíz y el primer nivel de subdominios, no el segundo nivel. Los nombres propuestos permanecen en el primer nivel. Comprobar zona activa, cobertura y certificados de borde y origen antes de publicar; DNS por sí solo no configura TLS ni autorización.
+
+Cloud Run ofrece `southamerica-west1`, pero el mapeo nativo de dominio de Cloud Run no incluye esa región y está en Preview con limitaciones. Para conservar Santiago, la propuesta inicial es una entrada HTTPS mediante un Application Load Balancer compatible con Cloud Run/serverless NEG y certificado gestionado; incluir su costo, enrutamiento e integración IAP en GCP-00 antes de aprobar el diseño definitivo. Cloudflare administra el DNS de la zona; decidir explícitamente DNS-only frente a proxy y validar TLS extremo a extremo. No basta un CNAME directo a `run.app` ni activar el proxy naranja. No cambiar de región por este motivo sin decisión explícita.
+
+Wrangler se encontró en caché local, versión 4.143.0; no como comando global en PATH. `whoami` confirmó una sesión de otra cuenta. El usuario solicita usar su cuenta Cloudflare del dominio de pruebas; el cambio OAuth está pendiente de completar y verificar. La identidad exacta y cualquier respaldo de autenticación permanecen en configuración privada local, fuera de Git. No confundir esta identidad Cloudflare con Google Cloud ni con las cuentas GitHub de desarrollo/revisión.
+
+Antes de aplicar DNS: comprobar mediante lectura la cuenta efectiva y acceso a `testingpage.store`, inventariar los registros de los nombres propuestos, verificar que no colisionan con servicios existentes y preparar cambio y reversión por registro. No transferir dominio, cambiar nameservers, borrar registros de terceros ni publicar Mailpit, SQL o administración sin protección. Este PR solo registra nombres y diseño: no creó DNS, certificados, balanceadores ni servicios.
 
 ### Frontera pública y contraseña de ensayo
 
@@ -86,12 +104,12 @@ Cada corte usa una rama temporal y un PR hacia `main`; datos/contrato → Go →
 
 | Corte | Trabajo | Entregable/gate para seguir |
 | --- | --- | --- |
-| GCP-00 | Este plan, identidad/proyecto/org/facturación, políticas, exposición pública, estimación y plan de apagado | Destino confirmado; tipo Free Trial/fecha/moneda comprobados antes de gastar; plan de recursos y autorización de ejecución. No crear recursos en este corte |
+| GCP-00 | Este plan, identidad/proyecto/org/facturación, políticas, dominios/identidad Cloudflare/TLS, exposición pública, estimación y plan de apagado | Destino confirmado; tipo Free Trial/fecha/moneda comprobados antes de gastar; plan de recursos y autorización de ejecución. No crear recursos en este corte |
 | GCP-01 | Portabilidad de configuración, TLS, puertos, Cloud Storage, conexión SQL, frontera pública/privada y modelo worker | Código y pruebas locales/contrato; distinguir emulación de integración GCP real. No Terraform apply |
 | GCP-02 | IaC: bootstrap/state, APIs mínimas, IAM/federación, red, registry, secretos, buckets privados y SQL | Tras autorizar ejecución: revisar plan Terraform, edición/región y estimación; sin defaults Enterprise Plus/HA inesperados ni IAM público general |
 | GCP-03 | Compatibilidad Cloud SQL y ensayo de restauración | Base vacía y restore de snapshot; V1–V61 exactas, PostGIS/índices/roles/grants/funciones/triggers, calendario/solapes y runtime sin superusuario; restauración verificable |
 | GCP-04 | Backend y ejecución durable en destino | Readiness, migración como tarea, almacenamiento compartido, permisos, reinicio/leases, pool y límites; no cambiar origen local |
-| GCP-05 | Angular SSR, gateway y HTTPS; catálogo público y entrada privada | Exploración anónima real; móvil/escritorio; publicación privada e imágenes 404; login diferido, retorno, 401/403 y administración protegida |
+| GCP-05 | Angular SSR, gateway y HTTPS bajo los dominios de prueba; catálogo público y entrada privada | Exploración anónima real; móvil/escritorio; publicación privada e imágenes 404; login diferido, retorno, 401/403 y administración protegida |
 | GCP-06 | Copia final coherente de DB, archivos, claves y configuración | Backup nuevo; ventana de escrituras; conteos/UUID/hashes, 1.200 galerías y PDF/evidencia recuperables; sesiones/tokens de acción no trasladados como credenciales válidas |
 | GCP-07 | Aceptación técnica, restauración, rollback, consumo y entrega | E2E en GCP, restablecimiento probado, enlaces y cuentas privadas entregados, costos observados y apagado documentado. Aceptación final humana; no producción real implícita |
 
@@ -123,6 +141,8 @@ Diseño interno: `planning/referencias/ES2/03_06_infraestructura.md`, `planning/
 
 Documentación oficial consultada 2026-10-15:
 
+- [Cloudflare: autenticación Wrangler](https://developers.cloudflare.com/workers/wrangler/commands/general/), [cobertura Universal SSL](https://developers.cloudflare.com/ssl/edge-certificates/universal-ssl/limitations/) y [registros de subdominios](https://developers.cloudflare.com/dns/manage-dns-records/how-to/create-subdomain/).
+- [Dominios personalizados de Cloud Run y alternativas de entrada HTTPS](https://docs.cloud.google.com/run/docs/mapping-custom-domains).
 - [Prueba gratuita y cuentas de pago](https://docs.cloud.google.com/free/docs/free-cloud-features).
 - [Versiones PostgreSQL admitidas](https://docs.cloud.google.com/sql/docs/postgres/db-versions), [extensiones/PostGIS](https://docs.cloud.google.com/sql/docs/postgres/extensions) y [restricciones de usuarios](https://docs.cloud.google.com/sql/docs/postgres/users).
 - [Exportación y restauración PostgreSQL](https://docs.cloud.google.com/sql/docs/postgres/import-export/import-export-dmp) y [elección de edición](https://docs.cloud.google.com/sql/docs/postgres/choose-edition).
