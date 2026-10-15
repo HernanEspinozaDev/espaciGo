@@ -452,10 +452,87 @@ it('discards an export response after a newer audit query is applied', async () 
   component.showTab('reports');
   component.searchAudit();
   const filters = { ...component.appliedAudit()!, snapshot_cutoff: overview.generated_at };
-  let finish!: (blob: Blob) => void;
-  api.exportAudit.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  let fail!: (error: unknown) => void;
+  api.exportAudit.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
   const staleExport = facade.exportAudit(filters, 'json');
   component.searchAudit();
-  finish(new Blob(['private export']));
+  await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
+  fail(new Error('private upstream details'));
   expect(await staleExport).toBeNull();
+  expect(facade.exportError()).toBe('');
+});
+
+it('shows contextual report errors and clears each after a successful retry', async () => {
+  const { api, component, fixture, facade } = await setup();
+  component.showTab('reports');
+  api.kpis.mockRejectedValueOnce({ status: 401, message: 'private server detail' });
+  component.searchKPIs();
+  await vi.waitFor(() => expect(facade.reportError()).toContain('sesión'));
+  fixture.detectChanges();
+  expect(fixture.nativeElement.querySelector('[aria-labelledby="report-title"] [role="alert"]')?.textContent).toContain('Inicia sesión');
+  expect(fixture.nativeElement.textContent).not.toContain('private server detail');
+
+  component.searchKPIs();
+  await vi.waitFor(() => expect(facade.kpis()).not.toBeNull());
+  expect(facade.reportError()).toBe('');
+
+  api.audit.mockRejectedValueOnce({ status: 403, message: 'private permission detail' });
+  component.searchAudit();
+  await vi.waitFor(() => expect(facade.auditError()).toContain('permisos se revalidaron'));
+  expect(facade.error()).toBe('');
+  fixture.detectChanges();
+  expect(fixture.nativeElement.querySelector('h2 + [role="alert"]')?.textContent).toContain('auditoría');
+  expect(fixture.nativeElement.textContent).not.toContain('private permission detail');
+
+  component.auditFrom.setValue('2026-10-08T00:00');
+  component.auditUntil.setValue('2026-10-15T00:00');
+  component.searchAudit();
+  await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
+  expect(facade.auditError()).toBe('');
+
+  api.exportAudit.mockRejectedValueOnce(new Error('private export details'));
+  await component.downloadAudit('csv');
+  fixture.detectChanges();
+  expect(facade.exportError()).toContain('No se pudo exportar');
+  expect(fixture.nativeElement.textContent).toContain('Reintenta con el mismo corte');
+  expect(fixture.nativeElement.textContent).not.toContain('private export details');
+
+  await component.downloadAudit('csv');
+  expect(facade.exportError()).toBe('');
+});
+
+it('does not publish an export denial after its audit session changes', async () => {
+  const { identity, api, component, facade } = await setup();
+  component.showTab('reports');
+  component.searchAudit();
+  await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
+  let fail!: (error: unknown) => void;
+  api.exportAudit.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+  const filters = { ...component.appliedAudit()!, snapshot_cutoff: overview.generated_at };
+  const pending = facade.exportAudit(filters, 'csv');
+  await identity.signOut();
+  fail({ status: 403 });
+  expect(await pending).toBeNull();
+  expect(facade.exportError()).toBe('');
+});
+
+it('shows a current export 403 in reports and permits retry after reloading the audit page', async () => {
+  const { api, component, fixture, facade } = await setup();
+  component.showTab('reports');
+  component.searchAudit();
+  await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
+  api.exportAudit.mockRejectedValueOnce({ status: 403, message: 'private denial detail' });
+
+  await component.downloadAudit('json');
+  fixture.detectChanges();
+  expect(facade.exportError()).toContain('acceso a la exportación fue rechazado');
+  expect(fixture.nativeElement.textContent).not.toContain('private denial detail');
+  expect(fixture.nativeElement.textContent).toContain('reintenta con el mismo corte');
+
+  component.auditFrom.setValue('2026-10-08T00:00');
+  component.auditUntil.setValue('2026-10-15T00:00');
+  component.searchAudit();
+  await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
+  await component.downloadAudit('json');
+  expect(facade.exportError()).toBe('');
 });

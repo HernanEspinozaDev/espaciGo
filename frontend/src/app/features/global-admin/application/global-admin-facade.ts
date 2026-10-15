@@ -43,6 +43,9 @@ export class GlobalAdminFacade {
   private scheduleRevision = 0;
   private reportRevision = 0;
   private auditRevision = 0;
+  private reportFeedbackRevision = 0;
+  private auditFeedbackRevision = 0;
+  private exportFeedbackRevision = 0;
   private identityContext = '';
   private unregisterPrivateState: (() => void) | null = null;
 
@@ -67,6 +70,9 @@ export class GlobalAdminFacade {
   readonly auditPage = signal<AuditPage|null>(null);
   readonly loadingReport = signal(false);
   readonly loadingAudit = signal(false);
+  readonly reportError = signal('');
+  readonly auditError = signal('');
+  readonly exportError = signal('');
 
   constructor() {
     this.meta.addTag({ name: 'robots', content: 'noindex, nofollow' });
@@ -213,9 +219,56 @@ export class GlobalAdminFacade {
 
   async loadPublications(filters:DirectoryCriteria,cursor=''):Promise<void>{const context=this.currentContext(),revision=++this.publicationRevision;this.publications.set(null);if(!context||!this.identity.session()?.capabilities?.includes('publications.list'))return;this.loadingPublications.set(true);this.error.set('');try{const page=await this.api.listPublications(context.token,{...filters,page_size:25,cursor:cursor||undefined});if(revision===this.publicationRevision&&this.hasCurrentContext(context))this.publications.set(page);}catch(error){if(revision===this.publicationRevision&&this.hasCurrentContext(context)){if(statusOf(error)===403)await this.revalidateDeniedRequest(context,'Go rechazó el inventario y se revalidaron tus permisos.');else this.error.set(messageOf(error));}}finally{if(revision===this.publicationRevision&&this.hasCurrentContext(context))this.loadingPublications.set(false);}}
 
-  async loadKPIs(period:{from:string;until:string;time_zone:string}):Promise<void>{const context=this.currentContext(),rev=++this.reportRevision;this.kpis.set(null);if(!context||!this.identity.session()?.capabilities?.includes('kpi.read'))return;this.loadingReport.set(true);try{const result=await this.api.kpis(context.token,period);if(rev===this.reportRevision&&this.hasCurrentContext(context))this.kpis.set(result);}catch(e){if(rev===this.reportRevision&&this.hasCurrentContext(context)){if(statusOf(e)===403)await this.revalidateDeniedRequest(context,'Go rechazó el reporte y se revalidaron tus permisos.');else this.error.set(messageOf(e));}}finally{if(rev===this.reportRevision&&this.hasCurrentContext(context))this.loadingReport.set(false);}}
-  async loadAudit(filters:AuditFilter):Promise<void>{const context=this.currentContext(),rev=++this.auditRevision;this.auditPage.set(null);if(!context||!this.identity.session()?.capabilities?.includes('audit.read'))return;this.loadingAudit.set(true);try{const result=await this.api.audit(context.token,filters);if(rev===this.auditRevision&&this.hasCurrentContext(context))this.auditPage.set(result);}catch(e){if(rev===this.auditRevision&&this.hasCurrentContext(context)){if(statusOf(e)===403)await this.revalidateDeniedRequest(context,'Go rechazó la consulta de auditoría y se revalidaron tus permisos.');else this.error.set(messageOf(e));}}finally{if(rev===this.auditRevision&&this.hasCurrentContext(context))this.loadingAudit.set(false);}}
-  async exportAudit(filters:AuditFilter,format:'json'|'csv'):Promise<{blob:Blob;revision:number}|null>{const context=this.currentContext(),revision=++this.auditRevision;if(!context||!this.identity.session()?.capabilities?.includes('audit.export'))return null;try{const blob=await this.api.exportAudit(context.token,filters,format);return revision===this.auditRevision&&this.hasCurrentContext(context)?{blob,revision}:null;}catch(e){if(revision===this.auditRevision&&this.hasCurrentContext(context)){if(statusOf(e)===403)await this.revalidateDeniedRequest(context,'Go rechazó la exportación y se revalidaron tus permisos.');else this.error.set(messageOf(e));}return null;}}
+  async loadKPIs(period:{from:string;until:string;time_zone:string}):Promise<void>{
+    const context=this.currentContext(),rev=++this.reportRevision,feedbackRev=++this.reportFeedbackRevision;
+    this.kpis.set(null);this.reportError.set('');
+    if(!context||!this.identity.session()?.capabilities?.includes('kpi.read'))return;
+    this.loadingReport.set(true);
+    try{
+      const result=await this.api.kpis(context.token,period);
+      if(rev===this.reportRevision&&this.hasCurrentContext(context))this.kpis.set(result);
+    }catch(e){
+      if(rev!==this.reportRevision||!this.hasCurrentContext(context))return;
+      if(statusOf(e)===403){
+        const current=await this.revalidateDeniedRequest(context,'Go rechazó el reporte y se revalidaron tus permisos.',false);
+        if(current&&feedbackRev===this.reportFeedbackRevision)this.reportError.set('El acceso a indicadores fue rechazado. La sesión y los permisos se revalidaron; reintenta si mantienes acceso o ajusta el período.');
+      }else this.reportError.set(statusOf(e)===401?'La sesión no autorizó la consulta de indicadores. Inicia sesión de nuevo y vuelve a intentarlo.':'No se pudieron cargar los indicadores. Reintenta o revisa el período y la zona horaria.');
+    }finally{if(rev===this.reportRevision&&this.hasCurrentContext(context))this.loadingReport.set(false);}
+  }
+  async loadAudit(filters:AuditFilter):Promise<void>{
+    const context=this.currentContext(),rev=++this.auditRevision,feedbackRev=++this.auditFeedbackRevision;
+    ++this.exportFeedbackRevision;
+    this.auditPage.set(null);this.auditError.set('');this.exportError.set('');
+    if(!context||!this.identity.session()?.capabilities?.includes('audit.read'))return;
+    this.loadingAudit.set(true);
+    try{
+      const result=await this.api.audit(context.token,filters);
+      if(rev===this.auditRevision&&this.hasCurrentContext(context))this.auditPage.set(result);
+    }catch(e){
+      if(rev!==this.auditRevision||!this.hasCurrentContext(context))return;
+      if(statusOf(e)===403){
+        const current=await this.revalidateDeniedRequest(context,'Go rechazó la consulta de auditoría y se revalidaron tus permisos.',false);
+        if(current&&feedbackRev===this.auditFeedbackRevision)this.auditError.set('El acceso a la auditoría fue rechazado. La sesión y los permisos se revalidaron; reintenta si mantienes acceso o corrige los filtros.');
+      }else this.auditError.set(statusOf(e)===401?'La sesión no autorizó la consulta de auditoría. Inicia sesión de nuevo y vuelve a intentarlo.':'No se pudo cargar la auditoría. Reintenta o revisa los filtros y el período.');
+    }finally{if(rev===this.auditRevision&&this.hasCurrentContext(context))this.loadingAudit.set(false);}
+  }
+  async exportAudit(filters:AuditFilter,format:'json'|'csv'):Promise<{blob:Blob;revision:number}|null>{
+    const context=this.currentContext(),revision=++this.auditRevision,feedbackRev=++this.exportFeedbackRevision;
+    ++this.auditFeedbackRevision;
+    this.exportError.set('');
+    if(!context||!this.identity.session()?.capabilities?.includes('audit.export'))return null;
+    try{
+      const blob=await this.api.exportAudit(context.token,filters,format);
+      return revision===this.auditRevision&&this.hasCurrentContext(context)?{blob,revision}:null;
+    }catch(e){
+      if(revision!==this.auditRevision||!this.hasCurrentContext(context))return null;
+      if(statusOf(e)===403){
+        const current=await this.revalidateDeniedRequest(context,'Go rechazó la exportación y se revalidaron tus permisos.',false);
+        if(current&&feedbackRev===this.exportFeedbackRevision)this.exportError.set('El acceso a la exportación fue rechazado. La sesión y los permisos se revalidaron; reintenta con el mismo corte si mantienes ese permiso.');
+      }else this.exportError.set(statusOf(e)===401?'La sesión no autorizó la exportación. Inicia sesión de nuevo y vuelve a intentarlo.':'No se pudo exportar la auditoría. Reintenta con el mismo corte o corrige los filtros.');
+      return null;
+    }
+  }
 
   async setPublicationState(id: string, input: PublicationStateUpdate): Promise<MutationResult> {
     const operation = this.beginMutation();
@@ -482,7 +535,7 @@ export class GlobalAdminFacade {
     this.publicationSchedule.set(null);
   }
 
-  private async revalidateDeniedRequest(context: RequestContext, message: string): Promise<void> {
+  private async revalidateDeniedRequest(context: RequestContext, message: string, publishGlobalError = true): Promise<boolean> {
     this.invalidate();
     try {
       await this.identity.refreshSessionIfCurrent(context.token);
@@ -491,8 +544,10 @@ export class GlobalAdminFacade {
     }
     const current = this.currentContext();
     if (current?.token === context.token && current.accountId === context.accountId) {
-      this.error.set(message);
+      if (publishGlobalError) this.error.set(message);
+      return current.privateGeneration === context.privateGeneration;
     }
+    return false;
   }
 
   private invalidate(): void {
@@ -515,6 +570,7 @@ export class GlobalAdminFacade {
     this.loadingPublications.set(false);
     this.loadingDirectory.set(false);
     this.loadingReport.set(false);this.loadingAudit.set(false);
+    this.reportError.set('');this.auditError.set('');this.exportError.set('');
     this.loadingDetail.set(false);
     this.error.set('');
   }
