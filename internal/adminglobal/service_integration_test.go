@@ -2,6 +2,8 @@ package adminglobal_test
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -156,6 +158,109 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	}
 	if recoverySuccess != 1 || recoveryReject != 1 {
 		t.Fatalf("recover audit counts success=%d rejection=%d; want 1/1", recoverySuccess, recoveryReject)
+	}
+	overprivileged, err := pgx.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = overprivileged.Exec(ctx, "SET ROLE "+pgx.Identifier{adminglobal.RestrictedLocalBootstrapRole}.Sanitize()); err != nil {
+		overprivileged.Close(ctx)
+		t.Fatal(err)
+	}
+	if err = adminglobal.ValidateRestrictedLocalBootstrapConnection(ctx, overprivileged); !errors.Is(err, adminglobal.ErrForbidden) {
+		overprivileged.Close(ctx)
+		t.Fatalf("restricted role guard accepted an overprivileged login: %v", err)
+	}
+	if err = overprivileged.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Exercise the production least-privilege connection contract using a
+	// short-lived login in this disposable database only.
+	roleSuffix := make([]byte, 6)
+	if _, err := rand.Read(roleSuffix); err != nil {
+		t.Fatal(err)
+	}
+	loginRole := "gadm_activation_" + hex.EncodeToString(roleSuffix)
+	loginPasswordBytes := make([]byte, 24)
+	if _, err := rand.Read(loginPasswordBytes); err != nil {
+		t.Fatal(err)
+	}
+	loginPassword := hex.EncodeToString(loginPasswordBytes)
+	if _, err := admin.Exec(ctx, "CREATE ROLE "+pgx.Identifier{loginRole}.Sanitize()+" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD '"+loginPassword+"'"); err != nil {
+		t.Fatal(err)
+	}
+	var restricted *pgxpool.Pool
+	defer func() {
+		if restricted != nil {
+			restricted.Close()
+		}
+		_, _ = admin.Exec(context.Background(), "REVOKE espacigo_gadm_bootstrap FROM "+pgx.Identifier{loginRole}.Sanitize())
+		_, _ = admin.Exec(context.Background(), "DROP ROLE IF EXISTS "+pgx.Identifier{loginRole}.Sanitize())
+	}()
+	if _, err := admin.Exec(ctx, "GRANT espacigo_gadm_bootstrap TO "+pgx.Identifier{loginRole}.Sanitize()+" WITH INHERIT FALSE, SET TRUE, ADMIN FALSE"); err != nil {
+		t.Fatal(err)
+	}
+	loginURL, err := url.Parse(u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginURL.User = url.UserPassword(loginRole, loginPassword)
+	loginCfg, err := pgxpool.ParseConfig(loginURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginCfg.AfterConnect = adminglobal.SetRestrictedLocalBootstrapRole
+	restricted, err = pgxpool.NewWithConfig(ctx, loginCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restricted.Ping(ctx); err != nil {
+		restricted.Close()
+		t.Fatalf("restricted connection rejected: %v", err)
+	}
+	if err = adminglobal.Bootstrap(ctx, restricted, master, "bootstrap", corr); err != nil {
+		restricted.Close()
+		t.Fatalf("restricted same-target bootstrap was rejected: %v", err)
+	}
+	for _, deniedSQL := range []string{
+		"SELECT hash_clave FROM public.usuario LIMIT 1",
+		"UPDATE public.usuario SET estado='bloqueado' WHERE id='" + master + "'",
+		"UPDATE public.usuario SET id='00000000-0000-4000-8000-000000000099' WHERE id='" + master + "'",
+		"DELETE FROM public.administrador_global_bootstrap",
+		"TRUNCATE public.administrador_global_bootstrap_evento",
+		"SELECT * FROM public.reserva LIMIT 1",
+	} {
+		if _, deniedErr := restricted.Exec(ctx, deniedSQL); deniedErr == nil {
+			restricted.Close()
+			t.Errorf("restricted role unexpectedly allowed %s", deniedSQL)
+		}
+	}
+	// The admin connection performs fixture repair, while the activation
+	// operation itself is still executed as the restricted CLI role.
+	if _, err = pool.Exec(ctx, `DELETE FROM public.administrador_global WHERE usuario_id=$1`, master); err != nil {
+		restricted.Close()
+		t.Fatal(err)
+	}
+	if err = adminglobal.Bootstrap(ctx, restricted, master, "recover", corr); err != nil {
+		restricted.Close()
+		t.Fatalf("restricted recovery failed: %v", err)
+	}
+	if err = adminglobal.Bootstrap(ctx, restricted, loser, "recover", corr); err == nil {
+		restricted.Close()
+		t.Fatal("restricted recovery accepted a different UUID")
+	}
+	restricted.Close()
+	if _, err = admin.Exec(ctx, "REVOKE espacigo_gadm_bootstrap FROM "+pgx.Identifier{loginRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = admin.Exec(ctx, "DROP ROLE "+pgx.Identifier{loginRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	var loginStillExists, membershipStillExists bool
+	if err = admin.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=$1),
+		EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid JOIN pg_catalog.pg_roles member ON member.oid=m.member
+		WHERE r.rolname='espacigo_gadm_bootstrap' AND member.rolname=$1)`, loginRole).Scan(&loginStillExists, &membershipStillExists); err != nil || loginStillExists || membershipStillExists {
+		t.Fatalf("temporary role cleanup failed: exists=%v membership=%v err=%v", loginStillExists, membershipStillExists, err)
 	}
 	var rejected int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.administrador_global_bootstrap_evento WHERE resultado='rechazo'`).Scan(&rejected); err != nil || rejected < 3 {

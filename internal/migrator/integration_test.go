@@ -62,17 +62,24 @@ func TestGADM03MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) < 59 || migrations[len(migrations)-1].Version != 59 {
-		t.Fatalf("expected V59 as latest migration, got %d migrations", len(migrations))
+	if len(migrations) < 60 || migrations[58].Version != 59 || migrations[59].Version != 60 {
+		t.Fatalf("expected V60 after V59, got %d migrations", len(migrations))
 	}
+	migrations = migrations[:59]
 	latest := migrations[len(migrations)-1]
 	if latest.Name != "V000059__gadm_03_audit_scope_and_query_indexes.sql" {
 		t.Fatalf("unexpected latest migration %q", latest.Name)
 	}
+	v59Dir := t.TempDir()
+	for _, migration := range migrations {
+		if err := os.WriteFile(filepath.Join(v59Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	t.Run("fresh base", func(t *testing.T) {
 		withTestDatabase(t, func(ctx context.Context, databaseURL string) {
-			result, err := Run(ctx, databaseURL, sourceDir)
+			result, err := Run(ctx, databaseURL, v59Dir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -136,7 +143,7 @@ func TestGADM03MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T)
 			if err := conn.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			result, err = Run(ctx, databaseURL, sourceDir)
+			result, err = Run(ctx, databaseURL, v59Dir)
 			if err != nil || len(result.Applied) != 3 || result.Applied[0] != 57 || result.Applied[1] != 58 || result.Applied[2] != 59 {
 				t.Fatalf("upgrade from V56: %v %v", result.Applied, err)
 			}
@@ -195,7 +202,7 @@ func TestGADM03MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T)
 				before[version] = checksum
 			}
 			rows.Close()
-			result, err := Run(ctx, databaseURL, sourceDir)
+			result, err := Run(ctx, databaseURL, v59Dir)
 			if err != nil || len(result.Applied) != 1 || result.Applied[0] != 59 {
 				t.Fatalf("upgrade from V58: %v %v", result.Applied, err)
 			}
@@ -220,6 +227,115 @@ func TestGADM03MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T)
 				t.Fatalf("preserved migration rows=%d, want 59", count)
 			}
 		})
+	})
+}
+
+func TestGADM04RestrictedBootstrapRoleMigrationFromV59(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve migration source path")
+	}
+	sourceDir := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "db", "migrations"))
+	migrations, err := DiscoverMigrations(sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrations) != 60 || migrations[59].Name != "V000060__gadm_local_bootstrap_restricted_role.sql" {
+		t.Fatalf("unexpected latest migration: count=%d latest=%q", len(migrations), migrations[len(migrations)-1].Name)
+	}
+	v59Dir := t.TempDir()
+	for _, migration := range migrations[:59] {
+		if err := os.WriteFile(filepath.Join(v59Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		if result, err := Run(ctx, databaseURL, v59Dir); err != nil || len(result.Applied) != 59 || result.Applied[58] != 59 {
+			t.Fatalf("apply V1-V59: applied=%v err=%v", result.Applied, err)
+		}
+		conn := connectTestDB(t, ctx, databaseURL)
+		defer conn.Close(ctx)
+		var before string
+		if err := conn.QueryRow(ctx, `SELECT string_agg(version::text||':'||checksum, ',' ORDER BY version) FROM public.schema_migrations`).Scan(&before); err != nil {
+			t.Fatal(err)
+		}
+		result, err := Run(ctx, databaseURL, sourceDir)
+		if err != nil || len(result.Applied) != 1 || result.Applied[0] != 60 {
+			t.Fatalf("upgrade V59 to V60: applied=%v err=%v", result.Applied, err)
+		}
+		var after string
+		if err := conn.QueryRow(ctx, `SELECT string_agg(version::text||':'||checksum, ',' ORDER BY version) FROM public.schema_migrations WHERE version<60`).Scan(&after); err != nil {
+			t.Fatal(err)
+		}
+		if before != after {
+			t.Fatal("V60 changed an applied V1-V59 migration checksum or history row")
+		}
+		var canLogin, super, createDB, createRole, replication, bypassRLS, inherit bool
+		if err := conn.QueryRow(ctx, `SELECT rolcanlogin,rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls,rolinherit
+			FROM pg_catalog.pg_roles WHERE rolname='espacigo_gadm_bootstrap'`).Scan(&canLogin, &super, &createDB, &createRole, &replication, &bypassRLS, &inherit); err != nil {
+			t.Fatal(err)
+		}
+		if canLogin || super || createDB || createRole || replication || bypassRLS || inherit {
+			t.Fatalf("bootstrap group has unsafe role attributes: login=%v super=%v createdb=%v createrole=%v replication=%v bypassrls=%v inherit=%v", canLogin, super, createDB, createRole, replication, bypassRLS, inherit)
+		}
+		var memberships int
+		if err := conn.QueryRow(ctx, `SELECT count(*) FROM pg_catalog.pg_auth_members m
+			JOIN pg_catalog.pg_roles r ON r.oid=m.roleid JOIN pg_catalog.pg_roles member ON member.oid=m.member
+			WHERE r.rolname='espacigo_gadm_bootstrap' OR member.rolname='espacigo_gadm_bootstrap'`).Scan(&memberships); err != nil {
+			t.Fatal(err)
+		}
+		if memberships != 0 {
+			t.Fatalf("bootstrap group starts with %d role memberships", memberships)
+		}
+		var connect, noCreateDB, schemaUsage, noSchemaCreate bool
+		if err := conn.QueryRow(ctx, `SELECT has_database_privilege('espacigo_gadm_bootstrap',current_database(),'CONNECT'),
+			NOT has_database_privilege('espacigo_gadm_bootstrap',current_database(),'CREATE'),
+			has_schema_privilege('espacigo_gadm_bootstrap','public','USAGE'),
+			NOT has_schema_privilege('espacigo_gadm_bootstrap','public','CREATE')`).Scan(&connect, &noCreateDB, &schemaUsage, &noSchemaCreate); err != nil {
+			t.Fatal(err)
+		}
+		if !connect || !noCreateDB || !schemaUsage || !noSchemaCreate {
+			t.Fatalf("bootstrap group database/schema ACLs are too broad or incomplete: connect=%v noCreateDB=%v usage=%v noCreate=%v", connect, noCreateDB, schemaUsage, noSchemaCreate)
+		}
+		rows, err := conn.Query(ctx, `SELECT table_name,column_name,privilege_type FROM information_schema.column_privileges
+			WHERE grantee='espacigo_gadm_bootstrap' ORDER BY table_name,column_name,privilege_type`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]bool{}
+		for rows.Next() {
+			var table, column, privilege string
+			if err := rows.Scan(&table, &column, &privilege); err != nil {
+				rows.Close()
+				t.Fatal(err)
+			}
+			got[table+"."+column+":"+privilege] = true
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		rows.Close()
+		want := []string{
+			"usuario.id:SELECT", "usuario.estado:SELECT", "usuario.bloqueado_hasta:SELECT", "usuario.id:UPDATE",
+			"bloqueo_cuenta_administrativo_local.cuenta_id:SELECT",
+			"administrador_global_bootstrap.singleton:SELECT", "administrador_global_bootstrap.usuario_id:SELECT", "administrador_global_bootstrap.singleton:UPDATE",
+			"administrador_global_bootstrap.singleton:INSERT", "administrador_global_bootstrap.usuario_id:INSERT", "administrador_global_bootstrap.creado_en:INSERT",
+			"administrador_global.usuario_id:INSERT", "administrador_global.concedido_en:INSERT", "administrador_global.motivo_codigo:INSERT",
+			"administrador_global.usuario_id:SELECT",
+			"administrador_global_bootstrap_evento.id:INSERT", "administrador_global_bootstrap_evento.usuario_objetivo_id:INSERT",
+			"administrador_global_bootstrap_evento.actor_tipo:INSERT", "administrador_global_bootstrap_evento.accion:INSERT",
+			"administrador_global_bootstrap_evento.resultado:INSERT", "administrador_global_bootstrap_evento.motivo_codigo:INSERT",
+			"administrador_global_bootstrap_evento.correlacion_id:INSERT", "administrador_global_bootstrap_evento.ocurrida_en:INSERT",
+		}
+		if len(got) != len(want) {
+			t.Fatalf("bootstrap group column grants=%d, want exact allowlist of %d", len(got), len(want))
+		}
+		for _, privilege := range want {
+			if !got[privilege] {
+				t.Errorf("required or unexpected bootstrap column privilege missing: %s", privilege)
+			}
+		}
 	})
 }
 

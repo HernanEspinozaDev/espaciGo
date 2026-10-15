@@ -93,11 +93,21 @@ func run(args []string) error {
 	if err != nil {
 		return errors.New("invalid local test database config")
 	}
+	if command == "activate-local" {
+		cfg.AfterConnect = adminglobal.SetRestrictedLocalBootstrapRole
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return errors.New("unable to connect to local test database")
 	}
 	defer pool.Close()
+	if command == "activate-local" {
+		connection, acquireErr := pool.Acquire(ctx)
+		if acquireErr != nil {
+			return errors.New("activate-local requires a temporary login with only the restricted GADM bootstrap role")
+		}
+		connection.Release()
+	}
 	var actual string
 	var serverAddress, clientAddress net.IP
 	if err = pool.QueryRow(ctx, "SELECT current_database(), inet_server_addr(), inet_client_addr()").Scan(&actual, &serverAddress, &clientAddress); err != nil || actual != dbName {

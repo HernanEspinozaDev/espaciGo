@@ -408,7 +408,28 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if historyBeforeUpgrade[53].Version != 54 {
 		t.Fatalf("V54 baseline ended at version %d", historyBeforeUpgrade[53].Version)
 	}
-	upgradeResult, err := migrator.Run(ctx, upgradeURL.String(), "../../../../db/migrations")
+	v59Dir := t.TempDir()
+	for _, file := range migrationFiles {
+		if file.IsDir() || !strings.HasPrefix(file.Name(), "V") {
+			continue
+		}
+		versionText := strings.SplitN(strings.TrimPrefix(file.Name(), "V"), "__", 2)[0]
+		version, parseErr := strconv.ParseInt(versionText, 10, 64)
+		if parseErr != nil {
+			t.Fatalf("parse migration version from %s: %v", file.Name(), parseErr)
+		}
+		if version > 59 {
+			continue
+		}
+		source, pathErr := filepath.Abs(filepath.Join("../../../../db/migrations", file.Name()))
+		if pathErr != nil {
+			t.Fatal(pathErr)
+		}
+		if linkErr := os.Symlink(source, filepath.Join(v59Dir, file.Name())); linkErr != nil {
+			t.Fatal(linkErr)
+		}
+	}
+	upgradeResult, err := migrator.Run(ctx, upgradeURL.String(), v59Dir)
 	if err != nil || !reflect.DeepEqual(upgradeResult.Applied, []int64{55, 56, 57, 58, 59}) {
 		t.Fatalf("V54 upgrade applied=%v err=%v; want V55–V59", upgradeResult.Applied, err)
 	}
