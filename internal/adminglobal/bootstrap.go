@@ -109,6 +109,9 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool, target, action, correlat
 	} else if err != nil && err != pgx.ErrNoRows {
 		return err
 	}
+	if err != nil && !errors.Is(err, ErrForbidden) {
+		return err
+	}
 	if action == "recuperacion" && bound == "" {
 		reason = "sin_bootstrap_registrado"
 	}

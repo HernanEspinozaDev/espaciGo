@@ -2,6 +2,8 @@ package adminglobal_test
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -156,6 +158,109 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	}
 	if recoverySuccess != 1 || recoveryReject != 1 {
 		t.Fatalf("recover audit counts success=%d rejection=%d; want 1/1", recoverySuccess, recoveryReject)
+	}
+	overprivileged, err := pgx.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = overprivileged.Exec(ctx, "SET ROLE "+pgx.Identifier{adminglobal.RestrictedLocalBootstrapRole}.Sanitize()); err != nil {
+		overprivileged.Close(ctx)
+		t.Fatal(err)
+	}
+	if err = adminglobal.ValidateRestrictedLocalBootstrapConnection(ctx, overprivileged); !errors.Is(err, adminglobal.ErrForbidden) {
+		overprivileged.Close(ctx)
+		t.Fatalf("restricted role guard accepted an overprivileged login: %v", err)
+	}
+	if err = overprivileged.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Exercise the production least-privilege connection contract using a
+	// short-lived login in this disposable database only.
+	roleSuffix := make([]byte, 6)
+	if _, err := rand.Read(roleSuffix); err != nil {
+		t.Fatal(err)
+	}
+	loginRole := "gadm_activation_" + hex.EncodeToString(roleSuffix)
+	loginPasswordBytes := make([]byte, 24)
+	if _, err := rand.Read(loginPasswordBytes); err != nil {
+		t.Fatal(err)
+	}
+	loginPassword := hex.EncodeToString(loginPasswordBytes)
+	if _, err := admin.Exec(ctx, "CREATE ROLE "+pgx.Identifier{loginRole}.Sanitize()+" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD '"+loginPassword+"'"); err != nil {
+		t.Fatal(err)
+	}
+	var restricted *pgxpool.Pool
+	defer func() {
+		if restricted != nil {
+			restricted.Close()
+		}
+		_, _ = admin.Exec(context.Background(), "REVOKE espacigo_gadm_bootstrap FROM "+pgx.Identifier{loginRole}.Sanitize())
+		_, _ = admin.Exec(context.Background(), "DROP ROLE IF EXISTS "+pgx.Identifier{loginRole}.Sanitize())
+	}()
+	if _, err := admin.Exec(ctx, "GRANT espacigo_gadm_bootstrap TO "+pgx.Identifier{loginRole}.Sanitize()+" WITH INHERIT FALSE, SET TRUE, ADMIN FALSE"); err != nil {
+		t.Fatal(err)
+	}
+	loginURL, err := url.Parse(u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginURL.User = url.UserPassword(loginRole, loginPassword)
+	loginCfg, err := pgxpool.ParseConfig(loginURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginCfg.AfterConnect = adminglobal.SetRestrictedLocalBootstrapRole
+	restricted, err = pgxpool.NewWithConfig(ctx, loginCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restricted.Ping(ctx); err != nil {
+		restricted.Close()
+		t.Fatalf("restricted connection rejected: %v", err)
+	}
+	if err = adminglobal.Bootstrap(ctx, restricted, master, "bootstrap", corr); err != nil {
+		restricted.Close()
+		t.Fatalf("restricted same-target bootstrap was rejected: %v", err)
+	}
+	for _, deniedSQL := range []string{
+		"SELECT hash_clave FROM public.usuario LIMIT 1",
+		"UPDATE public.usuario SET estado='bloqueado' WHERE id='" + master + "'",
+		"UPDATE public.usuario SET id='00000000-0000-4000-8000-000000000099' WHERE id='" + master + "'",
+		"DELETE FROM public.administrador_global_bootstrap",
+		"TRUNCATE public.administrador_global_bootstrap_evento",
+		"SELECT * FROM public.reserva LIMIT 1",
+	} {
+		if _, deniedErr := restricted.Exec(ctx, deniedSQL); deniedErr == nil {
+			restricted.Close()
+			t.Errorf("restricted role unexpectedly allowed %s", deniedSQL)
+		}
+	}
+	// The admin connection performs fixture repair, while the activation
+	// operation itself is still executed as the restricted CLI role.
+	if _, err = pool.Exec(ctx, `DELETE FROM public.administrador_global WHERE usuario_id=$1`, master); err != nil {
+		restricted.Close()
+		t.Fatal(err)
+	}
+	if err = adminglobal.Bootstrap(ctx, restricted, master, "recover", corr); err != nil {
+		restricted.Close()
+		t.Fatalf("restricted recovery failed: %v", err)
+	}
+	if err = adminglobal.Bootstrap(ctx, restricted, loser, "recover", corr); err == nil {
+		restricted.Close()
+		t.Fatal("restricted recovery accepted a different UUID")
+	}
+	restricted.Close()
+	if _, err = admin.Exec(ctx, "REVOKE espacigo_gadm_bootstrap FROM "+pgx.Identifier{loginRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = admin.Exec(ctx, "DROP ROLE "+pgx.Identifier{loginRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	var loginStillExists, membershipStillExists bool
+	if err = admin.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=$1),
+		EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid JOIN pg_catalog.pg_roles member ON member.oid=m.member
+		WHERE r.rolname='espacigo_gadm_bootstrap' AND member.rolname=$1)`, loginRole).Scan(&loginStillExists, &membershipStillExists); err != nil || loginStillExists || membershipStillExists {
+		t.Fatalf("temporary role cleanup failed: exists=%v membership=%v err=%v", loginStillExists, membershipStillExists, err)
 	}
 	var rejected int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.administrador_global_bootstrap_evento WHERE resultado='rechazo'`).Scan(&rejected); err != nil || rejected < 3 {
@@ -784,6 +889,143 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	var active int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.administrador_global g JOIN public.usuario u ON u.id=g.usuario_id WHERE u.estado='activo' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)`).Scan(&active); err != nil || active != 1 {
 		t.Fatalf("global admins after concurrent blocks=%d err=%v", active, err)
+	}
+}
+
+func TestRestrictedActivationRejectsDirectLoginPrivilegesAndOwnership(t *testing.T) {
+	adminURL := os.Getenv("TEST_DATABASE_URL")
+	if adminURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set; needs a disposable PostgreSQL 18/PostGIS 3.6 instance")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin, err := pgx.Connect(ctx, adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close(context.Background())
+	dbName := fmt.Sprintf("espacigo_gadm01_%08x", uint32(time.Now().UnixNano()))
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{dbName}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, err := admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+pgx.Identifier{dbName}.Sanitize()); err != nil {
+			t.Errorf("drop isolated database: %v", err)
+		}
+	}()
+	databaseURL, err := url.Parse(adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	databaseURL.Path = "/" + dbName
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve migration source directory")
+	}
+	migrationDir := filepath.Clean(filepath.Join(filepath.Dir(source), "..", "..", "db", "migrations"))
+	if _, err = migrator.Run(ctx, databaseURL.String(), migrationDir); err != nil {
+		t.Fatal(err)
+	}
+	adminDB, err := pgx.Connect(ctx, databaseURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer adminDB.Close(context.Background())
+	const initialID = "00000000-0000-4000-8000-000000000031"
+	const differentID = "00000000-0000-4000-8000-000000000032"
+	const correlationID = "10000000-0000-4000-8000-000000000031"
+	if _, err = adminDB.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado)
+		VALUES($1,'restricted@example.invalid','restricted@example.invalid','synthetic','activo')`, initialID); err != nil {
+		t.Fatal(err)
+	}
+	roleSuffix := make([]byte, 6)
+	if _, err = rand.Read(roleSuffix); err != nil {
+		t.Fatal(err)
+	}
+	loginRole := "gadm_activation_" + hex.EncodeToString(roleSuffix)
+	loginPasswordBytes := make([]byte, 24)
+	if _, err = rand.Read(loginPasswordBytes); err != nil {
+		t.Fatal(err)
+	}
+	loginPassword := hex.EncodeToString(loginPasswordBytes)
+	if _, err = admin.Exec(ctx, "CREATE ROLE "+pgx.Identifier{loginRole}.Sanitize()+" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD '"+loginPassword+"'"); err != nil {
+		t.Fatal(err)
+	}
+	var restricted *pgxpool.Pool
+	defer func() {
+		if restricted != nil {
+			restricted.Close()
+		}
+		_, _ = adminDB.Exec(context.Background(), "ALTER TABLE IF EXISTS public.gadm_session_owner_probe OWNER TO postgres")
+		_, _ = adminDB.Exec(context.Background(), "DROP TABLE IF EXISTS public.gadm_session_owner_probe")
+		_, _ = adminDB.Exec(context.Background(), "REVOKE SELECT (hash_clave) ON public.usuario FROM "+pgx.Identifier{loginRole}.Sanitize())
+		_, _ = admin.Exec(context.Background(), "REVOKE espacigo_gadm_bootstrap FROM "+pgx.Identifier{loginRole}.Sanitize())
+		_, _ = admin.Exec(context.Background(), "DROP ROLE IF EXISTS "+pgx.Identifier{loginRole}.Sanitize())
+	}()
+	if _, err = admin.Exec(ctx, "GRANT espacigo_gadm_bootstrap TO "+pgx.Identifier{loginRole}.Sanitize()+" WITH INHERIT FALSE, SET TRUE, ADMIN FALSE"); err != nil {
+		t.Fatal(err)
+	}
+	openRestrictedPool := func() (*pgxpool.Pool, error) {
+		loginURL, parseErr := url.Parse(databaseURL.String())
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		loginURL.User = url.UserPassword(loginRole, loginPassword)
+		config, configErr := pgxpool.ParseConfig(loginURL.String())
+		if configErr != nil {
+			return nil, configErr
+		}
+		config.AfterConnect = adminglobal.SetRestrictedLocalBootstrapRole
+		return pgxpool.NewWithConfig(ctx, config)
+	}
+	restricted, err = openRestrictedPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restricted.Ping(ctx); err != nil {
+		t.Fatalf("clean restricted login was rejected: %v", err)
+	}
+	if err = adminglobal.Bootstrap(ctx, restricted, initialID, "bootstrap", correlationID); err != nil {
+		t.Fatalf("clean restricted login could not perform initial bootstrap: %v", err)
+	}
+	if _, err = adminDB.Exec(ctx, `DELETE FROM public.administrador_global WHERE usuario_id=$1`, initialID); err != nil {
+		t.Fatal(err)
+	}
+	if err = adminglobal.Bootstrap(ctx, restricted, initialID, "recover", correlationID); err != nil {
+		t.Fatalf("clean restricted login could not recover the anchored account: %v", err)
+	}
+	if err = adminglobal.Bootstrap(ctx, restricted, differentID, "recover", correlationID); err == nil {
+		t.Fatal("clean restricted login recovered a different account")
+	}
+	restricted.Close()
+	restricted = nil
+	if _, err = adminDB.Exec(ctx, "GRANT SELECT (hash_clave) ON public.usuario TO "+pgx.Identifier{loginRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	restricted, err = openRestrictedPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restricted.Ping(ctx); err == nil {
+		t.Fatal("login with a direct hash_clave grant passed restricted-role validation")
+	}
+	restricted.Close()
+	restricted = nil
+	if _, err = adminDB.Exec(ctx, "REVOKE SELECT (hash_clave) ON public.usuario FROM "+pgx.Identifier{loginRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminDB.Exec(ctx, `CREATE TABLE public.gadm_session_owner_probe(id integer)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminDB.Exec(ctx, "ALTER TABLE public.gadm_session_owner_probe OWNER TO "+pgx.Identifier{loginRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	restricted, err = openRestrictedPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restricted.Ping(ctx); err == nil {
+		t.Fatal("login that owns a database object passed restricted-role validation")
 	}
 }
 
