@@ -167,6 +167,16 @@ def choose_pilot_rows(rows: list[dict]) -> list[dict]:
     return chosen
 
 
+def select_scenarios(mode: str, assignments: list[dict]) -> list[dict]:
+    if mode == "pilot":
+        return choose_pilot_rows(assignments)
+    if mode == "import":
+        if len(assignments) != 1200:
+            raise RuntimeError("persistent scenario import requires all 1,200 manifest rows")
+        return assignments
+    raise RuntimeError("unknown scenario selection mode")
+
+
 def read_sources(dataset: Path, source_state: Path):
     if source_state.is_symlink():
         raise RuntimeError("source checkpoint cannot be a symlink")
@@ -178,13 +188,9 @@ def read_sources(dataset: Path, source_state: Path):
     assignments = read_jsonl(dataset / "para_la_ia/asignaciones/escenarios_planificados.jsonl")
     listings = read_jsonl(dataset / "para_la_ia/asignaciones/publicaciones_planificadas.jsonl")
     listing_map = {row["listing_ref"]: row for row in listings}
-    chosen = choose_pilot_rows(assignments)
-    for row in chosen:
-        if row["host_ref"] not in state["users"] or row["renter_ref"] not in state["users"]:
-            raise RuntimeError("the source checkpoint does not contain all pilot participants")
-        if row["listing_ref"] not in state["listings"] or listing_map[row["listing_ref"]]["intended_visibility"] != "publica":
-            raise RuntimeError("the source checkpoint does not contain the pilot public listing")
-    return state, chosen, listing_map
+    if len(assignments) != 1200 or len(listing_map) != 1200:
+        raise RuntimeError("scenario and listing manifests must contain all 1,200 assignments")
+    return state, assignments, listing_map
 
 
 class Runner:
@@ -316,6 +322,32 @@ class Runner:
                 return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
         raise RuntimeError("no compatible API availability interval was found in 80 days")
 
+    def create_reservation_from_intent(self, row: dict, record: dict, listing: dict, space_id: str, renter: str):
+        ref = row["scenario_ref"]
+        intent = record.get("reservation_intent")
+        if intent is None:
+            start, end = self.interval(row, listing, space_id, renter)
+            quote_result = self.call("POST", BASE + "/quotes", renter, {
+                "space_id": space_id,
+                "start_at": start.isoformat().replace("+00:00", "Z"),
+                "end_at": end.isoformat().replace("+00:00", "Z"),
+            }, expect=(200,))
+            quote = data(quote_result)
+            intent = {
+                "quote_id": quote["id"],
+                "idempotency_key": f"dataset-deal:{ref}:reservation",
+                "payload": {"quote_id": quote["id"]},
+            }
+            record["reservation_intent"] = intent
+            self.save()
+        if intent.get("idempotency_key") != f"dataset-deal:{ref}:reservation" or intent.get("payload") != {"quote_id": intent.get("quote_id")}:
+            raise RuntimeError("reservation intent checkpoint is invalid")
+        try:
+            result = self.call("POST", f"{BASE}/reservations", renter, intent["payload"], key=intent["idempotency_key"], expect=(201,))
+        except SafeHTTPError as error:
+            raise RuntimeError(f"scenario {ref} reservation rejected by API ({error.status}:{error.code})") from None
+        return data(result)
+
     def reserve_and_pay(self, row: dict, pending: bool = False):
         ref = row["scenario_ref"]
         record = self.state["scenarios"].setdefault(ref, {"scenario_code": row["scenario_code"], "listing_ref": row["listing_ref"]})
@@ -326,14 +358,7 @@ class Runner:
         listing = self.listing_map[row["listing_ref"]]
         space_id = self.source_state["listings"][row["listing_ref"]]["id"]
         if not record.get("reservation_id"):
-            start, end = self.interval(row, listing, space_id, renter)
-            quote_result = self.call("POST", BASE + "/quotes", renter, {"space_id": space_id, "start_at": start.isoformat().replace("+00:00", "Z"), "end_at": end.isoformat().replace("+00:00", "Z")}, expect=(200,))
-            quote = data(quote_result)
-            try:
-                reservation_result = self.call("POST", BASE + "/reservations", renter, {"quote_id": quote["id"]}, key=f"dataset-deal:{ref}:reservation", expect=(201,))
-            except SafeHTTPError as error:
-                raise RuntimeError(f"scenario {ref} reservation rejected by API ({error.status}:{error.code})") from None
-            reservation = data(reservation_result)
+            reservation = self.create_reservation_from_intent(row, record, listing, space_id, renter)
             record.update({"reservation_id": reservation["id"], "space_id": space_id, "start_at": reservation["start_at"], "end_at": reservation["end_at"], "time_zone": reservation["time_zone"]})
             self.save()
         if pending:
@@ -524,12 +549,18 @@ def main() -> int:
             raise RuntimeError("clock run ID must be 12 lowercase hexadecimal characters")
         api = API(validate_local_origin(args.api_base))
         source_state, all_rows, listing_map = read_sources(dataset, source_path)
-        rows = choose_pilot_rows(all_rows) if args.mode == "pilot" else all_rows
+        rows = select_scenarios(args.mode, all_rows)
         if args.mode == "import":
             if len(source_state["users"]) != 1000 or len(source_state["listings"]) != 1200:
                 raise RuntimeError("persistent scenario import requires all account and listing checkpoint references")
             if any(row["host_ref"] not in source_state["users"] or row["renter_ref"] not in source_state["users"] or row["listing_ref"] not in source_state["listings"] for row in rows):
                 raise RuntimeError("persistent scenario manifest is missing a checkpointed participant or listing")
+        else:
+            for row in rows:
+                if row["host_ref"] not in source_state["users"] or row["renter_ref"] not in source_state["users"]:
+                    raise RuntimeError("the source checkpoint does not contain all pilot participants")
+                if row["listing_ref"] not in source_state["listings"] or listing_map[row["listing_ref"]]["intended_visibility"] != "publica":
+                    raise RuntimeError("the source checkpoint does not contain the pilot public listing")
         if args.mode == "import":
             if args.confirm_target != "espacigo_local" or not args.backup_manifest:
                 raise RuntimeError("persistent deal import requires explicit target and a current private backup manifest")

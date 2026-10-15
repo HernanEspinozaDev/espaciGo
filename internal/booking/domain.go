@@ -25,6 +25,20 @@ const LocalSettlementBanner = "ENSAYO LOCAL — SIN VALIDEZ FISCAL — SIN MOVIM
 const LocalCancellationPolicyVersion = "local_flexible_v1"
 const LocalSettlementPolicyVersion = "liquidacion_local_0pct_v1"
 
+type globalExpirySweepDisabledKey struct{}
+
+// WithGlobalExpirySweepsDisabled marks a request handled by a dedicated
+// isolated-clock process. Repository operations must not sweep unrelated rows
+// using that process's advanced business time.
+func WithGlobalExpirySweepsDisabled(ctx context.Context) context.Context {
+	return context.WithValue(ctx, globalExpirySweepDisabledKey{}, true)
+}
+
+func GlobalExpirySweepsDisabled(ctx context.Context) bool {
+	value, _ := ctx.Value(globalExpirySweepDisabledKey{}).(bool)
+	return value
+}
+
 type Fixture struct {
 	SpaceID  string `json:"space_id"`
 	Title    string `json:"title"`

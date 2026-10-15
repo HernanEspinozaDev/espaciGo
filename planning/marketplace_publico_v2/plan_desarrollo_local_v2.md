@@ -199,6 +199,8 @@ Preparar metadatos título/descripción/sociales con datos públicos. La demo lo
 
 Compose conserva separación Angular/Go y redes actuales. El frontend sigue sin montar secretos o datos privados de backend. Los E2E mantienen montajes mínimos aislados. El reloj manual de negocio conserva su overlay de ensayo; no modifica la hora de máquina ni expiración técnica de sesiones. No activar servicios externos para cerrar V2.
 
+Para la carga sintética de tratos autorizada por el usuario, se permite un reloj manual montado solo lectura en un proceso API dedicado y claramente marcado como aislado, aunque ese proceso comparta temporalmente la base persistente. Esta excepción requiere aprobación/fusión del PR que incorpora los resguardos, evidencia de que el reloj no activa barridos/reconciliadores globales de contratos, reservas, garantías o pagos, checkpoint idempotente y comparación de estado previo/posterior. La carga se limita a cuentas, espacios y reservas sintéticos; el proceso y el overlay se retiran al terminar. El reloj del sistema y las expiraciones técnicas de sesión no cambian.
+
 ## 9. Orden de trabajo y cortes revisables
 
 Cada corte sigue **datos → Go/OpenAPI → Angular → evidencia**. Las tres áreas pueden preparar contratos y componentes en paralelo, pero ningún frontend integrado se acepta contra una API simulada en sustitución de Go. Una capa sin cambios debe justificar «sin migración» o «sin cambio backend»; no crear migraciones vacías.

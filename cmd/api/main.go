@@ -137,6 +137,10 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid isolated business clock configuration")
 	}
+	isolatedDatasetClock, err := isolatedDatasetClockFromEnv(os.Getenv)
+	if err != nil {
+		return errors.New("invalid dataset isolated clock configuration")
+	}
 
 	pool, err := pgxpool.New(context.Background(), cfg.databaseURL())
 	if err != nil {
@@ -300,7 +304,7 @@ func run() error {
 			if err != nil {
 				return errors.New("local payment event authentication initialization failed")
 			}
-			bookingService, err := booking.NewServiceWithTTLs(bookingpg.New(pool), credentials.Generator{}, businessNow, paymentAdapter, quoteTTL, payTTL, hostTTL)
+			bookingService, err := booking.NewServiceWithTTLsAndGlobalExpirySweeps(bookingpg.New(pool), credentials.Generator{}, businessNow, paymentAdapter, quoteTTL, payTTL, hostTTL, !isolatedDatasetClock)
 			if err != nil {
 				return errors.New("local booking trial initialization failed")
 			}
@@ -393,12 +397,12 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if localPaymentService != nil {
+	if localPaymentService != nil && !isolatedDatasetClock {
 		go localPaymentService.RunPaymentReconciler(ctx, 5*time.Second)
 		go localPaymentService.RunGuaranteeReconciler(ctx, 5*time.Second)
 		go localPaymentService.RunSettlementReconciler(ctx, 5*time.Second)
 	}
-	if localContractService != nil {
+	if localContractService != nil && !isolatedDatasetClock {
 		go func() {
 			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
@@ -415,7 +419,7 @@ func run() error {
 			}
 		}()
 	}
-	if localOperationService != nil {
+	if localOperationService != nil && !isolatedDatasetClock {
 		go func() {
 			ticker := time.NewTicker(15 * time.Second)
 			defer ticker.Stop()
@@ -492,6 +496,20 @@ func run() error {
 			return errors.New("HTTP server shutdown failed")
 		}
 		return nil
+	}
+}
+
+func isolatedDatasetClockFromEnv(getenv func(string) string) (bool, error) {
+	switch strings.TrimSpace(getenv("LOCAL_DATASET_DEALS_ISOLATED_CLOCK")) {
+	case "", "0":
+		return false, nil
+	case "1":
+		if getenv("LOCAL_BOOKING_TRIAL") != "1" || strings.TrimSpace(getenv("LOCAL_DEMO_BUSINESS_CLOCK_FILE")) != "/run/fe14-demo/business-clock.json" {
+			return false, errors.New("isolated dataset clock requires the local trial and run-scoped clock file")
+		}
+		return true, nil
+	default:
+		return false, errors.New("isolated dataset clock flag must be 0 or 1")
 	}
 }
 
