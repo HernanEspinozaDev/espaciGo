@@ -257,6 +257,12 @@ export class GlobalAdminFacade {
     finally{if(revision===this.galleryRevision&&this.hasCurrentContext(context))this.loadingPublicationGallery.set(false);}
   }
 
+  clearPublicationGallery(): void {
+    ++this.galleryRevision;
+    this.publicationGallery.set(null);
+    this.loadingPublicationGallery.set(false);
+  }
+
   async setPublicationPhotoVisibility(item:import('../domain/global-admin-models').Publication,photo:PublicationPhoto,enabled:boolean):Promise<MutationResult>{
     return this.mutateGallery(item,photo,{owner_id:item.owner_id,enabled,expected_updated_at:item.updated_at,reason:'revision_administrativa'},'visibility');
   }
@@ -274,7 +280,7 @@ export class GlobalAdminFacade {
       else if(action==='cover')await this.api.selectPublicationCover(operation.request.token,item.publication_id,photo.id,input);
       else await this.api.removePublicationPhoto(operation.request.token,item.publication_id,photo.id,input);
       if(!this.finishMutation(operation))return {status:'stale'};
-      this.publicationGallery.set(null);return {status:'success',value:undefined};
+      return {status:'success',value:undefined};
     } catch(error){await this.failMutation(operation,error,'Go rechazó la gestión de galería y revalidó tus permisos.');return this.isMutationCurrent(operation)?{status:'error'}:{status:'stale'};}
     finally{this.endMutation(operation);}
   }
@@ -287,9 +293,14 @@ export class GlobalAdminFacade {
     catch(error){if(revision===this.scheduleRevision&&this.hasCurrentContext(context))this.error.set(messageOf(error));}
     finally{if(revision===this.scheduleRevision&&this.hasCurrentContext(context))this.loadingPublicationSchedule.set(false);}
   }
+  clearPublicationSchedule(): void {
+    ++this.scheduleRevision;
+    this.publicationSchedule.set(null);
+    this.loadingPublicationSchedule.set(false);
+  }
   async savePublicationSchedule(item:import('../domain/global-admin-models').Publication,input:PublicationScheduleUpdate):Promise<MutationResult>{
     const operation=this.beginMutation();if(!operation)return {status:'stale'};
-    try{await this.api.savePublicationSchedule(operation.request.token,item.publication_id,input);if(!this.finishMutation(operation))return {status:'stale'};this.publicationSchedule.set(null);return {status:'success',value:undefined};}
+    try{await this.api.savePublicationSchedule(operation.request.token,item.publication_id,input);if(!this.finishMutation(operation))return {status:'stale'};return {status:'success',value:undefined};}
     catch(error){await this.failMutation(operation,error,'Go rechazó el horario y revalidó tus permisos.');return this.isMutationCurrent(operation)?{status:'error'}:{status:'stale'};}
     finally{this.endMutation(operation);}
   }

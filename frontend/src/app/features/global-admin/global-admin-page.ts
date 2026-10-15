@@ -33,6 +33,9 @@ export class GlobalAdminPage {
   private previousIdentityContext: string | undefined;
   private previousResetRevision: number | undefined;
   private privateControlsGeneration = 0;
+  private publicationEditorGeneration = 0;
+  private galleryPanelGeneration = 0;
+  private schedulePanelGeneration = 0;
   readonly vm = inject(GlobalAdminFacade);
   readonly overview = this.vm.overview;
   readonly page = this.vm.page;
@@ -186,6 +189,7 @@ export class GlobalAdminPage {
   }
 
   editPublication(item: Publication): void {
+    this.publicationEditorGeneration++;
     this.editingPublication.set(item);
     this.publicationEditForm.setValue({
       title: item.title,
@@ -204,6 +208,7 @@ export class GlobalAdminPage {
     const capacity = Number(value.capacity);
     if (!item || !Number.isSafeInteger(capacity) || capacity < 1) return;
     const generation = this.privateControlsGeneration;
+    const editorGeneration = this.publicationEditorGeneration;
     const itemAttributes:Record<string,unknown>={};
     for(const definition of item.attribute_schema.attributes){const raw=this.attributeForm.controls[definition.code]?.value;if(definition.type==='boolean'){itemAttributes[definition.code]=raw===true||raw==='true';continue;}const text=String(raw??'').trim();if(!text)continue;if(definition.type==='integer'){const parsed=Number(text);if(!Number.isSafeInteger(parsed))return;itemAttributes[definition.code]=parsed;}else if(definition.type==='number'){const parsed=Number(text);if(!Number.isFinite(parsed))return;itemAttributes[definition.code]=parsed;}else if(definition.type==='enum_list'){itemAttributes[definition.code]=text.split(',').map(part=>part.trim()).filter(Boolean);}else itemAttributes[definition.code]=text;}
     const result = await this.vm.updatePublication(item.publication_id, {
@@ -217,25 +222,103 @@ export class GlobalAdminPage {
       expected_updated_at: item.updated_at,
       reason: 'revision_administrativa',
     });
-    if (generation !== this.privateControlsGeneration || result.status !== 'success') return;
+    if (generation !== this.privateControlsGeneration || editorGeneration !== this.publicationEditorGeneration || result.status !== 'success') return;
     if (this.editingPublication()?.publication_id !== item.publication_id) return;
     this.clearPublicationEditor();
     await this.vm.loadPublications(this.appliedPublicationCriteria());
   }
 
+  cancelPublicationEdit(): void {
+    this.clearPublicationEditor();
+  }
+
   requestRetirement(item: Publication): void { this.retiringPublication.set(item); }
 
-  openPublicationGallery(item:Publication):void{this.galleryPublication.set(item);void this.vm.loadPublicationGallery(item);}
-  closePublicationGallery():void{this.galleryPublication.set(null);this.vm.publicationGallery.set(null);}
-  async openPublicationSchedule(item:Publication):Promise<void>{this.schedulePublication.set(item);await this.vm.loadPublicationSchedule(item);const value=this.publicationSchedule();if(!value||this.schedulePublication()?.publication_id!==item.publication_id)return;this.scheduleEnabled.setValue(value.enabled);for(const key of Object.keys(this.schedulePeriods.controls))this.schedulePeriods.removeControl(key);for(const day of value.days)this.schedulePeriods.addControl(String(day.weekday),new FormControl(day.periods.map(period=>`${period.open}-${period.close}`).join(', '),{nonNullable:true}));}
-  closePublicationSchedule():void{this.schedulePublication.set(null);this.vm.publicationSchedule.set(null);for(const key of Object.keys(this.schedulePeriods.controls))this.schedulePeriods.removeControl(key);}
-  async savePublicationSchedule():Promise<void>{const item=this.schedulePublication(),schedule=this.publicationSchedule();if(!item||!schedule)return;const days=schedule.days.map(day=>({weekday:day.weekday,periods:(this.schedulePeriods.controls[String(day.weekday)]?.value??'').split(',').map(part=>part.trim()).filter(Boolean).map(part=>{const [open,close]=part.split('-').map(value=>value.trim());return {open,close};})}));const generation=this.privateControlsGeneration;const result=await this.vm.savePublicationSchedule(item,{owner_id:item.owner_id,enabled:this.scheduleEnabled.value,days,expected_updated_at:item.updated_at,reason:'revision_administrativa'});if(generation!==this.privateControlsGeneration||result.status!=='success')return;await this.reloadPublicationSchedule(item);}
-  private async reloadPublicationSchedule(item:Publication):Promise<void>{await this.vm.loadPublications(this.appliedPublicationCriteria());const updated=this.publications()?.items.find(value=>value.publication_id===item.publication_id);if(updated)await this.openPublicationSchedule(updated);}
-  weekdayName(day:number):string{return ['','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][day]??`Día ${day}`;}
-  private async reloadPublicationGallery(item:Publication):Promise<void>{await this.vm.loadPublications(this.appliedPublicationCriteria());const updated=this.publications()?.items.find(value=>value.publication_id===item.publication_id);if(updated)this.openPublicationGallery(updated);}
-  async changePhotoVisibility(item:Publication,photo:import('./domain/global-admin-models').PublicationPhoto,enabled:boolean):Promise<void>{const generation=this.privateControlsGeneration;const result=await this.vm.setPublicationPhotoVisibility(item,photo,enabled);if(generation!==this.privateControlsGeneration||result.status!=='success')return;await this.reloadPublicationGallery(item);}
-  async selectPhotoCover(item:Publication,photo:import('./domain/global-admin-models').PublicationPhoto):Promise<void>{const generation=this.privateControlsGeneration;const result=await this.vm.selectPublicationCover(item,photo);if(generation!==this.privateControlsGeneration||result.status!=='success')return;await this.reloadPublicationGallery(item);}
-  async removePhoto(item:Publication,photo:import('./domain/global-admin-models').PublicationPhoto):Promise<void>{const generation=this.privateControlsGeneration;const result=await this.vm.removePublicationPhoto(item,photo);if(generation!==this.privateControlsGeneration||result.status!=='success')return;this.notice.set('Foto retirada. La limpieza de archivo quedó encolada.');await this.reloadPublicationGallery(item);}
+  openPublicationGallery(item: Publication): void {
+    this.galleryPanelGeneration++;
+    this.galleryPublication.set(item);
+    void this.vm.loadPublicationGallery(item);
+  }
+
+  closePublicationGallery(): void {
+    this.galleryPanelGeneration++;
+    this.galleryPublication.set(null);
+    this.vm.clearPublicationGallery();
+  }
+
+  async openPublicationSchedule(item: Publication): Promise<void> {
+    const panelGeneration = ++this.schedulePanelGeneration;
+    this.schedulePublication.set(item);
+    this.scheduleEnabled.setValue(false);
+    for (const key of Object.keys(this.schedulePeriods.controls)) this.schedulePeriods.removeControl(key);
+    await this.vm.loadPublicationSchedule(item);
+    if (panelGeneration !== this.schedulePanelGeneration || this.schedulePublication()?.publication_id !== item.publication_id) return;
+    const value = this.publicationSchedule();
+    if (!value) return;
+    this.scheduleEnabled.setValue(value.enabled);
+    for (const day of value.days) this.schedulePeriods.addControl(String(day.weekday), new FormControl(day.periods.map(period => `${period.open}-${period.close}`).join(', '), { nonNullable: true }));
+  }
+
+  closePublicationSchedule(): void {
+    this.schedulePanelGeneration++;
+    this.schedulePublication.set(null);
+    this.vm.clearPublicationSchedule();
+    for (const key of Object.keys(this.schedulePeriods.controls)) this.schedulePeriods.removeControl(key);
+  }
+
+  async savePublicationSchedule(): Promise<void> {
+    const item = this.schedulePublication(), schedule = this.publicationSchedule();
+    if (!item || !schedule) return;
+    const panelGeneration = this.schedulePanelGeneration;
+    const sessionGeneration = this.privateControlsGeneration;
+    const days = schedule.days.map(day => ({ weekday: day.weekday, periods: (this.schedulePeriods.controls[String(day.weekday)]?.value ?? '').split(',').map(part => part.trim()).filter(Boolean).map(part => { const [open, close] = part.split('-').map(value => value.trim()); return { open, close }; }) }));
+    const result = await this.vm.savePublicationSchedule(item, { owner_id: item.owner_id, enabled: this.scheduleEnabled.value, days, expected_updated_at: item.updated_at, reason: 'revision_administrativa' });
+    if (sessionGeneration !== this.privateControlsGeneration || panelGeneration !== this.schedulePanelGeneration || this.schedulePublication()?.publication_id !== item.publication_id || result.status !== 'success') return;
+    await this.reloadPublicationSchedule(item, panelGeneration, sessionGeneration);
+  }
+
+  private async reloadPublicationSchedule(item: Publication, panelGeneration: number, sessionGeneration: number): Promise<void> {
+    await this.vm.loadPublications(this.appliedPublicationCriteria());
+    if (panelGeneration !== this.schedulePanelGeneration || sessionGeneration !== this.privateControlsGeneration || this.schedulePublication()?.publication_id !== item.publication_id) return;
+    const updated = this.publications()?.items.find(value => value.publication_id === item.publication_id);
+    if (updated) await this.openPublicationSchedule(updated);
+  }
+
+  weekdayName(day: number): string {
+    return ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'][day] ?? `Día ${day}`;
+  }
+
+  private async reloadPublicationGallery(item: Publication, panelGeneration: number, sessionGeneration: number): Promise<void> {
+    await this.vm.loadPublications(this.appliedPublicationCriteria());
+    if (panelGeneration !== this.galleryPanelGeneration || sessionGeneration !== this.privateControlsGeneration || this.galleryPublication()?.publication_id !== item.publication_id) return;
+    const updated = this.publications()?.items.find(value => value.publication_id === item.publication_id);
+    if (updated) this.openPublicationGallery(updated);
+  }
+
+  async changePhotoVisibility(item: Publication, photo: import('./domain/global-admin-models').PublicationPhoto, enabled: boolean): Promise<void> {
+    const sessionGeneration = this.privateControlsGeneration, panelGeneration = this.galleryPanelGeneration;
+    if (this.galleryPublication()?.publication_id !== item.publication_id) return;
+    const result = await this.vm.setPublicationPhotoVisibility(item, photo, enabled);
+    if (sessionGeneration !== this.privateControlsGeneration || panelGeneration !== this.galleryPanelGeneration || this.galleryPublication()?.publication_id !== item.publication_id || result.status !== 'success') return;
+    await this.reloadPublicationGallery(item, panelGeneration, sessionGeneration);
+  }
+
+  async selectPhotoCover(item: Publication, photo: import('./domain/global-admin-models').PublicationPhoto): Promise<void> {
+    const sessionGeneration = this.privateControlsGeneration, panelGeneration = this.galleryPanelGeneration;
+    if (this.galleryPublication()?.publication_id !== item.publication_id) return;
+    const result = await this.vm.selectPublicationCover(item, photo);
+    if (sessionGeneration !== this.privateControlsGeneration || panelGeneration !== this.galleryPanelGeneration || this.galleryPublication()?.publication_id !== item.publication_id || result.status !== 'success') return;
+    await this.reloadPublicationGallery(item, panelGeneration, sessionGeneration);
+  }
+
+  async removePhoto(item: Publication, photo: import('./domain/global-admin-models').PublicationPhoto): Promise<void> {
+    const sessionGeneration = this.privateControlsGeneration, panelGeneration = this.galleryPanelGeneration;
+    if (this.galleryPublication()?.publication_id !== item.publication_id) return;
+    const result = await this.vm.removePublicationPhoto(item, photo);
+    if (sessionGeneration !== this.privateControlsGeneration || panelGeneration !== this.galleryPanelGeneration || this.galleryPublication()?.publication_id !== item.publication_id || result.status !== 'success') return;
+    this.notice.set('Foto retirada. La limpieza de archivo quedó encolada.');
+    await this.reloadPublicationGallery(item, panelGeneration, sessionGeneration);
+  }
 
   async confirmRetirement(): Promise<void> {
     const item = this.retiringPublication();
@@ -276,6 +359,7 @@ export class GlobalAdminPage {
   }
 
   private clearPublicationEditor(): void {
+    this.publicationEditorGeneration++;
     this.editingPublication.set(null);
     this.publicationEditForm.reset({ title: '', description: '', capacity: '', usageRules: '', price: '' });
     for(const key of Object.keys(this.attributeForm.controls))this.attributeForm.removeControl(key);

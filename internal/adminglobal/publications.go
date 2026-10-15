@@ -124,7 +124,9 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 	} else if err != nil {
 		return Publication{}, err
 	}
-	if actor == owner { return Publication{}, ErrNotFound }
+	if actor == owner {
+		return Publication{}, ErrNotFound
+	}
 	if err = lockManagedAccounts(ctx, tx, actor, owner); err != nil {
 		return Publication{}, err
 	}
@@ -134,7 +136,8 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 	var state, unit string
 	var updated time.Time
 	var oldPrice int64
-	err = tx.QueryRow(ctx, `SELECT estado,actualizado_en,modalidad_tarifa,precio_base_clp FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, id, owner).Scan(&state, &updated, &unit, &oldPrice)
+	var areaM2 float64
+	err = tx.QueryRow(ctx, `SELECT estado,actualizado_en,modalidad_tarifa,precio_base_clp,superficie_m2::float8 FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, id, owner).Scan(&state, &updated, &unit, &oldPrice, &areaM2)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Publication{}, ErrNotFound
 	}
@@ -169,7 +172,7 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 		if err != nil {
 			return Publication{}, err
 		}
-		if json.Unmarshal(raw, &profile) != nil || in.AttributeSchemaVersion == nil || *in.AttributeSchemaVersion != currentVersion || profile.ValidateAttributes(in.Attributes) != nil {
+		if json.Unmarshal(raw, &profile) != nil || in.AttributeSchemaVersion == nil || *in.AttributeSchemaVersion != currentVersion || profile.ValidateAttributesForArea(in.Attributes, areaM2) != nil {
 			return Publication{}, ErrInvalid
 		}
 	}
@@ -192,7 +195,11 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 	if in.CoverPhotoID != nil && *in.CoverPhotoID != "" {
 		cover = *in.CoverPhotoID
 	}
-	_, err = tx.Exec(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),descripcion=COALESCE($4,descripcion),capacidad_maxima=COALESCE($5,capacidad_maxima),reglas_uso=COALESCE($6,reglas_uso),precio_base_clp=COALESCE($7,precio_base_clp),ubicacion_catalogo_version=CASE WHEN $8 THEN CASE WHEN $9='' THEN NULL ELSE 'SUBDERE_DPA_2018' END ELSE ubicacion_catalogo_version END,region_codigo=CASE WHEN $8 THEN NULLIF($9,'') ELSE region_codigo END,comuna_codigo=CASE WHEN $8 THEN NULLIF($10,'') ELSE comuna_codigo END,portada_foto_id=CASE WHEN $11 THEN $12::uuid ELSE portada_foto_id END,actualizado_en=$13 WHERE id=$1 AND propietario_id=$2 AND actualizado_en=$14`, id, owner, in.Title, in.Description, in.Capacity, in.UsageRules, price, in.RegionCode != nil, coalesceString(in.RegionCode), coalesceString(in.CommuneCode), in.CoverPhotoID != nil, cover, at, in.ExpectedUpdatedAt.UTC())
+	var updatedAt time.Time
+	err = tx.QueryRow(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),descripcion=COALESCE($4,descripcion),capacidad_maxima=COALESCE($5,capacidad_maxima),reglas_uso=COALESCE($6,reglas_uso),precio_base_clp=COALESCE($7,precio_base_clp),ubicacion_catalogo_version=CASE WHEN $8 THEN CASE WHEN $9='' THEN NULL ELSE 'SUBDERE_DPA_2018' END ELSE ubicacion_catalogo_version END,region_codigo=CASE WHEN $8 THEN NULLIF($9,'') ELSE region_codigo END,comuna_codigo=CASE WHEN $8 THEN NULLIF($10,'') ELSE comuna_codigo END,portada_foto_id=CASE WHEN $11 THEN $12::uuid ELSE portada_foto_id END,actualizado_en=GREATEST(clock_timestamp(),actualizado_en+interval '1 microsecond') WHERE id=$1 AND propietario_id=$2 AND actualizado_en=$13 RETURNING actualizado_en`, id, owner, in.Title, in.Description, in.Capacity, in.UsageRules, price, in.RegionCode != nil, coalesceString(in.RegionCode), coalesceString(in.CommuneCode), in.CoverPhotoID != nil, cover, in.ExpectedUpdatedAt.UTC()).Scan(&updatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Publication{}, ErrConflict
+	}
 	if err != nil {
 		return Publication{}, err
 	}
@@ -202,7 +209,7 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 	if err = tx.Commit(ctx); err != nil {
 		return Publication{}, err
 	}
-	return Publication{ID: id, OwnerID: owner, UpdatedAt: at}, nil
+	return Publication{ID: id, OwnerID: owner, UpdatedAt: updatedAt}, nil
 }
 func coalesceString(v *string) string {
 	if v == nil {
@@ -227,7 +234,8 @@ func (s *Service) RetirePublication(ctx context.Context, actor, id, owner, corre
 	if actualOwner != owner {
 		return spaces.Deletion{}, ErrConflict
 	}
-	return s.publicationRetirer.DeleteAsAdministrator(ctx, actor, owner, id, correlation, expectedUpdatedAt.UTC(), reason)
+	result, err := s.publicationRetirer.DeleteAsAdministrator(ctx, actor, owner, id, correlation, expectedUpdatedAt.UTC(), reason)
+	return result, mapPublicationDomainError(err)
 }
 
 func (s *Service) PublicationSchedule(ctx context.Context, actor, id, owner, correlation string) (booking.WeeklyHours, error) {
@@ -250,7 +258,8 @@ func (s *Service) SavePublicationSchedule(ctx context.Context, actor, id, owner,
 	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(id) || !canonicalUUID.MatchString(owner) || !canonicalUUID.MatchString(correlation) || expectedUpdatedAt.IsZero() || !accountReasons[reason] || s.weeklyHoursManager == nil {
 		return booking.WeeklyHours{}, ErrInvalid
 	}
-	return s.weeklyHoursManager.SaveWeeklyHoursAsAdministrator(ctx, actor, owner, id, value, expectedUpdatedAt.UTC(), correlation, reason)
+	result, err := s.weeklyHoursManager.SaveWeeklyHoursAsAdministrator(ctx, actor, owner, id, value, expectedUpdatedAt.UTC(), correlation, reason)
+	return result, mapPublicationDomainError(err)
 }
 
 func (s *Service) PublicationGallery(ctx context.Context, actor, id, owner, correlation string) ([]gallery.Photo, error) {
@@ -273,21 +282,39 @@ func (s *Service) SetPublicationPhotoVisibility(ctx context.Context, actor, id, 
 	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(id) || !canonicalUUID.MatchString(owner) || !canonicalUUID.MatchString(photoID) || !canonicalUUID.MatchString(correlation) || expected.IsZero() || !accountReasons[reason] || s.publicationGallery == nil {
 		return gallery.Photo{}, ErrInvalid
 	}
-	return s.publicationGallery.SetPublicInCatalogAsAdministrator(ctx, actor, owner, id, photoID, enabled, expected.UTC(), correlation, reason)
+	result, err := s.publicationGallery.SetPublicInCatalogAsAdministrator(ctx, actor, owner, id, photoID, enabled, expected.UTC(), correlation, reason)
+	return result, mapPublicationDomainError(err)
 }
 
 func (s *Service) SelectPublicationCover(ctx context.Context, actor, id, owner, photoID, correlation string, expected time.Time, reason string) (gallery.Cover, error) {
 	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(id) || !canonicalUUID.MatchString(owner) || !canonicalUUID.MatchString(photoID) || !canonicalUUID.MatchString(correlation) || expected.IsZero() || !accountReasons[reason] || s.publicationGallery == nil {
 		return gallery.Cover{}, ErrInvalid
 	}
-	return s.publicationGallery.SelectCoverAsAdministrator(ctx, actor, owner, id, photoID, expected.UTC(), correlation, reason)
+	result, err := s.publicationGallery.SelectCoverAsAdministrator(ctx, actor, owner, id, photoID, expected.UTC(), correlation, reason)
+	return result, mapPublicationDomainError(err)
 }
 
 func (s *Service) RemovePublicationPhoto(ctx context.Context, actor, id, owner, photoID, correlation string, expected time.Time, reason string) (gallery.Removal, error) {
 	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(id) || !canonicalUUID.MatchString(owner) || !canonicalUUID.MatchString(photoID) || !canonicalUUID.MatchString(correlation) || expected.IsZero() || !retirementReasons[reason] || s.publicationGallery == nil {
 		return gallery.Removal{}, ErrInvalid
 	}
-	return s.publicationGallery.RemoveAsAdministrator(ctx, actor, owner, id, photoID, expected.UTC(), correlation, reason)
+	result, err := s.publicationGallery.RemoveAsAdministrator(ctx, actor, owner, id, photoID, expected.UTC(), correlation, reason)
+	return result, mapPublicationDomainError(err)
+}
+
+func mapPublicationDomainError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, gallery.ErrConflict), errors.Is(err, booking.ErrConflict), errors.Is(err, spaces.ErrDeleteBlocked), errors.Is(err, spaces.ErrPublicationConflict):
+		return ErrConflict
+	case errors.Is(err, gallery.ErrInvalid), errors.Is(err, booking.ErrInvalid), errors.Is(err, spaces.ErrInvalid):
+		return ErrInvalid
+	case errors.Is(err, gallery.ErrNotFound), errors.Is(err, booking.ErrNotFound), errors.Is(err, spaces.ErrNotFound):
+		return ErrNotFound
+	default:
+		return err
+	}
 }
 
 func (s *Service) SetPublicationState(ctx context.Context, actor, id, correlation string, in PublicationStateInput) (PublicationStateChange, error) {
@@ -305,7 +332,9 @@ func (s *Service) SetPublicationState(ctx context.Context, actor, id, correlatio
 	} else if err != nil {
 		return PublicationStateChange{}, err
 	}
-	if actor == owner { return PublicationStateChange{}, ErrNotFound }
+	if actor == owner {
+		return PublicationStateChange{}, ErrNotFound
+	}
 	if err = lockManagedAccounts(ctx, tx, actor, owner); err != nil {
 		return PublicationStateChange{}, err
 	}

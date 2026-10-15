@@ -210,7 +210,7 @@
                 }
               </fieldset>
             }
-            <button [disabled]="vm.saving() || publicationEditForm.invalid">Guardar edición</button><button type="button" (click)="editingPublication.set(null)">Cancelar</button>
+            <button [disabled]="vm.saving() || publicationEditForm.invalid">Guardar edición</button><button type="button" (click)="cancelPublicationEdit()">Cancelar</button>
           </form>
         }
         @if (retiringPublication(); as item) {

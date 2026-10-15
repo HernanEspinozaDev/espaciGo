@@ -250,6 +250,97 @@ it('loads global publications by owner and preserves exact CLP strings while edi
   expect(api.updatePublication).toHaveBeenCalledWith('token-a','space-1',expect.objectContaining({base_price_clp:'9007199254740999',expected_updated_at:publication.updated_at}));
 });
 
+it('does not close a reopened publication editor when an earlier save finishes', async () => {
+  const { api, component, facade } = await setup();
+  component.showTab('publications');
+  await vi.waitFor(() => expect(facade.publications()?.items).toHaveLength(1));
+  const publication = facade.publications()!.items[0];
+  component.editPublication(publication);
+  let finish!: () => void;
+  api.updatePublication.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  const pending = component.savePublication();
+  component.cancelPublicationEdit();
+  component.editPublication(publication);
+  finish();
+  await pending;
+  expect(component.editingPublication()?.publication_id).toBe(publication.publication_id);
+});
+
+it('does not reopen gallery A after a pending mutation when gallery B is selected', async () => {
+  const { api, component, facade } = await setup();
+  component.showTab('publications');
+  await vi.waitFor(() => expect(facade.publications()?.items).toHaveLength(1));
+  const a = facade.publications()!.items[0];
+  const b = { ...a, publication_id: 'space-2', title: 'B' };
+  const photo = { id: 'photo-1', fixture_code: 'synthetic-png-v1', mime_type: 'image/png', sha256: 'a'.repeat(64), size_bytes: 100, created_at: '2026-10-14T00:00:00Z', public_in_catalog: true, state: 'activa' };
+  api.publicationGallery.mockResolvedValue([photo]);
+  component.openPublicationGallery(a);
+  await vi.waitFor(() => expect(facade.publicationGallery()).toHaveLength(1));
+  let finish!: () => void;
+  api.setPublicationPhotoVisibility.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  const pending = component.changePhotoVisibility(a, photo, false);
+  component.openPublicationGallery(b);
+  finish();
+  await pending;
+  expect(component.galleryPublication()?.publication_id).toBe('space-2');
+});
+
+it('does not apply a late gallery mutation after closing and reopening the same publication', async () => {
+  const { api, component, facade } = await setup();
+  component.showTab('publications');
+  await vi.waitFor(() => expect(facade.publications()?.items).toHaveLength(1));
+  const a = facade.publications()!.items[0];
+  const photo = { id: 'photo-1', fixture_code: 'synthetic-png-v1', mime_type: 'image/png', sha256: 'a'.repeat(64), size_bytes: 100, created_at: '2026-10-14T00:00:00Z', public_in_catalog: true, state: 'activa' };
+  api.publicationGallery.mockResolvedValue([photo]);
+  component.openPublicationGallery(a);
+  await vi.waitFor(() => expect(facade.publicationGallery()).toHaveLength(1));
+  let finish!: () => void;
+  api.selectPublicationCover.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  const pending = component.selectPhotoCover(a, photo);
+  component.closePublicationGallery();
+  component.openPublicationGallery(a);
+  finish();
+  await pending;
+  expect(component.galleryPublication()?.publication_id).toBe(a.publication_id);
+  expect(api.listPublications).toHaveBeenCalledTimes(1);
+});
+
+it('does not let a late schedule save for A replace the schedule panel for B', async () => {
+  const { api, component, facade } = await setup();
+  component.showTab('publications');
+  await vi.waitFor(() => expect(facade.publications()?.items).toHaveLength(1));
+  const a = facade.publications()!.items[0];
+  const b = { ...a, publication_id: 'space-2', title: 'B' };
+  api.publicationSchedule.mockImplementation(async (_token: string, id: string) => ({ space_id: id, time_zone: 'America/Santiago', enabled: false, days: Array.from({ length: 7 }, (_, index) => ({ weekday: index + 1, periods: [] })) }));
+  await component.openPublicationSchedule(a);
+  let finish!: () => void;
+  api.savePublicationSchedule.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  const pending = component.savePublicationSchedule();
+  await component.openPublicationSchedule(b);
+  finish();
+  await pending;
+  expect(component.schedulePublication()?.publication_id).toBe('space-2');
+  expect(facade.publicationSchedule()?.space_id).toBe('space-2');
+});
+
+it('does not apply an old schedule save after closing and reopening the same publication', async () => {
+  const { api, component, facade } = await setup();
+  component.showTab('publications');
+  await vi.waitFor(() => expect(facade.publications()?.items).toHaveLength(1));
+  const item = facade.publications()!.items[0];
+  await component.openPublicationSchedule(item);
+  let finish!: () => void;
+  api.savePublicationSchedule.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  const pending = component.savePublicationSchedule();
+  component.closePublicationSchedule();
+  await component.openPublicationSchedule(item);
+  finish();
+  await pending;
+  expect(component.schedulePublication()?.publication_id).toBe(item.publication_id);
+  expect(facade.publicationSchedule()?.space_id).toBe(item.publication_id);
+  expect(api.listPublications).toHaveBeenCalledTimes(1);
+});
+
 it('clears the private publication editor and its fields on real logout', async () => {
   const { identity, component, facade } = await setup();
   component.showTab('publications');

@@ -124,20 +124,7 @@ func (s *Service) DeleteAsAdministrator(ctx context.Context, actor, owner, id, c
 }
 
 func validateAttributes(profile Profile, input Input) error {
-	if err := profile.ValidateAttributes(input.Attributes); err != nil {
-		return err
-	}
-	if profile.CategoryCode == "parcela_eventos" {
-		for _, code := range []string{"superficie_exterior_util_m2", "superficie_cubierta_util_m2"} {
-			if value, exists := input.Attributes[code]; exists {
-				n, ok := numeric(value)
-				if !ok || n > input.AreaM2 {
-					return ErrInvalid
-				}
-			}
-		}
-	}
-	return nil
+	return profile.ValidateAttributesForArea(input.Attributes, input.AreaM2)
 }
 
 var uuidPattern = func() *regexp.Regexp {

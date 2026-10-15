@@ -2298,9 +2298,17 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	weekly.Days[3].Periods = []booking.WeeklyPeriod{{Open: "09:00", Close: "12:00"}, {Open: "13:00", Close: "17:00"}}
 	weekly.Days[5].Periods = []booking.WeeklyPeriod{{Open: "22:00", Close: "24:00"}}
 	weekly.Days[6].Periods = []booking.WeeklyPeriod{{Open: "01:00", Close: "04:00"}}
+	var ownerScheduleVersionBefore time.Time
+	if err = setup.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, space).Scan(&ownerScheduleVersionBefore); err != nil {
+		t.Fatal(err)
+	}
 	savedHours, err := svc.SaveWeeklyHours(ctx, host, space, weekly)
 	if err != nil || !savedHours.Enabled || savedHours.TimeZone != "America/Santiago" {
 		t.Fatalf("save weekly hours=%+v err=%v", savedHours, err)
+	}
+	var ownerScheduleVersionAfter time.Time
+	if err = setup.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, space).Scan(&ownerScheduleVersionAfter); err != nil || !ownerScheduleVersionAfter.After(ownerScheduleVersionBefore) {
+		t.Fatalf("owner weekly hours did not advance shared publication version: before=%s after=%s err=%v", ownerScheduleVersionBefore, ownerScheduleVersionAfter, err)
 	}
 	if _, err = svc.WeeklyHours(ctx, renter, space); err != booking.ErrNotFound {
 		t.Fatalf("renter could read host-only schedule: %v", err)

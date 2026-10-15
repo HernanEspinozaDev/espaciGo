@@ -8,6 +8,7 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaceversion"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/jackc/pgx/v5"
 )
@@ -157,6 +158,9 @@ ON CONFLICT (espacio_id) DO UPDATE SET activo=EXCLUDED.activo,actualizado_en=now
 				return booking.WeeklyHours{}, mapErr(err)
 			}
 		}
+	}
+	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
+		return booking.WeeklyHours{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return booking.WeeklyHours{}, mapErr(err)
@@ -321,7 +325,7 @@ func (r *Repository) SaveWeeklyHoursAsAdministrator(ctx context.Context, actor, 
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&at); err != nil {
 		return booking.WeeklyHours{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET actualizado_en=$2 WHERE id=$1`, spaceID, at); err != nil {
+	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
 		return booking.WeeklyHours{}, err
 	}
 	auditID, err := (credentials.Generator{}).ID()
