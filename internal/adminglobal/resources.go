@@ -116,7 +116,7 @@ func (s *Service) ListAccountResources(ctx context.Context, actor, accountID, co
 		}
 		page.NextCursor = base64.RawURLEncoding.EncodeToString(encoded)
 	}
-	if err = s.audit(ctx, tx, actor, accountID, "admin.global.accounts.resources.list", "exito", "consulta_recurso", correlation, page.GeneratedAt); err != nil {
+	if err = s.auditWithTarget(ctx, tx, actor, accountID, "admin.global.accounts.resources.list", "exito", "consulta_recurso", correlation, page.GeneratedAt, accountID); err != nil {
 		return AccountResourcePage{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -151,7 +151,7 @@ func (s *Service) GetAccountResource(ctx context.Context, actor, accountID, reso
 	if err = json.Unmarshal(raw, &detail); err != nil {
 		return nil, err
 	}
-	if err = s.audit(ctx, tx, actor, resourceID, "admin.global.accounts.resources.read", "exito", "consulta_recurso", correlation, s.now().UTC()); err != nil {
+	if err = s.auditWithTarget(ctx, tx, actor, resourceID, "admin.global.accounts.resources.read", "exito", "consulta_recurso", correlation, s.now().UTC(), accountID); err != nil {
 		return nil, err
 	}
 	if err = tx.Commit(ctx); err != nil {

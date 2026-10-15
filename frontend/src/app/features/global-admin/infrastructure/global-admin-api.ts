@@ -5,6 +5,7 @@ import { GlobalAdministration } from '../../../../generated/api/sdk.gen';
 import { ApiRuntimeConfig } from '../../../core/api-runtime-config';
 import { SessionBoundary } from '../../../core/identity/domain/ports/session-boundary';
 import type { Account, Overview, Page, AccountBlockUpdate, ProfileUpdate, ProfileUpdateResult, RoleUpdate, SessionRevocation, PublicationPage, PublicationStateUpdate, PublicationContentUpdate, PublicationRetireUpdate, AccountResourceKind, AccountResourcePage, PublicationPhoto, PublicationPhotoMutation, PublicationSchedule, PublicationScheduleUpdate } from '../domain/global-admin-models';
+import type { KPIReport, AuditFilter, AuditPage } from '../domain/global-admin-models';
 
 export type { Account, Overview, Page } from '../domain/global-admin-models';
 
@@ -33,6 +34,10 @@ export class GlobalAdminApi {
     const response = await this.get<{ data: Overview }>(token, '/admin/global/overview');
     return response.data;
   }
+
+  async kpis(token:string,period:{from:string;until:string;time_zone:string}):Promise<KPIReport>{const params=new HttpParams().set('from',period.from).set('until',period.until).set('time_zone',period.time_zone);return (await this.get<{data:KPIReport}>(token,'/admin/global/kpis',params)).data;}
+  async audit(token:string,filters:AuditFilter):Promise<AuditPage>{let params=new HttpParams();for(const [k,v] of Object.entries(filters))if(v!==undefined&&v!=='')params=params.set(k,v);return (await this.get<{data:AuditPage}>(token,'/admin/global/audit-events',params)).data;}
+  async exportAudit(token:string,filters:AuditFilter,format:'json'|'csv'):Promise<Blob>{const baseUrl=this.runtime.apiBaseUrl();if(!token||!baseUrl)throw new Error('La sesión o la API no están disponibles.');let params=new HttpParams().set('from',filters.from).set('until',filters.until).set('format',format);for(const [k,v] of Object.entries(filters))if(k!=='from'&&k!=='until'&&v!==undefined&&v!=='')params=params.set(k,v);try{return await firstValueFrom(this.http.get(`${baseUrl}/admin/global/audit-events/export`,{params,headers:new HttpHeaders({Authorization:`Bearer ${token}`}),responseType:'blob',transferCache:false}));}catch(error){if(error instanceof HttpErrorResponse&&error.status===401)this.identity.expireIfCurrent(token);throw new GlobalAdminApiError(error instanceof HttpErrorResponse?error.status:0);}}
 
   async list(
     token: string,

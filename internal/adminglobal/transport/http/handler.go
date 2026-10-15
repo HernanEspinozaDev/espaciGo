@@ -106,6 +106,56 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": value})
+	case "/api/v1/admin/global/kpis":
+		principal, ok := h.authorize(w, r, identity.CapabilityKPIRead, requestID)
+		if !ok {
+			return
+		}
+		period, valid := parseReportPeriod(r.URL.Query())
+		if !valid {
+			writeError(w, 422, "invalid_request", requestID)
+			return
+		}
+		value, err := h.service.KPIs(r.Context(), principal.AccountID, requestID, period)
+		if err != nil {
+			replyError(w, err, requestID)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"data": value})
+	case "/api/v1/admin/global/audit-events", "/api/v1/admin/global/audit-events/export":
+		export := strings.HasSuffix(path, "/export")
+		cap := identity.CapabilityAuditRead
+		if export {
+			cap = identity.CapabilityAuditExport
+		}
+		principal, ok := h.authorize(w, r, cap, requestID)
+		if !ok {
+			return
+		}
+		filter, valid := parseAuditFilter(r.URL.Query())
+		if !valid {
+			writeError(w, 422, "invalid_request", requestID)
+			return
+		}
+		value, err := h.service.Audit(r.Context(), principal.AccountID, requestID, filter, export)
+		if err != nil {
+			replyError(w, err, requestID)
+			return
+		}
+		if export {
+			w.Header().Set("Content-Disposition", `attachment; filename="gadm-audit-`+requestID+`.json"`)
+			if strings.EqualFold(r.URL.Query().Get("format"), "csv") {
+				w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+				w.Header().Set("Content-Disposition", `attachment; filename="gadm-audit-`+requestID+`.csv"`)
+				if err = adminglobal.WriteAuditCSV(w, value); err != nil {
+					return
+				}
+				return
+			}
+			writeJSON(w, 200, map[string]any{"data": value})
+		} else {
+			writeJSON(w, 200, map[string]any{"data": value})
+		}
 	case "/api/v1/admin/global/accounts":
 		principal, ok := h.authorize(w, r, identity.CapabilityAccountsList, requestID)
 		if !ok {
@@ -617,6 +667,48 @@ func parseAccountFilter(query url.Values) (adminglobal.AccountFilter, bool) {
 		filter.PageSize = pageSize
 	}
 	return filter, true
+}
+
+func parseReportPeriod(q url.Values) (adminglobal.ReportPeriod, bool) {
+	if len(q) != 3 || len(q["from"]) != 1 || len(q["until"]) != 1 || len(q["time_zone"]) != 1 {
+		return adminglobal.ReportPeriod{}, false
+	}
+	from, e1 := time.Parse(time.RFC3339, q.Get("from"))
+	until, e2 := time.Parse(time.RFC3339, q.Get("until"))
+	p := adminglobal.ReportPeriod{From: from, Until: until, TimeZone: q.Get("time_zone")}
+	return p, e1 == nil && e2 == nil && p.Validate() == nil
+}
+
+func parseAuditFilter(q url.Values) (adminglobal.AuditFilter, bool) {
+	allowed := map[string]bool{"from": true, "until": true, "actor_id": true, "target_account_id": true, "resource_type": true, "resource_id": true, "action": true, "result": true, "reason_code": true, "correlation_id": true, "page_size": true, "cursor": true, "snapshot_cutoff": true, "format": true}
+	for k, v := range q {
+		if !allowed[k] || len(v) != 1 {
+			return adminglobal.AuditFilter{}, false
+		}
+	}
+	from, e1 := time.Parse(time.RFC3339, q.Get("from"))
+	until, e2 := time.Parse(time.RFC3339, q.Get("until"))
+	size := 25
+	if q.Get("page_size") != "" {
+		var err error
+		size, err = strconv.Atoi(q.Get("page_size"))
+		if err != nil {
+			return adminglobal.AuditFilter{}, false
+		}
+	}
+	f := adminglobal.AuditFilter{From: from, Until: until, ActorID: q.Get("actor_id"), TargetID: q.Get("target_account_id"), ResourceType: q.Get("resource_type"), ResourceID: q.Get("resource_id"), Action: q.Get("action"), Result: q.Get("result"), ReasonCode: q.Get("reason_code"), CorrelationID: q.Get("correlation_id"), PageSize: size, Cursor: q.Get("cursor"), Format: q.Get("format")}
+	if q.Get("snapshot_cutoff") != "" {
+		cutoff, err := time.Parse(time.RFC3339Nano, q.Get("snapshot_cutoff"))
+		if err != nil {
+			return adminglobal.AuditFilter{}, false
+		}
+		f.SnapshotCutoff = &cutoff
+	}
+	format := q.Get("format")
+	if format != "" && format != "json" && format != "csv" {
+		return adminglobal.AuditFilter{}, false
+	}
+	return f, e1 == nil && e2 == nil && f.From.Before(f.Until) && f.Until.Sub(f.From) <= 31*24*time.Hour && size >= 1 && size <= 100
 }
 
 func bearer(value string) string {

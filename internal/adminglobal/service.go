@@ -319,7 +319,12 @@ func (s *Service) queryAccounts(ctx context.Context, actor, correlation string, 
 			result, reason = "rechazo", "cuenta_no_encontrada"
 		}
 	}
-	if err = s.audit(ctx, tx, actor, resource, action, result, reason, correlation, now); err != nil {
+	if action == "admin.global.accounts.read" {
+		err = s.auditWithTarget(ctx, tx, actor, resource, action, result, reason, correlation, now, filter.AccountID)
+	} else {
+		err = s.audit(ctx, tx, actor, resource, action, result, reason, correlation, now)
+	}
+	if err != nil {
 		return AccountPage{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -445,12 +450,16 @@ func requireGlobalActor(ctx context.Context, tx pgx.Tx, actor string) error {
 }
 
 func (s *Service) audit(ctx context.Context, tx pgx.Tx, actor, resourceID, action, result, reason, correlation string, at time.Time) error {
+	return s.auditWithTarget(ctx, tx, actor, resourceID, action, result, reason, correlation, at, "")
+}
+
+func (s *Service) auditWithTarget(ctx context.Context, tx pgx.Tx, actor, resourceID, action, result, reason, correlation string, at time.Time, targetID string) error {
 	id, err := s.ids.ID()
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en)
-		VALUES($1,$2,'cuenta_global',$3,$4,$5,$6,$7,$8,$8::timestamptz+interval '5 years')`, id, actor, resourceID, action, result, reason, correlation, at)
+	_, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,cuenta_objetivo_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,registrado_en,retirar_en)
+		VALUES($1,$2,CASE WHEN EXISTS(SELECT 1 FROM public.usuario WHERE id=NULLIF($3,'')::uuid) THEN NULLIF($3,'')::uuid END,'cuenta_global',$4,$5,$6,$7,$8,$9,clock_timestamp(),$9::timestamptz+interval '5 years')`, id, actor, targetID, resourceID, action, result, reason, correlation, at)
 	return err
 }
 

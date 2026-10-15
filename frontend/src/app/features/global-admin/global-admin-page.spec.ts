@@ -10,7 +10,7 @@ import { GlobalAdminPage } from './global-admin-page';
 const globalSession = {
   account_id: 'master',
   roles: ['administrador_global'],
-  capabilities: ['accounts.list', 'accounts.read','accounts.update','accounts.roles','accounts.block','publications.list','publications.read','publications.update','publications.moderate'],
+  capabilities: ['accounts.list', 'accounts.read','accounts.update','accounts.roles','accounts.block','publications.list','publications.read','publications.update','publications.moderate','kpi.read','audit.read','audit.export'],
   restricted_mode: false,
 };
 const overview = {
@@ -55,6 +55,9 @@ async function setup() {
   };
   const api = {
     overview: vi.fn().mockResolvedValue(overview),
+    kpis: vi.fn().mockResolvedValue({generated_at:overview.generated_at,period:{from:overview.generated_at,until:overview.generated_at,time_zone:'America/Santiago'},accounts:{activo:2},account_roles:{arrendatario:2},registrations_in_period:1,publication_owner_distribution:[],publications:[],reservations:[],operations:[],finance:[{kind:'cobro',state:'confirmado',count:1,amount_clp:'9007199254740993',source:'fake',definition:'Importe exacto'}],queues:[]}),
+    audit: vi.fn().mockResolvedValue({items:[],next_cursor:'',from:overview.generated_at,until:overview.generated_at,generated_at:overview.generated_at,snapshot_cutoff:overview.generated_at,applied_filters:{from:overview.generated_at,until:overview.generated_at,page_size:25}}),
+    exportAudit: vi.fn().mockResolvedValue(new Blob(['csv'])),
     list: vi.fn().mockResolvedValue({ items: [account], next_cursor: 'cursor-initial', matching_total: 2, generated_at: overview.generated_at }),
     account: vi.fn().mockResolvedValue(account),
     listAccountResources: vi.fn().mockResolvedValue({items:[],next_cursor:'',matching_total:0,generated_at:overview.generated_at}),
@@ -91,6 +94,7 @@ async function setup() {
     identity,
     identityApi,
     api,
+    fixture,
     facade,
     component: fixture.componentInstance,
     setConfirmed(value: typeof globalSession) { confirmed = value; },
@@ -420,4 +424,115 @@ it('loads owner-scoped resources and ignores a detail response after changing ac
   finish({id:'reservation-1',state:'pagada'});
   await detail;
   expect(facade.accountResourceDetail()).toBeNull();
+});
+
+it('loads exact KPI text and exports the applied audit filters at the displayed snapshot', async () => {
+  const { api, component, facade, fixture } = await setup();
+  component.showTab('reports');
+  await vi.waitFor(() => expect(facade.kpis()?.finance[0].amount_clp).toBe('9007199254740993'));
+  fixture.detectChanges();
+  expect(fixture.nativeElement.textContent).toContain('9007199254740993');
+  component.searchAudit();
+  const applied = component.appliedAudit()!;
+  await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
+  component.auditActor.setValue('changed-after-apply');
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:gadm-audit');
+  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+  await component.downloadAudit('csv');
+  expect(api.audit).toHaveBeenCalledWith('token-a', expect.objectContaining({ actor_id: undefined, target_account_id: undefined }));
+  expect(api.exportAudit).toHaveBeenCalledWith('token-a', expect.objectContaining({ ...applied, snapshot_cutoff: overview.generated_at }), 'csv');
+  expect(create).toHaveBeenCalledOnce();
+  expect(click).toHaveBeenCalledOnce();
+  expect(revoke).toHaveBeenCalledWith('blob:gadm-audit');
+});
+
+it('discards an export response after a newer audit query is applied', async () => {
+  const { api, component, facade } = await setup();
+  component.showTab('reports');
+  component.searchAudit();
+  const filters = { ...component.appliedAudit()!, snapshot_cutoff: overview.generated_at };
+  let fail!: (error: unknown) => void;
+  api.exportAudit.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+  const staleExport = facade.exportAudit(filters, 'json');
+  component.searchAudit();
+  await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
+  fail(new Error('private upstream details'));
+  expect(await staleExport).toBeNull();
+  expect(facade.exportError()).toBe('');
+});
+
+it('shows contextual report errors and clears each after a successful retry', async () => {
+  const { api, component, fixture, facade } = await setup();
+  component.showTab('reports');
+  api.kpis.mockRejectedValueOnce({ status: 401, message: 'private server detail' });
+  component.searchKPIs();
+  await vi.waitFor(() => expect(facade.reportError()).toContain('sesión'));
+  fixture.detectChanges();
+  expect(fixture.nativeElement.querySelector('[aria-labelledby="report-title"] [role="alert"]')?.textContent).toContain('Inicia sesión');
+  expect(fixture.nativeElement.textContent).not.toContain('private server detail');
+
+  component.searchKPIs();
+  await vi.waitFor(() => expect(facade.kpis()).not.toBeNull());
+  expect(facade.reportError()).toBe('');
+
+  api.audit.mockRejectedValueOnce({ status: 403, message: 'private permission detail' });
+  component.searchAudit();
+  await vi.waitFor(() => expect(facade.auditError()).toContain('permisos se revalidaron'));
+  expect(facade.error()).toBe('');
+  fixture.detectChanges();
+  expect(fixture.nativeElement.querySelector('h2 + [role="alert"]')?.textContent).toContain('auditoría');
+  expect(fixture.nativeElement.textContent).not.toContain('private permission detail');
+
+  component.auditFrom.setValue('2026-10-08T00:00');
+  component.auditUntil.setValue('2026-10-15T00:00');
+  component.searchAudit();
+  await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
+  expect(facade.auditError()).toBe('');
+
+  api.exportAudit.mockRejectedValueOnce(new Error('private export details'));
+  await component.downloadAudit('csv');
+  fixture.detectChanges();
+  expect(facade.exportError()).toContain('No se pudo exportar');
+  expect(fixture.nativeElement.textContent).toContain('Reintenta con el mismo corte');
+  expect(fixture.nativeElement.textContent).not.toContain('private export details');
+
+  await component.downloadAudit('csv');
+  expect(facade.exportError()).toBe('');
+});
+
+it('does not publish an export denial after its audit session changes', async () => {
+  const { identity, api, component, facade } = await setup();
+  component.showTab('reports');
+  component.searchAudit();
+  await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
+  let fail!: (error: unknown) => void;
+  api.exportAudit.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+  const filters = { ...component.appliedAudit()!, snapshot_cutoff: overview.generated_at };
+  const pending = facade.exportAudit(filters, 'csv');
+  await identity.signOut();
+  fail({ status: 403 });
+  expect(await pending).toBeNull();
+  expect(facade.exportError()).toBe('');
+});
+
+it('shows a current export 403 in reports and permits retry after reloading the audit page', async () => {
+  const { api, component, fixture, facade } = await setup();
+  component.showTab('reports');
+  component.searchAudit();
+  await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
+  api.exportAudit.mockRejectedValueOnce({ status: 403, message: 'private denial detail' });
+
+  await component.downloadAudit('json');
+  fixture.detectChanges();
+  expect(facade.exportError()).toContain('acceso a la exportación fue rechazado');
+  expect(fixture.nativeElement.textContent).not.toContain('private denial detail');
+  expect(fixture.nativeElement.textContent).toContain('reintenta con el mismo corte');
+
+  component.auditFrom.setValue('2026-10-08T00:00');
+  component.auditUntil.setValue('2026-10-15T00:00');
+  component.searchAudit();
+  await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
+  await component.downloadAudit('json');
+  expect(facade.exportError()).toBe('');
 });

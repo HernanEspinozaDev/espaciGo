@@ -52,7 +52,7 @@ func TestRunnerAppliesFromEmptyAndRepeatIsNoop(t *testing.T) {
 	})
 }
 
-func TestMPV211MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T) {
+func TestGADM03MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T) {
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve migration source path")
@@ -62,11 +62,11 @@ func TestMPV211MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) < 58 || migrations[len(migrations)-1].Version != 58 {
-		t.Fatalf("expected V58 as latest migration, got %d migrations", len(migrations))
+	if len(migrations) < 59 || migrations[len(migrations)-1].Version != 59 {
+		t.Fatalf("expected V59 as latest migration, got %d migrations", len(migrations))
 	}
 	latest := migrations[len(migrations)-1]
-	if latest.Name != "V000058__gadm_01_global_administrator.sql" {
+	if latest.Name != "V000059__gadm_03_audit_scope_and_query_indexes.sql" {
 		t.Fatalf("unexpected latest migration %q", latest.Name)
 	}
 
@@ -76,12 +76,12 @@ func TestMPV211MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(result.Applied) != len(migrations) || result.Applied[len(result.Applied)-1] != 58 {
+			if len(result.Applied) != len(migrations) || result.Applied[len(result.Applied)-1] != 59 {
 				t.Fatalf("fresh migration result=%v", result.Applied)
 			}
 			conn := connectTestDB(t, ctx, databaseURL)
 			defer conn.Close(ctx)
-			var allowlisted, typed, indexExists int
+			var allowlisted, typed, indexExists, targetColumn, registeredColumn int
 			if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.atributo_filtro_publico`).Scan(&allowlisted); err != nil {
 				t.Fatal(err)
 			}
@@ -91,8 +91,14 @@ func TestMPV211MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T)
 			if err := conn.QueryRow(ctx, `SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname='espacio_caracteristicas_public_filter_keys_idx'`).Scan(&indexExists); err != nil {
 				t.Fatal(err)
 			}
-			if allowlisted < 50 || typed < 30 || indexExists != 1 {
-				t.Fatalf("V57 policy/index mismatch: allowlisted=%d typed=%d index=%d", allowlisted, typed, indexExists)
+			if err := conn.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='evento_auditoria_local' AND column_name='cuenta_objetivo_id'`).Scan(&targetColumn); err != nil {
+				t.Fatal(err)
+			}
+			if err := conn.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='evento_auditoria_local' AND column_name='registrado_en'`).Scan(&registeredColumn); err != nil {
+				t.Fatal(err)
+			}
+			if allowlisted < 50 || typed < 30 || indexExists != 1 || targetColumn != 1 || registeredColumn != 1 {
+				t.Fatalf("fresh base mismatch: allowlisted=%d typed=%d index=%d target=%d registered=%d", allowlisted, typed, indexExists, targetColumn, registeredColumn)
 			}
 		})
 	})
@@ -131,7 +137,7 @@ func TestMPV211MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T)
 				t.Fatal(err)
 			}
 			result, err = Run(ctx, databaseURL, sourceDir)
-			if err != nil || len(result.Applied) != 2 || result.Applied[0] != 57 || result.Applied[1] != 58 {
+			if err != nil || len(result.Applied) != 3 || result.Applied[0] != 57 || result.Applied[1] != 58 || result.Applied[2] != 59 {
 				t.Fatalf("upgrade from V56: %v %v", result.Applied, err)
 			}
 			conn = connectTestDB(t, ctx, databaseURL)
@@ -155,6 +161,63 @@ func TestMPV211MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T)
 			rows.Close()
 			if count != 56 {
 				t.Fatalf("preserved migration rows=%d, want 56", count)
+			}
+		})
+	})
+
+	t.Run("upgrade from V58", func(t *testing.T) {
+		withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+			v58Dir := t.TempDir()
+			for _, migration := range migrations {
+				if migration.Version > 58 {
+					continue
+				}
+				if err := os.WriteFile(filepath.Join(v58Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if result, err := Run(ctx, databaseURL, v58Dir); err != nil || len(result.Applied) != 58 || result.Applied[57] != 58 {
+				t.Fatalf("apply V1-V58: %v %v", result.Applied, err)
+			}
+			conn := connectTestDB(t, ctx, databaseURL)
+			defer conn.Close(ctx)
+			before := map[int64]string{}
+			rows, err := conn.Query(ctx, `SELECT version,checksum FROM public.schema_migrations ORDER BY version`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for rows.Next() {
+				var version int64
+				var checksum string
+				if err := rows.Scan(&version, &checksum); err != nil {
+					t.Fatal(err)
+				}
+				before[version] = checksum
+			}
+			rows.Close()
+			result, err := Run(ctx, databaseURL, sourceDir)
+			if err != nil || len(result.Applied) != 1 || result.Applied[0] != 59 {
+				t.Fatalf("upgrade from V58: %v %v", result.Applied, err)
+			}
+			rows, err = conn.Query(ctx, `SELECT version,checksum FROM public.schema_migrations ORDER BY version`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			count := 0
+			for rows.Next() {
+				var version int64
+				var checksum string
+				if err := rows.Scan(&version, &checksum); err != nil {
+					t.Fatal(err)
+				}
+				count++
+				if version <= 58 && before[version] != checksum {
+					t.Fatalf("V%d checksum changed: before=%q after=%q", version, before[version], checksum)
+				}
+			}
+			rows.Close()
+			if count != 59 {
+				t.Fatalf("preserved migration rows=%d, want 59", count)
 			}
 		})
 	})

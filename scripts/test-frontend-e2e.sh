@@ -91,6 +91,7 @@ case "${FE14_EVIDENCE_OUTPUT_DIR:-}" in
   */mpv2_12) FE14_EVIDENCE_PREFIX='fe14_mpv2_12_' ;;
   */mpv2_13) FE14_EVIDENCE_PREFIX='fe14_mpv2_13_' ;;
   */gadm_02) FE14_EVIDENCE_PREFIX='fe14_gadm_02_' ;;
+  */gadm_03) FE14_EVIDENCE_PREFIX='fe14_gadm_03_' ;;
   */local-close-01) FE14_EVIDENCE_PREFIX='fe14_local_close_01_' ;;
   */local-close-02) FE14_EVIDENCE_PREFIX='fe14_local_close_02_' ;;
 esac
@@ -354,6 +355,50 @@ ROLE_COUNT="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples
 [[ "${ROLE_COUNT//[[:space:]]/}" == "7" ]] || { printf 'Synthetic role grant verification failed\n' >&2; exit 1; }
 printf 'PASS Go verified four synthetic accounts; only this disposable database received host/admin roles\n'
 
+if [[ "${FE14_TEST_GREP:-}" == *GADM-03* ]]; then
+  "${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local <<'SQL' >/dev/null
+INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado)
+SELECT md5(:'run_id'||'-gadm03-account-'||n)::uuid,
+       'gadm03-'||:'run_id'||'-'||n||'@ejemplo.invalid',
+       'gadm03-'||:'run_id'||'-'||n||'@ejemplo.invalid','synthetic-no-login','activo'
+FROM generate_series(1,1000) n;
+SQL
+  COUNT_1000="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples-only --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local --command "SELECT count(*) FROM public.usuario WHERE correo_normalizado LIKE 'gadm03-${RUN_ID}-%@ejemplo.invalid'")"
+  [[ "${COUNT_1000//[[:space:]]/}" == "1000" ]] || { printf 'GADM-03 synthetic account seed did not contain exactly 1000 rows\n' >&2; exit 1; }
+  "${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local <<'SQL' >"$STATE_DIR/artifacts/gadm03-account-query-plan.txt"
+EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON)
+SELECT u.id,u.correo_original,p.nombre_visible,u.estado,u.creado_en
+FROM public.usuario u LEFT JOIN public.perfil_usuario p ON p.usuario_id=u.id
+WHERE u.correo_normalizado LIKE 'gadm03-'||:'run_id'||'-%@ejemplo.invalid'
+ORDER BY u.creado_en DESC,u.id DESC LIMIT 25;
+SQL
+  printf 'PASS GADM-03 seeded 1000 synthetic accounts in disposable PostGIS and captured the real prefix-page EXPLAIN ANALYZE plan\n'
+  admin_password="$(<"$LOCAL_SECRETS_DIR/db_admin_password")"
+  CGO_ENABLED=0 go -C "$ROOT_DIR" test -c -o "$STATE_DIR/migrator-gadm03.test" ./internal/migrator
+  docker run --rm --network "${PROJECT}_data" \
+    --volume "$STATE_DIR/migrator-gadm03.test:/tmp/migrator-gadm03.test:ro" \
+    --volume "$ROOT_DIR:$ROOT_DIR:ro" --workdir "$ROOT_DIR" \
+    --env "TEST_DATABASE_URL=postgres://espacigo_admin:${admin_password}@database:5432/espacigo_local?sslmode=disable" \
+    golang:1.27.1-alpine3.24 /tmp/migrator-gadm03.test -test.run '^TestGADM03MigrationWorksFromEmptyAndV56WithoutChangingHistory$' -test.count=1 -test.v
+  unset admin_password
+  printf 'PASS GADM-03 fresh, V56, and V58 migration integration scenarios ran against disposable PostgreSQL 18\n'
+  admin_password="$(<"$LOCAL_SECRETS_DIR/db_admin_password")"
+  CGO_ENABLED=0 go -C "$ROOT_DIR" test -c -o "$STATE_DIR/adminglobal-gadm03.test" ./internal/adminglobal
+  mkdir -m 0700 "$STATE_DIR/gadm03-local-testing"
+  docker run --rm --network "container:${PROJECT}-database-1" \
+    --volume "$ROOT_DIR:$ROOT_DIR:ro" \
+    --volume "$STATE_DIR/gadm03-local-testing:$ROOT_DIR/.local/testing" \
+    --volume "$(go env GOMODCACHE):/opt/gomod:ro" \
+    --volume "$STATE_DIR/adminglobal-gadm03.test:/tmp/adminglobal-gadm03.test:ro" \
+    --workdir "$ROOT_DIR" --env GOMODCACHE=/opt/gomod \
+    --env "TEST_DATABASE_URL=postgres://espacigo_admin:${admin_password}@127.0.0.1:5432/espacigo_local?sslmode=disable" \
+    golang:1.27.1-alpine3.24 /tmp/adminglobal-gadm03.test -test.run '^TestGlobalBootstrapDirectoryAndLastMasterConcurrency$' -test.count=1 -test.v
+  unset admin_password
+  printf 'PASS required GADM-03/PostGIS service and HTTP integration suite ran; no TEST_DATABASE_URL skips\n'
+fi
+
 "${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
   --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local <<'SQL' >/dev/null
 INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado)
@@ -506,6 +551,7 @@ VALUES(:'space_id',:'host_id',:'renter_id',true);
 COMMIT;
 SQL
 fi
+
 
 if [[ "${FE14_RUN_GADM02_INTEGRATION:-0}" == "1" ]]; then
   admin_password="$(<"$LOCAL_SECRETS_DIR/db_admin_password")"
@@ -685,6 +731,19 @@ if [[ "${FE14_TEST_GREP:-}" == *GADM-02* ]]; then
   printf 'PASS GADM-02 database state and administrative audit assertions match the served browser mutations\n'
 fi
 
+if [[ "${FE14_TEST_GREP:-}" == *GADM-03* ]]; then
+  GADM03_FAILED="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples-only --username espacigo_admin --dbname espacigo_local --command "WITH checks(name,passed) AS (VALUES
+    ('kpi-read-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.kpi.read' AND a.resultado='exito')),
+    ('account-read-target-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario actor ON actor.id=a.actor_id JOIN public.usuario target ON target.id=a.cuenta_objetivo_id WHERE actor.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND target.correo_normalizado='fe14-${RUN_ID}-renter@ejemplo.invalid' AND a.accion='admin.global.accounts.read' AND a.resultado='exito')),
+    ('audit-read-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.audit.read' AND a.resultado='exito')),
+    ('audit-export-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.audit.export' AND a.resultado='exito'))
+    ,('missing-account-404-audited',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.recurso_id='00000000-0000-4000-8000-000000000099' AND a.accion='admin.global.accounts.read' AND a.resultado='rechazo' AND a.motivo_codigo='cuenta_no_encontrada' AND a.cuenta_objetivo_id IS NULL))
+  ) SELECT COALESCE(string_agg(name,','),'') FROM checks WHERE NOT passed")"
+  [[ -z "${GADM03_FAILED//[[:space:]]/}" ]] || { printf 'GADM-03 KPI/audit persistence assertions failed: %s\n' "${GADM03_FAILED//[[:space:]]/}" >&2; exit 1; }
+  printf 'PASS GADM-03 KPI, actor/target scope, read and export audits match real API/browser requests\n'
+fi
+
+
 python3 - "$STATE_DIR/accounts.json" "${compose[*]}" <<'PY'
 import json
 import subprocess
@@ -699,6 +758,7 @@ print('PASS backend logs contain none of the synthetic account emails or passwor
 PY
 
 mkdir -p "$ROOT_DIR/planning/frontend/evidencia" "$ROOT_DIR/planning/marketplace_publico_v2/evidencia/mpv2_03"
+if [[ -n "${FE14_EVIDENCE_OUTPUT_DIR:-}" ]]; then mkdir -p "$FE14_EVIDENCE_OUTPUT_DIR"; fi
 for image in "$STATE_DIR"/artifacts/fe14_*.jpg; do
   [[ -f "$image" ]] || continue
   if [[ -n "$FE14_EVIDENCE_PREFIX" && "$(basename "$image")" == "$FE14_EVIDENCE_PREFIX"* ]]; then
@@ -737,6 +797,10 @@ for measurements in "$STATE_DIR"/artifacts/fe14_*.json; do
   cp -- "$measurements" "$destination"
   chmod 0644 "$destination"
 done
+if [[ "${FE14_TEST_GREP:-}" == *GADM-03* && -f "$STATE_DIR/artifacts/gadm03-account-query-plan.txt" ]]; then
+  cp -- "$STATE_DIR/artifacts/gadm03-account-query-plan.txt" "$FE14_EVIDENCE_OUTPUT_DIR/gadm03-account-query-plan.txt"
+  chmod 0644 "$FE14_EVIDENCE_OUTPUT_DIR/gadm03-account-query-plan.txt"
+fi
 if [[ "${FE14_RETAIN_STACK:-0}" == "1" ]]; then
   printf 'PASS review screenshots and viewport measurements copied; synthetic demo accounts and required stack secrets remain private in the retained state directory\n'
 else

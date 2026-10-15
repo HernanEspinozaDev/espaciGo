@@ -169,7 +169,9 @@ func (r *Repository) delete(ctx context.Context, actor, owner, id, correlationID
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if administrative {
-		if actor == owner { return spaces.Deletion{}, spaces.ErrNotFound }
+		if actor == owner {
+			return spaces.Deletion{}, spaces.ErrNotFound
+		}
 		if actor < owner {
 			if err = lockGlobalAdministrator(ctx, tx, actor); err != nil {
 				return spaces.Deletion{}, err
@@ -310,7 +312,7 @@ func (r *Repository) delete(ctx context.Context, actor, owner, id, correlationID
 		if idErr != nil {
 			return spaces.Deletion{}, idErr
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en) VALUES($1,$2,'publicacion_global',$3,'admin.global.publications.retire','exito',$4,$5,$6,$6::timestamptz+interval '5 years')`, auditID, actor, id, reason, correlationID, now); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,cuenta_objetivo_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,registrado_en,retirar_en) VALUES($1,$2,$3,'publicacion_global',$4,'admin.global.publications.retire','exito',$5,$6,$7,clock_timestamp(),$7::timestamptz+interval '5 years')`, auditID, actor, owner, id, reason, correlationID, now); err != nil {
 			return spaces.Deletion{}, err
 		}
 	}
