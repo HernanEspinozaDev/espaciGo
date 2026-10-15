@@ -501,6 +501,8 @@ INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendat
 VALUES(:'quote_id',:'space_id',:'host_id',:'renter_id',1,'hora',12000,'CLP',1,12000,:'booking_start',:'booking_end','America/Santiago','Reserva sintética de FE-14','oficina',1,'{}'::jsonb,now(),now()+interval '15 minutes');
 INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,pago_vence_en,creada_en,actualizada_en)
 VALUES(:'booking_id',:'quote_id',:'space_id',:'host_id',:'renter_id','fe14-gadm02-active-obligation',decode(repeat('00',32),'hex'),:'occupancy_id','pagada',12000,1,12000,'hora','CLP',:'booking_start',:'booking_end','America/Santiago','Reserva sintética de FE-14',now()+interval '15 minutes',now(),now());
+INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada)
+VALUES(:'space_id',:'host_id',:'renter_id',true);
 COMMIT;
 SQL
 fi
