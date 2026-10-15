@@ -149,6 +149,13 @@ type Repository interface {
 	DeleteOwn(ctx context.Context, owner, id, correlationID string) (Deletion, error)
 }
 
+// AdministrativeDeletionRepository keeps the administrator actor separate
+// from the publication owner while reusing the domain's terminal-retirement
+// and retention rules.
+type AdministrativeDeletionRepository interface {
+	DeleteAsAdministrator(context.Context, string, string, string, string, time.Time, string) (Deletion, error)
+}
+
 // ArchiveSectionRepository exports only drafts owned by the authenticated
 // account, including their saved category/profile versions.
 type ArchiveSectionRepository interface {
@@ -210,6 +217,26 @@ func (p Profile) ValidateAttributes(values map[string]any) error {
 		}
 		if hasCount && count > 0 && (!hasType || typ == "sin_parrilla") {
 			return ErrInvalid
+		}
+	}
+	return nil
+}
+
+// ValidateAttributesForArea applies the persisted category schema together
+// with the cross-field area invariant shared by draft and administrative edits.
+func (p Profile) ValidateAttributesForArea(values map[string]any, areaM2 float64) error {
+	if err := p.ValidateAttributes(values); err != nil {
+		return err
+	}
+	if p.CategoryCode != "parcela_eventos" {
+		return nil
+	}
+	for _, code := range []string{"superficie_exterior_util_m2", "superficie_cubierta_util_m2"} {
+		if value, exists := values[code]; exists {
+			n, ok := numeric(value)
+			if !ok || n > areaM2 {
+				return ErrInvalid
+			}
 		}
 	}
 	return nil

@@ -589,6 +589,11 @@ type WeeklyHoursRepository interface {
 	SaveWeeklyHours(context.Context, string, string, WeeklyHours) (WeeklyHours, error)
 }
 
+type AdministrativeWeeklyHoursRepository interface {
+	WeeklyHoursAsAdministrator(context.Context, string, string, string, string) (WeeklyHours, error)
+	SaveWeeklyHoursAsAdministrator(context.Context, string, string, string, WeeklyHours, time.Time, string, string) (WeeklyHours, error)
+}
+
 // LocalPaymentAdapter is intentionally a narrow port. The only production in
 // this slice is the local fake; a gateway must not be wired into this profile.
 type LocalPaymentAdapter interface {

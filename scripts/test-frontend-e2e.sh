@@ -90,6 +90,7 @@ case "${FE14_EVIDENCE_OUTPUT_DIR:-}" in
   */mpv2_11) FE14_EVIDENCE_PREFIX='fe14_mpv2_11_' ;;
   */mpv2_12) FE14_EVIDENCE_PREFIX='fe14_mpv2_12_' ;;
   */mpv2_13) FE14_EVIDENCE_PREFIX='fe14_mpv2_13_' ;;
+  */gadm_02) FE14_EVIDENCE_PREFIX='fe14_gadm_02_' ;;
   */local-close-01) FE14_EVIDENCE_PREFIX='fe14_local_close_01_' ;;
   */local-close-02) FE14_EVIDENCE_PREFIX='fe14_local_close_02_' ;;
 esac
@@ -331,11 +332,26 @@ INSERT INTO public.rol_usuario (usuario_id, rol)
 SELECT id, 'administrador' FROM public.usuario
 WHERE correo_normalizado = 'fe14-' || :'run_id' || '-admin@ejemplo.invalid'
 ON CONFLICT (usuario_id, rol) DO NOTHING;
+INSERT INTO public.rol_usuario (usuario_id, rol)
+SELECT id, 'administrador' FROM public.usuario
+WHERE correo_normalizado = 'fe14-' || :'run_id' || '-thirdparty@ejemplo.invalid'
+ON CONFLICT (usuario_id, rol) DO NOTHING;
+INSERT INTO public.perfil_usuario(usuario_id,nombre_visible)
+SELECT id,'Arrendatario Sintetico' FROM public.usuario
+WHERE correo_normalizado='fe14-'||:'run_id'||'-renter@ejemplo.invalid'
+ON CONFLICT(usuario_id) DO UPDATE SET nombre_visible=EXCLUDED.nombre_visible,actualizado_en=clock_timestamp();
+INSERT INTO public.administrador_global(usuario_id,concedido_en,concedido_por,motivo_codigo)
+SELECT id,now(),id,'bootstrap_propietario' FROM public.usuario
+WHERE correo_normalizado='fe14-'||:'run_id'||'-admin@ejemplo.invalid'
+ON CONFLICT(usuario_id) DO NOTHING;
+INSERT INTO public.administrador_global_bootstrap(singleton,usuario_id,creado_en)
+SELECT true,id,now() FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-admin@ejemplo.invalid'
+ON CONFLICT(singleton) DO NOTHING;
 SQL
 ROLE_COUNT="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples-only \
   --username espacigo_admin --dbname espacigo_local \
   --command "SELECT count(*) FROM public.usuario u JOIN public.rol_usuario r ON r.usuario_id=u.id WHERE u.correo_normalizado LIKE 'fe14-${RUN_ID}-%' AND r.rol IN ('arrendatario','arrendador','administrador')")"
-[[ "${ROLE_COUNT//[[:space:]]/}" == "6" ]] || { printf 'Synthetic role grant verification failed\n' >&2; exit 1; }
+[[ "${ROLE_COUNT//[[:space:]]/}" == "7" ]] || { printf 'Synthetic role grant verification failed\n' >&2; exit 1; }
 printf 'PASS Go verified four synthetic accounts; only this disposable database received host/admin roles\n'
 
 "${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
@@ -373,6 +389,40 @@ INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
 SELECT id,1,'hora',18000 FROM space;
 INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores)
 SELECT id,'oficina',1,'{"wifi":true,"puestos_trabajo":6,"tipo_uso_oficina":"privada","climatizacion":["aire_acondicionado"]}'::jsonb FROM public.espacio WHERE titulo='Espacio sintético público FE-14';
+INSERT INTO public.espacio_galeria_sintetica_local(id,espacio_id,propietario_id,archivo_id,fixture_code,mime_type,sha256,size_bytes,estado,creada_en,clave_idempotencia)
+SELECT gen_random_uuid(),id,propietario_id,gen_random_uuid(),'synthetic-png-v1','image/png',repeat('a',64),100,'activa',now(),'fe14-gadm02-gallery'
+FROM public.espacio WHERE titulo='Espacio sintético público FE-14';
+WITH host AS (
+  SELECT id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-host@ejemplo.invalid'
+), fixtures(title, description) AS (VALUES
+  ('Retiro permitido FE-14','Publicación sintética recreable y sin reservas ni obligaciones abiertas, destinada al ensayo de una operación de retiro administrativo permitida en este entorno descartable.'),
+  ('Retiro con obligación FE-14','Publicación sintética recreable con una reserva activa y pagada de ensayo, que debe impedir el retiro administrativo mientras conserve esa obligación abierta.')
+), inserted AS (
+  INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,
+      reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria)
+  SELECT gen_random_uuid(),host.id,'oficina',fixtures.title,fixtures.description,24,4,'Uso de prueba','hora',12000,
+      'Dirección privada sintética','activa','America/Santiago'
+  FROM host CROSS JOIN fixtures RETURNING id,titulo
+)
+INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
+SELECT id,1,'hora',12000 FROM inserted;
+INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores)
+SELECT id,'oficina',1,'{}'::jsonb FROM public.espacio WHERE titulo IN ('Retiro permitido FE-14','Retiro con obligación FE-14');
+WITH host AS (
+  SELECT id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-host@ejemplo.invalid'
+), schedule_space AS (
+  INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,
+      reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria)
+  SELECT gen_random_uuid(),host.id,'oficina','Horario FE14','Publicación sintética borrador con fixture horario habilitado para validar el guard de horario semanal en FE-14.',24,4,'Uso de prueba','hora',12000,'Dirección privada sintética','borrador','America/Santiago'
+  FROM host RETURNING id,propietario_id
+)
+INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
+SELECT id,1,'hora',12000 FROM schedule_space;
+INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores)
+SELECT id,'oficina',1,'{}'::jsonb FROM public.espacio WHERE titulo='Horario FE14';
+INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada)
+SELECT e.id,e.propietario_id,u.id,true FROM public.espacio e CROSS JOIN public.usuario u
+WHERE e.titulo='Horario FE14' AND u.correo_normalizado='fe14-'||:'run_id'||'-renter@ejemplo.invalid';
 WITH host AS (
   SELECT id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-public-owner@ejemplo.invalid'
 ), space AS (
@@ -435,6 +485,46 @@ WITH host AS (
 INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores)
 SELECT id,categoria_codigo,1,valores FROM inserted;
 SQL
+if [[ "${FE14_TEST_GREP:-}" == *GADM-02* ]]; then
+  "${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local <<'SQL' >/dev/null
+BEGIN;
+SET CONSTRAINTS ALL DEFERRED;
+SELECT id AS space_id,propietario_id AS host_id FROM public.espacio WHERE titulo='Retiro con obligación FE-14' \gset
+SELECT id AS renter_id FROM public.usuario WHERE correo_normalizado='fe14-'||:'run_id'||'-renter@ejemplo.invalid' \gset
+SELECT gen_random_uuid() AS booking_id,gen_random_uuid() AS quote_id,gen_random_uuid() AS occupancy_id \gset
+SELECT now()+interval '48 hours' AS booking_start \gset
+SELECT :'booking_start'::timestamptz+interval '1 hour' AS booking_end \gset
+INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo)
+VALUES(:'occupancy_id',:'space_id',:'booking_id',tstzrange(:'booking_start',:'booking_end','[)'),'reserva',true);
+INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,categoria_codigo,perfil_version,perfil_valores_snapshot,creada_en,vence_en)
+VALUES(:'quote_id',:'space_id',:'host_id',:'renter_id',1,'hora',12000,'CLP',1,12000,:'booking_start',:'booking_end','America/Santiago','Reserva sintética de FE-14','oficina',1,'{}'::jsonb,now(),now()+interval '15 minutes');
+INSERT INTO public.reserva_ensayo_local(id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,pago_vence_en,creada_en,actualizada_en)
+VALUES(:'booking_id',:'quote_id',:'space_id',:'host_id',:'renter_id','fe14-gadm02-active-obligation',decode(repeat('00',32),'hex'),:'occupancy_id','pagada',12000,1,12000,'hora','CLP',:'booking_start',:'booking_end','America/Santiago','Reserva sintética de FE-14',now()+interval '15 minutes',now(),now());
+INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada)
+VALUES(:'space_id',:'host_id',:'renter_id',true);
+COMMIT;
+SQL
+fi
+
+if [[ "${FE14_RUN_GADM02_INTEGRATION:-0}" == "1" ]]; then
+  admin_password="$(<"$LOCAL_SECRETS_DIR/db_admin_password")"
+  printf 'Building Go/PostGIS GADM-02 integration binary for isolated execution\n'
+  CGO_ENABLED=0 go -C "$ROOT_DIR" test -c -o "$STATE_DIR/adminglobal.test" ./internal/adminglobal
+  mkdir -m 0700 "$STATE_DIR/gadm02-local-testing"
+  docker run --rm --network "container:${PROJECT}-database-1" \
+    --volume "$ROOT_DIR:$ROOT_DIR:ro" \
+    --volume "$STATE_DIR/gadm02-local-testing:$ROOT_DIR/.local/testing" \
+    --volume "$(go env GOMODCACHE):/opt/gomod:ro" \
+    --volume "$STATE_DIR/adminglobal.test:/tmp/adminglobal.test:ro" \
+    --workdir "$ROOT_DIR" \
+    --env GOMODCACHE=/opt/gomod \
+    --env "TEST_DATABASE_URL=postgres://espacigo_admin:${admin_password}@127.0.0.1:5432/espacigo_local?sslmode=disable" \
+    golang:1.27.1-alpine3.24 /tmp/adminglobal.test -test.run '^TestGlobalBootstrapDirectoryAndLastMasterConcurrency$' -test.count=1 -test.v
+  unset admin_password
+  printf 'PASS GADM-02/PostGIS integration tests ran in the disposable FE-14 data network\n'
+fi
+
 if [[ "${FE14_RUN_PUBLIC_CATALOG_ORDERING_INTEGRATION:-0}" == "1" ]]; then
   admin_password="$(<"$LOCAL_SECRETS_DIR/db_admin_password")"
   printf 'Building PostgreSQL public catalog ordering integration binary\n'
@@ -461,7 +551,11 @@ if [[ "$LOCAL_CLOSE02_CLOCK" == "1" ]]; then
 fi
 
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
-if [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
+if [[ -n "${FE14_TEST_GREP:-}" ]]; then
+  printf 'Running focused connected FE-14 journey: %s\n' "$FE14_TEST_GREP"
+  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep "$FE14_TEST_GREP" >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
+  cat "$STATE_DIR/e2e.log"
+elif [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
   printf 'Running focused anonymous public catalog journey\n'
   if [[ "$LOCAL_CLOSE02_CLOCK" == "1" ]]; then
     PUBLIC_TEST_GREP="${FE14_PUBLIC_TEST_GREP:-LOCAL-CLOSE-02 serves a signed reservation through its financial close}"
@@ -569,6 +663,26 @@ if (( E2E_STATUS != 0 )); then
   exit "$E2E_STATUS"
 fi
 cat "$STATE_DIR/e2e.log"
+fi
+
+if [[ "${FE14_TEST_GREP:-}" == *GADM-02* ]]; then
+  GADM_FAILED="$(${compose[@]} exec -T database psql --no-psqlrc --quiet --tuples-only --username espacigo_admin --dbname espacigo_local --command "WITH checks(name,passed) AS (VALUES
+    ('account-profile',EXISTS(SELECT 1 FROM public.perfil_usuario p JOIN public.usuario u ON u.id=p.usuario_id WHERE u.correo_normalizado='fe14-${RUN_ID}-renter@ejemplo.invalid' AND p.nombre_visible='Arrendatario Actualizado' AND p.telefono_normalizado='987654321')),
+    ('marketplace-role',EXISTS(SELECT 1 FROM public.rol_usuario r JOIN public.usuario u ON u.id=r.usuario_id WHERE u.correo_normalizado='fe14-${RUN_ID}-renter@ejemplo.invalid' AND r.rol='arrendador')),
+    ('account-unblocked',NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b JOIN public.usuario u ON u.id=b.cuenta_id WHERE u.correo_normalizado='fe14-${RUN_ID}-renter@ejemplo.invalid')),
+    ('publication-attributes',EXISTS(SELECT 1 FROM public.espacio e JOIN public.espacio_caracteristicas c ON c.espacio_id=e.id WHERE e.titulo='Espacio sintético público FE-14 editado' AND c.valores->>'wifi'='false')),
+    ('gallery-visibility',EXISTS(SELECT 1 FROM public.espacio e JOIN public.espacio_galeria_sintetica_local g ON g.espacio_id=e.id WHERE e.titulo='Espacio sintético público FE-14 editado' AND g.estado='activa' AND g.publicada_en_catalogo)),
+    ('schedule',EXISTS(SELECT 1 FROM public.espacio e JOIN public.espacio_horario_semanal h ON h.espacio_id=e.id WHERE e.titulo='Horario FE14' AND h.activo AND EXISTS(SELECT 1 FROM public.espacio_horario_semanal_tramo t WHERE t.espacio_id=e.id AND t.dia_iso=1 AND t.apertura_minuto=540 AND t.cierre_minuto=720))),
+    ('retire-allowed',EXISTS(SELECT 1 FROM public.espacio e JOIN public.espacio_eliminacion_historial_local h ON h.espacio_id=e.id JOIN public.usuario u ON u.id=h.actor_id WHERE e.titulo='Publicación retirada' AND e.estado='eliminada' AND u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid')),
+    ('retire-blocked',EXISTS(SELECT 1 FROM public.espacio e JOIN public.reserva_ensayo_local r ON r.espacio_id=e.id WHERE e.titulo='Retiro con obligación FE-14' AND e.estado='activa' AND r.estado='pagada')),
+    ('audit-session-revocation',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.accounts.sessions.revoke')),
+    ('audit-publication-update',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.publications.update')),
+    ('audit-gallery-visibility',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.publications.gallery.visibility')),
+    ('audit-schedule',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.publications.schedule')),
+    ('audit-retirement',EXISTS(SELECT 1 FROM public.evento_auditoria_local a JOIN public.usuario u ON u.id=a.actor_id WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND a.accion='admin.global.publications.retire'))
+  ) SELECT COALESCE(string_agg(name,','),'') FROM checks WHERE NOT passed")"
+  [[ -z "${GADM_FAILED//[[:space:]]/}" ]] || { printf 'GADM-02 database persistence/audit assertions failed: %s\n' "${GADM_FAILED//[[:space:]]/}" >&2; exit 1; }
+  printf 'PASS GADM-02 database state and administrative audit assertions match the served browser mutations\n'
 fi
 
 python3 - "$STATE_DIR/accounts.json" "${compose[*]}" <<'PY'

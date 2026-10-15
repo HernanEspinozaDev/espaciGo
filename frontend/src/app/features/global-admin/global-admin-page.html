@@ -5,6 +5,10 @@
     <p>Consulta paginada de cuentas y actividad asociada.</p>
   </header>
 
+  <nav aria-label="Administración global"><button type="button" [attr.aria-current]="activeTab()==='accounts' ? 'page' : null" (click)="showTab('accounts')">Cuentas</button><button type="button" [attr.aria-current]="activeTab()==='publications' ? 'page' : null" (click)="showTab('publications')">Publicaciones</button></nav>
+
+  @if (activeTab()==='accounts') {
+
   @if (overview(); as totals) {
     <section class="totals" aria-label="Totales">
       <article><span>Cuentas</span><strong>{{ totals.total_accounts }}</strong></article>
@@ -71,7 +75,7 @@
 
   @if (selected(); as account) {
     <aside class="detail" aria-labelledby="detail-title">
-      <button class="close" type="button" (click)="selected.set(null)" aria-label="Cerrar detalle">×</button>
+      <button class="close" type="button" (click)="closeAccountDetail()" aria-label="Cerrar detalle">×</button>
       <h2 id="detail-title">{{ account.display_name || account.email }}</h2>
       <dl>
         <dt>UUID</dt><dd>{{ account.account_id }}</dd><dt>Correo</dt><dd>{{ account.email }}</dd>
@@ -79,6 +83,147 @@
         <dt>Roles</dt><dd>{{ account.roles.join(', ') || 'Sin rol' }}</dd>
         <dt>Espacios · reservas · incidentes</dt><dd>{{ account.publication_count }} · {{ account.reservation_count }} · {{ account.incident_count }}</dd>
       </dl>
+      @if (canEditAccount() && account.profile_updated_at) {
+        <section aria-labelledby="profile-edit-title">
+          <h3 id="profile-edit-title">Editar perfil permitido</h3>
+          <form [formGroup]="profileForm" (ngSubmit)="saveProfile()">
+            <label>Nombre visible<input formControlName="displayName" maxlength="120"></label>
+            <label>Teléfono<input formControlName="phone" inputmode="numeric" maxlength="9" autocomplete="off"></label>
+            <label>Motivo<select formControlName="reason"><option value="correccion_perfil">Corrección de perfil</option><option value="revision_administrativa">Revisión administrativa</option><option value="gestion_operativa">Gestión operativa</option></select></label>
+            <p>El correo verificado no se modifica en esta ficha.</p>
+            <button [disabled]="vm.saving() || profileForm.invalid">Guardar cambios</button>
+          </form>
+        </section>
+      }
+      @if (canManageRoles()) {
+        <section aria-labelledby="roles-title"><h3 id="roles-title">Roles de marketplace</h3>
+          @for (role of ['arrendatario','arrendador']; track role) {
+            <p>{{ role }}: {{ account.roles.includes(role) ? 'concedido' : 'no concedido' }}
+              <button type="button" [disabled]="vm.saving()" (click)="setRole(role,!account.roles.includes(role))">{{ account.roles.includes(role) ? 'Revocar' : 'Conceder' }}</button>
+            </p>
+          }
+          <p>Los roles de administrador y administrador global requieren flujos separados.</p>
+        </section>
+      }
+      @if (canRevokeSessions()) {
+        <section aria-labelledby="sessions-title"><h3 id="sessions-title">Sesiones</h3>
+          @if (!confirmSessionRevocation()) { <button type="button" (click)="confirmSessionRevocation.set(true)">Revocar todas las sesiones de esta cuenta</button> }
+          @else { <p>Esta acción cerrará las sesiones existentes. Motivo: {{ profileForm.controls.reason.value }}.</p><button type="button" [disabled]="vm.saving()" (click)="revokeSessions()">Confirmar revocación</button><button type="button" (click)="confirmSessionRevocation.set(false)">Cancelar</button> }
+        </section>
+      }
+      @if (canBlockAccounts()) {
+        <section aria-labelledby="block-title"><h3 id="block-title">Acceso de la cuenta</h3>
+          <p>Estado: {{ account.administrative_blocked ? 'bloqueada administrativamente' : 'sin bloqueo administrativo' }}</p>
+          <button type="button" [disabled]="vm.saving()" (click)="setBlocked(!account.administrative_blocked)">{{ account.administrative_blocked ? 'Desbloquear cuenta' : 'Bloquear cuenta y revocar sesiones' }}</button>
+        </section>
+      }
+      <section aria-labelledby="account-resources-title">
+        <h3 id="account-resources-title">Recursos de esta cuenta</h3>
+        <div class="actions">
+          <button type="button" (click)="loadAccountResources('reservations')">Reservas ({{ account.reservation_count }})</button>
+          <button type="button" (click)="loadAccountResources('incidents')">Incidentes ({{ account.incident_count }})</button>
+        </div>
+        @if (loadingResources()) { <p role="status">Cargando recursos…</p> }
+        @if (accountResources(); as resources) {
+          <p>{{ resources.matching_total }} resultados · {{ resources.generated_at | date:'medium' }}</p>
+          @if (resources.items.length) {
+            <ul>
+              @for (resource of resources.items; track resource.id) {
+                <li><span>{{ resource.kind }} · {{ resource.state }} · {{ resource.participant_role }} · {{ resource.occurred_at | date:'medium' }}</span>
+                  <button type="button" (click)="openResourceDetail(resource.id)">Ver detalle</button>
+                </li>
+              }
+            </ul>
+          } @else { <p>No hay recursos para esta cuenta.</p> }
+          <button type="button" [disabled]="!resources.next_cursor || loadingResources()" (click)="nextAccountResources()">Siguiente página</button>
+        }
+        @if (accountResourceDetail(); as detail) { <details open><summary>Detalle autorizado</summary><pre>{{ resourceDetailText() }}</pre></details> }
+      </section>
+      @if (notice()) { <p role="status">{{ notice() }}</p> }
     </aside>
+  }
+  }
+
+  @if (activeTab()==='publications') {
+    <section aria-labelledby="publications-title"><h2 id="publications-title">Inventario global de publicaciones</h2>
+      @if (error()) { <p role="alert" class="error">{{ error() }}</p> }
+      <p>La visibilidad pública efectiva aplica elegibilidad del propietario, moderación, categoría y fixture vigente. CLP se muestra como texto decimal exacto.</p>
+      <form class="filters" [formGroup]="publicationFilters" (ngSubmit)="searchPublications()">
+        <label>Texto o correo de propietario<input formControlName="search" maxlength="120"></label>
+        <label>UUID propietario<input formControlName="ownerId"></label>
+        <label>Categoría<select formControlName="category"><option value="">Todas</option><option value="oficina">Oficina</option><option value="sala_multiproposito">Sala multipropósito</option><option value="bodega">Bodega</option><option value="estacionamiento">Estacionamiento</option><option value="local_flexible">Local flexible</option><option value="stand">Stand</option><option value="quincho">Quincho</option><option value="parcela_eventos">Parcela eventos</option></select></label>
+        <label>Estado<select formControlName="state"><option value="">Todos</option><option value="borrador">Borrador</option><option value="activa">Activa</option><option value="oculta">Oculta</option><option value="eliminada">Retirada</option></select></label>
+        <label>Catálogo público<select formControlName="visible"><option value="">Todas</option><option value="true">Visibles</option><option value="false">No visibles</option></select></label>
+        <button>Buscar</button>
+      </form>
+      @if (loadingPublications()) { <p role="status">Cargando publicaciones…</p> }
+      @if (publications(); as result) {
+        <p aria-live="polite">{{ result.matching_total }} publicaciones · generado {{ result.generated_at | date:'medium' }}</p>
+        <div class="table-wrap"><table><thead><tr><th>Publicación</th><th>Propietario</th><th>Categoría</th><th>Estado</th><th>Tarifa</th><th>Catálogo real</th><th>Portada</th><th>Acción</th></tr></thead><tbody>
+          @for (item of result.items;track item.publication_id) { <tr><td>{{ item.title }}<small>{{ item.publication_id }}</small></td><td><button type="button" class="account" (click)="openOwner(item.owner_id)">{{ item.owner_name || item.owner_email }}<small>{{ item.owner_email }}</small></button></td><td>{{ item.category_name }}</td><td>{{ item.state }}</td><td>{{ item.base_price_clp }} CLP / {{ item.rate_unit }}</td><td>{{ item.publicly_visible ? 'Visible' : 'No visible' }}</td><td>{{ item.public_cover_available ? 'Disponible' : 'Sin portada pública' }}</td><td>@if (canEditPublications() && (item.state==='activa'||item.state==='oculta'||item.state==='borrador')) { <button type="button" (click)="editPublication(item)">Editar</button> } @if (canReadPublications() && item.state!=='eliminada') { <button type="button" (click)="openPublicationGallery(item)">Galería</button><button type="button" (click)="openPublicationSchedule(item)">Horario</button> } @if (canModeratePublications() && item.state!=='eliminada') { @if (item.state==='activa') { <button type="button" [disabled]="vm.saving()" (click)="changePublicationState(item,'oculta')">Ocultar</button> } @else { <button type="button" [disabled]="vm.saving()" (click)="changePublicationState(item,'activa')">Publicar</button> } } @if (canRetirePublications() && item.state!=='eliminada') { <button type="button" [disabled]="vm.saving()" (click)="requestRetirement(item)">Retirar</button> }</td></tr> }
+        </tbody></table></div>
+        @if (schedulePublication(); as item) {
+          <section class="filters" aria-labelledby="publication-schedule-title">
+            <h3 id="publication-schedule-title">Horario semanal · {{ item.title }}</h3>
+            @if (loadingPublicationSchedule()) { <p role="status">Cargando horario…</p> }
+            @if (publicationSchedule(); as schedule) {
+              <p>Zona horaria: {{ schedule.time_zone }}. Ingresa tramos como 09:00-13:00, 14:00-18:00, separados por coma.</p>
+              <label><input type="checkbox" [formControl]="scheduleEnabled">Horario habilitado</label>
+              <div [formGroup]="schedulePeriods">@for (day of schedule.days; track day.weekday) { <label>{{ weekdayName(day.weekday) }}<input [formControlName]="day.weekday.toString()" [attr.aria-label]="'Tramos de ' + weekdayName(day.weekday)"></label> }</div>
+              <button type="button" [disabled]="vm.saving()" (click)="savePublicationSchedule()">Guardar horario</button>
+            }
+            <button type="button" (click)="closePublicationSchedule()">Cerrar horario</button>
+          </section>
+        }
+        @if (galleryPublication(); as item) {
+          <section class="filters" aria-labelledby="publication-gallery-title">
+            <h3 id="publication-gallery-title">Galería · {{ item.title }}</h3>
+            <p>El panel muestra metadatos sintéticos. La API no devuelve bytes de imagen en este corte.</p>
+            @if (loadingPublicationGallery()) { <p role="status">Cargando galería…</p> }
+            @if (publicationGallery(); as photos) { @if (photos.length===0) { <p>No hay fotos.</p> } @for (photo of photos;track photo.id) {
+              <article><h4>{{ photo.fixture_code }} · {{ photo.state || 'activa' }}</h4><p>{{ photo.mime_type }} · {{ photo.size_bytes }} bytes · {{ photo.sha256 }}</p><p>{{ photo.public_in_catalog ? 'Visible en catálogo' : 'No visible' }} · {{ photo.cover ? 'Portada' : 'Sin seleccionar' }} @if (photo.file_pending_cleanup) { · Limpieza pendiente }</p>
+                @if (photo.state==='activa' && canEditPublications()) { <button type="button" [disabled]="vm.saving()" (click)="changePhotoVisibility(item,photo,!photo.public_in_catalog)">{{ photo.public_in_catalog ? 'Ocultar foto' : 'Mostrar foto' }}</button><button type="button" [disabled]="vm.saving() || !photo.public_in_catalog" (click)="selectPhotoCover(item,photo)">Seleccionar portada</button> }
+                @if (photo.state==='activa' && canRetirePublications()) { <button type="button" [disabled]="vm.saving()" (click)="removePhoto(item,photo)">Retirar foto</button> }
+              </article>
+            } }
+            <button type="button" (click)="closePublicationGallery()">Cerrar galería</button>
+          </section>
+        }
+        @if (editingPublication(); as item) {
+          <form class="filters" [formGroup]="publicationEditForm" (ngSubmit)="savePublication()" aria-labelledby="edit-publication-title">
+            <h3 id="edit-publication-title">Editar publicación · {{ item.owner_name || item.owner_email }}</h3>
+            <p>Dueño y categoría permanecen intactos. Las reservas y snapshots conservan sus valores. La portada y el horario semanal se gestionan en sus recursos existentes.</p>
+            <label>Título<input formControlName="title" maxlength="70" required></label>
+            <label>Descripción<textarea formControlName="description" minlength="100" required></textarea></label>
+            <label>Capacidad<input type="number" formControlName="capacity" min="1" step="1" required></label>
+            <label>Reglas de uso<input formControlName="usageRules" maxlength="250" required></label>
+            <label>Tarifa CLP (entero exacto)<input formControlName="price" inputmode="numeric" pattern="[0-9]+" required></label>
+            @if (item.attribute_schema.attributes.length) {
+              <fieldset [formGroup]="attributeForm"><legend>Atributos de {{ item.category_name }} · perfil v{{ item.attribute_schema_version }}</legend>
+                @for (definition of item.attribute_schema.attributes; track definition.code) {
+                  <label>{{ definition.label }}@if(definition.unit){ · {{definition.unit}}}
+                    @if(definition.type==='boolean'){<input type="checkbox" [formControlName]="definition.code">}
+                    @else if(definition.type==='enum'){<select [formControlName]="definition.code"><option value="">Sin especificar</option>@for(option of definition.options||[];track option){<option [value]="option">{{option}}</option>}</select>}
+                    @else if(definition.type==='enum_list'){<input [formControlName]="definition.code" [attr.aria-label]="definition.label + ', opciones permitidas: ' + (definition.options||[]).join(', ')" [placeholder]="(definition.options||[]).join(', ')"><small>Valores permitidos, separados por coma: {{(definition.options||[]).join(', ')}}</small>}
+                    @else {<input type="number" [step]="definition.step||1" [min]="definition.minimum??null" [max]="definition.maximum??null" [formControlName]="definition.code">}
+                  </label>
+                }
+              </fieldset>
+            }
+            <button [disabled]="vm.saving() || publicationEditForm.invalid">Guardar edición</button><button type="button" (click)="cancelPublicationEdit()">Cancelar</button>
+          </form>
+        }
+        @if (retiringPublication(); as item) {
+          <section class="filters" aria-labelledby="retire-publication-title">
+            <h3 id="retire-publication-title">Confirmar retiro definitivo</h3>
+            <p>Se retirará «{{ item.title }}» de {{ item.owner_name || item.owner_email }}. El Backend rechazará la operación si hay reservas, pagos, reclamos u otras obligaciones abiertas. Los históricos se conservan y la limpieza de archivos se procesa de forma durable.</p>
+            <label>Motivo<select [formControl]="retirementReason"><option value="revision_administrativa">Revisión administrativa</option><option value="moderacion_contenido">Moderación de contenido</option><option value="riesgo_seguridad">Riesgo de seguridad</option><option value="solicitud_titular">Solicitud del titular</option></select></label>
+            <button type="button" [disabled]="vm.saving()" (click)="confirmRetirement()">Confirmar retiro</button>
+            <button type="button" (click)="retiringPublication.set(null)">Cancelar</button>
+          </section>
+        }
+        <button class="next" type="button" [disabled]="!result.next_cursor || loadingPublications()" (click)="nextPublications()">Siguiente página</button>
+      }
+    </section>
   }
 </main>

@@ -140,9 +140,20 @@ func TestAttributeProfilesValidateOptionalTypedValuesAndRules(t *testing.T) {
 	if q.ValidateAttributes(map[string]any{"tipo_parrilla": "sin_parrilla", "parrillas_disponibles": float64(1)}) == nil {
 		t.Fatal("incompatible grill combination accepted")
 	}
-	parcel := Profile{CategoryCode: "parcela_eventos", Attributes: []AttributeDefinition{{Code: "superficie_exterior_util_m2", Type: "number", Minimum: &minOne, Maximum: &maxInt, Step: floatPtr(0.01)}}}
-	if validateAttributes(parcel, Input{AreaM2: 100, Attributes: map[string]any{"superficie_exterior_util_m2": float64(101)}}) == nil {
-		t.Fatal("partial event surface larger than common surface accepted")
+	parcel := Profile{CategoryCode: "parcela_eventos", Attributes: []AttributeDefinition{
+		{Code: "superficie_exterior_util_m2", Type: "number", Minimum: &minOne, Maximum: &maxInt, Step: floatPtr(0.01)},
+		{Code: "superficie_cubierta_util_m2", Type: "number", Minimum: &minOne, Maximum: &maxInt, Step: floatPtr(0.01)},
+	}}
+	for _, values := range []map[string]any{
+		{"superficie_exterior_util_m2": float64(101)},
+		{"superficie_cubierta_util_m2": float64(101)},
+	} {
+		if parcel.ValidateAttributesForArea(values, 100) == nil {
+			t.Fatalf("partial event surface larger than common surface accepted: %v", values)
+		}
+	}
+	if err := validateAttributes(parcel, Input{AreaM2: 100, Attributes: map[string]any{"superficie_exterior_util_m2": float64(80), "superficie_cubierta_util_m2": float64(90)}}); err != nil {
+		t.Fatalf("valid partial event surfaces rejected: %v", err)
 	}
 }
 

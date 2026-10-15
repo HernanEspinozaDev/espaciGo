@@ -4,7 +4,7 @@ Fecha: 2026-10-14, America/Santiago. **Autorizado para desarrollar por cortes y 
 
 ## 1. Diagnóstico verificado
 
-Base integrada para GADM-01: `2589aa1139232f419cf1d1aebdd79a69c1f4007b`, merge de PR #312 (GADM-00). GADM-01 se desarrolla en `codex/marketplace/feature/gadm-01-master-access-directory`; consultar el HEAD del PR al registrar evidencia final.
+Base integrada para GADM-02: `6dffcc92ae528d8a790956a8dd73960df1501802`, merge de PR #313 (GADM-01). HEAD revisado del PR: `0dcaa68e78d377d7ad5d0831366a73e5d72c3e3f`. GADM-02 está en revisión técnica en PR #314, rama `codex/marketplace/feature/gadm-02-account-publication-management`; ver evidencia reproducible en `matriz_capacidades_pruebas_cortes.md`. La aceptación de producto sigue pendiente.
 
 - Existe `identity.RoleAdministrator = administrador`, además de arrendatario/arrendador; el registro solo concede arrendatario.
 - Hay una cuenta administrativa de ensayo en la demo LOCAL-CLOSE-02; no se exportan sus credenciales ni se la convierte automáticamente en cuenta del propietario.
@@ -105,8 +105,8 @@ Todos los cambios usan control de concurrencia (revisión/updated_at o versión 
 | Corte | Entrega | Condición de terminado |
 | --- | --- | --- |
 | GADM-00 | Inventario de capacidades actuales, ADR, matriz permisos/operaciones y plan versionado | Fusionado en PR #312, merge `2589aa1139232f419cf1d1aebdd79a69c1f4007b`; sin concesiones de privilegios ni cuentas nuevas. |
-| GADM-01 | Rol global/capacidades, V58, bootstrap/recuperación, sesión y directorio de cuentas con totales reales | Corte vigente en el PR de la rama indicada arriba. Cuenta global solo sintética local; pruebas de base vacía/V56, matriz de permisos, paginación, filtros, concurrencia del bootstrap y último master. No empezar GADM-02 antes de fusión y mensaje del chat revisor. |
-| GADM-02 | Gestión de cuentas y publicaciones: edición, bloqueo/roles y baja por reglas de privacidad/ocupaciones; fichas y recursos por propietario | Acciones dedicadas desde Angular→Go→DB, auditoría atómica, confirmación/motivo, snapshots conservados y carreras cubiertas. |
+| GADM-01 | Rol global/capacidades, V58, bootstrap/recuperación, sesión y directorio de cuentas con totales reales | Fusionado en PR #313, merge `6dffcc92ae528d8a790956a8dd73960df1501802`, HEAD revisado `0dcaa68e78d377d7ad5d0831366a73e5d72c3e3f`. La cuenta real y aceptación de producto siguen pendientes. |
+| GADM-02 | Gestión de cuentas/publicaciones: edición allowlist, bloqueo/sesiones/roles bajo política, estados y recursos por propietario; moderación, publicación, ocultamiento y retiro según dominio | Acciones Angular→Go→DB; motivo y autenticación reciente verificados por servidor; auditoría atómica, control de versión/idempotencia, snapshots y ocupaciones conservados, privacidad/retención respetadas y carreras cubiertas. Correo verificado no editable desde ficha. Supresión exige transferencia previa del UUID bootstrap. V1–V58 inmutables; V59 solo si el modelo lo exige. |
 | GADM-03 | Tablero KPI y auditoría por cuenta/global, exportaciones JSON/CSV | Definiciones/fuentes/intervalos exactos, cifras contrastadas con DB, sin doble conteo/N+1 ni exposición de secretos, paginación/export coherentes. |
 | GADM-04 | Regresión y entrega de la cuenta maestra con guía/demo e inventario de capacidades | Pruebas de permisos y recorridos completos, dataset de ensayo recreable, evidencia por SHA, aceptación del propietario; ningún soporte o GCP activado. |
 

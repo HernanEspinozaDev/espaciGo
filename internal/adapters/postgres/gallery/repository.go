@@ -5,7 +5,9 @@ import (
 	"errors"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaceversion"
 	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -146,6 +148,9 @@ func (w *candidateWriter) Add(ctx context.Context, item gallery.Photo, key strin
 	if result.RowsAffected() != 1 {
 		return gallery.Photo{}, false, gallery.ErrCandidateUnavailable
 	}
+	if _, err = spaceversion.Bump(ctx, w.tx, w.spaceID); err != nil {
+		return gallery.Photo{}, false, err
+	}
 	if err = w.finish(ctx); err != nil {
 		return gallery.Photo{}, false, err
 	}
@@ -283,17 +288,27 @@ func (r *Repository) SetPublicInCatalog(ctx context.Context, owner, spaceID, pho
 	if !active {
 		return gallery.Photo{}, gallery.ErrNotFound
 	}
-	item, err := scanPhoto(tx.QueryRow(ctx, `UPDATE public.espacio_galeria_sintetica_local g
-SET publicada_en_catalogo=$4
-FROM public.espacio s
-WHERE g.id=$1 AND g.espacio_id=$2 AND g.propietario_id=$3 AND g.estado='activa' AND g.archivo_id IS NOT NULL
-  AND s.id=g.espacio_id AND s.propietario_id=g.propietario_id AND s.estado<>'eliminada'
-RETURNING g.id::text,g.fixture_code,g.mime_type,g.sha256,g.size_bytes,g.creada_en,g.publicada_en_catalogo`, photoID, spaceID, owner, enabled))
+	var exists bool
+	if err = tx.QueryRow(ctx, `SELECT true FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado<>'eliminada' FOR UPDATE`, spaceID, owner).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+		return gallery.Photo{}, gallery.ErrNotFound
+	} else if err != nil {
+		return gallery.Photo{}, err
+	}
+	item, err := scanPhoto(tx.QueryRow(ctx, `SELECT `+activePhotoColumns+` FROM public.espacio_galeria_sintetica_local WHERE id=$1 AND espacio_id=$2 AND propietario_id=$3 AND estado='activa' AND archivo_id IS NOT NULL FOR UPDATE`, photoID, spaceID, owner))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return gallery.Photo{}, gallery.ErrNotFound
 	}
 	if err != nil {
 		return gallery.Photo{}, err
+	}
+	if item.PublicInCatalog != enabled {
+		item, err = scanPhoto(tx.QueryRow(ctx, `UPDATE public.espacio_galeria_sintetica_local SET publicada_en_catalogo=$2 WHERE id=$1 RETURNING `+activePhotoColumns, photoID, enabled))
+		if err != nil {
+			return gallery.Photo{}, err
+		}
+		if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
+			return gallery.Photo{}, err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return gallery.Photo{}, err
@@ -332,10 +347,13 @@ func (r *Repository) Remove(ctx context.Context, owner, spaceID, photoID string)
 	}
 	reused := state != "activa"
 	if !reused {
-		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=NULL,actualizado_en=clock_timestamp() WHERE id=$1 AND propietario_id=$2 AND portada_foto_id=$3`, spaceID, owner, photoID); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=NULL WHERE id=$1 AND propietario_id=$2 AND portada_foto_id=$3`, spaceID, owner, photoID); err != nil {
 			return gallery.Removal{}, err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE public.espacio_galeria_sintetica_local SET estado='retirada',retirada_en=clock_timestamp(),proximo_intento_en=clock_timestamp() WHERE id=$1 AND estado='activa'`, photoID); err != nil {
+			return gallery.Removal{}, err
+		}
+		if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
 			return gallery.Removal{}, err
 		}
 	}
@@ -373,13 +391,260 @@ func (r *Repository) SelectCover(ctx context.Context, owner, spaceID, photoID st
 	if photoState != "activa" {
 		return gallery.Cover{}, gallery.ErrNotFound
 	}
-	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=$3,actualizado_en=clock_timestamp() WHERE id=$1 AND propietario_id=$2`, spaceID, owner, photoID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=$3 WHERE id=$1 AND propietario_id=$2`, spaceID, owner, photoID); err != nil {
+		return gallery.Cover{}, err
+	}
+	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
 		return gallery.Cover{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return gallery.Cover{}, err
 	}
 	return gallery.Cover{SpaceID: spaceID, PhotoID: photoID, Selected: true}, nil
+}
+
+func lockAdministrativeGalleryAccounts(ctx context.Context, tx pgx.Tx, actor, owner string) error {
+	if actor == owner {
+		return gallery.ErrNotFound
+	}
+	lock := func(id string) error {
+		active, err := accountlock.LockActive(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if !active {
+			return gallery.ErrNotFound
+		}
+		return nil
+	}
+	if actor == owner {
+		if err := lock(actor); err != nil {
+			return err
+		}
+	} else if actor < owner {
+		if err := lock(actor); err != nil {
+			return err
+		}
+		if err := lock(owner); err != nil {
+			return err
+		}
+	} else {
+		if err := lock(owner); err != nil {
+			return err
+		}
+		if err := lock(actor); err != nil {
+			return err
+		}
+	}
+	var actorAllowed, ownerBlocked bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.administrador_global g JOIN public.usuario u ON u.id=g.usuario_id WHERE g.usuario_id=$1 AND (u.bloqueado_hasta IS NULL OR u.bloqueado_hasta<=now()) AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id))`, actor).Scan(&actorAllowed); err != nil {
+		return err
+	}
+	if !actorAllowed {
+		return gallery.ErrNotFound
+	}
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id=$1)`, owner).Scan(&ownerBlocked); err != nil {
+		return err
+	}
+	if ownerBlocked {
+		return gallery.ErrNotFound
+	}
+	return nil
+}
+
+func lockAdministrativeSpace(ctx context.Context, tx pgx.Tx, owner, spaceID string, expected time.Time) (string, time.Time, error) {
+	var state string
+	var updated time.Time
+	err := tx.QueryRow(ctx, `SELECT estado,actualizado_en FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, spaceID, owner).Scan(&state, &updated)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", time.Time{}, gallery.ErrNotFound
+	}
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if !expected.IsZero() && !updated.Equal(expected.UTC()) {
+		return "", time.Time{}, gallery.ErrConflict
+	}
+	if state == "eliminada" {
+		return "", time.Time{}, gallery.ErrNotFound
+	}
+	return state, updated, nil
+}
+
+func auditAdministrativeGallery(ctx context.Context, tx pgx.Tx, actor, spaceID, action, reason, correlation string, at time.Time) error {
+	id, err := (credentials.Generator{}).ID()
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en) VALUES($1,$2,'publicacion_global',$3,$4,'exito',$5,$6,$7,$7::timestamptz+interval '5 years')`, id, actor, spaceID, action, reason, correlation, at.UTC())
+	return err
+}
+
+func (r *Repository) ListAsAdministrator(ctx context.Context, actor, owner, spaceID, correlation string) ([]gallery.Photo, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	if err = lockAdministrativeGalleryAccounts(ctx, tx, actor, owner); err != nil {
+		return nil, err
+	}
+	var exists bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.espacio WHERE id=$1 AND propietario_id=$2)`, spaceID, owner).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, gallery.ErrNotFound
+	}
+	rows, err := tx.Query(ctx, `SELECT g.id::text,g.fixture_code,g.mime_type,g.sha256,g.size_bytes,g.creada_en,g.publicada_en_catalogo,g.estado,COALESCE(s.portada_foto_id=g.id,false),g.archivo_id IS NOT NULL AND g.estado<>'activa' FROM public.espacio_galeria_sintetica_local g JOIN public.espacio s ON s.id=g.espacio_id AND s.propietario_id=g.propietario_id WHERE g.espacio_id=$1 AND g.propietario_id=$2 ORDER BY g.creada_en,g.id`, spaceID, owner)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]gallery.Photo, 0)
+	for rows.Next() {
+		var item gallery.Photo
+		if err = rows.Scan(&item.ID, &item.Fixture, &item.MIME, &item.SHA256, &item.Size, &item.CreatedAt, &item.PublicInCatalog, &item.State, &item.Cover, &item.FilePending); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if err = auditAdministrativeGallery(ctx, tx, actor, spaceID, "admin.global.publications.gallery.read", "consulta_recurso", correlation, time.Now()); err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (r *Repository) SetPublicInCatalogAsAdministrator(ctx context.Context, actor, owner, spaceID, photoID string, enabled bool, expected time.Time, correlation, reason string) (gallery.Photo, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return gallery.Photo{}, err
+	}
+	defer tx.Rollback(ctx)
+	if err = lockAdministrativeGalleryAccounts(ctx, tx, actor, owner); err != nil {
+		return gallery.Photo{}, err
+	}
+	if _, _, err = lockAdministrativeSpace(ctx, tx, owner, spaceID, expected); err != nil {
+		return gallery.Photo{}, err
+	}
+	item, err := scanPhoto(tx.QueryRow(ctx, `UPDATE public.espacio_galeria_sintetica_local SET publicada_en_catalogo=$4 WHERE id=$1 AND espacio_id=$2 AND propietario_id=$3 AND estado='activa' AND archivo_id IS NOT NULL RETURNING `+activePhotoColumns, photoID, spaceID, owner, enabled))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return gallery.Photo{}, gallery.ErrNotFound
+	}
+	if err != nil {
+		return gallery.Photo{}, err
+	}
+	var at time.Time
+	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&at); err != nil {
+		return gallery.Photo{}, err
+	}
+	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
+		return gallery.Photo{}, err
+	}
+	if err = auditAdministrativeGallery(ctx, tx, actor, spaceID, "admin.global.publications.gallery.visibility", reason, correlation, at); err != nil {
+		return gallery.Photo{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return gallery.Photo{}, err
+	}
+	item.State = "activa"
+	return item, nil
+}
+
+func (r *Repository) SelectCoverAsAdministrator(ctx context.Context, actor, owner, spaceID, photoID string, expected time.Time, correlation, reason string) (gallery.Cover, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return gallery.Cover{}, err
+	}
+	defer tx.Rollback(ctx)
+	if err = lockAdministrativeGalleryAccounts(ctx, tx, actor, owner); err != nil {
+		return gallery.Cover{}, err
+	}
+	if _, _, err = lockAdministrativeSpace(ctx, tx, owner, spaceID, expected); err != nil {
+		return gallery.Cover{}, err
+	}
+	var exists bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.espacio_galeria_sintetica_local WHERE id=$1 AND espacio_id=$2 AND propietario_id=$3 AND estado='activa' AND archivo_id IS NOT NULL)`, photoID, spaceID, owner).Scan(&exists); err != nil {
+		return gallery.Cover{}, err
+	}
+	if !exists {
+		return gallery.Cover{}, gallery.ErrNotFound
+	}
+	var at time.Time
+	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&at); err != nil {
+		return gallery.Cover{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=$3 WHERE id=$1 AND propietario_id=$2`, spaceID, owner, photoID); err != nil {
+		return gallery.Cover{}, err
+	}
+	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
+		return gallery.Cover{}, err
+	}
+	if err = auditAdministrativeGallery(ctx, tx, actor, spaceID, "admin.global.publications.gallery.cover", reason, correlation, at); err != nil {
+		return gallery.Cover{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return gallery.Cover{}, err
+	}
+	return gallery.Cover{SpaceID: spaceID, PhotoID: photoID, Selected: true}, nil
+}
+
+func (r *Repository) RemoveAsAdministrator(ctx context.Context, actor, owner, spaceID, photoID string, expected time.Time, correlation, reason string) (gallery.Removal, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return gallery.Removal{}, err
+	}
+	defer tx.Rollback(ctx)
+	if err = lockAdministrativeGalleryAccounts(ctx, tx, actor, owner); err != nil {
+		return gallery.Removal{}, err
+	}
+	_, updated, err := lockAdministrativeSpace(ctx, tx, owner, spaceID, time.Time{})
+	if err != nil {
+		return gallery.Removal{}, err
+	}
+	var state string
+	if err = tx.QueryRow(ctx, `SELECT estado FROM public.espacio_galeria_sintetica_local WHERE id=$1 AND espacio_id=$2 AND propietario_id=$3 FOR UPDATE`, photoID, spaceID, owner).Scan(&state); errors.Is(err, pgx.ErrNoRows) {
+		return gallery.Removal{}, gallery.ErrNotFound
+	} else if err != nil {
+		return gallery.Removal{}, err
+	}
+	if state != "activa" {
+		if err = tx.Commit(ctx); err != nil {
+			return gallery.Removal{}, err
+		}
+		return gallery.Removal{PhotoID: photoID, Removed: true, Reused: true}, nil
+	}
+	if !updated.Equal(expected.UTC()) {
+		return gallery.Removal{}, gallery.ErrConflict
+	}
+	var at time.Time
+	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&at); err != nil {
+		return gallery.Removal{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=NULL WHERE id=$1 AND propietario_id=$2 AND portada_foto_id=$3`, spaceID, owner, photoID); err != nil {
+		return gallery.Removal{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio_galeria_sintetica_local SET estado='retirada',retirada_en=$2,proximo_intento_en=$2 WHERE id=$1 AND estado='activa'`, photoID, at); err != nil {
+		return gallery.Removal{}, err
+	}
+	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
+		return gallery.Removal{}, err
+	}
+	if err = auditAdministrativeGallery(ctx, tx, actor, spaceID, "admin.global.publications.gallery.remove", reason, correlation, at); err != nil {
+		return gallery.Removal{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return gallery.Removal{}, err
+	}
+	return gallery.Removal{PhotoID: photoID, Removed: true}, nil
 }
 
 func (r *Repository) PendingCleanup(ctx context.Context, limit int) ([]string, error) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type Service struct{ repo Repository }
@@ -107,21 +108,23 @@ func (s *Service) DeleteOwn(ctx context.Context, owner, id, correlationID string
 	return s.repo.DeleteOwn(ctx, owner, id, correlationID)
 }
 
+// DeleteAsAdministrator delegates to the same terminal-retirement operation
+// while preserving the real administrator actor and target owner separately.
+// The repository rechecks global membership and applies all obligation,
+// snapshot, gallery-cleanup, and history rules inside its transaction.
+func (s *Service) DeleteAsAdministrator(ctx context.Context, actor, owner, id, correlationID string, expectedUpdatedAt time.Time, reason string) (Deletion, error) {
+	if !validOwner(actor) || !validOwner(owner) || !validID(id) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlationID) == "" || len(correlationID) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 {
+		return Deletion{}, ErrInvalid
+	}
+	repository, ok := s.repo.(AdministrativeDeletionRepository)
+	if !ok {
+		return Deletion{}, ErrNotFound
+	}
+	return repository.DeleteAsAdministrator(ctx, actor, owner, id, correlationID, expectedUpdatedAt.UTC(), reason)
+}
+
 func validateAttributes(profile Profile, input Input) error {
-	if err := profile.ValidateAttributes(input.Attributes); err != nil {
-		return err
-	}
-	if profile.CategoryCode == "parcela_eventos" {
-		for _, code := range []string{"superficie_exterior_util_m2", "superficie_cubierta_util_m2"} {
-			if value, exists := input.Attributes[code]; exists {
-				n, ok := numeric(value)
-				if !ok || n > input.AreaM2 {
-					return ErrInvalid
-				}
-			}
-		}
-	}
-	return nil
+	return profile.ValidateAttributesForArea(input.Attributes, input.AreaM2)
 }
 
 var uuidPattern = func() *regexp.Regexp {

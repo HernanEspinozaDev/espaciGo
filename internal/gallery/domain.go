@@ -19,6 +19,7 @@ var (
 	ErrLimit                = errors.New("gallery: photo limit reached")
 	ErrFileStore            = errors.New("gallery: private file unavailable")
 	ErrCandidateUnavailable = errors.New("gallery: file candidate is being cleaned")
+	ErrConflict             = errors.New("gallery: stale metadata or state conflict")
 )
 
 type Photo struct {
@@ -29,6 +30,16 @@ type Photo struct {
 	Size            int64     `json:"size_bytes"`
 	CreatedAt       time.Time `json:"created_at"`
 	PublicInCatalog bool      `json:"public_in_catalog"`
+	State           string    `json:"state,omitempty"`
+	Cover           bool      `json:"cover,omitempty"`
+	FilePending     bool      `json:"file_pending_cleanup,omitempty"`
+}
+
+type AdministrativeRepository interface {
+	ListAsAdministrator(context.Context, string, string, string, string) ([]Photo, error)
+	SetPublicInCatalogAsAdministrator(context.Context, string, string, string, string, bool, time.Time, string, string) (Photo, error)
+	SelectCoverAsAdministrator(context.Context, string, string, string, string, time.Time, string, string) (Cover, error)
+	RemoveAsAdministrator(context.Context, string, string, string, string, time.Time, string, string) (Removal, error)
 }
 
 type Removal struct {

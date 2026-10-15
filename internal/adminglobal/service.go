@@ -14,7 +14,10 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -30,9 +33,32 @@ const collectionID = "00000000-0000-0000-0000-000000000000"
 var canonicalUUID = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 type Service struct {
-	pool *pgxpool.Pool
-	now  func() time.Time
-	ids  credentials.Generator
+	pool               *pgxpool.Pool
+	now                func() time.Time
+	ids                credentials.Generator
+	publicationRetirer interface {
+		DeleteAsAdministrator(context.Context, string, string, string, string, time.Time, string) (spaces.Deletion, error)
+	}
+	weeklyHoursManager interface {
+		WeeklyHours(context.Context, string, string) (booking.WeeklyHours, error)
+		WeeklyHoursAsAdministrator(context.Context, string, string, string, string) (booking.WeeklyHours, error)
+		SaveWeeklyHoursAsAdministrator(context.Context, string, string, string, booking.WeeklyHours, time.Time, string, string) (booking.WeeklyHours, error)
+	}
+	publicationGallery interface {
+		ListAsAdministrator(context.Context, string, string, string, string) ([]gallery.Photo, error)
+		SetPublicInCatalogAsAdministrator(context.Context, string, string, string, string, bool, time.Time, string, string) (gallery.Photo, error)
+		SelectCoverAsAdministrator(context.Context, string, string, string, string, time.Time, string, string) (gallery.Cover, error)
+		RemoveAsAdministrator(context.Context, string, string, string, string, time.Time, string, string) (gallery.Removal, error)
+	}
+}
+
+func (s *Service) SetPublicationGallery(manager interface {
+	ListAsAdministrator(context.Context, string, string, string, string) ([]gallery.Photo, error)
+	SetPublicInCatalogAsAdministrator(context.Context, string, string, string, string, bool, time.Time, string, string) (gallery.Photo, error)
+	SelectCoverAsAdministrator(context.Context, string, string, string, string, time.Time, string, string) (gallery.Cover, error)
+	RemoveAsAdministrator(context.Context, string, string, string, string, time.Time, string, string) (gallery.Removal, error)
+}) {
+	s.publicationGallery = manager
 }
 
 func New(pool *pgxpool.Pool, now func() time.Time) (*Service, error) {
@@ -40,6 +66,20 @@ func New(pool *pgxpool.Pool, now func() time.Time) (*Service, error) {
 		return nil, ErrInvalid
 	}
 	return &Service{pool: pool, now: now, ids: credentials.Generator{}}, nil
+}
+
+func (s *Service) SetPublicationRetirer(retirer interface {
+	DeleteAsAdministrator(context.Context, string, string, string, string, time.Time, string) (spaces.Deletion, error)
+}) {
+	s.publicationRetirer = retirer
+}
+
+func (s *Service) SetWeeklyHoursManager(manager interface {
+	WeeklyHours(context.Context, string, string) (booking.WeeklyHours, error)
+	WeeklyHoursAsAdministrator(context.Context, string, string, string, string) (booking.WeeklyHours, error)
+	SaveWeeklyHoursAsAdministrator(context.Context, string, string, string, booking.WeeklyHours, time.Time, string, string) (booking.WeeklyHours, error)
+}) {
+	s.weeklyHoursManager = manager
 }
 
 type AccountFilter struct {
@@ -56,16 +96,18 @@ type AccountFilter struct {
 }
 
 type AccountSummary struct {
-	AccountID             string    `json:"account_id"`
-	Email                 string    `json:"email"`
-	DisplayName           *string   `json:"display_name"`
-	State                 string    `json:"state"`
-	CreatedAt             time.Time `json:"created_at"`
-	AdministrativeBlocked bool      `json:"administrative_blocked"`
-	Roles                 []string  `json:"roles"`
-	PublicationCount      int64     `json:"publication_count"`
-	ReservationCount      int64     `json:"reservation_count"`
-	IncidentCount         int64     `json:"incident_count"`
+	AccountID             string     `json:"account_id"`
+	Email                 string     `json:"email"`
+	DisplayName           *string    `json:"display_name"`
+	Phone                 *string    `json:"phone"`
+	ProfileUpdatedAt      *time.Time `json:"profile_updated_at"`
+	State                 string     `json:"state"`
+	CreatedAt             time.Time  `json:"created_at"`
+	AdministrativeBlocked bool       `json:"administrative_blocked"`
+	Roles                 []string   `json:"roles"`
+	PublicationCount      int64      `json:"publication_count"`
+	ReservationCount      int64      `json:"reservation_count"`
+	IncidentCount         int64      `json:"incident_count"`
 }
 
 type AccountPage struct {
@@ -248,7 +290,7 @@ func (s *Service) queryAccounts(ctx context.Context, actor, correlation string, 
 	}
 	for rows.Next() {
 		var item AccountSummary
-		if err = rows.Scan(&item.AccountID, &item.Email, &item.DisplayName, &item.State, &item.CreatedAt, &item.AdministrativeBlocked, &item.Roles, &item.PublicationCount, &item.ReservationCount, &item.IncidentCount); err != nil {
+		if err = rows.Scan(&item.AccountID, &item.Email, &item.DisplayName, &item.Phone, &item.ProfileUpdatedAt, &item.State, &item.CreatedAt, &item.AdministrativeBlocked, &item.Roles, &item.PublicationCount, &item.ReservationCount, &item.IncidentCount); err != nil {
 			rows.Close()
 			return AccountPage{}, err
 		}
@@ -364,7 +406,7 @@ func accountPageQuery(where string, limitArg int) string {
 	return fmt.Sprintf(`WITH page AS (
 		SELECT u.id,u.correo_original,u.estado,u.creado_en,
 			EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id) AS administrative_blocked,
-			p.nombre_visible
+			p.nombre_visible,p.telefono_normalizado,p.actualizado_en AS profile_updated_at
 		FROM public.usuario u LEFT JOIN public.perfil_usuario p ON p.usuario_id=u.id
 		WHERE %s ORDER BY u.creado_en DESC,u.id DESC LIMIT $%d
 	), role_rows AS (
@@ -380,7 +422,7 @@ func accountPageQuery(where string, limitArg int) string {
 		SELECT c.id,c.anfitrion_id account_id FROM public.reclamo_dano_ensayo_local c JOIN page p ON p.id=c.anfitrion_id
 		UNION ALL SELECT c.id,c.arrendatario_id FROM public.reclamo_dano_ensayo_local c JOIN page p ON p.id=c.arrendatario_id
 	), claims AS (SELECT account_id,count(DISTINCT id)::bigint total FROM claim_parties GROUP BY account_id)
-	SELECT p.id::text,p.correo_original,p.nombre_visible,p.estado,p.creado_en,p.administrative_blocked,
+	SELECT p.id::text,p.correo_original,p.nombre_visible,p.telefono_normalizado,p.profile_updated_at,p.estado,p.creado_en,p.administrative_blocked,
 		COALESCE(r.values,'{}'::text[]),COALESCE(s.total,0),COALESCE(b.total,0),COALESCE(c.total,0)
 	FROM page p LEFT JOIN roles r ON r.account_id=p.id LEFT JOIN spaces s ON s.account_id=p.id
 	LEFT JOIN reservations b ON b.account_id=p.id LEFT JOIN claims c ON c.account_id=p.id

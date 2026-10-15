@@ -155,16 +155,42 @@ func (r *Repository) GetOwn(ctx context.Context, owner, id string) (spaces.Draft
 }
 
 func (r *Repository) DeleteOwn(ctx context.Context, owner, id, correlationID string) (spaces.Deletion, error) {
+	return r.delete(ctx, owner, owner, id, correlationID, time.Time{}, "", false)
+}
+
+func (r *Repository) DeleteAsAdministrator(ctx context.Context, actor, owner, id, correlationID string, expectedUpdatedAt time.Time, reason string) (spaces.Deletion, error) {
+	return r.delete(ctx, actor, owner, id, correlationID, expectedUpdatedAt, reason, true)
+}
+
+func (r *Repository) delete(ctx context.Context, actor, owner, id, correlationID string, expectedUpdatedAt time.Time, reason string, administrative bool) (spaces.Deletion, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return spaces.Deletion{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err = lockActiveOwner(ctx, tx, owner); err != nil {
+	if administrative {
+		if actor == owner { return spaces.Deletion{}, spaces.ErrNotFound }
+		if actor < owner {
+			if err = lockGlobalAdministrator(ctx, tx, actor); err != nil {
+				return spaces.Deletion{}, err
+			}
+			if err = lockActiveRetirementOwner(ctx, tx, owner); err != nil {
+				return spaces.Deletion{}, err
+			}
+		} else {
+			if err = lockActiveRetirementOwner(ctx, tx, owner); err != nil {
+				return spaces.Deletion{}, err
+			}
+			if err = lockGlobalAdministrator(ctx, tx, actor); err != nil {
+				return spaces.Deletion{}, err
+			}
+		}
+	} else if err = lockActiveOwner(ctx, tx, owner); err != nil {
 		return spaces.Deletion{}, err
 	}
 	var state string
-	err = tx.QueryRow(ctx, `SELECT estado FROM public.espacio WHERE propietario_id=$1 AND id=$2 FOR UPDATE`, owner, id).Scan(&state)
+	var updatedAt time.Time
+	err = tx.QueryRow(ctx, `SELECT estado,actualizado_en FROM public.espacio WHERE propietario_id=$1 AND id=$2 FOR UPDATE`, owner, id).Scan(&state, &updatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return spaces.Deletion{}, spaces.ErrNotFound
 	}
@@ -173,7 +199,7 @@ func (r *Repository) DeleteOwn(ctx context.Context, owner, id, correlationID str
 	}
 	var prior spaces.Deletion
 	var summary []byte
-	err = tx.QueryRow(ctx, `SELECT espacio_id::text,ocurrida_en,archivos_pendientes,resumen FROM public.espacio_eliminacion_historial_local WHERE espacio_id=$1 AND actor_id=$2`, id, owner).
+	err = tx.QueryRow(ctx, `SELECT espacio_id::text,ocurrida_en,archivos_pendientes,resumen FROM public.espacio_eliminacion_historial_local WHERE espacio_id=$1`, id).
 		Scan(&prior.SpaceID, &prior.OccurredAt, &prior.FilesPending, &summary)
 	if err == nil {
 		if err = json.Unmarshal(summary, &prior); err != nil {
@@ -189,6 +215,9 @@ func (r *Repository) DeleteOwn(ctx context.Context, owner, id, correlationID str
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return spaces.Deletion{}, err
+	}
+	if administrative && !updatedAt.Equal(expectedUpdatedAt) {
+		return spaces.Deletion{}, spaces.ErrPublicationConflict
 	}
 	if state != "activa" && state != "oculta" {
 		return spaces.Deletion{}, spaces.ErrPublicationConflict
@@ -273,13 +302,58 @@ func (r *Repository) DeleteOwn(ctx context.Context, owner, id, correlationID str
 	if err != nil {
 		return spaces.Deletion{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO public.espacio_eliminacion_historial_local(espacio_id,actor_id,ocurrida_en,correlacion_id,archivos_pendientes,resumen) VALUES($1,$2,$3,$4,$5,$6::jsonb)`, id, owner, now, correlationID, filesPending, encoded); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO public.espacio_eliminacion_historial_local(espacio_id,actor_id,ocurrida_en,correlacion_id,archivos_pendientes,resumen) VALUES($1,$2,$3,$4,$5,$6::jsonb)`, id, actor, now, correlationID, filesPending, encoded); err != nil {
 		return spaces.Deletion{}, mapError(err)
+	}
+	if administrative {
+		auditID, idErr := r.ids.ID()
+		if idErr != nil {
+			return spaces.Deletion{}, idErr
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en) VALUES($1,$2,'publicacion_global',$3,'admin.global.publications.retire','exito',$4,$5,$6,$6::timestamptz+interval '5 years')`, auditID, actor, id, reason, correlationID, now); err != nil {
+			return spaces.Deletion{}, err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return spaces.Deletion{}, err
 	}
 	return result, nil
+}
+
+func lockGlobalAdministrator(ctx context.Context, tx pgx.Tx, actor string) error {
+	active, err := accountlock.LockActive(ctx, tx, actor)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return spaces.ErrNotFound
+	}
+	var allowed bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.administrador_global g JOIN public.usuario u ON u.id=g.usuario_id WHERE g.usuario_id=$1 AND (u.bloqueado_hasta IS NULL OR u.bloqueado_hasta<=now()) AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id))`, actor).Scan(&allowed); err != nil {
+		return err
+	}
+	if !allowed {
+		return spaces.ErrNotFound
+	}
+	return nil
+}
+
+func lockActiveRetirementOwner(ctx context.Context, tx pgx.Tx, owner string) error {
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return spaces.ErrNotFound
+	}
+	var blocked bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id=$1)`, owner).Scan(&blocked); err != nil {
+		return err
+	}
+	if blocked {
+		return spaces.ErrPublicationConflict
+	}
+	return nil
 }
 
 func (r *Repository) SetPublicationState(ctx context.Context, owner, id, state, correlationID string) (spaces.Draft, error) {

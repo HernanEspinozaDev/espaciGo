@@ -47,6 +47,14 @@ const (
 	CapabilityAccountsList         Capability = "accounts.list"
 	CapabilityAccountsRead         Capability = "accounts.read"
 	CapabilityAdminAccessManage    Capability = "admin_access.manage"
+	CapabilityAccountsUpdate       Capability = "accounts.update"
+	CapabilityAccountsBlock        Capability = "accounts.block"
+	CapabilityAccountsRoles        Capability = "accounts.roles"
+	CapabilityPublicationsList     Capability = "publications.list"
+	CapabilityPublicationsRead     Capability = "publications.read"
+	CapabilityPublicationsUpdate   Capability = "publications.update"
+	CapabilityPublicationsModerate Capability = "publications.moderate"
+	CapabilityPublicationsRetire   Capability = "publications.retire"
 )
 
 // CapabilitiesForRoles keeps the old administrator surface intact while
@@ -62,6 +70,14 @@ func CapabilitiesForRoles(roles []Role) []Capability {
 			set[CapabilityAccountsList] = struct{}{}
 			set[CapabilityAccountsRead] = struct{}{}
 			set[CapabilityAdminAccessManage] = struct{}{}
+			set[CapabilityAccountsUpdate] = struct{}{}
+			set[CapabilityAccountsBlock] = struct{}{}
+			set[CapabilityAccountsRoles] = struct{}{}
+			set[CapabilityPublicationsList] = struct{}{}
+			set[CapabilityPublicationsRead] = struct{}{}
+			set[CapabilityPublicationsUpdate] = struct{}{}
+			set[CapabilityPublicationsModerate] = struct{}{}
+			set[CapabilityPublicationsRetire] = struct{}{}
 		}
 	}
 	capabilities := make([]Capability, 0, len(set))

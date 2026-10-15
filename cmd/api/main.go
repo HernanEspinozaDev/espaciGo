@@ -226,7 +226,6 @@ func run() error {
 		if err != nil {
 			return errors.New("global administration service initialization failed")
 		}
-		mux.Handle("/api/v1/admin/global/", adminglobalhttp.NewHandler(service, globalAdminService, cfg.allowedOrigins))
 		evidenceService, err := verification.NewEvidenceService(verificationRepository, verificationRepository, evidenceStore, credentials.Generator{}, time.Now)
 		if err != nil {
 			return errors.New("local evidence initialization failed")
@@ -240,6 +239,8 @@ func run() error {
 		if err != nil {
 			return errors.New("spaces initialization failed")
 		}
+		globalAdminService.SetPublicationRetirer(spacesService)
+		mux.Handle("/api/v1/admin/global/", adminglobalhttp.NewHandler(service, globalAdminService, cfg.allowedOrigins))
 		calendarService, err := occupancy.NewService(occupancypg.New(pool), credentials.Generator{})
 		if err != nil {
 			return errors.New("calendar initialization failed")
@@ -256,6 +257,7 @@ func run() error {
 			return errors.New("local synthetic gallery initialization failed")
 		}
 		localGalleryService = galleryService
+		globalAdminService.SetPublicationGallery(galleryService)
 		galleryHandler := galleryhttp.NewHandler(service, galleryService, cfg.allowedOrigins)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery", galleryHandler)
 		mux.Handle("/api/v1/spaces/{spaceID}/cover", galleryHandler)
@@ -301,6 +303,7 @@ func run() error {
 			if err != nil {
 				return errors.New("local booking trial initialization failed")
 			}
+			globalAdminService.SetWeeklyHoursManager(bookingService)
 			bookingService.SetLocalRefundAdapter(paymentAdapter)
 			bookingService.SetLocalSettlementAdapter(paymentAdapter)
 			bookingService.SetLocalNoticeSender(devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")})
