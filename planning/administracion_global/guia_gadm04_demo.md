@@ -30,7 +30,7 @@ Para detener sin eliminar datos ni cuentas:
 bash scripts/stop-gadm-04-demo.sh <RUN_ID>
 ```
 
-Para reanudar, inicia el proyecto registrado con Compose desde la raíz (`docker compose -p espacigo_gadm04_demo_<RUN_ID> -f compose.yaml -f compose.frontend.yaml -f compose.frontend-e2e.yaml -f .local/testing/gadm-04-demo/<RUN_ID>/network-pools.yaml start`). Para retirar de forma definitiva el demo y eliminar sus credenciales/volumen aislado:
+Para reanudar y esperar readiness de API y frontend, ejecuta: `bash scripts/start-gadm-04-demo.sh <RUN_ID>`. Para retirar de forma definitiva el demo y eliminar sus credenciales/volumen aislado (después de la revisión):
 
 ```bash
 bash scripts/remove-gadm-04-demo.sh <RUN_ID>

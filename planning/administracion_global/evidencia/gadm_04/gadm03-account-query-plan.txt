@@ -10,8 +10,8 @@
        "Total Cost": 23.67,                                                                                                                               +
        "Plan Rows": 1,                                                                                                                                    +
        "Plan Width": 120,                                                                                                                                 +
-       "Actual Startup Time": 1.176,                                                                                                                      +
-       "Actual Total Time": 1.179,                                                                                                                        +
+       "Actual Startup Time": 1.182,                                                                                                                      +
+       "Actual Total Time": 1.186,                                                                                                                        +
        "Actual Rows": 25.00,                                                                                                                              +
        "Actual Loops": 1,                                                                                                                                 +
        "Disabled": false,                                                                                                                                 +
@@ -35,14 +35,14 @@
            "Total Cost": 23.67,                                                                                                                           +
            "Plan Rows": 1,                                                                                                                                +
            "Plan Width": 120,                                                                                                                             +
-           "Actual Startup Time": 1.175,                                                                                                                  +
-           "Actual Total Time": 1.176,                                                                                                                    +
+           "Actual Startup Time": 1.182,                                                                                                                  +
+           "Actual Total Time": 1.183,                                                                                                                    +
            "Actual Rows": 25.00,                                                                                                                          +
            "Actual Loops": 1,                                                                                                                             +
            "Disabled": false,                                                                                                                             +
            "Sort Key": ["u.creado_en DESC", "u.id DESC"],                                                                                                 +
            "Sort Method": "top-N heapsort",                                                                                                               +
-           "Sort Space Used": 30,                                                                                                                         +
+           "Sort Space Used": 31,                                                                                                                         +
            "Sort Space Type": "Memory",                                                                                                                   +
            "Shared Hit Blocks": 1043,                                                                                                                     +
            "Shared Read Blocks": 0,                                                                                                                       +
@@ -65,8 +65,8 @@
                "Total Cost": 23.66,                                                                                                                       +
                "Plan Rows": 1,                                                                                                                            +
                "Plan Width": 120,                                                                                                                         +
-               "Actual Startup Time": 0.098,                                                                                                              +
-               "Actual Total Time": 0.936,                                                                                                                +
+               "Actual Startup Time": 0.113,                                                                                                              +
+               "Actual Total Time": 0.942,                                                                                                                +
                "Actual Rows": 1000.00,                                                                                                                    +
                "Actual Loops": 1,                                                                                                                         +
                "Disabled": false,                                                                                                                         +
@@ -93,12 +93,12 @@
                    "Total Cost": 15.47,                                                                                                                   +
                    "Plan Rows": 1,                                                                                                                        +
                    "Plan Width": 88,                                                                                                                      +
-                   "Actual Startup Time": 0.092,                                                                                                          +
-                   "Actual Total Time": 0.366,                                                                                                            +
+                   "Actual Startup Time": 0.107,                                                                                                          +
+                   "Actual Total Time": 0.362,                                                                                                            +
                    "Actual Rows": 1000.00,                                                                                                                +
                    "Actual Loops": 1,                                                                                                                     +
                    "Disabled": false,                                                                                                                     +
-                   "Filter": "(correo_normalizado ~~ 'gadm03-bbb5106b5ccc-%@ejemplo.invalid'::text)",                                                     +
+                   "Filter": "(correo_normalizado ~~ 'gadm03-4db11cb116d5-%@ejemplo.invalid'::text)",                                                     +
                    "Rows Removed by Filter": 0,                                                                                                           +
                    "Exact Heap Blocks": 24,                                                                                                               +
                    "Lossy Heap Blocks": 0,                                                                                                                +
@@ -123,12 +123,12 @@
                        "Total Cost": 4.32,                                                                                                                +
                        "Plan Rows": 4,                                                                                                                    +
                        "Plan Width": 0,                                                                                                                   +
-                       "Actual Startup Time": 0.077,                                                                                                      +
-                       "Actual Total Time": 0.077,                                                                                                        +
+                       "Actual Startup Time": 0.082,                                                                                                      +
+                       "Actual Total Time": 0.082,                                                                                                        +
                        "Actual Rows": 1000.00,                                                                                                            +
                        "Actual Loops": 1,                                                                                                                 +
                        "Disabled": false,                                                                                                                 +
-                       "Index Cond": "((correo_normalizado ~>=~ 'gadm03-bbb5106b5ccc-'::text) AND (correo_normalizado ~<~ 'gadm03-bbb5106b5ccc.'::text))",+
+                       "Index Cond": "((correo_normalizado ~>=~ 'gadm03-4db11cb116d5-'::text) AND (correo_normalizado ~<~ 'gadm03-4db11cb116d5.'::text))",+
                        "Index Searches": 1,                                                                                                               +
                        "Shared Hit Blocks": 13,                                                                                                           +
                        "Shared Read Blocks": 0,                                                                                                           +
@@ -193,10 +193,10 @@
        "Temp Read Blocks": 0,                                                                                                                             +
        "Temp Written Blocks": 0                                                                                                                           +
      },                                                                                                                                                   +
-     "Planning Time": 0.689,                                                                                                                              +
+     "Planning Time": 0.667,                                                                                                                              +
      "Triggers": [                                                                                                                                        +
      ],                                                                                                                                                   +
-     "Execution Time": 1.226                                                                                                                              +
+     "Execution Time": 1.228                                                                                                                              +
    }                                                                                                                                                      +
  ]
 (1 row)

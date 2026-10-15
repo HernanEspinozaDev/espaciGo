@@ -2,6 +2,24 @@
 
 La tabla inicial registra el baseline de evidencia GADM-04 en `27c656aeaf0c8436143f99013960d6cbebcef08f`. Sus sidecars `.json` repiten ese SHA. Las nuevas pruebas de revisión, su SHA final, dimensiones y checksums se agregan después del cierre del recorrido actualizado.
 
+## Revisión GADM-04 actualizada — HEAD 94aba71dff8e6abc7d03bdef0daf01e441381cf0
+
+Ejecutada el 2026-10-15 en el worktree de `codex/marketplace/chore/gadm-04-regression-master-delivery`, con Go, FE-14 y PostgreSQL/PostGIS desechables. Esta sección reemplaza para el SHA indicado el inventario preliminar que sigue más abajo.
+
+| Capa | Entorno / alcance | Resultado |
+| --- | --- | --- |
+| Backend local | `bash scripts/test-local-qa-backend.sh` | 146 eventos de tests Go pasaron; 92 integraciones requeridas, cero skips; `go vet` pasó; el lifecycle de reserva/cierre pasó cinco repeticiones. Runner verificó la retirada de sus contenedores/credenciales. |
+| Activación | FE-14 desechable `espacigo_fe14_4db11cb116d5`, PostgreSQL 18/PostGIS; DB `espacigo_local` | La CLI `activate-local` activó solo el usuario sintético `globalAdmin`. URL/servidor/cliente loopback, DB explícita, cuenta ya verificada, membresía única y evento CLI auditado. Sin migraciones nuevas ni consulta de `espacigo_pgdata`. |
+| Migración GADM-03 | Mismo Compose desechable | Base vacía, upgrade V56 y V58 pasaron; historia V1–V59 no cambió. La prueba de integración `TestGlobalBootstrapDirectoryAndLastMasterConcurrency` pasó sin omisiones. |
+| Actores/rutas | Mismo Compose; cuatro pruebas Playwright servidas Angular→Go→PostGIS | 4/4 pasaron: GADM-02 (2), GADM-03 (1), GADM-04 (1). El seed confirmó `globalAdmin` con membership global y sin rol heredado, `admin` con rol heredado y sin membership global, y tercero ordinario. Los dos primeros leyeron publicación, reservas, reportes de reservas, finanzas y disputas (200); tercero fue denegado (403). Global-only bloqueó una cuenta y legacy-only la desbloqueó por rutas existentes. Aserciones SQL confirmaron persistencia/auditoría. |
+| Secretos y limpieza | Mismo ensayo | Cinco cuentas sintéticas; archivos privados mode 0600; log backend sin correos/contraseñas; proyecto, volumen y estado temporal retirados por el runner. |
+| Demo retenida | Compose `espacigo_gadm04_demo_e83a3e47dcb3`, volume `..._pgdata`, ports 20940–20943; `.local/testing/gadm-04-demo/e83a3e47dcb3` | Wrapping GADM-04 pasó 1/1; frontend y `/healthz` devolvieron 200. `accounts.json`, runtime y registro 0600. Stop + reanudación mediante `start-gadm-04-demo.sh` comprobaron readiness 200. Owner HernanMEC; motivo revisión solicitada. La demo permanece arriba para la revisión; retirada segura usa `remove-gadm-04-demo.sh e83a3e47dcb3`. |
+| Capturas / consultas | Capturas y sidecars vinculados al SHA en esta carpeta | 390×844: móvil documento 390×3474 (GADM-02) y 390×5341 (GADM-03). 1365×900: escritorio documento 1365×2122 y 1365×2951, respectivamente. Sin desborde horizontal. `gadm03-account-query-plan.txt` contiene el plan real del fixture de 1.000 cuentas. `SHA256SUMS` registra hashes de artefactos/registro. |
+
+La QA Angular (API check, lint, pruebas de componentes y build) había pasado en el baseline GADM-04 anterior; este cambio solo agrega una especificación Playwright y no altera fuentes Angular. `frontend-quality.yml` aplica al PR por `frontend/**`, pero no ejecuta Playwright ni las integraciones Go; el workflow remoto se reportará solo tras consultar su estado en GitHub. `LOCAL-CLOSE-02` es evidencia histórica de una ejecución anterior, no parte de este recorrido final. No se declara FE-14 completo.
+
+La migración V1–V59 permanece intacta. `espacigo_pgdata`, las demos retenidas anteriores, soporte/GCP y pagos reales quedan fuera. No se ejecutó activación real ni aceptación de producto.
+
 ## Pruebas
 
 | Capa | Ejecución / entorno | Resultado |
@@ -24,8 +42,8 @@ Los JPEG son capturas reales del navegador con `deviceScaleFactor=1`. Los tamañ
 | --- | ---: | ---: |
 | `fe14_gadm_02_admin_mobile.jpg` | 390×844 | 390×3474 |
 | `fe14_gadm_02_admin_desktop.jpg` | 1365×900 | 1365×2122 |
-| `fe14_gadm_03_admin_mobile.jpg` | 390×844 | 390×5245 |
-| `fe14_gadm_03_admin_desktop.jpg` | 1365×900 | 1365×2927 |
+| `fe14_gadm_03_admin_mobile.jpg` | 390×844 | 390×5341 |
+| `fe14_gadm_03_admin_desktop.jpg` | 1365×900 | 1365×2951 |
 | `local-close-02/fe14_local_close_02_closed_history_renter_mobile.jpg` | 390×844 | 390×5139 |
 | `local-close-02/fe14_local_close_02_closed_finance_desktop.jpg` | 1365×900 | 1365×2907 |
 

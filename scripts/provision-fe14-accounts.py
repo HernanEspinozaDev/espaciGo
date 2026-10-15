@@ -70,7 +70,7 @@ def main():
         status, _ = request(api, 'POST', '/api/v1/auth/verification', {'token_id': token_id, 'token': token})
         if status != 204:
             raise RuntimeError('Go did not verify a synthetic account')
-        label = {'renter': 'arrendatario', 'host': 'arrendador', 'admin': 'administrador', 'globalAdmin': 'administrador', 'thirdParty': 'arrendatario'}[role]
+        label = {'renter': 'arrendatario', 'host': 'arrendador', 'admin': 'administrador', 'globalAdmin': 'administrador_global', 'thirdParty': 'arrendatario'}[role]
         result[role] = {'email': email, 'password': password, 'roleLabel': label}
 
     target = pathlib.Path(output)
