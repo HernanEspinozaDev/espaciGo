@@ -25,7 +25,7 @@ Por instrucción explícita de este chat, GADM-03 está en desarrollo desde `ori
 
 ## Evidencia GADM-03 (2026-10-15)
 
-Código probado: rama `codex/marketplace/feature/gadm-03-kpi-account-audit`, partiendo de `6a721adc96ac5192e6bfcf8b672d052e272ed048` (se registrará el SHA del corte implementado en el PR). La migración V59 añade columnas para objetivo e instante de registro e índices de auditoría; V1–V58 quedan intactas. El recorrido usa Compose FE-14 con proyecto, volumen y cuentas sintéticas efímeros; no referencia `espacigo_pgdata`; elimina la base/credenciales al salir.
+Código probado: `1518737a5b14056074380790173548f3e6dd860a` (rama `codex/marketplace/feature/gadm-03-kpi-account-audit`), partiendo de `6a721adc96ac5192e6bfcf8b672d052e272ed048`. La migración V59 añade columnas para objetivo e instante de registro e índices de auditoría; V1–V58 quedan intactas. El recorrido usa Compose FE-14 con proyecto, volumen y cuentas sintéticas efímeros; no referencia `espacigo_pgdata`; elimina la base/credenciales al salir.
 
 | Validación | Entorno / alcance | Resultado |
 | --- | --- | --- |
