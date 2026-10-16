@@ -1,6 +1,6 @@
 # GCP-03: plan de Cloud SQL y compatibilidad
 
-Fecha de preparación: 2026-10-16. Base `main`: `48183d22d1f5d7f11c3b610a625ca392a8503c71` (merge #334). Rama: `codex/infra/feature/gcp-03-cloudsql-compatibility`. Proyecto de ensayo persistente `espacigo-testprod` (`447373903153`), región `southamerica-west1` (Santiago). Este documento describe preparación y un plan revisable; no acredita despliegue, compatibilidad de datos ni aceptación de producto.
+Fecha: 2026-10-16. Base `main`: `48183d22d1f5d7f11c3b610a625ca392a8503c71` (merge #334). El plan fue aprobado y aplicado por el usuario; PR #336 se fusionó en `c087c13f6bde97ccd571c58cd702e906fd0212a5`. Proyecto `espacigo-testprod` (`447373903153`), región `southamerica-west1` (Santiago). Esta evidencia acredita el aprovisionamiento revisado, pero no la compatibilidad de restauración ni la aceptación de producto.
 
 ## Guardas y estado antes del corte
 
@@ -11,18 +11,18 @@ Fecha de preparación: 2026-10-16. Base `main`: `48183d22d1f5d7f11c3b610a625ca39
 
 ## Cambios exactos que declara el plan
 
-Configuración: PostgreSQL 18, edición Enterprise, `db-custom-N4-2-4096`, Santiago, Hyperdisk Balanced, 20 GiB iniciales, auto crecimiento con límite 100 GiB, Zonal, solo IP privada, backups automáticos, PITR y 7 backups retenidos. La reserva de servicios privados se define con prefijo `/16`; GCP seleccionará el CIDR concreto al crearla.
+Configuración: PostgreSQL 18, edición Enterprise, `db-custom-N4-2-4096`, Santiago, Hyperdisk Balanced, 20 GiB iniciales, auto crecimiento con límite 100 GiB, Zonal, solo IP privada, backups automáticos, PITR y 7 backups retenidos. `deletion_protection=true` y `deletion_policy=PREVENT` son protecciones del proveedor/flujo Terraform; no se debe asumir que activan la protección del API Cloud SQL (verificación posterior abajo). La reserva de servicios privados se define con prefijo `/16`; GCP seleccionará el CIDR concreto al crearla.
 
 | Dirección | Acción | Alcance |
 | --- | --- | --- |
 | `google_compute_global_address.private_services[0]` | crear | Rango reservado para Private Service Access |
 | `google_service_networking_connection.private_services[0]` | crear | Peering de servicios privados sobre la VPC actual |
-| `google_sql_database_instance.postgres[0]` | crear | Instancia vacía, privada y protegida contra borrado |
+| `google_sql_database_instance.postgres[0]` | crear | Instancia vacía y privada; el parámetro de bloqueo Terraform no es la protección de borrado del API |
 | `google_sql_database.application[0]` | crear | Base vacía `espacigo` |
 | `google_secret_manager_secret.runtime["database-migrator-password"]` | crear | Solo metadatos del secreto; no incluye versión ni valor |
 | `google_secret_manager_secret_iam_member.migrator_db_access[0]` | reemplazar | Revoca al SA migrador acceso al secreto de runtime `database-password` y se lo concede al secreto separado `database-migrator-password` |
 
-Resumen de Terraform: **6 crear, 0 actualizar, 1 destruir**; la única acción de destrucción es el reemplazo del miembro IAM indicado. No se crean usuarios SQL, contraseñas, versiones de Secret Manager, tablas, extensiones ni datos. La API mantiene acceso al secreto runtime ya existente. El plan binario guardado debe ser el que se revise antes de cualquier autorización posterior; SHA-256 actual del archivo privado `gcp03-database.tfplan`: `81c7fc5cc1654123288234cf121666f7c520c08382b9130343af73d3953e230c`.
+Resumen de Terraform: **6 crear, 0 actualizar, 1 destruir**; la única acción de destrucción es el reemplazo del miembro IAM indicado. Terraform no declara usuarios SQL, contraseñas, versiones de Secret Manager, tablas, extensiones ni datos. Cloud SQL crea automáticamente su usuario de administración predeterminado `postgres` sin contraseña al crear la instancia. La API mantiene acceso al secreto runtime ya existente. El usuario revisó y autorizó la aplicación exacta del binario privado `gcp03-database.tfplan`, SHA-256 `81c7fc5cc1654123288234cf121666f7c520c08382b9130343af73d3953e230c`.
 
 La división de secretos permite preparar cuentas SQL distintas: API/runtime lee `database-password`; el migrador lee `database-migrator-password`. Terraform agrega únicamente el contenedor vacío y modifica el grant del SA migrador. La creación segura de versiones y usuarios SQL queda fuera de este plan y requerirá procedimiento aprobado, fuera del state Terraform. No escribir valores en código, PR, consola, shell history, logs o state.
 
@@ -34,9 +34,21 @@ La división de secretos permite preparar cuentas SQL distintas: API/runtime lee
 - Hyperdisk Balanced admite el tamaño planificado y tiene rendimiento predeterminado de 4.000 IOPS y 170 MiB/s para el tamaño actual; la referencia documenta límites, baseline facturable y tarifas ([almacenamiento](https://docs.cloud.google.com/sql/docs/postgres/storage-options-overview)). No se midió I/O de la aplicación.
 - Al inspeccionar la política IAM después de habilitar APIs en Foundation se observaron seis roles de agentes de servicio gestionados por Google (Artifact Registry, Compute, Compute Instance Group Manager, Container Registry, Pub/Sub y Cloud Run). No son parte de los 14 grants explícitos del plan Foundation. Se conservan, sin limpieza.
 
+## Verificación posterior al apply exacto
+
+El plan autorizado se aplicó el 2026-10-16; el log y los snapshots completos permanecen en `.local/planning/gcp/gcp-03-cloudsql-20261016/` con permisos privados. Resultado: **6 altas, 0 cambios, 1 destrucción**. El state remoto conservó lineage y avanzó serial 7→10; una verificación `terraform plan -refresh=true` con Database=true terminó código 0, sin drift.
+
+Recursos observados: instancia `espacigo-testprod-pg` RUNNABLE en `southamerica-west1-b`, PostgreSQL 18, Enterprise N4 `db-custom-N4-2-4096`, Hyperdisk Balanced 20 GiB con auto crecimiento y límite 100 GiB, Zonal, sin IP pública. GCP asignó IP privada `10.189.0.3` y rango PSA `10.189.0.0/16`; este rango no se conocía antes del apply. Backup automático/PITR está activo con retención de logs de 7 días y 7 backups; la base `espacigo` fue creada vacía. Servicios Cloud Run: cero.
+
+El secreto `espacigo-test-database-migrator-password` existe como metadata y tiene cero versiones. El SA migrador tiene acceso a ese secreto y ya no accede a `espacigo-test-database-password`; el SA de API conserva el acceso runtime. No se añadieron versiones ni valores de secretos. No se ejecutaron SQL, migraciones, conexiones, importación o restauración de datos.
+
+Cloud SQL creó el usuario predeterminado `postgres` sin contraseña, una conducta documentada del servicio ([usuarios y roles PostgreSQL](https://docs.cloud.google.com/sql/docs/postgres/users)). No se crearon cuentas de aplicación ni se establecieron credenciales para `postgres`.
+
+**Aclaración de borrado:** la lectura de la instancia después del apply reporta `settings.deletionProtectionEnabled=false`. El atributo `deletion_protection=true` del root Terraform solo bloquea borrados realizados por Terraform; el atributo `settings.deletion_protection_enabled` es el que protege también frente a API, CLI y consola ([referencia del proveedor](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_database_instance)). No se activó ese atributo porque no estaba en el plan aprobado. Hasta que se revise/aplique un plan separado, existe protección Terraform `PREVENT`, pero no protección nativa de borrado Cloud SQL. No se intentó cambiarla silenciosamente.
+
 ## Estimación revisada de Cloud SQL
 
-Tarifas de lista oficiales de Santiago consultadas el 2026-10-16 ([precios Cloud SQL](https://cloud.google.com/sql/pricing), [tarifas Hyperdisk y rendimiento](https://docs.cloud.google.com/sql/docs/postgres/storage-options-overview)); USD, sin impuestos, Trial, descuentos o CUD. N4 Enterprise: $0.05782/vCPU-h y $0.0098/GiB-h de RAM. Hyperdisk a 20 GiB: capacidad $0.000220548/GiB-h; rendimiento incluido 4.000 IOPS/170 MiB/s frente a 3.000/140 de baseline facturable, así que el cálculo incorpora 1.000 IOPS y 30 MiB/s adicionales: $0.000038356/IOPS-h y $0.000153425/(MiB/s)-h.
+Tarifas brutas de lista oficiales de Santiago consultadas el 2026-10-16 ([precios Cloud SQL](https://cloud.google.com/sql/pricing), [tarifas Hyperdisk y rendimiento](https://docs.cloud.google.com/sql/docs/postgres/storage-options-overview)); USD, antes de impuestos y créditos Free Trial, sin descuentos o CUD. N4 Enterprise: $0.05782/vCPU-h y $0.0098/GiB-h de RAM. Hyperdisk a 20 GiB: capacidad $0.000220548/GiB-h; rendimiento incluido 4.000 IOPS/170 MiB/s frente a 3.000/140 de baseline facturable, así que el cálculo incorpora 1.000 IOPS y 30 MiB/s adicionales: $0.000038356/IOPS-h y $0.000153425/(MiB/s)-h.
 
 | Configuración | SQL + disco, 24 h | 720 h / 30 días | 730 h |
 | --- | ---: | ---: | ---: |
@@ -47,12 +59,12 @@ Backups usados son variables: $0.000153425/GiB-h; 20 GiB promedio almacenados eq
 
 ## Procedimiento de compatibilidad y restauración para un corte futuro
 
-Este es un procedimiento propuesto para cuando haya autorización del plan exacto y del ensayo de datos. Ningún paso de abajo ocurrió al preparar GCP-03.
+Este procedimiento de compatibilidad/restauración es futuro y requiere autorización separada para operaciones SQL y ensayo de datos. El aprovisionamiento descrito arriba ya ocurrió; ningún paso de migración, conexión, dump o restore de abajo se ejecutó.
 
 1. Preservar dumps y respaldos fuente originales de solo lectura con SHA-256, tamaño, timestamps e inventario. No editar ni reiniciar `espacigo_pgdata`; no borrar archivos fuente.
-2. Mantener intactas las migraciones V1–V61 (checksum/byte a byte). Primero crear una base vacía y probar la ruta de migración hasta V61 por un usuario migrador sin superusuario; no sustituir la historia de migraciones.
+2. Mantener intactas las migraciones V1–V61 (checksum/byte a byte). Usar la base `espacigo`, creada vacía por GCP-03, como destino solo después de revisar un procedimiento SQL separado; probar la ruta de migración hasta V61 por un usuario migrador sin superusuario. No sustituir la historia de migraciones.
 3. Inventariar versiones de servidor/extensiones desde el origen sin escritura. Probar por separado PostGIS 3.6.4 frente a Cloud SQL 3.6.0: funciones, tipos, operadores, índices espaciales, triggers, vistas y consultas de calendario/solapamiento. Comparar también `btree_gist`, `unaccent` y `fuzzystrmatch` con las extensiones/versiones compatibles de Cloud SQL. Si una función no es compatible, detener y documentar un plan de aplicación antes de cargar datos; no cambiar el origen.
-4. Crear roles y credenciales distintas para migración y runtime con privilegio mínimo. `espacigo_gadm_bootstrap` de V60 es un rol local `NOLOGIN` restringido para bootstrap, no es el runtime ni el migrador. Revisar sus grants explícitamente en Cloud SQL; no tratarlo como superusuario administrado. El plan actual no crea cuentas SQL ni versiones secretas. Entregar valores por canal secreto aprobado fuera de Terraform y verificar que no queden en logs o estado.
+4. Crear roles y credenciales distintas para migración y runtime con privilegio mínimo. Cloud SQL ya creó el usuario predeterminado `postgres`, sin password; no establecerle password ni usarlo como aplicación, runtime o migrador. `espacigo_gadm_bootstrap` de V60 es un rol local `NOLOGIN` restringido para bootstrap, no es el runtime ni el migrador. Revisar sus grants explícitamente en Cloud SQL; no tratarlo como superusuario administrado. El plan no creó cuentas de aplicación ni versiones secretas. Entregar valores por canal secreto aprobado fuera de Terraform y verificar que no queden en logs o estado.
 5. Hacer dump consistente de solo lectura con `pg_dump -Fc --no-owner --no-acl`; registrar hash/tamaño y revisar `pg_restore -l`. Preparar una allowlist revisada para retirar solo entradas de TOC dependientes de ownership de extensiones que Cloud SQL gestione. Crear extensiones soportadas en versiones destino antes de restaurar sus objetos dependientes; nunca restaurar a ciegas ownership o ACL de extensiones.
 6. Restaurar primero en base desechable aislada. Verificar conteos, secuencias, constraints, índices, funciones, extensiones y checksums de migraciones. Ejecutar consultas funcionales con geometrías y datos sintéticos; usar verificaciones de datos reales solo desde almacenamiento controlado, sin publicarlos en logs.
 7. Probar Go mediante Cloud SQL Auth Connector por IP privada y TLS, con salida privada/PSA equivalente. No habilitar Cloud Run, balanceador, Armor, edge ni DNS durante este corte. Revisar el plan exacto y todos los gates antes de cualquier apply posterior.
