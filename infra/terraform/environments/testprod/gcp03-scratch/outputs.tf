@@ -21,6 +21,11 @@ output "scratch_observer_job_name" {
   value       = try(google_cloud_run_v2_job.observer[0].name, null)
 }
 
+output "scratch_owner_history_grant_job_name" {
+  description = "Separate fixed migrator Job that grants postgres SELECT only on public.schema_migrations after history verification."
+  value       = try(google_cloud_run_v2_job.owner_history_grant[0].name, null)
+}
+
 output "scratch_migrator_service_account" {
   value = try(google_service_account.scratch_migrator[0].email, null)
 }

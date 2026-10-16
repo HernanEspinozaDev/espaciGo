@@ -2,6 +2,7 @@ package gcp03scratch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // TestScratchLifecyclePostgres18 exercises the real fixed bootstrap, V1-V61,
@@ -30,8 +32,8 @@ func TestScratchLifecyclePostgres18(t *testing.T) {
 	if err == nil && parsed.User != nil {
 		password, hasPassword = parsed.User.Password()
 	}
-	if err != nil || parsed.Scheme != "postgres" || parsed.User == nil || parsed.User.Username() != "postgres" || parsed.Hostname() != "127.0.0.1" || parsed.Port() == "" || parsed.Path != "/"+DatabaseName || parsed.RawQuery != "sslmode=disable" || hasPassword || password != "" {
-		t.Fatal("integration URL must be passwordless postgres on loopback, target espacigo_scratch, sslmode=disable")
+	if err != nil || parsed.Scheme != "postgres" || parsed.User == nil || parsed.User.Username() != "gcp03_lifecycle_admin" || parsed.Hostname() != "127.0.0.1" || parsed.Port() == "" || parsed.Path != "/"+DatabaseName || parsed.RawQuery != "sslmode=disable" || hasPassword || password != "" {
+		t.Fatal("integration URL must be passwordless gcp03_lifecycle_admin on loopback, target espacigo_scratch, sslmode=disable")
 	}
 	var port int
 	if _, err := fmt.Sscan(parsed.Port(), &port); err != nil || port <= 1024 || port == 5432 {
@@ -109,7 +111,23 @@ func TestScratchLifecyclePostgres18(t *testing.T) {
 	if err := dbbootstrap.VerifyScratchBootstrap(ctx, admin); err != nil {
 		t.Fatalf("verify reconciled bootstrap roles: %v", err)
 	}
-	if err := databaseACLOnConnection(ctx, admin); err != nil {
+	// Prepare Cloud SQL's fixed owner login as a restricted non-superuser and
+	// database owner. The separate lifecycle admin remains only a local fixture
+	// control role for migration/extension setup.
+	if _, err := admin.Exec(ctx, `CREATE ROLE postgres LOGIN NOSUPERUSER CREATEROLE`); err != nil {
+		t.Fatal("create restricted disposable postgres owner login")
+	}
+	if _, err := admin.Exec(ctx, `ALTER DATABASE espacigo_scratch OWNER TO postgres`); err != nil {
+		t.Fatal("assign disposable database to restricted owner login")
+	}
+	ownerURL, err := url.Parse(connectionURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerURL.User = url.User(DatabaseOwnerLogin)
+	ownerConn := mustConnect(t, ctx, ownerURL.String())
+	defer ownerConn.Close(context.Background())
+	if err := databaseACLOnConnection(ctx, ownerConn); err != nil {
 		t.Fatal(err)
 	}
 	if err := dbbootstrap.VerifyScratchDatabaseACL(ctx, admin); err != nil {
@@ -144,6 +162,13 @@ func TestScratchLifecyclePostgres18(t *testing.T) {
 	if err := finalizeOnConnection(ctx, admin, migrationDir); err != nil {
 		t.Fatalf("verify and grant runtime permissions: %v", err)
 	}
+	// The lifecycle runner above uses the disposable bootstrap admin to model
+	// Cloud SQL's managed migration capability. Transfer this one metadata table
+	// to its intended migration owner before exercising the ownership failure;
+	// this does not claim the local runner reproduces Cloud SQL role semantics.
+	if _, err := admin.Exec(ctx, `ALTER TABLE public.schema_migrations OWNER TO espacigo_scratch_migrator`); err != nil {
+		t.Fatal("model migrator ownership of migration history")
+	}
 	observerConn := mustConnect(t, ctx, migratorURL.String())
 	if _, err := observerConn.Exec(ctx, `SET default_transaction_read_only = on`); err != nil {
 		t.Fatalf("enforce read-only observer session: %v", err)
@@ -171,11 +196,81 @@ func TestScratchLifecyclePostgres18(t *testing.T) {
 	if err := observerConn.Close(ctx); err != nil {
 		t.Fatal("close observer login connection")
 	}
-	if err := retireOnConnection(ctx, admin, migrationDir); err != nil {
+	var ownerAttrs struct {
+		Superuser    bool
+		CreateRole   bool
+		HistoryOwner string
+	}
+	if err := ownerConn.QueryRow(ctx, `SELECT r.rolsuper, r.rolcreaterole, pg_catalog.pg_get_userbyid(c.relowner)
+		FROM pg_catalog.pg_roles r
+		JOIN pg_catalog.pg_class c ON c.relname = 'schema_migrations'
+		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+		WHERE r.rolname = 'postgres'`).Scan(&ownerAttrs.Superuser, &ownerAttrs.CreateRole, &ownerAttrs.HistoryOwner); err != nil {
+		t.Fatal("inspect restricted postgres lifecycle fixture")
+	}
+	if ownerAttrs.Superuser || !ownerAttrs.CreateRole || ownerAttrs.HistoryOwner != MigratorLogin {
+		t.Fatalf("owner fixture does not model non-superuser/non-owner postgres: %+v", ownerAttrs)
+	}
+	if err := migrator.VerifyAllApplied(ctx, ownerConn, migrationDir, MigrationCount); err == nil {
+		t.Fatal("pre-grant owner migration-history verification unexpectedly passed")
+	} else {
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+			t.Fatalf("pre-grant failure = %v, want permission denied 42501", err)
+		}
+	}
+
+	migratorConn = mustConnect(t, ctx, migratorURL.String())
+	if err := grantOwnerHistoryOnConnection(ctx, migratorConn, migrationDir); err != nil {
+		t.Fatalf("grant exact migration-history read to restricted owner: %v", err)
+	}
+	if err := migratorConn.Close(ctx); err != nil {
+		t.Fatal("close owner-history grant phase")
+	}
+	if err := migrator.VerifyAllApplied(ctx, ownerConn, migrationDir, MigrationCount); err != nil {
+		t.Fatalf("post-grant owner migration-history verification: %v", err)
+	}
+	var historyCount int
+	if err := ownerConn.QueryRow(ctx, `SELECT count(*) FROM public.schema_migrations`).Scan(&historyCount); err != nil || historyCount != MigrationCount {
+		t.Fatalf("owner history read returned %d rows (%v), want %d", historyCount, err, MigrationCount)
+	}
+	if err := retireOnConnection(ctx, ownerConn, migrationDir); err == nil {
+		t.Fatal("restricted non-superuser postgres unexpectedly altered the migrator role")
+	} else {
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "42501" || !strings.Contains(err.Error(), "permission denied to alter role") {
+			t.Fatalf("restricted owner retirement failure = %v, want local ALTER ROLE permission limitation", err)
+		}
+	}
+	// Vanilla PostgreSQL's CREATEROLE does not model Cloud SQL's managed
+	// cloudsqlsuperuser behavior for ALTER ROLE. Promote only the disposable
+	// fixture owner after recording that limitation, then exercise the fixed
+	// retirement SQL and final ACL checks. This is SQL/ACL coverage, not proof
+	// that the managed Cloud SQL role can perform ALTER ROLE.
+	if _, err := admin.Exec(ctx, `ALTER ROLE postgres SUPERUSER`); err != nil {
+		t.Fatal("enable disposable owner for fixed retirement SQL syntax/ACL check")
+	}
+	if err := ownerConn.Close(ctx); err != nil {
+		t.Fatal("close restricted owner fixture session")
+	}
+	ownerConn = mustConnect(t, ctx, ownerURL.String())
+	if err := retireOnConnection(ctx, ownerConn, migrationDir); err != nil {
 		t.Fatalf("retire migration login: %v", err)
 	}
-	if err := dbbootstrap.VerifyScratchMigratorRetired(ctx, admin); err != nil {
+	if err := dbbootstrap.VerifyScratchMigratorRetired(ctx, ownerConn); err != nil {
 		t.Fatal(err)
+	}
+	var exactACL bool
+	if err := ownerConn.QueryRow(ctx, `SELECT has_table_privilege('postgres', 'public.schema_migrations', 'SELECT')
+		AND NOT has_table_privilege('espacigo_runtime', 'public.schema_migrations', 'SELECT')
+		AND NOT EXISTS (
+			SELECT 1 FROM pg_catalog.aclexplode(coalesce(c.relacl, pg_catalog.acldefault('r', c.relowner))) acl
+			JOIN pg_catalog.pg_roles r ON r.oid = acl.grantee
+			WHERE r.rolname = 'postgres' AND acl.privilege_type = 'SELECT' AND acl.is_grantable
+		)
+		FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relname = 'schema_migrations'`).Scan(&exactACL); err != nil || !exactACL {
+		t.Fatalf("post-retirement history ACL is not restricted as reviewed (%v)", err)
 	}
 }
 

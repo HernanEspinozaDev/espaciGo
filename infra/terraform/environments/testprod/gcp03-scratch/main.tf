@@ -3,6 +3,7 @@ locals {
   scratch_enabled                            = var.enable_scratch
   job_enabled                                = var.enable_scratch && var.enable_job
   observer_job_enabled                       = var.enable_scratch && var.enable_observer_job
+  owner_history_job_enabled                  = var.enable_scratch && var.enable_owner_history_grant_job
   role_probe_enabled                         = var.enable_scratch && var.enable_role_probe_jobs
   role_probe_credential_permissions_enabled  = var.enable_scratch && var.enable_role_probe_credential_permissions
   replay_credential_permissions_enabled      = var.enable_scratch && var.enable_replay_credential_permissions
@@ -400,6 +401,97 @@ resource "google_cloud_run_v2_job" "observer" {
   }
 }
 
+resource "google_cloud_run_v2_job" "owner_history_grant" {
+  count               = local.owner_history_job_enabled ? 1 : 0
+  project             = var.project_id
+  name                = "${local.name_prefix}-grant-owner-history"
+  location            = var.region
+  deletion_protection = true
+
+  template {
+    task_count  = 1
+    parallelism = 1
+
+    template {
+      service_account = local.scratch_migrator_service_account_email
+      timeout         = "1800s"
+      max_retries     = 0
+
+      containers {
+        image = var.owner_history_image
+        env {
+          name  = "GCP03_PHASE"
+          value = "grant_owner_history"
+        }
+        env {
+          name  = "GCP03_CONFIRM_TARGET"
+          value = "${google_sql_database_instance.scratch[0].connection_name}/${google_sql_database.scratch[0].name}"
+        }
+        env {
+          name  = "DATABASE_CONNECTION_MODE"
+          value = "cloudsql"
+        }
+        env {
+          name  = "DATABASE_URL"
+          value = "postgres://${var.database_user}@localhost:5432/${var.database_name}?sslmode=disable"
+        }
+        env {
+          name  = "DATABASE_PASSWORD_FILE"
+          value = "/secrets/migrator/password"
+        }
+        env {
+          name  = "CLOUD_SQL_INSTANCE_CONNECTION_NAME"
+          value = google_sql_database_instance.scratch[0].connection_name
+        }
+        env {
+          name  = "CLOUD_SQL_PRIVATE_IP"
+          value = "true"
+        }
+        volume_mounts {
+          name       = "scratch-migrator-password"
+          mount_path = "/secrets/migrator"
+        }
+        resources {
+          limits = {
+            cpu    = "2"
+            memory = "4Gi"
+          }
+        }
+      }
+
+      volumes {
+        name = "scratch-migrator-password"
+        secret {
+          secret = google_secret_manager_secret.scratch_password[0].secret_id
+          items {
+            version = var.migrator_secret_version
+            path    = "password"
+          }
+        }
+      }
+
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = data.google_compute_network.existing.name
+          subnetwork = data.google_compute_subnetwork.existing.name
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition = (
+        local.owner_history_job_enabled && local.job_enabled && var.confirm_owner_history_image_pushed &&
+        var.confirm_scratch_secret_version && can(regex("^[1-9][0-9]*$", var.migrator_secret_version)) &&
+        var.operator_member == "user:pasteleriahijitos@gmail.com"
+      )
+      error_message = "The owner-history Job requires the independent gate, existing fixed migration Jobs, reviewed digest, exact operator, and active numeric migrator secret version."
+    }
+  }
+}
+
 resource "google_cloud_run_v2_job" "role_comment_probe" {
   for_each            = local.role_probe_enabled ? local.role_probe_phases : {}
   project             = var.project_id
@@ -631,6 +723,15 @@ resource "google_cloud_run_v2_job_iam_member" "observer_operator" {
   project  = var.project_id
   location = google_cloud_run_v2_job.observer[0].location
   name     = google_cloud_run_v2_job.observer[0].name
+  role     = "roles/run.invoker"
+  member   = var.operator_member
+}
+
+resource "google_cloud_run_v2_job_iam_member" "owner_history_operator" {
+  count    = local.owner_history_job_enabled ? 1 : 0
+  project  = var.project_id
+  location = google_cloud_run_v2_job.owner_history_grant[0].location
+  name     = google_cloud_run_v2_job.owner_history_grant[0].name
   role     = "roles/run.invoker"
   member   = var.operator_member
 }
