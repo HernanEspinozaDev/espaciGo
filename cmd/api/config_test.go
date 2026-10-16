@@ -65,6 +65,92 @@ func TestLoadConfigReadsLocalPasswordFileAndParsesOrigins(t *testing.T) {
 	}
 }
 
+func TestLoadConfigUsesCloudRunPortWhenHTTPAddrIsUnset(t *testing.T) {
+	passwordFile := filepath.Join(t.TempDir(), "runtime-password")
+	if err := os.WriteFile(passwordFile, []byte("synthetic-test-value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{
+		"PORT": "9090", "DATABASE_HOST": "database", "DATABASE_NAME": "espacigo_test",
+		"DATABASE_USER": "espacigo_runtime", "DATABASE_PASSWORD_FILE": passwordFile,
+	}
+	cfg, err := loadConfig(func(key string) string { return values[key] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.httpAddr != ":9090" {
+		t.Fatalf("HTTP address = %q, want :9090", cfg.httpAddr)
+	}
+}
+
+func TestLoadConfigCloudSQLUsesConnectorAndBoundedPoolSettings(t *testing.T) {
+	passwordFile := filepath.Join(t.TempDir(), "runtime-password")
+	if err := os.WriteFile(passwordFile, []byte("synthetic-test-value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{
+		"DATABASE_CONNECTION_MODE":           "cloudsql",
+		"CLOUD_SQL_INSTANCE_CONNECTION_NAME": "espacigo-testprod:southamerica-west1:espacigo-db",
+		"CLOUD_SQL_PRIVATE_IP":               "true",
+		"DATABASE_NAME":                      "espacigo_local",
+		"DATABASE_USER":                      "espacigo_runtime",
+		"DATABASE_PASSWORD_FILE":             passwordFile,
+		"DATABASE_POOL_MAX_CONNS":            "24",
+		"DATABASE_POOL_MIN_CONNS":            "2",
+	}
+	cfg, err := loadConfig(func(key string) string { return values[key] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.dbHost != "localhost" || cfg.cloudSQLInstance != values["CLOUD_SQL_INSTANCE_CONNECTION_NAME"] || !cfg.cloudSQLPrivateIP {
+		t.Fatalf("Cloud SQL config = %#v", cfg)
+	}
+	if cfg.dbPoolMaxConns != 24 || cfg.dbPoolMinConns != 2 {
+		t.Fatalf("pool bounds max=%d min=%d", cfg.dbPoolMaxConns, cfg.dbPoolMinConns)
+	}
+	parsed, err := url.Parse(cfg.databaseURL())
+	if err != nil || parsed.Host != "localhost:5432" || parsed.Query().Get("sslmode") != "disable" {
+		t.Fatalf("connector DSN = %v, %v", parsed, err)
+	}
+}
+
+func TestLoadConfigRejectsUnsafeCloudSQLSettings(t *testing.T) {
+	passwordFile := filepath.Join(t.TempDir(), "runtime-password")
+	if err := os.WriteFile(passwordFile, []byte("synthetic-test-value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base := map[string]string{
+		"DATABASE_CONNECTION_MODE":           "cloudsql",
+		"CLOUD_SQL_INSTANCE_CONNECTION_NAME": "espacigo-testprod:southamerica-west1:espacigo-db",
+		"DATABASE_NAME":                      "espacigo_local",
+		"DATABASE_USER":                      "espacigo_runtime",
+		"DATABASE_PASSWORD_FILE":             passwordFile,
+	}
+	for _, test := range []struct {
+		name   string
+		values map[string]string
+	}{
+		{name: "missing instance", values: map[string]string{"CLOUD_SQL_INSTANCE_CONNECTION_NAME": ""}},
+		{name: "direct TLS mixed with connector", values: map[string]string{"DATABASE_SSLMODE": "verify-full"}},
+		{name: "invalid IP mode", values: map[string]string{"CLOUD_SQL_PRIVATE_IP": "maybe"}},
+		{name: "unbounded pool", values: map[string]string{"DATABASE_POOL_MAX_CONNS": "51"}},
+		{name: "min above max", values: map[string]string{"DATABASE_POOL_MAX_CONNS": "2", "DATABASE_POOL_MIN_CONNS": "3"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			values := map[string]string{}
+			for key, value := range base {
+				values[key] = value
+			}
+			for key, value := range test.values {
+				values[key] = value
+			}
+			if _, err := loadConfig(func(key string) string { return values[key] }); err == nil {
+				t.Fatal("loadConfig accepted unsafe Cloud SQL settings")
+			}
+		})
+	}
+}
+
 func TestLoadConfigRejectsInvalidFrontendPublicOrigin(t *testing.T) {
 	passwordFile := filepath.Join(t.TempDir(), "runtime-password")
 	if err := os.WriteFile(passwordFile, []byte("synthetic-test-value"), 0o600); err != nil {

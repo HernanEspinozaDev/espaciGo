@@ -1,5 +1,6 @@
 FROM golang:1.27.1-alpine3.24 AS go-deps
 WORKDIR /src
+RUN apk add --no-cache ca-certificates
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -12,6 +13,7 @@ RUN mkdir -p /out \
 
 FROM scratch AS api
 COPY --from=api-build --chown=65532:65532 /out/api /api
+COPY --from=go-deps /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY db/migrations /migrations
 COPY planning/openapi.yaml /openapi.yaml
 USER 65532:65532
