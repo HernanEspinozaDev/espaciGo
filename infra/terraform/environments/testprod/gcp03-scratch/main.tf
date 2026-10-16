@@ -1,9 +1,10 @@
 locals {
-  name_prefix        = "espacigo-gcp03-${var.run_id}"
-  scratch_enabled    = var.enable_scratch
-  job_enabled        = var.enable_scratch && var.enable_job
-  role_probe_enabled = var.enable_scratch && var.enable_role_probe_jobs
-  protect_scratch    = !var.allow_scratch_destroy
+  name_prefix                               = "espacigo-gcp03-${var.run_id}"
+  scratch_enabled                           = var.enable_scratch
+  job_enabled                               = var.enable_scratch && var.enable_job
+  role_probe_enabled                        = var.enable_scratch && var.enable_role_probe_jobs
+  role_probe_credential_permissions_enabled = var.enable_scratch && var.enable_role_probe_credential_permissions
+  protect_scratch                           = !var.allow_scratch_destroy
   job_phases = {
     bootstrap    = "bootstrap"
     database_acl = "database_acl"
@@ -382,7 +383,7 @@ resource "google_cloud_run_v2_job" "role_comment_probe" {
 }
 
 resource "google_project_iam_custom_role" "role_probe_cloudsql_operator" {
-  count       = local.role_probe_enabled ? 1 : 0
+  count       = local.role_probe_credential_permissions_enabled ? 1 : 0
   project     = var.project_id
   role_id     = "gcp03roleprobe_sqlops"
   title       = "GCP-03 temporary role probe SQL user operations"
@@ -397,20 +398,20 @@ resource "google_project_iam_custom_role" "role_probe_cloudsql_operator" {
 }
 
 resource "google_project_iam_member" "role_probe_cloudsql_operator" {
-  count   = local.role_probe_enabled ? 1 : 0
+  count   = local.role_probe_credential_permissions_enabled ? 1 : 0
   project = var.project_id
   role    = google_project_iam_custom_role.role_probe_cloudsql_operator[0].name
   member  = var.operator_member
 
   condition {
     title       = "gcp03-${var.run_id}-role-probe-expiry"
-    description = "Short-lived Cloud SQL user operations for the fixed role-comment probe on the scratch instance."
-    expression  = "request.time < timestamp('${var.role_probe_iam_expires_at}') && resource.name == 'projects/${var.project_id}/instances/${local.name_prefix}-pg' && resource.type == 'sqladmin.googleapis.com/Instance'"
+    description = "Short-lived project-scoped Cloud SQL user operations for the fixed GCP-03 probe; applies to Cloud SQL instances in this project."
+    expression  = "request.time < timestamp('${var.role_probe_credential_iam_expires_at}')"
   }
 }
 
 resource "google_project_iam_custom_role" "role_probe_secret_operator" {
-  count       = local.role_probe_enabled ? 1 : 0
+  count       = local.role_probe_credential_permissions_enabled ? 1 : 0
   project     = var.project_id
   role_id     = "gcp03roleprobe_secretops"
   title       = "GCP-03 temporary role probe secret version operations"
@@ -424,16 +425,16 @@ resource "google_project_iam_custom_role" "role_probe_secret_operator" {
 }
 
 resource "google_secret_manager_secret_iam_member" "role_probe_secret_operator" {
-  count     = local.role_probe_enabled ? 1 : 0
+  count     = local.role_probe_credential_permissions_enabled ? 1 : 0
   project   = var.project_id
   secret_id = google_secret_manager_secret.scratch_password[0].secret_id
   role      = google_project_iam_custom_role.role_probe_secret_operator[0].name
   member    = var.operator_member
 
   condition {
-    title       = "gcp03-${var.run_id}-role-probe-expiry"
+    title       = "gcp03-${var.run_id}-credential-permissions-expiry"
     description = "Short-lived version operations on the exact scratch migrator secret."
-    expression  = "request.time < timestamp('${var.role_probe_iam_expires_at}')"
+    expression  = "request.time < timestamp('${var.role_probe_credential_iam_expires_at}')"
   }
 }
 

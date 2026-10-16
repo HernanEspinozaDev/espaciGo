@@ -21,7 +21,7 @@ run "scratch_is_off_by_default" {
   }
 
   assert {
-    condition     = length(google_sql_database_instance.scratch) == 0 && length(google_cloud_run_v2_job.migrator) == 0 && length(google_cloud_run_v2_job.role_comment_probe) == 0
+    condition     = length(google_sql_database_instance.scratch) == 0 && length(google_cloud_run_v2_job.migrator) == 0 && length(google_cloud_run_v2_job.role_comment_probe) == 0 && length(google_project_iam_custom_role.role_probe_cloudsql_operator) == 0 && length(google_project_iam_custom_role.role_probe_secret_operator) == 0
     error_message = "Scratch database and migration job must remain disabled by default."
   }
 }
@@ -75,7 +75,7 @@ run "job_creates_five_immutable_named_phases_with_exact_operator_iam" {
   }
 }
 
-run "role_comment_probe_uses_two_fixed_jobs_exact_numeric_secret_and_temporary_permissions" {
+run "role_comment_probe_jobs_require_existing_numeric_version_and_grant_only_job_invocation" {
   command = plan
 
   variables {
@@ -89,7 +89,6 @@ run "role_comment_probe_uses_two_fixed_jobs_exact_numeric_secret_and_temporary_p
     confirm_role_probe_image_pushed   = true
     role_probe_secret_version         = "1"
     confirm_role_probe_secret_version = true
-    role_probe_iam_expires_at         = "2026-10-16T09:00:00Z"
     operator_member                   = "user:operator@example.invalid"
   }
 
@@ -118,6 +117,35 @@ run "role_comment_probe_uses_two_fixed_jobs_exact_numeric_secret_and_temporary_p
 
   assert {
     condition = (
+      length(google_project_iam_custom_role.role_probe_cloudsql_operator) == 0 &&
+      length(google_project_iam_custom_role.role_probe_secret_operator) == 0 &&
+      length(google_project_iam_member.role_probe_cloudsql_operator) == 0 &&
+      length(google_secret_manager_secret_iam_member.role_probe_secret_operator) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.role_probe_operator) == 2 &&
+      google_service_account_iam_member.operator_act_as[0].member == "user:operator@example.invalid"
+    )
+    error_message = "The Job gate must grant only invocation/actAs and must not grant credential-provisioning IAM."
+  }
+}
+
+run "role_comment_probe_credential_gate_is_separate_project_scoped_and_expires" {
+  command = plan
+
+  variables {
+    project_id                               = "espacigo-testprod"
+    region                                   = "southamerica-west1"
+    run_id                                   = "pilot01"
+    enable_scratch                           = true
+    enable_role_probe_credential_permissions = true
+    confirm_project_inventory                = true
+    confirm_project_scoped_cloudsql_user_ops = true
+    role_probe_credential_iam_expires_at     = "2026-10-16T12:00:00Z"
+    operator_member                          = "user:operator@example.invalid"
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.role_comment_probe) == 0 &&
       toset(google_project_iam_custom_role.role_probe_cloudsql_operator[0].permissions) == toset([
         "cloudsql.instances.get", "cloudsql.users.create", "cloudsql.users.delete", "cloudsql.users.get", "cloudsql.users.update"
       ]) &&
@@ -125,13 +153,29 @@ run "role_comment_probe_uses_two_fixed_jobs_exact_numeric_secret_and_temporary_p
         "secretmanager.versions.add", "secretmanager.versions.destroy", "secretmanager.versions.get", "secretmanager.versions.list"
       ]) &&
       google_project_iam_member.role_probe_cloudsql_operator[0].member == "user:operator@example.invalid" &&
-      google_project_iam_member.role_probe_cloudsql_operator[0].condition[0].expression == "request.time < timestamp('2026-10-16T09:00:00Z') && resource.name == 'projects/espacigo-testprod/instances/espacigo-gcp03-pilot01-pg' && resource.type == 'sqladmin.googleapis.com/Instance'" &&
+      google_project_iam_member.role_probe_cloudsql_operator[0].condition[0].expression == "request.time < timestamp('2026-10-16T12:00:00Z')" &&
       google_secret_manager_secret_iam_member.role_probe_secret_operator[0].secret_id == "espacigo-gcp03-pilot01-migrator-password" &&
-      google_secret_manager_secret_iam_member.role_probe_secret_operator[0].condition[0].expression == "request.time < timestamp('2026-10-16T09:00:00Z')" &&
-      length(google_cloud_run_v2_job_iam_member.role_probe_operator) == 2
+      google_secret_manager_secret_iam_member.role_probe_secret_operator[0].condition[0].expression == "request.time < timestamp('2026-10-16T12:00:00Z')"
     )
-    error_message = "Temporary probe permissions must be exact, time-bounded, and limited to the named instance/secret/jobs."
+    error_message = "Credential provisioning must be separately gated, narrowly permissioned, project-scoped for Cloud SQL user methods, and time-bound."
   }
+}
+
+run "role_comment_probe_credential_gate_requires_project_scope_risk_acknowledgment" {
+  command = plan
+
+  variables {
+    project_id                               = "espacigo-testprod"
+    region                                   = "southamerica-west1"
+    run_id                                   = "pilot01"
+    enable_scratch                           = true
+    enable_role_probe_credential_permissions = true
+    confirm_project_inventory                = true
+    role_probe_credential_iam_expires_at     = "2026-10-16T12:00:00Z"
+    operator_member                          = "user:operator@example.invalid"
+  }
+
+  expect_failures = [var.enable_role_probe_credential_permissions]
 }
 
 run "role_comment_probe_rejects_latest_secret_version" {
@@ -148,7 +192,6 @@ run "role_comment_probe_rejects_latest_secret_version" {
     confirm_role_probe_image_pushed   = true
     role_probe_secret_version         = "latest"
     confirm_role_probe_secret_version = true
-    role_probe_iam_expires_at         = "2026-10-16T09:00:00Z"
     operator_member                   = "user:operator@example.invalid"
   }
 
