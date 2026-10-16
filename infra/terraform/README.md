@@ -1,6 +1,6 @@
 # Terraform para testprod de EspaciGo
 
-La configuración es local y no se ha aplicado. La raíz `bootstrap` crea tres buckets de state separados (`bootstrap`, `gcp`, `cloudflare`); `gcp` y `cloudflare` usan backends GCS distintos. Cada raíz cloud requiere un `backend.hcl` privado fuera de Git. Ninguna raíz importa automáticamente state, crea el proyecto, cambia billing ni lee el state de la otra.
+La configuración de infraestructura es local y no se ha aplicado. La raíz `bootstrap` puede crear tres buckets separados (`bootstrap`, `gcp`, `cloudflare`); `gcp` y `cloudflare` usan backends GCS distintos. Cada raíz cloud requiere un `backend.hcl` privado fuera de Git. Ninguna raíz importa automáticamente state, crea el proyecto, cambia billing ni lee el state de la otra.
 
 ## Topología de entrada e IAP
 
@@ -14,12 +14,12 @@ No usar `/projects/PROJECT_NUMBER/global/backendServices/SERVICE_ID` en `IAP_JWT
 
 ## Separación y bootstrap del state
 
-1. Revisar el inventario del proyecto existente. El primer plan/aplicación de `bootstrap` puede crear solo los tres buckets de state sin grants IAM (`state_operator_members = {}`); el Owner actual conserva el acceso existente por política de proyecto. Agregar los operadores por bucket en un paso posterior, cuando sus identidades dedicadas existan y estén aprobadas. El primer `apply` usa state local bajo permisos 0600 solo después de confirmar proyecto y nombres únicos. No usar un bucket previo/ajeno ni habilitar locking en un state compartido.
+1. Revisar el inventario del proyecto existente. El primer plan de `bootstrap` puede proponer solo los tres buckets de state sin grants IAM (`state_operator_members = {}`); el Owner actual conserva el acceso existente por política de proyecto. Agregar los operadores por bucket en un paso posterior, cuando sus identidades dedicadas existan y estén aprobadas. Verificar `storage.googleapis.com` antes de planear: está habilitado actualmente y el root `gcp` es su único dueño Terraform; `bootstrap` solo lo consume como prerrequisito. Usar state local bajo permisos 0600 y backend path explícito en `.local/`. No usar un bucket previo/ajeno ni habilitar locking en un state compartido.
 2. Bootstrap crea tres buckets GCS independientes, UBLA, prevención de acceso público, versionado y `prevent_destroy`; aplica IAM de objetos al bucket específico. Outputs y configuración de backend se copian privadamente.
 3. Migrar el state bootstrap a su bucket dedicado en una segunda inicialización revisada. GCP y Cloudflare reciben sus propios `backend.hcl` privados fuera del repositorio. Comparar el plan guardado y revisar cada destino; no copiar state a Cloudflare ni conectar raíces con `terraform_remote_state`.
 4. Para Cloudflare, copiar manualmente solo la IP pública de GCP a variables privadas. No proporcionar state GCP al operador/token Cloudflare.
 
-El primer state bootstrap es local y temporal; una vez creados los buckets, migrarlo explícitamente al bucket `bootstrap` con `terraform init -migrate-state`, verificación de identidad y revisión del plan. Esta raíz no contiene un backend remoto implícito.
+El state bootstrap permanece local bajo `.local/` hasta una futura migración explícitamente revisada al bucket `bootstrap` mediante `terraform init -migrate-state`. Inicializar con `terraform init -backend-config='path=/ruta/privada/.local/.../bootstrap.tfstate'`; el path privado es obligatorio y no se debe dejar que Terraform escriba state bajo el root.
 
 ## Gates de aplicación
 

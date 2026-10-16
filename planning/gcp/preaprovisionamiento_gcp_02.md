@@ -75,50 +75,23 @@ Las lecturas detalladas deben usar APIs/roles de lectura correspondientes (p. ej
 
 ## Costos y escenarios
 
-USD brutos de lista, sin impuestos, descuentos, free tier, Trial credits, uso variable ni compromisos. Las tarifas consultadas el 2026-10-15 se deben revalidar en la calculadora y en SKU regionales antes de habilitar recursos. 24 h, 30 días = 720 h y mes de facturación de referencia = 730 h. Días restantes de Trial (`D`) son desconocidos: el escenario es una fórmula, no una fecha inferida.
+USD de lista, sin impuestos, descuentos, Trial ni condiciones particulares de la cuenta. Se modelan 24 h, 30 días (720 h), 730 h y `D` días restantes de Trial; `D` y el saldo actual no fueron verificados. La estimación completa, sus fórmulas, supuestos de SSR/egress/backups y límites está en [modelo de costos Terraform](../../infra/terraform/cost-model.md).
 
-### Subtotal fijo modelable
+El piso continuo actualizado para el footprint Terraform es aproximadamente **$203.16/730 h** con el rate base publicado y **$217.09/730 h** con sensibilidad ilustrativa +20% solo para Cloud Run Tier 2. El anterior subtotal de $196.59 queda reemplazado: Cloud Run no se tratará como tarifa confirmada con un multiplicador inventado. Santiago figura como Tier 2; comprobar el SKU regional en calculadora antes de activar servicios. Cloud SQL N4 (2 vCPU/4 GiB) representa $104.97/730 h, Hyperdisk inicial 20 GiB $2.30/730 h y balanceador/Armor cerca de $26.25/730 h (una regla global, una política Armor y tres reglas). El API con cpu siempre asignada se modela $69.64/730 h a rate base. No incluye backups/PITR, IOPS, transferencia ni uso SSR.
 
-| Componente activo | 24 h | 30 días (720 h) | 730 h |
-| --- | ---: | ---: | ---: |
-| Borde global + Armor + 3 reglas | $0.86 | $25.89 | $26.25 |
-| Cloud SQL N4 Enterprise, 2 vCPU + 4 GiB | $3.45 | $103.54 | $104.97 |
-| Hyperdisk Balanced, 20 GiB | $0.08 | $2.27 | $2.30 |
-| Cloud Run API, 1 vCPU + 1 GiB, instancia continua; tarifa base publicada | $1.73 | $51.84 | $52.56 |
-| **Subtotal sin ajuste regional** | **$6.12** | **$183.53** | **$186.08** |
-| Cloud Run API con sensibilidad ilustrativa +20% | $2.07 | $62.21 | $63.07 |
-| **Subtotal con sensibilidad +20%** | **$6.46** | **$193.90** | **$196.59** |
+El escenario de referencia explícito usa 1.000 horas facturables SSR combinadas, 100 GiB de egress a Sudamérica, 200 GiB procesados por ALB, 10 M requests Armor, 20 GiB fotos, 2 GiB de imágenes en Artifact Registry, 10 GiB logs, 50.000 accesos a secretos y 20 GiB promedio de backups. Añade aproximadamente $145–$146; total ilustrativo **$348–$349/mes**. No representa demanda medida. Este resultado y la posibilidad de superar el crédito declarado (~$200) justifican mantener gates de SQL/Run sujetos a decisión/cotización; el plan de buckets no depende de esa decisión y no se aplica.
 
-El +20% de Cloud Run es solo una sensibilidad provisional; no es tarifa Tier 2 validada. El subtotal omite costos relevantes, por lo que no es “costo total” ni cotización. Para `D` días del Trial, subtotal fijo: `$6.12 × D` a `$6.46 × D`, antes de costos excluidos; si se usa margen presupuestario de 25% como escenario conservador, el extremo alto es `$8.08 × D`. A 30 días, ese margen ilustrativo deja `$242.38`, por encima de los aproximadamente USD 200 declarados por el usuario. No se deduce duración restante ni si el crédito cubriría la factura. No abrir billing pagado como resultado de esta estimación.
+El plan actual propone tres buckets vacíos; costo de capacidad/operación modelado hoy: $0. Escenario operativo no observado: tres estados de 100 KiB, cuatro escrituras por día por state y 30 días de versioning (hasta 120 generaciones/bucket), diez lecturas por día. La cota aproximada de almacenar todas las generaciones el mes completo es $0.0007 más $0.0022 de operaciones, alrededor de **$0.003/mes**. El versioning no configura retención; lifecycle/retención debe definirse antes de uso sostenido.
 
-### Variables que faltan para total
+No se calcula la duración restante (`D`) ni se usa el saldo declarado como dato del Billing Overview. No se habilita Paid Billing.
 
-| Elemento | Modelo de cálculo/entrada pendiente |
-| --- | --- |
-| ALB por bytes procesados | Entrada + salida del LB: GiB × tarifa regional publicada (referencia actual Santiago: USD 0.008/GiB en cada dirección); además, egreso de Internet aparte. |
-| Internet egress | GiB por destino; referencia premium South America→South America USD 0.19/GiB para primer TiB, sujeto a origen/destino/SKU. Fórmula de ejemplo: `egress_GiB × tarifa_destino`. |
-| Cloud Armor requests | Millones de requests × USD 0.75; confirmar precio/SKU aplicable. |
-| Backups/PITR Cloud SQL | GiB-h de backups almacenados + WAL retenido; retención configurada de 7 días, uso real desconocido. La copia DB de ~71 MB documentada antes es baseline histórico, no lectura actual ni límite de WAL. |
-| Cloud Storage de fotos | GiB-h por clase/región y días, llamadas Class A/B, egress y versiones retenidas. No hay un tamaño migrable reconciliado. |
-| Artifact Registry | GiB-h almacenados (primeros 0.5 GiB/mes gratis por billing account; luego tarifa publicada), transferencia y análisis de vulnerabilidades si se activa. Tamaño/historial de imágenes desconocidos. |
-| Cloud Logging | GiB ingeridos; la tarifa publicada es USD 0.50/GiB con 50 GiB/proyecto/mes incluidos. Volumen y retención adicional no medidos. |
-| Secret Manager | Versiones activas por ubicación-hora menos 6 gratuitas por billing account, accesos sobre 10.000/mes y rotaciones; versiones/consultas reales desconocidas. |
-| Dos SSR | Instancias activas × duración y tarifa regional de request billing; min 0, max provisional 2 por servicio. No hay distribución de requests/tiempos para estimar horas activas. |
-| NAT u otro egreso | Excluido: PGA para la llamada gstatic no implica Internet genérica. Si el preflight falla o se necesita otro destino, modelar NAT, procesamiento y transferencia antes de abrir servicio. |
-| Mailpit VM | Fuera de GCP-02; imagen, tamaño, disco, operación y tráfico no están definidos. |
+## Plan autenticado de buckets (sin aplicar)
 
-La cifra previa de $196.59/730 h es el extremo de una sensibilidad del subtotal fijo (con +20% no validado en Cloud Run), no presupuesto total. Esta nota actualiza su interpretación, no valida gasto ni reemplaza medición/cotización.
+Comprobación de solo lectura el 2026-10-16: `storage.googleapis.com` figura `ENABLED`; `gcloud storage buckets list` no devolvió buckets del proyecto. Los tres `describe` candidatos devolvieron 404. Eso muestra que no existen actualmente bajo esos nombres; la disponibilidad global puede cambiar hasta el create atómico. Nombre candidato: `espacigo-testprod-tfstate-447373903153-{bootstrap,gcp,cloudflare}`.
 
-## Plan mínimo de bootstrap y state
+El root `bootstrap` ahora tiene backend local explícito, guardado solo bajo `.local/`, y ya no declara `google_project_service.storage`: el root GCP existente es el único owner Terraform de ese API. `storage_api_preverified=true` es un gate de plan y solo se incluye en el tfvars privado después de la lectura anterior. Operators están vacíos. El plan autenticado con refresh se generó y verificó: exactamente tres altas de `google_storage_bucket.terraform_state`, cero IAM/API/otros cambios; no se ejecutó apply. SHA-256 `963e5bcfa01cc0f4b3a0f386c50758f00780067d1265cacd9e3e42af502b270f`. El archivo binario, JSON y texto quedaron privados bajo `.local/`; el detalle auditable público está en [evidencia del plan de buckets](evidencia_plan_buckets_gcp02_20261016.md). El state de inventario sigue separado y preservado.
 
-Se ejecutó un plan local con `-refresh=false`, backend desactivado y state local vacío; resultado: `4 to add, 0 to change, 0 to destroy` (declaración de `storage.googleapis.com` y tres buckets; cero bindings IAM extra). El plan se guarda en `.local/planning/gcp/bootstrap-candidate.tfplan` con permisos 0600 y no se incluye en Git. Al no refrescar ni consultar el state remoto, **no** verifica APIs vigentes, existencia/conflicto global de nombres, ni inventario; no es plan remoto ni autorización de apply. Aún falta inventario global completo, disponibilidad de los nombres y revisión de principales. Secuencia reproducible local:
-
-1. `cd infra/terraform/environments/testprod/bootstrap`; verificar proyecto activo explícitamente y los tres nombres únicos; mantener los operators vacíos en primer plan.
-2. `terraform init -backend=false -input=false -lockfile=readonly`; `terraform validate` para checks de schema sin state remoto.
-3. Con tfvars privado revisado, ejecutar `terraform plan -refresh=false -lock=false -input=false -no-color -var-file=/ruta/privada/bootstrap-candidate.tfvars -out=/ruta/privada/bootstrap-candidate.tfplan`; inspeccionar y conservar el plan local privado. `-refresh=false` evita lecturas de recursos existentes, por lo que un plan con state vacío es solo estructura candidata, no inventario. No ejecutar `apply` automáticamente ni usar backend previo/ajeno.
-4. Solo con revisión del inventario, disponibilidad de nombres y aprobación explícita, el primer apply crea los tres buckets. Después planificar grants individuales, verificar IAM efectivo, y migrar bootstrap state con `terraform init -migrate-state` en paso independiente revisado.
-
-La configuración aplicable mínima declara `storage.googleapis.com` y tres buckets con UBLA/PAP/versioning/prevent_destroy; primer plan con cero `google_storage_bucket_iam_member`. El servicio ya figuraba habilitado en una lectura del proyecto del 2026-10-15. El primer apply necesitaría credencial con permisos de creación/listado de bucket y Service Usage, y comprobación de nombres globales; no se entrega ni ejecuta un apply.
+El estado `inventory-apis` y su snapshot siguen en `.local/planning/gcp/inventory-apis-exec-20261015/`; no se migran ni eliminan. Todo init/plan de bootstrap comienza con `umask 077`, path de backend local explícito dentro de `.local/`, tfvars/plan/evidencia privados (directorio 0700, archivos 0600). Revisar `git check-ignore` y que no se haya escrito un `terraform.tfstate*` fuera de `.local`.
 
 ## Fuentes oficiales de tarifas
 

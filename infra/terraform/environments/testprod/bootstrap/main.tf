@@ -1,6 +1,8 @@
 terraform {
   required_version = ">= 1.16.0, < 1.17.0"
 
+  backend "local" {}
+
   required_providers {
     google = {
       source  = "hashicorp/google"
@@ -12,14 +14,6 @@ terraform {
 provider "google" {
   project = var.project_id != "" ? var.project_id : null
   region  = var.region
-}
-
-resource "google_project_service" "storage" {
-  count                      = var.create_state_bucket ? 1 : 0
-  project                    = var.project_id
-  service                    = "storage.googleapis.com"
-  disable_dependent_services = false
-  disable_on_destroy         = false
 }
 
 resource "google_storage_bucket" "terraform_state" {
@@ -39,7 +33,6 @@ resource "google_storage_bucket" "terraform_state" {
     prevent_destroy = true
   }
 
-  depends_on = [google_project_service.storage]
 }
 
 resource "google_storage_bucket_iam_member" "state_operator" {
