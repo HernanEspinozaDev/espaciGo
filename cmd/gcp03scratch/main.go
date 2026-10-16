@@ -24,6 +24,25 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Hour)
 	defer cancel()
+	if gcp03scratch.IsRoleCommentProbePhase(config.Phase) {
+		result, probeErr := gcp03scratch.RunRoleCommentProbe(ctx, config, password)
+		outcome := result.CommentOutcome
+		if outcome == "" {
+			outcome = "not_attempted"
+		}
+		fmt.Printf("GCP03_ROLE_COMMENT_PROBE phase=%s server_version_num=%d current_role_superuser=%t current_role_createrole=%t probe_role=%s probe_role_login=%t probe_role_superuser=%t probe_role_createdb=%t probe_role_createrole=%t probe_role_replication=%t probe_role_bypassrls=%t probe_role_inherit=%t incoming_memberships=%d outgoing_memberships=%d creator_admin_memberships=%d comment_outcome=%s sqlstate=%s\n",
+			result.Phase, result.ServerVersionNum, result.CurrentRoleSuperuser, result.CurrentRoleCreateRole,
+			result.ProbeRole, result.ProbeRoleLogin, result.ProbeRoleSuperuser, result.ProbeRoleCreateDB,
+			result.ProbeRoleCreateRole, result.ProbeRoleReplication, result.ProbeRoleBypassRLS, result.ProbeRoleInherit,
+			result.IncomingMemberships, result.OutgoingMemberships, result.CreatorAdminMemberships,
+			outcome, result.SQLState)
+		if probeErr != nil {
+			fmt.Fprintln(os.Stderr, "GCP-03 fixed role-comment probe stopped before successful completion")
+			os.Exit(1)
+		}
+		fmt.Printf("GCP-03 scratch phase %s completed\n", config.Phase)
+		return
+	}
 	if err := gcp03scratch.RunPhase(ctx, config, password, migrationDirectory); err != nil {
 		fmt.Fprintf(os.Stderr, "GCP-03 scratch phase %s failed: %v\n", config.Phase, err)
 		os.Exit(1)

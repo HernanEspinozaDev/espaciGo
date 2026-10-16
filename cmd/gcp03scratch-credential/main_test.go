@@ -104,3 +104,39 @@ func TestSetPasswordNamesOnlyTheFixedOwnerInTheUpdateQuery(t *testing.T) {
 		t.Fatalf("password update request has unexpected role parameters/body: query=%v body=%s", query, body)
 	}
 }
+
+func TestDeleteBuiltInUserDeletesOnlyTheFixedProbeLogin(t *testing.T) {
+	var requestPath string
+	var query url.Values
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPath = r.URL.Path
+		query = r.URL.Query()
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+		}
+		body = string(data)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"name":"op-delete"}`)
+	}))
+	defer server.Close()
+
+	service, err := sqladmin.NewService(context.Background(), option.WithEndpoint(server.URL+"/"), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, err := (sqlUserAPI{service: service}).DeleteBuiltInUser(context.Background(), gcp03scratch.MigratorLogin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if operation != "op-delete" || requestPath != "/sql/v1beta4/projects/espacigo-testprod/instances/espacigo-gcp03-pilot01-pg/users" || query.Get("name") != gcp03scratch.MigratorLogin {
+		t.Fatalf("deletion did not target only the fixed probe login: op=%q path=%s query=%v", operation, requestPath, query)
+	}
+	if strings.Contains(body, "password") || strings.Contains(body, "role") {
+		t.Fatalf("delete request unexpectedly carried credentials or role changes: %s", body)
+	}
+	if _, err := (sqlUserAPI{service: service}).DeleteBuiltInUser(context.Background(), gcp03scratch.DatabaseOwnerLogin); err == nil {
+		t.Fatal("database-owner login deletion was accepted")
+	}
+}

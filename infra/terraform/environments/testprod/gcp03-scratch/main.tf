@@ -1,14 +1,19 @@
 locals {
-  name_prefix     = "espacigo-gcp03-${var.run_id}"
-  scratch_enabled = var.enable_scratch
-  job_enabled     = var.enable_scratch && var.enable_job
-  protect_scratch = !var.allow_scratch_destroy
+  name_prefix        = "espacigo-gcp03-${var.run_id}"
+  scratch_enabled    = var.enable_scratch
+  job_enabled        = var.enable_scratch && var.enable_job
+  role_probe_enabled = var.enable_scratch && var.enable_role_probe_jobs
+  protect_scratch    = !var.allow_scratch_destroy
   job_phases = {
     bootstrap    = "bootstrap"
     database_acl = "database_acl"
     migrate      = "migrate"
     finalize     = "finalize"
     retire       = "retire"
+  }
+  role_probe_phases = {
+    role_comment_prepare         = "role_comment_prepare"
+    role_comment_after_reconcile = "role_comment_after_reconcile"
   }
 }
 
@@ -286,6 +291,152 @@ resource "google_cloud_run_v2_job" "migrator" {
   }
 }
 
+resource "google_cloud_run_v2_job" "role_comment_probe" {
+  for_each            = local.role_probe_enabled ? local.role_probe_phases : {}
+  project             = var.project_id
+  name                = "${local.name_prefix}-${each.key}"
+  location            = var.region
+  deletion_protection = !var.allow_scratch_destroy
+
+  template {
+    task_count  = 1
+    parallelism = 1
+
+    template {
+      service_account = google_service_account.scratch_migrator[0].email
+      timeout         = "600s"
+      max_retries     = 0
+
+      containers {
+        image = var.role_probe_image
+        env {
+          name  = "GCP03_PHASE"
+          value = each.value
+        }
+        env {
+          name  = "GCP03_CONFIRM_TARGET"
+          value = "${google_sql_database_instance.scratch[0].connection_name}/${google_sql_database.scratch[0].name}"
+        }
+        env {
+          name  = "DATABASE_CONNECTION_MODE"
+          value = "cloudsql"
+        }
+        env {
+          name  = "DATABASE_URL"
+          value = "postgres://${var.database_user}@localhost:5432/${var.database_name}?sslmode=disable"
+        }
+        env {
+          name  = "DATABASE_PASSWORD_FILE"
+          value = "/secrets/migrator/password"
+        }
+        env {
+          name  = "CLOUD_SQL_INSTANCE_CONNECTION_NAME"
+          value = google_sql_database_instance.scratch[0].connection_name
+        }
+        env {
+          name  = "CLOUD_SQL_PRIVATE_IP"
+          value = "true"
+        }
+        volume_mounts {
+          name       = "gcp03-role-comment-probe-password"
+          mount_path = "/secrets/migrator"
+        }
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+      }
+
+      volumes {
+        name = "gcp03-role-comment-probe-password"
+        secret {
+          secret = google_secret_manager_secret.scratch_password[0].secret_id
+          items {
+            version = var.role_probe_secret_version
+            path    = "password"
+          }
+        }
+      }
+
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = data.google_compute_network.existing.name
+          subnetwork = data.google_compute_subnetwork.existing.name
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition = (
+        local.role_probe_enabled && var.confirm_role_probe_image_pushed &&
+        var.confirm_role_probe_secret_version && var.role_probe_secret_version != "latest"
+      )
+      error_message = "The fixed role-comment probe requires a digest-pinned uploaded image and an exact numeric scratch secret version."
+    }
+  }
+}
+
+resource "google_project_iam_custom_role" "role_probe_cloudsql_operator" {
+  count       = local.role_probe_enabled ? 1 : 0
+  project     = var.project_id
+  role_id     = "gcp03roleprobe_sqlops"
+  title       = "GCP-03 temporary role probe SQL user operations"
+  description = "Temporary exact Cloud SQL Admin API methods for the fixed GCP-03 role-comment probe."
+  permissions = [
+    "cloudsql.instances.get",
+    "cloudsql.users.create",
+    "cloudsql.users.delete",
+    "cloudsql.users.get",
+    "cloudsql.users.update",
+  ]
+}
+
+resource "google_project_iam_member" "role_probe_cloudsql_operator" {
+  count   = local.role_probe_enabled ? 1 : 0
+  project = var.project_id
+  role    = google_project_iam_custom_role.role_probe_cloudsql_operator[0].name
+  member  = var.operator_member
+
+  condition {
+    title       = "gcp03-${var.run_id}-role-probe-expiry"
+    description = "Short-lived Cloud SQL user operations for the fixed role-comment probe on the scratch instance."
+    expression  = "request.time < timestamp('${var.role_probe_iam_expires_at}') && resource.name == 'projects/${var.project_id}/instances/${local.name_prefix}-pg' && resource.type == 'sqladmin.googleapis.com/Instance'"
+  }
+}
+
+resource "google_project_iam_custom_role" "role_probe_secret_operator" {
+  count       = local.role_probe_enabled ? 1 : 0
+  project     = var.project_id
+  role_id     = "gcp03roleprobe_secretops"
+  title       = "GCP-03 temporary role probe secret version operations"
+  description = "Temporary version management for the single scratch migrator secret."
+  permissions = [
+    "secretmanager.versions.add",
+    "secretmanager.versions.destroy",
+    "secretmanager.versions.get",
+    "secretmanager.versions.list",
+  ]
+}
+
+resource "google_secret_manager_secret_iam_member" "role_probe_secret_operator" {
+  count     = local.role_probe_enabled ? 1 : 0
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.scratch_password[0].secret_id
+  role      = google_project_iam_custom_role.role_probe_secret_operator[0].name
+  member    = var.operator_member
+
+  condition {
+    title       = "gcp03-${var.run_id}-role-probe-expiry"
+    description = "Short-lived version operations on the exact scratch migrator secret."
+    expression  = "request.time < timestamp('${var.role_probe_iam_expires_at}')"
+  }
+}
+
 resource "google_cloud_run_v2_job_iam_member" "invoke_operator" {
   for_each = google_cloud_run_v2_job.migrator
   project  = var.project_id
@@ -296,10 +447,19 @@ resource "google_cloud_run_v2_job_iam_member" "invoke_operator" {
 }
 
 resource "google_service_account_iam_member" "operator_act_as" {
-  count              = local.job_enabled ? 1 : 0
+  count              = local.job_enabled || local.role_probe_enabled ? 1 : 0
   service_account_id = google_service_account.scratch_migrator[0].name
   role               = "roles/iam.serviceAccountUser"
   member             = var.operator_member
+}
+
+resource "google_cloud_run_v2_job_iam_member" "role_probe_operator" {
+  for_each = google_cloud_run_v2_job.role_comment_probe
+  project  = var.project_id
+  location = each.value.location
+  name     = each.value.name
+  role     = "roles/run.invoker"
+  member   = var.operator_member
 }
 
 resource "google_service_account_iam_member" "operator_act_as_database_acl" {

@@ -11,6 +11,7 @@ if [[ "${RUN_LOCAL_BASELINE_DEMO:-}" != "YES" ]]; then
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 IMAGE="postgis/postgis:18-3.6"
 EXPECTED_IMAGE_ID="sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677"
 IMAGE_ID="$(docker image inspect "$IMAGE" --format '{{.Id}}')"
@@ -26,11 +27,23 @@ umask 077
 mkdir -p "$EVIDENCE_DIR"
 chmod 700 "$EVIDENCE_DIR"
 
-cleanup() {
+cleanup_best_effort() {
   docker rm -fv "$SOURCE" "$TARGET" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
 }
-trap cleanup EXIT
+cleanup_verified() {
+  docker rm -fv "$SOURCE" "$TARGET" >/dev/null
+  docker network rm "$NETWORK" >/dev/null
+  if docker container inspect "$SOURCE" "$TARGET" >/dev/null 2>&1; then
+    echo 'Disposable baseline containers remain after cleanup.' >&2
+    return 1
+  fi
+  if docker network inspect "$NETWORK" >/dev/null 2>&1; then
+    echo 'Disposable baseline network remains after cleanup.' >&2
+    return 1
+  fi
+}
+trap cleanup_best_effort EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -164,8 +177,10 @@ target_public_objects_owner=espacigo_owner
 cloud_sql_access=none
 cloud_sql_sql=none
 cloud_sql_data_read=none
-cleanup=containers and isolated network removed by trap on exit
+cleanup=explicit Docker API inspection confirmed both exact containers and isolated network absent before PASS
 limitations=local-only demonstration; no Cloud SQL managed-role compatibility, production data, or acceptance of a changed empty-database criterion
 EOF
 chmod 600 "$EVIDENCE_DIR"/*
+cleanup_verified
+trap - EXIT
 printf 'PASS: migrated baseline restored locally; history and selected extensions match.\nEvidence: %s\n' "$EVIDENCE_DIR"

@@ -19,6 +19,7 @@ const (
 	DatabaseOwnerCreateConfirmation = "ACL-CREATE:" + TargetConfirmation
 	DatabaseOwnerRetireConfirmation = "ACL-RETIRE:" + TargetConfirmation
 	RevokeConfirmation              = "REVOKE:" + TargetConfirmation
+	ProbeRetireConfirmation         = "PROBE-RETIRE:" + TargetConfirmation
 )
 
 type SecretVersionStore interface {
@@ -28,6 +29,7 @@ type SecretVersionStore interface {
 
 type CloudSQLUserStore interface {
 	CreateBuiltInUser(context.Context, string, []byte) (string, error)
+	DeleteBuiltInUser(context.Context, string) (string, error)
 	SetDatabaseRoles(context.Context, string, []string, bool) (string, error)
 	SetPassword(context.Context, string, []byte) (string, error)
 	GetDatabaseRoles(context.Context, string) ([]string, error)
@@ -89,6 +91,49 @@ func (p CredentialProvisioner) RevokeSuperuser(ctx context.Context, apply bool, 
 			return errors.New("Cloud SQL role revocation did not finish; reconcile before continuing")
 		}
 	}
+}
+
+// RetireRoleCommentProbeLogin deletes only the fixed disposable probe login
+// after both probe phases and Cloud SQL role reconciliation have completed.
+// The credential version is destroyed only after Cloud SQL confirms the user
+// is absent. A retry after successful deletion only reconciles that version.
+func (p CredentialProvisioner) RetireRoleCommentProbeLogin(ctx context.Context, apply bool, confirmation, secretVersion string) error {
+	if !apply || confirmation != ProbeRetireConfirmation || !IsScratchSecretVersion(secretVersion) {
+		return errors.New("retiring the fixed GCP-03 probe login requires --apply and the exact scratch confirmation/version")
+	}
+	if p.Users == nil || p.Secrets == nil {
+		return errors.New("Cloud SQL or Secret Manager API client is unavailable")
+	}
+	roles, err := p.Users.GetDatabaseRoles(ctx, MigratorLogin)
+	if err != nil {
+		if !isCloudSQLUserNotFound(err) {
+			return errors.New("could not inspect the fixed GCP-03 probe login; retain its secret version")
+		}
+		return p.Secrets.DestroyVersion(ctx, secretVersion)
+	}
+	if len(roles) != 1 || roles[0] != "cloudsqlsuperuser" {
+		return errors.New("fixed GCP-03 probe login roles differ from the reviewed reconciled state")
+	}
+	operation, err := p.Users.DeleteBuiltInUser(ctx, MigratorLogin)
+	if err != nil || strings.TrimSpace(operation) == "" {
+		return errors.New("fixed GCP-03 probe login deletion outcome is uncertain; retain its secret version")
+	}
+	if err := p.waitOperation(ctx, operation, "fixed GCP-03 probe login deletion"); err != nil {
+		return err
+	}
+	if _, err := p.Users.GetDatabaseRoles(ctx, MigratorLogin); !isCloudSQLUserNotFound(err) {
+		return errors.New("Cloud SQL did not confirm fixed GCP-03 probe login absence; retain its secret version")
+	}
+	if err := p.Secrets.DestroyVersion(ctx, secretVersion); err != nil {
+		return errors.New("fixed GCP-03 probe login is absent; exact secret version cleanup needs reconciliation")
+	}
+	return nil
+}
+
+func isCloudSQLUserNotFound(err error) bool {
+	type notFound interface{ NotFound() bool }
+	var target notFound
+	return errors.As(err, &target) && target.NotFound()
 }
 
 func IsScratchSecretVersion(name string) bool {

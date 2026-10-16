@@ -21,7 +21,7 @@ run "scratch_is_off_by_default" {
   }
 
   assert {
-    condition     = length(google_sql_database_instance.scratch) == 0 && length(google_cloud_run_v2_job.migrator) == 0
+    condition     = length(google_sql_database_instance.scratch) == 0 && length(google_cloud_run_v2_job.migrator) == 0 && length(google_cloud_run_v2_job.role_comment_probe) == 0
     error_message = "Scratch database and migration job must remain disabled by default."
   }
 }
@@ -73,6 +73,86 @@ run "job_creates_five_immutable_named_phases_with_exact_operator_iam" {
     )
     error_message = "Only the named operator should receive invoker on each phase and actAs on the scratch service account."
   }
+}
+
+run "role_comment_probe_uses_two_fixed_jobs_exact_numeric_secret_and_temporary_permissions" {
+  command = plan
+
+  variables {
+    project_id                        = "espacigo-testprod"
+    region                            = "southamerica-west1"
+    run_id                            = "pilot01"
+    enable_scratch                    = true
+    enable_role_probe_jobs            = true
+    confirm_project_inventory         = true
+    role_probe_image                  = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    confirm_role_probe_image_pushed   = true
+    role_probe_secret_version         = "1"
+    confirm_role_probe_secret_version = true
+    role_probe_iam_expires_at         = "2026-10-16T09:00:00Z"
+    operator_member                   = "user:operator@example.invalid"
+  }
+
+  assert {
+    condition = toset(keys(google_cloud_run_v2_job.role_comment_probe)) == toset([
+      "role_comment_prepare", "role_comment_after_reconcile"
+    ])
+    error_message = "The role-comment probe must create only its two named fixed phases."
+  }
+
+  assert {
+    condition = alltrue([
+      for phase, job in google_cloud_run_v2_job.role_comment_probe :
+      job.name == "espacigo-gcp03-pilot01-${phase}" &&
+      job.template[0].task_count == 1 &&
+      job.template[0].parallelism == 1 &&
+      job.template[0].template[0].max_retries == 0 &&
+      job.template[0].template[0].timeout == "600s" &&
+      job.template[0].template[0].containers[0].image == var.role_probe_image &&
+      anytrue([for env in job.template[0].template[0].containers[0].env : env.name == "GCP03_PHASE" && env.value == phase]) &&
+      anytrue([for env in job.template[0].template[0].containers[0].env : env.name == "DATABASE_URL" && env.value == "postgres://espacigo_scratch_migrator@localhost:5432/espacigo_scratch?sslmode=disable"]) &&
+      anytrue([for item in job.template[0].template[0].volumes[0].secret[0].items : item.version == "1"])
+    ])
+    error_message = "Probe Jobs must use the exact scratch target, immutable image/secret version, one task, no retries, and a ten-minute timeout."
+  }
+
+  assert {
+    condition = (
+      toset(google_project_iam_custom_role.role_probe_cloudsql_operator[0].permissions) == toset([
+        "cloudsql.instances.get", "cloudsql.users.create", "cloudsql.users.delete", "cloudsql.users.get", "cloudsql.users.update"
+      ]) &&
+      toset(google_project_iam_custom_role.role_probe_secret_operator[0].permissions) == toset([
+        "secretmanager.versions.add", "secretmanager.versions.destroy", "secretmanager.versions.get", "secretmanager.versions.list"
+      ]) &&
+      google_project_iam_member.role_probe_cloudsql_operator[0].member == "user:operator@example.invalid" &&
+      google_project_iam_member.role_probe_cloudsql_operator[0].condition[0].expression == "request.time < timestamp('2026-10-16T09:00:00Z') && resource.name == 'projects/espacigo-testprod/instances/espacigo-gcp03-pilot01-pg' && resource.type == 'sqladmin.googleapis.com/Instance'" &&
+      google_secret_manager_secret_iam_member.role_probe_secret_operator[0].secret_id == "espacigo-gcp03-pilot01-migrator-password" &&
+      google_secret_manager_secret_iam_member.role_probe_secret_operator[0].condition[0].expression == "request.time < timestamp('2026-10-16T09:00:00Z')" &&
+      length(google_cloud_run_v2_job_iam_member.role_probe_operator) == 2
+    )
+    error_message = "Temporary probe permissions must be exact, time-bounded, and limited to the named instance/secret/jobs."
+  }
+}
+
+run "role_comment_probe_rejects_latest_secret_version" {
+  command = plan
+
+  variables {
+    project_id                        = "espacigo-testprod"
+    region                            = "southamerica-west1"
+    run_id                            = "pilot01"
+    enable_scratch                    = true
+    enable_role_probe_jobs            = true
+    confirm_project_inventory         = true
+    role_probe_image                  = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    confirm_role_probe_image_pushed   = true
+    role_probe_secret_version         = "latest"
+    confirm_role_probe_secret_version = true
+    role_probe_iam_expires_at         = "2026-10-16T09:00:00Z"
+    operator_member                   = "user:operator@example.invalid"
+  }
+
+  expect_failures = [var.role_probe_secret_version]
 }
 
 run "job_requires_enabled_scratch_and_external_artifacts" {

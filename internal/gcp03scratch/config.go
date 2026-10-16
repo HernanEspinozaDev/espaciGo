@@ -31,11 +31,13 @@ const (
 type Phase string
 
 const (
-	PhaseBootstrap   Phase = "bootstrap"
-	PhaseDatabaseACL Phase = "database_acl"
-	PhaseMigrate     Phase = "migrate"
-	PhaseFinalize    Phase = "finalize"
-	PhaseRetire      Phase = "retire"
+	PhaseBootstrap                 Phase = "bootstrap"
+	PhaseDatabaseACL               Phase = "database_acl"
+	PhaseMigrate                   Phase = "migrate"
+	PhaseFinalize                  Phase = "finalize"
+	PhaseRetire                    Phase = "retire"
+	PhaseRoleCommentPrepare        Phase = "role_comment_prepare"
+	PhaseRoleCommentAfterReconcile Phase = "role_comment_after_reconcile"
 )
 
 var scratchPasswordPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
@@ -55,7 +57,8 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	}
 	phase := Phase(strings.TrimSpace(getenv("GCP03_PHASE")))
 	switch phase {
-	case PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire:
+	case PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire,
+		PhaseRoleCommentPrepare, PhaseRoleCommentAfterReconcile:
 	default:
 		return Config{}, errors.New("GCP03_PHASE must name a supported scratch phase")
 	}
@@ -99,6 +102,10 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		PrivateIP:    true,
 		Login:        login,
 	}, nil
+}
+
+func IsRoleCommentProbePhase(phase Phase) bool {
+	return phase == PhaseRoleCommentPrepare || phase == PhaseRoleCommentAfterReconcile
 }
 
 func ReadPassword(path string) (string, error) {
