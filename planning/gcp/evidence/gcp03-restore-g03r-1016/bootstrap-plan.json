@@ -1,0 +1,50 @@
+{
+  "format": "espacigo-gcp03-bootstrap-plan-evidence-v1",
+  "run_id": "g03r-1016",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "credential_setup": {
+    "authorized_helper_invocation_count": 1,
+    "secret_version_number": "1",
+    "secret_version_state": "ENABLED",
+    "cloud_sql_operation_id": "1456827e-7085-4df6-a589-94760000004b",
+    "cloud_sql_operation_status": "DONE",
+    "cloud_sql_operation_error": false,
+    "secret_payload_read": false,
+    "sql_connection_or_command": false
+  },
+  "terraform": {
+    "state_serial": 4,
+    "state_addresses_including_read_only_data": 9,
+    "plan_file_private": true,
+    "plan_file_mode": "0600",
+    "plan_sha256": "8a0c8ffe94451ef1673c515c6209de8033c4237b48eee4cdd027a1f64f3f1186",
+    "plan_json_sha256": "804c1be63d8497844e7effbfdbc62f53b3009f7716ef21024354e46dd3c276d6",
+    "resources_to_add": 3,
+    "resources_to_change": 0,
+    "resources_to_destroy": 0,
+    "planned_operator": "user:pasteleriahijitos@gmail.com",
+    "actions": [
+      {
+        "address": "google_cloud_run_v2_job.admin_phase[\"bootstrap\"]",
+        "action": "create"
+      },
+      {
+        "address": "google_cloud_run_v2_job_iam_member.bootstrap_invoker[0]",
+        "action": "create",
+        "scope": "bootstrap Job only",
+        "role": "roles/run.invoker"
+      },
+      {
+        "address": "google_service_account_iam_member.bootstrap_deployer_act_as[0]",
+        "action": "create",
+        "scope": "run admin service account only",
+        "role": "roles/iam.serviceAccountUser"
+      }
+    ],
+    "applied": false,
+    "job_executed": false,
+    "object_uploads": 0
+  },
+  "deadline_utc": "2026-10-17T05:08:13.708Z"
+}

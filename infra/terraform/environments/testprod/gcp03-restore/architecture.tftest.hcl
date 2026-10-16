@@ -22,9 +22,53 @@ run "restore_is_off_by_default" {
       length(google_secret_manager_secret.postgres_password) == 0 &&
       length(google_cloud_run_v2_job.restore) == 0 &&
       length(google_cloud_run_v2_job.verify) == 0 &&
-      length(google_cloud_run_v2_job.admin_phase) == 0
+      length(google_cloud_run_v2_job.admin_phase) == 0 &&
+      length(google_service_account_iam_member.bootstrap_deployer_act_as) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.bootstrap_invoker) == 0
     )
     error_message = "The managed synthetic restore must create no resources unless all exact review inputs are supplied."
+  }
+}
+
+run "bootstrap_only_plan_has_exact_operator_grants" {
+  command = plan
+  variables {
+    project_id                    = "espacigo-testprod"
+    region                        = "southamerica-west1"
+    run_id                        = "fixture1"
+    enable_foundation             = true
+    enable_bootstrap_job          = true
+    enable_restore_jobs           = false
+    confirm_isolated_restore      = true
+    executor_image                = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-restore-fixture1/restore@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    proxy_image                   = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    admin_password_secret_version = "7"
+    bootstrap_operator_member     = "user:pasteleriahijitos@gmail.com"
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.admin_phase) == 1 &&
+      contains(keys(google_cloud_run_v2_job.admin_phase), "bootstrap") &&
+      length(google_cloud_run_v2_job.restore) == 0 &&
+      length(google_cloud_run_v2_job.verify) == 0 &&
+      length(google_sql_user.restore_iam) == 0 &&
+      length(google_sql_user.verify_iam) == 0
+    )
+    error_message = "The bootstrap-only gate must contain only the protected bootstrap Job and no restore, verify, retire, or IAM SQL users."
+  }
+
+  assert {
+    condition = (
+      length(google_service_account_iam_member.bootstrap_deployer_act_as) == 1 &&
+      google_service_account_iam_member.bootstrap_deployer_act_as[0].role == "roles/iam.serviceAccountUser" &&
+      google_service_account_iam_member.bootstrap_deployer_act_as[0].member == "user:pasteleriahijitos@gmail.com" &&
+      length(google_cloud_run_v2_job_iam_member.bootstrap_invoker) == 1 &&
+      google_cloud_run_v2_job_iam_member.bootstrap_invoker[0].name == google_cloud_run_v2_job.admin_phase["bootstrap"].name &&
+      google_cloud_run_v2_job_iam_member.bootstrap_invoker[0].role == "roles/run.invoker" &&
+      google_cloud_run_v2_job_iam_member.bootstrap_invoker[0].member == "user:pasteleriahijitos@gmail.com"
+    )
+    error_message = "Bootstrap invocation and actAs must be granted only to the authorized operator on the exact Job and admin service account."
   }
 }
 

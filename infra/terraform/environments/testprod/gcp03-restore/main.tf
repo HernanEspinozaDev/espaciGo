@@ -356,6 +356,7 @@ resource "google_cloud_run_v2_job" "admin_phase" {
   name                = "${local.prefix}-${each.key}"
   location            = var.region
   deletion_protection = !var.allow_restore_destroy
+  depends_on          = [google_service_account_iam_member.bootstrap_deployer_act_as]
   template {
     task_count  = 1
     parallelism = 1
@@ -428,4 +429,20 @@ resource "google_cloud_run_v2_job" "admin_phase" {
       }
     }
   }
+}
+
+resource "google_service_account_iam_member" "bootstrap_deployer_act_as" {
+  count              = local.bootstrap_job_enabled ? 1 : 0
+  service_account_id = google_service_account.admin[0].name
+  role               = "roles/iam.serviceAccountUser"
+  member             = var.bootstrap_operator_member
+}
+
+resource "google_cloud_run_v2_job_iam_member" "bootstrap_invoker" {
+  count    = local.bootstrap_job_enabled ? 1 : 0
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.admin_phase["bootstrap"].name
+  role     = "roles/run.invoker"
+  member   = var.bootstrap_operator_member
 }

@@ -115,6 +115,16 @@ variable "admin_password_secret_version" {
   description = "Exact existing numeric Secret Manager version; secret payloads and versions are never Terraform-managed."
 }
 
+variable "bootstrap_operator_member" {
+  type        = string
+  default     = "user:pasteleriahijitos@gmail.com"
+  description = "The single authorized g03r-1016 operator receiving invocation on the bootstrap Job and actAs on its admin service account."
+  validation {
+    condition     = !var.enable_bootstrap_job || var.bootstrap_operator_member == "user:pasteleriahijitos@gmail.com"
+    error_message = "The bootstrap plan is restricted to the authorized g03r-1016 operator identity."
+  }
+}
+
 variable "migration_inventory_sha256" {
   type        = string
   default     = ""
