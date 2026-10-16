@@ -259,11 +259,22 @@ func TestRevokeSuperuserRequiresExactGateAndWaitsForAPIOperation(t *testing.T) {
 
 func TestScratchSecretVersionGuard(t *testing.T) {
 	if !IsScratchSecretVersion(ScratchSecretResource + "/versions/17") {
-		t.Fatal("exact scratch secret version rejected")
+		t.Fatal("project-ID scratch secret version rejected")
+	}
+	projectNumberVersion := "projects/" + ProjectNumber + "/secrets/espacigo-gcp03-pilot01-migrator-password/versions/17"
+	if !IsScratchSecretVersion(projectNumberVersion) {
+		t.Fatal("canonical project-number scratch secret version rejected")
 	}
 	for _, candidate := range []string{
 		ScratchSecretResource,
 		ScratchSecretResource + "/versions/latest",
+		ScratchSecretResource + "/versions/0",
+		ScratchSecretResource + "/versions/017",
+		ScratchSecretResource + "/versions/17suffix",
+		ScratchSecretResource + "/versions/17/extra",
+		"projects/other/secrets/espacigo-gcp03-pilot01-migrator-password/versions/17",
+		"projects/" + ProjectNumber + "/secrets/other-secret/versions/17",
+		"projects/" + ProjectID + "/secrets/espacigo-gcp03-pilot01-db-owner-password/versions/17",
 		"projects/other/secrets/name/versions/17",
 	} {
 		if IsScratchSecretVersion(candidate) {
@@ -276,8 +287,47 @@ func TestDatabaseOwnerSecretVersionGuard(t *testing.T) {
 	if !IsDatabaseOwnerSecretVersion(DatabaseOwnerSecretResource + "/versions/17") {
 		t.Fatal("exact owner secret version rejected")
 	}
+	if !IsDatabaseOwnerSecretVersion("projects/" + ProjectNumber + "/secrets/espacigo-gcp03-pilot01-db-owner-password/versions/17") {
+		t.Fatal("canonical project-number owner secret version rejected")
+	}
 	if IsDatabaseOwnerSecretVersion(ScratchSecretResource+"/versions/17") || IsDatabaseOwnerSecretVersion(DatabaseOwnerSecretResource+"/versions/latest") {
 		t.Fatal("wrong or mutable owner secret version accepted")
+	}
+}
+
+func TestNormalizeSecretVersionNamePreservesCanonicalResource(t *testing.T) {
+	canonical := "projects/" + ProjectNumber + "/secrets/espacigo-gcp03-pilot01-migrator-password/versions/1"
+	got, ok := NormalizeSecretVersionName(ScratchSecretResource, canonical)
+	if !ok || got != canonical {
+		t.Fatalf("canonical API resource was not preserved: %q, %v", got, ok)
+	}
+	if got := SafeSecretVersionReference(ScratchSecretResource, canonical); got != canonical {
+		t.Fatalf("safe reconciliation reference changed: %q", got)
+	}
+	if got := SafeSecretVersionReference(ScratchSecretResource, "projects/other/secrets/espacigo-gcp03-pilot01-migrator-password/versions/1"); got != "" {
+		t.Fatalf("reference outside the exact project namespace was exposed: %q", got)
+	}
+}
+
+func TestCredentialProvisionerRejectsInvalidAPIResourceBeforeCreatingUser(t *testing.T) {
+	for _, candidate := range []string{
+		"projects/other/secrets/espacigo-gcp03-pilot01-migrator-password/versions/1",
+		"projects/" + ProjectNumber + "/secrets/another-secret/versions/1",
+		"projects/" + ProjectNumber + "/secrets/espacigo-gcp03-pilot01-migrator-password/versions/latest",
+	} {
+		provisioner, secret, user := successfulProvisioner()
+		secret.name = candidate
+		result, err := provisioner.Provision(context.Background(), true, CredentialConfirmation)
+		if err == nil || !result.Reconcile || user.name != "" {
+			t.Fatalf("invalid API resource was accepted or reached Cloud SQL: resource=%q result=%#v user=%q", candidate, result, user.name)
+		}
+		if safe := SafeSecretVersionReference(ScratchSecretResource, candidate); safe != "" {
+			if result.SecretVersion != safe || !strings.Contains(err.Error(), safe) {
+				t.Fatalf("safe reconciliation reference was not preserved: result=%q error=%q want=%q", result.SecretVersion, err, safe)
+			}
+		} else if result.SecretVersion != "" || !strings.Contains(err.Error(), "outside the exact scratch namespace") {
+			t.Fatalf("reference outside the allowed namespace was not safely rejected: result=%q error=%q", result.SecretVersion, err)
+		}
 	}
 }
 
@@ -307,6 +357,22 @@ func TestCreateDatabaseOwnerCredentialStoresBeforePasswordUpdate(t *testing.T) {
 	}
 	if result.SecretVersion != secret.name || user.name != DatabaseOwnerLogin || len(user.passwords) != 1 || !bytes.Equal(secret.added, user.passwords[0]) {
 		t.Fatal("owner credential did not store the generated password before its exact SQL user update")
+	}
+}
+
+func TestCreateDatabaseOwnerCredentialAcceptsCanonicalProjectNumberAndRejectsOtherNamespace(t *testing.T) {
+	provisioner, secret, user := successfulProvisioner()
+	secret.name = "projects/" + ProjectNumber + "/secrets/espacigo-gcp03-pilot01-db-owner-password/versions/4"
+	result, err := provisioner.CreateDatabaseOwnerCredential(context.Background(), true, DatabaseOwnerCreateConfirmation)
+	if err != nil || result.SecretVersion != secret.name || user.name != DatabaseOwnerLogin {
+		t.Fatalf("canonical project-number owner version was not preserved: result=%#v user=%q err=%v", result, user.name, err)
+	}
+
+	provisioner, secret, user = successfulProvisioner()
+	secret.name = "projects/other/secrets/espacigo-gcp03-pilot01-db-owner-password/versions/5"
+	result, err = provisioner.CreateDatabaseOwnerCredential(context.Background(), true, DatabaseOwnerCreateConfirmation)
+	if err == nil || !result.Reconcile || user.name != "" || result.SecretVersion != "" {
+		t.Fatalf("owner version outside exact namespace was accepted or exposed: result=%#v user=%q err=%v", result, user.name, err)
 	}
 }
 
