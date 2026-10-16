@@ -1,6 +1,6 @@
 # GCP-03: ejecutor local de bootstrap para scratch
 
-Estado: **corrección local para revisión del mismo PR #344**. El flujo ahora tiene cinco fases (`bootstrap`, `database_acl`, `migrate`, `finalize`, `retire`) para cubrir la autoadhesión de roles en PostgreSQL 18 y restringir TEMP/schema CREATE al migrador. La evidencia OCI previa corresponde a otro HEAD y no describe esta revisión; se volverá a construir dos veces desde un commit limpio después de congelar el código. La prueba de integración ejecutó V1–V61 en un PostgreSQL 18/PostGIS desechable local. No se ejecutó SQL en Cloud SQL ni en la base persistente, no se crearon usuarios ni versiones de secretos en Google Cloud, no se ejecutaron Cloud Run Jobs ni se subió imagen. La instancia `espacigo-gcp03-pilot01-pg` y su base `espacigo_scratch` se conservan.
+Estado de esta instantánea: **corrección local revisada en PR #344**. El flujo define cinco fases (`bootstrap`, `database_acl`, `migrate`, `finalize`, `retire`) para PostgreSQL 18 y TEMP/schema CREATE. La prueba integrada local ejecutó V1–V61 en un PostgreSQL 18/PostGIS desechable. En el momento de aquella revisión no se ejecutó SQL en Cloud SQL ni se crearon usuarios/versiones/Jobs. El ensayo administrado posterior, el resultado del probe y el estado actual del scratch están en [evidencia de ejecución](gcp03_role_probe_execution_20261016.md) y [alcance V1–V61](gcp03_cloudsql_v1_v61_replay_scope_20261016.md); no inferir el estado actual desde esta instantánea histórica.
 
 ## Alcance del ejecutor
 

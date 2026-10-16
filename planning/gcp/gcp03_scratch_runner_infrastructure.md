@@ -2,9 +2,9 @@
 
 The follow-up local executor design and four named job phases are documented in [the bootstrap executor review](gcp03_scratch_bootstrap_executor.md). This page retains the historical infrastructure preparation record; it does not imply the new executor image or Jobs have been deployed.
 
-The later apply of the exact reviewed infrastructure plan and current cloud state are recorded in [the execution evidence](evidencia_aplicacion_scratch_gcp03_20261016.md). The statements below describe what the earlier code-preparation change created; the runner Job, SQL login, secret version, and database execution remain absent.
+The later apply of the exact reviewed infrastructure plan is recorded in [the infrastructure evidence](evidencia_aplicacion_scratch_gcp03_20261016.md). This file is a historical code-preparation snapshot, not the current state: the role-comment Jobs ran later, the migrator login/secret version were retired, and two probe Jobs remain pending cleanup. See [probe execution](gcp03_role_probe_execution_20261016.md) and [cleanup plan](gcp03_role_probe_cleanup_plan_20261016.md).
 
-Status: **code and local plan preparation only**. This root is isolated from the persistent GCP state. No scratch resources, image uploads, secret values/versions, SQL users, connections, SQL statements, migrations, restore, or imports were created or executed by this change.
+Historical status of this code-preparation change: **code and local plan preparation only**. Its root is isolated from the persistent GCP state. Later resources and the two approved probe SQL actions are recorded in the linked execution evidence; the persistent dataset remains outside that work.
 
 ## Isolated root and state
 
