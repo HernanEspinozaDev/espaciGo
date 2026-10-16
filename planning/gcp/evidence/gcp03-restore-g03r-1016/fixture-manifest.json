@@ -1,0 +1,266 @@
+{
+  "expected_records": {
+    "espacio": 1,
+    "ocupacion": 2,
+    "usuario": 2
+  },
+  "fixture_sql": {
+    "bytes": 1852,
+    "file": "fixture.sql",
+    "sha256": "e8c47dba25bf7261cd3e6c8cfc75337549b5e7a1fe120fc5f630dc1ec4883876"
+  },
+  "format": "espacigo-gcp03-restore-fixture-v1",
+  "migrations": {
+    "count": 61,
+    "files": [
+      {
+        "file": "V000001__m01_identity.sql",
+        "sha256": "34736e22df35ffbd88bb43a1071788ba88ac9e6b35f2a5aeba83b9b87bf161f8"
+      },
+      {
+        "file": "V000002__m02_profile_rights.sql",
+        "sha256": "e3f9c0b9e60244490ef40230b5af6a452deb63cd475b43b7378d9a3895877ec2"
+      },
+      {
+        "file": "V000003__m03_verification.sql",
+        "sha256": "161a2fc06b46eb181b6ddec78eac4ff8e3020b48553429f435ce81c08ce4814f"
+      },
+      {
+        "file": "V000004__m03_reason_codes.sql",
+        "sha256": "f3942ba61513556253650fabc962843350e9c441fd384d8d5b8bd59ecf7362d1"
+      },
+      {
+        "file": "V000005__m04_space_drafts.sql",
+        "sha256": "f5ca7a06da755c8bbf8adba1ed7c539c69fb50743b3f58012079eb565b564f86"
+      },
+      {
+        "file": "V000006__m04_extensible_category_attributes.sql",
+        "sha256": "67bf11f666e9c3f2687e7bd6c3c0fcd82f075c51ff012f874ed3638b64cf2968"
+      },
+      {
+        "file": "V000007__m04_profile_attribute_order.sql",
+        "sha256": "c39bc8c2c3a7161bec0dd0b01b1f7cb04ff87c70aae15ea6db46a6054b1780c5"
+      },
+      {
+        "file": "V000008__m03_synthetic_evidence.sql",
+        "sha256": "896d0808f925f44f5bb82222b56fde369723b3579fae510c3bd3b1a84002113d"
+      },
+      {
+        "file": "V000009__m06_draft_manual_occupancy.sql",
+        "sha256": "e3fd2c98930f3d44280406a1698aa6d4594aa7b7e8ae708157c81ed4103ed900"
+      },
+      {
+        "file": "V000010__m05_versioned_rates_and_private_simulations.sql",
+        "sha256": "291748cd18b0ff3424066c322e570a9ff206a386a92e08ad714a9d0709ef212b"
+      },
+      {
+        "file": "V000011__m06_local_booking_trial.sql",
+        "sha256": "7d6e5dfda683164f434c70b415c7383a48d16120abc4d2d10ef0c64db710f452"
+      },
+      {
+        "file": "V000012__m06_local_booking_conditions_snapshot.sql",
+        "sha256": "daa604294fbab0c9d3ac027e3e2629a366c93c78795ea7f5edd75733dfd3a1cd"
+      },
+      {
+        "file": "V000013__m06_booking_history_sequence.sql",
+        "sha256": "8aaa68c5b3f06a8b363bc8332bb7574e937417616610d5dc4df8ac26365f30de"
+      },
+      {
+        "file": "V000014__m06_deterministic_history_backfill.sql",
+        "sha256": "c5b25c4d450f7ff5f60ebac401e85506a8835ade8e80c3043d0ddd2706682ccb"
+      },
+      {
+        "file": "V000015__m05_local_synthetic_catalog.sql",
+        "sha256": "55c2641621ca6dcba8c00108fb0d3bd607730a1544417f79388d2942c2a18525"
+      },
+      {
+        "file": "V000016__m09_local_reservation_messages.sql",
+        "sha256": "21772b55240bd9e42dcee9a0c60267f87e0c5652e9d20a2d4d84526994cc4a06"
+      },
+      {
+        "file": "V000017__m09_reservation_message_read_cursor.sql",
+        "sha256": "d22702994f854621e3eca912ce07a320a3b83e7c9bf1ad2910f82d8ef3cfe127"
+      },
+      {
+        "file": "V000018__m05_synthetic_fixture_locations.sql",
+        "sha256": "65ff0d76bafb9b7e78207aac40172cb45443291b2903c71165650174c9eac89b"
+      },
+      {
+        "file": "V000019__m06_local_weekly_hours.sql",
+        "sha256": "99d516ecae702fd158204d985662d1cc0c70104a9cd520a926009860dc160d57"
+      },
+      {
+        "file": "V000020__m06_local_flexible_cancellation.sql",
+        "sha256": "a594aa744d8fa8ffcf1884561d4e0f0730ea1a35098f422b55b46b4e933570d0"
+      },
+      {
+        "file": "V000021__m06_local_payment_inbox.sql",
+        "sha256": "3c3e72a6fcf9e1b6570362c7254a65cd6024c2838792898dfee5daeebd088a86"
+      },
+      {
+        "file": "V000022__local_identity_history_and_outbox.sql",
+        "sha256": "f2166790c2500956a2cbbf4bc16280a7bec11d3d36bf6096cc5ae666f9b5b4a8"
+      },
+      {
+        "file": "V000023__local_privacy_suppression_review.sql",
+        "sha256": "b38c23af4953e46c6d6c3b145d7c1c8212b0408ddc39e7eb434cd945ed355f2c"
+      },
+      {
+        "file": "V000024__local_dispute_privacy_blocker.sql",
+        "sha256": "ed27af7effe2c16f13896a4a6240cb62da46333158588755c4f835c6ded66e29"
+      },
+      {
+        "file": "V000025__local_synthetic_privacy_suppression.sql",
+        "sha256": "cf390257626036c35d4f0ca4715ca977a4ceab2b3032ced3e789f4a4098ded19"
+      },
+      {
+        "file": "V000026__local_privacy_retention_purge_and_replay.sql",
+        "sha256": "38eaed77c3421a34c1c3361e33d281d5ea1418bfc1c0d0c2d57ac8e8c6846e7b"
+      },
+      {
+        "file": "V000027__local_credential_notice_terminal_recovery.sql",
+        "sha256": "a30512e5efcf43b47426ef2a771b8899104d65aad4851058e990915a81ef94ec"
+      },
+      {
+        "file": "V000028__local_kyc_eligibility_and_history.sql",
+        "sha256": "dd3ebc10d38f9000b4ec1183a40b8ed4222e14c2fc358b8cbe26f98b7896a1a7"
+      },
+      {
+        "file": "V000029__local_privacy_kyc_eligibility.sql",
+        "sha256": "9ed0486313c8c6172cd7d133c08e39c6bed39fd3bbfb596b1a4a3bbbda1595b6"
+      },
+      {
+        "file": "V000030__m02_synthetic_profile_photo_and_payout.sql",
+        "sha256": "1130f484103f2383cbe310f312823a1af571ffc6e73603e03acb8e564bef4220"
+      },
+      {
+        "file": "V000031__m04_local_publication_lifecycle.sql",
+        "sha256": "7c18af2f8437bcbf7752dc021892c25d65033562f05eb40d0d400ad05e76483a"
+      },
+      {
+        "file": "V000032__m04_synthetic_space_gallery.sql",
+        "sha256": "803d2026c722795b0c008cc9ab81ac9fa796642dc83505161d614d7df0b3f994"
+      },
+      {
+        "file": "V000033__m04_gallery_candidate_cleanup.sql",
+        "sha256": "f3b0d590ba5b92d4483c0e173a6de758f6f3b7d69bff3923950bca5bb9ee0425"
+      },
+      {
+        "file": "V000034__local_synthetic_contract_signing.sql",
+        "sha256": "8c1e2bcc99df3f0f120e57ba087f627ce4c3148791d9626a1c4ba6f7d5dbbda4"
+      },
+      {
+        "file": "V000035__local_synthetic_rental_operations.sql",
+        "sha256": "205e0f230d0bf69c15da08c48f3dc1abc0639bba4980372e9451a49658ce7c26"
+      },
+      {
+        "file": "V000036__local_communication_reviews_and_notices.sql",
+        "sha256": "322fd98a8b921b905832bd75b4006d5fbed3f233334d400a6863c3a03aea2b09"
+      },
+      {
+        "file": "V000037__local_communication_privacy_coordination.sql",
+        "sha256": "ad45697b244bac64d5713145b89cadf1f1522fa723f99f63feda8aa497ffd665"
+      },
+      {
+        "file": "V000038__local_damage_claim_resolution.sql",
+        "sha256": "88000b1e3f94e68efca57e36a38914483cbf0d10c62741c75f57b282a7291b25"
+      },
+      {
+        "file": "V000039__local_damage_claim_privacy_retention.sql",
+        "sha256": "86bd6b0d684c33d4213eb47d68763f00edc8b5716e2fe5e85d46fbaf1916e083"
+      },
+      {
+        "file": "V000040__local_guarantee_and_dispute_finance.sql",
+        "sha256": "c749f178824ff5c1695483d2c32cde6b7c76794e247a5d423101ce7486058b0d"
+      },
+      {
+        "file": "V000041__local_admin_account_block.sql",
+        "sha256": "4e31876d355c374c61f335f199441647ffc68fc7991bd3404596c7005cd6db58"
+      },
+      {
+        "file": "V000042__admin_block_privacy_minimization.sql",
+        "sha256": "0bc20128faf1e745ad7d9d5e95b4b4596a06ccf2be00ebd12946bb274ba9a512"
+      },
+      {
+        "file": "V000043__local_admin_financial_audit_actions.sql",
+        "sha256": "cc4105234f80e6d27152ecf7ec35c50838789fc58c5b07d7e82209bb151eded4"
+      },
+      {
+        "file": "V000044__local_fake_settlement_receipt.sql",
+        "sha256": "f3ff70285a2c020b930eb34104be3c600cc0aeeb98f15cdd82f9b949a8addabf"
+      },
+      {
+        "file": "V000045__local_settlement_privacy_obligations.sql",
+        "sha256": "8a7f12beb68ddaa7c5d063b2659b4c1a851fefffaac8f3db91e76f451bb54754"
+      },
+      {
+        "file": "V000046__local_close_durable_notices.sql",
+        "sha256": "74e70bad1a0fb0d99dfb25a66e5dae169d957c62914e879fda18489501ab5736"
+      },
+      {
+        "file": "V000047__local_privacy_retention_purgers.sql",
+        "sha256": "cdde799f60c3648c26e1cc943a3ef53b0d09814e3b38e050720a87d6139dd8c9"
+      },
+      {
+        "file": "V000048__local_defense_synthetic_evidence.sql",
+        "sha256": "4da2568b0aa12f228da51ebf3570a0e61f72a200d08a73823d578f80bb00ebee"
+      },
+      {
+        "file": "V000049__local_m04_gallery_cover.sql",
+        "sha256": "2327da85443e0b4e182c02b94341e9288ee37a3e3ac8b3354bcfb4b12e423f64"
+      },
+      {
+        "file": "V000050__local_publication_retirement.sql",
+        "sha256": "1ba7ea88a0cb0d8b663f7756655d91104c5f266c0aae5bf6e749bcacb8bcd02e"
+      },
+      {
+        "file": "V000051__local_close_reservation_after_settlement.sql",
+        "sha256": "ad9411b1477ee6512086147c3961dc950b4f0113c163556003c7c257d19bfce7"
+      },
+      {
+        "file": "V000052__scoped_publication_rate_retirement.sql",
+        "sha256": "5c204afa60a4c83fd570b5c82f771711f1f890339bd42a23ad78190bbdee8330"
+      },
+      {
+        "file": "V000053__local_close_contract_and_publication_retention.sql",
+        "sha256": "2c34092c9db8cab94c0e6ebab1e72d82b061eead465b913d46e91aeb77842e68"
+      },
+      {
+        "file": "V000054__local_contract_signature_expiry_retention.sql",
+        "sha256": "7fc01ac4ee0ee83db339fadfe95fc032a25cd2621184abe4d2408245ce926af3"
+      },
+      {
+        "file": "V000055__mpv2_02_public_search_and_locations.sql",
+        "sha256": "a6b2e9b6eb055ea0375b35ebe881091e41ad1d0eacfa78d82896b9b8827ab6b6"
+      },
+      {
+        "file": "V000056__mpv2_04_public_gallery.sql",
+        "sha256": "5cccdde76a613a82afbefb582d5ef2bab16512c9c7a0b0cfcdbf11a91710d5a0"
+      },
+      {
+        "file": "V000057__mpv2_11_typed_public_category_filters.sql",
+        "sha256": "4da5888e15043f22576fd026934896aa6adebf3a49a65df43534c98a02d9be9d"
+      },
+      {
+        "file": "V000058__gadm_01_global_administrator.sql",
+        "sha256": "d902d5aab8a6ba0a18bdc4e332792e567c0e5a00a69c897c3274c93384418acc"
+      },
+      {
+        "file": "V000059__gadm_03_audit_scope_and_query_indexes.sql",
+        "sha256": "a097a82fd5ece1b66ca953e4d48073834adc2edf4d31596f7d57f6ae36dbe93a"
+      },
+      {
+        "file": "V000060__gadm_local_bootstrap_restricted_role.sql",
+        "sha256": "75495ea50cdc2e6f5a61566dd725f5f623eca6133dcfdef55bde88498f424156"
+      },
+      {
+        "file": "V000061__mpv2_12_hourly_publication_schedules.sql",
+        "sha256": "cb3f719b3b846607abef9b8d356c980b47da1a22f5da38b55839112f2b619b95"
+      }
+    ],
+    "first": "V000001__m01_identity.sql",
+    "inventory_sha256": "e4086e95c3ecf05f9262aabfaa4e536a72503b992cc806b4fcf610748c8fa8c4",
+    "last": "V000061__mpv2_12_hourly_publication_schedules.sql"
+  },
+  "source": "deterministic hand-authored synthetic fixture; no persistent source/dataset access"
+}

@@ -1,0 +1,38 @@
+{
+  "format": "espacigo-gcp03-synthetic-restore-evidence-v1",
+  "generated_at_utc": "2026-10-16T20:53:09Z",
+  "source": "locally generated synthetic data in network-isolated PostgreSQL 18/PostGIS container; no persistent source or dataset accessed",
+  "source_database": "g03_restore_src_1792183986374278314",
+  "restored_database": "g03_restore_dst_1792183986374278314",
+  "postgresql": "18.6",
+  "postgis_full_version": "POSTGIS=\"3.6.4 94d984b\" [EXTENSION] PGSQL=\"180\" GEOS=\"3.14.1-CAPI-1.20.5\" (compiled against GEOS 3.13.1) PROJ=\"9.8.1 NETWORK_ENABLED=OFF URL_ENDPOINT=https://cdn.proj.org USER_WRITABLE_DIRECTORY=/var/lib/postgresql/.local/share/proj DATABASE_PATH=/usr/share/proj/proj.db\" (compiled against PROJ 9.6.0) LIBXML=\"2.9.14\" LIBJSON=\"0.18\" LIBPROTOBUF=\"1.5.1\" WAGYU=\"0.5.0 (Internal)\"",
+  "migrations": 61,
+  "migration_inventory_sha256": "e4086e95c3ecf05f9262aabfaa4e536a72503b992cc806b4fcf610748c8fa8c4",
+  "fixture_sha256": "e8c47dba25bf7261cd3e6c8cfc75337549b5e7a1fe120fc5f630dc1ec4883876",
+  "dump_bytes": 454328,
+  "dump_sha256": "282f406d77e341ca7b8630cd11414e60a940051d86d8c7e5806387717aa14998",
+  "toc_sha256": "4a2fddbdb08f636bc0f6cb7cfeeecfed621c9ad351dcb6b2f7fc5d2b0dc96244",
+  "concurrent_deadlock_retries": 1,
+  "restored_counts": {
+    "espacio": 1,
+    "ocupacion": 2,
+    "usuario": 2
+  },
+  "checks": {
+    "adjacent_ranges": true,
+    "concurrent_overlap_one_winner": true,
+    "migration_checksums": true,
+    "object_ownership_reapplied": true,
+    "overlap_rejected": true,
+    "owner_role_minimal_no_login": true,
+    "postgis_spatial_function": true,
+    "santiago_dst_23_hour_day": true,
+    "security_definer_search_path": true,
+    "v60_trigger_present": true
+  },
+  "limits": [
+    "This local synthetic rehearsal tests the dump/restore mechanics only; it is not a restore of a source snapshot.",
+    "Local PostgreSQL role behavior does not prove Cloud SQL managed-role behavior.",
+    "The restore uses --no-owner/--no-acl then reapplies explicit ownership; cloud resources, SQL source, secrets, and application deployment were not used."
+  ]
+}

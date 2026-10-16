@@ -162,10 +162,14 @@ func databaseACLOnConnection(ctx context.Context, conn *pgx.Conn) error {
 }
 
 func runMigrations(ctx context.Context, config Config, password, migrationDir string) error {
-	if err := withScratchConnection(ctx, config, password, dbbootstrap.VerifyScratchBootstrap); err != nil {
+	if err := withScratchConnection(ctx, config, password, func(ctx context.Context, conn *pgx.Conn) error {
+		return dbbootstrap.VerifyScratchBootstrap(ctx, conn)
+	}); err != nil {
 		return fmt.Errorf("GCP-03 migration preflight failed: %w", err)
 	}
-	if err := withScratchConnection(ctx, config, password, dbbootstrap.VerifyScratchDatabaseACL); err != nil {
+	if err := withScratchConnection(ctx, config, password, func(ctx context.Context, conn *pgx.Conn) error {
+		return dbbootstrap.VerifyScratchDatabaseACL(ctx, conn)
+	}); err != nil {
 		return fmt.Errorf("GCP-03 migration database ACL preflight failed: %w", err)
 	}
 	result, err := migrator.RunCloudSQL(ctx, config.DatabaseURL, password, migrationDir, config.Instance, config.PrivateIP)

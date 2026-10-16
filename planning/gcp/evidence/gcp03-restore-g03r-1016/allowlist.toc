@@ -1,0 +1,749 @@
+;
+; Archive created at 2026-10-16 17:53:07 -03
+;     dbname: g03_restore_src_1792183986374278314
+;     TOC Entries: 745
+;     Compression: gzip
+;     Dump Version: 1.16-0
+;     Format: CUSTOM
+;     Integer: 4 bytes
+;     Offset: 8 bytes
+;     Dumped from database version: 18.6 (Debian 18.6-1.pgdg13+2)
+;     Dumped by pg_dump version: 18.6 (Ubuntu 18.6-1.pgdg26.04+2)
+;
+;
+; Selected TOC Entries:
+;
+1340; 1255 24417 FUNCTION public assign_local_space_history_retention() postgres
+1350; 1255 24533 FUNCTION public build_public_search_document(text, text, text, text, text, text, text) postgres
+1332; 1255 24358 FUNCTION public claim_expired_local_verification_files(timestamp with time zone, integer) postgres
+1333; 1255 24359 FUNCTION public complete_expired_local_verification_file(uuid, timestamp with time zone) postgres
+1323; 1255 24332 FUNCTION public enqueue_booking_payment_notices() postgres
+1328; 1255 24336 FUNCTION public enqueue_contract_complete_notices() postgres
+1327; 1255 24334 FUNCTION public enqueue_contract_signature_notices() postgres
+6288; 0 0 COMMENT public FUNCTION enqueue_contract_signature_notices() postgres
+1322; 1255 23848 FUNCTION public enqueue_local_cancel_notice() postgres
+1319; 1255 23844 FUNCTION public enqueue_local_checkin_notice() postgres
+1321; 1255 23846 FUNCTION public enqueue_local_claim_notice() postgres
+1324; 1255 23902 FUNCTION public enqueue_local_damage_claim_resolution_notice() postgres
+1318; 1255 23843 FUNCTION public enqueue_local_notice(text, text, uuid, uuid, text, timestamp with time zone) postgres
+1329; 1255 23850 FUNCTION public enqueue_local_review_report_notice() postgres
+1325; 1255 24328 FUNCTION public enqueue_login_lock_notice() postgres
+6289; 0 0 COMMENT public FUNCTION enqueue_login_lock_notice() postgres
+1326; 1255 24330 FUNCTION public enqueue_verification_result_notice() postgres
+1334; 1255 24360 FUNCTION public fail_expired_local_verification_file(uuid, timestamp with time zone) postgres
+1335; 1255 24410 FUNCTION public guard_local_reservation_close_after_settlement() postgres
+1314; 1255 22455 FUNCTION public guardar_modalidad_horario_activo() postgres
+1313; 1255 22453 FUNCTION public guardar_zona_sin_horario_activo() postgres
+1342; 1255 24420 FUNCTION public local_contract_effective_retention_deadline(uuid) postgres
+1341; 1255 24419 FUNCTION public local_retention_reservation_has_open_obligation(uuid) postgres
+1338; 1255 23202 FUNCTION public prevent_local_publication_history_mutation() postgres
+1339; 1255 24407 FUNCTION public prevent_local_space_deletion_history_mutation() postgres
+1343; 1255 24539 FUNCTION public public_catalog_billed_units(text, timestamp with time zone, timestamp with time zone, text) postgres
+1353; 1255 24538 FUNCTION public public_catalog_resolve_wall(timestamp without time zone, text) postgres
+1354; 1255 23853 FUNCTION public purge_expired_local_communication(timestamp with time zone, integer) g03_restore_owner_1792183986374278314
+1345; 1255 24421 FUNCTION public purge_expired_local_contracts_and_publication_history(timestamp with time zone, integer) postgres
+1316; 1255 22987 FUNCTION public purge_expired_local_credential_notices(timestamp with time zone, integer) postgres
+1331; 1255 24357 FUNCTION public purge_expired_local_privacy_rows(timestamp with time zone, integer) postgres
+1336; 1255 24413 FUNCTION public purge_unreferenced_local_publication_rates(uuid) postgres
+1315; 1255 22459 FUNCTION public rechazar_cambio_tarifa_con_horario_activo() postgres
+1352; 1255 24536 FUNCTION public refresh_category_public_search_document() postgres
+1351; 1255 24534 FUNCTION public refresh_espacio_public_search_document() postgres
+1344; 1255 24638 FUNCTION public reject_gadm_bootstrap_identity_change() postgres
+1337; 1255 22900 FUNCTION public schedule_local_reservation_link_retention() postgres
+1317; 1255 22877 FUNCTION public set_local_verification_retention_deadline() postgres
+1330; 1255 24355 FUNCTION public set_verification_evidence_retention_deadline() postgres
+1320; 1255 22457 FUNCTION public validar_horario_semanal_fixture_hora() postgres
+3634; 3600 24434 TEXT SEARCH DICTIONARY public espacigo_es_unaccent_dict postgres
+3665; 3602 24435 TEXT SEARCH CONFIGURATION public espacigo_es_unaccent postgres
+230; 1259 19958 TABLE public aceptacion_terminos postgres
+333; 1259 24557 TABLE public administrador_global postgres
+6290; 0 0 COMMENT public TABLE administrador_global postgres
+334; 1259 24578 TABLE public administrador_global_bootstrap postgres
+6291; 0 0 COMMENT public TABLE administrador_global_bootstrap postgres
+335; 1259 24595 TABLE public administrador_global_bootstrap_evento postgres
+6292; 0 0 COMMENT public TABLE administrador_global_bootstrap_evento postgres
+332; 1259 24508 TABLE public atributo_filtro_publico postgres
+305; 1259 23751 TABLE public aviso_local postgres
+6293; 0 0 COMMENT public TABLE aviso_local postgres
+306; 1259 23790 TABLE public aviso_local_ciclo postgres
+307; 1259 23819 TABLE public aviso_local_recuperacion_auditoria postgres
+272; 1259 22879 TABLE public baja_archivo_pendiente_local postgres
+318; 1259 24133 TABLE public bloqueo_cuenta_administrativo_local postgres
+6294; 0 0 COMMENT public TABLE bloqueo_cuenta_administrativo_local postgres
+6295; 0 0 COMMENT public COLUMN bloqueo_cuenta_administrativo_local.bloqueada_por postgres
+319; 1259 24157 TABLE public bloqueo_cuenta_historial_local postgres
+6296; 0 0 COMMENT public TABLE bloqueo_cuenta_historial_local postgres
+6297; 0 0 COMMENT public COLUMN bloqueo_cuenta_historial_local.actor_id postgres
+329; 1259 24436 TABLE public catalogo_ubicacion_publica postgres
+234; 1259 20073 TABLE public categoria_espacio postgres
+236; 1259 20134 TABLE public categoria_perfil_atributos postgres
+331; 1259 24469 TABLE public comuna_publica postgres
+290; 1259 23330 TABLE public contrato_ensayo_firma postgres
+291; 1259 23356 TABLE public contrato_ensayo_historial postgres
+289; 1259 23294 TABLE public contrato_ensayo_local postgres
+243; 1259 21067 TABLE public cotizacion_reserva_ensayo postgres
+282; 1259 23121 TABLE public cuenta_cobro_sintetica_historial_local postgres
+281; 1259 23120 SEQUENCE public cuenta_cobro_sintetica_historial_local_id_seq postgres
+6298; 0 0 SEQUENCE OWNED BY public cuenta_cobro_sintetica_historial_local_id_seq postgres
+280; 1259 23096 TABLE public cuenta_cobro_sintetica_local postgres
+270; 1259 22800 TABLE public disputa_ensayo_historial postgres
+269; 1259 22799 SEQUENCE public disputa_ensayo_historial_secuencia_seq postgres
+268; 1259 22743 TABLE public disputa_ensayo_local postgres
+288; 1259 23270 TABLE public documento_privado_sintetico_local postgres
+271; 1259 22836 TABLE public ejecucion_baja_local postgres
+278; 1259 23031 TABLE public elegibilidad_verificacion_local postgres
+235; 1259 20090 TABLE public espacio postgres
+6299; 0 0 COMMENT public COLUMN espacio.portada_foto_id postgres
+237; 1259 20153 TABLE public espacio_caracteristicas postgres
+328; 1259 24377 TABLE public espacio_eliminacion_historial_local postgres
+327; 1259 24376 SEQUENCE public espacio_eliminacion_historial_local_id_seq postgres
+287; 1259 23246 TABLE public espacio_galeria_archivo_candidato_local postgres
+286; 1259 23206 TABLE public espacio_galeria_sintetica_local postgres
+256; 1259 22416 TABLE public espacio_horario_semanal postgres
+257; 1259 22431 TABLE public espacio_horario_semanal_tramo postgres
+285; 1259 23173 TABLE public espacio_publicacion_historial_local postgres
+284; 1259 23172 SEQUENCE public espacio_publicacion_historial_local_id_seq postgres
+267; 1259 22707 TABLE public evento_auditoria_local postgres
+6300; 0 0 COMMENT public COLUMN evento_auditoria_local.cuenta_objetivo_id postgres
+6301; 0 0 COMMENT public COLUMN evento_auditoria_local.registrado_en postgres
+279; 1259 23068 TABLE public foto_perfil_sintetica_local postgres
+265; 1259 22659 TABLE public historial_clave_local postgres
+283; 1259 23149 TABLE public m02_operacion_idempotente_local postgres
+248; 1259 21259 TABLE public mensaje_reserva_ensayo postgres
+247; 1259 21258 SEQUENCE public mensaje_reserva_ensayo_secuencia_seq postgres
+239; 1259 20937 TABLE public ocupacion g03_restore_owner_1792183986374278314
+294; 1259 23455 TABLE public operacion_arriendo_archivo_candidato_local postgres
+292; 1259 23386 TABLE public operacion_arriendo_ensayo_local postgres
+293; 1259 23431 TABLE public operacion_arriendo_evidencia_ensayo_local postgres
+6302; 0 0 COMMENT public COLUMN operacion_arriendo_evidencia_ensayo_local.retirar_archivo_en postgres
+6303; 0 0 COMMENT public COLUMN operacion_arriendo_evidencia_ensayo_local.archivo_retirado_en postgres
+296; 1259 23486 TABLE public operacion_arriendo_historial_ensayo_local postgres
+295; 1259 23485 SEQUENCE public operacion_arriendo_historial_ensayo_local_secuencia_seq postgres
+275; 1259 22950 TABLE public outbox_evento_ciclo_local postgres
+266; 1259 22680 TABLE public outbox_evento_local postgres
+231; 1259 19985 TABLE public perfil_usuario postgres
+274; 1259 22921 TABLE public reaplicacion_baja_local postgres
+298; 1259 23572 TABLE public reclamo_dano_descargo_ensayo_local postgres
+297; 1259 23518 TABLE public reclamo_dano_ensayo_local postgres
+6304; 0 0 COMMENT public COLUMN reclamo_dano_ensayo_local.reserva_id postgres
+300; 1259 23604 TABLE public reclamo_dano_historial_ensayo_local postgres
+299; 1259 23603 SEQUENCE public reclamo_dano_historial_ensayo_local_secuencia_seq postgres
+309; 1259 23868 TABLE public reclamo_dano_resolucion_ensayo_local postgres
+6305; 0 0 COMMENT public TABLE reclamo_dano_resolucion_ensayo_local postgres
+330; 1259 24450 TABLE public region_publica postgres
+302; 1259 23681 TABLE public reporte_resena_ensayo_local postgres
+6306; 0 0 COMMENT public TABLE reporte_resena_ensayo_local postgres
+304; 1259 23726 TABLE public reporte_resena_historial_local postgres
+303; 1259 23725 SEQUENCE public reporte_resena_historial_local_secuencia_seq postgres
+308; 1259 23856 TABLE public resena_autoria_marca_local postgres
+6307; 0 0 COMMENT public TABLE resena_autoria_marca_local postgres
+301; 1259 23629 TABLE public resena_ensayo_local postgres
+6308; 0 0 COMMENT public TABLE resena_ensayo_local postgres
+258; 1259 22472 TABLE public reserva_cancelacion_ensayo postgres
+323; 1259 24276 TABLE public reserva_comprobante_ensayo_local postgres
+315; 1259 24043 TABLE public reserva_decision_financiera_ensayo_local postgres
+6309; 0 0 COMMENT public TABLE reserva_decision_financiera_ensayo_local postgres
+259; 1259 22503 TABLE public reserva_devolucion_ensayo postgres
+260; 1259 22532 TABLE public reserva_devolucion_intento_ensayo postgres
+244; 1259 21118 TABLE public reserva_ensayo_local postgres
+242; 1259 21036 TABLE public reserva_ensayo_local_fixture postgres
+255; 1259 22394 TABLE public reserva_ensayo_local_ubicacion_sintetica postgres
+245; 1259 21188 TABLE public reserva_ensayo_transicion postgres
+317; 1259 24102 TABLE public reserva_finanzas_historial_ensayo_local postgres
+316; 1259 24101 SEQUENCE public reserva_finanzas_historial_ensayo_local_secuencia_seq postgres
+6310; 0 0 SEQUENCE OWNED BY public reserva_finanzas_historial_ensayo_local_secuencia_seq postgres
+310; 1259 23907 TABLE public reserva_garantia_ensayo_local postgres
+6311; 0 0 COMMENT public TABLE reserva_garantia_ensayo_local postgres
+314; 1259 24027 TABLE public reserva_garantia_evento_aplicacion_ensayo_local postgres
+313; 1259 24003 TABLE public reserva_garantia_evento_ensayo_local postgres
+311; 1259 23945 TABLE public reserva_garantia_operacion_ensayo_local postgres
+312; 1259 23979 TABLE public reserva_garantia_resultado_fake_ensayo_local postgres
+320; 1259 24188 TABLE public reserva_liquidacion_ensayo_local postgres
+325; 1259 24298 TABLE public reserva_liquidacion_historial_ensayo_local postgres
+324; 1259 24297 SEQUENCE public reserva_liquidacion_historial_ensayo_local_secuencia_seq postgres
+321; 1259 24236 TABLE public reserva_liquidacion_operacion_ensayo_local postgres
+322; 1259 24256 TABLE public reserva_liquidacion_resultado_fake_ensayo_local postgres
+249; 1259 21292 TABLE public reserva_mensaje_lectura postgres
+246; 1259 21211 TABLE public reserva_pago_ensayo postgres
+261; 1259 22554 TABLE public reserva_pago_ensayo_operacion postgres
+264; 1259 22639 TABLE public reserva_pago_evento_aplicacion_ensayo postgres
+263; 1259 22612 TABLE public reserva_pago_evento_ensayo postgres
+262; 1259 22590 TABLE public reserva_pago_fake_resultado_ensayo postgres
+273; 1259 22903 TABLE public reserva_vinculo_purgado_local postgres
+226; 1259 19860 TABLE public rol_usuario postgres
+224; 1259 19819 TABLE public schema_migrations postgres
+227; 1259 19883 TABLE public sesion postgres
+241; 1259 20992 TABLE public simulacion_precio_privada postgres
+232; 1259 20003 TABLE public solicitud_titular postgres
+240; 1259 20968 TABLE public tarifa_espacio postgres
+228; 1259 19910 TABLE public token_accion postgres
+225; 1259 19837 TABLE public usuario postgres
+233; 1259 20027 TABLE public verificacion postgres
+326; 1259 24340 TABLE public verificacion_archivo_retiro_pendiente_local postgres
+6312; 0 0 COMMENT public TABLE verificacion_archivo_retiro_pendiente_local postgres
+238; 1259 20185 TABLE public verificacion_evidencia_sintetica postgres
+277; 1259 23000 TABLE public verificacion_historial_local postgres
+276; 1259 22999 SEQUENCE public verificacion_historial_local_id_seq postgres
+229; 1259 19942 TABLE public version_terminos postgres
+4982; 2604 23124 DEFAULT public cuenta_cobro_sintetica_historial_local id postgres
+5006; 2604 24106 DEFAULT public reserva_finanzas_historial_ensayo_local secuencia postgres
+6178; 0 19958 TABLE DATA public aceptacion_terminos postgres
+6276; 0 24557 TABLE DATA public administrador_global postgres
+6277; 0 24578 TABLE DATA public administrador_global_bootstrap postgres
+6278; 0 24595 TABLE DATA public administrador_global_bootstrap_evento postgres
+6275; 0 24508 TABLE DATA public atributo_filtro_publico postgres
+6248; 0 23751 TABLE DATA public aviso_local postgres
+6249; 0 23790 TABLE DATA public aviso_local_ciclo postgres
+6250; 0 23819 TABLE DATA public aviso_local_recuperacion_auditoria postgres
+6215; 0 22879 TABLE DATA public baja_archivo_pendiente_local postgres
+6261; 0 24133 TABLE DATA public bloqueo_cuenta_administrativo_local postgres
+6262; 0 24157 TABLE DATA public bloqueo_cuenta_historial_local postgres
+6272; 0 24436 TABLE DATA public catalogo_ubicacion_publica postgres
+6182; 0 20073 TABLE DATA public categoria_espacio postgres
+6184; 0 20134 TABLE DATA public categoria_perfil_atributos postgres
+6274; 0 24469 TABLE DATA public comuna_publica postgres
+6233; 0 23330 TABLE DATA public contrato_ensayo_firma postgres
+6234; 0 23356 TABLE DATA public contrato_ensayo_historial postgres
+6232; 0 23294 TABLE DATA public contrato_ensayo_local postgres
+6191; 0 21067 TABLE DATA public cotizacion_reserva_ensayo postgres
+6225; 0 23121 TABLE DATA public cuenta_cobro_sintetica_historial_local postgres
+6223; 0 23096 TABLE DATA public cuenta_cobro_sintetica_local postgres
+6213; 0 22800 TABLE DATA public disputa_ensayo_historial postgres
+6211; 0 22743 TABLE DATA public disputa_ensayo_local postgres
+6231; 0 23270 TABLE DATA public documento_privado_sintetico_local postgres
+6214; 0 22836 TABLE DATA public ejecucion_baja_local postgres
+6221; 0 23031 TABLE DATA public elegibilidad_verificacion_local postgres
+6183; 0 20090 TABLE DATA public espacio postgres
+6185; 0 20153 TABLE DATA public espacio_caracteristicas postgres
+6271; 0 24377 TABLE DATA public espacio_eliminacion_historial_local postgres
+6230; 0 23246 TABLE DATA public espacio_galeria_archivo_candidato_local postgres
+6229; 0 23206 TABLE DATA public espacio_galeria_sintetica_local postgres
+6199; 0 22416 TABLE DATA public espacio_horario_semanal postgres
+6200; 0 22431 TABLE DATA public espacio_horario_semanal_tramo postgres
+6228; 0 23173 TABLE DATA public espacio_publicacion_historial_local postgres
+6210; 0 22707 TABLE DATA public evento_auditoria_local postgres
+6222; 0 23068 TABLE DATA public foto_perfil_sintetica_local postgres
+6208; 0 22659 TABLE DATA public historial_clave_local postgres
+6226; 0 23149 TABLE DATA public m02_operacion_idempotente_local postgres
+6196; 0 21259 TABLE DATA public mensaje_reserva_ensayo postgres
+6187; 0 20937 TABLE DATA public ocupacion g03_restore_owner_1792183986374278314
+6237; 0 23455 TABLE DATA public operacion_arriendo_archivo_candidato_local postgres
+6235; 0 23386 TABLE DATA public operacion_arriendo_ensayo_local postgres
+6236; 0 23431 TABLE DATA public operacion_arriendo_evidencia_ensayo_local postgres
+6239; 0 23486 TABLE DATA public operacion_arriendo_historial_ensayo_local postgres
+6218; 0 22950 TABLE DATA public outbox_evento_ciclo_local postgres
+6209; 0 22680 TABLE DATA public outbox_evento_local postgres
+6179; 0 19985 TABLE DATA public perfil_usuario postgres
+6217; 0 22921 TABLE DATA public reaplicacion_baja_local postgres
+6241; 0 23572 TABLE DATA public reclamo_dano_descargo_ensayo_local postgres
+6240; 0 23518 TABLE DATA public reclamo_dano_ensayo_local postgres
+6243; 0 23604 TABLE DATA public reclamo_dano_historial_ensayo_local postgres
+6252; 0 23868 TABLE DATA public reclamo_dano_resolucion_ensayo_local postgres
+6273; 0 24450 TABLE DATA public region_publica postgres
+6245; 0 23681 TABLE DATA public reporte_resena_ensayo_local postgres
+6247; 0 23726 TABLE DATA public reporte_resena_historial_local postgres
+6251; 0 23856 TABLE DATA public resena_autoria_marca_local postgres
+6244; 0 23629 TABLE DATA public resena_ensayo_local postgres
+6201; 0 22472 TABLE DATA public reserva_cancelacion_ensayo postgres
+6266; 0 24276 TABLE DATA public reserva_comprobante_ensayo_local postgres
+6258; 0 24043 TABLE DATA public reserva_decision_financiera_ensayo_local postgres
+6202; 0 22503 TABLE DATA public reserva_devolucion_ensayo postgres
+6203; 0 22532 TABLE DATA public reserva_devolucion_intento_ensayo postgres
+6192; 0 21118 TABLE DATA public reserva_ensayo_local postgres
+6190; 0 21036 TABLE DATA public reserva_ensayo_local_fixture postgres
+6198; 0 22394 TABLE DATA public reserva_ensayo_local_ubicacion_sintetica postgres
+6193; 0 21188 TABLE DATA public reserva_ensayo_transicion postgres
+6260; 0 24102 TABLE DATA public reserva_finanzas_historial_ensayo_local postgres
+6253; 0 23907 TABLE DATA public reserva_garantia_ensayo_local postgres
+6257; 0 24027 TABLE DATA public reserva_garantia_evento_aplicacion_ensayo_local postgres
+6256; 0 24003 TABLE DATA public reserva_garantia_evento_ensayo_local postgres
+6254; 0 23945 TABLE DATA public reserva_garantia_operacion_ensayo_local postgres
+6255; 0 23979 TABLE DATA public reserva_garantia_resultado_fake_ensayo_local postgres
+6263; 0 24188 TABLE DATA public reserva_liquidacion_ensayo_local postgres
+6268; 0 24298 TABLE DATA public reserva_liquidacion_historial_ensayo_local postgres
+6264; 0 24236 TABLE DATA public reserva_liquidacion_operacion_ensayo_local postgres
+6265; 0 24256 TABLE DATA public reserva_liquidacion_resultado_fake_ensayo_local postgres
+6197; 0 21292 TABLE DATA public reserva_mensaje_lectura postgres
+6194; 0 21211 TABLE DATA public reserva_pago_ensayo postgres
+6204; 0 22554 TABLE DATA public reserva_pago_ensayo_operacion postgres
+6207; 0 22639 TABLE DATA public reserva_pago_evento_aplicacion_ensayo postgres
+6206; 0 22612 TABLE DATA public reserva_pago_evento_ensayo postgres
+6205; 0 22590 TABLE DATA public reserva_pago_fake_resultado_ensayo postgres
+6216; 0 22903 TABLE DATA public reserva_vinculo_purgado_local postgres
+6174; 0 19860 TABLE DATA public rol_usuario postgres
+6172; 0 19819 TABLE DATA public schema_migrations postgres
+6175; 0 19883 TABLE DATA public sesion postgres
+6189; 0 20992 TABLE DATA public simulacion_precio_privada postgres
+6180; 0 20003 TABLE DATA public solicitud_titular postgres
+6188; 0 20968 TABLE DATA public tarifa_espacio postgres
+6176; 0 19910 TABLE DATA public token_accion postgres
+6173; 0 19837 TABLE DATA public usuario postgres
+6181; 0 20027 TABLE DATA public verificacion postgres
+6269; 0 24340 TABLE DATA public verificacion_archivo_retiro_pendiente_local postgres
+6186; 0 20185 TABLE DATA public verificacion_evidencia_sintetica postgres
+6220; 0 23000 TABLE DATA public verificacion_historial_local postgres
+6177; 0 19942 TABLE DATA public version_terminos postgres
+6313; 0 0 SEQUENCE SET public cuenta_cobro_sintetica_historial_local_id_seq postgres
+6314; 0 0 SEQUENCE SET public disputa_ensayo_historial_secuencia_seq postgres
+6315; 0 0 SEQUENCE SET public espacio_eliminacion_historial_local_id_seq postgres
+6316; 0 0 SEQUENCE SET public espacio_publicacion_historial_local_id_seq postgres
+6317; 0 0 SEQUENCE SET public mensaje_reserva_ensayo_secuencia_seq postgres
+6318; 0 0 SEQUENCE SET public operacion_arriendo_historial_ensayo_local_secuencia_seq postgres
+6319; 0 0 SEQUENCE SET public reclamo_dano_historial_ensayo_local_secuencia_seq postgres
+6320; 0 0 SEQUENCE SET public reporte_resena_historial_local_secuencia_seq postgres
+6321; 0 0 SEQUENCE SET public reserva_finanzas_historial_ensayo_local_secuencia_seq postgres
+6322; 0 0 SEQUENCE SET public reserva_liquidacion_historial_ensayo_local_secuencia_seq postgres
+6323; 0 0 SEQUENCE SET public verificacion_historial_local_id_seq postgres
+5422; 2606 19971 CONSTRAINT public aceptacion_terminos aceptacion_terminos_pk postgres
+5424; 2606 19973 CONSTRAINT public aceptacion_terminos aceptacion_terminos_usuario_version_uk postgres
+5832; 2606 24613 CONSTRAINT public administrador_global_bootstrap_evento administrador_global_bootstrap_evento_pkey postgres
+5827; 2606 24587 CONSTRAINT public administrador_global_bootstrap administrador_global_bootstrap_pkey postgres
+5829; 2606 24589 CONSTRAINT public administrador_global_bootstrap administrador_global_bootstrap_usuario_id_key postgres
+5825; 2606 24567 CONSTRAINT public administrador_global administrador_global_pkey postgres
+5821; 2606 24527 CONSTRAINT public atributo_filtro_publico atributo_filtro_publico_categoria_codigo_perfil_version_ord_key postgres
+5823; 2606 24525 CONSTRAINT public atributo_filtro_publico atributo_filtro_publico_pkey postgres
+5722; 2606 23808 CONSTRAINT public aviso_local_ciclo aviso_local_ciclo_aviso_id_clave_idempotencia_key postgres
+5724; 2606 23806 CONSTRAINT public aviso_local_ciclo aviso_local_ciclo_pkey postgres
+5716; 2606 23782 CONSTRAINT public aviso_local aviso_local_clave_deduplicacion_key postgres
+5719; 2606 23780 CONSTRAINT public aviso_local aviso_local_pkey postgres
+5726; 2606 23837 CONSTRAINT public aviso_local_recuperacion_auditoria aviso_local_recuperacion_audito_aviso_id_clave_idempotencia_key postgres
+5728; 2606 23835 CONSTRAINT public aviso_local_recuperacion_auditoria aviso_local_recuperacion_auditoria_pkey postgres
+5597; 2606 22891 CONSTRAINT public baja_archivo_pendiente_local baja_archivo_pendiente_local_pkey postgres
+5774; 2606 24146 CONSTRAINT public bloqueo_cuenta_administrativo_local bloqueo_cuenta_administrativo_local_pkey postgres
+5777; 2606 24173 CONSTRAINT public bloqueo_cuenta_historial_local bloqueo_cuenta_historial_local_pkey postgres
+5810; 2606 24448 CONSTRAINT public catalogo_ubicacion_publica catalogo_ubicacion_publica_pkey postgres
+5440; 2606 20087 CONSTRAINT public categoria_espacio categoria_espacio_nombre_key postgres
+5442; 2606 20089 CONSTRAINT public categoria_espacio categoria_espacio_orden_key postgres
+5444; 2606 20085 CONSTRAINT public categoria_espacio categoria_espacio_pkey postgres
+5458; 2606 20147 CONSTRAINT public categoria_perfil_atributos categoria_perfil_atributos_pkey postgres
+5816; 2606 24483 CONSTRAINT public comuna_publica comuna_publica_catalogo_version_region_codigo_codigo_key postgres
+5818; 2606 24481 CONSTRAINT public comuna_publica comuna_publica_pkey postgres
+5660; 2606 23345 CONSTRAINT public contrato_ensayo_firma contrato_ensayo_firma_pkey postgres
+5662; 2606 23373 CONSTRAINT public contrato_ensayo_historial contrato_ensayo_historial_contrato_id_secuencia_key postgres
+5665; 2606 23371 CONSTRAINT public contrato_ensayo_historial contrato_ensayo_historial_pkey postgres
+5652; 2606 23317 CONSTRAINT public contrato_ensayo_local contrato_ensayo_local_documento_id_key postgres
+5654; 2606 23313 CONSTRAINT public contrato_ensayo_local contrato_ensayo_local_pkey postgres
+5656; 2606 23315 CONSTRAINT public contrato_ensayo_local contrato_ensayo_local_reserva_id_key postgres
+5658; 2606 23319 CONSTRAINT public contrato_ensayo_local contrato_ensayo_local_reserva_id_version_key postgres
+5484; 2606 21096 CONSTRAINT public cotizacion_reserva_ensayo cotizacion_reserva_ensayo_pkey postgres
+5626; 2606 23137 CONSTRAINT public cuenta_cobro_sintetica_historial_local cuenta_cobro_sintetica_historial_local_pkey postgres
+5623; 2606 23112 CONSTRAINT public cuenta_cobro_sintetica_local cuenta_cobro_sintetica_local_pkey postgres
+5589; 2606 22816 CONSTRAINT public disputa_ensayo_historial disputa_ensayo_historial_pkey postgres
+5583; 2606 22769 CONSTRAINT public disputa_ensayo_local disputa_ensayo_local_anfitrion_id_clave_idempotencia_key postgres
+5585; 2606 22767 CONSTRAINT public disputa_ensayo_local disputa_ensayo_local_pkey postgres
+5650; 2606 23288 CONSTRAINT public documento_privado_sintetico_local documento_privado_sintetico_local_pkey postgres
+5592; 2606 22858 CONSTRAINT public ejecucion_baja_local ejecucion_baja_local_pkey postgres
+5594; 2606 22860 CONSTRAINT public ejecucion_baja_local ejecucion_baja_local_solicitud_id_clave_idempotencia_key postgres
+5614; 2606 23045 CONSTRAINT public elegibilidad_verificacion_local elegibilidad_verificacion_local_pkey postgres
+5616; 2606 23047 CONSTRAINT public elegibilidad_verificacion_local elegibilidad_verificacion_local_verificacion_id_key postgres
+5460; 2606 20167 CONSTRAINT public espacio_caracteristicas espacio_caracteristicas_pkey postgres
+5803; 2606 24395 CONSTRAINT public espacio_eliminacion_historial_local espacio_eliminacion_historial_local_espacio_id_key postgres
+5805; 2606 24393 CONSTRAINT public espacio_eliminacion_historial_local espacio_eliminacion_historial_local_pkey postgres
+5647; 2606 23262 CONSTRAINT public espacio_galeria_archivo_candidato_local espacio_galeria_archivo_candidato_local_pkey postgres
+5638; 2606 24369 CONSTRAINT public espacio_galeria_sintetica_local espacio_galeria_cover_owner_uq postgres
+5641; 2606 23238 CONSTRAINT public espacio_galeria_sintetica_local espacio_galeria_sintetica_loc_espacio_id_propietario_id_cla_key postgres
+5643; 2606 23236 CONSTRAINT public espacio_galeria_sintetica_local espacio_galeria_sintetica_local_archivo_id_key postgres
+5645; 2606 23234 CONSTRAINT public espacio_galeria_sintetica_local espacio_galeria_sintetica_local_pkey postgres
+5521; 2606 22425 CONSTRAINT public espacio_horario_semanal espacio_horario_semanal_pkey postgres
+5523; 2606 22447 CONSTRAINT public espacio_horario_semanal_tramo espacio_horario_semanal_tramo_espacio_id_dia_iso_int4range_excl postgres
+5525; 2606 22445 CONSTRAINT public espacio_horario_semanal_tramo espacio_horario_semanal_tramo_pkey postgres
+5446; 2606 20179 CONSTRAINT public espacio espacio_id_categoria_unique postgres
+5448; 2606 20967 CONSTRAINT public espacio espacio_id_propietario_uk postgres
+5450; 2606 23205 CONSTRAINT public espacio espacio_owner_id_uq postgres
+5452; 2606 20122 CONSTRAINT public espacio espacio_pkey postgres
+5632; 2606 23190 CONSTRAINT public espacio_publicacion_historial_local espacio_publicacion_historial_local_pkey postgres
+5575; 2606 22730 CONSTRAINT public evento_auditoria_local evento_auditoria_local_pkey postgres
+5620; 2606 23088 CONSTRAINT public foto_perfil_sintetica_local foto_perfil_sintetica_local_pkey postgres
+5564; 2606 22673 CONSTRAINT public historial_clave_local historial_clave_local_pkey postgres
+5629; 2606 23164 CONSTRAINT public m02_operacion_idempotente_local m02_operacion_idempotente_local_pkey postgres
+5508; 2606 21278 CONSTRAINT public mensaje_reserva_ensayo mensaje_reserva_ensayo_id_key postgres
+5510; 2606 21276 CONSTRAINT public mensaje_reserva_ensayo mensaje_reserva_ensayo_pkey postgres
+5512; 2606 21280 CONSTRAINT public mensaje_reserva_ensayo mensaje_reserva_ensayo_reserva_id_autor_id_clave_idempotenc_key postgres
+5469; 2606 20964 CONSTRAINT public ocupacion ocupacion_no_solapa_excl g03_restore_owner_1792183986374278314
+5471; 2606 20955 CONSTRAINT public ocupacion ocupacion_pkey g03_restore_owner_1792183986374278314
+5473; 2606 20957 CONSTRAINT public ocupacion ocupacion_reserva_id_uk g03_restore_owner_1792183986374278314
+5678; 2606 23473 CONSTRAINT public operacion_arriendo_archivo_candidato_local operacion_arriendo_archivo_candidato_local_pkey postgres
+5667; 2606 23419 CONSTRAINT public operacion_arriendo_ensayo_local operacion_arriendo_ensayo_loc_reserva_id_tipo_clave_idempot_key postgres
+5669; 2606 23415 CONSTRAINT public operacion_arriendo_ensayo_local operacion_arriendo_ensayo_local_pkey postgres
+5671; 2606 23417 CONSTRAINT public operacion_arriendo_ensayo_local operacion_arriendo_ensayo_local_reserva_id_tipo_key postgres
+5674; 2606 23448 CONSTRAINT public operacion_arriendo_evidencia_ensayo_local operacion_arriendo_evidencia_ensayo_local_pkey postgres
+5681; 2606 23501 CONSTRAINT public operacion_arriendo_historial_ensayo_local operacion_arriendo_historial_ensayo_local_operacion_id_key postgres
+5683; 2606 23499 CONSTRAINT public operacion_arriendo_historial_ensayo_local operacion_arriendo_historial_ensayo_local_pkey postgres
+5604; 2606 22971 CONSTRAINT public outbox_evento_ciclo_local outbox_evento_ciclo_local_evento_id_clave_idempotencia_key postgres
+5606; 2606 22969 CONSTRAINT public outbox_evento_ciclo_local outbox_evento_ciclo_local_pkey postgres
+5567; 2606 22705 CONSTRAINT public outbox_evento_local outbox_evento_local_clave_deduplicacion_key postgres
+5570; 2606 22703 CONSTRAINT public outbox_evento_local outbox_evento_local_pkey postgres
+5428; 2606 19997 CONSTRAINT public perfil_usuario perfil_usuario_pk postgres
+5601; 2606 22936 CONSTRAINT public reaplicacion_baja_local reaplicacion_baja_local_pkey postgres
+5692; 2606 23592 CONSTRAINT public reclamo_dano_descargo_ensayo_local reclamo_dano_descargo_ensayo__reclamo_id_clave_idempotencia_key postgres
+5694; 2606 23588 CONSTRAINT public reclamo_dano_descargo_ensayo_local reclamo_dano_descargo_ensayo_local_pkey postgres
+5696; 2606 23590 CONSTRAINT public reclamo_dano_descargo_ensayo_local reclamo_dano_descargo_ensayo_local_reclamo_id_key postgres
+5686; 2606 23546 CONSTRAINT public reclamo_dano_ensayo_local reclamo_dano_ensayo_local_anfitrion_id_clave_idempotencia_key postgres
+5688; 2606 23542 CONSTRAINT public reclamo_dano_ensayo_local reclamo_dano_ensayo_local_pkey postgres
+5690; 2606 23544 CONSTRAINT public reclamo_dano_ensayo_local reclamo_dano_ensayo_local_reserva_id_key postgres
+5698; 2606 23616 CONSTRAINT public reclamo_dano_historial_ensayo_local reclamo_dano_historial_ensayo_local_pkey postgres
+5733; 2606 23888 CONSTRAINT public reclamo_dano_resolucion_ensayo_local reclamo_dano_resolucion_ensay_administrador_id_clave_idempo_key postgres
+5735; 2606 23886 CONSTRAINT public reclamo_dano_resolucion_ensayo_local reclamo_dano_resolucion_ensayo_local_pkey postgres
+5812; 2606 24463 CONSTRAINT public region_publica region_publica_catalogo_version_codigo_nombre_key postgres
+5814; 2606 24461 CONSTRAINT public region_publica region_publica_pkey postgres
+5708; 2606 23701 CONSTRAINT public reporte_resena_ensayo_local reporte_resena_ensayo_local_pkey postgres
+5710; 2606 23703 CONSTRAINT public reporte_resena_ensayo_local reporte_resena_ensayo_local_resena_id_key postgres
+5714; 2606 23739 CONSTRAINT public reporte_resena_historial_local reporte_resena_historial_local_pkey postgres
+5730; 2606 23865 CONSTRAINT public resena_autoria_marca_local resena_autoria_marca_local_pkey postgres
+5702; 2606 23655 CONSTRAINT public resena_ensayo_local resena_ensayo_local_pkey postgres
+5704; 2606 23657 CONSTRAINT public resena_ensayo_local resena_ensayo_local_reserva_id_autor_id_key postgres
+5527; 2606 22488 CONSTRAINT public reserva_cancelacion_ensayo reserva_cancelacion_ensayo_pkey postgres
+5529; 2606 22492 CONSTRAINT public reserva_cancelacion_ensayo reserva_cancelacion_ensayo_reserva_id_clave_idempotencia_key postgres
+5531; 2606 22490 CONSTRAINT public reserva_cancelacion_ensayo reserva_cancelacion_ensayo_reserva_id_key postgres
+5794; 2606 24291 CONSTRAINT public reserva_comprobante_ensayo_local reserva_comprobante_ensayo_local_liquidacion_id_key postgres
+5796; 2606 24289 CONSTRAINT public reserva_comprobante_ensayo_local reserva_comprobante_ensayo_local_pkey postgres
+5764; 2606 24075 CONSTRAINT public reserva_decision_financiera_ensayo_local reserva_decision_financiera_e_reserva_id_clave_idempotencia_key postgres
+5766; 2606 24073 CONSTRAINT public reserva_decision_financiera_ensayo_local reserva_decision_financiera_ensayo_local_garantia_id_key postgres
+5768; 2606 24071 CONSTRAINT public reserva_decision_financiera_ensayo_local reserva_decision_financiera_ensayo_local_pkey postgres
+5533; 2606 22526 CONSTRAINT public reserva_devolucion_ensayo reserva_devolucion_ensayo_operacion_id_key postgres
+5535; 2606 22522 CONSTRAINT public reserva_devolucion_ensayo reserva_devolucion_ensayo_pkey postgres
+5537; 2606 22524 CONSTRAINT public reserva_devolucion_ensayo reserva_devolucion_ensayo_reserva_id_key postgres
+5539; 2606 22547 CONSTRAINT public reserva_devolucion_intento_ensayo reserva_devolucion_intento_ensayo_devolucion_id_secuencia_key postgres
+5541; 2606 22545 CONSTRAINT public reserva_devolucion_intento_ensayo reserva_devolucion_intento_ensayo_pkey postgres
+5488; 2606 21155 CONSTRAINT public reserva_ensayo_local reserva_ensayo_local_arrendatario_id_clave_idempotencia_key postgres
+5491; 2606 21151 CONSTRAINT public reserva_ensayo_local reserva_ensayo_local_cotizacion_id_key postgres
+5482; 2606 21246 CONSTRAINT public reserva_ensayo_local_fixture reserva_ensayo_local_fixture_pkey postgres
+5493; 2606 21153 CONSTRAINT public reserva_ensayo_local reserva_ensayo_local_ocupacion_id_key postgres
+5495; 2606 21149 CONSTRAINT public reserva_ensayo_local reserva_ensayo_local_pkey postgres
+5519; 2606 22409 CONSTRAINT public reserva_ensayo_local_ubicacion_sintetica reserva_ensayo_local_ubicacion_sintetica_pkey postgres
+5499; 2606 21199 CONSTRAINT public reserva_ensayo_transicion reserva_ensayo_transicion_pkey postgres
+5501; 2606 21242 CONSTRAINT public reserva_ensayo_transicion reserva_ensayo_transicion_reserva_secuencia_uq postgres
+5770; 2606 24117 CONSTRAINT public reserva_finanzas_historial_ensayo_local reserva_finanzas_historial_ensayo_local_pkey postgres
+5772; 2606 24119 CONSTRAINT public reserva_finanzas_historial_ensayo_local reserva_finanzas_historial_ensayo_local_secuencia_key postgres
+5737; 2606 23937 CONSTRAINT public reserva_garantia_ensayo_local reserva_garantia_ensayo_local_pkey postgres
+5739; 2606 23939 CONSTRAINT public reserva_garantia_ensayo_local reserva_garantia_ensayo_local_reserva_id_key postgres
+5761; 2606 24037 CONSTRAINT public reserva_garantia_evento_aplicacion_ensayo_local reserva_garantia_evento_aplicacion_ensayo_local_pkey postgres
+5755; 2606 24019 CONSTRAINT public reserva_garantia_evento_ensayo_local reserva_garantia_evento_ensayo_local_evento_id_key postgres
+5757; 2606 24021 CONSTRAINT public reserva_garantia_evento_ensayo_local reserva_garantia_evento_ensayo_local_operacion_id_evento_id_key postgres
+5759; 2606 24017 CONSTRAINT public reserva_garantia_evento_ensayo_local reserva_garantia_evento_ensayo_local_pkey postgres
+5742; 2606 23973 CONSTRAINT public reserva_garantia_operacion_ensayo_local reserva_garantia_operacion_en_garantia_id_clave_idempotenci_key postgres
+5744; 2606 23971 CONSTRAINT public reserva_garantia_operacion_ensayo_local reserva_garantia_operacion_ensayo_local_garantia_id_tipo_key postgres
+5746; 2606 23969 CONSTRAINT public reserva_garantia_operacion_ensayo_local reserva_garantia_operacion_ensayo_local_pkey postgres
+5749; 2606 23997 CONSTRAINT public reserva_garantia_resultado_fake_ensayo_local reserva_garantia_resultado_fake_ensayo_local_evento_id_key postgres
+5751; 2606 23995 CONSTRAINT public reserva_garantia_resultado_fake_ensayo_local reserva_garantia_resultado_fake_ensayo_local_operacion_id_key postgres
+5753; 2606 23993 CONSTRAINT public reserva_garantia_resultado_fake_ensayo_local reserva_garantia_resultado_fake_ensayo_local_pkey postgres
+5779; 2606 24225 CONSTRAINT public reserva_liquidacion_ensayo_local reserva_liquidacion_ensayo_lo_reserva_id_clave_idempotencia_key postgres
+5781; 2606 24221 CONSTRAINT public reserva_liquidacion_ensayo_local reserva_liquidacion_ensayo_local_pkey postgres
+5783; 2606 24223 CONSTRAINT public reserva_liquidacion_ensayo_local reserva_liquidacion_ensayo_local_reserva_id_key postgres
+5798; 2606 24310 CONSTRAINT public reserva_liquidacion_historial_ensayo_local reserva_liquidacion_historial_ensayo_local_pkey postgres
+5786; 2606 24250 CONSTRAINT public reserva_liquidacion_operacion_ensayo_local reserva_liquidacion_operacion_ensayo_local_liquidacion_id_key postgres
+5788; 2606 24248 CONSTRAINT public reserva_liquidacion_operacion_ensayo_local reserva_liquidacion_operacion_ensayo_local_pkey postgres
+5790; 2606 24270 CONSTRAINT public reserva_liquidacion_resultado_fake_ensayo_local reserva_liquidacion_resultado_fake_ensayo_local_event_id_key postgres
+5792; 2606 24268 CONSTRAINT public reserva_liquidacion_resultado_fake_ensayo_local reserva_liquidacion_resultado_fake_ensayo_local_pkey postgres
+5514; 2606 21301 CONSTRAINT public reserva_mensaje_lectura reserva_mensaje_lectura_pkey postgres
+5546; 2606 22575 CONSTRAINT public reserva_pago_ensayo_operacion reserva_pago_ensayo_operacion_pkey postgres
+5548; 2606 22577 CONSTRAINT public reserva_pago_ensayo_operacion reserva_pago_ensayo_operacion_reserva_id_clave_idempotencia_key postgres
+5503; 2606 21224 CONSTRAINT public reserva_pago_ensayo reserva_pago_ensayo_pkey postgres
+5505; 2606 21226 CONSTRAINT public reserva_pago_ensayo reserva_pago_ensayo_reserva_id_clave_idempotencia_key postgres
+5561; 2606 22651 CONSTRAINT public reserva_pago_evento_aplicacion_ensayo reserva_pago_evento_aplicacion_ensayo_pkey postgres
+5554; 2606 22632 CONSTRAINT public reserva_pago_evento_ensayo reserva_pago_evento_ensayo_operacion_id_proveedor_evento_id_key postgres
+5557; 2606 22628 CONSTRAINT public reserva_pago_evento_ensayo reserva_pago_evento_ensayo_pkey postgres
+5559; 2606 22630 CONSTRAINT public reserva_pago_evento_ensayo reserva_pago_evento_ensayo_proveedor_evento_id_key postgres
+5550; 2606 22604 CONSTRAINT public reserva_pago_fake_resultado_ensayo reserva_pago_fake_resultado_ensayo_pkey postgres
+5552; 2606 22606 CONSTRAINT public reserva_pago_fake_resultado_ensayo reserva_pago_fake_resultado_ensayo_proveedor_evento_id_key postgres
+5599; 2606 22915 CONSTRAINT public reserva_vinculo_purgado_local reserva_vinculo_purgado_local_pkey postgres
+5405; 2606 19871 CONSTRAINT public rol_usuario rol_usuario_pk postgres
+5393; 2606 19836 CONSTRAINT public schema_migrations schema_migrations_name_key postgres
+5395; 2606 19834 CONSTRAINT public schema_migrations schema_migrations_pkey postgres
+5407; 2606 19901 CONSTRAINT public sesion sesion_pk postgres
+5409; 2606 19903 CONSTRAINT public sesion sesion_token_hash_uk postgres
+5479; 2606 21019 CONSTRAINT public simulacion_precio_privada simulacion_precio_privada_pkey postgres
+5430; 2606 20020 CONSTRAINT public solicitud_titular solicitud_titular_pk postgres
+5476; 2606 20986 CONSTRAINT public tarifa_espacio tarifa_espacio_pkey postgres
+5412; 2606 19932 CONSTRAINT public token_accion token_accion_pk postgres
+5414; 2606 19934 CONSTRAINT public token_accion token_accion_token_hash_uk postgres
+5398; 2606 19859 CONSTRAINT public usuario usuario_correo_normalizado_uk postgres
+5402; 2606 19857 CONSTRAINT public usuario usuario_pk postgres
+5801; 2606 24353 CONSTRAINT public verificacion_archivo_retiro_pendiente_local verificacion_archivo_retiro_pendiente_local_pkey postgres
+5466; 2606 20203 CONSTRAINT public verificacion_evidencia_sintetica verificacion_evidencia_sintetica_pk postgres
+5608; 2606 23019 CONSTRAINT public verificacion_historial_local verificacion_historial_event_idempotency_uk postgres
+5610; 2606 23017 CONSTRAINT public verificacion_historial_local verificacion_historial_local_pkey postgres
+5433; 2606 20053 CONSTRAINT public verificacion verificacion_idempotencia_uk postgres
+5435; 2606 20051 CONSTRAINT public verificacion verificacion_pk postgres
+5418; 2606 19957 CONSTRAINT public version_terminos version_terminos_codigo_uk postgres
+5420; 2606 19955 CONSTRAINT public version_terminos version_terminos_pk postgres
+5425; 1259 19984 INDEX public aceptacion_terminos_version_idx postgres
+5830; 1259 24614 INDEX public administrador_global_bootstrap_evento_objetivo_idx postgres
+5717; 1259 23788 INDEX public aviso_local_due_idx postgres
+5720; 1259 23789 INDEX public aviso_local_recipient_idx postgres
+5595; 1259 22897 INDEX public baja_archivo_pendiente_claim_idx postgres
+5775; 1259 24184 INDEX public bloqueo_cuenta_historial_local_idx postgres
+5808; 1259 24449 INDEX public catalogo_ubicacion_publica_activo_idx postgres
+5819; 1259 24489 INDEX public comuna_publica_region_idx postgres
+5663; 1259 23384 INDEX public contrato_ensayo_historial_idx postgres
+5485; 1259 21117 INDEX public cotizacion_reserva_ensayo_titular_idx postgres
+5621; 1259 23118 INDEX public cuenta_cobro_sintetica_activa_owner_uq postgres
+5627; 1259 23148 INDEX public cuenta_cobro_sintetica_historial_owner_idx postgres
+5624; 1259 23119 INDEX public cuenta_cobro_sintetica_owner_date_idx postgres
+5579; 1259 22798 INDEX public disputa_ensayo_abiertas_idx postgres
+5580; 1259 22796 INDEX public disputa_ensayo_anfitrion_idx postgres
+5581; 1259 22797 INDEX public disputa_ensayo_arrendatario_idx postgres
+5587; 1259 22827 INDEX public disputa_ensayo_historial_idx postgres
+5586; 1259 22795 INDEX public disputa_ensayo_una_abierta_por_reserva_uq postgres
+5590; 1259 22876 INDEX public ejecucion_baja_local_pendiente_idx postgres
+5612; 1259 23063 INDEX public elegibilidad_local_active_idx postgres
+5461; 1259 24556 INDEX public espacio_caracteristicas_public_filter_keys_idx postgres
+5462; 1259 24507 INDEX public espacio_caracteristicas_public_values_gin_idx postgres
+5806; 1259 24416 INDEX public espacio_eliminacion_historial_retention_idx postgres
+5807; 1259 24406 INDEX public espacio_eliminacion_owner_order_idx postgres
+5635; 1259 23244 INDEX public espacio_galeria_activa_orden_idx postgres
+5648; 1259 23268 INDEX public espacio_galeria_candidato_cleanup_idx postgres
+5636; 1259 23245 INDEX public espacio_galeria_cleanup_idx postgres
+5639; 1259 24542 INDEX public espacio_galeria_publicada_local_idx postgres
+5453; 1259 20133 INDEX public espacio_propietario_actualizacion_idx postgres
+5454; 1259 24504 INDEX public espacio_public_area_idx postgres
+5455; 1259 24503 INDEX public espacio_public_region_idx postgres
+5456; 1259 24505 INDEX public espacio_public_search_gin_idx postgres
+5633; 1259 23201 INDEX public espacio_publicacion_historial_order_idx postgres
+5634; 1259 24415 INDEX public espacio_publicacion_historial_retention_idx postgres
+5572; 1259 24635 INDEX public evento_auditoria_actor_tiempo_id_idx postgres
+5573; 1259 22741 INDEX public evento_auditoria_idempotente_uq postgres
+5576; 1259 24636 INDEX public evento_auditoria_objetivo_tiempo_id_idx postgres
+5577; 1259 22736 INDEX public evento_auditoria_recurso_idx postgres
+5578; 1259 24634 INDEX public evento_auditoria_tiempo_id_idx postgres
+5617; 1259 23094 INDEX public foto_perfil_sintetica_activa_owner_uq postgres
+5618; 1259 23095 INDEX public foto_perfil_sintetica_cleanup_idx postgres
+5565; 1259 22679 INDEX public historial_clave_usuario_vigente_idx postgres
+5630; 1259 23170 INDEX public m02_operacion_idempotente_retention_idx postgres
+5506; 1259 21291 INDEX public mensaje_reserva_ensayo_hilo_idx postgres
+5467; 1259 20965 INDEX public ocupacion_espacio_activa_idx g03_restore_owner_1792183986374278314
+5679; 1259 23484 INDEX public operacion_arriendo_candidato_cleanup_idx postgres
+5675; 1259 23454 INDEX public operacion_arriendo_evidencia_operacion_idx postgres
+5676; 1259 24366 INDEX public operacion_arriendo_evidencia_retencion_idx postgres
+5684; 1259 23517 INDEX public operacion_arriendo_historial_reserva_idx postgres
+5672; 1259 23430 INDEX public operacion_arriendo_reserva_hist_idx postgres
+5568; 1259 22706 INDEX public outbox_evento_local_pendiente_idx postgres
+5571; 1259 22986 INDEX public outbox_evento_local_terminal_retention_idx postgres
+5426; 1259 24618 INDEX public perfil_usuario_nombre_lower_prefix_idx postgres
+5602; 1259 22942 INDEX public reaplicacion_baja_local_usuario_idx postgres
+5699; 1259 23627 INDEX public reclamo_dano_historial_idx postgres
+5712; 1259 23750 INDEX public reporte_resena_historial_idx postgres
+5711; 1259 23724 INDEX public reporte_resena_retencion_idx postgres
+5700; 1259 23679 INDEX public resena_arrendatario_idx postgres
+5731; 1259 23866 INDEX public resena_autoria_marca_retencion_idx postgres
+5705; 1259 23678 INDEX public resena_espacio_publica_idx postgres
+5706; 1259 23680 INDEX public resena_retirar_idx postgres
+5542; 1259 22553 INDEX public reserva_devolucion_intento_historial_idx postgres
+5486; 1259 21186 INDEX public reserva_ensayo_local_anfitrion_idx postgres
+5489; 1259 21187 INDEX public reserva_ensayo_local_arrendatario_idx postgres
+5480; 1259 21257 INDEX public reserva_ensayo_local_fixture_enabled_idx postgres
+5517; 1259 22415 INDEX public reserva_ensayo_local_ubicacion_gist postgres
+5496; 1259 24424 INDEX public reserva_ensayo_retencion_local_idx postgres
+5497; 1259 21240 INDEX public reserva_ensayo_transicion_historial_idx postgres
+5740; 1259 24130 INDEX public reserva_garantia_estado_idx postgres
+5762; 1259 24132 INDEX public reserva_garantia_evento_pendiente_idx postgres
+5747; 1259 24131 INDEX public reserva_garantia_operacion_pendiente_idx postgres
+5784; 1259 24323 INDEX public reserva_liquidacion_pendiente_idx postgres
+5543; 1259 22589 INDEX public reserva_pago_ensayo_operacion_pendiente_idx postgres
+5544; 1259 22588 INDEX public reserva_pago_ensayo_operacion_pendiente_uq postgres
+5562; 1259 22657 INDEX public reserva_pago_evento_aplicacion_pendiente_idx postgres
+5555; 1259 22638 INDEX public reserva_pago_evento_ensayo_operacion_idx postgres
+5403; 1259 19882 INDEX public rol_usuario_concedido_por_idx postgres
+5410; 1259 19909 INDEX public sesion_usuario_activa_idx postgres
+5477; 1259 21035 INDEX public simulacion_precio_espacio_propietario_idx postgres
+5431; 1259 20026 INDEX public solicitud_titular_usuario_fecha_idx postgres
+5474; 1259 24506 INDEX public tarifa_espacio_latest_idx postgres
+5415; 1259 19941 INDEX public token_accion_usuario_emision_idx postgres
+5416; 1259 19940 INDEX public token_accion_usuario_pendiente_idx postgres
+5396; 1259 24617 INDEX public usuario_correo_normalizado_prefix_idx postgres
+5399; 1259 24616 INDEX public usuario_creado_id_idx postgres
+5400; 1259 24615 INDEX public usuario_estado_creado_id_idx postgres
+5799; 1259 24354 INDEX public verificacion_archivo_retiro_claim_idx postgres
+5463; 1259 24339 INDEX public verificacion_evidencia_archivo_retencion_idx postgres
+5464; 1259 20209 INDEX public verificacion_evidencia_case_idx postgres
+5611; 1259 23030 INDEX public verificacion_historial_order_idx postgres
+5436; 1259 20071 INDEX public verificacion_reintento_unico_idx postgres
+5437; 1259 20070 INDEX public verificacion_revision_idx postgres
+5438; 1259 20069 INDEX public verificacion_usuario_fecha_idx postgres
+6001; 2620 24537 TRIGGER public categoria_espacio categoria_public_search_document_trg postgres
+6018; 2620 24408 TRIGGER public espacio_eliminacion_historial_local espacio_eliminacion_historial_append_only postgres
+6019; 2620 24418 TRIGGER public espacio_eliminacion_historial_local espacio_eliminacion_retention_trg postgres
+6002; 2620 22456 TRIGGER public espacio espacio_modalidad_horario_semanal_guard postgres
+6003; 2620 24535 TRIGGER public espacio espacio_public_search_document_trg postgres
+6011; 2620 23203 TRIGGER public espacio_publicacion_historial_local espacio_publicacion_historial_append_only postgres
+6004; 2620 22454 TRIGGER public espacio espacio_zona_horario_semanal_guard postgres
+6010; 2620 22458 TRIGGER public espacio_horario_semanal horario_semanal_fixture_hora_guard postgres
+6006; 2620 24333 TRIGGER public reserva_ensayo_local local_booking_payment_notice_trg postgres
+6007; 2620 23849 TRIGGER public reserva_ensayo_local local_cancel_notice_trg postgres
+6014; 2620 23845 TRIGGER public operacion_arriendo_ensayo_local local_checkin_notice_trg postgres
+6015; 2620 23847 TRIGGER public reclamo_dano_ensayo_local local_claim_notice_trg postgres
+6012; 2620 24337 TRIGGER public contrato_ensayo_local local_contract_complete_notice_trg postgres
+6013; 2620 24335 TRIGGER public contrato_ensayo_firma local_contract_signature_notice_trg postgres
+6017; 2620 23903 TRIGGER public reclamo_dano_resolucion_ensayo_local local_damage_claim_resolution_notice_trg postgres
+5996; 2620 24329 TRIGGER public usuario local_login_lock_notice_trg postgres
+6016; 2620 23851 TRIGGER public reporte_resena_ensayo_local local_review_report_notice_trg postgres
+5998; 2620 24331 TRIGGER public verificacion local_verification_result_notice_trg postgres
+6008; 2620 24411 TRIGGER public reserva_ensayo_local reserva_cerrada_liquidacion_fake_guard postgres
+6009; 2620 22901 TRIGGER public reserva_ensayo_local reserva_vinculos_retencion_trg postgres
+6005; 2620 22460 TRIGGER public tarifa_espacio tarifa_horario_semanal_guard postgres
+5997; 2620 24639 TRIGGER public usuario usuario_gadm_bootstrap_identity_immutable postgres
+5999; 2620 24356 TRIGGER public verificacion verificacion_evidencia_retencion_trg postgres
+6000; 2620 22878 TRIGGER public verificacion verificacion_retencion_sintetica_trg postgres
+5837; 2606 19974 FK CONSTRAINT public aceptacion_terminos aceptacion_terminos_usuario_fk postgres
+5838; 2606 19979 FK CONSTRAINT public aceptacion_terminos aceptacion_terminos_version_fk postgres
+5995; 2606 24590 FK CONSTRAINT public administrador_global_bootstrap administrador_global_bootstrap_usuario_id_fkey postgres
+5993; 2606 24573 FK CONSTRAINT public administrador_global administrador_global_concedido_por_fkey postgres
+5994; 2606 24568 FK CONSTRAINT public administrador_global administrador_global_usuario_id_fkey postgres
+5992; 2606 24528 FK CONSTRAINT public atributo_filtro_publico atributo_filtro_publico_categoria_codigo_perfil_version_fkey postgres
+5960; 2606 23814 FK CONSTRAINT public aviso_local_ciclo aviso_local_ciclo_actor_reapertura_id_fkey postgres
+5961; 2606 23809 FK CONSTRAINT public aviso_local_ciclo aviso_local_ciclo_aviso_id_fkey postgres
+5959; 2606 23783 FK CONSTRAINT public aviso_local aviso_local_destinatario_id_fkey postgres
+5962; 2606 23838 FK CONSTRAINT public aviso_local_recuperacion_auditoria aviso_local_recuperacion_auditoria_actor_id_fkey postgres
+5906; 2606 22892 FK CONSTRAINT public baja_archivo_pendiente_local baja_archivo_pendiente_local_ejecucion_id_fkey postgres
+5977; 2606 24152 FK CONSTRAINT public bloqueo_cuenta_administrativo_local bloqueo_cuenta_administrativo_local_bloqueada_por_fkey postgres
+5978; 2606 24147 FK CONSTRAINT public bloqueo_cuenta_administrativo_local bloqueo_cuenta_administrativo_local_cuenta_id_fkey postgres
+5979; 2606 24179 FK CONSTRAINT public bloqueo_cuenta_historial_local bloqueo_cuenta_historial_local_actor_id_fkey postgres
+5980; 2606 24174 FK CONSTRAINT public bloqueo_cuenta_historial_local bloqueo_cuenta_historial_local_cuenta_id_fkey postgres
+5850; 2606 20148 FK CONSTRAINT public categoria_perfil_atributos categoria_perfil_atributos_categoria_codigo_fkey postgres
+5991; 2606 24484 FK CONSTRAINT public comuna_publica comuna_publica_catalogo_version_region_codigo_fkey postgres
+5928; 2606 23346 FK CONSTRAINT public contrato_ensayo_firma contrato_ensayo_firma_contrato_id_fkey postgres
+5929; 2606 23351 FK CONSTRAINT public contrato_ensayo_firma contrato_ensayo_firma_firmante_id_fkey postgres
+5930; 2606 23379 FK CONSTRAINT public contrato_ensayo_historial contrato_ensayo_historial_actor_id_fkey postgres
+5931; 2606 23374 FK CONSTRAINT public contrato_ensayo_historial contrato_ensayo_historial_contrato_id_fkey postgres
+5926; 2606 23325 FK CONSTRAINT public contrato_ensayo_local contrato_ensayo_local_documento_id_fkey postgres
+5927; 2606 23320 FK CONSTRAINT public contrato_ensayo_local contrato_ensayo_local_reserva_id_fkey postgres
+5864; 2606 21251 FK CONSTRAINT public cotizacion_reserva_ensayo cotizacion_ensayo_perfil_fk postgres
+5865; 2606 21102 FK CONSTRAINT public cotizacion_reserva_ensayo cotizacion_reserva_ensayo_anfitrion_id_fkey postgres
+5866; 2606 21107 FK CONSTRAINT public cotizacion_reserva_ensayo cotizacion_reserva_ensayo_arrendatario_id_fkey postgres
+5867; 2606 21097 FK CONSTRAINT public cotizacion_reserva_ensayo cotizacion_reserva_ensayo_espacio_id_fkey postgres
+5868; 2606 21112 FK CONSTRAINT public cotizacion_reserva_ensayo cotizacion_reserva_ensayo_espacio_id_tarifa_version_fkey postgres
+5918; 2606 23138 FK CONSTRAINT public cuenta_cobro_sintetica_historial_local cuenta_cobro_sintetica_historial_local_cuenta_id_fkey postgres
+5919; 2606 23143 FK CONSTRAINT public cuenta_cobro_sintetica_historial_local cuenta_cobro_sintetica_historial_local_usuario_id_fkey postgres
+5917; 2606 23113 FK CONSTRAINT public cuenta_cobro_sintetica_local cuenta_cobro_sintetica_local_usuario_id_fkey postgres
+5901; 2606 22822 FK CONSTRAINT public disputa_ensayo_historial disputa_ensayo_historial_actor_id_fkey postgres
+5902; 2606 22817 FK CONSTRAINT public disputa_ensayo_historial disputa_ensayo_historial_disputa_id_fkey postgres
+5896; 2606 22785 FK CONSTRAINT public disputa_ensayo_local disputa_ensayo_local_abierta_por_fkey postgres
+5897; 2606 22775 FK CONSTRAINT public disputa_ensayo_local disputa_ensayo_local_anfitrion_id_fkey postgres
+5898; 2606 22780 FK CONSTRAINT public disputa_ensayo_local disputa_ensayo_local_arrendatario_id_fkey postgres
+5899; 2606 22790 FK CONSTRAINT public disputa_ensayo_local disputa_ensayo_local_cerrada_por_fkey postgres
+5900; 2606 22770 FK CONSTRAINT public disputa_ensayo_local disputa_ensayo_local_reserva_id_fkey postgres
+5925; 2606 23289 FK CONSTRAINT public documento_privado_sintetico_local documento_privado_sintetico_local_reserva_id_fkey postgres
+5903; 2606 22871 FK CONSTRAINT public ejecucion_baja_local ejecucion_baja_local_actor_id_fkey postgres
+5904; 2606 22861 FK CONSTRAINT public ejecucion_baja_local ejecucion_baja_local_solicitud_id_fkey postgres
+5905; 2606 22866 FK CONSTRAINT public ejecucion_baja_local ejecucion_baja_local_usuario_id_fkey postgres
+5913; 2606 23058 FK CONSTRAINT public elegibilidad_verificacion_local elegibilidad_verificacion_local_revocada_por_fkey postgres
+5914; 2606 23048 FK CONSTRAINT public elegibilidad_verificacion_local elegibilidad_verificacion_local_usuario_id_fkey postgres
+5915; 2606 23053 FK CONSTRAINT public elegibilidad_verificacion_local elegibilidad_verificacion_local_verificacion_id_fkey postgres
+5851; 2606 20173 FK CONSTRAINT public espacio_caracteristicas espacio_caracteristicas_categoria_codigo_perfil_version_fkey postgres
+5852; 2606 20180 FK CONSTRAINT public espacio_caracteristicas espacio_caracteristicas_category_fk postgres
+5853; 2606 20168 FK CONSTRAINT public espacio_caracteristicas espacio_caracteristicas_espacio_id_fkey postgres
+5845; 2606 20128 FK CONSTRAINT public espacio espacio_categoria_codigo_fkey postgres
+5988; 2606 24401 FK CONSTRAINT public espacio_eliminacion_historial_local espacio_eliminacion_historial_local_actor_id_fkey postgres
+5989; 2606 24396 FK CONSTRAINT public espacio_eliminacion_historial_local espacio_eliminacion_historial_local_espacio_id_fkey postgres
+5924; 2606 23263 FK CONSTRAINT public espacio_galeria_archivo_candidato_local espacio_galeria_candidato_owner_fk postgres
+5923; 2606 23239 FK CONSTRAINT public espacio_galeria_sintetica_local espacio_galeria_sintetica_owner_fk postgres
+5882; 2606 22426 FK CONSTRAINT public espacio_horario_semanal espacio_horario_semanal_espacio_id_fkey postgres
+5883; 2606 22448 FK CONSTRAINT public espacio_horario_semanal_tramo espacio_horario_semanal_tramo_espacio_id_fkey postgres
+5846; 2606 24370 FK CONSTRAINT public espacio espacio_portada_galeria_fk postgres
+5847; 2606 20123 FK CONSTRAINT public espacio espacio_propietario_id_fkey postgres
+5848; 2606 24498 FK CONSTRAINT public espacio espacio_public_commune_fk postgres
+5849; 2606 24493 FK CONSTRAINT public espacio espacio_public_region_fk postgres
+5921; 2606 23196 FK CONSTRAINT public espacio_publicacion_historial_local espacio_publicacion_historial_local_actor_id_fkey postgres
+5922; 2606 23191 FK CONSTRAINT public espacio_publicacion_historial_local espacio_publicacion_historial_local_espacio_id_fkey postgres
+5894; 2606 22731 FK CONSTRAINT public evento_auditoria_local evento_auditoria_local_actor_id_fkey postgres
+5895; 2606 24621 FK CONSTRAINT public evento_auditoria_local evento_auditoria_local_cuenta_objetivo_id_fkey postgres
+5916; 2606 23089 FK CONSTRAINT public foto_perfil_sintetica_local foto_perfil_sintetica_local_usuario_id_fkey postgres
+5893; 2606 22674 FK CONSTRAINT public historial_clave_local historial_clave_local_usuario_id_fkey postgres
+5920; 2606 23165 FK CONSTRAINT public m02_operacion_idempotente_local m02_operacion_idempotente_local_usuario_id_fkey postgres
+5877; 2606 21286 FK CONSTRAINT public mensaje_reserva_ensayo mensaje_reserva_ensayo_autor_id_fkey postgres
+5878; 2606 21281 FK CONSTRAINT public mensaje_reserva_ensayo mensaje_reserva_ensayo_reserva_id_fkey postgres
+5855; 2606 20958 FK CONSTRAINT public ocupacion ocupacion_espacio_id_fkey g03_restore_owner_1792183986374278314
+5856; 2606 21176 FK CONSTRAINT public ocupacion ocupacion_reserva_ensayo_fk g03_restore_owner_1792183986374278314
+5935; 2606 23479 FK CONSTRAINT public operacion_arriendo_archivo_candidato_local operacion_arriendo_archivo_candidato_local_actor_id_fkey postgres
+5936; 2606 23474 FK CONSTRAINT public operacion_arriendo_archivo_candidato_local operacion_arriendo_archivo_candidato_local_reserva_id_fkey postgres
+5932; 2606 23425 FK CONSTRAINT public operacion_arriendo_ensayo_local operacion_arriendo_ensayo_local_actor_id_fkey postgres
+5933; 2606 23420 FK CONSTRAINT public operacion_arriendo_ensayo_local operacion_arriendo_ensayo_local_reserva_id_fkey postgres
+5934; 2606 23449 FK CONSTRAINT public operacion_arriendo_evidencia_ensayo_local operacion_arriendo_evidencia_ensayo_local_operacion_id_fkey postgres
+5937; 2606 23512 FK CONSTRAINT public operacion_arriendo_historial_ensayo_local operacion_arriendo_historial_ensayo_local_actor_id_fkey postgres
+5938; 2606 23507 FK CONSTRAINT public operacion_arriendo_historial_ensayo_local operacion_arriendo_historial_ensayo_local_operacion_id_fkey postgres
+5939; 2606 23502 FK CONSTRAINT public operacion_arriendo_historial_ensayo_local operacion_arriendo_historial_ensayo_local_reserva_id_fkey postgres
+5909; 2606 22977 FK CONSTRAINT public outbox_evento_ciclo_local outbox_evento_ciclo_local_actor_reapertura_id_fkey postgres
+5910; 2606 22972 FK CONSTRAINT public outbox_evento_ciclo_local outbox_evento_ciclo_local_evento_id_fkey postgres
+5839; 2606 19998 FK CONSTRAINT public perfil_usuario perfil_usuario_usuario_fk postgres
+5908; 2606 22937 FK CONSTRAINT public reaplicacion_baja_local reaplicacion_baja_local_usuario_id_fkey postgres
+5945; 2606 23598 FK CONSTRAINT public reclamo_dano_descargo_ensayo_local reclamo_dano_descargo_ensayo_local_actor_id_fkey postgres
+5946; 2606 23593 FK CONSTRAINT public reclamo_dano_descargo_ensayo_local reclamo_dano_descargo_ensayo_local_reclamo_id_fkey postgres
+5940; 2606 23552 FK CONSTRAINT public reclamo_dano_ensayo_local reclamo_dano_ensayo_local_anfitrion_id_fkey postgres
+5941; 2606 23557 FK CONSTRAINT public reclamo_dano_ensayo_local reclamo_dano_ensayo_local_arrendatario_id_fkey postgres
+5942; 2606 23567 FK CONSTRAINT public reclamo_dano_ensayo_local reclamo_dano_ensayo_local_checkout_evidencia_id_fkey postgres
+5943; 2606 23562 FK CONSTRAINT public reclamo_dano_ensayo_local reclamo_dano_ensayo_local_checkout_operacion_id_fkey postgres
+5944; 2606 23547 FK CONSTRAINT public reclamo_dano_ensayo_local reclamo_dano_ensayo_local_reserva_id_fkey postgres
+5947; 2606 23622 FK CONSTRAINT public reclamo_dano_historial_ensayo_local reclamo_dano_historial_ensayo_local_actor_id_fkey postgres
+5948; 2606 23617 FK CONSTRAINT public reclamo_dano_historial_ensayo_local reclamo_dano_historial_ensayo_local_reclamo_id_fkey postgres
+5963; 2606 23894 FK CONSTRAINT public reclamo_dano_resolucion_ensayo_local reclamo_dano_resolucion_ensayo_local_administrador_id_fkey postgres
+5964; 2606 23889 FK CONSTRAINT public reclamo_dano_resolucion_ensayo_local reclamo_dano_resolucion_ensayo_local_reclamo_id_fkey postgres
+5990; 2606 24464 FK CONSTRAINT public region_publica region_publica_catalogo_version_fkey postgres
+5953; 2606 23714 FK CONSTRAINT public reporte_resena_ensayo_local reporte_resena_ensayo_local_anfitrion_id_fkey postgres
+5954; 2606 23709 FK CONSTRAINT public reporte_resena_ensayo_local reporte_resena_ensayo_local_espacio_id_fkey postgres
+5955; 2606 23704 FK CONSTRAINT public reporte_resena_ensayo_local reporte_resena_ensayo_local_resena_id_fkey postgres
+5956; 2606 23719 FK CONSTRAINT public reporte_resena_ensayo_local reporte_resena_ensayo_local_resuelta_por_fkey postgres
+5957; 2606 23745 FK CONSTRAINT public reporte_resena_historial_local reporte_resena_historial_local_actor_id_fkey postgres
+5958; 2606 23740 FK CONSTRAINT public reporte_resena_historial_local reporte_resena_historial_local_reporte_id_fkey postgres
+5949; 2606 23668 FK CONSTRAINT public resena_ensayo_local resena_ensayo_local_autor_id_fkey postgres
+5950; 2606 23673 FK CONSTRAINT public resena_ensayo_local resena_ensayo_local_destinatario_id_fkey postgres
+5951; 2606 23663 FK CONSTRAINT public resena_ensayo_local resena_ensayo_local_espacio_id_fkey postgres
+5952; 2606 23658 FK CONSTRAINT public resena_ensayo_local resena_ensayo_local_reserva_id_fkey postgres
+5884; 2606 22498 FK CONSTRAINT public reserva_cancelacion_ensayo reserva_cancelacion_ensayo_arrendatario_id_fkey postgres
+5885; 2606 22493 FK CONSTRAINT public reserva_cancelacion_ensayo reserva_cancelacion_ensayo_reserva_id_fkey postgres
+5985; 2606 24292 FK CONSTRAINT public reserva_comprobante_ensayo_local reserva_comprobante_ensayo_local_liquidacion_id_fkey postgres
+5970; 2606 24096 FK CONSTRAINT public reserva_decision_financiera_ensayo_local reserva_decision_financiera_ensayo_local_administrador_id_fkey postgres
+5971; 2606 24091 FK CONSTRAINT public reserva_decision_financiera_ensayo_local reserva_decision_financiera_ensayo_local_evidencia_id_fkey postgres
+5972; 2606 24076 FK CONSTRAINT public reserva_decision_financiera_ensayo_local reserva_decision_financiera_ensayo_local_garantia_id_fkey postgres
+5973; 2606 24086 FK CONSTRAINT public reserva_decision_financiera_ensayo_local reserva_decision_financiera_ensayo_local_reclamo_id_fkey postgres
+5974; 2606 24081 FK CONSTRAINT public reserva_decision_financiera_ensayo_local reserva_decision_financiera_ensayo_local_reserva_id_fkey postgres
+5886; 2606 22527 FK CONSTRAINT public reserva_devolucion_ensayo reserva_devolucion_ensayo_reserva_id_fkey postgres
+5887; 2606 22548 FK CONSTRAINT public reserva_devolucion_intento_ensayo reserva_devolucion_intento_ensayo_devolucion_id_fkey postgres
+5869; 2606 21166 FK CONSTRAINT public reserva_ensayo_local reserva_ensayo_local_anfitrion_id_fkey postgres
+5870; 2606 21171 FK CONSTRAINT public reserva_ensayo_local reserva_ensayo_local_arrendatario_id_fkey postgres
+5871; 2606 21156 FK CONSTRAINT public reserva_ensayo_local reserva_ensayo_local_cotizacion_id_fkey postgres
+5872; 2606 21161 FK CONSTRAINT public reserva_ensayo_local reserva_ensayo_local_espacio_id_fkey postgres
+5861; 2606 21057 FK CONSTRAINT public reserva_ensayo_local_fixture reserva_ensayo_local_fixture_anfitrion_id_fkey postgres
+5862; 2606 21062 FK CONSTRAINT public reserva_ensayo_local_fixture reserva_ensayo_local_fixture_arrendatario_id_fkey postgres
+5863; 2606 21052 FK CONSTRAINT public reserva_ensayo_local_fixture reserva_ensayo_local_fixture_espacio_id_fkey postgres
+5881; 2606 22410 FK CONSTRAINT public reserva_ensayo_local_ubicacion_sintetica reserva_ensayo_local_ubicacion_sintetica_espacio_id_fkey postgres
+5873; 2606 21181 FK CONSTRAINT public reserva_ensayo_local reserva_ensayo_ocupacion_fk postgres
+5874; 2606 21205 FK CONSTRAINT public reserva_ensayo_transicion reserva_ensayo_transicion_actor_id_fkey postgres
+5875; 2606 21200 FK CONSTRAINT public reserva_ensayo_transicion reserva_ensayo_transicion_reserva_id_fkey postgres
+5975; 2606 24125 FK CONSTRAINT public reserva_finanzas_historial_ensayo_local reserva_finanzas_historial_ensayo_local_actor_id_fkey postgres
+5976; 2606 24120 FK CONSTRAINT public reserva_finanzas_historial_ensayo_local reserva_finanzas_historial_ensayo_local_reserva_id_fkey postgres
+5965; 2606 23940 FK CONSTRAINT public reserva_garantia_ensayo_local reserva_garantia_ensayo_local_reserva_id_fkey postgres
+5969; 2606 24038 FK CONSTRAINT public reserva_garantia_evento_aplicacion_ensayo_local reserva_garantia_evento_aplicacion_ensayo_local_evento_id_fkey postgres
+5968; 2606 24022 FK CONSTRAINT public reserva_garantia_evento_ensayo_local reserva_garantia_evento_ensayo_local_operacion_id_fkey postgres
+5966; 2606 23974 FK CONSTRAINT public reserva_garantia_operacion_ensayo_local reserva_garantia_operacion_ensayo_local_garantia_id_fkey postgres
+5967; 2606 23998 FK CONSTRAINT public reserva_garantia_resultado_fake_ensayo_local reserva_garantia_resultado_fake_ensayo_local_operacion_id_fkey postgres
+5981; 2606 24231 FK CONSTRAINT public reserva_liquidacion_ensayo_local reserva_liquidacion_ensayo_local_anfitrion_id_fkey postgres
+5982; 2606 24226 FK CONSTRAINT public reserva_liquidacion_ensayo_local reserva_liquidacion_ensayo_local_reserva_id_fkey postgres
+5986; 2606 24316 FK CONSTRAINT public reserva_liquidacion_historial_ensayo_local reserva_liquidacion_historial_ensayo_local_actor_id_fkey postgres
+5987; 2606 24311 FK CONSTRAINT public reserva_liquidacion_historial_ensayo_local reserva_liquidacion_historial_ensayo_local_liquidacion_id_fkey postgres
+5983; 2606 24251 FK CONSTRAINT public reserva_liquidacion_operacion_ensayo_local reserva_liquidacion_operacion_ensayo_local_liquidacion_id_fkey postgres
+5984; 2606 24271 FK CONSTRAINT public reserva_liquidacion_resultado_fake_ensayo_local reserva_liquidacion_resultado_fake_ensayo_loc_operacion_id_fkey postgres
+5879; 2606 21307 FK CONSTRAINT public reserva_mensaje_lectura reserva_mensaje_lectura_participante_id_fkey postgres
+5880; 2606 21302 FK CONSTRAINT public reserva_mensaje_lectura reserva_mensaje_lectura_reserva_id_fkey postgres
+5888; 2606 22583 FK CONSTRAINT public reserva_pago_ensayo_operacion reserva_pago_ensayo_operacion_arrendatario_id_fkey postgres
+5889; 2606 22578 FK CONSTRAINT public reserva_pago_ensayo_operacion reserva_pago_ensayo_operacion_reserva_id_fkey postgres
+5876; 2606 21227 FK CONSTRAINT public reserva_pago_ensayo reserva_pago_ensayo_reserva_id_fkey postgres
+5892; 2606 22652 FK CONSTRAINT public reserva_pago_evento_aplicacion_ensayo reserva_pago_evento_aplicacion_ensayo_evento_id_fkey postgres
+5891; 2606 22633 FK CONSTRAINT public reserva_pago_evento_ensayo reserva_pago_evento_ensayo_operacion_id_fkey postgres
+5890; 2606 22607 FK CONSTRAINT public reserva_pago_fake_resultado_ensayo reserva_pago_fake_resultado_ensayo_operacion_id_fkey postgres
+5907; 2606 22916 FK CONSTRAINT public reserva_vinculo_purgado_local reserva_vinculo_purgado_local_reserva_id_fkey postgres
+5833; 2606 19877 FK CONSTRAINT public rol_usuario rol_usuario_concedido_por_fk postgres
+5834; 2606 19872 FK CONSTRAINT public rol_usuario rol_usuario_usuario_fk postgres
+5835; 2606 19904 FK CONSTRAINT public sesion sesion_usuario_fk postgres
+5858; 2606 21030 FK CONSTRAINT public simulacion_precio_privada simulacion_precio_espacio_propietario_fk postgres
+5859; 2606 21020 FK CONSTRAINT public simulacion_precio_privada simulacion_precio_privada_propietario_id_fkey postgres
+5860; 2606 21025 FK CONSTRAINT public simulacion_precio_privada simulacion_precio_tarifa_fk postgres
+5840; 2606 20021 FK CONSTRAINT public solicitud_titular solicitud_titular_usuario_fk postgres
+5857; 2606 20987 FK CONSTRAINT public tarifa_espacio tarifa_espacio_espacio_id_fkey postgres
+5836; 2606 19935 FK CONSTRAINT public token_accion token_accion_usuario_fk postgres
+5854; 2606 20204 FK CONSTRAINT public verificacion_evidencia_sintetica verificacion_evidencia_verificacion_fk postgres
+5911; 2606 23025 FK CONSTRAINT public verificacion_historial_local verificacion_historial_local_actor_id_fkey postgres
+5912; 2606 23020 FK CONSTRAINT public verificacion_historial_local verificacion_historial_local_verificacion_id_fkey postgres
+5841; 2606 20059 FK CONSTRAINT public verificacion verificacion_reintento_fk postgres
+5842; 2606 20064 FK CONSTRAINT public verificacion verificacion_revisor_fk postgres
+5843; 2606 22989 FK CONSTRAINT public verificacion verificacion_revocada_por_fkey postgres
+5844; 2606 20054 FK CONSTRAINT public verificacion verificacion_usuario_fk postgres
