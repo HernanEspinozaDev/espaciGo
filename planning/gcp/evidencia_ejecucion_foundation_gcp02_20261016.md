@@ -32,3 +32,7 @@ Además de los 11 APIs planeados que estaban deshabilitados, el proyecto habilit
 ## Alcance pendiente
 
 El toggle de base de datos, servicios y edge permaneció deshabilitado. No se crearon Cloud SQL, Cloud Run, balanceador, Cloud Armor, DNS ni versiones secretas; tampoco se importaron usuarios, espacios, reservas o archivos de la aplicación. GCP-02 sigue incompleto hasta que se revisen y autoricen esos cortes y se verifiquen sus gates, costos y datos de prueba por separado.
+
+## Aclaración de agentes de servicio observados
+
+En la inspección posterior usada para preparar GCP-03 se observaron seis roles de agentes de servicio gestionados por Google, asociados a Artifact Registry, Compute, Compute Instance Group Manager, Container Registry, Pub/Sub y Cloud Run. Son bindings creados por Google al habilitar APIs y no forman parte de las 14 vinculaciones IAM explícitas del plan de Foundation ni de su manifiesto. Se preservan; no se revocaron ni se intentó “limpiar” la política del proyecto.

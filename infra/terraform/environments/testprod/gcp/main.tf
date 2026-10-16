@@ -26,6 +26,11 @@ provider "google-beta" {
 }
 
 locals {
+  runtime_secret_ids = var.enable_foundation ? setunion(
+    toset(["database-password", "contract-encryption-key", "payment-webhook-secret"]),
+    var.enable_database ? toset(["database-migrator-password"]) : toset([]),
+  ) : toset([])
+  migrator_database_secret_id = var.enable_database ? "database-migrator-password" : "database-password"
   project_enabled_apis = toset([
     "artifactregistry.googleapis.com",
     "cloudresourcemanager.googleapis.com",
@@ -222,7 +227,7 @@ resource "google_storage_bucket_iam_member" "api_files" {
 }
 
 resource "google_secret_manager_secret" "runtime" {
-  for_each  = var.enable_foundation ? toset(["database-password", "contract-encryption-key", "payment-webhook-secret"]) : toset([])
+  for_each  = local.runtime_secret_ids
   project   = var.project_id
   secret_id = "espacigo-test-${each.key}"
   replication {
@@ -246,7 +251,7 @@ resource "google_secret_manager_secret_iam_member" "api_secret_access" {
 resource "google_secret_manager_secret_iam_member" "migrator_db_access" {
   count     = var.enable_foundation ? 1 : 0
   project   = var.project_id
-  secret_id = google_secret_manager_secret.runtime["database-password"].secret_id
+  secret_id = google_secret_manager_secret.runtime[local.migrator_database_secret_id].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.runtime["migrator"].email}"
 
