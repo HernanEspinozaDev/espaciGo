@@ -211,6 +211,17 @@ func invalidSecretVersionResult(parent, kind, name string) (CredentialResult, er
 	return result, fmt.Errorf("Secret Manager returned an invalid %s version resource outside the exact scratch namespace; reconcile before retrying", kind)
 }
 
+func withSafeCloudAPIDiagnostic(message string, err error) error {
+	type safeDiagnostic interface{ SafeDiagnostic() string }
+	var diagnostic safeDiagnostic
+	if errors.As(err, &diagnostic) {
+		if safe := diagnostic.SafeDiagnostic(); safe != "" {
+			return fmt.Errorf("%s (%s)", message, safe)
+		}
+	}
+	return errors.New(message)
+}
+
 // ReconcileCreatorMemberships removes only non-system role memberships added
 // while the temporary migrator created the two fixed NOLOGIN group roles. The
 // built-in Cloud SQL role is deliberately preserved for V1-V61.
@@ -252,7 +263,7 @@ func (p CredentialProvisioner) CreateDatabaseOwnerCredential(ctx context.Context
 		if strings.TrimSpace(version) != "" {
 			return invalidSecretVersionResult(DatabaseOwnerSecretResource, "database-owner", strings.TrimSpace(version))
 		}
-		return CredentialResult{Reconcile: true}, errors.New("database-owner secret version outcome is uncertain; enumerate versions before retrying")
+		return CredentialResult{Reconcile: true}, withSafeCloudAPIDiagnostic("database-owner secret version outcome is uncertain; enumerate versions before retrying", err)
 	}
 	version = strings.TrimSpace(version)
 	normalized, ok := NormalizeSecretVersionName(DatabaseOwnerSecretResource, version)
@@ -264,11 +275,11 @@ func (p CredentialProvisioner) CreateDatabaseOwnerCredential(ctx context.Context
 	if err != nil {
 		if isDefinitiveCreateFailure(err) {
 			if cleanupErr := p.Secrets.DestroyVersion(ctx, version); cleanupErr != nil {
-				return CredentialResult{SecretVersion: version, Reconcile: true}, errors.New("Cloud SQL rejected the owner password and secret cleanup needs reconciliation")
+				return CredentialResult{SecretVersion: version, Reconcile: true}, withSafeCloudAPIDiagnostic("Cloud SQL rejected the owner password and secret cleanup needs reconciliation", err)
 			}
-			return CredentialResult{}, errors.New("Cloud SQL rejected the owner password; the new secret version was destroyed")
+			return CredentialResult{}, withSafeCloudAPIDiagnostic("Cloud SQL rejected the owner password; the new secret version was destroyed", err)
 		}
-		return CredentialResult{SecretVersion: version, Reconcile: true}, errors.New("database-owner password update outcome is uncertain; retain the version and reconcile")
+		return CredentialResult{SecretVersion: version, Reconcile: true}, withSafeCloudAPIDiagnostic("database-owner password update outcome is uncertain; retain the version and reconcile", err)
 	}
 	if strings.TrimSpace(operation) == "" {
 		return CredentialResult{SecretVersion: version, Reconcile: true}, errors.New("Cloud SQL returned no owner-password operation ID; retain the version and reconcile")
@@ -362,7 +373,7 @@ func (p CredentialProvisioner) Provision(ctx context.Context, apply bool, confir
 		if strings.TrimSpace(version) != "" {
 			return invalidSecretVersionResult(ScratchSecretResource, "scratch", strings.TrimSpace(version))
 		}
-		return CredentialResult{Reconcile: true}, errors.New("Secret Manager version creation outcome is uncertain; enumerate versions before retrying")
+		return CredentialResult{Reconcile: true}, withSafeCloudAPIDiagnostic("Secret Manager version creation outcome is uncertain; enumerate versions before retrying", err)
 	}
 	version = strings.TrimSpace(version)
 	normalized, ok := NormalizeSecretVersionName(ScratchSecretResource, version)
@@ -374,11 +385,11 @@ func (p CredentialProvisioner) Provision(ctx context.Context, apply bool, confir
 	if err != nil {
 		if isDefinitiveCreateFailure(err) {
 			if destroyErr := p.Secrets.DestroyVersion(ctx, version); destroyErr != nil {
-				return CredentialResult{SecretVersion: version, Reconcile: true}, errors.New("Cloud SQL rejected user creation and secret cleanup needs reconciliation")
+				return CredentialResult{SecretVersion: version, Reconcile: true}, withSafeCloudAPIDiagnostic("Cloud SQL rejected user creation and secret cleanup needs reconciliation", err)
 			}
-			return CredentialResult{}, errors.New("Cloud SQL rejected scratch login creation; the new secret version was destroyed")
+			return CredentialResult{}, withSafeCloudAPIDiagnostic("Cloud SQL rejected scratch login creation; the new secret version was destroyed", err)
 		}
-		return CredentialResult{SecretVersion: version, Reconcile: true}, errors.New("Cloud SQL user creation outcome is uncertain; keep the secret version and reconcile before retrying")
+		return CredentialResult{SecretVersion: version, Reconcile: true}, withSafeCloudAPIDiagnostic("Cloud SQL user creation outcome is uncertain; keep the secret version and reconcile before retrying", err)
 	}
 	if strings.TrimSpace(operation) == "" {
 		return CredentialResult{SecretVersion: version, Reconcile: true}, errors.New("Cloud SQL returned no operation ID; keep the secret version and reconcile")

@@ -102,6 +102,16 @@ type definitiveFailure struct{ text string }
 func (e definitiveFailure) Error() string  { return e.text }
 func (definitiveFailure) Definitive() bool { return true }
 
+type safeDiagnosticFailure struct {
+	privateMessage string
+	diagnostic     string
+	definitive     bool
+}
+
+func (e safeDiagnosticFailure) Error() string          { return e.privateMessage }
+func (e safeDiagnosticFailure) SafeDiagnostic() string { return e.diagnostic }
+func (e safeDiagnosticFailure) Definitive() bool       { return e.definitive }
+
 func successfulProvisioner() (*CredentialProvisioner, *fakeSecretVersions, *fakeSQLUsers) {
 	secret := &fakeSecretVersions{name: ScratchSecretResource + "/versions/1"}
 	user := &fakeSQLUsers{operation: "op-1", done: true}
@@ -214,6 +224,25 @@ func TestCredentialProvisionerDestroysSecretOnlyOnDefinitiveSQLRejection(t *test
 	}
 	if strings.Contains(err.Error(), "private-password") {
 		t.Fatal("password leaked through API error")
+	}
+}
+
+func TestCredentialProvisionerPropagatesOnlySafeAPIDiagnosticOnDefinitiveRejection(t *testing.T) {
+	provisioner, secret, user := successfulProvisioner()
+	user.createErr = safeDiagnosticFailure{
+		privateMessage: "response contains private password and headers",
+		diagnostic:     "service=sqladmin.googleapis.com method=users.insert http_status=400 reason=INVALID_ARGUMENT",
+		definitive:     true,
+	}
+	result, err := provisioner.Provision(context.Background(), true, CredentialConfirmation)
+	if err == nil || result.Reconcile || !strings.Contains(err.Error(), "http_status=400 reason=INVALID_ARGUMENT") || !strings.Contains(err.Error(), "version was destroyed") {
+		t.Fatalf("safe diagnostic or definitive cleanup missing: result=%#v err=%v", result, err)
+	}
+	if strings.Contains(err.Error(), "private password") || strings.Contains(err.Error(), "headers") {
+		t.Fatal("private API error details were exposed")
+	}
+	if len(secret.destroyed) != 1 || secret.destroyed[0] != secret.name {
+		t.Fatalf("definitive rejection did not preserve existing exact cleanup behavior: %v", secret.destroyed)
 	}
 }
 
