@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -24,6 +25,23 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Hour)
 	defer cancel()
+	if config.Phase == gcp03scratch.PhaseObserve {
+		report, err := gcp03scratch.ObserveScratch(ctx, config, password)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "GCP-03 fixed compatibility observer failed")
+			os.Exit(1)
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+			fmt.Fprintln(os.Stderr, "GCP-03 fixed compatibility observer report could not be encoded")
+			os.Exit(1)
+		}
+		if !report.Passed() {
+			fmt.Fprintln(os.Stderr, "GCP-03 fixed compatibility observer found failed checks")
+			os.Exit(1)
+		}
+		fmt.Fprintln(os.Stdout, "GCP-03 scratch phase observe completed")
+		return
+	}
 	if gcp03scratch.IsRoleCommentProbePhase(config.Phase) {
 		result, probeErr := gcp03scratch.RunRoleCommentProbe(ctx, config, password)
 		outcome := result.CommentOutcome

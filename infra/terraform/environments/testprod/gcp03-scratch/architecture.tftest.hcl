@@ -241,6 +241,128 @@ run "sequential_jobs_plan_retains_applied_replay_iam" {
   }
 }
 
+run "replay_job_cleanup_seed" {
+  command   = apply
+  state_key = "replay-job-cleanup"
+
+  variables {
+    project_id                            = "espacigo-testprod"
+    region                                = "southamerica-west1"
+    run_id                                = "pilot01"
+    enable_scratch                        = true
+    enable_job                            = true
+    confirm_project_inventory             = true
+    confirm_image_pushed                  = true
+    confirm_scratch_secret_version        = true
+    confirm_database_owner_secret_version = true
+    migrator_secret_version               = "4"
+    database_owner_secret_version         = "1"
+    migrator_image                        = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    operator_member                       = "user:operator@example.invalid"
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.migrator) == 5 &&
+      alltrue([for job in values(google_cloud_run_v2_job.migrator) : job.deletion_protection])
+    )
+    error_message = "Replay Jobs must start protected before their independent cleanup gate is used."
+  }
+}
+
+run "replay_job_cleanup_stage1_keeps_scratch_protected" {
+  command   = apply
+  state_key = "replay-job-cleanup"
+
+  variables {
+    project_id                            = "espacigo-testprod"
+    region                                = "southamerica-west1"
+    run_id                                = "pilot01"
+    enable_scratch                        = true
+    enable_job                            = true
+    confirm_project_inventory             = true
+    confirm_image_pushed                  = true
+    confirm_scratch_secret_version        = true
+    confirm_database_owner_secret_version = true
+    migrator_secret_version               = "4"
+    database_owner_secret_version         = "1"
+    migrator_image                        = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    allow_replay_job_destroy              = true
+    confirm_replay_job_destroy_run_id     = "pilot01"
+    allow_scratch_destroy                 = false
+    operator_member                       = "user:operator@example.invalid"
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.migrator) == 5 &&
+      alltrue([for job in values(google_cloud_run_v2_job.migrator) : !job.deletion_protection]) &&
+      google_sql_database_instance.scratch[0].deletion_protection &&
+      google_sql_database_instance.scratch[0].settings[0].deletion_protection_enabled &&
+      google_secret_manager_secret.scratch_password[0].deletion_protection &&
+      google_secret_manager_secret.scratch_database_owner_password[0].deletion_protection &&
+      !var.allow_scratch_destroy
+    )
+    error_message = "Replay Job stage 1 may lower protection only on those Jobs; SQL and secret metadata remain protected."
+  }
+}
+
+run "replay_job_cleanup_stage2_destroys_only_jobs" {
+  command   = plan
+  state_key = "replay-job-cleanup"
+
+  variables {
+    project_id                            = "espacigo-testprod"
+    region                                = "southamerica-west1"
+    run_id                                = "pilot01"
+    enable_scratch                        = true
+    enable_job                            = false
+    confirm_project_inventory             = true
+    confirm_image_pushed                  = true
+    confirm_scratch_secret_version        = true
+    confirm_database_owner_secret_version = true
+    migrator_secret_version               = "4"
+    database_owner_secret_version         = "1"
+    migrator_image                        = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    allow_replay_job_destroy              = true
+    confirm_replay_job_destroy_run_id     = "pilot01"
+    allow_scratch_destroy                 = false
+    operator_member                       = "user:operator@example.invalid"
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.migrator) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.invoke_operator) == 0 &&
+      length(google_service_account_iam_member.operator_act_as) == 0 &&
+      length(google_service_account_iam_member.operator_act_as_database_acl) == 0 &&
+      length(google_sql_database_instance.scratch) == 1 &&
+      google_sql_database_instance.scratch[0].deletion_protection &&
+      google_sql_database_instance.scratch[0].settings[0].deletion_protection_enabled &&
+      length(google_sql_database.scratch) == 1 &&
+      google_secret_manager_secret.scratch_password[0].deletion_protection &&
+      google_secret_manager_secret.scratch_database_owner_password[0].deletion_protection &&
+      !var.allow_scratch_destroy
+    )
+    error_message = "Replay Job stage 2 may remove Jobs and their invocation/actAs bindings only, leaving SQL and secret resources intact."
+  }
+}
+
+run "replay_job_cleanup_gate_requires_exact_run_confirmation" {
+  command = plan
+
+  variables {
+    project_id                        = "espacigo-testprod"
+    run_id                            = "pilot01"
+    enable_scratch                    = true
+    confirm_project_inventory         = true
+    allow_replay_job_destroy          = true
+    confirm_replay_job_destroy_run_id = "wrong"
+  }
+
+  expect_failures = [var.allow_replay_job_destroy]
+}
+
 run "migration_jobs_reject_latest_migrator_secret_version" {
   command = plan
 

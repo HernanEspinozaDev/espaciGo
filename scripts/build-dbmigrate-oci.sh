@@ -101,7 +101,7 @@ record = {
     "oci_manifest_digest": digest,
     "oci_archive_sha256": hashlib.sha256(pathlib.Path(archive).read_bytes()).hexdigest(),
     "executor_command": "cmd/gcp03scratch",
-    "executor_phase_names": ["bootstrap", "database_acl", "migrate", "finalize", "retire", "role_comment_prepare", "role_comment_after_reconcile"],
+    "executor_phase_names": ["bootstrap", "database_acl", "migrate", "finalize", "retire", "observe", "role_comment_prepare", "role_comment_after_reconcile"],
     "scratch_target_confirmation": "espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg/espacigo_scratch",
     "migration_count": len(migrations),
     "migration_inventory_sha256": aggregate,

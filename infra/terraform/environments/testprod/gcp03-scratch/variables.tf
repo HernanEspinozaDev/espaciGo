@@ -246,7 +246,7 @@ variable "database_owner_secret_version" {
 
 variable "allow_scratch_destroy" {
   type        = bool
-  description = "Two-step teardown gate: first disable protections while keeping resources enabled, then disable scratch to destroy only this root's resources."
+  description = "Two-step scratch teardown gate; replay and role-probe Jobs have independent cleanup gates, and this gate does not lower their deletion protection."
   default     = false
 }
 
@@ -264,6 +264,28 @@ variable "allow_role_probe_job_destroy" {
     )
     error_message = "Role-probe Job deletion requires pilot01 confirmation and must keep general scratch/Cloud SQL destruction disabled."
   }
+}
+
+variable "allow_replay_job_destroy" {
+  type        = bool
+  description = "Separate two-step cleanup gate for only the five replay Jobs; never disables Cloud SQL or scratch data protection."
+  default     = false
+  validation {
+    condition = !var.allow_replay_job_destroy || (
+      var.enable_scratch &&
+      var.run_id == "pilot01" &&
+      !var.allow_scratch_destroy &&
+      !var.allow_role_probe_job_destroy &&
+      var.confirm_replay_job_destroy_run_id == var.run_id
+    )
+    error_message = "Replay Job deletion requires exact pilot01 confirmation and must keep Cloud SQL/scratch and role-probe deletion gates disabled."
+  }
+}
+
+variable "confirm_replay_job_destroy_run_id" {
+  type        = string
+  description = "Must exactly equal run_id when separately disabling replay Job deletion protection."
+  default     = ""
 }
 
 variable "confirm_role_probe_job_destroy_run_id" {
