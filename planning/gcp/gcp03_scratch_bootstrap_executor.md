@@ -8,7 +8,7 @@ El replay planificado ahora usa el OCI ya revisado `sha256:3e5683bf557a009d0ac14
 
 ## Alcance del ejecutor
 
-`cmd/gcp03scratch` acepta solamente `bootstrap`, `database_acl`, `migrate`, `finalize` y `retire`. El binario fija proyecto, región, instancia, base, login por fase, URL sin password, ruta del secreto y modo de IP privada. Rechaza overrides de libpq/pgx, SQL de entorno, URLs distintas y contraseñas fuera del formato aleatorio. Usa el adaptador Cloud SQL compartido y las migraciones V1–V61; no expone SQL arbitrario.
+`cmd/gcp03scratch` acepta fases fijas para `bootstrap`, `database_acl`, `migrate`, `finalize`, `grant_owner_history`, `retire`, `verify_retired`, `observe` y las sondas de membresía. El binario fija proyecto, región, instancia, base, login por fase, URL sin password, ruta del secreto y modo de IP privada. Rechaza overrides de libpq/pgx, SQL de entorno, URLs distintas y contraseñas fuera del formato aleatorio. Usa el adaptador Cloud SQL compartido y las migraciones V1–V61; no expone SQL arbitrario.
 
 | Fase | Acción fija | Condición de salida |
 | --- | --- | --- |
@@ -16,9 +16,12 @@ El replay planificado ahora usa el OCI ya revisado `sha256:3e5683bf557a009d0ac14
 | `database_acl` | Con la credencial temporal de `postgres`, quita TEMP de PUBLIC y CREATE de PUBLIC en `public`, concede TEMP de base y CREATE de schema al migrador y valida ACL positivas/negativas. | Solo el migrador conserva TEMP/schema CREATE antes de las migraciones. |
 | `migrate` | Comprueba roles reconciliados y ACL de base/schema, y llama al runner para V1–V61 sin cambios. | Secuencia y checksum por versión verificados. |
 | `finalize` | Exige historial completo V1–V61; aplica `GrantRuntimePermissions`; comprueba atributos V60, roles y permisos positivos/negativos. | Contrato de permisos runtime verificado. |
-| `retire` | Con el owner temporal, verifica historial y grants, deshabilita login/atributos del migrador y revoca su TEMP y CREATE en schema. | El migrador no inicia sesión ni conserva permisos de ejecución; después el operador limpia la membresía Cloud SQL y rota/destruye la credencial temporal de `postgres`. |
+| `retire` | Con el owner temporal, verifica historial y grants, deshabilita login/atributos del migrador y revoca su TEMP y CREATE en schema. | Solicita una verificación independiente antes de limpiar la membresía Cloud SQL o rotar credenciales. |
+| `verify_retired` | Con el owner temporal, en transacción `READ ONLY`, observa roles/membresías, ACL y propietarios, privilegios efectivos, checks runtime e historial V1–V61. | El reporte completo queda disponible para revisión aunque alguno de los checks falle. |
 
 No se borra el rol migrador: puede ser propietario de objetos de migración. PostgreSQL 18 concede al creador ADMIN sobre los NOLOGIN roles recién creados, y el creador no puede quitar su propio autogrant. Entre `bootstrap` y `database_acl`, el operador usa `gcp03scratch-credential --apply --reconcile-creator-memberships --confirm-target=RECONCILE:<target>`; Cloud SQL Admin `users.update` debe conservar solo `cloudsqlsuperuser` y reemplazar las demás membresías. La fase `database_acl` usa una segunda cuenta runtime, con Cloud SQL Client y acceso solo a metadata/versión del secreto owner. Al terminar `retire`, el operador revoca todas las databaseRoles del migrador y destruye su versión exacta. Luego rota `postgres` a una contraseña aleatoria no guardada y destruye la versión exacta usada por ambas fases owner. Las llamadas y el comportamiento de Cloud SQL Admin deben verificarse en el entorno destino antes de una futura ejecución; esta revisión no usa el API.
+
+`verify_retired` es una fase independiente, protegida y de solo lectura para ejecutarse con la cuenta owner después de retirar el login temporal. Abre una transacción `READ ONLY`, recopila el inventario fijo de roles, membresías, ACL y propietarios; registra los privilegios TEMP/CREATE efectivos, verifica las 61 sumas de migración y todos los checks runtime, e informa el resultado aunque fallen las comprobaciones de retiro. No rota credenciales ni modifica roles o ACL. Su Job usa una compuerta Terraform e imagen por digest separadas.
 
 ## Creación inicial de la credencial temporal
 

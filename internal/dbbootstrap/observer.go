@@ -36,6 +36,7 @@ type RoleMembershipExpectation string
 const (
 	RoleMembershipManagedCloudSQL RoleMembershipExpectation = "managed_cloudsql"
 	RoleMembershipLocalPostgres18 RoleMembershipExpectation = "local_postgres18"
+	RoleMembershipRetired         RoleMembershipExpectation = "retired"
 )
 
 type PermissionCheck struct {
@@ -197,7 +198,7 @@ func ObserveScratch(ctx context.Context, conn *pgx.Conn, membershipExpectation R
 	if conn == nil {
 		return ScratchObservation{}, errors.New("scratch database connection is required")
 	}
-	if membershipExpectation != RoleMembershipManagedCloudSQL && membershipExpectation != RoleMembershipLocalPostgres18 {
+	if membershipExpectation != RoleMembershipManagedCloudSQL && membershipExpectation != RoleMembershipLocalPostgres18 && membershipExpectation != RoleMembershipRetired {
 		return ScratchObservation{}, errors.New("scratch role-membership expectation is invalid")
 	}
 	var report ScratchObservation
@@ -361,9 +362,6 @@ func roleInventoryPass(roles []RoleObservation, memberships []RoleMembershipObse
 			return false
 		}
 	}
-	if !byName["espacigo_scratch_migrator"].CanLogin {
-		return false
-	}
 	var migratorMemberships []RoleMembershipObservation
 	for _, membership := range memberships {
 		if membership.GrantedRole == "espacigo_gadm_bootstrap" || membership.Member == "espacigo_gadm_bootstrap" ||
@@ -376,14 +374,19 @@ func roleInventoryPass(roles []RoleObservation, memberships []RoleMembershipObse
 	}
 	switch expectation {
 	case RoleMembershipManagedCloudSQL:
-		return len(migratorMemberships) == 1 && migratorMemberships[0].GrantedRole == "cloudsqlsuperuser"
+		return byName["espacigo_scratch_migrator"].CanLogin && len(migratorMemberships) == 1 && migratorMemberships[0].GrantedRole == "cloudsqlsuperuser"
 	case RoleMembershipLocalPostgres18:
+		if !byName["espacigo_scratch_migrator"].CanLogin {
+			return false
+		}
 		for _, membership := range migratorMemberships {
 			if membership.GrantedRole == "cloudsqlsuperuser" {
 				return false
 			}
 		}
 		return true
+	case RoleMembershipRetired:
+		return !byName["espacigo_scratch_migrator"].CanLogin && len(migratorMemberships) == 0
 	default:
 		return false
 	}

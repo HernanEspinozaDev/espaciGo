@@ -19,6 +19,7 @@ type PhaseActions struct {
 	Finalize          func(context.Context) error
 	Retire            func(context.Context) error
 	GrantOwnerHistory func(context.Context) error
+	VerifyRetired     func(context.Context) error
 }
 
 // ExecutePhase dispatches exactly one named phase. Cloud Run Jobs use separate
@@ -38,6 +39,8 @@ func ExecutePhase(ctx context.Context, phase Phase, actions PhaseActions) error 
 		action = actions.Retire
 	case PhaseGrantOwnerHistory:
 		action = actions.GrantOwnerHistory
+	case PhaseVerifyRetired:
+		action = actions.VerifyRetired
 	default:
 		return errors.New("unsupported GCP-03 scratch phase")
 	}
@@ -49,7 +52,7 @@ func ExecutePhase(ctx context.Context, phase Phase, actions PhaseActions) error 
 
 func RunPhase(ctx context.Context, config Config, password, migrationDir string) error {
 	expectedLogin, expectedURL, expectedPasswordFile := MigratorLogin, DatabaseURL, PasswordFile
-	if config.Phase == PhaseDatabaseACL || config.Phase == PhaseRetire {
+	if config.Phase == PhaseDatabaseACL || config.Phase == PhaseRetire || config.Phase == PhaseVerifyRetired {
 		expectedLogin, expectedURL, expectedPasswordFile = DatabaseOwnerLogin, DatabaseOwnerURL, DatabaseOwnerPasswordFile
 	}
 	if config.Instance != InstanceConnection || config.DatabaseURL != expectedURL || config.Login != expectedLogin || config.PasswordFile != expectedPasswordFile || !config.PrivateIP {
@@ -65,8 +68,38 @@ func RunPhase(ctx context.Context, config Config, password, migrationDir string)
 		Finalize:          func(ctx context.Context) error { return runFinalize(ctx, config, password, migrationDir) },
 		Retire:            func(ctx context.Context) error { return runRetire(ctx, config, password, migrationDir) },
 		GrantOwnerHistory: func(ctx context.Context) error { return runGrantOwnerHistory(ctx, config, password, migrationDir) },
+		VerifyRetired:     func(ctx context.Context) error { return runVerifyRetired(ctx, config, password, migrationDir) },
 	}
 	return ExecutePhase(ctx, config.Phase, actions)
+}
+
+func runVerifyRetired(ctx context.Context, config Config, password, migrationDir string) error {
+	report, err := ObserveRetiredPhase(ctx, config, password, migrationDir)
+	if err != nil {
+		return err
+	}
+	if !report.Passed {
+		return errors.New("GCP-03 fixed read-only retirement verification found failed checks")
+	}
+	return nil
+}
+
+func ObserveRetiredPhase(ctx context.Context, config Config, password, migrationDir string) (RetiredVerificationReport, error) {
+	if config.Phase != PhaseVerifyRetired || config.Instance != InstanceConnection || config.DatabaseURL != DatabaseOwnerURL ||
+		config.Login != DatabaseOwnerLogin || config.PasswordFile != DatabaseOwnerPasswordFile || !config.PrivateIP {
+		return RetiredVerificationReport{}, errors.New("GCP-03 read-only retirement observer target configuration is invalid")
+	}
+	var report RetiredVerificationReport
+	err := withScratchConnection(ctx, config, password, func(ctx context.Context, conn *pgx.Conn) error {
+		if _, err := conn.PgConn().Exec(ctx, "BEGIN READ ONLY").ReadAll(); err != nil {
+			return errors.New("GCP-03 could not begin a read-only retirement verification")
+		}
+		defer conn.PgConn().Exec(context.Background(), "ROLLBACK").ReadAll()
+		var err error
+		report, err = ObserveRetiredScratch(ctx, conn, migrationDir)
+		return err
+	})
+	return report, err
 }
 
 func ReadScratchExtensionVersions(ctx context.Context, config Config, password string) (map[string]string, error) {
