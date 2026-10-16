@@ -19,6 +19,7 @@
 4. En una ventana controlada, ejecutar el preflight local y luego el init en terminal interactiva. Las rutas se construyen desde la raíz capturada, no desde el cwd de `bootstrap`:
 
    ```sh
+   set -eu
    repo_root="$(git rev-parse --show-toplevel)"
    bootstrap_root="$repo_root/infra/terraform/environments/testprod/bootstrap"
    tf_data_dir="$repo_root/.local/planning/gcp/bootstrap-state-plan-20261016/tfdata"
