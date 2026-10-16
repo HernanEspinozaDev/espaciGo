@@ -1,5 +1,7 @@
 # GCP-03 observer OCI and Job plan — 2026-10-16
 
+Actualización posterior: el plan fue aprobado/aplicado y el observer se ejecutó una vez. El resultado y la falla detenida del Job de retiro se documentan en [evidencia de ejecución](evidencia_ejecucion_observer_gcp03_20261016.md). Las frases de estado pendientes más abajo describen el momento de preparación del plan, no el estado actual.
+
 ## OCI published from the reviewed observer commit
 
 - Reviewed source: PR #357 merge commit `cf209aa85372f675df3cc9837354f63cba01eee4`, merged by `HernanEspinozaDev` at `2026-10-16T15:09:14Z`.
