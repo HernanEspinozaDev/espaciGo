@@ -91,6 +91,12 @@ def main() -> None:
     selected_entries = [line.strip() for line in allowed.decode("utf-8").splitlines() if line.strip() and not line.lstrip().startswith(";")]
     if not selected_entries or len(selected_entries) != len(set(selected_entries)) or not set(selected_entries).issubset(available_entries):
         raise SystemExit("reviewed allowlist must be non-empty, unique, and a subset of the exact dump TOC")
+    for entry in selected_entries:
+        fields = entry.split()
+        if " EXTENSION - " in entry or " COMMENT - EXTENSION " in entry or (
+            len(fields) >= 7 and fields[3:7] == ["TABLE", "DATA", "public", "spatial_ref_sys"]
+        ):
+            raise SystemExit("reviewed allowlist cannot restore preinstalled extension objects")
     if allowlist != canonical_allowlist:
         with canonical_allowlist.open("xb") as f:
             f.write(allowed)

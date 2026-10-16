@@ -49,15 +49,18 @@ run "restore_resources_are_private_protected_and_single_shot" {
   assert {
     condition = (
       length(google_sql_database_instance.restore) == 1 &&
+      length(google_sql_database_instance.restore[0].settings[0].database_flags) == 1 &&
       google_sql_database_instance.restore[0].name == "espacigo-gcp03-restore-fixture1-pg" &&
       google_sql_database_instance.restore[0].settings[0].ip_configuration[0].ipv4_enabled == false &&
-      google_sql_database_instance.restore[0].settings[0].connector_enforcement == "REQUIRED"
+      google_sql_database_instance.restore[0].settings[0].connector_enforcement == "REQUIRED" &&
+      contains([for flag in google_sql_database_instance.restore[0].settings[0].database_flags : "${flag.name}=${flag.value}"], "cloudsql.iam_authentication=on")
     )
     error_message = "The restore SQL instance must be a separate private-IP target with connector enforcement."
   }
   assert {
     condition = (
       length(google_cloud_run_v2_job.restore) == 1 &&
+      google_storage_bucket.artifacts[0].name == "espacigo-gcp03-restore-fixture1" &&
       length(google_cloud_run_v2_job.verify) == 1 &&
       length(google_cloud_run_v2_job.admin_phase) == 2 &&
       google_cloud_run_v2_job.restore[0].deletion_protection &&
@@ -65,7 +68,11 @@ run "restore_resources_are_private_protected_and_single_shot" {
       google_cloud_run_v2_job.restore[0].template[0].parallelism == 1 &&
       google_cloud_run_v2_job.restore[0].template[0].template[0].max_retries == 0 &&
       google_cloud_run_v2_job.restore[0].template[0].template[0].containers[0].image == var.executor_image &&
-      google_cloud_run_v2_job.restore[0].template[0].template[0].containers[1].image == var.proxy_image
+      google_cloud_run_v2_job.restore[0].template[0].template[0].containers[1].image == var.proxy_image &&
+      contains(google_cloud_run_v2_job.restore[0].template[0].template[0].containers[1].args, "--admin-port=9091") &&
+      contains(google_cloud_run_v2_job.restore[0].template[0].template[0].containers[1].args, "--quitquitquit") &&
+      contains(google_cloud_run_v2_job.restore[0].template[0].template[0].containers[1].args, "--exit-zero-on-sigterm") &&
+      one([for env in google_cloud_run_v2_job.restore[0].template[0].template[0].containers[0].env : env.value if env.name == "GCP03_BUCKET"]) == google_storage_bucket.artifacts[0].name
     )
     error_message = "Restore and proxy images must be digest-pinned in one protected, serial, zero-retry Job."
   }
@@ -83,14 +90,21 @@ run "restore_resources_are_private_protected_and_single_shot" {
   assert {
     condition = (
       google_cloud_run_v2_job.verify[0].template[0].template[0].max_retries == 0 &&
-      google_cloud_run_v2_job.verify[0].template[0].template[0].service_account == local.verify_service_account_email
+      google_cloud_run_v2_job.verify[0].template[0].template[0].service_account == local.verify_service_account_email &&
+      contains(google_cloud_run_v2_job.verify[0].template[0].template[0].containers[1].args, "--quitquitquit") &&
+      one([for env in google_cloud_run_v2_job.verify[0].template[0].template[0].containers[0].env : env.value if env.name == "DATABASE_URL"]) == "postgres://g03-verify-fixture1%40espacigo-testprod.iam@127.0.0.1:5432/espacigo_scratch?sslmode=disable" &&
+      length([for env in google_cloud_run_v2_job.verify[0].template[0].template[0].containers[0].env : env if env.name == "GCP03_BUCKET"]) == 0
     )
     error_message = "Verification must be an independent zero-retry Job using the narrow verifier identity."
   }
   assert {
     condition = (
       google_cloud_run_v2_job.admin_phase["bootstrap"].template[0].template[0].service_account == local.admin_service_account_email &&
-      google_cloud_run_v2_job.admin_phase["retire"].template[0].template[0].max_retries == 0
+      google_cloud_run_v2_job.admin_phase["retire"].template[0].template[0].max_retries == 0 &&
+      contains(google_cloud_run_v2_job.admin_phase["retire"].template[0].template[0].containers[1].args, "--quitquitquit") &&
+      alltrue([for phase in ["bootstrap", "retire"] : one([for env in google_cloud_run_v2_job.admin_phase[phase].template[0].template[0].containers[0].env : env.value if env.name == "GCP03_PHASE"]) == phase]) &&
+      alltrue([for phase in ["bootstrap", "retire"] : one([for env in google_cloud_run_v2_job.admin_phase[phase].template[0].template[0].containers[0].env : env.value if env.name == "GCP03_ADMIN_PASSWORD_FILE"]) == "/secrets/postgres/password"]) &&
+      alltrue([for phase in ["bootstrap", "retire"] : length([for env in google_cloud_run_v2_job.admin_phase[phase].template[0].template[0].containers[0].env : env if env.name == "GCP03_BUCKET"]) == 0])
     )
     error_message = "Bootstrap and retirement must use the separate short-lived admin identity and no automatic retries."
   }

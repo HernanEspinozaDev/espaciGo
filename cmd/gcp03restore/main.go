@@ -10,13 +10,16 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"cloud.google.com/go/storage"
@@ -28,7 +31,9 @@ import (
 )
 
 const maxArtifactBytes = 64 << 20
-const migrationDirectory = "/app/db/migrations"
+
+var migrationDirectory = "/app/db/migrations"
+
 const migrationCount = 61
 
 type config struct {
@@ -41,19 +46,177 @@ var manifestHashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var adminPasswordPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 
 func main() {
-	evidence, err := run()
-	if err != nil {
-		// Keep logs to a fixed, sanitized status line. Never print provider, DB, or
-		// subprocess errors because they can include identifiers or row values.
-		fmt.Fprintln(os.Stderr, "gcp03 restore failed; inspect the run-scoped sanitized evidence")
-		os.Exit(1)
+	os.Exit(execute())
+}
+
+func execute() int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	evidence, runErr := runWithProxyShutdown(ctx, runContext, func(ctx context.Context) error {
+		return shutdownProxy(ctx, http.DefaultClient)
+	})
+	stop()
+	if runErr != nil {
+		writeFailureEvidence(os.Stderr, os.Getenv, runErr)
+		return 1
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetEscapeHTML(true)
 	if err := encoder.Encode(evidence); err != nil {
-		fmt.Fprintln(os.Stderr, "gcp03 restore completed but sanitized evidence could not be encoded")
-		os.Exit(1)
+		writeFailureEvidence(os.Stderr, os.Getenv, errors.New("evidence encoding failed"))
+		return 1
 	}
+	return 0
+}
+
+func runWithProxyShutdown(ctx context.Context, runner func(context.Context) (evidence, error), shutdown func(context.Context) error) (evidence, error) {
+	result, runErr := runner(ctx)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	shutdownErr := shutdown(shutdownCtx)
+	if runErr != nil {
+		return result, runFailure{cause: runErr, proxyShutdownConfirmed: shutdownErr == nil}
+	}
+	if shutdownErr != nil {
+		return evidence{}, runFailure{cause: errors.New("proxy shutdown could not be confirmed"), proxyShutdownConfirmed: false}
+	}
+	return result, nil
+}
+
+type httpDoer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
+func shutdownProxy(ctx context.Context, client httpDoer) error {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:9091/quitquitquit", nil)
+		if err != nil {
+			return errors.New("fixed proxy shutdown request could not be constructed")
+		}
+		response, err := client.Do(req)
+		if err == nil {
+			_ = response.Body.Close()
+			if response.StatusCode >= 200 && response.StatusCode < 300 {
+				return nil
+			}
+			lastErr = errors.New("proxy shutdown endpoint returned a non-success status")
+		} else {
+			lastErr = errors.New("proxy shutdown endpoint was unavailable")
+		}
+		if attempt < 2 {
+			select {
+			case <-ctx.Done():
+				return errors.New("proxy shutdown could not be confirmed before timeout")
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	}
+	return lastErr
+}
+
+type failureEvidence struct {
+	Format                 string `json:"format"`
+	RunID                  string `json:"run_id,omitempty"`
+	Phase                  string `json:"phase"`
+	Stage                  string `json:"stage"`
+	ErrorCode              string `json:"error_code"`
+	SQLState               string `json:"sqlstate,omitempty"`
+	SubprocessExitCode     int    `json:"subprocess_exit_code,omitempty"`
+	CommitOutcomeUncertain bool   `json:"commit_outcome_uncertain"`
+	ProxyShutdownConfirmed bool   `json:"proxy_shutdown_confirmed"`
+	ManifestSHA256         string `json:"manifest_sha256,omitempty"`
+	FailureSHA256          string `json:"failure_sha256"`
+}
+
+type subprocessFailure struct {
+	code     string
+	exitCode int
+	sqlState string
+}
+
+func (e subprocessFailure) Error() string { return e.code }
+
+type runFailure struct {
+	cause                  error
+	proxyShutdownConfirmed bool
+}
+
+func (e runFailure) Error() string { return e.cause.Error() }
+func (e runFailure) Unwrap() error { return e.cause }
+
+func writeFailureEvidence(out io.Writer, getenv func(string) string, err error) {
+	phase := getenv("GCP03_PHASE")
+	if !validPhase(phase) {
+		phase = "preflight"
+	}
+	record := failureEvidence{Format: "espacigo-gcp03-managed-synthetic-restore-failure-v1", Phase: phase, Stage: "phase_execute", ErrorCode: "PHASE_FAILED"}
+	if runID := getenv("GCP03_RUN_ID"); runIDPattern.MatchString(runID) {
+		record.RunID = runID
+	}
+	if hash := getenv("GCP03_MANIFEST_SHA256"); manifestHashPattern.MatchString(hash) {
+		record.ManifestSHA256 = hash
+	}
+	message := ""
+	if err != nil {
+		message = err.Error()
+	}
+	var phaseFailure runFailure
+	if errors.As(err, &phaseFailure) {
+		record.ProxyShutdownConfirmed = phaseFailure.proxyShutdownConfirmed
+	}
+	switch {
+	case strings.Contains(message, "uncertain"):
+		record.Stage, record.ErrorCode, record.CommitOutcomeUncertain = "commit", "COMMIT_OUTCOME_UNCERTAIN", true
+	case strings.Contains(message, "preflight") || strings.Contains(message, "refused") || strings.Contains(message, "already") || strings.Contains(message, "empty"):
+		record.Stage, record.ErrorCode = "preflight", "PRECONDITION_FAILED"
+	case strings.Contains(message, "manifest") || strings.Contains(message, "artifact") || strings.Contains(message, "TOC") || strings.Contains(message, "dump"):
+		record.Stage, record.ErrorCode = "artifact_validation", "ARTIFACT_VALIDATION_FAILED"
+	case strings.Contains(message, "proxy shutdown"):
+		record.Phase, record.Stage, record.ErrorCode = phase, "proxy_shutdown", "PROXY_SHUTDOWN_UNCONFIRMED"
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		record.Stage = "database_operation"
+		record.SQLState = pgErr.Code
+		record.ErrorCode = "DATABASE_SQLSTATE"
+	}
+	var processErr subprocessFailure
+	if errors.As(err, &processErr) {
+		record.Stage = "pg_restore"
+		record.ErrorCode = processErr.code
+		record.SubprocessExitCode = processErr.exitCode
+		record.SQLState = processErr.sqlState
+	}
+	withoutHash := record
+	withoutHash.FailureSHA256 = ""
+	canonical, _ := json.Marshal(withoutHash)
+	sum := sha256.Sum256(canonical)
+	record.FailureSHA256 = hex.EncodeToString(sum[:])
+	enc := json.NewEncoder(out)
+	_ = enc.Encode(record)
+}
+
+func validPhase(phase string) bool {
+	switch phase {
+	case "bootstrap", "restore", "verify", "retire":
+		return true
+	default:
+		return false
+	}
+}
+
+func run() (evidence, error) {
+	return runContext(context.Background())
+}
+
+func runContext(parent context.Context) (evidence, error) {
+	config, err := loadConfig(os.Getenv)
+	if err != nil {
+		return evidence{}, err
+	}
+	ctx, cancel := context.WithTimeout(parent, 12*time.Minute)
+	defer cancel()
+	return runConfigured(ctx, config)
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -182,7 +345,7 @@ func bootstrap(ctx context.Context, databaseURL, password, runID string) error {
 	}
 	defer tx.Rollback(context.Background())
 	for _, ext := range []string{"btree_gist", "postgis", "unaccent"} {
-		if _, err := tx.Exec(ctx, "CREATE EXTENSION "+pgx.Identifier{ext}.Sanitize()); err != nil {
+		if _, err := tx.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS "+pgx.Identifier{ext}.Sanitize()); err != nil {
 			return errors.New("required Cloud SQL extension could not be installed")
 		}
 	}
@@ -212,10 +375,10 @@ func bootstrap(ctx context.Context, databaseURL, password, runID string) error {
 		return errors.New("bootstrap transaction outcome is uncertain; do not retry")
 	}
 	if err := dbbootstrap.VerifyScratchBootstrap(ctx, conn); err != nil {
-		return errors.New("bootstrap extension and role postcheck failed")
+		return fmt.Errorf("bootstrap extension and role postcheck failed: %w", err)
 	}
 	if err := dbbootstrap.VerifyScratchDatabaseACL(ctx, conn); err != nil {
-		return errors.New("bootstrap database and schema ACL postcheck failed")
+		return fmt.Errorf("bootstrap database and schema ACL postcheck failed: %w", err)
 	}
 	if _, err := dbbootstrap.ScratchExtensionVersions(ctx, conn); err != nil {
 		return errors.New("bootstrap extension inventory postcheck failed")
@@ -238,6 +401,9 @@ func retire(ctx context.Context, databaseURL, password, runID string) error {
 	if err := dbbootstrap.VerifyScratchRuntimePermissions(ctx, conn); err != nil {
 		return errors.New("retirement refused because runtime ACL checks no longer pass")
 	}
+	if err := verifyRetirementAuditACL(ctx, conn); err != nil {
+		return errors.New("retirement refused because the fixed audit grant contract does not pass")
+	}
 	var users, spaces, occupancy int
 	if err := conn.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.usuario),(SELECT count(*) FROM public.espacio),(SELECT count(*) FROM public.ocupacion)`).Scan(&users, &spaces, &occupancy); err != nil || users != 2 || spaces != 1 || occupancy != 2 {
 		return errors.New("retirement refused because synthetic restore counts changed")
@@ -250,31 +416,118 @@ func retire(ctx context.Context, databaseURL, password, runID string) error {
 			return errors.New("retirement preflight expected both IAM users to remain login-capable with their exact group role")
 		}
 	}
-	if _, err := conn.Exec(ctx, `DELETE FROM public.ocupacion WHERE id IN
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return errors.New("retirement could not begin its atomic cleanup transaction")
+	}
+	defer tx.Rollback(context.Background())
+	if _, err := tx.Exec(ctx, `DELETE FROM public.ocupacion WHERE id IN
  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee03','eeeeeeee-eeee-4eee-8eee-eeeeeeeeee04','eeeeeeee-eeee-4eee-8eee-eeeeeeeeee05')`); err != nil {
 		return errors.New("fixed synthetic calendar verification rows could not be removed")
 	}
-	for _, pair := range [][2]string{{ownerRole(runID), restoreLogin}, {verifyRole(runID), verifyLogin}} {
-		if _, err := conn.Exec(ctx, "REVOKE "+pgx.Identifier{pair[0]}.Sanitize()+" FROM "+pgx.Identifier{pair[1]}.Sanitize()); err != nil {
-			return errors.New("Cloud SQL did not permit the exact run role membership to be revoked; stop for review")
-		}
-	}
 	for _, statement := range []string{"REVOKE TEMPORARY ON DATABASE espacigo_scratch FROM espacigo_scratch_migrator", "REVOKE CREATE ON SCHEMA public FROM espacigo_scratch_migrator"} {
-		if _, err := conn.Exec(ctx, statement); err != nil {
+		if _, err := tx.Exec(ctx, statement); err != nil {
 			return errors.New("fixed synthetic migrator ACL retirement failed")
 		}
 	}
-	if err := dbbootstrap.VerifyScratchRetiredRuntimePermissions(ctx, conn); err != nil {
+	if err := dbbootstrap.VerifyScratchRetiredRuntimePermissions(ctx, tx); err != nil {
 		return errors.New("retired runtime ACL postcheck failed")
 	}
-	if err := dbbootstrap.VerifyScratchMigratorRetired(ctx, conn); err != nil {
+	if err := dbbootstrap.VerifyScratchMigratorRetired(ctx, tx); err != nil {
 		return errors.New("retired synthetic migrator role postcheck failed")
 	}
+	if err := verifyRetirementAuditACL(ctx, tx); err != nil {
+		return errors.New("retirement changed the explicit audit privilege set")
+	}
+	var remainingUsers, remainingSpaces, remainingOccupancy, baselineOccupancy int
+	if err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.usuario),
+ (SELECT count(*) FROM public.espacio),(SELECT count(*) FROM public.ocupacion),
+ (SELECT count(*) FROM public.ocupacion WHERE id IN ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01','eeeeeeee-eeee-4eee-8eee-eeeeeeeeee02'))`).Scan(&remainingUsers, &remainingSpaces, &remainingOccupancy, &baselineOccupancy); err != nil || remainingUsers != 2 || remainingSpaces != 1 || remainingOccupancy != 2 || baselineOccupancy != 2 {
+		return errors.New("retirement changed the fixed synthetic baseline rows")
+	}
 	for _, login := range []string{restoreLogin, verifyLogin} {
-		var stillLogin, membership bool
-		if err := conn.QueryRow(ctx, `SELECT rolcanlogin,EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.member WHERE r.rolname=$1) FROM pg_catalog.pg_roles WHERE rolname=$1`, login).Scan(&stillLogin, &membership); err != nil || !stillLogin || membership {
-			return errors.New("retirement did not leave the IAM SQL users login-capable with no role memberships")
+		groupRole := ownerRole(runID)
+		if login == verifyLogin {
+			groupRole = verifyRole(runID)
 		}
+		var stillLogin, expectedMembership bool
+		var membershipCount int
+		if err := tx.QueryRow(ctx, `SELECT u.rolcanlogin,
+ EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles granted ON granted.oid=m.roleid WHERE m.member=u.oid AND granted.rolname=$2),
+ (SELECT count(*) FROM pg_catalog.pg_auth_members m WHERE m.member=u.oid)
+ FROM pg_catalog.pg_roles u WHERE u.rolname=$1`, login, groupRole).Scan(&stillLogin, &expectedMembership, &membershipCount); err != nil || !stillLogin || !expectedMembership || membershipCount != 1 {
+			return errors.New("retirement did not preserve login capability and the exact IAM SQL role binding")
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return errors.New("retirement commit outcome is uncertain; do not retry")
+	}
+	return nil
+}
+
+func grantRetirementAuditAccess(ctx context.Context, conn *pgx.Conn) error {
+	for _, statement := range []string{
+		"GRANT SELECT ON TABLE public.schema_migrations, public.usuario, public.espacio, public.ocupacion TO postgres",
+		"GRANT DELETE ON TABLE public.ocupacion TO postgres",
+	} {
+		if _, err := conn.Exec(ctx, statement); err != nil {
+			return errors.New("fixed retirement audit grant could not be applied")
+		}
+	}
+	return verifyRetirementAuditACL(ctx, conn)
+}
+
+func verifyRetirementAuditACL(ctx context.Context, db dbbootstrap.ScratchPermissionDB) error {
+	var hasSelect, hasDelete, exactDirectACL, noPublicReadWrite bool
+	var directCount int
+	err := db.QueryRow(ctx, `WITH actual AS (
+ SELECT c.relname, acl.privilege_type, acl.is_grantable
+ FROM pg_catalog.pg_class c
+ JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+ CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) acl
+ JOIN pg_catalog.pg_roles grantee ON grantee.oid=acl.grantee
+ WHERE n.nspname='public' AND c.relname IN ('schema_migrations','usuario','espacio','ocupacion')
+   AND c.relkind IN ('r','p','v','m') AND grantee.rolname='postgres'
+), expected(relname,privilege_type) AS (
+ VALUES ('schema_migrations','SELECT'),('usuario','SELECT'),('espacio','SELECT'),('ocupacion','SELECT'),('ocupacion','DELETE')
+), public_acl AS (
+ SELECT 1 FROM pg_catalog.pg_class c
+ JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+ CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))) acl
+ WHERE n.nspname='public' AND c.relname IN ('schema_migrations','usuario','espacio','ocupacion')
+   AND acl.grantee=0 AND acl.privilege_type IN ('SELECT','DELETE')
+)
+SELECT has_table_privilege('postgres','public.schema_migrations','SELECT'),
+ has_table_privilege('postgres','public.usuario','SELECT'),
+ (SELECT count(*)=5 AND NOT EXISTS(
+   SELECT relname,privilege_type FROM actual EXCEPT SELECT relname,privilege_type FROM expected
+ ) AND NOT EXISTS(
+   SELECT relname,privilege_type FROM expected EXCEPT SELECT relname,privilege_type FROM actual
+ ) AND NOT EXISTS(SELECT 1 FROM actual WHERE is_grantable)
+ FROM actual),
+ NOT EXISTS(SELECT 1 FROM public_acl)
+ AND has_table_privilege('postgres','public.espacio','SELECT')
+ AND has_table_privilege('postgres','public.ocupacion','SELECT')
+ AND has_table_privilege('postgres','public.ocupacion','DELETE'),
+ (SELECT count(*) FROM actual)`).Scan(&hasSelect, &hasDelete, &exactDirectACL, &noPublicReadWrite, &directCount)
+	if err != nil {
+		return errors.New("retirement audit ACL query failed")
+	}
+	if !hasSelect {
+		return errors.New("retirement audit migration-history SELECT grant is missing")
+	}
+	if !hasDelete {
+		return errors.New("retirement audit user SELECT grant is missing")
+	}
+	if !exactDirectACL {
+		return fmt.Errorf("retirement audit direct grant set is not exact; explicit privilege rows=%d", directCount)
+	}
+	if !noPublicReadWrite {
+		return errors.New("retirement audit fixture grants or PUBLIC ACL differ from the fixed contract")
+	}
+	var runtimeSchemaHistory bool
+	if err := db.QueryRow(ctx, `SELECT has_table_privilege('espacigo_runtime','public.schema_migrations','SELECT')`).Scan(&runtimeSchemaHistory); err != nil || runtimeSchemaHistory {
+		return errors.New("retirement audit grant leaked migration history to runtime")
 	}
 	return nil
 }
@@ -290,13 +543,7 @@ func iamSQLUsername(kind, runID string) string {
 	return "g03-" + kind + "-" + runID + "@espacigo-testprod.iam"
 }
 
-func run() (evidence, error) {
-	c, err := loadConfig(os.Getenv)
-	if err != nil {
-		return evidence{}, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
-	defer cancel()
+func runConfigured(ctx context.Context, c config) (evidence, error) {
 	if err := waitProxy(ctx, "127.0.0.1:5432"); err != nil {
 		return evidence{}, errors.New("Cloud SQL Auth Proxy did not become ready")
 	}
@@ -314,7 +561,7 @@ func run() (evidence, error) {
 		if err := retire(ctx, c.databaseURL, password, c.runID); err != nil {
 			return evidence{}, err
 		}
-		return phaseEvidence(c, "retire", map[string]bool{"synthetic_rows_removed": true, "iam_role_memberships_revoked": true, "iam_users_remain_login_capable": true, "runtime_acl_retired": true}), nil
+		return phaseEvidence(c, "retire", map[string]bool{"synthetic_rows_removed": true, "iam_users_remain_login_capable": true, "iam_role_bindings_preserved_for_reviewed_terraform_cleanup": true, "runtime_acl_retired": true}), nil
 	}
 	if c.phase == "verify" {
 		verified, err := verifyRestored(ctx, c.databaseURL, c.runID, c.migrationSHA, false)
@@ -351,63 +598,7 @@ func run() (evidence, error) {
 		return evidence{}, errors.New("restore allowlist validation failed")
 	}
 
-	if err := checkRestorePrerequisites(ctx, c.databaseURL, c.runID); err != nil {
-		return evidence{}, err
-	}
-	tmp, err := os.MkdirTemp("", "gcp03-restore-")
-	if err != nil {
-		return evidence{}, errors.New("could not allocate temporary restore workspace")
-	}
-	defer os.RemoveAll(tmp)
-	dumpPath, listPath := filepath.Join(tmp, "restore.dump"), filepath.Join(tmp, "allowlist.toc")
-	if err := writePrivate(dumpPath, dump); err != nil {
-		return evidence{}, errors.New("could not stage verified dump")
-	}
-	if err := writePrivate(listPath, allowlist); err != nil {
-		return evidence{}, errors.New("could not stage verified allowlist")
-	}
-	actualTOC, err := exec.CommandContext(ctx, "pg_restore", "--list", dumpPath).Output()
-	if err != nil || gcp03restore.VerifyTOC(actualTOC, allowlist, manifest) != nil || !bytes.Equal(actualTOC, rawTOC) {
-		return evidence{}, errors.New("dump contents do not match the reviewed TOC")
-	}
-	owner := "g03_restore_owner_" + strings.ReplaceAll(c.runID, "-", "_")
-	cmd := exec.CommandContext(ctx, "pg_restore", "--exit-on-error", "--single-transaction", "--no-owner", "--no-acl", "--role="+owner, "--use-list="+listPath, "--dbname="+c.databaseURL, dumpPath)
-	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
-	if err := cmd.Run(); err != nil {
-		return evidence{}, errors.New("pg_restore returned a non-zero exit status")
-	}
-	conn, err := pgx.Connect(ctx, c.databaseURL)
-	if err != nil {
-		return evidence{}, errors.New("could not connect to apply fixed synthetic ACL checks")
-	}
-	if _, err := conn.Exec(ctx, "SET ROLE "+pgx.Identifier{owner}.Sanitize()); err != nil {
-		_ = conn.Close(context.Background())
-		return evidence{}, errors.New("could not select restore owner for ACL checks")
-	}
-	if err := dbbootstrap.GrantRuntimePermissions(ctx, conn); err != nil {
-		_ = conn.Close(context.Background())
-		return evidence{}, errors.New("runtime ACL restoration failed")
-	}
-	if _, err := conn.Exec(ctx, "GRANT USAGE ON SCHEMA public TO "+pgx.Identifier{verifyRole(c.runID)}.Sanitize()); err != nil {
-		_ = conn.Close(context.Background())
-		return evidence{}, errors.New("verification role schema grant failed")
-	}
-	if _, err := conn.Exec(ctx, "GRANT SELECT ON ALL TABLES IN SCHEMA public TO "+pgx.Identifier{verifyRole(c.runID)}.Sanitize()); err != nil {
-		_ = conn.Close(context.Background())
-		return evidence{}, errors.New("verification role read grants failed")
-	}
-	if _, err := conn.Exec(ctx, "GRANT INSERT, DELETE ON TABLE public.ocupacion TO "+pgx.Identifier{verifyRole(c.runID)}.Sanitize()); err != nil {
-		_ = conn.Close(context.Background())
-		return evidence{}, errors.New("verification role calendar test grants failed")
-	}
-	if err := dbbootstrap.VerifyScratchRuntimePermissions(ctx, conn); err != nil {
-		_ = conn.Close(context.Background())
-		return evidence{}, errors.New("restored runtime ACL contract failed")
-	}
-	if err := conn.Close(context.Background()); err != nil {
-		return evidence{}, errors.New("could not close restore ACL session")
-	}
-	verified, err := verifyRestored(ctx, c.databaseURL, c.runID, manifest.MigrationSHA256, true)
+	verified, err := restoreSynthetic(ctx, c.databaseURL, c.runID, manifest, dump, rawTOC, allowlist)
 	if err != nil {
 		return evidence{}, err
 	}
@@ -418,6 +609,109 @@ func run() (evidence, error) {
 		MigrationCount: manifest.MigrationCount, MigrationInventorySHA256: manifest.MigrationSHA256,
 		RestoredCounts: verified.counts, Checks: verified.checks,
 	}, nil
+}
+
+func restoreSynthetic(ctx context.Context, databaseURL, runID string, manifest gcp03restore.Manifest, dump, rawTOC, allowlist []byte) (verification, error) {
+	var empty verification
+	if err := gcp03restore.VerifyDump(dump, manifest); err != nil || gcp03restore.VerifyTOC(rawTOC, allowlist, manifest) != nil {
+		return empty, errors.New("synthetic artifact hashes or TOC allowlist are invalid")
+	}
+	if err := checkRestorePrerequisites(ctx, databaseURL, runID); err != nil {
+		return empty, err
+	}
+	tmp, err := os.MkdirTemp("", "gcp03-restore-")
+	if err != nil {
+		return empty, errors.New("could not allocate temporary restore workspace")
+	}
+	defer os.RemoveAll(tmp)
+	dumpPath, listPath := filepath.Join(tmp, "restore.dump"), filepath.Join(tmp, "allowlist.toc")
+	if err := writePrivate(dumpPath, dump); err != nil {
+		return empty, errors.New("could not stage verified dump")
+	}
+	if err := writePrivate(listPath, allowlist); err != nil {
+		return empty, errors.New("could not stage verified allowlist")
+	}
+	actualTOC, err := exec.CommandContext(ctx, "pg_restore", "--list", dumpPath).Output()
+	if err != nil || gcp03restore.VerifyTOC(actualTOC, allowlist, manifest) != nil || !bytes.Equal(actualTOC, rawTOC) {
+		return empty, errors.New("dump contents do not match the reviewed TOC")
+	}
+	owner := ownerRole(runID)
+	cmd := exec.CommandContext(ctx, "pg_restore", "--exit-on-error", "--single-transaction", "--no-owner", "--no-acl", "--role="+owner, "--use-list="+listPath, "--dbname="+databaseURL, dumpPath)
+	var restoreStderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = io.Discard, &restoreStderr
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return empty, subprocessFailure{code: classifyPGRestoreFailure(restoreStderr.String()), exitCode: exitErr.ExitCode(), sqlState: postgresSQLState(restoreStderr.String())}
+		}
+		return empty, subprocessFailure{code: "PG_RESTORE_START_FAILED", exitCode: -1}
+	}
+	conn, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		return empty, errors.New("could not connect to apply fixed synthetic ACL checks")
+	}
+	defer conn.Close(context.Background())
+	if _, err := conn.Exec(ctx, "SET ROLE "+pgx.Identifier{owner}.Sanitize()); err != nil {
+		return empty, errors.New("could not select restore owner for ACL checks")
+	}
+	if err := grantRetirementAuditAccess(ctx, conn); err != nil {
+		return empty, fmt.Errorf("fixed retirement audit ACL setup failed: %w", err)
+	}
+	if err := dbbootstrap.GrantRuntimePermissions(ctx, conn); err != nil {
+		return empty, errors.New("runtime ACL restoration failed")
+	}
+	if _, err := conn.Exec(ctx, "GRANT USAGE ON SCHEMA public TO "+pgx.Identifier{verifyRole(runID)}.Sanitize()); err != nil {
+		return empty, errors.New("verification role schema grant failed")
+	}
+	if _, err := conn.Exec(ctx, "GRANT SELECT ON ALL TABLES IN SCHEMA public TO "+pgx.Identifier{verifyRole(runID)}.Sanitize()); err != nil {
+		return empty, errors.New("verification role read grants failed")
+	}
+	if _, err := conn.Exec(ctx, "GRANT INSERT, DELETE ON TABLE public.ocupacion TO "+pgx.Identifier{verifyRole(runID)}.Sanitize()); err != nil {
+		return empty, errors.New("verification role calendar test grants failed")
+	}
+	if err := dbbootstrap.VerifyScratchRuntimePermissions(ctx, conn); err != nil {
+		return empty, errors.New("restored runtime ACL contract failed")
+	}
+	if err := verifyRetirementAuditACL(ctx, conn); err != nil {
+		return empty, errors.New("restored retirement audit ACL contract failed")
+	}
+	return verifyRestored(ctx, databaseURL, runID, manifest.MigrationSHA256, true)
+}
+
+var sqlStatePattern = regexp.MustCompile(`SQL state: ([0-9A-Z]{5})`)
+
+func postgresSQLState(stderr string) string {
+	match := sqlStatePattern.FindStringSubmatch(stderr)
+	if len(match) != 2 {
+		return ""
+	}
+	return match[1]
+}
+
+func classifyPGRestoreFailure(stderr string) string {
+	lower := strings.ToLower(stderr)
+	switch {
+	case strings.Contains(lower, "permission denied for schema"):
+		return "PG_RESTORE_SCHEMA_PERMISSION_DENIED"
+	case strings.Contains(lower, "permission denied for table") || strings.Contains(lower, "permission denied for relation"):
+		return "PG_RESTORE_RELATION_PERMISSION_DENIED"
+	case strings.Contains(lower, "permission denied for function"):
+		return "PG_RESTORE_FUNCTION_PERMISSION_DENIED"
+	case strings.Contains(lower, "permission denied for sequence"):
+		return "PG_RESTORE_SEQUENCE_PERMISSION_DENIED"
+	case strings.Contains(lower, "permission denied for language"):
+		return "PG_RESTORE_LANGUAGE_PERMISSION_DENIED"
+	case strings.Contains(lower, "permission denied"):
+		return "PG_RESTORE_PERMISSION_DENIED"
+	case strings.Contains(lower, "already exists"):
+		return "PG_RESTORE_OBJECT_CONFLICT"
+	case strings.Contains(lower, "does not exist"):
+		return "PG_RESTORE_DEPENDENCY_MISSING"
+	case strings.Contains(lower, "must be owner"):
+		return "PG_RESTORE_OWNERSHIP_FAILED"
+	default:
+		return "PG_RESTORE_SQL_FAILED"
+	}
 }
 
 func checkRestorePrerequisites(ctx context.Context, databaseURL, runID string) error {

@@ -63,6 +63,20 @@ func TestAllowlistMustBeSubsetOfExactDumpTOC(t *testing.T) {
 	}
 }
 
+func TestAllowlistCannotRestorePreinstalledExtensionObjects(t *testing.T) {
+	raw := []byte("2; 3079 21312 EXTENSION - postgis\n4929; 0 21631 TABLE DATA public spatial_ref_sys postgres\n")
+	for _, selected := range []string{
+		"2; 3079 21312 EXTENSION - postgis\n",
+		"4929; 0 21631 TABLE DATA public spatial_ref_sys postgres\n",
+	} {
+		allow := []byte(selected)
+		m := Manifest{TOCSHA256: sum(raw), AllowlistSHA256: sum(allow)}
+		if err := VerifyTOC(raw, allow, m); err == nil {
+			t.Fatalf("accepted preinstalled extension TOC entry %q", selected)
+		}
+	}
+}
+
 func sum(data []byte) string {
 	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:])

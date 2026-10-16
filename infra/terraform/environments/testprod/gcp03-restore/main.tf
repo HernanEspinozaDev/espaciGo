@@ -32,6 +32,10 @@ resource "google_sql_database_instance" "restore" {
       enabled                        = false
       point_in_time_recovery_enabled = false
     }
+    database_flags {
+      name  = "cloudsql.iam_authentication"
+      value = "on"
+    }
   }
   lifecycle {
     prevent_destroy = false
@@ -55,7 +59,7 @@ resource "google_sql_database" "restore" {
 resource "google_storage_bucket" "artifacts" {
   count                       = local.foundation_enabled ? 1 : 0
   project                     = var.project_id
-  name                        = "${local.prefix}-artifacts"
+  name                        = local.prefix
   location                    = var.region
   uniform_bucket_level_access = true
   public_access_prevention    = "enforced"
@@ -270,7 +274,7 @@ resource "google_cloud_run_v2_job" "restore" {
         name    = "cloud-sql-proxy"
         image   = var.proxy_image
         command = ["/cloud-sql-proxy"]
-        args    = ["--private-ip", "--auto-iam-authn", "--address=127.0.0.1", "--port=5432", google_sql_database_instance.restore[0].connection_name]
+        args    = ["--private-ip", "--auto-iam-authn", "--address=127.0.0.1", "--port=5432", "--admin-port=9091", "--quitquitquit", "--exit-zero-on-sigterm", google_sql_database_instance.restore[0].connection_name]
       }
     }
   }
@@ -340,7 +344,7 @@ resource "google_cloud_run_v2_job" "verify" {
         name    = "cloud-sql-proxy"
         image   = var.proxy_image
         command = ["/cloud-sql-proxy"]
-        args    = ["--private-ip", "--auto-iam-authn", "--address=127.0.0.1", "--port=5432", google_sql_database_instance.restore[0].connection_name]
+        args    = ["--private-ip", "--auto-iam-authn", "--address=127.0.0.1", "--port=5432", "--admin-port=9091", "--quitquitquit", "--exit-zero-on-sigterm", google_sql_database_instance.restore[0].connection_name]
       }
     }
   }
@@ -410,7 +414,7 @@ resource "google_cloud_run_v2_job" "admin_phase" {
         name    = "cloud-sql-proxy"
         image   = var.proxy_image
         command = ["/cloud-sql-proxy"]
-        args    = ["--private-ip", "--address=127.0.0.1", "--port=5432", google_sql_database_instance.restore[0].connection_name]
+        args    = ["--private-ip", "--address=127.0.0.1", "--port=5432", "--admin-port=9091", "--quitquitquit", "--exit-zero-on-sigterm", google_sql_database_instance.restore[0].connection_name]
       }
       volumes {
         name = "admin-password"

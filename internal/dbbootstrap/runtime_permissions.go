@@ -3,9 +3,19 @@ package dbbootstrap
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// ScratchPermissionDB is implemented by pgx connections and transactions. It
+// lets callers verify and apply ACL changes before a retirement transaction commits.
+type ScratchPermissionDB interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
 
 type roleAttributes struct {
 	canLogin    bool
@@ -17,7 +27,7 @@ type roleAttributes struct {
 	inherit     bool
 }
 
-func readRoleAttributes(ctx context.Context, conn *pgx.Conn, role string) (roleAttributes, error) {
+func readRoleAttributes(ctx context.Context, conn ScratchPermissionDB, role string) (roleAttributes, error) {
 	var attrs roleAttributes
 	err := conn.QueryRow(ctx, `SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
 		rolreplication, rolbypassrls, rolinherit
@@ -31,14 +41,16 @@ func readRoleAttributes(ctx context.Context, conn *pgx.Conn, role string) (roleA
 	return attrs, nil
 }
 
-func roleHasAnyMembership(ctx context.Context, conn *pgx.Conn, role string) (bool, error) {
+func roleHasAnyMembership(ctx context.Context, conn ScratchPermissionDB, role string) (bool, error) {
 	var hasMembership bool
 	err := conn.QueryRow(ctx, `SELECT EXISTS (
 		SELECT 1
 		FROM pg_catalog.pg_auth_members m
 		JOIN pg_catalog.pg_roles granted_role ON granted_role.oid = m.roleid
 		JOIN pg_catalog.pg_roles member_role ON member_role.oid = m.member
-		WHERE granted_role.rolname = $1 OR member_role.rolname = $1
+		WHERE (granted_role.rolname = $1 OR member_role.rolname = $1)
+		  AND NOT (granted_role.rolname = $1 AND member_role.rolname = 'postgres'
+		    AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
 	)`, role).Scan(&hasMembership)
 	if err != nil {
 		return false, errors.New("could not verify scratch role memberships")
@@ -46,7 +58,7 @@ func roleHasAnyMembership(ctx context.Context, conn *pgx.Conn, role string) (boo
 	return hasMembership, nil
 }
 
-func requireRestrictedNoLoginRole(ctx context.Context, conn *pgx.Conn, role string, mustNotInherit bool) error {
+func requireRestrictedNoLoginRole(ctx context.Context, conn ScratchPermissionDB, role string, mustNotInherit bool) error {
 	attrs, err := readRoleAttributes(ctx, conn, role)
 	if err != nil {
 		return err
@@ -66,7 +78,7 @@ func requireRestrictedNoLoginRole(ctx context.Context, conn *pgx.Conn, role stri
 
 // VerifyScratchBootstrap checks the fixed extension and restricted-role
 // preconditions shared by the bootstrap and migration phases.
-func VerifyScratchBootstrap(ctx context.Context, conn *pgx.Conn) error {
+func VerifyScratchBootstrap(ctx context.Context, conn ScratchPermissionDB) error {
 	if conn == nil {
 		return errors.New("scratch database connection is required")
 	}
@@ -78,16 +90,19 @@ func VerifyScratchBootstrap(ctx context.Context, conn *pgx.Conn) error {
 		return err
 	}
 	if err := requireRestrictedNoLoginRole(ctx, conn, "espacigo_runtime", true); err != nil {
-		return err
+		return fmt.Errorf("runtime role: %w", err)
 	}
-	return requireRestrictedNoLoginRole(ctx, conn, "espacigo_gadm_bootstrap", true)
+	if err := requireRestrictedNoLoginRole(ctx, conn, "espacigo_gadm_bootstrap", true); err != nil {
+		return fmt.Errorf("GADM bootstrap role: %w", err)
+	}
+	return nil
 }
 
 // VerifyScratchBootstrapRolesCreated accepts only PostgreSQL 18's automatic
 // ADMIN membership from the creating login while Cloud SQL Admin API cleanup
 // is pending. Migration preflight uses VerifyScratchBootstrap, which rejects
 // every remaining membership.
-func VerifyScratchBootstrapRolesCreated(ctx context.Context, conn *pgx.Conn) error {
+func VerifyScratchBootstrapRolesCreated(ctx context.Context, conn ScratchPermissionDB) error {
 	if conn == nil {
 		return errors.New("scratch database connection is required")
 	}
@@ -134,7 +149,7 @@ func VerifyScratchBootstrapRolesCreated(ctx context.Context, conn *pgx.Conn) err
 // VerifyScratchDatabaseACL requires TEMP only for the migration login. The
 // PUBLIC ACL is inspected directly because effective privilege checks alone
 // can hide inherited grants through PUBLIC.
-func VerifyScratchDatabaseACL(ctx context.Context, conn *pgx.Conn) error {
+func VerifyScratchDatabaseACL(ctx context.Context, conn ScratchPermissionDB) error {
 	if conn == nil {
 		return errors.New("scratch database connection is required")
 	}
@@ -169,7 +184,7 @@ func VerifyScratchDatabaseACL(ctx context.Context, conn *pgx.Conn) error {
 // VerifyScratchRetiredDatabaseACL requires the temporary login to retain no
 // effective TEMP or CREATE privilege after its fixed retire phase. The active
 // migrator-only contract remains in VerifyScratchDatabaseACL.
-func VerifyScratchRetiredDatabaseACL(ctx context.Context, conn *pgx.Conn) error {
+func VerifyScratchRetiredDatabaseACL(ctx context.Context, conn ScratchPermissionDB) error {
 	if conn == nil {
 		return errors.New("scratch database connection is required")
 	}
@@ -200,7 +215,7 @@ func VerifyScratchRetiredDatabaseACL(ctx context.Context, conn *pgx.Conn) error 
 
 // ScratchExtensionVersions reports the fixed supported extension set for
 // review logs without exposing connection credentials or executing caller SQL.
-func ScratchExtensionVersions(ctx context.Context, conn *pgx.Conn) (map[string]string, error) {
+func ScratchExtensionVersions(ctx context.Context, conn ScratchPermissionDB) (map[string]string, error) {
 	if conn == nil {
 		return nil, errors.New("scratch database connection is required")
 	}
@@ -229,17 +244,17 @@ func ScratchExtensionVersions(ctx context.Context, conn *pgx.Conn) (map[string]s
 
 // VerifyScratchRuntimePermissions checks the most important positive and
 // negative grants after GrantRuntimePermissions has run against all migrations.
-func VerifyScratchRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
+func VerifyScratchRuntimePermissions(ctx context.Context, conn ScratchPermissionDB) error {
 	return verifyScratchRuntimePermissions(ctx, conn, false)
 }
 
 // VerifyScratchRetiredRuntimePermissions preserves the runtime-role checks
 // while applying the post-retirement no-TEMP/no-CREATE database ACL contract.
-func VerifyScratchRetiredRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
+func VerifyScratchRetiredRuntimePermissions(ctx context.Context, conn ScratchPermissionDB) error {
 	return verifyScratchRuntimePermissions(ctx, conn, true)
 }
 
-func verifyScratchRuntimePermissions(ctx context.Context, conn *pgx.Conn, retired bool) error {
+func verifyScratchRuntimePermissions(ctx context.Context, conn ScratchPermissionDB, retired bool) error {
 	if conn == nil {
 		return errors.New("scratch database connection is required")
 	}
@@ -293,7 +308,7 @@ func verifyScratchRuntimePermissions(ctx context.Context, conn *pgx.Conn, retire
 
 // VerifyScratchMigratorRetired checks that the temporary login has no active
 // attributes or memberships after its privileges are withdrawn.
-func VerifyScratchMigratorRetired(ctx context.Context, conn *pgx.Conn) error {
+func VerifyScratchMigratorRetired(ctx context.Context, conn ScratchPermissionDB) error {
 	attrs, err := readRoleAttributes(ctx, conn, "espacigo_scratch_migrator")
 	if err != nil {
 		return err
@@ -333,7 +348,7 @@ func VerifyScratchMigratorRetired(ctx context.Context, conn *pgx.Conn) error {
 // GrantRuntimePermissions applies the least-privilege table grants after migrations.
 // Versioned rates and private simulations are append/read only for user flows;
 // the administrator-guarded local suppression path may delete private simulations.
-func GrantRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
+func GrantRuntimePermissions(ctx context.Context, conn ScratchPermissionDB) error {
 	_, err := conn.Exec(ctx, `GRANT USAGE ON SCHEMA public TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.usuario, public.sesion, public.token_accion TO espacigo_runtime;
  GRANT DELETE ON public.sesion, public.token_accion TO espacigo_runtime;

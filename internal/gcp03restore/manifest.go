@@ -88,6 +88,9 @@ func VerifyTOC(raw, allowlist []byte, m Manifest) error {
 		if line == "" || strings.HasPrefix(line, ";") {
 			continue
 		}
+		if preinstalledExtensionTOCEntry(line) {
+			return errors.New("restore allowlist includes a preinstalled extension object")
+		}
 		if _, ok := available[line]; !ok {
 			return fmt.Errorf("restore allowlist includes an entry absent from dump TOC")
 		}
@@ -100,6 +103,14 @@ func VerifyTOC(raw, allowlist []byte, m Manifest) error {
 		return errors.New("restore allowlist is empty")
 	}
 	return nil
+}
+
+func preinstalledExtensionTOCEntry(line string) bool {
+	if strings.Contains(line, " EXTENSION - ") || strings.Contains(line, " COMMENT - EXTENSION ") {
+		return true
+	}
+	fields := strings.Fields(line)
+	return len(fields) >= 7 && fields[3] == "TABLE" && fields[4] == "DATA" && fields[5] == "public" && fields[6] == "spatial_ref_sys"
 }
 
 func digest(data []byte) string {
