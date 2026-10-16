@@ -1,5 +1,7 @@
 # GCP-03 scratch migrator runner: infrastructure and package
 
+The later apply of the exact reviewed infrastructure plan and current cloud state are recorded in [the execution evidence](evidencia_aplicacion_scratch_gcp03_20261016.md). The statements below describe what the earlier code-preparation change created; the runner Job, SQL login, secret version, and database execution remain absent.
+
 Status: **code and local plan preparation only**. This root is isolated from the persistent GCP state. No scratch resources, image uploads, secret values/versions, SQL users, connections, SQL statements, migrations, restore, or imports were created or executed by this change.
 
 ## Isolated root and state

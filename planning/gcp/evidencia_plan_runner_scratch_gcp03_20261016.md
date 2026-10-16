@@ -1,4 +1,6 @@
-# GCP-03: plan aislado del runner scratch
+# GCP-03: plan aislado del runner scratch (registro pre-apply)
+
+Este archivo conserva la evidencia histórica de preparación. La ejecución posterior del plan exacto y el estado actual están documentados en [evidencia_aplicacion_scratch_gcp03_20261016.md](evidencia_aplicacion_scratch_gcp03_20261016.md); ese registro prevalece para el estado remoto actual.
 
 Fecha: 2026-10-16 (UTC). Proyecto explícito `espacigo-testprod` (`447373903153`), región `southamerica-west1`, raíz independiente `infra/terraform/environments/testprod/gcp03-scratch` y prefijo separado `espacigo/testprod/gcp03-scratch`.
 
@@ -18,7 +20,7 @@ Fecha: 2026-10-16 (UTC). Proyecto explícito `espacigo-testprod` (`447373903153`
 - Proyecto activo: `espacigo-testprod`, ACTIVE, número `447373903153`.
 - VPC `espacigo-testprod` y subnet `espacigo-testprod-serverless`, `southamerica-west1`, `10.80.0.0/24`, `private_ip_google_access=true`.
 - La única instancia Cloud SQL observada en el proyecto fue la persistente `espacigo-testprod-pg`; el nombre scratch no estaba ocupado. Tampoco se encontraron cuentas, secreto, repositorio o Job con el identificador `pilot01`.
-- Terraform leyó proyecto, VPC y subnet durante `plan`. No se ejecutó `apply`, SQL, conexión, migración, creación de usuario/version de secreto, upload de imagen, restore o importación. El state de la raíz persistente no fue seleccionado ni modificado.
+- Al cierre de esta fase de preflight no se había ejecutado `apply`, SQL, conexión, migración, creación de usuario/versión de secreto, upload de imagen, restore o importación. La ejecución posterior está registrada en la evidencia enlazada arriba. El state de la raíz persistente no fue seleccionado ni modificado.
 - El plan corregido contempla Cloud SQL `db-custom-N4-2-4096` zonal con 20 GiB Hyperdisk Balanced sin backup/PITR ni auto crecimiento, sin IPv4 pública, `ENCRYPTED_ONLY`, connector requerido y ambas protecciones de borrado activas. A 20 GiB, los defaults documentados son 4.000 IOPS/170 MiB/s. La estimación Santiago existente asigna unos $0.11/24 h a capacidad, $0.92 a 1.000 IOPS sobre lo incluido y $0.11 a 30 MiB/s adicionales, además de unos $3.72 de compute/RAM; aprox. $4.86/24 h antes de otros SKU. El tier/stock regional debe revalidarse antes de cualquier aplicación futura.
 
-El Cloud Run Job regional sigue sin tarifa validada para Santiago hasta seleccionar su SKU en la calculadora oficial; los montos anteriores son referencias estimadas, no precio facturado. Esta evidencia es de un plan remoto, no de infraestructura creada ni de compatibilidad SQL demostrada.
+El Cloud Run Job regional sigue sin tarifa validada para Santiago hasta seleccionar su SKU en la calculadora oficial; los montos anteriores son referencias estimadas, no precio facturado. Esta evidencia corresponde a la preparación del plan y no demuestra compatibilidad SQL.
