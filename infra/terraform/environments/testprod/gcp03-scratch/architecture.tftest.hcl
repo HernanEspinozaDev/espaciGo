@@ -26,18 +26,87 @@ run "scratch_is_off_by_default" {
   }
 }
 
+run "job_creates_five_immutable_named_phases_with_exact_operator_iam" {
+  command = plan
+
+  variables {
+    project_id                            = "espacigo-testprod"
+    region                                = "southamerica-west1"
+    run_id                                = "pilot01"
+    enable_scratch                        = true
+    enable_job                            = true
+    confirm_project_inventory             = true
+    confirm_image_pushed                  = true
+    confirm_scratch_secret_version        = true
+    confirm_database_owner_secret_version = true
+    migrator_image                        = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    operator_member                       = "user:operator@example.invalid"
+  }
+
+  assert {
+    condition = toset(keys(google_cloud_run_v2_job.migrator)) == toset([
+      "bootstrap", "database_acl", "migrate", "finalize", "retire"
+    ])
+    error_message = "The reviewed Job gate must create only the five named scratch phases."
+  }
+
+  assert {
+    condition = alltrue([
+      for phase, job in google_cloud_run_v2_job.migrator :
+      job.name == "espacigo-gcp03-pilot01-${phase}" &&
+      job.template[0].task_count == 1 &&
+      job.template[0].parallelism == 1 &&
+      job.template[0].template[0].max_retries == 0 &&
+      anytrue([for env in job.template[0].template[0].containers[0].env : env.name == "GCP03_PHASE" && env.value == phase])
+    ])
+    error_message = "Each named Job must have its matching phase and single-task no-retry execution settings."
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job_iam_member.invoke_operator) == 5 &&
+      alltrue([for binding in values(google_cloud_run_v2_job_iam_member.invoke_operator) : binding.role == "roles/run.invoker" && binding.member == "user:operator@example.invalid"]) &&
+      google_service_account_iam_member.operator_act_as[0].role == "roles/iam.serviceAccountUser" &&
+      google_service_account_iam_member.operator_act_as_database_acl[0].role == "roles/iam.serviceAccountUser" &&
+      google_project_iam_member.scratch_acl_cloudsql_client[0].role == "roles/cloudsql.client" &&
+      google_service_account.scratch_database_acl[0].account_id == "gcp03-scratch-acl-pilot01"
+    )
+    error_message = "Only the named operator should receive invoker on each phase and actAs on the scratch service account."
+  }
+}
+
 run "job_requires_enabled_scratch_and_external_artifacts" {
   command = plan
 
   variables {
-    project_id                     = "espacigo-testprod"
-    run_id                         = "pilot01"
-    enable_scratch                 = false
-    enable_job                     = true
-    migrator_image                 = "southamerica-west1-docker.pkg.dev/espacigo-testprod/repo/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    confirm_image_pushed           = true
-    confirm_scratch_secret_version = true
-    operator_member                = "user:operator@example.invalid"
+    project_id                            = "espacigo-testprod"
+    run_id                                = "pilot01"
+    enable_scratch                        = false
+    enable_job                            = true
+    migrator_image                        = "southamerica-west1-docker.pkg.dev/espacigo-testprod/repo/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    confirm_image_pushed                  = true
+    confirm_scratch_secret_version        = true
+    confirm_database_owner_secret_version = true
+    operator_member                       = "user:operator@example.invalid"
+  }
+
+  expect_failures = [var.enable_job]
+}
+
+run "job_rejects_a_different_scratch_run_id" {
+  command = plan
+
+  variables {
+    project_id                            = "espacigo-testprod"
+    run_id                                = "pilot02"
+    enable_scratch                        = true
+    enable_job                            = true
+    confirm_project_inventory             = true
+    confirm_image_pushed                  = true
+    confirm_scratch_secret_version        = true
+    confirm_database_owner_secret_version = true
+    migrator_image                        = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot02/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    operator_member                       = "user:operator@example.invalid"
   }
 
   expect_failures = [var.enable_job]

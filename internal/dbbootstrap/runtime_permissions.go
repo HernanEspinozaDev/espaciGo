@@ -2,9 +2,285 @@ package dbbootstrap
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
 )
+
+type roleAttributes struct {
+	canLogin    bool
+	superuser   bool
+	createDB    bool
+	createRole  bool
+	replication bool
+	bypassRLS   bool
+	inherit     bool
+}
+
+func readRoleAttributes(ctx context.Context, conn *pgx.Conn, role string) (roleAttributes, error) {
+	var attrs roleAttributes
+	err := conn.QueryRow(ctx, `SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
+		rolreplication, rolbypassrls, rolinherit
+		FROM pg_catalog.pg_roles WHERE rolname = $1`, role).Scan(
+		&attrs.canLogin, &attrs.superuser, &attrs.createDB, &attrs.createRole,
+		&attrs.replication, &attrs.bypassRLS, &attrs.inherit,
+	)
+	if err != nil {
+		return roleAttributes{}, errors.New("could not verify required scratch role")
+	}
+	return attrs, nil
+}
+
+func roleHasAnyMembership(ctx context.Context, conn *pgx.Conn, role string) (bool, error) {
+	var hasMembership bool
+	err := conn.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1
+		FROM pg_catalog.pg_auth_members m
+		JOIN pg_catalog.pg_roles granted_role ON granted_role.oid = m.roleid
+		JOIN pg_catalog.pg_roles member_role ON member_role.oid = m.member
+		WHERE granted_role.rolname = $1 OR member_role.rolname = $1
+	)`, role).Scan(&hasMembership)
+	if err != nil {
+		return false, errors.New("could not verify scratch role memberships")
+	}
+	return hasMembership, nil
+}
+
+func requireRestrictedNoLoginRole(ctx context.Context, conn *pgx.Conn, role string, mustNotInherit bool) error {
+	attrs, err := readRoleAttributes(ctx, conn, role)
+	if err != nil {
+		return err
+	}
+	if attrs.canLogin || attrs.superuser || attrs.createDB || attrs.createRole || attrs.replication || attrs.bypassRLS || (mustNotInherit && attrs.inherit) {
+		return errors.New("scratch group role has unsafe attributes")
+	}
+	membership, err := roleHasAnyMembership(ctx, conn, role)
+	if err != nil {
+		return err
+	}
+	if membership {
+		return errors.New("scratch group role has unexpected memberships")
+	}
+	return nil
+}
+
+// VerifyScratchBootstrap checks the fixed extension and restricted-role
+// preconditions shared by the bootstrap and migration phases.
+func VerifyScratchBootstrap(ctx context.Context, conn *pgx.Conn) error {
+	if conn == nil {
+		return errors.New("scratch database connection is required")
+	}
+	var database string
+	if err := conn.QueryRow(ctx, "SELECT current_database()").Scan(&database); err != nil || database != "espacigo_scratch" {
+		return errors.New("connected database is not the reviewed GCP-03 scratch database")
+	}
+	if _, err := ScratchExtensionVersions(ctx, conn); err != nil {
+		return err
+	}
+	if err := requireRestrictedNoLoginRole(ctx, conn, "espacigo_runtime", true); err != nil {
+		return err
+	}
+	return requireRestrictedNoLoginRole(ctx, conn, "espacigo_gadm_bootstrap", true)
+}
+
+// VerifyScratchBootstrapRolesCreated accepts only PostgreSQL 18's automatic
+// ADMIN membership from the creating login while Cloud SQL Admin API cleanup
+// is pending. Migration preflight uses VerifyScratchBootstrap, which rejects
+// every remaining membership.
+func VerifyScratchBootstrapRolesCreated(ctx context.Context, conn *pgx.Conn) error {
+	if conn == nil {
+		return errors.New("scratch database connection is required")
+	}
+	for _, role := range []string{"espacigo_runtime", "espacigo_gadm_bootstrap"} {
+		attrs, err := readRoleAttributes(ctx, conn, role)
+		if err != nil {
+			return err
+		}
+		if attrs.canLogin || attrs.superuser || attrs.createDB || attrs.createRole || attrs.replication || attrs.bypassRLS || attrs.inherit {
+			return errors.New("scratch group role has unsafe attributes")
+		}
+	}
+	var valid bool
+	err := conn.QueryRow(ctx, `WITH relevant AS (
+		SELECT granted.rolname AS granted_name, member.rolname AS member_name,
+		       m.admin_option, m.inherit_option, m.set_option
+		FROM pg_catalog.pg_auth_members m
+		JOIN pg_catalog.pg_roles granted ON granted.oid = m.roleid
+		JOIN pg_catalog.pg_roles member ON member.oid = m.member
+		WHERE granted.rolname IN ('espacigo_runtime', 'espacigo_gadm_bootstrap')
+		   OR member.rolname IN ('espacigo_runtime', 'espacigo_gadm_bootstrap')
+	), expected AS (
+		SELECT count(*) AS membership_count
+		FROM relevant
+		WHERE granted_name IN ('espacigo_runtime', 'espacigo_gadm_bootstrap')
+		  AND member_name = 'espacigo_scratch_migrator'
+		  AND admin_option AND NOT inherit_option AND NOT set_option
+	)
+	SELECT (SELECT membership_count FROM expected) <= 2
+	   AND NOT EXISTS (
+		SELECT 1 FROM relevant
+		WHERE NOT (granted_name IN ('espacigo_runtime', 'espacigo_gadm_bootstrap')
+		  AND member_name = 'espacigo_scratch_migrator' AND admin_option AND NOT inherit_option AND NOT set_option)
+	   )`).Scan(&valid)
+	if err != nil {
+		return errors.New("could not verify automatic scratch role memberships")
+	}
+	if !valid {
+		return errors.New("scratch group roles have unexpected memberships; reconcile the temporary login through Cloud SQL Admin API")
+	}
+	return nil
+}
+
+// VerifyScratchDatabaseACL requires TEMP only for the migration login. The
+// PUBLIC ACL is inspected directly because effective privilege checks alone
+// can hide inherited grants through PUBLIC.
+func VerifyScratchDatabaseACL(ctx context.Context, conn *pgx.Conn) error {
+	if conn == nil {
+		return errors.New("scratch database connection is required")
+	}
+	var publicTemp, migratorTemp, runtimeTemp, migratorCreate, runtimeCreate, publicSchemaCreate bool
+	err := conn.QueryRow(ctx, `SELECT
+		EXISTS (
+			SELECT 1
+			FROM pg_catalog.pg_database d,
+			     LATERAL pg_catalog.aclexplode(COALESCE(d.datacl, pg_catalog.acldefault('d', d.datdba))) acl
+			WHERE d.datname = 'espacigo_scratch'
+			  AND acl.grantee = 0 AND acl.privilege_type = 'TEMPORARY'
+		),
+		has_database_privilege('espacigo_scratch_migrator', 'espacigo_scratch', 'TEMP'),
+		has_database_privilege('espacigo_runtime', 'espacigo_scratch', 'TEMP'),
+		has_schema_privilege('espacigo_scratch_migrator', 'public', 'CREATE'),
+		has_schema_privilege('espacigo_runtime', 'public', 'CREATE'),
+		EXISTS (
+			SELECT 1
+			FROM pg_catalog.pg_namespace n,
+			     LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) acl
+			WHERE n.nspname = 'public' AND acl.grantee = 0 AND acl.privilege_type = 'CREATE'
+		)`).Scan(&publicTemp, &migratorTemp, &runtimeTemp, &migratorCreate, &runtimeCreate, &publicSchemaCreate)
+	if err != nil {
+		return errors.New("could not inspect scratch database TEMP ACL")
+	}
+	if publicTemp || !migratorTemp || runtimeTemp || !migratorCreate || runtimeCreate || publicSchemaCreate {
+		return errors.New("scratch database TEMP/schema privileges differ from the migrator-only contract")
+	}
+	return nil
+}
+
+// ScratchExtensionVersions reports the fixed supported extension set for
+// review logs without exposing connection credentials or executing caller SQL.
+func ScratchExtensionVersions(ctx context.Context, conn *pgx.Conn) (map[string]string, error) {
+	if conn == nil {
+		return nil, errors.New("scratch database connection is required")
+	}
+	rows, err := conn.Query(ctx, `SELECT extname, extversion FROM pg_catalog.pg_extension
+		WHERE extname IN ('btree_gist', 'postgis', 'unaccent') ORDER BY extname`)
+	if err != nil {
+		return nil, errors.New("could not read scratch extension versions")
+	}
+	defer rows.Close()
+	versions := make(map[string]string, 3)
+	for rows.Next() {
+		var name, version string
+		if err := rows.Scan(&name, &version); err != nil {
+			return nil, errors.New("could not read scratch extension versions")
+		}
+		versions[name] = version
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.New("could not read scratch extension versions")
+	}
+	if len(versions) != 3 || versions["btree_gist"] == "" || versions["postgis"] == "" || versions["unaccent"] == "" {
+		return nil, errors.New("one or more required scratch extensions are missing")
+	}
+	return versions, nil
+}
+
+// VerifyScratchRuntimePermissions checks the most important positive and
+// negative grants after GrantRuntimePermissions has run against all migrations.
+func VerifyScratchRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
+	if conn == nil {
+		return errors.New("scratch database connection is required")
+	}
+	if err := requireRestrictedNoLoginRole(ctx, conn, "espacigo_runtime", true); err != nil {
+		return err
+	}
+	if err := requireRestrictedNoLoginRole(ctx, conn, "espacigo_gadm_bootstrap", true); err != nil {
+		return err
+	}
+	if err := VerifyScratchDatabaseACL(ctx, conn); err != nil {
+		return err
+	}
+	var checks [16]bool
+	err := conn.QueryRow(ctx, `SELECT
+		has_database_privilege('espacigo_runtime', 'espacigo_scratch', 'CONNECT'),
+		not has_database_privilege('espacigo_runtime', 'espacigo_scratch', 'CREATE'),
+		not has_database_privilege('espacigo_runtime', 'espacigo_scratch', 'TEMP'),
+		has_schema_privilege('espacigo_runtime', 'public', 'USAGE'),
+		not has_schema_privilege('espacigo_runtime', 'public', 'CREATE'),
+		has_table_privilege('espacigo_runtime', 'public.usuario', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.usuario', 'INSERT'),
+		has_table_privilege('espacigo_runtime', 'public.usuario', 'UPDATE'),
+		not has_table_privilege('espacigo_runtime', 'public.usuario', 'DELETE'),
+		has_table_privilege('espacigo_runtime', 'public.administrador_global', 'SELECT'),
+		not has_table_privilege('espacigo_runtime', 'public.administrador_global', 'INSERT'),
+		not has_table_privilege('espacigo_runtime', 'public.administrador_global', 'UPDATE'),
+		not has_table_privilege('espacigo_runtime', 'public.administrador_global', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.tarifa_espacio', 'UPDATE'),
+		not has_table_privilege('espacigo_runtime', 'public.tarifa_espacio', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.schema_migrations', 'SELECT')`).Scan(
+		&checks[0], &checks[1], &checks[2], &checks[3], &checks[4], &checks[5],
+		&checks[6], &checks[7], &checks[8], &checks[9], &checks[10], &checks[11],
+		&checks[12], &checks[13], &checks[14], &checks[15],
+	)
+	if err != nil {
+		return errors.New("could not verify scratch runtime grants")
+	}
+	for _, passed := range checks {
+		if !passed {
+			return errors.New("scratch runtime grants differ from the reviewed privilege contract")
+		}
+	}
+	return nil
+}
+
+// VerifyScratchMigratorRetired checks that the temporary login has no active
+// attributes or memberships after its privileges are withdrawn.
+func VerifyScratchMigratorRetired(ctx context.Context, conn *pgx.Conn) error {
+	attrs, err := readRoleAttributes(ctx, conn, "espacigo_scratch_migrator")
+	if err != nil {
+		return err
+	}
+	if attrs.canLogin || attrs.superuser || attrs.createDB || attrs.createRole || attrs.replication || attrs.bypassRLS || attrs.inherit {
+		return errors.New("temporary scratch login still has active privileges")
+	}
+	var unexpectedMembership bool
+	err = conn.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1
+		FROM pg_catalog.pg_auth_members m
+		JOIN pg_catalog.pg_roles granted_role ON granted_role.oid = m.roleid
+		JOIN pg_catalog.pg_roles member_role ON member_role.oid = m.member
+		WHERE (member_role.rolname = 'espacigo_scratch_migrator'
+		       AND granted_role.rolname <> 'cloudsqlsuperuser')
+		   OR granted_role.rolname = 'espacigo_scratch_migrator'
+	)`).Scan(&unexpectedMembership)
+	if err != nil {
+		return errors.New("could not verify temporary scratch login memberships")
+	}
+	if unexpectedMembership {
+		return errors.New("temporary scratch login has an unexpected role membership")
+	}
+	var tempPrivilege, createPrivilege bool
+	err = conn.QueryRow(ctx, `SELECT
+		has_database_privilege('espacigo_scratch_migrator', 'espacigo_scratch', 'TEMP'),
+		has_schema_privilege('espacigo_scratch_migrator', 'public', 'CREATE')`).Scan(&tempPrivilege, &createPrivilege)
+	if err != nil {
+		return errors.New("could not verify retired scratch login object privileges")
+	}
+	if tempPrivilege || createPrivilege {
+		return errors.New("temporary scratch login retains database or schema privileges")
+	}
+	return nil
+}
 
 // GrantRuntimePermissions applies the least-privilege table grants after migrations.
 // Versioned rates and private simulations are append/read only for user flows;

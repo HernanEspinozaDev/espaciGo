@@ -120,6 +120,25 @@ func ConfigurePGX(ctx context.Context, config *pgx.ConnConfig, instance string, 
 	})
 }
 
+// Connect creates a pgx connection through the shared Cloud SQL connector.
+// The caller must invoke closeConnector when the connection is no longer used.
+func Connect(ctx context.Context, databaseURL, password, instance string, privateIP bool) (*pgx.Conn, func(), error) {
+	config, err := NewPGXConfig(databaseURL, password)
+	if err != nil {
+		return nil, nil, err
+	}
+	closeConnector, err := ConfigurePGX(ctx, config, instance, privateIP)
+	if err != nil {
+		return nil, nil, err
+	}
+	conn, err := pgx.ConnectConfig(ctx, config)
+	if err != nil {
+		closeConnector()
+		return nil, nil, errors.New("could not connect to Cloud SQL")
+	}
+	return conn, closeConnector, nil
+}
+
 func configurePGX(
 	ctx context.Context,
 	config *pgx.ConnConfig,
