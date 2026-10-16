@@ -68,9 +68,11 @@ variable "enable_job" {
       startswith(var.migrator_image, "${var.region}-docker.pkg.dev/${var.project_id}/gcp03-scratch-${var.run_id}/dbmigrate@sha256:") &&
       var.confirm_image_pushed &&
       var.confirm_scratch_secret_version &&
-      var.confirm_database_owner_secret_version
+      var.confirm_database_owner_secret_version &&
+      can(regex("^[1-9][0-9]*$", var.migrator_secret_version)) &&
+      can(regex("^[1-9][0-9]*$", var.database_owner_secret_version))
     )
-    error_message = "The named scratch phases require run_id pilot01, the exact scratch login/database, a sha256-pinned image from this repository, and confirmations that both temporary secret versions exist."
+    error_message = "The named scratch phases require run_id pilot01, the exact scratch login/database, a sha256-pinned image, and exact numeric migrator and database-owner secret versions."
   }
 }
 
@@ -110,6 +112,27 @@ variable "enable_role_probe_credential_permissions" {
       can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", var.role_probe_credential_iam_expires_at))
     )
     error_message = "Credential permissions require exact pilot01 scratch target, explicit acknowledgment of project-scoped Cloud SQL user-operation risk, and a fixed expiry."
+  }
+}
+
+variable "enable_replay_credential_permissions" {
+  type        = bool
+  description = "Independent short-lived IAM gate for creating/reconciling/retiring fixed replay credentials; remains separately controlled when migration Jobs are enabled."
+  default     = false
+  validation {
+    condition = !var.enable_replay_credential_permissions || (
+      var.enable_scratch &&
+      var.run_id == "pilot01" &&
+      !var.enable_role_probe_jobs &&
+      !var.enable_role_probe_credential_permissions &&
+      !var.allow_scratch_destroy &&
+      var.database_user == "espacigo_scratch_migrator" &&
+      var.database_name == "espacigo_scratch" &&
+      var.operator_member == "user:pasteleriahijitos@gmail.com" &&
+      var.confirm_project_scoped_cloudsql_user_ops &&
+      can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", var.replay_credential_iam_expires_at))
+    )
+    error_message = "Replay credential IAM requires the existing pilot01 scratch, exact operator and target logins/secrets, no role-probe or destroy gate, explicit project-scope acknowledgment, and a fixed UTC expiry. It may coexist with the separately gated migration Jobs."
   }
 }
 
@@ -157,6 +180,16 @@ variable "role_probe_credential_iam_expires_at" {
   }
 }
 
+variable "replay_credential_iam_expires_at" {
+  type        = string
+  description = "Absolute UTC expiry for the separate short-lived full-replay credential IAM plan."
+  default     = ""
+  validation {
+    condition     = var.replay_credential_iam_expires_at == "" || can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", var.replay_credential_iam_expires_at))
+    error_message = "Replay credential IAM expiry must be an RFC3339 UTC timestamp."
+  }
+}
+
 variable "migrator_image" {
   type        = string
   description = "Image reference in the scratch Artifact Registry repository, pinned by immutable sha256 digest."
@@ -181,14 +214,34 @@ variable "confirm_image_pushed" {
 
 variable "confirm_scratch_secret_version" {
   type        = bool
-  description = "Set only after a temporary credential was created outside Terraform and a version exists on the scratch-only secret."
+  description = "Set only after the exact numeric migrator secret version was created outside Terraform and verified active."
   default     = false
 }
 
 variable "confirm_database_owner_secret_version" {
   type        = bool
-  description = "Set only after the exact temporary postgres-owner secret version exists for the isolated database ACL phase."
+  description = "Set only after the exact numeric database-owner secret version was created outside Terraform and verified active."
   default     = false
+}
+
+variable "migrator_secret_version" {
+  type        = string
+  description = "Exact active numeric Secret Manager version for bootstrap/migrate/finalize; empty until credentials are separately provisioned."
+  default     = ""
+  validation {
+    condition     = var.migrator_secret_version == "" || can(regex("^[1-9][0-9]*$", var.migrator_secret_version))
+    error_message = "When supplied, the migrator Secret Manager version must be an exact positive integer, never latest."
+  }
+}
+
+variable "database_owner_secret_version" {
+  type        = string
+  description = "Exact active numeric Secret Manager version for database_acl/retire; empty until credentials are separately provisioned."
+  default     = ""
+  validation {
+    condition     = var.database_owner_secret_version == "" || can(regex("^[1-9][0-9]*$", var.database_owner_secret_version))
+    error_message = "When supplied, the database-owner Secret Manager version must be an exact positive integer, never latest."
+  }
 }
 
 variable "allow_scratch_destroy" {

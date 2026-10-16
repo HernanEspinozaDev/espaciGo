@@ -1,4 +1,6 @@
 mock_provider "google" {
+  override_during = plan
+
   mock_data "google_compute_network" {
     defaults = {
       self_link = "projects/espacigo-testprod/global/networks/espacigo-testprod"
@@ -21,8 +23,16 @@ run "scratch_is_off_by_default" {
   }
 
   assert {
-    condition     = length(google_sql_database_instance.scratch) == 0 && length(google_cloud_run_v2_job.migrator) == 0 && length(google_cloud_run_v2_job.role_comment_probe) == 0 && length(google_project_iam_custom_role.role_probe_cloudsql_operator) == 0 && length(google_project_iam_custom_role.role_probe_secret_operator) == 0
-    error_message = "Scratch database and migration job must remain disabled by default."
+    condition = (
+      length(google_sql_database_instance.scratch) == 0 &&
+      length(google_cloud_run_v2_job.migrator) == 0 &&
+      length(google_cloud_run_v2_job.role_comment_probe) == 0 &&
+      length(google_project_iam_custom_role.role_probe_cloudsql_operator) == 0 &&
+      length(google_project_iam_custom_role.role_probe_secret_operator) == 0 &&
+      length(google_project_iam_custom_role.replay_credential_sql_operator) == 0 &&
+      length(google_project_iam_custom_role.replay_secret_version_operator) == 0
+    )
+    error_message = "Scratch resources, migration jobs, and replay credential IAM must remain disabled by default."
   }
 }
 
@@ -39,6 +49,8 @@ run "job_creates_five_immutable_named_phases_with_exact_operator_iam" {
     confirm_image_pushed                  = true
     confirm_scratch_secret_version        = true
     confirm_database_owner_secret_version = true
+    migrator_secret_version               = "4"
+    database_owner_secret_version         = "1"
     migrator_image                        = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     operator_member                       = "user:operator@example.invalid"
   }
@@ -75,6 +87,202 @@ run "job_creates_five_immutable_named_phases_with_exact_operator_iam" {
     )
     error_message = "Only the named operator should receive invoker on each phase and actAs on the scratch service account."
   }
+
+  assert {
+    condition = alltrue([
+      for phase, job in google_cloud_run_v2_job.migrator :
+      job.template[0].template[0].service_account == (contains(["database_acl", "retire"], phase) ? local.scratch_database_acl_service_account_email : local.scratch_migrator_service_account_email) &&
+      job.template[0].template[0].volumes[0].secret[0].secret == (contains(["database_acl", "retire"], phase) ? google_secret_manager_secret.scratch_database_owner_password[0].secret_id : google_secret_manager_secret.scratch_password[0].secret_id) &&
+      job.template[0].template[0].volumes[0].secret[0].items[0].version == (contains(["database_acl", "retire"], phase) ? "1" : "4") &&
+      anytrue([for env in job.template[0].template[0].containers[0].env : env.name == "DATABASE_PASSWORD_FILE" && env.value == (contains(["database_acl", "retire"], phase) ? "/secrets/database-owner/password" : "/secrets/migrator/password")])
+    ])
+    error_message = "ACL/retire must use only the owner identity and numeric owner secret; bootstrap/migrate/finalize must use only migrator identity and its numeric secret."
+  }
+
+  assert {
+    condition = (
+      length(google_project_iam_custom_role.replay_credential_sql_operator) == 0 &&
+      length(google_project_iam_custom_role.replay_secret_version_operator) == 0 &&
+      length(google_project_iam_member.replay_credential_sql_operator) == 0 &&
+      length(google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator) == 0 &&
+      length(google_secret_manager_secret_iam_member.replay_owner_secret_version_operator) == 0
+    )
+    error_message = "Enabling the separately gated Jobs must not activate replay credential IAM automatically."
+  }
+}
+
+run "replay_credential_iam_coexists_with_five_jobs_and_preserves_exact_targets" {
+  command = plan
+
+  variables {
+    project_id                               = "espacigo-testprod"
+    region                                   = "southamerica-west1"
+    run_id                                   = "pilot01"
+    enable_scratch                           = true
+    enable_job                               = true
+    enable_replay_credential_permissions     = true
+    confirm_project_inventory                = true
+    confirm_project_scoped_cloudsql_user_ops = true
+    replay_credential_iam_expires_at         = "2026-10-16T16:00:00Z"
+    confirm_image_pushed                     = true
+    confirm_scratch_secret_version           = true
+    confirm_database_owner_secret_version    = true
+    migrator_secret_version                  = "4"
+    database_owner_secret_version            = "1"
+    migrator_image                           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    operator_member                          = "user:pasteleriahijitos@gmail.com"
+  }
+
+  assert {
+    condition = (
+      toset(keys(google_cloud_run_v2_job.migrator)) == toset(["bootstrap", "database_acl", "migrate", "finalize", "retire"]) &&
+      length(google_project_iam_custom_role.replay_credential_sql_operator) == 1 &&
+      length(google_project_iam_member.replay_credential_sql_operator) == 1 &&
+      length(google_project_iam_custom_role.replay_secret_version_operator) == 1 &&
+      length(google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator) == 1 &&
+      length(google_secret_manager_secret_iam_member.replay_owner_secret_version_operator) == 1
+    )
+    error_message = "The separate replay IAM state must remain configured alongside all five fixed Jobs."
+  }
+
+  assert {
+    condition = (
+      google_project_iam_custom_role.replay_credential_sql_operator[0].role_id == "gcp03v1v61sqlops261016" &&
+      toset(google_project_iam_custom_role.replay_credential_sql_operator[0].permissions) == toset(["cloudsql.instances.get", "cloudsql.users.create", "cloudsql.users.get", "cloudsql.users.update"]) &&
+      google_project_iam_member.replay_credential_sql_operator[0].member == "user:pasteleriahijitos@gmail.com" &&
+      google_project_iam_member.replay_credential_sql_operator[0].condition[0].expression == "request.time < timestamp('2026-10-16T16:00:00Z')" &&
+      google_project_iam_custom_role.replay_secret_version_operator[0].role_id == "gcp03v1v61secretversions261016" &&
+      toset(google_project_iam_custom_role.replay_secret_version_operator[0].permissions) == toset(["secretmanager.versions.add", "secretmanager.versions.destroy", "secretmanager.versions.get", "secretmanager.versions.list"]) &&
+      google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator[0].secret_id == "espacigo-gcp03-pilot01-migrator-password" &&
+      google_secret_manager_secret_iam_member.replay_owner_secret_version_operator[0].secret_id == "espacigo-gcp03-pilot01-db-owner-password" &&
+      google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator[0].member == "user:pasteleriahijitos@gmail.com" &&
+      google_secret_manager_secret_iam_member.replay_owner_secret_version_operator[0].member == "user:pasteleriahijitos@gmail.com"
+    )
+    error_message = "Replay credential IAM must retain its separate custom IDs, limited permissions, operator, expiry, and two exact secret scopes while Jobs are enabled."
+  }
+
+  assert {
+    condition = alltrue([
+      for phase, job in google_cloud_run_v2_job.migrator :
+      job.template[0].template[0].service_account == (contains(["database_acl", "retire"], phase) ? local.scratch_database_acl_service_account_email : local.scratch_migrator_service_account_email) &&
+      job.template[0].template[0].volumes[0].secret[0].secret == (contains(["database_acl", "retire"], phase) ? google_secret_manager_secret.scratch_database_owner_password[0].secret_id : google_secret_manager_secret.scratch_password[0].secret_id) &&
+      job.template[0].template[0].volumes[0].secret[0].items[0].version == (contains(["database_acl", "retire"], phase) ? "1" : "4") &&
+      anytrue([for env in job.template[0].template[0].containers[0].env : env.name == "DATABASE_PASSWORD_FILE" && env.value == (contains(["database_acl", "retire"], phase) ? "/secrets/database-owner/password" : "/secrets/migrator/password")])
+    ])
+    error_message = "Five-phase Jobs must map ACL/retire to the owner service account/secret and bootstrap/migrate/finalize to the migrator service account/secret with numeric versions."
+  }
+}
+
+run "sequential_mocked_replay_iam_seed" {
+  command   = apply
+  state_key = "replay-iam-then-jobs"
+
+  variables {
+    project_id                               = "espacigo-testprod"
+    region                                   = "southamerica-west1"
+    run_id                                   = "pilot01"
+    enable_scratch                           = true
+    enable_replay_credential_permissions     = true
+    confirm_project_inventory                = true
+    confirm_project_scoped_cloudsql_user_ops = true
+    replay_credential_iam_expires_at         = "2026-10-16T16:00:00Z"
+    operator_member                          = "user:pasteleriahijitos@gmail.com"
+  }
+
+  assert {
+    condition = (
+      length(google_project_iam_custom_role.replay_credential_sql_operator) == 1 &&
+      length(google_project_iam_member.replay_credential_sql_operator) == 1 &&
+      length(google_project_iam_custom_role.replay_secret_version_operator) == 1 &&
+      length(google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator) == 1 &&
+      length(google_secret_manager_secret_iam_member.replay_owner_secret_version_operator) == 1 &&
+      length(google_cloud_run_v2_job.migrator) == 0
+    )
+    error_message = "The first isolated mock apply must create only the five replay IAM resources, with Jobs still disabled."
+  }
+}
+
+run "sequential_jobs_plan_retains_applied_replay_iam" {
+  command   = plan
+  state_key = "replay-iam-then-jobs"
+
+  variables {
+    project_id                               = "espacigo-testprod"
+    region                                   = "southamerica-west1"
+    run_id                                   = "pilot01"
+    enable_scratch                           = true
+    enable_job                               = true
+    enable_replay_credential_permissions     = true
+    confirm_project_inventory                = true
+    confirm_project_scoped_cloudsql_user_ops = true
+    replay_credential_iam_expires_at         = "2026-10-16T16:00:00Z"
+    confirm_image_pushed                     = true
+    confirm_scratch_secret_version           = true
+    confirm_database_owner_secret_version    = true
+    migrator_secret_version                  = "4"
+    database_owner_secret_version            = "1"
+    migrator_image                           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    operator_member                          = "user:pasteleriahijitos@gmail.com"
+  }
+
+  assert {
+    condition = (
+      toset(keys(google_cloud_run_v2_job.migrator)) == toset(["bootstrap", "database_acl", "migrate", "finalize", "retire"]) &&
+      length(google_project_iam_custom_role.replay_credential_sql_operator) == 1 &&
+      length(google_project_iam_member.replay_credential_sql_operator) == 1 &&
+      length(google_project_iam_custom_role.replay_secret_version_operator) == 1 &&
+      length(google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator) == 1 &&
+      length(google_secret_manager_secret_iam_member.replay_owner_secret_version_operator) == 1 &&
+      google_project_iam_member.replay_credential_sql_operator[0].condition[0].expression == "request.time < timestamp('2026-10-16T16:00:00Z')" &&
+      google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator[0].secret_id == "espacigo-gcp03-pilot01-migrator-password" &&
+      google_secret_manager_secret_iam_member.replay_owner_secret_version_operator[0].secret_id == "espacigo-gcp03-pilot01-db-owner-password"
+    )
+    error_message = "Planning the five Jobs after the isolated IAM apply must retain all IAM grants, their expiry, and exact secret scopes."
+  }
+}
+
+run "migration_jobs_reject_latest_migrator_secret_version" {
+  command = plan
+
+  variables {
+    project_id              = "espacigo-testprod"
+    migrator_secret_version = "latest"
+  }
+
+  expect_failures = [var.migrator_secret_version]
+}
+
+run "migration_jobs_reject_zero_migrator_secret_version" {
+  command = plan
+
+  variables {
+    project_id              = "espacigo-testprod"
+    migrator_secret_version = "0"
+  }
+
+  expect_failures = [var.migrator_secret_version]
+}
+
+run "migration_jobs_reject_latest_owner_secret_version" {
+  command = plan
+
+  variables {
+    project_id                    = "espacigo-testprod"
+    database_owner_secret_version = "latest"
+  }
+
+  expect_failures = [var.database_owner_secret_version]
+}
+
+run "migration_jobs_reject_zero_owner_secret_version" {
+  command = plan
+
+  variables {
+    project_id                    = "espacigo-testprod"
+    database_owner_secret_version = "0"
+  }
+
+  expect_failures = [var.database_owner_secret_version]
 }
 
 run "role_comment_probe_jobs_require_existing_numeric_version_and_grant_only_job_invocation" {

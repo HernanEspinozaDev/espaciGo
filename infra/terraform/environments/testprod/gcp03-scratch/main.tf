@@ -1,11 +1,16 @@
 locals {
-  name_prefix                               = "espacigo-gcp03-${var.run_id}"
-  scratch_enabled                           = var.enable_scratch
-  job_enabled                               = var.enable_scratch && var.enable_job
-  role_probe_enabled                        = var.enable_scratch && var.enable_role_probe_jobs
-  role_probe_credential_permissions_enabled = var.enable_scratch && var.enable_role_probe_credential_permissions
-  protect_scratch                           = !var.allow_scratch_destroy
-  protect_role_probe_jobs                   = !var.allow_role_probe_job_destroy
+  name_prefix                                = "espacigo-gcp03-${var.run_id}"
+  scratch_enabled                            = var.enable_scratch
+  job_enabled                                = var.enable_scratch && var.enable_job
+  role_probe_enabled                         = var.enable_scratch && var.enable_role_probe_jobs
+  role_probe_credential_permissions_enabled  = var.enable_scratch && var.enable_role_probe_credential_permissions
+  replay_credential_permissions_enabled      = var.enable_scratch && var.enable_replay_credential_permissions
+  scratch_migrator_service_account_email     = "gcp03-scratch-${var.run_id}@${var.project_id}.iam.gserviceaccount.com"
+  scratch_database_acl_service_account_email = "gcp03-scratch-acl-${var.run_id}@${var.project_id}.iam.gserviceaccount.com"
+  scratch_migrator_service_account_id        = "projects/${var.project_id}/serviceAccounts/${local.scratch_migrator_service_account_email}"
+  scratch_database_acl_service_account_id    = "projects/${var.project_id}/serviceAccounts/${local.scratch_database_acl_service_account_email}"
+  protect_scratch                            = !var.allow_scratch_destroy
+  protect_role_probe_jobs                    = !var.allow_role_probe_job_destroy
   job_phases = {
     bootstrap    = "bootstrap"
     database_acl = "database_acl"
@@ -214,7 +219,7 @@ resource "google_cloud_run_v2_job" "migrator" {
     parallelism = 1
 
     template {
-      service_account = contains(["database_acl", "retire"], each.key) ? google_service_account.scratch_database_acl[0].email : google_service_account.scratch_migrator[0].email
+      service_account = contains(["database_acl", "retire"], each.key) ? local.scratch_database_acl_service_account_email : local.scratch_migrator_service_account_email
       timeout         = "14400s"
       max_retries     = 0
 
@@ -269,7 +274,7 @@ resource "google_cloud_run_v2_job" "migrator" {
         secret {
           secret = contains(["database_acl", "retire"], each.key) ? google_secret_manager_secret.scratch_database_owner_password[0].secret_id : google_secret_manager_secret.scratch_password[0].secret_id
           items {
-            version = "latest"
+            version = contains(["database_acl", "retire"], each.key) ? var.database_owner_secret_version : var.migrator_secret_version
             path    = "password"
           }
         }
@@ -287,8 +292,13 @@ resource "google_cloud_run_v2_job" "migrator" {
 
   lifecycle {
     precondition {
-      condition     = local.scratch_enabled && var.confirm_image_pushed && var.confirm_scratch_secret_version && var.confirm_database_owner_secret_version
-      error_message = "The named phases require the reviewed image digest and active migrator/database-owner secret versions."
+      condition = (
+        local.scratch_enabled && var.confirm_image_pushed &&
+        var.confirm_scratch_secret_version && var.confirm_database_owner_secret_version &&
+        can(regex("^[1-9][0-9]*$", var.migrator_secret_version)) &&
+        can(regex("^[1-9][0-9]*$", var.database_owner_secret_version))
+      )
+      error_message = "The named phases require the reviewed image digest and exact active numeric migrator/database-owner secret versions."
     }
   }
 }
@@ -439,6 +449,77 @@ resource "google_secret_manager_secret_iam_member" "role_probe_secret_operator" 
   }
 }
 
+# Separate full-replay credential gate. These custom role IDs are distinct from
+# the soft-deleted role-probe IDs and are never granted to runtime service accounts.
+resource "google_project_iam_custom_role" "replay_credential_sql_operator" {
+  count       = local.replay_credential_permissions_enabled ? 1 : 0
+  project     = var.project_id
+  role_id     = "gcp03v1v61sqlops261016"
+  title       = "GCP-03 V1-V61 temporary SQL credential operator"
+  description = "Short-lived Cloud SQL Admin API methods for the fixed scratch migrator and postgres-owner logins."
+  permissions = [
+    "cloudsql.instances.get",
+    "cloudsql.users.create",
+    "cloudsql.users.get",
+    "cloudsql.users.update",
+  ]
+}
+
+resource "google_project_iam_member" "replay_credential_sql_operator" {
+  count   = local.replay_credential_permissions_enabled ? 1 : 0
+  project = var.project_id
+  role    = google_project_iam_custom_role.replay_credential_sql_operator[0].name
+  member  = var.operator_member
+
+  condition {
+    title       = "gcp03-${var.run_id}-replay-sql-credential-expiry"
+    description = "Short-lived project-scoped SQL user operations for only the named scratch procedure; Cloud SQL Admin IAM cannot constrain users.* to one instance."
+    expression  = "request.time < timestamp('${var.replay_credential_iam_expires_at}')"
+  }
+}
+
+resource "google_project_iam_custom_role" "replay_secret_version_operator" {
+  count       = local.replay_credential_permissions_enabled ? 1 : 0
+  project     = var.project_id
+  role_id     = "gcp03v1v61secretversions261016"
+  title       = "GCP-03 V1-V61 temporary secret version operator"
+  description = "Short-lived version metadata/add/destroy operations on the two fixed scratch credential secrets; excludes payload access."
+  permissions = [
+    "secretmanager.versions.add",
+    "secretmanager.versions.destroy",
+    "secretmanager.versions.get",
+    "secretmanager.versions.list",
+  ]
+}
+
+resource "google_secret_manager_secret_iam_member" "replay_migrator_secret_version_operator" {
+  count     = local.replay_credential_permissions_enabled ? 1 : 0
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.scratch_password[0].secret_id
+  role      = google_project_iam_custom_role.replay_secret_version_operator[0].name
+  member    = var.operator_member
+
+  condition {
+    title       = "gcp03-${var.run_id}-replay-migrator-secret-expiry"
+    description = "Short-lived version operations on the exact scratch migrator credential secret; no secret payload access."
+    expression  = "request.time < timestamp('${var.replay_credential_iam_expires_at}')"
+  }
+}
+
+resource "google_secret_manager_secret_iam_member" "replay_owner_secret_version_operator" {
+  count     = local.replay_credential_permissions_enabled ? 1 : 0
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.scratch_database_owner_password[0].secret_id
+  role      = google_project_iam_custom_role.replay_secret_version_operator[0].name
+  member    = var.operator_member
+
+  condition {
+    title       = "gcp03-${var.run_id}-replay-owner-secret-expiry"
+    description = "Short-lived version operations on the exact scratch database-owner credential secret; no secret payload access."
+    expression  = "request.time < timestamp('${var.replay_credential_iam_expires_at}')"
+  }
+}
+
 resource "google_cloud_run_v2_job_iam_member" "invoke_operator" {
   for_each = google_cloud_run_v2_job.migrator
   project  = var.project_id
@@ -450,7 +531,7 @@ resource "google_cloud_run_v2_job_iam_member" "invoke_operator" {
 
 resource "google_service_account_iam_member" "operator_act_as" {
   count              = local.job_enabled || local.role_probe_enabled ? 1 : 0
-  service_account_id = google_service_account.scratch_migrator[0].name
+  service_account_id = local.scratch_migrator_service_account_id
   role               = "roles/iam.serviceAccountUser"
   member             = var.operator_member
 }
@@ -466,7 +547,7 @@ resource "google_cloud_run_v2_job_iam_member" "role_probe_operator" {
 
 resource "google_service_account_iam_member" "operator_act_as_database_acl" {
   count              = local.job_enabled ? 1 : 0
-  service_account_id = google_service_account.scratch_database_acl[0].name
+  service_account_id = local.scratch_database_acl_service_account_id
   role               = "roles/iam.serviceAccountUser"
   member             = var.operator_member
 }
