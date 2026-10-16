@@ -1,0 +1,686 @@
+{
+  "classification": "public, secret-free manifest extracted from the saved authenticated Terraform plan JSON; not apply authorization",
+  "plan": {
+    "terraform_version": "1.16.6",
+    "source_main_head": "6ea59e5ec208b423ad530566dfc69db454e16572",
+    "sha256": "11cf459fe59669d4ad7747cc24b68e3c53ce9ad873574c3211450f6c3f3f9e8c",
+    "private_artifact": ".local/planning/gcp/foundation-plan-20261016/foundation-plan.tfplan",
+    "actions": {
+      "create": 41
+    },
+    "resource_change_count": 41,
+    "resource_type_counts": {
+      "google_artifact_registry_repository": 1,
+      "google_artifact_registry_repository_iam_member": 1,
+      "google_compute_network": 1,
+      "google_compute_subnetwork": 1,
+      "google_iam_workload_identity_pool": 1,
+      "google_iam_workload_identity_pool_provider": 1,
+      "google_project_iam_member": 3,
+      "google_project_service": 13,
+      "google_secret_manager_secret": 3,
+      "google_secret_manager_secret_iam_member": 4,
+      "google_service_account": 5,
+      "google_service_account_iam_member": 5,
+      "google_storage_bucket": 1,
+      "google_storage_bucket_iam_member": 1
+    },
+    "deletes": 0,
+    "applied": false,
+    "resources": [
+      {
+        "address": "google_artifact_registry_repository.containers[0]",
+        "type": "google_artifact_registry_repository",
+        "actions": [
+          "create"
+        ],
+        "repository_id": "espacigo-testprod",
+        "location": "southamerica-west1",
+        "format": "DOCKER",
+        "mode": "STANDARD_REPOSITORY"
+      },
+      {
+        "address": "google_artifact_registry_repository_iam_member.deployer_writer[0]",
+        "type": "google_artifact_registry_repository_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/artifactregistry.writer",
+        "member": "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_compute_network.testprod[0]",
+        "type": "google_compute_network",
+        "actions": [
+          "create"
+        ],
+        "name": "espacigo-testprod",
+        "auto_create_subnetworks": false,
+        "routing_mode": "REGIONAL"
+      },
+      {
+        "address": "google_compute_subnetwork.serverless[0]",
+        "type": "google_compute_subnetwork",
+        "actions": [
+          "create"
+        ],
+        "name": "espacigo-testprod-serverless",
+        "region": "southamerica-west1",
+        "ip_cidr_range": "10.80.0.0/24",
+        "private_ip_google_access": true
+      },
+      {
+        "address": "google_iam_workload_identity_pool.github[0]",
+        "type": "google_iam_workload_identity_pool",
+        "actions": [
+          "create"
+        ],
+        "workload_identity_pool_id": "espacigo-testprod-github",
+        "display_name": "EspaciGo testprod GitHub Actions"
+      },
+      {
+        "address": "google_iam_workload_identity_pool_provider.github[0]",
+        "type": "google_iam_workload_identity_pool_provider",
+        "actions": [
+          "create"
+        ],
+        "workload_identity_pool_provider_id": "espacigo-main",
+        "attribute_condition": "assertion.repository == 'HernanEspinozaDev/espaciGo' && assertion.ref == 'refs/heads/main'"
+      },
+      {
+        "address": "google_project_iam_member.cloudsql_clients[\"api\"]",
+        "type": "google_project_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/cloudsql.client",
+        "member": "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_project_iam_member.cloudsql_clients[\"migrator\"]",
+        "type": "google_project_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/cloudsql.client",
+        "member": "serviceAccount:espacigo-test-migrator@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_project_iam_member.deployer_run[0]",
+        "type": "google_project_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/run.developer",
+        "member": "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_project_service.required[\"artifactregistry.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "artifactregistry.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_project_service.required[\"cloudresourcemanager.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "cloudresourcemanager.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_project_service.required[\"compute.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "compute.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_project_service.required[\"iam.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "iam.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_project_service.required[\"iamcredentials.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "iamcredentials.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_project_service.required[\"iap.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "iap.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_project_service.required[\"run.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "run.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_project_service.required[\"secretmanager.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "secretmanager.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_project_service.required[\"servicenetworking.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "servicenetworking.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_project_service.required[\"serviceusage.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "serviceusage.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_project_service.required[\"sqladmin.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "sqladmin.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_project_service.required[\"storage.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "storage.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_project_service.required[\"sts.googleapis.com\"]",
+        "type": "google_project_service",
+        "actions": [
+          "create"
+        ],
+        "service": "sts.googleapis.com",
+        "project": "espacigo-testprod"
+      },
+      {
+        "address": "google_secret_manager_secret.runtime[\"contract-encryption-key\"]",
+        "type": "google_secret_manager_secret",
+        "actions": [
+          "create"
+        ],
+        "secret_id": "espacigo-test-contract-encryption-key",
+        "deletion_policy": "DISABLE"
+      },
+      {
+        "address": "google_secret_manager_secret.runtime[\"database-password\"]",
+        "type": "google_secret_manager_secret",
+        "actions": [
+          "create"
+        ],
+        "secret_id": "espacigo-test-database-password",
+        "deletion_policy": "DISABLE"
+      },
+      {
+        "address": "google_secret_manager_secret.runtime[\"payment-webhook-secret\"]",
+        "type": "google_secret_manager_secret",
+        "actions": [
+          "create"
+        ],
+        "secret_id": "espacigo-test-payment-webhook-secret",
+        "deletion_policy": "DISABLE"
+      },
+      {
+        "address": "google_secret_manager_secret_iam_member.api_secret_access[\"contract-encryption-key\"]",
+        "type": "google_secret_manager_secret_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
+        "secret_id": "espacigo-test-contract-encryption-key"
+      },
+      {
+        "address": "google_secret_manager_secret_iam_member.api_secret_access[\"database-password\"]",
+        "type": "google_secret_manager_secret_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
+        "secret_id": "espacigo-test-database-password"
+      },
+      {
+        "address": "google_secret_manager_secret_iam_member.api_secret_access[\"payment-webhook-secret\"]",
+        "type": "google_secret_manager_secret_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
+        "secret_id": "espacigo-test-payment-webhook-secret"
+      },
+      {
+        "address": "google_secret_manager_secret_iam_member.migrator_db_access[0]",
+        "type": "google_secret_manager_secret_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:espacigo-test-migrator@espacigo-testprod.iam.gserviceaccount.com",
+        "secret_id": "espacigo-test-database-password"
+      },
+      {
+        "address": "google_service_account.runtime[\"api\"]",
+        "type": "google_service_account",
+        "actions": [
+          "create"
+        ],
+        "account_id": "espacigo-test-api",
+        "display_name": "EspaciGo testprod api runtime"
+      },
+      {
+        "address": "google_service_account.runtime[\"deployer\"]",
+        "type": "google_service_account",
+        "actions": [
+          "create"
+        ],
+        "account_id": "espacigo-test-deployer",
+        "display_name": "EspaciGo testprod deployer runtime"
+      },
+      {
+        "address": "google_service_account.runtime[\"migrator\"]",
+        "type": "google_service_account",
+        "actions": [
+          "create"
+        ],
+        "account_id": "espacigo-test-migrator",
+        "display_name": "EspaciGo testprod migrator runtime"
+      },
+      {
+        "address": "google_service_account.runtime[\"private-web\"]",
+        "type": "google_service_account",
+        "actions": [
+          "create"
+        ],
+        "account_id": "espacigo-test-private-web",
+        "display_name": "EspaciGo testprod private-web runtime"
+      },
+      {
+        "address": "google_service_account.runtime[\"public-web\"]",
+        "type": "google_service_account",
+        "actions": [
+          "create"
+        ],
+        "account_id": "espacigo-test-public-web",
+        "display_name": "EspaciGo testprod public-web runtime"
+      },
+      {
+        "address": "google_service_account_iam_member.deployer_act_as_runtime[\"api\"]",
+        "type": "google_service_account_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_service_account_iam_member.deployer_act_as_runtime[\"migrator\"]",
+        "type": "google_service_account_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_service_account_iam_member.deployer_act_as_runtime[\"private-web\"]",
+        "type": "google_service_account_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_service_account_iam_member.deployer_act_as_runtime[\"public-web\"]",
+        "type": "google_service_account_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_service_account_iam_member.github_deployer[0]",
+        "type": "google_service_account_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/iam.workloadIdentityUser",
+        "member": null,
+        "member_expression_from_configuration": "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github[0].name}/attribute.repository/${var.github_repository}"
+      },
+      {
+        "address": "google_storage_bucket.private_files[0]",
+        "type": "google_storage_bucket",
+        "actions": [
+          "create"
+        ],
+        "name": "espacigo-test-files-447373903153-gcp02",
+        "location": "SOUTHAMERICA-WEST1",
+        "storage_class": "STANDARD",
+        "uniform_bucket_level_access": true,
+        "public_access_prevention": "enforced",
+        "versioning": [
+          {
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "address": "google_storage_bucket_iam_member.api_files[0]",
+        "type": "google_storage_bucket_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/storage.objectAdmin",
+        "member": "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
+        "bucket": "espacigo-test-files-447373903153-gcp02"
+      }
+    ]
+  },
+  "scope": {
+    "project_id": "espacigo-testprod",
+    "project_number": "447373903153",
+    "region": "southamerica-west1",
+    "toggles": {
+      "enable_foundation": true,
+      "enable_database": false,
+      "enable_services": false,
+      "enable_edge": false,
+      "manage_dns_records": false,
+      "iap_evaluator_members": []
+    },
+    "no_secret_values_or_versions": true
+  },
+  "state": {
+    "backend_bucket": "espacigo-testprod-tfstate-447373903153-gcp",
+    "prefix": "espacigo/testprod/gcp",
+    "workspace": "default",
+    "remote_object": "espacigo/testprod/gcp/default.tfstate",
+    "serial": 1,
+    "lineage": "95bafa42-5d1a-bef2-909b-7ce4b6a92096",
+    "resource_count": 0,
+    "sha256": "6dd3a09da6f88b33a6502b90e498627075a670f8348adf5984f4f34878191606",
+    "created_by_initial_backend_init_not_state_migration": true,
+    "unchanged_by_plan": true,
+    "only_live_prefix_object": "espacigo/testprod/gcp/default.tfstate",
+    "noncurrent_tflock_generations_after_plan": 3
+  },
+  "apis": {
+    "planned": [
+      "artifactregistry.googleapis.com",
+      "cloudresourcemanager.googleapis.com",
+      "compute.googleapis.com",
+      "iam.googleapis.com",
+      "iamcredentials.googleapis.com",
+      "iap.googleapis.com",
+      "run.googleapis.com",
+      "secretmanager.googleapis.com",
+      "servicenetworking.googleapis.com",
+      "serviceusage.googleapis.com",
+      "sqladmin.googleapis.com",
+      "storage.googleapis.com",
+      "sts.googleapis.com"
+    ],
+    "currently_enabled": [
+      "serviceusage.googleapis.com",
+      "storage.googleapis.com"
+    ],
+    "currently_disabled": [
+      "artifactregistry.googleapis.com",
+      "cloudresourcemanager.googleapis.com",
+      "compute.googleapis.com",
+      "iam.googleapis.com",
+      "iamcredentials.googleapis.com",
+      "iap.googleapis.com",
+      "run.googleapis.com",
+      "secretmanager.googleapis.com",
+      "servicenetworking.googleapis.com",
+      "sqladmin.googleapis.com",
+      "sts.googleapis.com"
+    ],
+    "ownership": {
+      "inventory-apis": [
+        "cloudasset.googleapis.com",
+        "orgpolicy.googleapis.com"
+      ],
+      "gcp_root": [
+        "storage.googleapis.com",
+        "serviceusage.googleapis.com"
+      ]
+    },
+    "note": "Thirteen new google_project_service Terraform addresses are planned. Storage and Service Usage were already ENABLED; they become GCP-root state addresses. No API was enabled by planning."
+  },
+  "iam": {
+    "planned_binding_count": 14,
+    "bindings": [
+      {
+        "address": "google_artifact_registry_repository_iam_member.deployer_writer[0]",
+        "type": "google_artifact_registry_repository_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/artifactregistry.writer",
+        "member": "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_project_iam_member.cloudsql_clients[\"api\"]",
+        "type": "google_project_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/cloudsql.client",
+        "member": "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_project_iam_member.cloudsql_clients[\"migrator\"]",
+        "type": "google_project_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/cloudsql.client",
+        "member": "serviceAccount:espacigo-test-migrator@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_project_iam_member.deployer_run[0]",
+        "type": "google_project_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/run.developer",
+        "member": "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_secret_manager_secret_iam_member.api_secret_access[\"contract-encryption-key\"]",
+        "type": "google_secret_manager_secret_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
+        "secret_id": "espacigo-test-contract-encryption-key"
+      },
+      {
+        "address": "google_secret_manager_secret_iam_member.api_secret_access[\"database-password\"]",
+        "type": "google_secret_manager_secret_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
+        "secret_id": "espacigo-test-database-password"
+      },
+      {
+        "address": "google_secret_manager_secret_iam_member.api_secret_access[\"payment-webhook-secret\"]",
+        "type": "google_secret_manager_secret_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
+        "secret_id": "espacigo-test-payment-webhook-secret"
+      },
+      {
+        "address": "google_secret_manager_secret_iam_member.migrator_db_access[0]",
+        "type": "google_secret_manager_secret_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/secretmanager.secretAccessor",
+        "member": "serviceAccount:espacigo-test-migrator@espacigo-testprod.iam.gserviceaccount.com",
+        "secret_id": "espacigo-test-database-password"
+      },
+      {
+        "address": "google_service_account_iam_member.deployer_act_as_runtime[\"api\"]",
+        "type": "google_service_account_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_service_account_iam_member.deployer_act_as_runtime[\"migrator\"]",
+        "type": "google_service_account_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_service_account_iam_member.deployer_act_as_runtime[\"private-web\"]",
+        "type": "google_service_account_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_service_account_iam_member.deployer_act_as_runtime[\"public-web\"]",
+        "type": "google_service_account_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/iam.serviceAccountUser",
+        "member": "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"
+      },
+      {
+        "address": "google_service_account_iam_member.github_deployer[0]",
+        "type": "google_service_account_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/iam.workloadIdentityUser",
+        "member": null,
+        "member_expression_from_configuration": "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github[0].name}/attribute.repository/${var.github_repository}"
+      },
+      {
+        "address": "google_storage_bucket_iam_member.api_files[0]",
+        "type": "google_storage_bucket_iam_member",
+        "actions": [
+          "create"
+        ],
+        "role": "roles/storage.objectAdmin",
+        "member": "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
+        "bucket": "espacigo-test-files-447373903153-gcp02"
+      }
+    ],
+    "joint_foundation_provisioning_rationale": "The selected PR scope is joint provisioning of all 14 bindings with Foundation identities/resources to keep the planned deployer/runtime architecture pre-wired for the next deployment phase; this means access is granted before SQL/Run workloads exist. This is a proposed plan, not a human acceptance or an applied permission.",
+    "privilege_review": "roles/run.developer is project-scoped; roles/iam.serviceAccountUser allows actAs on four runtime service accounts. Other runtime access grants are dormant until those workloads use them. Reviewer acceptance remains outstanding; this rationale does not mark the grants approved.",
+    "review_requirement": "Reviewer must accept each exact role, grantee, scope and timing before any apply. Do not mark this grant set approved until that review occurs."
+  },
+  "name_and_policy_preflight": {
+    "private_files_bucket": "espacigo-test-files-447373903153-gcp02",
+    "bucket_read_only_lookup": "404/not addressable at preflight; global availability is not reserved and is proven only by successful creation",
+    "effective_policy_snapshot_date": "2026-10-15",
+    "relevant_effective_constraints": {
+      "iam.disableServiceAccountCreation": "enforce=false",
+      "iam.allowedPolicyMemberDomains": "allowAll=true",
+      "gcp.resourceLocations": "allowAll=true",
+      "storage.uniformBucketLevelAccess": "enforce=true",
+      "iam.disableServiceAccountKeyCreation": "enforce=true",
+      "iam.disableServiceAccountKeyUpload": "enforce=true",
+      "iam.automaticIamGrantsForDefaultServiceAccounts": "enforce=true"
+    },
+    "policy_source": "planning/gcp/preaprovisionamiento_gcp_02.md; recheck before apply"
+  },
+  "enabled_services_snapshot": {
+    "plan_time_full_project_snapshot_sha256": "a3e1563a532c4f227e9957b1f2a07e2252de847ec6bd00ab70b0e62a60ba9c14",
+    "private_snapshot": ".local/planning/gcp/foundation-plan-20261016/enabled-services-current.json",
+    "before_any_apply": "Capture a fresh complete `gcloud services list --enabled --project=espacigo-testprod` result privately, hash it, compare API ownership/status with this plan, and stop/replan if it differs; capture and compare the complete list again after applying."
+  },
+  "foundation_cost_only": {
+    "idle_monthly_floor_usd": 0,
+    "assumptions": "Artifact Registry empty, files bucket empty, three Secret Manager containers with zero versions/operations beyond free tier; no workloads, egress, logs or stored bytes.",
+    "fixed_cost_resources": "API enablement, VPC/subnet, service accounts, WIF and IAM have no fixed monthly resource fee identified.",
+    "rates": {
+      "artifact_registry": "First 0.5 GiB/month per billing account free; then USD 0.000136986/GiB-hour.",
+      "gcs_standard_southamerica_west1": "USD 0.000027397/GiB-hour; Class A USD 0.005/1,000; Class B USD 0.0004/1,000.",
+      "secret_manager": "First 6 active versions/account free; then USD 0.000082192/version-hour; 10,000 accesses/month free, then USD 0.03/10,000."
+    },
+    "excludes": [
+      "Cloud SQL",
+      "Cloud Run",
+      "load balancer/Cloud Armor",
+      "DNS",
+      "egress",
+      "logs",
+      "images",
+      "file bytes",
+      "secret versions/values",
+      "future workloads"
+    ],
+    "source": "planning/gcp/costo_foundation_gcp02.md"
+  },
+  "explicitly_absent": [
+    "Cloud SQL instances/databases",
+    "Cloud Run services",
+    "load balancer/Armor",
+    "DNS records",
+    "secret versions or values",
+    "any apply"
+  ],
+  "billing": "No billing mode changes. Free Trial status/balance were not verified in Billing Overview; no Paid Billing activation."
+}
