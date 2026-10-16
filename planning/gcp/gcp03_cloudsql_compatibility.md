@@ -1,6 +1,6 @@
 # GCP-03: plan de Cloud SQL y compatibilidad
 
-Fecha: 2026-10-16. Base `main`: `48183d22d1f5d7f11c3b610a625ca392a8503c71` (merge #334). El plan fue aprobado y aplicado por el usuario; PR #336 se fusionó en `c087c13f6bde97ccd571c58cd702e906fd0212a5`. Proyecto `espacigo-testprod` (`447373903153`), región `southamerica-west1` (Santiago). Esta evidencia acredita el aprovisionamiento revisado, pero no la compatibilidad de restauración ni la aceptación de producto.
+Fecha: 2026-10-16. Base `main`: `48183d22d1f5d7f11c3b610a625ca392a8503c71` (merge #334). Desarrollo ejecutó el plan después de la revisión técnica y liberación en este chat, bajo la autorización previa del usuario; no se atribuye una aprobación puntual del binario al usuario. PR #336 se fusionó en `c087c13f6bde97ccd571c58cd702e906fd0212a5`. Proyecto `espacigo-testprod` (`447373903153`), región `southamerica-west1` (Santiago). Esta evidencia acredita el aprovisionamiento revisado, pero no la compatibilidad de restauración ni la aceptación de producto.
 
 ## Guardas y estado antes del corte
 
@@ -22,7 +22,7 @@ Configuración: PostgreSQL 18, edición Enterprise, `db-custom-N4-2-4096`, Santi
 | `google_secret_manager_secret.runtime["database-migrator-password"]` | crear | Solo metadatos del secreto; no incluye versión ni valor |
 | `google_secret_manager_secret_iam_member.migrator_db_access[0]` | reemplazar | Revoca al SA migrador acceso al secreto de runtime `database-password` y se lo concede al secreto separado `database-migrator-password` |
 
-Resumen de Terraform: **6 crear, 0 actualizar, 1 destruir**; la única acción de destrucción es el reemplazo del miembro IAM indicado. Terraform no declara usuarios SQL, contraseñas, versiones de Secret Manager, tablas, extensiones ni datos. Cloud SQL crea automáticamente su usuario de administración predeterminado `postgres` sin contraseña al crear la instancia. La API mantiene acceso al secreto runtime ya existente. El usuario revisó y autorizó la aplicación exacta del binario privado `gcp03-database.tfplan`, SHA-256 `81c7fc5cc1654123288234cf121666f7c520c08382b9130343af73d3953e230c`.
+Resumen de Terraform: **6 crear, 0 actualizar, 1 destruir**; la única acción de destrucción es el reemplazo del miembro IAM indicado. Terraform no declara usuarios SQL, contraseñas, versiones de Secret Manager, tablas, extensiones ni datos. Cloud SQL crea automáticamente su usuario de administración predeterminado `postgres` sin contraseña al crear la instancia. La API mantiene acceso al secreto runtime ya existente. El binario privado `gcp03-database.tfplan`, SHA-256 `81c7fc5cc1654123288234cf121666f7c520c08382b9130343af73d3953e230c`, fue revisado técnicamente y su aplicación se liberó en este chat bajo la autorización previa del usuario.
 
 La división de secretos permite preparar cuentas SQL distintas: API/runtime lee `database-password`; el migrador lee `database-migrator-password`. Terraform agrega únicamente el contenedor vacío y modifica el grant del SA migrador. La creación segura de versiones y usuarios SQL queda fuera de este plan y requerirá procedimiento aprobado, fuera del state Terraform. No escribir valores en código, PR, consola, shell history, logs o state.
 

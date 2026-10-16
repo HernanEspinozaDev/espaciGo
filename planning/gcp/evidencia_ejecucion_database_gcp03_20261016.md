@@ -1,10 +1,11 @@
 # Evidencia de ejecución GCP-03 Database
 
-Fecha: 2026-10-16 (UTC). Proyecto `espacigo-testprod` (`447373903153`), región `southamerica-west1`. PR de preparación #336, HEAD revisado `908801dcafbc022adcdea2c08217a5126eb2487f`, merge `c087c13f6bde97ccd571c58cd702e906fd0212a5`. Esta evidencia registra la ejecución exacta autorizada; no acredita compatibilidad de datos, restauración, aceptación de producto ni autorización para servicios/edge.
+Fecha: 2026-10-16 (UTC). Proyecto `espacigo-testprod` (`447373903153`), región `southamerica-west1`. PR de preparación #336, HEAD revisado `908801dcafbc022adcdea2c08217a5126eb2487f`, merge `c087c13f6bde97ccd571c58cd702e906fd0212a5`. Desarrollo ejecutó el plan después de la revisión técnica y liberación de este chat, bajo la autorización previa del usuario; no se atribuye una aprobación puntual del binario al usuario. Esta evidencia registra la ejecución exacta; no acredita compatibilidad de datos, restauración, aceptación de producto ni autorización para servicios/edge.
 
 ## Plan exacto y verificaciones antes de aplicar
 
 - Archivo de plan privado: `.local/planning/gcp/gcp-03-cloudsql-20261016/gcp03-database.tfplan`, SHA-256 `81c7fc5cc1654123288234cf121666f7c520c08382b9130343af73d3953e230c`. Permisos: directorio 0700, archivos 0600. No se versionan planes, state, tfvars, identidad, respuestas completas ni logs.
+- El plan se revisó técnicamente y su aplicación se liberó en este chat bajo la autorización previa del usuario; desarrollo ejecutó exclusivamente ese binario.
 - Terraform 1.16.6 y Google provider 8.7.0. Identidad ADC verificada contra la cuenta activa de `gcloud`, con permiso `roles/owner` en el proyecto consultado explícitamente. El `core/project` predeterminado de gcloud era otro; todos los comandos operativos y variables Terraform especificaron `espacigo-testprod`/`447373903153` de forma explícita.
 - State remoto GCP antes: serial 7, lineage `95bafa42-5d1a-bef2-909b-7ce4b6a92096`, 41 instancias. El plan Foundation=true/Database=false/Services=false/Edge=false, refrescado justo antes del apply, terminó código 0 (`No changes`).
 - Preflight de nombres: cero Cloud SQL, cero rangos globales y cero peerings antes del corte; una subred existente `10.80.0.0/24`; el secreto nuevo no existía; el grant del SA migrador apuntaba al secreto runtime.
