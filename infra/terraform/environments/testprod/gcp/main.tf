@@ -277,13 +277,15 @@ resource "google_sql_database_instance" "postgres" {
   deletion_policy     = "PREVENT"
 
   settings {
-    edition               = "ENTERPRISE"
-    tier                  = var.cloudsql_tier
-    disk_type             = "HYPERDISK_BALANCED"
-    disk_size             = var.cloudsql_disk_gib
-    disk_autoresize       = true
-    disk_autoresize_limit = var.cloudsql_disk_limit_gib
-    availability_type     = "ZONAL"
+    edition                     = "ENTERPRISE"
+    deletion_protection_enabled = true
+    tier                        = var.cloudsql_tier
+    connector_enforcement       = "REQUIRED"
+    disk_type                   = "HYPERDISK_BALANCED"
+    disk_size                   = var.cloudsql_disk_gib
+    disk_autoresize             = true
+    disk_autoresize_limit       = var.cloudsql_disk_limit_gib
+    availability_type           = "ZONAL"
     user_labels = {
       application = "espacigo"
       environment = "testprod"
@@ -293,6 +295,7 @@ resource "google_sql_database_instance" "postgres" {
     ip_configuration {
       ipv4_enabled    = false
       private_network = google_compute_network.testprod[0].id
+      ssl_mode        = "ENCRYPTED_ONLY"
     }
 
     backup_configuration {
