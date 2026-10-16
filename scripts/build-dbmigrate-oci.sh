@@ -14,8 +14,8 @@ umask 077
 mkdir -p "$output_dir"
 chmod 0700 "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
-oci_archive="$output_dir/dbmigrate-linux-amd64.oci.tar"
-manifest="$output_dir/dbmigrate-manifest.json"
+oci_archive="$output_dir/gcp03scratch-linux-amd64.oci.tar"
+manifest="$output_dir/gcp03scratch-manifest.json"
 
 commit="$(git rev-parse HEAD)"
 if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
@@ -63,6 +63,17 @@ aggregate_hash = hashlib.sha256()
 for path, digest in migration_hashes.items():
     aggregate_hash.update(f"{digest}  {path}\n".encode())
 aggregate = aggregate_hash.hexdigest()
+bootstrap_sql = sorted(pathlib.Path("db/bootstrap/gcp03scratch").glob("*.sql"))
+if [path.name for path in bootstrap_sql] != ["001_pre_migrate.sql", "002_retire_migrator.sql"]:
+    raise SystemExit("unexpected GCP-03 scratch SQL phase inventory")
+bootstrap_hashes = {
+    path.as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+    for path in bootstrap_sql
+}
+bootstrap_hash = hashlib.sha256()
+for path, digest in bootstrap_hashes.items():
+    bootstrap_hash.update(f"{digest}  {path}\n".encode())
+bootstrap_aggregate = bootstrap_hash.hexdigest()
 with tarfile.open(archive, "r:") as image:
     index = json.load(image.extractfile("index.json"))
     manifests = index.get("manifests", [])
@@ -89,15 +100,20 @@ record = {
     "platform": "linux/amd64",
     "oci_manifest_digest": digest,
     "oci_archive_sha256": hashlib.sha256(pathlib.Path(archive).read_bytes()).hexdigest(),
+    "executor_command": "cmd/gcp03scratch",
+    "executor_phase_names": ["bootstrap", "migrate", "finalize", "retire"],
+    "scratch_target_confirmation": "espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg/espacigo_scratch",
     "migration_count": len(migrations),
     "migration_inventory_sha256": aggregate,
     "migration_sha256": migration_hashes,
     "extensions_expected": ["btree_gist", "postgis", "unaccent"],
+    "bootstrap_sql_sha256": bootstrap_hashes,
+    "bootstrap_sql_inventory_sha256": bootstrap_aggregate,
     "execution_purpose": "GCP-03 isolated Cloud SQL scratch compatibility rehearsal; no production data",
 }
 path = pathlib.Path(manifest_path)
 path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
 path.chmod(0o600)
 pathlib.Path(archive).chmod(0o600)
-print(json.dumps({"oci_manifest_digest": digest, "migration_count": len(migrations), "migration_inventory_sha256": aggregate}))
+print(json.dumps({"oci_manifest_digest": digest, "migration_count": len(migrations), "migration_inventory_sha256": aggregate, "bootstrap_sql_inventory_sha256": bootstrap_aggregate}))
 PY

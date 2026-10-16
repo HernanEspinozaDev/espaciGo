@@ -3,6 +3,12 @@ locals {
   scratch_enabled = var.enable_scratch
   job_enabled     = var.enable_scratch && var.enable_job
   protect_scratch = !var.allow_scratch_destroy
+  job_phases = {
+    bootstrap = "bootstrap"
+    migrate   = "migrate"
+    finalize  = "finalize"
+    retire    = "retire"
+  }
 }
 
 data "google_compute_network" "existing" {
@@ -141,9 +147,9 @@ resource "google_sql_database" "scratch" {
 }
 
 resource "google_cloud_run_v2_job" "migrator" {
-  count               = local.job_enabled ? 1 : 0
+  for_each            = local.job_enabled ? local.job_phases : {}
   project             = var.project_id
-  name                = "${local.name_prefix}-migrator"
+  name                = "${local.name_prefix}-${each.key}"
   location            = var.region
   deletion_protection = !var.allow_scratch_destroy
 
@@ -158,6 +164,14 @@ resource "google_cloud_run_v2_job" "migrator" {
 
       containers {
         image = var.migrator_image
+        env {
+          name  = "GCP03_PHASE"
+          value = each.value
+        }
+        env {
+          name  = "GCP03_CONFIRM_TARGET"
+          value = "${google_sql_database_instance.scratch[0].connection_name}/${google_sql_database.scratch[0].name}"
+        }
         env {
           name  = "DATABASE_CONNECTION_MODE"
           value = "cloudsql"
@@ -224,10 +238,10 @@ resource "google_cloud_run_v2_job" "migrator" {
 }
 
 resource "google_cloud_run_v2_job_iam_member" "invoke_operator" {
-  count    = local.job_enabled ? 1 : 0
+  for_each = google_cloud_run_v2_job.migrator
   project  = var.project_id
-  location = google_cloud_run_v2_job.migrator[0].location
-  name     = google_cloud_run_v2_job.migrator[0].name
+  location = each.value.location
+  name     = each.value.name
   role     = "roles/run.invoker"
   member   = var.operator_member
 }

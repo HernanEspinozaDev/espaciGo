@@ -61,12 +61,15 @@ variable "enable_job" {
   validation {
     condition = !var.enable_job || (
       var.enable_scratch &&
+      var.run_id == "pilot01" &&
+      var.database_user == "espacigo_scratch_migrator" &&
+      var.database_name == "espacigo_scratch" &&
       can(regex("@sha256:[0-9a-f]{64}$", var.migrator_image)) &&
       startswith(var.migrator_image, "${var.region}-docker.pkg.dev/${var.project_id}/gcp03-scratch-${var.run_id}/dbmigrate@sha256:") &&
       var.confirm_image_pushed &&
       var.confirm_scratch_secret_version
     )
-    error_message = "The job requires enabled scratch resources, a sha256-pinned image from this run's exact Artifact Registry repository, and confirmations that the image and temporary secret version exist."
+    error_message = "The named scratch phases require run_id pilot01, the exact scratch login/database, a sha256-pinned image from this repository, and confirmations that the image and temporary secret version exist."
   }
 }
 

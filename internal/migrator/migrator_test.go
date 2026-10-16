@@ -95,6 +95,35 @@ func TestVerifyHistoryAcceptsMatchingAppliedPrefix(t *testing.T) {
 	}
 }
 
+func TestVerifyCompleteHistoryRequiresEveryMatchingMigration(t *testing.T) {
+	migrations := []Migration{
+		{Version: 1, Name: "V000001__one.sql", Checksum: "one"},
+		{Version: 2, Name: "V000002__two.sql", Checksum: "two"},
+	}
+	complete := []HistoryEntry{
+		{Version: 1, Name: migrations[0].Name, Checksum: migrations[0].Checksum},
+		{Version: 2, Name: migrations[1].Name, Checksum: migrations[1].Checksum},
+	}
+	if err := verifyCompleteHistory(migrations, complete, 2); err != nil {
+		t.Fatalf("matching complete history was rejected: %v", err)
+	}
+	cases := map[string][]HistoryEntry{
+		"missing final version": complete[:1],
+		"changed checksum":      {{Version: 1, Name: migrations[0].Name, Checksum: "changed"}, complete[1]},
+		"future version":        {complete[0], {Version: 3, Name: "V000003__future.sql", Checksum: "three"}},
+	}
+	for name, history := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := verifyCompleteHistory(migrations, history, 2); err == nil {
+				t.Fatal("incomplete or inconsistent history was accepted")
+			}
+		})
+	}
+	if err := verifyCompleteHistory(migrations[:1], complete[:1], 2); err == nil {
+		t.Fatal("changed local migration inventory was accepted")
+	}
+}
+
 func TestRunSanitizesDatabaseConnectionErrors(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -129,11 +158,15 @@ func TestRunCloudSQLRejectsDirectTLSBeforeInitializingConnector(t *testing.T) {
 
 func TestRunWithConnectorAlwaysClosesAfterPreflightError(t *testing.T) {
 	closed := false
-	_, err := runWithConnector(context.Background(), &pgx.ConnConfig{}, filepath.Join(t.TempDir(), "missing-migrations"), func() {
+	config, parseErr := pgx.ParseConfig("postgres://user@127.0.0.1:1/app?connect_timeout=1")
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	_, err := runWithConnector(context.Background(), config, filepath.Join(t.TempDir(), "missing-migrations"), func() {
 		closed = true
 	})
 	if err == nil {
-		t.Fatal("missing migration directory should fail")
+		t.Fatal("connection to a closed local port should fail")
 	}
 	if !closed {
 		t.Fatal("connector was not closed after migrator failure")

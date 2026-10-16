@@ -49,6 +49,15 @@ func runWithConnector(ctx context.Context, config *pgx.ConnConfig, migrationDir 
 }
 
 func runWithConfig(ctx context.Context, config *pgx.ConnConfig, migrationDir string) (Result, error) {
+	conn, err := pgx.ConnectConfig(ctx, config)
+	if err != nil {
+		return Result{}, errors.New("connect to migration database")
+	}
+	defer conn.Close(context.Background())
+	return runWithConn(ctx, conn, migrationDir)
+}
+
+func runWithConn(ctx context.Context, conn *pgx.Conn, migrationDir string) (Result, error) {
 	migrations, err := DiscoverMigrations(migrationDir)
 	if err != nil {
 		return Result{}, err
@@ -57,11 +66,6 @@ func runWithConfig(ctx context.Context, config *pgx.ConnConfig, migrationDir str
 	if err != nil {
 		return Result{}, fmt.Errorf("checksum migrator executable: %w", err)
 	}
-	conn, err := pgx.ConnectConfig(ctx, config)
-	if err != nil {
-		return Result{}, errors.New("connect to migration database")
-	}
-	defer conn.Close(context.Background())
 
 	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1, $2)", advisoryLockClass, advisoryLockObject); err != nil {
 		return Result{}, fmt.Errorf("acquire migration advisory lock: %w", err)
@@ -111,6 +115,36 @@ func runWithConfig(ctx context.Context, config *pgx.ConnConfig, migrationDir str
 		result.Applied = append(result.Applied, migration.Version)
 	}
 	return result, nil
+}
+
+// VerifyAllApplied checks that every migration file in migrationDir has one
+// matching, contiguous history row and that there are no unapplied files.
+func VerifyAllApplied(ctx context.Context, conn *pgx.Conn, migrationDir string, expectedCount int) error {
+	if conn == nil || expectedCount < 1 {
+		return errors.New("migration verification configuration is invalid")
+	}
+	migrations, err := DiscoverMigrations(migrationDir)
+	if err != nil {
+		return err
+	}
+	history, err := readHistory(ctx, conn)
+	if err != nil {
+		return err
+	}
+	return verifyCompleteHistory(migrations, history, expectedCount)
+}
+
+func verifyCompleteHistory(migrations []Migration, history []HistoryEntry, expectedCount int) error {
+	if expectedCount < 1 || len(migrations) != expectedCount {
+		return fmt.Errorf("migration inventory count is %d, want %d", len(migrations), expectedCount)
+	}
+	if err := verifyHistory(migrations, history); err != nil {
+		return err
+	}
+	if len(history) != expectedCount {
+		return fmt.Errorf("migration history count is %d, want %d", len(history), expectedCount)
+	}
+	return nil
 }
 
 func readHistory(ctx context.Context, conn *pgx.Conn) ([]HistoryEntry, error) {
