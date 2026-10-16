@@ -22,9 +22,9 @@ El principal GCP activo se verificó contra la política IAM del proyecto; las c
 
 ## Plan Terraform privado
 
-Terraform `1.16.6`, provider Google `8.7.0`; se leyó el state remoto existente, con 11 recursos. El plan binario y JSON están solo en `.local/planning/gcp/gcp-03-operation-plan-20261016/` con permisos privados. SHA-256 del plan final: `3e22f96c90d42a4c58aa98f675a38bb54071a1f0bbaf4a27ecd4bb6eaed93f89`.
+Terraform `1.16.6`, provider Google `8.7.0`; `terraform state list` leyó 11 direcciones del state remoto (8 recursos gestionados y 3 data sources). El plan binario y JSON están solo en `.local/planning/gcp/gcp-03-operation-plan-20261016/` con permisos privados. SHA-256 del plan final: `3e22f96c90d42a4c58aa98f675a38bb54071a1f0bbaf4a27ecd4bb6eaed93f89`.
 
-Variables de seguridad del plan: `enable_scratch=true`, `enable_job=false`, `confirm_image_pushed=true`, `confirm_scratch_secret_version=false`, `confirm_database_owner_secret_version=false`, `allow_scratch_destroy=false`. Resultado: **4 crear, 0 actualizar in-place, 1 reemplazo IAM, 8 sin cambio**. El reemplazo retira el binding project-wide existente de la cuenta migradora scratch y lo cambia por un binding condicionado a la misma instancia scratch; los otros 8 recursos quedan sin cambios. Google Cloud documenta condiciones IAM para restringir `roles/cloudsql.client` al nombre y tipo de instancia ([IAM Conditions de Cloud SQL](https://docs.cloud.google.com/sql/docs/postgres/iam-conditions)).
+Variables de seguridad del plan: `enable_scratch=true`, `enable_job=false`, `confirm_image_pushed=true`, `confirm_scratch_secret_version=false`, `confirm_database_owner_secret_version=false`, `allow_scratch_destroy=false`. Resultado: **4 crear, 0 actualizar in-place, 1 reemplazo IAM, 7 sin cambio**. El reemplazo retira el binding project-wide existente de la cuenta migradora scratch y lo cambia por un binding condicionado a la misma instancia scratch; los otros 7 recursos gestionados quedan sin cambios. Google Cloud documenta condiciones IAM para restringir `roles/cloudsql.client` al nombre y tipo de instancia ([IAM Conditions de Cloud SQL](https://docs.cloud.google.com/sql/docs/postgres/iam-conditions)).
 
 Las cuatro altas exactas son:
 
