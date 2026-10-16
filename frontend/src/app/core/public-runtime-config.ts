@@ -3,6 +3,7 @@ import { InjectionToken } from '@angular/core';
 export const API_SERVER_BASE_URL = new InjectionToken<string | null>('API_SERVER_BASE_URL');
 export const API_PUBLIC_BASE_URL = new InjectionToken<string | null>('API_PUBLIC_BASE_URL');
 export const FRONTEND_PUBLIC_ORIGIN = new InjectionToken<string | null>('FRONTEND_PUBLIC_ORIGIN');
+export const PRIVATE_DEMO_ORIGIN = new InjectionToken<string | null>('PRIVATE_DEMO_ORIGIN');
 
 export function configuredApiBase(value: string | undefined): string | null {
   if (!value) return null;
@@ -51,7 +52,7 @@ export function publicTransferRequest(request: {
   headers?: { has(name: string): boolean };
 }): boolean {
   if (request.method !== 'GET') return false;
-  if (request.headers?.has('authorization') || request.headers?.has('cookie')) return false;
+  if (request.headers?.has('authorization') || request.headers?.has('cookie') || request.headers?.has('x-serverless-authorization')) return false;
   try {
     const path = new URL(request.url).pathname;
     return (

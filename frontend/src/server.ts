@@ -10,7 +10,8 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { pipeline } from 'node:stream/promises';
 import { join } from 'node:path';
 import { configuredApiBase, configuredPublicApiBase, configuredPublicOrigin } from './app/core/public-runtime-config';
-import { apiRequestAllowed, clientApiHeaders, iapAssertionRequired, publicCacheControl, requestUrlWithinLimit, serviceAudienceMatches } from './server-api-gateway.mjs';
+import { apiRequestAllowed, clientApiHeaders, iapAssertionRequired, iapRequestValid, privateEntryAudienceConfigured, publicCacheControl, requestUrlWithinLimit, serviceAudienceMatches } from './server-api-gateway.mjs';
+import { cloudRunIdentityHeaders } from './cloud-run-identity.mjs';
 
 const apiServerBase = configuredApiBase(process.env['API_INTERNAL_BASE_URL']);
 const apiPublicBase = configuredPublicApiBase(process.env['API_PUBLIC_BASE_URL']);
@@ -18,6 +19,7 @@ const publicOrigin = configuredPublicOrigin(process.env['FRONTEND_PUBLIC_ORIGIN'
 const privateDemoOrigin = configuredPublicOrigin(process.env['PRIVATE_DEMO_ORIGIN']);
 const entryMode = process.env['FRONTEND_ENTRY_MODE'] ?? 'local';
 const apiServiceAudience = process.env['API_SERVICE_AUDIENCE']?.trim() ?? '';
+const iapJwtAudience = process.env['IAP_JWT_AUDIENCE']?.trim() ?? '';
 if (!['public', 'private', 'local'].includes(entryMode)) throw new Error('Invalid frontend entry mode');
 if (process.env['K_SERVICE'] && !apiServiceAudience && apiServerBase) {
   throw new Error('API_SERVICE_AUDIENCE is required for Cloud Run service-to-service authentication');
@@ -28,6 +30,9 @@ if (process.env['K_SERVICE'] && !['public', 'private'].includes(entryMode)) {
 if (entryMode === 'public' && process.env['K_SERVICE'] && !privateDemoOrigin) {
   throw new Error('PRIVATE_DEMO_ORIGIN is required for the public entry');
 }
+if (!privateEntryAudienceConfigured(entryMode, iapJwtAudience)) {
+  throw new Error('IAP_JWT_AUDIENCE must be the signed-header audience for the private Cloud Run service');
+}
 if (process.env['K_SERVICE']) {
   if (!apiServerBase || !apiPublicBase || apiPublicBase !== '/api/v1') {
     throw new Error('Cloud Run requires an internal API and the same-origin /api/v1 gateway');
@@ -37,8 +42,6 @@ if (process.env['K_SERVICE']) {
   }
 }
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-let cachedServiceIdentity: { value: string; expiresAt: number } | null = null;
-
 const browserDistFolder = join(import.meta.dirname, '../browser');
 
 const app = express();
@@ -53,11 +56,14 @@ app.get('/config.json', (_request, response) => {
   });
 });
 
-app.use((request, response, next) => {
+app.use(async (request, response, next) => {
   const pathname = new URL(request.originalUrl, 'http://server.invalid').pathname;
-  if (process.env['K_SERVICE'] && iapAssertionRequired(entryMode, pathname) && !request.get('x-goog-iap-jwt-assertion')) {
-    response.status(401).end();
-    return;
+  if (iapAssertionRequired(entryMode, pathname)) {
+    const assertion = request.get('x-goog-iap-jwt-assertion');
+    if (!await iapRequestValid(entryMode, pathname, assertion, iapJwtAudience)) {
+      response.status(401).end();
+      return;
+    }
   }
   if (entryMode !== 'public' || !privateDemoOrigin) return next();
   const path = new URL(request.originalUrl, 'http://server.invalid').pathname;
@@ -324,23 +330,7 @@ if (isMainModule(import.meta.url) || process.env['pm_id']) {
 export const reqHandler = createNodeRequestHandler(app);
 
 async function serverIdentityHeaders(): Promise<Record<string, string>> {
-  if (!apiServiceAudience) return {};
-  if (cachedServiceIdentity && cachedServiceIdentity.expiresAt > Date.now() + 60_000) {
-    return { 'X-Serverless-Authorization': `Bearer ${cachedServiceIdentity.value}` };
-  }
-  const tokenUrl = new URL('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity');
-  tokenUrl.searchParams.set('audience', apiServiceAudience);
-  tokenUrl.searchParams.set('format', 'full');
-  const tokenResponse = await fetch(tokenUrl, {
-    headers: { 'Metadata-Flavor': 'Google' },
-    redirect: 'error',
-    signal: AbortSignal.timeout(3000),
-  });
-  if (!tokenResponse.ok) throw new Error('Cloud Run identity token unavailable');
-  const token = (await tokenResponse.text()).trim();
-  if (token.length < 100 || token.length > 16_384) throw new Error('Cloud Run identity token invalid');
-  cachedServiceIdentity = { value: token, expiresAt: Date.now() + 45 * 60_000 };
-  return { 'X-Serverless-Authorization': `Bearer ${token}` };
+  return cloudRunIdentityHeaders(apiServiceAudience);
 }
 
 async function fetchApi(input: string | URL, init: RequestInit): Promise<Response> {

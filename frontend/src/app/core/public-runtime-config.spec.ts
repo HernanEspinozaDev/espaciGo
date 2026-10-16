@@ -38,5 +38,9 @@ describe('public SSR runtime configuration', () => {
       ...anonymous,
       headers: { has: (name: string) => name === 'cookie' },
     })).toBe(false);
+    expect(publicTransferRequest({
+      ...anonymous,
+      headers: { has: (name: string) => name.toLowerCase() === 'x-serverless-authorization' },
+    })).toBe(false);
   });
 });

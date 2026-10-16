@@ -1,7 +1,8 @@
 import { Routes } from '@angular/router';
 import { identityGuard, roleGuard } from './core/identity/identity.guard';
+import { privateEntryGuard } from './core/identity/private-entry.guard';
 
-export const routes: Routes = [
+const routeDefinitions: Routes = [
   {
     path: '',
     loadComponent: () => import('./features/home/home').then((module) => module.Home),
@@ -182,3 +183,14 @@ export const routes: Routes = [
   },
   { path: '**', redirectTo: '' },
 ];
+
+const privateRoots = new Set([
+  'acceso', 'registro', 'verificar-correo', 'recuperar-acceso', 'mi-cuenta',
+  'reservas', 'panel', 'panel-anfitrion', 'administracion',
+]);
+
+export const routes: Routes = routeDefinitions.map((route) => {
+  const root = route.path?.split('/')[0];
+  if (!root || !privateRoots.has(root) || route.redirectTo !== undefined) return route;
+  return { ...route, canActivate: [privateEntryGuard, ...(route.canActivate ?? [])] };
+});

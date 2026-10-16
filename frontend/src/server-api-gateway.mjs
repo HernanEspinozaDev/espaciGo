@@ -1,3 +1,5 @@
+import { verifyIapAssertion } from './iap-assertion.mjs';
+
 const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
 const publicPaths = [
   /^\/api\/v1\/public\/spaces$/,
@@ -51,6 +53,18 @@ export function serviceAudienceMatches(apiBase, audience) {
 export function iapAssertionRequired(mode, pathname) {
   if (mode !== 'private') return false;
   return pathname !== '/healthz' && pathname !== '/health/ready';
+}
+
+export function privateEntryAudienceConfigured(mode, audience) {
+  if (mode !== 'private') return true;
+  return typeof audience === 'string' &&
+    /^\/projects\/[1-9]\d*\/locations\/[a-z0-9-]+\/services\/[a-z][a-z0-9-]{0,62}$/.test(audience);
+}
+
+export async function iapRequestValid(mode, pathname, assertion, audience, verify = verifyIapAssertion) {
+  if (!iapAssertionRequired(mode, pathname)) return true;
+  if (typeof assertion !== 'string' || !audience) return false;
+  return verify(assertion, audience);
 }
 
 // Only forward application credentials. Cloud Run service identity is always

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { apiRequestAllowed, clientApiHeaders, iapAssertionRequired, publicCacheControl, requestUrlWithinLimit, serviceAudienceMatches } from '../src/server-api-gateway.mjs';
+import { apiRequestAllowed, clientApiHeaders, iapAssertionRequired, iapRequestValid, privateEntryAudienceConfigured, publicCacheControl, requestUrlWithinLimit, serviceAudienceMatches } from '../src/server-api-gateway.mjs';
+import { clearCloudRunIdentityCacheForTests, cloudRunIdentityHeaders } from '../src/cloud-run-identity.mjs';
 
 const spaceId = '5e7d9f2a-631a-4c82-9d26-791225d19412';
 const imageId = '1e7d9f2a-631a-4c82-9d26-791225d19412';
@@ -90,4 +91,36 @@ test('private entry requires IAP assertion except for non-sensitive platform pro
   assert.equal(iapAssertionRequired('private', '/healthz'), false);
   assert.equal(iapAssertionRequired('private', '/health/ready'), false);
   assert.equal(iapAssertionRequired('public', '/reservas'), false);
+  assert.equal(privateEntryAudienceConfigured('private', '/projects/123456/locations/southamerica-west1/services/espacigo-private'), true);
+  assert.equal(privateEntryAudienceConfigured('private', ''), false);
+  assert.equal(privateEntryAudienceConfigured('private', 'https://service.run.app'), false);
+  assert.equal(privateEntryAudienceConfigured('public', ''), true);
+});
+
+test('private entry validates the signed assertion and exact configured audience', async () => {
+  const validator = async (token, audience) => token === 'valid-signed-token' && audience === '/projects/123/locations/us-central1/services/private';
+  const audience = '/projects/123/locations/us-central1/services/private';
+  assert.equal(await iapRequestValid('private', '/reservas', undefined, audience, validator), false);
+  assert.equal(await iapRequestValid('private', '/reservas', 'forged', audience, validator), false);
+  assert.equal(await iapRequestValid('private', '/reservas', 'valid-signed-token', audience, validator), true);
+  assert.equal(await iapRequestValid('private', '/reservas', 'valid-signed-token', `${audience}/wrong`, validator), false);
+  assert.equal(await iapRequestValid('private', '/health/ready', undefined, audience, validator), true);
+});
+
+test('server identity uses the metadata audience and caches the returned token', async () => {
+  clearCloudRunIdentityCacheForTests();
+  const token = 'synthetic-cloud-run-id-token-'.padEnd(120, 'x');
+  const audience = 'https://api.example.test';
+  let calls = 0;
+  const fetchImpl = async (url, init) => {
+    calls += 1;
+    assert.equal(new URL(url).searchParams.get('audience'), audience);
+    assert.equal(new URL(url).searchParams.get('format'), 'full');
+    assert.equal(new Headers(init.headers).get('Metadata-Flavor'), 'Google');
+    return new Response(token, { status: 200 });
+  };
+  assert.deepEqual(await cloudRunIdentityHeaders(audience, fetchImpl), { 'X-Serverless-Authorization': `Bearer ${token}` });
+  assert.deepEqual(await cloudRunIdentityHeaders(audience, fetchImpl), { 'X-Serverless-Authorization': `Bearer ${token}` });
+  assert.equal(calls, 1);
+  clearCloudRunIdentityCacheForTests();
 });

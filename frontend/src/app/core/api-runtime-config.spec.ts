@@ -38,12 +38,14 @@ describe('ApiRuntimeConfig', () => {
     http.expectOne('/config.json').flush({
       apiBaseUrl: 'https://api.example.test/api/v1/',
       siteOrigin: 'https://spaces.example.test',
+      privateDemoOrigin: 'https://private.example.test',
     });
 
     await result;
     expect(service.apiBaseUrl()).toBe('https://api.example.test/api/v1');
     expect(service.publicApiBaseUrl()).toBe('https://api.example.test/api/v1');
     expect(service.publicSiteOrigin()).toBe('https://spaces.example.test');
+    expect(service.privateDemoOrigin()).toBe('https://private.example.test');
   });
 
   it('loads the same-origin gateway and resolves readiness on the frontend host', async () => {
