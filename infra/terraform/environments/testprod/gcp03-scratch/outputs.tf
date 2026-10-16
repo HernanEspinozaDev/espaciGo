@@ -16,6 +16,11 @@ output "scratch_job_phase_names" {
   value       = { for phase, job in google_cloud_run_v2_job.migrator : phase => job.name }
 }
 
+output "scratch_observer_job_name" {
+  description = "Separate fixed observer Job; present only when enable_observer_job is explicitly true."
+  value       = try(google_cloud_run_v2_job.observer[0].name, null)
+}
+
 output "scratch_migrator_service_account" {
   value = try(google_service_account.scratch_migrator[0].email, null)
 }
