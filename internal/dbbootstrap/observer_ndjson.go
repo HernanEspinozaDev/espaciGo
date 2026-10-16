@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 )
 
 const observerMaxRecordBytes = 32 * 1024
+const integrityChunkBytes = 12 * 1024
 
 type observerManifest struct {
 	RecordType     string         `json:"record_type"`
@@ -44,21 +46,35 @@ type observerSectionAccumulator struct {
 	Chunks   map[int]observerSectionRecord
 }
 
+type integrityManifest struct {
+	RecordType     string `json:"record_type"`
+	SchemaVersion  int    `json:"schema_version"`
+	ReportSHA256   string `json:"report_sha256"`
+	ReportBytes    int    `json:"report_bytes"`
+	RecordCount    int    `json:"record_count"`
+	MaxRecordBytes int    `json:"max_record_bytes"`
+	ChunkBytes     int    `json:"chunk_bytes"`
+	Passed         bool   `json:"passed"`
+}
+
+type integrityPayloadRecord struct {
+	RecordType   string `json:"record_type"`
+	ReportSHA256 string `json:"report_sha256"`
+	Index        int    `json:"index"`
+	Total        int    `json:"total"`
+	ByteOffset   int    `json:"byte_offset"`
+	Data         string `json:"data"`
+}
+
 // WriteObserverNDJSON emits an integrity-checkable report as bounded NDJSON
 // records. The full canonical report is hashed before it is split; a consumer
 // must use ReadObserverNDJSON to detect missing, duplicate, reordered, or
 // corrupted chunks.
 func WriteObserverNDJSON(w io.Writer, report ScratchObservation) error {
-	return WriteIntegrityNDJSON(w, report, report.Passed())
-}
-
-// WriteIntegrityNDJSON emits a fixed JSON report as bounded, integrity-checkable
-// NDJSON records. The supplied pass state is included in the manifest.
-func WriteIntegrityNDJSON(w io.Writer, report any, passed bool) error {
 	if w == nil {
 		return errors.New("observer output writer is required")
 	}
-	canonical, fields, err := canonicalReportFields(report)
+	canonical, fields, err := canonicalObserverFields(report)
 	if err != nil {
 		return errors.New("could not encode canonical observer report")
 	}
@@ -95,7 +111,7 @@ func WriteIntegrityNDJSON(w io.Writer, report any, passed bool) error {
 	manifest := observerManifest{
 		RecordType: "manifest", SchemaVersion: 1, ReportSHA256: hexDigest,
 		ReportBytes: len(canonical), RecordCount: len(sectionRecords) + 1,
-		MaxRecordBytes: observerMaxRecordBytes, Passed: passed,
+		MaxRecordBytes: observerMaxRecordBytes, Passed: report.Passed(),
 		SectionCounts: counts, SectionTotals: totals,
 	}
 	buffer := bufio.NewWriter(w)
@@ -106,6 +122,48 @@ func WriteIntegrityNDJSON(w io.Writer, report any, passed bool) error {
 		if err := writeObserverRecord(buffer, record); err != nil {
 			return err
 		}
+	}
+	return buffer.Flush()
+}
+
+// WriteIntegrityNDJSON emits the complete canonical JSON payload in bounded
+// byte chunks. Unlike the observer's legacy sectioned format, it also splits
+// large nested objects such as a retired verification's embedded observation.
+func WriteIntegrityNDJSON(w io.Writer, report any, passed bool) error {
+	if w == nil || report == nil {
+		return errors.New("integrity report and output writer are required")
+	}
+	canonical, err := json.Marshal(report)
+	if err != nil || len(canonical) == 0 {
+		return errors.New("could not encode canonical integrity report")
+	}
+	digest := sha256.Sum256(canonical)
+	hexDigest := hex.EncodeToString(digest[:])
+	total := (len(canonical) + integrityChunkBytes - 1) / integrityChunkBytes
+	manifest := integrityManifest{
+		RecordType: "manifest", SchemaVersion: 2, ReportSHA256: hexDigest,
+		ReportBytes: len(canonical), RecordCount: total + 1,
+		MaxRecordBytes: observerMaxRecordBytes, ChunkBytes: integrityChunkBytes,
+		Passed: passed,
+	}
+	buffer := bufio.NewWriter(w)
+	if err := writeObserverRecord(buffer, manifest); err != nil {
+		return err
+	}
+	for index, offset := 1, 0; offset < len(canonical); index++ {
+		end := offset + integrityChunkBytes
+		if end > len(canonical) {
+			end = len(canonical)
+		}
+		record := integrityPayloadRecord{
+			RecordType: "payload", ReportSHA256: hexDigest, Index: index,
+			Total: total, ByteOffset: offset,
+			Data: base64.RawStdEncoding.EncodeToString(canonical[offset:end]),
+		}
+		if err := writeObserverRecord(buffer, record); err != nil {
+			return err
+		}
+		offset = end
 	}
 	return buffer.Flush()
 }
@@ -170,64 +228,53 @@ func writeObserverRecord(w io.Writer, record any) error {
 	return nil
 }
 
-// ReadObserverNDJSON validates and reconstructs a typed scratch observation.
+// ReadObserverNDJSON validates the manifest, section sequence, bounded line
+// sizes and complete report hash before reconstructing the typed observation.
 func ReadObserverNDJSON(r io.Reader) (ScratchObservation, error) {
-	var report ScratchObservation
-	passed, err := ReadIntegrityNDJSON(r, &report)
-	if err != nil {
-		return ScratchObservation{}, err
-	}
-	if report.Passed() != passed {
-		return ScratchObservation{}, errors.New("observer NDJSON pass state did not match the reconstructed observation")
-	}
-	return report, nil
-}
-
-func ReadIntegrityNDJSON(r io.Reader, target any) (bool, error) {
-	if r == nil || target == nil {
-		return false, errors.New("observer NDJSON reader is required")
+	if r == nil {
+		return ScratchObservation{}, errors.New("observer NDJSON reader is required")
 	}
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, observerMaxRecordBytes), observerMaxRecordBytes+1)
 	if !scanner.Scan() {
-		return false, errors.New("observer NDJSON manifest is missing")
+		return ScratchObservation{}, errors.New("observer NDJSON manifest is missing")
 	}
 	if len(scanner.Bytes()) > observerMaxRecordBytes {
-		return false, errors.New("observer NDJSON manifest exceeds the size limit")
+		return ScratchObservation{}, errors.New("observer NDJSON manifest exceeds the size limit")
 	}
 	var manifest observerManifest
 	if err := json.Unmarshal(scanner.Bytes(), &manifest); err != nil || manifest.RecordType != "manifest" || manifest.SchemaVersion != 1 || manifest.MaxRecordBytes != observerMaxRecordBytes || manifest.RecordCount < 1 || manifest.ReportBytes < 1 || len(manifest.ReportSHA256) != 64 {
-		return false, errors.New("observer NDJSON manifest is invalid")
+		return ScratchObservation{}, errors.New("observer NDJSON manifest is invalid")
 	}
 	sections := make(map[string]*observerSectionAccumulator, len(manifest.SectionCounts))
 	for name, count := range manifest.SectionCounts {
 		if name == "" || count < 0 || manifest.SectionTotals[name] < 1 {
-			return false, errors.New("observer NDJSON manifest has invalid section counts")
+			return ScratchObservation{}, errors.New("observer NDJSON manifest has invalid section counts")
 		}
 		sections[name] = &observerSectionAccumulator{Total: manifest.SectionTotals[name], Chunks: make(map[int]observerSectionRecord)}
 	}
 	if len(sections) == 0 || len(manifest.SectionTotals) != len(sections) {
-		return false, errors.New("observer NDJSON manifest section inventory is invalid")
+		return ScratchObservation{}, errors.New("observer NDJSON manifest section inventory is invalid")
 	}
 	recordCount := 1
 	for scanner.Scan() {
 		line := append([]byte(nil), scanner.Bytes()...)
 		if len(line) > observerMaxRecordBytes {
-			return false, errors.New("observer NDJSON section exceeds the size limit")
+			return ScratchObservation{}, errors.New("observer NDJSON section exceeds the size limit")
 		}
 		var record observerSectionRecord
 		if err := json.Unmarshal(line, &record); err != nil || record.RecordType != "section" || record.ReportSHA256 != manifest.ReportSHA256 || record.Index < 1 || record.Total < 1 || record.Index > record.Total || record.ItemOffset < 0 {
-			return false, errors.New("observer NDJSON section record is invalid")
+			return ScratchObservation{}, errors.New("observer NDJSON section record is invalid")
 		}
 		accumulator, ok := sections[record.Section]
 		if !ok || accumulator.Total != record.Total {
-			return false, errors.New("observer NDJSON section is not in the manifest")
+			return ScratchObservation{}, errors.New("observer NDJSON section is not in the manifest")
 		}
 		if _, exists := accumulator.Chunks[record.Index]; exists {
-			return false, errors.New("observer NDJSON contains a duplicate section chunk")
+			return ScratchObservation{}, errors.New("observer NDJSON contains a duplicate section chunk")
 		}
 		if accumulator.IndexSet && accumulator.IsArray != record.IsArray {
-			return false, errors.New("observer NDJSON section type changed between chunks")
+			return ScratchObservation{}, errors.New("observer NDJSON section type changed between chunks")
 		}
 		accumulator.IsArray = record.IsArray
 		accumulator.IndexSet = true
@@ -235,69 +282,121 @@ func ReadIntegrityNDJSON(r io.Reader, target any) (bool, error) {
 		recordCount++
 	}
 	if err := scanner.Err(); err != nil {
-		return false, errors.New("observer NDJSON input could not be read completely")
+		return ScratchObservation{}, errors.New("observer NDJSON input could not be read completely")
 	}
 	if recordCount != manifest.RecordCount {
-		return false, errors.New("observer NDJSON record count is incomplete")
+		return ScratchObservation{}, errors.New("observer NDJSON record count is incomplete")
 	}
 	fields := make(map[string]json.RawMessage, len(sections))
 	for name, accumulator := range sections {
 		if len(accumulator.Chunks) != accumulator.Total {
-			return false, errors.New("observer NDJSON section chunks are incomplete")
+			return ScratchObservation{}, errors.New("observer NDJSON section chunks are incomplete")
 		}
 		items := make([]json.RawMessage, 0, manifest.SectionCounts[name])
 		for i := 1; i <= accumulator.Total; i++ {
 			chunk, ok := accumulator.Chunks[i]
 			if !ok || chunk.ItemOffset != len(items) {
-				return false, errors.New("observer NDJSON section order or offset is incomplete")
+				return ScratchObservation{}, errors.New("observer NDJSON section order or offset is incomplete")
 			}
 			items = append(items, chunk.Items...)
 		}
 		if len(items) != manifest.SectionCounts[name] {
-			return false, errors.New("observer NDJSON section item count does not match the manifest")
+			return ScratchObservation{}, errors.New("observer NDJSON section item count does not match the manifest")
 		}
 		if accumulator.IsArray {
 			value, err := json.Marshal(items)
 			if err != nil {
-				return false, errors.New("observer NDJSON array section could not be reconstructed")
+				return ScratchObservation{}, errors.New("observer NDJSON array section could not be reconstructed")
 			}
 			fields[name] = value
 		} else {
 			if len(items) != 1 {
-				return false, errors.New("observer NDJSON scalar section has an invalid item count")
+				return ScratchObservation{}, errors.New("observer NDJSON scalar section has an invalid item count")
 			}
 			fields[name] = items[0]
 		}
 	}
 	canonical, err := json.Marshal(fields)
 	if err != nil {
-		return false, errors.New("observer NDJSON report could not be reconstructed")
+		return ScratchObservation{}, errors.New("observer NDJSON report could not be reconstructed")
 	}
 	digest := sha256.Sum256(canonical)
 	if hex.EncodeToString(digest[:]) != manifest.ReportSHA256 || len(canonical) != manifest.ReportBytes {
-		return false, errors.New("observer NDJSON report hash or length did not match")
+		return ScratchObservation{}, errors.New("observer NDJSON report hash or length did not match")
 	}
-	if err := json.Unmarshal(canonical, target); err != nil {
-		return false, errors.New("observer NDJSON report has an invalid typed payload")
+	var report ScratchObservation
+	if err := json.Unmarshal(canonical, &report); err != nil {
+		return ScratchObservation{}, errors.New("observer NDJSON report has an invalid typed payload")
+	}
+	if report.Passed() != manifest.Passed {
+		return ScratchObservation{}, errors.New("observer NDJSON pass state did not match the manifest")
+	}
+	return report, nil
+}
+
+// ReadIntegrityNDJSON reconstructs a report emitted by WriteIntegrityNDJSON
+// and rejects incomplete, reordered, duplicated, oversized, or corrupted data.
+func ReadIntegrityNDJSON(r io.Reader, target any) (bool, error) {
+	if r == nil || target == nil {
+		return false, errors.New("integrity report reader and target are required")
+	}
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, observerMaxRecordBytes), observerMaxRecordBytes+1)
+	if !scanner.Scan() || len(scanner.Bytes()) > observerMaxRecordBytes {
+		return false, errors.New("integrity report manifest is missing or oversized")
+	}
+	var manifest integrityManifest
+	if err := json.Unmarshal(scanner.Bytes(), &manifest); err != nil || manifest.RecordType != "manifest" ||
+		manifest.SchemaVersion != 2 || manifest.ReportBytes < 1 || manifest.RecordCount < 2 ||
+		manifest.MaxRecordBytes != observerMaxRecordBytes || manifest.ChunkBytes != integrityChunkBytes || len(manifest.ReportSHA256) != 64 {
+		return false, errors.New("integrity report manifest is invalid")
+	}
+	chunkCount := manifest.RecordCount - 1
+	var payload bytes.Buffer
+	for index := 1; scanner.Scan(); index++ {
+		line := append([]byte(nil), scanner.Bytes()...)
+		if len(line) > observerMaxRecordBytes {
+			return false, errors.New("integrity report record exceeds the size limit")
+		}
+		var record integrityPayloadRecord
+		if err := json.Unmarshal(line, &record); err != nil || record.RecordType != "payload" ||
+			record.ReportSHA256 != manifest.ReportSHA256 || record.Index != index || record.Total != chunkCount ||
+			record.ByteOffset != payload.Len() {
+			return false, errors.New("integrity report payload sequence is invalid")
+		}
+		chunk, err := base64.RawStdEncoding.DecodeString(record.Data)
+		if err != nil || len(chunk) == 0 || len(chunk) > integrityChunkBytes || (index < chunkCount && len(chunk) != integrityChunkBytes) {
+			return false, errors.New("integrity report payload chunk is invalid")
+		}
+		_, _ = payload.Write(chunk)
+	}
+	if err := scanner.Err(); err != nil {
+		return false, errors.New("integrity report could not be read completely")
+	}
+	if payload.Len() != manifest.ReportBytes {
+		return false, errors.New("integrity report payload length does not match manifest")
+	}
+	digest := sha256.Sum256(payload.Bytes())
+	if hex.EncodeToString(digest[:]) != manifest.ReportSHA256 {
+		return false, errors.New("integrity report payload hash did not match")
+	}
+	if err := json.Unmarshal(payload.Bytes(), target); err != nil {
+		return false, errors.New("integrity report payload has an invalid typed report")
 	}
 	switch status := target.(type) {
 	case interface{ Passed() bool }:
 		if status.Passed() != manifest.Passed {
-			return false, errors.New("observer NDJSON pass state did not match the reconstructed report")
+			return false, errors.New("integrity report pass state does not match payload")
 		}
 	case interface{ IntegrityPassed() bool }:
 		if status.IntegrityPassed() != manifest.Passed {
-			return false, errors.New("observer NDJSON pass state did not match the reconstructed report")
+			return false, errors.New("integrity report pass state does not match payload")
 		}
 	}
 	return manifest.Passed, nil
 }
 
 func canonicalObserverFields(report ScratchObservation) ([]byte, map[string]json.RawMessage, error) {
-	return canonicalReportFields(report)
-}
-
-func canonicalReportFields(report any) ([]byte, map[string]json.RawMessage, error) {
 	raw, err := json.Marshal(report)
 	if err != nil {
 		return nil, nil, err

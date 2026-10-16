@@ -2,94 +2,129 @@ package gcp03scratch
 
 import (
 	"bytes"
+	"encoding/json"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 )
 
-func TestRetiredVerificationNDJSONRoundTripsCompleteDiagnostics(t *testing.T) {
-	report := RetiredVerificationReport{
-		Observation: dbbootstrap.ScratchObservation{
-			Roles:                  []dbbootstrap.RoleObservation{{Name: MigratorLogin, CanLogin: false, Inherit: false}},
-			Memberships:            []dbbootstrap.RoleMembershipObservation{{GrantedRole: "cloudsqlsuperuser", Member: MigratorLogin, AdminOption: false, Inherit: true, Set: true}},
-			DatabaseACL:            []dbbootstrap.ACLObservation{{Grantee: "postgres", Grantor: "owner", Privilege: "CONNECT"}},
-			PublicSchemaACL:        []dbbootstrap.ACLObservation{{Grantee: "postgres", Grantor: "owner", Privilege: "USAGE"}},
-			RuntimeChecks:          []dbbootstrap.PermissionCheck{{Name: "database_no_temp", Passed: false}},
-			MembershipExpectation:  dbbootstrap.RoleMembershipRetired,
-			RoleInventoryPass:      false,
-			DatabaseACLPass:        false,
-			RuntimePermissionsPass: false,
+func TestRetiredVerificationNDJSONRoundTripsLargeNestedReportsAndValidatesIntegrity(t *testing.T) {
+	for _, passed := range []bool{true, false} {
+		t.Run(strconv.FormatBool(passed), func(t *testing.T) {
+			report := largeRetiredVerificationReport(passed)
+			canonical, err := json.Marshal(report)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(canonical) <= 256*1024 {
+				t.Fatalf("fixture must exceed Cloud Logging entry size: %d bytes", len(canonical))
+			}
+			var output bytes.Buffer
+			if err := dbbootstrap.WriteIntegrityNDJSON(&output, report, report.Passed); err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+			if len(lines) < 3 || output.Len() <= 256*1024 {
+				t.Fatalf("large nested report was not split: records=%d bytes=%d", len(lines), output.Len())
+			}
+			for _, line := range lines {
+				if len(line) > 32*1024 {
+					t.Fatalf("record exceeds fixed bound: %d bytes", len(line))
+				}
+			}
+			var reconstructed RetiredVerificationReport
+			gotPassed, err := dbbootstrap.ReadIntegrityNDJSON(bytes.NewReader(output.Bytes()), &reconstructed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gotPassed != passed || !reflect.DeepEqual(reconstructed, report) {
+				t.Fatalf("complete nested report round trip mismatch: pass=%t/%t owners=%d/%d ACL=%v/%v",
+					gotPassed, passed, len(reconstructed.Observation.FunctionOwners), len(report.Observation.FunctionOwners),
+					reconstructed.SchemaHistoryACL, report.SchemaHistoryACL)
+			}
+
+			missing := append([]string(nil), lines[:len(lines)-1]...)
+			if _, err := dbbootstrap.ReadIntegrityNDJSON(strings.NewReader(strings.Join(missing, "\n")+"\n"), &reconstructed); err == nil {
+				t.Fatal("missing report chunk was accepted")
+			}
+
+			duplicate := append([]string(nil), lines...)
+			duplicate = append(duplicate, lines[1])
+			if _, err := dbbootstrap.ReadIntegrityNDJSON(strings.NewReader(strings.Join(duplicate, "\n")+"\n"), &reconstructed); err == nil {
+				t.Fatal("duplicate report chunk was accepted")
+			}
+
+			corrupted := append([]string(nil), lines...)
+			marker := `"data":"`
+			position := strings.Index(corrupted[1], marker)
+			if position < 0 {
+				t.Fatal("payload data field is missing")
+			}
+			position += len(marker)
+			if corrupted[1][position] == 'A' {
+				corrupted[1] = corrupted[1][:position] + "B" + corrupted[1][position+1:]
+			} else {
+				corrupted[1] = corrupted[1][:position] + "A" + corrupted[1][position+1:]
+			}
+			if _, err := dbbootstrap.ReadIntegrityNDJSON(strings.NewReader(strings.Join(corrupted, "\n")+"\n"), &reconstructed); err == nil {
+				t.Fatal("corrupted report chunk was accepted")
+			}
+		})
+	}
+}
+
+func largeRetiredVerificationReport(passed bool) RetiredVerificationReport {
+	observation := dbbootstrap.ScratchObservation{
+		ServerVersionNum:   180006,
+		ServerVersion:      "PostgreSQL 18.6",
+		PostGISFullVersion: "PostGIS 3.6.4",
+		Extensions: []dbbootstrap.ExtensionObservation{
+			{Name: "btree_gist", Version: "1.8"}, {Name: "postgis", Version: "3.6.4"}, {Name: "unaccent", Version: "1.1"},
 		},
-		SchemaHistoryACL:  make([]dbbootstrap.ACLObservation, 450),
-		MigratorCanTemp:   true,
-		MigratorCanCreate: true,
-		DatabaseOwner:     "postgres",
-		PublicSchemaOwner: "pg_database_owner",
-		HistoryOwner:      MigratorLogin,
-		MigrationHistory:  true,
-		MigratorRetired:   false,
-		NoRoleMemberships: false,
-		OwnerHistoryACL:   false,
-		Passed:            false,
+		Roles: []dbbootstrap.RoleObservation{
+			{Name: "espacigo_gadm_bootstrap"},
+			{Name: "espacigo_runtime"},
+			{Name: MigratorLogin},
+			{Name: "postgres", CanLogin: true},
+		},
+		MembershipExpectation:  dbbootstrap.RoleMembershipRetired,
+		RoleInventoryPass:      true,
+		DatabaseACLPass:        true,
+		RuntimePermissionsPass: true,
+		Spatial: dbbootstrap.SpatialObservation{
+			GeometryValid: true, GeometryIntersects: true, GeographyDistanceMeters: 110574.39,
+			ExpectedIndex: "public.reserva_ensayo_local_ubicacion_gist", ActualIndex: "reserva_ensayo_local_ubicacion_gist",
+			IndexAccessMethod: "gist", IndexValid: true, IndexReady: true,
+			IndexDefinition: "CREATE INDEX reserva_ensayo_local_ubicacion_gist ON public.reserva_ensayo_local_ubicacion_sintetica USING gist (punto)",
+			ChecksPass:      true,
+		},
 	}
-	for i := range report.SchemaHistoryACL {
-		report.SchemaHistoryACL[i] = dbbootstrap.ACLObservation{Grantee: "postgres", Grantor: MigratorLogin, Privilege: "SELECT", Grantable: false}
+	checkNames := []string{
+		"database_connect", "database_no_create", "database_no_temp", "public_schema_usage", "public_schema_no_create",
+		"usuario_select", "usuario_insert", "usuario_update", "usuario_no_delete", "administrador_global_select",
+		"administrador_global_no_insert", "administrador_global_no_update", "administrador_global_no_delete",
+		"tarifa_espacio_no_update", "tarifa_espacio_no_delete", "schema_migrations_hidden",
 	}
-	var output bytes.Buffer
-	if err := dbbootstrap.WriteIntegrityNDJSON(&output, report, report.Passed); err != nil {
-		t.Fatal(err)
+	for _, name := range checkNames {
+		observation.RuntimeChecks = append(observation.RuntimeChecks, dbbootstrap.PermissionCheck{Name: name, Passed: true})
 	}
-	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
-	if len(lines) < 3 {
-		t.Fatalf("large history ACL should be split into bounded records, got %d lines", len(lines))
+	for i := 0; i < 1031; i++ {
+		observation.FunctionOwners = append(observation.FunctionOwners, dbbootstrap.OwnedObjectObservation{
+			Schema: "public", Name: "function_" + strconv.Itoa(i), Kind: "function",
+			IdentityArguments: "argument_" + strings.Repeat("signature_type, ", 20), Owner: "gcp03_lifecycle_admin",
+		})
 	}
-	for _, line := range lines {
-		if len(line) > 32*1024 {
-			t.Fatalf("record exceeds fixed bound: %d bytes", len(line))
-		}
-	}
-	var reconstructed RetiredVerificationReport
-	passed, err := dbbootstrap.ReadIntegrityNDJSON(bytes.NewReader(output.Bytes()), &reconstructed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if passed || reconstructed.Passed || reconstructed.MigratorCanTemp != report.MigratorCanTemp ||
-		reconstructed.MigratorCanCreate != report.MigratorCanCreate || reconstructed.HistoryOwner != report.HistoryOwner ||
-		len(reconstructed.SchemaHistoryACL) != len(report.SchemaHistoryACL) ||
-		reconstructed.SchemaHistoryACL[0] != report.SchemaHistoryACL[0] ||
-		reconstructed.Observation.Memberships[0] != report.Observation.Memberships[0] {
-		t.Fatalf("round trip lost report diagnostics: %#v", reconstructed)
-	}
-
-	corrupted := false
-	for i, line := range lines {
-		if strings.Contains(line, `"section":"schema_migrations_acl"`) {
-			lines[i] = strings.Replace(line, `"SELECT"`, `"DELETE"`, 1)
-			corrupted = true
-			break
-		}
-	}
-	if !corrupted {
-		t.Fatal("expected a serialized schema-history ACL section")
-	}
-	if _, err := dbbootstrap.ReadIntegrityNDJSON(strings.NewReader(strings.Join(lines, "\n")+"\n"), &reconstructed); err == nil {
-		t.Fatal("corrupted history ACL record was accepted")
-	}
-
-	lines = strings.Split(strings.TrimSpace(output.String()), "\n")
-	removed := false
-	for i := 1; i < len(lines); i++ {
-		if strings.Contains(lines[i], `"section":"schema_migrations_acl"`) {
-			lines = append(lines[:i], lines[i+1:]...)
-			removed = true
-			break
-		}
-	}
-	if !removed {
-		t.Fatal("expected a serialized schema-history ACL section")
-	}
-	if _, err := dbbootstrap.ReadIntegrityNDJSON(strings.NewReader(strings.Join(lines, "\n")+"\n"), &reconstructed); err == nil {
-		t.Fatal("missing history ACL record was accepted")
+	return RetiredVerificationReport{
+		Observation: observation,
+		SchemaHistoryACL: []dbbootstrap.ACLObservation{{
+			Grantee: "postgres", Grantor: MigratorLogin, Privilege: "SELECT", Grantable: false,
+		}},
+		MigratorCanTemp: false, MigratorCanCreate: false, DatabaseOwner: "postgres",
+		PublicSchemaOwner: "pg_database_owner", HistoryOwner: MigratorLogin,
+		MigrationHistory: true, MigratorRetired: passed, NoRoleMemberships: passed,
+		OwnerHistoryACL: true, Passed: passed,
 	}
 }
