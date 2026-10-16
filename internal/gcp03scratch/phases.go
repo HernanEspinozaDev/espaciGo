@@ -91,10 +91,10 @@ func ObserveRetiredPhase(ctx context.Context, config Config, password, migration
 	}
 	var report RetiredVerificationReport
 	err := withScratchConnection(ctx, config, password, func(ctx context.Context, conn *pgx.Conn) error {
-		if _, err := conn.PgConn().Exec(ctx, "BEGIN READ ONLY").ReadAll(); err != nil {
+		if _, err := conn.Exec(ctx, "BEGIN READ ONLY"); err != nil {
 			return errors.New("GCP-03 could not begin a read-only retirement verification")
 		}
-		defer conn.PgConn().Exec(context.Background(), "ROLLBACK").ReadAll()
+		defer conn.Exec(context.Background(), "ROLLBACK")
 		var err error
 		report, err = ObserveRetiredScratch(ctx, conn, migrationDir)
 		return err

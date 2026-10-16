@@ -28,6 +28,7 @@ run "scratch_is_off_by_default" {
       length(google_cloud_run_v2_job.migrator) == 0 &&
       length(google_cloud_run_v2_job.observer) == 0 &&
       length(google_cloud_run_v2_job.owner_history_grant) == 0 &&
+      length(google_cloud_run_v2_job.retired_verification) == 0 &&
       length(google_cloud_run_v2_job.role_comment_probe) == 0 &&
       length(google_project_iam_custom_role.role_probe_cloudsql_operator) == 0 &&
       length(google_project_iam_custom_role.role_probe_secret_operator) == 0 &&
@@ -164,6 +165,59 @@ run "owner_history_grant_job_is_separate_digest_pinned_migrator_job" {
       length(google_cloud_run_v2_job.migrator) == 5
     )
     error_message = "Only the exact operator may invoke the separate phase; the original five migration Jobs remain independent."
+  }
+}
+
+run "retired_verification_job_is_separate_read_only_owner_gate" {
+  command = plan
+
+  variables {
+    project_id                                = "espacigo-testprod"
+    region                                    = "southamerica-west1"
+    run_id                                    = "pilot01"
+    enable_scratch                            = true
+    enable_retired_verification_job           = true
+    confirm_project_inventory                 = true
+    confirm_retired_verification_image_pushed = true
+    confirm_database_owner_secret_version     = true
+    database_owner_secret_version             = "1"
+    retired_verification_image                = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    operator_member                           = "user:pasteleriahijitos@gmail.com"
+  }
+
+  override_resource {
+    target = google_sql_database_instance.scratch[0]
+    values = {
+      connection_name = "espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg"
+    }
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.retired_verification) == 1 &&
+      google_cloud_run_v2_job.retired_verification[0].name == "espacigo-gcp03-pilot01-verify-retired" &&
+      google_cloud_run_v2_job.retired_verification[0].deletion_protection &&
+      google_cloud_run_v2_job.retired_verification[0].template[0].task_count == 1 &&
+      google_cloud_run_v2_job.retired_verification[0].template[0].parallelism == 1 &&
+      google_cloud_run_v2_job.retired_verification[0].template[0].template[0].max_retries == 0 &&
+      google_cloud_run_v2_job.retired_verification[0].template[0].template[0].service_account == "gcp03-scratch-acl-pilot01@espacigo-testprod.iam.gserviceaccount.com" &&
+      google_cloud_run_v2_job.retired_verification[0].template[0].template[0].containers[0].image == var.retired_verification_image &&
+      google_cloud_run_v2_job.retired_verification[0].template[0].template[0].volumes[0].secret[0].items[0].version == "1" &&
+      google_cloud_run_v2_job.retired_verification[0].template[0].template[0].vpc_access[0].egress == "PRIVATE_RANGES_ONLY" &&
+      anytrue([for env in google_cloud_run_v2_job.retired_verification[0].template[0].template[0].containers[0].env : env.name == "GCP03_PHASE" && env.value == "verify_retired"]) &&
+      anytrue([for env in google_cloud_run_v2_job.retired_verification[0].template[0].template[0].containers[0].env : env.name == "DATABASE_PASSWORD_FILE" && env.value == "/secrets/database-owner/password"])
+    )
+    error_message = "Retired verification must be a separate protected digest-pinned owner Job with the exact secret version, private egress, and no retries."
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.migrator) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.retired_verification_operator) == 1 &&
+      google_cloud_run_v2_job_iam_member.retired_verification_operator[0].member == "user:pasteleriahijitos@gmail.com" &&
+      length(google_service_account_iam_member.operator_act_as_database_acl) == 1
+    )
+    error_message = "The read-only verification gate must grant only the exact invoker and required owner-service-account actAs."
   }
 }
 

@@ -272,6 +272,72 @@ func TestScratchLifecyclePostgres18(t *testing.T) {
 		WHERE n.nspname = 'public' AND c.relname = 'schema_migrations'`).Scan(&exactACL); err != nil || !exactACL {
 		t.Fatalf("post-retirement history ACL is not restricted as reviewed (%v)", err)
 	}
+	if _, err := admin.Exec(ctx, `ALTER ROLE postgres NOSUPERUSER NOCREATEROLE`); err != nil {
+		t.Fatal("restrict disposable postgres verifier account")
+	}
+	if err := ownerConn.Close(ctx); err != nil {
+		t.Fatal("close elevated owner fixture session")
+	}
+	ownerConn = mustConnect(t, ctx, ownerURL.String())
+	defer ownerConn.Close(context.Background())
+	var ownerSuperuser bool
+	if err := ownerConn.QueryRow(ctx, `SELECT r.rolsuper FROM pg_catalog.pg_roles r WHERE r.rolname = current_user`).Scan(&ownerSuperuser); err != nil || ownerSuperuser {
+		t.Fatalf("retirement observer must run as restricted owner (%v)", err)
+	}
+	observeRetired := func() RetiredVerificationReport {
+		t.Helper()
+		if _, err := ownerConn.Exec(ctx, "BEGIN READ ONLY"); err != nil {
+			t.Fatal("begin verifier transaction read only")
+		}
+		defer ownerConn.Exec(context.Background(), "ROLLBACK")
+		var readOnly bool
+		if err := ownerConn.QueryRow(ctx, `SELECT current_setting('transaction_read_only') = 'on'`).Scan(&readOnly); err != nil || !readOnly {
+			t.Fatalf("retirement observer transaction is not read only (%v)", err)
+		}
+		report, err := ObserveRetiredScratch(ctx, ownerConn, migrationDir)
+		if err != nil {
+			t.Fatalf("collect complete retirement diagnostics: %v", err)
+		}
+		return report
+	}
+	if report := observeRetired(); !report.Passed {
+		t.Fatalf("valid retired fixture should pass: observation=%t history=%t role=%t no_memberships=%t history_acl=%t temp=%t create=%t",
+			report.Observation.Passed(), report.MigrationHistory, report.MigratorRetired, report.NoRoleMemberships,
+			report.OwnerHistoryACL, report.MigratorCanTemp, report.MigratorCanCreate)
+	}
+	if _, err := admin.Exec(ctx, `CREATE ROLE cloudsqlsuperuser NOLOGIN`); err != nil {
+		t.Fatal("create disposable managed-role membership fixture")
+	}
+	if _, err := admin.Exec(ctx, `GRANT cloudsqlsuperuser TO espacigo_scratch_migrator WITH INHERIT TRUE, SET TRUE`); err != nil {
+		t.Fatal("add retired-login membership negative fixture")
+	}
+	if report := observeRetired(); report.Passed || report.NoRoleMemberships || report.Observation.RoleInventoryPass {
+		t.Fatalf("remaining membership should fail with diagnostics: passed=%t no_memberships=%t role_inventory=%t membership_count=%d",
+			report.Passed, report.NoRoleMemberships, report.Observation.RoleInventoryPass, len(report.Observation.Memberships))
+	}
+	if _, err := admin.Exec(ctx, `REVOKE cloudsqlsuperuser FROM espacigo_scratch_migrator`); err != nil {
+		t.Fatal("remove membership negative fixture")
+	}
+	if _, err := admin.Exec(ctx, `GRANT TEMPORARY ON DATABASE espacigo_scratch TO espacigo_scratch_migrator`); err != nil {
+		t.Fatal("add TEMP privilege negative fixture")
+	}
+	if report := observeRetired(); report.Passed || !report.MigratorCanTemp || report.Observation.DatabaseACLPass {
+		t.Fatalf("pending TEMP should fail with diagnostics: passed=%t can_temp=%t acl=%t",
+			report.Passed, report.MigratorCanTemp, report.Observation.DatabaseACLPass)
+	}
+	if _, err := admin.Exec(ctx, `REVOKE TEMPORARY ON DATABASE espacigo_scratch FROM espacigo_scratch_migrator`); err != nil {
+		t.Fatal("remove TEMP negative fixture")
+	}
+	if _, err := admin.Exec(ctx, `GRANT CREATE ON SCHEMA public TO espacigo_scratch_migrator`); err != nil {
+		t.Fatal("add CREATE privilege negative fixture")
+	}
+	if report := observeRetired(); report.Passed || !report.MigratorCanCreate || report.Observation.DatabaseACLPass {
+		t.Fatalf("pending CREATE should fail with diagnostics: passed=%t can_create=%t acl=%t",
+			report.Passed, report.MigratorCanCreate, report.Observation.DatabaseACLPass)
+	}
+	if _, err := admin.Exec(ctx, `REVOKE CREATE ON SCHEMA public FROM espacigo_scratch_migrator`); err != nil {
+		t.Fatal("remove CREATE negative fixture")
+	}
 }
 
 func mustConnect(t *testing.T, ctx context.Context, connectionURL string) *pgx.Conn {

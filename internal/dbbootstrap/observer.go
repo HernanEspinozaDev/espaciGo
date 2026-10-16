@@ -290,8 +290,16 @@ func ObserveScratch(ctx context.Context, conn *pgx.Conn, membershipExpectation R
 	if err := conn.QueryRow(ctx, observerSpatialIndexSQL).Scan(&report.Spatial.ActualIndex, &report.Spatial.IndexAccessMethod, &report.Spatial.IndexValid, &report.Spatial.IndexReady, &report.Spatial.IndexDefinition); err != nil {
 		return report, errors.New("expected spatial index was not observable")
 	}
-	report.DatabaseACLPass = VerifyScratchDatabaseACL(ctx, conn) == nil
-	report.RuntimePermissionsPass = VerifyScratchRuntimePermissions(ctx, conn) == nil
+	if membershipExpectation == RoleMembershipRetired {
+		report.DatabaseACLPass = VerifyScratchRetiredDatabaseACL(ctx, conn) == nil
+	} else {
+		report.DatabaseACLPass = VerifyScratchDatabaseACL(ctx, conn) == nil
+	}
+	if membershipExpectation == RoleMembershipRetired {
+		report.RuntimePermissionsPass = VerifyScratchRetiredRuntimePermissions(ctx, conn) == nil
+	} else {
+		report.RuntimePermissionsPass = VerifyScratchRuntimePermissions(ctx, conn) == nil
+	}
 	checks := [16]bool{}
 	if err := conn.QueryRow(ctx, observerRuntimePermissionsSQL).Scan(
 		&checks[0], &checks[1], &checks[2], &checks[3], &checks[4], &checks[5], &checks[6], &checks[7],

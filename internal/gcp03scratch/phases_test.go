@@ -7,7 +7,7 @@ import (
 )
 
 func TestExecutePhaseInvokesOnlyTheNamedPhase(t *testing.T) {
-	for _, phase := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseGrantOwnerHistory, PhaseRetire} {
+	for _, phase := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseGrantOwnerHistory, PhaseRetire, PhaseVerifyRetired} {
 		t.Run(string(phase), func(t *testing.T) {
 			calls := map[Phase]int{}
 			actions := PhaseActions{
@@ -17,11 +17,12 @@ func TestExecutePhaseInvokesOnlyTheNamedPhase(t *testing.T) {
 				Finalize:          func(context.Context) error { calls[PhaseFinalize]++; return nil },
 				Retire:            func(context.Context) error { calls[PhaseRetire]++; return nil },
 				GrantOwnerHistory: func(context.Context) error { calls[PhaseGrantOwnerHistory]++; return nil },
+				VerifyRetired:     func(context.Context) error { calls[PhaseVerifyRetired]++; return nil },
 			}
 			if err := ExecutePhase(context.Background(), phase, actions); err != nil {
 				t.Fatal(err)
 			}
-			for _, candidate := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseGrantOwnerHistory, PhaseRetire} {
+			for _, candidate := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseGrantOwnerHistory, PhaseRetire, PhaseVerifyRetired} {
 				want := 0
 				if candidate == phase {
 					want = 1

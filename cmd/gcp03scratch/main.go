@@ -48,7 +48,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "GCP-03 fixed retirement observer could not complete its read-only collection")
 			os.Exit(1)
 		}
-		if err := dbbootstrap.WriteObserverNDJSON(os.Stdout, report.Observation); err != nil {
+		if err := dbbootstrap.WriteIntegrityNDJSON(os.Stdout, report, report.Passed); err != nil {
 			fmt.Fprintln(os.Stderr, "GCP-03 retirement observer report could not be encoded")
 			os.Exit(1)
 		}

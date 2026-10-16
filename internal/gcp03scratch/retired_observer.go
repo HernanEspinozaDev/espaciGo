@@ -26,6 +26,8 @@ type RetiredVerificationReport struct {
 	Passed            bool                           `json:"passed"`
 }
 
+func (r RetiredVerificationReport) IntegrityPassed() bool { return r.Passed }
+
 // ObserveRetiredScratch collects every fixed check before deciding whether the
 // retirement is complete. Callers must run it inside a read-only transaction.
 func ObserveRetiredScratch(ctx context.Context, conn *pgx.Conn, migrationDir string) (RetiredVerificationReport, error) {

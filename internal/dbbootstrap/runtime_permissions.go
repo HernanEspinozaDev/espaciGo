@@ -166,6 +166,38 @@ func VerifyScratchDatabaseACL(ctx context.Context, conn *pgx.Conn) error {
 	return nil
 }
 
+// VerifyScratchRetiredDatabaseACL requires the temporary login to retain no
+// effective TEMP or CREATE privilege after its fixed retire phase. The active
+// migrator-only contract remains in VerifyScratchDatabaseACL.
+func VerifyScratchRetiredDatabaseACL(ctx context.Context, conn *pgx.Conn) error {
+	if conn == nil {
+		return errors.New("scratch database connection is required")
+	}
+	var publicTemp, migratorTemp, runtimeTemp, migratorCreate, runtimeCreate, publicSchemaCreate bool
+	err := conn.QueryRow(ctx, `SELECT
+		EXISTS (
+			SELECT 1 FROM pg_catalog.pg_database d,
+			LATERAL pg_catalog.aclexplode(COALESCE(d.datacl, pg_catalog.acldefault('d', d.datdba))) acl
+			WHERE d.datname = 'espacigo_scratch' AND acl.grantee = 0 AND acl.privilege_type = 'TEMPORARY'
+		),
+		has_database_privilege('espacigo_scratch_migrator', 'espacigo_scratch', 'TEMP'),
+		has_database_privilege('espacigo_runtime', 'espacigo_scratch', 'TEMP'),
+		has_schema_privilege('espacigo_scratch_migrator', 'public', 'CREATE'),
+		has_schema_privilege('espacigo_runtime', 'public', 'CREATE'),
+		EXISTS (
+			SELECT 1 FROM pg_catalog.pg_namespace n,
+			LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) acl
+			WHERE n.nspname = 'public' AND acl.grantee = 0 AND acl.privilege_type = 'CREATE'
+		)`).Scan(&publicTemp, &migratorTemp, &runtimeTemp, &migratorCreate, &runtimeCreate, &publicSchemaCreate)
+	if err != nil {
+		return errors.New("could not inspect retired scratch database ACL")
+	}
+	if publicTemp || migratorTemp || runtimeTemp || migratorCreate || runtimeCreate || publicSchemaCreate {
+		return errors.New("retired scratch database TEMP/schema privileges are not fully revoked")
+	}
+	return nil
+}
+
 // ScratchExtensionVersions reports the fixed supported extension set for
 // review logs without exposing connection credentials or executing caller SQL.
 func ScratchExtensionVersions(ctx context.Context, conn *pgx.Conn) (map[string]string, error) {
@@ -198,6 +230,16 @@ func ScratchExtensionVersions(ctx context.Context, conn *pgx.Conn) (map[string]s
 // VerifyScratchRuntimePermissions checks the most important positive and
 // negative grants after GrantRuntimePermissions has run against all migrations.
 func VerifyScratchRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
+	return verifyScratchRuntimePermissions(ctx, conn, false)
+}
+
+// VerifyScratchRetiredRuntimePermissions preserves the runtime-role checks
+// while applying the post-retirement no-TEMP/no-CREATE database ACL contract.
+func VerifyScratchRetiredRuntimePermissions(ctx context.Context, conn *pgx.Conn) error {
+	return verifyScratchRuntimePermissions(ctx, conn, true)
+}
+
+func verifyScratchRuntimePermissions(ctx context.Context, conn *pgx.Conn, retired bool) error {
 	if conn == nil {
 		return errors.New("scratch database connection is required")
 	}
@@ -207,8 +249,14 @@ func VerifyScratchRuntimePermissions(ctx context.Context, conn *pgx.Conn) error 
 	if err := requireRestrictedNoLoginRole(ctx, conn, "espacigo_gadm_bootstrap", true); err != nil {
 		return err
 	}
-	if err := VerifyScratchDatabaseACL(ctx, conn); err != nil {
-		return err
+	var aclErr error
+	if retired {
+		aclErr = VerifyScratchRetiredDatabaseACL(ctx, conn)
+	} else {
+		aclErr = VerifyScratchDatabaseACL(ctx, conn)
+	}
+	if aclErr != nil {
+		return aclErr
 	}
 	var checks [16]bool
 	err := conn.QueryRow(ctx, `SELECT
