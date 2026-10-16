@@ -1,0 +1,96 @@
+{
+  "status": "static expected inventory; NOT a Terraform plan and NOT an apply authorization",
+  "source_root": "infra/terraform/environments/testprod/gcp",
+  "toggles": {
+    "enable_foundation": true,
+    "enable_database": false,
+    "enable_services": false,
+    "enable_edge": false,
+    "manage_dns_records": false,
+    "iap_evaluator_members": []
+  },
+  "assumptions": [
+    "empty dedicated GCP Terraform state",
+    "no conflicting pre-existing resources",
+    "no refresh/import reconciliation included",
+    "review exact saved plan before any apply"
+  ],
+  "addresses": [
+    "google_project_service.required[\"artifactregistry.googleapis.com\"]",
+    "google_project_service.required[\"cloudresourcemanager.googleapis.com\"]",
+    "google_project_service.required[\"compute.googleapis.com\"]",
+    "google_project_service.required[\"iam.googleapis.com\"]",
+    "google_project_service.required[\"iamcredentials.googleapis.com\"]",
+    "google_project_service.required[\"iap.googleapis.com\"]",
+    "google_project_service.required[\"run.googleapis.com\"]",
+    "google_project_service.required[\"secretmanager.googleapis.com\"]",
+    "google_project_service.required[\"servicenetworking.googleapis.com\"]",
+    "google_project_service.required[\"sqladmin.googleapis.com\"]",
+    "google_project_service.required[\"sts.googleapis.com\"]",
+    "google_project_service.required[\"storage.googleapis.com\"]",
+    "google_project_service.required[\"serviceusage.googleapis.com\"]",
+    "google_compute_network.testprod[0]",
+    "google_compute_subnetwork.serverless[0]",
+    "google_service_account.runtime[\"api\"]",
+    "google_service_account.runtime[\"public-web\"]",
+    "google_service_account.runtime[\"private-web\"]",
+    "google_service_account.runtime[\"migrator\"]",
+    "google_service_account.runtime[\"deployer\"]",
+    "google_iam_workload_identity_pool.github[0]",
+    "google_iam_workload_identity_pool_provider.github[0]",
+    "google_service_account_iam_member.github_deployer[0]",
+    "google_project_iam_member.deployer_run[0]",
+    "google_artifact_registry_repository.containers[0]",
+    "google_artifact_registry_repository_iam_member.deployer_writer[0]",
+    "google_storage_bucket.private_files[0]",
+    "google_storage_bucket_iam_member.api_files[0]",
+    "google_secret_manager_secret.runtime[\"database-password\"]",
+    "google_secret_manager_secret.runtime[\"contract-encryption-key\"]",
+    "google_secret_manager_secret.runtime[\"payment-webhook-secret\"]",
+    "google_secret_manager_secret_iam_member.api_secret_access[\"database-password\"]",
+    "google_secret_manager_secret_iam_member.api_secret_access[\"contract-encryption-key\"]",
+    "google_secret_manager_secret_iam_member.api_secret_access[\"payment-webhook-secret\"]",
+    "google_secret_manager_secret_iam_member.migrator_db_access[0]",
+    "google_project_iam_member.cloudsql_clients[\"api\"]",
+    "google_project_iam_member.cloudsql_clients[\"migrator\"]",
+    "google_service_account_iam_member.deployer_act_as_runtime[\"api\"]",
+    "google_service_account_iam_member.deployer_act_as_runtime[\"public-web\"]",
+    "google_service_account_iam_member.deployer_act_as_runtime[\"private-web\"]",
+    "google_service_account_iam_member.deployer_act_as_runtime[\"migrator\"]"
+  ],
+  "api_status_read_only_snapshot": {
+    "enabled": [
+      "storage.googleapis.com",
+      "serviceusage.googleapis.com"
+    ],
+    "disabled": [
+      "artifactregistry.googleapis.com",
+      "cloudresourcemanager.googleapis.com",
+      "compute.googleapis.com",
+      "iam.googleapis.com",
+      "iamcredentials.googleapis.com",
+      "iap.googleapis.com",
+      "run.googleapis.com",
+      "secretmanager.googleapis.com",
+      "servicenetworking.googleapis.com",
+      "sqladmin.googleapis.com",
+      "sts.googleapis.com"
+    ],
+    "other_root_owned_enabled": [
+      "cloudasset.googleapis.com",
+      "orgpolicy.googleapis.com"
+    ],
+    "ownership": "inventory-apis root owns cloudasset/orgpolicy; GCP root uniquely owns storage; bootstrap consumes storage only as prerequisite"
+  },
+  "excluded": [
+    "Cloud SQL",
+    "Cloud Run",
+    "IAP service identity/evaluator grants",
+    "load balancer/Cloud Armor",
+    "DNS",
+    "secret versions or values",
+    "application data"
+  ],
+  "expected_address_count": 41,
+  "plan_action_status": "unknown until a real saved plan is produced and reviewed; an enabled API may be adopted into state without an API-side change"
+}
