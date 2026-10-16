@@ -92,6 +92,7 @@ test('private entry requires IAP assertion except for non-sensitive platform pro
   assert.equal(iapAssertionRequired('private', '/health/ready'), false);
   assert.equal(iapAssertionRequired('public', '/reservas'), false);
   assert.equal(privateEntryAudienceConfigured('private', '/projects/123456/locations/southamerica-west1/services/espacigo-private'), true);
+  assert.equal(privateEntryAudienceConfigured('private', '/projects/123456/global/backendServices/987654321'), false);
   assert.equal(privateEntryAudienceConfigured('private', ''), false);
   assert.equal(privateEntryAudienceConfigured('private', 'https://service.run.app'), false);
   assert.equal(privateEntryAudienceConfigured('public', ''), true);
