@@ -7,20 +7,21 @@ import (
 )
 
 func TestExecutePhaseInvokesOnlyTheNamedPhase(t *testing.T) {
-	for _, phase := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire} {
+	for _, phase := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseGrantOwnerHistory, PhaseRetire} {
 		t.Run(string(phase), func(t *testing.T) {
 			calls := map[Phase]int{}
 			actions := PhaseActions{
-				Bootstrap:   func(context.Context) error { calls[PhaseBootstrap]++; return nil },
-				DatabaseACL: func(context.Context) error { calls[PhaseDatabaseACL]++; return nil },
-				Migrate:     func(context.Context) error { calls[PhaseMigrate]++; return nil },
-				Finalize:    func(context.Context) error { calls[PhaseFinalize]++; return nil },
-				Retire:      func(context.Context) error { calls[PhaseRetire]++; return nil },
+				Bootstrap:         func(context.Context) error { calls[PhaseBootstrap]++; return nil },
+				DatabaseACL:       func(context.Context) error { calls[PhaseDatabaseACL]++; return nil },
+				Migrate:           func(context.Context) error { calls[PhaseMigrate]++; return nil },
+				Finalize:          func(context.Context) error { calls[PhaseFinalize]++; return nil },
+				Retire:            func(context.Context) error { calls[PhaseRetire]++; return nil },
+				GrantOwnerHistory: func(context.Context) error { calls[PhaseGrantOwnerHistory]++; return nil },
 			}
 			if err := ExecutePhase(context.Background(), phase, actions); err != nil {
 				t.Fatal(err)
 			}
-			for _, candidate := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire} {
+			for _, candidate := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseGrantOwnerHistory, PhaseRetire} {
 				want := 0
 				if candidate == phase {
 					want = 1

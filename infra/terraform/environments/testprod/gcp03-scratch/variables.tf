@@ -99,6 +99,30 @@ variable "enable_observer_job" {
   }
 }
 
+variable "enable_owner_history_grant_job" {
+  type        = bool
+  description = "Independent default-off gate for the fixed migrator phase that grants postgres SELECT only on public.schema_migrations after verifying the complete history."
+  default     = false
+  validation {
+    condition = !var.enable_owner_history_grant_job || (
+      var.enable_scratch &&
+      var.enable_job &&
+      var.run_id == "pilot01" &&
+      var.database_user == "espacigo_scratch_migrator" &&
+      var.database_name == "espacigo_scratch" &&
+      can(regex("@sha256:[0-9a-f]{64}$", var.owner_history_image)) &&
+      startswith(var.owner_history_image, "${var.region}-docker.pkg.dev/${var.project_id}/gcp03-scratch-${var.run_id}/dbmigrate@sha256:") &&
+      var.confirm_owner_history_image_pushed &&
+      var.confirm_scratch_secret_version &&
+      can(regex("^[1-9][0-9]*$", var.migrator_secret_version)) &&
+      var.operator_member == "user:pasteleriahijitos@gmail.com" &&
+      !var.allow_scratch_destroy &&
+      !var.allow_replay_job_destroy
+    )
+    error_message = "The owner-history grant Job requires the exact pilot01 scratch, existing migrator secret, reviewed digest, exact operator, and protected scratch/Jobs."
+  }
+}
+
 variable "enable_role_probe_jobs" {
   type        = bool
   description = "Gate for the two fixed role-comment Jobs; requires an already-existing active numeric secret version and grants no credential-provisioning permissions."
@@ -225,9 +249,21 @@ variable "observer_image" {
   default     = ""
 }
 
+variable "owner_history_image" {
+  type        = string
+  description = "Separate digest-pinned OCI for the fixed grant_owner_history phase."
+  default     = ""
+}
+
 variable "confirm_observer_image_pushed" {
   type        = bool
   description = "Confirm only after reading back the exact observer digest from the existing scratch Artifact Registry repository."
+  default     = false
+}
+
+variable "confirm_owner_history_image_pushed" {
+  type        = bool
+  description = "Explicit confirmation that the separate owner-history phase image digest was published and read back."
   default     = false
 }
 

@@ -27,6 +27,7 @@ run "scratch_is_off_by_default" {
       length(google_sql_database_instance.scratch) == 0 &&
       length(google_cloud_run_v2_job.migrator) == 0 &&
       length(google_cloud_run_v2_job.observer) == 0 &&
+      length(google_cloud_run_v2_job.owner_history_grant) == 0 &&
       length(google_cloud_run_v2_job.role_comment_probe) == 0 &&
       length(google_project_iam_custom_role.role_probe_cloudsql_operator) == 0 &&
       length(google_project_iam_custom_role.role_probe_secret_operator) == 0 &&
@@ -105,6 +106,64 @@ run "observer_job_is_separate_default_off_and_uses_only_exact_scratch_targets" {
       length(google_cloud_run_v2_job.role_comment_probe) == 0
     )
     error_message = "The observer digest must remain independent; no retired probe or credential IAM gate may activate."
+  }
+}
+
+run "owner_history_grant_job_is_separate_digest_pinned_migrator_job" {
+  command = plan
+
+  variables {
+    project_id                            = "espacigo-testprod"
+    region                                = "southamerica-west1"
+    run_id                                = "pilot01"
+    enable_scratch                        = true
+    enable_job                            = true
+    enable_owner_history_grant_job        = true
+    confirm_project_inventory             = true
+    confirm_image_pushed                  = true
+    confirm_owner_history_image_pushed    = true
+    confirm_scratch_secret_version        = true
+    confirm_database_owner_secret_version = true
+    migrator_secret_version               = "4"
+    database_owner_secret_version         = "1"
+    migrator_image                        = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    owner_history_image                   = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    operator_member                       = "user:pasteleriahijitos@gmail.com"
+  }
+
+  override_resource {
+    target = google_sql_database_instance.scratch[0]
+    values = {
+      connection_name = "espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg"
+    }
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.migrator) == 5 &&
+      length(google_cloud_run_v2_job.owner_history_grant) == 1 &&
+      google_cloud_run_v2_job.owner_history_grant[0].name == "espacigo-gcp03-pilot01-grant-owner-history" &&
+      google_cloud_run_v2_job.owner_history_grant[0].deletion_protection &&
+      google_cloud_run_v2_job.owner_history_grant[0].template[0].task_count == 1 &&
+      google_cloud_run_v2_job.owner_history_grant[0].template[0].parallelism == 1 &&
+      google_cloud_run_v2_job.owner_history_grant[0].template[0].template[0].max_retries == 0 &&
+      google_cloud_run_v2_job.owner_history_grant[0].template[0].template[0].service_account == "gcp03-scratch-pilot01@espacigo-testprod.iam.gserviceaccount.com" &&
+      google_cloud_run_v2_job.owner_history_grant[0].template[0].template[0].containers[0].image == var.owner_history_image &&
+      google_cloud_run_v2_job.owner_history_grant[0].template[0].template[0].volumes[0].secret[0].items[0].version == "4" &&
+      anytrue([for env in google_cloud_run_v2_job.owner_history_grant[0].template[0].template[0].containers[0].env : env.name == "GCP03_PHASE" && env.value == "grant_owner_history"])
+    )
+    error_message = "The owner-history grant must be a separate protected fixed Job using the exact migrator account, numeric secret, and independent digest."
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job_iam_member.owner_history_operator) == 1 &&
+      google_cloud_run_v2_job_iam_member.owner_history_operator[0].name == "espacigo-gcp03-pilot01-grant-owner-history" &&
+      google_cloud_run_v2_job_iam_member.owner_history_operator[0].role == "roles/run.invoker" &&
+      google_cloud_run_v2_job_iam_member.owner_history_operator[0].member == "user:pasteleriahijitos@gmail.com" &&
+      length(google_cloud_run_v2_job.migrator) == 5
+    )
+    error_message = "Only the exact operator may invoke the separate phase; the original five migration Jobs remain independent."
   }
 }
 

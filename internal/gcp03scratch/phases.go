@@ -13,11 +13,12 @@ import (
 )
 
 type PhaseActions struct {
-	Bootstrap   func(context.Context) error
-	DatabaseACL func(context.Context) error
-	Migrate     func(context.Context) error
-	Finalize    func(context.Context) error
-	Retire      func(context.Context) error
+	Bootstrap         func(context.Context) error
+	DatabaseACL       func(context.Context) error
+	Migrate           func(context.Context) error
+	Finalize          func(context.Context) error
+	Retire            func(context.Context) error
+	GrantOwnerHistory func(context.Context) error
 }
 
 // ExecutePhase dispatches exactly one named phase. Cloud Run Jobs use separate
@@ -35,6 +36,8 @@ func ExecutePhase(ctx context.Context, phase Phase, actions PhaseActions) error 
 		action = actions.Finalize
 	case PhaseRetire:
 		action = actions.Retire
+	case PhaseGrantOwnerHistory:
+		action = actions.GrantOwnerHistory
 	default:
 		return errors.New("unsupported GCP-03 scratch phase")
 	}
@@ -56,11 +59,12 @@ func RunPhase(ctx context.Context, config Config, password, migrationDir string)
 		return errors.New("GCP-03 scratch password has an invalid format")
 	}
 	actions := PhaseActions{
-		Bootstrap:   func(ctx context.Context) error { return runBootstrap(ctx, config, password) },
-		DatabaseACL: func(ctx context.Context) error { return runDatabaseACL(ctx, config, password) },
-		Migrate:     func(ctx context.Context) error { return runMigrations(ctx, config, password, migrationDir) },
-		Finalize:    func(ctx context.Context) error { return runFinalize(ctx, config, password, migrationDir) },
-		Retire:      func(ctx context.Context) error { return runRetire(ctx, config, password, migrationDir) },
+		Bootstrap:         func(ctx context.Context) error { return runBootstrap(ctx, config, password) },
+		DatabaseACL:       func(ctx context.Context) error { return runDatabaseACL(ctx, config, password) },
+		Migrate:           func(ctx context.Context) error { return runMigrations(ctx, config, password, migrationDir) },
+		Finalize:          func(ctx context.Context) error { return runFinalize(ctx, config, password, migrationDir) },
+		Retire:            func(ctx context.Context) error { return runRetire(ctx, config, password, migrationDir) },
+		GrantOwnerHistory: func(ctx context.Context) error { return runGrantOwnerHistory(ctx, config, password, migrationDir) },
 	}
 	return ExecutePhase(ctx, config.Phase, actions)
 }
@@ -155,6 +159,55 @@ func runRetire(ctx context.Context, config Config, password, migrationDir string
 	return withScratchConnection(ctx, config, password, func(ctx context.Context, conn *pgx.Conn) error {
 		return retireOnConnection(ctx, conn, migrationDir)
 	})
+}
+
+func runGrantOwnerHistory(ctx context.Context, config Config, password, migrationDir string) error {
+	return withScratchConnection(ctx, config, password, func(ctx context.Context, conn *pgx.Conn) error {
+		return grantOwnerHistoryOnConnection(ctx, conn, migrationDir)
+	})
+}
+
+func grantOwnerHistoryOnConnection(ctx context.Context, conn *pgx.Conn, migrationDir string) error {
+	if err := migrator.VerifyAllApplied(ctx, conn, migrationDir, MigrationCount); err != nil {
+		return fmt.Errorf("GCP-03 owner-history grant migration verification failed: %w", err)
+	}
+	if err := dbbootstrap.VerifyScratchBootstrap(ctx, conn); err != nil {
+		return fmt.Errorf("GCP-03 owner-history grant role verification failed: %w", err)
+	}
+	if err := dbbootstrap.VerifyScratchRuntimePermissions(ctx, conn); err != nil {
+		return fmt.Errorf("GCP-03 owner-history grant runtime ACL verification failed: %w", err)
+	}
+	var exactTarget bool
+	if err := conn.QueryRow(ctx, `SELECT current_database() = 'espacigo_scratch'
+		AND current_user = 'espacigo_scratch_migrator'
+		AND pg_catalog.pg_get_userbyid(c.relowner) = 'espacigo_scratch_migrator'
+		FROM pg_catalog.pg_class c
+		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relname = 'schema_migrations' AND c.relkind = 'r'`).Scan(&exactTarget); err != nil || !exactTarget {
+		return errors.New("GCP-03 owner-history grant target or owner is unexpected")
+	}
+	if _, err := conn.PgConn().Exec(ctx, scratchsql.GrantOwnerHistory).ReadAll(); err != nil {
+		return fmt.Errorf("GCP-03 fixed owner-history grant failed: %w", err)
+	}
+	var valid bool
+	err := conn.QueryRow(ctx, `SELECT has_table_privilege('postgres', c.oid, 'SELECT')
+		AND NOT has_table_privilege('espacigo_runtime', c.oid, 'SELECT')
+		AND NOT EXISTS (
+			SELECT 1 FROM pg_catalog.aclexplode(coalesce(c.relacl, pg_catalog.acldefault('r', c.relowner))) acl
+			WHERE acl.grantee = 0 AND acl.privilege_type = 'SELECT'
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM pg_catalog.aclexplode(coalesce(c.relacl, pg_catalog.acldefault('r', c.relowner))) acl
+			JOIN pg_catalog.pg_roles r ON r.oid = acl.grantee
+			WHERE r.rolname = 'postgres' AND acl.privilege_type = 'SELECT' AND acl.is_grantable
+		)
+		FROM pg_catalog.pg_class c
+		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relname = 'schema_migrations' AND c.relkind = 'r'`).Scan(&valid)
+	if err != nil || !valid {
+		return errors.New("GCP-03 owner-history grant did not produce the exact restricted privilege")
+	}
+	return nil
 }
 
 func retireOnConnection(ctx context.Context, conn *pgx.Conn, migrationDir string) error {

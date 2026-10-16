@@ -22,7 +22,7 @@ func validEnvironment(phase Phase) map[string]string {
 }
 
 func TestLoadConfigAcceptsOnlyNamedPhasesForExactScratchTarget(t *testing.T) {
-	for _, phase := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire, PhaseObserve, PhaseRoleCommentPrepare, PhaseRoleCommentAfterReconcile} {
+	for _, phase := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseGrantOwnerHistory, PhaseRetire, PhaseObserve, PhaseRoleCommentPrepare, PhaseRoleCommentAfterReconcile} {
 		t.Run(string(phase), func(t *testing.T) {
 			values := validEnvironment(phase)
 			config, err := LoadConfig(func(key string) string { return values[key] })
