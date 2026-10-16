@@ -94,7 +94,7 @@ resource "google_sql_database_instance" "scratch" {
     availability_type           = "ZONAL"
     connector_enforcement       = "REQUIRED"
     deletion_protection_enabled = local.protect_scratch
-    disk_type                   = "PD_SSD"
+    disk_type                   = "HYPERDISK_BALANCED"
     disk_size                   = 20
     disk_autoresize             = false
     user_labels = {

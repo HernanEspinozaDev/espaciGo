@@ -116,8 +116,12 @@ variable "confirm_destroy_run_id" {
 
 variable "instance_tier" {
   type        = string
-  description = "Disposable PostgreSQL machine tier; confirm regional availability before a future apply."
+  description = "Reviewed scratch pairing only: N4 2 vCPU/4 GiB with Hyperdisk Balanced; recheck regional availability before a future apply."
   default     = "db-custom-N4-2-4096"
+  validation {
+    condition     = !var.enable_scratch || var.instance_tier == "db-custom-N4-2-4096"
+    error_message = "This scratch root currently supports only the reviewed N4 2 vCPU/4 GiB tier paired with Hyperdisk Balanced."
+  }
 }
 
 variable "database_name" {

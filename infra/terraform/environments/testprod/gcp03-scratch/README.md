@@ -1,6 +1,6 @@
 # GCP-03 disposable scratch root
 
-This root is independent of `../gcp` and uses a separate GCS state prefix. It reads the existing VPC/subnetwork and manages only resources named for one scratch `run_id`. It must never be initialized with the persistent root's state prefix.
+This root is independent of `../gcp` and uses a separate GCS state prefix. It reads the existing VPC/subnetwork and manages only resources named for one scratch `run_id`. It must never be initialized with the persistent root's state prefix. The reviewed database pairing is fixed to N4 `db-custom-N4-2-4096` plus 20 GiB Hyperdisk Balanced; confirm availability before a future apply.
 
 Private backend configuration example, stored under `.local/` with directory mode 0700 and file mode 0600:
 

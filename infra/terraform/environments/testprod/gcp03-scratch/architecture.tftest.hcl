@@ -56,6 +56,20 @@ run "teardown_gate_requires_the_exact_run_id" {
   expect_failures = [var.confirm_destroy_run_id]
 }
 
+run "scratch_rejects_unreviewed_tier" {
+  command = plan
+
+  variables {
+    project_id                = "espacigo-testprod"
+    run_id                    = "pilot01"
+    enable_scratch            = true
+    confirm_project_inventory = true
+    instance_tier             = "db-custom-N2-2-4096"
+  }
+
+  expect_failures = [var.instance_tier]
+}
+
 run "scratch_database_defaults_are_disposable_and_protected" {
   command = plan
 
@@ -74,6 +88,14 @@ run "scratch_database_defaults_are_disposable_and_protected" {
   assert {
     condition     = google_sql_database_instance.scratch[0].settings[0].backup_configuration[0].enabled == false
     error_message = "Disposable scratch SQL must not create backups by default."
+  }
+
+  assert {
+    condition = (
+      google_sql_database_instance.scratch[0].settings[0].tier == "db-custom-N4-2-4096" &&
+      google_sql_database_instance.scratch[0].settings[0].disk_type == "HYPERDISK_BALANCED"
+    )
+    error_message = "The reviewed N4 scratch tier must use Hyperdisk Balanced, not SSD."
   }
 
   assert {
