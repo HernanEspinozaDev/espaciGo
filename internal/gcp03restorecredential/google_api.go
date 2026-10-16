@@ -154,7 +154,18 @@ func (a sqlAdminAPI) GetUser(ctx context.Context, project, instance, user string
 	if result == nil {
 		return "", "", errors.New("Cloud SQL returned no user resource")
 	}
-	return result.Name, result.Type, nil
+	if result.Name != UserName {
+		return "", "", errors.New("Cloud SQL returned a different user for the fixed postgres lookup")
+	}
+	if result.Type == "" {
+		// Cloud SQL documents BUILT_IN as the default type when omitted. Apply
+		// that default only to the exact fixed postgres user lookup above.
+		return UserName, "BUILT_IN", nil
+	}
+	if result.Type != "BUILT_IN" {
+		return "", "", errors.New("Cloud SQL returned a non-built-in type for the fixed postgres user")
+	}
+	return UserName, "BUILT_IN", nil
 }
 
 func (a sqlAdminAPI) UpdatePassword(ctx context.Context, project, instance, user string, password []byte) (string, error) {

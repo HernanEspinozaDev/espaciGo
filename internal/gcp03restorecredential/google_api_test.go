@@ -100,7 +100,9 @@ func TestGoogleAPIClientsUseExactRestoreTargetAndQuotaProject(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/sql/v1beta4/projects/espacigo-testprod/instances/espacigo-gcp03-restore-g03r-1016-pg/databases/espacigo_scratch":
 			_, _ = io.WriteString(w, `{"name":"espacigo_scratch"}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/sql/v1beta4/projects/espacigo-testprod/instances/espacigo-gcp03-restore-g03r-1016-pg/users/postgres":
-			_, _ = io.WriteString(w, `{"name":"postgres","type":"BUILT_IN"}`)
+			// Cloud SQL defaults omitted type to BUILT_IN for the built-in
+			// postgres account; this mirrors the observed API response.
+			_, _ = io.WriteString(w, `{"name":"postgres"}`)
 		case r.Method == http.MethodPut && r.URL.Path == "/sql/v1beta4/projects/espacigo-testprod/instances/espacigo-gcp03-restore-g03r-1016-pg/users":
 			if r.URL.Query().Get("name") != "postgres" {
 				t.Errorf("users.update user query was not fixed to postgres: %v", r.URL.Query())
@@ -202,5 +204,48 @@ func TestGoogleAPIsRejectAnyPilot01OrWrongRunTarget(t *testing.T) {
 	}
 	if _, err := sql.UpdatePassword(context.Background(), ProjectID, InstanceName, UserName, []byte(strings.Repeat("x", 43))); err == nil {
 		t.Fatal("noncanonical 43-byte password was not rejected locally")
+	}
+}
+
+func TestGetUserNormalizesOmittedTypeOnlyForExactBuiltInPostgres(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		response string
+		wantName string
+		wantType string
+		wantErr  bool
+	}{
+		{name: "documented omitted default", response: `{"name":"postgres"}`, wantName: UserName, wantType: "BUILT_IN"},
+		{name: "explicit built-in", response: `{"name":"postgres","type":"BUILT_IN"}`, wantName: UserName, wantType: "BUILT_IN"},
+		{name: "IAM type rejected", response: `{"name":"postgres","type":"CLOUD_IAM_USER"}`, wantErr: true},
+		{name: "unknown explicit type rejected", response: `{"name":"postgres","type":"FUTURE_USER_TYPE"}`, wantErr: true},
+		{name: "wrong returned name rejected", response: `{"name":"migrator"}`, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/sql/v1beta4/projects/espacigo-testprod/instances/espacigo-gcp03-restore-g03r-1016-pg/users/postgres" {
+					t.Errorf("unexpected fixed-user API request: %s %s", r.Method, r.URL.Path)
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, tc.response)
+			}))
+			defer server.Close()
+			sql, _, err := newGoogleAPIClients(context.Background(), option.WithEndpoint(server.URL+"/"), option.WithoutAuthentication())
+			if err != nil {
+				t.Fatal(err)
+			}
+			gotName, gotType, err := sql.GetUser(context.Background(), ProjectID, InstanceName, UserName)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("unexpected user response accepted: name=%q type=%q", gotName, gotType)
+				}
+				return
+			}
+			if err != nil || gotName != tc.wantName || gotType != tc.wantType {
+				t.Fatalf("user response = (%q, %q, %v), want (%q, %q, nil)", gotName, gotType, err, tc.wantName, tc.wantType)
+			}
+		})
 	}
 }
