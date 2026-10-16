@@ -35,16 +35,12 @@ variable "state_bucket_names" {
 
 variable "state_operator_members" {
   type        = map(string)
-  description = "Different principals authorized to read/write only their own state bucket. Keys: bootstrap, gcp, cloudflare."
+  description = "Optional principals authorized to read/write only their own state bucket. Keys: bootstrap, gcp, cloudflare. Add each grant only after its operator identity exists and is approved."
   default     = {}
   validation {
-    condition = !var.create_state_bucket || (
-      length(var.state_operator_members) == 3 &&
-      contains(keys(var.state_operator_members), "bootstrap") &&
-      contains(keys(var.state_operator_members), "gcp") &&
-      contains(keys(var.state_operator_members), "cloudflare") &&
-      alltrue([for member in values(var.state_operator_members) : can(regex("^(user|group|serviceAccount):.+$", member))])
-    )
-    error_message = "When bootstrap is enabled, specify explicit bootstrap, GCP, and Cloudflare state operator principals."
+    condition = alltrue([
+      for key, member in var.state_operator_members : contains(keys(var.state_bucket_names), key) && can(regex("^(user|group|serviceAccount):.+$", member))
+    ])
+    error_message = "State operator entries must use a configured bucket key and a valid user, group, or service account principal."
   }
 }
