@@ -338,8 +338,8 @@ run "replay_credential_iam_coexists_with_five_jobs_and_preserves_exact_targets" 
       google_project_iam_member.replay_credential_sql_operator[0].condition[0].expression == "request.time < timestamp('2026-10-16T16:00:00Z')" &&
       google_project_iam_custom_role.replay_secret_version_operator[0].role_id == "gcp03v1v61secretversions261016" &&
       toset(google_project_iam_custom_role.replay_secret_version_operator[0].permissions) == toset(["secretmanager.versions.add", "secretmanager.versions.destroy", "secretmanager.versions.get", "secretmanager.versions.list"]) &&
-      google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator[0].secret_id == "espacigo-gcp03-pilot01-migrator-password" &&
-      google_secret_manager_secret_iam_member.replay_owner_secret_version_operator[0].secret_id == "espacigo-gcp03-pilot01-db-owner-password" &&
+      google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator[0].secret_id == "projects/espacigo-testprod/secrets/espacigo-gcp03-pilot01-migrator-password" &&
+      google_secret_manager_secret_iam_member.replay_owner_secret_version_operator[0].secret_id == "projects/espacigo-testprod/secrets/espacigo-gcp03-pilot01-db-owner-password" &&
       google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator[0].member == "user:pasteleriahijitos@gmail.com" &&
       google_secret_manager_secret_iam_member.replay_owner_secret_version_operator[0].member == "user:pasteleriahijitos@gmail.com"
     )
@@ -419,8 +419,8 @@ run "sequential_jobs_plan_retains_applied_replay_iam" {
       length(google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator) == 1 &&
       length(google_secret_manager_secret_iam_member.replay_owner_secret_version_operator) == 1 &&
       google_project_iam_member.replay_credential_sql_operator[0].condition[0].expression == "request.time < timestamp('2026-10-16T16:00:00Z')" &&
-      google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator[0].secret_id == "espacigo-gcp03-pilot01-migrator-password" &&
-      google_secret_manager_secret_iam_member.replay_owner_secret_version_operator[0].secret_id == "espacigo-gcp03-pilot01-db-owner-password"
+      google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator[0].secret_id == "projects/espacigo-testprod/secrets/espacigo-gcp03-pilot01-migrator-password" &&
+      google_secret_manager_secret_iam_member.replay_owner_secret_version_operator[0].secret_id == "projects/espacigo-testprod/secrets/espacigo-gcp03-pilot01-db-owner-password"
     )
     error_message = "Planning the five Jobs after the isolated IAM apply must retain all IAM grants, their expiry, and exact secret scopes."
   }

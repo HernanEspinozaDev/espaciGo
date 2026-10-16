@@ -777,7 +777,7 @@ resource "google_project_iam_custom_role" "replay_secret_version_operator" {
 resource "google_secret_manager_secret_iam_member" "replay_migrator_secret_version_operator" {
   count     = local.replay_credential_permissions_enabled ? 1 : 0
   project   = var.project_id
-  secret_id = google_secret_manager_secret.scratch_password[0].secret_id
+  secret_id = "projects/${var.project_id}/secrets/${google_secret_manager_secret.scratch_password[0].secret_id}"
   role      = google_project_iam_custom_role.replay_secret_version_operator[0].name
   member    = var.operator_member
 
@@ -791,7 +791,7 @@ resource "google_secret_manager_secret_iam_member" "replay_migrator_secret_versi
 resource "google_secret_manager_secret_iam_member" "replay_owner_secret_version_operator" {
   count     = local.replay_credential_permissions_enabled ? 1 : 0
   project   = var.project_id
-  secret_id = google_secret_manager_secret.scratch_database_owner_password[0].secret_id
+  secret_id = "projects/${var.project_id}/secrets/${google_secret_manager_secret.scratch_database_owner_password[0].secret_id}"
   role      = google_project_iam_custom_role.replay_secret_version_operator[0].name
   member    = var.operator_member
 
