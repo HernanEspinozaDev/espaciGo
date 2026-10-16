@@ -123,6 +123,26 @@ variable "enable_owner_history_grant_job" {
   }
 }
 
+variable "enable_retired_verification_job" {
+  type        = bool
+  description = "Independent default-off gate for a fixed read-only owner-session verification of the retired migrator, ACLs, runtime permissions, and V1-V61 history."
+  default     = false
+  validation {
+    condition = !var.enable_retired_verification_job || (
+      var.enable_scratch && var.run_id == "pilot01" &&
+      var.database_name == "espacigo_scratch" &&
+      can(regex("@sha256:[0-9a-f]{64}$", var.retired_verification_image)) &&
+      startswith(var.retired_verification_image, "${var.region}-docker.pkg.dev/${var.project_id}/gcp03-scratch-${var.run_id}/dbmigrate@sha256:") &&
+      var.confirm_retired_verification_image_pushed &&
+      var.confirm_database_owner_secret_version &&
+      can(regex("^[1-9][0-9]*$", var.database_owner_secret_version)) &&
+      var.operator_member == "user:pasteleriahijitos@gmail.com" &&
+      !var.allow_scratch_destroy && !var.allow_replay_job_destroy
+    )
+    error_message = "The retired verification Job requires the exact pilot01 scratch, uploaded digest, owner secret version, operator, and protected resources."
+  }
+}
+
 variable "enable_role_probe_jobs" {
   type        = bool
   description = "Gate for the two fixed role-comment Jobs; requires an already-existing active numeric secret version and grants no credential-provisioning permissions."
@@ -255,6 +275,12 @@ variable "owner_history_image" {
   default     = ""
 }
 
+variable "retired_verification_image" {
+  type        = string
+  description = "Separate digest-pinned OCI for the fixed read-only verify_retired phase."
+  default     = ""
+}
+
 variable "confirm_observer_image_pushed" {
   type        = bool
   description = "Confirm only after reading back the exact observer digest from the existing scratch Artifact Registry repository."
@@ -264,6 +290,12 @@ variable "confirm_observer_image_pushed" {
 variable "confirm_owner_history_image_pushed" {
   type        = bool
   description = "Explicit confirmation that the separate owner-history phase image digest was published and read back."
+  default     = false
+}
+
+variable "confirm_retired_verification_image_pushed" {
+  type        = bool
+  description = "Explicit confirmation that the separate read-only retirement verification image digest was pushed and read back."
   default     = false
 }
 

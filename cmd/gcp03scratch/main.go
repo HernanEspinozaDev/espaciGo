@@ -42,6 +42,27 @@ func main() {
 		fmt.Fprintln(os.Stderr, "GCP-03 scratch phase observe completed")
 		return
 	}
+	if config.Phase == gcp03scratch.PhaseVerifyRetired {
+		report, err := gcp03scratch.ObserveRetiredPhase(ctx, config, password, migrationDirectory)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "GCP-03 fixed retirement observer could not complete its read-only collection")
+			os.Exit(1)
+		}
+		if err := dbbootstrap.WriteIntegrityNDJSON(os.Stdout, report, report.Passed); err != nil {
+			fmt.Fprintln(os.Stderr, "GCP-03 retirement observer report could not be encoded")
+			os.Exit(1)
+		}
+		fmt.Printf("GCP03_RETIRED_VERIFY migration_history_v1_v61=%t migrator_retired=%t migrator_no_memberships=%t migrator_can_temp=%t migrator_can_create_public=%t database_owner=%s public_schema_owner=%s schema_migrations_owner=%s owner_history_acl=%t passed=%t\n",
+			report.MigrationHistory, report.MigratorRetired, report.NoRoleMemberships, report.MigratorCanTemp,
+			report.MigratorCanCreate, report.DatabaseOwner, report.PublicSchemaOwner, report.HistoryOwner,
+			report.OwnerHistoryACL, report.Passed)
+		if !report.Passed {
+			fmt.Fprintln(os.Stderr, "GCP-03 fixed retirement observer found failed checks")
+			os.Exit(1)
+		}
+		fmt.Fprintln(os.Stderr, "GCP-03 scratch phase verify_retired completed")
+		return
+	}
 	if gcp03scratch.IsRoleCommentProbePhase(config.Phase) {
 		result, probeErr := gcp03scratch.RunRoleCommentProbe(ctx, config, password)
 		outcome := result.CommentOutcome

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 )
 
 const observerMaxRecordBytes = 32 * 1024
+const integrityChunkBytes = 12 * 1024
 
 type observerManifest struct {
 	RecordType     string         `json:"record_type"`
@@ -42,6 +44,26 @@ type observerSectionAccumulator struct {
 	IndexSet bool
 	Total    int
 	Chunks   map[int]observerSectionRecord
+}
+
+type integrityManifest struct {
+	RecordType     string `json:"record_type"`
+	SchemaVersion  int    `json:"schema_version"`
+	ReportSHA256   string `json:"report_sha256"`
+	ReportBytes    int    `json:"report_bytes"`
+	RecordCount    int    `json:"record_count"`
+	MaxRecordBytes int    `json:"max_record_bytes"`
+	ChunkBytes     int    `json:"chunk_bytes"`
+	Passed         bool   `json:"passed"`
+}
+
+type integrityPayloadRecord struct {
+	RecordType   string `json:"record_type"`
+	ReportSHA256 string `json:"report_sha256"`
+	Index        int    `json:"index"`
+	Total        int    `json:"total"`
+	ByteOffset   int    `json:"byte_offset"`
+	Data         string `json:"data"`
 }
 
 // WriteObserverNDJSON emits an integrity-checkable report as bounded NDJSON
@@ -100,6 +122,48 @@ func WriteObserverNDJSON(w io.Writer, report ScratchObservation) error {
 		if err := writeObserverRecord(buffer, record); err != nil {
 			return err
 		}
+	}
+	return buffer.Flush()
+}
+
+// WriteIntegrityNDJSON emits the complete canonical JSON payload in bounded
+// byte chunks. Unlike the observer's legacy sectioned format, it also splits
+// large nested objects such as a retired verification's embedded observation.
+func WriteIntegrityNDJSON(w io.Writer, report any, passed bool) error {
+	if w == nil || report == nil {
+		return errors.New("integrity report and output writer are required")
+	}
+	canonical, err := json.Marshal(report)
+	if err != nil || len(canonical) == 0 {
+		return errors.New("could not encode canonical integrity report")
+	}
+	digest := sha256.Sum256(canonical)
+	hexDigest := hex.EncodeToString(digest[:])
+	total := (len(canonical) + integrityChunkBytes - 1) / integrityChunkBytes
+	manifest := integrityManifest{
+		RecordType: "manifest", SchemaVersion: 2, ReportSHA256: hexDigest,
+		ReportBytes: len(canonical), RecordCount: total + 1,
+		MaxRecordBytes: observerMaxRecordBytes, ChunkBytes: integrityChunkBytes,
+		Passed: passed,
+	}
+	buffer := bufio.NewWriter(w)
+	if err := writeObserverRecord(buffer, manifest); err != nil {
+		return err
+	}
+	for index, offset := 1, 0; offset < len(canonical); index++ {
+		end := offset + integrityChunkBytes
+		if end > len(canonical) {
+			end = len(canonical)
+		}
+		record := integrityPayloadRecord{
+			RecordType: "payload", ReportSHA256: hexDigest, Index: index,
+			Total: total, ByteOffset: offset,
+			Data: base64.RawStdEncoding.EncodeToString(canonical[offset:end]),
+		}
+		if err := writeObserverRecord(buffer, record); err != nil {
+			return err
+		}
+		offset = end
 	}
 	return buffer.Flush()
 }
@@ -268,6 +332,68 @@ func ReadObserverNDJSON(r io.Reader) (ScratchObservation, error) {
 		return ScratchObservation{}, errors.New("observer NDJSON pass state did not match the manifest")
 	}
 	return report, nil
+}
+
+// ReadIntegrityNDJSON reconstructs a report emitted by WriteIntegrityNDJSON
+// and rejects incomplete, reordered, duplicated, oversized, or corrupted data.
+func ReadIntegrityNDJSON(r io.Reader, target any) (bool, error) {
+	if r == nil || target == nil {
+		return false, errors.New("integrity report reader and target are required")
+	}
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, observerMaxRecordBytes), observerMaxRecordBytes+1)
+	if !scanner.Scan() || len(scanner.Bytes()) > observerMaxRecordBytes {
+		return false, errors.New("integrity report manifest is missing or oversized")
+	}
+	var manifest integrityManifest
+	if err := json.Unmarshal(scanner.Bytes(), &manifest); err != nil || manifest.RecordType != "manifest" ||
+		manifest.SchemaVersion != 2 || manifest.ReportBytes < 1 || manifest.RecordCount < 2 ||
+		manifest.MaxRecordBytes != observerMaxRecordBytes || manifest.ChunkBytes != integrityChunkBytes || len(manifest.ReportSHA256) != 64 {
+		return false, errors.New("integrity report manifest is invalid")
+	}
+	chunkCount := manifest.RecordCount - 1
+	var payload bytes.Buffer
+	for index := 1; scanner.Scan(); index++ {
+		line := append([]byte(nil), scanner.Bytes()...)
+		if len(line) > observerMaxRecordBytes {
+			return false, errors.New("integrity report record exceeds the size limit")
+		}
+		var record integrityPayloadRecord
+		if err := json.Unmarshal(line, &record); err != nil || record.RecordType != "payload" ||
+			record.ReportSHA256 != manifest.ReportSHA256 || record.Index != index || record.Total != chunkCount ||
+			record.ByteOffset != payload.Len() {
+			return false, errors.New("integrity report payload sequence is invalid")
+		}
+		chunk, err := base64.RawStdEncoding.DecodeString(record.Data)
+		if err != nil || len(chunk) == 0 || len(chunk) > integrityChunkBytes || (index < chunkCount && len(chunk) != integrityChunkBytes) {
+			return false, errors.New("integrity report payload chunk is invalid")
+		}
+		_, _ = payload.Write(chunk)
+	}
+	if err := scanner.Err(); err != nil {
+		return false, errors.New("integrity report could not be read completely")
+	}
+	if payload.Len() != manifest.ReportBytes {
+		return false, errors.New("integrity report payload length does not match manifest")
+	}
+	digest := sha256.Sum256(payload.Bytes())
+	if hex.EncodeToString(digest[:]) != manifest.ReportSHA256 {
+		return false, errors.New("integrity report payload hash did not match")
+	}
+	if err := json.Unmarshal(payload.Bytes(), target); err != nil {
+		return false, errors.New("integrity report payload has an invalid typed report")
+	}
+	switch status := target.(type) {
+	case interface{ Passed() bool }:
+		if status.Passed() != manifest.Passed {
+			return false, errors.New("integrity report pass state does not match payload")
+		}
+	case interface{ IntegrityPassed() bool }:
+		if status.IntegrityPassed() != manifest.Passed {
+			return false, errors.New("integrity report pass state does not match payload")
+		}
+	}
+	return manifest.Passed, nil
 }
 
 func canonicalObserverFields(report ScratchObservation) ([]byte, map[string]json.RawMessage, error) {
