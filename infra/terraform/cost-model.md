@@ -6,11 +6,11 @@ Precios públicos consultados el 2026-10-15. USD, 730 horas/mes; sin impuestos, 
 | --- | --- | ---: |
 | Application Load Balancer global | Una regla global de forwarding, $0.025/h | $18.25 |
 | Cloud Armor Standard | Una política global, $0.006849315/h | $5.00 |
-| Cloud Armor | Dos reglas personalizadas, $0.001369863/h por regla | $2.00 |
+| Cloud Armor | Tres reglas configuradas, $0.001369863/h por regla | $3.00 |
 | Procesamiento de ALB en Santiago | $0.008/GiB entrada y $0.008/GiB salida | Variable por tráfico |
 | Solicitudes Cloud Armor | $0.75 por millón | Variable por tráfico |
 
-El subtotal de borde es **aprox. $25.25/mes** (unos $0.83 por día promedio), antes de tráfico. Se usan 730 h para el mes de referencia; 30 días exactos son 720 h. Las tarifas deben verificarse en la calculadora al congelar el inventario. Este subtotal excluye el costo continuo de CPU/memoria de la API y cualquier NAT.
+El subtotal de borde es **aprox. $26.25/mes** (unos $0.86 por día promedio), antes de tráfico. Se cuentan tres reglas porque son tres bloques Terraform configurados, incluido el allow terminal. Se usan 730 h para el mes de referencia; 30 días exactos son 720 h. Las tarifas deben verificarse en la calculadora al congelar el inventario. Este subtotal excluye el costo continuo de CPU/memoria de la API y cualquier NAT.
 
 No se suma Cloud SQL, Cloud Run, almacenamiento, backups, Artifact Registry, logging, secretos, Mailpit ni salida a Internet: falta fijar consumo y tarifas para el SKU/región y el plan de operación. Cloud SQL se modela como N4 zonal 2 vCPU/4 GiB con Hyperdisk Balanced, 20 GiB inicial y máximo 100 GiB, incluyendo IOPS/throughput y PITR. Cloud Run API mantiene una instancia mínima con CPU siempre asignada (`cpu_idle=false`), de modo que cómputo y memoria corren continuamente mientras exista esa instancia. Cotizarla con tarifa/tiers regionales, no con request-based billing. Primero medir GCP-04 (replay/leases y CPU de worker); los dos SSR parten de cero con máximo provisional 2.
 

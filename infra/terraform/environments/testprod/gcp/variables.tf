@@ -21,8 +21,8 @@ variable "enable_foundation" {
   description = "Explicit apply gate for APIs, network, identities, registry, buckets and secret containers."
   default     = false
   validation {
-    condition     = !var.enable_foundation || (var.project_id != "" && can(regex("^[0-9]{6,20}$", var.project_number)) && var.confirm_project_inventory)
-    error_message = "Foundation requires an existing project ID/number and confirmation that project resources were inventoried and isolated."
+    condition     = !var.enable_foundation || (var.project_id != "" && can(regex("^[0-9]{6,20}$", var.project_number)) && var.confirm_project_inventory && var.confirm_cost_policy_review)
+    error_message = "Foundation requires an existing project ID/number and explicit confirmations of isolated resource inventory and reviewed organization-policy/cost gates."
   }
 }
 
@@ -59,6 +59,12 @@ variable "enable_edge" {
 variable "confirm_project_inventory" {
   type        = bool
   description = "Set only after a human reviewed the existing project inventory and confirmed this is the isolated test project."
+  default     = false
+}
+
+variable "confirm_cost_policy_review" {
+  type        = bool
+  description = "Set only after the effective organization policies and full regional cost estimate have been reviewed before enabling foundation."
   default     = false
 }
 

@@ -24,11 +24,12 @@ run "foundation_plan_is_gated_and_scoped" {
   command = plan
 
   variables {
-    project_id                = "offline-test-project"
-    project_number            = "123456789012"
-    enable_foundation         = true
-    confirm_project_inventory = true
-    bucket_suffix             = "offline-test"
+    project_id                 = "offline-test-project"
+    project_number             = "123456789012"
+    enable_foundation          = true
+    confirm_project_inventory  = true
+    confirm_cost_policy_review = true
+    bucket_suffix              = "offline-test"
   }
 
   assert {
@@ -41,16 +42,30 @@ run "foundation_plan_is_gated_and_scoped" {
   }
 }
 
+run "foundation_rejects_missing_human_gates" {
+  command = plan
+
+  variables {
+    project_id        = "offline-test-project"
+    project_number    = "123456789012"
+    enable_foundation = true
+    bucket_suffix     = "offline-test"
+  }
+
+  expect_failures = [var.enable_foundation]
+}
+
 run "database_plan_is_private_and_protected" {
   command = plan
 
   variables {
-    project_id                = "offline-test-project"
-    project_number            = "123456789012"
-    enable_foundation         = true
-    enable_database           = true
-    confirm_project_inventory = true
-    bucket_suffix             = "offline-test"
+    project_id                 = "offline-test-project"
+    project_number             = "123456789012"
+    enable_foundation          = true
+    enable_database            = true
+    confirm_project_inventory  = true
+    confirm_cost_policy_review = true
+    bucket_suffix              = "offline-test"
   }
 
   assert {
@@ -74,6 +89,7 @@ run "services_and_edge_preserve_runtime_contracts" {
     enable_services                 = true
     enable_edge                     = true
     confirm_project_inventory       = true
+    confirm_cost_policy_review      = true
     acknowledge_gcp04_runtime_gates = true
     bucket_suffix                   = "offline-test"
     api_image                       = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
