@@ -24,6 +24,7 @@ Estas instrucciones se aplican al monorepo. Se complementan con `frontend/AGENTS
 
 - Configurar mediante `scripts/git-role.sh development` o `scripts/git-role.sh review` en este repositorio. Verificar la identidad inmediatamente antes de publicar o revisar; la cuenta de un conector puede diferir de `gh` y de las credenciales de Git.
 - Para publicar ejecutar `scripts/git-role.sh check-development`: comprueba `gh`, credencial efectiva de Git y autor configurado sin imprimir tokens. Cambiar `git user.name` no cambia la cuenta autenticada.
+- En esta conexión, el conector GitHub puede estar autenticado como `HernanEspinozaDev`: úsalo solo para lecturas durante desarrollo. Crear/actualizar ramas y PR de desarrollo exclusivamente con Git/`gh` tras `check-development`; después verifica en GitHub autor, rama, HEAD y revisor. Usa el conector para escrituras de revisión únicamente cuando la identidad requerida sea `HernanEspinozaDev`.
 - La cuenta creadora debe comprobarse en GitHub después de abrir el PR. Solicitar revisión a `HernanEspinozaDev` y registrar autor, rama y HEAD.
 - No publicar como `HernanEspinozaDev` ni aprobar como `HernanMEC`. Si la cuenta requerida no está disponible, informar el bloqueo; no sustituirla por otra.
 - Aprobar solo después de revisar el HEAD actual y las pruebas pertinentes. Fusionar con el SHA esperado; verificar `merged_by`, merge SHA y cierre. No hacer autoaprobación.
