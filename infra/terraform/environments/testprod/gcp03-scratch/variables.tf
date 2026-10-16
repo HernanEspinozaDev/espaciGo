@@ -117,13 +117,12 @@ variable "enable_role_probe_credential_permissions" {
 
 variable "enable_replay_credential_permissions" {
   type        = bool
-  description = "Separate short-lived IAM gate for creating/reconciling/retiring the fixed replay migrator and database-owner credentials; never enables Jobs or SQL execution."
+  description = "Independent short-lived IAM gate for creating/reconciling/retiring fixed replay credentials; remains separately controlled when migration Jobs are enabled."
   default     = false
   validation {
     condition = !var.enable_replay_credential_permissions || (
       var.enable_scratch &&
       var.run_id == "pilot01" &&
-      !var.enable_job &&
       !var.enable_role_probe_jobs &&
       !var.enable_role_probe_credential_permissions &&
       !var.allow_scratch_destroy &&
@@ -133,7 +132,7 @@ variable "enable_replay_credential_permissions" {
       var.confirm_project_scoped_cloudsql_user_ops &&
       can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", var.replay_credential_iam_expires_at))
     )
-    error_message = "Replay credential IAM requires the existing pilot01 scratch, exact operator and target logins/secrets, no Job/probe or destroy gate, explicit project-scope acknowledgment, and a fixed UTC expiry."
+    error_message = "Replay credential IAM requires the existing pilot01 scratch, exact operator and target logins/secrets, no role-probe or destroy gate, explicit project-scope acknowledgment, and a fixed UTC expiry. It may coexist with the separately gated migration Jobs."
   }
 }
 
