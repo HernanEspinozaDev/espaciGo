@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -137,25 +138,77 @@ func isCloudSQLUserNotFound(err error) bool {
 }
 
 func IsScratchSecretVersion(name string) bool {
-	return isSecretVersionFor(ScratchSecretResource, name)
+	_, ok := NormalizeSecretVersionName(ScratchSecretResource, name)
+	return ok
 }
 
 func IsDatabaseOwnerSecretVersion(name string) bool {
-	return isSecretVersionFor(DatabaseOwnerSecretResource, name)
+	_, ok := NormalizeSecretVersionName(DatabaseOwnerSecretResource, name)
+	return ok
 }
 
-func isSecretVersionFor(resource, name string) bool {
-	prefix := resource + "/versions/"
-	version := strings.TrimPrefix(name, prefix)
-	if version == name || version == "" {
-		return false
+// NormalizeSecretVersionName validates a version resource against one of the
+// two fixed scratch secret namespaces. Secret Manager may return the project
+// number even when the request used the project ID; retain that canonical API
+// name unchanged after validating its exact secret and positive numeric ID.
+func NormalizeSecretVersionName(parent, name string) (string, bool) {
+	secret, ok := scratchSecretName(parent)
+	if !ok {
+		return "", false
 	}
-	for _, char := range version {
-		if char < '0' || char > '9' {
-			return false
+	parts := strings.Split(name, "/")
+	if len(parts) != 6 || parts[0] != "projects" || parts[2] != "secrets" || parts[3] != secret || parts[4] != "versions" {
+		return "", false
+	}
+	if parts[1] != ProjectID && parts[1] != ProjectNumber {
+		return "", false
+	}
+	version, err := strconv.ParseUint(parts[5], 10, 64)
+	if err != nil || version == 0 || strconv.FormatUint(version, 10) != parts[5] {
+		return "", false
+	}
+	return name, true
+}
+
+func scratchSecretName(parent string) (string, bool) {
+	switch parent {
+	case ScratchSecretResource:
+		return "espacigo-gcp03-pilot01-migrator-password", true
+	case DatabaseOwnerSecretResource:
+		return "espacigo-gcp03-pilot01-db-owner-password", true
+	default:
+		return "", false
+	}
+}
+
+// SafeSecretVersionReference preserves a canonical API reference for manual
+// reconciliation only when its project and secret are in the fixed scratch
+// namespace and its final path component is safe to display. It does not make
+// aliases or malformed version IDs valid for operations.
+func SafeSecretVersionReference(parent, name string) string {
+	secret, ok := scratchSecretName(parent)
+	if !ok {
+		return ""
+	}
+	parts := strings.Split(name, "/")
+	if len(parts) != 6 || parts[0] != "projects" || (parts[1] != ProjectID && parts[1] != ProjectNumber) || parts[2] != "secrets" || parts[3] != secret || parts[4] != "versions" || parts[5] == "" {
+		return ""
+	}
+	for _, char := range parts[5] {
+		if !(char >= 'A' && char <= 'Z') && !(char >= 'a' && char <= 'z') && !(char >= '0' && char <= '9') && char != '-' && char != '_' {
+			return ""
 		}
 	}
-	return true
+	return name
+}
+
+func invalidSecretVersionResult(parent, kind, name string) (CredentialResult, error) {
+	result := CredentialResult{Reconcile: true}
+	if reference := SafeSecretVersionReference(parent, name); reference != "" {
+		result.SecretVersion = reference
+		return result, fmt.Errorf("Secret Manager returned an invalid %s version resource %s; reconcile before retrying", kind, reference)
+	}
+	return result, fmt.Errorf("Secret Manager returned an invalid %s version resource outside the exact scratch namespace; reconcile before retrying", kind)
 }
 
 // ReconcileCreatorMemberships removes only non-system role memberships added
@@ -196,12 +249,17 @@ func (p CredentialProvisioner) CreateDatabaseOwnerCredential(ctx context.Context
 	defer clear(password)
 	version, err := p.Secrets.AddVersion(ctx, DatabaseOwnerSecretResource, password)
 	if err != nil {
+		if strings.TrimSpace(version) != "" {
+			return invalidSecretVersionResult(DatabaseOwnerSecretResource, "database-owner", strings.TrimSpace(version))
+		}
 		return CredentialResult{Reconcile: true}, errors.New("database-owner secret version outcome is uncertain; enumerate versions before retrying")
 	}
 	version = strings.TrimSpace(version)
-	if !isSecretVersionFor(DatabaseOwnerSecretResource, version) {
-		return CredentialResult{SecretVersion: version, Reconcile: true}, errors.New("Secret Manager returned an invalid database-owner version; reconcile before retrying")
+	normalized, ok := NormalizeSecretVersionName(DatabaseOwnerSecretResource, version)
+	if !ok {
+		return invalidSecretVersionResult(DatabaseOwnerSecretResource, "database-owner", version)
 	}
+	version = normalized
 	operation, err := p.Users.SetPassword(ctx, DatabaseOwnerLogin, password)
 	if err != nil {
 		if isDefinitiveCreateFailure(err) {
@@ -301,12 +359,17 @@ func (p CredentialProvisioner) Provision(ctx context.Context, apply bool, confir
 	defer clear(password)
 	version, err := p.Secrets.AddVersion(ctx, ScratchSecretResource, password)
 	if err != nil {
+		if strings.TrimSpace(version) != "" {
+			return invalidSecretVersionResult(ScratchSecretResource, "scratch", strings.TrimSpace(version))
+		}
 		return CredentialResult{Reconcile: true}, errors.New("Secret Manager version creation outcome is uncertain; enumerate versions before retrying")
 	}
 	version = strings.TrimSpace(version)
-	if version == "" || !strings.HasPrefix(version, ScratchSecretResource+"/versions/") {
-		return CredentialResult{Reconcile: true}, errors.New("secret API returned an invalid scratch version; reconcile before retrying")
+	normalized, ok := NormalizeSecretVersionName(ScratchSecretResource, version)
+	if !ok {
+		return invalidSecretVersionResult(ScratchSecretResource, "scratch", version)
 	}
+	version = normalized
 	operation, err := p.Users.CreateBuiltInUser(ctx, MigratorLogin, password)
 	if err != nil {
 		if isDefinitiveCreateFailure(err) {

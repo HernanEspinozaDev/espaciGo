@@ -12,6 +12,7 @@ import (
 
 const (
 	ProjectID                 = "espacigo-testprod"
+	ProjectNumber             = "447373903153"
 	Region                    = "southamerica-west1"
 	InstanceName              = "espacigo-gcp03-pilot01-pg"
 	DatabaseName              = "espacigo_scratch"

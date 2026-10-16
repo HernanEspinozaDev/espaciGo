@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/gcp03scratch"
@@ -32,6 +33,9 @@ func (e cloudAPIError) NotFound() bool { return e.status == http.StatusNotFound 
 type secretVersionAPI struct{ service *secretmanager.Service }
 
 func (a secretVersionAPI) AddVersion(ctx context.Context, parent string, password []byte) (string, error) {
+	if _, ok := gcp03scratch.NormalizeSecretVersionName(parent, parent+"/versions/1"); !ok {
+		return "", errors.New("Secret Manager parent is outside the exact scratch namespace")
+	}
 	request := &secretmanager.AddSecretVersionRequest{
 		Payload: &secretmanager.SecretPayload{Data: base64.StdEncoding.EncodeToString(password)},
 	}
@@ -39,7 +43,15 @@ func (a secretVersionAPI) AddVersion(ctx context.Context, parent string, passwor
 	if err != nil {
 		return "", cloudAPIErrorFrom(err)
 	}
-	return version.Name, nil
+	if version == nil {
+		return "", errors.New("Secret Manager returned no version resource; reconcile before retrying")
+	}
+	name := strings.TrimSpace(version.Name)
+	if normalized, ok := gcp03scratch.NormalizeSecretVersionName(parent, name); !ok {
+		return name, errors.New("Secret Manager returned a version outside the exact scratch namespace")
+	} else {
+		return normalized, nil
+	}
 }
 
 func (a secretVersionAPI) DestroyVersion(ctx context.Context, name string) error {
