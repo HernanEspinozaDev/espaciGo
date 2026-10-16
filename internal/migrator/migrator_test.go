@@ -108,7 +108,7 @@ func TestRunSanitizesDatabaseConnectionErrors(t *testing.T) {
 }
 
 func TestRunCloudSQLSanitizesInvalidDatabaseURL(t *testing.T) {
-	_, err := RunCloudSQL(context.Background(), "postgres://private-user:private-password@%invalid", t.TempDir(), "project-one:region-one:db-one", true)
+	_, err := RunCloudSQL(context.Background(), "postgres://private-user@%invalid", "private-password", t.TempDir(), "project-one:region-one:db-one", true)
 	if err == nil {
 		t.Fatal("invalid database URL should fail")
 	}
@@ -118,7 +118,7 @@ func TestRunCloudSQLSanitizesInvalidDatabaseURL(t *testing.T) {
 }
 
 func TestRunCloudSQLRejectsDirectTLSBeforeInitializingConnector(t *testing.T) {
-	_, err := RunCloudSQL(context.Background(), "postgres://private-user:private-password@localhost/app?sslmode=require", t.TempDir(), "project-one:region-one:db-one", true)
+	_, err := RunCloudSQL(context.Background(), "postgres://private-user@localhost/app?sslmode=require", "private-password", t.TempDir(), "project-one:region-one:db-one", true)
 	if err == nil || !strings.Contains(err.Error(), "sslmode=disable") {
 		t.Fatalf("expected direct TLS conflict rejection, got %v", err)
 	}

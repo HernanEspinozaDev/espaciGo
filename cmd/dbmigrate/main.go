@@ -22,12 +22,12 @@ func main() {
 	defer cancel()
 	var result migrator.Result
 	if settings.mode == "cloudsql" {
-		databaseURL, urlErr := settings.databaseURLWithPasswordFile()
+		databaseURL, password, urlErr := settings.databaseURLAndPasswordFile()
 		if urlErr != nil {
 			fmt.Fprintln(os.Stderr, urlErr)
 			os.Exit(2)
 		}
-		result, err = migrator.RunCloudSQL(ctx, databaseURL, *migrationDir, settings.instance, settings.privateIP)
+		result, err = migrator.RunCloudSQL(ctx, databaseURL, password, *migrationDir, settings.instance, settings.privateIP)
 	} else {
 		result, err = migrator.Run(ctx, settings.databaseURL, *migrationDir)
 	}

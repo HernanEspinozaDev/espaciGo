@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -54,6 +53,12 @@ func loadConnectionSettings(getenv func(string) string) (connectionSettings, err
 	if settings.passwordFile == "" {
 		return connectionSettings{}, errors.New("DATABASE_PASSWORD_FILE is required for Cloud SQL mode")
 	}
+	if err := cloudsql.ValidatePGEnvironment(getenv); err != nil {
+		return connectionSettings{}, err
+	}
+	if err := cloudsql.ValidateConnectionURL(settings.databaseURL); err != nil {
+		return connectionSettings{}, err
+	}
 	privateIPValue := strings.TrimSpace(getenv("CLOUD_SQL_PRIVATE_IP"))
 	if privateIPValue != "" {
 		privateIP, err := strconv.ParseBool(privateIPValue)
@@ -65,22 +70,14 @@ func loadConnectionSettings(getenv func(string) string) (connectionSettings, err
 	return settings, nil
 }
 
-func (settings connectionSettings) databaseURLWithPasswordFile() (string, error) {
-	parsed, err := url.Parse(settings.databaseURL)
-	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") || parsed.User == nil || parsed.User.Username() == "" {
-		return "", errors.New("Cloud SQL DATABASE_URL must be a PostgreSQL URL with a username")
-	}
-	if _, hasInlinePassword := parsed.User.Password(); hasInlinePassword {
-		return "", errors.New("Cloud SQL DATABASE_URL must not contain an inline password")
-	}
+func (settings connectionSettings) databaseURLAndPasswordFile() (string, string, error) {
 	password, err := os.ReadFile(settings.passwordFile)
 	if err != nil {
-		return "", errors.New("could not read database password file")
+		return "", "", errors.New("could not read database password file")
 	}
 	passwordValue := strings.TrimSpace(string(password))
 	if passwordValue == "" {
-		return "", errors.New("database password file is empty")
+		return "", "", errors.New("database password file is empty")
 	}
-	parsed.User = url.UserPassword(parsed.User.Username(), passwordValue)
-	return parsed.String(), nil
+	return settings.databaseURL, passwordValue, nil
 }

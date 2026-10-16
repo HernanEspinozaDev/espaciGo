@@ -28,15 +28,13 @@ func Run(ctx context.Context, databaseURL, migrationDir string) (Result, error) 
 }
 
 // RunCloudSQL runs the existing migration sequence through Cloud SQL Go
-// Connector. databaseURL still supplies PostgreSQL credentials/database; its
-// network host is ignored by the connector.
-func RunCloudSQL(ctx context.Context, databaseURL, migrationDir, instance string, privateIP bool) (Result, error) {
-	config, err := pgx.ParseConfig(databaseURL)
+// Connector. databaseURL supplies PostgreSQL username/database; password is
+// supplied separately from the secret file, and the URL network host is a
+// validated localhost placeholder ignored by the connector.
+func RunCloudSQL(ctx context.Context, databaseURL, password, migrationDir, instance string, privateIP bool) (Result, error) {
+	config, err := cloudsql.NewPGXConfig(databaseURL, password)
 	if err != nil {
-		return Result{}, errors.New("invalid database connection configuration")
-	}
-	if config.TLSConfig != nil {
-		return Result{}, errors.New("Cloud SQL connector mode requires sslmode=disable; connector TLS is managed separately")
+		return Result{}, err
 	}
 	closeConnector, err := cloudsql.ConfigurePGX(ctx, config, instance, privateIP)
 	if err != nil {

@@ -29,7 +29,7 @@ func (d *fakeDialer) Close() error {
 }
 
 func TestConfigurePGXUsesPrivateConnectorAndClosesOnce(t *testing.T) {
-	config, err := pgx.ParseConfig("postgres://migrator:secret@localhost:5432/app?sslmode=require")
+	config, err := pgx.ParseConfig("postgres://migrator@localhost:5432/app?sslmode=disable")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,8 +46,8 @@ func TestConfigurePGXUsesPrivateConnectorAndClosesOnce(t *testing.T) {
 	if optionCount != 1 {
 		t.Fatalf("private IP option count = %d, want 1", optionCount)
 	}
-	if config.TLSConfig != nil {
-		t.Fatal("pgx TLS should be disabled because the connector provides TLS")
+	if config.TLSConfig != nil || len(config.Fallbacks) != 0 {
+		t.Fatal("pgx TLS and fallback configurations should remain disabled")
 	}
 	conn, err := config.DialFunc(context.Background(), "tcp", "ignored-host:5432")
 	if err != nil {
@@ -96,6 +96,69 @@ func TestConfigurePGXSanitizesDialerInitializationError(t *testing.T) {
 		})
 	if err == nil || strings.Contains(err.Error(), "private-password") {
 		t.Fatalf("connector error was not sanitized: %v", err)
+	}
+}
+
+func TestConfigurePGXRejectsTLSFallbackBeforeCreatingDialer(t *testing.T) {
+	config, err := pgx.ParseConfig("postgres://user@localhost/db?sslmode=prefer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	factoryCalled := false
+	_, err = configurePGX(context.Background(), config, "project-one:region-one:db-one", true,
+		func(context.Context, ...cloudsqlconn.Option) (dialer, error) {
+			factoryCalled = true
+			return &fakeDialer{}, nil
+		})
+	if err == nil || !strings.Contains(err.Error(), "TLS and fallbacks") {
+		t.Fatalf("expected TLS fallback rejection, got %v", err)
+	}
+	if factoryCalled {
+		t.Fatal("connector was created for a pgx config with TLS fallbacks")
+	}
+}
+
+func TestNewPGXConfigUsesFilePasswordAsEffectiveCredential(t *testing.T) {
+	for _, key := range pgxEnvironmentKeys {
+		t.Setenv(key, "")
+	}
+	config, err := NewPGXConfig("postgres://migrator@localhost:5432/scratch?sslmode=disable", "file-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.User != "migrator" || config.Password != "file-password" || config.Database != "scratch" {
+		t.Fatal("pgx config did not use the URL identity and file password")
+	}
+	if config.Host != "localhost" || config.Port != 5432 || config.TLSConfig != nil || len(config.Fallbacks) != 0 || len(config.RuntimeParams) != 0 {
+		t.Fatal("pgx config contains a host, TLS fallback, or runtime override outside the Cloud SQL policy")
+	}
+}
+
+func TestValidateConnectionURLRejectsCredentialAndServiceOverrides(t *testing.T) {
+	for _, databaseURL := range []string{
+		"postgres://migrator:inline-secret@localhost/app?sslmode=disable",
+		"postgres://migrator@localhost/app?sslmode=disable&password=inline-secret",
+		"postgres://migrator@localhost/app?sslmode=disable&%70assword=inline-secret",
+		"postgres://migrator@localhost/app?sslmode=disable&password=first&password=second",
+		"postgres://migrator@localhost/app?sslmode=disable&service=untrusted",
+		"postgres://migrator@localhost/app?sslmode=disable&servicefile=%2Ftmp%2Foverride",
+		"postgres://migrator@localhost/app?sslmode=disable&sslmode=prefer",
+	} {
+		if err := ValidateConnectionURL(databaseURL); err == nil || strings.Contains(err.Error(), "inline-secret") || strings.Contains(err.Error(), "/tmp/override") {
+			t.Fatalf("expected sanitized rejection for Cloud SQL URL override: %v", err)
+		}
+	}
+}
+
+func TestValidatePGEnvironmentRejectsIdentityOverrides(t *testing.T) {
+	err := ValidatePGEnvironment(func(key string) string {
+		if key == "PGSERVICE" {
+			return "untrusted-service"
+		}
+		return ""
+	})
+	if err == nil || strings.Contains(err.Error(), "untrusted-service") {
+		t.Fatalf("expected sanitized pgx environment rejection, got %v", err)
 	}
 }
 

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,7 +46,7 @@ func TestLoadConnectionSettingsCloudSQLPrivateMode(t *testing.T) {
 	}
 }
 
-func TestDatabaseURLWithPasswordFileInjectsSecretWithoutExposingItOnErrors(t *testing.T) {
+func TestDatabaseURLAndPasswordFileKeepsSecretOutOfURLAndErrors(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "password")
 	if err := os.WriteFile(path, []byte("private-pass\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -56,36 +55,28 @@ func TestDatabaseURLWithPasswordFileInjectsSecretWithoutExposingItOnErrors(t *te
 		databaseURL:  "postgres://migrator@localhost:5432/app?sslmode=disable",
 		passwordFile: path,
 	}
-	got, err := settings.databaseURLWithPasswordFile()
+	gotURL, gotPassword, err := settings.databaseURLAndPasswordFile()
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := url.Parse(got)
-	if err != nil {
-		t.Fatal("constructed URL is invalid")
-	}
-	password, ok := parsed.User.Password()
-	if !ok || password != "private-pass" {
-		t.Fatal("password file value was not applied to connection URL")
+	if gotURL != settings.databaseURL || gotPassword != "private-pass" {
+		t.Fatal("password should be returned separately from the connection URL")
 	}
 	settings.passwordFile = filepath.Join(t.TempDir(), "missing")
-	_, err = settings.databaseURLWithPasswordFile()
+	_, _, err = settings.databaseURLAndPasswordFile()
 	if err == nil || strings.Contains(err.Error(), "private-pass") || strings.Contains(err.Error(), "postgres://") {
 		t.Fatalf("password file error was not sanitized: %v", err)
-	}
-	settings.databaseURL = "postgres://migrator:inline-secret@localhost:5432/app?sslmode=disable"
-	_, err = settings.databaseURLWithPasswordFile()
-	if err == nil || strings.Contains(err.Error(), "inline-secret") {
-		t.Fatalf("inline password rejection was not sanitized: %v", err)
 	}
 }
 
 func TestLoadConnectionSettingsRejectsInvalidCloudSQLSettingsWithoutLeakingURL(t *testing.T) {
 	for _, values := range []map[string]string{
 		{"DATABASE_URL": "postgres://u:secret@localhost/db", "DATABASE_CONNECTION_MODE": "other"},
-		{"DATABASE_URL": "postgres://u:secret@localhost/db", "DATABASE_CONNECTION_MODE": "cloudsql"},
-		{"DATABASE_URL": "postgres://u:secret@localhost/db", "DATABASE_CONNECTION_MODE": "cloudsql", "CLOUD_SQL_INSTANCE_CONNECTION_NAME": "project-one:region-one:instance-one", "DATABASE_PASSWORD_FILE": "/secret", "CLOUD_SQL_PRIVATE_IP": "perhaps"},
-		{"DATABASE_URL": "postgres://u:secret@localhost/db", "DBMIGRATE_TIMEOUT": "5h"},
+		{"DATABASE_URL": "postgres://u@localhost/app?sslmode=disable", "DATABASE_CONNECTION_MODE": "cloudsql"},
+		{"DATABASE_URL": "postgres://u@localhost/app?sslmode=disable", "DATABASE_CONNECTION_MODE": "cloudsql", "CLOUD_SQL_INSTANCE_CONNECTION_NAME": "project-one:region-one:instance-one", "DATABASE_PASSWORD_FILE": "/secret", "CLOUD_SQL_PRIVATE_IP": "perhaps"},
+		{"DATABASE_URL": "postgres://u@localhost/app?sslmode=disable", "DATABASE_CONNECTION_MODE": "cloudsql", "CLOUD_SQL_INSTANCE_CONNECTION_NAME": "project-one:region-one:instance-one", "DATABASE_PASSWORD_FILE": "/secret", "PGSERVICE": "override"},
+		{"DATABASE_URL": "postgres://u@localhost/app?sslmode=disable&password=secret", "DATABASE_CONNECTION_MODE": "cloudsql", "CLOUD_SQL_INSTANCE_CONNECTION_NAME": "project-one:region-one:instance-one", "DATABASE_PASSWORD_FILE": "/secret"},
+		{"DATABASE_URL": "postgres://u@localhost/app?sslmode=disable", "DBMIGRATE_TIMEOUT": "5h"},
 	} {
 		_, err := loadConnectionSettings(func(key string) string { return values[key] })
 		if err == nil || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "postgres://") {
