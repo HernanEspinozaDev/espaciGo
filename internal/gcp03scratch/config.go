@@ -11,25 +11,31 @@ import (
 )
 
 const (
-	ProjectID          = "espacigo-testprod"
-	Region             = "southamerica-west1"
-	InstanceName       = "espacigo-gcp03-pilot01-pg"
-	DatabaseName       = "espacigo_scratch"
-	MigratorLogin      = "espacigo_scratch_migrator"
-	InstanceConnection = ProjectID + ":" + Region + ":" + InstanceName
-	TargetConfirmation = InstanceConnection + "/" + DatabaseName
-	DatabaseURL        = "postgres://" + MigratorLogin + "@localhost:5432/" + DatabaseName + "?sslmode=disable"
-	PasswordFile       = "/secrets/migrator/password"
-	MigrationCount     = 61
+	ProjectID                 = "espacigo-testprod"
+	Region                    = "southamerica-west1"
+	InstanceName              = "espacigo-gcp03-pilot01-pg"
+	DatabaseName              = "espacigo_scratch"
+	MigratorLogin             = "espacigo_scratch_migrator"
+	DatabaseOwnerLogin        = "postgres"
+	RuntimeRole               = "espacigo_runtime"
+	GADMRole                  = "espacigo_gadm_bootstrap"
+	InstanceConnection        = ProjectID + ":" + Region + ":" + InstanceName
+	TargetConfirmation        = InstanceConnection + "/" + DatabaseName
+	DatabaseURL               = "postgres://" + MigratorLogin + "@localhost:5432/" + DatabaseName + "?sslmode=disable"
+	DatabaseOwnerURL          = "postgres://" + DatabaseOwnerLogin + "@localhost:5432/" + DatabaseName + "?sslmode=disable"
+	PasswordFile              = "/secrets/migrator/password"
+	DatabaseOwnerPasswordFile = "/secrets/database-owner/password"
+	MigrationCount            = 61
 )
 
 type Phase string
 
 const (
-	PhaseBootstrap Phase = "bootstrap"
-	PhaseMigrate   Phase = "migrate"
-	PhaseFinalize  Phase = "finalize"
-	PhaseRetire    Phase = "retire"
+	PhaseBootstrap   Phase = "bootstrap"
+	PhaseDatabaseACL Phase = "database_acl"
+	PhaseMigrate     Phase = "migrate"
+	PhaseFinalize    Phase = "finalize"
+	PhaseRetire      Phase = "retire"
 )
 
 var scratchPasswordPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
@@ -40,6 +46,7 @@ type Config struct {
 	PasswordFile string
 	Instance     string
 	PrivateIP    bool
+	Login        string
 }
 
 func LoadConfig(getenv func(string) string) (Config, error) {
@@ -48,7 +55,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	}
 	phase := Phase(strings.TrimSpace(getenv("GCP03_PHASE")))
 	switch phase {
-	case PhaseBootstrap, PhaseMigrate, PhaseFinalize, PhaseRetire:
+	case PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire:
 	default:
 		return Config{}, errors.New("GCP03_PHASE must name a supported scratch phase")
 	}
@@ -58,10 +65,16 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if getenv("CLOUD_SQL_INSTANCE_CONNECTION_NAME") != InstanceConnection {
 		return Config{}, errors.New("GCP-03 Cloud SQL instance does not match the reviewed scratch instance")
 	}
-	if getenv("DATABASE_URL") != DatabaseURL {
+	login, databaseURL, passwordFile := MigratorLogin, DatabaseURL, PasswordFile
+	if phase == PhaseDatabaseACL || phase == PhaseRetire {
+		login = DatabaseOwnerLogin
+		databaseURL = DatabaseOwnerURL
+		passwordFile = DatabaseOwnerPasswordFile
+	}
+	if getenv("DATABASE_URL") != databaseURL {
 		return Config{}, errors.New("GCP-03 database URL does not match the reviewed scratch database")
 	}
-	if getenv("DATABASE_PASSWORD_FILE") != PasswordFile {
+	if getenv("DATABASE_PASSWORD_FILE") != passwordFile {
 		return Config{}, errors.New("GCP-03 password must come from the scratch secret mount")
 	}
 	if getenv("CLOUD_SQL_PRIVATE_IP") != "true" {
@@ -75,20 +88,21 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if err := cloudsql.ValidatePGEnvironment(getenv); err != nil {
 		return Config{}, err
 	}
-	if err := cloudsql.ValidateConnectionURL(DatabaseURL); err != nil {
+	if err := cloudsql.ValidateConnectionURL(databaseURL); err != nil {
 		return Config{}, errors.New("GCP-03 database URL failed validation")
 	}
 	return Config{
 		Phase:        phase,
-		DatabaseURL:  DatabaseURL,
-		PasswordFile: PasswordFile,
+		DatabaseURL:  databaseURL,
+		PasswordFile: passwordFile,
 		Instance:     InstanceConnection,
 		PrivateIP:    true,
+		Login:        login,
 	}, nil
 }
 
 func ReadPassword(path string) (string, error) {
-	if path != PasswordFile {
+	if path != PasswordFile && path != DatabaseOwnerPasswordFile {
 		return "", errors.New("GCP-03 password path is not the reviewed secret mount")
 	}
 	value, err := os.ReadFile(path)

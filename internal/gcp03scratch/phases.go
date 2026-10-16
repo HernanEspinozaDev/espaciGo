@@ -13,10 +13,11 @@ import (
 )
 
 type PhaseActions struct {
-	Bootstrap func(context.Context) error
-	Migrate   func(context.Context) error
-	Finalize  func(context.Context) error
-	Retire    func(context.Context) error
+	Bootstrap   func(context.Context) error
+	DatabaseACL func(context.Context) error
+	Migrate     func(context.Context) error
+	Finalize    func(context.Context) error
+	Retire      func(context.Context) error
 }
 
 // ExecutePhase dispatches exactly one named phase. Cloud Run Jobs use separate
@@ -26,6 +27,8 @@ func ExecutePhase(ctx context.Context, phase Phase, actions PhaseActions) error 
 	switch phase {
 	case PhaseBootstrap:
 		action = actions.Bootstrap
+	case PhaseDatabaseACL:
+		action = actions.DatabaseACL
 	case PhaseMigrate:
 		action = actions.Migrate
 	case PhaseFinalize:
@@ -42,17 +45,22 @@ func ExecutePhase(ctx context.Context, phase Phase, actions PhaseActions) error 
 }
 
 func RunPhase(ctx context.Context, config Config, password, migrationDir string) error {
-	if config.Instance != InstanceConnection || config.DatabaseURL != DatabaseURL || !config.PrivateIP {
+	expectedLogin, expectedURL, expectedPasswordFile := MigratorLogin, DatabaseURL, PasswordFile
+	if config.Phase == PhaseDatabaseACL || config.Phase == PhaseRetire {
+		expectedLogin, expectedURL, expectedPasswordFile = DatabaseOwnerLogin, DatabaseOwnerURL, DatabaseOwnerPasswordFile
+	}
+	if config.Instance != InstanceConnection || config.DatabaseURL != expectedURL || config.Login != expectedLogin || config.PasswordFile != expectedPasswordFile || !config.PrivateIP {
 		return errors.New("GCP-03 target configuration is invalid")
 	}
 	if !scratchPasswordPattern.MatchString(password) {
 		return errors.New("GCP-03 scratch password has an invalid format")
 	}
 	actions := PhaseActions{
-		Bootstrap: func(ctx context.Context) error { return runBootstrap(ctx, config, password) },
-		Migrate:   func(ctx context.Context) error { return runMigrations(ctx, config, password, migrationDir) },
-		Finalize:  func(ctx context.Context) error { return runFinalize(ctx, config, password, migrationDir) },
-		Retire:    func(ctx context.Context) error { return runRetire(ctx, config, password, migrationDir) },
+		Bootstrap:   func(ctx context.Context) error { return runBootstrap(ctx, config, password) },
+		DatabaseACL: func(ctx context.Context) error { return runDatabaseACL(ctx, config, password) },
+		Migrate:     func(ctx context.Context) error { return runMigrations(ctx, config, password, migrationDir) },
+		Finalize:    func(ctx context.Context) error { return runFinalize(ctx, config, password, migrationDir) },
+		Retire:      func(ctx context.Context) error { return runRetire(ctx, config, password, migrationDir) },
 	}
 	return ExecutePhase(ctx, config.Phase, actions)
 }
@@ -78,7 +86,7 @@ func withScratchConnection(ctx context.Context, config Config, password string, 
 	if err := conn.QueryRow(ctx, "SELECT current_database(), current_user").Scan(&database, &login); err != nil {
 		return errors.New("could not verify the GCP-03 database session")
 	}
-	if database != DatabaseName || login != MigratorLogin {
+	if database != DatabaseName || login != config.Login {
 		return errors.New("connected session does not match the reviewed GCP-03 scratch target")
 	}
 	return operation(ctx, conn)
@@ -86,16 +94,36 @@ func withScratchConnection(ctx context.Context, config Config, password string, 
 
 func runBootstrap(ctx context.Context, config Config, password string) error {
 	return withScratchConnection(ctx, config, password, func(ctx context.Context, conn *pgx.Conn) error {
-		if _, err := conn.PgConn().Exec(ctx, scratchsql.PreMigrate).ReadAll(); err != nil {
-			return fmt.Errorf("GCP-03 pre-migration bootstrap SQL failed: %w", err)
-		}
-		return dbbootstrap.VerifyScratchBootstrap(ctx, conn)
+		return bootstrapOnConnection(ctx, conn)
 	})
+}
+
+func bootstrapOnConnection(ctx context.Context, conn *pgx.Conn) error {
+	if _, err := conn.PgConn().Exec(ctx, scratchsql.PreMigrate).ReadAll(); err != nil {
+		return fmt.Errorf("GCP-03 pre-migration bootstrap SQL failed: %w", err)
+	}
+	return dbbootstrap.VerifyScratchBootstrapRolesCreated(ctx, conn)
+}
+
+func runDatabaseACL(ctx context.Context, config Config, password string) error {
+	return withScratchConnection(ctx, config, password, func(ctx context.Context, conn *pgx.Conn) error {
+		return databaseACLOnConnection(ctx, conn)
+	})
+}
+
+func databaseACLOnConnection(ctx context.Context, conn *pgx.Conn) error {
+	if _, err := conn.PgConn().Exec(ctx, scratchsql.DatabaseACL).ReadAll(); err != nil {
+		return fmt.Errorf("GCP-03 database TEMP ACL SQL failed: %w", err)
+	}
+	return dbbootstrap.VerifyScratchDatabaseACL(ctx, conn)
 }
 
 func runMigrations(ctx context.Context, config Config, password, migrationDir string) error {
 	if err := withScratchConnection(ctx, config, password, dbbootstrap.VerifyScratchBootstrap); err != nil {
 		return fmt.Errorf("GCP-03 migration preflight failed: %w", err)
+	}
+	if err := withScratchConnection(ctx, config, password, dbbootstrap.VerifyScratchDatabaseACL); err != nil {
+		return fmt.Errorf("GCP-03 migration database ACL preflight failed: %w", err)
 	}
 	result, err := migrator.RunCloudSQL(ctx, config.DatabaseURL, password, migrationDir, config.Instance, config.PrivateIP)
 	if err != nil {
@@ -109,30 +137,35 @@ func runMigrations(ctx context.Context, config Config, password, migrationDir st
 
 func runFinalize(ctx context.Context, config Config, password, migrationDir string) error {
 	return withScratchConnection(ctx, config, password, func(ctx context.Context, conn *pgx.Conn) error {
-		if err := migrator.VerifyAllApplied(ctx, conn, migrationDir, MigrationCount); err != nil {
-			return fmt.Errorf("GCP-03 migration history verification failed: %w", err)
-		}
-		if err := dbbootstrap.GrantRuntimePermissions(ctx, conn); err != nil {
-			return fmt.Errorf("GCP-03 runtime grants failed: %w", err)
-		}
-		if err := dbbootstrap.VerifyScratchRuntimePermissions(ctx, conn); err != nil {
-			return err
-		}
-		return nil
+		return finalizeOnConnection(ctx, conn, migrationDir)
 	})
+}
+
+func finalizeOnConnection(ctx context.Context, conn *pgx.Conn, migrationDir string) error {
+	if err := migrator.VerifyAllApplied(ctx, conn, migrationDir, MigrationCount); err != nil {
+		return fmt.Errorf("GCP-03 migration history verification failed: %w", err)
+	}
+	if err := dbbootstrap.GrantRuntimePermissions(ctx, conn); err != nil {
+		return fmt.Errorf("GCP-03 runtime grants failed: %w", err)
+	}
+	return dbbootstrap.VerifyScratchRuntimePermissions(ctx, conn)
 }
 
 func runRetire(ctx context.Context, config Config, password, migrationDir string) error {
 	return withScratchConnection(ctx, config, password, func(ctx context.Context, conn *pgx.Conn) error {
-		if err := migrator.VerifyAllApplied(ctx, conn, migrationDir, MigrationCount); err != nil {
-			return fmt.Errorf("GCP-03 retirement migration history verification failed: %w", err)
-		}
-		if err := dbbootstrap.VerifyScratchRuntimePermissions(ctx, conn); err != nil {
-			return err
-		}
-		if _, err := conn.PgConn().Exec(ctx, scratchsql.RetireMigrator).ReadAll(); err != nil {
-			return fmt.Errorf("GCP-03 temporary login retirement failed: %w", err)
-		}
-		return dbbootstrap.VerifyScratchMigratorRetired(ctx, conn)
+		return retireOnConnection(ctx, conn, migrationDir)
 	})
+}
+
+func retireOnConnection(ctx context.Context, conn *pgx.Conn, migrationDir string) error {
+	if err := migrator.VerifyAllApplied(ctx, conn, migrationDir, MigrationCount); err != nil {
+		return fmt.Errorf("GCP-03 retirement migration history verification failed: %w", err)
+	}
+	if err := dbbootstrap.VerifyScratchRuntimePermissions(ctx, conn); err != nil {
+		return err
+	}
+	if _, err := conn.PgConn().Exec(ctx, scratchsql.RetireMigrator).ReadAll(); err != nil {
+		return fmt.Errorf("GCP-03 temporary login retirement failed: %w", err)
+	}
+	return dbbootstrap.VerifyScratchMigratorRetired(ctx, conn)
 }

@@ -6,7 +6,7 @@ import (
 )
 
 func validEnvironment(phase Phase) map[string]string {
-	return map[string]string{
+	values := map[string]string{
 		"GCP03_PHASE":                        string(phase),
 		"GCP03_CONFIRM_TARGET":               TargetConfirmation,
 		"CLOUD_SQL_INSTANCE_CONNECTION_NAME": InstanceConnection,
@@ -14,17 +14,26 @@ func validEnvironment(phase Phase) map[string]string {
 		"DATABASE_PASSWORD_FILE":             PasswordFile,
 		"CLOUD_SQL_PRIVATE_IP":               "true",
 	}
+	if phase == PhaseDatabaseACL || phase == PhaseRetire {
+		values["DATABASE_URL"] = DatabaseOwnerURL
+		values["DATABASE_PASSWORD_FILE"] = DatabaseOwnerPasswordFile
+	}
+	return values
 }
 
 func TestLoadConfigAcceptsOnlyNamedPhasesForExactScratchTarget(t *testing.T) {
-	for _, phase := range []Phase{PhaseBootstrap, PhaseMigrate, PhaseFinalize, PhaseRetire} {
+	for _, phase := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire} {
 		t.Run(string(phase), func(t *testing.T) {
 			values := validEnvironment(phase)
 			config, err := LoadConfig(func(key string) string { return values[key] })
 			if err != nil {
 				t.Fatal(err)
 			}
-			if config.Phase != phase || config.Instance != InstanceConnection || config.DatabaseURL != DatabaseURL || !config.PrivateIP {
+			wantURL, wantLogin, wantSecret := DatabaseURL, MigratorLogin, PasswordFile
+			if phase == PhaseDatabaseACL || phase == PhaseRetire {
+				wantURL, wantLogin, wantSecret = DatabaseOwnerURL, DatabaseOwnerLogin, DatabaseOwnerPasswordFile
+			}
+			if config.Phase != phase || config.Instance != InstanceConnection || config.DatabaseURL != wantURL || config.Login != wantLogin || config.PasswordFile != wantSecret || !config.PrivateIP {
 				t.Fatalf("unexpected loaded config: %#v", config)
 			}
 		})

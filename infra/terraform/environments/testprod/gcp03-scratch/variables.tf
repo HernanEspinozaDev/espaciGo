@@ -67,9 +67,10 @@ variable "enable_job" {
       can(regex("@sha256:[0-9a-f]{64}$", var.migrator_image)) &&
       startswith(var.migrator_image, "${var.region}-docker.pkg.dev/${var.project_id}/gcp03-scratch-${var.run_id}/dbmigrate@sha256:") &&
       var.confirm_image_pushed &&
-      var.confirm_scratch_secret_version
+      var.confirm_scratch_secret_version &&
+      var.confirm_database_owner_secret_version
     )
-    error_message = "The named scratch phases require run_id pilot01, the exact scratch login/database, a sha256-pinned image from this repository, and confirmations that the image and temporary secret version exist."
+    error_message = "The named scratch phases require run_id pilot01, the exact scratch login/database, a sha256-pinned image from this repository, and confirmations that both temporary secret versions exist."
   }
 }
 
@@ -98,6 +99,12 @@ variable "confirm_image_pushed" {
 variable "confirm_scratch_secret_version" {
   type        = bool
   description = "Set only after a temporary credential was created outside Terraform and a version exists on the scratch-only secret."
+  default     = false
+}
+
+variable "confirm_database_owner_secret_version" {
+  type        = bool
+  description = "Set only after the exact temporary postgres-owner secret version exists for the isolated database ACL phase."
   default     = false
 }
 

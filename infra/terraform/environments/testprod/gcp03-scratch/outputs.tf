@@ -12,12 +12,16 @@ output "scratch_job_name" {
 }
 
 output "scratch_job_phase_names" {
-  description = "Named bootstrap, migrate, finalize and retire Jobs, created only when the separate job gate is enabled."
+  description = "Named bootstrap, database ACL, migrate, finalize and retire Jobs, created only when the separate job gate is enabled."
   value       = { for phase, job in google_cloud_run_v2_job.migrator : phase => job.name }
 }
 
 output "scratch_migrator_service_account" {
   value = try(google_service_account.scratch_migrator[0].email, null)
+}
+
+output "scratch_database_acl_service_account" {
+  value = try(google_service_account.scratch_database_acl[0].email, null)
 }
 
 output "scratch_image_repository" {

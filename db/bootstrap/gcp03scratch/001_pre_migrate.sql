@@ -33,14 +33,15 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'GCP-03 runtime role has unsafe attributes';
     END IF;
-    IF EXISTS (
-        SELECT 1
-        FROM pg_catalog.pg_auth_members m
-        JOIN pg_catalog.pg_roles role_name ON role_name.oid = m.roleid
-        JOIN pg_catalog.pg_roles member_name ON member_name.oid = m.member
-        WHERE role_name.rolname = 'espacigo_runtime' OR member_name.rolname = 'espacigo_runtime'
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'espacigo_gadm_bootstrap') THEN
+        CREATE ROLE espacigo_gadm_bootstrap
+            NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+    ELSIF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_roles
+        WHERE rolname = 'espacigo_gadm_bootstrap'
+          AND (rolcanlogin OR rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls OR rolinherit)
     ) THEN
-        RAISE EXCEPTION 'GCP-03 runtime role must have no memberships';
+        RAISE EXCEPTION 'GCP-03 GADM role has unsafe attributes';
     END IF;
 END
 $runtime$;

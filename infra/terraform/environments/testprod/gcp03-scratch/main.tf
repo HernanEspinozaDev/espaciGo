@@ -4,10 +4,11 @@ locals {
   job_enabled     = var.enable_scratch && var.enable_job
   protect_scratch = !var.allow_scratch_destroy
   job_phases = {
-    bootstrap = "bootstrap"
-    migrate   = "migrate"
-    finalize  = "finalize"
-    retire    = "retire"
+    bootstrap    = "bootstrap"
+    database_acl = "database_acl"
+    migrate      = "migrate"
+    finalize     = "finalize"
+    retire       = "retire"
   }
 }
 
@@ -35,11 +36,27 @@ resource "google_service_account" "scratch_migrator" {
   deletion_policy = local.protect_scratch ? "PREVENT" : "DELETE"
 }
 
+resource "google_service_account" "scratch_database_acl" {
+  count           = local.scratch_enabled ? 1 : 0
+  project         = var.project_id
+  account_id      = "gcp03-scratch-acl-${var.run_id}"
+  display_name    = "GCP-03 scratch database ACL phase ${var.run_id}"
+  description     = "Scratch ACL phase only. Reads only the short-lived database-owner secret."
+  deletion_policy = local.protect_scratch ? "PREVENT" : "DELETE"
+}
+
 resource "google_project_iam_member" "scratch_cloudsql_client" {
   count   = local.scratch_enabled ? 1 : 0
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.scratch_migrator[0].email}"
+}
+
+resource "google_project_iam_member" "scratch_acl_cloudsql_client" {
+  count   = local.scratch_enabled ? 1 : 0
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.scratch_database_acl[0].email}"
 }
 
 resource "google_secret_manager_secret" "scratch_password" {
@@ -56,12 +73,32 @@ resource "google_secret_manager_secret" "scratch_password" {
   # Terraform creates metadata only; no secret version or value is managed here.
 }
 
+resource "google_secret_manager_secret" "scratch_database_owner_password" {
+  count               = local.scratch_enabled ? 1 : 0
+  project             = var.project_id
+  secret_id           = "${local.name_prefix}-db-owner-password"
+  deletion_protection = local.protect_scratch
+  deletion_policy     = local.protect_scratch ? "PREVENT" : "DELETE"
+
+  replication {
+    auto {}
+  }
+}
+
 resource "google_secret_manager_secret_iam_member" "scratch_password_access" {
   count     = local.scratch_enabled ? 1 : 0
   project   = var.project_id
   secret_id = google_secret_manager_secret.scratch_password[0].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.scratch_migrator[0].email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "scratch_database_owner_access" {
+  count     = local.scratch_enabled ? 1 : 0
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.scratch_database_owner_password[0].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.scratch_database_acl[0].email}"
 }
 
 resource "google_artifact_registry_repository" "scratch" {
@@ -158,7 +195,7 @@ resource "google_cloud_run_v2_job" "migrator" {
     parallelism = 1
 
     template {
-      service_account = google_service_account.scratch_migrator[0].email
+      service_account = contains(["database_acl", "retire"], each.key) ? google_service_account.scratch_database_acl[0].email : google_service_account.scratch_migrator[0].email
       timeout         = "14400s"
       max_retries     = 0
 
@@ -178,11 +215,11 @@ resource "google_cloud_run_v2_job" "migrator" {
         }
         env {
           name  = "DATABASE_URL"
-          value = "postgres://${var.database_user}@localhost:5432/${var.database_name}?sslmode=disable"
+          value = contains(["database_acl", "retire"], each.key) ? "postgres://postgres@localhost:5432/${var.database_name}?sslmode=disable" : "postgres://${var.database_user}@localhost:5432/${var.database_name}?sslmode=disable"
         }
         env {
           name  = "DATABASE_PASSWORD_FILE"
-          value = "/secrets/migrator/password"
+          value = contains(["database_acl", "retire"], each.key) ? "/secrets/database-owner/password" : "/secrets/migrator/password"
         }
         env {
           name  = "CLOUD_SQL_INSTANCE_CONNECTION_NAME"
@@ -197,8 +234,8 @@ resource "google_cloud_run_v2_job" "migrator" {
           value = "4h"
         }
         volume_mounts {
-          name       = "scratch-migrator-password"
-          mount_path = "/secrets/migrator"
+          name       = contains(["database_acl", "retire"], each.key) ? "scratch-database-owner-password" : "scratch-migrator-password"
+          mount_path = contains(["database_acl", "retire"], each.key) ? "/secrets/database-owner" : "/secrets/migrator"
         }
         resources {
           limits = {
@@ -209,9 +246,9 @@ resource "google_cloud_run_v2_job" "migrator" {
       }
 
       volumes {
-        name = "scratch-migrator-password"
+        name = contains(["database_acl", "retire"], each.key) ? "scratch-database-owner-password" : "scratch-migrator-password"
         secret {
-          secret = google_secret_manager_secret.scratch_password[0].secret_id
+          secret = contains(["database_acl", "retire"], each.key) ? google_secret_manager_secret.scratch_database_owner_password[0].secret_id : google_secret_manager_secret.scratch_password[0].secret_id
           items {
             version = "latest"
             path    = "password"
@@ -231,8 +268,8 @@ resource "google_cloud_run_v2_job" "migrator" {
 
   lifecycle {
     precondition {
-      condition     = local.scratch_enabled && var.confirm_image_pushed && var.confirm_scratch_secret_version
-      error_message = "The one-shot Job must remain gated until its reviewed image digest exists and the temporary secret has an active version."
+      condition     = local.scratch_enabled && var.confirm_image_pushed && var.confirm_scratch_secret_version && var.confirm_database_owner_secret_version
+      error_message = "The named phases require the reviewed image digest and active migrator/database-owner secret versions."
     }
   }
 }
@@ -249,6 +286,13 @@ resource "google_cloud_run_v2_job_iam_member" "invoke_operator" {
 resource "google_service_account_iam_member" "operator_act_as" {
   count              = local.job_enabled ? 1 : 0
   service_account_id = google_service_account.scratch_migrator[0].name
+  role               = "roles/iam.serviceAccountUser"
+  member             = var.operator_member
+}
+
+resource "google_service_account_iam_member" "operator_act_as_database_acl" {
+  count              = local.job_enabled ? 1 : 0
+  service_account_id = google_service_account.scratch_database_acl[0].name
   role               = "roles/iam.serviceAccountUser"
   member             = var.operator_member
 }

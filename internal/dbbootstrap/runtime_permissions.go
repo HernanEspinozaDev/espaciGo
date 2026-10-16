@@ -77,7 +77,93 @@ func VerifyScratchBootstrap(ctx context.Context, conn *pgx.Conn) error {
 	if _, err := ScratchExtensionVersions(ctx, conn); err != nil {
 		return err
 	}
-	return requireRestrictedNoLoginRole(ctx, conn, "espacigo_runtime", true)
+	if err := requireRestrictedNoLoginRole(ctx, conn, "espacigo_runtime", true); err != nil {
+		return err
+	}
+	return requireRestrictedNoLoginRole(ctx, conn, "espacigo_gadm_bootstrap", true)
+}
+
+// VerifyScratchBootstrapRolesCreated accepts only PostgreSQL 18's automatic
+// ADMIN membership from the creating login while Cloud SQL Admin API cleanup
+// is pending. Migration preflight uses VerifyScratchBootstrap, which rejects
+// every remaining membership.
+func VerifyScratchBootstrapRolesCreated(ctx context.Context, conn *pgx.Conn) error {
+	if conn == nil {
+		return errors.New("scratch database connection is required")
+	}
+	for _, role := range []string{"espacigo_runtime", "espacigo_gadm_bootstrap"} {
+		attrs, err := readRoleAttributes(ctx, conn, role)
+		if err != nil {
+			return err
+		}
+		if attrs.canLogin || attrs.superuser || attrs.createDB || attrs.createRole || attrs.replication || attrs.bypassRLS || attrs.inherit {
+			return errors.New("scratch group role has unsafe attributes")
+		}
+	}
+	var valid bool
+	err := conn.QueryRow(ctx, `WITH relevant AS (
+		SELECT granted.rolname AS granted_name, member.rolname AS member_name,
+		       m.admin_option, m.inherit_option, m.set_option
+		FROM pg_catalog.pg_auth_members m
+		JOIN pg_catalog.pg_roles granted ON granted.oid = m.roleid
+		JOIN pg_catalog.pg_roles member ON member.oid = m.member
+		WHERE granted.rolname IN ('espacigo_runtime', 'espacigo_gadm_bootstrap')
+		   OR member.rolname IN ('espacigo_runtime', 'espacigo_gadm_bootstrap')
+	), expected AS (
+		SELECT count(*) AS membership_count
+		FROM relevant
+		WHERE granted_name IN ('espacigo_runtime', 'espacigo_gadm_bootstrap')
+		  AND member_name = 'espacigo_scratch_migrator'
+		  AND admin_option AND NOT inherit_option AND NOT set_option
+	)
+	SELECT (SELECT membership_count FROM expected) <= 2
+	   AND NOT EXISTS (
+		SELECT 1 FROM relevant
+		WHERE NOT (granted_name IN ('espacigo_runtime', 'espacigo_gadm_bootstrap')
+		  AND member_name = 'espacigo_scratch_migrator' AND admin_option AND NOT inherit_option AND NOT set_option)
+	   )`).Scan(&valid)
+	if err != nil {
+		return errors.New("could not verify automatic scratch role memberships")
+	}
+	if !valid {
+		return errors.New("scratch group roles have unexpected memberships; reconcile the temporary login through Cloud SQL Admin API")
+	}
+	return nil
+}
+
+// VerifyScratchDatabaseACL requires TEMP only for the migration login. The
+// PUBLIC ACL is inspected directly because effective privilege checks alone
+// can hide inherited grants through PUBLIC.
+func VerifyScratchDatabaseACL(ctx context.Context, conn *pgx.Conn) error {
+	if conn == nil {
+		return errors.New("scratch database connection is required")
+	}
+	var publicTemp, migratorTemp, runtimeTemp, migratorCreate, runtimeCreate, publicSchemaCreate bool
+	err := conn.QueryRow(ctx, `SELECT
+		EXISTS (
+			SELECT 1
+			FROM pg_catalog.pg_database d,
+			     LATERAL pg_catalog.aclexplode(COALESCE(d.datacl, pg_catalog.acldefault('d', d.datdba))) acl
+			WHERE d.datname = 'espacigo_scratch'
+			  AND acl.grantee = 0 AND acl.privilege_type = 'TEMPORARY'
+		),
+		has_database_privilege('espacigo_scratch_migrator', 'espacigo_scratch', 'TEMP'),
+		has_database_privilege('espacigo_runtime', 'espacigo_scratch', 'TEMP'),
+		has_schema_privilege('espacigo_scratch_migrator', 'public', 'CREATE'),
+		has_schema_privilege('espacigo_runtime', 'public', 'CREATE'),
+		EXISTS (
+			SELECT 1
+			FROM pg_catalog.pg_namespace n,
+			     LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) acl
+			WHERE n.nspname = 'public' AND acl.grantee = 0 AND acl.privilege_type = 'CREATE'
+		)`).Scan(&publicTemp, &migratorTemp, &runtimeTemp, &migratorCreate, &runtimeCreate, &publicSchemaCreate)
+	if err != nil {
+		return errors.New("could not inspect scratch database TEMP ACL")
+	}
+	if publicTemp || !migratorTemp || runtimeTemp || !migratorCreate || runtimeCreate || publicSchemaCreate {
+		return errors.New("scratch database TEMP/schema privileges differ from the migrator-only contract")
+	}
+	return nil
 }
 
 // ScratchExtensionVersions reports the fixed supported extension set for
@@ -119,6 +205,9 @@ func VerifyScratchRuntimePermissions(ctx context.Context, conn *pgx.Conn) error 
 		return err
 	}
 	if err := requireRestrictedNoLoginRole(ctx, conn, "espacigo_gadm_bootstrap", true); err != nil {
+		return err
+	}
+	if err := VerifyScratchDatabaseACL(ctx, conn); err != nil {
 		return err
 	}
 	var checks [16]bool
@@ -179,6 +268,16 @@ func VerifyScratchMigratorRetired(ctx context.Context, conn *pgx.Conn) error {
 	}
 	if unexpectedMembership {
 		return errors.New("temporary scratch login has an unexpected role membership")
+	}
+	var tempPrivilege, createPrivilege bool
+	err = conn.QueryRow(ctx, `SELECT
+		has_database_privilege('espacigo_scratch_migrator', 'espacigo_scratch', 'TEMP'),
+		has_schema_privilege('espacigo_scratch_migrator', 'public', 'CREATE')`).Scan(&tempPrivilege, &createPrivilege)
+	if err != nil {
+		return errors.New("could not verify retired scratch login object privileges")
+	}
+	if tempPrivilege || createPrivilege {
+		return errors.New("temporary scratch login retains database or schema privileges")
 	}
 	return nil
 }

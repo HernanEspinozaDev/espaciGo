@@ -1,13 +1,12 @@
--- GCP-03 scratch executor phase: retire temporary login, schema revision 1.
--- This phase disables the login first. The operator then removes the remaining
--- cloudsqlsuperuser membership through Cloud SQL Admin API users.update.
+-- GCP-03 scratch executor phase: retire temporary login, schema revision 2.
+-- Run as the exact database-owner login after final runtime verification.
 DO $guard$
 BEGIN
     IF current_database() <> 'espacigo_scratch' THEN
         RAISE EXCEPTION 'GCP-03 retirement refused unexpected database';
     END IF;
-    IF current_user <> 'espacigo_scratch_migrator' THEN
-        RAISE EXCEPTION 'GCP-03 retirement refused unexpected login';
+    IF current_user <> 'postgres' THEN
+        RAISE EXCEPTION 'GCP-03 retirement requires the reviewed database owner login';
     END IF;
     IF EXISTS (
         SELECT 1
@@ -23,6 +22,8 @@ END
 $guard$;
 
 ALTER ROLE espacigo_scratch_migrator NOLOGIN NOCREATEROLE NOCREATEDB NOINHERIT;
+REVOKE CREATE ON SCHEMA public FROM espacigo_scratch_migrator;
+REVOKE TEMPORARY ON DATABASE espacigo_scratch FROM espacigo_scratch_migrator;
 
 DO $verify$
 BEGIN

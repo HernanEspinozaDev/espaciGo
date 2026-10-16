@@ -18,7 +18,7 @@ type fakeSecretVersions struct {
 }
 
 func (f *fakeSecretVersions) AddVersion(_ context.Context, parent string, password []byte) (string, error) {
-	if parent != ScratchSecretResource {
+	if parent != ScratchSecretResource && parent != DatabaseOwnerSecretResource {
 		return "", errors.New("wrong parent")
 	}
 	f.added = append([]byte(nil), password...)
@@ -40,6 +40,8 @@ type fakeSQLUsers struct {
 	getErr    error
 	revoked   []string
 	roles     []string
+	roleSets  [][]string
+	passwords [][]byte
 }
 
 func (f *fakeSQLUsers) CreateBuiltInUser(_ context.Context, name string, password []byte) (string, error) {
@@ -48,8 +50,17 @@ func (f *fakeSQLUsers) CreateBuiltInUser(_ context.Context, name string, passwor
 	return f.operation, f.createErr
 }
 
-func (f *fakeSQLUsers) RevokeExistingRoles(_ context.Context, name string) (string, error) {
-	f.revoked = append(f.revoked, name)
+func (f *fakeSQLUsers) SetDatabaseRoles(_ context.Context, name string, roles []string, revokeExisting bool) (string, error) {
+	if revokeExisting {
+		f.revoked = append(f.revoked, name)
+	}
+	f.roleSets = append(f.roleSets, append([]string(nil), roles...))
+	return f.operation, f.createErr
+}
+
+func (f *fakeSQLUsers) SetPassword(_ context.Context, name string, password []byte) (string, error) {
+	f.name = name
+	f.passwords = append(f.passwords, append([]byte(nil), password...))
 	return f.operation, f.createErr
 }
 
@@ -184,6 +195,59 @@ func TestScratchSecretVersionGuard(t *testing.T) {
 		if IsScratchSecretVersion(candidate) {
 			t.Fatalf("unexpected secret version accepted: %q", candidate)
 		}
+	}
+}
+
+func TestDatabaseOwnerSecretVersionGuard(t *testing.T) {
+	if !IsDatabaseOwnerSecretVersion(DatabaseOwnerSecretResource + "/versions/17") {
+		t.Fatal("exact owner secret version rejected")
+	}
+	if IsDatabaseOwnerSecretVersion(ScratchSecretResource+"/versions/17") || IsDatabaseOwnerSecretVersion(DatabaseOwnerSecretResource+"/versions/latest") {
+		t.Fatal("wrong or mutable owner secret version accepted")
+	}
+}
+
+func TestReconcileCreatorMembershipsPreservesOnlyCloudSQLSuperuser(t *testing.T) {
+	provisioner, _, user := successfulProvisioner()
+	user.roles = []string{"cloudsqlsuperuser"}
+	if err := provisioner.ReconcileCreatorMemberships(context.Background(), true, CredentialConfirmation); err == nil {
+		t.Fatal("wrong confirmation accepted for creator membership reconciliation")
+	}
+	if len(user.roleSets) != 0 {
+		t.Fatal("Cloud SQL API called before confirmation")
+	}
+	if err := provisioner.ReconcileCreatorMemberships(context.Background(), true, ReconcileConfirmation); err != nil {
+		t.Fatal(err)
+	}
+	if len(user.roleSets) != 1 || len(user.roleSets[0]) != 1 || user.roleSets[0][0] != "cloudsqlsuperuser" {
+		t.Fatalf("unexpected temporary migration roles: %v", user.roleSets)
+	}
+}
+
+func TestCreateDatabaseOwnerCredentialStoresBeforePasswordUpdate(t *testing.T) {
+	provisioner, secret, user := successfulProvisioner()
+	secret.name = DatabaseOwnerSecretResource + "/versions/4"
+	result, err := provisioner.CreateDatabaseOwnerCredential(context.Background(), true, DatabaseOwnerCreateConfirmation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SecretVersion != secret.name || user.name != DatabaseOwnerLogin || len(user.passwords) != 1 || !bytes.Equal(secret.added, user.passwords[0]) {
+		t.Fatal("owner credential did not store the generated password before its exact SQL user update")
+	}
+}
+
+func TestRetireDatabaseOwnerCredentialRotatesBeforeDestroy(t *testing.T) {
+	provisioner, secret, user := successfulProvisioner()
+	version := DatabaseOwnerSecretResource + "/versions/9"
+	secret.name = version
+	if err := provisioner.RetireDatabaseOwnerCredential(context.Background(), true, DatabaseOwnerRetireConfirmation, version); err != nil {
+		t.Fatal(err)
+	}
+	if user.name != DatabaseOwnerLogin || len(user.passwords) != 1 || bytes.Equal(secret.added, user.passwords[0]) {
+		t.Fatal("database-owner password was not rotated to a new unknown value")
+	}
+	if len(secret.destroyed) != 1 || secret.destroyed[0] != version {
+		t.Fatalf("unexpected owner secret cleanup: %v", secret.destroyed)
 	}
 }
 

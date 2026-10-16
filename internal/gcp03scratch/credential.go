@@ -5,15 +5,20 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"time"
 )
 
 const (
-	ScratchSecretResource  = "projects/espacigo-testprod/secrets/espacigo-gcp03-pilot01-migrator-password"
-	CredentialConfirmation = "CREATE:" + TargetConfirmation
-	RevokeConfirmation     = "REVOKE:" + TargetConfirmation
+	ScratchSecretResource           = "projects/espacigo-testprod/secrets/espacigo-gcp03-pilot01-migrator-password"
+	DatabaseOwnerSecretResource     = "projects/espacigo-testprod/secrets/espacigo-gcp03-pilot01-db-owner-password"
+	CredentialConfirmation          = "CREATE:" + TargetConfirmation
+	ReconcileConfirmation           = "RECONCILE:" + TargetConfirmation
+	DatabaseOwnerCreateConfirmation = "ACL-CREATE:" + TargetConfirmation
+	DatabaseOwnerRetireConfirmation = "ACL-RETIRE:" + TargetConfirmation
+	RevokeConfirmation              = "REVOKE:" + TargetConfirmation
 )
 
 type SecretVersionStore interface {
@@ -23,7 +28,8 @@ type SecretVersionStore interface {
 
 type CloudSQLUserStore interface {
 	CreateBuiltInUser(context.Context, string, []byte) (string, error)
-	RevokeExistingRoles(context.Context, string) (string, error)
+	SetDatabaseRoles(context.Context, string, []string, bool) (string, error)
+	SetPassword(context.Context, string, []byte) (string, error)
 	GetDatabaseRoles(context.Context, string) ([]string, error)
 	GetOperation(context.Context, string) (done, failed bool, err error)
 }
@@ -47,7 +53,7 @@ func (p CredentialProvisioner) RevokeSuperuser(ctx context.Context, apply bool, 
 	if p.Users == nil || p.Secrets == nil {
 		return errors.New("Cloud SQL or Secret Manager API client is unavailable")
 	}
-	operation, err := p.Users.RevokeExistingRoles(ctx, MigratorLogin)
+	operation, err := p.Users.SetDatabaseRoles(ctx, MigratorLogin, nil, true)
 	if err != nil {
 		return errors.New("could not request removal of temporary Cloud SQL roles")
 	}
@@ -86,7 +92,15 @@ func (p CredentialProvisioner) RevokeSuperuser(ctx context.Context, apply bool, 
 }
 
 func IsScratchSecretVersion(name string) bool {
-	prefix := ScratchSecretResource + "/versions/"
+	return isSecretVersionFor(ScratchSecretResource, name)
+}
+
+func IsDatabaseOwnerSecretVersion(name string) bool {
+	return isSecretVersionFor(DatabaseOwnerSecretResource, name)
+}
+
+func isSecretVersionFor(resource, name string) bool {
+	prefix := resource + "/versions/"
 	version := strings.TrimPrefix(name, prefix)
 	if version == name || version == "" {
 		return false
@@ -99,6 +113,135 @@ func IsScratchSecretVersion(name string) bool {
 	return true
 }
 
+// ReconcileCreatorMemberships removes only non-system role memberships added
+// while the temporary migrator created the two fixed NOLOGIN group roles. The
+// built-in Cloud SQL role is deliberately preserved for V1-V61.
+func (p CredentialProvisioner) ReconcileCreatorMemberships(ctx context.Context, apply bool, confirmation string) error {
+	if !apply || confirmation != ReconcileConfirmation {
+		return errors.New("reconciling temporary role memberships requires --apply and the exact scratch confirmation")
+	}
+	if p.Users == nil {
+		return errors.New("Cloud SQL Admin API client is unavailable")
+	}
+	operation, err := p.Users.SetDatabaseRoles(ctx, MigratorLogin, []string{"cloudsqlsuperuser"}, true)
+	if err != nil || strings.TrimSpace(operation) == "" {
+		return errors.New("could not request safe Cloud SQL role membership reconciliation")
+	}
+	if err := p.waitOperation(ctx, operation, "Cloud SQL role membership reconciliation"); err != nil {
+		return err
+	}
+	roles, err := p.Users.GetDatabaseRoles(ctx, MigratorLogin)
+	if err != nil || len(roles) != 1 || roles[0] != "cloudsqlsuperuser" {
+		return errors.New("Cloud SQL did not confirm the expected temporary migration role set")
+	}
+	return nil
+}
+
+func (p CredentialProvisioner) CreateDatabaseOwnerCredential(ctx context.Context, apply bool, confirmation string) (CredentialResult, error) {
+	if !apply || confirmation != DatabaseOwnerCreateConfirmation {
+		return CredentialResult{}, errors.New("temporary database-owner credential requires --apply and the exact ACL confirmation")
+	}
+	if p.Secrets == nil || p.Users == nil {
+		return CredentialResult{}, errors.New("Cloud SQL or Secret Manager API client is unavailable")
+	}
+	password, err := p.randomPassword()
+	if err != nil {
+		return CredentialResult{}, err
+	}
+	defer clear(password)
+	version, err := p.Secrets.AddVersion(ctx, DatabaseOwnerSecretResource, password)
+	if err != nil {
+		return CredentialResult{Reconcile: true}, errors.New("database-owner secret version outcome is uncertain; enumerate versions before retrying")
+	}
+	version = strings.TrimSpace(version)
+	if !isSecretVersionFor(DatabaseOwnerSecretResource, version) {
+		return CredentialResult{SecretVersion: version, Reconcile: true}, errors.New("Secret Manager returned an invalid database-owner version; reconcile before retrying")
+	}
+	operation, err := p.Users.SetPassword(ctx, DatabaseOwnerLogin, password)
+	if err != nil {
+		if isDefinitiveCreateFailure(err) {
+			if cleanupErr := p.Secrets.DestroyVersion(ctx, version); cleanupErr != nil {
+				return CredentialResult{SecretVersion: version, Reconcile: true}, errors.New("Cloud SQL rejected the owner password and secret cleanup needs reconciliation")
+			}
+			return CredentialResult{}, errors.New("Cloud SQL rejected the owner password; the new secret version was destroyed")
+		}
+		return CredentialResult{SecretVersion: version, Reconcile: true}, errors.New("database-owner password update outcome is uncertain; retain the version and reconcile")
+	}
+	if strings.TrimSpace(operation) == "" {
+		return CredentialResult{SecretVersion: version, Reconcile: true}, errors.New("Cloud SQL returned no owner-password operation ID; retain the version and reconcile")
+	}
+	if err := p.waitOperation(ctx, operation, "database-owner password update"); err != nil {
+		return CredentialResult{SecretVersion: version, Reconcile: true}, err
+	}
+	return CredentialResult{SecretVersion: version}, nil
+}
+
+func (p CredentialProvisioner) RetireDatabaseOwnerCredential(ctx context.Context, apply bool, confirmation, secretVersion string) error {
+	if !apply || confirmation != DatabaseOwnerRetireConfirmation || !IsDatabaseOwnerSecretVersion(secretVersion) {
+		return errors.New("retiring the database-owner credential requires --apply and the exact ACL confirmation/version")
+	}
+	if p.Users == nil || p.Secrets == nil {
+		return errors.New("Cloud SQL or Secret Manager API client is unavailable")
+	}
+	password, err := p.randomPassword()
+	if err != nil {
+		return err
+	}
+	defer clear(password)
+	operation, err := p.Users.SetPassword(ctx, DatabaseOwnerLogin, password)
+	if err != nil || strings.TrimSpace(operation) == "" {
+		return errors.New("database-owner password rotation outcome is uncertain; keep the secret version and reconcile")
+	}
+	if err := p.waitOperation(ctx, operation, "database-owner password retirement"); err != nil {
+		return err
+	}
+	if err := p.Secrets.DestroyVersion(ctx, secretVersion); err != nil {
+		return errors.New("database-owner password was rotated; exact secret version cleanup needs reconciliation")
+	}
+	return nil
+}
+
+func (p CredentialProvisioner) randomPassword() ([]byte, error) {
+	randomSource := p.Random
+	if randomSource == nil {
+		randomSource = rand.Reader
+	}
+	randomBytes := make([]byte, 32)
+	if _, err := io.ReadFull(randomSource, randomBytes); err != nil {
+		clear(randomBytes)
+		return nil, errors.New("could not generate scratch password")
+	}
+	password := []byte(base64.RawURLEncoding.EncodeToString(randomBytes))
+	clear(randomBytes)
+	if !scratchPasswordPattern.Match(password) {
+		clear(password)
+		return nil, errors.New("generated scratch password failed format validation")
+	}
+	return password, nil
+}
+
+func (p CredentialProvisioner) waitOperation(ctx context.Context, operation, action string) error {
+	poll := p.Poll
+	if poll == nil {
+		poll = waitPoll
+	}
+	for {
+		done, failed, err := p.Users.GetOperation(ctx, operation)
+		if err != nil {
+			return fmt.Errorf("%s status is unavailable; reconcile before continuing", action)
+		}
+		if done {
+			if failed {
+				return fmt.Errorf("%s failed; reconcile before continuing", action)
+			}
+			return nil
+		}
+		if err := poll(ctx, 2*time.Second); err != nil {
+			return fmt.Errorf("%s did not finish; reconcile before continuing", action)
+		}
+	}
+}
+
 func (p CredentialProvisioner) Provision(ctx context.Context, apply bool, confirmation string) (CredentialResult, error) {
 	if !apply || confirmation != CredentialConfirmation {
 		return CredentialResult{}, errors.New("creating the GCP-03 scratch login requires --apply and the exact scratch confirmation")
@@ -106,20 +249,11 @@ func (p CredentialProvisioner) Provision(ctx context.Context, apply bool, confir
 	if p.Secrets == nil || p.Users == nil {
 		return CredentialResult{}, errors.New("GCP-03 credential API clients are unavailable")
 	}
-	randomSource := p.Random
-	if randomSource == nil {
-		randomSource = rand.Reader
+	password, err := p.randomPassword()
+	if err != nil {
+		return CredentialResult{}, err
 	}
-	randomBytes := make([]byte, 32)
-	defer clear(randomBytes)
-	if _, err := io.ReadFull(randomSource, randomBytes); err != nil {
-		return CredentialResult{}, errors.New("could not generate scratch password")
-	}
-	password := []byte(base64.RawURLEncoding.EncodeToString(randomBytes))
 	defer clear(password)
-	if !scratchPasswordPattern.Match(password) {
-		return CredentialResult{}, errors.New("generated scratch password failed format validation")
-	}
 	version, err := p.Secrets.AddVersion(ctx, ScratchSecretResource, password)
 	if err != nil {
 		return CredentialResult{Reconcile: true}, errors.New("Secret Manager version creation outcome is uncertain; enumerate versions before retrying")
