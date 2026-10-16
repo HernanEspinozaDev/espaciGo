@@ -1,6 +1,6 @@
 # Bootstrap de APIs de inventario (separado)
 
-Esta raíz administra únicamente `google_project_service` para Organization Policy API y Cloud Asset Inventory API del proyecto existente `espacigo-testprod`. El proyecto está fijado/validado en `variables.tf`; el state/backend se desactiva para la revisión candidata. No crea buckets, grants IAM, políticas, recursos de producto ni exportaciones. `disable_on_destroy=false` evita deshabilitar APIs si una operación futura destruye su state.
+Esta raíz administra únicamente `google_project_service` para Organization Policy API y Cloud Asset Inventory API del proyecto existente `espacigo-testprod`. El proyecto está fijado/validado en `variables.tf`; usa backend local en ruta privada y no state remoto. No crea buckets, grants IAM, políticas, recursos de producto ni exportaciones. `disable_on_destroy=false` evita deshabilitar APIs si una operación futura destruye su state.
 
 ## Preflight y plan local
 
@@ -8,7 +8,8 @@ Antes de cada plan, confirmar estado actual con el proyecto explícito y agregar
 
 ```sh
 gcloud services list --enabled --project=espacigo-testprod --format=json
-terraform init -backend=false -input=false -lockfile=readonly
+terraform init -input=false -lockfile=readonly \
+  -backend-config='path=/ruta/privada/inventory-apis.tfstate'
 terraform validate
 terraform plan -refresh=false -lock=false -input=false -no-color \
   -var='project_id=espacigo-testprod' \
@@ -16,7 +17,7 @@ terraform plan -refresh=false -lock=false -input=false -no-color \
   -out=/ruta/privada/inventory-apis.tfplan
 ```
 
-La lista debe ajustarse al preflight inmediatamente anterior. En la revisión del 2026-10-15 America/Santiago, `gcloud services list --enabled --project=espacigo-testprod` confirmó que ambas no estaban habilitadas, por lo que el plan local de esta revisión declara únicamente esas dos. El plan guardado fuera del repositorio es candidata estructural con `-refresh=false`, sin state remoto; no actualiza el estado cloud ni sustituye el preflight antes de un posible apply. Si la API ya está habilitada al revalidar, no incluirla. Mantener sin autorización las operaciones Apply, import, deshabilitar API, o backend remoto.
+La lista debe ajustarse al preflight inmediatamente anterior. Use `-refresh=false` solo para una revisión estructural local; el plan autenticado que pueda preceder a un apply debe usar refresh por defecto, como esta ejecución. En la revisión del 2026-10-15 America/Santiago, `gcloud services list --enabled --project=espacigo-testprod` confirmó que ambas no estaban habilitadas, por lo que el plan de esta ejecución declara únicamente esas dos. El plan guardado fuera del repositorio no actualiza el estado cloud. Si la API ya está habilitada al revalidar, no incluirla. Mantener backend/state local en `.local` privado. No deshabilitar API ni configurar backend remoto como parte de este paso.
 
 ## Permisos y costo
 

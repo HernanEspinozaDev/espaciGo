@@ -6,6 +6,7 @@ mock/node_modules/
 
 # Terraform provider caches and initialized workdirs
 **/.terraform/
+**/terraform.tfstate*
 
 # Local editor/build artifacts
 __pycache__/
