@@ -25,6 +25,8 @@ type RetiredMembershipRevocationReport struct {
 	ErrorCode                string                     `json:"error_code,omitempty"`
 }
 
+func (r RetiredMembershipRevocationReport) IntegrityPassed() bool { return r.Passed }
+
 func runRevokeRetiredMembership(ctx context.Context, config Config, password, migrationDir string) error {
 	report, err := RevokeRetiredMembershipPhase(ctx, config, password, migrationDir)
 	if err != nil {
@@ -76,11 +78,22 @@ func revokeRetiredMembershipOnConnection(ctx context.Context, conn *pgx.Conn, mi
 	if err := migrator.VerifyAllApplied(ctx, conn, migrationDir, MigrationCount); err != nil {
 		return fail("history_precheck_failed")
 	}
-	if err := dbbootstrap.VerifyScratchRetiredRuntimePermissions(ctx, conn); err != nil {
+	// Before removing the inherited cloudsqlsuperuser membership, the migrator
+	// is expected to retain TEMP/CREATE. Verify the active ACL/runtime contract
+	// here; the strict retired ACL is enforced by the post-revoke observer.
+	if err := dbbootstrap.VerifyScratchBootstrap(ctx, conn); err != nil {
+		return fail("bootstrap_roles_precheck_failed")
+	}
+	if err := dbbootstrap.VerifyScratchDatabaseACL(ctx, conn); err != nil {
+		return fail("active_database_acl_precheck_failed")
+	}
+	if err := dbbootstrap.VerifyScratchRuntimePermissions(ctx, conn); err != nil {
 		return fail("runtime_precheck_failed")
 	}
 	preReport, err := ObserveRetiredScratch(ctx, conn, migrationDir)
-	if err != nil || !preReport.MigrationHistory || !preReport.OwnerHistoryACL || preReport.HistoryOwner != MigratorLogin {
+	if err != nil || !preReport.MigrationHistory || !preReport.OwnerHistoryACL || preReport.HistoryOwner != MigratorLogin ||
+		preReport.DatabaseOwner != "cloudsqlsuperuser" || preReport.PublicSchemaOwner != "pg_database_owner" ||
+		!allRuntimeChecksPassed(preReport.Observation) {
 		return fail("history_acl_precheck_failed")
 	}
 	var safeAttrs bool
@@ -113,6 +126,18 @@ func revokeRetiredMembershipOnConnection(ctx context.Context, conn *pgx.Conn, mi
 	}
 	committed, report.Passed, report.Revoked = true, true, true
 	return report
+}
+
+func allRuntimeChecksPassed(observation dbbootstrap.ScratchObservation) bool {
+	if len(observation.RuntimeChecks) != 16 {
+		return false
+	}
+	for _, check := range observation.RuntimeChecks {
+		if !check.Passed {
+			return false
+		}
+	}
+	return true
 }
 
 func collectRevocationDiagnostics(ctx context.Context, conn *pgx.Conn, migrationDir string, report *RetiredMembershipRevocationReport) error {
