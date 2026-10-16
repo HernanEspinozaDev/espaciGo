@@ -32,6 +32,22 @@ type cloudAPIError struct {
 	reason  string
 }
 
+func newSQLAdminService(ctx context.Context, extra ...option.ClientOption) (*sqladmin.Service, error) {
+	return sqladmin.NewService(ctx, cloudAPIClientOptions(extra...)...)
+}
+
+func newSecretManagerService(ctx context.Context, extra ...option.ClientOption) (*secretmanager.Service, error) {
+	return secretmanager.NewService(ctx, cloudAPIClientOptions(extra...)...)
+}
+
+func cloudAPIClientOptions(extra ...option.ClientOption) []option.ClientOption {
+	options := []option.ClientOption{
+		option.WithScopes(cloudPlatformScope),
+		option.WithQuotaProject(gcp03scratch.ProjectID),
+	}
+	return append(options, extra...)
+}
+
 func (e cloudAPIError) Error() string {
 	status := fmt.Sprintf("http_status=%d", e.status)
 	if e.status == 0 {
@@ -269,13 +285,13 @@ func run() int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	sqlService, err := sqladmin.NewService(ctx, option.WithScopes(cloudPlatformScope))
+	sqlService, err := newSQLAdminService(ctx)
 	if err != nil {
 		fmt.Fprintln(flag.CommandLine.Output(), "could not initialize Cloud SQL Admin API client")
 		return 1
 	}
 	provisioner := gcp03scratch.CredentialProvisioner{Users: sqlUserAPI{service: sqlService}}
-	secretService, err := secretmanager.NewService(ctx, option.WithScopes(cloudPlatformScope))
+	secretService, err := newSecretManagerService(ctx)
 	if err != nil {
 		fmt.Fprintln(flag.CommandLine.Output(), "could not initialize Secret Manager API client")
 		return 1

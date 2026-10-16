@@ -10,6 +10,7 @@ Other read-only checks:
 
 - `sqladmin.googleapis.com` and `secretmanager.googleapis.com` are enabled.
 - The applied GA custom role contains `cloudsql.users.create`, and its temporary binding remains active until `2026-10-16T15:26:16Z`.
+- Only the `quota_project_id` field was read from local ADC metadata; it is `involuted-bird-509919-s3`, not `espacigo-testprod`. This confirmed mismatch is overridden explicitly by both API clients and tested with simulated credentials. Its causal relationship to the rejected user-create request is unproven because the 4xx status/reason was not retained.
 - The authenticated operator already had a project Owner grant before this probe; it was not changed. This means the probe does not demonstrate isolation from Owner.
 - The instance is `RUNNABLE`, `POSTGRES_18`. The instance describe response exposed no `passwordValidationPolicy` or `databaseFlags`; this does not identify the API rejection reason.
 - The recent Cloud SQL operation listing contained no user-create operation for this attempt.
@@ -24,6 +25,8 @@ References: [Cloud SQL `users.insert` v1beta4](https://docs.cloud.google.com/sql
 
 The CLI now preserves only a fixed service name, fixed method name, HTTP status code, and an allowlisted Google API `ErrorInfo.reason` or legacy `ErrorItem.Reason`. Unknown reasons become `UNCLASSIFIED`; transport errors report `http_status=none reason=TRANSPORT_UNCERTAIN`. The output never includes response bodies/messages, headers, request bodies, passwords, tokens, URLs, or arbitrary metadata. The original 4xx/408/409/429/5xx definitive classification is unchanged. Creation and owner-credential paths include the sanitized diagnostic while preserving their existing cleanup/reconcile behavior; retire and role-reconciliation behavior is unchanged.
 
+Cloud SQL Admin and Secret Manager clients explicitly set `option.WithQuotaProject("espacigo-testprod")`. Local HTTP fake tests construct credentials with an unrelated quota-project value and a synthetic token, then assert both clients send `x-goog-user-project: espacigo-testprod`. They use no real credential source and do not edit ADC or global gcloud configuration.
+
 The new HTTP fake tests cover 400, 403, 409, 429, 500, 503, transport failure, allowlisted and unrecognized reasons, and verify that response messages, metadata, headers, and request passwords do not appear in diagnostics. They also verify the documented fixed `users.insert` URL/body contract. Existing scratch credential, retirement, and reconciliation tests continue to run.
 
 ## Verification and limits
@@ -31,5 +34,5 @@ The new HTTP fake tests cover 400, 403, 409, 429, 500, 503, transport failure, a
 - `go test -count=1 ./cmd/gcp03scratch-credential ./internal/gcp03scratch`: passed.
 - `git diff --check`: passed.
 - No new user or secret version was created by this diagnostic work. No SQL or Jobs were run, and no Terraform or IAM change was made.
-- Exact cause of the earlier Cloud SQL 4xx remains unknown because its status/reason were discarded and no matching SQL Admin audit entry is available. This PR enables safe diagnosis on a future separately released attempt; it does not retry the operation or authorize a credential, SQL, or Job action.
+- Exact cause of the earlier Cloud SQL 4xx remains unknown because its status/reason were discarded and no matching SQL Admin audit entry is available. The ADC quota-project mismatch is confirmed but is not demonstrated to be causal. This PR enables safe diagnosis and corrects quota project selection for any future separately released attempt; it does not retry the operation or authorize a credential, SQL, or Job action.
 - The temporary IAM expiry remains the original absolute timestamp `2026-10-16T15:26:16Z`; it is not renewed here.

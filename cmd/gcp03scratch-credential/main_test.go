@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/gcp03scratch"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 	"google.golang.org/api/secretmanager/v1"
 	"google.golang.org/api/sqladmin/v1beta4"
@@ -315,5 +317,55 @@ func TestCloudAPITransportDiagnosticIsSanitizedAndUncertain(t *testing.T) {
 		if strings.Contains(apiErr.Error(), marker) {
 			t.Fatalf("diagnostic exposed private marker %q", marker)
 		}
+	}
+}
+
+func TestCloudAPIClientsOverrideCredentialQuotaProject(t *testing.T) {
+	for _, clientName := range []string{"sqladmin", "secretmanager"} {
+		t.Run(clientName, func(t *testing.T) {
+			var quotaProject, authorization string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				quotaProject = r.Header.Get("X-goog-user-project")
+				authorization = r.Header.Get("Authorization")
+				w.Header().Set("Content-Type", "application/json")
+				if clientName == "sqladmin" {
+					_, _ = io.WriteString(w, `{"items":[]}`)
+					return
+				}
+				_, _ = fmt.Fprintf(w, `{"name":%q}`, gcp03scratch.ScratchSecretResource)
+			}))
+			defer server.Close()
+
+			// Simulate ADC metadata from another quota project without loading or
+			// contacting any real credential source.
+			credentials := &google.Credentials{
+				JSON:        []byte(`{"quota_project_id":"unrelated-quota-project"}`),
+				TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "synthetic-test-token"}),
+			}
+			ctx := context.Background()
+			if clientName == "sqladmin" {
+				service, err := newSQLAdminService(ctx, option.WithEndpoint(server.URL+"/"), option.WithCredentials(credentials))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := service.Users.List(gcp03scratch.ProjectID, gcp03scratch.InstanceName).Context(ctx).Do(); err != nil {
+					t.Fatal("local SQL Admin HTTP fake returned an unexpected error")
+				}
+			} else {
+				service, err := newSecretManagerService(ctx, option.WithEndpoint(server.URL+"/"), option.WithCredentials(credentials))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := service.Projects.Secrets.Get(gcp03scratch.ScratchSecretResource).Context(ctx).Do(); err != nil {
+					t.Fatal("local Secret Manager HTTP fake returned an unexpected error")
+				}
+			}
+			if quotaProject != gcp03scratch.ProjectID {
+				t.Fatalf("quota project header = %q; expected explicit target project", quotaProject)
+			}
+			if authorization != "Bearer synthetic-test-token" {
+				t.Fatal("local API fake did not receive the synthetic test authorization")
+			}
+		})
 	}
 }
