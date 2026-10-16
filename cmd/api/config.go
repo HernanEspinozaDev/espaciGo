@@ -6,12 +6,11 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
-)
 
-var cloudSQLInstancePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{4,62}:[a-z][a-z0-9-]+:[a-z][a-z0-9-]+$`)
+	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
+)
 
 type config struct {
 	httpAddr             string
@@ -63,7 +62,7 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 	if cfg.dbConnectionMode == "cloudsql" {
 		cfg.cloudSQLInstance = strings.TrimSpace(getenv("CLOUD_SQL_INSTANCE_CONNECTION_NAME"))
-		if !cloudSQLInstancePattern.MatchString(cfg.cloudSQLInstance) {
+		if !cloudsql.ValidInstanceConnectionName(cfg.cloudSQLInstance) {
 			return config{}, errors.New("CLOUD_SQL_INSTANCE_CONNECTION_NAME must use project:region:instance format")
 		}
 		cfg.dbHost = "localhost"

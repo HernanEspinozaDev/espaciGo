@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 )
@@ -14,14 +13,24 @@ func main() {
 	migrationDir := flag.String("dir", "db/migrations", "directory containing V<version>__<description>.sql files")
 	flag.Parse()
 
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		fmt.Fprintln(os.Stderr, "DATABASE_URL is required")
+	settings, err := loadConnectionSettings(os.Getenv)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), settings.timeout)
 	defer cancel()
-	result, err := migrator.Run(ctx, databaseURL, *migrationDir)
+	var result migrator.Result
+	if settings.mode == "cloudsql" {
+		databaseURL, password, urlErr := settings.databaseURLAndPasswordFile()
+		if urlErr != nil {
+			fmt.Fprintln(os.Stderr, urlErr)
+			os.Exit(2)
+		}
+		result, err = migrator.RunCloudSQL(ctx, databaseURL, password, *migrationDir, settings.instance, settings.privateIP)
+	} else {
+		result, err = migrator.Run(ctx, settings.databaseURL, *migrationDir)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "migration failed: %v\n", err)
 		os.Exit(1)
