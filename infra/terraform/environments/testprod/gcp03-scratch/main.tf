@@ -204,7 +204,7 @@ resource "google_sql_database" "scratch" {
 resource "google_cloud_run_v2_job" "migrator" {
   for_each            = local.job_enabled ? local.job_phases : {}
   project             = var.project_id
-  name                = "${local.name_prefix}-${each.key}"
+  name                = "${local.name_prefix}-${replace(each.key, "_", "-")}"
   location            = var.region
   deletion_protection = !var.allow_scratch_destroy
 
@@ -295,7 +295,7 @@ resource "google_cloud_run_v2_job" "migrator" {
 resource "google_cloud_run_v2_job" "role_comment_probe" {
   for_each            = local.role_probe_enabled ? local.role_probe_phases : {}
   project             = var.project_id
-  name                = "${local.name_prefix}-${each.key}"
+  name                = "${local.name_prefix}-${replace(each.key, "_", "-")}"
   location            = var.region
   deletion_protection = !var.allow_scratch_destroy
 
