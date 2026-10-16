@@ -76,7 +76,7 @@ variable "enable_job" {
 
 variable "enable_role_probe_jobs" {
   type        = bool
-  description = "Separate gate for the two fixed V60 role-comment probe Jobs; no migration or arbitrary-SQL phase is included."
+  description = "Gate for the two fixed role-comment Jobs; requires an already-existing active numeric secret version and grants no credential-provisioning permissions."
   default     = false
   validation {
     condition = !var.enable_role_probe_jobs || (
@@ -89,10 +89,27 @@ variable "enable_role_probe_jobs" {
       startswith(var.role_probe_image, "${var.region}-docker.pkg.dev/${var.project_id}/gcp03-scratch-${var.run_id}/dbmigrate@sha256:") &&
       var.confirm_role_probe_image_pushed &&
       var.confirm_role_probe_secret_version &&
-      can(regex("^[1-9][0-9]*$", var.role_probe_secret_version)) &&
-      can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", var.role_probe_iam_expires_at))
+      can(regex("^[1-9][0-9]*$", var.role_probe_secret_version))
     )
-    error_message = "Role-comment probe Jobs require the exact pilot01 scratch target, uploaded digest image, numeric version, temporary IAM expiry, and explicit operator member."
+    error_message = "Role-comment probe Jobs require the exact pilot01 target, uploaded digest, active numeric secret version, and must be planned separately from credential-provisioning permissions."
+  }
+}
+
+variable "enable_role_probe_credential_permissions" {
+  type        = bool
+  description = "Separate gate for temporary credential provisioning/retirement IAM; Cloud SQL user operations are project-scoped and this gate requires explicit risk acknowledgment."
+  default     = false
+  validation {
+    condition = !var.enable_role_probe_credential_permissions || (
+      var.enable_scratch &&
+      var.run_id == "pilot01" &&
+      !var.enable_job &&
+      var.database_user == "espacigo_scratch_migrator" &&
+      var.database_name == "espacigo_scratch" &&
+      var.confirm_project_scoped_cloudsql_user_ops &&
+      can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", var.role_probe_credential_iam_expires_at))
+    )
+    error_message = "Credential permissions require exact pilot01 scratch target, explicit acknowledgment of project-scoped Cloud SQL user-operation risk, and a fixed expiry."
   }
 }
 
@@ -124,13 +141,19 @@ variable "confirm_role_probe_secret_version" {
   default     = false
 }
 
-variable "role_probe_iam_expires_at" {
+variable "confirm_project_scoped_cloudsql_user_ops" {
+  type        = bool
+  description = "Explicitly acknowledge that Cloud SQL users.* permissions are granted at project scope and can manage SQL users on other Cloud SQL instances in this project until expiry."
+  default     = false
+}
+
+variable "role_probe_credential_iam_expires_at" {
   type        = string
-  description = "Explicit RFC3339 expiry for the temporary human operator Cloud SQL/secret IAM grants; choose after operation approval."
+  description = "Explicit RFC3339 expiry for the separate temporary credential-operator Cloud SQL/secret IAM gate."
   default     = ""
   validation {
-    condition     = var.role_probe_iam_expires_at == "" || can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", var.role_probe_iam_expires_at))
-    error_message = "The enabled role-comment probe requires a valid explicit IAM expiry timestamp."
+    condition     = var.role_probe_credential_iam_expires_at == "" || can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", var.role_probe_credential_iam_expires_at))
+    error_message = "Credential permission gate expiry must be an RFC3339 UTC timestamp."
   }
 }
 
@@ -219,7 +242,7 @@ variable "operator_member" {
   description = "Exact IAM member allowed to execute the named job and act as its scratch-only service account."
   default     = ""
   validation {
-    condition     = !(var.enable_job || var.enable_role_probe_jobs) || can(regex("^(user|group|serviceAccount):[^[:space:]]+$", var.operator_member))
-    error_message = "The gated Job requires one explicit user:, group:, or serviceAccount: operator member."
+    condition     = !(var.enable_job || var.enable_role_probe_jobs || var.enable_role_probe_credential_permissions) || can(regex("^(user|group|serviceAccount):[^[:space:]]+$", var.operator_member))
+    error_message = "Gated operations require one explicit user:, group:, or serviceAccount: operator member."
   }
 }
