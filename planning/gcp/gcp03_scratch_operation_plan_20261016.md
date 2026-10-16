@@ -51,6 +51,8 @@ El probe no ejecutó V60 ni V1–V61. La migración completa, su bloque de creac
 
 El flujo propuesto sigue siendo `bootstrap` → reconcile de membresías por Cloud SQL Admin → `database_acl` con credencial owner separada → `migrate` V1–V61 → `finalize` → `retire`. La reconciliación se coloca después de bootstrap y antes de migrate. El grupo GADM ya existente se valida/reutiliza sin recrearlo; la versión PostGIS real debe capturarse en la fase bootstrap y no asumirse desde una matriz documentada.
 
+El próximo gate usa el plan local no aplicado de [IAM temporal de credenciales](gcp03_replay_credential_iam_plan_20261016.md). El orden es: revisar permisos/procedimiento y hash → liberar/aplicar el plan IAM exacto → liberar creación CLI de las dos credenciales y registrar sus versiones devueltas → preparar/revisar el plan Jobs con esos números exactos → liberar apply y ejecuciones fase por fase. Las versiones no se inventan antes de crearse; el plan IAM no espera que existan.
+
 Antes de crear nuevas credenciales o Jobs se requieren preflight del scratch, estado vacío/historial ausente y planes Terraform exactos aprobados. La contraseña owner `postgres` y su secreto serán distintos del login/secret migrador; cada fase recibe solo su secreto fijo. Consultar [el alcance de replay](gcp03_cloudsql_v1_v61_replay_scope_20261016.md). No cambiar V1–V61, no importar datos y no tocar la base persistente.
 
 ## Evidencia y límites
@@ -60,4 +62,4 @@ Antes de crear nuevas credenciales o Jobs se requieren preflight del scratch, es
 - Se verificó el probe local de permisos y que su contenedor se retiró al terminar.
 - El plan Terraform/OCI de la preparación original no se aplicó en ese corte. Posteriormente sí se aplicaron el plan de probe #352 y el stage 1 de protección Jobs #353; ambos constan en [resultado GCP-03](gcp03_role_probe_execution_20261016.md).
 - Las únicas sentencias SQL administradas posteriores fueron el CREATE ROLE fijo y dos COMMENT fijos del probe; no se ejecutó V60 ni V1–V61. La base persistente no se usó.
-- La versión PostGIS real del scratch todavía no está registrada; no inferirla de la matriz de versiones ofrecidas. El stage 2 cleanup actualizado requiere revisión independiente.
+- La versión PostGIS real del scratch todavía no está registrada; no inferirla de la matriz de versiones ofrecidas. El cleanup stage 2 exacto quedó aplicado tras PR #354; detalle y verificaciones posteriores en [resultado GCP-03](gcp03_role_probe_execution_20261016.md) y [gate de cleanup](gcp03_role_probe_cleanup_plan_20261016.md).
