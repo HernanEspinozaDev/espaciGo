@@ -144,6 +144,33 @@ func TestScratchLifecyclePostgres18(t *testing.T) {
 	if err := finalizeOnConnection(ctx, admin, migrationDir); err != nil {
 		t.Fatalf("verify and grant runtime permissions: %v", err)
 	}
+	observerConn := mustConnect(t, ctx, migratorURL.String())
+	if _, err := observerConn.Exec(ctx, `SET default_transaction_read_only = on`); err != nil {
+		t.Fatalf("enforce read-only observer session: %v", err)
+	}
+	var readOnly string
+	if err := observerConn.QueryRow(ctx, `SHOW transaction_read_only`).Scan(&readOnly); err != nil || readOnly != "on" {
+		t.Fatalf("observer session is not read-only (%v)", err)
+	}
+	observation, err := dbbootstrap.ObserveScratch(ctx, observerConn, dbbootstrap.RoleMembershipLocalPostgres18)
+	if err != nil {
+		t.Fatalf("run fixed observer against disposable PostgreSQL 18/PostGIS: %v", err)
+	}
+	if !observation.Passed() {
+		t.Fatalf("fixed observer reported failed checks: %+v", observation)
+	}
+	if len(observation.RuntimeChecks) != 16 || observation.PostGISFullVersion == "" ||
+		observation.Spatial.ExpectedIndex != "public.reserva_ensayo_local_ubicacion_gist" {
+		t.Fatalf("observer omitted required local inventory: %+v", observation)
+	}
+	for _, membership := range observation.Memberships {
+		if membership.Member == MigratorLogin && membership.GrantedRole == "cloudsqlsuperuser" {
+			t.Fatal("local PostgreSQL fixture falsely reported Cloud SQL-managed membership")
+		}
+	}
+	if err := observerConn.Close(ctx); err != nil {
+		t.Fatal("close observer login connection")
+	}
 	if err := retireOnConnection(ctx, admin, migrationDir); err != nil {
 		t.Fatalf("retire migration login: %v", err)
 	}

@@ -37,6 +37,7 @@ const (
 	PhaseMigrate                   Phase = "migrate"
 	PhaseFinalize                  Phase = "finalize"
 	PhaseRetire                    Phase = "retire"
+	PhaseObserve                   Phase = "observe"
 	PhaseRoleCommentPrepare        Phase = "role_comment_prepare"
 	PhaseRoleCommentAfterReconcile Phase = "role_comment_after_reconcile"
 )
@@ -58,7 +59,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	}
 	phase := Phase(strings.TrimSpace(getenv("GCP03_PHASE")))
 	switch phase {
-	case PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire,
+	case PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire, PhaseObserve,
 		PhaseRoleCommentPrepare, PhaseRoleCommentAfterReconcile:
 	default:
 		return Config{}, errors.New("GCP03_PHASE must name a supported scratch phase")
