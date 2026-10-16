@@ -20,6 +20,10 @@ El postcheck reporta:
 - Las 16 comprobaciones runtime pasaron.
 - Owners sin cambio entre el informe anterior y el postcheck: base `cloudsqlsuperuser`, schema `public` `pg_database_owner`, tabla `schema_migrations` `espacigo_scratch_migrator`.
 
+## Estado de GCP-03
+
+Este resultado acredita la revocación de la membresía y el contrato de roles/runtime en la base scratch vacía con V1–V61, además de la verificación PostGIS y el cierre de las credenciales temporales. **GCP-03 permanece parcial**: el restore verificable de snapshot, la verificación de calendario/solapes y las integraciones/criterios de compatibilidad restantes de la matriz siguen pendientes. Esta evidencia no sustituye esos gates ni marca GCP-03 completo.
+
 Como lectura de metadatos previa al cierre, las versiones migrador 4 y owner 1 figuraban `ENABLED`; no se leyeron payloads. Tras la autorización independiente, se destruyó únicamente migrador v4 y el CLI revisado rotó la contraseña de `postgres` con 32 bytes aleatorios en memoria, esperó la operación Cloud SQL Admin `UPDATE_USER` `534ed46d-ac69-4aba-b72f-170a0000004b` (`DONE`, sin error) y destruyó únicamente owner v1. Las lecturas posteriores confirman ambas versiones `DESTROYED`. No se reactivó el login, no se concedió `ADMIN OPTION`, no se renovó IAM y no se volvió a llamar a Cloud SQL Users API para intentar otra revocación.
 
 ## Evidencia privada y límites pendientes
@@ -35,3 +39,5 @@ La versión migrador 4 y owner 1 tienen metadata pre/post archivada en `migrator
 El plan de stage 1 incluido en este PR solo cambia `deletion_protection=true` a `false` en los nueve Jobs existentes (cinco fases migrator, observer, grant-owner-history, verify-retired y revoke-retired-membership): **0 altas, 9 cambios in-place, 0 eliminaciones**. El plan JSON confirma que cada recurso cambia únicamente ese atributo. Los 28 recursos administrados restantes, incluidos SQL, database, metadata de ambos secretos, service accounts, accessors, `roles/cloudsql.client`, invokers, actAs y los tres bindings temporales con expiración `2026-10-16T18:00:00Z`, quedan no-op. State previo: lineage `11eb96d4-a301-9029-11d1-69e1a00f6302`, serial 17. SHA-256 plan binario `d4d2a01c9ae980606d71987776a9d543ec68989b786b457490889b40781bfd8e`; JSON `54763df0215af06f463ed858f620dad1f7d2d25aea3b1efc359fcc2f7b84bc2f`. **Stage 1 no se aplicó.**
 
 Los tests mock simulan stage 1 con los nueve Jobs presentes y stage 2 con su retiro junto con los nueve invokers, dos actAs y los cinco recursos IAM temporales de replay (dos custom roles y tres bindings). Ese escenario conserva SQL, database, metadata de secretos, SAs, accessors y grants Cloud SQL client. El plan Terraform stage 2 binario no se genera ni aplica en este corte: después de aplicar stage 1 bajo revisión se hará un refresh y un plan nuevo; sus eliminaciones se revisarán y autorizarán por separado.
+
+La siguiente acción prevista es preparación local de GCP-04 para la revisión de readiness y del plan cloud. GCP-04 conserva su alcance de backend y ejecución durable en destino; esta actualización documental no autoriza despliegue de aplicación ni importación del dataset persistente.
