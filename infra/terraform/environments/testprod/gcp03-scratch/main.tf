@@ -14,7 +14,8 @@ locals {
   scratch_migrator_service_account_id        = "projects/${var.project_id}/serviceAccounts/${local.scratch_migrator_service_account_email}"
   scratch_database_acl_service_account_id    = "projects/${var.project_id}/serviceAccounts/${local.scratch_database_acl_service_account_email}"
   protect_scratch                            = !var.allow_scratch_destroy
-  protect_replay_jobs                        = !var.allow_replay_job_destroy
+  protect_replay_jobs                        = !var.allow_replay_job_destroy && !var.allow_gcp03_job_deletion_protection_disable
+  protect_gcp03_phase_jobs                   = !var.allow_gcp03_job_deletion_protection_disable
   protect_role_probe_jobs                    = !var.allow_role_probe_job_destroy
   job_phases = {
     bootstrap    = "bootstrap"
@@ -313,7 +314,7 @@ resource "google_cloud_run_v2_job" "observer" {
   project             = var.project_id
   name                = "${local.name_prefix}-observe"
   location            = var.region
-  deletion_protection = true
+  deletion_protection = local.protect_gcp03_phase_jobs
 
   template {
     task_count  = 1
@@ -408,7 +409,7 @@ resource "google_cloud_run_v2_job" "owner_history_grant" {
   project             = var.project_id
   name                = "${local.name_prefix}-grant-owner-history"
   location            = var.region
-  deletion_protection = true
+  deletion_protection = local.protect_gcp03_phase_jobs
 
   template {
     task_count  = 1
@@ -499,7 +500,7 @@ resource "google_cloud_run_v2_job" "retired_verification" {
   project             = var.project_id
   name                = "${local.name_prefix}-verify-retired"
   location            = var.region
-  deletion_protection = true
+  deletion_protection = local.protect_gcp03_phase_jobs
 
   template {
     task_count  = 1
@@ -591,7 +592,7 @@ resource "google_cloud_run_v2_job" "retired_membership_revoke" {
   project             = var.project_id
   name                = "${local.name_prefix}-revoke-retired-membership"
   location            = var.region
-  deletion_protection = true
+  deletion_protection = local.protect_gcp03_phase_jobs
 
   template {
     task_count  = 1

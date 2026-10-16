@@ -415,6 +415,36 @@ variable "allow_replay_job_destroy" {
   }
 }
 
+variable "allow_gcp03_job_deletion_protection_disable" {
+  type        = bool
+  description = "Stage-one cleanup gate that disables deletion protection on exactly the nine existing GCP-03 Jobs while preserving all SQL, secret metadata, service accounts, and IAM resources."
+  default     = false
+  validation {
+    condition = !var.allow_gcp03_job_deletion_protection_disable || (
+      var.enable_scratch &&
+      var.run_id == "pilot01" &&
+      var.enable_job &&
+      var.enable_observer_job &&
+      var.enable_owner_history_grant_job &&
+      var.enable_retired_verification_job &&
+      var.enable_retired_membership_revoke_job &&
+      !var.enable_role_probe_jobs &&
+      var.enable_replay_credential_permissions &&
+      !var.allow_scratch_destroy &&
+      !var.allow_replay_job_destroy &&
+      !var.allow_role_probe_job_destroy &&
+      var.confirm_gcp03_job_cleanup_run_id == var.run_id
+    )
+    error_message = "GCP-03 Job stage 1 requires all nine fixed pilot01 Jobs enabled, exact run confirmation, and every SQL/data/other cleanup gate disabled."
+  }
+}
+
+variable "confirm_gcp03_job_cleanup_run_id" {
+  type        = string
+  description = "Must equal pilot01 when stage one disables deletion protection on the nine fixed GCP-03 Jobs."
+  default     = ""
+}
+
 variable "confirm_replay_job_destroy_run_id" {
   type        = string
   description = "Must exactly equal run_id when separately disabling replay Job deletion protection."
