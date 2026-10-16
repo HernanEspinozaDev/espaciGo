@@ -29,6 +29,7 @@ run "scratch_is_off_by_default" {
       length(google_cloud_run_v2_job.observer) == 0 &&
       length(google_cloud_run_v2_job.owner_history_grant) == 0 &&
       length(google_cloud_run_v2_job.retired_verification) == 0 &&
+      length(google_cloud_run_v2_job.retired_membership_revoke) == 0 &&
       length(google_cloud_run_v2_job.role_comment_probe) == 0 &&
       length(google_project_iam_custom_role.role_probe_cloudsql_operator) == 0 &&
       length(google_project_iam_custom_role.role_probe_secret_operator) == 0 &&
@@ -36,6 +37,50 @@ run "scratch_is_off_by_default" {
       length(google_project_iam_custom_role.replay_secret_version_operator) == 0
     )
     error_message = "Scratch resources, migration jobs, and replay credential IAM must remain disabled by default."
+  }
+}
+
+run "retired_membership_revoke_job_is_separate_protected_owner_gate" {
+  command = plan
+
+  variables {
+    project_id                                     = "espacigo-testprod"
+    region                                         = "southamerica-west1"
+    run_id                                         = "pilot01"
+    enable_scratch                                 = true
+    enable_retired_membership_revoke_job           = true
+    confirm_project_inventory                      = true
+    confirm_retired_membership_revoke_image_pushed = true
+    confirm_database_owner_secret_version          = true
+    database_owner_secret_version                  = "1"
+    retired_membership_revoke_image                = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    operator_member                                = "user:pasteleriahijitos@gmail.com"
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.retired_membership_revoke) == 1 &&
+      google_cloud_run_v2_job.retired_membership_revoke[0].name == "espacigo-gcp03-pilot01-revoke-retired-membership" &&
+      google_cloud_run_v2_job.retired_membership_revoke[0].deletion_protection &&
+      google_cloud_run_v2_job.retired_membership_revoke[0].template[0].task_count == 1 &&
+      google_cloud_run_v2_job.retired_membership_revoke[0].template[0].parallelism == 1 &&
+      google_cloud_run_v2_job.retired_membership_revoke[0].template[0].template[0].max_retries == 0 &&
+      google_cloud_run_v2_job.retired_membership_revoke[0].template[0].template[0].service_account == "gcp03-scratch-acl-pilot01@espacigo-testprod.iam.gserviceaccount.com" &&
+      google_cloud_run_v2_job.retired_membership_revoke[0].template[0].template[0].containers[0].image == var.retired_membership_revoke_image &&
+      google_cloud_run_v2_job.retired_membership_revoke[0].template[0].template[0].volumes[0].secret[0].items[0].version == "1" &&
+      anytrue([for env in google_cloud_run_v2_job.retired_membership_revoke[0].template[0].template[0].containers[0].env : env.name == "GCP03_PHASE" && env.value == "revoke_retired_membership"]) &&
+      anytrue([for env in google_cloud_run_v2_job.retired_membership_revoke[0].template[0].template[0].containers[0].env : env.name == "DATABASE_PASSWORD_FILE" && env.value == "/secrets/database-owner/password"])
+    )
+    error_message = "The new independent Job must remain protected, single-shot, digest-pinned, owner-only, and bound to secret version 1."
+  }
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job_iam_member.retired_membership_revoke_operator) == 1 &&
+      google_cloud_run_v2_job_iam_member.retired_membership_revoke_operator[0].member == "user:pasteleriahijitos@gmail.com" &&
+      google_cloud_run_v2_job_iam_member.retired_membership_revoke_operator[0].role == "roles/run.invoker" &&
+      length(google_service_account_iam_member.operator_act_as_database_acl) == 1
+    )
+    error_message = "The revocation Job must receive only its exact invoker binding and existing owner-service-account actAs."
   }
 }
 

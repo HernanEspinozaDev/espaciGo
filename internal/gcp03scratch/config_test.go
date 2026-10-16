@@ -14,7 +14,7 @@ func validEnvironment(phase Phase) map[string]string {
 		"DATABASE_PASSWORD_FILE":             PasswordFile,
 		"CLOUD_SQL_PRIVATE_IP":               "true",
 	}
-	if phase == PhaseDatabaseACL || phase == PhaseRetire || phase == PhaseVerifyRetired {
+	if phase == PhaseDatabaseACL || phase == PhaseRetire || phase == PhaseVerifyRetired || phase == PhaseRevokeRetiredMembership {
 		values["DATABASE_URL"] = DatabaseOwnerURL
 		values["DATABASE_PASSWORD_FILE"] = DatabaseOwnerPasswordFile
 	}
@@ -22,7 +22,7 @@ func validEnvironment(phase Phase) map[string]string {
 }
 
 func TestLoadConfigAcceptsOnlyNamedPhasesForExactScratchTarget(t *testing.T) {
-	for _, phase := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseGrantOwnerHistory, PhaseRetire, PhaseVerifyRetired, PhaseObserve, PhaseRoleCommentPrepare, PhaseRoleCommentAfterReconcile} {
+	for _, phase := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseGrantOwnerHistory, PhaseRetire, PhaseVerifyRetired, PhaseRevokeRetiredMembership, PhaseObserve, PhaseRoleCommentPrepare, PhaseRoleCommentAfterReconcile} {
 		t.Run(string(phase), func(t *testing.T) {
 			values := validEnvironment(phase)
 			config, err := LoadConfig(func(key string) string { return values[key] })
@@ -30,7 +30,7 @@ func TestLoadConfigAcceptsOnlyNamedPhasesForExactScratchTarget(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantURL, wantLogin, wantSecret := DatabaseURL, MigratorLogin, PasswordFile
-			if phase == PhaseDatabaseACL || phase == PhaseRetire || phase == PhaseVerifyRetired {
+			if phase == PhaseDatabaseACL || phase == PhaseRetire || phase == PhaseVerifyRetired || phase == PhaseRevokeRetiredMembership {
 				wantURL, wantLogin, wantSecret = DatabaseOwnerURL, DatabaseOwnerLogin, DatabaseOwnerPasswordFile
 			}
 			if config.Phase != phase || config.Instance != InstanceConnection || config.DatabaseURL != wantURL || config.Login != wantLogin || config.PasswordFile != wantSecret || !config.PrivateIP {

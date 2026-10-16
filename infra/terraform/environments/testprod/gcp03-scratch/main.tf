@@ -5,6 +5,7 @@ locals {
   observer_job_enabled                       = var.enable_scratch && var.enable_observer_job
   owner_history_job_enabled                  = var.enable_scratch && var.enable_owner_history_grant_job
   retired_verification_job_enabled           = var.enable_scratch && var.enable_retired_verification_job
+  retired_membership_revoke_job_enabled      = var.enable_scratch && var.enable_retired_membership_revoke_job
   role_probe_enabled                         = var.enable_scratch && var.enable_role_probe_jobs
   role_probe_credential_permissions_enabled  = var.enable_scratch && var.enable_role_probe_credential_permissions
   replay_credential_permissions_enabled      = var.enable_scratch && var.enable_replay_credential_permissions
@@ -585,6 +586,98 @@ resource "google_cloud_run_v2_job" "retired_verification" {
   }
 }
 
+resource "google_cloud_run_v2_job" "retired_membership_revoke" {
+  count               = local.retired_membership_revoke_job_enabled ? 1 : 0
+  project             = var.project_id
+  name                = "${local.name_prefix}-revoke-retired-membership"
+  location            = var.region
+  deletion_protection = true
+
+  template {
+    task_count  = 1
+    parallelism = 1
+
+    template {
+      service_account = local.scratch_database_acl_service_account_email
+      timeout         = "1800s"
+      max_retries     = 0
+
+      containers {
+        image = var.retired_membership_revoke_image
+        env {
+          name  = "GCP03_PHASE"
+          value = "revoke_retired_membership"
+        }
+        env {
+          name  = "GCP03_CONFIRM_TARGET"
+          value = "${google_sql_database_instance.scratch[0].connection_name}/${google_sql_database.scratch[0].name}"
+        }
+        env {
+          name  = "DATABASE_CONNECTION_MODE"
+          value = "cloudsql"
+        }
+        env {
+          name  = "DATABASE_URL"
+          value = "postgres://postgres@localhost:5432/${var.database_name}?sslmode=disable"
+        }
+        env {
+          name  = "DATABASE_PASSWORD_FILE"
+          value = "/secrets/database-owner/password"
+        }
+        env {
+          name  = "CLOUD_SQL_INSTANCE_CONNECTION_NAME"
+          value = google_sql_database_instance.scratch[0].connection_name
+        }
+        env {
+          name  = "CLOUD_SQL_PRIVATE_IP"
+          value = "true"
+        }
+        volume_mounts {
+          name       = "scratch-database-owner-password"
+          mount_path = "/secrets/database-owner"
+        }
+        resources {
+          limits = {
+            cpu    = "2"
+            memory = "4Gi"
+          }
+        }
+      }
+
+      volumes {
+        name = "scratch-database-owner-password"
+        secret {
+          secret = google_secret_manager_secret.scratch_database_owner_password[0].secret_id
+          items {
+            version = var.database_owner_secret_version
+            path    = "password"
+          }
+        }
+      }
+
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = data.google_compute_network.existing.name
+          subnetwork = data.google_compute_subnetwork.existing.name
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition = (
+        local.retired_membership_revoke_job_enabled && var.confirm_retired_membership_revoke_image_pushed &&
+        var.confirm_database_owner_secret_version && can(regex("^[1-9][0-9]*$", var.database_owner_secret_version)) &&
+        var.operator_member == "user:pasteleriahijitos@gmail.com" && !var.allow_scratch_destroy &&
+        !var.allow_replay_job_destroy
+      )
+      error_message = "The retired-membership revocation Job requires its independent gate, exact owner secret, reviewed image, exact operator, and protected scratch target."
+    }
+  }
+}
+
 resource "google_cloud_run_v2_job" "role_comment_probe" {
   for_each            = local.role_probe_enabled ? local.role_probe_phases : {}
   project             = var.project_id
@@ -838,6 +931,15 @@ resource "google_cloud_run_v2_job_iam_member" "retired_verification_operator" {
   member   = var.operator_member
 }
 
+resource "google_cloud_run_v2_job_iam_member" "retired_membership_revoke_operator" {
+  count    = local.retired_membership_revoke_job_enabled ? 1 : 0
+  project  = var.project_id
+  location = google_cloud_run_v2_job.retired_membership_revoke[0].location
+  name     = google_cloud_run_v2_job.retired_membership_revoke[0].name
+  role     = "roles/run.invoker"
+  member   = var.operator_member
+}
+
 resource "google_service_account_iam_member" "operator_act_as" {
   count              = local.job_enabled || local.role_probe_enabled ? 1 : 0
   service_account_id = local.scratch_migrator_service_account_id
@@ -855,7 +957,7 @@ resource "google_cloud_run_v2_job_iam_member" "role_probe_operator" {
 }
 
 resource "google_service_account_iam_member" "operator_act_as_database_acl" {
-  count              = local.job_enabled || local.retired_verification_job_enabled ? 1 : 0
+  count              = local.job_enabled || local.retired_verification_job_enabled || local.retired_membership_revoke_job_enabled ? 1 : 0
   service_account_id = local.scratch_database_acl_service_account_id
   role               = "roles/iam.serviceAccountUser"
   member             = var.operator_member

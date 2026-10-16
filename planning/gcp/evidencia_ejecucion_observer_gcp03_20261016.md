@@ -2,6 +2,8 @@
 
 Fecha: 2026-10-16. Esta evidencia corresponde al scratch `espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg/espacigo_scratch`.
 
+Actualización posterior: el Job independiente `verify_retired` se aplicó y ejecutó una vez desde PR #362. Su resultado fallido, informe reconstruido y límites se registran en [evidencia de verificación de retiro](evidencia_ejecucion_verify_retired_gcp03_20261016.md). Esta nueva lectura no repitió el Job `retire` descrito como fallido en la sección histórica siguiente.
+
 ## Cambios revisados y apply
 
 - PR #357, merge `cf209aa85372f675df3cc9837354f63cba01eee4`: lector observador con informe NDJSON acotado y pruebas locales.

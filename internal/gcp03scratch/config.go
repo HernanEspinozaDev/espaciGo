@@ -42,6 +42,7 @@ const (
 	PhaseRoleCommentPrepare        Phase = "role_comment_prepare"
 	PhaseRoleCommentAfterReconcile Phase = "role_comment_after_reconcile"
 	PhaseVerifyRetired             Phase = "verify_retired"
+	PhaseRevokeRetiredMembership   Phase = "revoke_retired_membership"
 )
 
 var scratchPasswordPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
@@ -61,7 +62,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	}
 	phase := Phase(strings.TrimSpace(getenv("GCP03_PHASE")))
 	switch phase {
-	case PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire, PhaseGrantOwnerHistory, PhaseVerifyRetired, PhaseObserve,
+	case PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire, PhaseGrantOwnerHistory, PhaseVerifyRetired, PhaseRevokeRetiredMembership, PhaseObserve,
 		PhaseRoleCommentPrepare, PhaseRoleCommentAfterReconcile:
 	default:
 		return Config{}, errors.New("GCP03_PHASE must name a supported scratch phase")
@@ -73,7 +74,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("GCP-03 Cloud SQL instance does not match the reviewed scratch instance")
 	}
 	login, databaseURL, passwordFile := MigratorLogin, DatabaseURL, PasswordFile
-	if phase == PhaseDatabaseACL || phase == PhaseRetire || phase == PhaseVerifyRetired {
+	if phase == PhaseDatabaseACL || phase == PhaseRetire || phase == PhaseVerifyRetired || phase == PhaseRevokeRetiredMembership {
 		login = DatabaseOwnerLogin
 		databaseURL = DatabaseOwnerURL
 		passwordFile = DatabaseOwnerPasswordFile

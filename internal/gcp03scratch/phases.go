@@ -13,13 +13,14 @@ import (
 )
 
 type PhaseActions struct {
-	Bootstrap         func(context.Context) error
-	DatabaseACL       func(context.Context) error
-	Migrate           func(context.Context) error
-	Finalize          func(context.Context) error
-	Retire            func(context.Context) error
-	GrantOwnerHistory func(context.Context) error
-	VerifyRetired     func(context.Context) error
+	Bootstrap               func(context.Context) error
+	DatabaseACL             func(context.Context) error
+	Migrate                 func(context.Context) error
+	Finalize                func(context.Context) error
+	Retire                  func(context.Context) error
+	GrantOwnerHistory       func(context.Context) error
+	VerifyRetired           func(context.Context) error
+	RevokeRetiredMembership func(context.Context) error
 }
 
 // ExecutePhase dispatches exactly one named phase. Cloud Run Jobs use separate
@@ -41,6 +42,8 @@ func ExecutePhase(ctx context.Context, phase Phase, actions PhaseActions) error 
 		action = actions.GrantOwnerHistory
 	case PhaseVerifyRetired:
 		action = actions.VerifyRetired
+	case PhaseRevokeRetiredMembership:
+		action = actions.RevokeRetiredMembership
 	default:
 		return errors.New("unsupported GCP-03 scratch phase")
 	}
@@ -52,7 +55,7 @@ func ExecutePhase(ctx context.Context, phase Phase, actions PhaseActions) error 
 
 func RunPhase(ctx context.Context, config Config, password, migrationDir string) error {
 	expectedLogin, expectedURL, expectedPasswordFile := MigratorLogin, DatabaseURL, PasswordFile
-	if config.Phase == PhaseDatabaseACL || config.Phase == PhaseRetire || config.Phase == PhaseVerifyRetired {
+	if config.Phase == PhaseDatabaseACL || config.Phase == PhaseRetire || config.Phase == PhaseVerifyRetired || config.Phase == PhaseRevokeRetiredMembership {
 		expectedLogin, expectedURL, expectedPasswordFile = DatabaseOwnerLogin, DatabaseOwnerURL, DatabaseOwnerPasswordFile
 	}
 	if config.Instance != InstanceConnection || config.DatabaseURL != expectedURL || config.Login != expectedLogin || config.PasswordFile != expectedPasswordFile || !config.PrivateIP {
@@ -69,6 +72,9 @@ func RunPhase(ctx context.Context, config Config, password, migrationDir string)
 		Retire:            func(ctx context.Context) error { return runRetire(ctx, config, password, migrationDir) },
 		GrantOwnerHistory: func(ctx context.Context) error { return runGrantOwnerHistory(ctx, config, password, migrationDir) },
 		VerifyRetired:     func(ctx context.Context) error { return runVerifyRetired(ctx, config, password, migrationDir) },
+		RevokeRetiredMembership: func(ctx context.Context) error {
+			return runRevokeRetiredMembership(ctx, config, password, migrationDir)
+		},
 	}
 	return ExecutePhase(ctx, config.Phase, actions)
 }

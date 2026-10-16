@@ -26,6 +26,11 @@ output "scratch_owner_history_grant_job_name" {
   value       = try(google_cloud_run_v2_job.owner_history_grant[0].name, null)
 }
 
+output "scratch_retired_membership_revoke_job_name" {
+  description = "Separate fixed owner Job; present only when enable_retired_membership_revoke_job is explicitly true."
+  value       = try(google_cloud_run_v2_job.retired_membership_revoke[0].name, null)
+}
+
 output "scratch_migrator_service_account" {
   value = try(google_service_account.scratch_migrator[0].email, null)
 }

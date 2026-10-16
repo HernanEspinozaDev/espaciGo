@@ -143,6 +143,24 @@ variable "enable_retired_verification_job" {
   }
 }
 
+variable "enable_retired_membership_revoke_job" {
+  type        = bool
+  description = "Independent default-off gate for the fixed transactional owner phase that revokes only the retired migrator's cloudsqlsuperuser membership."
+  default     = false
+  validation {
+    condition = !var.enable_retired_membership_revoke_job || (
+      var.enable_scratch && var.run_id == "pilot01" && var.database_name == "espacigo_scratch" &&
+      can(regex("@sha256:[0-9a-f]{64}$", var.retired_membership_revoke_image)) &&
+      startswith(var.retired_membership_revoke_image, "${var.region}-docker.pkg.dev/${var.project_id}/gcp03-scratch-${var.run_id}/dbmigrate@sha256:") &&
+      var.confirm_retired_membership_revoke_image_pushed && var.confirm_database_owner_secret_version &&
+      can(regex("^[1-9][0-9]*$", var.database_owner_secret_version)) &&
+      var.operator_member == "user:pasteleriahijitos@gmail.com" &&
+      !var.allow_scratch_destroy && !var.allow_replay_job_destroy
+    )
+    error_message = "The retired-membership revocation Job requires the exact pilot01 scratch, reviewed digest, owner secret version, operator, and protected scratch target."
+  }
+}
+
 variable "enable_role_probe_jobs" {
   type        = bool
   description = "Gate for the two fixed role-comment Jobs; requires an already-existing active numeric secret version and grants no credential-provisioning permissions."
@@ -281,6 +299,12 @@ variable "retired_verification_image" {
   default     = ""
 }
 
+variable "retired_membership_revoke_image" {
+  type        = string
+  description = "Separate digest-pinned OCI for the transactional revoke_retired_membership phase."
+  default     = ""
+}
+
 variable "confirm_observer_image_pushed" {
   type        = bool
   description = "Confirm only after reading back the exact observer digest from the existing scratch Artifact Registry repository."
@@ -296,6 +320,12 @@ variable "confirm_owner_history_image_pushed" {
 variable "confirm_retired_verification_image_pushed" {
   type        = bool
   description = "Explicit confirmation that the separate read-only retirement verification image digest was pushed and read back."
+  default     = false
+}
+
+variable "confirm_retired_membership_revoke_image_pushed" {
+  type        = bool
+  description = "Explicit confirmation that the separate retired-membership revocation image digest was pushed and read back."
   default     = false
 }
 
