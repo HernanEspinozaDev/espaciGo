@@ -2,6 +2,7 @@ locals {
   name_prefix                                = "espacigo-gcp03-${var.run_id}"
   scratch_enabled                            = var.enable_scratch
   job_enabled                                = var.enable_scratch && var.enable_job
+  observer_job_enabled                       = var.enable_scratch && var.enable_observer_job
   role_probe_enabled                         = var.enable_scratch && var.enable_role_probe_jobs
   role_probe_credential_permissions_enabled  = var.enable_scratch && var.enable_role_probe_credential_permissions
   replay_credential_permissions_enabled      = var.enable_scratch && var.enable_replay_credential_permissions
@@ -304,6 +305,101 @@ resource "google_cloud_run_v2_job" "migrator" {
   }
 }
 
+resource "google_cloud_run_v2_job" "observer" {
+  count               = local.observer_job_enabled ? 1 : 0
+  project             = var.project_id
+  name                = "${local.name_prefix}-observe"
+  location            = var.region
+  deletion_protection = true
+
+  template {
+    task_count  = 1
+    parallelism = 1
+
+    template {
+      service_account = local.scratch_migrator_service_account_email
+      timeout         = "1800s"
+      max_retries     = 0
+
+      containers {
+        image = var.observer_image
+        env {
+          name  = "GCP03_PHASE"
+          value = "observe"
+        }
+        env {
+          name  = "GCP03_CONFIRM_TARGET"
+          value = "${google_sql_database_instance.scratch[0].connection_name}/${google_sql_database.scratch[0].name}"
+        }
+        env {
+          name  = "DATABASE_CONNECTION_MODE"
+          value = "cloudsql"
+        }
+        env {
+          name  = "DATABASE_URL"
+          value = "postgres://${var.database_user}@localhost:5432/${var.database_name}?sslmode=disable"
+        }
+        env {
+          name  = "DATABASE_PASSWORD_FILE"
+          value = "/secrets/migrator/password"
+        }
+        env {
+          name  = "CLOUD_SQL_INSTANCE_CONNECTION_NAME"
+          value = google_sql_database_instance.scratch[0].connection_name
+        }
+        env {
+          name  = "CLOUD_SQL_PRIVATE_IP"
+          value = "true"
+        }
+        env {
+          name  = "DBMIGRATE_TIMEOUT"
+          value = "4h"
+        }
+        volume_mounts {
+          name       = "scratch-migrator-password"
+          mount_path = "/secrets/migrator"
+        }
+        resources {
+          limits = {
+            cpu    = "2"
+            memory = "4Gi"
+          }
+        }
+      }
+
+      volumes {
+        name = "scratch-migrator-password"
+        secret {
+          secret = google_secret_manager_secret.scratch_password[0].secret_id
+          items {
+            version = var.migrator_secret_version
+            path    = "password"
+          }
+        }
+      }
+
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = data.google_compute_network.existing.name
+          subnetwork = data.google_compute_subnetwork.existing.name
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition = (
+        local.observer_job_enabled && local.job_enabled && var.confirm_observer_image_pushed &&
+        var.confirm_scratch_secret_version && can(regex("^[1-9][0-9]*$", var.migrator_secret_version)) &&
+        var.operator_member == "user:pasteleriahijitos@gmail.com"
+      )
+      error_message = "The observer Job requires its separate gate, the existing fixed five-job target, a verified digest image, the exact operator, and an active numeric migrator secret version."
+    }
+  }
+}
+
 resource "google_cloud_run_v2_job" "role_comment_probe" {
   for_each            = local.role_probe_enabled ? local.role_probe_phases : {}
   project             = var.project_id
@@ -526,6 +622,15 @@ resource "google_cloud_run_v2_job_iam_member" "invoke_operator" {
   project  = var.project_id
   location = each.value.location
   name     = each.value.name
+  role     = "roles/run.invoker"
+  member   = var.operator_member
+}
+
+resource "google_cloud_run_v2_job_iam_member" "observer_operator" {
+  count    = local.observer_job_enabled ? 1 : 0
+  project  = var.project_id
+  location = google_cloud_run_v2_job.observer[0].location
+  name     = google_cloud_run_v2_job.observer[0].name
   role     = "roles/run.invoker"
   member   = var.operator_member
 }

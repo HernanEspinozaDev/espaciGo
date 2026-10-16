@@ -26,6 +26,7 @@ run "scratch_is_off_by_default" {
     condition = (
       length(google_sql_database_instance.scratch) == 0 &&
       length(google_cloud_run_v2_job.migrator) == 0 &&
+      length(google_cloud_run_v2_job.observer) == 0 &&
       length(google_cloud_run_v2_job.role_comment_probe) == 0 &&
       length(google_project_iam_custom_role.role_probe_cloudsql_operator) == 0 &&
       length(google_project_iam_custom_role.role_probe_secret_operator) == 0 &&
@@ -33,6 +34,77 @@ run "scratch_is_off_by_default" {
       length(google_project_iam_custom_role.replay_secret_version_operator) == 0
     )
     error_message = "Scratch resources, migration jobs, and replay credential IAM must remain disabled by default."
+  }
+}
+
+run "observer_job_is_separate_default_off_and_uses_only_exact_scratch_targets" {
+  command = plan
+
+  variables {
+    project_id                            = "espacigo-testprod"
+    region                                = "southamerica-west1"
+    run_id                                = "pilot01"
+    enable_scratch                        = true
+    enable_job                            = true
+    enable_observer_job                   = true
+    confirm_project_inventory             = true
+    confirm_image_pushed                  = true
+    confirm_observer_image_pushed         = true
+    confirm_scratch_secret_version        = true
+    confirm_database_owner_secret_version = true
+    migrator_secret_version               = "4"
+    database_owner_secret_version         = "1"
+    migrator_image                        = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    observer_image                        = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:d072139c9fbfd25476e30c6dd6ceb6552f34beaa5e960226e27ea2c55568a198"
+    operator_member                       = "user:pasteleriahijitos@gmail.com"
+  }
+
+  override_resource {
+    target = google_sql_database_instance.scratch[0]
+    values = {
+      connection_name = "espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg"
+    }
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.migrator) == 5 &&
+      length(google_cloud_run_v2_job.observer) == 1 &&
+      google_cloud_run_v2_job.observer[0].name == "espacigo-gcp03-pilot01-observe" &&
+      google_cloud_run_v2_job.observer[0].deletion_protection &&
+      google_cloud_run_v2_job.observer[0].template[0].task_count == 1 &&
+      google_cloud_run_v2_job.observer[0].template[0].parallelism == 1 &&
+      google_cloud_run_v2_job.observer[0].template[0].template[0].max_retries == 0 &&
+      google_cloud_run_v2_job.observer[0].template[0].template[0].service_account == "gcp03-scratch-pilot01@espacigo-testprod.iam.gserviceaccount.com" &&
+      google_cloud_run_v2_job.observer[0].template[0].template[0].containers[0].image == var.observer_image &&
+      google_cloud_run_v2_job.observer[0].template[0].template[0].volumes[0].secret[0].items[0].version == "4" &&
+      google_cloud_run_v2_job.observer[0].template[0].template[0].vpc_access[0].egress == "PRIVATE_RANGES_ONLY" &&
+      anytrue([for env in google_cloud_run_v2_job.observer[0].template[0].template[0].containers[0].env : env.name == "GCP03_PHASE" && env.value == "observe"]) &&
+      anytrue([for env in google_cloud_run_v2_job.observer[0].template[0].template[0].containers[0].env : env.name == "DATABASE_URL" && env.value == "postgres://espacigo_scratch_migrator@localhost:5432/espacigo_scratch?sslmode=disable"])
+    )
+    error_message = "The observer gate must add one protected single-task, no-retry Job with the exact migrator identity, numeric secret and separate digest, while preserving the five migration Jobs."
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job_iam_member.observer_operator) == 1 &&
+      google_cloud_run_v2_job_iam_member.observer_operator[0].name == "espacigo-gcp03-pilot01-observe" &&
+      google_cloud_run_v2_job_iam_member.observer_operator[0].role == "roles/run.invoker" &&
+      google_cloud_run_v2_job_iam_member.observer_operator[0].member == "user:pasteleriahijitos@gmail.com" &&
+      length(google_service_account_iam_member.operator_act_as) == 1 &&
+      length(google_cloud_run_v2_job_iam_member.invoke_operator) == 5
+    )
+    error_message = "The observer gate must grant only its invoker binding and retain the existing operator actAs and five-Job IAM configuration."
+  }
+
+  assert {
+    condition = (
+      google_cloud_run_v2_job.migrator["migrate"].template[0].template[0].containers[0].image == var.migrator_image &&
+      length(google_project_iam_custom_role.replay_credential_sql_operator) == 0 &&
+      length(google_project_iam_custom_role.replay_secret_version_operator) == 0 &&
+      length(google_cloud_run_v2_job.role_comment_probe) == 0
+    )
+    error_message = "The observer digest must remain independent; no retired probe or credential IAM gate may activate."
   }
 }
 

@@ -76,6 +76,29 @@ variable "enable_job" {
   }
 }
 
+variable "enable_observer_job" {
+  type        = bool
+  description = "Independent default-off gate for the fixed read-only observer Job; it preserves the already-applied five migration Jobs and IAM state."
+  default     = false
+  validation {
+    condition = !var.enable_observer_job || (
+      var.enable_scratch &&
+      var.enable_job &&
+      var.run_id == "pilot01" &&
+      var.database_user == "espacigo_scratch_migrator" &&
+      var.database_name == "espacigo_scratch" &&
+      can(regex("@sha256:[0-9a-f]{64}$", var.observer_image)) &&
+      startswith(var.observer_image, "${var.region}-docker.pkg.dev/${var.project_id}/gcp03-scratch-${var.run_id}/dbmigrate@sha256:") &&
+      var.confirm_observer_image_pushed &&
+      var.confirm_scratch_secret_version &&
+      can(regex("^[1-9][0-9]*$", var.migrator_secret_version)) &&
+      !var.allow_scratch_destroy &&
+      !var.allow_replay_job_destroy
+    )
+    error_message = "The observer Job is restricted to the exact pilot01 scratch, existing five-job state, an uploaded digest from the existing scratch repository, and protected scratch/Jobs."
+  }
+}
+
 variable "enable_role_probe_jobs" {
   type        = bool
   description = "Gate for the two fixed role-comment Jobs; requires an already-existing active numeric secret version and grants no credential-provisioning permissions."
@@ -194,6 +217,18 @@ variable "migrator_image" {
   type        = string
   description = "Image reference in the scratch Artifact Registry repository, pinned by immutable sha256 digest."
   default     = ""
+}
+
+variable "observer_image" {
+  type        = string
+  description = "Observer-only OCI reference in the existing scratch repository, pinned by immutable sha256 digest and independent from the five migration Job image."
+  default     = ""
+}
+
+variable "confirm_observer_image_pushed" {
+  type        = bool
+  description = "Confirm only after reading back the exact observer digest from the existing scratch Artifact Registry repository."
+  default     = false
 }
 
 variable "confirm_project_inventory" {
@@ -339,7 +374,7 @@ variable "operator_member" {
   description = "Exact IAM member allowed to execute the named job and act as its scratch-only service account."
   default     = ""
   validation {
-    condition     = !(var.enable_job || var.enable_role_probe_jobs || var.enable_role_probe_credential_permissions) || can(regex("^(user|group|serviceAccount):[^[:space:]]+$", var.operator_member))
+    condition     = !(var.enable_job || var.enable_observer_job || var.enable_role_probe_jobs || var.enable_role_probe_credential_permissions) || can(regex("^(user|group|serviceAccount):[^[:space:]]+$", var.operator_member))
     error_message = "Gated operations require one explicit user:, group:, or serviceAccount: operator member."
   }
 }
