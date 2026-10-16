@@ -1,6 +1,6 @@
 # GCP-03: plan operativo de metadatos e IAM del ACL scratch
 
-Fecha: 2026-10-16 (UTC). Base: `main` en merge `55e8702985656b57764452e854d9c386e9daadc7`. Proyecto explícito `espacigo-testprod` (`447373903153`), región `southamerica-west1`, raíz Terraform `infra/terraform/environments/testprod/gcp03-scratch`, state remoto `espacigo/testprod/gcp03-scratch`.
+Documento de preparación inicial (2026-10-16 UTC), basado en `main` merge `55e8702985656b57764452e854d9c386e9daadc7`; las actualizaciones posteriores del probe y apply constan abajo y en el informe vinculado. Proyecto explícito `espacigo-testprod` (`447373903153`), región `southamerica-west1`, raíz Terraform `infra/terraform/environments/testprod/gcp03-scratch`, state remoto `espacigo/testprod/gcp03-scratch`.
 
 Este corte prepara un plan exacto para la identidad de la fase ACL y su secreto de propietario sin versión. No autoriza ni ejecuta `terraform apply`, SQL, migraciones, usuarios/contraseñas de Cloud SQL, versiones de Secret Manager, Jobs, dump, restore o importación. El único cambio remoto realizado en este corte fue subir la OCI ya revisada descrita abajo.
 
@@ -39,48 +39,25 @@ La condición IAM del reemplazo para la cuenta `gcp03-scratch-pilot01` usa el mi
 
 No hay `google_cloud_run_v2_job`, `google_sql_user`, cambios a instancia/base persistente, versión de secreto ni cambio a bindings de cuentas de aplicación en el plan. Terraform presenta una sustitución delete/create del grant migrador para añadir la condición; no se debe ejecutar un Job durante un futuro apply de esa sustitución. Una revisión o fusión del PR no autoriza aplicar el binario; cualquier apply necesita una autorización posterior y un plan vigente revisado.
 
-## Bloqueo de permisos de V60
+## Evidencia de V60: hipótesis local y resultado Cloud SQL
 
-La prueba aislada usó PostgreSQL `18.6` en un contenedor sin red ni volumen, con un migrador `LOGIN CREATEROLE NOSUPERUSER NOCREATEDB NOINHERIT`. Crear el rol GADM restringido y ejecutar inmediatamente su `COMMENT ON ROLE` funcionó. Después de revocar la membresía temporal del migrador, la consulta encontró **cero** membresías del rol y la misma sentencia de comentario falló con SQLSTATE de permisos: `The current user must have the ADMIN option on role "espacigo_gadm_bootstrap"`. Evidencia sanitizada, imagen local y salida completa están en `.local/planning/gcp/gcp-03-operation-plan-20261016/v60-role-comment-probe.log` (modo `0600`). El ensayo no se conectó a Cloud SQL.
+La prueba local aislada usó PostgreSQL `18.6`, un migrador `LOGIN CREATEROLE NOSUPERUSER NOCREATEDB NOINHERIT`, y un contenedor sin red ni volumen. Allí crear el rol GADM y ejecutar inmediatamente el COMMENT funcionó; tras reconciliar a cero membresías, el mismo COMMENT falló con falta de `ADMIN OPTION`. Este es un resultado local, no una regla universal sobre Cloud SQL administrado.
 
-La secuencia propuesta actualmente crea primero `espacigo_gadm_bootstrap` en el bootstrap previo y luego reconcilia las membresías del creador; V60 comprueba que el rol no tenga membresías y al final incluye `COMMENT ON ROLE`. En PostgreSQL 18 esos dos requisitos chocan para el mismo migrador. La documentación oficial describe que el `postgres` integrado de Cloud SQL tiene `CREATEROLE`, `CREATEDB` y `LOGIN`, pero no `SUPERUSER`; PostgreSQL 18 requiere `CREATEROLE` **y `ADMIN OPTION` sobre el rol objetivo** para comentar un rol no-superusuario ([Cloud SQL: usuarios PostgreSQL](https://docs.cloud.google.com/sql/docs/postgres/users), [PostgreSQL 18: COMMENT](https://www.postgresql.org/docs/18/sql-comment.html)). No se encontró documentación que afirme que Cloud SQL omita ese requisito para `cloudsqlsuperuser`.
+El probe real posterior en Cloud SQL PostgreSQL `18.6` dio un resultado distinto. `role_comment_prepare` y `role_comment_after_reconcile`, cada uno una vez, verificaron el login no superusuario con `CREATEROLE`, atributos restringidos de `espacigo_gadm_bootstrap`, cero membresías entrantes/salientes y ejecutaron exitosamente el comentario literal, con SQLSTATE vacío. La operación Cloud SQL Admin `users.update` conservó solo `cloudsqlsuperuser`. Evidencia y límites: [resultado administrado](gcp03_role_probe_execution_20261016.md). El bloqueo estrecho del COMMENT queda despejado empíricamente para este actor/configuración; no se debe seguir describiendo como imposible.
 
-Por eso el plan mantiene `enable_job=false` y no propone una ruta de operador como si estuviera probada. Un operador con `CREATEROLE` y sin `ADMIN OPTION` no resuelve la sentencia; otorgarle ese `ADMIN OPTION` crea precisamente una membresía que V60 rechaza. Cloud SQL documenta `cloudsqladmin` como usuario de sistema para operaciones automatizadas, pero no documenta un mecanismo de sesión del cliente para ejecutarlo como superusuario. No se ejecutó SQL contra Cloud SQL ni se cambió V1–V61, el checksum de V60 o el atributo `NOLOGIN` del grupo.
+El probe no ejecutó V60 ni V1–V61. La migración completa, su bloque de creación/reutilización del rol, grants por columna/tabla, trigger, ownership, ACL y runtime siguen sin probarse en Cloud SQL. La base scratch requiere un ensayo controlado con el flujo original de replay V1–V61; el ADR de baseline migrado sigue `PROPOSED` y no hace falta aceptarlo ahora. El alcance detallado está en [replay Cloud SQL V1–V61](gcp03_cloudsql_v1_v61_replay_scope_20261016.md).
 
-El siguiente gate propuesto es revisar primero este conflicto y autorizar, si corresponde, una comprobación aislada en la base scratch: verificar el login, `CREATEROLE`, `rolsuper=false` y cero membresías; ejecutar únicamente el `COMMENT ON ROLE` literal de V60 como migrador; si devuelve permiso denegado, detenerse antes de correr V1–V61 y devolver evidencia sanitizada para una decisión de arquitectura. Esa comprobación aún no está autorizada ni ejecutada. Si Cloud SQL requiere un privilegio que el cliente no puede obtener sin violar la guarda de V60, no hay una ruta operativa demostrada con las restricciones actuales: será necesario volver a revisión de diseño antes de probar la migración.
+## Próximo gate: replay completo, pendiente de planes y revisión
 
-## Secuencia operativa propuesta, pendiente de revisión
+El flujo propuesto sigue siendo `bootstrap` → reconcile de membresías por Cloud SQL Admin → `database_acl` con credencial owner separada → `migrate` V1–V61 → `finalize` → `retire`. La reconciliación se coloca después de bootstrap y antes de migrate. El grupo GADM ya existente se valida/reutiliza sin recrearlo; la versión PostGIS real debe capturarse en la fase bootstrap y no asumirse desde una matriz documentada.
 
-1. Revisar una nueva ejecución de `terraform plan` contra el state remoto y confirmar el hash. El plan actual es una fotografía revisable, no una autorización de apply. Aplicarlo requiere autorización posterior y no debe ejecutarse junto con ningún Job.
-2. Si se autoriza la provisión de credenciales, usar el CLI existente sin pasar contraseñas por argumentos. Los comandos exactos apuntan a `espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg/espacigo_scratch`:
-
-   ```sh
-   go run ./cmd/gcp03scratch-credential --apply --confirm-target=CREATE:espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg/espacigo_scratch
-   go run ./cmd/gcp03scratch-credential --apply --create-database-owner-credential --confirm-target=ACL-CREATE:espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg/espacigo_scratch
-   ```
-
-   El primero crea la versión del secreto migrador y el usuario integrado `espacigo_scratch_migrator`; el segundo añade una versión al secreto del propietario y asigna la contraseña del usuario integrado `postgres`. Ninguno está ejecutado ni incluido en este plan. El actor operador necesitará `cloudsql.instances.get`, `cloudsql.users.create`, `cloudsql.users.update`, `cloudsql.users.get` y `cloudsql.operations.get`, más `secretmanager.versions.add` y `secretmanager.versions.destroy` sobre los dos secretos exactos. No se agrega ese operador a IAM en este PR; definir sus grants temporales exactos y comprobar su condición IAM es un gate separado. El runtime migrador conserva solo lectura de su secreto; la identidad ACL solo lee el secreto de propietario.
-3. Las fases futuras de un solo paso son `bootstrap` (crea los roles `NOLOGIN`), `database_acl` (lo ejecuta `postgres`), `migrate` (V1–V61), `finalize` (verifica historial/checksums y grants) y `retire` (rota la contraseña de `postgres`). El Job y las credenciales no se preparan ahora; la fase `migrate` sigue bloqueada.
-4. Después del bootstrap, el CLI de reconciliación propuesto conserva solo `cloudsqlsuperuser` en la cuenta migradora y elimina membresías de creador en roles de aplicación:
-
-   ```sh
-   go run ./cmd/gcp03scratch-credential --apply --reconcile-creator-memberships --confirm-target=RECONCILE:espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg/espacigo_scratch
-   ```
-
-   La conciliación está situada después de `bootstrap` y antes de `migrate` para cumplir la guarda de membresías de V60. Hoy deja al migrador sin permiso para ejecutar el comentario de V60 en PostgreSQL 18. No ejecutar esta secuencia ni el Job de `migrate` hasta resolver y revisar el bloqueo.
-5. En cualquier operación con resultado incierto, conservar las versiones secretas y consultar el estado/API exacto antes de reintentar. No destruir versiones por nombre `latest`; el CLI requiere el nombre inmutable `.../versions/N`. Al terminar una futura prueba aprobada, el retiro propuesto rota y elimina la versión owner exacta y revoca el rol Cloud SQL del migrador, verificando las respuestas antes de destruir el secreto:
-
-   ```sh
-   go run ./cmd/gcp03scratch-credential --apply --retire-database-owner-credential --confirm-target=ACL-RETIRE:espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg/espacigo_scratch --secret-version=projects/espacigo-testprod/secrets/espacigo-gcp03-pilot01-db-owner-password/versions/N
-   go run ./cmd/gcp03scratch-credential --apply --revoke-superuser --confirm-target=REVOKE:espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg/espacigo_scratch --secret-version=projects/espacigo-testprod/secrets/espacigo-gcp03-pilot01-migrator-password/versions/N
-   ```
-
-   Estas órdenes son un runbook futuro; no se ejecutaron. La retirada no borra el historial de migraciones ni cambia el checksum de V60. Un error de retiro deja el secreto para conciliación y requiere evidencia antes de otra acción.
+Antes de crear nuevas credenciales o Jobs se requieren preflight del scratch, estado vacío/historial ausente y planes Terraform exactos aprobados. La contraseña owner `postgres` y su secreto serán distintos del login/secret migrador; cada fase recibe solo su secreto fijo. Consultar [el alcance de replay](gcp03_cloudsql_v1_v61_replay_scope_20261016.md). No cambiar V1–V61, no importar datos y no tocar la base persistente.
 
 ## Evidencia y límites
 
 - `terraform plan -refresh=true` se ejecutó contra el backend remoto de este root; solo se conservaron archivos privados de plan/state/logs.
 - La OCI se cargó desde el archivo existente, se etiquetó como `source-bbea4e5` y se verificó por digest remoto; no se reconstruyó.
 - Se verificó el probe local de permisos y que su contenedor se retiró al terminar.
-- No se ejecutaron suites de pruebas en este corte. No se usó la base persistente ni se envió SQL a ninguna instancia Cloud SQL.
-- El siguiente artefacto de Terraform, si se aprueba tras esta revisión, solo podrá planificar Jobs después de revisar el procedimiento de credenciales y resolver el bloqueo de V60.
+- El plan Terraform/OCI de la preparación original no se aplicó en ese corte. Posteriormente sí se aplicaron el plan de probe #352 y el stage 1 de protección Jobs #353; ambos constan en [resultado GCP-03](gcp03_role_probe_execution_20261016.md).
+- Las únicas sentencias SQL administradas posteriores fueron el CREATE ROLE fijo y dos COMMENT fijos del probe; no se ejecutó V60 ni V1–V61. La base persistente no se usó.
+- La versión PostGIS real del scratch todavía no está registrada; no inferirla de la matriz de versiones ofrecidas. El stage 2 cleanup actualizado requiere revisión independiente.

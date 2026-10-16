@@ -8,7 +8,7 @@
 
 ## Contexto
 
-La secuencia vigente exige conservar V1–V61 byte a byte y el plan de despliegue pide validar el replay completo en una base vacía. V60 exige que `espacigo_gadm_bootstrap` no tenga membresías y, después de crearla, ejecuta `COMMENT ON ROLE`. En PostgreSQL 18, un operador sin privilegio `ADMIN OPTION` no puede comentar ese rol; el probe local con un rol `CREATEROLE NOSUPERUSER` pasó mientras conservaba la membresía creada por el bootstrap y falló después de revocarla, con el error de falta de `ADMIN OPTION`. La migración también comprueba que no quede ninguna membresía. La prueba real equivalente en Cloud SQL sigue sin ejecutarse.
+La secuencia vigente exige conservar V1–V61 byte a byte y el plan de despliegue pide validar el replay completo en una base vacía. V60 exige que `espacigo_gadm_bootstrap` no tenga membresías y, después de crearla, ejecuta `COMMENT ON ROLE`. El probe local con un rol `CREATEROLE NOSUPERUSER` pasó mientras conservaba la membresía creada por el bootstrap y falló después de revocarla, con falta de `ADMIN OPTION`. Un probe administrado posterior en Cloud SQL PostgreSQL 18.6 ejecutó exitosamente el mismo COMMENT antes y después de reconciliar, con cero membresías; ver [evidencia](gcp03_role_probe_execution_20261016.md). Ese resultado acotado no ejecutó la migración completa V60 ni prueba replay, extensiones, ownership/ACL o runtime.
 
 Una base de datos exportada con `pg_dump` no incluye los objetos globales del clúster, como roles y tablespaces; PostgreSQL remite a `pg_dumpall` para ellos. El formato custom admite selección explícita durante `pg_restore`, y `--no-owner`/`--no-acl` separan la restauración del ownership y los grants del origen. Los comentarios de roles, los roles y sus membresías requieren un manifiesto y bootstrap separados. [Documentación oficial de `pg_dump`](https://www.postgresql.org/docs/18/app-pgdump.html), [`pg_restore`](https://www.postgresql.org/docs/18/app-pgrestore.html) y [`COMMENT`](https://www.postgresql.org/docs/18/sql-comment.html).
 
@@ -23,7 +23,7 @@ Las instalaciones existentes y sus cambios incrementales continuarían usando el
 ## Requisitos previos para aceptar
 
 1. Decisión de producto/arquitectura que cambie explícitamente el criterio de instalación limpia de «replay V1–V61 en Cloud SQL» a «restore de baseline verificado». Este ADR no otorga esa aceptación.
-2. Prueba Cloud SQL real en la instancia scratch: permisos del actor de restore, extensiones y versiones, objetos dependientes de extensiones, ownership, ACL, secuencias, funciones `SECURITY DEFINER`, checksums/historial y queries PostGIS. Aún no se ejecutó SQL en Cloud SQL.
+2. Ensayo Cloud SQL completo en la instancia scratch: permisos del actor de restore, extensiones y versiones reales, objetos dependientes, ownership, ACL, secuencias, funciones `SECURITY DEFINER`, checksums/historial y queries PostGIS. El probe administrado del COMMENT ya está hecho; V60 y V1–V61 aún no se ejecutaron. El alcance de replay está en [plan actualizado](gcp03_cloudsql_v1_v61_replay_scope_20261016.md).
 3. Prueba de instalación desde baseline y upgrade V62+ en una base descartable, además de una prueba fresca V1–V61 local para seguir cubriendo la secuencia original. Fallos deben detener el corte sin avanzar punteros ni reutilizar un destino parcial.
 4. Definición de quién construye, aprueba, firma, retiene y revoca cada baseline; política de retención y acceso a datos. El baseline no incluirá datos reales salvo autorización separada y manifiesto explícito.
 5. Procedimiento probado de rollback: no sobrescribir una base existente; restaurar en base nueva y aislada, verificar antes de cambiar el destino y descartar solo el destino fallido bajo autorización.
@@ -32,7 +32,7 @@ Las instalaciones existentes y sus cambios incrementales continuarían usando el
 
 La restauración no resuelve automáticamente los objetos globales. Provisionar antes los roles destino `NOLOGIN` con atributos explícitos y comentarios versionados en un plan de bootstrap independiente. Provisionar owner/grants/ACL según allowlist revisada; no copiar `pg_auth_members` ni contraseñas del origen. No usar superusuario PostgreSQL real ni el rol de aplicación. Un rol temporal de restauración, si Cloud SQL lo permite, debe tener alcance y duración mínimos, con revocación verificada después.
 
-El comentario de `espacigo_gadm_bootstrap` que crea V60 no viaja en un dump de base individual. El bootstrap de destino debe conservar el texto aprobado y probar cómo aplicar el comentario bajo la política administrada real, sin dejar membresías. No debe afirmarse que V60 quedó ejecutada en destino: solo se transfirió su estado de base y se aprovisionó por separado el metadato global faltante.
+El comentario de `espacigo_gadm_bootstrap` que crea V60 no viaja en un dump de base individual. El bootstrap de destino debe conservar el texto aprobado y comprobar el rol sin membresías. El literal COMMENT ya pasó dos veces bajo el actor administrado exacto, pero eso no equivale a ejecutar el cuerpo de V60. Si se eligiera un baseline en el futuro, no debe afirmarse que V60 se ejecutó en destino: solo se transferiría su estado y se aprovisionaría aparte el metadato global.
 
 ## Evidencia local y límites
 
