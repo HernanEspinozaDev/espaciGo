@@ -64,7 +64,7 @@ for path, digest in migration_hashes.items():
     aggregate_hash.update(f"{digest}  {path}\n".encode())
 aggregate = aggregate_hash.hexdigest()
 bootstrap_sql = sorted(pathlib.Path("db/bootstrap/gcp03scratch").glob("*.sql"))
-if [path.name for path in bootstrap_sql] != ["001_pre_migrate.sql", "002_retire_migrator.sql", "003_database_acl.sql"]:
+if [path.name for path in bootstrap_sql] != ["001_pre_migrate.sql", "002_retire_migrator.sql", "003_database_acl.sql", "004_grant_owner_history.sql"]:
     raise SystemExit("unexpected GCP-03 scratch SQL phase inventory")
 bootstrap_hashes = {
     path.as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -101,7 +101,7 @@ record = {
     "oci_manifest_digest": digest,
     "oci_archive_sha256": hashlib.sha256(pathlib.Path(archive).read_bytes()).hexdigest(),
     "executor_command": "cmd/gcp03scratch",
-    "executor_phase_names": ["bootstrap", "database_acl", "migrate", "finalize", "retire", "observe", "role_comment_prepare", "role_comment_after_reconcile"],
+    "executor_phase_names": ["bootstrap", "database_acl", "migrate", "finalize", "grant_owner_history", "retire", "observe", "role_comment_prepare", "role_comment_after_reconcile"],
     "scratch_target_confirmation": "espacigo-testprod:southamerica-west1:espacigo-gcp03-pilot01-pg/espacigo_scratch",
     "migration_count": len(migrations),
     "migration_inventory_sha256": aggregate,
