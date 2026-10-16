@@ -3,9 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"net"
 
-	"cloud.google.com/go/cloudsqlconn"
+	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -18,18 +17,11 @@ func newDatabasePool(ctx context.Context, cfg config) (*pgxpool.Pool, func(), er
 	poolConfig.MinConns = cfg.dbPoolMinConns
 	closeConnector := func() {}
 	if cfg.dbConnectionMode == "cloudsql" {
-		options := make([]cloudsqlconn.Option, 0, 1)
-		if cfg.cloudSQLPrivateIP {
-			options = append(options, cloudsqlconn.WithDefaultDialOptions(cloudsqlconn.WithPrivateIP()))
+		var connectorErr error
+		closeConnector, connectorErr = cloudsql.ConfigurePGX(ctx, poolConfig.ConnConfig, cfg.cloudSQLInstance, cfg.cloudSQLPrivateIP)
+		if connectorErr != nil {
+			return nil, nil, connectorErr
 		}
-		dialer, dialerErr := cloudsqlconn.NewDialer(ctx, options...)
-		if dialerErr != nil {
-			return nil, nil, errors.New("Cloud SQL connector initialization failed")
-		}
-		poolConfig.ConnConfig.DialFunc = func(dialCtx context.Context, _, _ string) (net.Conn, error) {
-			return dialer.Dial(dialCtx, cfg.cloudSQLInstance)
-		}
-		closeConnector = func() { _ = dialer.Close() }
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {

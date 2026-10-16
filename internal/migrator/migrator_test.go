@@ -1,9 +1,14 @@
 package migrator
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func TestDiscoverMigrationsOrdersFilesAndHashesExactBytes(t *testing.T) {
@@ -87,5 +92,50 @@ func TestVerifyHistoryAcceptsMatchingAppliedPrefix(t *testing.T) {
 	history := []HistoryEntry{{Version: 1, Name: "V000001__one.sql", Checksum: "one"}}
 	if err := verifyHistory(migrations, history); err != nil {
 		t.Fatalf("matching applied prefix rejected: %v", err)
+	}
+}
+
+func TestRunSanitizesDatabaseConnectionErrors(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := Run(ctx, "postgres://private-user:private-password@127.0.0.1:1/app?connect_timeout=1", t.TempDir())
+	if err == nil {
+		t.Fatal("connection to closed local port should fail")
+	}
+	if strings.Contains(err.Error(), "private-user") || strings.Contains(err.Error(), "private-password") {
+		t.Fatalf("connection error exposed database credentials: %v", err)
+	}
+}
+
+func TestRunCloudSQLSanitizesInvalidDatabaseURL(t *testing.T) {
+	_, err := RunCloudSQL(context.Background(), "postgres://private-user:private-password@%invalid", t.TempDir(), "project-one:region-one:db-one", true)
+	if err == nil {
+		t.Fatal("invalid database URL should fail")
+	}
+	if strings.Contains(err.Error(), "private-user") || strings.Contains(err.Error(), "private-password") {
+		t.Fatalf("configuration error exposed database credentials: %v", err)
+	}
+}
+
+func TestRunCloudSQLRejectsDirectTLSBeforeInitializingConnector(t *testing.T) {
+	_, err := RunCloudSQL(context.Background(), "postgres://private-user:private-password@localhost/app?sslmode=require", t.TempDir(), "project-one:region-one:db-one", true)
+	if err == nil || !strings.Contains(err.Error(), "sslmode=disable") {
+		t.Fatalf("expected direct TLS conflict rejection, got %v", err)
+	}
+	if strings.Contains(err.Error(), "private-user") || strings.Contains(err.Error(), "private-password") {
+		t.Fatalf("TLS config error exposed database credentials: %v", err)
+	}
+}
+
+func TestRunWithConnectorAlwaysClosesAfterPreflightError(t *testing.T) {
+	closed := false
+	_, err := runWithConnector(context.Background(), &pgx.ConnConfig{}, filepath.Join(t.TempDir(), "missing-migrations"), func() {
+		closed = true
+	})
+	if err == nil {
+		t.Fatal("missing migration directory should fail")
+	}
+	if !closed {
+		t.Fatal("connector was not closed after migrator failure")
 	}
 }
