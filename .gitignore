@@ -4,6 +4,9 @@
 # Frontend build dependencies
 mock/node_modules/
 
+# Terraform provider caches and initialized workdirs
+**/.terraform/
+
 # Local editor/build artifacts
 __pycache__/
 *.py[cod]

@@ -12,9 +12,11 @@ Los nombres candidatos privados derivan del número de proyecto. Su disponibilid
 
 ## Inventario conocido y brechas
 
-Lectura segura del proyecto `espacigo-testprod` el 2026-10-15: proyecto activo; Cloud Storage, Service Usage y APIs de observabilidad/analítica figuraban habilitadas. La consulta previa encontró 0 buckets de Storage, 0 service accounts, 0 datasets de BigQuery visibles y 2 buckets de Logging; IAM devolvió un binding Owner sin exponer el principal. Esos resultados son parciales y no prueban ausencia de otros recursos. Las APIs Cloud Asset, Resource Manager, Org Policy, Compute, Run, SQL Admin, Secret Manager y Artifact Registry no figuraban habilitadas en esa lectura.
+Lectura segura del proyecto `espacigo-testprod` el 2026-10-15 (America/Santiago): proyecto activo; Cloud Storage, Service Usage y APIs de observabilidad/analítica figuraban habilitadas. La consulta previa encontró 0 buckets de Storage, 0 service accounts, 0 datasets de BigQuery visibles y 2 buckets de Logging; IAM devolvió un binding Owner sin exponer el principal. Esos resultados son parciales y no prueban ausencia de otros recursos. Cloud Asset, Resource Manager, Org Policy, Compute, Run, SQL Admin, Secret Manager y Artifact Registry no aparecían en `gcloud services list --enabled` de esa lectura. Durante esta revisión se volvió a consultar la lista enabled del proyecto explícito: tampoco aparecieron `orgpolicy.googleapis.com` ni `cloudasset.googleapis.com`. No se usó `gcloud services describe` (no existe ese subcomando).
 
-El inventario de políticas ya disponible no indicó restricciones efectivas para ingress/egress de Run, tipos de balanceador, peering, dominios IAM o ubicación; UBLA sí se exige. Las lecturas no están completas ni sustituyen una nueva exportación de políticas efectivas antes de abrir gates. No se habilitaron APIs para completar las brechas.
+### Estado verificable de políticas efectivas
+
+No se considera cumplida la revisión de políticas efectivas. `planning/gcp/evidencia_gcp_02_local.md` documenta que el 2026-10-15 no se pudo completar la lectura de Organization Policy, y `planning/gcp/plan_despliegue_espacigo_testprod.md` registra el mismo bloqueo por API deshabilitada/acceso. Aunque una línea histórica de esa evidencia enumeró supuestos valores efectivos, no conserva los comandos/salidas/alcance necesarios para reconciliarla con el bloqueo documentado; se retira esa inferencia. Una política ausente en `gcloud org-policies list --show-unset` no significa que el valor efectivo esté sin restricción: el valor podría heredarse de folder u organización. Se necesita consultar `describe --effective` para cada restricción en alcance de proyecto, folder y organización cuando se requiera confirmar herencia. No se marca ninguna política como revisada ni se usa la ausencia de una política listada para abrir un gate.
 
 El único inventario local del almacén privado inspeccionó metadatos de filesystem (sin leer contenido ni consultar la BD): 3.245 archivos PNG y 808.005 bytes en el mount completo, que mezcla usos y no se puede atribuir íntegramente al dataset. Una evidencia privada anterior de assets de carga registró agregados por grupo de 0/0, 5/1.245 B, 1/338 B y 121/4.954.983 B; es anterior, de alcance distinto y no reconcilia el mount actual. No se afirma que esos archivos deban copiarse a GCS. El tamaño de datos/migración real requiere vínculo controlado con registros, selección de objetos y reglas de retención/versionado.
 
@@ -30,7 +32,28 @@ Los siguientes comandos son plantillas de inventario futuro, todos de lectura. N
 | `gcloud org-policies list --project="$PROJECT_ID" --show-unset --format=json` | `orgpolicy.googleapis.com` | `orgpolicy.policy.get` en el recurso consultado |
 | `gcloud asset search-all-resources --scope="projects/$PROJECT_ID" --format=json` | `cloudasset.googleapis.com` | `cloudasset.assets.searchAllResources` |
 
-No habilitar esas APIs como parte del inventario local. Tras aprobación de ese cambio separado, Cloud Asset ofrece una vista amplia; las APIs de producto se necesitan solo para completar atributos específicos que el inventario de Asset no entregue. Las lecturas detalladas deben usar APIs/roles de lectura correspondientes (p. ej. Storage, IAM, Compute, Run, SQL Admin, Artifact Registry y Secret Manager) y no justifican permisos Owner adicionales.
+Comandos efectivos requeridos después de la fase de habilitación, para cada restricción relevante (ejemplos a adaptar según topología):
+
+```sh
+gcloud org-policies describe run.allowedIngress --project="$PROJECT_ID" --effective --format=json
+gcloud org-policies describe run.allowedVPCEgress --project="$PROJECT_ID" --effective --format=json
+gcloud org-policies describe compute.restrictLoadBalancerCreationForTypes --project="$PROJECT_ID" --effective --format=json
+gcloud org-policies describe compute.restrictVpcPeering --project="$PROJECT_ID" --effective --format=json
+gcloud org-policies describe iam.allowedPolicyMemberDomains --project="$PROJECT_ID" --effective --format=json
+gcloud org-policies describe gcp.resourceLocations --project="$PROJECT_ID" --effective --format=json
+gcloud org-policies describe serviceuser.services --project="$PROJECT_ID" --effective --format=json
+gcloud org-policies describe compute.disableGlobalLoadBalancing --project="$PROJECT_ID" --effective --format=json
+gcloud org-policies describe iam.disableServiceAccountCreation --project="$PROJECT_ID" --effective --format=json
+gcloud org-policies describe storage.uniformBucketLevelAccess --project="$PROJECT_ID" --effective --format=json
+```
+
+El `--project` consulta el resultado efectivo para el proyecto, que puede heredar valores de folder/organización. Para atribuir de qué nivel proviene cada ajuste, comparar además la policy explícita en el proyecto, el folder (si existe) y `--organization=644690775054`; `list --show-unset` por sí sola no hace esa atribución ni muestra el valor efectivo. Las restricciones del ejemplo corresponden a las superficies que usa la topología Terraform propuesta; no se declara que hayan sido leídas ni aprobadas.
+
+El bootstrap mínimo y separado está en `infra/terraform/environments/testprod/inventory-apis`: solo permite `orgpolicy.googleapis.com` y `cloudasset.googleapis.com` en el proyecto `espacigo-testprod`; `disable_on_destroy=false`; la lista permitida está vacía por defecto. Consulta Cloud Asset sin escribir exportaciones, buckets u otros datos. La lista enabled del proyecto explícito confirmó ambas como no habilitadas en esta revisión; cualquier plan/aplicación futura debe repetir el preflight inmediatamente antes. Si un API ya aparece enabled, omitirlo del plan/state nuevo y volver a generarlo. El plan local candidato generó exactamente 2 to add (las dos APIs), 0 changes, 0 destroy. No se ejecutó apply ni se habilitó API.
+
+Permisos de habilitación: `serviceusage.services.enable` sobre el proyecto (Google recomienda `roles/serviceusage.serviceUsageAdmin`; preferir un rol personalizado mínimo cuando la organización lo permita). Para preflight/lecturas, `serviceusage.services.list`; después de habilitar, `orgpolicy.policy.get` en el recurso Organization Policy consultado y `cloudasset.assets.searchAllResources` en `projects/espacigo-testprod`. El rol `roles/orgpolicy.policyViewer` es la opción predefinida de solo lectura de Organization Policy, pero requiere el API y acceso en el alcance consultado. No incluir roles `orgpolicy.policies.update` ni Owner. La habilitación de APIs no crea recursos facturables; Cloud Asset Inventory declara gratuito su uso. Estas consultas no exportan datos a almacenamiento. Costo directo modelado de habilitar ambos y realizar estas lecturas: USD 0; costos de recursos descubiertos quedan fuera y se contabilizan por separado. Referencias oficiales: [habilitación de servicios/permisos Service Usage](https://docs.cloud.google.com/service-usage/docs/enable-disable), [roles y permisos Org Policy](https://docs.cloud.google.com/iam/docs/roles-permissions/orgpolicy), [Cloud Asset search y permiso](https://docs.cloud.google.com/asset-inventory/docs/reference/rest/v1/TopLevel/searchAll), [precios Cloud Asset (uso gratuito)](https://cloud.google.com/asset-inventory/pricing).
+
+Las lecturas detalladas deben usar APIs/roles de lectura correspondientes (p. ej. Storage, IAM, Compute, Run, SQL Admin, Artifact Registry y Secret Manager) y no justifican permisos Owner adicionales.
 
 ## Costos y escenarios
 
@@ -83,9 +106,9 @@ La configuración aplicable mínima declara `storage.googleapis.com` y tres buck
 
 Consulta del 2026-10-15. Tarifas y condiciones pueden cambiar; recalcular antes de cualquier habilitación: [Cloud Run](https://cloud.google.com/run/pricing), [Cloud SQL](https://cloud.google.com/sql/pricing), [Cloud Load Balancing](https://cloud.google.com/load-balancing/pricing), [Cloud Armor](https://cloud.google.com/armor/pricing), [VPC/network egress](https://cloud.google.com/vpc/network-pricing), [Cloud Storage](https://cloud.google.com/storage/pricing), [Artifact Registry](https://cloud.google.com/artifact-registry/pricing), [Cloud Logging/Observability](https://cloud.google.com/products/observability/pricing), [Secret Manager](https://cloud.google.com/secret-manager/pricing).
 
-## Siguientes cortes
+## Siguientes cortes y trabajos históricos
 
-- GCP-03: restauración/compatibilidad de datos y persistencia local, artefactos e identidad operativa; no usar el almacén privado existente como origen de una migración sin inventario reconciliado y autorización específica.
-- GCP-04: replay, leases, reloj controlado y prueba aislada de transiciones del API. El usuario ha autorizado en su hilo de origen el piloto y posteriormente la carga de 1.200 tratos con reloj aislado en la base persistente; esa ejecución debe conservarse en un procedimiento/evidencia aparte y no forma parte de este GCP-02 ni autoriza cambios cloud.
+- GCP-03: restauración/compatibilidad de datos y persistencia local, artefactos e identidad operativa. El conjunto sintético de cuentas/espacios y el almacén privado actual no se deben reconstruir ni regenerar al pasar de corte; cualquier migración requiere inventario reconciliado y autorización específica.
+- GCP-04: la ejecución histórica del piloto y la carga persistente de 1.200 tratos con reloj aislado ya está registrada en `planning/dataset_loader_espacigo_1000.md` (commits `235b9c8` y `f20cc73`) con sus conteos, conciliación y baseline previo. No repetir ni regenerar ese dataset al cambiar a GCP-02/GCP-03; esa evidencia no habilita cambios cloud.
 
 No se declara integración cloud, aceptación de producto, carga de datos ni aprobación de gasto.
