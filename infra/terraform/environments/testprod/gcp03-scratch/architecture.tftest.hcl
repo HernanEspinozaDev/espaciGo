@@ -593,6 +593,193 @@ run "replay_job_cleanup_gate_requires_exact_run_confirmation" {
   expect_failures = [var.allow_replay_job_destroy]
 }
 
+run "gcp03_nine_job_cleanup_stage1_seed" {
+  command   = apply
+  state_key = "gcp03-nine-job-cleanup"
+
+  variables {
+    project_id                                     = "espacigo-testprod"
+    region                                         = "southamerica-west1"
+    run_id                                         = "pilot01"
+    enable_scratch                                 = true
+    enable_job                                     = true
+    enable_observer_job                            = true
+    enable_owner_history_grant_job                 = true
+    enable_retired_verification_job                = true
+    enable_retired_membership_revoke_job           = true
+    enable_replay_credential_permissions           = true
+    confirm_project_inventory                      = true
+    confirm_project_scoped_cloudsql_user_ops       = true
+    confirm_image_pushed                           = true
+    confirm_observer_image_pushed                  = true
+    confirm_owner_history_image_pushed             = true
+    confirm_retired_verification_image_pushed      = true
+    confirm_retired_membership_revoke_image_pushed = true
+    confirm_scratch_secret_version                 = true
+    confirm_database_owner_secret_version          = true
+    replay_credential_iam_expires_at               = "2026-10-16T18:00:00Z"
+    migrator_secret_version                        = "4"
+    database_owner_secret_version                  = "1"
+    migrator_image                                 = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    observer_image                                 = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    owner_history_image                            = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    retired_verification_image                     = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    retired_membership_revoke_image                = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    operator_member                                = "user:pasteleriahijitos@gmail.com"
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.migrator) == 5 &&
+      alltrue([for job in values(google_cloud_run_v2_job.migrator) : job.deletion_protection]) &&
+      google_cloud_run_v2_job.observer[0].deletion_protection &&
+      google_cloud_run_v2_job.owner_history_grant[0].deletion_protection &&
+      google_cloud_run_v2_job.retired_verification[0].deletion_protection &&
+      google_cloud_run_v2_job.retired_membership_revoke[0].deletion_protection
+    )
+    error_message = "All nine GCP-03 Jobs must be protected before cleanup stage 1."
+  }
+}
+
+run "gcp03_nine_job_cleanup_stage1_changes_only_job_protection" {
+  command   = apply
+  state_key = "gcp03-nine-job-cleanup"
+
+  variables {
+    project_id                                     = "espacigo-testprod"
+    region                                         = "southamerica-west1"
+    run_id                                         = "pilot01"
+    enable_scratch                                 = true
+    enable_job                                     = true
+    enable_observer_job                            = true
+    enable_owner_history_grant_job                 = true
+    enable_retired_verification_job                = true
+    enable_retired_membership_revoke_job           = true
+    enable_replay_credential_permissions           = true
+    allow_gcp03_job_deletion_protection_disable    = true
+    confirm_gcp03_job_cleanup_run_id               = "pilot01"
+    confirm_project_inventory                      = true
+    confirm_project_scoped_cloudsql_user_ops       = true
+    confirm_image_pushed                           = true
+    confirm_observer_image_pushed                  = true
+    confirm_owner_history_image_pushed             = true
+    confirm_retired_verification_image_pushed      = true
+    confirm_retired_membership_revoke_image_pushed = true
+    confirm_scratch_secret_version                 = true
+    confirm_database_owner_secret_version          = true
+    replay_credential_iam_expires_at               = "2026-10-16T18:00:00Z"
+    migrator_secret_version                        = "4"
+    database_owner_secret_version                  = "1"
+    migrator_image                                 = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    observer_image                                 = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    owner_history_image                            = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    retired_verification_image                     = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    retired_membership_revoke_image                = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    operator_member                                = "user:pasteleriahijitos@gmail.com"
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.migrator) == 5 &&
+      alltrue([for job in values(google_cloud_run_v2_job.migrator) : !job.deletion_protection]) &&
+      !google_cloud_run_v2_job.observer[0].deletion_protection &&
+      !google_cloud_run_v2_job.owner_history_grant[0].deletion_protection &&
+      !google_cloud_run_v2_job.retired_verification[0].deletion_protection &&
+      !google_cloud_run_v2_job.retired_membership_revoke[0].deletion_protection &&
+      google_sql_database_instance.scratch[0].deletion_protection &&
+      google_sql_database_instance.scratch[0].settings[0].deletion_protection_enabled &&
+      length(google_sql_database.scratch) == 1 &&
+      google_secret_manager_secret.scratch_password[0].deletion_protection &&
+      google_secret_manager_secret.scratch_password[0].deletion_policy == "PREVENT" &&
+      google_secret_manager_secret.scratch_database_owner_password[0].deletion_protection &&
+      google_secret_manager_secret.scratch_database_owner_password[0].deletion_policy == "PREVENT" &&
+      length(google_service_account.scratch_migrator) == 1 &&
+      length(google_service_account.scratch_database_acl) == 1 &&
+      length(google_project_iam_custom_role.replay_credential_sql_operator) == 1 &&
+      length(google_project_iam_custom_role.replay_secret_version_operator) == 1 &&
+      google_project_iam_member.replay_credential_sql_operator[0].condition[0].expression == "request.time < timestamp('2026-10-16T18:00:00Z')" &&
+      !var.allow_scratch_destroy
+    )
+    error_message = "Cleanup stage 1 may change only the nine Job protections; preserve SQL, secret metadata, service accounts, and existing IAM/expiry."
+  }
+}
+
+run "gcp03_nine_job_cleanup_stage2_preview_preserves_scratch" {
+  command   = plan
+  state_key = "gcp03-nine-job-cleanup"
+
+  variables {
+    project_id                                     = "espacigo-testprod"
+    region                                         = "southamerica-west1"
+    run_id                                         = "pilot01"
+    enable_scratch                                 = true
+    enable_job                                     = false
+    enable_observer_job                            = false
+    enable_owner_history_grant_job                 = false
+    enable_retired_verification_job                = false
+    enable_retired_membership_revoke_job           = false
+    enable_replay_credential_permissions           = false
+    allow_scratch_destroy                          = false
+    allow_replay_job_destroy                       = false
+    allow_gcp03_job_deletion_protection_disable    = false
+    confirm_project_inventory                      = true
+    confirm_image_pushed                           = true
+    confirm_observer_image_pushed                  = true
+    confirm_owner_history_image_pushed             = true
+    confirm_retired_verification_image_pushed      = true
+    confirm_retired_membership_revoke_image_pushed = true
+    confirm_scratch_secret_version                 = true
+    confirm_database_owner_secret_version          = true
+    migrator_secret_version                        = "4"
+    database_owner_secret_version                  = "1"
+    migrator_image                                 = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    observer_image                                 = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    owner_history_image                            = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    retired_verification_image                     = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    retired_membership_revoke_image                = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    operator_member                                = "user:pasteleriahijitos@gmail.com"
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.migrator) == 0 &&
+      length(google_cloud_run_v2_job.observer) == 0 &&
+      length(google_cloud_run_v2_job.owner_history_grant) == 0 &&
+      length(google_cloud_run_v2_job.retired_verification) == 0 &&
+      length(google_cloud_run_v2_job.retired_membership_revoke) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.invoke_operator) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.observer_operator) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.owner_history_operator) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.retired_verification_operator) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.retired_membership_revoke_operator) == 0 &&
+      length(google_service_account_iam_member.operator_act_as) == 0 &&
+      length(google_service_account_iam_member.operator_act_as_database_acl) == 0 &&
+      length(google_project_iam_custom_role.replay_credential_sql_operator) == 0 &&
+      length(google_project_iam_custom_role.replay_secret_version_operator) == 0 &&
+      length(google_project_iam_member.replay_credential_sql_operator) == 0 &&
+      length(google_secret_manager_secret_iam_member.replay_migrator_secret_version_operator) == 0 &&
+      length(google_secret_manager_secret_iam_member.replay_owner_secret_version_operator) == 0 &&
+      length(google_sql_database_instance.scratch) == 1 &&
+      google_sql_database_instance.scratch[0].deletion_protection &&
+      google_sql_database_instance.scratch[0].settings[0].deletion_protection_enabled &&
+      length(google_sql_database.scratch) == 1 &&
+      length(google_secret_manager_secret.scratch_password) == 1 &&
+      google_secret_manager_secret.scratch_password[0].deletion_protection &&
+      google_secret_manager_secret.scratch_password[0].deletion_policy == "PREVENT" &&
+      length(google_secret_manager_secret.scratch_database_owner_password) == 1 &&
+      google_secret_manager_secret.scratch_database_owner_password[0].deletion_protection &&
+      google_secret_manager_secret.scratch_database_owner_password[0].deletion_policy == "PREVENT" &&
+      length(google_service_account.scratch_migrator) == 1 &&
+      length(google_service_account.scratch_database_acl) == 1 &&
+      length(google_project_iam_member.scratch_cloudsql_client) == 1 &&
+      length(google_project_iam_member.scratch_acl_cloudsql_client) == 1 &&
+      length(google_secret_manager_secret_iam_member.scratch_password_access) == 1 &&
+      length(google_secret_manager_secret_iam_member.scratch_database_owner_access) == 1
+    )
+    error_message = "Cleanup stage 2 preview may retire Jobs and temporary IAM only; keep the protected scratch SQL, secret metadata, runtime identities, and required client/accessor grants."
+  }
+}
+
 run "migration_jobs_reject_latest_migrator_secret_version" {
   command = plan
 
