@@ -76,6 +76,69 @@ func TestRetiredVerificationNDJSONRoundTripsLargeNestedReportsAndValidatesIntegr
 	}
 }
 
+func TestRetiredMembershipRevocationNDJSONRoundTripsAndValidatesManifestStatus(t *testing.T) {
+	for _, passed := range []bool{true, false} {
+		t.Run(strconv.FormatBool(passed), func(t *testing.T) {
+			report := largeRetiredMembershipRevocationReport(passed)
+			canonical, err := json.Marshal(report)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(canonical) <= 256*1024 {
+				t.Fatalf("nested revocation fixture must exceed Cloud Logging entry size: %d bytes", len(canonical))
+			}
+			var output bytes.Buffer
+			if err := dbbootstrap.WriteIntegrityNDJSON(&output, report, report.Passed); err != nil {
+				t.Fatal(err)
+			}
+			var reconstructed RetiredMembershipRevocationReport
+			gotPassed, err := dbbootstrap.ReadIntegrityNDJSON(bytes.NewReader(output.Bytes()), &reconstructed)
+			if err != nil || gotPassed != passed || !reflect.DeepEqual(reconstructed, report) {
+				t.Fatalf("full nested revocation report round trip mismatch: pass=%t/%t err=%v", gotPassed, passed, err)
+			}
+
+			lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+			manifestStatus := `"passed":true`
+			changedStatus := `"passed":false`
+			if !passed {
+				manifestStatus, changedStatus = changedStatus, manifestStatus
+			}
+			if !strings.Contains(lines[0], manifestStatus) {
+				t.Fatal("manifest pass status was not found")
+			}
+			lines[0] = strings.Replace(lines[0], manifestStatus, changedStatus, 1)
+			if _, err := dbbootstrap.ReadIntegrityNDJSON(strings.NewReader(strings.Join(lines, "\n")+"\n"), &reconstructed); err == nil {
+				t.Fatal("manifest pass state that disagreed with the nested revocation payload was accepted")
+			}
+
+			corrupted := strings.Split(strings.TrimSpace(output.String()), "\n")
+			marker := `"data":"`
+			position := strings.Index(corrupted[1], marker)
+			if position < 0 {
+				t.Fatal("payload data field is missing")
+			}
+			position += len(marker)
+			replacement := "A"
+			if corrupted[1][position] == 'A' {
+				replacement = "B"
+			}
+			corrupted[1] = corrupted[1][:position] + replacement + corrupted[1][position+1:]
+			if _, err := dbbootstrap.ReadIntegrityNDJSON(strings.NewReader(strings.Join(corrupted, "\n")+"\n"), &reconstructed); err == nil {
+				t.Fatal("corrupted nested revocation payload was accepted")
+			}
+		})
+	}
+}
+
+func largeRetiredMembershipRevocationReport(passed bool) RetiredMembershipRevocationReport {
+	post := largeRetiredVerificationReport(passed)
+	return RetiredMembershipRevocationReport{
+		PrecheckPassed: passed, ExpectedMembership: true, MutationAttempted: true,
+		RevokeStatementSucceeded: passed, Revoked: passed, Postcheck: &post,
+		DiagnosticsCollected: true, Passed: passed,
+	}
+}
+
 func largeRetiredVerificationReport(passed bool) RetiredVerificationReport {
 	observation := dbbootstrap.ScratchObservation{
 		ServerVersionNum:   180006,

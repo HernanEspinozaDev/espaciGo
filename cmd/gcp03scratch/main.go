@@ -63,6 +63,22 @@ func main() {
 		fmt.Fprintln(os.Stderr, "GCP-03 scratch phase verify_retired completed")
 		return
 	}
+	if config.Phase == gcp03scratch.PhaseRevokeRetiredMembership {
+		report, err := gcp03scratch.RevokeRetiredMembershipPhase(ctx, config, password, migrationDirectory)
+		if encodeErr := dbbootstrap.WriteIntegrityNDJSON(os.Stdout, report, report.Passed); encodeErr != nil {
+			fmt.Fprintln(os.Stderr, "GCP-03 retired membership report could not be encoded")
+			os.Exit(1)
+		}
+		fmt.Printf("GCP03_REVOKE_RETIRED_MEMBERSHIP precheck=%t expected_membership=%t attempted=%t statement_succeeded=%t committed=%t postcheck=%t diagnostics=%t diagnostics_error=%s error_code=%s passed=%t\n",
+			report.PrecheckPassed, report.ExpectedMembership, report.MutationAttempted, report.RevokeStatementSucceeded, report.Revoked,
+			report.Postcheck != nil && report.Postcheck.Passed, report.DiagnosticsCollected, report.DiagnosticsErrorCode, report.ErrorCode, report.Passed)
+		if err != nil || !report.Passed {
+			fmt.Fprintln(os.Stderr, "GCP-03 fixed retired membership revocation failed; inspect the integrity report")
+			os.Exit(1)
+		}
+		fmt.Fprintln(os.Stderr, "GCP-03 scratch phase revoke_retired_membership completed")
+		return
+	}
 	if gcp03scratch.IsRoleCommentProbePhase(config.Phase) {
 		result, probeErr := gcp03scratch.RunRoleCommentProbe(ctx, config, password)
 		outcome := result.CommentOutcome

@@ -280,8 +280,8 @@ func TestScratchLifecyclePostgres18(t *testing.T) {
 	}
 	ownerConn = mustConnect(t, ctx, ownerURL.String())
 	defer ownerConn.Close(context.Background())
-	var ownerSuperuser bool
-	if err := ownerConn.QueryRow(ctx, `SELECT r.rolsuper FROM pg_catalog.pg_roles r WHERE r.rolname = current_user`).Scan(&ownerSuperuser); err != nil || ownerSuperuser {
+	var ownerIsSuperuser bool
+	if err := ownerConn.QueryRow(ctx, `SELECT r.rolsuper FROM pg_catalog.pg_roles r WHERE r.rolname = current_user`).Scan(&ownerIsSuperuser); err != nil || ownerIsSuperuser {
 		t.Fatalf("retirement observer must run as restricted owner (%v)", err)
 	}
 	observeRetired := func() RetiredVerificationReport {
@@ -308,9 +308,50 @@ func TestScratchLifecyclePostgres18(t *testing.T) {
 	if _, err := admin.Exec(ctx, `CREATE ROLE cloudsqlsuperuser NOLOGIN`); err != nil {
 		t.Fatal("create disposable managed-role membership fixture")
 	}
+	if _, err := admin.Exec(ctx, `GRANT TEMPORARY ON DATABASE espacigo_scratch TO cloudsqlsuperuser; GRANT CREATE ON SCHEMA public TO cloudsqlsuperuser; ALTER DATABASE espacigo_scratch OWNER TO cloudsqlsuperuser`); err != nil {
+		t.Fatal("model fixed inherited managed-role TEMP/CREATE and database ownership")
+	}
+	// PostgreSQL-only mechanics fixture: postgres remains NOSUPERUSER and
+	// NOCREATEROLE. The fixture administrator grants it ADMIN OPTION, and
+	// postgres becomes the grantor of the one membership the phase may revoke.
+	if _, err := admin.Exec(ctx, `GRANT cloudsqlsuperuser TO postgres WITH ADMIN OPTION`); err != nil {
+		t.Fatal("give restricted fixture owner temporary membership administration")
+	}
+	if _, err := ownerConn.Exec(ctx, `GRANT cloudsqlsuperuser TO espacigo_scratch_migrator WITH INHERIT TRUE, SET TRUE`); err != nil {
+		t.Fatal("create expected managed-role membership from restricted owner")
+	}
+	assertMigratorTempCreate(t, ctx, ownerConn, true)
+	stateBeforeSuccess := scratchRoleACLState(t, ctx, ownerConn)
+	revoked := revokeRetiredMembershipOnConnection(ctx, ownerConn, migrationDir)
+	if !revoked.Passed || !revoked.Revoked || revoked.Postcheck == nil || !revoked.Postcheck.Passed {
+		t.Fatalf("restricted owner ADMIN grant should permit the fixed revocation: report=%+v", revoked)
+	}
+	var migratorCanLogin, migratorSuperuser, migratorCreateRole, ownerSuperuser, ownerCreateRole bool
+	if err := ownerConn.QueryRow(ctx, `SELECT m.rolcanlogin, m.rolsuper, m.rolcreaterole, o.rolsuper, o.rolcreaterole FROM pg_catalog.pg_roles m CROSS JOIN pg_catalog.pg_roles o WHERE m.rolname='espacigo_scratch_migrator' AND o.rolname='postgres'`).Scan(&migratorCanLogin, &migratorSuperuser, &migratorCreateRole, &ownerSuperuser, &ownerCreateRole); err != nil || migratorCanLogin || migratorSuperuser || migratorCreateRole || ownerSuperuser || ownerCreateRole {
+		t.Fatalf("revocation changed role attributes or required elevated owner: migrator=(login=%t superuser=%t createrole=%t) owner=(superuser=%t createrole=%t) err=%v", migratorCanLogin, migratorSuperuser, migratorCreateRole, ownerSuperuser, ownerCreateRole, err)
+	}
+	if stateAfterSuccess := scratchRoleACLState(t, ctx, ownerConn); stateAfterSuccess != stateBeforeSuccess {
+		t.Fatalf("successful revoke changed role attributes or history ACL: before=%s after=%s", stateBeforeSuccess, stateAfterSuccess)
+	}
+	assertMigratorTempCreate(t, ctx, ownerConn, false)
+	if _, err := admin.Exec(ctx, `REVOKE cloudsqlsuperuser FROM postgres`); err != nil {
+		t.Fatal("remove temporary fixture owner membership")
+	}
+	// Failure fixture: grantor admin (the fixture administrator) retains the
+	// grant; postgres has no ADMIN OPTION. The phase must roll back unchanged.
 	if _, err := admin.Exec(ctx, `GRANT cloudsqlsuperuser TO espacigo_scratch_migrator WITH INHERIT TRUE, SET TRUE`); err != nil {
 		t.Fatal("add retired-login membership negative fixture")
 	}
+	assertMigratorTempCreate(t, ctx, ownerConn, true)
+	stateBeforeFailure := scratchRoleACLState(t, ctx, ownerConn)
+	denied := revokeRetiredMembershipOnConnection(ctx, ownerConn, migrationDir)
+	if denied.Passed || denied.Revoked || denied.ErrorCode != "42501" || !denied.DiagnosticsCollected || denied.Postcheck == nil || denied.Postcheck.NoRoleMemberships {
+		t.Fatalf("no-ADMIN fixture should fail without changing membership: report=%+v", denied)
+	}
+	if stateAfterFailure := scratchRoleACLState(t, ctx, ownerConn); stateAfterFailure != stateBeforeFailure {
+		t.Fatalf("failed revoke changed role attributes or history ACL: before=%s after=%s", stateBeforeFailure, stateAfterFailure)
+	}
+	assertMigratorTempCreate(t, ctx, ownerConn, true)
 	if report := observeRetired(); report.Passed || report.NoRoleMemberships || report.Observation.RoleInventoryPass {
 		t.Fatalf("remaining membership should fail with diagnostics: passed=%t no_memberships=%t role_inventory=%t membership_count=%d",
 			report.Passed, report.NoRoleMemberships, report.Observation.RoleInventoryPass, len(report.Observation.Memberships))
@@ -347,6 +388,31 @@ func mustConnect(t *testing.T, ctx context.Context, connectionURL string) *pgx.C
 		t.Fatal("connect to isolated test database")
 	}
 	return conn
+}
+
+func scratchRoleACLState(t *testing.T, ctx context.Context, conn *pgx.Conn) string {
+	t.Helper()
+	var state string
+	err := conn.QueryRow(ctx, `SELECT concat_ws('|', r.rolcanlogin::text, r.rolsuper::text, r.rolcreatedb::text,
+		r.rolcreaterole::text, r.rolreplication::text, r.rolbypassrls::text, r.rolinherit::text,
+		pg_catalog.pg_get_userbyid(c.relowner), coalesce(c.relacl::text, '<null>'))
+		FROM pg_catalog.pg_roles r CROSS JOIN pg_catalog.pg_class c
+		JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+		WHERE r.rolname='espacigo_scratch_migrator' AND n.nspname='public' AND c.relname='schema_migrations'`).Scan(&state)
+	if err != nil {
+		t.Fatalf("read fixed role and history ACL state: %v", err)
+	}
+	return state
+}
+
+func assertMigratorTempCreate(t *testing.T, ctx context.Context, conn *pgx.Conn, want bool) {
+	t.Helper()
+	var canTemp, canCreate bool
+	err := conn.QueryRow(ctx, `SELECT has_database_privilege('espacigo_scratch_migrator', 'espacigo_scratch', 'TEMP'),
+		has_schema_privilege('espacigo_scratch_migrator', 'public', 'CREATE')`).Scan(&canTemp, &canCreate)
+	if err != nil || canTemp != want || canCreate != want {
+		t.Fatalf("migrator inherited TEMP/CREATE = %t/%t, want %t/%t (err=%v)", canTemp, canCreate, want, want, err)
+	}
 }
 
 func sourceFile(t *testing.T) string {
