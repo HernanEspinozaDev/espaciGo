@@ -27,6 +27,7 @@ func (e cloudAPIError) Error() string { return "Google Cloud API request failed"
 func (e cloudAPIError) Definitive() bool {
 	return e.status >= 400 && e.status < 500 && e.status != http.StatusRequestTimeout && e.status != http.StatusTooManyRequests && e.status != http.StatusConflict
 }
+func (e cloudAPIError) NotFound() bool { return e.status == http.StatusNotFound }
 
 type secretVersionAPI struct{ service *secretmanager.Service }
 
@@ -54,6 +55,17 @@ type sqlUserAPI struct{ service *sqladmin.Service }
 func (a sqlUserAPI) CreateBuiltInUser(ctx context.Context, name string, password []byte) (string, error) {
 	user := &sqladmin.User{Name: name, Password: string(password), Type: "BUILT_IN"}
 	operation, err := a.service.Users.Insert(gcp03scratch.ProjectID, gcp03scratch.InstanceName, user).Context(ctx).Do()
+	if err != nil {
+		return "", cloudAPIErrorFrom(err)
+	}
+	return operation.Name, nil
+}
+
+func (a sqlUserAPI) DeleteBuiltInUser(ctx context.Context, name string) (string, error) {
+	if name != gcp03scratch.MigratorLogin {
+		return "", errors.New("only the fixed GCP-03 probe login can be deleted")
+	}
+	operation, err := a.service.Users.Delete(gcp03scratch.ProjectID, gcp03scratch.InstanceName).Name(name).Context(ctx).Do()
 	if err != nil {
 		return "", cloudAPIErrorFrom(err)
 	}
@@ -135,11 +147,12 @@ func run() int {
 	reconcileRoles := flag.Bool("reconcile-creator-memberships", false, "preserve only cloudsqlsuperuser and remove PostgreSQL 18 creator memberships")
 	createOwner := flag.Bool("create-database-owner-credential", false, "set a temporary password for the scratch database owner")
 	retireOwner := flag.Bool("retire-database-owner-credential", false, "rotate the scratch database owner password and destroy its exact secret version")
+	retireProbeLogin := flag.Bool("retire-role-comment-probe-login", false, "delete the fixed GCP-03 probe login and destroy its exact secret version")
 	confirm := flag.String("confirm-target", "", "exact reviewed scratch target confirmation")
 	secretVersion := flag.String("secret-version", "", "exact Secret Manager version to destroy after successful role revocation")
 	flag.Parse()
 	modeCount := 0
-	for _, enabled := range []bool{*revoke, *reconcileRoles, *createOwner, *retireOwner} {
+	for _, enabled := range []bool{*revoke, *reconcileRoles, *createOwner, *retireOwner, *retireProbeLogin} {
 		if enabled {
 			modeCount++
 		}
@@ -157,6 +170,8 @@ func run() int {
 		valid = valid && *confirm == gcp03scratch.DatabaseOwnerCreateConfirmation && *secretVersion == ""
 	case *retireOwner:
 		valid = valid && *confirm == gcp03scratch.DatabaseOwnerRetireConfirmation && gcp03scratch.IsDatabaseOwnerSecretVersion(*secretVersion)
+	case *retireProbeLogin:
+		valid = valid && *confirm == gcp03scratch.ProbeRetireConfirmation && gcp03scratch.IsScratchSecretVersion(*secretVersion)
 	default:
 		valid = valid && *confirm == gcp03scratch.CredentialConfirmation && *secretVersion == ""
 	}
@@ -166,6 +181,7 @@ func run() int {
 		fmt.Fprintf(flag.CommandLine.Output(), "reconcile: gcp03scratch-credential --apply --reconcile-creator-memberships --confirm-target=%s\n", gcp03scratch.ReconcileConfirmation)
 		fmt.Fprintf(flag.CommandLine.Output(), "owner-create: gcp03scratch-credential --apply --create-database-owner-credential --confirm-target=%s\n", gcp03scratch.DatabaseOwnerCreateConfirmation)
 		fmt.Fprintf(flag.CommandLine.Output(), "owner-retire: gcp03scratch-credential --apply --retire-database-owner-credential --confirm-target=%s --secret-version=projects/espacigo-testprod/secrets/espacigo-gcp03-pilot01-db-owner-password/versions/N\n", gcp03scratch.DatabaseOwnerRetireConfirmation)
+		fmt.Fprintf(flag.CommandLine.Output(), "probe-retire: gcp03scratch-credential --apply --retire-role-comment-probe-login --confirm-target=%s --secret-version=projects/espacigo-testprod/secrets/espacigo-gcp03-pilot01-migrator-password/versions/N\n", gcp03scratch.ProbeRetireConfirmation)
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -182,6 +198,14 @@ func run() int {
 		return 1
 	}
 	provisioner.Secrets = secretVersionAPI{service: secretService}
+	if *retireProbeLogin {
+		if err := provisioner.RetireRoleCommentProbeLogin(ctx, *apply, *confirm, *secretVersion); err != nil {
+			fmt.Fprintln(flag.CommandLine.Output(), err)
+			return 1
+		}
+		fmt.Fprintln(flag.CommandLine.Output(), "fixed GCP-03 probe login deleted and exact secret version destroyed")
+		return 0
+	}
 	if *revoke {
 		if err := provisioner.RevokeSuperuser(ctx, *apply, *confirm, *secretVersion); err != nil {
 			fmt.Fprintln(flag.CommandLine.Output(), err)

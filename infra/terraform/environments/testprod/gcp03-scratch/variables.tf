@@ -74,6 +74,66 @@ variable "enable_job" {
   }
 }
 
+variable "enable_role_probe_jobs" {
+  type        = bool
+  description = "Separate gate for the two fixed V60 role-comment probe Jobs; no migration or arbitrary-SQL phase is included."
+  default     = false
+  validation {
+    condition = !var.enable_role_probe_jobs || (
+      var.enable_scratch &&
+      var.run_id == "pilot01" &&
+      !var.enable_job &&
+      var.database_user == "espacigo_scratch_migrator" &&
+      var.database_name == "espacigo_scratch" &&
+      can(regex("@sha256:[0-9a-f]{64}$", var.role_probe_image)) &&
+      startswith(var.role_probe_image, "${var.region}-docker.pkg.dev/${var.project_id}/gcp03-scratch-${var.run_id}/dbmigrate@sha256:") &&
+      var.confirm_role_probe_image_pushed &&
+      var.confirm_role_probe_secret_version &&
+      can(regex("^[1-9][0-9]*$", var.role_probe_secret_version)) &&
+      can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", var.role_probe_iam_expires_at))
+    )
+    error_message = "Role-comment probe Jobs require the exact pilot01 scratch target, uploaded digest image, numeric version, temporary IAM expiry, and explicit operator member."
+  }
+}
+
+variable "role_probe_image" {
+  type        = string
+  description = "Digest-pinned GCP-03 image containing only fixed named phases; no mutable tags."
+  default     = ""
+}
+
+variable "role_probe_secret_version" {
+  type        = string
+  description = "Concrete numeric Secret Manager version mounted by both probe Jobs; never use latest."
+  default     = "1"
+  validation {
+    condition     = can(regex("^[1-9][0-9]*$", var.role_probe_secret_version))
+    error_message = "The fixed role-comment probe requires an immutable numeric secret version."
+  }
+}
+
+variable "confirm_role_probe_image_pushed" {
+  type        = bool
+  description = "Confirm only after the clean reviewed probe image digest is pushed and read back from this exact scratch repository."
+  default     = false
+}
+
+variable "confirm_role_probe_secret_version" {
+  type        = bool
+  description = "Confirm only after the exact numeric migrator secret version exists and is verified active."
+  default     = false
+}
+
+variable "role_probe_iam_expires_at" {
+  type        = string
+  description = "Explicit RFC3339 expiry for the temporary human operator Cloud SQL/secret IAM grants; choose after operation approval."
+  default     = ""
+  validation {
+    condition     = var.role_probe_iam_expires_at == "" || can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", var.role_probe_iam_expires_at))
+    error_message = "The enabled role-comment probe requires a valid explicit IAM expiry timestamp."
+  }
+}
+
 variable "migrator_image" {
   type        = string
   description = "Image reference in the scratch Artifact Registry repository, pinned by immutable sha256 digest."
@@ -159,7 +219,7 @@ variable "operator_member" {
   description = "Exact IAM member allowed to execute the named job and act as its scratch-only service account."
   default     = ""
   validation {
-    condition     = !var.enable_job || can(regex("^(user|group|serviceAccount):[^[:space:]]+$", var.operator_member))
-    error_message = "The gated migration Job requires one explicit user:, group:, or serviceAccount: operator member."
+    condition     = !(var.enable_job || var.enable_role_probe_jobs) || can(regex("^(user|group|serviceAccount):[^[:space:]]+$", var.operator_member))
+    error_message = "The gated Job requires one explicit user:, group:, or serviceAccount: operator member."
   }
 }

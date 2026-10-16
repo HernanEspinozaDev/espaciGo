@@ -22,7 +22,7 @@ func validEnvironment(phase Phase) map[string]string {
 }
 
 func TestLoadConfigAcceptsOnlyNamedPhasesForExactScratchTarget(t *testing.T) {
-	for _, phase := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire} {
+	for _, phase := range []Phase{PhaseBootstrap, PhaseDatabaseACL, PhaseMigrate, PhaseFinalize, PhaseRetire, PhaseRoleCommentPrepare, PhaseRoleCommentAfterReconcile} {
 		t.Run(string(phase), func(t *testing.T) {
 			values := validEnvironment(phase)
 			config, err := LoadConfig(func(key string) string { return values[key] })
@@ -42,8 +42,9 @@ func TestLoadConfigAcceptsOnlyNamedPhasesForExactScratchTarget(t *testing.T) {
 
 func TestLoadConfigRejectsTargetOverridesAndSecretFlags(t *testing.T) {
 	for name, change := range map[string]func(map[string]string){
-		"other phase":  func(e map[string]string) { e["GCP03_PHASE"] = "sql" },
-		"other target": func(e map[string]string) { e["GCP03_CONFIRM_TARGET"] = "other-instance/other-database" },
+		"other phase":                  func(e map[string]string) { e["GCP03_PHASE"] = "sql" },
+		"arbitrary role-comment phase": func(e map[string]string) { e["GCP03_PHASE"] = "role_comment_arbitrary_sql" },
+		"other target":                 func(e map[string]string) { e["GCP03_CONFIRM_TARGET"] = "other-instance/other-database" },
 		"other Cloud SQL": func(e map[string]string) {
 			e["CLOUD_SQL_INSTANCE_CONNECTION_NAME"] = "other-project:southamerica-west1:other-db"
 		},

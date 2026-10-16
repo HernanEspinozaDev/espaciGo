@@ -42,12 +42,26 @@ type fakeSQLUsers struct {
 	roles     []string
 	roleSets  [][]string
 	passwords [][]byte
+	deleted   bool
+	notFound  bool
+	deleteErr error
 }
 
 func (f *fakeSQLUsers) CreateBuiltInUser(_ context.Context, name string, password []byte) (string, error) {
 	f.name = name
 	f.password = append([]byte(nil), password...)
 	return f.operation, f.createErr
+}
+
+func (f *fakeSQLUsers) DeleteBuiltInUser(_ context.Context, name string) (string, error) {
+	if name != MigratorLogin {
+		return "", errors.New("wrong user")
+	}
+	f.deleted = true
+	if f.deleteErr == nil {
+		f.notFound = true
+	}
+	return f.operation, f.deleteErr
 }
 
 func (f *fakeSQLUsers) SetDatabaseRoles(_ context.Context, name string, roles []string, revokeExisting bool) (string, error) {
@@ -65,6 +79,9 @@ func (f *fakeSQLUsers) SetPassword(_ context.Context, name string, password []by
 }
 
 func (f *fakeSQLUsers) GetDatabaseRoles(context.Context, string) ([]string, error) {
+	if f.notFound {
+		return nil, fakeCloudSQLNotFound{}
+	}
 	return append([]string(nil), f.roles...), nil
 }
 
@@ -74,6 +91,11 @@ func (f *fakeSQLUsers) GetOperation(_ context.Context, operation string) (bool, 
 	}
 	return f.done, f.failed, f.getErr
 }
+
+type fakeCloudSQLNotFound struct{}
+
+func (fakeCloudSQLNotFound) Error() string  { return "not found" }
+func (fakeCloudSQLNotFound) NotFound() bool { return true }
 
 type definitiveFailure struct{ text string }
 
@@ -125,6 +147,58 @@ func TestCredentialProvisionerCreatesSecretThenBoundBuiltInUserWithoutPrintingPa
 	}
 	if len(secret.destroyed) != 0 {
 		t.Fatalf("successful secret version was destroyed: %v", secret.destroyed)
+	}
+}
+
+func TestRetireRoleCommentProbeLoginRequiresExactConfirmationAndSecretVersion(t *testing.T) {
+	provisioner, secret, user := successfulProvisioner()
+	version := ScratchSecretResource + "/versions/1"
+	if err := provisioner.RetireRoleCommentProbeLogin(context.Background(), false, ProbeRetireConfirmation, version); err == nil {
+		t.Fatal("retirement without apply gate was accepted")
+	}
+	if err := provisioner.RetireRoleCommentProbeLogin(context.Background(), true, CredentialConfirmation, version); err == nil {
+		t.Fatal("retirement with the credential-creation confirmation was accepted")
+	}
+	if err := provisioner.RetireRoleCommentProbeLogin(context.Background(), true, ProbeRetireConfirmation, ScratchSecretResource+"/versions/latest"); err == nil {
+		t.Fatal("retirement with a mutable secret version was accepted")
+	}
+	if user.deleted || len(secret.destroyed) != 0 {
+		t.Fatal("retirement API was called before exact gates passed")
+	}
+}
+
+func TestRetireRoleCommentProbeLoginDeletesExactUserBeforeDestroyingVersion(t *testing.T) {
+	provisioner, secret, user := successfulProvisioner()
+	user.roles = []string{"cloudsqlsuperuser"}
+	version := ScratchSecretResource + "/versions/7"
+	if err := provisioner.RetireRoleCommentProbeLogin(context.Background(), true, ProbeRetireConfirmation, version); err != nil {
+		t.Fatal(err)
+	}
+	if !user.deleted || !user.notFound {
+		t.Fatal("fixed probe login was not deleted and verified absent")
+	}
+	if len(secret.destroyed) != 1 || secret.destroyed[0] != version {
+		t.Fatalf("unexpected destroyed versions: %v", secret.destroyed)
+	}
+}
+
+func TestRetireRoleCommentProbeLoginRetainsVersionForUnexpectedRolesOrUncertainDelete(t *testing.T) {
+	provisioner, secret, user := successfulProvisioner()
+	version := ScratchSecretResource + "/versions/3"
+	user.roles = []string{"unexpected_role"}
+	if err := provisioner.RetireRoleCommentProbeLogin(context.Background(), true, ProbeRetireConfirmation, version); err == nil {
+		t.Fatal("unexpected role set was deleted")
+	}
+	if user.deleted || len(secret.destroyed) != 0 {
+		t.Fatal("unexpected role state mutated user or secret")
+	}
+	user.roles = []string{"cloudsqlsuperuser"}
+	user.deleteErr = errors.New("transport outcome unknown")
+	if err := provisioner.RetireRoleCommentProbeLogin(context.Background(), true, ProbeRetireConfirmation, version); err == nil {
+		t.Fatal("uncertain deletion was reported as success")
+	}
+	if len(secret.destroyed) != 0 {
+		t.Fatal("secret version was destroyed after an uncertain delete")
 	}
 }
 
