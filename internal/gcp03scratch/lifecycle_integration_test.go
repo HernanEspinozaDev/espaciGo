@@ -323,7 +323,7 @@ func TestScratchLifecyclePostgres18(t *testing.T) {
 	assertMigratorTempCreate(t, ctx, ownerConn, true)
 	stateBeforeSuccess := scratchRoleACLState(t, ctx, ownerConn)
 	revoked := revokeRetiredMembershipOnConnection(ctx, ownerConn, migrationDir)
-	if !revoked.Passed || !revoked.Revoked || revoked.Postcheck == nil || !revoked.Postcheck.Passed {
+	if !revoked.Passed || !revoked.PrecheckPassed || !revoked.ExpectedMembership || !revoked.MutationAttempted || !revoked.RevokeStatementSucceeded || !revoked.Revoked || revoked.Postcheck == nil || !revoked.Postcheck.Passed {
 		t.Fatalf("restricted owner ADMIN grant should permit the fixed revocation: report=%+v", revoked)
 	}
 	var migratorCanLogin, migratorSuperuser, migratorCreateRole, ownerSuperuser, ownerCreateRole bool
@@ -345,7 +345,7 @@ func TestScratchLifecyclePostgres18(t *testing.T) {
 	assertMigratorTempCreate(t, ctx, ownerConn, true)
 	stateBeforeFailure := scratchRoleACLState(t, ctx, ownerConn)
 	denied := revokeRetiredMembershipOnConnection(ctx, ownerConn, migrationDir)
-	if denied.Passed || denied.Revoked || denied.ErrorCode != "42501" || !denied.DiagnosticsCollected || denied.Postcheck == nil || denied.Postcheck.NoRoleMemberships {
+	if denied.Passed || denied.Revoked || !denied.PrecheckPassed || !denied.ExpectedMembership || !denied.MutationAttempted || denied.ErrorCode != "42501" || !denied.DiagnosticsCollected || denied.Postcheck == nil || denied.Postcheck.NoRoleMemberships {
 		t.Fatalf("no-ADMIN fixture should fail without changing membership: report=%+v", denied)
 	}
 	if stateAfterFailure := scratchRoleACLState(t, ctx, ownerConn); stateAfterFailure != stateBeforeFailure {
