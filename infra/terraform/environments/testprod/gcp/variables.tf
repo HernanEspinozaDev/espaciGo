@@ -41,8 +41,8 @@ variable "enable_services" {
   description = "Separate explicit apply gate for Cloud Run services; requires foundation and database."
   default     = false
   validation {
-    condition     = !var.enable_services || (var.enable_foundation && var.enable_database && var.acknowledge_gcp04_runtime_gates && var.mailpit_private_address != "" && var.confirm_pga_iap_key_preflight)
-    error_message = "Cloud Run services require foundation, database, GCP-04 replay/lease approval, the reviewed private Mailpit endpoint, and a successful IAP-key egress preflight over Private Google Access."
+    condition     = !var.enable_services || (var.enable_foundation && var.enable_database && var.acknowledge_gcp04_runtime_gates && var.mailpit_private_address != "" && var.confirm_pga_iap_key_preflight && var.confirm_runtime_secret_versions && var.confirm_runtime_database_bootstrap)
+    error_message = "Cloud Run services require foundation/database, GCP-04 replay/lease approval, a reviewed private Mailpit endpoint, verified IAP-key egress over Private Google Access, loaded runtime secret versions, and completed SQL runtime-user bootstrap."
   }
 }
 
@@ -71,6 +71,18 @@ variable "confirm_cost_policy_review" {
 variable "confirm_pga_iap_key_preflight" {
   type        = bool
   description = "Set only after a real egress preflight confirms the private SSR can fetch https://www.gstatic.com/iap/verify/public_key through Direct VPC egress and Private Google Access."
+  default     = false
+}
+
+variable "confirm_runtime_secret_versions" {
+  type        = bool
+  description = "Set only after all referenced Secret Manager secrets have active latest versions loaded privately and verified."
+  default     = false
+}
+
+variable "confirm_runtime_database_bootstrap" {
+  type        = bool
+  description = "Set only after the least-privilege PostgreSQL runtime role, database grants, and connection path are created and verified outside Terraform."
   default     = false
 }
 

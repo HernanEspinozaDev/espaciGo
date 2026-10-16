@@ -20,6 +20,17 @@ mock_provider "google" {
   }
 }
 
+mock_provider "google-beta" {
+  override_during = plan
+
+  mock_resource "google_project_service_identity" {
+    defaults = {
+      email  = "service-123456789012@gcp-sa-iap.iam.gserviceaccount.com"
+      member = "serviceAccount:service-123456789012@gcp-sa-iap.iam.gserviceaccount.com"
+    }
+  }
+}
+
 run "foundation_plan_is_gated_and_scoped" {
   command = plan
 
@@ -33,7 +44,7 @@ run "foundation_plan_is_gated_and_scoped" {
   }
 
   assert {
-    condition     = length(google_project_service.required) == 11
+    condition     = length(google_project_service.required) == 13
     error_message = "Foundation should plan only its explicit minimum API set."
   }
   assert {
@@ -82,20 +93,22 @@ run "services_and_edge_preserve_runtime_contracts" {
   command = plan
 
   variables {
-    project_id                      = "offline-test-project"
-    project_number                  = "123456789012"
-    enable_foundation               = true
-    enable_database                 = true
-    enable_services                 = true
-    enable_edge                     = true
-    confirm_project_inventory       = true
-    confirm_cost_policy_review      = true
-    acknowledge_gcp04_runtime_gates = true
-    bucket_suffix                   = "offline-test"
-    api_image                       = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                  = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address         = "10.80.0.10:1025"
-    confirm_pga_iap_key_preflight   = true
+    project_id                         = "offline-test-project"
+    project_number                     = "123456789012"
+    enable_foundation                  = true
+    enable_database                    = true
+    enable_services                    = true
+    enable_edge                        = true
+    confirm_project_inventory          = true
+    confirm_cost_policy_review         = true
+    acknowledge_gcp04_runtime_gates    = true
+    bucket_suffix                      = "offline-test"
+    api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address            = "10.80.0.10:1025"
+    confirm_pga_iap_key_preflight      = true
+    confirm_runtime_secret_versions    = true
+    confirm_runtime_database_bootstrap = true
   }
 
   assert {
@@ -127,6 +140,10 @@ run "services_and_edge_preserve_runtime_contracts" {
     error_message = "The private entry must retain native Cloud Run IAP and load-balancer-only ingress."
   }
   assert {
+    condition     = google_cloud_run_v2_service_iam_member.private_iap_invoker[0].member == google_project_service_identity.iap[0].member
+    error_message = "The private service must grant invoker to the explicitly provisioned IAP service identity."
+  }
+  assert {
     condition     = google_compute_subnetwork.serverless[0].private_ip_google_access == true && google_cloud_run_v2_service.web["private"].template[0].vpc_access[0].egress == "ALL_TRAFFIC"
     error_message = "The private SSR's IAP key download must use its Direct VPC egress subnet with Private Google Access."
   }
@@ -156,6 +173,52 @@ run "services_reject_unverified_iap_key_egress" {
   command = plan
 
   variables {
+    project_id                         = "offline-test-project"
+    project_number                     = "123456789012"
+    enable_foundation                  = true
+    enable_database                    = true
+    enable_services                    = true
+    confirm_project_inventory          = true
+    confirm_cost_policy_review         = true
+    acknowledge_gcp04_runtime_gates    = true
+    bucket_suffix                      = "offline-test"
+    api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address            = "10.80.0.10:1025"
+    confirm_runtime_secret_versions    = true
+    confirm_runtime_database_bootstrap = true
+  }
+
+  expect_failures = [var.enable_services]
+}
+
+run "services_reject_missing_runtime_secret_versions" {
+  command = plan
+
+  variables {
+    project_id                         = "offline-test-project"
+    project_number                     = "123456789012"
+    enable_foundation                  = true
+    enable_database                    = true
+    enable_services                    = true
+    confirm_project_inventory          = true
+    confirm_cost_policy_review         = true
+    acknowledge_gcp04_runtime_gates    = true
+    confirm_pga_iap_key_preflight      = true
+    confirm_runtime_database_bootstrap = true
+    bucket_suffix                      = "offline-test"
+    api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address            = "10.80.0.10:1025"
+  }
+
+  expect_failures = [var.enable_services]
+}
+
+run "services_reject_missing_runtime_database_bootstrap" {
+  command = plan
+
+  variables {
     project_id                      = "offline-test-project"
     project_number                  = "123456789012"
     enable_foundation               = true
@@ -164,6 +227,8 @@ run "services_reject_unverified_iap_key_egress" {
     confirm_project_inventory       = true
     confirm_cost_policy_review      = true
     acknowledge_gcp04_runtime_gates = true
+    confirm_pga_iap_key_preflight   = true
+    confirm_runtime_secret_versions = true
     bucket_suffix                   = "offline-test"
     api_image                       = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     frontend_image                  = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"

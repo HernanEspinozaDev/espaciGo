@@ -8,6 +8,10 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 8.7.0"
     }
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = "~> 8.7.0"
+    }
   }
 }
 
@@ -16,9 +20,15 @@ provider "google" {
   region  = var.region
 }
 
+provider "google-beta" {
+  project = var.project_id != "" ? var.project_id : null
+  region  = var.region
+}
+
 locals {
   project_enabled_apis = toset([
     "artifactregistry.googleapis.com",
+    "cloudresourcemanager.googleapis.com",
     "compute.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
@@ -29,6 +39,7 @@ locals {
     "sqladmin.googleapis.com",
     "sts.googleapis.com",
     "storage.googleapis.com",
+    "serviceusage.googleapis.com",
   ])
   web_services = var.enable_services ? {
     public = {
@@ -46,7 +57,6 @@ locals {
       iap_enabled  = true
     }
   } : {}
-  run_iap_member = "serviceAccount:service-${var.project_number}@gcp-sa-iap.iam.gserviceaccount.com"
 }
 
 resource "google_project_service" "required" {
@@ -55,6 +65,15 @@ resource "google_project_service" "required" {
   service                    = each.value
   disable_dependent_services = false
   disable_on_destroy         = false
+}
+
+resource "google_project_service_identity" "iap" {
+  provider = google-beta
+  count    = var.enable_services ? 1 : 0
+  project  = var.project_id
+  service  = "iap.googleapis.com"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_compute_network" "testprod" {
@@ -101,6 +120,8 @@ resource "google_service_account" "runtime" {
   for_each     = var.enable_foundation ? toset(["api", "public-web", "private-web", "migrator", "deployer"]) : toset([])
   account_id   = "espacigo-test-${each.key}"
   display_name = "EspaciGo testprod ${each.key} runtime"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_iam_workload_identity_pool" "github" {
@@ -109,6 +130,8 @@ resource "google_iam_workload_identity_pool" "github" {
   display_name              = "EspaciGo testprod GitHub Actions"
   description               = "Restricted to the EspaciGo repository main branch."
   disabled                  = false
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_iam_workload_identity_pool_provider" "github" {
@@ -125,6 +148,8 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_service_account_iam_member" "github_deployer" {
@@ -132,6 +157,8 @@ resource "google_service_account_iam_member" "github_deployer" {
   service_account_id = google_service_account.runtime["deployer"].name
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github[0].name}/attribute.repository/${var.github_repository}"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_project_iam_member" "deployer_run" {
@@ -139,6 +166,8 @@ resource "google_project_iam_member" "deployer_run" {
   project = var.project_id
   role    = "roles/run.developer"
   member  = "serviceAccount:${google_service_account.runtime["deployer"].email}"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_artifact_registry_repository" "containers" {
@@ -158,6 +187,8 @@ resource "google_artifact_registry_repository_iam_member" "deployer_writer" {
   repository = google_artifact_registry_repository.containers[0].name
   role       = "roles/artifactregistry.writer"
   member     = "serviceAccount:${google_service_account.runtime["deployer"].email}"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_storage_bucket" "private_files" {
@@ -177,6 +208,8 @@ resource "google_storage_bucket" "private_files" {
   lifecycle {
     prevent_destroy = true
   }
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_storage_bucket_iam_member" "api_files" {
@@ -184,6 +217,8 @@ resource "google_storage_bucket_iam_member" "api_files" {
   bucket = google_storage_bucket.private_files[0].name
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.runtime["api"].email}"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_secret_manager_secret" "runtime" {
@@ -194,6 +229,8 @@ resource "google_secret_manager_secret" "runtime" {
     auto {}
   }
   deletion_policy = "DISABLE"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_secret_manager_secret_iam_member" "api_secret_access" {
@@ -202,6 +239,8 @@ resource "google_secret_manager_secret_iam_member" "api_secret_access" {
   secret_id = google_secret_manager_secret.runtime[each.value].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.runtime["api"].email}"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_secret_manager_secret_iam_member" "migrator_db_access" {
@@ -210,6 +249,8 @@ resource "google_secret_manager_secret_iam_member" "migrator_db_access" {
   secret_id = google_secret_manager_secret.runtime["database-password"].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.runtime["migrator"].email}"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_project_iam_member" "cloudsql_clients" {
@@ -217,6 +258,8 @@ resource "google_project_iam_member" "cloudsql_clients" {
   project  = var.project_id
   role     = "roles/cloudsql.client"
   member   = "serviceAccount:${google_service_account.runtime[each.key].email}"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_sql_database_instance" "postgres" {
@@ -404,7 +447,12 @@ resource "google_cloud_run_v2_service" "api" {
     }
   }
 
-  depends_on = [google_project_service.required]
+  depends_on = [
+    google_project_service.required,
+    google_storage_bucket_iam_member.api_files,
+    google_secret_manager_secret_iam_member.api_secret_access,
+    google_project_iam_member.cloudsql_clients,
+  ]
 }
 
 resource "google_cloud_run_v2_service" "web" {
@@ -466,7 +514,10 @@ resource "google_cloud_run_v2_service" "web" {
     }
   }
 
-  depends_on = [google_project_service.required]
+  depends_on = [
+    google_project_service.required,
+    google_cloud_run_v2_service_iam_member.api_invoker,
+  ]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "api_invoker" {
@@ -493,7 +544,7 @@ resource "google_cloud_run_v2_service_iam_member" "private_iap_invoker" {
   location = var.region
   name     = google_cloud_run_v2_service.web["private"].name
   role     = "roles/run.invoker"
-  member   = local.run_iap_member
+  member   = google_project_service_identity.iap[0].member
 }
 
 resource "google_service_account_iam_member" "deployer_act_as_runtime" {
@@ -501,6 +552,8 @@ resource "google_service_account_iam_member" "deployer_act_as_runtime" {
   service_account_id = google_service_account.runtime[each.value].name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_service_account.runtime["deployer"].email}"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_iap_web_cloud_run_service_iam_member" "private_evaluators" {
@@ -586,11 +639,15 @@ resource "google_compute_security_policy" "public_edge" {
       }
     }
   }
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_compute_global_address" "edge" {
   count = var.enable_edge && var.enable_services ? 1 : 0
   name  = "espacigo-testprod-edge-ipv4"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_compute_managed_ssl_certificate" "edge" {
@@ -599,6 +656,8 @@ resource "google_compute_managed_ssl_certificate" "edge" {
   managed {
     domains = [var.public_hostname, var.private_hostname]
   }
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_compute_url_map" "edge" {
@@ -639,4 +698,10 @@ resource "google_compute_global_forwarding_rule" "https" {
   port_range            = "443"
   ip_protocol           = "TCP"
   load_balancing_scheme = "EXTERNAL_MANAGED"
+
+  depends_on = [
+    google_project_service.required,
+    google_cloud_run_v2_service_iam_member.public_web_invoker,
+    google_cloud_run_v2_service_iam_member.private_iap_invoker,
+  ]
 }
