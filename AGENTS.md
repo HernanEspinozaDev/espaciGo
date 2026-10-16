@@ -69,6 +69,8 @@ Estas instrucciones se aplican al monorepo. Se complementan con `frontend/AGENTS
 
 PR: objetivo/corte, capas afectadas, migraciones, contrato, pruebas, capturas si hay cambio visual, límites y datos de ensayo usados. Corregir comentarios en el mismo PR, solicitar nueva revisión y no iniciar el sucesor antes de la fusión.
 
+En tareas continuadas desde otro chat/hilo, antes de finalizar enviar allí el URL del PR, HEAD, estado de revisión/checks, pruebas y límites con la herramienta de mensaje al hilo. Confirmar que la llamada tuvo éxito; una respuesta en el hilo actual no sustituye ese aviso.
+
 Tras fusionar: sincronizar `main`, actualizar plan/matriz cuando corresponda, retirar rama/worktree y ensayos del corte. Mantener `main` como punto de partida. La aceptación final de producto requiere al usuario; una fusión técnica no la inventa.
 
 ## CIERRE LOCAL — estado tras la aceptación (2026-10-14)
