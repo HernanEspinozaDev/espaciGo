@@ -53,7 +53,8 @@ run "job_creates_five_immutable_named_phases_with_exact_operator_iam" {
   assert {
     condition = alltrue([
       for phase, job in google_cloud_run_v2_job.migrator :
-      job.name == "espacigo-gcp03-pilot01-${phase}" &&
+      job.name == "espacigo-gcp03-pilot01-${replace(phase, "_", "-")}" &&
+      can(regex("^[a-z][a-z0-9-]{0,61}[a-z0-9]$", job.name)) &&
       job.template[0].task_count == 1 &&
       job.template[0].parallelism == 1 &&
       job.template[0].template[0].max_retries == 0 &&
@@ -102,7 +103,8 @@ run "role_comment_probe_jobs_require_existing_numeric_version_and_grant_only_job
   assert {
     condition = alltrue([
       for phase, job in google_cloud_run_v2_job.role_comment_probe :
-      job.name == "espacigo-gcp03-pilot01-${phase}" &&
+      job.name == "espacigo-gcp03-pilot01-${replace(phase, "_", "-")}" &&
+      can(regex("^[a-z][a-z0-9-]{0,61}[a-z0-9]$", job.name)) &&
       job.template[0].task_count == 1 &&
       job.template[0].parallelism == 1 &&
       job.template[0].template[0].max_retries == 0 &&

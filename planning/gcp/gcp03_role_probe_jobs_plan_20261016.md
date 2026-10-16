@@ -6,8 +6,8 @@ This record describes a real, refreshed Terraform binary plan for the next revie
 
 The only non-no-op actions are exactly five creates:
 
-1. `role_comment_prepare` Cloud Run Job.
-2. `role_comment_after_reconcile` Cloud Run Job.
+1. `espacigo-gcp03-pilot01-role-comment-prepare` Cloud Run Job (`GCP03_PHASE=role_comment_prepare`).
+2. `espacigo-gcp03-pilot01-role-comment-after-reconcile` Cloud Run Job (`GCP03_PHASE=role_comment_after_reconcile`). Terraform map keys and phase values retain underscores; Cloud Run resource IDs translate underscores to hyphens.
 3. `roles/run.invoker` binding for each of those Jobs.
 4. One `roles/iam.serviceAccountUser` (`actAs`) binding for the existing scratch migrator service account.
 
@@ -29,8 +29,10 @@ Both Jobs use the fixed reviewed image and numeric secret version, one task, par
 - Terraform validation: passed.
 - Real refresh plan summary: `5 to add, 0 to change, 0 to destroy`.
 - Machine inspection: passed; exact five creates above, all other resources no-op, and exact image, secret version, task, timeout, retry, CPU, and memory settings verified.
-- Binary plan SHA-256: `b0fa15c7bac1d3c75b75fa00497431e410ded7bdcdb82f0c78f8f985f1459ab0`.
-- Private JSON rendering SHA-256: `29284dd8a8eda186a67279aab2557bc5876069570052d1a29f40fead9064a66f`.
-- Binary, JSON, text plan, tfvars and logs are private under `.local/testing/gcp03-role-probe-jobs-plan-20261016/` with mode 0600. They are not committed or attached.
+- This revision supersedes the initial plan, whose names used invalid underscores and whose binary SHA-256 was `b0fa15c7bac1d3c75b75fa00497431e410ded7bdcdb82f0c78f8f985f1459ab0`. The initial plan was never applied and must not be applied.
+- Corrected binary plan SHA-256: `d7646ed81cb7105b24cbdf841b1bb289409e2bf55693b02b11e5773c46493800`.
+- Corrected JSON rendering SHA-256: `012440a277574bb7400ff499472cc395b3d0a6de77c217928a17888a2209fccb`.
+- Both corrected Cloud Run Job requests passed Cloud Run API `validateOnly=true` with HTTP 200. A follow-up GET for each Job returned 404, confirming validation did not persist resources.
+- Corrected binary, JSON, request/response evidence, text plan, tfvars and logs are private under `.local/testing/gcp03-role-probe-jobs-plan-20261016-v2/` with mode 0600. They are not committed or attached.
 
 Before any separately reviewed apply, re-check state/drift, target, numeric version 3 still active, image digest, and remaining IAM expiry. If the expiry has passed or drift exists, stop and request a fresh plan/review; do not silently renew IAM. This plan is only the review gate for Job creation. It does not authorize a Job execution or SQL operation.
