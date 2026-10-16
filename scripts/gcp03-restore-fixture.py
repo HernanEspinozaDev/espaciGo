@@ -46,6 +46,8 @@ def main() -> None:
         raise SystemExit("output directory must be under .local/testing")
     output.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(output, 0o700)
+    if (output / "fixture.sql").exists() or (output / "fixture-manifest.json").exists():
+        raise SystemExit("refusing to overwrite fixture or manifest from an existing run")
 
     migration_files = sorted(MIGRATIONS.glob("V*.sql"))
     expected = [f"V{i:06d}__" for i in range(1, 62)]

@@ -36,22 +36,23 @@ type restoreFixtureManifest struct {
 }
 
 type restoreEvidence struct {
-	Format             string          `json:"format"`
-	GeneratedAtUTC     string          `json:"generated_at_utc"`
-	Source             string          `json:"source"`
-	SourceDatabase     string          `json:"source_database"`
-	RestoredDatabase   string          `json:"restored_database"`
-	PostgreSQL         string          `json:"postgresql"`
-	PostGISFullVersion string          `json:"postgis_full_version"`
-	Migrations         int             `json:"migrations"`
-	MigrationInventory string          `json:"migration_inventory_sha256"`
-	FixtureSHA256      string          `json:"fixture_sha256"`
-	DumpBytes          int64           `json:"dump_bytes"`
-	DumpSHA256         string          `json:"dump_sha256"`
-	TOCSHA256          string          `json:"toc_sha256"`
-	RestoredCounts     map[string]int  `json:"restored_counts"`
-	Checks             map[string]bool `json:"checks"`
-	Notes              []string        `json:"limits"`
+	Format                    string          `json:"format"`
+	GeneratedAtUTC            string          `json:"generated_at_utc"`
+	Source                    string          `json:"source"`
+	SourceDatabase            string          `json:"source_database"`
+	RestoredDatabase          string          `json:"restored_database"`
+	PostgreSQL                string          `json:"postgresql"`
+	PostGISFullVersion        string          `json:"postgis_full_version"`
+	Migrations                int             `json:"migrations"`
+	MigrationInventory        string          `json:"migration_inventory_sha256"`
+	FixtureSHA256             string          `json:"fixture_sha256"`
+	DumpBytes                 int64           `json:"dump_bytes"`
+	DumpSHA256                string          `json:"dump_sha256"`
+	TOCSHA256                 string          `json:"toc_sha256"`
+	ConcurrentDeadlockRetries int             `json:"concurrent_deadlock_retries"`
+	RestoredCounts            map[string]int  `json:"restored_counts"`
+	Checks                    map[string]bool `json:"checks"`
+	Notes                     []string        `json:"limits"`
 }
 
 func TestSyntheticRestoreRehearsalPostgres18(t *testing.T) {
@@ -285,7 +286,8 @@ func TestSyntheticRestoreRehearsalPostgres18(t *testing.T) {
 	if err := assertOverlapRejected(ctx, target); err != nil {
 		t.Fatal(err)
 	}
-	if err := assertConcurrentOverlap(ctx, targetURL); err != nil {
+	deadlockRetries, err := assertConcurrentOverlap(ctx, targetURL)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -295,9 +297,10 @@ func TestSyntheticRestoreRehearsalPostgres18(t *testing.T) {
 		SourceDatabase: sourceDB, RestoredDatabase: targetDB, PostgreSQL: fmt.Sprintf("%d.%d", serverVersion/10000, serverVersion%10000),
 		PostGISFullVersion: postgisVersion, Migrations: migrationCount, MigrationInventory: fixtureManifest.Migrations.InventorySHA256,
 		FixtureSHA256: fixtureHashText, DumpBytes: int64(len(dumpBytes)), DumpSHA256: hex.EncodeToString(dumpHash[:]), TOCSHA256: hex.EncodeToString(tocHash[:]),
-		RestoredCounts: map[string]int{"usuario": users, "espacio": spaces, "ocupacion": occupancies},
-		Checks:         map[string]bool{"migration_checksums": migrationChecksumsEqual, "adjacent_ranges": true, "overlap_rejected": true, "concurrent_overlap_one_winner": true, "santiago_dst_23_hour_day": dstHours, "postgis_spatial_function": spatialValid, "object_ownership_reapplied": owner == ownerRole && functionOwner == ownerRole, "owner_role_minimal_no_login": !ownerLogin && !ownerSuper && !ownerCreateDB && !ownerCreateRole && !ownerReplication && !ownerBypassRLS && !ownerInherit, "security_definer_search_path": securityDefiner && safeSearchPath, "v60_trigger_present": triggerPresent},
-		Notes:          []string{"This local synthetic rehearsal tests the dump/restore mechanics only; it is not a restore of a source snapshot.", "Local PostgreSQL role behavior does not prove Cloud SQL managed-role behavior.", "The restore uses --no-owner/--no-acl then reapplies explicit ownership; cloud resources, SQL source, secrets, and application deployment were not used."},
+		ConcurrentDeadlockRetries: deadlockRetries,
+		RestoredCounts:            map[string]int{"usuario": users, "espacio": spaces, "ocupacion": occupancies},
+		Checks:                    map[string]bool{"migration_checksums": migrationChecksumsEqual, "adjacent_ranges": true, "overlap_rejected": true, "concurrent_overlap_one_winner": true, "santiago_dst_23_hour_day": dstHours, "postgis_spatial_function": spatialValid, "object_ownership_reapplied": owner == ownerRole && functionOwner == ownerRole, "owner_role_minimal_no_login": !ownerLogin && !ownerSuper && !ownerCreateDB && !ownerCreateRole && !ownerReplication && !ownerBypassRLS && !ownerInherit, "security_definer_search_path": securityDefiner && safeSearchPath, "v60_trigger_present": triggerPresent},
+		Notes:                     []string{"This local synthetic rehearsal tests the dump/restore mechanics only; it is not a restore of a source snapshot.", "Local PostgreSQL role behavior does not prove Cloud SQL managed-role behavior.", "The restore uses --no-owner/--no-acl then reapplies explicit ownership; cloud resources, SQL source, secrets, and application deployment were not used."},
 	}
 	evidenceBytes, err := json.MarshalIndent(evidence, "", "  ")
 	if err != nil {
@@ -354,13 +357,14 @@ func assertOverlapRejected(ctx context.Context, conn *pgx.Conn) error {
 	return nil
 }
 
-func assertConcurrentOverlap(ctx context.Context, dbURL string) error {
+func assertConcurrentOverlap(ctx context.Context, dbURL string) (int, error) {
 	const startID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeee04"
 	const endID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeee05"
 	start := time.Date(2026, time.October, 1, 12, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
 	gate := make(chan struct{})
 	errs := make([]error, 2)
+	retries := make([]int, 2)
 	ids := []string{startID, endID}
 	var wg sync.WaitGroup
 	for i := range ids {
@@ -374,8 +378,9 @@ func assertConcurrentOverlap(ctx context.Context, dbURL string) error {
 			}
 			defer conn.Close(context.Background())
 			<-gate
-			_, errs[i] = conn.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,motivo)
-				VALUES($1,'dddddddd-dddd-4ddd-8ddd-dddddddddddd',NULL,tstzrange($2,$3,'[)'),'bloqueo_manual',true,'concurrency fixture')`, ids[i], start, end)
+			retries[i], errs[i] = insertWithDeadlockRetry(ctx, func(attemptCtx context.Context) error {
+				return insertConcurrentOccupancy(attemptCtx, conn, ids[i], start, end)
+			})
 		}(i)
 	}
 	close(gate)
@@ -391,10 +396,80 @@ func assertConcurrentOverlap(ctx context.Context, dbURL string) error {
 			conflicts++
 			continue
 		}
-		return fmt.Errorf("unexpected concurrent insert error: %w", err)
+		return 0, fmt.Errorf("unexpected concurrent insert error: %w", err)
 	}
 	if wins != 1 || conflicts != 1 {
-		return fmt.Errorf("concurrent overlapping inserts successes/conflicts=%d/%d, want 1/1", wins, conflicts)
+		return 0, fmt.Errorf("concurrent overlapping inserts successes/conflicts=%d/%d, want 1/1", wins, conflicts)
+	}
+	checkConn, err := pgx.Connect(ctx, dbURL)
+	if err != nil {
+		return 0, fmt.Errorf("connect to verify committed concurrent rows: %w", err)
+	}
+	defer checkConn.Close(context.Background())
+	var persisted int
+	if err := checkConn.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE id IN ($1,$2) AND activo`, startID, endID).Scan(&persisted); err != nil {
+		return 0, fmt.Errorf("count persisted concurrent overlap rows: %w", err)
+	}
+	if persisted != 1 {
+		return 0, fmt.Errorf("persisted concurrent overlap rows=%d, want exactly one committed row", persisted)
+	}
+	if retries[0]+retries[1] > 2*(concurrentDeadlockMaxAttempts-1) {
+		return 0, fmt.Errorf("deadlock retry count exceeded bound: %v", retries)
+	}
+	return retries[0] + retries[1], nil
+}
+
+const concurrentDeadlockMaxAttempts = 4
+
+// insertWithDeadlockRetry retries only a PostgreSQL deadlock victim. The
+// callback must roll back a failed transaction before returning; callers reuse
+// the exact same statement and payload on each bounded retry.
+func insertWithDeadlockRetry(ctx context.Context, insert func(context.Context) error) (int, error) {
+	retries := 0
+	for attempt := 1; attempt <= concurrentDeadlockMaxAttempts; attempt++ {
+		err := insert(ctx)
+		if err == nil {
+			return retries, nil
+		}
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "40P01" {
+			return retries, err
+		}
+		if attempt == concurrentDeadlockMaxAttempts {
+			return retries, fmt.Errorf("deadlock retry limit reached after %d attempts: %w", attempt, err)
+		}
+		retries++
+		timer := time.NewTimer(time.Duration(retries) * 5 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return retries, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return retries, errors.New("unreachable deadlock retry state")
+}
+
+func insertConcurrentOccupancy(ctx context.Context, conn *pgx.Conn, id string, start, end time.Time) error {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,motivo)
+		VALUES($1,'dddddddd-dddd-4ddd-8ddd-dddddddddddd',NULL,tstzrange($2,$3,'[)'),'bloqueo_manual',true,'concurrency fixture')`, id, start, end)
+	if err != nil {
+		rollbackErr := tx.Rollback(context.Background())
+		if rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			return fmt.Errorf("insert failed (%v) and rollback failed: %v", err, rollbackErr)
+		}
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		rollbackErr := tx.Rollback(context.Background())
+		if rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			return fmt.Errorf("commit failed (%v) and rollback failed: %v", err, rollbackErr)
+		}
+		return err
 	}
 	return nil
 }
