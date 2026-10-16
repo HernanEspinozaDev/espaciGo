@@ -20,11 +20,26 @@ import (
 
 const cloudPlatformScope = "https://www.googleapis.com/auth/cloud-platform"
 
+const (
+	cloudSQLAdminAPIService = "sqladmin.googleapis.com"
+	secretManagerAPIService = "secretmanager.googleapis.com"
+)
+
 type cloudAPIError struct {
-	status int
+	service string
+	method  string
+	status  int
+	reason  string
 }
 
-func (e cloudAPIError) Error() string { return "Google Cloud API request failed" }
+func (e cloudAPIError) Error() string {
+	status := fmt.Sprintf("http_status=%d", e.status)
+	if e.status == 0 {
+		status = "http_status=none"
+	}
+	return fmt.Sprintf("Google Cloud API request failed: service=%s method=%s %s reason=%s", e.service, e.method, status, e.reason)
+}
+func (e cloudAPIError) SafeDiagnostic() string { return e.Error() }
 func (e cloudAPIError) Definitive() bool {
 	return e.status >= 400 && e.status < 500 && e.status != http.StatusRequestTimeout && e.status != http.StatusTooManyRequests && e.status != http.StatusConflict
 }
@@ -41,7 +56,7 @@ func (a secretVersionAPI) AddVersion(ctx context.Context, parent string, passwor
 	}
 	version, err := a.service.Projects.Secrets.AddVersion(parent, request).Context(ctx).Do()
 	if err != nil {
-		return "", cloudAPIErrorFrom(err)
+		return "", cloudAPIErrorFrom(secretManagerAPIService, "projects.secrets.addVersion", err)
 	}
 	if version == nil {
 		return "", errors.New("Secret Manager returned no version resource; reconcile before retrying")
@@ -57,7 +72,7 @@ func (a secretVersionAPI) AddVersion(ctx context.Context, parent string, passwor
 func (a secretVersionAPI) DestroyVersion(ctx context.Context, name string) error {
 	_, err := a.service.Projects.Secrets.Versions.Destroy(name, &secretmanager.DestroySecretVersionRequest{}).Context(ctx).Do()
 	if err != nil {
-		return cloudAPIErrorFrom(err)
+		return cloudAPIErrorFrom(secretManagerAPIService, "projects.secrets.versions.destroy", err)
 	}
 	return nil
 }
@@ -68,7 +83,7 @@ func (a sqlUserAPI) CreateBuiltInUser(ctx context.Context, name string, password
 	user := &sqladmin.User{Name: name, Password: string(password), Type: "BUILT_IN"}
 	operation, err := a.service.Users.Insert(gcp03scratch.ProjectID, gcp03scratch.InstanceName, user).Context(ctx).Do()
 	if err != nil {
-		return "", cloudAPIErrorFrom(err)
+		return "", cloudAPIErrorFrom(cloudSQLAdminAPIService, "users.insert", err)
 	}
 	return operation.Name, nil
 }
@@ -79,7 +94,7 @@ func (a sqlUserAPI) DeleteBuiltInUser(ctx context.Context, name string) (string,
 	}
 	operation, err := a.service.Users.Delete(gcp03scratch.ProjectID, gcp03scratch.InstanceName).Name(name).Context(ctx).Do()
 	if err != nil {
-		return "", cloudAPIErrorFrom(err)
+		return "", cloudAPIErrorFrom(cloudSQLAdminAPIService, "users.delete", err)
 	}
 	return operation.Name, nil
 }
@@ -102,7 +117,7 @@ func (a sqlUserAPI) SetDatabaseRoles(ctx context.Context, name string, roles []s
 	}
 	operation, err := call.Name(name).RevokeExistingRoles(revokeExisting).Context(ctx).Do()
 	if err != nil {
-		return "", cloudAPIErrorFrom(err)
+		return "", cloudAPIErrorFrom(cloudSQLAdminAPIService, "users.update", err)
 	}
 	return operation.Name, nil
 }
@@ -114,7 +129,7 @@ func (a sqlUserAPI) SetPassword(ctx context.Context, name string, password []byt
 	user := &sqladmin.User{Name: name, Type: "BUILT_IN", Password: string(password)}
 	operation, err := a.service.Users.Update(gcp03scratch.ProjectID, gcp03scratch.InstanceName, user).Name(name).Context(ctx).Do()
 	if err != nil {
-		return "", cloudAPIErrorFrom(err)
+		return "", cloudAPIErrorFrom(cloudSQLAdminAPIService, "users.update", err)
 	}
 	return operation.Name, nil
 }
@@ -125,7 +140,7 @@ func (a sqlUserAPI) GetDatabaseRoles(ctx context.Context, name string) ([]string
 	}
 	user, err := a.service.Users.Get(gcp03scratch.ProjectID, gcp03scratch.InstanceName, name).Context(ctx).Do()
 	if err != nil {
-		return nil, cloudAPIErrorFrom(err)
+		return nil, cloudAPIErrorFrom(cloudSQLAdminAPIService, "users.get", err)
 	}
 	return append([]string(nil), user.DatabaseRoles...), nil
 }
@@ -133,7 +148,7 @@ func (a sqlUserAPI) GetDatabaseRoles(ctx context.Context, name string) ([]string
 func (a sqlUserAPI) GetOperation(ctx context.Context, name string) (bool, bool, error) {
 	operation, err := a.service.Operations.Get(gcp03scratch.ProjectID, name).Context(ctx).Do()
 	if err != nil {
-		return false, false, cloudAPIErrorFrom(err)
+		return false, false, cloudAPIErrorFrom(cloudSQLAdminAPIService, "operations.get", err)
 	}
 	if operation.Status != "DONE" {
 		return false, false, nil
@@ -141,12 +156,68 @@ func (a sqlUserAPI) GetOperation(ctx context.Context, name string) (bool, bool, 
 	return true, operation.Error != nil && len(operation.Error.Errors) != 0, nil
 }
 
-func cloudAPIErrorFrom(err error) error {
+func cloudAPIErrorFrom(service, method string, err error) error {
 	var apiErr *googleapi.Error
 	if errors.As(err, &apiErr) {
-		return cloudAPIError{status: apiErr.Code}
+		return cloudAPIError{service: service, method: method, status: apiErr.Code, reason: safeGoogleAPIReason(apiErr)}
 	}
-	return errors.New("Google Cloud API transport outcome is uncertain")
+	return cloudAPIError{service: service, method: method, reason: "TRANSPORT_UNCERTAIN"}
+}
+
+var googleAPIReasonAllowlist = map[string]string{
+	"ABORTED":                         "ABORTED",
+	"ACCESS_NOT_CONFIGURED":           "ACCESS_NOT_CONFIGURED",
+	"ACCESS_TOKEN_SCOPE_INSUFFICIENT": "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+	"ALREADY_EXISTS":                  "ALREADY_EXISTS",
+	"API_DISABLED":                    "API_DISABLED",
+	"BAD_REQUEST":                     "BAD_REQUEST",
+	"backendError":                    "INTERNAL",
+	"badRequest":                      "BAD_REQUEST",
+	"conditionNotMet":                 "FAILED_PRECONDITION",
+	"DEADLINE_EXCEEDED":               "DEADLINE_EXCEEDED",
+	"FAILED_PRECONDITION":             "FAILED_PRECONDITION",
+	"INTERNAL":                        "INTERNAL",
+	"INVALID_ARGUMENT":                "INVALID_ARGUMENT",
+	"NOT_FOUND":                       "NOT_FOUND",
+	"ORG_RESTRICTION_VIOLATION":       "ORG_RESTRICTION_VIOLATION",
+	"PERMISSION_DENIED":               "PERMISSION_DENIED",
+	"RATE_LIMIT_EXCEEDED":             "RATE_LIMIT_EXCEEDED",
+	"RESOURCE_EXHAUSTED":              "RESOURCE_EXHAUSTED",
+	"SERVICE_DISABLED":                "SERVICE_DISABLED",
+	"UNAUTHENTICATED":                 "UNAUTHENTICATED",
+	"UNAVAILABLE":                     "UNAVAILABLE",
+	"UNKNOWN":                         "UNKNOWN",
+	"USER_PROJECT_DENIED":             "USER_PROJECT_DENIED",
+	"accessNotConfigured":             "ACCESS_NOT_CONFIGURED",
+	"forbidden":                       "PERMISSION_DENIED",
+	"invalid":                         "INVALID_ARGUMENT",
+	"invalidParameter":                "INVALID_ARGUMENT",
+	"notFound":                        "NOT_FOUND",
+	"quotaExceeded":                   "RESOURCE_EXHAUSTED",
+	"rateLimitExceeded":               "RATE_LIMIT_EXCEEDED",
+	"serviceDisabled":                 "SERVICE_DISABLED",
+	"userRateLimitExceeded":           "RATE_LIMIT_EXCEEDED",
+	"userProjectDenied":               "USER_PROJECT_DENIED",
+}
+
+func safeGoogleAPIReason(apiErr *googleapi.Error) string {
+	for _, detail := range apiErr.Details {
+		item, ok := detail.(map[string]interface{})
+		if !ok || item["@type"] != "type.googleapis.com/google.rpc.ErrorInfo" {
+			continue
+		}
+		if reason, ok := item["reason"].(string); ok {
+			if safe := googleAPIReasonAllowlist[reason]; safe != "" {
+				return safe
+			}
+		}
+	}
+	for _, item := range apiErr.Errors {
+		if safe := googleAPIReasonAllowlist[item.Reason]; safe != "" {
+			return safe
+		}
+	}
+	return "UNCLASSIFIED"
 }
 
 func main() {
