@@ -18,7 +18,7 @@ func ObserveScratch(ctx context.Context, config Config, password string) (dbboot
 	var report dbbootstrap.ScratchObservation
 	err := withScratchConnection(ctx, config, password, func(ctx context.Context, conn *pgx.Conn) error {
 		var err error
-		report, err = dbbootstrap.ObserveScratch(ctx, conn)
+		report, err = dbbootstrap.ObserveScratch(ctx, conn, dbbootstrap.RoleMembershipManagedCloudSQL)
 		return err
 	})
 	return report, err

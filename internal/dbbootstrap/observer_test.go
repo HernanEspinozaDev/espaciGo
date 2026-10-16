@@ -70,13 +70,19 @@ func TestRoleInventoryRequiresSafeGADMAndOnlyCloudSQLSuperuserForMigrator(t *tes
 		{Name: "espacigo_scratch_migrator", CanLogin: true}, {Name: "postgres", Superuser: true},
 	}
 	valid := []RoleMembershipObservation{{GrantedRole: "cloudsqlsuperuser", Member: "espacigo_scratch_migrator"}}
-	if !roleInventoryPass(roles, valid) {
+	if !roleInventoryPass(roles, valid, RoleMembershipManagedCloudSQL) {
 		t.Fatal("reviewed role inventory should pass")
 	}
-	if roleInventoryPass(roles, append(valid, RoleMembershipObservation{GrantedRole: "espacigo_runtime", Member: "espacigo_gadm_bootstrap"})) {
+	if !roleInventoryPass(roles, nil, RoleMembershipLocalPostgres18) {
+		t.Fatal("local PostgreSQL observer must not require a Cloud SQL-managed membership")
+	}
+	if roleInventoryPass(roles, valid, RoleMembershipLocalPostgres18) {
+		t.Fatal("local PostgreSQL fixture must not be reported as having the managed Cloud SQL membership")
+	}
+	if roleInventoryPass(roles, append(valid, RoleMembershipObservation{GrantedRole: "espacigo_runtime", Member: "espacigo_gadm_bootstrap"}), RoleMembershipManagedCloudSQL) {
 		t.Fatal("GADM/runtime membership must fail the role inventory")
 	}
-	if roleInventoryPass(roles, []RoleMembershipObservation{{GrantedRole: "cloudsqlsuperuser", Member: "espacigo_scratch_migrator"}, {GrantedRole: "pg_monitor", Member: "espacigo_scratch_migrator"}}) {
+	if roleInventoryPass(roles, []RoleMembershipObservation{{GrantedRole: "cloudsqlsuperuser", Member: "espacigo_scratch_migrator"}, {GrantedRole: "pg_monitor", Member: "espacigo_scratch_migrator"}}, RoleMembershipManagedCloudSQL) {
 		t.Fatal("an unexpected migrator membership must fail the role inventory")
 	}
 }

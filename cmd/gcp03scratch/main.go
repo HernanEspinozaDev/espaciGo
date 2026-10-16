@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/gcp03scratch"
 )
 
@@ -31,7 +31,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "GCP-03 fixed compatibility observer failed")
 			os.Exit(1)
 		}
-		if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+		if err := dbbootstrap.WriteObserverNDJSON(os.Stdout, report); err != nil {
 			fmt.Fprintln(os.Stderr, "GCP-03 fixed compatibility observer report could not be encoded")
 			os.Exit(1)
 		}
@@ -39,7 +39,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "GCP-03 fixed compatibility observer found failed checks")
 			os.Exit(1)
 		}
-		fmt.Fprintln(os.Stdout, "GCP-03 scratch phase observe completed")
+		fmt.Fprintln(os.Stderr, "GCP-03 scratch phase observe completed")
 		return
 	}
 	if gcp03scratch.IsRoleCommentProbePhase(config.Phase) {

@@ -23,12 +23,20 @@ type ScratchObservation struct {
 	RelationOwners         []OwnedObjectObservation     `json:"relation_owners"`
 	FunctionOwners         []OwnedObjectObservation     `json:"function_owners"`
 	SecurityDefiner        []SecurityDefinerObservation `json:"security_definer_functions"`
+	MembershipExpectation  RoleMembershipExpectation    `json:"membership_expectation"`
 	RoleInventoryPass      bool                         `json:"role_inventory_contract_pass"`
 	DatabaseACLPass        bool                         `json:"database_acl_contract_pass"`
 	RuntimePermissionsPass bool                         `json:"runtime_permissions_contract_pass"`
 	RuntimeChecks          []PermissionCheck            `json:"runtime_permission_checks"`
 	Spatial                SpatialObservation           `json:"spatial_checks"`
 }
+
+type RoleMembershipExpectation string
+
+const (
+	RoleMembershipManagedCloudSQL RoleMembershipExpectation = "managed_cloudsql"
+	RoleMembershipLocalPostgres18 RoleMembershipExpectation = "local_postgres18"
+)
 
 type PermissionCheck struct {
 	Name   string `json:"name"`
@@ -185,11 +193,15 @@ const (
 
 // ObserveScratch is a fixed catalog/extension observer. It performs SELECTs
 // only and uses no caller input in SQL text, identifiers, or expressions.
-func ObserveScratch(ctx context.Context, conn *pgx.Conn) (ScratchObservation, error) {
+func ObserveScratch(ctx context.Context, conn *pgx.Conn, membershipExpectation RoleMembershipExpectation) (ScratchObservation, error) {
 	if conn == nil {
 		return ScratchObservation{}, errors.New("scratch database connection is required")
 	}
+	if membershipExpectation != RoleMembershipManagedCloudSQL && membershipExpectation != RoleMembershipLocalPostgres18 {
+		return ScratchObservation{}, errors.New("scratch role-membership expectation is invalid")
+	}
 	var report ScratchObservation
+	report.MembershipExpectation = membershipExpectation
 	if err := conn.QueryRow(ctx, observerVersionsSQL).Scan(&report.ServerVersionNum, &report.ServerVersion, &report.PostGISFullVersion); err != nil {
 		return report, errors.New("could not observe PostgreSQL and PostGIS versions")
 	}
@@ -289,7 +301,7 @@ func ObserveScratch(ctx context.Context, conn *pgx.Conn) (ScratchObservation, er
 	for i, passed := range checks {
 		report.RuntimeChecks = append(report.RuntimeChecks, PermissionCheck{Name: checkNames[i], Passed: passed})
 	}
-	report.RoleInventoryPass = roleInventoryPass(report.Roles, report.Memberships)
+	report.RoleInventoryPass = roleInventoryPass(report.Roles, report.Memberships, membershipExpectation)
 	report.Spatial.ChecksPass = report.Spatial.Passed()
 	return report, nil
 }
@@ -333,7 +345,7 @@ func requiredExtensionsPresent(extensions []ExtensionObservation) bool {
 	return true
 }
 
-func roleInventoryPass(roles []RoleObservation, memberships []RoleMembershipObservation) bool {
+func roleInventoryPass(roles []RoleObservation, memberships []RoleMembershipObservation, expectation RoleMembershipExpectation) bool {
 	byName := make(map[string]RoleObservation, len(roles))
 	for _, role := range roles {
 		byName[role.Name] = role
@@ -362,7 +374,19 @@ func roleInventoryPass(roles []RoleObservation, memberships []RoleMembershipObse
 			migratorMemberships = append(migratorMemberships, membership)
 		}
 	}
-	return len(migratorMemberships) == 1 && migratorMemberships[0].GrantedRole == "cloudsqlsuperuser"
+	switch expectation {
+	case RoleMembershipManagedCloudSQL:
+		return len(migratorMemberships) == 1 && migratorMemberships[0].GrantedRole == "cloudsqlsuperuser"
+	case RoleMembershipLocalPostgres18:
+		for _, membership := range migratorMemberships {
+			if membership.GrantedRole == "cloudsqlsuperuser" {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 func collectObserverRows(ctx context.Context, conn *pgx.Conn, query string, scan func(pgx.Rows) error) error {
