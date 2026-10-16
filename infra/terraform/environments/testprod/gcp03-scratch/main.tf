@@ -50,6 +50,12 @@ resource "google_project_iam_member" "scratch_cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.scratch_migrator[0].email}"
+
+  condition {
+    title       = "gcp03-${var.run_id}-instance"
+    description = "Limit the temporary migrator to its disposable Cloud SQL instance."
+    expression  = "resource.name == 'projects/${var.project_id}/instances/${local.name_prefix}-pg' && resource.type == 'sqladmin.googleapis.com/Instance'"
+  }
 }
 
 resource "google_project_iam_member" "scratch_acl_cloudsql_client" {
@@ -57,6 +63,12 @@ resource "google_project_iam_member" "scratch_acl_cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.scratch_database_acl[0].email}"
+
+  condition {
+    title       = "gcp03-${var.run_id}-instance"
+    description = "Limit the temporary database-ACL identity to its disposable Cloud SQL instance."
+    expression  = "resource.name == 'projects/${var.project_id}/instances/${local.name_prefix}-pg' && resource.type == 'sqladmin.googleapis.com/Instance'"
+  }
 }
 
 resource "google_secret_manager_secret" "scratch_password" {
