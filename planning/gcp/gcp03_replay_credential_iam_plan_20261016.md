@@ -2,7 +2,9 @@
 
 ## Estado y alcance
 
-Plan local preparado para la siguiente revisión de GCP-03. No se aplicó. Su propósito es habilitar, durante una ventana corta, el CLI fijo de credenciales para los dos logins del scratch existente. No crea/rota credenciales ni versiones, no modifica recursos SQL/secrets, no habilita Jobs, no ejecuta SQL y no autoriza replay. El gate de permisos puede permanecer habilitado junto al gate separado de Jobs para conservar estos grants durante el plan posterior; habilitar Jobs no activa IAM automáticamente.
+El plan IAM exacto fue revisado en PR #355 y aplicado el 2026-10-16 a las 14:34:21 UTC. Resultado: 5 altas, 0 cambios, 0 destrucciones. Luego se creó el login migrador scratch y su versión 4, y se rotó la contraseña del login PostgreSQL `postgres` con versión owner 1. No se aplicó el plan de Jobs, no se ejecutó SQL ni migración y no se autoriza todavía el replay. Evidencia: [apply IAM y plan de Jobs](evidencia_apply_iam_credential_and_jobs_plan_20261016.md).
+
+El gate de permisos puede permanecer habilitado junto al gate separado de Jobs para conservar estos grants durante el plan posterior; habilitar Jobs no activa IAM automáticamente. Las condiciones IAM expiran a las `2026-10-16T16:00:00Z`; no renovarlas sin una revisión y liberación nuevas.
 
 Target explícito: proyecto `espacigo-testprod`, raíz `infra/terraform/environments/testprod/gcp03-scratch`, workspace `default`, base/instancia existentes `espacigo_scratch` / `espacigo-gcp03-pilot01-pg`. `allow_scratch_destroy=false`. Se mantiene separado de los role-probe gates y utiliza IDs custom nuevos, sin reutilizar los IDs soft-deleted `gcp03roleprobe_*`.
 
@@ -27,13 +29,14 @@ Los permisos Cloud SQL `users.*` son de alcance de proyecto según la limitació
 - Plan, JSON, vars y logs son locales/excluidos y modo 0600 en directorio 0700. Inspección machine-readable confirmó las cinco direcciones, permisos exactos, tres condiciones de expiración y dos secretos; no hay Jobs ni recursos de credenciales/SQL.
 - La regresión de Terraform incluye un `apply` exclusivamente con `mock_provider` para sembrar el state IAM y el plan secuencial de los cinco Jobs contra ese mismo state aislado. La prueba confirma que IAM, expiración y targets permanecen presentes. También verifica gates apagados por defecto, compatibilidad de ambos gates, mapeo de cinco fases a SA/secreto/versión y rechazo de `latest` y `0`.
 - `terraform fmt -check`, `terraform validate` y `terraform test -no-color` pasaron; **20 pruebas** aprobadas, 0 fallidas. El apply secuencial pertenece únicamente al state en memoria de Terraform test con proveedor mock; no contacta GCP.
+- El apply del plan revisado se registró en [evidencia apply IAM y plan Jobs](evidencia_apply_iam_credential_and_jobs_plan_20261016.md). Sus artefactos privados de apply, logs y recibos están en `.local/testing/gcp03-replay-credential-iam-plan-20261016/`, modo 0600, directorio 0700.
 
-El expiry es absoluto y el plan deja de servir para una ejecución tras vencerse; revalidar IAM y preparar un plan nuevo si se aprueba después de `2026-10-16T16:00:00Z`. No renovar silenciosamente. **Este plan no se aplicó**.
+El expiry es absoluto. El binario IAM ya fue aplicado y no debe repetirse. Los bindings creados expiran a las `2026-10-16T16:00:00Z`; al vencer, un plan o ejecución posterior requiere revalidar IAM y una nueva revisión/liberación. No renovar silenciosamente.
 
-## Secuencia obligatoria después de revisar este plan
+## Secuencia y siguiente gate
 
-1. Revisar el plan exacto, el procedimiento CLI y el riesgo project-wide de Cloud SQL. Tras la revisión/liberación exacta y un preflight sin drift, aplicar solo este binario vigente.
-2. En una liberación posterior de creación de credenciales, el CLI actual crea/actualiza el login migrador y su versión de secreto, además de rotar `postgres` y crear su versión owner. Registrar únicamente los números devueltos y estado saneado; no anticipar números ni copiar valores. Los secretos/versiones se crean fuera de Terraform.
-3. Con ambos números reales activos, generar un plan nuevo para los cinco Jobs manteniendo `enable_replay_credential_permissions=true` y habilitando `enable_job=true`; así el plan conserva los grants ya aplicados. Los Jobs deben fijar `migrator_secret_version` para `bootstrap/migrate/finalize` y `database_owner_secret_version` para `database_acl/retire`, nunca `latest`. Revisar el delta/hashes y solo ejecutar tras su liberación exacta.
-4. El OCI incluye las cinco fases fijas de replay y las dos fases fijas del probe; seleccionar solamente `bootstrap`, `database_acl`, `migrate`, `finalize` y `retire`. No usar la demo local, no importar un dataset y no restaurar datos.
+1. El apply IAM y las dos operaciones CLI de credenciales están completos según la evidencia enlazada. Los recibos retienen solo las referencias numéricas de versión, nunca payloads.
+2. El plan Jobs fue preparado con `enable_replay_credential_permissions=true`, `enable_job=true`, la OCI fijada y las versiones migrador `4`/owner `1`. Contiene 12 altas exactas y no se aplicó. Binario SHA-256 `bc1a4241622027a3981cf2068ef832b0339f97628cc501b0ea382fa6edc786c7`; JSON `9f1bf8338b179be0aabd46592042c5351de2ec0f5da1c530ab6469558919935e`.
+3. Aplicar los Jobs requiere revisión/liberación exacta de ese binario, preflight sin drift, digest y versiones activas, además de tiempo suficiente antes de la expiración IAM. Tras la expiración no continuar con el mismo alcance de permisos; revalidar y solicitar una revisión/liberación nueva. El OCI incluye siete fases; seleccionar solamente `bootstrap`, `database_acl`, `migrate`, `finalize` y `retire`.
+4. No usar la demo local, importar un dataset ni restaurar datos.
 
