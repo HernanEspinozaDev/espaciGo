@@ -41,8 +41,8 @@ variable "enable_services" {
   description = "Separate explicit apply gate for Cloud Run services; requires foundation and database."
   default     = false
   validation {
-    condition     = !var.enable_services || (var.enable_foundation && var.enable_database && var.acknowledge_gcp04_runtime_gates && var.mailpit_private_address != "")
-    error_message = "Cloud Run services require foundation, database, the GCP-04 replay/lease gate, and the reviewed private Mailpit endpoint."
+    condition     = !var.enable_services || (var.enable_foundation && var.enable_database && var.acknowledge_gcp04_runtime_gates && var.mailpit_private_address != "" && var.confirm_pga_iap_key_preflight)
+    error_message = "Cloud Run services require foundation, database, GCP-04 replay/lease approval, the reviewed private Mailpit endpoint, and a successful IAP-key egress preflight over Private Google Access."
   }
 }
 
@@ -65,6 +65,12 @@ variable "confirm_project_inventory" {
 variable "confirm_cost_policy_review" {
   type        = bool
   description = "Set only after the effective organization policies and full regional cost estimate have been reviewed before enabling foundation."
+  default     = false
+}
+
+variable "confirm_pga_iap_key_preflight" {
+  type        = bool
+  description = "Set only after a real egress preflight confirms the private SSR can fetch https://www.gstatic.com/iap/verify/public_key through Direct VPC egress and Private Google Access."
   default     = false
 }
 

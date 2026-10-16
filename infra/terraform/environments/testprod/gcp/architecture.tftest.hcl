@@ -95,6 +95,7 @@ run "services_and_edge_preserve_runtime_contracts" {
     api_image                       = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     frontend_image                  = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     mailpit_private_address         = "10.80.0.10:1025"
+    confirm_pga_iap_key_preflight   = true
   }
 
   assert {
@@ -126,6 +127,14 @@ run "services_and_edge_preserve_runtime_contracts" {
     error_message = "The private entry must retain native Cloud Run IAP and load-balancer-only ingress."
   }
   assert {
+    condition     = google_compute_subnetwork.serverless[0].private_ip_google_access == true && google_cloud_run_v2_service.web["private"].template[0].vpc_access[0].egress == "ALL_TRAFFIC"
+    error_message = "The private SSR's IAP key download must use its Direct VPC egress subnet with Private Google Access."
+  }
+  assert {
+    condition     = google_compute_network.testprod[0].delete_default_routes_on_create == false
+    error_message = "The VPC must retain its default-internet-gateway route required for Private Google Access to Google service destinations."
+  }
+  assert {
     condition     = google_compute_backend_service.web["public"].security_policy == google_compute_security_policy.public_edge[0].id && google_compute_backend_service.web["private"].security_policy == null
     error_message = "Cloud Armor must be attached only to the public backend."
   }
@@ -141,4 +150,25 @@ run "services_and_edge_preserve_runtime_contracts" {
     condition     = strcontains(one([for rule in google_compute_security_policy.public_edge[0].rule : rule.match[0].expr[0].expression if rule.priority == 200]), "/sitemap.xml") && strcontains(one([for rule in google_compute_security_policy.public_edge[0].rule : rule.match[0].expr[0].expression if rule.priority == 200]), "/health/ready") && strcontains(one([for rule in google_compute_security_policy.public_edge[0].rule : rule.match[0].expr[0].expression if rule.priority == 200]), "/public/spaces/") && strcontains(one([for rule in google_compute_security_policy.public_edge[0].rule : rule.match[0].expr[0].expression if rule.priority == 200]), "/explorar") && strcontains(one([for rule in google_compute_security_policy.public_edge[0].rule : rule.match[0].expr[0].expression if rule.priority == 200]), "/espacios/")
     error_message = "Public SSR, image, sitemap, readiness and API paths must be rate-limited by the general public rule."
   }
+}
+
+run "services_reject_unverified_iap_key_egress" {
+  command = plan
+
+  variables {
+    project_id                      = "offline-test-project"
+    project_number                  = "123456789012"
+    enable_foundation               = true
+    enable_database                 = true
+    enable_services                 = true
+    confirm_project_inventory       = true
+    confirm_cost_policy_review      = true
+    acknowledge_gcp04_runtime_gates = true
+    bucket_suffix                   = "offline-test"
+    api_image                       = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                  = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address         = "10.80.0.10:1025"
+  }
+
+  expect_failures = [var.enable_services]
 }

@@ -62,6 +62,8 @@ resource "google_compute_network" "testprod" {
   name                    = "espacigo-testprod"
   auto_create_subnetworks = false
   routing_mode            = "REGIONAL"
+  # Private Google Access uses the VPC's default internet-gateway route for eligible Google service IPs.
+  delete_default_routes_on_create = false
 
   depends_on = [google_project_service.required]
 }
