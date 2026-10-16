@@ -1,6 +1,6 @@
 # GCP-03 synthetic restore preparation — g03r-1016
 
-**Status:** review package prepared; no Terraform apply, Cloud SQL connection, bootstrap/restore Job, or object upload to Cloud Storage has occurred. PR #369 remains frozen at the merged HEAD listed below.
+**Status:** foundation-only apply completed under the exact post-PR-#370 authorization. PR #369 remains frozen at the merged HEAD listed below. No Cloud SQL connection, bootstrap/restore Job, secret version, or object upload has occurred.
 
 ## Frozen baseline and local validation
 
@@ -57,8 +57,8 @@ Sources: [Cloud SQL pricing](https://cloud.google.com/sql/pricing?hl=en), [Cloud
 
 ## Release boundary and teardown order
 
-No apply or resource creation, credential creation, secret version, database login, Cloud SQL connection, SQL IAM user, bootstrap/restore/verify/retire Job execution, fixture/dump upload, or job log was performed. Only the executor OCI was published to the user-authorized existing Artifact Registry repository. No persistent SQL/data/files were read or changed.
+The exact foundation plan has now been applied once, after PR #370 merged. See [foundation apply evidence](evidence/gcp03-restore-g03r-1016/foundation-apply.json) and [the sanitized apply/next-stage procedure](evidencia_aplicacion_foundation_gcp03_20261016.md). Terraform created only the seven reviewed foundation resources. No credential was generated, the secret still has zero versions, and no SQL login/connection, Cloud Run Job, SQL IAM user, artifact upload, bootstrap, restore, or job log was performed. Only the executor OCI was published to the already-existing, user-authorized Artifact Registry repository. No persistent SQL/data/files were read or changed.
 
-Before any resource apply or bucket upload, `HernanEspinozaDev` must review the exact diff, image digests, manifest, TOC/allowlist, plan JSON/hash, cost, and teardown. Apply/fixture upload/Cloud SQL remain outside this PR review release.
+The review in PR #370 released only the exact foundation plan. The next release boundary is separate: reviewer approval of the follow-up PR and an explicit user release are required before generating the scratch password, adding its numeric Secret Manager version, planning/applying the bootstrap job, granting invocation/deployment permissions, connecting to Cloud SQL, or uploading any of the four sealed artifacts. A future bootstrap plan must pin the executor and proxy digests, set only the bootstrap gate, name the reviewed numeric secret version, and keep restore jobs disabled. No credential, upload, or bootstrap action is included in this follow-up PR.
 
 If later authorized and the restore stages complete, cleanup must first delete the run-scoped Cloud SQL IAM SQL users via the Cloud SQL Delete API (Terraform's managed `google_sql_user` resources), allowing the API to clear their role bindings. Do not issue SQL `REVOKE` for IAM-managed memberships or set those users `NOLOGIN`. Only after user deletion should the run service accounts, jobs, and instance be removed with the two reviewed, run-ID-bound teardown plans. Keep `LOGIN` intact until Delete API completion. Retain only sanitized hash-bound evidence; remove local credentials when that later test is retired. The private bucket lifecycle is three days, but it is not a substitute for reviewed teardown.
