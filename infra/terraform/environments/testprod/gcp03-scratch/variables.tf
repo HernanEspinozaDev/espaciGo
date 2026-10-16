@@ -197,6 +197,28 @@ variable "allow_scratch_destroy" {
   default     = false
 }
 
+variable "allow_role_probe_job_destroy" {
+  type        = bool
+  description = "Separate two-step cleanup gate for only the role-comment probe Jobs; never disables Cloud SQL or scratch protection."
+  default     = false
+  validation {
+    condition = !var.allow_role_probe_job_destroy || (
+      var.enable_scratch &&
+      var.run_id == "pilot01" &&
+      !var.enable_job &&
+      !var.allow_scratch_destroy &&
+      var.confirm_role_probe_job_destroy_run_id == var.run_id
+    )
+    error_message = "Role-probe Job deletion requires pilot01 confirmation and must keep general scratch/Cloud SQL destruction disabled."
+  }
+}
+
+variable "confirm_role_probe_job_destroy_run_id" {
+  type        = string
+  description = "Must exactly equal run_id when separately disabling role-probe Job deletion protection."
+  default     = ""
+}
+
 variable "confirm_destroy_run_id" {
   type        = string
   description = "Must equal run_id for either step of scratch teardown."

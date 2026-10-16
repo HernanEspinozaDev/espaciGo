@@ -5,6 +5,7 @@ locals {
   role_probe_enabled                        = var.enable_scratch && var.enable_role_probe_jobs
   role_probe_credential_permissions_enabled = var.enable_scratch && var.enable_role_probe_credential_permissions
   protect_scratch                           = !var.allow_scratch_destroy
+  protect_role_probe_jobs                   = !var.allow_role_probe_job_destroy
   job_phases = {
     bootstrap    = "bootstrap"
     database_acl = "database_acl"
@@ -297,7 +298,7 @@ resource "google_cloud_run_v2_job" "role_comment_probe" {
   project             = var.project_id
   name                = "${local.name_prefix}-${replace(each.key, "_", "-")}"
   location            = var.region
-  deletion_protection = !var.allow_scratch_destroy
+  deletion_protection = local.protect_role_probe_jobs
 
   template {
     task_count  = 1

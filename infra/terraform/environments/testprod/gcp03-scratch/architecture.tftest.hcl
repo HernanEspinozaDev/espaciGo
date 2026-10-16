@@ -55,6 +55,7 @@ run "job_creates_five_immutable_named_phases_with_exact_operator_iam" {
       for phase, job in google_cloud_run_v2_job.migrator :
       job.name == "espacigo-gcp03-pilot01-${replace(phase, "_", "-")}" &&
       can(regex("^[a-z][a-z0-9-]{0,61}[a-z0-9]$", job.name)) &&
+      job.deletion_protection &&
       job.template[0].task_count == 1 &&
       job.template[0].parallelism == 1 &&
       job.template[0].template[0].max_retries == 0 &&
@@ -105,6 +106,7 @@ run "role_comment_probe_jobs_require_existing_numeric_version_and_grant_only_job
       for phase, job in google_cloud_run_v2_job.role_comment_probe :
       job.name == "espacigo-gcp03-pilot01-${replace(phase, "_", "-")}" &&
       can(regex("^[a-z][a-z0-9-]{0,61}[a-z0-9]$", job.name)) &&
+      job.deletion_protection &&
       job.template[0].task_count == 1 &&
       job.template[0].parallelism == 1 &&
       job.template[0].template[0].max_retries == 0 &&
@@ -198,6 +200,59 @@ run "role_comment_probe_rejects_latest_secret_version" {
   }
 
   expect_failures = [var.role_probe_secret_version]
+}
+
+run "role_probe_job_destroy_gate_does_not_lower_cloudsql_protection" {
+  command = plan
+
+  variables {
+    project_id                            = "espacigo-testprod"
+    region                                = "southamerica-west1"
+    run_id                                = "pilot01"
+    enable_scratch                        = true
+    enable_role_probe_jobs                = true
+    confirm_project_inventory             = true
+    role_probe_image                      = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    confirm_role_probe_image_pushed       = true
+    role_probe_secret_version             = "1"
+    confirm_role_probe_secret_version     = true
+    allow_role_probe_job_destroy          = true
+    confirm_role_probe_job_destroy_run_id = "pilot01"
+    allow_scratch_destroy                 = false
+    operator_member                       = "user:operator@example.invalid"
+  }
+
+  assert {
+    condition = (
+      alltrue([for job in values(google_cloud_run_v2_job.role_comment_probe) : !job.deletion_protection]) &&
+      google_sql_database_instance.scratch[0].deletion_protection &&
+      google_sql_database_instance.scratch[0].settings[0].deletion_protection_enabled &&
+      !var.allow_scratch_destroy
+    )
+    error_message = "The dedicated probe cleanup gate may lower protection only on the two probe Jobs; Cloud SQL protection must remain enabled."
+  }
+}
+
+run "role_probe_job_destroy_gate_requires_exact_run_confirmation" {
+  command = plan
+
+  variables {
+    project_id                            = "espacigo-testprod"
+    region                                = "southamerica-west1"
+    run_id                                = "pilot01"
+    enable_scratch                        = true
+    enable_role_probe_jobs                = true
+    confirm_project_inventory             = true
+    role_probe_image                      = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/dbmigrate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    confirm_role_probe_image_pushed       = true
+    role_probe_secret_version             = "1"
+    confirm_role_probe_secret_version     = true
+    allow_role_probe_job_destroy          = true
+    confirm_role_probe_job_destroy_run_id = "wrong"
+    operator_member                       = "user:operator@example.invalid"
+  }
+
+  expect_failures = [var.allow_role_probe_job_destroy]
 }
 
 run "job_requires_enabled_scratch_and_external_artifacts" {
