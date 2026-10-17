@@ -97,12 +97,55 @@ def normalize_ip_address(value: Any) -> str | None:
     if not isinstance(value, str) or not value:
         return None
     try:
-        address = ipaddress.ip_address(value)
+        # PostgreSQL renders inet values as CIDR (for example 172.19.0.3/32),
+        # while Docker inspect reports a host address without a prefix.
+        address = ipaddress.ip_interface(value).ip
     except ValueError:
         return None
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
         return str(address.ipv4_mapped)
     return str(address)
+
+
+def correlate_backend_sessions(
+    clients: list[dict[str, Any]],
+    api_ips: set[str],
+    database: str,
+    runtime_user: str,
+    observability: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if observability.get("all_client_session_details_authorized") is not True:
+        raise CaptureError("insufficient PostgreSQL statistics visibility to classify runtime sessions")
+    runtime_clients = [
+        client for client in clients
+        if client.get("database") == database and client.get("user") == runtime_user
+    ]
+    if not runtime_clients:
+        raise CaptureError("no live database session proves the backend runtime connection target")
+    missing_address = [client for client in runtime_clients if normalize_ip_address(client.get("address")) is None]
+    matches = [
+        client for client in runtime_clients
+        if normalize_ip_address(client.get("address")) in api_ips
+    ]
+    if not matches:
+        if missing_address:
+            raise CaptureError("runtime database session address is absent; transport cannot be correlated")
+        raise CaptureError("runtime database sessions are visible but none originate from the inspected backend IP")
+    return matches
+
+
+def validate_client_inventory(
+    clients: list[dict[str, Any]],
+    known_ips: set[str],
+    observability: dict[str, Any],
+) -> None:
+    if observability.get("all_client_session_details_authorized") is not True:
+        raise CaptureError("insufficient PostgreSQL statistics visibility to classify all database clients")
+    relevant = [client for client in clients if client.get("application") != "pg_isready"]
+    if any(normalize_ip_address(client.get("address")) is None for client in relevant):
+        raise CaptureError("database client session has no observable address; transport cannot be classified")
+    if any(normalize_ip_address(client.get("address")) not in known_ips for client in relevant):
+        raise CaptureError("database client address is outside the enumerated source candidates")
 
 
 def fsync_file(path: Path) -> None:
@@ -365,6 +408,19 @@ SELECT jsonb_build_object(
   'migration_history',(SELECT coalesce(jsonb_agg(jsonb_build_object('version',version,'name',name,'checksum',checksum) ORDER BY version),'[]'::jsonb) FROM public.schema_migrations),
   'roles',(SELECT coalesce(jsonb_agg(jsonb_build_object('name',rolname,'login',rolcanlogin,'superuser',rolsuper,'create_db',rolcreatedb,'create_role',rolcreaterole,'replication',rolreplication,'bypass_rls',rolbypassrls,'inherit',rolinherit,'connection_limit',rolconnlimit,'valid_until',rolvaliduntil,'config',coalesce((SELECT jsonb_agg(setting ORDER BY setting) FROM unnest(rolconfig) setting WHERE setting !~* '(password|secret|token)'), '[]'::jsonb)) ORDER BY rolname),'[]'::jsonb) FROM pg_roles),
   'memberships',(SELECT coalesce(jsonb_agg(jsonb_build_object('member',member.rolname,'granted_role',granted.rolname,'admin_option',m.admin_option,'inherit_option',m.inherit_option,'set_option',m.set_option) ORDER BY member.rolname,granted.rolname),'[]'::jsonb) FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles granted ON granted.oid=m.roleid),
+  'session_observability',jsonb_build_object(
+    'current_user',current_user,
+    'session_user',session_user,
+    'current_role_attributes',(SELECT jsonb_build_object('superuser',rolsuper,'inherit',rolinherit) FROM pg_roles WHERE rolname=current_user),
+    'session_role_attributes',(SELECT jsonb_build_object('superuser',rolsuper,'inherit',rolinherit) FROM pg_roles WHERE rolname=session_user),
+    'pg_read_all_stats_effective',(SELECT rolsuper FROM pg_roles WHERE rolname=current_user) OR pg_has_role(current_user,'pg_read_all_stats','USAGE'),
+    'pg_stat_activity_select',has_table_privilege(current_user,'pg_catalog.pg_stat_activity','SELECT'),
+    'pg_stat_get_activity_execute',has_function_privilege(current_user,'pg_catalog.pg_stat_get_activity(integer)','EXECUTE'),
+    'all_client_sessions_total',(SELECT count(*) FROM pg_stat_activity WHERE backend_type='client backend' AND datname=current_database() AND usename IS NOT NULL AND usename<>'pg_isready'),
+    'all_client_addresses_visible',(SELECT count(*) FROM pg_stat_activity WHERE backend_type='client backend' AND datname=current_database() AND usename IS NOT NULL AND usename<>'pg_isready' AND client_addr IS NOT NULL),
+    'all_client_addresses_null',(SELECT count(*) FROM pg_stat_activity WHERE backend_type='client backend' AND datname=current_database() AND usename IS NOT NULL AND usename<>'pg_isready' AND client_addr IS NULL),
+    'all_client_session_details_authorized',(SELECT coalesce(bool_and((SELECT rolsuper FROM pg_roles WHERE rolname=current_user) OR pg_has_role(current_user,'pg_read_all_stats','USAGE') OR pg_has_role(current_user,usename,'USAGE')),true) FROM pg_stat_activity WHERE backend_type='client backend' AND datname=current_database() AND usename IS NOT NULL AND usename<>'pg_isready')
+  ),
   'database_owner_acl',(SELECT jsonb_build_object('owner',owner.rolname,'acl',d.datacl::text,'settings',(SELECT coalesce(jsonb_agg(setting ORDER BY setting),'[]'::jsonb) FROM pg_db_role_setting setting_row CROSS JOIN LATERAL unnest(setting_row.setconfig) setting WHERE setting_row.setdatabase=d.oid AND setting_row.setrole=0)) FROM pg_database d JOIN pg_roles owner ON owner.oid=d.datdba WHERE d.datname=current_database()),
   'schema_owners_acls',(SELECT coalesce(jsonb_agg(jsonb_build_object('schema',n.nspname,'owner',owner.rolname,'acl',n.nspacl::text) ORDER BY n.nspname),'[]'::jsonb) FROM pg_namespace n JOIN pg_roles owner ON owner.oid=n.nspowner WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema'),
   'relation_owners_acls',(SELECT coalesce(jsonb_agg(jsonb_build_object('schema',n.nspname,'name',c.relname,'kind',c.relkind::text,'owner',owner.rolname,'acl',c.relacl::text) ORDER BY n.nspname,c.relname),'[]'::jsonb) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles owner ON owner.oid=c.relowner WHERE c.relkind IN ('r','p','v','m','S','f') AND n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema'),
@@ -1187,15 +1243,14 @@ class DockerSource:
 
         api_ips = {normalize_ip_address(n.get("IPAddress", "")) for n in api_networks.values()}
         api_ips.discard(None)
-        db_client_matches = [client for client in report.get("clients", []) if normalize_ip_address(client.get("address")) in api_ips and client.get("database") == db_name and client.get("user") == api_user]
-        if not db_client_matches:
-            raise CaptureError("no live database session proves the backend runtime connection target")
+        session_observability = report.get("session_observability") or {}
+        db_client_matches = correlate_backend_sessions(
+            report.get("clients", []), api_ips, db_name, api_user, session_observability
+        )
         known_ips = {normalize_ip_address(n.get("IPAddress", "")) for item in candidates for n in (item.get("NetworkSettings", {}).get("Networks") or {}).values()}
         known_ips.discard(None)
         known_ips |= {"127.0.0.1", "::1"}
-        unknown_clients = [client for client in report.get("clients", []) if normalize_ip_address(client.get("address")) not in known_ips and client.get("application") != "pg_isready"]
-        if unknown_clients:
-            raise CaptureError("database has a client outside the enumerated Docker source candidates")
+        validate_client_inventory(report.get("clients", []), known_ips, session_observability)
 
         candidate_descriptors = [container_descriptor(info, self.repo) for info in candidates]
         for desc in candidate_descriptors:
@@ -1442,6 +1497,16 @@ def read_release(path: Path) -> dict[str, Any]:
 
 def build_release_candidate(preflight: dict[str, Any], run_id: str, reviewed_head_sha: str, restore_target: dict[str, Any]) -> dict[str, Any]:
     database_id = preflight["database_container_id"]
+    source_projection = preflight.get("source_projection") or {}
+    source_image_descriptors = [source_projection.get("database_container"), source_projection.get("backend_container"), *preflight.get("candidate_descriptors", [])]
+    if not source_image_descriptors or any(
+        not isinstance(descriptor, dict)
+        or not isinstance(descriptor.get("image_provenance"), dict)
+        or descriptor["image_provenance"].get("status") != "available"
+        or not descriptor["image_provenance"].get("repo_digests")
+        for descriptor in source_image_descriptors
+    ):
+        raise CaptureError("source container image provenance is incomplete; release candidate is blocked")
     order = [item["id"] for item in preflight["quiesce_candidates"] if item["running"]]
     # Ingress containers with published host ports are stopped first; the rest
     # follow. Resume always uses the exact reverse sequence.

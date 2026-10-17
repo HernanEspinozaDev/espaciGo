@@ -60,6 +60,8 @@ class FakeSource:
         self.inject_symlink_after_stop = False
         self.fail_start_once = False
         self.failed_start = False
+        def provenance(name: str) -> dict[str, object]:
+            return {"status": "available", "image_id": "sha256:" + hashlib.sha256(name.encode()).hexdigest(), "repo_digests": ["fixture/" + name + "@sha256:" + hashlib.sha256((name + "-manifest").encode()).hexdigest()]}
         self.preflight_report = {
             "source_fingerprint": "b" * 64,
             "database_container_id": "fixture-database-container",
@@ -72,10 +74,15 @@ class FakeSource:
                 {"id": "fixture-ingress-container", "running": True},
             ],
             "candidate_descriptors": [
-                {"id": "fixture-api-container", "published_ports": {}},
-                {"id": "fixture-ingress-container", "published_ports": {"80/tcp": [{"HostPort": "8080"}]}},
+                {"id": "fixture-api-container", "published_ports": {}, "image_provenance": provenance("api")},
+                {"id": "fixture-ingress-container", "published_ports": {"80/tcp": [{"HostPort": "8080"}]}, "image_provenance": provenance("ingress")},
             ],
-            "source_projection": {"evidence_files": self.evidence_manifest, "privacy_replay_files": self.replay_manifest},
+            "source_projection": {
+                "database_container": {"id": "fixture-database-container", "image_provenance": provenance("database")},
+                "backend_container": {"id": "fixture-api-container", "image_provenance": provenance("api")},
+                "evidence_files": self.evidence_manifest,
+                "privacy_replay_files": self.replay_manifest,
+            },
         }
 
     def preflight(self) -> dict:
@@ -248,8 +255,42 @@ class CaptureFixtureTests(unittest.TestCase):
 
     def test_ipv4_mapped_postgres_client_address_correlates_to_docker_ipv4(self) -> None:
         self.assertEqual(capture.normalize_ip_address("::ffff:192.0.2.17"), "192.0.2.17")
+        self.assertEqual(capture.normalize_ip_address("::ffff:192.0.2.17/128"), "192.0.2.17")
         self.assertEqual(capture.normalize_ip_address("192.0.2.17"), "192.0.2.17")
+        self.assertEqual(capture.normalize_ip_address("172.19.0.3/32"), "172.19.0.3")
         self.assertIsNone(capture.normalize_ip_address("not-an-address"))
+
+    def test_masked_statistics_are_reported_as_insufficient_observability(self) -> None:
+        clients = [{"address": None, "database": "espacigo_local", "user": "espacigo_runtime", "application": "api"}]
+        with self.assertRaisesRegex(capture.CaptureError, "insufficient PostgreSQL statistics visibility"):
+            capture.correlate_backend_sessions(
+                clients, {"172.19.0.3"}, "espacigo_local", "espacigo_runtime",
+                {"all_client_session_details_authorized": False},
+            )
+
+    def test_visible_but_unaddressed_session_is_not_classified_as_foreign(self) -> None:
+        clients = [{"address": None, "database": "espacigo_local", "user": "espacigo_runtime", "application": "api"}]
+        observability = {"all_client_session_details_authorized": True}
+        with self.assertRaisesRegex(capture.CaptureError, "transport cannot be correlated"):
+            capture.correlate_backend_sessions(clients, {"172.19.0.3"}, "espacigo_local", "espacigo_runtime", observability)
+        with self.assertRaisesRegex(capture.CaptureError, "transport cannot be classified"):
+            capture.validate_client_inventory(clients, {"172.19.0.3"}, observability)
+
+    def test_visible_runtime_client_at_unknown_address_is_distinct_from_masked_stats(self) -> None:
+        clients = [{"address": "172.19.0.99/32", "database": "espacigo_local", "user": "espacigo_runtime", "application": "api"}]
+        observability = {"all_client_session_details_authorized": True}
+        with self.assertRaisesRegex(capture.CaptureError, "none originate from the inspected backend IP"):
+            capture.correlate_backend_sessions(clients, {"172.19.0.3"}, "espacigo_local", "espacigo_runtime", observability)
+        with self.assertRaisesRegex(capture.CaptureError, "outside the enumerated source candidates"):
+            capture.validate_client_inventory(clients, {"172.19.0.2", "172.19.0.3"}, observability)
+
+    def test_backend_session_correlation_accepts_postgresql_inet_prefix(self) -> None:
+        clients = [{"address": "172.19.0.3/32", "database": "espacigo_local", "user": "espacigo_runtime", "application": "api"}]
+        matches = capture.correlate_backend_sessions(
+            clients, {"172.19.0.3"}, "espacigo_local", "espacigo_runtime",
+            {"all_client_session_details_authorized": True},
+        )
+        self.assertEqual(len(matches), 1)
 
     def test_database_runtime_binary_version_is_taken_from_running_container(self) -> None:
         with patch.object(capture, "run_quiet", return_value=b"postgres (PostgreSQL) 18.6 (Debian 18.6-1.pgdg13+2)\n"):
@@ -270,6 +311,21 @@ class CaptureFixtureTests(unittest.TestCase):
         self.assertFalse(candidate["exclusive_docker_control"])
         self.assertIsNone(candidate["external_ingress_and_writer_sources"])
         self.assertTrue(candidate["restore_target"]["image_ref"].endswith("d" * 64))
+
+    def test_release_candidate_is_blocked_when_source_image_provenance_is_missing(self) -> None:
+        db = self.source.preflight_report["source_projection"]["database_container"]
+        original = db["image_provenance"]
+        db["image_provenance"] = {"status": "missing_locally", "image_id": original["image_id"], "repo_digests": []}
+        try:
+            with self.assertRaisesRegex(capture.CaptureError, "source container image provenance is incomplete"):
+                capture.build_release_candidate(
+                    self.source.preflight_report,
+                    self.run_id,
+                    FIXTURE_HEAD,
+                    approved_release(self.source, self.run_id)["restore_target"],
+                )
+        finally:
+            db["image_provenance"] = original
 
     def test_dump_failure_resumes_only_services_stopped_by_run(self) -> None:
         self.source.fail_dump = True
