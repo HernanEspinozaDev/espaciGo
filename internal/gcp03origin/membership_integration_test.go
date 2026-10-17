@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // TestOriginMembershipPostgres18 executes the production transaction helper as
@@ -65,6 +66,28 @@ func TestOriginMembershipPostgres18(t *testing.T) {
 
 	commit := func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) }
 
+	// The separate diagnostic uses catalog-only SQL in a read-only transaction.
+	diagnostic, diagnosticErr := membershipDiagnosticOnConnection(ctx, phaseConn, commit)
+	if diagnosticErr != nil || !diagnostic.ReportComplete || !diagnostic.ReadOnly || diagnostic.TransactionOutcome != "committed" || diagnostic.Database != DatabaseName || diagnostic.Login != AdminLogin || !diagnostic.ActorExists || !diagnostic.ActorCanLogin || !diagnostic.ActorCanCreateRole || !diagnostic.ActorCanCreateDB || diagnostic.ActorSuperuser || !diagnostic.RuntimeRoleReady || !diagnostic.EffectiveSet || len(diagnostic.Memberships) == 0 {
+		t.Fatalf("read-only membership diagnostic failed: report=%+v err=%v", diagnostic, diagnosticErr)
+	}
+
+	readOnlyTx, err := beginMembershipDiagnosticTx(ctx, phaseConn)
+	if err != nil {
+		t.Fatalf("begin read-only diagnostic transaction: %v", err)
+	}
+	_, mutationErr := readOnlyTx.Exec(ctx, `CREATE ROLE g03_membership_diag_mutation_probe`)
+	var mutationPgErr *pgconn.PgError
+	if !errors.As(mutationErr, &mutationPgErr) || mutationPgErr.Code != "25006" {
+		_ = readOnlyTx.Rollback(ctx)
+		t.Fatalf("read-only diagnostic transaction did not reject mutation with SQLSTATE 25006: %v", mutationErr)
+	}
+	_ = readOnlyTx.Rollback(ctx)
+	var mutationRoleExists bool
+	if err := control.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='g03_membership_diag_mutation_probe')`).Scan(&mutationRoleExists); err != nil || mutationRoleExists {
+		t.Fatalf("read-only mutation probe unexpectedly created a role: exists=%t err=%v", mutationRoleExists, err)
+	}
+
 	// Wrong identity is rejected before the one mutating statement.
 	otherURL := *postgresURL
 	otherURL.User = url.User("membership_observer")
@@ -73,9 +96,13 @@ func TestOriginMembershipPostgres18(t *testing.T) {
 		t.Fatalf("connect unexpected-identity fixture login: %v", err)
 	}
 	wrongIdentityReport, wrongIdentityErr := membershipOnConnection(ctx, other, commit)
-	_ = other.Close(context.Background())
-	if wrongIdentityErr == nil || wrongIdentityReport.Login != "membership_observer" || wrongIdentityReport.TransactionOutcome != "rolled_back" {
+	if wrongIdentityErr == nil || wrongIdentityReport.Login != "membership_observer" || wrongIdentityReport.FailureStage != "identity_precheck" || wrongIdentityReport.TransactionOutcome != "rolled_back" {
 		t.Fatalf("membership phase did not reject unexpected identity: report=%+v err=%v", wrongIdentityReport, wrongIdentityErr)
+	}
+	diagnosticIdentityReport, diagnosticIdentityErr := membershipDiagnosticOnConnection(ctx, other, commit)
+	_ = other.Close(context.Background())
+	if diagnosticIdentityErr == nil || diagnosticIdentityReport.FailureStage != "identity" || diagnosticIdentityReport.TransactionOutcome != "rolled_back" {
+		t.Fatalf("membership diagnostic did not reject unexpected identity: report=%+v err=%v", diagnosticIdentityReport, diagnosticIdentityErr)
 	}
 
 	// Unsafe role attributes are rejected before the grant, with no side effect.
@@ -83,7 +110,7 @@ func TestOriginMembershipPostgres18(t *testing.T) {
 		t.Fatal("prepare unsafe runtime role")
 	}
 	unsafeRoleReport, unsafeRoleErr := membershipOnConnection(ctx, phaseConn, commit)
-	if unsafeRoleErr == nil || unsafeRoleReport.TransactionOutcome != "rolled_back" {
+	if unsafeRoleErr == nil || unsafeRoleReport.FailureStage != "runtime_role_precheck" || unsafeRoleReport.TransactionOutcome != "rolled_back" {
 		t.Fatalf("membership phase did not reject unsafe runtime role: report=%+v err=%v", unsafeRoleReport, unsafeRoleErr)
 	}
 	if _, err := control.Exec(ctx, `ALTER ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`); err != nil {
@@ -95,7 +122,7 @@ func TestOriginMembershipPostgres18(t *testing.T) {
 		t.Fatal("remove fixture grant authority")
 	}
 	grantFailureReport, grantFailureErr := membershipOnConnection(ctx, phaseConn, commit)
-	if grantFailureErr == nil || grantFailureReport.TransactionOutcome != "rolled_back" {
+	if grantFailureErr == nil || grantFailureReport.FailureStage != "grant" || grantFailureReport.SQLState != "42501" || grantFailureReport.TransactionOutcome != "rolled_back" {
 		t.Fatalf("membership phase did not roll back GRANT failure: report=%+v err=%v", grantFailureReport, grantFailureErr)
 	}
 	assertRuntimeMembershipOptions(t, ctx, control, "fixture_control", false, false, true)
@@ -105,7 +132,7 @@ func TestOriginMembershipPostgres18(t *testing.T) {
 		t.Fatal("restore fixture grant authority")
 	}
 	postcheckReport, postcheckErr := membershipOnConnectionWithPostcheck(ctx, phaseConn, `SELECT false,false,false,false`, commit)
-	if postcheckErr == nil || postcheckReport.Passed || postcheckReport.TransactionOutcome != "rolled_back" {
+	if postcheckErr == nil || postcheckReport.Passed || postcheckReport.FailureStage != "postcondition" || postcheckReport.TransactionOutcome != "rolled_back" {
 		t.Fatalf("membership phase did not roll back failed postcheck: report=%+v err=%v", postcheckReport, postcheckErr)
 	}
 	assertRuntimeMembershipOptions(t, ctx, control, "fixture_control", true, false, true)
@@ -119,7 +146,7 @@ func TestOriginMembershipPostgres18(t *testing.T) {
 	uncertainReport, uncertainErr := membershipOnConnection(ctx, uncertainConn, func(context.Context, pgx.Tx) error {
 		return errors.New("injected commit acknowledgment failure")
 	})
-	if uncertainErr == nil || uncertainReport.Passed || uncertainReport.TransactionOutcome != "outcome_uncertain" {
+	if uncertainErr == nil || uncertainReport.Passed || uncertainReport.FailureStage != "commit" || uncertainReport.TransactionOutcome != "outcome_uncertain" {
 		t.Fatalf("membership commit uncertainty was not reported safely: report=%+v err=%v", uncertainReport, uncertainErr)
 	}
 	_ = uncertainConn.Close(context.Background())
@@ -138,6 +165,16 @@ func TestOriginMembershipPostgres18(t *testing.T) {
 	}
 	if roleCountAfter != roleCountBefore || objectCountAfter != objectCountBefore {
 		t.Fatalf("membership phase changed role/object inventory: roles %d->%d objects %d->%d", roleCountBefore, roleCountAfter, objectCountBefore, objectCountAfter)
+	}
+
+	// A missing runtime role is reported as a completed catalog diagnosis, not
+	// recreated or otherwise repaired by the read-only profile.
+	if _, err := control.Exec(ctx, `REVOKE espacigo_runtime FROM postgres CASCADE; DROP ROLE espacigo_runtime`); err != nil {
+		t.Fatal("prepare absent-runtime-role diagnostic fixture")
+	}
+	missingRoleReport, missingRoleErr := membershipDiagnosticOnConnection(ctx, phaseConn, commit)
+	if missingRoleErr != nil || !missingRoleReport.ReportComplete || !missingRoleReport.ReadOnly || missingRoleReport.RuntimeRoleExists || missingRoleReport.TransactionOutcome != "committed" {
+		t.Fatalf("membership diagnostic did not safely report the missing runtime role: report=%+v err=%v", missingRoleReport, missingRoleErr)
 	}
 }
 

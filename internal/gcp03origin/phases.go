@@ -10,6 +10,7 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var bootstrapStatements = []string{
@@ -100,6 +101,8 @@ type MembershipReport struct {
 	Database           string `json:"database"`
 	Login              string `json:"login"`
 	Grantor            string `json:"grantor"`
+	FailureStage       string `json:"failure_stage,omitempty"`
+	SQLState           string `json:"sqlstate,omitempty"`
 	TransactionOutcome string `json:"transaction_outcome"`
 	RuntimeRoleReady   bool   `json:"runtime_role_ready"`
 	MembershipSet      bool   `json:"membership_set"`
@@ -118,11 +121,11 @@ const runtimeMembershipPostcheckSQL = `SELECT r.rolname='espacigo_runtime' AND N
 
 func RunMembership(ctx context.Context, config Config, password string) (MembershipReport, error) {
 	if config.Phase != PhaseMembership || config.Login != AdminLogin || config.DatabaseURL != AdminDatabaseURL || password == "" || !config.PrivateIP {
-		return MembershipReport{}, errors.New("GCP-03 origin membership configuration is invalid")
+		return MembershipReport{FailureStage: "configuration", TransactionOutcome: "not_started"}, errors.New("GCP-03 origin membership configuration is invalid")
 	}
 	conn, closeConnector, err := cloudsql.Connect(ctx, config.DatabaseURL, password, config.Instance, true)
 	if err != nil {
-		return MembershipReport{}, err
+		return MembershipReport{FailureStage: "connect", SQLState: pgSQLState(err), TransactionOutcome: "not_started"}, errors.New("GCP-03 origin membership connection failed")
 	}
 	defer closeConnector()
 	defer conn.Close(context.Background())
@@ -136,43 +139,45 @@ func membershipOnConnection(ctx context.Context, conn *pgx.Conn, commit func(con
 func membershipOnConnectionWithPostcheck(ctx context.Context, conn *pgx.Conn, postcheckSQL string, commit func(context.Context, pgx.Tx) error) (MembershipReport, error) {
 	tx, err := conn.Begin(ctx)
 	if err != nil {
-		return MembershipReport{TransactionOutcome: "not_started"}, errors.New("GCP-03 origin membership could not begin its transaction")
+		return MembershipReport{FailureStage: "begin_transaction", SQLState: pgSQLState(err), TransactionOutcome: "not_started"}, errors.New("GCP-03 origin membership could not begin its transaction")
 	}
 	report := MembershipReport{}
 	if err := tx.QueryRow(ctx, `SELECT current_database(), current_user`).Scan(&report.Database, &report.Login); err != nil || report.Database != DatabaseName || report.Login != AdminLogin {
-		return rollbackMembership(tx, report, "GCP-03 origin membership connected to an unexpected identity")
+		return rollbackMembership(tx, report, "identity_precheck", err, "GCP-03 origin membership connected to an unexpected identity")
 	}
 	report.Grantor = report.Login
 	var actorSuper, actorExpected bool
 	if err := tx.QueryRow(ctx, `SELECT r.rolsuper, r.rolcanlogin AND r.rolcreaterole FROM pg_catalog.pg_roles r WHERE r.rolname=current_user`).Scan(&actorSuper, &actorExpected); err != nil || actorSuper || !actorExpected {
-		return rollbackMembership(tx, report, "GCP-03 origin membership requires the fixed non-superuser postgres login")
+		return rollbackMembership(tx, report, "actor_profile_precheck", err, "GCP-03 origin membership requires the fixed non-superuser postgres login")
 	}
 	var runtimeOK bool
 	if err := tx.QueryRow(ctx, `SELECT count(*)=1 AND bool_and(NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit) FROM pg_catalog.pg_roles WHERE rolname='espacigo_runtime'`).Scan(&runtimeOK); err != nil || !runtimeOK {
-		return rollbackMembership(tx, report, "GCP-03 origin membership requires the existing restricted runtime role")
+		return rollbackMembership(tx, report, "runtime_role_precheck", err, "GCP-03 origin membership requires the existing restricted runtime role")
 	}
 	// Exactly one mutating SQL statement is permitted in this transaction.
 	if _, err := tx.Exec(ctx, runtimeMembershipGrant); err != nil {
-		return rollbackMembership(tx, report, "GCP-03 origin runtime membership grant failed")
+		return rollbackMembership(tx, report, "grant", err, "GCP-03 origin runtime membership grant failed")
 	}
 	var admin, inherit, set bool
 	if postcheckSQL == "" {
-		return rollbackMembership(tx, report, "GCP-03 origin runtime membership postcondition is unavailable")
+		return rollbackMembership(tx, report, "postcheck_configuration", nil, "GCP-03 origin runtime membership postcondition is unavailable")
 	}
 	if err := tx.QueryRow(ctx, postcheckSQL).Scan(&report.RuntimeRoleReady, &admin, &inherit, &set); err != nil {
-		return rollbackMembership(tx, report, "GCP-03 origin runtime membership postcondition could not be read")
+		return rollbackMembership(tx, report, "postcheck_query", err, "GCP-03 origin runtime membership postcondition could not be read")
 	}
 	report.AdminOption, report.InheritOption, report.SetOption = admin, inherit, set
 	report.MembershipSet = !admin && !inherit && set
 	report.Passed = report.RuntimeRoleReady && report.MembershipSet
 	if !report.Passed {
-		return rollbackMembership(tx, report, "GCP-03 origin runtime membership postcondition failed")
+		return rollbackMembership(tx, report, "postcondition", nil, "GCP-03 origin runtime membership postcondition failed")
 	}
 	if commit == nil {
-		return rollbackMembership(tx, report, "GCP-03 origin membership commit handler is unavailable")
+		return rollbackMembership(tx, report, "commit_configuration", nil, "GCP-03 origin membership commit handler is unavailable")
 	}
 	if err := commit(ctx, tx); err != nil {
 		report.Passed = false
+		report.FailureStage = "commit"
+		report.SQLState = pgSQLState(err)
 		report.TransactionOutcome = "outcome_uncertain"
 		return report, errors.New("GCP-03 origin membership commit outcome is uncertain; reconcile before retry")
 	}
@@ -180,14 +185,195 @@ func membershipOnConnectionWithPostcheck(ctx context.Context, conn *pgx.Conn, po
 	return report, nil
 }
 
-func rollbackMembership(tx pgx.Tx, report MembershipReport, message string) (MembershipReport, error) {
+func rollbackMembership(tx pgx.Tx, report MembershipReport, stage string, cause error, message string) (MembershipReport, error) {
 	report.Passed = false
+	report.FailureStage = stage
+	report.SQLState = pgSQLState(cause)
 	if err := tx.Rollback(context.Background()); err != nil {
 		report.TransactionOutcome = "outcome_uncertain"
 		return report, fmt.Errorf("%s; rollback outcome is unconfirmed, reconcile before retry", message)
 	}
 	report.TransactionOutcome = "rolled_back"
 	return report, fmt.Errorf("%s; transaction rolled back", message)
+}
+
+func pgSQLState(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code
+	}
+	return ""
+}
+
+// MembershipDiagnosticReport contains only fixed identity and catalog facts.
+// It deliberately excludes application rows, SQL text, and raw database errors.
+type MembershipDiagnosticReport struct {
+	Database                       string                           `json:"database"`
+	Login                          string                           `json:"login"`
+	ReadOnly                       bool                             `json:"read_only"`
+	TransactionOutcome             string                           `json:"transaction_outcome"`
+	FailureStage                   string                           `json:"failure_stage,omitempty"`
+	SQLState                       string                           `json:"sqlstate,omitempty"`
+	ActorExists                    bool                             `json:"actor_exists"`
+	ActorCanLogin                  bool                             `json:"actor_can_login"`
+	ActorCanCreateRole             bool                             `json:"actor_can_create_role"`
+	ActorCanCreateDB               bool                             `json:"actor_can_create_db"`
+	ActorSuperuser                 bool                             `json:"actor_superuser"`
+	RuntimeRoleExists              bool                             `json:"runtime_role_exists"`
+	RuntimeRoleCanLogin            bool                             `json:"runtime_role_can_login"`
+	RuntimeRoleSuperuser           bool                             `json:"runtime_role_superuser"`
+	RuntimeRoleCanCreateDB         bool                             `json:"runtime_role_can_create_db"`
+	RuntimeRoleCanCreateRole       bool                             `json:"runtime_role_can_create_role"`
+	RuntimeRoleReplication         bool                             `json:"runtime_role_replication"`
+	RuntimeRoleBypassRLS           bool                             `json:"runtime_role_bypass_rls"`
+	RuntimeRoleInherit             bool                             `json:"runtime_role_inherit"`
+	RuntimeRoleReady               bool                             `json:"runtime_role_ready"`
+	Memberships                    []MembershipDiagnosticMembership `json:"memberships"`
+	MembershipSet                  bool                             `json:"membership_set"`
+	EffectiveSet                   bool                             `json:"effective_set"`
+	CurrentCloudSQLSuperuserMember bool                             `json:"current_cloudsql_superuser_member"`
+	ReportComplete                 bool                             `json:"report_complete"`
+}
+
+type MembershipDiagnosticMembership struct {
+	Grantor       string `json:"grantor"`
+	AdminOption   bool   `json:"admin_option"`
+	InheritOption bool   `json:"inherit_option"`
+	SetOption     bool   `json:"set_option"`
+}
+
+const membershipDiagnosticActorSQL = `SELECT count(*)=1,
+ COALESCE(bool_or(rolcanlogin), false), COALESCE(bool_or(rolcreaterole), false),
+ COALESCE(bool_or(rolcreatedb), false), COALESCE(bool_or(rolsuper), false)
+ FROM pg_catalog.pg_roles WHERE rolname='postgres'`
+
+const membershipDiagnosticRuntimeSQL = `SELECT count(*)=1,
+ COALESCE(bool_or(rolcanlogin), false), COALESCE(bool_or(rolsuper), false),
+ COALESCE(bool_or(rolcreatedb), false), COALESCE(bool_or(rolcreaterole), false),
+ COALESCE(bool_or(rolreplication), false), COALESCE(bool_or(rolbypassrls), false),
+ COALESCE(bool_or(rolinherit), false)
+ FROM pg_catalog.pg_roles WHERE rolname='espacigo_runtime'`
+
+const membershipDiagnosticRowsSQL = `SELECT grantor.rolname, m.admin_option, m.inherit_option, m.set_option
+ FROM pg_catalog.pg_auth_members m
+ JOIN pg_catalog.pg_roles role ON role.oid=m.roleid
+ JOIN pg_catalog.pg_roles member ON member.oid=m.member
+ JOIN pg_catalog.pg_roles grantor ON grantor.oid=m.grantor
+ WHERE role.rolname='espacigo_runtime' AND member.rolname='postgres'
+ ORDER BY grantor.rolname`
+
+const membershipDiagnosticEffectiveSQL = `SELECT
+ COALESCE((SELECT pg_catalog.pg_has_role(current_user, r.oid, 'SET') FROM pg_catalog.pg_roles r WHERE r.rolname='espacigo_runtime'), false),
+ COALESCE((SELECT pg_catalog.pg_has_role(current_user, r.oid, 'MEMBER') FROM pg_catalog.pg_roles r WHERE r.rolname='cloudsqlsuperuser'), false)`
+
+func RunMembershipDiagnostic(ctx context.Context, config Config, password string) (MembershipDiagnosticReport, error) {
+	report := MembershipDiagnosticReport{ReadOnly: true, TransactionOutcome: "not_started"}
+	if config.Phase != PhaseMembershipCheck || config.Login != AdminLogin || config.DatabaseURL != AdminDatabaseURL || password == "" || !config.PrivateIP {
+		report.FailureStage = "configuration"
+		return report, errors.New("GCP-03 origin membership diagnostic configuration is invalid")
+	}
+	conn, closeConnector, err := cloudsql.Connect(ctx, config.DatabaseURL, password, config.Instance, true)
+	if err != nil {
+		report.FailureStage, report.SQLState = "connect", pgSQLState(err)
+		return report, errors.New("GCP-03 origin membership diagnostic connection failed")
+	}
+	defer closeConnector()
+	defer conn.Close(context.Background())
+	return membershipDiagnosticOnConnection(ctx, conn, func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) })
+}
+
+func beginMembershipDiagnosticTx(ctx context.Context, conn *pgx.Conn) (pgx.Tx, error) {
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, membershipDiagnosticBeginError{cause: err, outcome: "not_started"}
+	}
+	if _, err := tx.Exec(ctx, `SET TRANSACTION READ ONLY`); err != nil {
+		outcome := "rolled_back"
+		if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
+			outcome = "outcome_uncertain"
+		}
+		return nil, membershipDiagnosticBeginError{cause: err, outcome: outcome}
+	}
+	return tx, nil
+}
+
+type membershipDiagnosticBeginError struct {
+	cause   error
+	outcome string
+}
+
+func (e membershipDiagnosticBeginError) Error() string {
+	return "read-only diagnostic transaction could not be started"
+}
+func (e membershipDiagnosticBeginError) Unwrap() error { return e.cause }
+
+func membershipDiagnosticOnConnection(ctx context.Context, conn *pgx.Conn, commit func(context.Context, pgx.Tx) error) (MembershipDiagnosticReport, error) {
+	report := MembershipDiagnosticReport{ReadOnly: true, TransactionOutcome: "not_started", Memberships: []MembershipDiagnosticMembership{}}
+	tx, err := beginMembershipDiagnosticTx(ctx, conn)
+	if err != nil {
+		var beginErr membershipDiagnosticBeginError
+		if errors.As(err, &beginErr) {
+			report.TransactionOutcome = beginErr.outcome
+			report.SQLState = pgSQLState(beginErr.cause)
+		}
+		report.FailureStage = "begin_read_only_transaction"
+		return report, errors.New("GCP-03 origin membership diagnostic could not begin a read-only transaction")
+	}
+	report.TransactionOutcome = "active"
+	if err := tx.QueryRow(ctx, `SELECT current_database(), current_user`).Scan(&report.Database, &report.Login); err != nil || report.Database != DatabaseName || report.Login != AdminLogin {
+		return rollbackMembershipDiagnostic(ctx, tx, report, "identity", err)
+	}
+	if err := tx.QueryRow(ctx, membershipDiagnosticActorSQL).Scan(&report.ActorExists, &report.ActorCanLogin, &report.ActorCanCreateRole, &report.ActorCanCreateDB, &report.ActorSuperuser); err != nil {
+		return rollbackMembershipDiagnostic(ctx, tx, report, "actor_profile", err)
+	}
+	if err := tx.QueryRow(ctx, membershipDiagnosticRuntimeSQL).Scan(&report.RuntimeRoleExists, &report.RuntimeRoleCanLogin, &report.RuntimeRoleSuperuser, &report.RuntimeRoleCanCreateDB, &report.RuntimeRoleCanCreateRole, &report.RuntimeRoleReplication, &report.RuntimeRoleBypassRLS, &report.RuntimeRoleInherit); err != nil {
+		return rollbackMembershipDiagnostic(ctx, tx, report, "runtime_role_profile", err)
+	}
+	report.RuntimeRoleReady = report.RuntimeRoleExists && !report.RuntimeRoleCanLogin && !report.RuntimeRoleSuperuser && !report.RuntimeRoleCanCreateDB && !report.RuntimeRoleCanCreateRole && !report.RuntimeRoleReplication && !report.RuntimeRoleBypassRLS && !report.RuntimeRoleInherit
+	rows, err := tx.Query(ctx, membershipDiagnosticRowsSQL)
+	if err != nil {
+		return rollbackMembershipDiagnostic(ctx, tx, report, "membership_rows", err)
+	}
+	for rows.Next() {
+		var membership MembershipDiagnosticMembership
+		if err := rows.Scan(&membership.Grantor, &membership.AdminOption, &membership.InheritOption, &membership.SetOption); err != nil {
+			rows.Close()
+			return rollbackMembershipDiagnostic(ctx, tx, report, "membership_rows", err)
+		}
+		report.Memberships = append(report.Memberships, membership)
+		if membership.Grantor == AdminLogin && !membership.AdminOption && !membership.InheritOption && membership.SetOption {
+			report.MembershipSet = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return rollbackMembershipDiagnostic(ctx, tx, report, "membership_rows", err)
+	}
+	rows.Close()
+	if err := tx.QueryRow(ctx, membershipDiagnosticEffectiveSQL).Scan(&report.EffectiveSet, &report.CurrentCloudSQLSuperuserMember); err != nil {
+		return rollbackMembershipDiagnostic(ctx, tx, report, "effective_membership", err)
+	}
+	if commit == nil {
+		return rollbackMembershipDiagnostic(ctx, tx, report, "commit_configuration", nil)
+	}
+	if err := commit(ctx, tx); err != nil {
+		report.FailureStage, report.SQLState = "commit", pgSQLState(err)
+		report.TransactionOutcome = "outcome_uncertain"
+		return report, errors.New("GCP-03 origin membership diagnostic commit outcome is uncertain; reconcile before retry")
+	}
+	report.TransactionOutcome = "committed"
+	report.ReportComplete = true
+	return report, nil
+}
+
+func rollbackMembershipDiagnostic(ctx context.Context, tx pgx.Tx, report MembershipDiagnosticReport, stage string, cause error) (MembershipDiagnosticReport, error) {
+	report.FailureStage, report.SQLState, report.ReportComplete = stage, pgSQLState(cause), false
+	if err := tx.Rollback(ctx); err != nil {
+		report.TransactionOutcome = "outcome_uncertain"
+		return report, errors.New("GCP-03 origin membership diagnostic rollback outcome is uncertain; reconcile before retry")
+	}
+	report.TransactionOutcome = "rolled_back"
+	return report, errors.New("GCP-03 origin membership diagnostic failed at a reported stage; no database changes were requested")
 }
 
 func ReadAdminPassword(path string) (string, error) {

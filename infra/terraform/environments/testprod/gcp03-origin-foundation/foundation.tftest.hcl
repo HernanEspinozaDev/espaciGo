@@ -22,6 +22,7 @@ run "foundation_is_off_by_default" {
       length(google_project_iam_member.admin_sql_client) == 0 &&
       length(google_cloud_run_v2_job.origin_bootstrap) == 0 &&
       length(google_cloud_run_v2_job.origin_membership) == 0 &&
+      length(google_cloud_run_v2_job.origin_membership_diagnostic) == 0 &&
       length(google_cloud_run_v2_job.origin_observer) == 0 &&
       length(google_service_account.origin_observer) == 0 &&
       length(google_sql_user.origin_observer) == 0
@@ -59,6 +60,51 @@ run "runtime_membership_job_is_one_shot_and_separate_from_bootstrap_import" {
       length(google_cloud_run_v2_job.origin_import) == 0 &&
     length(google_cloud_run_v2_job.origin_postrestore) == 0)
     error_message = "Membership remediation must not rerun bootstrap, import, or post-restore."
+  }
+}
+
+run "membership_diagnostic_job_is_read_only_profile_one_shot_and_separate" {
+  command = apply
+  variables {
+    run_id                                  = "g03o-1017"
+    enable_foundation                       = true
+    confirm_origin_rehearsal                = true
+    enable_origin_bootstrap_job             = true
+    origin_executor_image                   = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    enable_origin_membership_job            = true
+    origin_membership_image                 = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    enable_origin_membership_diagnostic_job = true
+    origin_membership_diagnostic_image      = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    admin_password_secret_version           = "1"
+    confirm_admin_password_secret_version   = true
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.origin_membership_diagnostic) == 1 &&
+      google_cloud_run_v2_job.origin_membership_diagnostic[0].name == "espacigo-gcp03-origin-g03o-1017-runtime-membership-diagnostic" &&
+      google_cloud_run_v2_job.origin_membership_diagnostic[0].template[0].task_count == 1 &&
+      google_cloud_run_v2_job.origin_membership_diagnostic[0].template[0].parallelism == 1 &&
+      google_cloud_run_v2_job.origin_membership_diagnostic[0].template[0].template[0].max_retries == 0 &&
+      google_cloud_run_v2_job.origin_membership_diagnostic[0].template[0].template[0].timeout == "900s" &&
+      google_cloud_run_v2_job.origin_membership_diagnostic[0].template[0].template[0].service_account == google_service_account.admin[0].email &&
+      google_cloud_run_v2_job.origin_membership_diagnostic[0].template[0].template[0].containers[0].image == var.origin_membership_diagnostic_image &&
+      google_cloud_run_v2_job.origin_membership_diagnostic[0].template[0].template[0].containers[0].resources[0].limits["cpu"] == "1" &&
+      google_cloud_run_v2_job.origin_membership_diagnostic[0].template[0].template[0].containers[0].resources[0].limits["memory"] == "1Gi" &&
+      google_cloud_run_v2_job.origin_membership_diagnostic[0].template[0].template[0].volumes[0].secret[0].items[0].version == var.admin_password_secret_version &&
+      google_cloud_run_v2_job.origin_membership_diagnostic[0].template[0].template[0].vpc_access[0].egress == "PRIVATE_RANGES_ONLY" &&
+      one([for e in google_cloud_run_v2_job.origin_membership_diagnostic[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_PHASE"]) == "membership-check"
+    )
+    error_message = "Membership diagnosis must be a fixed, private, one-task, zero-retry read-only phase with the reviewed image and admin secret identity."
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.origin_membership) == 1 &&
+      length(google_cloud_run_v2_job.origin_import) == 0 &&
+      length(google_cloud_run_v2_job.origin_postrestore) == 0
+    )
+    error_message = "The existing membership Job gate must remain enabled while import and restore Jobs remain disabled."
   }
 }
 

@@ -82,6 +82,26 @@ variable "origin_membership_image" {
   }
 }
 
+variable "enable_origin_membership_diagnostic_job" {
+  type        = bool
+  default     = false
+  description = "Default-off one-shot read-only catalog diagnostic for the fixed postgres/runtime membership state."
+  validation {
+    condition     = !var.enable_origin_membership_diagnostic_job || (var.enable_foundation && var.confirm_origin_rehearsal && var.run_id == "g03o-1017" && can(regex("@sha256:[0-9a-f]{64}$", var.origin_membership_diagnostic_image)) && can(regex("^[1-9][0-9]*$", var.admin_password_secret_version)) && var.confirm_admin_password_secret_version)
+    error_message = "Membership diagnostic requires the exact g03o-1017 target, a digest-pinned executor, and a reviewed numeric admin-password version."
+  }
+}
+
+variable "origin_membership_diagnostic_image" {
+  type        = string
+  default     = ""
+  description = "Digest-pinned gcp03origin executor containing the read-only membership diagnostic phase."
+  validation {
+    condition     = var.origin_membership_diagnostic_image == "" || (can(regex("@sha256:[0-9a-f]{64}$", var.origin_membership_diagnostic_image)) && startswith(var.origin_membership_diagnostic_image, "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin@sha256:"))
+    error_message = "Membership diagnostic image must be digest-pinned in the reviewed GCP-03 executor repository."
+  }
+}
+
 variable "enable_uploader_impersonation_binding" {
   type        = bool
   default     = false
@@ -345,6 +365,7 @@ locals {
   instance_name                  = "${local.prefix}-pg"
   admin_enabled                  = local.foundation_enabled && var.enable_origin_bootstrap_job
   membership_enabled             = local.foundation_enabled && var.enable_origin_membership_job
+  membership_diagnostic_enabled  = local.foundation_enabled && var.enable_origin_membership_diagnostic_job
   observer_enabled               = local.foundation_enabled && var.enable_origin_observer_job
   import_enabled                 = local.foundation_enabled && var.enable_origin_import_job
   uploader_enabled               = local.foundation_enabled && var.enable_origin_ciphertext_uploader

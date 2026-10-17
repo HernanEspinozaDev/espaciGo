@@ -168,6 +168,94 @@ resource "google_cloud_run_v2_job" "origin_membership" {
   }
 }
 
+resource "google_cloud_run_v2_job" "origin_membership_diagnostic" {
+  count               = local.membership_diagnostic_enabled ? 1 : 0
+  project             = var.project_id
+  name                = "${local.prefix}-runtime-membership-diagnostic"
+  location            = var.region
+  deletion_protection = true
+
+  template {
+    task_count  = 1
+    parallelism = 1
+
+    template {
+      service_account = google_service_account.admin[0].email
+      timeout         = "900s"
+      max_retries     = 0
+
+      containers {
+        image = var.origin_membership_diagnostic_image
+        env {
+          name  = "GCP03_ORIGIN_PHASE"
+          value = "membership-check"
+        }
+        env {
+          name  = "GCP03_ORIGIN_CONFIRM_TARGET"
+          value = "${google_sql_database_instance.origin[0].connection_name}/espacigo_scratch"
+        }
+        env {
+          name  = "DATABASE_CONNECTION_MODE"
+          value = "cloudsql"
+        }
+        env {
+          name  = "DATABASE_URL"
+          value = "postgres://postgres@localhost:5432/espacigo_scratch?sslmode=disable"
+        }
+        env {
+          name  = "DATABASE_PASSWORD_FILE"
+          value = "/secrets/admin/password"
+        }
+        env {
+          name  = "CLOUD_SQL_INSTANCE_CONNECTION_NAME"
+          value = google_sql_database_instance.origin[0].connection_name
+        }
+        env {
+          name  = "CLOUD_SQL_PRIVATE_IP"
+          value = "true"
+        }
+
+        volume_mounts {
+          name       = "origin-admin-password"
+          mount_path = "/secrets/admin"
+        }
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "1Gi"
+          }
+        }
+      }
+
+      volumes {
+        name = "origin-admin-password"
+        secret {
+          secret = google_secret_manager_secret.admin_password[0].secret_id
+          items {
+            version = var.admin_password_secret_version
+            path    = "password"
+          }
+        }
+      }
+
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = data.google_compute_network.existing[0].name
+          subnetwork = data.google_compute_subnetwork.existing[0].name
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.membership_diagnostic_enabled && var.confirm_admin_password_secret_version && can(regex("^[1-9][0-9]*$", var.admin_password_secret_version))
+      error_message = "Membership diagnostic Job requires the exact active numeric admin-password version and explicit confirmation."
+    }
+  }
+}
+
 resource "google_cloud_run_v2_job" "origin_import" {
   count               = local.import_enabled ? 1 : 0
   project             = var.project_id
