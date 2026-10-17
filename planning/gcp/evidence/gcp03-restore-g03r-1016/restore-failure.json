@@ -27,7 +27,7 @@
   "diagnosis": {
     "local_manifest_dump_toc_validation": "PASS",
     "uploaded_object_sha256": "PASS",
-    "executor_failure_substep": "not identified by sanitized error",
+    "executor_failure_substep": "not identified by original sanitized error",
     "gcs_data_access_audit_detail_returned": 0,
     "cloudsql_connector_connection_audit": [
       {
@@ -35,8 +35,25 @@
         "timestamp": "2026-10-17T00:10:42.583570Z"
       }
     ],
-    "restore_sql_submitted": false,
-    "basis": "executor returned artifact_validation before entering the restoreSynthetic SQL path"
+    "database_preflight_queries": "unknown; connector connection alone does not prove query execution",
+    "restore_sql_submission": "not established by available execution evidence",
+    "exact_runtime_offline_reproduction": {
+      "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03restore@sha256:7cca0b4371c415ebb1f5b72516f1d3a119ba6f8d298ce46f07f2a93d12369bce",
+      "pg_restore_version": "18.6",
+      "network": "disabled",
+      "generated_toc_sha256": "72267c466194fa670b7392071a500984f53309882a8847e3024ef04a5dce8636",
+      "sealed_toc_sha256": "4a2fddbdb08f636bc0f6cb7cfeeecfed621c9ad351dcb6b2f7fc5d2b0dc96244",
+      "full_bytes_equal": false,
+      "header_difference": "generated UTC versus sealed -03 archive-created timestamp",
+      "generated_entries": 741,
+      "sealed_entries": 741,
+      "ordered_non_comment_entries_equal": true,
+      "allowlist_entries": 734,
+      "all_allowlist_entries_present": true,
+      "interpretation": "reproduces a prior generated-TOC byte-comparison rejection after SQL preflight, but does not identify the original execution substep"
+    },
+    "followup_read_only_sql_check": "before any future recovery, inspect database identity, schema/table presence, migration history and fixed synthetic row counts with the scoped read identity; compare with preserved baseline",
+    "recovery_authorized": false
   },
   "actions": {
     "restore_invocation_count": 1,

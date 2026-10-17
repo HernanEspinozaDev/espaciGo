@@ -120,12 +120,30 @@ type failureEvidence struct {
 	Phase                  string `json:"phase"`
 	Stage                  string `json:"stage"`
 	ErrorCode              string `json:"error_code"`
+	Substep                string `json:"substep,omitempty"`
 	SQLState               string `json:"sqlstate,omitempty"`
 	SubprocessExitCode     int    `json:"subprocess_exit_code,omitempty"`
 	CommitOutcomeUncertain bool   `json:"commit_outcome_uncertain"`
 	ProxyShutdownConfirmed bool   `json:"proxy_shutdown_confirmed"`
 	ManifestSHA256         string `json:"manifest_sha256,omitempty"`
 	FailureSHA256          string `json:"failure_sha256"`
+}
+
+type restoreFailure struct{ code, substep string }
+
+func (e restoreFailure) Error() string { return e.code }
+
+var restoreFailureCodes = map[string]string{
+	"ARTIFACT_GCS_CLIENT_FAILED":            "gcs_client",
+	"ARTIFACT_GCS_MANIFEST_READ_FAILED":     "gcs_manifest_read",
+	"ARTIFACT_MANIFEST_DECODE_FAILED":       "manifest_decode",
+	"ARTIFACT_GCS_DUMP_READ_FAILED":         "gcs_dump_read",
+	"ARTIFACT_DUMP_HASH_FAILED":             "dump_hash_validation",
+	"ARTIFACT_GCS_TOC_READ_FAILED":          "gcs_toc_read",
+	"ARTIFACT_GCS_ALLOWLIST_READ_FAILED":    "gcs_allowlist_read",
+	"ARTIFACT_SEALED_TOC_VALIDATION_FAILED": "sealed_toc_validation",
+	"ARTIFACT_GENERATED_TOC_COMMAND_FAILED": "generated_toc_command",
+	"ARTIFACT_GENERATED_TOC_MISMATCH":       "generated_toc_validation",
 }
 
 type subprocessFailure struct {
@@ -164,15 +182,18 @@ func writeFailureEvidence(out io.Writer, getenv func(string) string, err error) 
 	if errors.As(err, &phaseFailure) {
 		record.ProxyShutdownConfirmed = phaseFailure.proxyShutdownConfirmed
 	}
-	switch {
-	case strings.Contains(message, "uncertain"):
-		record.Stage, record.ErrorCode, record.CommitOutcomeUncertain = "commit", "COMMIT_OUTCOME_UNCERTAIN", true
-	case strings.Contains(message, "preflight") || strings.Contains(message, "refused") || strings.Contains(message, "already") || strings.Contains(message, "empty"):
-		record.Stage, record.ErrorCode = "preflight", "PRECONDITION_FAILED"
-	case strings.Contains(message, "manifest") || strings.Contains(message, "artifact") || strings.Contains(message, "TOC") || strings.Contains(message, "dump"):
-		record.Stage, record.ErrorCode = "artifact_validation", "ARTIFACT_VALIDATION_FAILED"
-	case strings.Contains(message, "proxy shutdown"):
-		record.Phase, record.Stage, record.ErrorCode = phase, "proxy_shutdown", "PROXY_SHUTDOWN_UNCONFIRMED"
+	var typedFailure restoreFailure
+	if errors.As(err, &typedFailure) {
+		record.Stage, record.ErrorCode, record.Substep = "artifact_validation", typedFailure.code, typedFailure.substep
+	} else {
+		switch {
+		case strings.Contains(message, "uncertain"):
+			record.Stage, record.ErrorCode, record.CommitOutcomeUncertain = "commit", "COMMIT_OUTCOME_UNCERTAIN", true
+		case strings.Contains(message, "preflight") || strings.Contains(message, "refused") || strings.Contains(message, "already") || strings.Contains(message, "empty"):
+			record.Stage, record.ErrorCode = "preflight", "PRECONDITION_FAILED"
+		case strings.Contains(message, "proxy shutdown"):
+			record.Phase, record.Stage, record.ErrorCode = phase, "proxy_shutdown", "PROXY_SHUTDOWN_UNCONFIRMED"
+		}
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -573,29 +594,35 @@ func runConfigured(ctx context.Context, c config) (evidence, error) {
 
 	client, err := storage.NewClient(ctx)
 	if err != nil {
-		return evidence{}, errors.New("could not initialize artifact reader")
+		return evidence{}, restoreFailure{code: "ARTIFACT_GCS_CLIENT_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_CLIENT_FAILED"]}
 	}
 	defer client.Close()
 	manifestObject := "runs/" + c.runID + "/manifest.json"
 	manifestBytes, err := download(ctx, client, c.bucket, manifestObject, 1<<20)
 	if err != nil {
-		return evidence{}, errors.New("could not read run manifest")
+		return evidence{}, restoreFailure{code: "ARTIFACT_GCS_MANIFEST_READ_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_MANIFEST_READ_FAILED"]}
 	}
 	manifest, err := gcp03restore.DecodeManifest(manifestBytes, c.manifestSHA)
 	if err != nil || manifest.RunID != c.runID {
-		return evidence{}, errors.New("run manifest validation failed")
+		return evidence{}, restoreFailure{code: "ARTIFACT_MANIFEST_DECODE_FAILED", substep: restoreFailureCodes["ARTIFACT_MANIFEST_DECODE_FAILED"]}
 	}
 	dump, err := download(ctx, client, c.bucket, manifest.DumpObject, maxArtifactBytes)
-	if err != nil || gcp03restore.VerifyDump(dump, manifest) != nil {
-		return evidence{}, errors.New("synthetic dump validation failed")
+	if err != nil {
+		return evidence{}, restoreFailure{code: "ARTIFACT_GCS_DUMP_READ_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_DUMP_READ_FAILED"]}
+	}
+	if gcp03restore.VerifyDump(dump, manifest) != nil {
+		return evidence{}, restoreFailure{code: "ARTIFACT_DUMP_HASH_FAILED", substep: restoreFailureCodes["ARTIFACT_DUMP_HASH_FAILED"]}
 	}
 	rawTOC, err := download(ctx, client, c.bucket, manifest.TOCObject, 8<<20)
 	if err != nil {
-		return evidence{}, errors.New("could not read dump TOC")
+		return evidence{}, restoreFailure{code: "ARTIFACT_GCS_TOC_READ_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_TOC_READ_FAILED"]}
 	}
 	allowlist, err := download(ctx, client, c.bucket, manifest.AllowlistObject, 8<<20)
-	if err != nil || gcp03restore.VerifyTOC(rawTOC, allowlist, manifest) != nil {
-		return evidence{}, errors.New("restore allowlist validation failed")
+	if err != nil {
+		return evidence{}, restoreFailure{code: "ARTIFACT_GCS_ALLOWLIST_READ_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_ALLOWLIST_READ_FAILED"]}
+	}
+	if gcp03restore.VerifyTOC(rawTOC, allowlist, manifest) != nil {
+		return evidence{}, restoreFailure{code: "ARTIFACT_SEALED_TOC_VALIDATION_FAILED", substep: restoreFailureCodes["ARTIFACT_SEALED_TOC_VALIDATION_FAILED"]}
 	}
 
 	verified, err := restoreSynthetic(ctx, c.databaseURL, c.runID, manifest, dump, rawTOC, allowlist)
@@ -632,8 +659,11 @@ func restoreSynthetic(ctx context.Context, databaseURL, runID string, manifest g
 		return empty, errors.New("could not stage verified allowlist")
 	}
 	actualTOC, err := exec.CommandContext(ctx, "pg_restore", "--list", dumpPath).Output()
-	if err != nil || gcp03restore.VerifyTOC(actualTOC, allowlist, manifest) != nil || !bytes.Equal(actualTOC, rawTOC) {
-		return empty, errors.New("dump contents do not match the reviewed TOC")
+	if err != nil {
+		return empty, restoreFailure{code: "ARTIFACT_GENERATED_TOC_COMMAND_FAILED", substep: restoreFailureCodes["ARTIFACT_GENERATED_TOC_COMMAND_FAILED"]}
+	}
+	if err := validateGeneratedTOC(actualTOC, rawTOC, allowlist); err != nil {
+		return empty, err
 	}
 	owner := ownerRole(runID)
 	cmd := exec.CommandContext(ctx, "pg_restore", "--exit-on-error", "--single-transaction", "--no-owner", "--no-acl", "--role="+owner, "--use-list="+listPath, "--dbname="+databaseURL, dumpPath)
@@ -676,6 +706,13 @@ func restoreSynthetic(ctx context.Context, databaseURL, runID string, manifest g
 		return empty, errors.New("restored retirement audit ACL contract failed")
 	}
 	return verifyRestored(ctx, databaseURL, runID, manifest.MigrationSHA256, true)
+}
+
+func validateGeneratedTOC(actualTOC, sealedTOC, allowlist []byte) error {
+	if gcp03restore.VerifyTOCEntries(actualTOC, allowlist) != nil || !gcp03restore.SameTOCEntries(actualTOC, sealedTOC) {
+		return restoreFailure{code: "ARTIFACT_GENERATED_TOC_MISMATCH", substep: restoreFailureCodes["ARTIFACT_GENERATED_TOC_MISMATCH"]}
+	}
+	return nil
 }
 
 var sqlStatePattern = regexp.MustCompile(`SQL state: ([0-9A-Z]{5})`)

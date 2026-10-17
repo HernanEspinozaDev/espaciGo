@@ -75,6 +75,14 @@ func VerifyTOC(raw, allowlist []byte, m Manifest) error {
 	if digest(raw) != m.TOCSHA256 || digest(allowlist) != m.AllowlistSHA256 {
 		return errors.New("dump TOC or restore allowlist hash does not match the reviewed manifest")
 	}
+	return VerifyTOCEntries(raw, allowlist)
+}
+
+// VerifyTOCEntries validates the allowlist against a pg_restore listing. Header
+// comments are intentionally ignored because pg_restore embeds environment
+// dependent creation time and timezone there. Every non-comment entry remains
+// byte-for-byte and order sensitive.
+func VerifyTOCEntries(raw, allowlist []byte) error {
 	available := make(map[string]struct{})
 	for _, line := range strings.Split(string(raw), "\n") {
 		line = strings.TrimSpace(line)
@@ -103,6 +111,32 @@ func VerifyTOC(raw, allowlist []byte, m Manifest) error {
 		return errors.New("restore allowlist is empty")
 	}
 	return nil
+}
+
+func SameTOCEntries(left, right []byte) bool {
+	entries := func(data []byte) []string {
+		var result []string
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(line, ";") {
+				result = append(result, line)
+			}
+		}
+		return result
+	}
+	return equalStrings(entries(left), entries(right))
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func preinstalledExtensionTOCEntry(line string) bool {
