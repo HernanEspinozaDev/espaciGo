@@ -63,6 +63,18 @@ variable "enable_restore_jobs" {
   }
 }
 
+variable "enable_restore_iam_users" {
+  type        = bool
+  default     = true
+  description = "Keep the restore and verify Cloud SQL IAM login resources while restore jobs are enabled; set false only for a run-bound IAM-user closeout plan."
+  validation {
+    condition = var.enable_restore_iam_users || (
+      var.allow_restore_iam_user_destroy && var.confirm_destroy_run_id == var.run_id
+    )
+    error_message = "Disabling the restore/verify IAM SQL users requires the scoped destroy gate and exact run confirmation."
+  }
+}
+
 variable "enable_diagnostic_job" {
   type        = bool
   default     = false

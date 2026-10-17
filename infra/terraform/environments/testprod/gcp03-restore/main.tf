@@ -148,7 +148,7 @@ resource "google_project_iam_member" "verify_sql_instance_user" {
 }
 
 resource "google_sql_user" "verify_iam" {
-  count           = local.restore_enabled ? 1 : 0
+  count           = local.restore_enabled && var.enable_restore_iam_users ? 1 : 0
   project         = var.project_id
   instance        = google_sql_database_instance.restore[0].name
   name            = "${google_service_account.verify[0].account_id}@${var.project_id}.iam"
@@ -203,7 +203,7 @@ resource "google_storage_bucket_iam_member" "diagnostic_artifact_reader" {
 }
 
 resource "google_sql_user" "restore_iam" {
-  count           = local.restore_enabled ? 1 : 0
+  count           = local.restore_enabled && var.enable_restore_iam_users ? 1 : 0
   project         = var.project_id
   instance        = google_sql_database_instance.restore[0].name
   name            = "${google_service_account.restore[0].account_id}@${var.project_id}.iam"
