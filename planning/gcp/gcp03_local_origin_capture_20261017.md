@@ -1,6 +1,16 @@
 # GCP-03 — implementación local de captura del origen
 
-Fecha: 2026-10-17. Estado: herramienta y protocolo preparados para revisión; no se ejecutó preflight, quiesce, dump, copia de archivos ni lectura adicional del origen. No se creó un release aprobado, no se detuvo ningún servicio y no hubo operación GCP. GCP-03 sigue parcial; GCP-04 no se inicia.
+Fecha: 2026-10-17. La herramienta se fusionó en PR #387 (`34cf8299ab18760c29d57419ad825af188bfdfbe`). El estado de preparación descrito originalmente se conserva como historia; el resultado de los preflights posteriores queda registrado a continuación. GCP-03 sigue parcial; GCP-04 no se inicia.
+
+## Actualización del preflight read-only (2026-10-17)
+
+El primer intento sobre el origen se detuvo antes de SQL porque `docker image inspect` no encontró localmente la imagen-ID referenciada por el contenedor de PostgreSQL (`sha256:84b8ed430e1aa7847ef5777ae9b65db374da288dd71e51714fb6ad86db550053`). El tag local `espacigo-local-database:dev` resuelve a otro digest (`sha256:9c63ab38222eaf32b937c40e95ae35abada3d8dd924386ce210b3de0746e3c70`); no se afirmó que fueran iguales ni se intentó pull/rebuild/export/commit.
+
+La corrección propuesta en esta rama captura `missing_locally` como brecha explícita de procedencia, mantiene la correlación de versión desde el binario `postgres --version` del contenedor activo, V1–V61 desde `/migrations` del backend ejecutándose, conexión/configuración efectiva y mounts desde `docker inspect`, y separa el destino de restore: debe seleccionarse por `repository@sha256` y validarse localmente. `restore-copy` arranca solo esa imagen digest-pinned en `network none`/tmpfs, verifica PostgreSQL major y que cada extensión/version exacta del origen esté disponible antes del restore, y después compara esquema/datos/owners/ACL. El ID de imagen origen no se usa como imagen destino.
+
+Con la corrección en el worktree, el preflight actual avanzó hasta la correlación de sesiones read-only y se detuvo: PostgreSQL informa nueve sesiones del rol runtime sin `client_addr`, por lo que no se puede probar que correspondan a la IP del backend. Una llamada HTTP GET al catálogo público devolvió 200, pero no resolvió esa correlación. No se creó candidato, no hubo dump/copias de datos/llave ni pausa/reinicio; la consulta fue de solo lectura. El detalle saneado está en `.local/testing/gcp03-preflight-image-provenance-20261017/status.json` (modo 0600). No se relaja el gate de sesión o clientes no identificados. Hasta probar la ruta con una fuente de lectura observable, captura permanece bloqueada.
+
+La corrección tampoco afirma control exclusivo de Docker ni ausencia de ingress externo: el candidato mantiene esas decisiones en `false` y `external_ingress_and_writer_sources: null` hasta que una revisión las complete. La instancia de restore propuesta por digest no demuestra procedencia de la imagen del origen ni compatibilidad de snapshot real.
 
 ## Alcance de este corte
 
@@ -20,13 +30,16 @@ python3 scripts/gcp03_origin_capture.py preflight \
 
 El comando inspecciona IDs/digests de las imágenes en ejecución, configuración efectiva no secreta del backend, identidad/conexión del DB, mounts y nombre/id del volumen, migraciones que contiene la imagen activa y checksums V1–V61, agregados de catálogo, sesiones/leases, roles/owners/ACL y huellas de los dos árboles privados. SQL se ejecuta `READ ONLY` dentro de una transacción `REPEATABLE READ`. El preflight correlaciona el alias/host con una red Docker compartida, la sesión de PostgreSQL con IP/rol/base del backend y la migración aplicada con la imagen activa; no supone que los roots Compose sean iguales. Para la llave contractual registra solo metadatos de archivo (tamaño/modo/inode/mtime); su contenido se valida y cifra separadamente después del quiesce. El JSON privado y sus directorios son `0600`/`0700`; stdout solo da resumen sin DSN, contraseñas, rutas de secretos ni filas personales.
 
-Crear un candidato no aprobado, sin detener servicios:
+Crear un candidato no aprobado, sin detener servicios. Antes debe seleccionarse una imagen local de restore por digest inmutable (distinta de la imagen-ID observada del origen si esta no existe localmente):
 
 ```bash
 python3 scripts/gcp03_origin_capture.py release-candidate \
   --run-id "$RUN_ID" \
+  --restore-image-ref "$RESTORE_IMAGE_REF" \
   --private-output-dir ".local/testing/gcp03-capture-release-$RUN_ID"
 ```
+
+El candidato registra imagen source/runtime y sus límites de procedencia por separado del destino `restore_target`. El comando rechaza tags mutables, digest no presente localmente o errores del daemon que no sean explícitamente `No such image`. `external_ingress_and_writer_sources` queda sin evaluar (`null`); no se deriva su ausencia del inventario Docker.
 
 Revisar de forma humana cada contenedor identificado y su rol, puertos publicados, consumidores de DB, schedulers, procesos fuera de Docker y cualquier ingress externo. El candidato no es autorización. Si algún writer/ingress queda sin identificar, si hay clientes DB desconocidos, si hay servicios externos no controlables durante la ventana, o si la raíz privada no está montada con permisos 0700/0600, detener el procedimiento sin capturar.
 
@@ -70,13 +83,14 @@ python3 scripts/gcp03_origin_capture.py recover-key \
 
 ## Restore local copy-only
 
-No arranca la aplicación, workers ni proveedores. El comando requiere la imagen exacta de base del snapshot ya presente localmente; no hace pull. Docker usa `--network none`, filesystem raíz de solo lectura, almacenamiento de base en `tmpfs`, sin puertos ni mounts de volumen. Genera passwords sintéticos efímeros y roles sin hashes de contraseña. Compara versión/extensiones, V1–V61, tipos UUID/int64, owners/ACL, SECURITY DEFINER, estados y conteos. Luego, y solo en la copia, revoca sesiones/tokens, cancela los avisos pendientes/procesando, limpia leases y asigna `NOLOGIN` al runtime. El outbox de identidad queda preservado pero no ejecutable: no se inicia ningún sender.
+No arranca la aplicación, workers ni proveedores. El comando requiere el `repository@sha256` exacto registrado en el snapshot/release y presente localmente; no hace pull ni exige que sea la imagen-ID del origen. Docker usa `--network none`, filesystem raíz de solo lectura, almacenamiento de base en `tmpfs`, sin puertos ni mounts de volumen. Genera passwords sintéticos efímeros y roles sin hashes de contraseña. Antes del restore comprueba PostgreSQL major y disponibilidad de cada versión exacta de extensión; después compara versión/extensiones instaladas, V1–V61, tipos UUID/int64, owners/ACL, SECURITY DEFINER, estados y conteos. Luego, y solo en la copia, revoca sesiones/tokens, cancela los avisos pendientes/procesando, limpia leases y asigna `NOLOGIN` al runtime. El outbox de identidad queda preservado pero no ejecutable: no se inicia ningún sender.
 
 ```bash
 python3 scripts/gcp03_origin_capture.py restore-copy \
   --snapshot ".local/testing/gcp03-origin-snapshots/$RUN_ID" \
   --recovery-key "$HOME/.local/share/espacigo/gcp03-origin-custody/$RUN_ID/recovery.key" \
-  --run-id "$RUN_ID"
+  --run-id "$RUN_ID" \
+  --restore-image-ref "$RESTORE_IMAGE_REF"
 ```
 
 La prueba de extremo a extremo crea un PostgreSQL 18 desechable y un esquema mínimo sintético, genera el bundle cifrado y ejecuta el CLI `restore-copy` completo. Comprueba la restauración, comparación de esquema/datos/ACL de ese fixture, cuarentena, red `none`, tmpfs y retirada del contenedor. No es un restore del esquema real ni verifica compatibilidad Cloud SQL. Los 958 avisos pendientes del inventario histórico se deben cancelar únicamente en una copia. Capturar o restaurar datos del origen, liberar una llave o importar datos hacia cualquier destino requiere autorización separada; el presente PR no la implica.
@@ -84,7 +98,7 @@ La prueba de extremo a extremo crea un PostgreSQL 18 desechable y un esquema mí
 ## Verificación realizada en este corte
 
 - `python3 -m py_compile scripts/gcp03_origin_capture.py scripts/test_gcp03_origin_capture.py` — correcto.
-- `python3 -m unittest test_gcp03_origin_capture -v` — 25 tests correctos, incluidos recuperaciones con evento ausente/desconocido, service stop sin acuse, perfil de tiempo y CLI `recover-key` con ciphertext corrupto.
+- `python3 -m unittest test_gcp03_origin_capture -v` — 30 tests correctos en esta rama; incluye fixtures para image-ID ausente/tag digest diferente, errores del daemon, candidatos sin attestation de ingress, direcciones PostgreSQL IPv4-mapped y versión del binario runtime.
 - El test `restore-copy` pasó de punta a punta con PostgreSQL 18 descartable: generó dump sintético cifrado, ejecutó el CLI, restauró y comparó catálogo/datos/ACL, cuarentenó un aviso pendiente, verificó red `none` y tmpfs; retiró el contenedor y su evidencia.
 - PostgreSQL 18 Alpine desechable, sin red, puertos ni volumen — `SQL_CAPTURE` produjo el JSON esperado; `role_reconciliation_sql` fue aceptado y cuarentena devolvió 0 sesiones/tokens/avisos pendientes/leases, 1 aviso cuarentenado y runtime `NOLOGIN`; quedó 1 evento de identidad no entregado preservado y sin lease.
 - Imagen local de base, sin red/puertos/volúmenes persistentes, raíz read-only y secretos sintéticos por bind read-only — arranque/readiness `pg_isready` exitoso. El contenedor se retiró.

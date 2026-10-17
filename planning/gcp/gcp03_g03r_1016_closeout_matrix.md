@@ -20,6 +20,10 @@ Fecha de evidencia: 2026-10-16. Esta matriz registra el ensayo sintético y la l
 | Retire SQL outcome | Sin resolver | No ejecutar nuevo `retire` ni deducir rollback. Requiere una estrategia observacional/read-only revisada antes de cualquier nueva operación. |
 | Aceptación humana de GCP-03 | Pendiente | La evidencia técnica no equivale a aceptación. GCP-04 no se inicia ni se marca completo en este cierre. |
 
+## Actualización del preflight de origen (2026-10-17)
+
+Esta actualización complementa la fila histórica de inventario; no la reescribe. La herramienta corregida distingue la imagen origen ausente localmente del tag local con digest distinto, obtiene `postgres --version` desde el contenedor activo y separa la imagen de restore, que debe elegirse con `repository@sha256` y verificarse en aislamiento. En la ejecución read-only el GET público respondió 200, pero `pg_stat_activity` mostró nueve sesiones runtime sin `client_addr`; ninguna pudo correlacionarse con la IP del backend. El gate detuvo el preflight antes de crear candidato o dump. No se pausó servicio, copiaron datos/llaves ni ejecutó SQL mutador o acción cloud. Evidencia privada saneada: [preflight actual](../../.local/testing/gcp03-preflight-image-provenance-20261017/status.json). La captura real permanece bloqueada hasta demostrar una correlación de sesión confiable; no se atribuye control exclusivo de Docker ni ausencia de ingress externo.
+
 ## Próximo paquete de trabajo, sin provisión
 
 1. Revisar y fusionar la implementación/procedimiento local del snapshot; corregir comentarios en el mismo PR. No iniciar el corte siguiente antes de la fusión.

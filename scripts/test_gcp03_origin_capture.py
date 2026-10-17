@@ -14,6 +14,7 @@ import sys
 import tempfile
 import uuid
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from typing import BinaryIO
 from datetime import timedelta
@@ -70,11 +71,18 @@ class FakeSource:
                 {"id": "fixture-api-container", "running": True},
                 {"id": "fixture-ingress-container", "running": True},
             ],
+            "candidate_descriptors": [
+                {"id": "fixture-api-container", "published_ports": {}},
+                {"id": "fixture-ingress-container", "published_ports": {"80/tcp": [{"HostPort": "8080"}]}},
+            ],
             "source_projection": {"evidence_files": self.evidence_manifest, "privacy_replay_files": self.replay_manifest},
         }
 
     def preflight(self) -> dict:
         return self.preflight_report
+
+    def validate_restore_target(self, restore_target: dict) -> None:
+        return None
 
     def stop_container(self, container_id: str, timeout: int) -> None:
         self.stopped.append(container_id)
@@ -166,6 +174,7 @@ class LocalPostgresFixtureSource(FakeSource):
 
 def approved_release(source: FakeSource, run_id: str) -> dict:
     now = capture.datetime.now(capture.timezone.utc)
+    restore_ref = "fixture.database@sha256:" + "d" * 64
     return {
         "format": capture.RELEASE_FORMAT,
         "status": "approved",
@@ -179,6 +188,7 @@ def approved_release(source: FakeSource, run_id: str) -> dict:
         "window_start_utc": (now - timedelta(minutes=1)).isoformat(),
         "window_end_utc": (now + timedelta(hours=2)).isoformat(),
         "source": {"database_container_id": source.preflight_report["database_container_id"], "expected_source_fingerprint": source.preflight_report["source_fingerprint"]},
+        "restore_target": {"image_ref": restore_ref, "image_id": "sha256:" + "e" * 64, "repo_digests": [restore_ref]},
         "timeout_profile": capture.DEFAULT_TIMEOUT_PROFILE.copy(),
         "quiesce_order": ["fixture-ingress-container", "fixture-api-container"],
     }
@@ -216,6 +226,50 @@ class CaptureFixtureTests(unittest.TestCase):
             capture.gpg_decrypt_file(snapshot / "contract-encryption-key.gpg", recovered, capture.derive_passphrase(key, self.run_id, "contract-key"), 30)
             self.assertEqual(recovered.read_bytes(), FIXTURE_KEY)
             self.assertEqual(stat.S_IMODE(recovered.stat().st_mode), 0o600)
+
+    def test_missing_source_image_is_recorded_and_restore_digest_is_separate(self) -> None:
+        missing_id = "sha256:" + "1" * 64
+        missing = subprocess.CompletedProcess([], 1, b"", b"Error response from daemon: No such image: " + missing_id.encode())
+        target_ref = "local/postgis@sha256:" + "2" * 64
+        selected = subprocess.CompletedProcess([], 0, json.dumps([{"Id": "sha256:" + "3" * 64, "RepoDigests": [target_ref]}]).encode(), b"")
+        with patch.object(capture.subprocess, "run", side_effect=[missing, selected]):
+            provenance = capture.inspect_image_reference(missing_id, missing_ok=True)
+            target = capture.validate_restore_image_reference(target_ref)
+        self.assertEqual(provenance["status"], "missing_locally")
+        self.assertEqual(provenance["reason_code"], "image_not_found")
+        self.assertEqual(target["image_ref"], target_ref)
+        self.assertNotEqual(target["image_id"], missing_id)
+
+    def test_non_missing_docker_image_error_is_not_downgraded_to_missing(self) -> None:
+        failure = subprocess.CompletedProcess([], 1, b"", b"Cannot connect to the Docker daemon")
+        with patch.object(capture.subprocess, "run", return_value=failure):
+            with self.assertRaisesRegex(capture.CaptureError, "provenance inspection failed"):
+                capture.inspect_image_reference("sha256:" + "1" * 64, missing_ok=True)
+
+    def test_ipv4_mapped_postgres_client_address_correlates_to_docker_ipv4(self) -> None:
+        self.assertEqual(capture.normalize_ip_address("::ffff:192.0.2.17"), "192.0.2.17")
+        self.assertEqual(capture.normalize_ip_address("192.0.2.17"), "192.0.2.17")
+        self.assertIsNone(capture.normalize_ip_address("not-an-address"))
+
+    def test_database_runtime_binary_version_is_taken_from_running_container(self) -> None:
+        with patch.object(capture, "run_quiet", return_value=b"postgres (PostgreSQL) 18.6 (Debian 18.6-1.pgdg13+2)\n"):
+            version = capture.database_runtime_binary_version("fixture-db-container")
+        self.assertIn("PostgreSQL) 18.6", version)
+        with patch.object(capture, "run_quiet", return_value=b"unexpected command output\n"):
+            with self.assertRaisesRegex(capture.CaptureError, "unrecognized version"):
+                capture.database_runtime_binary_version("fixture-db-container")
+
+    def test_release_candidate_does_not_claim_unknown_external_ingress_is_absent(self) -> None:
+        candidate = capture.build_release_candidate(
+            self.source.preflight_report,
+            self.run_id,
+            FIXTURE_HEAD,
+            approved_release(self.source, self.run_id)["restore_target"],
+        )
+        self.assertFalse(candidate["all_ingress_and_writer_sources_enumerated"])
+        self.assertFalse(candidate["exclusive_docker_control"])
+        self.assertIsNone(candidate["external_ingress_and_writer_sources"])
+        self.assertTrue(candidate["restore_target"]["image_ref"].endswith("d" * 64))
 
     def test_dump_failure_resumes_only_services_stopped_by_run(self) -> None:
         self.source.fail_dump = True
@@ -481,6 +535,11 @@ class CaptureFixtureTests(unittest.TestCase):
         if image_result.returncode != 0:
             self.skipTest("local PostgreSQL fixture image is not cached")
         image_id = image_result.stdout.strip()
+        digest_result = subprocess.run(["docker", "image", "inspect", image_ref, "--format", "{{index .RepoDigests 0}}"], capture_output=True, text=True, check=False)
+        if digest_result.returncode != 0 or not digest_result.stdout.strip():
+            self.skipTest("local PostgreSQL fixture image has no immutable repository digest")
+        restore_image_ref = digest_result.stdout.strip()
+        restore_target = capture.validate_restore_image_reference(restore_image_ref)
         run_id = f"gcp03-restore-{uuid.uuid4().hex[:12]}"
         container_name = f"g03fixture-{uuid.uuid4().hex[:10]}"
         snapshot_root = repo / ".local/testing/gcp03-origin-snapshots"
@@ -547,14 +606,16 @@ INSERT INTO public.outbox_evento_local VALUES ('00000000-0000-0000-0000-00000000
             local_source = LocalPostgresFixtureSource(self.root, container_id, image_id, repo)
             local_source.preflight_report["source_projection"]["database_admin_role"] = "postgres"
             layout = capture.CaptureLayout(snapshot_root, custody_root, repo / ".local/testing/gcp03-origin-journals")
-            capture.CaptureCoordinator(local_source, layout).capture(approved_release(local_source, run_id), run_id, FIXTURE_HEAD, free_bytes=2 * 1024 * 1024 * 1024)
+            release = approved_release(local_source, run_id)
+            release["restore_target"] = restore_target
+            capture.CaptureCoordinator(local_source, layout).capture(release, run_id, FIXTURE_HEAD, free_bytes=2 * 1024 * 1024 * 1024)
             key = custody_root / run_id / "recovery.key"
             # Exercise the implementation once in-process first so fixture failures
             # retain a traceback; the CLI pass below verifies the public command path.
-            diagnostic = capture.restore_validate_copy(repo, snapshot_root / run_id, key, run_id)
+            diagnostic = capture.restore_validate_copy(repo, snapshot_root / run_id, key, run_id, restore_image_ref)
             self.assertEqual(diagnostic["status"], "isolated_copy_restored_and_quarantined")
             shutil.rmtree(result_root / run_id, ignore_errors=True)
-            command = [sys.executable, str(repo / "scripts/gcp03_origin_capture.py"), "restore-copy", "--snapshot", f".local/testing/gcp03-origin-snapshots/{run_id}", "--recovery-key", str(key), "--run-id", run_id]
+            command = [sys.executable, str(repo / "scripts/gcp03_origin_capture.py"), "restore-copy", "--snapshot", f".local/testing/gcp03-origin-snapshots/{run_id}", "--recovery-key", str(key), "--run-id", run_id, "--restore-image-ref", restore_image_ref]
             result = subprocess.run(command, cwd=repo, capture_output=True, text=True, timeout=900, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
             summary = json.loads(result.stdout)
@@ -565,6 +626,7 @@ INSERT INTO public.outbox_evento_local VALUES ('00000000-0000-0000-0000-00000000
             self.assertTrue(validation["database_and_acl_comparison"]["matches"])
             self.assertFalse(validation["source_database_mutated"])
             self.assertEqual(validation["copy_container_network"], "none")
+            self.assertTrue(validation["restore_runtime_compatible"])
         finally:
             subprocess.run(["docker", "rm", "--force", container_name], capture_output=True, check=False)
             shutil.rmtree(snapshot_root / run_id, ignore_errors=True)

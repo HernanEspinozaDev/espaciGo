@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -35,6 +36,7 @@ from typing import Any, BinaryIO, Protocol
 FORMAT = "espacigo.gcp03.local-origin-capture.v1"
 RELEASE_FORMAT = "espacigo.gcp03.local-origin-capture-release.v1"
 RUN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{5,63}$")
+IMAGE_DIGEST_REF_RE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 DEFAULT_DB = "espacigo-database-1"
 DEFAULT_API = "espacigo-backend-1"
 STOP_TIMEOUT_SECONDS = 35
@@ -89,6 +91,18 @@ def sha256_file(path: Path) -> tuple[str, int]:
             digest.update(chunk)
             size += len(chunk)
     return digest.hexdigest(), size
+
+
+def normalize_ip_address(value: Any) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return None
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        return str(address.ipv4_mapped)
+    return str(address)
 
 
 def fsync_file(path: Path) -> None:
@@ -258,11 +272,52 @@ def container_descriptor(info: dict[str, Any], repo: Path) -> dict[str, Any]:
     }
 
 
-def image_repo_digests(image_id: str) -> list[str]:
-    result = strict_json(run_quiet(["docker", "image", "inspect", image_id], timeout=20))
-    if not isinstance(result, list) or len(result) != 1:
-        return []
-    return sorted(result[0].get("RepoDigests") or [])
+def inspect_image_reference(reference: str, *, missing_ok: bool = False) -> dict[str, Any]:
+    """Return local image provenance, distinguishing an absent image from a Docker failure."""
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", reference],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CaptureError("Docker image provenance inspection failed or timed out") from exc
+    if result.returncode != 0:
+        # Docker's daemon error is used only to classify a missing local image;
+        # never propagate its text, which may contain host-specific details.
+        if missing_ok and re.search(rb"(?:Error response from daemon: )?No such image(?::|$)", result.stderr):
+            return {"status": "missing_locally", "image_id": reference, "repo_digests": [], "reason_code": "image_not_found"}
+        raise CaptureError("Docker image provenance inspection failed")
+    value = strict_json(result.stdout)
+    if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict):
+        raise CaptureError("Docker image provenance response was ambiguous")
+    image = value[0]
+    return {
+        "status": "available",
+        "image_id": image.get("Id", ""),
+        "repo_digests": sorted(image.get("RepoDigests") or []),
+        "reason_code": "",
+    }
+
+
+def validate_restore_image_reference(reference: str) -> dict[str, Any]:
+    if not isinstance(reference, str) or not IMAGE_DIGEST_REF_RE.fullmatch(reference):
+        raise CaptureError("restore image must be selected by an immutable sha256 digest reference")
+    inspected = inspect_image_reference(reference)
+    if reference not in inspected["repo_digests"]:
+        raise CaptureError("selected restore image digest is not present in the local image provenance")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", inspected["image_id"]):
+        raise CaptureError("selected restore image has no canonical local image ID")
+    return {"image_ref": reference, "image_id": inspected["image_id"], "repo_digests": inspected["repo_digests"]}
+
+
+def database_runtime_binary_version(container_id: str) -> str:
+    raw = run_quiet(["docker", "exec", container_id, "postgres", "--version"], timeout=20).decode("utf-8", "strict").strip()
+    if not re.fullmatch(r"postgres \(PostgreSQL\) [0-9]+(?:\.[0-9]+)*(?: \([A-Za-z0-9 ._+-]+\))?", raw):
+        raise CaptureError("database runtime binary returned an unrecognized version string")
+    return raw
 
 
 def migration_files_from_repo(repo: Path) -> dict[int, dict[str, str]]:
@@ -686,6 +741,7 @@ def load_recovery_key(path: Path) -> bytes:
 
 class SnapshotPort(Protocol):
     def preflight(self) -> dict[str, Any]: ...
+    def validate_restore_target(self, restore_target: dict[str, Any]) -> None: ...
     def stop_container(self, container_id: str, timeout: int) -> None: ...
     def start_container(self, container_id: str, timeout: int) -> None: ...
     def stop_event_status(self, container_id: str, since: str) -> str: ...
@@ -735,6 +791,14 @@ def release_validate(release: dict[str, Any], run_id: str, head_sha: str) -> lis
     source = release.get("source") or {}
     if not source.get("database_container_id") or not source.get("expected_source_fingerprint"):
         raise CaptureError("release source identity is incomplete")
+    restore_target = release.get("restore_target") or {}
+    if (
+        not IMAGE_DIGEST_REF_RE.fullmatch(str(restore_target.get("image_ref", "")))
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(restore_target.get("image_id", "")))
+        or not isinstance(restore_target.get("repo_digests"), list)
+        or restore_target.get("image_ref", "") not in restore_target.get("repo_digests", [])
+    ):
+        raise CaptureError("release must pin a separately selected local restore image by digest")
     order = release.get("quiesce_order")
     if not isinstance(order, list) or not order or any(not isinstance(item, str) for item in order):
         raise CaptureError("release stop sequence is empty or malformed")
@@ -818,6 +882,7 @@ class CaptureCoordinator:
         if final.exists() or final.is_symlink() or partial.exists() or partial.is_symlink() or journal_path.exists() or journal_path.is_symlink():
             raise CaptureError("snapshot run-id already has output; snapshots are never overwritten")
 
+        self.port.validate_restore_target(release["restore_target"])
         preflight = self.port.preflight()
         if preflight.get("source_fingerprint") != release["source"]["expected_source_fingerprint"]:
             raise CaptureError("source identity/configuration changed after the release candidate was reviewed")
@@ -1049,10 +1114,11 @@ class DockerSource:
 
         db_desc = container_descriptor(db, self.repo)
         api_desc = container_descriptor(api, self.repo)
+        db_desc["runtime_binary_version"] = database_runtime_binary_version(db_desc["id"])
         if db_desc["published_ports"]:
             raise CaptureError("source PostgreSQL publishes a host port; capture cannot prove exclusive quiesce")
-        db_desc["image_repo_digests"] = image_repo_digests(db_desc["image_id"])
-        api_desc["image_repo_digests"] = image_repo_digests(api_desc["image_id"])
+        db_desc["image_provenance"] = inspect_image_reference(db_desc["image_id"], missing_ok=True)
+        api_desc["image_provenance"] = inspect_image_reference(api_desc["image_id"], missing_ok=True)
         expected_entrypoint = sha256_bytes(canonical_json(["/api"]))
         if api_desc["runtime_path"] != "/api" or api_desc["entrypoint_sha256"] != expected_entrypoint:
             raise CaptureError("backend runtime image entrypoint is not the reviewed direct API binary")
@@ -1119,19 +1185,21 @@ class DockerSource:
         if not image_matches or len(db_history) != 61 or sorted(db_history) != list(range(1, 62)):
             raise CaptureError("database migration history does not match migrations embedded in active image V1-V61")
 
-        api_ips = {n.get("IPAddress", "") for n in api_networks.values() if n.get("IPAddress")}
-        db_client_matches = [client for client in report.get("clients", []) if client.get("address") in api_ips and client.get("database") == db_name and client.get("user") == api_user]
+        api_ips = {normalize_ip_address(n.get("IPAddress", "")) for n in api_networks.values()}
+        api_ips.discard(None)
+        db_client_matches = [client for client in report.get("clients", []) if normalize_ip_address(client.get("address")) in api_ips and client.get("database") == db_name and client.get("user") == api_user]
         if not db_client_matches:
             raise CaptureError("no live database session proves the backend runtime connection target")
-        known_ips = {n.get("IPAddress", "") for item in candidates for n in (item.get("NetworkSettings", {}).get("Networks") or {}).values() if n.get("IPAddress")}
+        known_ips = {normalize_ip_address(n.get("IPAddress", "")) for item in candidates for n in (item.get("NetworkSettings", {}).get("Networks") or {}).values()}
+        known_ips.discard(None)
         known_ips |= {"127.0.0.1", "::1"}
-        unknown_clients = [client for client in report.get("clients", []) if client.get("address") not in known_ips and client.get("application") != "pg_isready"]
+        unknown_clients = [client for client in report.get("clients", []) if normalize_ip_address(client.get("address")) not in known_ips and client.get("application") != "pg_isready"]
         if unknown_clients:
             raise CaptureError("database has a client outside the enumerated Docker source candidates")
 
         candidate_descriptors = [container_descriptor(info, self.repo) for info in candidates]
         for desc in candidate_descriptors:
-            desc["image_repo_digests"] = image_repo_digests(desc["image_id"])
+            desc["image_provenance"] = inspect_image_reference(desc["image_id"], missing_ok=True)
         container_health = {desc["id"]: desc["health"] for desc in candidate_descriptors}
         db_volume_id = db_mounts[0]["name"]
         source_projection = {
@@ -1175,7 +1243,22 @@ class DockerSource:
         self._current["estimated_private_bytes"] = int(report["database_size_bytes"]) + sum(x["bytes"] for x in evidence_inventory + replay_inventory)
         self._current["container_health"] = container_health
         self._current["quiesce_candidates"] = [{"id": desc["id"], "running": desc["running"]} for desc in candidate_descriptors]
-        self._current["public_summary"] = {"postgres_version": report["server_version_num"], "database_bytes": report["database_size_bytes"], "migration_count": len(db_history), "migration_image_match": image_matches, "candidate_count": len(candidate_descriptors), "source_fingerprint": source_fingerprint, "compose_roots_equal": source_projection["database_and_backend_compose_roots_match"], "image_ids_and_digests_captured": True, "connection_target_correlated": True, "database_volume_captured": bool(db_volume_id)}
+        self._current["public_summary"] = {
+            "postgres_version": report["server_version_num"],
+            "database_runtime_binary_version": db_desc["runtime_binary_version"],
+            "database_bytes": report["database_size_bytes"],
+            "migration_count": len(db_history),
+            "migration_image_match": image_matches,
+            "candidate_count": len(candidate_descriptors),
+            "source_fingerprint": source_fingerprint,
+            "compose_roots_equal": source_projection["database_and_backend_compose_roots_match"],
+            "source_image_provenance_complete": all(
+                desc.get("image_provenance", {}).get("status") == "available"
+                for desc in [db_desc, api_desc, *candidate_descriptors]
+            ),
+            "connection_target_correlated": True,
+            "database_volume_captured": bool(db_volume_id),
+        }
         # Never serialize Docker inspect Config.Env or mounted secret paths in
         # the release/snapshot metadata. The connection projection is selected
         # from non-secret variables only.
@@ -1185,6 +1268,11 @@ class DockerSource:
             "api_descriptor", "candidate_descriptors", "database_report", "image_migrations",
             "source_projection", "public_summary",
         )}
+
+    def validate_restore_target(self, restore_target: dict[str, Any]) -> None:
+        selected = validate_restore_image_reference(restore_target.get("image_ref", ""))
+        if selected != restore_target:
+            raise CaptureError("selected restore image digest or local image identity changed")
 
     def stop_container(self, container_id: str, timeout: int) -> None:
         run_quiet(["docker", "stop", "--time", str(timeout), container_id], timeout=timeout + 15)
@@ -1352,7 +1440,7 @@ def read_release(path: Path) -> dict[str, Any]:
     return value
 
 
-def build_release_candidate(preflight: dict[str, Any], run_id: str, reviewed_head_sha: str) -> dict[str, Any]:
+def build_release_candidate(preflight: dict[str, Any], run_id: str, reviewed_head_sha: str, restore_target: dict[str, Any]) -> dict[str, Any]:
     database_id = preflight["database_container_id"]
     order = [item["id"] for item in preflight["quiesce_candidates"] if item["running"]]
     # Ingress containers with published host ports are stopped first; the rest
@@ -1370,10 +1458,11 @@ def build_release_candidate(preflight: dict[str, Any], run_id: str, reviewed_hea
         "source_change_window_authorized": False,
         "all_ingress_and_writer_sources_enumerated": False,
         "exclusive_docker_control": False,
-        "external_ingress_and_writer_sources": [],
+        "external_ingress_and_writer_sources": None,
         "window_start_utc": "",
         "window_end_utc": "",
         "source": {"database_container_id": database_id, "expected_source_fingerprint": preflight["source_fingerprint"]},
+        "restore_target": restore_target,
         "timeout_profile": DEFAULT_TIMEOUT_PROFILE.copy(),
         "quiesce_order": order,
         "created_at_utc": utc_now(),
@@ -1778,7 +1867,7 @@ def _restore_database_dump(snapshot: Path, seal: dict[str, Any], master: bytes, 
             os.close(write_fd)
 
 
-def restore_validate_copy(repo: Path, snapshot: Path, recovery_key_path: Path, run_id: str) -> dict[str, Any]:
+def restore_validate_copy(repo: Path, snapshot: Path, recovery_key_path: Path, run_id: str, restore_image_ref: str) -> dict[str, Any]:
     if not RUN_ID_RE.fullmatch(run_id):
         raise CaptureError("restore run-id format is invalid")
     mode_exact(recovery_key_path)
@@ -1794,12 +1883,18 @@ def restore_validate_copy(repo: Path, snapshot: Path, recovery_key_path: Path, r
         metadata = strict_json(metadata_path.read_bytes())
         report = metadata.get("database_report") or {}
         preflight = metadata.get("preflight") or {}
-        expected_image = (preflight.get("database_descriptor") or preflight.get("database_container") or {}).get("image_id")
+        release = metadata.get("release") or {}
+        restore_target = release.get("restore_target") or {}
+        if restore_image_ref != restore_target.get("image_ref"):
+            raise CaptureError("restore image does not match the separately reviewed digest in the snapshot")
+        selected_restore_image = validate_restore_image_reference(restore_image_ref)
+        if selected_restore_image != restore_target:
+            raise CaptureError("selected restore image provenance differs from the reviewed snapshot metadata")
+        expected_image = selected_restore_image["image_id"]
         admin_role = (preflight.get("source_projection") or {}).get("database_admin_role")
         if not expected_image or not admin_role:
-            raise CaptureError("snapshot lacks its exact local restore image/role metadata")
+            raise CaptureError("snapshot lacks its pinned restore image or database-role metadata")
         verify_private_tar(snapshot, master, seal, metadata.get("file_inventory") or [])
-        run_quiet(["docker", "image", "inspect", expected_image], timeout=20)
         restore_root = private_root(repo / ".local/testing/gcp03-origin-restores")
         result_dir = ensure_new_directory(restore_root / run_id)
         container_name = "g03copy-" + run_id[:40]
@@ -1825,7 +1920,7 @@ def restore_validate_copy(repo: Path, snapshot: Path, recovery_key_path: Path, r
                 "--mount", f"type=bind,source={admin_secret},target=/run/secrets/db_admin_password,readonly",
                 "--mount", f"type=bind,source={runtime_secret},target=/run/secrets/runtime_password,readonly",
                 "--env", "POSTGRES_DB=restore_bootstrap", "--env", "POSTGRES_USER=postgres",
-                "--env", "POSTGRES_PASSWORD_FILE=/run/secrets/db_admin_password", expected_image,
+                "--env", "POSTGRES_PASSWORD_FILE=/run/secrets/db_admin_password", restore_image_ref,
             ], timeout=30).decode().strip()
             container_id = run_output
             try:
@@ -1835,6 +1930,27 @@ def restore_validate_copy(repo: Path, snapshot: Path, recovery_key_path: Path, r
                 if info.get("HostConfig", {}).get("PortBindings") or any(m.get("Type") == "volume" for m in info.get("Mounts", [])):
                     raise CaptureError("isolated restore unexpectedly publishes ports or mounts a Docker volume")
                 wait_local_pg(container_id)
+                target_runtime = _docker_query(container_id, "restore_bootstrap", """
+SELECT json_build_object(
+  'server_version_num', current_setting('server_version_num')::integer,
+  'extension_versions', coalesce((
+    SELECT json_object_agg(name, versions)
+    FROM (
+      SELECT name, json_agg(version ORDER BY version) AS versions
+      FROM pg_available_extension_versions
+      GROUP BY name
+    ) AS available
+  ), '{}'::json)
+)::text;
+""")
+                source_version = int(report.get("server_version_num", 0))
+                target_version = int(target_runtime.get("server_version_num", 0))
+                if source_version // 10000 != target_version // 10000:
+                    raise CaptureError("selected restore image PostgreSQL major version is incompatible")
+                extension_versions = target_runtime.get("extension_versions") or {}
+                for extension in report.get("extensions") or []:
+                    if extension.get("version") not in extension_versions.get(extension.get("name"), []):
+                        raise CaptureError("selected restore image lacks an exact source extension version")
                 roles = report.get("roles") or []
                 existing = set(run_quiet(["docker", "exec", "--user", "postgres", container_id, "psql", "-XqAt", "--username=postgres", "--dbname=restore_bootstrap", "-c", "SELECT rolname FROM pg_roles ORDER BY rolname"], timeout=30).decode().splitlines())
                 role_sql = role_reconciliation_sql(report, existing)
@@ -1862,6 +1978,9 @@ def restore_validate_copy(repo: Path, snapshot: Path, recovery_key_path: Path, r
                     "source_database_mutated": False,
                     "copy_container_network": "none",
                     "database_storage": "tmpfs; no Docker volume",
+                    "restore_image_ref": restore_image_ref,
+                    "restore_image_id": selected_restore_image["image_id"],
+                    "restore_runtime_compatible": True,
                     "application_or_workers_started": False,
                     "mail_webhooks_payment_providers_enabled": False,
                     "database_and_acl_comparison": comparison,
@@ -1902,6 +2021,7 @@ def main(argv: list[str] | None = None) -> int:
     candidate.add_argument("--api-container", default=DEFAULT_API)
     candidate.add_argument("--run-id", required=True)
     candidate.add_argument("--private-output-dir", required=True)
+    candidate.add_argument("--restore-image-ref", required=True, help="locally available repository@sha256 digest for isolated restore copy")
     capture = sub.add_parser("capture", help="capture only after reviewed release-specific approval")
     capture.add_argument("--release-file", required=True)
     capture.add_argument("--run-id", required=True)
@@ -1920,12 +2040,14 @@ def main(argv: list[str] | None = None) -> int:
     restore.add_argument("--snapshot", required=True)
     restore.add_argument("--recovery-key", required=True)
     restore.add_argument("--run-id", required=True)
+    restore.add_argument("--restore-image-ref", required=True, help="exact repository@sha256 digest reviewed in snapshot metadata")
     args = parser.parse_args(argv)
     repo = Path(__file__).resolve().parent.parent
     os.umask(0o077)
     try:
         if args.command in {"preflight", "release-candidate"}:
             _STAGE = "read-only runtime correlation"
+            restore_target = validate_restore_image_reference(args.restore_image_ref) if args.command == "release-candidate" else None
             port = DockerSource(args.database_container, args.api_container, repo)
             report = port.preflight()
             _STAGE = "private preflight evidence write"
@@ -1944,7 +2066,7 @@ def main(argv: list[str] | None = None) -> int:
                 if not RUN_ID_RE.fullmatch(args.run_id):
                     raise CaptureError("run-id format is invalid")
                 head = run_quiet(["git", "rev-parse", "HEAD"], timeout=10).decode().strip()
-                candidate_doc = build_release_candidate(report, args.run_id, head)
+                candidate_doc = build_release_candidate(report, args.run_id, head, restore_target)
                 write_new_private(private_dir / "release-candidate.json", canonical_json(candidate_doc))
                 print(json.dumps({"status": "unapproved_candidate_written", "run_id": args.run_id, "candidate_count": len(report["candidate_descriptors"]), "source_fingerprint": report["source_fingerprint"], "private_output": str(private_dir.relative_to(repo))}, sort_keys=True))
             else:
@@ -1990,7 +2112,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "restore-copy":
                 if not RUN_ID_RE.fullmatch(args.run_id):
                     raise CaptureError("restore run-id format is invalid")
-                result = restore_validate_copy(repo, snapshot, recovery_key_path, args.run_id)
+                result = restore_validate_copy(repo, snapshot, recovery_key_path, args.run_id, args.restore_image_ref)
                 print(json.dumps(result, sort_keys=True))
                 return 0
             output = local_testing_path(repo, args.output)
