@@ -105,13 +105,12 @@ variable "bootstrap_evidence_sha256" {
 }
 
 locals {
-  foundation_enabled      = var.enable_foundation && var.confirm_origin_rehearsal
-  prefix                  = "espacigo-gcp03-origin-${var.run_id}"
-  admin_account_id        = "g03o-admin-${var.run_id}"
-  instance_name           = "${local.prefix}-pg"
-  admin_enabled           = local.foundation_enabled && var.enable_origin_bootstrap_job
-  observer_enabled        = local.foundation_enabled && var.enable_origin_observer_job
-  observer_account_id     = "g03o-observer-${var.run_id}"
-  observer_database_login = "${local.observer_account_id}@${var.project_id}.iam"
-  observer_database_url   = "postgres://${local.observer_account_id}%40${var.project_id}.iam@localhost:5432/espacigo_scratch?sslmode=disable"
+  foundation_enabled    = var.enable_foundation && var.confirm_origin_rehearsal
+  prefix                = "espacigo-gcp03-origin-${var.run_id}"
+  admin_account_id      = "g03o-admin-${var.run_id}"
+  instance_name         = "${local.prefix}-pg"
+  admin_enabled         = local.foundation_enabled && var.enable_origin_bootstrap_job
+  observer_enabled      = local.foundation_enabled && var.enable_origin_observer_job
+  observer_account_id   = "g03o-observer-${var.run_id}"
+  observer_database_url = "postgres://${local.observer_account_id}%40${var.project_id}.iam@localhost:5432/espacigo_scratch?sslmode=disable"
 }
