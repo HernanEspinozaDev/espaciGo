@@ -68,8 +68,12 @@ func TestOriginMembershipPostgres18(t *testing.T) {
 
 	// The separate diagnostic uses catalog-only SQL in a read-only transaction.
 	diagnostic, diagnosticErr := membershipDiagnosticOnConnection(ctx, phaseConn, commit)
-	if diagnosticErr != nil || !diagnostic.ReportComplete || !diagnostic.ReadOnly || diagnostic.TransactionOutcome != "committed" || diagnostic.Database != DatabaseName || diagnostic.Login != AdminLogin || !diagnostic.ActorExists || !diagnostic.ActorCanLogin || !diagnostic.ActorCanCreateRole || !diagnostic.ActorCanCreateDB || diagnostic.ActorSuperuser || !diagnostic.RuntimeRoleReady || !diagnostic.EffectiveSet || len(diagnostic.Memberships) == 0 {
+	if diagnosticErr != nil || !diagnostic.ReportComplete || !diagnostic.ReadOnly || diagnostic.TransactionOutcome != "committed" || diagnostic.Database != DatabaseName || diagnostic.Login != AdminLogin || !diagnostic.ActorExists || !diagnostic.ActorCanLogin || !diagnostic.ActorCanCreateRole || !diagnostic.ActorCanCreateDB || diagnostic.ActorSuperuser || !diagnostic.RuntimeRoleReady || !diagnostic.EffectiveSet || len(diagnostic.Memberships) != 0 {
 		t.Fatalf("read-only membership diagnostic failed: report=%+v err=%v", diagnostic, diagnosticErr)
+	}
+	var inheritedAdminRole, inheritedSet bool
+	if err := phaseConn.QueryRow(ctx, `SELECT pg_catalog.pg_has_role(current_user, 'membership_admin', 'MEMBER'), pg_catalog.pg_has_role(current_user, 'espacigo_runtime', 'SET')`).Scan(&inheritedAdminRole, &inheritedSet); err != nil || !inheritedAdminRole || !inheritedSet {
+		t.Fatalf("fixture postgres login does not inherit the isolated admin path: admin_role=%t runtime_set=%t err=%v", inheritedAdminRole, inheritedSet, err)
 	}
 
 	readOnlyTx, err := beginMembershipDiagnosticTx(ctx, phaseConn)
@@ -118,24 +122,46 @@ func TestOriginMembershipPostgres18(t *testing.T) {
 	}
 
 	// Remove grant authority so the phase's exact GRANT fails and rolls back.
-	if _, err := control.Exec(ctx, `REVOKE ADMIN OPTION FOR espacigo_runtime FROM postgres`); err != nil {
+	if _, err := control.Exec(ctx, `REVOKE ADMIN OPTION FOR espacigo_runtime FROM membership_admin`); err != nil {
 		t.Fatal("remove fixture grant authority")
 	}
 	grantFailureReport, grantFailureErr := membershipOnConnection(ctx, phaseConn, commit)
 	if grantFailureErr == nil || grantFailureReport.FailureStage != "grant" || grantFailureReport.SQLState != "42501" || grantFailureReport.TransactionOutcome != "rolled_back" {
 		t.Fatalf("membership phase did not roll back GRANT failure: report=%+v err=%v", grantFailureReport, grantFailureErr)
 	}
-	assertRuntimeMembershipOptions(t, ctx, control, "fixture_control", false, false, true)
+	assertRuntimeMembershipCount(t, ctx, control, 0)
 
-	// A deliberately false postcheck verifies rollback after the GRANT ran.
-	if _, err := control.Exec(ctx, `GRANT espacigo_runtime TO postgres WITH ADMIN TRUE, INHERIT FALSE, SET TRUE`); err != nil {
+	// Restore only the inherited admin path, then leave one unsafe direct row
+	// from fixture_control. The phase must report every row and roll back the
+	// new membership instead of choosing one grantor arbitrarily.
+	if _, err := control.Exec(ctx, `GRANT espacigo_runtime TO membership_admin WITH ADMIN TRUE, INHERIT TRUE, SET TRUE`); err != nil {
 		t.Fatal("restore fixture grant authority")
 	}
-	postcheckReport, postcheckErr := membershipOnConnectionWithPostcheck(ctx, phaseConn, `SELECT false,false,false,false`, commit)
-	if postcheckErr == nil || postcheckReport.Passed || postcheckReport.FailureStage != "postcondition" || postcheckReport.TransactionOutcome != "rolled_back" {
-		t.Fatalf("membership phase did not roll back failed postcheck: report=%+v err=%v", postcheckReport, postcheckErr)
+	if _, err := control.Exec(ctx, `GRANT espacigo_runtime TO postgres WITH ADMIN FALSE, INHERIT TRUE, SET TRUE`); err != nil {
+		t.Fatal("prepare one preexisting unsafe direct membership")
 	}
-	assertRuntimeMembershipOptions(t, ctx, control, "fixture_control", true, false, true)
+	multipleReport, multipleErr := membershipOnConnection(ctx, phaseConn, commit)
+	if multipleErr == nil || multipleReport.Passed || multipleReport.FailureStage != "postcheck_multiple_memberships" || multipleReport.TransactionOutcome != "rolled_back" || multipleReport.MembershipRowCount != 2 || len(multipleReport.Memberships) != 2 || multipleReport.Grantor != "" {
+		t.Fatalf("membership phase did not report and roll back multiple exact grants: report=%+v err=%v", multipleReport, multipleErr)
+	}
+	if multipleReport.Memberships[0].Grantor != "fixture_control" || multipleReport.Memberships[0].InheritOption != true {
+		t.Fatalf("multiple-row report omitted the preexisting unsafe grant: %+v", multipleReport.Memberships)
+	}
+	var secondGrantorSeen bool
+	for _, membership := range multipleReport.Memberships {
+		if membership.Grantor == "membership_admin" {
+			secondGrantorSeen = !membership.AdminOption && !membership.InheritOption && membership.SetOption
+		}
+	}
+	if !secondGrantorSeen {
+		t.Fatalf("multiple-row report omitted the inherited grantor's exact safe row: %+v", multipleReport.Memberships)
+	}
+	assertRuntimeMembershipCount(t, ctx, control, 1)
+	assertRuntimeMembershipOptions(t, ctx, control, "fixture_control", false, true, true)
+	if _, err := control.Exec(ctx, `REVOKE espacigo_runtime FROM postgres GRANTED BY fixture_control`); err != nil {
+		t.Fatal("remove isolated unsafe direct membership")
+	}
+	assertRuntimeMembershipCount(t, ctx, control, 0)
 
 	// A lost commit acknowledgment must be reported as uncertain; closing the
 	// isolated connection rolls the fixture transaction back for verification.
@@ -150,15 +176,16 @@ func TestOriginMembershipPostgres18(t *testing.T) {
 		t.Fatalf("membership commit uncertainty was not reported safely: report=%+v err=%v", uncertainReport, uncertainErr)
 	}
 	_ = uncertainConn.Close(context.Background())
-	assertRuntimeMembershipOptions(t, ctx, control, "fixture_control", true, false, true)
+	assertRuntimeMembershipCount(t, ctx, control, 0)
 
-	// Exercise the actual production transaction helper and exact final flags.
+	// Exercise the exact production GRANT through the non-superuser's inherited
+	// ADMIN path and verify that the report uses the catalog's actual grantor.
 	successReport, successErr := membershipOnConnection(ctx, phaseConn, commit)
-	if successErr != nil || !successReport.Passed || successReport.TransactionOutcome != "committed" || successReport.AdminOption || successReport.InheritOption || !successReport.SetOption {
+	if successErr != nil || !successReport.Passed || successReport.TransactionOutcome != "committed" || !successReport.RuntimeRoleReady || !successReport.EffectiveSet || successReport.Grantor != "membership_admin" || successReport.MembershipRowCount != 1 || len(successReport.Memberships) != 1 || successReport.AdminOption || successReport.InheritOption || !successReport.SetOption {
 		t.Fatalf("membership phase did not commit minimal membership: report=%+v err=%v", successReport, successErr)
 	}
-	assertRuntimeMembershipOptions(t, ctx, control, AdminLogin, false, false, true)
-	assertRuntimeMembershipOptions(t, ctx, control, "fixture_control", true, false, true)
+	assertRuntimeMembershipOptions(t, ctx, control, "membership_admin", false, false, true)
+	assertRuntimeMembershipCount(t, ctx, control, 1)
 	var roleCountAfter, objectCountAfter int64
 	if err := control.QueryRow(ctx, `SELECT (SELECT count(*) FROM pg_catalog.pg_roles), (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema')`).Scan(&roleCountAfter, &objectCountAfter); err != nil {
 		t.Fatal("read membership fixture inventory after phase")
@@ -186,5 +213,16 @@ func assertRuntimeMembershipOptions(t *testing.T, ctx context.Context, conn *pgx
 	}
 	if gotAdmin != admin || gotInherit != inherit || gotSet != set {
 		t.Fatalf("runtime membership options = (%t,%t,%t), want (%t,%t,%t)", gotAdmin, gotInherit, gotSet, admin, inherit, set)
+	}
+}
+
+func assertRuntimeMembershipCount(t *testing.T, ctx context.Context, conn *pgx.Conn, want int) {
+	t.Helper()
+	var count int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM pg_catalog.pg_auth_members WHERE roleid='espacigo_runtime'::regrole AND member='postgres'::regrole`).Scan(&count); err != nil {
+		t.Fatalf("count direct runtime memberships: %v", err)
+	}
+	if count != want {
+		t.Fatalf("direct runtime membership rows = %d, want %d", count, want)
 	}
 }

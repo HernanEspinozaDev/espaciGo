@@ -1,0 +1,104 @@
+{
+  "format": "espacigo.gcp03.runtime-membership-postcheck-followup.v1",
+  "generated_at_utc": "2026-10-17T21:30:00Z",
+  "project_id": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "run_id": "g03o-1017",
+  "state": {
+    "backend": "gs://espacigo-testprod-tfstate-447373903153-gcp/espacigo/testprod/gcp03-origin/g03o-1017",
+    "lineage": "4e81a953-7353-fbd4-93a8-e4b9a5019e95",
+    "serial_after_m3": 13
+  },
+  "membership_diagnostic": {
+    "execution": "espacigo-gcp03-origin-g03o-1017-runtime-membership-diagnostic-diagnoswplb8",
+    "task": "task0",
+    "attempt": 0,
+    "exit_code": 0,
+    "read_only": true,
+    "report_complete": true,
+    "transaction_outcome": "committed",
+    "database": "espacigo_scratch",
+    "login": "postgres",
+    "actor_exists": true,
+    "actor_can_login": true,
+    "actor_can_create_role": true,
+    "actor_can_create_db": true,
+    "actor_superuser": false,
+    "runtime_role_exists": true,
+    "runtime_role_ready": true,
+    "memberships": [],
+    "membership_set": false,
+    "effective_set": false,
+    "sanitized_report_sha256": "7aa8a3f10a3a0dbe28978c4e2110928a6478fc2a82a521098eff349043362dc3"
+  },
+  "instrumented_membership_execution": {
+    "execution": "espacigo-gcp03-origin-g03o-1017-runtime-membership-w444h",
+    "task": "task0",
+    "attempt": 0,
+    "exit_code": 1,
+    "max_retries": 0,
+    "retry_count": 0,
+    "terminal": "failed",
+    "failure_stage": "postcheck_query",
+    "sqlstate": null,
+    "database": "espacigo_scratch",
+    "login": "postgres",
+    "membership_set": false,
+    "admin_option": false,
+    "inherit_option": false,
+    "set_option": false,
+    "transaction_outcome": "rolled_back",
+    "sanitized_report_sha256": "f73211027ee821d0ab4a58422447bdeb1f40e090ed7b16bbafdb351f3bcef562",
+    "grantor_field": {
+      "value": "postgres",
+      "source": "pre-populated from login before the failed postcheck; not read from pg_auth_members"
+    },
+    "local_sanitized_report_path": ".local/testing/g03o-membership-diagnostic-20261017/m4-report-sanitized.json"
+  },
+  "m3_plan": {
+    "sha256": "19bea884682d99edd4e49d6408f5dcb50c0dfa2f68bc184f07f0a112c9a7bc3e",
+    "state_serial_before": 12,
+    "applied": true,
+    "result": "0 added, 1 changed, 0 destroyed",
+    "only_change": "google_cloud_run_v2_job.origin_membership[0].template.template.containers[0].image",
+    "previous_image_digest": "sha256:8f0266d13b4e589ffca8b8f8c5d699890305e4fce4119da923d53cb44b00e422",
+    "new_image_digest": "sha256:a5f6d98daa96b8359b05d1f86e0c89052cef4b27211cf93083728b82dbea9450"
+  },
+  "postcheck_fix": {
+    "exact_grant_sql_unchanged": true,
+    "reads_all_target_membership_rows": true,
+    "reports_actual_grantor_and_all_options": true,
+    "zero_rows_have_explicit_failure_stage": true,
+    "multiple_rows_are_reported_in_full_and_rejected": true,
+    "requires_one_minimal_membership_and_effective_set": true,
+    "cloud_sql_execution_of_corrected_code": false
+  },
+  "interpretation": "The instrumented run reported postcheck_query and rolled back without a SQLSTATE. That stage does not establish that GRANT failed. The prior postcheck filtered membership rows to grantor=current_user; PostgreSQL can record role grants under an inherited ADMIN OPTION grantor, and the exact Cloud SQL grantor remains unconfirmed because the failed transaction rolled back before the report captured it.",
+  "fix_artifact": {
+    "source_commit": "1a90fe1607688c05f9b6dd44c1cfc1c5be898a92",
+    "oci_archive": ".local/testing/g03o-membership-postcheck-fix-20261017/gcp03origin-linux-amd64.oci.tar",
+    "oci_archive_sha256": "a68b578948575cc0f688f848bc6ed128e42bf56a58ea2f0a723318dfbfefc66c",
+    "oci_metadata_sha256": "8e73034dc9e381b860cca624ecbdf7aaec0f0c657fcec3317cd1a644de62db02",
+    "oci_manifest_digest": "sha256:747becd887471ca21c01ac6952b8e2357204b1be628e6c0d6dce4e76ab3b54eb",
+    "oci_published": false,
+    "terraform_plan": {
+      "file": ".local/testing/g03o-membership-postcheck-fix-20261017/plan/postcheck.tfplan",
+      "sha256": "945c09791d448d73a161321d03aeedd2ee30aee1ebe3af1446e5787753b63616",
+      "tfvars_sha256": "32a91351ce914901684dc92d6c94265f3872f9e927d172fa97154c3a3f13912d",
+      "state_lineage": "4e81a953-7353-fbd4-93a8-e4b9a5019e95",
+      "state_serial": 13,
+      "actions": "0 add, 1 change, 0 destroy",
+      "only_change": "google_cloud_run_v2_job.origin_membership[0] container image",
+      "existing_template_preserved": true,
+      "applied": false
+    },
+    "tests": {
+      "go_test ./internal/gcp03origin ./cmd/gcp03origin": "PASS",
+      "scripts/test-gcp03-origin-postgres.sh": "PASS; isolated PostgreSQL 18 membership/admin-inheritance, bootstrap/observer integration, and 7 Python integration tests",
+      "git diff --check": "PASS"
+    },
+    "corrected_code_cloud_sql_execution": false,
+    "no_retry_after_m4": true,
+    "payload_upload_or_token_minted": false
+  }
+}
