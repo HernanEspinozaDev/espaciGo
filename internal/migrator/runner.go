@@ -119,7 +119,7 @@ func runWithConn(ctx context.Context, conn *pgx.Conn, migrationDir string) (Resu
 
 // VerifyAllApplied checks that every migration file in migrationDir has one
 // matching, contiguous history row and that there are no unapplied files.
-func VerifyAllApplied(ctx context.Context, conn *pgx.Conn, migrationDir string, expectedCount int) error {
+func VerifyAllApplied(ctx context.Context, conn migrationHistoryQueryer, migrationDir string, expectedCount int) error {
 	if conn == nil || expectedCount < 1 {
 		return errors.New("migration verification configuration is invalid")
 	}
@@ -147,7 +147,11 @@ func verifyCompleteHistory(migrations []Migration, history []HistoryEntry, expec
 	return nil
 }
 
-func readHistory(ctx context.Context, conn *pgx.Conn) ([]HistoryEntry, error) {
+type migrationHistoryQueryer interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func readHistory(ctx context.Context, conn migrationHistoryQueryer) ([]HistoryEntry, error) {
 	rows, err := conn.Query(ctx, `SELECT version, name, checksum
 		FROM public.schema_migrations ORDER BY version`)
 	if err != nil {

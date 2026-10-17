@@ -36,7 +36,7 @@ func readRoleAttributes(ctx context.Context, conn ScratchPermissionDB, role stri
 		&attrs.replication, &attrs.bypassRLS, &attrs.inherit,
 	)
 	if err != nil {
-		return roleAttributes{}, errors.New("could not verify required scratch role")
+		return roleAttributes{}, fmt.Errorf("could not verify required scratch role: %w", err)
 	}
 	return attrs, nil
 }
@@ -53,7 +53,7 @@ func roleHasAnyMembership(ctx context.Context, conn ScratchPermissionDB, role st
 		    AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
 	)`, role).Scan(&hasMembership)
 	if err != nil {
-		return false, errors.New("could not verify scratch role memberships")
+		return false, fmt.Errorf("could not verify scratch role memberships: %w", err)
 	}
 	return hasMembership, nil
 }
@@ -173,7 +173,7 @@ func VerifyScratchDatabaseACL(ctx context.Context, conn ScratchPermissionDB) err
 			WHERE n.nspname = 'public' AND acl.grantee = 0 AND acl.privilege_type = 'CREATE'
 		)`).Scan(&publicTemp, &migratorTemp, &runtimeTemp, &migratorCreate, &runtimeCreate, &publicSchemaCreate)
 	if err != nil {
-		return errors.New("could not inspect scratch database TEMP ACL")
+		return fmt.Errorf("could not inspect scratch database TEMP ACL: %w", err)
 	}
 	if publicTemp || !migratorTemp || runtimeTemp || !migratorCreate || runtimeCreate || publicSchemaCreate {
 		return errors.New("scratch database TEMP/schema privileges differ from the migrator-only contract")
@@ -205,7 +205,7 @@ func VerifyScratchRetiredDatabaseACL(ctx context.Context, conn ScratchPermission
 			WHERE n.nspname = 'public' AND acl.grantee = 0 AND acl.privilege_type = 'CREATE'
 		)`).Scan(&publicTemp, &migratorTemp, &runtimeTemp, &migratorCreate, &runtimeCreate, &publicSchemaCreate)
 	if err != nil {
-		return errors.New("could not inspect retired scratch database ACL")
+		return fmt.Errorf("could not inspect retired scratch database ACL: %w", err)
 	}
 	if publicTemp || migratorTemp || runtimeTemp || migratorCreate || runtimeCreate || publicSchemaCreate {
 		return errors.New("retired scratch database TEMP/schema privileges are not fully revoked")
@@ -296,7 +296,7 @@ func verifyScratchRuntimePermissions(ctx context.Context, conn ScratchPermission
 		&checks[12], &checks[13], &checks[14], &checks[15],
 	)
 	if err != nil {
-		return errors.New("could not verify scratch runtime grants")
+		return fmt.Errorf("could not verify scratch runtime grants: %w", err)
 	}
 	for _, passed := range checks {
 		if !passed {
@@ -327,7 +327,7 @@ func VerifyScratchMigratorRetired(ctx context.Context, conn ScratchPermissionDB)
 		   OR granted_role.rolname = 'espacigo_scratch_migrator'
 	)`).Scan(&unexpectedMembership)
 	if err != nil {
-		return errors.New("could not verify temporary scratch login memberships")
+		return fmt.Errorf("could not verify temporary scratch login memberships: %w", err)
 	}
 	if unexpectedMembership {
 		return errors.New("temporary scratch login has an unexpected role membership")
@@ -337,7 +337,7 @@ func VerifyScratchMigratorRetired(ctx context.Context, conn ScratchPermissionDB)
 		has_database_privilege('espacigo_scratch_migrator', 'espacigo_scratch', 'TEMP'),
 		has_schema_privilege('espacigo_scratch_migrator', 'public', 'CREATE')`).Scan(&tempPrivilege, &createPrivilege)
 	if err != nil {
-		return errors.New("could not verify retired scratch login object privileges")
+		return fmt.Errorf("could not verify retired scratch login object privileges: %w", err)
 	}
 	if tempPrivilege || createPrivilege {
 		return errors.New("temporary scratch login retains database or schema privileges")

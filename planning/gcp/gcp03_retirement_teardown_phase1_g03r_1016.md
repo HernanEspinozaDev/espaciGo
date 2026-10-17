@@ -1,12 +1,12 @@
 # GCP-03 retirement teardown plan — g03r-1016
 
-**Estado: preparación y revisión solamente; ningún teardown fue aplicado.** El Job `retire` se ejecutó una vez, pero su payload de aplicación reportó `PHASE_FAILED` en `phase_execute`. Cloud Run `Completed=True` solo confirma que terminó la tarea; no demuestra que el retiro de aplicación pasara. `commit_outcome_uncertain=false` es el valor emitido por el executor, pero este plan no infiere rollback ni inspeccionó directamente la base después del fallo. No se reintentará `retire` como parte de este plan.
+**Estado: preparación y revisión solamente; ningún teardown fue aplicado.** El Job `retire` se ejecutó una vez, pero su payload de aplicación reportó `PHASE_FAILED` en `phase_execute`. Cloud Run `Completed=True` no concilia el fallo de aplicación: la investigación posterior encontró salida `1` del contenedor `retire`, salida `0` del proxy y un `lastAttemptResult.status` vacío. El antiguo `commit_outcome_uncertain=false` era el valor booleano por defecto y no demuestra rollback. No se reintentará `retire` como parte de este plan. La investigación y el diagnóstico de solo lectura preparado están en [gcp03_retirement_observability_20261017.md](gcp03_retirement_observability_20261017.md).
 
 ## Run y evidencia
 
 - Proyecto/región: `espacigo-testprod` / `southamerica-west1`.
 - Run: `g03r-1016`; destino `espacigo-testprod:southamerica-west1:espacigo-gcp03-restore-g03r-1016-pg/espacigo_scratch`.
-- [Evidencia sanitizada de retire](evidence/gcp03-restore-g03r-1016/retire-execution.json), SHA-256 `0dfff91776739691f5d03a4b3b72d568b38da046237fd6d28938b112a92713d9`.
+- [Evidencia sanitizada de retire](evidence/gcp03-restore-g03r-1016/retire-execution.json), SHA-256 `1e9bc62ea23585e20d7138cec1f1b94414591fe13d754257a237ea70827248f2`.
 - Restore/verify del fixture sintético mínimo pasaron y están registrados en [restore-verify.json](evidence/gcp03-restore-g03r-1016/restore-verify.json). Ese fixture no es snapshot ni migración del dataset persistente de origen.
 - No se borraron usuarios, objetos, secretos, Jobs, cuentas de servicio, base o instancia.
 

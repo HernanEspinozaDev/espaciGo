@@ -83,6 +83,29 @@ variable "diagnostic_image" {
   }
 }
 
+variable "enable_retirement_diagnostic_job" {
+  type        = bool
+  default     = false
+  description = "Default-off gate for a catalog-only retirement diagnosis Job using the existing run-scoped admin identity. Terraform creates it but never executes it."
+  validation {
+    condition = !var.enable_retirement_diagnostic_job || (
+      var.enable_foundation && var.enable_restore_jobs && var.confirm_isolated_restore &&
+      can(regex("@sha256:[0-9a-f]{64}$", var.retirement_diagnostic_image))
+    )
+    error_message = "Retirement diagnosis requires the isolated restore run, its existing admin identity, and an immutable diagnostic image digest."
+  }
+}
+
+variable "retirement_diagnostic_image" {
+  type        = string
+  default     = ""
+  description = "Reviewed immutable executor digest for a read-only retirement-state diagnosis Job."
+  validation {
+    condition     = var.retirement_diagnostic_image == "" || can(regex("@sha256:[0-9a-f]{64}$", var.retirement_diagnostic_image))
+    error_message = "A retirement diagnostic image, when supplied, must be pinned by sha256 digest."
+  }
+}
+
 variable "restore_executor_image" {
   type        = string
   default     = ""
@@ -196,6 +219,7 @@ locals {
     can(regex("^[0-9a-f]{64}$", var.migration_inventory_sha256))
   )
   diagnostic_enabled            = local.restore_enabled && var.enable_diagnostic_job
+  retirement_diagnostic_enabled = local.restore_enabled && var.enable_retirement_diagnostic_job
   restore_phase_image           = var.restore_executor_image != "" ? var.restore_executor_image : var.executor_image
   owner_role                    = "g03_restore_owner_${replace(var.run_id, "-", "_")}"
   verifier_role                 = "g03_restore_verify_${replace(var.run_id, "-", "_")}"

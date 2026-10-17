@@ -1,11 +1,96 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+func TestExecutorPreservesPhaseFailureAsNonzeroExitAfterProxyShutdown(t *testing.T) {
+	var stdout, stderr strings.Builder
+	shutdownCalls := 0
+	code := executePhase(context.Background(), func(context.Context) (evidence, error) {
+		return evidence{}, retirementFailure("fixture_counts", nil)
+	}, func(context.Context) error { shutdownCalls++; return nil }, &stdout, &stderr, func(key string) string {
+		if key == "GCP03_PHASE" {
+			return "retire"
+		}
+		return ""
+	})
+	if code != 1 || shutdownCalls != 1 || stdout.Len() != 0 {
+		t.Fatalf("phase failure was lost: exit=%d shutdownCalls=%d stdout=%q", code, shutdownCalls, stdout.String())
+	}
+	var got failureEvidence
+	if err := json.Unmarshal([]byte(stderr.String()), &got); err != nil || got.Stage != "retire" || got.Substep != "fixture_counts" {
+		t.Fatalf("failure evidence was not emitted: evidence=%+v err=%v", got, err)
+	}
+}
+
+func TestExecutorReportsSuccessOnlyAfterProxyShutdown(t *testing.T) {
+	var stdout, stderr strings.Builder
+	code := executePhase(context.Background(), func(context.Context) (evidence, error) {
+		return evidence{Phase: "retire"}, nil
+	}, func(context.Context) error { return nil }, &stdout, &stderr, func(string) string { return "" })
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("successful phase returned failure: exit=%d stderr=%q", code, stderr.String())
+	}
+	var got evidence
+	if err := json.Unmarshal([]byte(stdout.String()), &got); err != nil || got.Phase != "retire" {
+		t.Fatalf("successful evidence missing: evidence=%+v err=%v", got, err)
+	}
+}
+
+func TestExecutorFailureEvidenceWriterFailureStillReturnsNonzero(t *testing.T) {
+	code := executePhase(context.Background(), func(context.Context) (evidence, error) {
+		return evidence{}, errors.New("phase failure")
+	}, func(context.Context) error { return nil }, io.Discard, io.Discard, func(string) string { return "" })
+	if code != 1 {
+		t.Fatalf("failure path returned %d, want 1", code)
+	}
+}
+
+func TestRetirementFailureEvidenceIsTypedSanitizedAndDoesNotClaimRollback(t *testing.T) {
+	env := map[string]string{"GCP03_PHASE": "retire", "GCP03_RUN_ID": "local01"}
+	unsafe := &pgconn.PgError{Code: "42501", Message: "permission denied for secret_table", Detail: "private@example.test"}
+	var output strings.Builder
+	writeFailureEvidence(&output, func(key string) string { return env[key] }, runFailure{
+		cause: retirementFailure("revoke_schema_create", unsafe), proxyShutdownConfirmed: true,
+	})
+	var got failureEvidence
+	if err := json.Unmarshal([]byte(output.String()), &got); err != nil {
+		t.Fatal("retirement failure was not valid JSON")
+	}
+	if got.Format != "espacigo-gcp03-managed-synthetic-restore-failure-v2" || got.Stage != "retire" || got.ErrorCode != "RETIRE_STEP_FAILED" || got.Substep != "revoke_schema_create" || got.SQLState != "42501" || got.CommitOutcome != "" || !got.ProxyShutdownConfirmed || got.ApplicationExitCode != 1 {
+		t.Fatalf("unexpected typed retirement evidence: %+v", got)
+	}
+	if strings.Contains(output.String(), "permission denied") || strings.Contains(output.String(), "private@example.test") || strings.Contains(output.String(), "secret_table") {
+		t.Fatal("retirement failure evidence leaked raw PostgreSQL diagnostics")
+	}
+}
+
+func TestRetirementCommitFailureExplicitlyMarksOutcomeUncertain(t *testing.T) {
+	commit := retirementFailure("commit", &pgconn.PgError{Code: "08006", Message: "connection dropped"}).(retireFailure)
+	commit.code, commit.commitOutcome = "COMMIT_OUTCOME_UNCERTAIN", "uncertain"
+	var output strings.Builder
+	writeFailureEvidence(&output, func(key string) string {
+		if key == "GCP03_PHASE" {
+			return "retire"
+		}
+		return ""
+	}, commit)
+	var got failureEvidence
+	if err := json.Unmarshal([]byte(output.String()), &got); err != nil {
+		t.Fatal("commit failure was not valid JSON")
+	}
+	if got.Stage != "retire" || got.Substep != "commit" || got.SQLState != "08006" || got.CommitOutcome != "uncertain" {
+		t.Fatalf("commit uncertainty was not explicit: %+v", got)
+	}
+}
 
 func TestFailureEvidenceKeepsTypedArtifactSubsteps(t *testing.T) {
 	env := map[string]string{"GCP03_PHASE": "restore", "GCP03_RUN_ID": "local01"}
@@ -52,6 +137,7 @@ func TestLoadConfigContractAcrossAllPhases(t *testing.T) {
 		{name: "verify", user: "g03-verify-fixture1@espacigo-testprod.iam", manifest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", migration: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		{name: "diagnose", user: "g03-verify-fixture1@espacigo-testprod.iam", bucket: "espacigo-gcp03-restore-fixture1", manifest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{name: "retire", user: "postgres", adminSecret: "/secrets/postgres/password"},
+		{name: "retire-diagnose", user: "postgres", adminSecret: "/secrets/postgres/password"},
 	} {
 		t.Run(phase.name, func(t *testing.T) {
 			env := map[string]string{}

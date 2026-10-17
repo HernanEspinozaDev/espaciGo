@@ -511,6 +511,87 @@ resource "google_cloud_run_v2_job" "admin_phase" {
   }
 }
 
+resource "google_cloud_run_v2_job" "retirement_diagnose" {
+  count               = local.retirement_diagnostic_enabled ? 1 : 0
+  project             = var.project_id
+  name                = "${local.prefix}-retire-diagnose"
+  location            = var.region
+  deletion_protection = !var.allow_restore_destroy
+  depends_on          = [google_service_account_iam_member.bootstrap_deployer_act_as]
+  template {
+    task_count  = 1
+    parallelism = 1
+    template {
+      service_account = local.admin_service_account_email
+      timeout         = "300s"
+      max_retries     = 0
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = data.google_compute_network.existing[0].name
+          subnetwork = data.google_compute_subnetwork.existing[0].name
+        }
+      }
+      containers {
+        name  = "retire-diagnose"
+        image = var.retirement_diagnostic_image
+        env {
+          name  = "GCP03_PHASE"
+          value = "retire-diagnose"
+        }
+        env {
+          name  = "GCP03_PROJECT"
+          value = var.project_id
+        }
+        env {
+          name  = "GCP03_REGION"
+          value = var.region
+        }
+        env {
+          name  = "GCP03_INSTANCE"
+          value = google_sql_database_instance.restore[0].name
+        }
+        env {
+          name  = "GCP03_RUN_ID"
+          value = var.run_id
+        }
+        env {
+          name  = "GCP03_CONFIRM_TARGET"
+          value = "${google_sql_database_instance.restore[0].connection_name}/espacigo_scratch"
+        }
+        env {
+          name  = "GCP03_ADMIN_PASSWORD_FILE"
+          value = "/secrets/postgres/password"
+        }
+        env {
+          name  = "DATABASE_URL"
+          value = "postgres://postgres@127.0.0.1:5432/espacigo_scratch?sslmode=disable"
+        }
+        volume_mounts {
+          name       = "admin-password"
+          mount_path = "/secrets/postgres"
+        }
+      }
+      containers {
+        name    = "cloud-sql-proxy"
+        image   = var.proxy_image
+        command = ["/cloud-sql-proxy"]
+        args    = ["--private-ip", "--address=127.0.0.1", "--port=5432", "--admin-port=9091", "--quitquitquit", "--exit-zero-on-sigterm", google_sql_database_instance.restore[0].connection_name]
+      }
+      volumes {
+        name = "admin-password"
+        secret {
+          secret = google_secret_manager_secret.postgres_password[0].secret_id
+          items {
+            version = var.admin_password_secret_version
+            path    = "password"
+          }
+        }
+      }
+    }
+  }
+}
+
 resource "google_service_account_iam_member" "bootstrap_deployer_act_as" {
   count              = local.bootstrap_job_enabled ? 1 : 0
   service_account_id = google_service_account.admin[0].name
@@ -575,6 +656,15 @@ resource "google_cloud_run_v2_job_iam_member" "retire_invoker" {
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_job.admin_phase["retire"].name
+  role     = "roles/run.invoker"
+  member   = var.bootstrap_operator_member
+}
+
+resource "google_cloud_run_v2_job_iam_member" "retirement_diagnostic_invoker" {
+  count    = local.retirement_diagnostic_enabled ? 1 : 0
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.retirement_diagnose[0].name
   role     = "roles/run.invoker"
   member   = var.bootstrap_operator_member
 }
