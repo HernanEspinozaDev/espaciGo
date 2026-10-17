@@ -14,17 +14,18 @@ Fecha de evidencia: 2026-10-16. Esta matriz registra el ensayo sintético y la l
 | Limpieza API y preservación de baseline | Completo según lecturas post-apply | Jobs, SAs, secret, bucket, DB e instancia del run ausentes; testprod y pilot01 `RUNNABLE`, VPC/subnet, Artifact Registry y backend Terraform conservados. Versionado del state backend habilitado. |
 | Consulta Cloud SQL Operations durante borrado | Limitación registrada | Lectura adicional no pudo distinguir permiso de recurso ausente; no se reintentó. Apply principal tuvo éxito y las lecturas finales más el plan sin cambios confirmaron ausencia. |
 | Credenciales locales del ensayo | Revisión acotada | Se inspeccionaron 120 artefactos preexistentes en `.local/testing/gcp03-1017`; todos estaban modo 0600. El barrido de nombres y marcadores comunes de valores credenciales no encontró candidatos; no se leyó payload de Secret Manager. State, planes y logs se conservaron como evidencia. |
-| Snapshot autorizado del origen | Pendiente | No se leyó, exportó ni movió base, backup, archivo o dataset persistente. Requiere aprobación del dueño, alcance y plan separado. |
-| Compatibilidad con snapshot/origen en Cloud SQL | Pendiente | Extensiones/roles/ACL/owners y comportamiento real post-restore; integración privada/TLS, app y reglas de reservas deben verificarse. |
+| Inventario de preparación del origen | Completo, solo lectura | Conteos agregados, catálogo, owners/ACL privados, huellas del árbol y comparación V1–V61 están registrados en `gcp03_origin_snapshot_compatibility_20261016.md`. No se creó dump ni copia. El backend activo está en otro worktree/commit y mantiene workers automáticos; DB+archivos no forman un punto atómico. |
+| Snapshot/backup consistente del origen | Pendiente de revisión | Procedimiento documentado; captura no ejecutada. Primero resolver revisión/configuración DB-backend, acordar quiesce y custodiar por separado la llave de cifrado. No tocar la base persistente ni copiar secretos en esta etapa. |
+| Compatibilidad con origen en Cloud SQL | Pendiente | Extensiones/roles/ACL/owners, `SECURITY DEFINER`, consultas espaciales y de reservas, privacidad y sanitización de colas deben verificarse tras revisión de captura y restore. 958 avisos están pendientes; toda copia deberá quedar aislada de workers/proveedores. |
 | Retire SQL outcome | Sin resolver | No ejecutar nuevo `retire` ni deducir rollback. Requiere una estrategia observacional/read-only revisada antes de cualquier nueva operación. |
 | Aceptación humana de GCP-03 | Pendiente | La evidencia técnica no equivale a aceptación. GCP-04 no se inicia ni se marca completo en este cierre. |
 
 ## Próximo paquete de trabajo, sin provisión
 
-1. Conseguir autorización del snapshot origen: identidad del snapshot, consistencia, ventana, scope, retención y dueño.
-2. Preparar manifest allowlist/hash y tabla de compatibilidad V1–V61 sin copiar contenido personal; reutilizar los resultados sintéticos como referencia.
-3. Hacer una revisión de solo lectura de si una DB nueva en `pilot01` puede aislar roles/owners globales y carga. Si no, preparar alternativa de instancia privada efímera aislada.
-4. Cotizar SKUs/región/cuotas vigentes y fijar una ventana/cota de costo; el cálculo previo de ocho horas es referencia no vinculante. Ningún plan se aplica en esta fase.
-5. Someter snapshot, matriz, opción de topología, presupuesto, plan exacto, teardown y criterios de parada a revisión antes de solicitar cualquier cambio cloud.
+1. Revisar el procedimiento de snapshot/compatibilidad antes de autorizar captura; resolver el desajuste de revisión Compose y definir quiesce, scope, retención y custodio de llave.
+2. Preparar la captura solo después de esa revisión: manifiesto/hash, archivo DB y evidencia privada bajo un punto de consistencia comprobable; preservar V1–V61 y tipos sin reescritura.
+3. Hacer una revisión de solo lectura de si una DB nueva en `pilot01` puede aislar roles/owners globales y carga. No crear ni reasignar roles SQL. Si no basta, preparar alternativa privada efímera.
+4. Cotizar SKUs/región/cuotas vigentes y fijar ventana/cota revisable; la referencia histórica de ocho horas no es una cotización. No cambiar Free Trial, billing o cuotas.
+5. Someter snapshot, matriz, topología, costo, plan exacto, teardown y criterios de parada a una revisión antes de cualquier cambio cloud.
 
 La alternativa más barata no se presupone válida: una DB separa objetos de base, pero no los roles PostgreSQL del cluster ni la carga de CPU/IO. La revisión puede recomendar pilot01 solo si demuestra que esas dependencias no interfieren; de lo contrario, mantener la instancia efímera como alternativa con costo actualizado. Ninguna opción autoriza hoy una importación o provisión.
