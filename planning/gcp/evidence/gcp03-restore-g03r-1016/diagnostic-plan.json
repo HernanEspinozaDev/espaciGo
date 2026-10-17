@@ -1,0 +1,37 @@
+{
+  "format": "espacigo-gcp03-diagnostic-plan-summary-v1",
+  "plan_sha256": "91c4190478282554b300f5141f61f471b33af82cf0661a65bf817782a47c1e85",
+  "planned_resource_changes": [
+    {
+      "address": "google_cloud_run_v2_job.diagnose[0]",
+      "actions": [
+        "create"
+      ]
+    },
+    {
+      "address": "google_cloud_run_v2_job_iam_member.diagnostic_invoker[0]",
+      "actions": [
+        "create"
+      ]
+    },
+    {
+      "address": "google_storage_bucket_iam_member.diagnostic_artifact_reader[0]",
+      "actions": [
+        "create"
+      ]
+    }
+  ],
+  "counts": {
+    "add": 3,
+    "change": 0,
+    "destroy": 0
+  },
+  "diagnostic_job_image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03restore@sha256:927e1ab63f2eb767c407ad4a74b299f4a571acbb947ae5b0741daa8d6fea9dd8",
+  "restore_image_override": "empty",
+  "restore_job_change": "none",
+  "existing_jobs_changed": false,
+  "apply_performed": false,
+  "job_invocation_performed": false,
+  "sql_executed": false,
+  "artifact_objects_changed": false
+}

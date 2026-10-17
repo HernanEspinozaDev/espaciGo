@@ -1,0 +1,50 @@
+{
+  "format": "espacigo-gcp03-diagnostic-image-evidence-v1",
+  "created_at_utc": "2026-10-17T00:30:39Z",
+  "source_commit": "4dfbe982e59854a7dfad22954aeb95c63818aa65",
+  "dockerfile_sha256": "9d950f9880d445e5eea24e0f4b17a096979fe08ab41fafc67df5229111093b8c",
+  "repository": "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03restore",
+  "tag": "diag-g03r-1016-4dfbe982",
+  "digest": "sha256:927e1ab63f2eb767c407ad4a74b299f4a571acbb947ae5b0741daa8d6fea9dd8",
+  "image_ref": "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03restore@sha256:927e1ab63f2eb767c407ad4a74b299f4a571acbb947ae5b0741daa8d6fea9dd8",
+  "image_media_type": "application/vnd.oci.image.index.v1+json",
+  "platform": "linux/amd64",
+  "platform_manifest_digest": "sha256:c60854f483ee2b680e3a23d695bb627ee4b77d696cba1418d9fdd516bcf310e0",
+  "attestation_manifest_digest": "sha256:12fdbea12a9149d0a6e9818d27d8e08402fede904a27eb2314f39baf68e7a156",
+  "attestations": [
+    "SPDX SBOM (https://spdx.dev/Document)",
+    "SLSA provenance v1 (https://slsa.dev/provenance/v1)"
+  ],
+  "builder": {
+    "docker_buildx": "v0.38.0",
+    "buildkit": "v0.34.0",
+    "provenance": "mode=max",
+    "sbom": true
+  },
+  "pinned_base_images": [
+    "golang:1.27.1-alpine3.24@sha256:cd9a32216aee5667f957a62d13a10032a63fd58e14b3f3d9cc8c2122f501e95e",
+    "postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677"
+  ],
+  "runtime_check": {
+    "pg_restore_version": "18.6 (Debian 18.6-1.pgdg13+2)",
+    "network": "disabled during local runtime check",
+    "generated_toc_sha256": "72267c466194fa670b7392071a500984f53309882a8847e3024ef04a5dce8636",
+    "sealed_toc_sha256": "4a2fddbdb08f636bc0f6cb7cfeeecfed621c9ad351dcb6b2f7fc5d2b0dc96244",
+    "ordered_entries_equal": true,
+    "entry_count": 741
+  },
+  "validation": {
+    "go_tests": "PASS: go test -count=1 ./cmd/gcp03restore ./internal/gcp03restore",
+    "postgres_integration": "PASS: scripts/test-gcp03-restore-executor-postgres.sh (PostgreSQL 18/PostGIS, network-isolated tmpfs/socket)",
+    "terraform_tests": "PASS: 6 architecture tests",
+    "terraform_validate": "PASS"
+  },
+  "cloud_actions": {
+    "image_pushed_to_existing_artifact_registry": true,
+    "terraform_applied": false,
+    "cloud_run_job_created_or_updated": false,
+    "cloud_run_job_executed": false,
+    "cloud_sql_query_executed": false,
+    "gcs_artifacts_changed": false
+  }
+}
