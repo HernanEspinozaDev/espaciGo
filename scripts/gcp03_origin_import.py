@@ -193,7 +193,17 @@ def verify_source_metadata(snapshot: Path, master: bytes, source_capture_run_id:
     if rc != 0:
         raise ImportErrorSafe("sealed source metadata authentication failed")
     report = metadata.get("database_report") or {}
-    if report.get("database") != "espacigo" or report.get("migration_match_v1_v61") is not True or \
+    preflight = metadata.get("preflight") or {}
+    projection = preflight.get("source_projection") or {}
+    release = metadata.get("release") or {}
+    source_database = projection.get("configured_database_name")
+    try:
+        source_database_bytes = len(source_database.encode("utf-8")) if isinstance(source_database, str) else 0
+    except UnicodeEncodeError:
+        raise ImportErrorSafe("sealed source metadata does not prove the V1-V61 and credential-exclusion contract") from None
+    if not isinstance(source_database, str) or not source_database or "\x00" in source_database or source_database_bytes > 63 or \
+            report.get("database") != source_database or release.get("run_id") != source_capture_run_id or \
+            report.get("migration_match_v1_v61") is not True or \
             report.get("source_credentials_included") is not False or report.get("role_passwords_included") is not False:
         raise ImportErrorSafe("sealed source metadata does not prove the V1-V61 and credential-exclusion contract")
     history = report.get("migration_history")
