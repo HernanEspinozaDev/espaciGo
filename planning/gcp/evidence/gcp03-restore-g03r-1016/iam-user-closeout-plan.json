@@ -1,6 +1,6 @@
 {
-  "schema": "espacigo.gcp03.iam-user-closeout-plan.v1",
-  "created_at": "2026-10-17T01:45:31.219Z",
+  "schema": "espacigo.gcp03.iam-user-closeout-plan.v2",
+  "created_at": "2026-10-17T01:50:16.205Z",
   "run_id": "g03r-1016",
   "project": "espacigo-testprod",
   "region": "southamerica-west1",
@@ -10,35 +10,57 @@
     "diagnosis_evidence": "planning/gcp/evidence/gcp03-restore-g03r-1016/retirement-diagnosis-execution.json",
     "diagnosis_evidence_sha256": "86c7e54ae49110c8976e4940be0cf08ad487ca99f952acace5b4946a4abc6c49"
   },
+  "provider_delete_semantics": {
+    "provider": "hashicorp/google",
+    "version": "8.7.0",
+    "source_utils": "https://github.com/hashicorp/terraform-provider-google/blob/v8.7.0/google/tpgresource/utils.go#L2613-L2628",
+    "source_sql_user_delete": "https://github.com/hashicorp/terraform-provider-google/blob/v8.7.0/google/services/sql/resource_sql_user.go#L3034-L3046",
+    "finding": "The SQL user delete hook rejects deletion_policy PREVENT before calling the Cloud SQL Delete API."
+  },
   "terraform": {
     "version": "1.16.6",
     "google_provider_version": "8.7.0",
     "state_lineage": "5bc6ad38-035f-fba3-2bcd-43bdf641e370",
     "state_serial": 10,
-    "plan_sha256": "9afa804a88aefe09523308a8f9698edf47417b97a90c59a4a5fc24d141355c9f",
-    "targeted": true,
-    "complete": false,
-    "applyable": true,
-    "applied": false,
-    "targets": [
-      "google_sql_user.restore_iam[0]",
-      "google_sql_user.verify_iam[0]"
-    ],
-    "actions": {
-      "add": 0,
-      "change": 0,
-      "delete": 2
-    },
-    "resource_changes": [
-      {
-        "address": "google_sql_user.restore_iam[0]",
-        "actions": ["delete"]
+    "stage0": {
+      "plan_sha256": "ffcf28449f3b4cada393753c58dc8fc455868d8f41eaaba8f801d2a38f9a4f31",
+      "targeted": true,
+      "complete": false,
+      "applyable": true,
+      "applied": false,
+      "targets": [
+        "google_sql_user.restore_iam[0]",
+        "google_sql_user.verify_iam[0]"
+      ],
+      "actions": {
+        "add": 0,
+        "change": 2,
+        "delete": 0
       },
-      {
-        "address": "google_sql_user.verify_iam[0]",
-        "actions": ["delete"]
-      }
-    ]
+      "resource_changes": [
+        {
+          "address": "google_sql_user.restore_iam[0]",
+          "actions": ["update"],
+          "before_deletion_policy": "PREVENT",
+          "after_deletion_policy": "DELETE"
+        },
+        {
+          "address": "google_sql_user.verify_iam[0]",
+          "actions": ["update"],
+          "before_deletion_policy": "PREVENT",
+          "after_deletion_policy": "DELETE"
+        }
+      ]
+    },
+    "superseded_stage1": {
+      "plan_sha256": "9afa804a88aefe09523308a8f9698edf47417b97a90c59a4a5fc24d141355c9f",
+      "applied": false,
+      "reason": "Both deletes had before.deletion_policy=PREVENT and therefore cannot pass the provider pre-delete hook."
+    },
+    "stage1": {
+      "plan_generated": false,
+      "precondition": "After stage0 is separately reviewed and applied, refresh state and generate a new targeted plan with exactly two deletes; the plan validator requires before.deletion_policy=DELETE for each user."
+    }
   },
   "membership_diagnosis": {
     "restore_membership_count": 2,
@@ -71,8 +93,14 @@
     "cloud_tests_run": false,
     "cloud_writes_performed": false
   },
+  "validator": {
+    "path": "scripts/gcp03_iam_user_plan_validator.py",
+    "unit_tests": "scripts/test_gcp03_iam_user_plan_validator.py",
+    "unit_tests_passed": 5,
+    "rejects_stage1_delete_when_before_policy_is_prevent": true
+  },
   "follow_ups": [
-    "Keep the retire membershipCount==1 contract mismatch as a narrow GCP-04 follow-up; do not relax it to >=1 or alter unknown memberships.",
+    "Keep the retire membershipCount==1 contract mismatch as a narrow GCP-04 follow-up; do not relax it to >=1 or touch unknown memberships.",
     "Keep the Cloud Run task/API lastAttemptResult.status={} versus container exit evidence discrepancy as a separate GCP-04 follow-up.",
     "Do not expand GCP-04 acceptance based on these follow-ups."
   ],
