@@ -118,10 +118,10 @@ variable "admin_password_secret_version" {
 variable "bootstrap_operator_member" {
   type        = string
   default     = "user:pasteleriahijitos@gmail.com"
-  description = "The single authorized g03r-1016 operator receiving invocation on the bootstrap Job and actAs on its admin service account."
+  description = "The single authorized g03r-1016 operator receiving invocation on exact gated Jobs and actAs on their service accounts."
   validation {
-    condition     = !var.enable_bootstrap_job || var.bootstrap_operator_member == "user:pasteleriahijitos@gmail.com"
-    error_message = "The bootstrap plan is restricted to the authorized g03r-1016 operator identity."
+    condition     = !(var.enable_bootstrap_job || var.enable_restore_jobs) || var.bootstrap_operator_member == "user:pasteleriahijitos@gmail.com"
+    error_message = "GCP-03 gated Jobs are restricted to the authorized g03r-1016 operator identity."
   }
 }
 

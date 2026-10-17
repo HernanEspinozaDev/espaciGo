@@ -1,0 +1,131 @@
+{
+  "format": "espacigo-gcp03-restore-plan-evidence-v1",
+  "run_id": "g03r-1016",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "terraform": {
+    "state_serial": 5,
+    "plan_sha256": "908c6fab4ecbd5a34da6fdce5d36585eec04761b00a472eefc577755e9c476c1",
+    "full_plan_json_sha256_private": "922eac3cac2254d18409ba0c4d53b1991a50c0f4c7fe1517441e569f650fe565",
+    "private_plan_files": true,
+    "private_file_mode": "0600",
+    "actions": [
+      {
+        "address": "google_cloud_run_v2_job.admin_phase[\"retire\"]",
+        "action": "create"
+      },
+      {
+        "address": "google_cloud_run_v2_job.restore[0]",
+        "action": "create"
+      },
+      {
+        "address": "google_cloud_run_v2_job.verify[0]",
+        "action": "create"
+      },
+      {
+        "address": "google_cloud_run_v2_job_iam_member.restore_invoker[0]",
+        "action": "create",
+        "job_name": "espacigo-gcp03-restore-g03r-1016-restore",
+        "role": "roles/run.invoker",
+        "member": "user:pasteleriahijitos@gmail.com"
+      },
+      {
+        "address": "google_cloud_run_v2_job_iam_member.retire_invoker[0]",
+        "action": "create",
+        "job_name": "espacigo-gcp03-restore-g03r-1016-retire",
+        "role": "roles/run.invoker",
+        "member": "user:pasteleriahijitos@gmail.com"
+      },
+      {
+        "address": "google_cloud_run_v2_job_iam_member.verify_invoker[0]",
+        "action": "create",
+        "job_name": "espacigo-gcp03-restore-g03r-1016-verify",
+        "role": "roles/run.invoker",
+        "member": "user:pasteleriahijitos@gmail.com"
+      },
+      {
+        "address": "google_project_iam_member.sql_client[0]",
+        "action": "create"
+      },
+      {
+        "address": "google_project_iam_member.sql_instance_user[0]",
+        "action": "create"
+      },
+      {
+        "address": "google_project_iam_member.verify_sql_client[0]",
+        "action": "create"
+      },
+      {
+        "address": "google_project_iam_member.verify_sql_instance_user[0]",
+        "action": "create"
+      },
+      {
+        "address": "google_service_account.restore[0]",
+        "action": "create"
+      },
+      {
+        "address": "google_service_account.verify[0]",
+        "action": "create"
+      },
+      {
+        "address": "google_service_account_iam_member.restore_operator_act_as[0]",
+        "action": "create",
+        "service_account_id": "projects/espacigo-testprod/serviceAccounts/g03-restore-g03r-1016@espacigo-testprod.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountUser",
+        "member": "user:pasteleriahijitos@gmail.com"
+      },
+      {
+        "address": "google_service_account_iam_member.verify_operator_act_as[0]",
+        "action": "create",
+        "service_account_id": "projects/espacigo-testprod/serviceAccounts/g03-verify-g03r-1016@espacigo-testprod.iam.gserviceaccount.com",
+        "role": "roles/iam.serviceAccountUser",
+        "member": "user:pasteleriahijitos@gmail.com"
+      },
+      {
+        "address": "google_sql_user.restore_iam[0]",
+        "action": "create"
+      },
+      {
+        "address": "google_sql_user.verify_iam[0]",
+        "action": "create"
+      },
+      {
+        "address": "google_storage_bucket_iam_member.artifact_reader[0]",
+        "action": "create"
+      }
+    ],
+    "resources_to_add": 17,
+    "resources_to_change": 0,
+    "resources_to_destroy": 0,
+    "applied": false
+  },
+  "fixed_inputs": {
+    "manifest_sha256": "be91abf57aa34bae447b258353d11af107e1c56d625820ebc20a6c3567578317",
+    "migration_inventory_sha256": "e4086e95c3ecf05f9262aabfaa4e536a72503b992cc806b4fcf610748c8fa8c4",
+    "migration_count": 61,
+    "executor_image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03restore@sha256:7cca0b4371c415ebb1f5b72516f1d3a119ba6f8d298ce46f07f2a93d12369bce",
+    "proxy_image": "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:076f128d5bdb9d345e253aa9bbf5f1f9a320caff21dfdbf07d582437e55e4f66",
+    "admin_secret_version": "1"
+  },
+  "operator": "user:pasteleriahijitos@gmail.com",
+  "operator_grants": {
+    "invoker_jobs": [
+      "espacigo-gcp03-restore-g03r-1016-restore",
+      "espacigo-gcp03-restore-g03r-1016-verify",
+      "espacigo-gcp03-restore-g03r-1016-retire"
+    ],
+    "act_as_service_accounts": [
+      "g03-restore-g03r-1016@espacigo-testprod.iam.gserviceaccount.com",
+      "g03-verify-g03r-1016@espacigo-testprod.iam.gserviceaccount.com"
+    ],
+    "project_wide_run_invoker": false,
+    "run_jobs_run_with_overrides": false
+  },
+  "execution": {
+    "restore": false,
+    "verify": false,
+    "retire": false,
+    "artifact_uploads": 0
+  },
+  "prepared_from_main": "4e96a488f913f7c6311cf1582e05930166471a85"
+}
