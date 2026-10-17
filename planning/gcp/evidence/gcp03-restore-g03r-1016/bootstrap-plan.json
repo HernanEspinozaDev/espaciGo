@@ -11,7 +11,7 @@
     "cloud_sql_operation_status": "DONE",
     "cloud_sql_operation_error": false,
     "secret_payload_read": false,
-    "sql_connection_or_command": false
+    "sql_connection_or_command_during_helper_setup": false
   },
   "terraform": {
     "state_serial": 4,
@@ -42,9 +42,35 @@
         "role": "roles/iam.serviceAccountUser"
       }
     ],
-    "applied": false,
-    "job_executed": false,
+    "applied": true,
+    "job_executed": true,
+    "object_uploads": 0,
+    "apply_resources_added": 3,
+    "apply_resources_changed": 0,
+    "apply_resources_destroyed": 0,
+    "state_serial_after_apply": 5,
+    "apply_plan_sha256": "8a0c8ffe94451ef1673c515c6209de8033c4237b48eee4cdd027a1f64f3f1186",
+    "apply_verified_no_drift": true,
+    "resources_after_apply": 10,
+    "execution_evidence": "planning/gcp/evidence/gcp03-restore-g03r-1016/bootstrap-execution.json"
+  },
+  "deadline_utc": "2026-10-17T05:08:13.708Z",
+  "bootstrap_execution": {
+    "execution_name": "espacigo-gcp03-restore-g03r-1016-bootstrap-9b25k",
+    "status": "SUCCEEDED",
+    "succeeded_tasks": 1,
+    "checks": {
+      "roles_created": true,
+      "extensions_ready": true,
+      "target_empty": true
+    },
+    "fixed_sql_and_database_connection_executed": true,
     "object_uploads": 0
   },
-  "deadline_utc": "2026-10-17T05:08:13.708Z"
+  "authorization": {
+    "reviewed_pr": 372,
+    "reviewed_head": "bdce73c31399bf48510aba809112a6c26aa0c12c",
+    "merge_commit": "4e96a488f913f7c6311cf1582e05930166471a85",
+    "merged_by": "HernanEspinozaDev"
+  }
 }

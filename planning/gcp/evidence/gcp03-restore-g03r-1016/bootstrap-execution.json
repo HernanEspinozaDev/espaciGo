@@ -1,0 +1,56 @@
+{
+  "format": "espacigo-gcp03-bootstrap-execution-evidence-v1",
+  "run_id": "g03r-1016",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "terraform": {
+    "applied_plan_sha256": "8a0c8ffe94451ef1673c515c6209de8033c4237b48eee4cdd027a1f64f3f1186",
+    "state_serial_after_apply": 5,
+    "managed_resources_after_apply": 10,
+    "resources_added": 3,
+    "resources_changed": 0,
+    "resources_destroyed": 0
+  },
+  "execution": {
+    "name": "espacigo-gcp03-restore-g03r-1016-bootstrap-9b25k",
+    "created_at_utc": "2026-10-17T00:00:00.620318Z",
+    "completed_at_utc": "2026-10-17T00:00:22.548853Z",
+    "completed": true,
+    "succeeded_tasks": 1,
+    "failed_tasks": 0,
+    "target": "espacigo-testprod:southamerica-west1:espacigo-gcp03-restore-g03r-1016-pg/espacigo_scratch"
+  },
+  "executor_evidence": {
+    "allowlist_sha256": "",
+    "checks": {
+      "extensions_ready": true,
+      "roles_created": true,
+      "target_empty": true
+    },
+    "dump_bytes": 0,
+    "dump_sha256": "",
+    "format": "espacigo-gcp03-managed-synthetic-restore-evidence-v1",
+    "manifest_sha256": "",
+    "migration_count": 0,
+    "migration_inventory_sha256": "",
+    "phase": "bootstrap",
+    "restored_counts": null,
+    "run_id": "g03r-1016",
+    "target": "espacigo-testprod:southamerica-west1:espacigo-gcp03-restore-g03r-1016-pg/espacigo_scratch",
+    "toc_sha256": ""
+  },
+  "secret": {
+    "version_number": "1",
+    "payload_read": false
+  },
+  "actions": {
+    "bootstrap_invocation_count": 1,
+    "restore_or_verify_executed": false,
+    "artifact_uploads": 0
+  },
+  "authorization": {
+    "reviewed_pr": 372,
+    "reviewed_head": "bdce73c31399bf48510aba809112a6c26aa0c12c",
+    "merge_commit": "4e96a488f913f7c6311cf1582e05930166471a85"
+  }
+}
