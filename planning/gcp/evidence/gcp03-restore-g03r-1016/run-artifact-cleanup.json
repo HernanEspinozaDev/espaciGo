@@ -1,0 +1,107 @@
+{
+  "schema": "espacigo.gcp03.run-artifact-object-cleanup.v1",
+  "observed_at": "2026-10-17T02:09:11Z",
+  "run_id": "g03r-1016",
+  "bucket": "espacigo-gcp03-restore-g03r-1016",
+  "authorized_prefix": "runs/g03r-1016/",
+  "authorization": "explicit source-chat authorization; four exact object generations only",
+  "preflight": {
+    "all_versions_inventory_count": 4,
+    "inventory_exactly_matches_authorized_generations": true,
+    "all_versions_prefix_inventory": [
+      "gs://espacigo-gcp03-restore-g03r-1016/runs/g03r-1016/allowlist.toc#1792195786699241",
+      "gs://espacigo-gcp03-restore-g03r-1016/runs/g03r-1016/dump.toc#1792195778303427",
+      "gs://espacigo-gcp03-restore-g03r-1016/runs/g03r-1016/manifest.json#1792195760678849",
+      "gs://espacigo-gcp03-restore-g03r-1016/runs/g03r-1016/synthetic-v1-v61.dump#1792195769229365"
+    ]
+  },
+  "objects": [
+    {
+      "name": "runs/g03r-1016/manifest.json",
+      "generation": "1792195760678849",
+      "metageneration": 1,
+      "size_bytes": 671,
+      "md5_hash": "igJhk0P8eBHra+pMXJP1Eg==",
+      "crc32c_hash": "ggAQYA==",
+      "content_type": "application/json",
+      "delete_request": {
+        "generation_selected_in_object_url": "1792195760678849",
+        "ifGenerationMatch": "1792195760678849",
+        "status": "success"
+      }
+    },
+    {
+      "name": "runs/g03r-1016/synthetic-v1-v61.dump",
+      "generation": "1792195769229365",
+      "metageneration": 1,
+      "size_bytes": 454328,
+      "md5_hash": "bAWiWbqkh15BSPYtmUJsdA==",
+      "crc32c_hash": "JkvyMA==",
+      "content_type": "application/octet-stream",
+      "delete_request": {
+        "generation_selected_in_object_url": "1792195769229365",
+        "ifGenerationMatch": "1792195769229365",
+        "status": "success"
+      }
+    },
+    {
+      "name": "runs/g03r-1016/dump.toc",
+      "generation": "1792195778303427",
+      "metageneration": 1,
+      "size_bytes": 69283,
+      "md5_hash": "WHVki6na1sM/EBFBPovOhA==",
+      "crc32c_hash": "w28vSg==",
+      "content_type": "application/octet-stream",
+      "delete_request": {
+        "generation_selected_in_object_url": "1792195778303427",
+        "ifGenerationMatch": "1792195778303427",
+        "status": "success"
+      }
+    },
+    {
+      "name": "runs/g03r-1016/allowlist.toc",
+      "generation": "1792195786699241",
+      "metageneration": 1,
+      "size_bytes": 68996,
+      "md5_hash": "GYJJYpeVcde6YlF+esOu2w==",
+      "crc32c_hash": "G5cGbg==",
+      "content_type": "application/octet-stream",
+      "delete_request": {
+        "generation_selected_in_object_url": "1792195786699241",
+        "ifGenerationMatch": "1792195786699241",
+        "status": "success"
+      }
+    }
+  ],
+  "deletion_method": "Cloud Storage API via gcloud storage rm; exact object generation in URL fragment and identical --if-generation-match precondition; no wildcard, recursive flag, all-versions flag, or bucket deletion",
+  "post_delete_verification": {
+    "api": "Cloud Storage JSON API",
+    "prefix_all_versions_empty": true,
+    "whole_bucket_all_versions_empty": true,
+    "exact_generation_lookups": [
+      {
+        "name": "runs/g03r-1016/manifest.json",
+        "generation": "1792195760678849",
+        "exact_generation_lookup": "404_not_found"
+      },
+      {
+        "name": "runs/g03r-1016/synthetic-v1-v61.dump",
+        "generation": "1792195769229365",
+        "exact_generation_lookup": "404_not_found"
+      },
+      {
+        "name": "runs/g03r-1016/dump.toc",
+        "generation": "1792195778303427",
+        "exact_generation_lookup": "404_not_found"
+      },
+      {
+        "name": "runs/g03r-1016/allowlist.toc",
+        "generation": "1792195786699241",
+        "exact_generation_lookup": "404_not_found"
+      }
+    ],
+    "bucket_resource_still_present": true
+  },
+  "other_objects_or_bucket_deleted": false,
+  "cleanup_verified_at": "2026-10-17T02:09:11Z"
+}

@@ -1,6 +1,6 @@
 # GCP-03 run closeout sequence — g03r-1016
 
-**Estado actual:** los dos usuarios SQL IAM se eliminaron mediante el plan stage1 aprobado en PR #382. Se verificaron ambas operaciones `DONE` sin error, ausencia en Cloud SQL Admin API y state serial 12. El plan stage2 para bajar protecciones de los recursos restantes está preparado para revisión; **no se ha aplicado**.
+**Estado actual:** stage1 eliminó los dos usuarios SQL IAM y stage2 bajó las protecciones de los recursos del run. Los cuatro objetos autorizados también se eliminaron con precondiciones de generación exactas. El plan stage3 completo propone eliminar los recursos restantes del run; **está pendiente de revisión y no se aplicó**.
 
 ## Etapa 0: `deletion_policy` de usuarios
 
@@ -18,9 +18,9 @@ La etapa 1 usó únicamente Cloud SQL Delete API a través del provider; no se e
 
 La evidencia stage0 publicada anteriormente contenía un typo en `verify.id`: omitía `@espacigo-testprod.iam//`. En este PR se corrige el valor a `g03-verify-g03r-1016@espacigo-testprod.iam//espacigo-gcp03-restore-g03r-1016-pg` y se registra explícitamente el valor anterior y el corregido en el campo `corrections`. El state y plan reales siempre tuvieron el ID corregido.
 
-## Etapa 2: plan completo de protecciones — pendiente de revisión
+## Etapa 2: plan de protecciones y aplicación revisada
 
-El plan se generó tras stage1, desde el `main` actualizado al merge de PR #382, contra state lineage `5bc6ad38-035f-fba3-2bcd-43bdf641e370`, serial 12. Es un plan completo, sin `-target`; Terraform muestra `complete=true`. Inputs relevantes: `enable_restore_iam_users=false`, `allow_restore_iam_user_destroy=true`, `allow_restore_destroy=true`, `confirm_destroy_run_id="g03r-1016"`, `enable_restore_jobs=true`.
+El plan se generó tras stage1, desde el `main` actualizado al merge de PR #382, contra state lineage `5bc6ad38-035f-fba3-2bcd-43bdf641e370`, serial 12. Fue completo y no dirigido. Inputs relevantes: `enable_restore_iam_users=false`, `allow_restore_iam_user_destroy=true`, `allow_restore_destroy=true`, `confirm_destroy_run_id="g03r-1016"`, `enable_restore_jobs=true`.
 
 El binario privado tiene SHA-256 `e89e9c70ee79ca1b5b88a025d1a2c711fcece2b3485957cc9cd5fac3bf9893ff`. Resultado: **0 altas, 9 cambios, 0 eliminaciones**. El cambio se limita a:
 
@@ -31,20 +31,17 @@ El binario privado tiene SHA-256 `e89e9c70ee79ca1b5b88a025d1a2c711fcece2b3485957
 
 No se recrean usuarios SQL IAM: `enable_restore_iam_users=false`, el state no contiene esos recursos y el plan no los crea ni los modifica. El validador [gcp03_run_protection_plan_validator.py](../../scripts/gcp03_run_protection_plan_validator.py) aceptó el JSON real y exige el conjunto exacto de recursos/campos, sin altas ni eliminaciones. Sus siete pruebas locales pasan. Evidencia saneada: [run-protection-stage2-plan.json](evidence/gcp03-restore-g03r-1016/run-protection-stage2-plan.json).
 
-**Stage2 está pendiente de revisión y no se aplicó.** Las protecciones siguen activas hasta una eventual aplicación expresamente revisada. El futuro plan para eliminar recursos restantes es otra fase separada y no se ha generado.
+**Stage2 fue aprobado y fusionado en PR #383 (HEAD `f09d15147da3b6c9749e55790bd071925be3edc3`, merge `aa71bf6b7b377c584cce91634d68d2d0a97556dd`) y se aplicó únicamente el binario aprobado con SHA anterior. Terraform informó 0 altas, 9 cambios y 0 eliminaciones; state avanzó a serial 13. El refresco posterior tuvo 0 cambios y 0 drift. Usuarios SQL IAM permanecen ausentes; la instancia quedó RUNNABLE con protección deshabilitada; los seis Jobs siguen presentes y desprotegidos; el secreto y su versión 1 `ENABLED` siguen presentes. Véase [evidencia stage2 apply](evidence/gcp03-restore-g03r-1016/run-protection-stage2-apply.json).
 
-## Conservación y límites
+## Limpieza de artefactos autorizada y Stage3 pendiente
 
-Permanecen fuera de alcance `pilot01`, el dataset persistente de origen y sus backups/archivos, red/subred basales, recursos compartidos y backend Terraform. Se mantienen retenidos:
+Tras verificar Stage2 se eliminaron únicamente los cuatro objetos exactos del bucket `espacigo-gcp03-restore-g03r-1016`, usando para cada uno el mismo valor en el selector `generation` y `ifGenerationMatch`. El inventario previo coincidió con las cuatro generaciones autorizadas; Cloud Storage JSON API confirmó el prefijo y el bucket sin versiones/objetos restantes y cada consulta por generación devuelve 404. Los nombres, generaciones y hashes MD5/CRC32C están en [evidencia de limpieza](evidence/gcp03-restore-g03r-1016/run-artifact-cleanup.json). El bucket en sí no se eliminó.
 
-| Objeto | Generación |
-| --- | ---: |
-| `runs/g03r-1016/manifest.json` | `1792195760678849` |
-| `runs/g03r-1016/synthetic-v1-v61.dump` | `1792195769229365` |
-| `runs/g03r-1016/dump.toc` | `1792195778303427` |
-| `runs/g03r-1016/allowlist.toc` | `1792195786699241` |
+El plan stage3 se generó completo, sin `-target`, desde el merge #383 y state serial 13. SHA-256 del binario privado: `ea47a00c6330bf006b2f5e5abf2fc376f399b1cdaa428677bd089cbd40b753cc`. Incluye **0 altas, 0 cambios y 30 eliminaciones**, todas de recursos gestionados del run `g03r-1016`; no incluye usuarios SQL IAM ni drift. Foundation y los cuatro gates de bootstrap, restore, diagnóstico y diagnóstico de retiro están desactivados; las confirmaciones de setup también están en falso. El bucket estaba vacío antes del plan. El validador exacto de inventario/gates y grafo aceptó el plan; sus ocho pruebas locales pasan. Evidencia saneada: [Stage3 plan](evidence/gcp03-restore-g03r-1016/stage3-teardown-plan.json) y [grafo de dependencias](evidence/gcp03-restore-g03r-1016/stage3-teardown-plan-graph.dot).
 
-No se envió borrado de objetos ni se borró secreto. Un futuro borrado de objetos requerirá autorización explícita y precondiciones `generation` e `ifGenerationMatch` iguales. Bajar protecciones no elimina recursos ni datos.
+**Stage3 solo está preparado para revisión; no se aplicó.** El grafo verifica retiro de Jobs/IAM antes de identidades, base antes de instancia, bindings antes del secreto y bindings/Job antes del bucket. Cualquier aplicación y las eliminaciones posteriores requieren revisión independiente.
+
+Permanecen fuera de alcance `pilot01`, el dataset persistente de origen y sus backups/archivos, red/subred basales, recursos compartidos y backend Terraform. El secreto/versión, instancia/base, Jobs, service accounts y bucket aún existen; el plan stage3 propone eliminarlos, pero no se aplicó. No se ejecutaron sentencias SQL ni Jobs. La aplicación stage2 solo cambió protecciones y la limpieza de objetos se limitó a las cuatro generaciones autorizadas.
 
 El hallazgo GCP-04 de `membershipCount==1` frente al diagnóstico `membership_count=2` no se relajó ni se alteraron memberships desconocidas. La discrepancia de `lastAttemptResult.status={}` de Cloud Run y los códigos de salida en logs sigue registrada como seguimiento acotado; no amplía aceptación. La aceptación de producto GCP-03/GCP-04 sigue pendiente.
 

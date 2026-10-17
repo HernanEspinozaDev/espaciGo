@@ -1,0 +1,85 @@
+{
+  "schema": "espacigo.gcp03.run-protection-stage2-apply.v1",
+  "observed_at": "2026-10-17T02:13:22Z",
+  "run_id": "g03r-1016",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "authorization": {
+    "pr": 383,
+    "reviewed_head": "f09d15147da3b6c9749e55790bd071925be3edc3",
+    "merged_by": "HernanEspinozaDev",
+    "merge_sha": "aa71bf6b7b377c584cce91634d68d2d0a97556dd"
+  },
+  "terraform": {
+    "version": "1.16.6",
+    "provider_google": "8.7.0",
+    "plan_sha256": "e89e9c70ee79ca1b5b88a025d1a2c711fcece2b3485957cc9cd5fac3bf9893ff",
+    "state_lineage": "5bc6ad38-035f-fba3-2bcd-43bdf641e370",
+    "state_serial_before": 12,
+    "state_serial_after": 13,
+    "summary": {
+      "added": 0,
+      "changed": 9,
+      "destroyed": 0
+    },
+    "apply_complete": true
+  },
+  "post_apply_verification": {
+    "stage2_plan_refresh": {
+      "complete": true,
+      "non_noop_changes": 0,
+      "resource_drift_entries": 0
+    },
+    "sql_iam_users": {
+      "state_resource_count": 0,
+      "api_users": [
+        "postgres"
+      ]
+    },
+    "instance": {
+      "name": "espacigo-gcp03-restore-g03r-1016-pg",
+      "state": "RUNNABLE",
+      "deletion_protection_enabled": false
+    },
+    "database": {
+      "name": "espacigo_scratch",
+      "present": true,
+      "deletion_policy": "DELETE"
+    },
+    "cloud_run_jobs": {
+      "count": 6,
+      "names": [
+        "espacigo-gcp03-restore-g03r-1016-bootstrap",
+        "espacigo-gcp03-restore-g03r-1016-diagnose",
+        "espacigo-gcp03-restore-g03r-1016-restore",
+        "espacigo-gcp03-restore-g03r-1016-retire",
+        "espacigo-gcp03-restore-g03r-1016-retire-diagnose",
+        "espacigo-gcp03-restore-g03r-1016-verify"
+      ],
+      "terraform_state_deletion_protection_enabled": false,
+      "api_presence_confirmed": true
+    },
+    "secret": {
+      "name": "espacigo-gcp03-restore-g03r-1016-postgres-password",
+      "present": true,
+      "version_1": "ENABLED",
+      "deletion_protection": false
+    },
+    "bucket_object_mutations_by_terraform_apply": false
+  },
+  "side_effects": {
+    "sql_statements_executed": false,
+    "cloud_run_jobs_invoked": false,
+    "resources_deleted": false,
+    "objects_or_secret_deleted_by_stage2_apply": false
+  },
+  "apply_completed_at": "2026-10-17T02:07:50Z",
+  "post_apply_refresh_completed_at": "2026-10-17T02:08:05Z",
+  "inputs": {
+    "enable_restore_iam_users": false,
+    "allow_restore_iam_user_destroy": true,
+    "allow_restore_destroy": true,
+    "confirm_destroy_run_id": "g03r-1016",
+    "enable_restore_jobs": true
+  }
+}

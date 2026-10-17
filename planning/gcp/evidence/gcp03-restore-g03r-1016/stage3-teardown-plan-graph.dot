@@ -1,0 +1,345 @@
+digraph {
+	compound = "true"
+	newrank = "true"
+	subgraph "root" {
+		"[root] data.google_compute_network.existing (expand)" [label = "data.google_compute_network.existing", shape = "box"]
+		"[root] data.google_compute_subnetwork.existing (expand)" [label = "data.google_compute_subnetwork.existing", shape = "box"]
+		"[root] google_cloud_run_v2_job.admin_phase (expand)" [label = "google_cloud_run_v2_job.admin_phase", shape = "box"]
+		"[root] google_cloud_run_v2_job.admin_phase[\"bootstrap\"] (destroy)" [label = "google_cloud_run_v2_job.admin_phase", shape = "box"]
+		"[root] google_cloud_run_v2_job.admin_phase[\"retire\"] (destroy)" [label = "google_cloud_run_v2_job.admin_phase", shape = "box"]
+		"[root] google_cloud_run_v2_job.diagnose (expand)" [label = "google_cloud_run_v2_job.diagnose", shape = "box"]
+		"[root] google_cloud_run_v2_job.diagnose[0] (destroy)" [label = "google_cloud_run_v2_job.diagnose", shape = "box"]
+		"[root] google_cloud_run_v2_job.restore (expand)" [label = "google_cloud_run_v2_job.restore", shape = "box"]
+		"[root] google_cloud_run_v2_job.restore[0] (destroy)" [label = "google_cloud_run_v2_job.restore", shape = "box"]
+		"[root] google_cloud_run_v2_job.retirement_diagnose (expand)" [label = "google_cloud_run_v2_job.retirement_diagnose", shape = "box"]
+		"[root] google_cloud_run_v2_job.retirement_diagnose[0] (destroy)" [label = "google_cloud_run_v2_job.retirement_diagnose", shape = "box"]
+		"[root] google_cloud_run_v2_job.verify (expand)" [label = "google_cloud_run_v2_job.verify", shape = "box"]
+		"[root] google_cloud_run_v2_job.verify[0] (destroy)" [label = "google_cloud_run_v2_job.verify", shape = "box"]
+		"[root] google_cloud_run_v2_job_iam_member.bootstrap_invoker (expand)" [label = "google_cloud_run_v2_job_iam_member.bootstrap_invoker", shape = "box"]
+		"[root] google_cloud_run_v2_job_iam_member.bootstrap_invoker[0] (destroy)" [label = "google_cloud_run_v2_job_iam_member.bootstrap_invoker", shape = "box"]
+		"[root] google_cloud_run_v2_job_iam_member.diagnostic_invoker (expand)" [label = "google_cloud_run_v2_job_iam_member.diagnostic_invoker", shape = "box"]
+		"[root] google_cloud_run_v2_job_iam_member.diagnostic_invoker[0] (destroy)" [label = "google_cloud_run_v2_job_iam_member.diagnostic_invoker", shape = "box"]
+		"[root] google_cloud_run_v2_job_iam_member.restore_invoker (expand)" [label = "google_cloud_run_v2_job_iam_member.restore_invoker", shape = "box"]
+		"[root] google_cloud_run_v2_job_iam_member.restore_invoker[0] (destroy)" [label = "google_cloud_run_v2_job_iam_member.restore_invoker", shape = "box"]
+		"[root] google_cloud_run_v2_job_iam_member.retire_invoker (expand)" [label = "google_cloud_run_v2_job_iam_member.retire_invoker", shape = "box"]
+		"[root] google_cloud_run_v2_job_iam_member.retire_invoker[0] (destroy)" [label = "google_cloud_run_v2_job_iam_member.retire_invoker", shape = "box"]
+		"[root] google_cloud_run_v2_job_iam_member.retirement_diagnostic_invoker (expand)" [label = "google_cloud_run_v2_job_iam_member.retirement_diagnostic_invoker", shape = "box"]
+		"[root] google_cloud_run_v2_job_iam_member.retirement_diagnostic_invoker[0] (destroy)" [label = "google_cloud_run_v2_job_iam_member.retirement_diagnostic_invoker", shape = "box"]
+		"[root] google_cloud_run_v2_job_iam_member.verify_invoker (expand)" [label = "google_cloud_run_v2_job_iam_member.verify_invoker", shape = "box"]
+		"[root] google_cloud_run_v2_job_iam_member.verify_invoker[0] (destroy)" [label = "google_cloud_run_v2_job_iam_member.verify_invoker", shape = "box"]
+		"[root] google_project_iam_member.admin_sql_client (expand)" [label = "google_project_iam_member.admin_sql_client", shape = "box"]
+		"[root] google_project_iam_member.admin_sql_client[0] (destroy)" [label = "google_project_iam_member.admin_sql_client", shape = "box"]
+		"[root] google_project_iam_member.sql_client (expand)" [label = "google_project_iam_member.sql_client", shape = "box"]
+		"[root] google_project_iam_member.sql_client[0] (destroy)" [label = "google_project_iam_member.sql_client", shape = "box"]
+		"[root] google_project_iam_member.sql_instance_user (expand)" [label = "google_project_iam_member.sql_instance_user", shape = "box"]
+		"[root] google_project_iam_member.sql_instance_user[0] (destroy)" [label = "google_project_iam_member.sql_instance_user", shape = "box"]
+		"[root] google_project_iam_member.verify_sql_client (expand)" [label = "google_project_iam_member.verify_sql_client", shape = "box"]
+		"[root] google_project_iam_member.verify_sql_client[0] (destroy)" [label = "google_project_iam_member.verify_sql_client", shape = "box"]
+		"[root] google_project_iam_member.verify_sql_instance_user (expand)" [label = "google_project_iam_member.verify_sql_instance_user", shape = "box"]
+		"[root] google_project_iam_member.verify_sql_instance_user[0] (destroy)" [label = "google_project_iam_member.verify_sql_instance_user", shape = "box"]
+		"[root] google_secret_manager_secret.postgres_password (expand)" [label = "google_secret_manager_secret.postgres_password", shape = "box"]
+		"[root] google_secret_manager_secret.postgres_password[0] (destroy)" [label = "google_secret_manager_secret.postgres_password", shape = "box"]
+		"[root] google_secret_manager_secret_iam_member.admin_password_reader (expand)" [label = "google_secret_manager_secret_iam_member.admin_password_reader", shape = "box"]
+		"[root] google_secret_manager_secret_iam_member.admin_password_reader[0] (destroy)" [label = "google_secret_manager_secret_iam_member.admin_password_reader", shape = "box"]
+		"[root] google_service_account.admin (expand)" [label = "google_service_account.admin", shape = "box"]
+		"[root] google_service_account.admin[0] (destroy)" [label = "google_service_account.admin", shape = "box"]
+		"[root] google_service_account.restore (expand)" [label = "google_service_account.restore", shape = "box"]
+		"[root] google_service_account.restore[0] (destroy)" [label = "google_service_account.restore", shape = "box"]
+		"[root] google_service_account.verify (expand)" [label = "google_service_account.verify", shape = "box"]
+		"[root] google_service_account.verify[0] (destroy)" [label = "google_service_account.verify", shape = "box"]
+		"[root] google_service_account_iam_member.bootstrap_deployer_act_as (expand)" [label = "google_service_account_iam_member.bootstrap_deployer_act_as", shape = "box"]
+		"[root] google_service_account_iam_member.bootstrap_deployer_act_as[0] (destroy)" [label = "google_service_account_iam_member.bootstrap_deployer_act_as", shape = "box"]
+		"[root] google_service_account_iam_member.restore_operator_act_as (expand)" [label = "google_service_account_iam_member.restore_operator_act_as", shape = "box"]
+		"[root] google_service_account_iam_member.restore_operator_act_as[0] (destroy)" [label = "google_service_account_iam_member.restore_operator_act_as", shape = "box"]
+		"[root] google_service_account_iam_member.verify_operator_act_as (expand)" [label = "google_service_account_iam_member.verify_operator_act_as", shape = "box"]
+		"[root] google_service_account_iam_member.verify_operator_act_as[0] (destroy)" [label = "google_service_account_iam_member.verify_operator_act_as", shape = "box"]
+		"[root] google_sql_database.restore (expand)" [label = "google_sql_database.restore", shape = "box"]
+		"[root] google_sql_database.restore[0] (destroy)" [label = "google_sql_database.restore", shape = "box"]
+		"[root] google_sql_database_instance.restore (expand)" [label = "google_sql_database_instance.restore", shape = "box"]
+		"[root] google_sql_database_instance.restore[0] (destroy)" [label = "google_sql_database_instance.restore", shape = "box"]
+		"[root] google_sql_user.restore_iam (expand)" [label = "google_sql_user.restore_iam", shape = "box"]
+		"[root] google_sql_user.verify_iam (expand)" [label = "google_sql_user.verify_iam", shape = "box"]
+		"[root] google_storage_bucket.artifacts (expand)" [label = "google_storage_bucket.artifacts", shape = "box"]
+		"[root] google_storage_bucket.artifacts[0] (destroy)" [label = "google_storage_bucket.artifacts", shape = "box"]
+		"[root] google_storage_bucket_iam_member.artifact_reader (expand)" [label = "google_storage_bucket_iam_member.artifact_reader", shape = "box"]
+		"[root] google_storage_bucket_iam_member.artifact_reader[0] (destroy)" [label = "google_storage_bucket_iam_member.artifact_reader", shape = "box"]
+		"[root] google_storage_bucket_iam_member.diagnostic_artifact_reader (expand)" [label = "google_storage_bucket_iam_member.diagnostic_artifact_reader", shape = "box"]
+		"[root] google_storage_bucket_iam_member.diagnostic_artifact_reader[0] (destroy)" [label = "google_storage_bucket_iam_member.diagnostic_artifact_reader", shape = "box"]
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"]" [label = "provider[\"registry.terraform.io/hashicorp/google\"]", shape = "diamond"]
+		"[root] var.admin_password_secret_version" [label = "var.admin_password_secret_version", shape = "note"]
+		"[root] var.allow_restore_destroy" [label = "var.allow_restore_destroy", shape = "note"]
+		"[root] var.allow_restore_iam_user_destroy" [label = "var.allow_restore_iam_user_destroy", shape = "note"]
+		"[root] var.bootstrap_operator_member" [label = "var.bootstrap_operator_member", shape = "note"]
+		"[root] var.confirm_bootstrap_complete" [label = "var.confirm_bootstrap_complete", shape = "note"]
+		"[root] var.confirm_destroy_run_id" [label = "var.confirm_destroy_run_id", shape = "note"]
+		"[root] var.confirm_isolated_restore" [label = "var.confirm_isolated_restore", shape = "note"]
+		"[root] var.confirm_read_only_empty_baseline" [label = "var.confirm_read_only_empty_baseline", shape = "note"]
+		"[root] var.diagnostic_evidence_sha256" [label = "var.diagnostic_evidence_sha256", shape = "note"]
+		"[root] var.diagnostic_image" [label = "var.diagnostic_image", shape = "note"]
+		"[root] var.enable_bootstrap_job" [label = "var.enable_bootstrap_job", shape = "note"]
+		"[root] var.enable_diagnostic_job" [label = "var.enable_diagnostic_job", shape = "note"]
+		"[root] var.enable_foundation" [label = "var.enable_foundation", shape = "note"]
+		"[root] var.enable_restore_iam_users" [label = "var.enable_restore_iam_users", shape = "note"]
+		"[root] var.enable_restore_jobs" [label = "var.enable_restore_jobs", shape = "note"]
+		"[root] var.enable_retirement_diagnostic_job" [label = "var.enable_retirement_diagnostic_job", shape = "note"]
+		"[root] var.executor_image" [label = "var.executor_image", shape = "note"]
+		"[root] var.manifest_sha256" [label = "var.manifest_sha256", shape = "note"]
+		"[root] var.migration_inventory_sha256" [label = "var.migration_inventory_sha256", shape = "note"]
+		"[root] var.project_id" [label = "var.project_id", shape = "note"]
+		"[root] var.proxy_image" [label = "var.proxy_image", shape = "note"]
+		"[root] var.region" [label = "var.region", shape = "note"]
+		"[root] var.restore_executor_image" [label = "var.restore_executor_image", shape = "note"]
+		"[root] var.retirement_diagnostic_image" [label = "var.retirement_diagnostic_image", shape = "note"]
+		"[root] var.run_id" [label = "var.run_id", shape = "note"]
+		"[root] data.google_compute_network.existing (expand)" -> "[root] local.foundation_enabled (expand)"
+		"[root] data.google_compute_network.existing (expand)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] data.google_compute_subnetwork.existing (expand)" -> "[root] local.foundation_enabled (expand)"
+		"[root] data.google_compute_subnetwork.existing (expand)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_cloud_run_v2_job.admin_phase (expand)" -> "[root] google_secret_manager_secret.postgres_password (expand)"
+		"[root] google_cloud_run_v2_job.admin_phase (expand)" -> "[root] google_service_account_iam_member.bootstrap_deployer_act_as (expand)"
+		"[root] google_cloud_run_v2_job.admin_phase (expand)" -> "[root] google_sql_database_instance.restore (expand)"
+		"[root] google_cloud_run_v2_job.admin_phase (expand)" -> "[root] local.admin_jobs (expand)"
+		"[root] google_cloud_run_v2_job.admin_phase (expand)" -> "[root] local.admin_service_account_email (expand)"
+		"[root] google_cloud_run_v2_job.admin_phase[\"bootstrap\"] (destroy)" -> "[root] google_cloud_run_v2_job_iam_member.bootstrap_invoker[0] (destroy)"
+		"[root] google_cloud_run_v2_job.admin_phase[\"bootstrap\"] (destroy)" -> "[root] google_cloud_run_v2_job_iam_member.retire_invoker[0] (destroy)"
+		"[root] google_cloud_run_v2_job.admin_phase[\"retire\"] (destroy)" -> "[root] google_cloud_run_v2_job_iam_member.bootstrap_invoker[0] (destroy)"
+		"[root] google_cloud_run_v2_job.admin_phase[\"retire\"] (destroy)" -> "[root] google_cloud_run_v2_job_iam_member.retire_invoker[0] (destroy)"
+		"[root] google_cloud_run_v2_job.diagnose (expand)" -> "[root] google_service_account_iam_member.verify_operator_act_as (expand)"
+		"[root] google_cloud_run_v2_job.diagnose (expand)" -> "[root] google_sql_database_instance.restore (expand)"
+		"[root] google_cloud_run_v2_job.diagnose (expand)" -> "[root] google_storage_bucket_iam_member.diagnostic_artifact_reader (expand)"
+		"[root] google_cloud_run_v2_job.diagnose[0] (destroy)" -> "[root] google_cloud_run_v2_job_iam_member.diagnostic_invoker[0] (destroy)"
+		"[root] google_cloud_run_v2_job.restore (expand)" -> "[root] google_service_account_iam_member.restore_operator_act_as (expand)"
+		"[root] google_cloud_run_v2_job.restore (expand)" -> "[root] google_sql_database_instance.restore (expand)"
+		"[root] google_cloud_run_v2_job.restore (expand)" -> "[root] google_storage_bucket.artifacts (expand)"
+		"[root] google_cloud_run_v2_job.restore (expand)" -> "[root] local.restore_phase_image (expand)"
+		"[root] google_cloud_run_v2_job.restore[0] (destroy)" -> "[root] google_cloud_run_v2_job_iam_member.restore_invoker[0] (destroy)"
+		"[root] google_cloud_run_v2_job.retirement_diagnose (expand)" -> "[root] google_secret_manager_secret.postgres_password (expand)"
+		"[root] google_cloud_run_v2_job.retirement_diagnose (expand)" -> "[root] google_service_account_iam_member.bootstrap_deployer_act_as (expand)"
+		"[root] google_cloud_run_v2_job.retirement_diagnose (expand)" -> "[root] google_sql_database_instance.restore (expand)"
+		"[root] google_cloud_run_v2_job.retirement_diagnose (expand)" -> "[root] local.admin_service_account_email (expand)"
+		"[root] google_cloud_run_v2_job.retirement_diagnose (expand)" -> "[root] local.retirement_diagnostic_enabled (expand)"
+		"[root] google_cloud_run_v2_job.retirement_diagnose[0] (destroy)" -> "[root] google_cloud_run_v2_job_iam_member.retirement_diagnostic_invoker[0] (destroy)"
+		"[root] google_cloud_run_v2_job.verify (expand)" -> "[root] google_service_account_iam_member.verify_operator_act_as (expand)"
+		"[root] google_cloud_run_v2_job.verify (expand)" -> "[root] google_sql_database_instance.restore (expand)"
+		"[root] google_cloud_run_v2_job.verify[0] (destroy)" -> "[root] google_cloud_run_v2_job_iam_member.verify_invoker[0] (destroy)"
+		"[root] google_cloud_run_v2_job_iam_member.bootstrap_invoker (expand)" -> "[root] google_cloud_run_v2_job.admin_phase (expand)"
+		"[root] google_cloud_run_v2_job_iam_member.bootstrap_invoker[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_cloud_run_v2_job_iam_member.diagnostic_invoker (expand)" -> "[root] google_cloud_run_v2_job.diagnose (expand)"
+		"[root] google_cloud_run_v2_job_iam_member.diagnostic_invoker[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_cloud_run_v2_job_iam_member.restore_invoker (expand)" -> "[root] google_cloud_run_v2_job.restore (expand)"
+		"[root] google_cloud_run_v2_job_iam_member.restore_invoker[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_cloud_run_v2_job_iam_member.retire_invoker (expand)" -> "[root] google_cloud_run_v2_job.admin_phase (expand)"
+		"[root] google_cloud_run_v2_job_iam_member.retire_invoker[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_cloud_run_v2_job_iam_member.retirement_diagnostic_invoker (expand)" -> "[root] google_cloud_run_v2_job.retirement_diagnose (expand)"
+		"[root] google_cloud_run_v2_job_iam_member.retirement_diagnostic_invoker[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_cloud_run_v2_job_iam_member.verify_invoker (expand)" -> "[root] google_cloud_run_v2_job.verify (expand)"
+		"[root] google_cloud_run_v2_job_iam_member.verify_invoker[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_project_iam_member.admin_sql_client (expand)" -> "[root] google_service_account.admin (expand)"
+		"[root] google_project_iam_member.admin_sql_client (expand)" -> "[root] local.prefix (expand)"
+		"[root] google_project_iam_member.admin_sql_client[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_project_iam_member.sql_client (expand)" -> "[root] google_service_account.restore (expand)"
+		"[root] google_project_iam_member.sql_client (expand)" -> "[root] local.prefix (expand)"
+		"[root] google_project_iam_member.sql_client[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_project_iam_member.sql_instance_user (expand)" -> "[root] google_service_account.restore (expand)"
+		"[root] google_project_iam_member.sql_instance_user (expand)" -> "[root] local.prefix (expand)"
+		"[root] google_project_iam_member.sql_instance_user[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_project_iam_member.verify_sql_client (expand)" -> "[root] google_service_account.verify (expand)"
+		"[root] google_project_iam_member.verify_sql_client (expand)" -> "[root] local.prefix (expand)"
+		"[root] google_project_iam_member.verify_sql_client[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_project_iam_member.verify_sql_instance_user (expand)" -> "[root] google_service_account.verify (expand)"
+		"[root] google_project_iam_member.verify_sql_instance_user (expand)" -> "[root] local.prefix (expand)"
+		"[root] google_project_iam_member.verify_sql_instance_user[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_secret_manager_secret.postgres_password (expand)" -> "[root] local.foundation_enabled (expand)"
+		"[root] google_secret_manager_secret.postgres_password (expand)" -> "[root] local.prefix (expand)"
+		"[root] google_secret_manager_secret.postgres_password (expand)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_secret_manager_secret.postgres_password (expand)" -> "[root] var.allow_restore_destroy (validation)"
+		"[root] google_secret_manager_secret.postgres_password[0] (destroy)" -> "[root] google_cloud_run_v2_job.admin_phase[\"bootstrap\"] (destroy)"
+		"[root] google_secret_manager_secret.postgres_password[0] (destroy)" -> "[root] google_cloud_run_v2_job.admin_phase[\"retire\"] (destroy)"
+		"[root] google_secret_manager_secret.postgres_password[0] (destroy)" -> "[root] google_cloud_run_v2_job.retirement_diagnose[0] (destroy)"
+		"[root] google_secret_manager_secret.postgres_password[0] (destroy)" -> "[root] google_secret_manager_secret_iam_member.admin_password_reader[0] (destroy)"
+		"[root] google_secret_manager_secret_iam_member.admin_password_reader (expand)" -> "[root] google_secret_manager_secret.postgres_password (expand)"
+		"[root] google_secret_manager_secret_iam_member.admin_password_reader (expand)" -> "[root] google_service_account.admin (expand)"
+		"[root] google_secret_manager_secret_iam_member.admin_password_reader[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_service_account.admin (expand)" -> "[root] local.foundation_enabled (expand)"
+		"[root] google_service_account.admin (expand)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_service_account.admin (expand)" -> "[root] var.run_id (validation)"
+		"[root] google_service_account.admin[0] (destroy)" -> "[root] google_project_iam_member.admin_sql_client[0] (destroy)"
+		"[root] google_service_account.admin[0] (destroy)" -> "[root] google_secret_manager_secret_iam_member.admin_password_reader[0] (destroy)"
+		"[root] google_service_account.admin[0] (destroy)" -> "[root] google_service_account_iam_member.bootstrap_deployer_act_as[0] (destroy)"
+		"[root] google_service_account.restore (expand)" -> "[root] local.restore_enabled (expand)"
+		"[root] google_service_account.restore (expand)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_service_account.restore (expand)" -> "[root] var.run_id (validation)"
+		"[root] google_service_account.restore[0] (destroy)" -> "[root] google_project_iam_member.sql_client[0] (destroy)"
+		"[root] google_service_account.restore[0] (destroy)" -> "[root] google_project_iam_member.sql_instance_user[0] (destroy)"
+		"[root] google_service_account.restore[0] (destroy)" -> "[root] google_service_account_iam_member.restore_operator_act_as[0] (destroy)"
+		"[root] google_service_account.restore[0] (destroy)" -> "[root] google_storage_bucket_iam_member.artifact_reader[0] (destroy)"
+		"[root] google_service_account.verify (expand)" -> "[root] local.restore_enabled (expand)"
+		"[root] google_service_account.verify (expand)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_service_account.verify (expand)" -> "[root] var.run_id (validation)"
+		"[root] google_service_account.verify[0] (destroy)" -> "[root] google_project_iam_member.verify_sql_client[0] (destroy)"
+		"[root] google_service_account.verify[0] (destroy)" -> "[root] google_project_iam_member.verify_sql_instance_user[0] (destroy)"
+		"[root] google_service_account.verify[0] (destroy)" -> "[root] google_service_account_iam_member.verify_operator_act_as[0] (destroy)"
+		"[root] google_service_account.verify[0] (destroy)" -> "[root] google_storage_bucket_iam_member.diagnostic_artifact_reader[0] (destroy)"
+		"[root] google_service_account_iam_member.bootstrap_deployer_act_as (expand)" -> "[root] google_service_account.admin (expand)"
+		"[root] google_service_account_iam_member.bootstrap_deployer_act_as (expand)" -> "[root] local.bootstrap_job_enabled (expand)"
+		"[root] google_service_account_iam_member.bootstrap_deployer_act_as (expand)" -> "[root] var.bootstrap_operator_member (validation)"
+		"[root] google_service_account_iam_member.bootstrap_deployer_act_as[0] (destroy)" -> "[root] google_cloud_run_v2_job.admin_phase[\"bootstrap\"] (destroy)"
+		"[root] google_service_account_iam_member.bootstrap_deployer_act_as[0] (destroy)" -> "[root] google_cloud_run_v2_job.admin_phase[\"retire\"] (destroy)"
+		"[root] google_service_account_iam_member.bootstrap_deployer_act_as[0] (destroy)" -> "[root] google_cloud_run_v2_job.retirement_diagnose[0] (destroy)"
+		"[root] google_service_account_iam_member.restore_operator_act_as (expand)" -> "[root] google_service_account.restore (expand)"
+		"[root] google_service_account_iam_member.restore_operator_act_as (expand)" -> "[root] local.restore_service_account_email (expand)"
+		"[root] google_service_account_iam_member.restore_operator_act_as (expand)" -> "[root] var.bootstrap_operator_member (validation)"
+		"[root] google_service_account_iam_member.restore_operator_act_as[0] (destroy)" -> "[root] google_cloud_run_v2_job.restore[0] (destroy)"
+		"[root] google_service_account_iam_member.verify_operator_act_as (expand)" -> "[root] google_service_account.verify (expand)"
+		"[root] google_service_account_iam_member.verify_operator_act_as (expand)" -> "[root] local.verify_service_account_email (expand)"
+		"[root] google_service_account_iam_member.verify_operator_act_as (expand)" -> "[root] var.bootstrap_operator_member (validation)"
+		"[root] google_service_account_iam_member.verify_operator_act_as[0] (destroy)" -> "[root] google_cloud_run_v2_job.diagnose[0] (destroy)"
+		"[root] google_service_account_iam_member.verify_operator_act_as[0] (destroy)" -> "[root] google_cloud_run_v2_job.verify[0] (destroy)"
+		"[root] google_sql_database.restore (expand)" -> "[root] google_sql_database_instance.restore (expand)"
+		"[root] google_sql_database.restore[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_sql_database_instance.restore (expand)" -> "[root] data.google_compute_network.existing (expand)"
+		"[root] google_sql_database_instance.restore (expand)" -> "[root] data.google_compute_subnetwork.existing (expand)"
+		"[root] google_sql_database_instance.restore (expand)" -> "[root] local.prefix (expand)"
+		"[root] google_sql_database_instance.restore (expand)" -> "[root] var.allow_restore_destroy (validation)"
+		"[root] google_sql_database_instance.restore[0] (destroy)" -> "[root] google_cloud_run_v2_job.admin_phase[\"bootstrap\"] (destroy)"
+		"[root] google_sql_database_instance.restore[0] (destroy)" -> "[root] google_cloud_run_v2_job.admin_phase[\"retire\"] (destroy)"
+		"[root] google_sql_database_instance.restore[0] (destroy)" -> "[root] google_cloud_run_v2_job.diagnose[0] (destroy)"
+		"[root] google_sql_database_instance.restore[0] (destroy)" -> "[root] google_cloud_run_v2_job.restore[0] (destroy)"
+		"[root] google_sql_database_instance.restore[0] (destroy)" -> "[root] google_cloud_run_v2_job.retirement_diagnose[0] (destroy)"
+		"[root] google_sql_database_instance.restore[0] (destroy)" -> "[root] google_cloud_run_v2_job.verify[0] (destroy)"
+		"[root] google_sql_database_instance.restore[0] (destroy)" -> "[root] google_sql_database.restore[0] (destroy)"
+		"[root] google_sql_user.restore_iam (expand)" -> "[root] google_service_account.restore (expand)"
+		"[root] google_sql_user.restore_iam (expand)" -> "[root] google_sql_database_instance.restore (expand)"
+		"[root] google_sql_user.restore_iam (expand)" -> "[root] local.owner_role (expand)"
+		"[root] google_sql_user.restore_iam (expand)" -> "[root] var.enable_restore_iam_users (validation)"
+		"[root] google_sql_user.verify_iam (expand)" -> "[root] google_service_account.verify (expand)"
+		"[root] google_sql_user.verify_iam (expand)" -> "[root] google_sql_database_instance.restore (expand)"
+		"[root] google_sql_user.verify_iam (expand)" -> "[root] local.verifier_role (expand)"
+		"[root] google_sql_user.verify_iam (expand)" -> "[root] var.enable_restore_iam_users (validation)"
+		"[root] google_storage_bucket.artifacts (expand)" -> "[root] local.foundation_enabled (expand)"
+		"[root] google_storage_bucket.artifacts (expand)" -> "[root] local.prefix (expand)"
+		"[root] google_storage_bucket.artifacts (expand)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_storage_bucket.artifacts[0] (destroy)" -> "[root] google_cloud_run_v2_job.restore[0] (destroy)"
+		"[root] google_storage_bucket.artifacts[0] (destroy)" -> "[root] google_storage_bucket_iam_member.artifact_reader[0] (destroy)"
+		"[root] google_storage_bucket.artifacts[0] (destroy)" -> "[root] google_storage_bucket_iam_member.diagnostic_artifact_reader[0] (destroy)"
+		"[root] google_storage_bucket_iam_member.artifact_reader (expand)" -> "[root] google_service_account.restore (expand)"
+		"[root] google_storage_bucket_iam_member.artifact_reader (expand)" -> "[root] google_storage_bucket.artifacts (expand)"
+		"[root] google_storage_bucket_iam_member.artifact_reader[0] (destroy)" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"]"
+		"[root] google_storage_bucket_iam_member.diagnostic_artifact_reader (expand)" -> "[root] google_service_account.verify (expand)"
+		"[root] google_storage_bucket_iam_member.diagnostic_artifact_reader (expand)" -> "[root] google_storage_bucket.artifacts (expand)"
+		"[root] google_storage_bucket_iam_member.diagnostic_artifact_reader (expand)" -> "[root] local.diagnostic_enabled (expand)"
+		"[root] google_storage_bucket_iam_member.diagnostic_artifact_reader[0] (destroy)" -> "[root] google_cloud_run_v2_job.diagnose[0] (destroy)"
+		"[root] local.admin_jobs (expand)" -> "[root] local.bootstrap_job_enabled (expand)"
+		"[root] local.admin_jobs (expand)" -> "[root] local.restore_enabled (expand)"
+		"[root] local.admin_service_account_email (expand)" -> "[root] var.project_id (validation)"
+		"[root] local.admin_service_account_email (expand)" -> "[root] var.run_id (validation)"
+		"[root] local.bootstrap_job_enabled (expand)" -> "[root] local.executor_digest_valid (expand)"
+		"[root] local.bootstrap_job_enabled (expand)" -> "[root] local.foundation_enabled (expand)"
+		"[root] local.bootstrap_job_enabled (expand)" -> "[root] var.enable_bootstrap_job (validation)"
+		"[root] local.diagnostic_enabled (expand)" -> "[root] local.restore_enabled (expand)"
+		"[root] local.diagnostic_enabled (expand)" -> "[root] var.enable_diagnostic_job (validation)"
+		"[root] local.executor_digest_valid (expand)" -> "[root] var.admin_password_secret_version"
+		"[root] local.executor_digest_valid (expand)" -> "[root] var.executor_image"
+		"[root] local.executor_digest_valid (expand)" -> "[root] var.proxy_image"
+		"[root] local.foundation_enabled (expand)" -> "[root] var.confirm_isolated_restore"
+		"[root] local.foundation_enabled (expand)" -> "[root] var.enable_foundation"
+		"[root] local.owner_role (expand)" -> "[root] var.run_id (validation)"
+		"[root] local.prefix (expand)" -> "[root] var.run_id (validation)"
+		"[root] local.restore_enabled (expand)" -> "[root] local.executor_digest_valid (expand)"
+		"[root] local.restore_enabled (expand)" -> "[root] local.foundation_enabled (expand)"
+		"[root] local.restore_enabled (expand)" -> "[root] var.enable_restore_jobs (validation)"
+		"[root] local.restore_phase_image (expand)" -> "[root] var.restore_executor_image (validation)"
+		"[root] local.restore_service_account_email (expand)" -> "[root] var.project_id (validation)"
+		"[root] local.restore_service_account_email (expand)" -> "[root] var.run_id (validation)"
+		"[root] local.retirement_diagnostic_enabled (expand)" -> "[root] local.restore_enabled (expand)"
+		"[root] local.retirement_diagnostic_enabled (expand)" -> "[root] var.enable_retirement_diagnostic_job (validation)"
+		"[root] local.verifier_role (expand)" -> "[root] var.run_id (validation)"
+		"[root] local.verify_service_account_email (expand)" -> "[root] var.project_id (validation)"
+		"[root] local.verify_service_account_email (expand)" -> "[root] var.run_id (validation)"
+		"[root] output.artifact_bucket_name (expand)" -> "[root] google_storage_bucket.artifacts (expand)"
+		"[root] output.bootstrap_job_name (expand)" -> "[root] google_cloud_run_v2_job.admin_phase (expand)"
+		"[root] output.diagnostic_job_name (expand)" -> "[root] google_cloud_run_v2_job.diagnose (expand)"
+		"[root] output.restore_instance_name (expand)" -> "[root] google_sql_database_instance.restore (expand)"
+		"[root] output.restore_job_name (expand)" -> "[root] google_cloud_run_v2_job.restore (expand)"
+		"[root] output.retire_job_name (expand)" -> "[root] google_cloud_run_v2_job.admin_phase (expand)"
+		"[root] output.retirement_diagnostic_job_name (expand)" -> "[root] google_cloud_run_v2_job.retirement_diagnose (expand)"
+		"[root] output.verify_job_name (expand)" -> "[root] google_cloud_run_v2_job.verify (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_cloud_run_v2_job_iam_member.bootstrap_invoker (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_cloud_run_v2_job_iam_member.diagnostic_invoker (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_cloud_run_v2_job_iam_member.restore_invoker (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_cloud_run_v2_job_iam_member.retire_invoker (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_cloud_run_v2_job_iam_member.retirement_diagnostic_invoker (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_cloud_run_v2_job_iam_member.verify_invoker (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_project_iam_member.admin_sql_client (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_project_iam_member.sql_client (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_project_iam_member.sql_instance_user (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_project_iam_member.verify_sql_client (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_project_iam_member.verify_sql_instance_user (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_secret_manager_secret.postgres_password[0] (destroy)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_secret_manager_secret_iam_member.admin_password_reader (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_service_account.admin[0] (destroy)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_service_account.restore[0] (destroy)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_service_account.verify[0] (destroy)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_sql_database.restore (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_sql_database_instance.restore[0] (destroy)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_sql_user.restore_iam (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_sql_user.verify_iam (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_storage_bucket.artifacts[0] (destroy)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)" -> "[root] google_storage_bucket_iam_member.artifact_reader (expand)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"]" -> "[root] var.project_id (validation)"
+		"[root] provider[\"registry.terraform.io/hashicorp/google\"]" -> "[root] var.region (validation)"
+		"[root] root" -> "[root] output.artifact_bucket_name (expand)"
+		"[root] root" -> "[root] output.bootstrap_job_name (expand)"
+		"[root] root" -> "[root] output.diagnostic_job_name (expand)"
+		"[root] root" -> "[root] output.restore_instance_name (expand)"
+		"[root] root" -> "[root] output.restore_job_name (expand)"
+		"[root] root" -> "[root] output.retire_job_name (expand)"
+		"[root] root" -> "[root] output.retirement_diagnostic_job_name (expand)"
+		"[root] root" -> "[root] output.verify_job_name (expand)"
+		"[root] root" -> "[root] provider[\"registry.terraform.io/hashicorp/google\"] (close)"
+		"[root] var.allow_restore_destroy (validation)" -> "[root] var.allow_restore_destroy"
+		"[root] var.allow_restore_destroy (validation)" -> "[root] var.allow_restore_iam_user_destroy"
+		"[root] var.allow_restore_destroy (validation)" -> "[root] var.confirm_destroy_run_id"
+		"[root] var.allow_restore_destroy (validation)" -> "[root] var.run_id (validation)"
+		"[root] var.bootstrap_operator_member (validation)" -> "[root] var.bootstrap_operator_member"
+		"[root] var.bootstrap_operator_member (validation)" -> "[root] var.enable_bootstrap_job (validation)"
+		"[root] var.bootstrap_operator_member (validation)" -> "[root] var.enable_restore_jobs (validation)"
+		"[root] var.diagnostic_evidence_sha256 (validation)" -> "[root] var.diagnostic_evidence_sha256"
+		"[root] var.diagnostic_image (validation)" -> "[root] var.diagnostic_image"
+		"[root] var.enable_bootstrap_job (validation)" -> "[root] var.admin_password_secret_version"
+		"[root] var.enable_bootstrap_job (validation)" -> "[root] var.confirm_isolated_restore"
+		"[root] var.enable_bootstrap_job (validation)" -> "[root] var.enable_bootstrap_job"
+		"[root] var.enable_bootstrap_job (validation)" -> "[root] var.enable_foundation"
+		"[root] var.enable_bootstrap_job (validation)" -> "[root] var.executor_image"
+		"[root] var.enable_bootstrap_job (validation)" -> "[root] var.proxy_image"
+		"[root] var.enable_diagnostic_job (validation)" -> "[root] var.diagnostic_image (validation)"
+		"[root] var.enable_diagnostic_job (validation)" -> "[root] var.enable_diagnostic_job"
+		"[root] var.enable_diagnostic_job (validation)" -> "[root] var.enable_restore_jobs (validation)"
+		"[root] var.enable_restore_iam_users (validation)" -> "[root] var.allow_restore_iam_user_destroy"
+		"[root] var.enable_restore_iam_users (validation)" -> "[root] var.confirm_destroy_run_id"
+		"[root] var.enable_restore_iam_users (validation)" -> "[root] var.enable_restore_iam_users"
+		"[root] var.enable_restore_iam_users (validation)" -> "[root] var.run_id (validation)"
+		"[root] var.enable_restore_jobs (validation)" -> "[root] var.admin_password_secret_version"
+		"[root] var.enable_restore_jobs (validation)" -> "[root] var.confirm_bootstrap_complete"
+		"[root] var.enable_restore_jobs (validation)" -> "[root] var.confirm_isolated_restore"
+		"[root] var.enable_restore_jobs (validation)" -> "[root] var.enable_foundation"
+		"[root] var.enable_restore_jobs (validation)" -> "[root] var.enable_restore_jobs"
+		"[root] var.enable_restore_jobs (validation)" -> "[root] var.executor_image"
+		"[root] var.enable_restore_jobs (validation)" -> "[root] var.manifest_sha256"
+		"[root] var.enable_restore_jobs (validation)" -> "[root] var.migration_inventory_sha256"
+		"[root] var.enable_restore_jobs (validation)" -> "[root] var.proxy_image"
+		"[root] var.enable_retirement_diagnostic_job (validation)" -> "[root] var.enable_restore_jobs (validation)"
+		"[root] var.enable_retirement_diagnostic_job (validation)" -> "[root] var.enable_retirement_diagnostic_job"
+		"[root] var.enable_retirement_diagnostic_job (validation)" -> "[root] var.retirement_diagnostic_image (validation)"
+		"[root] var.project_id (validation)" -> "[root] var.project_id"
+		"[root] var.region (validation)" -> "[root] var.region"
+		"[root] var.restore_executor_image (validation)" -> "[root] var.confirm_read_only_empty_baseline"
+		"[root] var.restore_executor_image (validation)" -> "[root] var.diagnostic_evidence_sha256 (validation)"
+		"[root] var.restore_executor_image (validation)" -> "[root] var.enable_restore_jobs (validation)"
+		"[root] var.restore_executor_image (validation)" -> "[root] var.restore_executor_image"
+		"[root] var.retirement_diagnostic_image (validation)" -> "[root] var.retirement_diagnostic_image"
+		"[root] var.run_id (validation)" -> "[root] var.enable_bootstrap_job (validation)"
+		"[root] var.run_id (validation)" -> "[root] var.enable_restore_jobs (validation)"
+		"[root] var.run_id (validation)" -> "[root] var.run_id"
+	}
+}

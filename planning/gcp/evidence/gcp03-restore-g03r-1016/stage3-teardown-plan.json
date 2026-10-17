@@ -1,0 +1,123 @@
+{
+  "schema": "espacigo.gcp03.stage3-teardown-plan.v1",
+  "observed_at": "2026-10-17T02:13:22Z",
+  "run_id": "g03r-1016",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "stage2_merge_sha": "aa71bf6b7b377c584cce91634d68d2d0a97556dd",
+  "terraform": {
+    "version": "1.16.6",
+    "provider_google": "8.7.0",
+    "state_lineage": "5bc6ad38-035f-fba3-2bcd-43bdf641e370",
+    "state_serial": 13,
+    "prior_managed_resource_count": 30,
+    "sql_user_resource_count": 0,
+    "full_plan": true,
+    "targeted": false,
+    "plan_sha256": "ea47a00c6330bf006b2f5e5abf2fc376f399b1cdaa428677bd089cbd40b753cc",
+    "complete": true,
+    "applyable": true,
+    "summary": {
+      "add": 0,
+      "change": 0,
+      "delete": 30
+    },
+    "resource_type_counts": {
+      "google_cloud_run_v2_job": 6,
+      "google_cloud_run_v2_job_iam_member": 6,
+      "google_project_iam_member": 5,
+      "google_secret_manager_secret": 1,
+      "google_secret_manager_secret_iam_member": 1,
+      "google_service_account": 3,
+      "google_service_account_iam_member": 3,
+      "google_sql_database": 1,
+      "google_sql_database_instance": 1,
+      "google_storage_bucket": 1,
+      "google_storage_bucket_iam_member": 2
+    },
+    "resource_addresses": [
+      "google_cloud_run_v2_job.admin_phase[\"bootstrap\"]",
+      "google_cloud_run_v2_job.admin_phase[\"retire\"]",
+      "google_cloud_run_v2_job.diagnose[0]",
+      "google_cloud_run_v2_job.restore[0]",
+      "google_cloud_run_v2_job.retirement_diagnose[0]",
+      "google_cloud_run_v2_job.verify[0]",
+      "google_cloud_run_v2_job_iam_member.bootstrap_invoker[0]",
+      "google_cloud_run_v2_job_iam_member.diagnostic_invoker[0]",
+      "google_cloud_run_v2_job_iam_member.restore_invoker[0]",
+      "google_cloud_run_v2_job_iam_member.retire_invoker[0]",
+      "google_cloud_run_v2_job_iam_member.retirement_diagnostic_invoker[0]",
+      "google_cloud_run_v2_job_iam_member.verify_invoker[0]",
+      "google_project_iam_member.admin_sql_client[0]",
+      "google_project_iam_member.sql_client[0]",
+      "google_project_iam_member.sql_instance_user[0]",
+      "google_project_iam_member.verify_sql_client[0]",
+      "google_project_iam_member.verify_sql_instance_user[0]",
+      "google_secret_manager_secret.postgres_password[0]",
+      "google_secret_manager_secret_iam_member.admin_password_reader[0]",
+      "google_service_account.admin[0]",
+      "google_service_account.restore[0]",
+      "google_service_account.verify[0]",
+      "google_service_account_iam_member.bootstrap_deployer_act_as[0]",
+      "google_service_account_iam_member.restore_operator_act_as[0]",
+      "google_service_account_iam_member.verify_operator_act_as[0]",
+      "google_sql_database.restore[0]",
+      "google_sql_database_instance.restore[0]",
+      "google_storage_bucket.artifacts[0]",
+      "google_storage_bucket_iam_member.artifact_reader[0]",
+      "google_storage_bucket_iam_member.diagnostic_artifact_reader[0]"
+    ],
+    "resource_drift_count": 0,
+    "applied": false
+  },
+  "gates": {
+    "enable_foundation": false,
+    "enable_bootstrap_job": false,
+    "enable_restore_jobs": false,
+    "enable_diagnostic_job": false,
+    "enable_retirement_diagnostic_job": false,
+    "enable_restore_iam_users": false,
+    "allow_restore_destroy": true,
+    "allow_restore_iam_user_destroy": true,
+    "confirm_destroy_run_id": "g03r-1016",
+    "confirm_isolated_restore": false,
+    "confirm_bootstrap_complete": false
+  },
+  "artifact_precondition": {
+    "bucket": "espacigo-gcp03-restore-g03r-1016",
+    "all_versions_empty": true,
+    "objects_in_runs_g03r_1016_prefix": 0
+  },
+  "dependency_graph": {
+    "artifact": "Terraform graph generated from the exact saved plan",
+    "checked_edges": 37,
+    "relationships": [
+      "all six run Jobs and their run-scoped IAM links are in the destroy graph before the identities they depend on are removed",
+      "the scratch database is removed before its Cloud SQL instance",
+      "the secret reader binding and dependent Jobs are removed before secret metadata",
+      "bucket IAM bindings and dependent run Job are removed before the bucket"
+    ]
+  },
+  "scope": {
+    "only_allowlisted_run_scoped_managed_addresses": true,
+    "out_of_scope_resources_in_plan": 0,
+    "sensitive_iam_principals_in_sanitized_evidence": "omitted"
+  },
+  "review_limit": "Stage3 plan only. Do not apply before a separate review; later deletion stages require fresh review.",
+  "plan_generated_at": "2026-10-17T02:10:20Z",
+  "validation_completed_at": "2026-10-17T02:13:22Z",
+  "iam_inventory": {
+    "cloud_run_invoker_bindings": 6,
+    "service_account_act_as_bindings": 3,
+    "instance_conditioned_project_cloudsql_bindings": 5,
+    "secret_reader_bindings": 1,
+    "bucket_object_viewer_bindings": 2,
+    "human_operator_principal": "redacted from sanitized evidence; the plan is limited to run-scoped bindings",
+    "service_account_members": "run-scoped identities only"
+  },
+  "validator": {
+    "actual_saved_plan_accepted": true,
+    "inventory_and_gates_unit_tests_passed": 8,
+    "required_dependency_graph_edges_checked": 37
+  }
+}
