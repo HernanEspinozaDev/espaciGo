@@ -211,6 +211,7 @@ resource "google_cloud_run_v2_job" "restore" {
   name                = "${local.prefix}-restore"
   location            = var.region
   deletion_protection = !var.allow_restore_destroy
+  depends_on          = [google_service_account_iam_member.restore_operator_act_as]
 
   template {
     task_count  = 1
@@ -286,6 +287,7 @@ resource "google_cloud_run_v2_job" "verify" {
   name                = "${local.prefix}-verify"
   location            = var.region
   deletion_protection = !var.allow_restore_destroy
+  depends_on          = [google_service_account_iam_member.verify_operator_act_as]
   template {
     task_count  = 1
     parallelism = 1
@@ -443,6 +445,49 @@ resource "google_cloud_run_v2_job_iam_member" "bootstrap_invoker" {
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_job.admin_phase["bootstrap"].name
+  role     = "roles/run.invoker"
+  member   = var.bootstrap_operator_member
+}
+
+resource "google_service_account_iam_member" "restore_operator_act_as" {
+  count              = local.restore_enabled ? 1 : 0
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${local.restore_service_account_email}"
+  role               = "roles/iam.serviceAccountUser"
+  member             = var.bootstrap_operator_member
+  depends_on         = [google_service_account.restore]
+}
+
+resource "google_service_account_iam_member" "verify_operator_act_as" {
+  count              = local.restore_enabled ? 1 : 0
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${local.verify_service_account_email}"
+  role               = "roles/iam.serviceAccountUser"
+  member             = var.bootstrap_operator_member
+  depends_on         = [google_service_account.verify]
+}
+
+resource "google_cloud_run_v2_job_iam_member" "restore_invoker" {
+  count    = local.restore_enabled ? 1 : 0
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.restore[0].name
+  role     = "roles/run.invoker"
+  member   = var.bootstrap_operator_member
+}
+
+resource "google_cloud_run_v2_job_iam_member" "verify_invoker" {
+  count    = local.restore_enabled ? 1 : 0
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.verify[0].name
+  role     = "roles/run.invoker"
+  member   = var.bootstrap_operator_member
+}
+
+resource "google_cloud_run_v2_job_iam_member" "retire_invoker" {
+  count    = local.restore_enabled ? 1 : 0
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.admin_phase["retire"].name
   role     = "roles/run.invoker"
   member   = var.bootstrap_operator_member
 }

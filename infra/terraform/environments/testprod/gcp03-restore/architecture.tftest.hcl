@@ -24,7 +24,12 @@ run "restore_is_off_by_default" {
       length(google_cloud_run_v2_job.verify) == 0 &&
       length(google_cloud_run_v2_job.admin_phase) == 0 &&
       length(google_service_account_iam_member.bootstrap_deployer_act_as) == 0 &&
-      length(google_cloud_run_v2_job_iam_member.bootstrap_invoker) == 0
+      length(google_cloud_run_v2_job_iam_member.bootstrap_invoker) == 0 &&
+      length(google_service_account_iam_member.restore_operator_act_as) == 0 &&
+      length(google_service_account_iam_member.verify_operator_act_as) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.restore_invoker) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.verify_invoker) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.retire_invoker) == 0
     )
     error_message = "The managed synthetic restore must create no resources unless all exact review inputs are supplied."
   }
@@ -53,7 +58,12 @@ run "bootstrap_only_plan_has_exact_operator_grants" {
       length(google_cloud_run_v2_job.restore) == 0 &&
       length(google_cloud_run_v2_job.verify) == 0 &&
       length(google_sql_user.restore_iam) == 0 &&
-      length(google_sql_user.verify_iam) == 0
+      length(google_sql_user.verify_iam) == 0 &&
+      length(google_service_account_iam_member.restore_operator_act_as) == 0 &&
+      length(google_service_account_iam_member.verify_operator_act_as) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.restore_invoker) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.verify_invoker) == 0 &&
+      length(google_cloud_run_v2_job_iam_member.retire_invoker) == 0
     )
     error_message = "The bootstrap-only gate must contain only the protected bootstrap Job and no restore, verify, retire, or IAM SQL users."
   }
@@ -151,5 +161,30 @@ run "restore_resources_are_private_protected_and_single_shot" {
       alltrue([for phase in ["bootstrap", "retire"] : length([for env in google_cloud_run_v2_job.admin_phase[phase].template[0].template[0].containers[0].env : env if env.name == "GCP03_BUCKET"]) == 0])
     )
     error_message = "Bootstrap and retirement must use the separate short-lived admin identity and no automatic retries."
+  }
+  assert {
+    condition = (
+      length(google_service_account_iam_member.restore_operator_act_as) == 1 &&
+      google_service_account_iam_member.restore_operator_act_as[0].service_account_id == "projects/espacigo-testprod/serviceAccounts/g03-restore-fixture1@espacigo-testprod.iam.gserviceaccount.com" &&
+      google_service_account_iam_member.restore_operator_act_as[0].role == "roles/iam.serviceAccountUser" &&
+      google_service_account_iam_member.restore_operator_act_as[0].member == "user:pasteleriahijitos@gmail.com" &&
+      length(google_service_account_iam_member.verify_operator_act_as) == 1 &&
+      google_service_account_iam_member.verify_operator_act_as[0].service_account_id == "projects/espacigo-testprod/serviceAccounts/g03-verify-fixture1@espacigo-testprod.iam.gserviceaccount.com" &&
+      google_service_account_iam_member.verify_operator_act_as[0].role == "roles/iam.serviceAccountUser" &&
+      google_service_account_iam_member.verify_operator_act_as[0].member == "user:pasteleriahijitos@gmail.com" &&
+      length(google_cloud_run_v2_job_iam_member.restore_invoker) == 1 &&
+      google_cloud_run_v2_job_iam_member.restore_invoker[0].name == google_cloud_run_v2_job.restore[0].name &&
+      google_cloud_run_v2_job_iam_member.restore_invoker[0].role == "roles/run.invoker" &&
+      google_cloud_run_v2_job_iam_member.restore_invoker[0].member == "user:pasteleriahijitos@gmail.com" &&
+      length(google_cloud_run_v2_job_iam_member.verify_invoker) == 1 &&
+      google_cloud_run_v2_job_iam_member.verify_invoker[0].name == google_cloud_run_v2_job.verify[0].name &&
+      google_cloud_run_v2_job_iam_member.verify_invoker[0].role == "roles/run.invoker" &&
+      google_cloud_run_v2_job_iam_member.verify_invoker[0].member == "user:pasteleriahijitos@gmail.com" &&
+      length(google_cloud_run_v2_job_iam_member.retire_invoker) == 1 &&
+      google_cloud_run_v2_job_iam_member.retire_invoker[0].name == google_cloud_run_v2_job.admin_phase["retire"].name &&
+      google_cloud_run_v2_job_iam_member.retire_invoker[0].role == "roles/run.invoker" &&
+      google_cloud_run_v2_job_iam_member.retire_invoker[0].member == "user:pasteleriahijitos@gmail.com"
+    )
+    error_message = "Restore, verify, and retire invocation plus actAs on the restore and verify service accounts must be limited to the authorized operator and exact resources."
   }
 }
