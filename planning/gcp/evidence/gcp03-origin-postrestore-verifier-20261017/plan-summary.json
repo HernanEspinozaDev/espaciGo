@@ -7,35 +7,42 @@
     "state_serial": 8,
     "type": "gcs"
   },
-  "configuration_commit": "70778764ea28ba2f6b84c15660b7b5e343e93afa",
-  "format": "espacigo.gcp03.origin-postrestore-plan-summary.v1",
-  "generated_at_utc": "2026-10-17T20:07:38Z",
+  "configuration_commit": "230970864139899773123ef52e04ee4ccd1d1ea4",
+  "format": "espacigo.gcp03.origin-uploader-plan-summary.v1",
+  "generated_at_utc": "2026-10-17T20:21:11Z",
   "plan": {
     "actions": {
-      "create": 0,
+      "create": 2,
       "delete": 0,
       "replace": 0,
-      "update": 1
+      "update": 0
     },
     "apply_performed": false,
-    "binary_path": ".local/testing/g03o-1017-postrestore-review-20261017/current-final.tfplan",
-    "bytes": 33971,
+    "binary_path": ".local/testing/g03o-1017-uploader-plan-20261017/uploader.tfplan",
+    "bytes": 34142,
+    "import_gate_enabled": false,
     "postrestore_gate_enabled": false,
     "refresh": true,
     "resource_actions": [
       {
-        "action": "update",
-        "address": "google_cloud_run_v2_job.origin_bootstrap[0]"
+        "action": "create",
+        "address": "google_service_account.ciphertext_uploader[0]"
+      },
+      {
+        "action": "create",
+        "address": "google_storage_bucket_iam_member.ciphertext_uploader[0]"
       }
     ],
-    "sha256": "153b09eac383081f137f8b3cfb5f8c03d4e7ddaa5dad13049ae7cbf591ac7c28"
+    "sha256": "281c68008b6cd2bd7be53eb26037588a0a5e6e61ed86cc3d3aa63950e6c42f45",
+    "uploader_gate_enabled": true
   },
   "project_id": "espacigo-testprod",
   "region": "southamerica-west1",
   "review": {
     "cloud_run_jobs_invoked": false,
-    "recreates_existing_resources": false,
-    "result": "no new resources or deletes; one in-place correction for the already-managed bootstrap secret volume file mode"
+    "role": "roles/storage.objectCreator",
+    "scope": "runs/g03o-1017/ only",
+    "result": "two creates for uploader service account and prefix-conditioned objectCreator binding; no updates, replacements, or deletes"
   },
   "run_id": "g03o-1017"
 }
