@@ -14,6 +14,7 @@ COPY --from=python-runtime /opt/python-deps /opt/python-deps
 COPY scripts/gcp03_origin_cloud_import_executor.py /app/scripts/gcp03_origin_cloud_import_executor.py
 COPY scripts/gcp03_origin_private_files.py /app/scripts/gcp03_origin_private_files.py
 COPY scripts/gcp03_origin_import.py /app/scripts/gcp03_origin_import.py
+COPY scripts/gcp03_origin_postrestore_verify.py /app/scripts/gcp03_origin_postrestore_verify.py
 COPY scripts/gcp03_origin_quarantine_cloud.sql /app/scripts/gcp03_origin_quarantine_cloud.sql
 COPY db/migrations /app/db/migrations
 ENV PYTHONPATH=/opt/python-deps:/app/scripts PYTHONDONTWRITEBYTECODE=1

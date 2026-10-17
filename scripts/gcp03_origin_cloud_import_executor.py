@@ -47,10 +47,6 @@ SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 GENERATION_RE = re.compile(r"^[1-9][0-9]*$")
 MAX_SMALL_OBJECT_BYTES = 4 * 1024 * 1024
 DISALLOWED_TOC = (" EXTENSION - ", " COMMENT - EXTENSION ", " TABLE DATA public spatial_ref_sys ")
-DISALLOWED_NORMALIZATION_SQL = re.compile(
-    r"\b(PASSWORD|SUPERUSER|CREATEDB|CREATEROLE|REPLICATION|BYPASSRLS|DROP|CREATE\s+(TABLE|DATABASE|EXTENSION))\b",
-    re.IGNORECASE,
-)
 
 
 class ImportStopped(RuntimeError):
@@ -246,15 +242,22 @@ def validate_normalization_sql(sql: bytes, expected_sha256: str) -> None:
         decoded = sql.decode("utf-8", "strict")
     except UnicodeDecodeError as exc:
         raise ImportStopped("NORMALIZATION_SQL_ENCODING_INVALID", "normalization_validate") from exc
-    if DISALLOWED_NORMALIZATION_SQL.search(decoded) or "\\" in decoded or "--" in decoded or "/*" in decoded or "*/" in decoded:
+    if "\\" in decoded or "--" in decoded or "/*" in decoded or "*/" in decoded:
         raise ImportStopped("NORMALIZATION_SQL_CONTAINS_FORBIDDEN_OPERATION", "normalization_validate")
-    ident = r"(?:[A-Za-z_][A-Za-z0-9_$]*)(?:\.(?:[A-Za-z_][A-Za-z0-9_$]*))*"
-    type_name = r"(?:[A-Za-z_][A-Za-z0-9_$]*)(?:\.(?:[A-Za-z_][A-Za-z0-9_$]*))*(?:\s+(?:varying|precision|with|without|time|zone|character|double|timestamp|bit))*(?:\s*\([A-Za-z_0-9$ ,\.]+\))?(?:\[\])*"
-    function_ident = rf"{ident}\s*\(\s*(?:{type_name}(?:\s*,\s*{type_name})*)?\s*\)"
+    ident_part = r'(?:[A-Za-z_][A-Za-z0-9_$]*|"(?:[^"\\]|"")+")'
+    ident = rf"{ident_part}(?:\.{ident_part})*"
+    # Function identity arguments can contain PostgreSQL built-in multiword
+    # types, typmods, arrays, and quoted user-defined type identifiers. Keep
+    # the signature to a character allowlist; semicolons, literals, comments,
+    # and backslashes remain rejected before this grammar is considered.
+    type_list = r'[A-Za-z_0-9$., ()\[\]"]*'
+    function_ident = rf"{ident}\s*\(\s*{type_list}\s*\)"
     role = r"(?:espacigo_runtime|espacigo_gadm_bootstrap|espacigo_gcp03_observer|PUBLIC)"
-    privileges = r"(?:ALL(?:\s+PRIVILEGES)?|SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|USAGE|CREATE|EXECUTE)(?:\s*,\s*(?:ALL(?:\s+PRIVILEGES)?|SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|USAGE|CREATE|EXECUTE))*"
-    grant_object = rf"(?:ALL\s+(?:TABLES|SEQUENCES|FUNCTIONS)\s+IN\s+SCHEMA\s+{ident}|(?:TABLE|SEQUENCE|SCHEMA)\s+{ident}|(?:FUNCTION|PROCEDURE)\s+{function_ident})"
-    object_owner = re.compile(rf"ALTER\s+(?:TABLE|SEQUENCE|TYPE|SCHEMA)\s+{ident}\s+OWNER\s+TO\s+{role}|ALTER\s+(?:FUNCTION|PROCEDURE)\s+{function_ident}\s+OWNER\s+TO\s+{role}", re.IGNORECASE)
+    column_select = rf"SELECT\s*\(\s*{ident_part}(?:\s*,\s*{ident_part})*\s*\)"
+    privilege = rf"(?:ALL(?:\s+PRIVILEGES)?|SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|USAGE|CREATE|EXECUTE|{column_select})"
+    privileges = rf"{privilege}(?:\s*,\s*{privilege})*"
+    grant_object = rf"(?:ALL\s+(?:TABLES|SEQUENCES|FUNCTIONS)\s+IN\s+SCHEMA\s+{ident}|(?:TABLE|SEQUENCE|SCHEMA|TYPE|DOMAIN)\s+{ident}|(?:FUNCTION|PROCEDURE|AGGREGATE)\s+{function_ident})"
+    object_owner = re.compile(rf"ALTER\s+(?:TABLE|SEQUENCE|TYPE|DOMAIN|SCHEMA|TEXT\s+SEARCH\s+DICTIONARY|TEXT\s+SEARCH\s+CONFIGURATION)\s+{ident}\s+OWNER\s+TO\s+{role}|ALTER\s+(?:FUNCTION|PROCEDURE|AGGREGATE)\s+{function_ident}\s+OWNER\s+TO\s+{role}", re.IGNORECASE)
     grants = re.compile(rf"(?:GRANT\s+{privileges}\s+ON\s+{grant_object}\s+TO\s+{role}|REVOKE\s+{privileges}\s+ON\s+{grant_object}\s+FROM\s+{role}|ALTER\s+DEFAULT\s+PRIVILEGES\s+FOR\s+ROLE\s+{ident}\s+IN\s+SCHEMA\s+{ident}\s+(?:GRANT\s+{privileges}\s+ON\s+(?:TABLES|SEQUENCES|FUNCTIONS)\s+TO\s+{role}|REVOKE\s+{privileges}\s+ON\s+(?:TABLES|SEQUENCES|FUNCTIONS)\s+FROM\s+{role}))", re.IGNORECASE)
     statements = [part.strip() for part in decoded.split(";") if part.strip()]
     if not statements or any(not (object_owner.fullmatch(stmt) or grants.fullmatch(stmt)) for stmt in statements):

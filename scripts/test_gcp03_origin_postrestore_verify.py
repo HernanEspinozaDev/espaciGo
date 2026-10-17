@@ -1,9 +1,11 @@
 import unittest
+from unittest.mock import patch
+import sys
 
 from gcp03_origin_postrestore_verify import (
     EXPECTED_EXTENSIONS, READ_ONLY_SQL, VerificationError, current_migration_history,
     current_migration_inventory_sha256,
-    table_names_from_toc, verify_report,
+    read_gcs_generation, shutdown_proxy, table_names_from_toc, verify_report,
 )
 
 
@@ -56,6 +58,80 @@ class PostRestoreVerifyTests(unittest.TestCase):
         self.assertEqual(table_names_from_toc(toc), {"sample", "sample partition"})
         with self.assertRaises(VerificationError):
             table_names_from_toc(b"not a pg_restore TOC entry\n")
+
+    def test_exact_generation_reader_checks_bucket_object_size_and_hash(self):
+        import hashlib
+        import sys
+        import types
+        payload = b"reviewed bytes"
+        class Blob:
+            generation = 17
+            size = len(payload)
+            def reload(self, *, if_generation_match):
+                self.assert_generation = if_generation_match
+            def download_as_bytes(self, *, if_generation_match, checksum):
+                self.assert_download = (if_generation_match, checksum)
+                return payload
+        blob = Blob()
+        class Bucket:
+            def blob(self, name, *, generation):
+                self.assert_args = (name, generation)
+                return blob
+        class Client:
+            def bucket(self, name):
+                self.assert_bucket = name
+                return Bucket()
+        cloud = types.ModuleType("google.cloud")
+        cloud.storage = types.SimpleNamespace(Client=Client)
+        google = types.ModuleType("google")
+        google.cloud = cloud
+        with patch.dict(sys.modules, {"google": google, "google.cloud": cloud}):
+            actual = read_gcs_generation(bucket_name="espacigo-gcp03-origin-g03o-1017",
+                object_name="runs/g03o-1017/toc.list", generation=17,
+                expected_bytes=len(payload), expected_sha256=hashlib.sha256(payload).hexdigest())
+        self.assertEqual(actual, payload)
+        self.assertEqual(blob.assert_generation, 17)
+        self.assertEqual(blob.assert_download, (17, "crc32c"))
+        with self.assertRaises(VerificationError):
+            read_gcs_generation(bucket_name="other", object_name="runs/g03o-1017/toc.list",
+                generation=17, expected_bytes=len(payload), expected_sha256=hashlib.sha256(payload).hexdigest())
+
+    def test_proxy_shutdown_is_bounded_and_sanitized(self):
+        class Response:
+            status = 204
+            def read(self): pass
+        class Connection:
+            def __init__(self, host, port, timeout):
+                self.args = (host, port, timeout)
+            def request(self, method, path):
+                self.requested = (method, path)
+            def getresponse(self): return Response()
+            def close(self): pass
+        with patch("gcp03_origin_postrestore_verify.http.client.HTTPConnection", Connection):
+            self.assertTrue(shutdown_proxy())
+        self.assertEqual(Connection("127.0.0.1", 9091, 3).args, ("127.0.0.1", 9091, 3))
+
+    def test_entrypoint_shuts_down_proxy_after_success_and_verification_failure(self):
+        import gcp03_origin_postrestore_verify as module
+        argv = ["verify", "--artifact-bucket", "espacigo-gcp03-origin-g03o-1017",
+            "--toc-object", "runs/g03o-1017/toc.list", "--toc-generation", "1",
+            "--toc-bytes", "1", "--expected-toc-sha256", "a" * 64,
+            "--normalization-object", "runs/g03o-1017/normalization.sql",
+            "--normalization-generation", "2", "--normalization-bytes", "1",
+            "--expected-normalization-sha256", "b" * 64,
+            "--expected-migration-sha256", "c" * 64, "--expected-run-id", "g03o-1017",
+            "--expected-source-seal-sha256", "d" * 64, "--expected-receipt-sha256", "e" * 64,
+            "--expected-manifest-sha256", "f" * 64, "--database-user", "observer@project.iam"]
+        with patch.object(sys, "argv", argv), patch.object(module, "read_gcs_generation", side_effect=[b"t", b"n"]), \
+             patch.object(module, "wait_for_proxy"), patch.object(module, "run_verifier", return_value={"status": "verified"}), \
+             patch.object(module, "shutdown_proxy", return_value=True) as shutdown:
+            module.main()
+            shutdown.assert_called_once_with()
+        with patch.object(sys, "argv", argv), patch.object(module, "read_gcs_generation", side_effect=VerificationError("failed")), \
+             patch.object(module, "shutdown_proxy", return_value=True) as shutdown:
+            with self.assertRaises(SystemExit):
+                module.main()
+            shutdown.assert_called_once_with()
 
 
 if __name__ == "__main__":

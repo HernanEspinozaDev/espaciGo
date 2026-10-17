@@ -15,7 +15,9 @@ import gcp03_origin_import as transport
 from gcp03_origin_cloud_import_executor import (
     ImportStopped, ObjectRef, PsqlPgRestoreRunner, decrypt_object, validate_normalization_sql, validate_toc,
 )
+from gcp03_origin_artifact_review import _run_pg_restore_list, build_review_plan
 from gcp03_origin_postrestore_verify import READ_ONLY_SQL
+from gcp03_origin_postrestore_verify import table_names_from_toc
 
 SOCKET = os.environ.get("GCP03_ORIGIN_EXECUTOR_TEST_SOCKET")
 
@@ -207,6 +209,47 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO espacigo_gcp03_observer;""")
         self.assertEqual(self.psql(
             "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.spatial_ref_sys_pkey'::regclass"),
             extension_index_owner)
+
+    def test_real_pg_restore_list_builds_private_safe_allowlist_without_dump_file(self):
+        source_db = "g03_artifact_review_source_fixture"
+        self.psql("DROP DATABASE IF EXISTS " + source_db + " WITH (FORCE)", "postgres")
+        self.psql("CREATE DATABASE " + source_db, "postgres")
+        try:
+            self.psql("""CREATE EXTENSION postgis;
+CREATE TABLE public.schema_migrations(version bigint, name text, checksum text);
+CREATE TABLE public.sesion(revocada_en timestamptz, expira_en timestamptz);
+CREATE TABLE public.token_accion(consumido_en timestamptz, invalidado_en timestamptz, expira_en timestamptz);
+CREATE TABLE public.aviso_local(estado text);
+CREATE TABLE public.outbox_evento_local(lease_hasta timestamptz, entregada_en timestamptz, cancelada_en timestamptz, fallo_terminal_en timestamptz);
+CREATE TABLE public.sample(id integer PRIMARY KEY);
+CREATE FUNCTION public.sample(integer) RETURNS integer LANGUAGE SQL IMMUTABLE AS $$ SELECT $1 + 1 $$;
+CREATE TEXT SEARCH DICTIONARY public.synthdict (TEMPLATE = pg_catalog.simple);""", source_db)
+            dump = subprocess.run(["pg_dump", "--format=custom", "--compress=0", "--host=" + SOCKET,
+                "--port=5432", "--username=postgres", "--dbname=" + source_db],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True)
+            archive = bytearray(dump.stdout)
+            toc_text = _run_pg_restore_list(archive, "pg_restore")
+            archive[:] = b"\x00" * len(archive)
+            relations = json.loads(self.psql("""SELECT COALESCE(json_agg(json_build_object(
+ 'schema',n.nspname,'name',c.relname,'kind',c.relkind::text,'owner',r.rolname,'acl',c.relacl::text)), '[]'::json)::text
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles r ON r.oid=c.relowner
+WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f')""", source_db))
+            routines = json.loads(self.psql("""SELECT COALESCE(json_agg(json_build_object(
+ 'schema',n.nspname,'name',p.proname,'identity_args',pg_get_function_identity_arguments(p.oid),
+ 'owner',r.rolname,'acl',p.proacl::text)), '[]'::json)::text
+FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner
+WHERE n.nspname='public'""", source_db))
+            allowlist, normalization, review_map = build_review_plan(toc_text,
+                {"database_report": {"relation_owners_acls": relations, "routine_owners_acls": routines}}, "f" * 64)
+            names = table_names_from_toc(allowlist)
+            self.assertEqual(names, {"schema_migrations", "sesion", "token_accion", "aviso_local",
+                "outbox_evento_local", "sample"})
+            self.assertNotIn("TABLE DATA public spatial_ref_sys", allowlist.decode())
+            self.assertIn(b"GRANT SELECT (version, name, checksum)", normalization)
+            self.assertIn(b"ALTER TEXT SEARCH DICTIONARY public.synthdict OWNER TO espacigo_runtime", normalization)
+            self.assertGreater(review_map["selected_toc_entry_count"], len(names))
+        finally:
+            self.psql("DROP DATABASE IF EXISTS " + source_db + " WITH (FORCE)", "postgres")
 
     def test_invalid_restore_is_uncertain_and_creates_no_application_object(self):
         self.assertTrue(self.runner.preflight()["empty"])
