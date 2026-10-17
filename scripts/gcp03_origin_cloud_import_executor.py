@@ -327,7 +327,8 @@ class OriginImportExecutor:
             if preflight.get("database") != TARGET_DATABASE or preflight.get("empty") is not True or \
                     preflight.get("roles_ready") is not True or preflight.get("extensions_ready") is not True or \
                     preflight.get("application_schemas_empty") is not True or preflight.get("postgres_version") is not True or \
-                    preflight.get("admin_role") is not True:
+                    preflight.get("admin_role") is not True or preflight.get("admin_superuser") is not False or \
+                    preflight.get("normalization_prerequisites_available") is not True:
                 raise ImportStopped("TARGET_NOT_PRISTINE", stage)
             stage = "archive_toc_validation"
             available_toc = "\n".join(self.database.list_toc(lambda sink: decrypt_object(
@@ -432,7 +433,9 @@ def _psql_env(passfile: Path) -> dict[str, str]:
 class PsqlPgRestoreRunner:
     """Fixed PostgreSQL 18 client runner; target access is via loopback proxy."""
     def __init__(self, password_file: Path, *, host: str = "127.0.0.1", port: int = 5432,
-                 pg_restore: str = "pg_restore", psql: str = "psql"):
+                 pg_restore: str = "pg_restore", psql: str = "psql", database_user: str = "postgres"):
+        if not re.fullmatch(r"[a-z_][a-z0-9_]*", database_user):
+            raise ImportStopped("DATABASE_USER_INVALID", "database_setup")
         if password_file.is_symlink() or not password_file.is_file() or stat.S_IMODE(password_file.stat().st_mode) not in {0o400,0o444,0o600}:
             raise ImportStopped("DATABASE_PASSWORD_FILE_INVALID", "database_setup")
         password = password_file.read_text().strip()
@@ -444,11 +447,11 @@ class PsqlPgRestoreRunner:
             escaped = password.replace("\\", "\\\\").replace(":", "\\:")
             with os.fdopen(fd, "w") as stream:
                 pass_host = "localhost" if host.startswith("/") else host
-                stream.write(f"{pass_host}:{port}:{TARGET_DATABASE}:postgres:{escaped}\n")
+                stream.write(f"{pass_host}:{port}:{TARGET_DATABASE}:{database_user}:{escaped}\n")
                 stream.flush(); os.fsync(stream.fileno())
         except Exception as exc:
             raise ImportStopped("DATABASE_AUTH_PREPARATION_FAILED", "database_setup") from exc
-        self.pg_restore, self.psql = pg_restore, psql
+        self.pg_restore, self.psql, self.database_user = pg_restore, psql, database_user
         self.host, self.port = host, port
         self.last_list_pipe_closed_early = False
 
@@ -457,7 +460,7 @@ class PsqlPgRestoreRunner:
         except OSError: pass
 
     def _psql(self, sql: str) -> str:
-        proc = subprocess.run([self.psql,"-X","-qAt","--set=ON_ERROR_STOP=1","--host="+self.host,"--port="+str(self.port),"--username=postgres","--dbname="+TARGET_DATABASE,"-c",sql],
+        proc = subprocess.run([self.psql,"-X","-qAt","--set=ON_ERROR_STOP=1","--host="+self.host,"--port="+str(self.port),"--username="+self.database_user,"--dbname="+TARGET_DATABASE,"-c",sql],
                               env=_psql_env(self.pgpass),stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=False)
         if proc.returncode != 0:
             raise ImportStopped("PSQL_COMMAND_FAILED", "database_query")
@@ -519,7 +522,7 @@ class PsqlPgRestoreRunner:
         try:
             with os.fdopen(fd,"wb") as stream: stream.write(allowlist);stream.flush();os.fsync(stream.fileno())
             self._pipe_archive([self.pg_restore,"--exit-on-error","--single-transaction","--no-owner","--no-acl",
-                "--username=postgres","--host="+self.host,"--port="+str(self.port),"--dbname="+TARGET_DATABASE,
+                "--username="+self.database_user,"--host="+self.host,"--port="+str(self.port),"--dbname="+TARGET_DATABASE,
                 "--use-list="+str(path)],feed_archive,capture=False)
         finally:
             try:path.unlink()
@@ -545,7 +548,7 @@ class PsqlPgRestoreRunner:
         return set(result)
 
     def _run_sql(self, sql: bytes, error_code: str) -> str:
-        proc=subprocess.run([self.psql,"-X","-qAt","--set=ON_ERROR_STOP=1","--host="+self.host,"--port="+str(self.port),"--username=postgres","--dbname="+TARGET_DATABASE],
+        proc=subprocess.run([self.psql,"-X","-qAt","--set=ON_ERROR_STOP=1","--host="+self.host,"--port="+str(self.port),"--username="+self.database_user,"--dbname="+TARGET_DATABASE],
             input=sql,env=_psql_env(self.pgpass),stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=False)
         if proc.returncode != 0: raise ImportStopped(error_code,"database_mutation",mutation_started=True)
         return proc.stdout.decode("utf-8","strict").strip()
@@ -600,6 +603,15 @@ SELECT json_build_object(
     WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND t.typtype IN ('b','c','d','e','m','r')
       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_type'::regclass AND d.objid=t.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass)),
  'roles_ready',(SELECT count(*)=3 FROM pg_roles WHERE rolname IN ('espacigo_runtime','espacigo_gadm_bootstrap','espacigo_gcp03_observer') AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit),
+ 'admin_superuser',(SELECT rolsuper FROM pg_roles WHERE rolname=current_user),
+ 'normalization_prerequisites_available',(
+   EXISTS (SELECT 1 FROM pg_namespace n WHERE n.nspname='public'
+     AND (current_user=pg_get_userbyid(n.nspowner) OR pg_has_role(current_user,n.nspowner,'USAGE'))
+     AND has_schema_privilege(current_user,n.oid,'CREATE'))
+   AND EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.roleid=(SELECT oid FROM pg_roles WHERE rolname='espacigo_runtime')
+      AND m.member=current_user::regrole AND m.admin_option AND NOT m.inherit_option AND m.set_option)
+   AND NOT has_schema_privilege('espacigo_runtime','public','CREATE')
+ ),
  'extensions_ready',((SELECT count(*)=7 FROM pg_extension) AND (SELECT count(*)=7 FROM pg_extension WHERE (extname,extversion) IN (('btree_gist','1.8'),('fuzzystrmatch','1.2'),('plpgsql','1.0'),('postgis','3.6.4'),('postgis_tiger_geocoder','3.6.4'),('postgis_topology','3.6.4'),('unaccent','1.1')))),
  'application_schemas_empty',(WITH schema_inventory AS (
    SELECT n.oid,n.nspname,

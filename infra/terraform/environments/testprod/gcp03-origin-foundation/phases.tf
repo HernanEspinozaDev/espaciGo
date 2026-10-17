@@ -60,12 +60,10 @@ resource "google_cloud_run_v2_job" "origin_bootstrap" {
       volumes {
         name = "origin-admin-password"
         secret {
-          secret       = google_secret_manager_secret.admin_password[0].secret_id
-          default_mode = 292
+          secret = google_secret_manager_secret.admin_password[0].secret_id
           items {
             version = var.admin_password_secret_version
             path    = "password"
-            mode    = 292
           }
         }
       }

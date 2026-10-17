@@ -301,7 +301,9 @@ def build_review_plan(toc_text: str, metadata: dict, migration_sha: str) -> tupl
     if len(validated) != len(selected):
         raise ArtifactReviewError("generated TOC entry count changed during validation")
 
-    statements = []
+    # Bootstrap grants the non-superuser import administrator ADMIN OPTION on
+    # the NOLOGIN runtime role. CREATE on public is temporary during transfers.
+    statements = ["GRANT CREATE ON SCHEMA public TO espacigo_runtime;"]
     for item in owner_map:
         schema_name = f"{_quote_ident(item['schema'])}.{_quote_ident(item['name'])}"
         if item["type"] in {"TABLE", "VIEW", "MATERIALIZED VIEW", "FOREIGN TABLE"}:
@@ -324,6 +326,8 @@ def build_review_plan(toc_text: str, metadata: dict, migration_sha: str) -> tupl
         else:
             raise ArtifactReviewError("archive owner object type requires manual review")
 
+    statements.append("REVOKE CREATE ON SCHEMA public FROM espacigo_runtime;")
+
     # Observer grants are column-level and read-only. The query uses no other
     # application columns; catalog inventory remains available through PUBLIC.
     observer_grants = {
@@ -333,11 +337,16 @@ def build_review_plan(toc_text: str, metadata: dict, migration_sha: str) -> tupl
         "aviso_local": ("estado",),
         "outbox_evento_local": ("lease_hasta", "entregada_en", "cancelada_en", "fallo_terminal_en"),
     }
+    observer_statements = []
     for table, columns in observer_grants.items():
         if ("public", table) not in relations:
             raise ArtifactReviewError("required observer relation is missing from source metadata")
         rendered = ", ".join(_quote_ident(column) for column in columns)
-        statements.append(f"GRANT SELECT ({rendered}) ON TABLE public.{_quote_ident(table)} TO espacigo_gcp03_observer;")
+        observer_statements.append(f"GRANT SELECT ({rendered}) ON TABLE public.{_quote_ident(table)} TO espacigo_gcp03_observer;")
+    # The importer owns restored relations until ownership normalization. Apply
+    # the narrow observer grants before transfers so no owner membership is
+    # needed to grant access after the transfer.
+    statements[1:1] = observer_statements
     normalization = ("\n".join(statements) + "\n").encode()
     try:
         validate_normalization_sql(normalization, hashlib.sha256(normalization).hexdigest())
@@ -365,6 +374,8 @@ def build_review_plan(toc_text: str, metadata: dict, migration_sha: str) -> tupl
         "toc_entry_type_counts": kind_counts,
         "owner_action_count": len(owner_map),
         "normalization_owner_statement_count": sum(item["type"] not in {"INDEX", "INDEX ATTACH"} for item in owner_map),
+        "normalization_total_statement_count": len(statements) + len(observer_grants),
+        "normalization_transient_prerequisite_statement_count": 2,
         "owner_actions": owner_map,
         "source_acl_digest_count": len(source_acl_digests),
         "source_acl_digest_sha256": hashlib.sha256("\n".join(sorted(source_acl_digests)).encode()).hexdigest(),

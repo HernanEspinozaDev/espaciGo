@@ -85,7 +85,7 @@ variable "enable_origin_postrestore_job" {
       can(regex("^[0-9a-f]{64}$", var.import_receipt_sha256)) &&
       var.import_manifest_sha256 == "c5fc1964175244e998742e34dd4c4376b2d822b27574416b61228b912641ec30" &&
       var.import_toc_sha256 == "0677025fc73b036b9da9804ec457a8beea737662c9cf8537ba1bddd377b9b942" &&
-      var.import_normalization_sha256 == "865697a41f9ca70881522f7558093e8ac4107dfa5a4e58dbf749d5f670eff842" &&
+      var.import_normalization_sha256 == "2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2" &&
       var.import_migration_sha256 == "eca6b4295b593bc3ea3af470fb747bd6e788e141df4a57c8a0fae91ea6ad1fb2" &&
       can(regex("@sha256:[0-9a-f]{64}$", var.origin_import_image)) &&
       can(regex("@sha256:[0-9a-f]{64}$", var.origin_postrestore_image)) &&

@@ -22,6 +22,7 @@ var bootstrapStatements = []string{
 	`CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
 	`CREATE ROLE espacigo_gadm_bootstrap NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
 	`CREATE ROLE espacigo_gcp03_observer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
+	`GRANT espacigo_runtime TO postgres WITH ADMIN OPTION, INHERIT FALSE, SET TRUE`,
 	`REVOKE TEMPORARY ON DATABASE espacigo_scratch FROM PUBLIC`,
 	`GRANT CONNECT ON DATABASE espacigo_scratch TO espacigo_runtime, espacigo_gcp03_observer`,
 	`GRANT USAGE ON SCHEMA public TO espacigo_gcp03_observer`,
@@ -205,14 +206,16 @@ func readBootstrapReport(ctx context.Context, tx pgx.Tx) (BootstrapReport, error
 	}
 	report.ApplicationRelations = appRelations
 	report.ApplicationFunctions = appFunctions
+	var runtimeAdminOption bool
 	if err := tx.QueryRow(ctx, `SELECT
   (SELECT count(*)=3 FROM pg_catalog.pg_roles WHERE rolname IN ('espacigo_runtime','espacigo_gadm_bootstrap','espacigo_gcp03_observer') AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit),
   has_database_privilege('espacigo_gcp03_observer','espacigo_scratch','CONNECT'),
 	 has_schema_privilege('espacigo_gcp03_observer','public','USAGE'),
-	 NOT has_database_privilege('espacigo_gcp03_observer','espacigo_scratch','CREATE') AND NOT has_database_privilege('espacigo_gcp03_observer','espacigo_scratch','TEMP') AND NOT has_schema_privilege('espacigo_gcp03_observer','public','CREATE')`).Scan(&report.RolesReady, &report.ObserverConnect, &report.ObserverPublicUsage, &report.ObserverNoWrite); err != nil {
+	 NOT has_database_privilege('espacigo_gcp03_observer','espacigo_scratch','CREATE') AND NOT has_database_privilege('espacigo_gcp03_observer','espacigo_scratch','TEMP') AND NOT has_schema_privilege('espacigo_gcp03_observer','public','CREATE'),
+	 EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.roleid='espacigo_runtime'::regrole AND m.member=current_user::regrole AND m.admin_option AND NOT m.inherit_option AND m.set_option)`).Scan(&report.RolesReady, &report.ObserverConnect, &report.ObserverPublicUsage, &report.ObserverNoWrite, &runtimeAdminOption); err != nil {
 		return report, errors.New("GCP-03 origin bootstrap could not verify the fixed role allowlist and grants")
 	}
-	report.Passed = exactExtensions(report.Extensions) && report.RolesReady && report.ObserverConnect && report.ObserverPublicUsage && report.ObserverNoWrite && report.ApplicationSchemas == 0 && appRelations == 0 && appFunctions == 0
+	report.Passed = exactExtensions(report.Extensions) && report.RolesReady && runtimeAdminOption && report.ObserverConnect && report.ObserverPublicUsage && report.ObserverNoWrite && report.ApplicationSchemas == 0 && appRelations == 0 && appFunctions == 0
 	if !report.Passed {
 		return report, errors.New("GCP-03 origin bootstrap checks did not pass")
 	}

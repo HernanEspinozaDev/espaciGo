@@ -68,6 +68,12 @@ class OriginArtifactReviewTests(unittest.TestCase):
         self.assertIn("ALTER FUNCTION public.sample(integer) OWNER TO espacigo_runtime;", sql)
         self.assertIn("ALTER TEXT SEARCH DICTIONARY public.synthdict OWNER TO espacigo_runtime;", sql)
         self.assertIn("GRANT SELECT (version, name, checksum) ON TABLE public.schema_migrations TO espacigo_gcp03_observer;", sql)
+        self.assertLess(sql.index("GRANT SELECT (version, name, checksum)"),
+                        sql.index("ALTER TABLE public.sample OWNER TO espacigo_runtime"))
+        self.assertLess(sql.index("GRANT CREATE ON SCHEMA public"),
+                        sql.index("ALTER TABLE public.sample OWNER TO espacigo_runtime"))
+        self.assertGreater(sql.index("REVOKE CREATE ON SCHEMA public"),
+                           sql.index("ALTER TABLE public.sample OWNER TO espacigo_runtime"))
         self.assertEqual(owner_map["observer_column_grant_count"], 5)
         self.assertEqual(owner_map["public_table_count"], 6)
         serialized_map = str(owner_map)

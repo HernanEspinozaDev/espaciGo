@@ -56,8 +56,8 @@ run "postrestore_job_is_iam_only_generation_bound_and_read_only" {
     import_toc_sha256                  = "0677025fc73b036b9da9804ec457a8beea737662c9cf8537ba1bddd377b9b942"
     import_normalization_object        = "runs/g03o-1017/normalization.sql"
     import_normalization_generation    = "11"
-    import_normalization_bytes         = 16384
-    import_normalization_sha256        = "865697a41f9ca70881522f7558093e8ac4107dfa5a4e58dbf749d5f670eff842"
+    import_normalization_bytes         = 13047
+    import_normalization_sha256        = "2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2"
     import_migration_sha256            = "eca6b4295b593bc3ea3af470fb747bd6e788e141df4a57c8a0fae91ea6ad1fb2"
     origin_import_image                = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin-import@sha256:2222222222222222222222222222222222222222222222222222222222222222"
     origin_postrestore_image           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin-import@sha256:2222222222222222222222222222222222222222222222222222222222222222"

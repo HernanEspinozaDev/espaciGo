@@ -229,7 +229,6 @@ CREATE TEXT SEARCH DICTIONARY public.synthdict (TEMPLATE = pg_catalog.simple);""
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True)
             archive = bytearray(dump.stdout)
             toc_text = _run_pg_restore_list(archive, "pg_restore")
-            archive[:] = b"\x00" * len(archive)
             relations = json.loads(self.psql("""SELECT COALESCE(json_agg(json_build_object(
  'schema',n.nspname,'name',c.relname,'kind',c.relkind::text,'owner',r.rolname,'acl',c.relacl::text)), '[]'::json)::text
 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles r ON r.oid=c.relowner
@@ -247,7 +246,52 @@ WHERE n.nspname='public'""", source_db))
             self.assertNotIn("TABLE DATA public spatial_ref_sys", allowlist.decode())
             self.assertIn(b"GRANT SELECT (version, name, checksum)", normalization)
             self.assertIn(b"ALTER TEXT SEARCH DICTIONARY public.synthdict OWNER TO espacigo_runtime", normalization)
+            self.assertIn(b"GRANT CREATE ON SCHEMA public TO espacigo_runtime", normalization)
+            self.assertLess(normalization.index(b"GRANT CREATE ON SCHEMA public"),
+                normalization.index(b"ALTER TABLE public.sample OWNER TO espacigo_runtime"))
+            self.assertGreater(normalization.index(b"REVOKE CREATE ON SCHEMA public"),
+                normalization.index(b"ALTER TABLE public.sample OWNER TO espacigo_runtime"))
             self.assertGreater(review_map["selected_toc_entry_count"], len(names))
+
+            # Exercise the complete generated plan as a PostgreSQL 18
+            # non-superuser with the bootstrap-provisioned runtime membership.
+            self.psql("DROP ROLE IF EXISTS g03_origin_import_admin")
+            self.psql("CREATE ROLE g03_origin_import_admin LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT")
+            self.psql("ALTER DATABASE espacigo_scratch OWNER TO g03_origin_import_admin")
+            admin = PsqlPgRestoreRunner(self.password_file, host=SOCKET,
+                database_user="g03_origin_import_admin")
+            try:
+                missing = admin.preflight()
+                self.assertFalse(missing["admin_superuser"])
+                self.assertFalse(missing["normalization_prerequisites_available"])
+                self.psql("GRANT espacigo_runtime TO g03_origin_import_admin WITH ADMIN OPTION, INHERIT FALSE, SET TRUE")
+                ready = admin.preflight()
+                self.assertTrue(ready["normalization_prerequisites_available"])
+
+                def feed(sink):
+                    sink.write(archive)
+
+                available = admin.list_toc(feed)
+                selected_allowlist = validate_toc("\n".join(available), allowlist)
+                self.assertEqual(len(selected_allowlist), review_map["selected_toc_entry_count"])
+                admin.restore(feed, allowlist)
+                admin.normalize_owners_and_acls(normalization)
+                final = self.psql("""SELECT
+ (SELECT pg_get_userbyid(relowner)='espacigo_runtime' FROM pg_class WHERE oid='public.sample'::regclass),
+ (SELECT pg_get_userbyid(proowner)='espacigo_runtime' FROM pg_proc WHERE oid='public.sample(integer)'::regprocedure),
+ has_schema_privilege('espacigo_runtime','public','CREATE'),
+ pg_has_role('g03_origin_import_admin','espacigo_runtime','MEMBER'),
+ (SELECT rolcanlogin OR rolsuper OR rolinherit FROM pg_roles WHERE rolname='espacigo_runtime'),
+ has_column_privilege('espacigo_gcp03_observer','public.schema_migrations','version','SELECT'),
+ has_column_privilege('espacigo_gcp03_observer','public.schema_migrations','version','UPDATE'),
+ has_table_privilege('espacigo_gcp03_observer','public.sample','SELECT'),
+ has_table_privilege('espacigo_gcp03_observer','public.sample','INSERT')""")
+                self.assertEqual(final, "t|t|f|t|f|t|f|f|f")
+            finally:
+                admin.close()
+                self.psql("ALTER DATABASE espacigo_scratch OWNER TO postgres")
+                self.psql("DROP ROLE IF EXISTS g03_origin_import_admin")
+                archive[:] = b"\x00" * len(archive)
         finally:
             self.psql("DROP DATABASE IF EXISTS " + source_db + " WITH (FORCE)", "postgres")
 
