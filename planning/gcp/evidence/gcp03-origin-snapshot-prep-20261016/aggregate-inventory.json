@@ -1,12 +1,16 @@
 {
-  "schema": "espacigo.gcp03.origin-snapshot-prep.aggregate.v1",
+  "format": "espacigo.gcp03.origin-snapshot-prep.aggregate.v1",
   "observed_at_utc": "2026-10-17T02:38:24.478965+00:00",
   "repository_head": "f7b3c55b77e341567f4a81fdd13efb5375351d4b",
   "source": {
     "database_server_version": "18.6",
     "database_size_bytes": 74544831,
     "database_and_backend_compose_roots_match": false,
-    "backend_source_head": "54de15c66c2e65dd54fcabb0ca6b756a4f495e93",
+    "backend_worktree_head": "54de15c66c2e65dd54fcabb0ca6b756a4f495e93",
+    "backend_worktree_head_proves_running_image_code": false,
+    "active_backend_image_id_or_digest_captured": false,
+    "database_connection_correlated_with_backend_runtime": false,
+    "database_and_backend_mount_topology_correlated": false,
     "database_repeatable_read_read_only_observation": true,
     "database_and_files_observed_atomically": false,
     "dump_or_copy_created": false,
@@ -70,8 +74,8 @@
   },
   "limitations": [
     "The inventory is read-only and is not a backup or restore rehearsal.",
-    "The backend and database Compose roots differ; the backend worktree is clean but detached at the recorded commit.",
-    "That backend commit starts notice and other background workers; the copy must remain quarantined until reviewed sanitation or a private sink is ready.",
+    "The recorded Compose roots differ. This metadata mismatch alone does not prove incompatibility; database connection target, container/image IDs and digests, mounts/volume, and runtime schema/migrations still need correlation.",
+    "The backend Compose worktree is clean and detached at the recorded commit, but that HEAD does not identify the code inside the active container image. That worktree source starts notice and other background workers; the active image behavior still needs correlation. The 958 pending notices require quarantine before exposing any copy.",
     "The database transaction is repeatable-read and read-only, but file hashing occurs outside it while the application remains running; the combined observation is not atomic.",
     "The 3,245-file inventory and fingerprints do not contain the source file bytes or encryption key payload.",
     "No database dump, source file copy, secret copy, Cloud SQL resource, or other Google Cloud operation was performed."

@@ -13,11 +13,19 @@ python3 scripts/gcp03-origin-inventory.py \
 
 El script rehúsa reemplazar una carpeta existente. Consulta el catálogo en una transacción `REPEATABLE READ READ ONLY`, compara el historial con los bytes de V1–V61 y calcula inventarios y huellas de archivos. Solo escribe el manifiesto privado bajo `.local/testing`; no crea un dump, copia contenido ni llama a Google Cloud. La consulta requiere la credencial administrativa montada en el contenedor: se leyó en memoria para autenticar la conexión de solo lectura; no se imprimió, guardó ni copió. La llave de cifrado de contratos se leyó únicamente para calcular una huella; su contenido no se guardó ni copió. Las otras credenciales de origen no se leyeron.
 
+El agregado versionado tiene un validador estricto que rechaza claves JSON duplicadas en cualquier nivel y comprueba su contrato y campos sensibles:
+
+```sh
+python3 scripts/test_gcp03_origin_aggregate.py
+```
+
 Los agregados observados incluyen PostgreSQL 18.6, 74.5 MB, 163 relaciones públicas, 19 roles, 3 membresías, 12 rutinas `SECURITY DEFINER`, 221 columnas UUID, 46 int64 y 61 migraciones coincidentes byte por byte. El conteo de archivos privados fue 3.245. La base conserva 958 avisos pendientes. Aunque en ese instante no había sesiones vigentes, tokens de acción elegibles ni eventos pendientes en el outbox de identidad, el siguiente restore debe invalidar sesiones/tokens de forma uniforme y mantener cualquier salida externa apagada.
 
 ## Límite de consistencia detectado
 
-La base se observó en un contenedor sano del proyecto Compose esperado. Sin embargo, el contenedor backend usa otro root de Compose y otro worktree, actualmente limpio y detached en `54de15c66c2e65dd54fcabb0ca6b756a4f495e93`, mientras el repositorio de esta preparación está en `f7b3c55b77e341567f4a81fdd13efb5375351d4b`. Ese backend también inicia workers de avisos, identidad y privacidad. Los 958 avisos pendientes hacen inseguro exponer un restore a esos workers o a proveedores externos.
+La base se observó en un contenedor sano del proyecto Compose esperado. El contenedor backend tiene otro root de Compose y un worktree limpio/detached en `54de15c66c2e65dd54fcabb0ca6b756a4f495e93`; esta preparación está en `f7b3c55b77e341567f4a81fdd13efb5375351d4b`. Esta diferencia de metadatos **no prueba por sí sola incompatibilidad**. El HEAD del worktree tampoco demuestra qué código contiene la imagen activa. Esta inspección no correlacionó el destino real de conexión de la aplicación, IDs/digests de las imágenes activas, topología de mounts/volumen y schema/migraciones vistos a través de esa conexión. Esa correlación es una precondición de la captura futura.
+
+El código fuente del worktree backend registrado inicia workers de avisos, identidad y privacidad; no se verificó que el binario dentro del contenedor activo corresponda a ese HEAD ni se atribuye su comportamiento sin correlacionar la imagen. Independientemente de esa incertidumbre, los 958 avisos pendientes observados requieren cuarentena antes de exponer cualquier copia a workers o proveedores externos.
 
 El catálogo se leyó en una transacción consistente, pero la enumeración y huella de archivos ocurrió después, mientras la aplicación seguía activa. Por tanto, el manifiesto **no** es un punto atómico DB+archivos ni una copia de respaldo. Antes de una captura deberá acordarse una ventana de mantenimiento, fijar código e imagen exactos, confirmar que backend y DB corresponden a la misma revisión/configuración y detener de forma controlada todos los escritores y workers. No basta con pausar únicamente el proceso HTTP.
 
@@ -25,7 +33,7 @@ El catálogo se leyó en una transacción consistente, pero la enumeración y hu
 
 Este procedimiento queda documentado, no ejecutado. Cada acción que lea o copie payloads requiere revisión del PR y autorización concreta de captura:
 
-1. Resolver el desajuste de Compose/worktree y registrar commit, digest de imagen, configuración no secreta, nombre lógico de DB y montajes de DB/archivos. No cambiar ni reiniciar el origen para resolverlo.
+1. Correlacionar, sin cambiar ni reiniciar el origen, el destino real de conexión DB del backend con el contenedor/DB observados; registrar IDs y digests de las imágenes activas, mounts y volumen de DB/archivos, configuración no secreta y schema/migraciones consultados por esa conexión. Registrar también los HEAD de worktrees solo como procedencia del código fuente, no como prueba del binario activo. Un root Compose distinto es una señal a investigar, no evidencia suficiente de incompatibilidad.
 2. Acordar ventana con el usuario. Detener limpiamente todos los writers y workers del origen, verificar cero transacciones de aplicación activas y cero leases pendientes, y bloquear nuevos escritores. Si no puede probarse el quiesce, no capturar.
 3. Generar un manifiesto privado previo, bajo `.local/testing` con directorio 0700 y archivos 0600. Debe incluir run-id aleatorio, hora UTC, revisión/configuración, conteos agregados, huellas de artefactos, tabla de migraciones V1–V61 y evidencia de quiesce. No incluir valores personales, contenido de credenciales ni payloads de llaves.
 4. Capturar un archivo PostgreSQL custom con `pg_dump` desde la conexión autenticada de forma efímera; conservar roles, owners, ACL, ACL por defecto, membresías y atributos en el inventario privado separado. No exportar contraseñas/hashes de roles con `pg_dumpall --globals-only`. No alterar owners/ACL en el archivo para ocultar incompatibilidades. Cualquier mapeo a roles administrados de Cloud SQL se define y revisa como parte del restore.
@@ -47,7 +55,7 @@ No se creó todavía un script de dump/copia deliberadamente: faltan el procedim
 Todo saneamiento es exclusivamente sobre una copia restaurada. Antes de iniciar cualquier API o worker:
 
 - Invalidar todas las sesiones y tokens de acción copiadas; comprobar cero sesiones activas y cero tokens utilizables.
-- Mantener workers, correo, webhooks, pagos y proveedores deshabilitados. Hay 958 avisos pendientes y el backend inventariado los procesa automáticamente. Elegir, revisar y probar una de estas alternativas: cancelar/quarantinar las colas en la copia con restricciones de integridad validadas, o conectar a un sink privado como Mailpit con egress bloqueado. No apuntar a proveedores reales ni usar secretos de origen.
+- Mantener workers, correo, webhooks, pagos y proveedores deshabilitados. Hay 958 avisos pendientes. El worktree backend registrado contiene código que inicia workers automáticamente, pero su relación con la imagen activa aún requiere correlación. Elegir, revisar y probar una de estas alternativas: cancelar/quarantinar las colas en la copia con restricciones de integridad validadas, o conectar a un sink privado como Mailpit con egress bloqueado. No apuntar a proveedores reales ni usar secretos de origen.
 - El outbox de identidad estaba completamente entregado; eso no elimina el riesgo de `aviso_local`. Las operaciones de pago son fixtures locales agregadas, pero igualmente no deben emitir efectos externos.
 - Restaurar el registro de replay de privacidad antes de cualquier API; validar sus huellas y evitar ejecutar workers de limpieza hasta que las rutas destino estén aisladas.
 - Mantener evidencia privada, llaves y artefactos fuera de logs/capturas/PR. Revisar permisos 0700/0600 y borrar credenciales de destino al retirar el ensayo.
