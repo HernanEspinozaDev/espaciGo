@@ -1904,12 +1904,12 @@ def verify_private_tar(snapshot: Path, master: bytes, seal: dict[str, Any], expe
             os.close(write_fd)
 
 
-def _docker_exec_sql(container_id: str, database: str, sql: bytes, *, timeout: int = 600) -> bytes:
-    return run_quiet(["docker", "exec", "--user", "postgres", "-i", container_id, "psql", "-XqAt", "-v", "ON_ERROR_STOP=1", "--username=postgres", f"--dbname={database}", "-f", "-"], timeout=timeout, input_bytes=sql)
+def _docker_exec_sql(container_id: str, database: str, sql: bytes, *, username: str = "postgres", timeout: int = 600) -> bytes:
+    return run_quiet(["docker", "exec", "--user", "postgres", "-i", container_id, "psql", "-XqAt", "-v", "ON_ERROR_STOP=1", f"--username={username}", f"--dbname={database}", "-f", "-"], timeout=timeout, input_bytes=sql)
 
 
-def _docker_query(container_id: str, database: str, sql: str, *, timeout: int = 120) -> dict[str, Any]:
-    output = _docker_exec_sql(container_id, database, sql.encode(), timeout=timeout)
+def _docker_query(container_id: str, database: str, sql: str, *, username: str = "postgres", timeout: int = 120) -> dict[str, Any]:
+    output = _docker_exec_sql(container_id, database, sql.encode(), username=username, timeout=timeout)
     lines = [line for line in output.decode().splitlines() if line.strip()]
     if len(lines) != 1:
         raise CaptureError("isolated restore query returned an unexpected result")
@@ -1917,6 +1917,19 @@ def _docker_query(container_id: str, database: str, sql: str, *, timeout: int = 
     if not isinstance(value, dict):
         raise CaptureError("isolated restore query did not return an object")
     return value
+
+
+def _normalize_relation_owner_acl(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Treat an explicit owner-only default ACL as equivalent to PostgreSQL's NULL ACL."""
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        owner = item.get("owner")
+        rights = "rwU" if item.get("kind") == "S" else "arwdDxtm"
+        if owner and item.get("acl") in (None, f"{{{owner}={rights}/{owner}}}"):
+            item["acl"] = None
+        normalized.append(item)
+    return normalized
 
 
 def compare_restored_database(source: dict[str, Any], restored: dict[str, Any]) -> dict[str, Any]:
@@ -1927,6 +1940,8 @@ def compare_restored_database(source: dict[str, Any], restored: dict[str, Any]) 
     normalized_restored = dict(restored)
     normalized_source["roles"] = source_roles
     normalized_restored["roles"] = [r for r in (restored.get("roles") or []) if r["name"] not in allowed_extra_roles]
+    normalized_source["relation_owners_acls"] = _normalize_relation_owner_acl(source.get("relation_owners_acls") or [])
+    normalized_restored["relation_owners_acls"] = _normalize_relation_owner_acl(restored.get("relation_owners_acls") or [])
     mismatches = [key for key in keys if canonical_json(normalized_source.get(key)) != canonical_json(normalized_restored.get(key))]
     for key in ("sessions", "tokens"):
         if (source.get(key) or {}).get("total") != (restored.get(key) or {}).get("total"):
@@ -1958,13 +1973,13 @@ def _write_synthetic_password(path: Path) -> None:
     write_new_private(path, password)
 
 
-def wait_local_pg(container_id: str, timeout: int = READINESS_TIMEOUT_SECONDS) -> None:
+def wait_local_pg(container_id: str, timeout: int = READINESS_TIMEOUT_SECONDS, *, username: str = "postgres") -> None:
     deadline = time.monotonic() + timeout
     stable_checks = 0
     while time.monotonic() < deadline:
         try:
-            run_quiet(["docker", "exec", "--user", "postgres", container_id, "pg_isready", "--username=postgres", "--dbname=restore_bootstrap"], timeout=10)
-            run_quiet(["docker", "exec", "--user", "postgres", container_id, "psql", "-XqAt", "--username=postgres", "--dbname=restore_bootstrap", "-c", "SELECT 1"], timeout=10)
+            run_quiet(["docker", "exec", "--user", "postgres", container_id, "pg_isready", f"--username={username}", "--dbname=restore_bootstrap"], timeout=10)
+            run_quiet(["docker", "exec", "--user", "postgres", container_id, "psql", "-XqAt", f"--username={username}", "--dbname=restore_bootstrap", "-c", "SELECT 1"], timeout=10)
             stable_checks += 1
             if stable_checks >= 5:
                 return
@@ -1976,7 +1991,7 @@ def wait_local_pg(container_id: str, timeout: int = READINESS_TIMEOUT_SECONDS) -
     raise CaptureError("isolated PostgreSQL restore container did not become ready")
 
 
-def _restore_database_dump(snapshot: Path, seal: dict[str, Any], master: bytes, container_id: str, timeout: int = PG_DUMP_TIMEOUT_SECONDS) -> dict[str, Any]:
+def _restore_database_dump(snapshot: Path, seal: dict[str, Any], master: bytes, container_id: str, username: str = "postgres", timeout: int = PG_DUMP_TIMEOUT_SECONDS) -> dict[str, Any]:
     source = snapshot / "database.dump.gpg"
     artifact = seal["encrypted_artifacts"]["database.dump.gpg"]
     if sha256_file(source)[0] != artifact["cipher_sha256"]:
@@ -1985,7 +2000,7 @@ def _restore_database_dump(snapshot: Path, seal: dict[str, Any], master: bytes, 
     decrypt_command = ["gpg", "--batch", "--pinentry-mode", "loopback", "--passphrase-fd", str(read_fd), "--decrypt", str(source)]
     decrypt = subprocess.Popen(decrypt_command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, pass_fds=(read_fd,))
     os.close(read_fd)
-    restore = subprocess.Popen(["docker", "exec", "--user", "postgres", "-i", container_id, "pg_restore", "--exit-on-error", "--create", "--username=postgres", "--dbname=postgres"], stdin=decrypt.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    restore = subprocess.Popen(["docker", "exec", "--user", "postgres", "-i", container_id, "pg_restore", "--exit-on-error", "--create", f"--username={username}", f"--role={username}", "--dbname=postgres"], stdin=decrypt.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     assert decrypt.stdout is not None
     decrypt.stdout.close()
     try:
@@ -2062,7 +2077,7 @@ def restore_validate_copy(repo: Path, snapshot: Path, recovery_key_path: Path, r
                 "--tmpfs", "/run:rw,nosuid,nodev,size=67108864",
                 "--mount", f"type=bind,source={admin_secret},target=/run/secrets/db_admin_password,readonly",
                 "--mount", f"type=bind,source={runtime_secret},target=/run/secrets/runtime_password,readonly",
-                "--env", "POSTGRES_DB=restore_bootstrap", "--env", "POSTGRES_USER=postgres",
+                "--env", "POSTGRES_DB=restore_bootstrap", "--env", f"POSTGRES_USER={admin_role}",
                 "--env", "POSTGRES_PASSWORD_FILE=/run/secrets/db_admin_password", restore_image_ref,
             ], timeout=30).decode().strip()
             container_id = run_output
@@ -2072,7 +2087,7 @@ def restore_validate_copy(repo: Path, snapshot: Path, recovery_key_path: Path, r
                     raise CaptureError("restore container image or network isolation differs from the sealed snapshot")
                 if info.get("HostConfig", {}).get("PortBindings") or any(m.get("Type") == "volume" for m in info.get("Mounts", [])):
                     raise CaptureError("isolated restore unexpectedly publishes ports or mounts a Docker volume")
-                wait_local_pg(container_id)
+                wait_local_pg(container_id, username=admin_role)
                 target_runtime = _docker_query(container_id, "restore_bootstrap", """
 SELECT json_build_object(
   'server_version_num', current_setting('server_version_num')::integer,
@@ -2085,7 +2100,7 @@ SELECT json_build_object(
     ) AS available
   ), '{}'::json)
 )::text;
-""")
+""", username=admin_role)
                 source_version = int(report.get("server_version_num", 0))
                 target_version = int(target_runtime.get("server_version_num", 0))
                 if source_version // 10000 != target_version // 10000:
@@ -2095,18 +2110,18 @@ SELECT json_build_object(
                     if extension.get("version") not in extension_versions.get(extension.get("name"), []):
                         raise CaptureError("selected restore image lacks an exact source extension version")
                 roles = report.get("roles") or []
-                existing = set(run_quiet(["docker", "exec", "--user", "postgres", container_id, "psql", "-XqAt", "--username=postgres", "--dbname=restore_bootstrap", "-c", "SELECT rolname FROM pg_roles ORDER BY rolname"], timeout=30).decode().splitlines())
+                existing = set(run_quiet(["docker", "exec", "--user", "postgres", container_id, "psql", "-XqAt", f"--username={admin_role}", "--dbname=restore_bootstrap", "-c", "SELECT rolname FROM pg_roles ORDER BY rolname"], timeout=30).decode().splitlines())
                 role_sql = role_reconciliation_sql(report, existing)
                 if role_sql.strip():
-                    _docker_exec_sql(container_id, "restore_bootstrap", role_sql)
-                _restore_database_dump(snapshot, seal, master, container_id)
+                    _docker_exec_sql(container_id, "restore_bootstrap", role_sql, username=admin_role)
+                _restore_database_dump(snapshot, seal, master, container_id, admin_role)
                 db_name = report["database"]
-                restored = _docker_query(container_id, db_name, SQL_CAPTURE)
+                restored = _docker_query(container_id, db_name, SQL_CAPTURE, username=admin_role)
                 comparison = compare_restored_database(report, restored)
                 if not comparison["matches"]:
                     raise CaptureError("restored schema/data/ACL comparison failed: " + ",".join(comparison["mismatched_fields"]))
                 quarantine_sql = (repo / "scripts/gcp03_origin_quarantine_copy.sql").read_bytes()
-                quarantine_output = _docker_exec_sql(container_id, db_name, quarantine_sql, timeout=120)
+                quarantine_output = _docker_exec_sql(container_id, db_name, quarantine_sql, username=admin_role, timeout=120)
                 quarantine_lines = [line for line in quarantine_output.decode().splitlines() if line.strip()]
                 if len(quarantine_lines) != 1:
                     raise CaptureError("copy quarantine returned an unexpected proof result")

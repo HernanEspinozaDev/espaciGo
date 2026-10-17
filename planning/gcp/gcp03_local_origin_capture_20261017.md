@@ -2,6 +2,14 @@
 
 Fecha: 2026-10-17. La herramienta se fusionó en PR #387 (`34cf8299ab18760c29d57419ad825af188bfdfbe`). El estado de preparación descrito originalmente se conserva como historia; el resultado de los preflights posteriores queda registrado a continuación. GCP-03 sigue parcial; GCP-04 no se inicia.
 
+## Actualización posterior: captura y restore local (2026-10-17)
+
+Se ejecutó una única captura del origen bajo la autorización específica de revisión de merge #389 (`04848e9542cf3bd5764db708bb0e5aab0c34c19c`), con release privado aprobado para ese run. El SHA-256 de `SEALED.json` es `80a4e1e0002cf12f8e750ddaac7ceb796726b57a36405aa2b0b8e7852e928262`; payload y llave quedaron cifrados/custodiados por separado. La clave de recuperación y las rutas privadas no se incluyen en esta evidencia pública. La captura no se repite con este PR.
+
+El primer `restore-copy` no completó por un problema de ownership de PostGIS. La corrección de contexto de restauración de PR #390 permitió completar el restore corregido de la copia en entorno local aislado con HEAD `72a6cb52f1e1be0377e617ce4454e450dbc0e127`; no se repitió después de esa ejecución. El registro privado informa 18 campos coincidentes de catálogo/ACL y agregados seleccionados, 3.246 archivos inspeccionados y 958 avisos en cuarentena; en la copia quedaron cero sesiones/tokens válidos y cero leases. El journal terminó en `sealed_and_source_ready`. Estos resultados no son hashes de todas las filas ni equivalencia exhaustiva del esquema, las definiciones o todos los datos. El restore aislado se retiró tras la verificación.
+
+La captura corresponde al código fusionado en #389; la corrección de contexto de ownership/normalización de ACL de #390 se evaluó en la restauración de esa copia. Esto aporta evidencia local de captura y recuperación, pero no prueba compatibilidad con Cloud SQL ni con sus roles gestionados. GCP-03 sigue parcial: quedan por verificar compatibilidad de extensiones/owners/ACL y consultas en Cloud SQL, el adaptador/transferencia de archivos y los gates de GCP-04–07. No se importaron datos ni se ejecutaron acciones cloud.
+
 ## Actualización del preflight read-only (2026-10-17)
 
 El contenedor origen referencia la image-ID `sha256:84b8ed430e1aa7847ef5777ae9b65db374da288dd71e51714fb6ad86db550053`, que `docker image inspect` no encuentra en el almacén local. El tag `espacigo-local-database:dev` apunta a otro digest (`sha256:9c63ab38222eaf32b937c40e95ae35abada3d8dd924386ce210b3de0746e3c70`); no son equivalentes según la evidencia disponible. No se intentó pull, rebuild, commit, exportación ni inspección/copia del rootfs. El binario PostgreSQL 18.6 se consultó dentro del contenedor activo.
@@ -22,7 +30,7 @@ La corrección tampoco afirma control exclusivo de Docker ni ausencia de ingress
 
 El corte agrega una herramienta local con gate de revisión para correlacionar el origen, capturar una copia cifrada durante una ventana autorizada y validar una restauración aislada y sanitizada. El código solo ejecuta la captura cuando un registro de release de un run concreto está aprobado por `HernanEspinozaDev`, ligado al HEAD exacto, al fingerprint actual del origen y a la lista completa de contenedores que se van a detener. Este PR no autoriza el uso de ese gate.
 
-La implementación original de PR #387 solo se verificó con código y fixtures. En el seguimiento local actual sí se ejecutaron `preflight` read-only y `release-candidate` para preparar el candidato no aprobado descrito arriba; ambos registraron metadata privada. No se ejecutó `capture`, `restore-copy` con datos del origen ni `recover`; tampoco se generó dump, copió payload/llave, escribió a `pilot01`, cambió infraestructura, Cloud SQL, importó datos o ejecutó un job cloud. La suite local conserva sus PostgreSQL desechables sin red, puertos ni volumen Docker.
+La implementación original de PR #387 se verificó con código y fixtures antes de contar con una captura aprobada. El seguimiento posterior ejecutó `preflight` read-only, `release-candidate`, una captura autorizada sobre el merge #389 y un `restore-copy` aislado con el código de #390, según la actualización fechada anterior. No se ejecutó `recover` ni se importaron datos a Cloud SQL o a otra base persistente, no se escribió a `pilot01`, no se cambió infraestructura y no se ejecutó un job cloud. La suite local conserva sus PostgreSQL desechables sin red, puertos ni volumen Docker.
 
 ## Preflight reproducible para una futura ventana
 
