@@ -484,6 +484,27 @@ class CaptureFixtureTests(unittest.TestCase):
         self.assertFalse(result["matches"])
         self.assertIn("tokens.total", result["mismatched_fields"])
 
+    def test_restore_comparison_accepts_implicit_or_explicit_default_relation_owner_acl(self) -> None:
+        before = {
+            "relation_owners_acls": [{
+                "schema": "public", "name": "fixture_table", "kind": "r", "owner": "espacigo_admin",
+                "acl": "{espacigo_admin=arwdDxtm/espacigo_admin}",
+            }],
+        }
+        after = {
+            "relation_owners_acls": [{
+                "schema": "public", "name": "fixture_table", "kind": "r", "owner": "espacigo_admin",
+                "acl": None,
+            }],
+        }
+        result = capture.compare_restored_database(before, after)
+        self.assertTrue(result["matches"])
+
+        after["relation_owners_acls"][0]["acl"] = "{another_role=r/espacigo_admin}"
+        result = capture.compare_restored_database(before, after)
+        self.assertFalse(result["matches"])
+        self.assertIn("relation_owners_acls", result["mismatched_fields"])
+
     def test_release_rejects_external_writer_and_missing_exclusive_control(self) -> None:
         release = approved_release(self.source, self.run_id)
         release["external_ingress_and_writer_sources"] = ["external-scheduler"]
