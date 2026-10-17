@@ -10,27 +10,35 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
 import json
 import os
 from pathlib import Path
 import re
 import secrets
+import socket
 import stat
 import subprocess
 import sys
 import threading
+import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from typing import BinaryIO, Callable, Protocol
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 import gcp03_origin_import as transport
+from gcp03_origin_private_files import (PrivateFilesError, copy_validated_private_files,
+    validate_private_file_references, validate_private_files_tar)
 
 SOURCE_CAPTURE_RUN_ID = "gcp03-merge-review-20261017"
 TARGET_RUN_ID = "g03o-1017"
 SOURCE_SEALED_SHA256 = "80a4e1e0002cf12f8e750ddaac7ceb796726b57a36405aa2b0b8e7852e928262"
 TARGET_DATABASE = "espacigo_scratch"
 TARGET_BUCKET = "espacigo-gcp03-origin-g03o-1017"
+PRIVATE_FILES_BUCKET = "espacigo-gcp03-private-g03o-1017"
 EXPECTED_TARGET = "espacigo-testprod:southamerica-west1:espacigo-gcp03-origin-g03o-1017-pg/espacigo_scratch"
 FORMAT = "espacigo.gcp03.origin-cloud-import.v1"
 RECEIPT_FORMAT = "espacigo.gcp03.origin-upload-receipt.v1"
@@ -77,6 +85,7 @@ class DatabaseRunner(Protocol):
     def restore(self, feed_archive: Callable[[BinaryIO], dict], allowlist: bytes) -> None: ...
     def normalize_owners_and_acls(self, sql: bytes) -> None: ...
     def sanitize(self) -> dict: ...
+    def private_file_refs(self) -> set[str]: ...
 
 
 class HashingReader:
@@ -156,6 +165,7 @@ def decrypt_object(store: ObjectStore, bucket: str, ref: ObjectRef, manifest_ite
 @dataclass(frozen=True)
 class ImportConfig:
     bucket: str
+    private_files_bucket: str
     receipt: ObjectRef
     expected_receipt_sha256: str
     expected_manifest_sha256: str
@@ -167,7 +177,7 @@ class ImportConfig:
 
 
 def load_transport_key(path: Path) -> bytes:
-    if path.is_symlink() or not path.is_file() or stat.S_IMODE(path.stat().st_mode) not in {0o400, 0o600}:
+    if path.is_symlink() or not path.is_file() or stat.S_IMODE(path.stat().st_mode) not in {0o400, 0o444, 0o600}:
         raise ImportStopped("TRANSPORT_KEY_FILE_INVALID", "key_load")
     raw = path.read_bytes().strip()
     if not re.fullmatch(rb"[0-9a-f]{64}", raw):
@@ -252,8 +262,9 @@ def validate_normalization_sql(sql: bytes, expected_sha256: str) -> None:
 
 
 class OriginImportExecutor:
-    def __init__(self, config: ImportConfig, store: ObjectStore, database: DatabaseRunner):
+    def __init__(self, config: ImportConfig, store: ObjectStore, database: DatabaseRunner, private_file_store=None):
         self.config, self.store, self.database = config, store, database
+        self.private_file_store = private_file_store
 
     def run(self) -> dict:
         stage = "confirmation"
@@ -261,6 +272,8 @@ class OriginImportExecutor:
         try:
             if self.config.confirmation != EXPECTED_TARGET or self.config.bucket != TARGET_BUCKET:
                 raise ImportStopped("TARGET_CONFIRMATION_MISMATCH", stage)
+            if self.config.private_files_bucket != PRIVATE_FILES_BUCKET:
+                raise ImportStopped("PRIVATE_FILES_BUCKET_MISMATCH", stage)
             if not all(SHA_RE.fullmatch(v) for v in (self.config.expected_receipt_sha256,
                     self.config.expected_manifest_sha256,self.config.expected_bootstrap_sha256,
                     self.config.expected_observer_sha256,self.config.expected_normalization_sha256)):
@@ -294,6 +307,14 @@ class OriginImportExecutor:
                 sink = _DiscardSink()
                 stats = decrypt_object(self.store, self.config.bucket, refs[artifact], manifest["artifacts"][artifact], k_wrap, artifact, sink)
                 artifact_reports[artifact] = {"plain_bytes": stats["plain_bytes"], "chunks": stats["chunks"]}
+            stage = "private_files_validate"
+            private_archive = io.BytesIO()
+            private_stats = decrypt_object(self.store, self.config.bucket, refs["private-files.tar"],
+                manifest["artifacts"]["private-files.tar"], k_wrap, "private-files.tar", private_archive)
+            try:
+                prepared_private_files = validate_private_files_tar(private_archive.getvalue(), run_id=TARGET_RUN_ID)
+            except PrivateFilesError as exc:
+                raise ImportStopped("PRIVATE_FILES_ARCHIVE_INVALID", stage) from exc
             stage = "toc_read"
             allowlist = read_exact(self.store, self.config.bucket, allowlist_ref)
             normalization_sql = read_exact(self.store, self.config.bucket, normalization_ref)
@@ -321,13 +342,23 @@ class OriginImportExecutor:
             required = ("valid_sessions", "usable_action_tokens", "pending_notices", "identity_event_leases")
             if any(sanitation.get(name) != 0 for name in required) or sanitation.get("runtime_role_login") is not False:
                 raise ImportStopped("SANITATION_POSTCONDITIONS_FAILED", stage, mutation_started=True)
+            stage = "private_files_copy"
+            try:
+                private_refs_report = validate_private_file_references(
+                    prepared_private_files, self.database.private_file_refs(), run_id=TARGET_RUN_ID)
+            except PrivateFilesError as exc:
+                raise ImportStopped("PRIVATE_FILE_REFERENCE_MISMATCH", stage, mutation_started=True) from exc
+            private_store = self.private_file_store or GCSPrivateFileStore(self.config.private_files_bucket)
+            private_files = copy_validated_private_files(prepared_private_files, run_id=TARGET_RUN_ID, store=private_store)
             return {"format": FORMAT, "status": "imported_and_sanitized", "source_capture_run_id": SOURCE_CAPTURE_RUN_ID,
                     "target_run_id": TARGET_RUN_ID, "source_sealed_sha256": SOURCE_SEALED_SHA256,
                     "manifest_sha256": self.config.expected_manifest_sha256,
                     "receipt_sha256": self.config.expected_receipt_sha256,
                     "artifacts_authenticated": len(artifact_reports), "allowlist_entries": len(selected_toc),
                     "normalization_sql_sha256": self.config.expected_normalization_sha256,
-                    "sanitized": True, "services_or_workers_started": False}
+                    "sanitized": True, "private_files_copied": len(private_files),
+                    "private_file_references": private_refs_report["database_reference_count"],
+                    "private_files_plain_bytes": private_stats["plain_bytes"], "services_or_workers_started": False}
         except ImportStopped as exc:
             return {"format": FORMAT, "status": "stopped", "stage": exc.stage or stage,
                     "error_code": exc.code, "transaction_outcome": "uncertain" if exc.mutation_started or mutation_started else "not_started",
@@ -361,6 +392,33 @@ class GCSObjectStore:
             raise ImportStopped("GCS_OBJECT_READ_FAILED", "gcs_open") from exc
 
 
+class GCSPrivateFileStore:
+    """Create-only object writer for the dedicated, non-serving private-file bucket."""
+    def __init__(self, bucket: str):
+        if bucket != PRIVATE_FILES_BUCKET:
+            raise ImportStopped("PRIVATE_FILES_BUCKET_MISMATCH", "private_files_copy", mutation_started=True)
+        from google.cloud import storage
+        self.client = storage.Client()
+        self.bucket = bucket
+
+    def create(self, object_name: str, data: bytes, sha256: str) -> None:
+        prefix = f"runs/{TARGET_RUN_ID}/"
+        if not object_name.startswith(prefix) or ".." in object_name.split("/") or \
+                hashlib.sha256(data).hexdigest() != sha256:
+            raise ImportStopped("PRIVATE_FILE_OBJECT_INVALID", "private_files_copy", mutation_started=True)
+        blob = self.client.bucket(self.bucket).blob(object_name)
+        try:
+            blob.metadata = {"sha256": sha256}
+            blob.upload_from_file(io.BytesIO(data), rewind=True, size=len(data),
+                content_type="application/octet-stream", if_generation_match=0, checksum="crc32c")
+            if not blob.generation or int(blob.size) != len(data):
+                raise ImportStopped("PRIVATE_FILE_UPLOAD_VERIFY_FAILED", "private_files_copy", mutation_started=True)
+        except ImportStopped:
+            raise
+        except Exception as exc:
+            raise ImportStopped("PRIVATE_FILE_UPLOAD_FAILED", "private_files_copy", mutation_started=True) from exc
+
+
 def _psql_env(passfile: Path) -> dict[str, str]:
     env = os.environ.copy()
     env["PGPASSFILE"] = str(passfile)
@@ -372,7 +430,7 @@ class PsqlPgRestoreRunner:
     """Fixed PostgreSQL 18 client runner; target access is via loopback proxy."""
     def __init__(self, password_file: Path, *, host: str = "127.0.0.1", port: int = 5432,
                  pg_restore: str = "pg_restore", psql: str = "psql"):
-        if password_file.is_symlink() or not password_file.is_file() or stat.S_IMODE(password_file.stat().st_mode) not in {0o400,0o600}:
+        if password_file.is_symlink() or not password_file.is_file() or stat.S_IMODE(password_file.stat().st_mode) not in {0o400,0o444,0o600}:
             raise ImportStopped("DATABASE_PASSWORD_FILE_INVALID", "database_setup")
         password = password_file.read_text().strip()
         if not password or any(c in password for c in "\r\n\x00"):
@@ -474,6 +532,15 @@ class PsqlPgRestoreRunner:
         try:return json.loads(self._run_sql(sql_path.read_bytes(),"SANITATION_SQL_FAILED"))
         except (json.JSONDecodeError,ImportStopped) as exc: raise ImportStopped("SANITATION_REPORT_INVALID","copy_sanitization",mutation_started=True) from exc
 
+    def private_file_refs(self) -> set[str]:
+        try:
+            result = json.loads(self._psql(PRIVATE_FILE_REFS_SQL))
+        except (json.JSONDecodeError, ImportStopped) as exc:
+            raise ImportStopped("PRIVATE_FILE_REFERENCE_QUERY_FAILED", "private_files_copy", mutation_started=True) from exc
+        if not isinstance(result, list) or any(not isinstance(item, str) for item in result):
+            raise ImportStopped("PRIVATE_FILE_REFERENCE_REPORT_INVALID", "private_files_copy", mutation_started=True)
+        return set(result)
+
     def _run_sql(self, sql: bytes, error_code: str) -> str:
         proc=subprocess.run([self.psql,"-X","-qAt","--set=ON_ERROR_STOP=1","--host="+self.host,"--port="+str(self.port),"--username=postgres","--dbname="+TARGET_DATABASE],
             input=sql,env=_psql_env(self.pgpass),stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=False)
@@ -543,6 +610,20 @@ SELECT json_build_object(
 )::text;
 """
 
+PRIVATE_FILE_REFS_SQL = """
+SELECT COALESCE(json_agg(file_id::text ORDER BY file_id), '[]'::json)::text
+FROM (
+  SELECT DISTINCT file_id FROM (
+    SELECT archivo_id AS file_id FROM public.foto_perfil_sintetica_local WHERE archivo_id IS NOT NULL
+    UNION ALL SELECT archivo_id FROM public.espacio_galeria_sintetica_local WHERE archivo_id IS NOT NULL
+    UNION ALL SELECT id FROM public.verificacion_evidencia_sintetica
+    UNION ALL SELECT archivo_id FROM public.espacio_galeria_archivo_candidato_local
+    UNION ALL SELECT archivo_id FROM public.operacion_arriendo_archivo_candidato_local
+    UNION ALL SELECT archivo_id FROM public.verificacion_archivo_retiro_pendiente_local
+  ) AS all_file_refs
+) AS unique_file_refs;
+"""
+
 
 def current_migration_inventory_sha256() -> str:
     migrations_dir = Path(__file__).resolve().parents[1] / "db" / "migrations"
@@ -561,7 +642,7 @@ def config_from_env(env: dict[str,str]) -> ImportConfig:
     key_file=Path(env.get("GCP03_ORIGIN_IMPORT_TRANSPORT_KEY_FILE",""))
     try:
         receipt=ObjectRef(env["GCP03_ORIGIN_IMPORT_RECEIPT_OBJECT"],int(env["GCP03_ORIGIN_IMPORT_RECEIPT_GENERATION"]),env["GCP03_ORIGIN_IMPORT_RECEIPT_SHA256"],int(env["GCP03_ORIGIN_IMPORT_RECEIPT_BYTES"]))
-        return ImportConfig(env["GCP03_ORIGIN_IMPORT_BUCKET"],receipt,env["GCP03_ORIGIN_IMPORT_RECEIPT_SHA256"],
+        return ImportConfig(env["GCP03_ORIGIN_IMPORT_BUCKET"], env["GCP03_ORIGIN_PRIVATE_FILES_BUCKET"], receipt,env["GCP03_ORIGIN_IMPORT_RECEIPT_SHA256"],
             env["GCP03_ORIGIN_IMPORT_MANIFEST_SHA256"],env["GCP03_ORIGIN_IMPORT_BOOTSTRAP_SHA256"],
             env["GCP03_ORIGIN_IMPORT_OBSERVER_SHA256"],env["GCP03_ORIGIN_IMPORT_NORMALIZATION_SHA256"],confirmation,key_file)
     except (KeyError,ValueError) as exc: raise ImportStopped("IMPORT_ENVIRONMENT_INVALID","config") from exc
@@ -572,6 +653,7 @@ def main() -> None:
     try:
         config=config_from_env(dict(os.environ))
         store=GCSObjectStore()
+        wait_for_proxy()
         runner=PsqlPgRestoreRunner(Path("/secrets/admin/password"))
         report=OriginImportExecutor(config,store,runner).run()
         print(json.dumps(report,sort_keys=True))
@@ -581,7 +663,40 @@ def main() -> None:
             "transaction_outcome":"uncertain" if exc.mutation_started else "not_started","retry":False},sort_keys=True))
         raise SystemExit(1)
     finally:
-        if runner: runner.close()
+        try:
+            if runner:
+                runner.close()
+        finally:
+            if not shutdown_proxy():
+                print(json.dumps({"format":FORMAT,"status":"proxy_shutdown_failed","error_code":"CLOUD_SQL_PROXY_SHUTDOWN_FAILED"},sort_keys=True), file=sys.stderr)
+
+
+def wait_for_proxy(*, host: str = "127.0.0.1", port: int = 5432, timeout_seconds: float = 90,
+                   connect=socket.create_connection, clock=time.monotonic, sleep=time.sleep) -> None:
+    deadline = clock() + timeout_seconds
+    while True:
+        try:
+            with connect((host, port), timeout=1):
+                return
+        except OSError:
+            if clock() >= deadline:
+                raise ImportStopped("CLOUD_SQL_PROXY_NOT_READY", "proxy_startup")
+            sleep(min(0.5, max(0, deadline - clock())))
+
+
+def shutdown_proxy(*, endpoint: str = "http://127.0.0.1:9091/quitquitquit", timeout_seconds: float = 30,
+                   open_url=urllib.request.urlopen, clock=time.monotonic, sleep=time.sleep) -> bool:
+    """Request graceful Auth Proxy shutdown with a bounded retry window."""
+    deadline = clock() + timeout_seconds
+    request = urllib.request.Request(endpoint, method="POST")
+    while True:
+        try:
+            with open_url(request, timeout=1) as response:
+                return 200 <= response.status < 300
+        except (urllib.error.URLError, TimeoutError, OSError):
+            if clock() >= deadline:
+                return False
+            sleep(min(0.5, max(0, deadline - clock())))
 
 
 if __name__=="__main__":

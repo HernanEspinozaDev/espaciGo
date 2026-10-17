@@ -91,6 +91,40 @@ resource "google_storage_bucket" "artifacts" {
   }
 }
 
+# Private application files use a different bucket from ciphertext receipts and
+# transport objects. It remains absent until the import Job gate is explicitly
+# enabled in a reviewed plan.
+resource "google_storage_bucket" "private_files" {
+  count                       = local.import_enabled ? 1 : 0
+  project                     = var.project_id
+  name                        = "espacigo-gcp03-private-${var.run_id}"
+  location                    = var.region
+  storage_class               = "STANDARD"
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+  soft_delete_policy {
+    retention_duration_seconds = 0
+  }
+  labels = {
+    application = "espacigo"
+    purpose     = "gcp03-private-files"
+    run_id      = replace(var.run_id, "-", "_")
+  }
+}
+
+resource "google_storage_bucket_iam_member" "private_files_creator" {
+  count  = local.import_enabled ? 1 : 0
+  bucket = google_storage_bucket.private_files[0].name
+  role   = "roles/storage.objectCreator"
+  member = "serviceAccount:${google_service_account.admin[0].email}"
+  condition {
+    title       = "gcp03-private-files-${var.run_id}-run-prefix"
+    description = "Allow create-only objects under the exact import run prefix."
+    expression  = "resource.name.startsWith('projects/_/buckets/espacigo-gcp03-private-${var.run_id}/objects/runs/${var.run_id}/')"
+  }
+}
+
 resource "google_service_account" "admin" {
   count        = local.foundation_enabled ? 1 : 0
   project      = var.project_id
@@ -115,6 +149,52 @@ resource "google_secret_manager_secret_iam_member" "admin_password_reader" {
   secret_id = google_secret_manager_secret.admin_password[0].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.admin[0].email}"
+}
+
+resource "google_secret_manager_secret" "transport_key" {
+  count               = local.import_enabled ? 1 : 0
+  project             = var.project_id
+  secret_id           = "${local.prefix}-transport-key"
+  deletion_protection = true
+  deletion_policy     = "PREVENT"
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_iam_member" "transport_key_reader" {
+  count     = local.import_enabled ? 1 : 0
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.transport_key[0].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.admin[0].email}"
+}
+
+resource "google_storage_bucket_iam_member" "artifact_reader" {
+  count  = local.import_enabled ? 1 : 0
+  bucket = google_storage_bucket.artifacts[0].name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.admin[0].email}"
+}
+
+resource "google_service_account" "ciphertext_uploader" {
+  count        = local.uploader_enabled ? 1 : 0
+  project      = var.project_id
+  account_id   = "g03o-upload-${var.run_id}"
+  display_name = "GCP-03 ciphertext-only uploader ${var.run_id}"
+  description  = "Create-only uploader for one run prefix; no secrets or Cloud SQL permissions."
+}
+
+resource "google_storage_bucket_iam_member" "ciphertext_uploader" {
+  count  = local.uploader_enabled ? 1 : 0
+  bucket = google_storage_bucket.artifacts[0].name
+  role   = "roles/storage.objectCreator"
+  member = "serviceAccount:${google_service_account.ciphertext_uploader[0].email}"
+  condition {
+    title       = "gcp03-origin-${var.run_id}-ciphertext-prefix"
+    description = "Limit object creation to the single run prefix in the ciphertext bucket."
+    expression  = "resource.name.startsWith('projects/_/buckets/espacigo-gcp03-origin-${var.run_id}/objects/runs/${var.run_id}/')"
+  }
 }
 
 resource "google_project_iam_member" "admin_sql_client" {
