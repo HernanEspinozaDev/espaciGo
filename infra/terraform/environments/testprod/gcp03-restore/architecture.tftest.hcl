@@ -136,6 +136,76 @@ run "diagnostic_job_is_read_only_and_scoped" {
   }
 }
 
+run "iam_user_closeout_gate_does_not_lower_shared_protections" {
+  command = plan
+  variables {
+    project_id                     = "espacigo-testprod"
+    region                         = "southamerica-west1"
+    run_id                         = "fixture1"
+    enable_foundation              = true
+    enable_bootstrap_job           = true
+    enable_restore_jobs            = true
+    confirm_bootstrap_complete     = true
+    confirm_isolated_restore       = true
+    allow_restore_iam_user_destroy = true
+    confirm_destroy_run_id         = "fixture1"
+    admin_password_secret_version  = "7"
+    executor_image                 = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-restore-fixture1/restore@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    proxy_image                    = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    manifest_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    migration_inventory_sha256     = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  }
+
+  assert {
+    condition = (
+      google_sql_user.restore_iam[0].deletion_policy == "DELETE" &&
+      google_sql_user.verify_iam[0].deletion_policy == "DELETE" &&
+      google_sql_database_instance.restore[0].deletion_policy == "PREVENT" &&
+      google_sql_database_instance.restore[0].deletion_protection &&
+      google_sql_database_instance.restore[0].settings[0].deletion_protection_enabled &&
+      google_cloud_run_v2_job.restore[0].deletion_protection &&
+      google_cloud_run_v2_job.verify[0].deletion_protection
+    )
+    error_message = "The run-bound IAM-user gate must permit only the two login deletions without lowering SQL instance or Job protections."
+  }
+}
+
+run "iam_user_closeout_keeps_restore_identities_and_jobs" {
+  command = plan
+  variables {
+    project_id                     = "espacigo-testprod"
+    region                         = "southamerica-west1"
+    run_id                         = "fixture1"
+    enable_foundation              = true
+    enable_bootstrap_job           = true
+    enable_restore_jobs            = true
+    enable_restore_iam_users       = false
+    confirm_bootstrap_complete     = true
+    confirm_isolated_restore       = true
+    allow_restore_iam_user_destroy = true
+    confirm_destroy_run_id         = "fixture1"
+    admin_password_secret_version  = "7"
+    executor_image                 = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-restore-fixture1/restore@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    proxy_image                    = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    manifest_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    migration_inventory_sha256     = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  }
+
+  assert {
+    condition = (
+      length(google_sql_user.restore_iam) == 0 &&
+      length(google_sql_user.verify_iam) == 0 &&
+      length(google_service_account.restore) == 1 &&
+      length(google_service_account.verify) == 1 &&
+      length(google_cloud_run_v2_job.restore) == 1 &&
+      length(google_cloud_run_v2_job.verify) == 1 &&
+      google_sql_database_instance.restore[0].deletion_protection &&
+      google_sql_database_instance.restore[0].settings[0].deletion_protection_enabled
+    )
+    error_message = "IAM-user closeout must omit only the two login resources while retaining service accounts, Jobs, and the protected instance."
+  }
+}
+
 run "restore_image_override_requires_diagnostic_baseline" {
   command = plan
   variables {
