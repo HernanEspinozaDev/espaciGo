@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import shlex
 import stat
 import subprocess
 import sys
+import time
 
 FORMAT = "espacigo.gcp03.origin-postrestore-verification.v1"
 TARGET_DATABASE = "espacigo_scratch"
@@ -99,6 +101,64 @@ def _read_bound(path: Path, expected_hash: str) -> bytes:
     if not SHA_RE.fullmatch(expected_hash) or hashlib.sha256(data).hexdigest() != expected_hash:
         raise VerificationError("verification input hash mismatch")
     return data
+
+
+def read_gcs_generation(*, bucket_name: str, object_name: str, generation: int,
+                        expected_bytes: int, expected_sha256: str) -> bytes:
+    """Read one hash-bound review artifact at one exact object generation."""
+    if (bucket_name != f"espacigo-gcp03-origin-{TARGET_RUN_ID}" or
+            object_name not in {f"runs/{TARGET_RUN_ID}/toc.list",
+                                f"runs/{TARGET_RUN_ID}/normalization.sql"} or
+            type(generation) is not int or generation <= 0 or
+            type(expected_bytes) is not int or not 0 < expected_bytes <= 1_048_576 or
+            not SHA_RE.fullmatch(expected_sha256)):
+        raise VerificationError("review artifact identity or bounds are invalid")
+    try:
+        from google.cloud import storage
+        client = storage.Client()
+        blob = client.bucket(bucket_name).blob(object_name, generation=generation)
+        blob.reload(if_generation_match=generation)
+        if int(blob.generation) != generation or int(blob.size) != expected_bytes:
+            raise VerificationError("review artifact generation or size mismatch")
+        data = blob.download_as_bytes(if_generation_match=generation, checksum="crc32c")
+    except VerificationError:
+        raise
+    except Exception as exc:
+        raise VerificationError("review artifact exact-generation read failed") from exc
+    if len(data) != expected_bytes or hashlib.sha256(data).hexdigest() != expected_sha256:
+        raise VerificationError("review artifact byte count or hash mismatch")
+    return data
+
+
+def wait_for_proxy(*, host: str = "127.0.0.1", port: int = 9801,
+                   timeout_seconds: float = 90) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            connection = http.client.HTTPConnection(host, port, timeout=2)
+            connection.request("GET", "/startup")
+            response = connection.getresponse()
+            response.read()
+            connection.close()
+            if response.status == 200:
+                return
+        except OSError:
+            pass
+        time.sleep(1)
+    raise VerificationError("Cloud SQL Proxy startup timed out")
+
+
+def shutdown_proxy(*, host: str = "127.0.0.1", port: int = 9091) -> bool:
+    """Ask the Cloud Run proxy sidecar to exit; bounded and best effort."""
+    try:
+        connection = http.client.HTTPConnection(host, port, timeout=3)
+        connection.request("POST", "/quitquitquit")
+        response = connection.getresponse()
+        response.read()
+        connection.close()
+        return response.status in (200, 202, 204)
+    except OSError:
+        return False
 
 
 def current_migration_inventory_sha256() -> str:
@@ -213,15 +273,25 @@ def verify_report(report: dict, expected_tables: set[str], *, expected_run_id: s
     }
 
 
-def run_verifier(*, toc_path: Path, expected_toc_sha256: str,
-                 normalization_path: Path, expected_normalization_sha256: str,
+def run_verifier(*, toc_path: Path | None = None, toc_bytes: bytes | None = None,
+                 expected_toc_sha256: str,
+                 normalization_path: Path | None = None, normalization_bytes: bytes | None = None,
+                 expected_normalization_sha256: str,
                  expected_migration_sha256: str, expected_run_id: str,
                  expected_source_seal_sha256: str, expected_receipt_sha256: str,
                  expected_manifest_sha256: str, psql: str = "psql",
                  host: str = "127.0.0.1", port: int = 5432,
                  database_user: str = "espacigo_gcp03_observer") -> dict:
-    toc_bytes = _read_bound(toc_path, expected_toc_sha256)
-    _read_bound(normalization_path, expected_normalization_sha256)
+    if (toc_bytes is None) == (toc_path is None) or (normalization_bytes is None) == (normalization_path is None):
+        raise VerificationError("provide exactly one source for each review artifact")
+    if toc_bytes is None:
+        toc_bytes = _read_bound(toc_path, expected_toc_sha256)
+    elif hashlib.sha256(toc_bytes).hexdigest() != expected_toc_sha256:
+        raise VerificationError("TOC allowlist hash mismatch")
+    if normalization_bytes is None:
+        _read_bound(normalization_path, expected_normalization_sha256)
+    elif hashlib.sha256(normalization_bytes).hexdigest() != expected_normalization_sha256:
+        raise VerificationError("normalization SQL hash mismatch")
     actual_migration_sha = current_migration_inventory_sha256()
     if actual_migration_sha != expected_migration_sha256:
         raise VerificationError("migration inventory hash mismatch")
@@ -250,9 +320,14 @@ def run_verifier(*, toc_path: Path, expected_toc_sha256: str,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--toc-allowlist", type=Path, required=True)
+    parser.add_argument("--artifact-bucket", required=True)
+    parser.add_argument("--toc-object", required=True)
+    parser.add_argument("--toc-generation", type=int, required=True)
+    parser.add_argument("--toc-bytes", type=int, required=True)
     parser.add_argument("--expected-toc-sha256", required=True)
-    parser.add_argument("--normalization-sql", type=Path, required=True)
+    parser.add_argument("--normalization-object", required=True)
+    parser.add_argument("--normalization-generation", type=int, required=True)
+    parser.add_argument("--normalization-bytes", type=int, required=True)
     parser.add_argument("--expected-normalization-sha256", required=True)
     parser.add_argument("--expected-migration-sha256", required=True)
     parser.add_argument("--expected-run-id", required=True)
@@ -262,10 +337,18 @@ def main() -> None:
     parser.add_argument("--database-user", required=True,
                         help="Cloud SQL IAM login granted membership in espacigo_gcp03_observer")
     args = parser.parse_args()
+    result = None
     try:
-        result = run_verifier(toc_path=args.toc_allowlist,
+        toc_bytes = read_gcs_generation(bucket_name=args.artifact_bucket,
+            object_name=args.toc_object, generation=args.toc_generation,
+            expected_bytes=args.toc_bytes, expected_sha256=args.expected_toc_sha256)
+        normalization_bytes = read_gcs_generation(bucket_name=args.artifact_bucket,
+            object_name=args.normalization_object, generation=args.normalization_generation,
+            expected_bytes=args.normalization_bytes, expected_sha256=args.expected_normalization_sha256)
+        wait_for_proxy()
+        result = run_verifier(toc_bytes=toc_bytes,
             expected_toc_sha256=args.expected_toc_sha256,
-            normalization_path=args.normalization_sql,
+            normalization_bytes=normalization_bytes,
             expected_normalization_sha256=args.expected_normalization_sha256,
             expected_migration_sha256=args.expected_migration_sha256,
             expected_run_id=args.expected_run_id,
@@ -277,6 +360,8 @@ def main() -> None:
     except (VerificationError, OSError, ValueError, subprocess.SubprocessError) as exc:
         print(json.dumps({"format": FORMAT, "status": "failed", "reason": str(exc)}, sort_keys=True), file=sys.stderr)
         raise SystemExit(2)
+    finally:
+        shutdown_proxy()
 
 
 if __name__ == "__main__":

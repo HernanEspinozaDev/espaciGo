@@ -69,15 +69,17 @@ class MemoryStore:
 
 
 class FakeDatabase:
-    def __init__(self, *, empty=True):
+    def __init__(self, *, empty=True, normalization_prerequisites_available=True):
         self.empty = empty
+        self.normalization_prerequisites_available = normalization_prerequisites_available
         self.calls = []
 
     def preflight(self):
         self.calls.append("preflight")
         return {"database": "espacigo_scratch", "empty": self.empty, "roles_ready": True,
                 "extensions_ready": True, "application_schemas_empty": True,
-                "postgres_version": True, "admin_role": True}
+                "postgres_version": True, "admin_role": True, "admin_superuser": False,
+                "normalization_prerequisites_available": self.normalization_prerequisites_available}
 
     def list_toc(self, feed_archive):
         self.calls.append("toc")
@@ -103,7 +105,7 @@ class FakeDatabase:
 
 
 class ExecutorTests(unittest.TestCase):
-    def _fixture(self, *, empty=True, private_tar=None):
+    def _fixture(self, *, empty=True, private_tar=None, normalization_prerequisites_available=True):
         td = tempfile.TemporaryDirectory()
         self.addCleanup(td.cleanup)
         root = Path(td.name)
@@ -165,7 +167,8 @@ class ExecutorTests(unittest.TestCase):
         ref = ObjectRef("runs/g03o-1017/receipt.json", 7, digest(receipt), len(receipt))
         config = ImportConfig("espacigo-gcp03-origin-g03o-1017", "espacigo-gcp03-private-g03o-1017", ref, digest(receipt), digest(manifest_bytes), "1" * 64,
                               "2" * 64, digest(normalization), EXPECTED_TARGET, key_file)
-        db = FakeDatabase(empty=empty)
+        db = FakeDatabase(empty=empty,
+            normalization_prerequisites_available=normalization_prerequisites_available)
         return config, MemoryStore(objects), db, MemoryPrivateStore()
 
     def test_one_shot_import_order_and_sanitation(self):
@@ -201,6 +204,14 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(result["error_code"], "TARGET_NOT_PRISTINE")
         self.assertEqual(db.calls, ["preflight"])
         self.assertEqual(result["transaction_outcome"], "not_started")
+
+    def test_missing_normalization_prerequisites_stop_before_archive_restore(self):
+        config, store, db, private_store = self._fixture(normalization_prerequisites_available=False)
+        result = OriginImportExecutor(config, store, db, private_store).run()
+        self.assertEqual(result["error_code"], "TARGET_NOT_PRISTINE")
+        self.assertEqual(result["transaction_outcome"], "not_started")
+        self.assertEqual(db.calls, ["preflight"])
+        self.assertEqual(private_store.objects, {})
 
     def test_receipt_hash_failure_never_connects_to_database(self):
         config, store, db, private_store = self._fixture()

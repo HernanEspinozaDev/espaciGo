@@ -73,6 +73,7 @@ record = {
     "oci_archive_sha256": hashlib.sha256(pathlib.Path(archive).read_bytes()).hexdigest(),
     "executor_command": "scripts/gcp03_origin_cloud_import_executor.py",
     "executor_phases": ["authenticate", "import", "sanitize", "private-files-copy"],
+    "read_only_postrestore_verifier": "scripts/gcp03_origin_postrestore_verify.py",
     "target_confirmation": "espacigo-testprod:southamerica-west1:espacigo-gcp03-origin-g03o-1017-pg/espacigo_scratch",
     "execution_purpose": "one-shot GCP-03 origin import; no application services or workers",
 }

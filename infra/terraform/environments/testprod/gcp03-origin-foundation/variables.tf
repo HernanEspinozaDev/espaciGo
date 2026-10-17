@@ -72,6 +72,103 @@ variable "enable_origin_import_job" {
   }
 }
 
+variable "enable_origin_postrestore_job" {
+  type        = bool
+  default     = false
+  description = "Default-off one-shot verifier, gated on the exact completed import receipt and generation-bound review artifacts."
+  validation {
+    condition = !var.enable_origin_postrestore_job || (
+      var.enable_foundation && var.confirm_origin_rehearsal && var.run_id == "g03o-1017" &&
+      var.confirm_origin_bootstrap_completed && var.confirm_origin_import_completed &&
+      can(regex("^[0-9a-f]{64}$", var.bootstrap_evidence_sha256)) &&
+      can(regex("^[0-9a-f]{64}$", var.origin_import_evidence_sha256)) &&
+      can(regex("^[0-9a-f]{64}$", var.import_receipt_sha256)) &&
+      var.import_manifest_sha256 == "c5fc1964175244e998742e34dd4c4376b2d822b27574416b61228b912641ec30" &&
+      var.import_toc_sha256 == "0677025fc73b036b9da9804ec457a8beea737662c9cf8537ba1bddd377b9b942" &&
+      var.import_normalization_sha256 == "2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2" &&
+      var.import_migration_sha256 == "eca6b4295b593bc3ea3af470fb747bd6e788e141df4a57c8a0fae91ea6ad1fb2" &&
+      can(regex("@sha256:[0-9a-f]{64}$", var.origin_import_image)) &&
+      can(regex("@sha256:[0-9a-f]{64}$", var.origin_postrestore_image)) &&
+      var.origin_postrestore_image == var.origin_import_image &&
+      can(regex("@sha256:[0-9a-f]{64}$", var.origin_proxy_image)) &&
+      var.import_receipt_object == "runs/g03o-1017/receipt.json" &&
+      can(regex("^[1-9][0-9]*$", var.import_receipt_generation)) && var.import_receipt_bytes > 0 &&
+      var.import_toc_object == "runs/g03o-1017/toc.list" &&
+      var.import_normalization_object == "runs/g03o-1017/normalization.sql" &&
+      can(regex("^[1-9][0-9]*$", var.import_toc_generation)) && var.import_toc_bytes > 0 &&
+      can(regex("^[1-9][0-9]*$", var.import_normalization_generation)) && var.import_normalization_bytes > 0
+    )
+    error_message = "Post-restore verifier requires exact g03o-1017 import completion, receipt, object generations, hashes, and pinned images."
+  }
+}
+
+variable "confirm_origin_import_completed" {
+  type        = bool
+  default     = false
+  description = "Acknowledges a completed, independently reviewed import receipt before enabling verification."
+}
+
+variable "origin_import_evidence_sha256" {
+  type        = string
+  default     = ""
+  description = "SHA-256 of the sanitized successful import receipt/report."
+  validation {
+    condition     = var.origin_import_evidence_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.origin_import_evidence_sha256))
+    error_message = "Import evidence must be identified by lowercase SHA-256."
+  }
+}
+
+variable "origin_postrestore_image" {
+  type        = string
+  default     = ""
+  description = "Digest-pinned Python/PostgreSQL image containing the read-only post-restore verifier."
+  validation {
+    condition     = var.origin_postrestore_image == "" || (can(regex("@sha256:[0-9a-f]{64}$", var.origin_postrestore_image)) && startswith(var.origin_postrestore_image, "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin-import@sha256:"))
+    error_message = "Post-restore verifier image must be digest-pinned in the existing GCP-03 repository."
+  }
+}
+
+variable "import_toc_object" {
+  type    = string
+  default = ""
+}
+variable "import_toc_generation" {
+  type    = string
+  default = ""
+}
+variable "import_toc_bytes" {
+  type    = number
+  default = 0
+}
+variable "import_toc_sha256" {
+  type    = string
+  default = ""
+  validation {
+    condition     = var.import_toc_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.import_toc_sha256))
+    error_message = "TOC allowlist must be identified by lowercase SHA-256."
+  }
+}
+variable "import_normalization_object" {
+  type    = string
+  default = ""
+}
+variable "import_normalization_generation" {
+  type    = string
+  default = ""
+}
+variable "import_normalization_bytes" {
+  type    = number
+  default = 0
+}
+variable "import_migration_sha256" {
+  type    = string
+  default = ""
+  validation {
+    condition     = var.import_migration_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.import_migration_sha256))
+    error_message = "Migration inventory must be identified by lowercase SHA-256."
+  }
+}
+
 variable "enable_origin_ciphertext_uploader" {
   type        = bool
   default     = false
@@ -212,14 +309,16 @@ variable "bootstrap_evidence_sha256" {
 }
 
 locals {
-  foundation_enabled    = var.enable_foundation && var.confirm_origin_rehearsal
-  prefix                = "espacigo-gcp03-origin-${var.run_id}"
-  admin_account_id      = "g03o-admin-${var.run_id}"
-  instance_name         = "${local.prefix}-pg"
-  admin_enabled         = local.foundation_enabled && var.enable_origin_bootstrap_job
-  observer_enabled      = local.foundation_enabled && var.enable_origin_observer_job
-  import_enabled        = local.foundation_enabled && var.enable_origin_import_job
-  uploader_enabled      = local.foundation_enabled && var.enable_origin_ciphertext_uploader
-  observer_account_id   = "g03o-observer-${var.run_id}"
-  observer_database_url = "postgres://${local.observer_account_id}%40${var.project_id}.iam@localhost:5432/espacigo_scratch?sslmode=disable"
+  foundation_enabled     = var.enable_foundation && var.confirm_origin_rehearsal
+  prefix                 = "espacigo-gcp03-origin-${var.run_id}"
+  admin_account_id       = "g03o-admin-${var.run_id}"
+  instance_name          = "${local.prefix}-pg"
+  admin_enabled          = local.foundation_enabled && var.enable_origin_bootstrap_job
+  observer_enabled       = local.foundation_enabled && var.enable_origin_observer_job
+  import_enabled         = local.foundation_enabled && var.enable_origin_import_job
+  uploader_enabled       = local.foundation_enabled && var.enable_origin_ciphertext_uploader
+  observer_account_id    = "g03o-observer-${var.run_id}"
+  postrestore_enabled    = local.foundation_enabled && var.enable_origin_postrestore_job
+  postrestore_account_id = "g03o-postverify-${var.run_id}"
+  observer_database_url  = "postgres://${local.observer_account_id}%40${var.project_id}.iam@localhost:5432/espacigo_scratch?sslmode=disable"
 }

@@ -1,0 +1,79 @@
+{
+  "cloud_sql_proxy": {
+    "auto_iam_authn_flag_verified": true,
+    "cloud_connection_started": false,
+    "compressed_layer_bytes": 18535878,
+    "image": "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:076f128d5bdb9d345e253aa9bbf5f1f9a320caff21dfdbf07d582437e55e4f66",
+    "local_uncompressed_image_bytes": 60743211,
+    "quitquitquit_flag_verified": true,
+    "version": "2.26.0"
+  },
+  "configuration_commit": "230970864139899773123ef52e04ee4ccd1d1ea4",
+  "cost_and_window": {
+    "cloud_run_verifier_executed": false,
+    "cloud_sql_plus_disk_rate_usd_per_hour": 0.202209863,
+    "estimated_accrual_at_2026_10_17T20_07_47Z_usd": 2.4693,
+    "estimated_remaining_through_deadline_usd": 0.729,
+    "estimated_total_through_deadline_usd": 3.2519,
+    "preservation_deadline_utc": "2026-10-17T23:59:59Z",
+    "rates_are_list_pricing_and_not_a_spend_cap": true,
+    "estimated_accrual_at_2026_10_17T20_21_11Z_usd": 2.5145,
+    "estimated_accrual_at_2026_10_17T20_23_41Z_usd": 2.5229
+  },
+  "execution_authorized": false,
+  "format": "espacigo.gcp03.origin-postrestore-review-summary.v1",
+  "generated_at_utc": "2026-10-17T20:23:41Z",
+  "import_verifier_image": {
+    "contains_local_recovery_key_or_review_artifacts": false,
+    "contains_postrestore_verifier": true,
+    "oci_archive_bytes": 260927488,
+    "oci_archive_path": ".local/testing/g03o-origin-import-image-p1-20261017/gcp03origin-import-linux-amd64.oci.tar",
+    "oci_archive_sha256": "aa47177ce71281ce768b75d6fd7e30593035d8a76d037e6f7e92862462bb0f0f",
+    "oci_manifest_digest": "sha256:6b5d056a6093444deb3d3d6b771613b5553940720e0c849e26fb56958300d261",
+    "python_dependencies_lock_sha256": "0313727918abc6a33c8c7672fc29a47ff7266557a8ae15c45fcc3f50a1271365",
+    "registry_upload_performed": false,
+    "source_commit": "38859de0eb97d321a7d282d5ed10156e00fa80a8",
+    "local_network_none_import_check": true,
+    "local_docker_image_bytes": 1052523941
+  },
+  "source": {
+    "decrypted_artifacts": [
+      "database.dump",
+      "origin-metadata.json"
+    ],
+    "migration_inventory_sha256": "eca6b4295b593bc3ea3af470fb747bd6e788e141df4a57c8a0fae91ea6ad1fb2",
+    "normalization_owner_statement_count": 147,
+    "normalization_sql_bytes": 13047,
+    "normalization_sql_sha256": "2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2",
+    "observer_column_grant_count": 5,
+    "owner_acl_map_bytes": 76978,
+    "owner_acl_map_sha256": "5a3f60131af1af7543fdc1c933d4b51ce44a2cb6293119df0661890a04158ab0",
+    "owner_action_count": 240,
+    "plaintext_dump_written": false,
+    "public_table_count": 96,
+    "selected_toc_entry_count": 711,
+    "source_acl_digest_count": 115,
+    "source_sealed_sha256": "80a4e1e0002cf12f8e750ddaac7ceb796726b57a36405aa2b0b8e7852e928262",
+    "toc_allowlist_bytes": 70838,
+    "toc_allowlist_sha256": "0677025fc73b036b9da9804ec457a8beea737662c9cf8537ba1bddd377b9b942",
+    "transport_manifest_sha256": "c5fc1964175244e998742e34dd4c4376b2d822b27574416b61228b912641ec30",
+    "normalization_prerequisite": "bootstrap grants ADMIN OPTION and SET membership on espacigo_runtime to postgres; importer preflight fails before restore when absent"
+  },
+  "validation": {
+    "postgres18_non_superuser_normalization": "passed",
+    "missing_runtime_admin_option_preflight": "stopped_before_archive_restore",
+    "plaintext_dump_written": false,
+    "bootstrap_or_import_job_executed": false,
+    "network_none_image_imports": "passed"
+  },
+  "normalization_execution": {
+    "postgres_version": 18,
+    "admin_superuser": false,
+    "full_generated_sql_executed": true,
+    "owner_statement_count": 147,
+    "observer_grants_before_owner_transfer": true,
+    "runtime_public_create_revoked_after_transfer": true,
+    "runtime_role_no_login_no_superuser_no_inherit": true,
+    "missing_admin_option_preflight": "stopped_before_restore"
+  }
+}

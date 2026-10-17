@@ -1,0 +1,48 @@
+{
+  "backend": {
+    "bucket": "espacigo-testprod-tfstate-447373903153-gcp",
+    "lock_acquired": false,
+    "prefix": "espacigo/testprod/gcp03-origin/g03o-1017",
+    "state_lineage": "4e81a953-7353-fbd4-93a8-e4b9a5019e95",
+    "state_serial": 8,
+    "type": "gcs"
+  },
+  "configuration_commit": "230970864139899773123ef52e04ee4ccd1d1ea4",
+  "format": "espacigo.gcp03.origin-uploader-plan-summary.v1",
+  "generated_at_utc": "2026-10-17T20:21:11Z",
+  "plan": {
+    "actions": {
+      "create": 2,
+      "delete": 0,
+      "replace": 0,
+      "update": 0
+    },
+    "apply_performed": false,
+    "binary_path": ".local/testing/g03o-1017-uploader-plan-20261017/uploader.tfplan",
+    "bytes": 34142,
+    "import_gate_enabled": false,
+    "postrestore_gate_enabled": false,
+    "refresh": true,
+    "resource_actions": [
+      {
+        "action": "create",
+        "address": "google_service_account.ciphertext_uploader[0]"
+      },
+      {
+        "action": "create",
+        "address": "google_storage_bucket_iam_member.ciphertext_uploader[0]"
+      }
+    ],
+    "sha256": "281c68008b6cd2bd7be53eb26037588a0a5e6e61ed86cc3d3aa63950e6c42f45",
+    "uploader_gate_enabled": true
+  },
+  "project_id": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "review": {
+    "cloud_run_jobs_invoked": false,
+    "role": "roles/storage.objectCreator",
+    "scope": "runs/g03o-1017/ only",
+    "result": "two creates for uploader service account and prefix-conditioned objectCreator binding; no updates, replacements, or deletes"
+  },
+  "run_id": "g03o-1017"
+}

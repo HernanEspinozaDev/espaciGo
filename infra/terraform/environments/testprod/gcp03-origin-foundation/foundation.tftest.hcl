@@ -25,10 +25,73 @@ run "foundation_is_off_by_default" {
       length(google_service_account.origin_observer) == 0 &&
       length(google_sql_user.origin_observer) == 0
       && length(google_cloud_run_v2_job.origin_import) == 0
+      && length(google_cloud_run_v2_job.origin_postrestore) == 0
       && length(google_storage_bucket.private_files) == 0
       && length(google_service_account.ciphertext_uploader) == 0
     )
     error_message = "No origin rehearsal resource may be planned while Foundation is off."
+  }
+}
+
+run "postrestore_job_is_iam_only_generation_bound_and_read_only" {
+  command = plan
+
+  variables {
+    run_id                             = "g03o-1017"
+    enable_foundation                  = true
+    confirm_origin_rehearsal           = true
+    enable_origin_postrestore_job      = true
+    confirm_origin_bootstrap_completed = true
+    bootstrap_evidence_sha256          = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    confirm_origin_import_completed    = true
+    origin_import_evidence_sha256      = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    import_receipt_object              = "runs/g03o-1017/receipt.json"
+    import_receipt_generation          = "9"
+    import_receipt_bytes               = 2048
+    import_receipt_sha256              = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    import_manifest_sha256             = "c5fc1964175244e998742e34dd4c4376b2d822b27574416b61228b912641ec30"
+    import_toc_object                  = "runs/g03o-1017/toc.list"
+    import_toc_generation              = "10"
+    import_toc_bytes                   = 8192
+    import_toc_sha256                  = "0677025fc73b036b9da9804ec457a8beea737662c9cf8537ba1bddd377b9b942"
+    import_normalization_object        = "runs/g03o-1017/normalization.sql"
+    import_normalization_generation    = "11"
+    import_normalization_bytes         = 13047
+    import_normalization_sha256        = "2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2"
+    import_migration_sha256            = "eca6b4295b593bc3ea3af470fb747bd6e788e141df4a57c8a0fae91ea6ad1fb2"
+    origin_import_image                = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin-import@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    origin_postrestore_image           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin-import@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    origin_proxy_image                 = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  }
+
+  assert {
+    condition = (length(google_cloud_run_v2_job.origin_postrestore) == 1 &&
+      google_cloud_run_v2_job.origin_postrestore[0].template[0].task_count == 1 &&
+      google_cloud_run_v2_job.origin_postrestore[0].template[0].parallelism == 1 &&
+      google_cloud_run_v2_job.origin_postrestore[0].template[0].template[0].max_retries == 0 &&
+    length(google_cloud_run_v2_job.origin_postrestore[0].template[0].template[0].containers) == 2)
+    error_message = "Post-restore verification must run once with no automatic retries and one proxy sidecar."
+  }
+  assert {
+    condition = (contains(google_cloud_run_v2_job.origin_postrestore[0].template[0].template[0].containers[0].depends_on, "cloud-sql-proxy") &&
+      contains(google_cloud_run_v2_job.origin_postrestore[0].template[0].template[0].containers[1].args, "--auto-iam-authn") &&
+    contains(google_cloud_run_v2_job.origin_postrestore[0].template[0].template[0].containers[1].args, "--quitquitquit"))
+    error_message = "Verifier must wait for the automatic IAM proxy and request bounded shutdown."
+  }
+  assert {
+    condition     = google_sql_user.origin_postrestore[0].database_roles == tolist(["espacigo_gcp03_observer"])
+    error_message = "Verifier SQL user must be assigned only to the existing read-only observer group."
+  }
+  assert {
+    condition = (google_storage_bucket_iam_member.origin_postrestore_artifact_viewer[0].role == "roles/storage.objectViewer" &&
+      strcontains(google_storage_bucket_iam_member.origin_postrestore_artifact_viewer[0].condition[0].expression, "objects/runs/g03o-1017/toc.list") &&
+      strcontains(google_storage_bucket_iam_member.origin_postrestore_artifact_viewer[0].condition[0].expression, "objects/runs/g03o-1017/normalization.sql") &&
+    length(google_storage_bucket_iam_member.private_files_creator) == 0)
+    error_message = "Verifier must have access only to exact object reads."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_job.origin_import) == 0
+    error_message = "Post-restore verification test must not enable the import job."
   }
 }
 
