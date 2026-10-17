@@ -99,6 +99,7 @@ type ObserveReport struct {
 type MembershipReport struct {
 	Database           string `json:"database"`
 	Login              string `json:"login"`
+	Grantor            string `json:"grantor"`
 	TransactionOutcome string `json:"transaction_outcome"`
 	RuntimeRoleReady   bool   `json:"runtime_role_ready"`
 	MembershipSet      bool   `json:"membership_set"`
@@ -109,6 +110,11 @@ type MembershipReport struct {
 }
 
 const runtimeMembershipGrant = `GRANT espacigo_runtime TO postgres WITH ADMIN FALSE, INHERIT FALSE, SET TRUE`
+
+const runtimeMembershipPostcheckSQL = `SELECT r.rolname='espacigo_runtime' AND NOT r.rolcanlogin AND NOT r.rolsuper AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolreplication AND NOT r.rolbypassrls AND NOT r.rolinherit,
+ m.admin_option, m.inherit_option, m.set_option
+ FROM pg_catalog.pg_roles r JOIN pg_catalog.pg_auth_members m ON m.roleid=r.oid AND m.member=current_user::regrole
+ WHERE r.rolname='espacigo_runtime' AND m.grantor=current_user::regrole`
 
 func RunMembership(ctx context.Context, config Config, password string) (MembershipReport, error) {
 	if config.Phase != PhaseMembership || config.Login != AdminLogin || config.DatabaseURL != AdminDatabaseURL || password == "" || !config.PrivateIP {
@@ -124,6 +130,10 @@ func RunMembership(ctx context.Context, config Config, password string) (Members
 }
 
 func membershipOnConnection(ctx context.Context, conn *pgx.Conn, commit func(context.Context, pgx.Tx) error) (MembershipReport, error) {
+	return membershipOnConnectionWithPostcheck(ctx, conn, runtimeMembershipPostcheckSQL, commit)
+}
+
+func membershipOnConnectionWithPostcheck(ctx context.Context, conn *pgx.Conn, postcheckSQL string, commit func(context.Context, pgx.Tx) error) (MembershipReport, error) {
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return MembershipReport{TransactionOutcome: "not_started"}, errors.New("GCP-03 origin membership could not begin its transaction")
@@ -132,8 +142,9 @@ func membershipOnConnection(ctx context.Context, conn *pgx.Conn, commit func(con
 	if err := tx.QueryRow(ctx, `SELECT current_database(), current_user`).Scan(&report.Database, &report.Login); err != nil || report.Database != DatabaseName || report.Login != AdminLogin {
 		return rollbackMembership(tx, report, "GCP-03 origin membership connected to an unexpected identity")
 	}
+	report.Grantor = report.Login
 	var actorSuper, actorExpected bool
-	if err := tx.QueryRow(ctx, `SELECT r.rolsuper, r.rolcanlogin AND r.rolcreaterole AND NOT r.rolcreatedb FROM pg_catalog.pg_roles r WHERE r.rolname=current_user`).Scan(&actorSuper, &actorExpected); err != nil || actorSuper || !actorExpected {
+	if err := tx.QueryRow(ctx, `SELECT r.rolsuper, r.rolcanlogin AND r.rolcreaterole FROM pg_catalog.pg_roles r WHERE r.rolname=current_user`).Scan(&actorSuper, &actorExpected); err != nil || actorSuper || !actorExpected {
 		return rollbackMembership(tx, report, "GCP-03 origin membership requires the fixed non-superuser postgres login")
 	}
 	var runtimeOK bool
@@ -145,10 +156,10 @@ func membershipOnConnection(ctx context.Context, conn *pgx.Conn, commit func(con
 		return rollbackMembership(tx, report, "GCP-03 origin runtime membership grant failed")
 	}
 	var admin, inherit, set bool
-	if err := tx.QueryRow(ctx, `SELECT r.rolname='espacigo_runtime' AND NOT r.rolcanlogin AND NOT r.rolsuper AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolreplication AND NOT r.rolbypassrls AND NOT r.rolinherit,
- m.admin_option, m.inherit_option, m.set_option
- FROM pg_catalog.pg_roles r JOIN pg_catalog.pg_auth_members m ON m.roleid=r.oid AND m.member=current_user::regrole
- WHERE r.rolname='espacigo_runtime'`).Scan(&report.RuntimeRoleReady, &admin, &inherit, &set); err != nil {
+	if postcheckSQL == "" {
+		return rollbackMembership(tx, report, "GCP-03 origin runtime membership postcondition is unavailable")
+	}
+	if err := tx.QueryRow(ctx, postcheckSQL).Scan(&report.RuntimeRoleReady, &admin, &inherit, &set); err != nil {
 		return rollbackMembership(tx, report, "GCP-03 origin runtime membership postcondition could not be read")
 	}
 	report.AdminOption, report.InheritOption, report.SetOption = admin, inherit, set
