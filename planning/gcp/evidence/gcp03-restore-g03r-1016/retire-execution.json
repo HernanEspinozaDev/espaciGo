@@ -1,0 +1,58 @@
+{
+  "artifact_deletions_sent": false,
+  "artifact_generations_at_preflight": {
+    "allowlist.toc": "1792195786699241",
+    "dump.toc": "1792195778303427",
+    "manifest.json": "1792195760678849",
+    "synthetic-v1-v61.dump": "1792195769229365"
+  },
+  "limits": [
+    "Cloud Run task completion did not mean application retirement succeeded.",
+    "No assertion is made that the database transaction rolled back; the executor reported commit_outcome_uncertain=false.",
+    "The three-user/one-space/two-occupancy rehearsal is synthetic and is not a snapshot or migration of the persistent source dataset."
+  ],
+  "no_retry": true,
+  "preflight": {
+    "admin_secret_version_1_enabled": true,
+    "admin_service_account": true,
+    "invoker_limited_to_authorized_operator": true,
+    "isolated_private_instance_and_scratch_db": true,
+    "job_phase_run_target": true,
+    "no_prior_retire_execution": true,
+    "objects_original_generations": true,
+    "retire_source_reviewed_at_main_commit": true,
+    "reviewed_executor_image": true,
+    "zero_retries_single_task": true
+  },
+  "prior_restore_verify_evidence_sha256": "8e366ed0089aa10c2fa60ec38afb023d905787db9e6ddcb5897c2f07044a0068",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "retire_job": {
+    "application_result": "failed",
+    "cloud_run_status": "Completed=True",
+    "cloud_run_succeeded_count": 1,
+    "commit_outcome_uncertain": false,
+    "completed_at": "2026-10-17T00:48:56.768468Z",
+    "error_code": "PHASE_FAILED",
+    "execution": "espacigo-gcp03-restore-g03r-1016-retire-vlzxq",
+    "failure_sha256": "2769a7511c6d6abd31a9c29dde3a0e68c69dd72499827deb2be0c6e124b21e61",
+    "image_digest": "sha256:7cca0b4371c415ebb1f5b72516f1d3a119ba6f8d298ce46f07f2a93d12369bce",
+    "max_retries": 0,
+    "name": "espacigo-gcp03-restore-g03r-1016-retire",
+    "phase": "retire",
+    "proxy_shutdown_confirmed": true,
+    "secret_version": 1,
+    "service_account": "g03-restore-admin-g03r-1016@espacigo-testprod.iam.gserviceaccount.com",
+    "stage": "phase_execute",
+    "started_at": "2026-10-17T00:48:48.500434Z",
+    "task_count": 1
+  },
+  "retire_source_commit": "2eedba7d67cfe8bc4e6c163edf34170c618788c8",
+  "retire_source_sha256": "6404a9dfe2a6e5b253794b64c99fd55c1f6cee5d95f1b02e2a7976f329564ac1",
+  "run_id": "g03r-1016",
+  "schema": "espacigo.gcp03.retire-execution-evidence.v1",
+  "secret_or_resource_deletions_sent": false,
+  "source_main_commit": "2eedba7d67cfe8bc4e6c163edf34170c618788c8",
+  "target": "espacigo-testprod:southamerica-west1:espacigo-gcp03-restore-g03r-1016-pg/espacigo_scratch",
+  "teardown_applied": false
+}
