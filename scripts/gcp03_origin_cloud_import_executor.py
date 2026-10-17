@@ -609,7 +609,7 @@ SELECT json_build_object(
      AND (current_user=pg_get_userbyid(n.nspowner) OR pg_has_role(current_user,n.nspowner,'USAGE'))
      AND has_schema_privilege(current_user,n.oid,'CREATE'))
    AND EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.roleid=(SELECT oid FROM pg_roles WHERE rolname='espacigo_runtime')
-      AND m.member=current_user::regrole AND m.admin_option AND NOT m.inherit_option AND m.set_option)
+      AND m.member=current_user::regrole AND NOT m.admin_option AND NOT m.inherit_option AND m.set_option)
    AND NOT has_schema_privilege('espacigo_runtime','public','CREATE')
  ),
  'extensions_ready',((SELECT count(*)=7 FROM pg_extension) AND (SELECT count(*)=7 FROM pg_extension WHERE (extname,extversion) IN (('btree_gist','1.8'),('fuzzystrmatch','1.2'),('plpgsql','1.0'),('postgis','3.6.4'),('postgis_tiger_geocoder','3.6.4'),('postgis_topology','3.6.4'),('unaccent','1.1')))),

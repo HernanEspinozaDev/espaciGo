@@ -197,6 +197,24 @@ resource "google_storage_bucket_iam_member" "ciphertext_uploader" {
   }
 }
 
+# Temporary, least-privilege human-to-uploader impersonation. This custom
+# project role contains only getAccessToken; its binding is on the uploader SA.
+resource "google_project_iam_custom_role" "uploader_token_access" {
+  count       = local.uploader_impersonation_enabled ? 1 : 0
+  project     = var.project_id
+  role_id     = "g03oUploadTokenAccessG03o1017"
+  title       = "G03O-1017 uploader token access"
+  description = "Temporary run-scoped ability to mint access tokens for the ciphertext uploader service account."
+  permissions = ["iam.serviceAccounts.getAccessToken"]
+}
+
+resource "google_service_account_iam_member" "uploader_token_access" {
+  count              = local.uploader_impersonation_enabled ? 1 : 0
+  service_account_id = google_service_account.ciphertext_uploader[0].name
+  role               = google_project_iam_custom_role.uploader_token_access[0].name
+  member             = "user:pasteleriahijitos@gmail.com"
+}
+
 resource "google_project_iam_member" "admin_sql_client" {
   count   = local.foundation_enabled ? 1 : 0
   project = var.project_id

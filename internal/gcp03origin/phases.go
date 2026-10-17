@@ -22,7 +22,7 @@ var bootstrapStatements = []string{
 	`CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
 	`CREATE ROLE espacigo_gadm_bootstrap NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
 	`CREATE ROLE espacigo_gcp03_observer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
-	`GRANT espacigo_runtime TO postgres WITH ADMIN OPTION, INHERIT FALSE, SET TRUE`,
+	`GRANT espacigo_runtime TO postgres WITH ADMIN FALSE, INHERIT FALSE, SET TRUE`,
 	`REVOKE TEMPORARY ON DATABASE espacigo_scratch FROM PUBLIC`,
 	`GRANT CONNECT ON DATABASE espacigo_scratch TO espacigo_runtime, espacigo_gcp03_observer`,
 	`GRANT USAGE ON SCHEMA public TO espacigo_gcp03_observer`,
@@ -92,6 +92,91 @@ type ObserveReport struct {
 	ExtensionOwnedFunctions int64       `json:"extension_owned_functions"`
 	ApplicationFunctions    int64       `json:"application_functions"`
 	Passed                  bool        `json:"passed"`
+}
+
+// MembershipReport records the single, narrowly scoped runtime membership
+// repair. The phase intentionally performs no role, schema, or data DDL.
+type MembershipReport struct {
+	Database           string `json:"database"`
+	Login              string `json:"login"`
+	TransactionOutcome string `json:"transaction_outcome"`
+	RuntimeRoleReady   bool   `json:"runtime_role_ready"`
+	MembershipSet      bool   `json:"membership_set"`
+	AdminOption        bool   `json:"admin_option"`
+	InheritOption      bool   `json:"inherit_option"`
+	SetOption          bool   `json:"set_option"`
+	Passed             bool   `json:"passed"`
+}
+
+const runtimeMembershipGrant = `GRANT espacigo_runtime TO postgres WITH ADMIN FALSE, INHERIT FALSE, SET TRUE`
+
+func RunMembership(ctx context.Context, config Config, password string) (MembershipReport, error) {
+	if config.Phase != PhaseMembership || config.Login != AdminLogin || config.DatabaseURL != AdminDatabaseURL || password == "" || !config.PrivateIP {
+		return MembershipReport{}, errors.New("GCP-03 origin membership configuration is invalid")
+	}
+	conn, closeConnector, err := cloudsql.Connect(ctx, config.DatabaseURL, password, config.Instance, true)
+	if err != nil {
+		return MembershipReport{}, err
+	}
+	defer closeConnector()
+	defer conn.Close(context.Background())
+	return membershipOnConnection(ctx, conn, func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) })
+}
+
+func membershipOnConnection(ctx context.Context, conn *pgx.Conn, commit func(context.Context, pgx.Tx) error) (MembershipReport, error) {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return MembershipReport{TransactionOutcome: "not_started"}, errors.New("GCP-03 origin membership could not begin its transaction")
+	}
+	report := MembershipReport{}
+	if err := tx.QueryRow(ctx, `SELECT current_database(), current_user`).Scan(&report.Database, &report.Login); err != nil || report.Database != DatabaseName || report.Login != AdminLogin {
+		return rollbackMembership(tx, report, "GCP-03 origin membership connected to an unexpected identity")
+	}
+	var actorSuper, actorExpected bool
+	if err := tx.QueryRow(ctx, `SELECT r.rolsuper, r.rolcanlogin AND r.rolcreaterole AND NOT r.rolcreatedb FROM pg_catalog.pg_roles r WHERE r.rolname=current_user`).Scan(&actorSuper, &actorExpected); err != nil || actorSuper || !actorExpected {
+		return rollbackMembership(tx, report, "GCP-03 origin membership requires the fixed non-superuser postgres login")
+	}
+	var runtimeOK bool
+	if err := tx.QueryRow(ctx, `SELECT count(*)=1 AND bool_and(NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit) FROM pg_catalog.pg_roles WHERE rolname='espacigo_runtime'`).Scan(&runtimeOK); err != nil || !runtimeOK {
+		return rollbackMembership(tx, report, "GCP-03 origin membership requires the existing restricted runtime role")
+	}
+	// Exactly one mutating SQL statement is permitted in this transaction.
+	if _, err := tx.Exec(ctx, runtimeMembershipGrant); err != nil {
+		return rollbackMembership(tx, report, "GCP-03 origin runtime membership grant failed")
+	}
+	var admin, inherit, set bool
+	if err := tx.QueryRow(ctx, `SELECT r.rolname='espacigo_runtime' AND NOT r.rolcanlogin AND NOT r.rolsuper AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolreplication AND NOT r.rolbypassrls AND NOT r.rolinherit,
+ m.admin_option, m.inherit_option, m.set_option
+ FROM pg_catalog.pg_roles r JOIN pg_catalog.pg_auth_members m ON m.roleid=r.oid AND m.member=current_user::regrole
+ WHERE r.rolname='espacigo_runtime'`).Scan(&report.RuntimeRoleReady, &admin, &inherit, &set); err != nil {
+		return rollbackMembership(tx, report, "GCP-03 origin runtime membership postcondition could not be read")
+	}
+	report.AdminOption, report.InheritOption, report.SetOption = admin, inherit, set
+	report.MembershipSet = !admin && !inherit && set
+	report.Passed = report.RuntimeRoleReady && report.MembershipSet
+	if !report.Passed {
+		return rollbackMembership(tx, report, "GCP-03 origin runtime membership postcondition failed")
+	}
+	if commit == nil {
+		return rollbackMembership(tx, report, "GCP-03 origin membership commit handler is unavailable")
+	}
+	if err := commit(ctx, tx); err != nil {
+		report.Passed = false
+		report.TransactionOutcome = "outcome_uncertain"
+		return report, errors.New("GCP-03 origin membership commit outcome is uncertain; reconcile before retry")
+	}
+	report.TransactionOutcome = "committed"
+	return report, nil
+}
+
+func rollbackMembership(tx pgx.Tx, report MembershipReport, message string) (MembershipReport, error) {
+	report.Passed = false
+	if err := tx.Rollback(context.Background()); err != nil {
+		report.TransactionOutcome = "outcome_uncertain"
+		return report, fmt.Errorf("%s; rollback outcome is unconfirmed, reconcile before retry", message)
+	}
+	report.TransactionOutcome = "rolled_back"
+	return report, fmt.Errorf("%s; transaction rolled back", message)
 }
 
 func ReadAdminPassword(path string) (string, error) {
@@ -206,16 +291,16 @@ func readBootstrapReport(ctx context.Context, tx pgx.Tx) (BootstrapReport, error
 	}
 	report.ApplicationRelations = appRelations
 	report.ApplicationFunctions = appFunctions
-	var runtimeAdminOption bool
+	var runtimeSetMembership bool
 	if err := tx.QueryRow(ctx, `SELECT
   (SELECT count(*)=3 FROM pg_catalog.pg_roles WHERE rolname IN ('espacigo_runtime','espacigo_gadm_bootstrap','espacigo_gcp03_observer') AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit),
   has_database_privilege('espacigo_gcp03_observer','espacigo_scratch','CONNECT'),
 	 has_schema_privilege('espacigo_gcp03_observer','public','USAGE'),
 	 NOT has_database_privilege('espacigo_gcp03_observer','espacigo_scratch','CREATE') AND NOT has_database_privilege('espacigo_gcp03_observer','espacigo_scratch','TEMP') AND NOT has_schema_privilege('espacigo_gcp03_observer','public','CREATE'),
-	 EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.roleid='espacigo_runtime'::regrole AND m.member=current_user::regrole AND m.admin_option AND NOT m.inherit_option AND m.set_option)`).Scan(&report.RolesReady, &report.ObserverConnect, &report.ObserverPublicUsage, &report.ObserverNoWrite, &runtimeAdminOption); err != nil {
+	 EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.roleid='espacigo_runtime'::regrole AND m.member=current_user::regrole AND NOT m.admin_option AND NOT m.inherit_option AND m.set_option)`).Scan(&report.RolesReady, &report.ObserverConnect, &report.ObserverPublicUsage, &report.ObserverNoWrite, &runtimeSetMembership); err != nil {
 		return report, errors.New("GCP-03 origin bootstrap could not verify the fixed role allowlist and grants")
 	}
-	report.Passed = exactExtensions(report.Extensions) && report.RolesReady && runtimeAdminOption && report.ObserverConnect && report.ObserverPublicUsage && report.ObserverNoWrite && report.ApplicationSchemas == 0 && appRelations == 0 && appFunctions == 0
+	report.Passed = exactExtensions(report.Extensions) && report.RolesReady && runtimeSetMembership && report.ObserverConnect && report.ObserverPublicUsage && report.ObserverNoWrite && report.ApplicationSchemas == 0 && appRelations == 0 && appFunctions == 0
 	if !report.Passed {
 		return report, errors.New("GCP-03 origin bootstrap checks did not pass")
 	}

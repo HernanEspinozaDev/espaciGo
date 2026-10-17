@@ -43,6 +43,21 @@ func main() {
 			fmt.Fprintln(os.Stderr, "GCP-03 origin observer found a failed pre-restore check")
 			os.Exit(1)
 		}
+	case gcp03origin.PhaseMembership:
+		password, err := gcp03origin.ReadAdminPassword(config.PasswordFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		report, err := gcp03origin.RunMembership(ctx, config, password)
+		if encodeErr := gcp03origin.WriteJSON(os.Stdout, report); encodeErr != nil {
+			fmt.Fprintln(os.Stderr, "GCP-03 origin membership report could not be encoded")
+			os.Exit(1)
+		}
+		if err != nil || !report.Passed {
+			fmt.Fprintln(os.Stderr, "GCP-03 origin membership remediation stopped; reconcile its outcome before retry")
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintln(os.Stderr, "GCP-03 origin phase is unsupported")
 		os.Exit(2)

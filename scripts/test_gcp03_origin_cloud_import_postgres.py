@@ -264,7 +264,7 @@ WHERE n.nspname='public'""", source_db))
                 missing = admin.preflight()
                 self.assertFalse(missing["admin_superuser"])
                 self.assertFalse(missing["normalization_prerequisites_available"])
-                self.psql("GRANT espacigo_runtime TO g03_origin_import_admin WITH ADMIN OPTION, INHERIT FALSE, SET TRUE")
+                self.psql("GRANT espacigo_runtime TO g03_origin_import_admin WITH ADMIN FALSE, INHERIT FALSE, SET TRUE")
                 ready = admin.preflight()
                 self.assertTrue(ready["normalization_prerequisites_available"])
 

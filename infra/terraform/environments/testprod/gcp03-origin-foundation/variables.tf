@@ -62,6 +62,36 @@ variable "enable_origin_observer_job" {
   }
 }
 
+variable "enable_origin_membership_job" {
+  type        = bool
+  default     = false
+  description = "Default-off one-shot transaction that grants only SET membership on the existing runtime role to the fixed postgres login. It does not rerun bootstrap or create roles."
+  validation {
+    condition     = !var.enable_origin_membership_job || (var.enable_foundation && var.confirm_origin_rehearsal && var.run_id == "g03o-1017" && can(regex("@sha256:[0-9a-f]{64}$", var.origin_membership_image)) && can(regex("^[1-9][0-9]*$", var.admin_password_secret_version)) && var.confirm_admin_password_secret_version)
+    error_message = "Runtime membership remediation requires the exact g03o-1017 target, digest-pinned executor, and reviewed numeric admin-password version."
+  }
+}
+
+variable "origin_membership_image" {
+  type        = string
+  default     = ""
+  description = "Digest-pinned executor image containing the one-shot runtime membership remediation; separate from the existing bootstrap image."
+  validation {
+    condition     = var.origin_membership_image == "" || (can(regex("@sha256:[0-9a-f]{64}$", var.origin_membership_image)) && startswith(var.origin_membership_image, "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin@sha256:"))
+    error_message = "Membership executor image must be digest-pinned in the reviewed GCP-03 Artifact Registry repository."
+  }
+}
+
+variable "enable_uploader_impersonation_binding" {
+  type        = bool
+  default     = false
+  description = "Default-off temporary run-scoped getAccessToken custom role and binding for the human uploader operator; destroy both after the upload/readback phase."
+  validation {
+    condition     = !var.enable_uploader_impersonation_binding || (var.enable_foundation && var.confirm_origin_rehearsal && var.run_id == "g03o-1017" && var.enable_origin_ciphertext_uploader)
+    error_message = "Uploader impersonation binding requires the explicitly confirmed g03o-1017 Foundation and the run-scoped uploader identity."
+  }
+}
+
 variable "enable_origin_import_job" {
   type        = bool
   default     = false
@@ -309,16 +339,18 @@ variable "bootstrap_evidence_sha256" {
 }
 
 locals {
-  foundation_enabled     = var.enable_foundation && var.confirm_origin_rehearsal
-  prefix                 = "espacigo-gcp03-origin-${var.run_id}"
-  admin_account_id       = "g03o-admin-${var.run_id}"
-  instance_name          = "${local.prefix}-pg"
-  admin_enabled          = local.foundation_enabled && var.enable_origin_bootstrap_job
-  observer_enabled       = local.foundation_enabled && var.enable_origin_observer_job
-  import_enabled         = local.foundation_enabled && var.enable_origin_import_job
-  uploader_enabled       = local.foundation_enabled && var.enable_origin_ciphertext_uploader
-  observer_account_id    = "g03o-observer-${var.run_id}"
-  postrestore_enabled    = local.foundation_enabled && var.enable_origin_postrestore_job
-  postrestore_account_id = "g03o-postverify-${var.run_id}"
-  observer_database_url  = "postgres://${local.observer_account_id}%40${var.project_id}.iam@localhost:5432/espacigo_scratch?sslmode=disable"
+  foundation_enabled             = var.enable_foundation && var.confirm_origin_rehearsal
+  prefix                         = "espacigo-gcp03-origin-${var.run_id}"
+  admin_account_id               = "g03o-admin-${var.run_id}"
+  instance_name                  = "${local.prefix}-pg"
+  admin_enabled                  = local.foundation_enabled && var.enable_origin_bootstrap_job
+  membership_enabled             = local.foundation_enabled && var.enable_origin_membership_job
+  observer_enabled               = local.foundation_enabled && var.enable_origin_observer_job
+  import_enabled                 = local.foundation_enabled && var.enable_origin_import_job
+  uploader_enabled               = local.foundation_enabled && var.enable_origin_ciphertext_uploader
+  uploader_impersonation_enabled = local.foundation_enabled && var.enable_uploader_impersonation_binding
+  observer_account_id            = "g03o-observer-${var.run_id}"
+  postrestore_enabled            = local.foundation_enabled && var.enable_origin_postrestore_job
+  postrestore_account_id         = "g03o-postverify-${var.run_id}"
+  observer_database_url          = "postgres://${local.observer_account_id}%40${var.project_id}.iam@localhost:5432/espacigo_scratch?sslmode=disable"
 }
