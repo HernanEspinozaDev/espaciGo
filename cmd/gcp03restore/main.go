@@ -133,6 +133,10 @@ type restoreFailure struct{ code, substep string }
 
 func (e restoreFailure) Error() string { return e.code }
 
+type diagnosticFailure struct{ code, substep string }
+
+func (e diagnosticFailure) Error() string { return e.code }
+
 var restoreFailureCodes = map[string]string{
 	"ARTIFACT_GCS_CLIENT_FAILED":            "gcs_client",
 	"ARTIFACT_GCS_MANIFEST_READ_FAILED":     "gcs_manifest_read",
@@ -186,13 +190,18 @@ func writeFailureEvidence(out io.Writer, getenv func(string) string, err error) 
 	if errors.As(err, &typedFailure) {
 		record.Stage, record.ErrorCode, record.Substep = "artifact_validation", typedFailure.code, typedFailure.substep
 	} else {
-		switch {
-		case strings.Contains(message, "uncertain"):
-			record.Stage, record.ErrorCode, record.CommitOutcomeUncertain = "commit", "COMMIT_OUTCOME_UNCERTAIN", true
-		case strings.Contains(message, "preflight") || strings.Contains(message, "refused") || strings.Contains(message, "already") || strings.Contains(message, "empty"):
-			record.Stage, record.ErrorCode = "preflight", "PRECONDITION_FAILED"
-		case strings.Contains(message, "proxy shutdown"):
-			record.Phase, record.Stage, record.ErrorCode = phase, "proxy_shutdown", "PROXY_SHUTDOWN_UNCONFIRMED"
+		var diagnosticError diagnosticFailure
+		if errors.As(err, &diagnosticError) {
+			record.Stage, record.ErrorCode, record.Substep = "read_only_diagnostic", diagnosticError.code, diagnosticError.substep
+		} else {
+			switch {
+			case strings.Contains(message, "uncertain"):
+				record.Stage, record.ErrorCode, record.CommitOutcomeUncertain = "commit", "COMMIT_OUTCOME_UNCERTAIN", true
+			case strings.Contains(message, "preflight") || strings.Contains(message, "refused") || strings.Contains(message, "already") || strings.Contains(message, "empty"):
+				record.Stage, record.ErrorCode = "preflight", "PRECONDITION_FAILED"
+			case strings.Contains(message, "proxy shutdown"):
+				record.Phase, record.Stage, record.ErrorCode = phase, "proxy_shutdown", "PROXY_SHUTDOWN_UNCONFIRMED"
+			}
 		}
 	}
 	var pgErr *pgconn.PgError
@@ -219,7 +228,7 @@ func writeFailureEvidence(out io.Writer, getenv func(string) string, err error) 
 
 func validPhase(phase string) bool {
 	switch phase {
-	case "bootstrap", "restore", "verify", "retire":
+	case "bootstrap", "restore", "verify", "retire", "diagnose":
 		return true
 	default:
 		return false
@@ -276,8 +285,12 @@ func loadConfig(getenv func(string) string) (config, error) {
 		if u.User.Username() != iamSQLUsername("verify", c.runID) || c.bucket != "" || !manifestHashPattern.MatchString(c.manifestSHA) || !manifestHashPattern.MatchString(c.migrationSHA) {
 			return config{}, errors.New("GCP-03 verification identity or manifest binding is invalid")
 		}
+	case "diagnose":
+		if u.User.Username() != iamSQLUsername("verify", c.runID) || c.bucket != "espacigo-gcp03-restore-"+c.runID || !manifestHashPattern.MatchString(c.manifestSHA) {
+			return config{}, errors.New("GCP-03 diagnostic identity or artifact binding is invalid")
+		}
 	default:
-		return config{}, errors.New("GCP03_PHASE must be bootstrap, restore, verify, or retire")
+		return config{}, errors.New("GCP03_PHASE must be bootstrap, restore, verify, diagnose, or retire")
 	}
 	return c, nil
 }
@@ -296,6 +309,13 @@ type evidence struct {
 	MigrationInventorySHA256 string          `json:"migration_inventory_sha256"`
 	RestoredCounts           map[string]int  `json:"restored_counts"`
 	Checks                   map[string]bool `json:"checks"`
+	ArtifactChecks           map[string]bool `json:"artifact_checks,omitempty"`
+	DatabaseBaseline         map[string]bool `json:"database_baseline,omitempty"`
+}
+
+type restoreArtifacts struct {
+	manifest                gcp03restore.Manifest
+	dump, rawTOC, allowlist []byte
 }
 
 type verification struct {
@@ -566,6 +586,9 @@ func iamSQLUsername(kind, runID string) string {
 
 func runConfigured(ctx context.Context, c config) (evidence, error) {
 	if err := waitProxy(ctx, "127.0.0.1:5432"); err != nil {
+		if c.phase == "diagnose" {
+			return evidence{}, diagnosticFailure{code: "DIAGNOSTIC_PROXY_NOT_READY", substep: "proxy_connection"}
+		}
 		return evidence{}, errors.New("Cloud SQL Auth Proxy did not become ready")
 	}
 	if c.phase == "bootstrap" || c.phase == "retire" {
@@ -591,50 +614,129 @@ func runConfigured(ctx context.Context, c config) (evidence, error) {
 		}
 		return evidence{Format: "espacigo-gcp03-managed-synthetic-restore-evidence-v1", RunID: c.runID, Phase: "verify", Target: c.confirmTarget, ManifestSHA256: c.manifestSHA, MigrationCount: migrationCount, MigrationInventorySHA256: c.migrationSHA, RestoredCounts: verified.counts, Checks: verified.checks}, nil
 	}
-
-	client, err := storage.NewClient(ctx)
-	if err != nil {
-		return evidence{}, restoreFailure{code: "ARTIFACT_GCS_CLIENT_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_CLIENT_FAILED"]}
-	}
-	defer client.Close()
-	manifestObject := "runs/" + c.runID + "/manifest.json"
-	manifestBytes, err := download(ctx, client, c.bucket, manifestObject, 1<<20)
-	if err != nil {
-		return evidence{}, restoreFailure{code: "ARTIFACT_GCS_MANIFEST_READ_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_MANIFEST_READ_FAILED"]}
-	}
-	manifest, err := gcp03restore.DecodeManifest(manifestBytes, c.manifestSHA)
-	if err != nil || manifest.RunID != c.runID {
-		return evidence{}, restoreFailure{code: "ARTIFACT_MANIFEST_DECODE_FAILED", substep: restoreFailureCodes["ARTIFACT_MANIFEST_DECODE_FAILED"]}
-	}
-	dump, err := download(ctx, client, c.bucket, manifest.DumpObject, maxArtifactBytes)
-	if err != nil {
-		return evidence{}, restoreFailure{code: "ARTIFACT_GCS_DUMP_READ_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_DUMP_READ_FAILED"]}
-	}
-	if gcp03restore.VerifyDump(dump, manifest) != nil {
-		return evidence{}, restoreFailure{code: "ARTIFACT_DUMP_HASH_FAILED", substep: restoreFailureCodes["ARTIFACT_DUMP_HASH_FAILED"]}
-	}
-	rawTOC, err := download(ctx, client, c.bucket, manifest.TOCObject, 8<<20)
-	if err != nil {
-		return evidence{}, restoreFailure{code: "ARTIFACT_GCS_TOC_READ_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_TOC_READ_FAILED"]}
-	}
-	allowlist, err := download(ctx, client, c.bucket, manifest.AllowlistObject, 8<<20)
-	if err != nil {
-		return evidence{}, restoreFailure{code: "ARTIFACT_GCS_ALLOWLIST_READ_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_ALLOWLIST_READ_FAILED"]}
-	}
-	if gcp03restore.VerifyTOC(rawTOC, allowlist, manifest) != nil {
-		return evidence{}, restoreFailure{code: "ARTIFACT_SEALED_TOC_VALIDATION_FAILED", substep: restoreFailureCodes["ARTIFACT_SEALED_TOC_VALIDATION_FAILED"]}
+	if c.phase == "diagnose" {
+		artifacts, err := readRestoreArtifacts(ctx, c)
+		if err != nil {
+			return evidence{}, err
+		}
+		if err := validateArchiveTOC(ctx, artifacts.dump, artifacts.rawTOC, artifacts.allowlist); err != nil {
+			return evidence{}, err
+		}
+		inventory, err := migrationInventory(migrationDirectory)
+		if err != nil || inventory != artifacts.manifest.MigrationSHA256 {
+			return evidence{}, diagnosticFailure{code: "DIAGNOSTIC_MIGRATION_INVENTORY_FAILED", substep: "migration_inventory"}
+		}
+		baseline, err := inspectReadOnlyBaseline(ctx, c.databaseURL, c.runID)
+		if err != nil {
+			return evidence{}, err
+		}
+		return evidence{
+			Format: "espacigo-gcp03-read-only-diagnostic-v1", RunID: c.runID, Phase: "diagnose", Target: c.confirmTarget,
+			ManifestSHA256: c.manifestSHA, DumpBytes: artifacts.manifest.DumpBytes,
+			DumpSHA256: artifacts.manifest.DumpSHA256, TOCSHA256: artifacts.manifest.TOCSHA256,
+			AllowlistSHA256: artifacts.manifest.AllowlistSHA256, MigrationCount: artifacts.manifest.MigrationCount,
+			MigrationInventorySHA256: artifacts.manifest.MigrationSHA256,
+			ArtifactChecks: map[string]bool{
+				"manifest_read_and_hash_contract": true, "dump_read_and_hash": true,
+				"toc_read_and_hash": true, "allowlist_read_and_hash": true,
+				"generated_toc_matches_sealed_entries": true,
+				"migration_inventory_matches_manifest": true,
+			},
+			DatabaseBaseline: baseline,
+		}, nil
 	}
 
-	verified, err := restoreSynthetic(ctx, c.databaseURL, c.runID, manifest, dump, rawTOC, allowlist)
+	artifacts, err := readRestoreArtifacts(ctx, c)
+	if err != nil {
+		return evidence{}, err
+	}
+	verified, err := restoreSynthetic(ctx, c.databaseURL, c.runID, artifacts.manifest, artifacts.dump, artifacts.rawTOC, artifacts.allowlist)
 	if err != nil {
 		return evidence{}, err
 	}
 	return evidence{
 		Format: "espacigo-gcp03-managed-synthetic-restore-evidence-v1", RunID: c.runID, Phase: "restore",
-		Target: c.confirmTarget, ManifestSHA256: c.manifestSHA, DumpBytes: manifest.DumpBytes,
-		DumpSHA256: manifest.DumpSHA256, TOCSHA256: manifest.TOCSHA256, AllowlistSHA256: manifest.AllowlistSHA256,
-		MigrationCount: manifest.MigrationCount, MigrationInventorySHA256: manifest.MigrationSHA256,
+		Target: c.confirmTarget, ManifestSHA256: c.manifestSHA, DumpBytes: artifacts.manifest.DumpBytes,
+		DumpSHA256: artifacts.manifest.DumpSHA256, TOCSHA256: artifacts.manifest.TOCSHA256, AllowlistSHA256: artifacts.manifest.AllowlistSHA256,
+		MigrationCount: artifacts.manifest.MigrationCount, MigrationInventorySHA256: artifacts.manifest.MigrationSHA256,
 		RestoredCounts: verified.counts, Checks: verified.checks,
+	}, nil
+}
+
+func readRestoreArtifacts(ctx context.Context, c config) (restoreArtifacts, error) {
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		return restoreArtifacts{}, restoreFailure{code: "ARTIFACT_GCS_CLIENT_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_CLIENT_FAILED"]}
+	}
+	defer client.Close()
+	manifestBytes, err := download(ctx, client, c.bucket, "runs/"+c.runID+"/manifest.json", 1<<20)
+	if err != nil {
+		return restoreArtifacts{}, restoreFailure{code: "ARTIFACT_GCS_MANIFEST_READ_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_MANIFEST_READ_FAILED"]}
+	}
+	manifest, err := gcp03restore.DecodeManifest(manifestBytes, c.manifestSHA)
+	if err != nil || manifest.RunID != c.runID {
+		return restoreArtifacts{}, restoreFailure{code: "ARTIFACT_MANIFEST_DECODE_FAILED", substep: restoreFailureCodes["ARTIFACT_MANIFEST_DECODE_FAILED"]}
+	}
+	dump, err := download(ctx, client, c.bucket, manifest.DumpObject, maxArtifactBytes)
+	if err != nil {
+		return restoreArtifacts{}, restoreFailure{code: "ARTIFACT_GCS_DUMP_READ_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_DUMP_READ_FAILED"]}
+	}
+	if gcp03restore.VerifyDump(dump, manifest) != nil {
+		return restoreArtifacts{}, restoreFailure{code: "ARTIFACT_DUMP_HASH_FAILED", substep: restoreFailureCodes["ARTIFACT_DUMP_HASH_FAILED"]}
+	}
+	rawTOC, err := download(ctx, client, c.bucket, manifest.TOCObject, 8<<20)
+	if err != nil {
+		return restoreArtifacts{}, restoreFailure{code: "ARTIFACT_GCS_TOC_READ_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_TOC_READ_FAILED"]}
+	}
+	allowlist, err := download(ctx, client, c.bucket, manifest.AllowlistObject, 8<<20)
+	if err != nil {
+		return restoreArtifacts{}, restoreFailure{code: "ARTIFACT_GCS_ALLOWLIST_READ_FAILED", substep: restoreFailureCodes["ARTIFACT_GCS_ALLOWLIST_READ_FAILED"]}
+	}
+	if gcp03restore.VerifyTOC(rawTOC, allowlist, manifest) != nil {
+		return restoreArtifacts{}, restoreFailure{code: "ARTIFACT_SEALED_TOC_VALIDATION_FAILED", substep: restoreFailureCodes["ARTIFACT_SEALED_TOC_VALIDATION_FAILED"]}
+	}
+	return restoreArtifacts{manifest: manifest, dump: dump, rawTOC: rawTOC, allowlist: allowlist}, nil
+}
+
+// inspectReadOnlyBaseline uses only pg_catalog. It deliberately does not query
+// application rows or return relation names/counts in evidence.
+func inspectReadOnlyBaseline(ctx context.Context, databaseURL, runID string) (map[string]bool, error) {
+	conn, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		return nil, diagnosticFailure{code: "DIAGNOSTIC_DB_CONNECT_FAILED", substep: "database_connect"}
+	}
+	defer conn.Close(context.Background())
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, diagnosticFailure{code: "DIAGNOSTIC_READ_ONLY_TRANSACTION_FAILED", substep: "read_only_transaction"}
+	}
+	defer tx.Rollback(context.Background())
+	var database, login string
+	var readOnly, verifierMember bool
+	if err := tx.QueryRow(ctx, `SELECT current_database(),session_user,current_setting('transaction_read_only')='on',
+ pg_catalog.pg_has_role(session_user,$1,'MEMBER')`, verifyRole(runID)).Scan(&database, &login, &readOnly, &verifierMember); err != nil {
+		return nil, diagnosticFailure{code: "DIAGNOSTIC_DB_IDENTITY_CHECK_FAILED", substep: "database_identity"}
+	}
+	if database != "espacigo_scratch" || login != iamSQLUsername("verify", runID) || !readOnly || !verifierMember {
+		return nil, diagnosticFailure{code: "DIAGNOSTIC_DB_IDENTITY_CHECK_FAILED", substep: "database_identity"}
+	}
+	var migrationHistory, userRelations bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass('public.schema_migrations') IS NOT NULL`).Scan(&migrationHistory); err != nil {
+		return nil, diagnosticFailure{code: "DIAGNOSTIC_DB_METADATA_CHECK_FAILED", substep: "migration_history_metadata"}
+	}
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_class c
+ JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+	WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f')
+	 AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.deptype='e'))`).Scan(&userRelations); err != nil {
+		return nil, diagnosticFailure{code: "DIAGNOSTIC_DB_METADATA_CHECK_FAILED", substep: "schema_metadata"}
+	}
+	return map[string]bool{
+		"database_identity_matches":      database == "espacigo_scratch" && login == iamSQLUsername("verify", runID),
+		"verify_role_membership":         verifierMember,
+		"transaction_read_only":          readOnly,
+		"migration_history_present":      migrationHistory,
+		"application_relations_present":  userRelations,
+		"target_empty_except_extensions": !migrationHistory && !userRelations,
 	}, nil
 }
 
@@ -658,11 +760,7 @@ func restoreSynthetic(ctx context.Context, databaseURL, runID string, manifest g
 	if err := writePrivate(listPath, allowlist); err != nil {
 		return empty, errors.New("could not stage verified allowlist")
 	}
-	actualTOC, err := exec.CommandContext(ctx, "pg_restore", "--list", dumpPath).Output()
-	if err != nil {
-		return empty, restoreFailure{code: "ARTIFACT_GENERATED_TOC_COMMAND_FAILED", substep: restoreFailureCodes["ARTIFACT_GENERATED_TOC_COMMAND_FAILED"]}
-	}
-	if err := validateGeneratedTOC(actualTOC, rawTOC, allowlist); err != nil {
+	if err := checkGeneratedTOC(ctx, dumpPath, rawTOC, allowlist); err != nil {
 		return empty, err
 	}
 	owner := ownerRole(runID)
@@ -713,6 +811,27 @@ func validateGeneratedTOC(actualTOC, sealedTOC, allowlist []byte) error {
 		return restoreFailure{code: "ARTIFACT_GENERATED_TOC_MISMATCH", substep: restoreFailureCodes["ARTIFACT_GENERATED_TOC_MISMATCH"]}
 	}
 	return nil
+}
+
+func checkGeneratedTOC(ctx context.Context, dumpPath string, sealedTOC, allowlist []byte) error {
+	actualTOC, err := exec.CommandContext(ctx, "pg_restore", "--list", dumpPath).Output()
+	if err != nil {
+		return restoreFailure{code: "ARTIFACT_GENERATED_TOC_COMMAND_FAILED", substep: restoreFailureCodes["ARTIFACT_GENERATED_TOC_COMMAND_FAILED"]}
+	}
+	return validateGeneratedTOC(actualTOC, sealedTOC, allowlist)
+}
+
+func validateArchiveTOC(ctx context.Context, dump, sealedTOC, allowlist []byte) error {
+	tmp, err := os.MkdirTemp("", "gcp03-diagnostic-")
+	if err != nil {
+		return diagnosticFailure{code: "DIAGNOSTIC_TEMP_WORKSPACE_FAILED", substep: "temporary_workspace"}
+	}
+	defer os.RemoveAll(tmp)
+	dumpPath := filepath.Join(tmp, "restore.dump")
+	if err := writePrivate(dumpPath, dump); err != nil {
+		return diagnosticFailure{code: "DIAGNOSTIC_TEMP_WORKSPACE_FAILED", substep: "dump_staging"}
+	}
+	return checkGeneratedTOC(ctx, dumpPath, sealedTOC, allowlist)
 }
 
 var sqlStatePattern = regexp.MustCompile(`SQL state: ([0-9A-Z]{5})`)

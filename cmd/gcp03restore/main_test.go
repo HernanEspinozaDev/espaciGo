@@ -50,6 +50,7 @@ func TestLoadConfigContractAcrossAllPhases(t *testing.T) {
 		{name: "bootstrap", user: "postgres", adminSecret: "/secrets/postgres/password"},
 		{name: "restore", user: "g03-restore-fixture1@espacigo-testprod.iam", bucket: "espacigo-gcp03-restore-fixture1", manifest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{name: "verify", user: "g03-verify-fixture1@espacigo-testprod.iam", manifest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", migration: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		{name: "diagnose", user: "g03-verify-fixture1@espacigo-testprod.iam", bucket: "espacigo-gcp03-restore-fixture1", manifest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{name: "retire", user: "postgres", adminSecret: "/secrets/postgres/password"},
 	} {
 		t.Run(phase.name, func(t *testing.T) {
@@ -68,6 +69,19 @@ func TestLoadConfigContractAcrossAllPhases(t *testing.T) {
 				t.Fatalf("valid %s configuration rejected: %v", phase.name, err)
 			}
 		})
+	}
+}
+
+func TestDiagnosticFailureEvidenceIsAllowlistedAndSanitized(t *testing.T) {
+	env := map[string]string{"GCP03_PHASE": "diagnose", "GCP03_RUN_ID": "local01"}
+	var output strings.Builder
+	writeFailureEvidence(&output, func(key string) string { return env[key] }, diagnosticFailure{code: "DIAGNOSTIC_DB_METADATA_CHECK_FAILED", substep: "schema_metadata"})
+	var got failureEvidence
+	if err := json.Unmarshal([]byte(output.String()), &got); err != nil {
+		t.Fatal("diagnostic failure evidence is invalid JSON")
+	}
+	if got.Stage != "read_only_diagnostic" || got.ErrorCode != "DIAGNOSTIC_DB_METADATA_CHECK_FAILED" || got.Substep != "schema_metadata" || strings.Contains(output.String(), "SELECT") {
+		t.Fatalf("diagnostic failure leaked SQL or lost its safe code: %s", output.String())
 	}
 }
 

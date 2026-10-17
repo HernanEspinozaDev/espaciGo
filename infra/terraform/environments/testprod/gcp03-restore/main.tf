@@ -195,6 +195,13 @@ resource "google_storage_bucket_iam_member" "artifact_reader" {
   member = "serviceAccount:${google_service_account.restore[0].email}"
 }
 
+resource "google_storage_bucket_iam_member" "diagnostic_artifact_reader" {
+  count  = local.diagnostic_enabled ? 1 : 0
+  bucket = google_storage_bucket.artifacts[0].name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.verify[0].email}"
+}
+
 resource "google_sql_user" "restore_iam" {
   count           = local.restore_enabled ? 1 : 0
   project         = var.project_id
@@ -229,7 +236,7 @@ resource "google_cloud_run_v2_job" "restore" {
       }
       containers {
         name  = "restore"
-        image = var.executor_image
+        image = local.restore_phase_image
         env {
           name  = "GCP03_PHASE"
           value = "restore"
@@ -332,6 +339,77 @@ resource "google_cloud_run_v2_job" "verify" {
         env {
           name  = "GCP03_MIGRATION_SHA256"
           value = var.migration_inventory_sha256
+        }
+        env {
+          name  = "GCP03_CONFIRM_TARGET"
+          value = "${google_sql_database_instance.restore[0].connection_name}/espacigo_scratch"
+        }
+        env {
+          name  = "DATABASE_URL"
+          value = "postgres://g03-verify-${var.run_id}%40${var.project_id}.iam@127.0.0.1:5432/espacigo_scratch?sslmode=disable"
+        }
+      }
+      containers {
+        name    = "cloud-sql-proxy"
+        image   = var.proxy_image
+        command = ["/cloud-sql-proxy"]
+        args    = ["--private-ip", "--auto-iam-authn", "--address=127.0.0.1", "--port=5432", "--admin-port=9091", "--quitquitquit", "--exit-zero-on-sigterm", google_sql_database_instance.restore[0].connection_name]
+      }
+    }
+  }
+}
+
+resource "google_cloud_run_v2_job" "diagnose" {
+  count               = local.diagnostic_enabled ? 1 : 0
+  project             = var.project_id
+  name                = "${local.prefix}-diagnose"
+  location            = var.region
+  deletion_protection = !var.allow_restore_destroy
+  depends_on          = [google_service_account_iam_member.verify_operator_act_as, google_storage_bucket_iam_member.diagnostic_artifact_reader]
+  template {
+    task_count  = 1
+    parallelism = 1
+    template {
+      service_account = local.verify_service_account_email
+      timeout         = "300s"
+      max_retries     = 0
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = data.google_compute_network.existing[0].name
+          subnetwork = data.google_compute_subnetwork.existing[0].name
+        }
+      }
+      containers {
+        name  = "diagnose"
+        image = var.diagnostic_image
+        env {
+          name  = "GCP03_PHASE"
+          value = "diagnose"
+        }
+        env {
+          name  = "GCP03_PROJECT"
+          value = var.project_id
+        }
+        env {
+          name  = "GCP03_REGION"
+          value = var.region
+        }
+        env {
+          name  = "GCP03_INSTANCE"
+          value = google_sql_database_instance.restore[0].name
+        }
+        env {
+          name  = "GCP03_RUN_ID"
+          value = var.run_id
+        }
+        env {
+          name  = "GCP03_BUCKET"
+          value = google_storage_bucket.artifacts[0].name
+        }
+        env {
+          name  = "GCP03_MANIFEST_SHA256"
+          value = var.manifest_sha256
         }
         env {
           name  = "GCP03_CONFIRM_TARGET"
@@ -479,6 +557,15 @@ resource "google_cloud_run_v2_job_iam_member" "verify_invoker" {
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_job.verify[0].name
+  role     = "roles/run.invoker"
+  member   = var.bootstrap_operator_member
+}
+
+resource "google_cloud_run_v2_job_iam_member" "diagnostic_invoker" {
+  count    = local.diagnostic_enabled ? 1 : 0
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.diagnose[0].name
   role     = "roles/run.invoker"
   member   = var.bootstrap_operator_member
 }
