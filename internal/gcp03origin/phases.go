@@ -98,26 +98,47 @@ type ObserveReport struct {
 // MembershipReport records the single, narrowly scoped runtime membership
 // repair. The phase intentionally performs no role, schema, or data DDL.
 type MembershipReport struct {
-	Database           string `json:"database"`
-	Login              string `json:"login"`
-	Grantor            string `json:"grantor"`
-	FailureStage       string `json:"failure_stage,omitempty"`
-	SQLState           string `json:"sqlstate,omitempty"`
-	TransactionOutcome string `json:"transaction_outcome"`
-	RuntimeRoleReady   bool   `json:"runtime_role_ready"`
-	MembershipSet      bool   `json:"membership_set"`
-	AdminOption        bool   `json:"admin_option"`
-	InheritOption      bool   `json:"inherit_option"`
-	SetOption          bool   `json:"set_option"`
-	Passed             bool   `json:"passed"`
+	Database           string                   `json:"database"`
+	Login              string                   `json:"login"`
+	Grantor            string                   `json:"grantor"`
+	FailureStage       string                   `json:"failure_stage,omitempty"`
+	SQLState           string                   `json:"sqlstate,omitempty"`
+	TransactionOutcome string                   `json:"transaction_outcome"`
+	RuntimeRoleReady   bool                     `json:"runtime_role_ready"`
+	MembershipRowCount int                      `json:"membership_row_count"`
+	Memberships        []RuntimeMembershipGrant `json:"memberships"`
+	MembershipSet      bool                     `json:"membership_set"`
+	EffectiveSet       bool                     `json:"effective_set"`
+	AdminOption        bool                     `json:"admin_option"`
+	InheritOption      bool                     `json:"inherit_option"`
+	SetOption          bool                     `json:"set_option"`
+	Passed             bool                     `json:"passed"`
+}
+
+// RuntimeMembershipGrant records one exact grantor row for the fixed runtime
+// role and postgres member. Multiple rows are reported in full and rejected;
+// the report never selects an arbitrary grantor.
+type RuntimeMembershipGrant struct {
+	Grantor       string `json:"grantor"`
+	AdminOption   bool   `json:"admin_option"`
+	InheritOption bool   `json:"inherit_option"`
+	SetOption     bool   `json:"set_option"`
 }
 
 const runtimeMembershipGrant = `GRANT espacigo_runtime TO postgres WITH ADMIN FALSE, INHERIT FALSE, SET TRUE`
 
-const runtimeMembershipPostcheckSQL = `SELECT r.rolname='espacigo_runtime' AND NOT r.rolcanlogin AND NOT r.rolsuper AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolreplication AND NOT r.rolbypassrls AND NOT r.rolinherit,
- m.admin_option, m.inherit_option, m.set_option
- FROM pg_catalog.pg_roles r JOIN pg_catalog.pg_auth_members m ON m.roleid=r.oid AND m.member=current_user::regrole
- WHERE r.rolname='espacigo_runtime' AND m.grantor=current_user::regrole`
+const runtimeMembershipRolePostcheckSQL = `SELECT count(*)=1,
+ COALESCE(bool_and(NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit), false),
+ COALESCE(bool_or(pg_catalog.pg_has_role(current_user, oid, 'SET')), false)
+ FROM pg_catalog.pg_roles WHERE rolname='espacigo_runtime'`
+
+const runtimeMembershipRowsPostcheckSQL = `SELECT grantor.rolname, m.admin_option, m.inherit_option, m.set_option
+ FROM pg_catalog.pg_auth_members m
+ JOIN pg_catalog.pg_roles granted_role ON granted_role.oid=m.roleid
+ JOIN pg_catalog.pg_roles member ON member.oid=m.member
+ JOIN pg_catalog.pg_roles grantor ON grantor.oid=m.grantor
+ WHERE granted_role.rolname='espacigo_runtime' AND member.rolname=current_user
+ ORDER BY grantor.rolname`
 
 func RunMembership(ctx context.Context, config Config, password string) (MembershipReport, error) {
 	if config.Phase != PhaseMembership || config.Login != AdminLogin || config.DatabaseURL != AdminDatabaseURL || password == "" || !config.PrivateIP {
@@ -133,15 +154,15 @@ func RunMembership(ctx context.Context, config Config, password string) (Members
 }
 
 func membershipOnConnection(ctx context.Context, conn *pgx.Conn, commit func(context.Context, pgx.Tx) error) (MembershipReport, error) {
-	return membershipOnConnectionWithPostcheck(ctx, conn, runtimeMembershipPostcheckSQL, commit)
+	return membershipOnConnectionWithPostcheck(ctx, conn, commit)
 }
 
-func membershipOnConnectionWithPostcheck(ctx context.Context, conn *pgx.Conn, postcheckSQL string, commit func(context.Context, pgx.Tx) error) (MembershipReport, error) {
+func membershipOnConnectionWithPostcheck(ctx context.Context, conn *pgx.Conn, commit func(context.Context, pgx.Tx) error) (MembershipReport, error) {
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return MembershipReport{FailureStage: "begin_transaction", SQLState: pgSQLState(err), TransactionOutcome: "not_started"}, errors.New("GCP-03 origin membership could not begin its transaction")
 	}
-	report := MembershipReport{}
+	report := MembershipReport{Memberships: []RuntimeMembershipGrant{}}
 	if err := tx.QueryRow(ctx, `SELECT current_database(), current_user`).Scan(&report.Database, &report.Login); err != nil || report.Database != DatabaseName || report.Login != AdminLogin {
 		return rollbackMembership(tx, report, "identity_precheck", err, "GCP-03 origin membership connected to an unexpected identity")
 	}
@@ -158,18 +179,31 @@ func membershipOnConnectionWithPostcheck(ctx context.Context, conn *pgx.Conn, po
 	if _, err := tx.Exec(ctx, runtimeMembershipGrant); err != nil {
 		return rollbackMembership(tx, report, "grant", err, "GCP-03 origin runtime membership grant failed")
 	}
-	var admin, inherit, set bool
-	if postcheckSQL == "" {
-		return rollbackMembership(tx, report, "postcheck_configuration", nil, "GCP-03 origin runtime membership postcondition is unavailable")
+	var roleExists, roleSafe bool
+	if err := tx.QueryRow(ctx, runtimeMembershipRolePostcheckSQL).Scan(&roleExists, &roleSafe, &report.EffectiveSet); err != nil {
+		return rollbackMembership(tx, report, "postcheck_role_query", err, "GCP-03 origin runtime role postcondition could not be read")
 	}
-	if err := tx.QueryRow(ctx, postcheckSQL).Scan(&report.RuntimeRoleReady, &admin, &inherit, &set); err != nil {
-		return rollbackMembership(tx, report, "postcheck_query", err, "GCP-03 origin runtime membership postcondition could not be read")
+	report.RuntimeRoleReady = roleExists && roleSafe
+	rows, err := tx.Query(ctx, runtimeMembershipRowsPostcheckSQL)
+	if err != nil {
+		return rollbackMembership(tx, report, "postcheck_membership_query", err, "GCP-03 origin runtime membership rows could not be read")
 	}
-	report.AdminOption, report.InheritOption, report.SetOption = admin, inherit, set
-	report.MembershipSet = !admin && !inherit && set
-	report.Passed = report.RuntimeRoleReady && report.MembershipSet
-	if !report.Passed {
-		return rollbackMembership(tx, report, "postcondition", nil, "GCP-03 origin runtime membership postcondition failed")
+	for rows.Next() {
+		var membership RuntimeMembershipGrant
+		if err := rows.Scan(&membership.Grantor, &membership.AdminOption, &membership.InheritOption, &membership.SetOption); err != nil {
+			rows.Close()
+			return rollbackMembership(tx, report, "postcheck_membership_query", err, "GCP-03 origin runtime membership rows could not be read")
+		}
+		report.Memberships = append(report.Memberships, membership)
+	}
+	rowsErr := rows.Err()
+	rows.Close()
+	if rowsErr != nil {
+		return rollbackMembership(tx, report, "postcheck_membership_query", rowsErr, "GCP-03 origin runtime membership rows could not be read")
+	}
+	stage := evaluateRuntimeMembershipPostcheck(&report)
+	if stage != "" {
+		return rollbackMembership(tx, report, stage, nil, "GCP-03 origin runtime membership postcondition failed")
 	}
 	if commit == nil {
 		return rollbackMembership(tx, report, "commit_configuration", nil, "GCP-03 origin membership commit handler is unavailable")
@@ -183,6 +217,34 @@ func membershipOnConnectionWithPostcheck(ctx context.Context, conn *pgx.Conn, po
 	}
 	report.TransactionOutcome = "committed"
 	return report, nil
+}
+
+func evaluateRuntimeMembershipPostcheck(report *MembershipReport) string {
+	report.MembershipRowCount = len(report.Memberships)
+	report.MembershipSet = false
+	report.Passed = false
+	report.Grantor = ""
+	report.AdminOption = false
+	report.InheritOption = false
+	report.SetOption = false
+	switch report.MembershipRowCount {
+	case 0:
+		return "postcheck_no_membership"
+	case 1:
+		membership := report.Memberships[0]
+		report.Grantor = membership.Grantor
+		report.AdminOption = membership.AdminOption
+		report.InheritOption = membership.InheritOption
+		report.SetOption = membership.SetOption
+		report.MembershipSet = !membership.AdminOption && !membership.InheritOption && membership.SetOption
+	default:
+		return "postcheck_multiple_memberships"
+	}
+	if !report.RuntimeRoleReady || !report.MembershipSet || !report.EffectiveSet {
+		return "postcondition"
+	}
+	report.Passed = true
+	return ""
 }
 
 func rollbackMembership(tx pgx.Tx, report MembershipReport, stage string, cause error, message string) (MembershipReport, error) {
