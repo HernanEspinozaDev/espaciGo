@@ -59,14 +59,14 @@ run "foundation_is_private_protected_and_run_scoped" {
   }
 }
 
-run "destroy_protection_requires_exact_run_confirmation" {
+run "foundation_requires_explicit_isolation_confirmation" {
   command = plan
 
   variables {
-    run_id                 = "g03o-1017"
-    allow_origin_destroy   = true
-    confirm_destroy_run_id = "other1"
+    run_id                   = "g03o-1017"
+    enable_foundation        = true
+    confirm_origin_rehearsal = false
   }
 
-  expect_failures = [var.run_id]
+  expect_failures = [var.enable_foundation]
 }

@@ -23,13 +23,7 @@ variable "run_id" {
     condition     = !var.enable_foundation || can(regex("^[a-z][a-z0-9-]{5,11}$", var.run_id))
     error_message = "An enabled foundation requires a new 6-12 character lowercase run_id."
   }
-  validation {
-    condition = !var.allow_origin_destroy || (
-      can(regex("^[a-z][a-z0-9-]{5,11}$", var.run_id)) &&
-      var.confirm_destroy_run_id == var.run_id
-    )
-    error_message = "Lowering deletion protection requires confirm_destroy_run_id to equal the exact run_id."
-  }
+
 }
 
 variable "enable_foundation" {
@@ -48,22 +42,9 @@ variable "confirm_origin_rehearsal" {
   description = "Explicit acknowledgment of the new, private, run-scoped origin rehearsal target."
 }
 
-variable "allow_origin_destroy" {
-  type        = bool
-  default     = false
-  description = "Run-bound gate to lower protection in a separately reviewed teardown plan; never enable during creation."
-}
-
-variable "confirm_destroy_run_id" {
-  type        = string
-  default     = ""
-  description = "Must equal run_id before a separately reviewed plan lowers deletion protection."
-}
-
 locals {
   foundation_enabled = var.enable_foundation && var.confirm_origin_rehearsal
   prefix             = "espacigo-gcp03-origin-${var.run_id}"
   admin_account_id   = "g03o-admin-${var.run_id}"
-  admin_email        = "${local.admin_account_id}@${var.project_id}.iam.gserviceaccount.com"
   instance_name      = "${local.prefix}-pg"
 }

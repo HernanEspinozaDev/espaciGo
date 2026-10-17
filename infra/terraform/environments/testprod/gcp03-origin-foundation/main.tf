@@ -17,8 +17,8 @@ resource "google_sql_database_instance" "origin" {
   name                = local.instance_name
   region              = var.region
   database_version    = "POSTGRES_18"
-  deletion_protection = !var.allow_origin_destroy
-  deletion_policy     = var.allow_origin_destroy ? "DELETE" : "PREVENT"
+  deletion_protection = true
+  deletion_policy     = "PREVENT"
 
   settings {
     edition                          = "ENTERPRISE"
@@ -26,7 +26,7 @@ resource "google_sql_database_instance" "origin" {
     availability_type                = "ZONAL"
     connector_enforcement            = "REQUIRED"
     data_api_access                  = "DISALLOW_DATA_API"
-    deletion_protection_enabled      = !var.allow_origin_destroy
+    deletion_protection_enabled      = true
     disk_type                        = "HYPERDISK_BALANCED"
     disk_size                        = 20
     disk_autoresize                  = false
@@ -69,7 +69,7 @@ resource "google_sql_database" "origin" {
   instance        = google_sql_database_instance.origin[0].name
   charset         = "UTF8"
   collation       = "en_US.UTF8"
-  deletion_policy = var.allow_origin_destroy ? "DELETE" : "PREVENT"
+  deletion_policy = "PREVENT"
 }
 
 resource "google_storage_bucket" "artifacts" {
@@ -102,8 +102,8 @@ resource "google_secret_manager_secret" "admin_password" {
   count               = local.foundation_enabled ? 1 : 0
   project             = var.project_id
   secret_id           = "${local.prefix}-postgres-password"
-  deletion_protection = !var.allow_origin_destroy
-  deletion_policy     = var.allow_origin_destroy ? "DELETE" : "PREVENT"
+  deletion_protection = true
+  deletion_policy     = "PREVENT"
   replication {
     auto {}
   }
