@@ -156,6 +156,8 @@ Cada corte usa una rama temporal y un PR hacia `main`; datos/contrato → Go →
 
 GCP-04–07 conservan sus alcances originales y siguen pendientes. La evidencia local de GCP-03 y la propuesta de restore no adelantan aprovisionamiento, despliegue de aplicación ni importación del dataset persistente: cada operación requiere su plan exacto revisado y autorización correspondiente.
 
+**Preflight de compatibilidad del destino (2026-10-17):** la lectura API explícita confirmó `espacigo-testprod-pg` y `espacigo-gcp03-pilot01-pg` `RUNNABLE`, ambas PostgreSQL 18/privadas; `testprod` mantiene backup/PITR y `pilot01` no. En la lectura actual, Cloud SQL API users muestra solo `postgres` en cada instancia, sin inventariar `pg_roles`. Los `SELECT` de catálogo fueron bloqueados antes de SQL porque Data API ExecuteSql no está habilitada; no se modificó la configuración. Versiones instaladas/owners/ACL actuales quedan sin confirmar. Véase el [preflight Cloud SQL y procedimiento propuesto](gcp03_cloudsql_compatibility_preflight_20261017.md) y su [inventario API saneado](evidence/gcp03-cloudsql-compatibility-preflight-20261017.json). Para el restore futuro se propone una instancia run-scoped aislada, con costo/plan exacto revisado antes de cualquier apply; no se creó ni importó nada.
+
 No hay porcentaje ni fecha final inventada: la compatibilidad real de SQL, la frontera pública y el adaptador de archivos determinan el esfuerzo. Actualizar estado por evidencia en cada PR.
 
 ## 7. Método de traslado de datos y archivos
