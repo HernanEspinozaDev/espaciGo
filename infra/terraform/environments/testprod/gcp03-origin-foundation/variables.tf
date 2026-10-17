@@ -62,6 +62,41 @@ variable "enable_origin_observer_job" {
   }
 }
 
+variable "enable_origin_import_job" {
+  type        = bool
+  default     = false
+  description = "Default-off gate for the one-shot hash-bound import Job and its run-prefix-only private file writer permission."
+  validation {
+    condition     = !var.enable_origin_import_job || (var.enable_foundation && var.confirm_origin_rehearsal && var.run_id == "g03o-1017" && var.confirm_origin_bootstrap_completed && can(regex("^[0-9a-f]{64}$", var.bootstrap_evidence_sha256)) && var.confirm_admin_password_secret_version && can(regex("^[1-9][0-9]*$", var.admin_password_secret_version)) && can(regex("@sha256:[0-9a-f]{64}$", var.origin_import_image)) && can(regex("@sha256:[0-9a-f]{64}$", var.origin_proxy_image)) && can(regex("^[1-9][0-9]*$", var.transport_key_secret_version)) && var.confirm_transport_key_secret_version && can(regex("^[0-9a-f]{64}$", var.import_receipt_sha256)) && can(regex("^[0-9a-f]{64}$", var.import_manifest_sha256)) && can(regex("^[0-9a-f]{64}$", var.import_observer_sha256)) && can(regex("^[0-9a-f]{64}$", var.import_normalization_sha256)) && var.import_receipt_object == "runs/g03o-1017/receipt.json" && can(regex("^[1-9][0-9]*$", var.import_receipt_generation)) && var.import_receipt_bytes > 0)
+    error_message = "Origin import requires exact run evidence, numeric reviewed secrets, and digest-pinned executor/proxy images."
+  }
+}
+
+variable "enable_origin_ciphertext_uploader" {
+  type        = bool
+  default     = false
+  description = "Separate default-off gate for a run-scoped create-only uploader identity; this identity receives no secrets or Cloud SQL access."
+  validation {
+    condition     = !var.enable_origin_ciphertext_uploader || (var.enable_foundation && var.confirm_origin_rehearsal && var.run_id == "g03o-1017")
+    error_message = "Ciphertext uploader requires the explicitly confirmed g03o-1017 Foundation."
+  }
+}
+
+variable "import_receipt_object" {
+  type    = string
+  default = ""
+}
+
+variable "import_receipt_generation" {
+  type    = string
+  default = ""
+}
+
+variable "import_receipt_bytes" {
+  type    = number
+  default = 0
+}
+
 variable "origin_executor_image" {
   type        = string
   default     = ""
@@ -69,6 +104,78 @@ variable "origin_executor_image" {
   validation {
     condition     = var.origin_executor_image == "" || (can(regex("@sha256:[0-9a-f]{64}$", var.origin_executor_image)) && startswith(var.origin_executor_image, "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin@sha256:"))
     error_message = "Origin executor image must be a SHA-256 digest in the existing reviewed GCP-03 Artifact Registry repository."
+  }
+}
+
+variable "origin_proxy_image" {
+  type        = string
+  default     = ""
+  description = "Immutable SHA-256 digest for Cloud SQL Auth Proxy, required only by the import Job."
+  validation {
+    condition     = var.origin_proxy_image == "" || (can(regex("@sha256:[0-9a-f]{64}$", var.origin_proxy_image)) && startswith(var.origin_proxy_image, "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:"))
+    error_message = "Cloud SQL Auth Proxy image must be pinned by SHA-256 in the official Google registry."
+  }
+}
+
+variable "origin_import_image" {
+  type        = string
+  default     = ""
+  description = "Immutable SHA-256 digest for the Python/PostgreSQL one-shot origin importer image."
+  validation {
+    condition     = var.origin_import_image == "" || (can(regex("@sha256:[0-9a-f]{64}$", var.origin_import_image)) && startswith(var.origin_import_image, "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin-import@sha256:"))
+    error_message = "Origin import image must be a SHA-256 digest in the existing reviewed GCP-03 Artifact Registry repository."
+  }
+}
+
+variable "transport_key_secret_version" {
+  type        = string
+  default     = ""
+  description = "Exact numeric K_run Secret Manager version; secret payload and version are never Terraform-managed."
+  validation {
+    condition     = var.transport_key_secret_version == "" || can(regex("^[1-9][0-9]*$", var.transport_key_secret_version))
+    error_message = "K_run secret version must be a positive numeric version."
+  }
+}
+
+variable "confirm_transport_key_secret_version" {
+  type        = bool
+  default     = false
+  description = "Acknowledges a separately provisioned and reviewed exact K_run version."
+}
+
+variable "import_receipt_sha256" {
+  type    = string
+  default = ""
+  validation {
+    condition     = var.import_receipt_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.import_receipt_sha256))
+    error_message = "Receipt must be identified by lowercase SHA-256."
+  }
+}
+
+variable "import_manifest_sha256" {
+  type    = string
+  default = ""
+  validation {
+    condition     = var.import_manifest_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.import_manifest_sha256))
+    error_message = "Manifest must be identified by lowercase SHA-256."
+  }
+}
+
+variable "import_observer_sha256" {
+  type    = string
+  default = ""
+  validation {
+    condition     = var.import_observer_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.import_observer_sha256))
+    error_message = "Observer evidence must be identified by lowercase SHA-256."
+  }
+}
+
+variable "import_normalization_sha256" {
+  type    = string
+  default = ""
+  validation {
+    condition     = var.import_normalization_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.import_normalization_sha256))
+    error_message = "Normalization SQL must be identified by lowercase SHA-256."
   }
 }
 
@@ -111,6 +218,8 @@ locals {
   instance_name         = "${local.prefix}-pg"
   admin_enabled         = local.foundation_enabled && var.enable_origin_bootstrap_job
   observer_enabled      = local.foundation_enabled && var.enable_origin_observer_job
+  import_enabled        = local.foundation_enabled && var.enable_origin_import_job
+  uploader_enabled      = local.foundation_enabled && var.enable_origin_ciphertext_uploader
   observer_account_id   = "g03o-observer-${var.run_id}"
   observer_database_url = "postgres://${local.observer_account_id}%40${var.project_id}.iam@localhost:5432/espacigo_scratch?sslmode=disable"
 }

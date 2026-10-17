@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import tarfile
 import unittest
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -12,7 +13,46 @@ import gcp03_origin_import as transport
 from gcp03_origin_cloud_import_executor import (
     ARTIFACTS, EXPECTED_TARGET, ImportConfig, ObjectRef, OriginImportExecutor,
     ImportStopped, current_migration_inventory_sha256, validate_normalization_sql, validate_toc,
+    wait_for_proxy,
 )
+
+
+def synthetic_private_tar():
+    payload = b"synthetic private file"
+    manifest = json.dumps({"format": "espacigo.gcp03.local-origin-capture.v1.files", "files": [{
+        "root": "private-evidence", "relative_path": "sample.bin", "mode_octal": "0600",
+        "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}]},
+        sort_keys=True, separators=(",", ":")).encode()
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w") as archive:
+        root = tarfile.TarInfo("private-evidence")
+        root.type, root.mode = tarfile.DIRTYPE, 0o700
+        archive.addfile(root)
+        other_root = tarfile.TarInfo("privacy-replay")
+        other_root.type, other_root.mode = tarfile.DIRTYPE, 0o700
+        archive.addfile(other_root)
+        item = tarfile.TarInfo("private-evidence/sample.bin")
+        item.size, item.mode = len(payload), 0o600
+        archive.addfile(item, io.BytesIO(payload))
+        meta = tarfile.TarInfo("capture-file-manifest.json")
+        meta.size, meta.mode = len(manifest), 0o600
+        archive.addfile(meta, io.BytesIO(manifest))
+    return output.getvalue()
+
+
+class MemoryPrivateStore:
+    def __init__(self):
+        self.objects = {}
+
+    def create(self, name, data, sha256):
+        if name in self.objects or hashlib.sha256(data).hexdigest() != sha256:
+            raise AssertionError("unexpected private object write")
+        self.objects[name] = data
+
+
+class FailingPrivateStore:
+    def create(self, name, data, sha256):
+        raise OSError("synthetic object write failure")
 
 
 class MemoryStore:
@@ -67,7 +107,7 @@ class ExecutorTests(unittest.TestCase):
         refs = {}
         manifest_items = {}
         for index, artifact in enumerate(sorted(ARTIFACTS)):
-            plain = (b"synthetic artifact " + artifact.encode())
+            plain = synthetic_private_tar() if artifact == "private-files.tar" else (b"synthetic artifact " + artifact.encode())
             dek = bytes([index + 1]) * 32
             wrap_nonce = bytes([index + 1]) * 12
             aad = f"{transport.FORMAT}:g03o-1017:{artifact}:dek".encode()
@@ -115,28 +155,30 @@ class ExecutorTests(unittest.TestCase):
         receipt = json.dumps(evidence).encode()
         objects["runs/g03o-1017/receipt.json"] = (7, receipt)
         ref = ObjectRef("runs/g03o-1017/receipt.json", 7, digest(receipt), len(receipt))
-        config = ImportConfig("espacigo-gcp03-origin-g03o-1017", ref, digest(receipt), digest(manifest_bytes), "1" * 64,
+        config = ImportConfig("espacigo-gcp03-origin-g03o-1017", "espacigo-gcp03-private-g03o-1017", ref, digest(receipt), digest(manifest_bytes), "1" * 64,
                               "2" * 64, digest(normalization), EXPECTED_TARGET, key_file)
         db = FakeDatabase(empty=empty)
-        return config, MemoryStore(objects), db
+        return config, MemoryStore(objects), db, MemoryPrivateStore()
 
     def test_one_shot_import_order_and_sanitation(self):
-        config, store, db = self._fixture()
-        result = OriginImportExecutor(config, store, db).run()
+        config, store, db, private_store = self._fixture()
+        result = OriginImportExecutor(config, store, db, private_store).run()
         self.assertEqual(result["status"], "imported_and_sanitized")
+        self.assertEqual(result["private_files_copied"], 1)
+        self.assertEqual(len(private_store.objects), 1)
         self.assertEqual(db.calls, ["preflight", "toc", "restore", "normalize", "sanitize"])
         self.assertFalse(result["services_or_workers_started"])
 
     def test_nonempty_target_stops_before_restore(self):
-        config, store, db = self._fixture(empty=False)
+        config, store, db, private_store = self._fixture(empty=False)
         result = OriginImportExecutor(config, store, db).run()
         self.assertEqual(result["error_code"], "TARGET_NOT_PRISTINE")
         self.assertEqual(db.calls, ["preflight"])
         self.assertEqual(result["transaction_outcome"], "not_started")
 
     def test_receipt_hash_failure_never_connects_to_database(self):
-        config, store, db = self._fixture()
-        config = ImportConfig(config.bucket, config.receipt, "0" * 64, config.expected_manifest_sha256,
+        config, store, db, private_store = self._fixture()
+        config = ImportConfig(config.bucket, config.private_files_bucket, config.receipt, "0" * 64, config.expected_manifest_sha256,
             config.expected_bootstrap_sha256, config.expected_observer_sha256,
             config.expected_normalization_sha256, config.confirmation, config.transport_key_file)
         result = OriginImportExecutor(config, store, db).run()
@@ -144,20 +186,36 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(db.calls, [])
 
     def test_generation_mismatch_stops_before_database(self):
-        config, store, db = self._fixture()
+        config, store, db, private_store = self._fixture()
         store.objects[config.receipt.name] = (8, store.objects[config.receipt.name][1])
         result = OriginImportExecutor(config, store, db).run()
         self.assertEqual(result["error_code"], "OBJECT_GENERATION_MISMATCH")
         self.assertEqual(db.calls, [])
 
     def test_restore_and_sanitation_failure_is_uncertain_and_never_retryable(self):
-        config, store, db = self._fixture()
+        config, store, db, private_store = self._fixture()
         db.sanitize = lambda: {"valid_sessions": 1, "usable_action_tokens": 0,
             "pending_notices": 0, "identity_event_leases": 0, "runtime_role_login": False}
         result = OriginImportExecutor(config, store, db).run()
         self.assertEqual(result["error_code"], "SANITATION_POSTCONDITIONS_FAILED")
         self.assertEqual(result["transaction_outcome"], "uncertain")
         self.assertFalse(result["retry"])
+
+    def test_private_file_write_failure_after_import_is_uncertain_and_never_retryable(self):
+        config, store, db, _ = self._fixture()
+        result = OriginImportExecutor(config, store, db, FailingPrivateStore()).run()
+        self.assertEqual(result["status"], "stopped")
+        self.assertEqual(result["error_code"], "UNEXPECTED_EXECUTOR_FAILURE")
+        self.assertEqual(result["transaction_outcome"], "uncertain")
+        self.assertFalse(result["retry"])
+        self.assertEqual(db.calls, ["preflight", "toc", "restore", "normalize", "sanitize"])
+
+    def test_wait_for_proxy_succeeds_when_loopback_listener_is_ready(self):
+        import socket
+        with socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            wait_for_proxy(port=server.getsockname()[1], timeout_seconds=1)
 
     def test_toc_must_be_subset_and_exclude_extension_entries(self):
         allowlist = b"1; 0 0 TABLE public sample postgres\n"
