@@ -1,0 +1,141 @@
+{
+  "diagnosis": {
+    "acl_contract_checks": {
+      "audit_exact_contract": true,
+      "database_retired_acl": false,
+      "migrator_retired_contract": false,
+      "runtime_current_contract": true,
+      "runtime_retired_contract": false
+    },
+    "fixture_counts": {
+      "occupancy": 2,
+      "spaces": 1,
+      "users": 2
+    },
+    "format": "espacigo-gcp03-retirement-diagnosis-v1",
+    "fixture_count_scope": "Counts are from public.usuario, public.espacio and public.ocupacion. The postgres SQL administrator is separate and is not counted as an application user.",
+    "interpretation": "Runtime current-contract and audit exact-contract checks pass. Retired runtime, retired database ACL, and retired migrator checks do not pass; this state is not fully retired. Both restore/verify login roles still exist, are login-capable and non-superuser, retain expected group memberships, and each has two direct memberships. This read-only diagnosis does not identify the cause/substep of the earlier PHASE_FAILED.",
+    "isolation": "REPEATABLE READ",
+    "migration_history_valid": true,
+    "migration_inventory_sha256": "e4086e95c3ecf05f9262aabfaa4e536a72503b992cc806b4fcf610748c8fa8c4",
+    "phase": "retire-diagnose",
+    "read_only_transaction": true,
+    "retire_restore_verify_or_teardown_run": false,
+    "roles": {
+      "restore": {
+        "exists": true,
+        "expected_group_membership": true,
+        "login_capable": true,
+        "membership_count": 2,
+        "superuser": false
+      },
+      "verify": {
+        "exists": true,
+        "expected_group_membership": true,
+        "login_capable": true,
+        "membership_count": 2,
+        "superuser": false
+      }
+    },
+    "run_id": "g03r-1016",
+    "sql_mutations_performed": false,
+    "target": "espacigo-testprod:southamerica-west1:espacigo-gcp03-restore-g03r-1016-pg/espacigo_scratch"
+  },
+  "evidence_hashes": {
+    "application_payload_sha256_canonical_json": "6fa17f576957d4f776e07ea6c1e893461eb86e8acd8b0942726297cd2136d9f2",
+    "effective_job_definition_sha256": "d52be8502b1d39621bc7fa587d95b7dfb807afc749f1fb37c9feb210b33a19db",
+    "execution_json_sha256": "0761c30a606487524424f4406567f9e3cf96ff9211afe8ee3df1090a2a59933d",
+    "execution_list_sha256": "4c4cfa649515f3ef09465db2396bf6f9bc8cf78961a1000d7b10fbc14c8f0692",
+    "iam_policy_sha256": "4de47da8cccd1f50fd4c5d5ec6e036c95e52b047ed007cf41f8eaebaba2d8459",
+    "logs_json_sha256": "18eb01744d7da4ea00774d0a6cbab591b66d7036ccd8000a13de15bbc67ec1b4",
+    "tasks_json_sha256": "dcfb9f6e205058e6882f3e02486c53f04d999722df008c5c9d5173a84e94dfdd",
+    "validator_summary_sha256": "2fd7a9d5eb45f68ef2c94bc3a1b12e2577d1d36733974a8b4b3277d8222842a3"
+  },
+  "execution": {
+    "application_validation": {
+      "application_evidence": "success",
+      "cloud_run_completed": true,
+      "execution_name": "espacigo-gcp03-restore-g03r-1016-retire-diagnose-bwspn",
+      "phase": "retire-diagnose",
+      "result": "success",
+      "run_id": "g03r-1016",
+      "succeeded_count": 1
+    },
+    "cloud_run_completed": true,
+    "container_exits": [
+      {
+        "container": "cloud-sql-proxy",
+        "exit_code": 0
+      },
+      {
+        "container": "retire-diagnose",
+        "exit_code": 0
+      }
+    ],
+    "created_at": "2026-10-17T01:34:02.983385Z",
+    "invocation_count_for_job": 1,
+    "name": "espacigo-gcp03-restore-g03r-1016-retire-diagnose-bwspn",
+    "invoked_without_overrides": true,
+    "succeeded_count": 1,
+    "task_completed": true,
+    "task_count": 1,
+    "task_last_attempt_result_status_empty": true,
+    "uid": "5f42de9e-1c96-481a-9b2e-ae67784e7a65"
+  },
+  "job": {
+    "cloud_sql_proxy_image": "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:076f128d5bdb9d345e253aa9bbf5f1f9a320caff21dfdbf07d582437e55e4f66",
+    "database_target": "espacigo-testprod:southamerica-west1:espacigo-gcp03-restore-g03r-1016-pg/espacigo_scratch",
+    "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03restore@sha256:f939c783628e633ffeb98a7b0487e9eaa27b0e3c91b3e87951482cc09dfbb85e",
+    "invokers": [
+      "user:pasteleriahijitos@gmail.com"
+    ],
+    "max_retries": 0,
+    "name": "espacigo-gcp03-restore-g03r-1016-retire-diagnose",
+    "network": "espacigo-testprod",
+    "parallelism": 1,
+    "phase": "retire-diagnose",
+    "ready": true,
+    "secret": {
+      "name": "espacigo-gcp03-restore-g03r-1016-postgres-password",
+      "version": "1"
+    },
+    "service_account": "g03-restore-admin-g03r-1016@espacigo-testprod.iam.gserviceaccount.com",
+    "subnetwork": "espacigo-testprod-serverless",
+    "task_count": 1,
+    "timeout_seconds": 300
+  },
+  "limits": [
+    "No individual ACL grant rows or names of additional role memberships are exposed by the fixed diagnosis payload.",
+    "The prior retire failure payload had no substep; this diagnosis cannot establish its root cause.",
+    "The Cloud Run task API lastAttemptResult.status is empty even though both containers logged exit(0); success is established by exact execution identity plus phase application evidence and Cloud Run completion.",
+    "The diagnostic Job, invoker, Cloud SQL instance, service account and secret are retained; no cleanup or teardown was performed."
+  ],
+  "private_evidence_directory": ".local/testing/gcp03-1017 (files mode 0600)",
+  "recorded_at_utc": "2026-10-17T01:36:25Z",
+  "schema": "espacigo.gcp03.retirement-diagnosis-execution.v1",
+  "source_pr": {
+    "head": "7f362d7b11c122b57e5d0b13c6710a52a631c5b8",
+    "merge_commit": "9fc68ceee93d7a04d0d595ba072bb88f23341c77",
+    "number": 379,
+    "url": "https://github.com/HernanEspinozaDev/espaciGo/pull/379"
+  },
+  "terraform": {
+    "actions": {
+      "created": [
+        "google_cloud_run_v2_job.retirement_diagnose[0]",
+        "google_cloud_run_v2_job_iam_member.retirement_diagnostic_invoker[0]"
+      ],
+      "deleted": [],
+      "updated": []
+    },
+    "apply_log_sha256": "551f17f373787d9c30ca14144bc65989742adb5401c1e1fa43d6272cf5c5c786",
+    "apply_result": "complete",
+    "plan_sha256": "dcafb7f89987dd6cb176d7220331742c1b0a5725e2164158ffb44bde334a8f70",
+    "plan_state_lineage": "5bc6ad38-035f-fba3-2bcd-43bdf641e370",
+    "plan_state_serial_before_apply": 9,
+    "resources_added": 2,
+    "resources_changed": 0,
+    "resources_destroyed": 0,
+    "state_serial_after_apply": 10
+  }
+}
