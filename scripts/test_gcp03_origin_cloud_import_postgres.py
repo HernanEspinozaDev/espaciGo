@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -14,6 +15,7 @@ import gcp03_origin_import as transport
 from gcp03_origin_cloud_import_executor import (
     ImportStopped, ObjectRef, PsqlPgRestoreRunner, decrypt_object, validate_normalization_sql, validate_toc,
 )
+from gcp03_origin_postrestore_verify import READ_ONLY_SQL
 
 SOCKET = os.environ.get("GCP03_ORIGIN_EXECUTOR_TEST_SOCKET")
 
@@ -43,9 +45,9 @@ class CloudImportPostgresIntegrationTests(unittest.TestCase):
         cls.runner.close()
         cls.temp.cleanup()
 
-    def psql(self, sql, database="espacigo_scratch"):
+    def psql(self, sql, database="espacigo_scratch", user="postgres"):
         return subprocess.run(["psql", "-X", "-qAt", "--set=ON_ERROR_STOP=1", "--host=" + SOCKET,
-            "--port=5432", "--username=postgres", "--dbname=" + database, "-c", sql],
+            "--port=5432", "--username=" + user, "--dbname=" + database, "-c", sql],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, text=True).stdout.strip()
 
     def reset_target(self):
@@ -170,6 +172,41 @@ WHERE c.oid='public.sample'::regclass AND p.oid='public.sample(integer)'::regpro
             self.runner.normalize_owners_and_acls(b"ALTER TABLE public.sample OWNER TO espacigo_gadm_bootstrap; SELECT 1/0;")
         owner_after_rollback = self.psql("SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.sample'::regclass")
         self.assertEqual(owner_after_rollback, "espacigo_runtime")
+
+    def test_postrestore_owner_audit_ignores_extension_indexes_but_rejects_app_owner(self):
+        self.psql("""CREATE ROLE g03_postrestore_login LOGIN;
+GRANT espacigo_gcp03_observer TO g03_postrestore_login;
+GRANT USAGE ON SCHEMA public TO espacigo_gcp03_observer;
+CREATE TABLE public.schema_migrations(version bigint, name text, checksum text);
+CREATE TABLE public.sesion(revocada_en timestamptz, expira_en timestamptz);
+CREATE TABLE public.token_accion(consumido_en timestamptz, invalidado_en timestamptz, expira_en timestamptz);
+CREATE TABLE public.aviso_local(estado text);
+CREATE TABLE public.outbox_evento_local(lease_hasta timestamptz, entregada_en timestamptz, cancelada_en timestamptz, fallo_terminal_en timestamptz);
+CREATE TABLE public.sample(id integer PRIMARY KEY);
+ALTER TABLE public.schema_migrations OWNER TO espacigo_runtime;
+ALTER TABLE public.sesion OWNER TO espacigo_runtime;
+ALTER TABLE public.token_accion OWNER TO espacigo_runtime;
+ALTER TABLE public.aviso_local OWNER TO espacigo_runtime;
+ALTER TABLE public.outbox_evento_local OWNER TO espacigo_runtime;
+ALTER TABLE public.sample OWNER TO espacigo_runtime;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO espacigo_gcp03_observer;""")
+        extension_index_owner = self.psql(
+            "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.spatial_ref_sys_pkey'::regclass")
+        report = json.loads(self.psql(READ_ONLY_SQL, user="g03_postrestore_login"))
+        self.assertTrue(report["application_owners_valid"])
+        self.assertTrue(report["observer_role_active"])
+        self.assertIn("sample", report["public_tables"])
+        self.assertEqual(report["runtime_role_login"], False)
+        self.assertEqual(self.psql(
+            "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.spatial_ref_sys_pkey'::regclass"),
+            extension_index_owner)
+
+        self.psql("ALTER TABLE public.sample OWNER TO postgres")
+        wrong_owner_report = json.loads(self.psql(READ_ONLY_SQL, user="g03_postrestore_login"))
+        self.assertFalse(wrong_owner_report["application_owners_valid"])
+        self.assertEqual(self.psql(
+            "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.spatial_ref_sys_pkey'::regclass"),
+            extension_index_owner)
 
     def test_invalid_restore_is_uncertain_and_creates_no_application_object(self):
         self.assertTrue(self.runner.preflight()["empty"])

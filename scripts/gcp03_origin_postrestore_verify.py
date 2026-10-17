@@ -54,7 +54,24 @@ SELECT json_build_object(
       AND c.relowner <> to_regrole('espacigo_runtime')
       AND NOT EXISTS (SELECT 1 FROM pg_depend d
         WHERE d.classid='pg_class'::regclass AND d.objid=c.oid AND d.deptype='e'
-          AND d.refclassid='pg_extension'::regclass))
+          AND d.refclassid='pg_extension'::regclass)
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_index ix
+        JOIN pg_depend table_extension_member
+          ON table_extension_member.classid='pg_class'::regclass
+         AND table_extension_member.objid=ix.indrelid
+         AND table_extension_member.deptype='e'
+         AND table_extension_member.refclassid='pg_extension'::regclass
+        WHERE ix.indexrelid=c.oid)
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_index ix
+        JOIN pg_constraint con ON con.conindid=ix.indexrelid
+        JOIN pg_depend constraint_extension_member
+          ON constraint_extension_member.classid='pg_constraint'::regclass
+         AND constraint_extension_member.objid=con.oid
+         AND constraint_extension_member.deptype='e'
+         AND constraint_extension_member.refclassid='pg_extension'::regclass
+        WHERE ix.indexrelid=c.oid))
     AND NOT EXISTS (
       SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
       WHERE n.nspname='public' AND p.proowner <> to_regrole('espacigo_runtime')
