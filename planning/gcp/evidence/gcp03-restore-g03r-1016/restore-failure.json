@@ -1,0 +1,50 @@
+{
+  "format": "espacigo-gcp03-restore-failure-evidence-v1",
+  "run_id": "g03r-1016",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "execution": {
+    "name": "espacigo-gcp03-restore-g03r-1016-restore-kkh6f",
+    "created_at_utc": "2026-10-17T00:10:34.872520Z",
+    "reason": "NonZeroExitCode",
+    "failed_tasks": 1,
+    "exit_code": 1,
+    "phase": "restore",
+    "terminal": true,
+    "succeeded": false
+  },
+  "executor_failure": {
+    "commit_outcome_uncertain": false,
+    "error_code": "ARTIFACT_VALIDATION_FAILED",
+    "failure_sha256": "656a2d7d5b4789073a12bfb712e5e66cce3c6fbb16b65147184863e8d1ea75ae",
+    "format": "espacigo-gcp03-managed-synthetic-restore-failure-v1",
+    "manifest_sha256": "be91abf57aa34bae447b258353d11af107e1c56d625820ebc20a6c3567578317",
+    "phase": "restore",
+    "proxy_shutdown_confirmed": true,
+    "run_id": "g03r-1016",
+    "stage": "artifact_validation"
+  },
+  "diagnosis": {
+    "local_manifest_dump_toc_validation": "PASS",
+    "uploaded_object_sha256": "PASS",
+    "executor_failure_substep": "not identified by sanitized error",
+    "gcs_data_access_audit_detail_returned": 0,
+    "cloudsql_connector_connection_audit": [
+      {
+        "status": "OK",
+        "timestamp": "2026-10-17T00:10:42.583570Z"
+      }
+    ],
+    "restore_sql_submitted": false,
+    "basis": "executor returned artifact_validation before entering the restoreSynthetic SQL path"
+  },
+  "actions": {
+    "restore_invocation_count": 1,
+    "verify_invocation_count": 0,
+    "retire_invocation_count": 0,
+    "retries": 0,
+    "artifact_objects_retained": true,
+    "secret_payload_read": false
+  },
+  "deadline_utc": "2026-10-17T05:08:13.708Z"
+}
