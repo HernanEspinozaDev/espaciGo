@@ -1,0 +1,83 @@
+{
+  "format": "espacigo.gcp03.origin-snapshot-prep.aggregate.v1",
+  "observed_at_utc": "2026-10-17T02:38:24.478965+00:00",
+  "repository_head": "f7b3c55b77e341567f4a81fdd13efb5375351d4b",
+  "source": {
+    "database_server_version": "18.6",
+    "database_size_bytes": 74544831,
+    "database_and_backend_compose_roots_match": false,
+    "backend_worktree_head": "54de15c66c2e65dd54fcabb0ca6b756a4f495e93",
+    "backend_worktree_head_proves_running_image_code": false,
+    "active_backend_image_id_or_digest_captured": false,
+    "database_connection_correlated_with_backend_runtime": false,
+    "database_and_backend_mount_topology_correlated": false,
+    "database_repeatable_read_read_only_observation": true,
+    "database_and_files_observed_atomically": false,
+    "dump_or_copy_created": false,
+    "source_mutated_or_stopped_by_inventory_tool": false,
+    "cloud_touched": false
+  },
+  "extensions": {
+    "btree_gist": "1.8",
+    "fuzzystrmatch": "1.2",
+    "plpgsql": "1.0",
+    "postgis": "3.6.4",
+    "postgis_tiger_geocoder": "3.6.4",
+    "postgis_topology": "3.6.4",
+    "unaccent": "1.1"
+  },
+  "schema": {
+    "migration_count": 61,
+    "migration_files_match_database_history_v1_v61": true,
+    "public_relation_count": 163,
+    "role_count": 19,
+    "membership_count": 3,
+    "security_definer_routine_count": 12,
+    "uuid_column_count": 221,
+    "int64_column_count": 46
+  },
+  "selected_exact_row_counts": {
+    "usuario": 1045,
+    "rol_usuario": 1360,
+    "espacio": 1241,
+    "reserva_ensayo_local": 1228,
+    "ocupacion": 1235,
+    "sesion": 5527,
+    "token_accion": 1060,
+    "outbox_evento_local": 14,
+    "aviso_local": 7120,
+    "reserva_pago_ensayo_operacion": 968,
+    "reserva_pago_evento_ensayo": 966,
+    "contrato_ensayo_local": 726,
+    "documento_privado_sintetico_local": 726,
+    "verificacion": 998
+  },
+  "copy_safety_aggregates": {
+    "not_revoked_sessions": 164,
+    "currently_valid_sessions": 0,
+    "eligible_action_tokens": 0,
+    "undelivered_identity_outbox_entries": 0,
+    "pending_notices": 958,
+    "terminal_failure_notices": 206,
+    "delivered_notices": 5956,
+    "payment_intents_applied": 966,
+    "payment_intents_expired": 2,
+    "payment_event_applications_applied": 966,
+    "verification_records": 998,
+    "non_local_fixture_provider_records": 0
+  },
+  "private_inventory": {
+    "logical_location": ".local/testing/gcp03-origin-snapshot-prep-20261016-02/origin-private-inventory.json",
+    "private_evidence_file_count": 3245,
+    "file_and_key_metadata_fingerprint_sha256": "48a22350e6708c8e0affe0d6423a8b6f0b7125e2569ae8c999851104f37b87e7",
+    "roles_acl_and_owners_fingerprint_sha256": "5a6f8e8f1718bb8657286b70dab636abfd976cb81ec028d277b7244dbe5d7f46"
+  },
+  "limitations": [
+    "The inventory is read-only and is not a backup or restore rehearsal.",
+    "The recorded Compose roots differ. This metadata mismatch alone does not prove incompatibility; database connection target, container/image IDs and digests, mounts/volume, and runtime schema/migrations still need correlation.",
+    "The backend Compose worktree is clean and detached at the recorded commit, but that HEAD does not identify the code inside the active container image. That worktree source starts notice and other background workers; the active image behavior still needs correlation. The 958 pending notices require quarantine before exposing any copy.",
+    "The database transaction is repeatable-read and read-only, but file hashing occurs outside it while the application remains running; the combined observation is not atomic.",
+    "The 3,245-file inventory and fingerprints do not contain the source file bytes or encryption key payload.",
+    "No database dump, source file copy, secret copy, Cloud SQL resource, or other Google Cloud operation was performed."
+  ]
+}
