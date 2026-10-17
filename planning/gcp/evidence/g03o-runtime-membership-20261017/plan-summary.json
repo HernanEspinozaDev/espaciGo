@@ -1,0 +1,57 @@
+{
+  "effective_impersonation_preflight": "iam.serviceAccounts.getAccessToken denied (read-only testIamPermissions); no token minted",
+  "iam_credentials_api": "iamcredentials.googleapis.com enabled (read-only check)",
+  "import_executor": {
+    "archive_sha256": "14a41e75bd5f1645250093dfa1052054b890409197f67a3700affee9c53ca319",
+    "oci_manifest_digest": "sha256:bfc0d7dd47356d77b73dbe7aba88dc315e1f9914ab81679659641bebd39632ac",
+    "published": false
+  },
+  "plan_mode": "refresh=true, lock=false; saved plans only; no apply",
+  "plans": {
+    "runtime-membership": {
+      "file": "runtime-membership.tfplan",
+      "resource_changes": [
+        {
+          "actions": [
+            "create"
+          ],
+          "address": "google_cloud_run_v2_job.origin_membership[0]"
+        }
+      ],
+      "sha256": "2419a9bc1338d68eb85817f27d81d3ca83ac94b891004fc14ffba6cb295c6b23"
+    },
+    "uploader-impersonation": {
+      "file": "uploader-impersonation.tfplan",
+      "resource_changes": [
+        {
+          "actions": [
+            "create"
+          ],
+          "address": "google_project_iam_custom_role.uploader_token_access[0]"
+        },
+        {
+          "actions": [
+            "create"
+          ],
+          "address": "google_service_account_iam_member.uploader_token_access[0]"
+        }
+      ],
+      "sha256": "876a092a9a5fe10e84c4dbf773b2cc58e0d2bbd7859242842a2825c924b621cf"
+    }
+  },
+  "project_id": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "run_id": "g03o-1017",
+  "runtime_membership_executor": {
+    "archive_sha256": "19660a24a01c5cb64f0b87104b321719ebceffe0b438b4562b66b372372c75aa",
+    "oci_manifest_digest": "sha256:c59660395d72352ccfcd541cf356e407ccd3a96695015048db73b2a3c5397ce9",
+    "published": false
+  },
+  "schema_version": 1,
+  "source_commit": "867031f6430de1c12f1922f9661618f35860ef30",
+  "sql": "not connected; no Cloud SQL mutation or job execution",
+  "state_backend": "gs://espacigo-testprod-tfstate-447373903153-gcp/espacigo/testprod/gcp03-origin/g03o-1017",
+  "state_lineage": "4e81a953-7353-fbd4-93a8-e4b9a5019e95",
+  "state_serial": 9,
+  "validity_note": "Both plans were generated from state serial 9. Applying the uploader-impersonation plan changes remote state; regenerate and review the runtime-membership plan after the upload/readback phase before any application. The saved membership plan is a preview for the current serial only."
+}
