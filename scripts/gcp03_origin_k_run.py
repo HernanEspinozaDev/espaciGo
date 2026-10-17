@@ -15,6 +15,7 @@ import requests
 import gcp03_origin_import as transport
 
 PROJECT = "espacigo-testprod"
+PROJECT_NUMBER = "447373903153"
 SOURCE_RUN_ID = "gcp03-merge-review-20261017"
 TARGET_RUN_ID = "g03o-1017"
 SECRET_ID = "espacigo-gcp03-origin-g03o-1017-transport-key"
@@ -30,7 +31,7 @@ class KeyRunError(ValueError):
 
 def create_version(*, stage_dir: Path, recovery_key: Path, expected_seal_sha256: str,
                    expected_manifest_sha256: str, access_token: str, session=requests) -> dict:
-    """Verify all ciphertext locally, then perform one create-only-by-policy API call."""
+    """Verify ciphertext locally, then issue one addVersion after an empty-version check."""
     if not SHA_RE.fullmatch(expected_seal_sha256) or not SHA_RE.fullmatch(expected_manifest_sha256):
         raise KeyRunError("reviewed source and manifest hashes are required")
     if expected_seal_sha256 != SOURCE_SEAL_SHA256 or expected_manifest_sha256 != TRANSPORT_MANIFEST_SHA256:
@@ -51,7 +52,7 @@ def create_version(*, stage_dir: Path, recovery_key: Path, expected_seal_sha256:
 
     master = transport.private_file(recovery_key)
     run_key = transport.transport_key(master, bytes.fromhex(manifest["salt_hex"]), TARGET_RUN_ID)
-    parent = f"projects/{PROJECT}/secrets/{SECRET_ID}"
+    parent = f"projects/{PROJECT_NUMBER}/secrets/{SECRET_ID}"
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json",
                "x-goog-user-project": PROJECT}
     # Refuse an existing version. The operator must reconcile any prior attempt;
@@ -63,7 +64,12 @@ def create_version(*, stage_dir: Path, recovery_key: Path, expected_seal_sha256:
     if listed.json().get("versions"):
         raise KeyRunError("transport-key secret already has a version; reconcile before proceeding")
 
-    payload = {"payload": {"data": base64.b64encode(run_key).decode("ascii")}}
+    # Rebind the derivation input immediately before the only mutating request.
+    manifest_bytes_before_write = (stage_dir / "transport-manifest.json").read_bytes()
+    if hashlib.sha256(manifest_bytes_before_write).hexdigest() != expected_manifest_sha256:
+        raise KeyRunError("transport manifest changed before Secret Manager write")
+
+    payload = {"payload": {"data": base64.b64encode(run_key.hex().encode("ascii")).decode("ascii")}}
     response = session.post(f"{API}/{parent}:addVersion", headers=headers,
                             json=payload, timeout=30)
     if response.status_code != 200:
