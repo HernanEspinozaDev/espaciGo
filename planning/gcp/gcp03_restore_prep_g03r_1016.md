@@ -1,6 +1,14 @@
 # GCP-03 synthetic restore preparation — g03r-1016
 
-**Status:** foundation-only apply completed under the exact post-PR-#370 authorization. PR #369 remains frozen at the merged HEAD listed below. No Cloud SQL connection, bootstrap/restore Job, secret version, or object upload has occurred.
+**Status at this preparation snapshot:** foundation-only apply completed under the exact post-PR-#370 authorization. PR #369 remains frozen at the merged HEAD listed below. At that snapshot, no Cloud SQL connection, bootstrap/restore Job, secret version, or object upload had occurred. Subsequent execution is recorded below.
+
+## Subsequent run status — 2026-10-17
+
+The isolated run `g03r-1016` later completed the read-only diagnostic, synthetic restore, and verify phases. The diagnostic confirmed the empty baseline before restore; restore and verify each completed once and passed their nine fixed checks. The restored fixture was deliberately minimal: two synthetic users, one synthetic space, and two occupancy rows. It is not a snapshot, migration, or copy of the persistent source dataset.
+
+The separately authorized `retire` Job was invoked once with no overrides. Cloud Run reported `Completed=True` and one successful task, but the executor emitted application failure evidence: `phase=retire`, `stage=phase_execute`, `error_code=PHASE_FAILED`, `commit_outcome_uncertain=false`. This is not successful retirement evidence. No retry was made, and this report does not infer that the database transaction rolled back. See [sanitized retire execution evidence](evidence/gcp03-restore-g03r-1016/retire-execution.json), [restore and verify evidence](evidence/gcp03-restore-g03r-1016/restore-verify.json), and the [phase-1 teardown plan](gcp03_retirement_teardown_phase1_g03r_1016.md).
+
+No teardown, artifact deletion, secret deletion, or resource deletion has been applied. The prepared targeted phase-1 Terraform plan is private, deletes only the two run-scoped Cloud SQL IAM users, and is not applied. The four object generations are listed for exact conditional deletion in the teardown plan. GCP-03 remains partial: snapshot compatibility, the original acceptance criteria, and human acceptance remain open.
 
 ## Frozen baseline and local validation
 

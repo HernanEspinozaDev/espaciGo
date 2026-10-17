@@ -1,0 +1,85 @@
+{
+  "destroy_guard": {
+    "allow_restore_destroy": true,
+    "confirm_destroy_run_id": "g03r-1016"
+  },
+  "no_teardown_applied": true,
+  "phase1_artifact_generations": {
+    "allowlist.toc": "1792195786699241",
+    "dump.toc": "1792195778303427",
+    "manifest.json": "1792195760678849",
+    "synthetic-v1-v61.dump": "1792195769229365"
+  },
+  "phase1_terraform_plan": {
+    "actions": [
+      "delete",
+      "delete"
+    ],
+    "applied": false,
+    "applyable": true,
+    "binary_plan_retained_private": true,
+    "not_in_phase2_inventory": [
+      "google_sql_user.restore_iam[0]",
+      "google_sql_user.verify_iam[0]"
+    ],
+    "note": "Target-only partial plan; requires review and a fresh state check before any apply.",
+    "sha256": "8e00f5cc08ed82c6b9efd9e56bc012cea233452ac301110126f92a2f6ab5292d",
+    "summary": {
+      "added": 0,
+      "changed": 0,
+      "destroyed": 2
+    },
+    "targeted": true,
+    "targets": [
+      "google_sql_user.restore_iam[0]",
+      "google_sql_user.verify_iam[0]"
+    ],
+    "terraform_complete": false
+  },
+  "phase2_inventory_managed_resources": [
+    "google_cloud_run_v2_job.admin_phase[\"bootstrap\"]",
+    "google_cloud_run_v2_job.admin_phase[\"retire\"]",
+    "google_cloud_run_v2_job.diagnose[0]",
+    "google_cloud_run_v2_job.restore[0]",
+    "google_cloud_run_v2_job.verify[0]",
+    "google_cloud_run_v2_job_iam_member.bootstrap_invoker[0]",
+    "google_cloud_run_v2_job_iam_member.diagnostic_invoker[0]",
+    "google_cloud_run_v2_job_iam_member.restore_invoker[0]",
+    "google_cloud_run_v2_job_iam_member.retire_invoker[0]",
+    "google_cloud_run_v2_job_iam_member.verify_invoker[0]",
+    "google_project_iam_member.admin_sql_client[0]",
+    "google_project_iam_member.sql_client[0]",
+    "google_project_iam_member.sql_instance_user[0]",
+    "google_project_iam_member.verify_sql_client[0]",
+    "google_project_iam_member.verify_sql_instance_user[0]",
+    "google_secret_manager_secret.postgres_password[0]",
+    "google_secret_manager_secret_iam_member.admin_password_reader[0]",
+    "google_service_account.admin[0]",
+    "google_service_account.restore[0]",
+    "google_service_account.verify[0]",
+    "google_service_account_iam_member.bootstrap_deployer_act_as[0]",
+    "google_service_account_iam_member.restore_operator_act_as[0]",
+    "google_service_account_iam_member.verify_operator_act_as[0]",
+    "google_sql_database.restore[0]",
+    "google_sql_database_instance.restore[0]",
+    "google_storage_bucket.artifacts[0]",
+    "google_storage_bucket_iam_member.artifact_reader[0]",
+    "google_storage_bucket_iam_member.diagnostic_artifact_reader[0]"
+  ],
+  "preserve": {
+    "baseline_network_and_subnetwork": "data sources only; never destroy",
+    "persistent_source_database_dataset_backups_files": "outside scope",
+    "pilot01_service_accounts_and_sql": "outside scope",
+    "terraform_state_backend": "outside scope"
+  },
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "retire_failure_evidence_sha256": "0dfff91776739691f5d03a4b3b72d568b38da046237fd6d28938b112a92713d9",
+  "run_id": "g03r-1016",
+  "schema": "espacigo.gcp03.teardown-phase1-attestation.v1",
+  "source_main_commit": "2eedba7d67cfe8bc4e6c163edf34170c618788c8",
+  "terraform_state": {
+    "lineage_sha256": "c0224c243cae93ca69cf4f26e3d614341463a70627ed194086c7ee5b59e0f355",
+    "serial": 9
+  }
+}
