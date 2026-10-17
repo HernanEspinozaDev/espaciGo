@@ -52,3 +52,8 @@ cd "$ROOT_DIR"
 env -u DATABASE_URL \
   GCP03_ORIGIN_TEST_DATABASE_URL="postgres://postgres@localhost/espacigo_scratch?host=$SOCKET_DIR&sslmode=disable" \
   go test -count=1 -v ./internal/gcp03origin
+
+cd "$ROOT_DIR"
+PYTHONPATH="$ROOT_DIR/scripts${PYTHONPATH:+:$PYTHONPATH}" \
+  GCP03_ORIGIN_EXECUTOR_TEST_SOCKET="$SOCKET_DIR" \
+  python3 -m unittest scripts.test_gcp03_origin_cloud_import_postgres -v

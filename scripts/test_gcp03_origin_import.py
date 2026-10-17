@@ -67,14 +67,19 @@ class OriginImportTests(unittest.TestCase):
                             importer.transport_key(master, salt, "g03o-1018"))
 
     def test_authenticated_metadata_must_match_current_v1_v61_bytes(self):
+        source_capture_run_id = "gcp03-merge-review-20261017"
+        source_database = "espacigo_local"
+        target_database = "espacigo_scratch"
         migrations_dir = Path(importer.__file__).resolve().parents[1] / "db" / "migrations"
         history = []
         for version in range(1, 62):
             path, = migrations_dir.glob(f"V{version:06d}__*.sql")
             history.append({"name": path.name, "checksum": hashlib.sha256(path.read_bytes()).hexdigest()})
-        metadata = {"database_report": {"database": "espacigo", "migration_match_v1_v61": True,
+        metadata = {"database_report": {"database": source_database, "migration_match_v1_v61": True,
                                          "source_credentials_included": False, "role_passwords_included": False,
-                                         "migration_history": history}}
+                                         "migration_history": history},
+                    "preflight": {"source_projection": {"configured_database_name": source_database}},
+                    "release": {"run_id": source_capture_run_id}}
 
         class Process:
             def wait(self, timeout=None):
@@ -85,16 +90,24 @@ class OriginImportTests(unittest.TestCase):
 
         snapshot = Path("/tmp/gcp03-import-test-snapshot")
         with patch.object(importer, "gpg_decrypt", return_value=(Process(), io.BytesIO(json.dumps(metadata).encode()))):
-            self.assertEqual(len(importer.verify_source_metadata(snapshot, bytes(32), "g03o-1017")), 64)
+            self.assertEqual(len(importer.verify_source_metadata(snapshot, bytes(32), source_capture_run_id)), 64)
+        self.assertNotEqual(source_database, target_database)
+        metadata["preflight"]["source_projection"]["configured_database_name"] = "other_database"
+        with patch.object(importer, "gpg_decrypt", return_value=(Process(), io.BytesIO(json.dumps(metadata).encode()))):
+            with self.assertRaises(importer.ImportErrorSafe):
+                importer.verify_source_metadata(snapshot, bytes(32), source_capture_run_id)
+        metadata["preflight"]["source_projection"]["configured_database_name"] = source_database
         history[32]["checksum"] = "0" * 64
         with patch.object(importer, "gpg_decrypt", return_value=(Process(), io.BytesIO(json.dumps(metadata).encode()))):
             with self.assertRaises(importer.ImportErrorSafe):
-                importer.verify_source_metadata(snapshot, bytes(32), "g03o-1017")
+                importer.verify_source_metadata(snapshot, bytes(32), source_capture_run_id)
 
     @unittest.skipUnless(shutil.which("gpg"), "GnuPG is required for the streaming staging integration test")
     def test_synthetic_gpg_snapshot_stages_and_recovers_without_plaintext_files(self):
         repo_root = Path(importer.__file__).resolve().parents[1]
         testing = repo_root / ".local" / "testing"
+        testing.mkdir(parents=True, mode=0o700, exist_ok=True)
+        os.chmod(testing, 0o700)
         master = bytes(range(32))
         source_capture_run_id = "gcp03-merge-review-20261017"
         target_run_id = "g03o-1017"
@@ -111,9 +124,12 @@ class OriginImportTests(unittest.TestCase):
             for version in range(1, 62):
                 path, = migrations_dir.glob(f"V{version:06d}__*.sql")
                 history.append({"name": path.name, "checksum": hashlib.sha256(path.read_bytes()).hexdigest()})
-            metadata = {"database_report": {"database": "espacigo", "migration_match_v1_v61": True,
+            source_database = "espacigo_local"
+            metadata = {"database_report": {"database": source_database, "migration_match_v1_v61": True,
                                              "source_credentials_included": False, "role_passwords_included": False,
-                                             "migration_history": history}}
+                                             "migration_history": history},
+                        "preflight": {"source_projection": {"configured_database_name": source_database}},
+                        "release": {"run_id": source_capture_run_id}}
             plaintexts = {
                 "database.dump.gpg": b"synthetic custom archive bytes\0" * 40000,
                 "private-files.tar.gpg": b"synthetic private tar bytes\0" * 9000,
@@ -160,6 +176,7 @@ class OriginImportTests(unittest.TestCase):
             manifest = json.loads((staged / "transport-manifest.json").read_bytes())
             self.assertEqual(manifest["source_capture_run_id"], source_capture_run_id)
             self.assertEqual(manifest["target_run_id"], target_run_id)
+            self.assertEqual(manifest["import_contract"]["target_database"], "espacigo_scratch")
             self.assertEqual(manifest["artifacts"]["database.dump"]["object_name"], f"runs/{target_run_id}/database.dump.gcm")
             with self.assertRaises(importer.ImportErrorSafe):
                 importer.recover_verify(staged, key_file, source_capture_run_id, target_run_id, "0" * 64)
