@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "observed_on_utc": "2026-10-17",
+  "observation_window_utc": "approximately 07:14-07:15",
+  "reviewed_code_head": "1e93e82ff425479d29679168ba053c43baaa3584",
+  "project_id": "espacigo-testprod",
+  "project_number": "447373903153",
+  "region": "southamerica-west1",
+  "read_only": true,
+  "mutations_performed": false,
+  "cloud_sql_instances": [
+    {
+      "name": "espacigo-testprod-pg",
+      "database_version_major": "POSTGRES_18",
+      "state": "RUNNABLE",
+      "tier": "db-custom-N4-2-4096",
+      "edition": "ENTERPRISE",
+      "disk_gib": 20,
+      "disk_type": "HYPERDISK_BALANCED",
+      "private_network": "projects/espacigo-testprod/global/networks/espacigo-testprod",
+      "public_ipv4_enabled": false,
+      "connector_enforcement": "REQUIRED",
+      "ssl_mode": "ENCRYPTED_ONLY",
+      "deletion_protection": true,
+      "automated_backup_enabled": true,
+      "point_in_time_recovery_enabled": true,
+      "databases": ["postgres", "espacigo"],
+      "cloud_sql_admin_api_users": ["postgres"]
+    },
+    {
+      "name": "espacigo-gcp03-pilot01-pg",
+      "database_version_major": "POSTGRES_18",
+      "state": "RUNNABLE",
+      "tier": "db-custom-N4-2-4096",
+      "edition": "ENTERPRISE",
+      "disk_gib": 20,
+      "disk_type": "HYPERDISK_BALANCED",
+      "private_network": "projects/espacigo-testprod/global/networks/espacigo-testprod",
+      "public_ipv4_enabled": false,
+      "connector_enforcement": "REQUIRED",
+      "ssl_mode": "ENCRYPTED_ONLY",
+      "deletion_protection": true,
+      "automated_backup_enabled": false,
+      "point_in_time_recovery_enabled": false,
+      "databases": ["postgres", "espacigo_scratch"],
+      "cloud_sql_admin_api_users": ["postgres"]
+    }
+  ],
+  "sql_catalog_read_attempts": [
+    {
+      "instance": "espacigo-testprod-pg",
+      "database": "espacigo",
+      "query": "SELECT current_database(), current_setting('server_version')",
+      "result": "blocked_before_sql_execution",
+      "api_error": "HTTP 400: instance does not allow ExecuteSql; settings.dataApiAccess would need ALLOW_DATA_API",
+      "instance_setting_was_not_changed": true
+    },
+    {
+      "instance": "espacigo-gcp03-pilot01-pg",
+      "database": "espacigo_scratch",
+      "query": "SELECT current_database(), current_setting('server_version')",
+      "result": "blocked_before_sql_execution",
+      "api_error": "HTTP 400: instance does not allow ExecuteSql; settings.dataApiAccess would need ALLOW_DATA_API",
+      "instance_setting_was_not_changed": true
+    }
+  ],
+  "target_extension_status": {
+    "installed_now": "unverified; SQL catalog is inaccessible through the read-only query path used",
+    "supported_versions_per_current_google_documentation_for_postgresql_18": {
+      "postgis": "3.6.0",
+      "btree_gist": "1.8",
+      "fuzzystrmatch": "1.2",
+      "plpgsql": "1.0",
+      "unaccent": "1.1"
+    },
+    "documentation_url": "https://docs.cloud.google.com/sql/docs/postgres/extensions"
+  },
+  "latest_prior_managed_sql_observation": {
+    "observed_at": "2026-10-16",
+    "instance": "espacigo-gcp03-pilot01-pg",
+    "database": "espacigo_scratch",
+    "postgres_server_version_num": 180006,
+    "extensions_reported": {
+      "btree_gist": "1.8",
+      "plpgsql": "1.0",
+      "postgis": "3.6.4",
+      "unaccent": "1.1"
+    },
+    "runtime_acl_checks_passed": 16,
+    "relations_inspected": 377,
+    "functions_inspected": 1031,
+    "security_definer_functions_inspected": 12,
+    "limitation": "historical pilot01 observer result; not a current re-read of either database"
+  },
+  "origin_historical_inventory_observation": {
+    "observed_at_utc": "2026-10-17T02:38:24.478965+00:00",
+    "postgres_server_version": "18.6",
+    "extensions": {
+      "btree_gist": "1.8",
+      "fuzzystrmatch": "1.2",
+      "plpgsql": "1.0",
+      "postgis": "3.6.4",
+      "postgis_tiger_geocoder": "3.6.4",
+      "postgis_topology": "3.6.4",
+      "unaccent": "1.1"
+    },
+    "roles_observed": 19,
+    "memberships_observed": 3,
+    "security_definer_routines_observed": 12,
+    "evidence": "gcp03-origin-snapshot-prep-20261016/aggregate-inventory.json",
+    "limitation": "historical preflight inventory; not the sealed snapshot captured later in the approved window"
+  },
+  "limitations": [
+    "Cloud SQL Admin API user listings show SQL login users, not the complete pg_roles catalog or database ACLs.",
+    "Current installed extension versions, extension owners, database roles/memberships/ACL, object ownership and routine definitions could not be re-read because Data API ExecuteSql is disabled on both instances.",
+    "No Data API setting, network path, SQL user, role, resource, job or infrastructure was created or changed.",
+    "The API reports the PostgreSQL major version; the running minor patch on each instance was not confirmed in this current observation."
+  ],
+  "commands": [
+    "gcloud sql instances list --project=espacigo-testprod --billing-project=espacigo-testprod",
+    "gcloud sql instances describe espacigo-testprod-pg --project=espacigo-testprod --billing-project=espacigo-testprod",
+    "gcloud sql instances describe espacigo-gcp03-pilot01-pg --project=espacigo-testprod --billing-project=espacigo-testprod",
+    "gcloud sql databases list --project=espacigo-testprod --billing-project=espacigo-testprod --instance=espacigo-testprod-pg",
+    "gcloud sql databases list --project=espacigo-testprod --billing-project=espacigo-testprod --instance=espacigo-gcp03-pilot01-pg",
+    "gcloud sql users list --project=espacigo-testprod --billing-project=espacigo-testprod --instance=espacigo-testprod-pg",
+    "gcloud sql users list --project=espacigo-testprod --billing-project=espacigo-testprod --instance=espacigo-gcp03-pilot01-pg"
+  ]
+}
