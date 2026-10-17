@@ -13,7 +13,7 @@ func env(phase Phase) map[string]string {
 		"CLOUD_SQL_PRIVATE_IP":               "true",
 		"DATABASE_CONNECTION_MODE":           "cloudsql",
 	}
-	if phase == PhaseBootstrap || phase == PhaseMembership {
+	if phase == PhaseBootstrap || phase == PhaseMembership || phase == PhaseMembershipCheck {
 		values["DATABASE_URL"] = AdminDatabaseURL
 		values["DATABASE_PASSWORD_FILE"] = AdminPasswordFile
 	} else {
@@ -23,7 +23,7 @@ func env(phase Phase) map[string]string {
 }
 
 func TestLoadConfigAcceptsOnlyFixedBootstrapMembershipAndObserverProfiles(t *testing.T) {
-	for _, phase := range []Phase{PhaseBootstrap, PhaseMembership, PhaseObserve} {
+	for _, phase := range []Phase{PhaseBootstrap, PhaseMembership, PhaseMembershipCheck, PhaseObserve} {
 		t.Run(string(phase), func(t *testing.T) {
 			values := env(phase)
 			config, err := LoadConfig(func(key string) string { return values[key] })
@@ -38,6 +38,9 @@ func TestLoadConfigAcceptsOnlyFixedBootstrapMembershipAndObserverProfiles(t *tes
 			}
 			if phase == PhaseMembership && (config.PasswordFile != AdminPasswordFile || config.Login != AdminLogin) {
 				t.Fatalf("membership remediation received a non-admin profile: %#v", config)
+			}
+			if phase == PhaseMembershipCheck && (config.PasswordFile != AdminPasswordFile || config.Login != AdminLogin) {
+				t.Fatalf("membership diagnostic did not receive the fixed read-only admin profile: %#v", config)
 			}
 		})
 	}
@@ -54,6 +57,8 @@ func TestLoadConfigRejectsTargetAndSecretOverrides(t *testing.T) {
 		{"bootstrap url", "DATABASE_URL", "postgres://attacker@localhost:5432/db?sslmode=disable", PhaseBootstrap},
 		{"observer secret", "DATABASE_PASSWORD_FILE", AdminPasswordFile, PhaseObserve},
 		{"arbitrary sql", "GCP03_SQL", "DROP DATABASE", PhaseBootstrap},
+		{"diagnostic sql override", "GCP03_SQL_STDIN", "GRANT role TO user", PhaseMembershipCheck},
+		{"diagnostic other target", "GCP03_ORIGIN_CONFIRM_TARGET", "other/db", PhaseMembershipCheck},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			values := env(test.phase)

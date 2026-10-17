@@ -1,17 +1,69 @@
 {
   "cloudsql_reference": "https://docs.cloud.google.com/sql/docs/postgres/users (postgres has LOGIN, CREATEROLE, CREATEDB and lacks SUPERUSER)",
-  "effective_impersonation_preflight": "iam.serviceAccounts.getAccessToken denied (read-only testIamPermissions); no token minted",
+  "diagnostic_executor": {
+    "archive": ".local/testing/g03o-membership-diagnostic-20261017/gcp03origin-linux-amd64.oci.tar",
+    "archive_sha256": "d9e892230cc0828bf62172fc7d38d678eae508b7fcbf1cab153fd1ccbf7bb6e9",
+    "oci_manifest_digest": "sha256:a5f6d98daa96b8359b05d1f86e0c89052cef4b27211cf93083728b82dbea9450",
+    "published": false,
+    "source_commit": "bfcb279463128059568f9dc1fa6aa062b2b49aca"
+  },
+  "effective_impersonation_preflight": "iam.serviceAccounts.getAccessToken granted by read-only testIamPermissions after exact T1 IAM apply; no service-account token minted",
   "iam_credentials_api": "iamcredentials.googleapis.com enabled (read-only check)",
   "import_executor": {
     "archive_sha256": "14a41e75bd5f1645250093dfa1052054b890409197f67a3700affee9c53ca319",
+    "artifact_registry_tag": "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin-import:origin-import-867031f6430d",
     "oci_manifest_digest": "sha256:bfc0d7dd47356d77b73dbe7aba88dc315e1f9914ab81679659641bebd39632ac",
-    "published": false
+    "published": true,
+    "remote_digest_verified": true
+  },
+  "membership_execution": {
+    "admin_option": false,
+    "attempts": 1,
+    "database": "espacigo_scratch",
+    "execution": "espacigo-gcp03-origin-g03o-1017-runtime-membership-m4h4w",
+    "exit_code": 1,
+    "failure_stage": "not reported by the executor; exact precheck/GRANT/postcheck stage cannot be distinguished",
+    "grantor": "postgres",
+    "inherit_option": false,
+    "login": "postgres",
+    "max_retries": 0,
+    "membership_set": false,
+    "passed": false,
+    "retried": false,
+    "runtime_role_ready": false,
+    "sanitized_report_sha256": "bc80657919604260f8653bf9331d27d91072c2ae15ce1631742c3e32455f0161",
+    "set_option": false,
+    "sqlstate": "not reported",
+    "task": "task0",
+    "terminal": "failed",
+    "transaction_outcome": "rolled_back"
   },
   "membership_integration": "scripts/test-gcp03-origin-postgres.sh runs TestOriginMembershipPostgres18 against isolated PostgreSQL 18 with postgres NOSUPERUSER, CREATEROLE, CREATEDB; validates wrong identity, unsafe role, denied GRANT rollback, failed postcheck rollback, uncertain commit, exact successful membership, and unchanged role/object inventory.",
-  "plan_mode": "refresh=true, lock=false; saved plans only; no apply",
+  "plan_mode": "refresh=true, normal Terraform state locking enabled; exact saved plan applied only when explicitly released; diagnostic plan saved and unapplied",
   "plans": {
+    "membership-diagnostic": {
+      "applied": false,
+      "file": ".local/testing/g03o-membership-diagnostic-20261017/plan/membership-diagnostic.tfplan",
+      "oci_digest": "sha256:a5f6d98daa96b8359b05d1f86e0c89052cef4b27211cf93083728b82dbea9450",
+      "plan_result": "1 to add, 0 to change, 0 to destroy; existing membership Job and all other managed resources are no-op; import and postrestore gates remain false",
+      "resource_changes": [
+        {
+          "actions": [
+            "create"
+          ],
+          "address": "google_cloud_run_v2_job.origin_membership_diagnostic[0]"
+        }
+      ],
+      "sha256": "5b1a51e8ad2c34ede620d20891c415d457f0b707bbfdc7cca246acc89e3724a8",
+      "source_commit": "bfcb279463128059568f9dc1fa6aa062b2b49aca",
+      "state_serial": 11,
+      "tfvars": ".local/testing/g03o-membership-diagnostic-20261017/plan/membership-diagnostic.tfvars",
+      "tfvars_sha256": "a3d5a079e50c43aa031aff13a74e58ab538c89358d89909e9ea90719860cfc95"
+    },
     "runtime-membership": {
-      "file": "/home/nandev/.codex/worktrees/g03o-runtime-membership/espaciGo/.local/testing/g03o-runtime-membership-r2-20261017/runtime-membership.tfplan",
+      "applied": true,
+      "apply_result": "1 added, 0 changed, 0 destroyed; state advanced to serial 11",
+      "file": ".local/testing/g03o-runtime-membership-preserved-20261017/g03o-runtime-membership-r3-20261017/runtime-membership.tfplan",
       "oci_digest": "sha256:8f0266d13b4e589ffca8b8f8c5d699890305e4fce4119da923d53cb44b00e422",
       "resource_changes": [
         {
@@ -21,8 +73,9 @@
           "address": "google_cloud_run_v2_job.origin_membership[0]"
         }
       ],
-      "sha256": "5c9d76d0ddef405e715ee7bca230cc123b4491552fd91e10b82273ca8d3bcec5",
-      "source_commit": "6e3613e25ff6bcfe7f5dcb8f9f05f2d81a6a5668"
+      "sha256": "704d9ca76918022a033e65f5ea610198976e7d90229906e2dce5b8ce371d7a30",
+      "source_commit": "6e3613e25ff6bcfe7f5dcb8f9f05f2d81a6a5668",
+      "state_serial": 10
     },
     "runtime-membership-initial-superseded": {
       "file": "runtime-membership.tfplan",
@@ -37,7 +90,23 @@
       "sha256": "2419a9bc1338d68eb85817f27d81d3ca83ac94b891004fc14ffba6cb295c6b23",
       "superseded_by": "runtime-membership-r2 after Cloud SQL postgres role-profile correction"
     },
+    "runtime-membership-r2-superseded-before-m1": {
+      "file": "/home/nandev/.codex/worktrees/g03o-runtime-membership/espaciGo/.local/testing/g03o-runtime-membership-r2-20261017/runtime-membership.tfplan",
+      "oci_digest": "sha256:8f0266d13b4e589ffca8b8f8c5d699890305e4fce4119da923d53cb44b00e422",
+      "resource_changes": [
+        {
+          "actions": [
+            "create"
+          ],
+          "address": "google_cloud_run_v2_job.origin_membership[0]"
+        }
+      ],
+      "sha256": "5c9d76d0ddef405e715ee7bca230cc123b4491552fd91e10b82273ca8d3bcec5",
+      "source_commit": "6e3613e25ff6bcfe7f5dcb8f9f05f2d81a6a5668"
+    },
     "uploader-impersonation": {
+      "applied": true,
+      "apply_result": "2 added, 0 changed, 0 destroyed",
       "file": "uploader-impersonation.tfplan",
       "resource_changes": [
         {
@@ -53,7 +122,8 @@
           "address": "google_service_account_iam_member.uploader_token_access[0]"
         }
       ],
-      "sha256": "876a092a9a5fe10e84c4dbf773b2cc58e0d2bbd7859242842a2825c924b621cf"
+      "sha256": "876a092a9a5fe10e84c4dbf773b2cc58e0d2bbd7859242842a2825c924b621cf",
+      "state_serial_after_apply": 10
     }
   },
   "project_id": "espacigo-testprod",
@@ -62,16 +132,24 @@
   "runtime_membership_executor": {
     "archive": "/home/nandev/.codex/worktrees/g03o-runtime-membership/espaciGo/.local/testing/g03o-runtime-membership-r2-20261017/gcp03origin-linux-amd64.oci.tar",
     "archive_sha256": "641cbe0783cbc59c82494c5e2e04a286c301036ee3d835e4f219e18092812af6",
+    "artifact_registry_tag": "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin:origin-membership-6e3613e25ff6",
     "metadata": "/home/nandev/.codex/worktrees/g03o-runtime-membership/espaciGo/.local/testing/g03o-runtime-membership-r2-20261017/gcp03origin-manifest.json",
     "metadata_sha256": "1ffd927711b9a307dcb099559b6c884e01424a4b0b7dc272502295864df46b19",
     "oci_manifest_digest": "sha256:8f0266d13b4e589ffca8b8f8c5d699890305e4fce4119da923d53cb44b00e422",
-    "published": false
+    "published": true,
+    "remote_digest_verified": true
   },
   "schema_version": 1,
   "source_commit": "6e3613e25ff6bcfe7f5dcb8f9f05f2d81a6a5668",
-  "sql": "not connected; no Cloud SQL mutation or job execution",
+  "sql": "Membership Job invoked once; executor reported transaction_outcome=rolled_back, with no confirmed committed membership change. No import Job, no capture upload, no application data SQL, no retry.",
   "state_backend": "gs://espacigo-testprod-tfstate-447373903153-gcp/espacigo/testprod/gcp03-origin/g03o-1017",
   "state_lineage": "4e81a953-7353-fbd4-93a8-e4b9a5019e95",
-  "state_serial": 9,
-  "validity_note": "Both plans were generated from state serial 9. Applying the uploader-impersonation plan changes remote state; regenerate and review the runtime-membership plan after the upload/readback phase before any application. The saved membership plan is a preview for the current serial only."
+  "state_serial": 11,
+  "tests_executed": {
+    "go test ./internal/gcp03origin ./cmd/gcp03origin": "PASS",
+    "scripts/test-gcp03-origin-postgres.sh": "PASS; isolated PostgreSQL 18 integration, read-only diagnostic rejected CREATE ROLE with SQLSTATE 25006; identity mismatch and absent runtime role covered; existing membership transaction fixtures passed",
+    "terraform test": "PASS; 11 passed, 0 failed",
+    "terraform validate": "PASS"
+  },
+  "validity_note": "T1 IAM plan applied once (serial 9 to 10); the fresh membership plan was applied once (serial 10 to 11). The one membership execution failed with a reported rolled-back transaction; failure stage and SQLSTATE were absent, so no root cause is inferred and there was no retry. I3 published only the exact reviewed import OCI archive. A new read-only diagnostic executor has been built locally but is unpublished. Its serial-11 Terraform plan proposes one diagnostic Cloud Run Job and no other changes; it remains unapplied. No import Job or data upload has run."
 }
