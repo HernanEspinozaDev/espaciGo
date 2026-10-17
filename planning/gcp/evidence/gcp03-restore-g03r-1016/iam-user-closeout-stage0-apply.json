@@ -1,0 +1,84 @@
+{
+  "schema": "espacigo.gcp03.iam-user-closeout-stage0-apply.v1",
+  "completed_at": "2026-10-17T01:54:42.546Z",
+  "run_id": "g03r-1016",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "authorization": {
+    "pr": 381,
+    "reviewer": "HernanEspinozaDev",
+    "pr_head": "872b2ee66516c6d8b7f36febfd00d6aaa6d4575e",
+    "merge_sha": "d954217036066517880881da2c8588cdf0dfe731"
+  },
+  "terraform": {
+    "version": "1.16.6",
+    "google_provider_version": "8.7.0",
+    "execution_commit": "d954217036066517880881da2c8588cdf0dfe731",
+    "plan_sha256": "ffcf28449f3b4cada393753c58dc8fc455868d8f41eaaba8f801d2a38f9a4f31",
+    "state_lineage": "5bc6ad38-035f-fba3-2bcd-43bdf641e370",
+    "state_serial_before": 10,
+    "state_serial_after": 11,
+    "summary": {"added": 0, "changed": 2, "destroyed": 0},
+    "changed_resources": [
+      {
+        "address": "google_sql_user.restore_iam[0]",
+        "only_attribute_changed": "deletion_policy",
+        "before": "PREVENT",
+        "after": "DELETE"
+      },
+      {
+        "address": "google_sql_user.verify_iam[0]",
+        "only_attribute_changed": "deletion_policy",
+        "before": "PREVENT",
+        "after": "DELETE"
+      }
+    ],
+    "apply_complete": true
+  },
+  "post_apply_verification": {
+    "cloud_sql_users_api_confirmed_both_users_exist": true,
+    "terraform_state_ids_unchanged": true,
+    "terraform_state_database_roles_unchanged": true,
+    "users": [
+      {
+        "name": "g03-restore-g03r-1016@espacigo-testprod.iam",
+        "id": "g03-restore-g03r-1016@espacigo-testprod.iam//espacigo-gcp03-restore-g03r-1016-pg",
+        "database_roles": ["g03_restore_owner_g03r_1016"],
+        "type": "CLOUD_IAM_SERVICE_ACCOUNT",
+        "deletion_policy": "DELETE"
+      },
+      {
+        "name": "g03-verify-g03r-1016@espacigo-testprod.iam",
+        "id": "g03-verify-g03r-1016@espacigo-gcp03-restore-g03r-1016-pg",
+        "database_roles": ["g03_restore_verify_g03r_1016"],
+        "type": "CLOUD_IAM_SERVICE_ACCOUNT",
+        "deletion_policy": "DELETE"
+      }
+    ],
+    "cloud_sql_instance": {
+      "name": "espacigo-gcp03-restore-g03r-1016-pg",
+      "state": "RUNNABLE",
+      "deletion_protection_enabled": true
+    },
+    "run_jobs": {
+      "count": 6,
+      "present": [
+        "espacigo-gcp03-restore-g03r-1016-bootstrap",
+        "espacigo-gcp03-restore-g03r-1016-diagnose",
+        "espacigo-gcp03-restore-g03r-1016-restore",
+        "espacigo-gcp03-restore-g03r-1016-retire",
+        "espacigo-gcp03-restore-g03r-1016-retire-diagnose",
+        "espacigo-gcp03-restore-g03r-1016-verify"
+      ],
+      "terraform_state_deletion_protection_enabled": true
+    }
+  },
+  "side_effects": {
+    "sql_statements_executed": false,
+    "cloud_run_jobs_invoked": false,
+    "sql_users_deleted": false,
+    "other_cloud_resources_deleted_or_updated": false,
+    "cloud_tests_run": false,
+    "storage_object_operations": false
+  }
+}
