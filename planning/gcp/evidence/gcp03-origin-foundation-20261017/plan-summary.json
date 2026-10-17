@@ -1,0 +1,139 @@
+{
+  "format": "espacigo.gcp03.origin.foundation.plan-summary.v1",
+  "observed_at_utc": "2026-10-17",
+  "configuration_commit": "1c0dd2b30892abe90f6be260b91dacc8be1dff98",
+  "project": "espacigo-testprod",
+  "project_number": "447373903153",
+  "region": "southamerica-west1",
+  "run_id": "g03o-1017",
+  "backend": {
+    "type": "gcs",
+    "bucket": "espacigo-testprod-tfstate-447373903153-gcp",
+    "prefix": "espacigo/testprod/gcp03-origin/g03o-1017",
+    "remote_state_object": "default.tfstate",
+    "state_serial": 1,
+    "managed_resources": 0,
+    "remote_object_initialized_by": "terraform init",
+    "remote_state_object_metadata": {
+      "generation": "1792223060512662",
+      "size_bytes": 181,
+      "updated_at_utc": "2026-10-17T07:44:20Z"
+    },
+    "locking": "disabled for plan with -lock=false"
+  },
+  "plan": {
+    "binary_path": ".local/testing/gcp03-origin-foundation-20261017/foundation.tfplan",
+    "sha256": "e90712d0656a4988c14542de36fb7ab439514d7f472b69f3e4b8ddace6ed0005",
+    "json_private_path": ".local/testing/gcp03-origin-foundation-20261017/foundation.plan.json",
+    "private_json_sha256": "ca1bc7027967516ea6a8d6bffbca9f8e9a418fbba869909fc8d797feb8404662",
+    "actions": {
+      "create": 7,
+      "update": 0,
+      "delete": 0,
+      "replace": 0
+    },
+    "refresh": true,
+    "apply_performed": false
+  },
+  "data_sources_read_only": [
+    "data.google_compute_network.existing[0]",
+    "data.google_compute_subnetwork.existing[0]"
+  ],
+  "resource_actions": [
+    {
+      "address": "google_project_iam_member.admin_sql_client[0]",
+      "actions": [
+        "create"
+      ]
+    },
+    {
+      "address": "google_secret_manager_secret.admin_password[0]",
+      "actions": [
+        "create"
+      ]
+    },
+    {
+      "address": "google_secret_manager_secret_iam_member.admin_password_reader[0]",
+      "actions": [
+        "create"
+      ]
+    },
+    {
+      "address": "google_service_account.admin[0]",
+      "actions": [
+        "create"
+      ]
+    },
+    {
+      "address": "google_sql_database.origin[0]",
+      "actions": [
+        "create"
+      ]
+    },
+    {
+      "address": "google_sql_database_instance.origin[0]",
+      "actions": [
+        "create"
+      ]
+    },
+    {
+      "address": "google_storage_bucket.artifacts[0]",
+      "actions": [
+        "create"
+      ]
+    }
+  ],
+  "instance": {
+    "name": "espacigo-gcp03-origin-g03o-1017-pg",
+    "database": "espacigo_scratch",
+    "version": "POSTGRES_18",
+    "tier": "db-custom-N4-2-4096",
+    "disk_gib": 20,
+    "hyperdisk_iops": 4000,
+    "hyperdisk_throughput_mib_s": 170,
+    "private_ip_only": true,
+    "ssl_mode": "ENCRYPTED_ONLY",
+    "connector_enforcement": "REQUIRED",
+    "data_api_access": "DISALLOW_DATA_API",
+    "deletion_protection_api": true,
+    "deletion_protection_terraform": true,
+    "backups": false,
+    "pitr": false
+  },
+  "bucket": {
+    "name": "espacigo-gcp03-origin-g03o-1017",
+    "class": "STANDARD",
+    "location": "southamerica-west1",
+    "public_access_prevention": "enforced",
+    "uniform_bucket_level_access": true,
+    "force_destroy": false,
+    "soft_delete_retention_seconds": 0
+  },
+  "secret": {
+    "id": "espacigo-gcp03-origin-g03o-1017-postgres-password",
+    "payload_versions": 0,
+    "deletion_protection": true
+  },
+  "iam": {
+    "service_account": "g03o-admin-g03o-1017@espacigo-testprod.iam.gserviceaccount.com",
+    "project_binding": "roles/cloudsql.client conditioned on exact run instance",
+    "secret_binding": "roles/secretmanager.secretAccessor on exact run secret"
+  },
+  "preflight": {
+    "run_instance_absent": true,
+    "bucket_absent": true,
+    "service_account_absent": true,
+    "secret_metadata_absent": true,
+    "matching_project_iam_binding_for_new_admin": 0,
+    "cloud_run_jobs_in_region": 0,
+    "cloud_run_services_in_region": 0,
+    "existing_sql_baseline": [
+      "espacigo-testprod-pg",
+      "espacigo-gcp03-pilot01-pg"
+    ],
+    "checks_read_only": true
+  },
+  "baseline_changes": 0,
+  "future_jobs_or_sql_users_created": 0,
+  "privacy": "This summary contains resource names and public prices only; no secret payload, local credential, or application data."
+}

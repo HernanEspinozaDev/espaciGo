@@ -1,0 +1,84 @@
+{
+  "format": "espacigo.gcp03.origin.foundation.pricing.v1",
+  "observed_at_utc": "2026-10-17",
+  "source_method": {
+    "api": "Google Cloud Billing Catalog API v1 public SKU catalog",
+    "authentication": "gcloud OAuth access token; token not recorded",
+    "requests": [
+      "GET https://cloudbilling.googleapis.com/v1/services/9662-B51E-5089/skus?pageSize=5000",
+      "GET https://cloudbilling.googleapis.com/v1/services/95FF-2EF5-5EA1/skus?pageSize=5000"
+    ],
+    "region": "southamerica-west1",
+    "currency": "USD",
+    "effective_time": "2026-10-16T07:00:00Z",
+    "limits": "Public list prices before taxes, credits, custom contracts, and billing-account discounts."
+  },
+  "skus": [
+    {
+      "sku_id": "3429-0663-E831",
+      "description": "Cloud SQL for Postgres: Zonal - Enterprise N4 vCPU in Santiago",
+      "unit": "vCPU-hour",
+      "unit_price_usd": 0.05782
+    },
+    {
+      "sku_id": "9A93-3B0A-FEA8",
+      "description": "Cloud SQL for Postgres: Zonal - Enterprise N4 RAM in Santiago",
+      "unit": "GiBy-hour",
+      "unit_price_usd": 0.0098
+    },
+    {
+      "sku_id": "C6CC-836F-64E2",
+      "description": "Cloud SQL for Postgres: Zonal - Enterprise Storage Hyperdisk Balanced Capacity in Santiago",
+      "unit": "GiBy-month",
+      "unit_price_usd": 0.161
+    },
+    {
+      "sku_id": "FD47-2B68-5FDB",
+      "description": "Cloud SQL for Postgres: Zonal - Enterprise Storage Hyperdisk Balanced IOPS in Santiago",
+      "unit": "IOPS-month",
+      "unit_price_usd": 0.028,
+      "baseline_included": 3000
+    },
+    {
+      "sku_id": "171D-5BEE-568E",
+      "description": "Cloud SQL for Postgres: Zonal - Enterprise Storage Hyperdisk Balanced Throughput in Santiago",
+      "unit": "MiB/s-month",
+      "unit_price_usd": 0.112,
+      "baseline_included": 140
+    },
+    {
+      "sku_id": "0ECF-CFC4-2B4C",
+      "description": "Cloud Storage Standard Storage Santiago",
+      "unit": "GiBy-month",
+      "unit_price_usd": 0.03
+    }
+  ],
+  "configuration": {
+    "edition": "Cloud SQL Enterprise",
+    "machine": "N4 2 vCPU / 4 GiB",
+    "storage": "20 GiB Hyperdisk Balanced; default provisioned performance 4000 IOPS / 170 MiB/s",
+    "backups_enabled": false,
+    "pitr_enabled": false
+  },
+  "calculation": {
+    "monthly_hour_basis": 730,
+    "formula_usd_per_hour": "2*0.05782 + 4*0.0098 + (20*0.161 + 1000*0.028 + 30*0.112)/730",
+    "estimated_usd_per_hour": 0.202209863,
+    "estimated_usd_8_hours": 1.617679,
+    "estimated_usd_24_hours": 4.853037,
+    "estimated_usd_720_hours": 145.591101,
+    "estimated_usd_730_hours": 147.6132,
+    "excluded": [
+      "Taxes, credits, discounts and negotiated contract pricing",
+      "Cloud Logging, data transfer, network egress and requests",
+      "Cloud Storage capacity until objects are uploaded; bucket is empty in Foundation",
+      "Cloud Run execution and later-phase secret versions/accesses",
+      "Any backup/PITR charges (both disabled in the Foundation configuration)"
+    ]
+  },
+  "official_sources": [
+    "https://cloud.google.com/sql/pricing",
+    "https://docs.cloud.google.com/sql/docs/postgres/storage-options-overview",
+    "https://docs.cloud.google.com/billing/docs/reference/rest/v1/services/skus/list"
+  ]
+}
