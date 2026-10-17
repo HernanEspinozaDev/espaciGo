@@ -1,6 +1,6 @@
 # GCP-03: propuesta de ensayo sintético de restore
 
-**Estado: ensayo sintético local ejecutado; cualquier operación equivalente en GCP sigue siendo una propuesta sin autorización de provisión.** No se consultó, leyó, exportó ni usó la base persistente, su volumen, sus respaldos ni el dataset. El test usó solo un contenedor PostgreSQL 18/PostGIS desechable con red deshabilitada, almacenamiento temporal y fixtures deterministas nuevos. No se creó recurso Cloud, secreto ni usuario SQL cloud, ni se ejecutó un Job Cloud Run. Este ensayo prueba mecánica de dump/restore y objetos en PostgreSQL local; no restaura un snapshot real del origen ni completa GCP-03.
+**Estado: el ensayo local y el restore cloud sintético de `g03r-1016` se ejecutaron; GCP-03 sigue parcial.** El cierre Stage3 eliminó los 30 recursos del run y el plan posterior refrescado encontró cero cambios y cero drift. No se consultó, leyó, exportó ni usó la base persistente, su volumen, sus respaldos ni el dataset. La fixture cloud fue sintética y mínima; no restaura un snapshot real del origen ni completa GCP-03. Véase la [matriz de cierre y trabajo pendiente](gcp03_g03r_1016_closeout_matrix.md).
 
 ## Criterios GCP-03 que siguen abiertos
 
@@ -10,7 +10,7 @@
 4. **Calendario con reglas de negocio:** la fixture cubre día DST de Santiago de 23 h, adyacencia, solape excluido y carrera concurrente en el constraint; queda verificar estados que bloquean disponibilidad mediante la integración Cloud SQL/booking y repetir el comportamiento en el target.
 5. **Aceptación GCP-03:** integrar los resultados de snapshot y Cloud SQL en la matriz, revisar limitaciones y obtener aceptación humana. No se infiere por pasar el test local.
 
-La revocación de credenciales, replay y cleanup Terraform stage 1/2 constan en [la evidencia del corte](evidencia_ejecucion_revoke_retired_membership_gcp03_20261016.md). Stage 2 ya se aplicó exactamente: Jobs/IAM temporales retirados, SQL/base/secret metadata/service accounts preservados. Las versiones secretas retiradas no se reutilizarán. Un ensayo Cloud futuro necesita credenciales efímeras nuevas y un procedimiento/plan independiente revisado.
+La revocación de credenciales, replay y cleanup Terraform stage 1/2 constan en [la evidencia del corte](evidencia_ejecucion_revoke_retired_membership_gcp03_20261016.md). Stage 3 también se aplicó exactamente: los recursos de `g03r-1016` quedaron retirados y el state remoto quedó vacío (serial 16); se preservaron la base persistente, `pilot01`, la red/subred, Artifact Registry y el backend versionado. La consulta de operaciones de solo lectura durante la eliminación no pudo determinar permisos/existencia; no se reintentó y el resultado se documenta junto con el apply exitoso en [evidencia Stage3](evidence/gcp03-restore-g03r-1016/stage3-teardown-apply.json). Las versiones secretas retiradas no se reutilizarán. Cualquier ensayo cloud posterior necesita decisión de alcance, credenciales efímeras nuevas y plan independiente revisado.
 
 ## Fixture propuesto
 
@@ -70,4 +70,12 @@ Fórmula para una primera cota: `horas_SQL × tarifa_hora_SQL + horas_job × tar
 
 ## Gate y límites
 
-La etapa Terraform stage 2 ya se aplicó con plan exacto revisado; no se solicita repetirla. Este documento no concede autorización de provisionar nueva Cloud SQL, crear credenciales cloud, ejecutar Jobs cloud, importar/restaurar datos o usar snapshot de origen. El ensayo Cloud requiere plan/costo/procedimiento revisados y liberación posterior. La base persistente, dataset, backup, archivos privados, credenciales y volumen local quedan fuera. GCP-04 conserva su alcance original de backend y ejecución durable en destino; no se marca iniciado/aceptado ni se activa despliegue/importación.
+Stage1, stage2 y stage3 del run `g03r-1016` ya están aplicados con planes exactos revisados. La propuesta aquí no autoriza provisionar nueva Cloud SQL, crear credenciales cloud, ejecutar Jobs cloud, importar/restaurar datos ni usar snapshot del origen. La matriz adjunta separa lo completado de lo pendiente y concreta el siguiente trabajo de menor costo, que comienza sin recursos cloud. La base persistente, dataset, backup, archivos privados, credenciales y volumen local quedan fuera. GCP-04 conserva su alcance original de backend y ejecución durable en destino; no se marca iniciado/aceptado ni se activa despliegue/importación.
+
+## Siguiente trabajo propuesto: cerrar compatibilidad antes de costear otra instancia
+
+1. Solicitar al dueño del origen un snapshot autorizado, con ventana, consistencia, alcance de datos, retención, responsable y checksum; no leer ni copiar el origen hasta tener aprobación y un plan específico.
+2. Sin costo cloud, completar una matriz reproducible para comparar el snapshot con el restore sintético ya probado: versiones/extensiones, V1–V61, owners/ACL, roles globales, funciones/triggers, secuencias, índices y flujos de disponibilidad/reservas. Documentar un manifiesto allowlist, hashes por artefacto y un reporte sin filas personales.
+3. Revisar si el restore puede aislarse en una base nueva de `pilot01` sin cambiar ni depender de roles/owners globales preexistentes. La revisión debe ser de solo lectura y considerar que CPU/IO también se comparte. Si no se demuestra ese aislamiento, mantener la opción de una instancia efímera privada separada.
+4. Solo tras decidir el punto anterior, recalcular precio/cuota vigentes para Santiago, fijar un límite de costo y ventana de teardown, y preparar un único plan Terraform con run ID y state aislados. La estimación histórica de ocho horas es referencia, no tarifa vigente ni autorización. No provisionar, importar ni crear secretos en este trabajo preparatorio.
+5. Presentar al dueño/revisor un paquete revisable con snapshot identificado y autorizado, manifest/checksums, informe de compatibilidad, diseño elegido, cota de costo actualizada, teardown y criterios de parada. GCP-03 permanece parcial hasta que se ejecute y revise ese alcance y el usuario otorgue aceptación explícita.

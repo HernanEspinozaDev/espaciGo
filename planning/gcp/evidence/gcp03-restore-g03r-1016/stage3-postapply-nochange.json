@@ -1,0 +1,21 @@
+{
+  "schema": "espacigo.gcp03.stage3-postapply-plan.v1",
+  "run_id": "g03r-1016",
+  "terraform_version": "1.16.6",
+  "state_lineage": "5bc6ad38-035f-fba3-2bcd-43bdf641e370",
+  "state_serial": 16,
+  "refresh": true,
+  "complete": true,
+  "applyable": false,
+  "resource_changes": 0,
+  "resource_drift": 0,
+  "apply_invoked": false,
+  "gates": {
+    "foundation": false,
+    "bootstrap": false,
+    "restore": false,
+    "diagnostic": false,
+    "retirement_diagnostic": false
+  },
+  "interpretation": "The refreshed full plan found no infrastructure changes; this plan was not applied."
+}

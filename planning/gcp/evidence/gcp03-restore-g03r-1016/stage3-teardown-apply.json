@@ -1,0 +1,59 @@
+{
+  "schema": "espacigo.gcp03.stage3-apply-evidence.v1",
+  "run_id": "g03r-1016",
+  "release": {
+    "reviewed_pr": 384,
+    "reviewed_head": "13e3ecb1fdafe6111d277761b6a2480a5c276743",
+    "main_merge": "e50fd4bb526bdd04992b00e8e807271345214f39",
+    "applied_plan_sha256": "ea47a00c6330bf006b2f5e5abf2fc376f399b1cdaa428677bd089cbd40b753cc"
+  },
+  "terraform": {
+    "version": "1.16.6",
+    "provider_google": "8.7.0",
+    "state_lineage": "5bc6ad38-035f-fba3-2bcd-43bdf641e370",
+    "state_serial_before": 13,
+    "state_serial_after": 16,
+    "apply_summary": {"add": 0, "change": 0, "destroy": 30},
+    "postapply_managed_resource_blocks": 0,
+    "postapply_plan": {
+      "refreshed": true,
+      "complete": true,
+      "applyable": false,
+      "resource_changes": 0,
+      "resource_drift": 0,
+      "applied": false
+    }
+  },
+  "run_scope_postchecks": {
+    "cloud_run_jobs_absent": true,
+    "run_service_accounts_absent": true,
+    "run_secret_absent": true,
+    "run_bucket_absent": true,
+    "run_cloud_sql_database_and_instance_absent": true,
+    "run_sql_iam_users_absent": true
+  },
+  "preserved_resources": {
+    "cloud_sql_instances": {
+      "espacigo-testprod-pg": "RUNNABLE",
+      "espacigo-gcp03-pilot01-pg": "RUNNABLE"
+    },
+    "network": "espacigo-testprod",
+    "subnet": "espacigo-testprod-serverless",
+    "artifact_registry": "gcp03-scratch-pilot01",
+    "terraform_backend_bucket": "espacigo-testprod-tfstate-447373903153-gcp",
+    "terraform_backend_state_object": "espacigo/testprod/gcp03-restore/g03r-1016/default.tfstate",
+    "state_object_versioning": true,
+    "state_object_generations_seen": 16,
+    "current_state_object_generation": "1792203702191483"
+  },
+  "limited_observation": {
+    "category": "read_only_cloud_sql_operations_list_during_instance_deletion",
+    "result": "cli returned permission-or-not-found message; query could not establish operation-list contents while deletion was in progress",
+    "retry": false,
+    "effect": "read-only query only; Terraform apply continued and succeeded",
+    "resolution": "final API checks confirmed the run instance absent; full refreshed Terraform plan reported zero changes and zero drift"
+  },
+  "sql_statements_or_jobs_invoked": false,
+  "source_snapshot_or_persistent_dataset_read_or_moved": false,
+  "product_acceptance": "not implied"
+}
