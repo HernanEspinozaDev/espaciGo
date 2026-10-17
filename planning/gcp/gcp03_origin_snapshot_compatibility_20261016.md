@@ -1,6 +1,8 @@
 # GCP-03: preparación del snapshot de origen y compatibilidad
 
-Estado: inventario de solo lectura completo; captura de backup y ensayo de restore pendientes de revisión específica. GCP-03 sigue parcial. GCP-04 no se inicia ni se declara completado con este trabajo.
+Estado histórico al 2026-10-16: inventario de solo lectura completo; captura de backup y ensayo de restore pendientes de revisión específica en esa fecha. GCP-03 seguía parcial y GCP-04 no se iniciaba ni se declaraba completado con ese trabajo.
+
+**Vigencia:** este documento conserva las observaciones y decisiones de preparación del 2026-10-16; sus estados de captura/restore no describen el resultado posterior. La captura autorizada y el restore local copy-only del 2026-10-17 se registran en la [actualización de evidencia local](gcp03_local_origin_capture_20261017.md#actualizacion-posterior-captura-y-restore-local-2026-10-17), con el estado general en la [matriz vigente](gcp03_g03r_1016_closeout_matrix.md#actualizacion-de-captura-y-restore-local-2026-10-17). GCP-03 permanece parcial; la actualización no acredita compatibilidad con Cloud SQL ni inicia GCP-04.
 
 ## Inventario observado
 
@@ -68,4 +70,4 @@ La alternativa de menor costo es continuar con `pilot01` únicamente para compat
 
 ## Estado y alcance
 
-Se ejecutó únicamente la inspección local de solo lectura descrita arriba; no se creó dump, copia de archivos/llaves, recurso Cloud SQL, Job ni cambio de roles cloud/SQL. El origen permaneció en ejecución. El siguiente paso requiere revisión de este procedimiento antes de autorizar captura. GCP-03 permanece parcial y GCP-04 permanece sin iniciar; no hay aceptación humana o de producto inferida.
+**Estado histórico al 2026-10-16:** se había ejecutado únicamente la inspección local de solo lectura descrita arriba; no se había creado dump, copia de archivos/llaves, recurso Cloud SQL, Job ni cambio de roles cloud/SQL. El origen permaneció en ejecución. La captura y restore posteriores, y sus límites, constan en la actualización vigente enlazada al comienzo de este documento. GCP-03 permanece parcial y GCP-04 permanece sin iniciar; no hay aceptación humana o de producto inferida.
