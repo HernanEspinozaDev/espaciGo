@@ -64,6 +64,25 @@ func TestConfigurePGXUsesPrivateConnectorAndClosesOnce(t *testing.T) {
 	}
 }
 
+func TestConfigurePGXWithIAMAddsAutomaticIAMAndPrivateIPOptions(t *testing.T) {
+	config, err := pgx.ParseConfig("postgres://observer@localhost:5432/app?sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	optionCount := -1
+	_, err = configurePGXWithIAM(context.Background(), config, "project-one:southamerica-west1:db-one", true, true,
+		func(_ context.Context, options ...cloudsqlconn.Option) (dialer, error) {
+			optionCount = len(options)
+			return &fakeDialer{}, nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if optionCount != 2 || config.Password != "" {
+		t.Fatalf("IAM connector options=%d password=%q, want two options and no password", optionCount, config.Password)
+	}
+}
+
 func TestConfigurePGXRejectsInvalidConfigurationBeforeCreatingDialer(t *testing.T) {
 	factoryCalled := false
 	factory := func(context.Context, ...cloudsqlconn.Option) (dialer, error) {

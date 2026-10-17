@@ -1,0 +1,55 @@
+{
+  "run_id": "g03o-1017",
+  "project_id": "espacigo-testprod",
+  "project_number": "447373903153",
+  "region": "southamerica-west1",
+  "applied_head": "2e92f2754c4d755470b1725d1f0d43b3e1ad1eb5",
+  "merged_configuration": "00e746e28b002d3bc29b7793007acc38360ac432",
+  "saved_plan_sha256": "e90712d0656a4988c14542de36fb7ab439514d7f472b69f3e4b8ddace6ed0005",
+  "terraform_result": {
+    "added": 7,
+    "changed": 0,
+    "destroyed": 0,
+    "refreshed_plan": "no_changes"
+  },
+  "state": {
+    "lineage": "4e81a953-7353-fbd4-93a8-e4b9a5019e95",
+    "serial_after_apply_and_refresh": 4,
+    "managed_resources": 7,
+    "data_sources": 2
+  },
+  "cloud_sql": {
+    "instance": "espacigo-gcp03-origin-g03o-1017-pg",
+    "database": "espacigo_scratch",
+    "state": "RUNNABLE",
+    "create_time": "2026-10-17T07:55:05.478Z",
+    "operational_window_hours": 8,
+    "operational_window_deadline_utc": "2026-10-17T15:55:05.478Z",
+    "tier": "db-custom-N4-2-4096",
+    "data_disk_size_gib": 20,
+    "data_disk_type": "HYPERDISK_BALANCED",
+    "private_network": "projects/espacigo-testprod/global/networks/espacigo-testprod",
+    "ipv4_enabled": false,
+    "ssl_mode": "ENCRYPTED_ONLY",
+    "deletion_protection_enabled": true,
+    "iam_authentication": "on"
+  },
+  "service_account": "g03o-admin-g03o-1017@espacigo-testprod.iam.gserviceaccount.com",
+  "secret": {
+    "name": "espacigo-gcp03-origin-g03o-1017-postgres-password",
+    "versions": 0
+  },
+  "artifact_bucket": {
+    "name": "espacigo-gcp03-origin-g03o-1017",
+    "objects": 0
+  },
+  "jobs_or_services_created": 0,
+  "later_phases_executed": 0,
+  "observations": [
+    "Cloud SQL API reported RUNNABLE and the fixed private network.",
+    "Terraform state contains seven managed Foundation resources and two read-only network data sources.",
+    "Secret Manager metadata exists with zero versions.",
+    "The run-scoped bucket is empty.",
+    "The refreshed Terraform plan reported no changes."
+  ]
+}

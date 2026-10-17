@@ -139,11 +139,59 @@ func Connect(ctx context.Context, databaseURL, password, instance string, privat
 	return conn, closeConnector, nil
 }
 
+// ConnectIAM opens a connector-enforced Cloud SQL connection using automatic
+// IAM database authentication. The username is the fixed IAM database user;
+// no password or Secret Manager value is accepted by this path.
+func ConnectIAM(ctx context.Context, databaseURL, instance string, privateIP bool) (*pgx.Conn, func(), error) {
+	if err := ValidateConnectionURL(databaseURL); err != nil {
+		return nil, nil, err
+	}
+	if err := ValidatePGEnvironment(os.Getenv); err != nil {
+		return nil, nil, err
+	}
+	parsed, _ := url.Parse(databaseURL)
+	parsed.User = url.UserPassword(parsed.User.Username(), "iam-authentication")
+	config, err := pgx.ParseConfigWithOptions(parsed.String(), pgx.ParseConfigOptions{
+		ConnStringAllowedKeys: []string{"user", "password", "host", "port", "database", "sslmode"},
+	})
+	if err != nil || config.TLSConfig != nil || len(config.Fallbacks) != 0 {
+		return nil, nil, errors.New("invalid Cloud SQL IAM connection configuration")
+	}
+	config.Password = ""
+	config.Database = strings.TrimPrefix(parsed.Path, "/")
+	config.Host = "localhost"
+	config.Port = 5432
+	config.RuntimeParams = make(map[string]string)
+	closeConnector, err := configurePGXWithIAM(ctx, config, instance, privateIP, true, func(ctx context.Context, options ...cloudsqlconn.Option) (dialer, error) {
+		return cloudsqlconn.NewDialer(ctx, options...)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	conn, err := pgx.ConnectConfig(ctx, config)
+	if err != nil {
+		closeConnector()
+		return nil, nil, errors.New("could not connect to Cloud SQL with IAM database authentication")
+	}
+	return conn, closeConnector, nil
+}
+
 func configurePGX(
 	ctx context.Context,
 	config *pgx.ConnConfig,
 	instance string,
 	privateIP bool,
+	newDialer dialerFactory,
+) (func(), error) {
+	return configurePGXWithIAM(ctx, config, instance, privateIP, false, newDialer)
+}
+
+func configurePGXWithIAM(
+	ctx context.Context,
+	config *pgx.ConnConfig,
+	instance string,
+	privateIP bool,
+	iamAuth bool,
 	newDialer dialerFactory,
 ) (func(), error) {
 	if config == nil {
@@ -155,9 +203,12 @@ func configurePGX(
 	if config.TLSConfig != nil || len(config.Fallbacks) != 0 {
 		return nil, errors.New("Cloud SQL connector requires pgx TLS and fallbacks to be disabled")
 	}
-	options := make([]cloudsqlconn.Option, 0, 1)
+	options := make([]cloudsqlconn.Option, 0, 2)
 	if privateIP {
 		options = append(options, cloudsqlconn.WithDefaultDialOptions(cloudsqlconn.WithPrivateIP()))
+	}
+	if iamAuth {
+		options = append(options, cloudsqlconn.WithIAMAuthN())
 	}
 	connector, err := newDialer(ctx, options...)
 	if err != nil {
