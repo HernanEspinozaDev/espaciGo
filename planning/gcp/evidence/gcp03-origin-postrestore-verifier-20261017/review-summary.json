@@ -1,0 +1,57 @@
+{
+  "cloud_sql_proxy": {
+    "auto_iam_authn_flag_verified": true,
+    "cloud_connection_started": false,
+    "compressed_layer_bytes": 18535878,
+    "image": "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:076f128d5bdb9d345e253aa9bbf5f1f9a320caff21dfdbf07d582437e55e4f66",
+    "local_uncompressed_image_bytes": 60743211,
+    "quitquitquit_flag_verified": true,
+    "version": "2.26.0"
+  },
+  "configuration_commit": "70778764ea28ba2f6b84c15660b7b5e343e93afa",
+  "cost_and_window": {
+    "cloud_run_verifier_executed": false,
+    "cloud_sql_plus_disk_rate_usd_per_hour": 0.202209863,
+    "estimated_accrual_at_2026_10_17T20_07_47Z_usd": 2.4693,
+    "estimated_remaining_through_deadline_usd": 0.7825,
+    "estimated_total_through_deadline_usd": 3.2518,
+    "preservation_deadline_utc": "2026-10-17T23:59:59Z",
+    "rates_are_list_pricing_and_not_a_spend_cap": true
+  },
+  "execution_authorized": false,
+  "format": "espacigo.gcp03.origin-postrestore-review-summary.v1",
+  "generated_at_utc": "2026-10-17T20:07:47Z",
+  "import_verifier_image": {
+    "contains_local_recovery_key_or_review_artifacts": false,
+    "contains_postrestore_verifier": true,
+    "oci_archive_bytes": 260927488,
+    "oci_archive_path": ".local/testing/g03o-origin-import-image-postrestore-20261017/gcp03origin-import-linux-amd64.oci.tar",
+    "oci_archive_sha256": "abde08688d8eee84ef43cd6b83c7e61afed02af8d4d75b1967d26dbabb2fcb84",
+    "oci_manifest_digest": "sha256:13b57393ee21041a111a126ba65a7de0927fa096ca420bcc04e8f92ccbee73d9",
+    "python_dependencies_lock_sha256": "0313727918abc6a33c8c7672fc29a47ff7266557a8ae15c45fcc3f50a1271365",
+    "registry_upload_performed": false,
+    "source_commit": "70778764ea28ba2f6b84c15660b7b5e343e93afa"
+  },
+  "source": {
+    "decrypted_artifacts": [
+      "database.dump",
+      "origin-metadata.json"
+    ],
+    "migration_inventory_sha256": "eca6b4295b593bc3ea3af470fb747bd6e788e141df4a57c8a0fae91ea6ad1fb2",
+    "normalization_owner_statement_count": 147,
+    "normalization_sql_bytes": 12942,
+    "normalization_sql_sha256": "865697a41f9ca70881522f7558093e8ac4107dfa5a4e58dbf749d5f670eff842",
+    "observer_column_grant_count": 5,
+    "owner_acl_map_bytes": 76871,
+    "owner_acl_map_sha256": "11ed022ec5a857bdc7c95c72a44507aca567b82aed7794e17f0632711698080d",
+    "owner_action_count": 240,
+    "plaintext_dump_written": false,
+    "public_table_count": 96,
+    "selected_toc_entry_count": 711,
+    "source_acl_digest_count": 115,
+    "source_sealed_sha256": "80a4e1e0002cf12f8e750ddaac7ceb796726b57a36405aa2b0b8e7852e928262",
+    "toc_allowlist_bytes": 70838,
+    "toc_allowlist_sha256": "0677025fc73b036b9da9804ec457a8beea737662c9cf8537ba1bddd377b9b942",
+    "transport_manifest_sha256": "c5fc1964175244e998742e34dd4c4376b2d822b27574416b61228b912641ec30"
+  }
+}
