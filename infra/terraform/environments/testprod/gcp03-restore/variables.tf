@@ -153,9 +153,15 @@ variable "allow_restore_destroy" {
   default     = false
   description = "Run-bound gate that first lowers Cloud SQL and Cloud Run deletion protections."
   validation {
-    condition     = !var.allow_restore_destroy || var.confirm_destroy_run_id == var.run_id
+    condition     = !(var.allow_restore_destroy || var.allow_restore_iam_user_destroy) || var.confirm_destroy_run_id == var.run_id
     error_message = "Destroy protection can be lowered only when confirm_destroy_run_id exactly matches run_id."
   }
+}
+
+variable "allow_restore_iam_user_destroy" {
+  type        = bool
+  default     = false
+  description = "Run-bound gate for deleting only the two Terraform-managed Cloud SQL IAM login resources during isolated-run closeout; does not lower instance or Job deletion protections."
 }
 
 variable "confirm_destroy_run_id" {

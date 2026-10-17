@@ -154,7 +154,7 @@ resource "google_sql_user" "verify_iam" {
   name            = "${google_service_account.verify[0].account_id}@${var.project_id}.iam"
   type            = "CLOUD_IAM_SERVICE_ACCOUNT"
   database_roles  = [local.verifier_role]
-  deletion_policy = var.allow_restore_destroy ? "DELETE" : "PREVENT"
+  deletion_policy = (var.allow_restore_destroy || var.allow_restore_iam_user_destroy) ? "DELETE" : "PREVENT"
 }
 
 resource "google_service_account" "restore" {
@@ -209,7 +209,7 @@ resource "google_sql_user" "restore_iam" {
   name            = "${google_service_account.restore[0].account_id}@${var.project_id}.iam"
   type            = "CLOUD_IAM_SERVICE_ACCOUNT"
   database_roles  = [local.owner_role]
-  deletion_policy = var.allow_restore_destroy ? "DELETE" : "PREVENT"
+  deletion_policy = (var.allow_restore_destroy || var.allow_restore_iam_user_destroy) ? "DELETE" : "PREVENT"
 }
 
 resource "google_cloud_run_v2_job" "restore" {
