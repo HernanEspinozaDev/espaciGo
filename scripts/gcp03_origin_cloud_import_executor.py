@@ -40,7 +40,7 @@ GENERATION_RE = re.compile(r"^[1-9][0-9]*$")
 MAX_SMALL_OBJECT_BYTES = 4 * 1024 * 1024
 DISALLOWED_TOC = (" EXTENSION - ", " COMMENT - EXTENSION ", " TABLE DATA public spatial_ref_sys ")
 DISALLOWED_NORMALIZATION_SQL = re.compile(
-    r"\b(PASSWORD|SUPERUSER|CREATEDB|CREATEROLE|REPLICATION|BYPASSRLS|INSERT|UPDATE|DELETE|TRUNCATE|DROP|CREATE\s+(TABLE|DATABASE|EXTENSION))\b",
+    r"\b(PASSWORD|SUPERUSER|CREATEDB|CREATEROLE|REPLICATION|BYPASSRLS|DROP|CREATE\s+(TABLE|DATABASE|EXTENSION))\b",
     re.IGNORECASE,
 )
 
@@ -239,9 +239,13 @@ def validate_normalization_sql(sql: bytes, expected_sha256: str) -> None:
     if DISALLOWED_NORMALIZATION_SQL.search(decoded) or "\\" in decoded or "--" in decoded or "/*" in decoded or "*/" in decoded:
         raise ImportStopped("NORMALIZATION_SQL_CONTAINS_FORBIDDEN_OPERATION", "normalization_validate")
     ident = r"(?:[A-Za-z_][A-Za-z0-9_$]*)(?:\.(?:[A-Za-z_][A-Za-z0-9_$]*))*"
+    type_name = r"(?:[A-Za-z_][A-Za-z0-9_$]*)(?:\.(?:[A-Za-z_][A-Za-z0-9_$]*))*(?:\s+(?:varying|precision|with|without|time|zone|character|double|timestamp|bit))*(?:\s*\([A-Za-z_0-9$ ,\.]+\))?(?:\[\])*"
+    function_ident = rf"{ident}\s*\(\s*(?:{type_name}(?:\s*,\s*{type_name})*)?\s*\)"
     role = r"(?:espacigo_runtime|espacigo_gadm_bootstrap|espacigo_gcp03_observer|PUBLIC)"
-    object_owner = re.compile(rf"ALTER\s+(?:TABLE|SEQUENCE|FUNCTION|PROCEDURE|TYPE|SCHEMA)\s+{ident}\s+OWNER\s+TO\s+{role}", re.IGNORECASE)
-    grants = re.compile(rf"(?:GRANT\s+[A-Z ,]+\s+ON\s+(?:ALL\s+(?:TABLES|SEQUENCES|FUNCTIONS)\s+IN\s+SCHEMA\s+{ident}|(?:TABLE|SEQUENCE|FUNCTION|SCHEMA)\s+{ident})\s+TO\s+{role}(?:\s+WITH\s+GRANT\s+OPTION)?|REVOKE\s+[A-Z ,]+\s+ON\s+(?:ALL\s+(?:TABLES|SEQUENCES|FUNCTIONS)\s+IN\s+SCHEMA\s+{ident}|(?:TABLE|SEQUENCE|FUNCTION|SCHEMA)\s+{ident})\s+FROM\s+{role})", re.IGNORECASE)
+    privileges = r"(?:ALL(?:\s+PRIVILEGES)?|SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|USAGE|CREATE|EXECUTE)(?:\s*,\s*(?:ALL(?:\s+PRIVILEGES)?|SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|USAGE|CREATE|EXECUTE))*"
+    grant_object = rf"(?:ALL\s+(?:TABLES|SEQUENCES|FUNCTIONS)\s+IN\s+SCHEMA\s+{ident}|(?:TABLE|SEQUENCE|SCHEMA)\s+{ident}|(?:FUNCTION|PROCEDURE)\s+{function_ident})"
+    object_owner = re.compile(rf"ALTER\s+(?:TABLE|SEQUENCE|TYPE|SCHEMA)\s+{ident}\s+OWNER\s+TO\s+{role}|ALTER\s+(?:FUNCTION|PROCEDURE)\s+{function_ident}\s+OWNER\s+TO\s+{role}", re.IGNORECASE)
+    grants = re.compile(rf"(?:GRANT\s+{privileges}\s+ON\s+{grant_object}\s+TO\s+{role}|REVOKE\s+{privileges}\s+ON\s+{grant_object}\s+FROM\s+{role}|ALTER\s+DEFAULT\s+PRIVILEGES\s+FOR\s+ROLE\s+{ident}\s+IN\s+SCHEMA\s+{ident}\s+(?:GRANT\s+{privileges}\s+ON\s+(?:TABLES|SEQUENCES|FUNCTIONS)\s+TO\s+{role}|REVOKE\s+{privileges}\s+ON\s+(?:TABLES|SEQUENCES|FUNCTIONS)\s+FROM\s+{role}))", re.IGNORECASE)
     statements = [part.strip() for part in decoded.split(";") if part.strip()]
     if not statements or any(not (object_owner.fullmatch(stmt) or grants.fullmatch(stmt)) for stmt in statements):
         raise ImportStopped("NORMALIZATION_SQL_OUTSIDE_ALLOWLIST", "normalization_validate")
@@ -366,7 +370,8 @@ def _psql_env(passfile: Path) -> dict[str, str]:
 
 class PsqlPgRestoreRunner:
     """Fixed PostgreSQL 18 client runner; target access is via loopback proxy."""
-    def __init__(self, password_file: Path, *, pg_restore: str = "pg_restore", psql: str = "psql"):
+    def __init__(self, password_file: Path, *, host: str = "127.0.0.1", port: int = 5432,
+                 pg_restore: str = "pg_restore", psql: str = "psql"):
         if password_file.is_symlink() or not password_file.is_file() or stat.S_IMODE(password_file.stat().st_mode) not in {0o400,0o600}:
             raise ImportStopped("DATABASE_PASSWORD_FILE_INVALID", "database_setup")
         password = password_file.read_text().strip()
@@ -377,18 +382,21 @@ class PsqlPgRestoreRunner:
             fd = os.open(self.pgpass, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             escaped = password.replace("\\", "\\\\").replace(":", "\\:")
             with os.fdopen(fd, "w") as stream:
-                stream.write(f"127.0.0.1:5432:{TARGET_DATABASE}:postgres:{escaped}\n")
+                pass_host = "localhost" if host.startswith("/") else host
+                stream.write(f"{pass_host}:{port}:{TARGET_DATABASE}:postgres:{escaped}\n")
                 stream.flush(); os.fsync(stream.fileno())
         except Exception as exc:
             raise ImportStopped("DATABASE_AUTH_PREPARATION_FAILED", "database_setup") from exc
         self.pg_restore, self.psql = pg_restore, psql
+        self.host, self.port = host, port
+        self.last_list_pipe_closed_early = False
 
     def close(self) -> None:
         try: self.pgpass.unlink()
         except OSError: pass
 
     def _psql(self, sql: str) -> str:
-        proc = subprocess.run([self.psql,"-X","-qAt","--set=ON_ERROR_STOP=1","--host=127.0.0.1","--port=5432","--username=postgres","--dbname="+TARGET_DATABASE,"-c",sql],
+        proc = subprocess.run([self.psql,"-X","-qAt","--set=ON_ERROR_STOP=1","--host="+self.host,"--port="+str(self.port),"--username=postgres","--dbname="+TARGET_DATABASE,"-c",sql],
                               env=_psql_env(self.pgpass),stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=False)
         if proc.returncode != 0:
             raise ImportStopped("PSQL_COMMAND_FAILED", "database_query")
@@ -409,18 +417,39 @@ class PsqlPgRestoreRunner:
             assert proc.stdout is not None
             reader = threading.Thread(target=lambda: output.append(proc.stdout.read()),daemon=True);reader.start()
         try:
-            feed_archive(proc.stdin)
-            proc.stdin.close()
+            sink = _ArchivePipeSink(proc.stdin, tolerate_early_close=capture)
+            feed_archive(sink)
+            sink.close()
+            if capture:
+                self.last_list_pipe_closed_early = sink.discard
             rc = proc.wait(timeout=3600)
-            if reader: reader.join(timeout=60)
+            if reader:
+                reader.join(timeout=60)
+                if reader.is_alive():
+                    proc.kill()
+                    proc.wait()
+                    raise ImportStopped("PG_RESTORE_LIST_OUTPUT_TIMEOUT", "archive_toc")
         except BaseException:
-            proc.kill();proc.wait();raise
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+            if reader:
+                reader.join(timeout=60)
+            raise
+        finally:
+            for stream in (proc.stdin, proc.stdout):
+                if stream is not None and not stream.closed:
+                    try:
+                        stream.close()
+                    except BrokenPipeError:
+                        pass
         if rc != 0:
-            raise ImportStopped("PG_RESTORE_COMMAND_FAILED", "database_restore", mutation_started=not capture)
+            raise ImportStopped("PG_RESTORE_COMMAND_FAILED", "archive_toc" if capture else "database_restore", mutation_started=not capture)
         return output[0].decode("utf-8","strict") if output else ""
 
     def list_toc(self, feed_archive: Callable[[BinaryIO], dict]) -> list[str]:
-        text=self._pipe_archive([self.pg_restore,"--list","-"],feed_archive,capture=True)
+        self.last_list_pipe_closed_early = False
+        text=self._pipe_archive([self.pg_restore,"--list"],feed_archive,capture=True)
         return [line.rstrip() for line in text.splitlines()]
 
     def restore(self, feed_archive: Callable[[BinaryIO], dict], allowlist: bytes) -> None:
@@ -429,8 +458,8 @@ class PsqlPgRestoreRunner:
         try:
             with os.fdopen(fd,"wb") as stream: stream.write(allowlist);stream.flush();os.fsync(stream.fileno())
             self._pipe_archive([self.pg_restore,"--exit-on-error","--single-transaction","--no-owner","--no-acl",
-                "--username=postgres","--host=127.0.0.1","--port=5432","--dbname="+TARGET_DATABASE,
-                "--use-list="+str(path),"-"],feed_archive,capture=False)
+                "--username=postgres","--host="+self.host,"--port="+str(self.port),"--dbname="+TARGET_DATABASE,
+                "--use-list="+str(path)],feed_archive,capture=False)
         finally:
             try:path.unlink()
             except OSError:pass
@@ -446,10 +475,43 @@ class PsqlPgRestoreRunner:
         except (json.JSONDecodeError,ImportStopped) as exc: raise ImportStopped("SANITATION_REPORT_INVALID","copy_sanitization",mutation_started=True) from exc
 
     def _run_sql(self, sql: bytes, error_code: str) -> str:
-        proc=subprocess.run([self.psql,"-X","-qAt","--set=ON_ERROR_STOP=1","--host=127.0.0.1","--port=5432","--username=postgres","--dbname="+TARGET_DATABASE],
+        proc=subprocess.run([self.psql,"-X","-qAt","--set=ON_ERROR_STOP=1","--host="+self.host,"--port="+str(self.port),"--username=postgres","--dbname="+TARGET_DATABASE],
             input=sql,env=_psql_env(self.pgpass),stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=False)
         if proc.returncode != 0: raise ImportStopped(error_code,"database_mutation",mutation_started=True)
         return proc.stdout.decode("utf-8","strict").strip()
+
+
+class _ArchivePipeSink:
+    """Keep authenticating/listing the full archive if pg_restore --list exits early."""
+    def __init__(self, stream: BinaryIO, *, tolerate_early_close: bool):
+        self.stream = stream
+        self.tolerate_early_close = tolerate_early_close
+        self.discard = False
+
+    def write(self, data: bytes) -> int:
+        if self.discard:
+            return len(data)
+        try:
+            return self.stream.write(data)
+        except BrokenPipeError:
+            if not self.tolerate_early_close:
+                raise
+            self.discard = True
+            try:
+                self.stream.close()
+            except BrokenPipeError:
+                pass
+            return len(data)
+
+    def close(self) -> None:
+        if self.discard:
+            return
+        try:
+            self.stream.close()
+        except BrokenPipeError:
+            if not self.tolerate_early_close:
+                raise
+            self.discard = True
 
 
 PREFLIGHT_SQL = """
@@ -467,10 +529,17 @@ SELECT json_build_object(
    AND (SELECT count(*)=0 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace
     WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND t.typtype IN ('b','c','d','e','m','r')
       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_type'::regclass AND d.objid=t.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass)),
- 'roles_ready',(SELECT count(*)=3 FROM pg_roles WHERE rolname IN ('espacigo_runtime','espacigo_gadm_bootstrap','espacigo_gcp03_observer') AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls),
+ 'roles_ready',(SELECT count(*)=3 FROM pg_roles WHERE rolname IN ('espacigo_runtime','espacigo_gadm_bootstrap','espacigo_gcp03_observer') AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit),
  'extensions_ready',((SELECT count(*)=7 FROM pg_extension) AND (SELECT count(*)=7 FROM pg_extension WHERE (extname,extversion) IN (('btree_gist','1.8'),('fuzzystrmatch','1.2'),('plpgsql','1.0'),('postgis','3.6.4'),('postgis_tiger_geocoder','3.6.4'),('postgis_topology','3.6.4'),('unaccent','1.1')))),
- 'application_schemas_empty',(SELECT count(*)=0 FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND n.nspname<>'public'
-   AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_namespace'::regclass AND d.objid=n.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass))
+ 'application_schemas_empty',(WITH schema_inventory AS (
+   SELECT n.oid,n.nspname,
+     EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_namespace'::regclass AND d.objid=n.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass) AS directly_extension_owned,
+     (EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_depend d ON d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass WHERE c.relnamespace=n.oid AND c.relkind IN ('r','p','v','m','S','f'))
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_depend d ON d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass WHERE p.pronamespace=n.oid)) AS has_extension_objects,
+     (EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.relnamespace=n.oid AND c.relkind IN ('r','p','v','m','S','f') AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass))
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc p WHERE p.pronamespace=n.oid AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass))) AS has_application_objects
+   FROM pg_catalog.pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname NOT IN ('public','information_schema')
+ ) SELECT count(*) FILTER (WHERE NOT directly_extension_owned AND NOT (has_extension_objects AND NOT has_application_objects))=0 FROM schema_inventory)
 )::text;
 """
 

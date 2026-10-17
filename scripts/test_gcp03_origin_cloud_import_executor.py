@@ -168,10 +168,16 @@ class ExecutorTests(unittest.TestCase):
             validate_toc("1; 0 0 EXTENSION - postgis postgres\n", b"1; 0 0 EXTENSION - postgis postgres\n")
 
     def test_normalization_sql_is_hash_bound_and_rejects_role_credentials(self):
-        safe = b"ALTER TABLE public.sample OWNER TO espacigo_runtime;"
+        safe = (b"ALTER TABLE public.sample OWNER TO espacigo_runtime;\n"
+                b"ALTER FUNCTION public.sample(integer) OWNER TO espacigo_runtime;\n"
+                b"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.sample TO espacigo_runtime;\n"
+                b"ALTER DEFAULT PRIVILEGES FOR ROLE source_role IN SCHEMA public GRANT SELECT ON TABLES TO espacigo_runtime;\n")
         validate_normalization_sql(safe, hashlib.sha256(safe).hexdigest())
         with self.assertRaises(ImportStopped):
             validate_normalization_sql(b"ALTER ROLE espacigo_runtime PASSWORD 'secret';", hashlib.sha256(b"ALTER ROLE espacigo_runtime PASSWORD 'secret';").hexdigest())
+        dml = b"INSERT INTO public.sample VALUES (1, 'x');"
+        with self.assertRaises(ImportStopped):
+            validate_normalization_sql(dml, hashlib.sha256(dml).hexdigest())
 
 
 if __name__ == "__main__":
