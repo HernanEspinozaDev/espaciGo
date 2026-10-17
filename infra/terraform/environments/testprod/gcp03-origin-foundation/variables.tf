@@ -112,13 +112,23 @@ variable "enable_uploader_impersonation_binding" {
   }
 }
 
+variable "enable_origin_import_infrastructure" {
+  type        = bool
+  default     = false
+  description = "Default-off gate for private import storage, K_run Secret Manager metadata, and narrowly scoped IAM; creates no secret version and no Job."
+  validation {
+    condition     = !var.enable_origin_import_infrastructure || (var.enable_foundation && var.confirm_origin_rehearsal && var.run_id == "g03o-1017")
+    error_message = "Import infrastructure requires the confirmed g03o-1017 foundation."
+  }
+}
+
 variable "enable_origin_import_job" {
   type        = bool
   default     = false
   description = "Default-off gate for the one-shot hash-bound import Job and its run-prefix-only private file writer permission."
   validation {
-    condition     = !var.enable_origin_import_job || (var.enable_foundation && var.confirm_origin_rehearsal && var.run_id == "g03o-1017" && var.confirm_origin_bootstrap_completed && can(regex("^[0-9a-f]{64}$", var.bootstrap_evidence_sha256)) && var.confirm_admin_password_secret_version && can(regex("^[1-9][0-9]*$", var.admin_password_secret_version)) && can(regex("@sha256:[0-9a-f]{64}$", var.origin_import_image)) && can(regex("@sha256:[0-9a-f]{64}$", var.origin_proxy_image)) && can(regex("^[1-9][0-9]*$", var.transport_key_secret_version)) && var.confirm_transport_key_secret_version && can(regex("^[0-9a-f]{64}$", var.import_receipt_sha256)) && can(regex("^[0-9a-f]{64}$", var.import_manifest_sha256)) && can(regex("^[0-9a-f]{64}$", var.import_observer_sha256)) && can(regex("^[0-9a-f]{64}$", var.import_normalization_sha256)) && var.import_receipt_object == "runs/g03o-1017/receipt.json" && can(regex("^[1-9][0-9]*$", var.import_receipt_generation)) && var.import_receipt_bytes > 0)
-    error_message = "Origin import requires exact run evidence, numeric reviewed secrets, and digest-pinned executor/proxy images."
+    condition     = !var.enable_origin_import_job || (var.enable_origin_import_infrastructure && var.enable_foundation && var.confirm_origin_rehearsal && var.run_id == "g03o-1017" && var.confirm_origin_bootstrap_completed && can(regex("^[0-9a-f]{64}$", var.bootstrap_evidence_sha256)) && var.confirm_admin_password_secret_version && can(regex("^[1-9][0-9]*$", var.admin_password_secret_version)) && can(regex("@sha256:[0-9a-f]{64}$", var.origin_import_image)) && can(regex("@sha256:[0-9a-f]{64}$", var.origin_proxy_image)) && can(regex("^[1-9][0-9]*$", var.transport_key_secret_version)) && var.confirm_transport_key_secret_version && can(regex("^[0-9a-f]{64}$", var.import_receipt_sha256)) && can(regex("^[0-9a-f]{64}$", var.import_manifest_sha256)) && can(regex("^[0-9a-f]{64}$", var.import_observer_sha256)) && can(regex("^[0-9a-f]{64}$", var.import_normalization_sha256)) && var.import_receipt_object == "runs/g03o-1017/receipt.json" && can(regex("^[1-9][0-9]*$", var.import_receipt_generation)) && var.import_receipt_bytes > 0)
+    error_message = "Origin import requires the separately enabled import infrastructure, exact run evidence, numeric reviewed secrets, and digest-pinned executor/proxy images."
   }
 }
 
@@ -367,6 +377,7 @@ locals {
   membership_enabled             = local.foundation_enabled && var.enable_origin_membership_job
   membership_diagnostic_enabled  = local.foundation_enabled && var.enable_origin_membership_diagnostic_job
   observer_enabled               = local.foundation_enabled && var.enable_origin_observer_job
+  import_infrastructure_enabled  = local.foundation_enabled && var.enable_origin_import_infrastructure
   import_enabled                 = local.foundation_enabled && var.enable_origin_import_job
   uploader_enabled               = local.foundation_enabled && var.enable_origin_ciphertext_uploader
   uploader_impersonation_enabled = local.foundation_enabled && var.enable_uploader_impersonation_binding
