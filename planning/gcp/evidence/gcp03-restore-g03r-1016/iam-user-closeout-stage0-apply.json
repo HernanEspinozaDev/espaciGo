@@ -49,7 +49,7 @@
       },
       {
         "name": "g03-verify-g03r-1016@espacigo-testprod.iam",
-        "id": "g03-verify-g03r-1016@espacigo-gcp03-restore-g03r-1016-pg",
+        "id": "g03-verify-g03r-1016@espacigo-testprod.iam//espacigo-gcp03-restore-g03r-1016-pg",
         "database_roles": ["g03_restore_verify_g03r_1016"],
         "type": "CLOUD_IAM_SERVICE_ACCOUNT",
         "deletion_policy": "DELETE"
@@ -73,12 +73,21 @@
       "terraform_state_deletion_protection_enabled": true
     }
   },
+  "corrections": [
+    {
+      "field": "post_apply_verification.users[name=g03-verify-g03r-1016@espacigo-testprod.iam].id",
+      "prior_published_file_sha256": "ed7236f0125593a098a76cf550f8dbc8724b07e83d81fd4a1821cb30de6d3f46",
+      "previous_published_value": "g03-verify-g03r-1016@espacigo-gcp03-restore-g03r-1016-pg",
+      "corrected_value": "g03-verify-g03r-1016@espacigo-testprod.iam//espacigo-gcp03-restore-g03r-1016-pg",
+      "reason": "The earlier evidence omitted the Cloud SQL IAM project suffix and resource separator; this value is corrected to match the actual Terraform state and plan."
+    }
+  ],
   "side_effects": {
     "sql_statements_executed": false,
     "cloud_run_jobs_invoked": false,
     "sql_users_deleted": false,
     "other_cloud_resources_deleted_or_updated": false,
     "cloud_tests_run": false,
-    "storage_object_operations": false
+    "storage_object_mutations": false
   }
 }
