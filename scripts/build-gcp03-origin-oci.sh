@@ -16,6 +16,10 @@ chmod 0700 "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
 oci_archive="$output_dir/gcp03origin-linux-amd64.oci.tar"
 manifest="$output_dir/gcp03origin-manifest.json"
+if [[ -e "$oci_archive" || -e "$manifest" ]]; then
+  echo "refusing to overwrite an existing private OCI artifact or manifest" >&2
+  exit 1
+fi
 
 commit="$(git rev-parse HEAD)"
 if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then

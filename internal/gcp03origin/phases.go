@@ -12,26 +12,22 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const bootstrapSQL = `BEGIN;
-DO $guard$
-BEGIN
-  IF current_database() <> 'espacigo_scratch' OR current_user <> 'postgres' THEN
-    RAISE EXCEPTION 'GCP-03 origin bootstrap refused unexpected database or login';
-  END IF;
-END
-$guard$;
-CREATE EXTENSION postgis;
-CREATE EXTENSION btree_gist;
-CREATE EXTENSION fuzzystrmatch;
-CREATE EXTENSION postgis_tiger_geocoder;
-CREATE EXTENSION postgis_topology;
-CREATE EXTENSION unaccent;
-CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
-CREATE ROLE espacigo_gadm_bootstrap NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
-CREATE ROLE espacigo_gcp03_observer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
-GRANT CONNECT ON DATABASE espacigo_scratch TO espacigo_runtime, espacigo_gcp03_observer;
-GRANT USAGE ON SCHEMA public TO espacigo_gcp03_observer;
-COMMIT;`
+var bootstrapStatements = []string{
+	`CREATE EXTENSION postgis`,
+	`CREATE EXTENSION btree_gist`,
+	`CREATE EXTENSION fuzzystrmatch`,
+	`CREATE EXTENSION postgis_tiger_geocoder`,
+	`CREATE EXTENSION postgis_topology`,
+	`CREATE EXTENSION unaccent`,
+	`CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
+	`CREATE ROLE espacigo_gadm_bootstrap NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
+	`CREATE ROLE espacigo_gcp03_observer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
+	`REVOKE TEMPORARY ON DATABASE espacigo_scratch FROM PUBLIC`,
+	`GRANT CONNECT ON DATABASE espacigo_scratch TO espacigo_runtime, espacigo_gcp03_observer`,
+	`GRANT USAGE ON SCHEMA public TO espacigo_gcp03_observer`,
+}
+
+const bootstrapIdentitySQL = `SELECT current_database(),current_user`
 
 const emptyBaselineSQL = `SELECT
   (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
@@ -42,9 +38,25 @@ const emptyBaselineSQL = `SELECT
   EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname='plpgsql' AND extversion='1.0'),
   (SELECT count(*) FROM pg_catalog.pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname NOT IN ('public','information_schema'))::bigint`
 
+const schemaInventorySQL = `WITH schema_inventory AS (
+  SELECT n.oid, n.nspname,
+    EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_namespace'::regclass AND d.objid=n.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass) AS directly_extension_owned,
+    (EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_depend d ON d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass WHERE c.relnamespace=n.oid AND c.relkind IN ('r','p','v','m','S','f'))
+      OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_depend d ON d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass WHERE p.pronamespace=n.oid)) AS has_extension_objects,
+    (EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.relnamespace=n.oid AND c.relkind IN ('r','p','v','m','S','f') AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass))
+      OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc p WHERE p.pronamespace=n.oid AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass))) AS has_application_objects
+  FROM pg_catalog.pg_namespace n
+  WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname NOT IN ('public','information_schema')
+)
+SELECT
+  count(*) FILTER (WHERE NOT directly_extension_owned AND NOT (has_extension_objects AND NOT has_application_objects)),
+  count(*) FILTER (WHERE directly_extension_owned OR (has_extension_objects AND NOT has_application_objects))
+FROM schema_inventory`
+
 type BootstrapReport struct {
 	Database             string      `json:"database"`
 	Login                string      `json:"login"`
+	TransactionOutcome   string      `json:"transaction_outcome"`
 	Extensions           []Extension `json:"extensions"`
 	RolesPrepared        []string    `json:"roles_prepared"`
 	RolesReady           bool        `json:"roles_ready"`
@@ -65,6 +77,7 @@ type Extension struct {
 type ObserveReport struct {
 	Database                string      `json:"database"`
 	Login                   string      `json:"login"`
+	TransactionOutcome      string      `json:"transaction_outcome"`
 	ServerVersionNum        int         `json:"server_version_num"`
 	Extensions              []Extension `json:"extensions"`
 	RolesReady              bool        `json:"roles_ready"`
@@ -101,48 +114,98 @@ func RunBootstrap(ctx context.Context, config Config, password string) (Bootstra
 	}
 	defer closeConnector()
 	defer conn.Close(context.Background())
+	return bootstrapOnConnection(ctx, conn)
+}
+
+func bootstrapOnConnection(ctx context.Context, conn *pgx.Conn) (BootstrapReport, error) {
+	return bootstrapOnConnectionWithPlan(ctx, conn, bootstrapStatements, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.Commit(ctx)
+	})
+}
+
+func bootstrapOnConnectionWithCommit(ctx context.Context, conn *pgx.Conn, commit func(context.Context, pgx.Tx) error) (BootstrapReport, error) {
+	return bootstrapOnConnectionWithPlan(ctx, conn, bootstrapStatements, commit)
+}
+
+func bootstrapOnConnectionWithStatements(ctx context.Context, conn *pgx.Conn, statements []string) (BootstrapReport, error) {
+	return bootstrapOnConnectionWithPlan(ctx, conn, statements, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.Commit(ctx)
+	})
+}
+
+func bootstrapOnConnectionWithPlan(ctx context.Context, conn *pgx.Conn, statements []string, commit func(context.Context, pgx.Tx) error) (BootstrapReport, error) {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return BootstrapReport{TransactionOutcome: "not_started"}, errors.New("GCP-03 origin bootstrap could not begin its transaction")
+	}
 	var db, login string
-	if err := conn.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&db, &login); err != nil || db != DatabaseName || login != AdminLogin {
-		return BootstrapReport{}, errors.New("GCP-03 origin bootstrap connected to an unexpected target")
+	if err := tx.QueryRow(ctx, bootstrapIdentitySQL).Scan(&db, &login); err != nil || db != DatabaseName || login != AdminLogin {
+		return rollbackBootstrap(tx, BootstrapReport{Database: db, Login: login}, "GCP-03 origin bootstrap connected to an unexpected target")
 	}
 	var relations, functions, extensions, schemas int64
 	var plpgsql bool
-	if err := conn.QueryRow(ctx, emptyBaselineSQL).Scan(&relations, &functions, &extensions, &plpgsql, &schemas); err != nil {
-		return BootstrapReport{}, errors.New("GCP-03 origin bootstrap could not verify the empty baseline")
+	if err := tx.QueryRow(ctx, emptyBaselineSQL).Scan(&relations, &functions, &extensions, &plpgsql, &schemas); err != nil {
+		return rollbackBootstrap(tx, BootstrapReport{Database: db, Login: login}, "GCP-03 origin bootstrap could not verify the empty baseline")
 	}
 	if relations != 0 || functions != 0 || extensions != 1 || !plpgsql || schemas != 0 {
-		return BootstrapReport{Database: db, Login: login, ApplicationSchemas: schemas, ApplicationRelations: relations, ApplicationFunctions: functions}, errors.New("GCP-03 origin bootstrap requires a pristine database; do not retry without reconciliation")
+		return rollbackBootstrap(tx, BootstrapReport{Database: db, Login: login, ApplicationSchemas: schemas, ApplicationRelations: relations, ApplicationFunctions: functions}, "GCP-03 origin bootstrap requires a pristine database; reconcile before retry")
 	}
-	if _, err := conn.PgConn().Exec(ctx, bootstrapSQL).ReadAll(); err != nil {
-		return BootstrapReport{Database: db, Login: login}, errors.New("GCP-03 origin bootstrap failed; outcome requires reconciliation before any retry")
+	for _, statement := range statements {
+		if _, err := tx.Exec(ctx, statement); err != nil {
+			return rollbackBootstrap(tx, BootstrapReport{Database: db, Login: login}, "GCP-03 origin bootstrap failed inside its transaction")
+		}
 	}
-	report, err := readBootstrapReport(ctx, conn)
+	report, err := readBootstrapReport(ctx, tx)
 	if err != nil {
-		return report, err
+		return rollbackBootstrap(tx, report, err.Error())
 	}
+	if !report.Passed {
+		return rollbackBootstrap(tx, report, "GCP-03 origin bootstrap checks failed inside its transaction")
+	}
+	if commit == nil {
+		return rollbackBootstrap(tx, report, "GCP-03 origin bootstrap commit handler is unavailable")
+	}
+	if err := commit(ctx, tx); err != nil {
+		report.Passed = false
+		report.TransactionOutcome = "outcome_uncertain"
+		return report, errors.New("GCP-03 origin bootstrap commit outcome is uncertain; reconcile before retry")
+	}
+	report.TransactionOutcome = "committed"
 	return report, nil
 }
 
-func readBootstrapReport(ctx context.Context, conn *pgx.Conn) (BootstrapReport, error) {
+func rollbackBootstrap(tx pgx.Tx, report BootstrapReport, message string) (BootstrapReport, error) {
+	report.Passed = false
+	if err := tx.Rollback(context.Background()); err != nil {
+		report.TransactionOutcome = "outcome_uncertain"
+		return report, fmt.Errorf("%s; rollback outcome is unconfirmed, reconcile before retry", message)
+	}
+	report.TransactionOutcome = "rolled_back"
+	return report, fmt.Errorf("%s; transaction rolled back", message)
+}
+
+func readBootstrapReport(ctx context.Context, tx pgx.Tx) (BootstrapReport, error) {
 	report := BootstrapReport{Database: DatabaseName, Login: AdminLogin, RolesPrepared: []string{"espacigo_gadm_bootstrap", "espacigo_gcp03_observer", "espacigo_runtime"}}
-	if err := collectExtensions(ctx, conn, &report.Extensions); err != nil {
+	if err := collectExtensionsTx(ctx, tx, &report.Extensions); err != nil {
 		return report, err
 	}
 	var appRelations, appFunctions int64
-	if err := conn.QueryRow(ctx, `SELECT
-  (SELECT count(*) FROM pg_catalog.pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname NOT IN ('public','information_schema')
-   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_namespace'::regclass AND d.objid=n.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass)),
+	if err := tx.QueryRow(ctx, `SELECT
   (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
    WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema' AND c.relkind IN ('r','p','v','m','S','f')
      AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass)),
   (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
-   WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema'
-     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass))`).Scan(&report.ApplicationSchemas, &appRelations, &appFunctions); err != nil {
+	   WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema'
+	     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass))`).Scan(&appRelations, &appFunctions); err != nil {
 		return report, errors.New("GCP-03 origin bootstrap could not verify extension and application object ownership")
+	}
+	var extensionSchemas int64
+	if err := tx.QueryRow(ctx, schemaInventorySQL).Scan(&report.ApplicationSchemas, &extensionSchemas); err != nil {
+		return report, errors.New("GCP-03 origin bootstrap could not classify extension-generated schemas")
 	}
 	report.ApplicationRelations = appRelations
 	report.ApplicationFunctions = appFunctions
-	if err := conn.QueryRow(ctx, `SELECT
+	if err := tx.QueryRow(ctx, `SELECT
   (SELECT count(*)=3 FROM pg_catalog.pg_roles WHERE rolname IN ('espacigo_runtime','espacigo_gadm_bootstrap','espacigo_gcp03_observer') AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit),
   has_database_privilege('espacigo_gcp03_observer','espacigo_scratch','CONNECT'),
 	 has_schema_privilege('espacigo_gcp03_observer','public','USAGE'),
@@ -166,6 +229,16 @@ func Observe(ctx context.Context, config Config) (ObserveReport, error) {
 	}
 	defer closeConnector()
 	defer conn.Close(context.Background())
+	return observeOnConnection(ctx, conn)
+}
+
+func observeOnConnection(ctx context.Context, conn *pgx.Conn) (ObserveReport, error) {
+	return observeOnConnectionWithCommit(ctx, conn, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.Commit(ctx)
+	})
+}
+
+func observeOnConnectionWithCommit(ctx context.Context, conn *pgx.Conn, commit func(context.Context, pgx.Tx) error) (ObserveReport, error) {
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return ObserveReport{}, errors.New("GCP-03 origin observer could not begin its read-only transaction")
@@ -184,16 +257,15 @@ func Observe(ctx context.Context, config Config) (ObserveReport, error) {
 	if err := collectExtensionsTx(ctx, tx, &report.Extensions); err != nil {
 		return report, err
 	}
+	if err := tx.QueryRow(ctx, schemaInventorySQL).Scan(&report.ApplicationSchemas, &report.ExtensionOwnedSchemas); err != nil {
+		return report, errors.New("GCP-03 origin observer could not classify extension-generated schemas")
+	}
 	if err := tx.QueryRow(ctx, `SELECT
-  (SELECT count(*) FROM pg_catalog.pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname NOT IN ('public','information_schema')
-   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_namespace'::regclass AND d.objid=n.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass)),
-  (SELECT count(*) FROM pg_catalog.pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname NOT IN ('public','information_schema')
-   AND EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_namespace'::regclass AND d.objid=n.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass)),
   (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema' AND c.relkind IN ('r','p','v','m','S','f')),
   (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema' AND c.relkind IN ('r','p','v','m','S','f') AND EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass)),
   (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema' AND c.relkind IN ('r','p','v','m','S','f') AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass)),
   (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema' AND EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass)),
-  (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema' AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass))`).Scan(&report.ApplicationSchemas, &report.ExtensionOwnedSchemas, &report.Relations, &report.ExtensionOwnedRelations, &report.ApplicationRelations, &report.ExtensionOwnedFunctions, &report.ApplicationFunctions); err != nil {
+	  (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema' AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::regclass))`).Scan(&report.Relations, &report.ExtensionOwnedRelations, &report.ApplicationRelations, &report.ExtensionOwnedFunctions, &report.ApplicationFunctions); err != nil {
 		return report, errors.New("GCP-03 origin observer could not verify the extension-owned empty baseline")
 	}
 	var rolesReady, observerMembership, observerPermissions bool
@@ -207,29 +279,18 @@ func Observe(ctx context.Context, config Config) (ObserveReport, error) {
 	}
 	report.RolesReady, report.ObserverMembership, report.ObserverPermissions = rolesReady, observerMembership, observerPermissions
 	report.Passed = report.ServerVersionNum >= 180000 && exactExtensions(report.Extensions) && rolesReady && observerMembership && observerPermissions && report.ApplicationSchemas == 0 && report.ApplicationRelations == 0 && report.ApplicationFunctions == 0 && report.Relations == report.ExtensionOwnedRelations
-	if err := tx.Commit(ctx); err != nil {
-		return report, errors.New("GCP-03 origin observer read-only transaction did not complete")
+	if commit == nil {
+		report.Passed = false
+		report.TransactionOutcome = "outcome_uncertain"
+		return report, errors.New("GCP-03 origin observer commit handler is unavailable")
 	}
+	if err := commit(ctx, tx); err != nil {
+		report.Passed = false
+		report.TransactionOutcome = "outcome_uncertain"
+		return report, errors.New("GCP-03 origin observer read-only transaction outcome is uncertain")
+	}
+	report.TransactionOutcome = "committed"
 	return report, nil
-}
-
-func collectExtensions(ctx context.Context, conn *pgx.Conn, out *[]Extension) error {
-	rows, err := conn.Query(ctx, `SELECT extname,extversion FROM pg_catalog.pg_extension ORDER BY extname`)
-	if err != nil {
-		return errors.New("GCP-03 origin could not observe installed extensions")
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var item Extension
-		if err := rows.Scan(&item.Name, &item.Version); err != nil {
-			return errors.New("GCP-03 origin extension observation failed")
-		}
-		*out = append(*out, item)
-	}
-	if rows.Err() != nil {
-		return errors.New("GCP-03 origin extension observation failed")
-	}
-	return nil
 }
 
 func collectExtensionsTx(ctx context.Context, tx pgx.Tx, out *[]Extension) error {
