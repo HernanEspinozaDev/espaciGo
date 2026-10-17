@@ -1,0 +1,25 @@
+ARG SOURCE_DATE_EPOCH
+# Pin the exact linux/amd64 builder manifest; update only with a reviewed toolchain change.
+FROM golang:1.27.1-alpine3.24@sha256:cd9a32216aee5667f957a62d13a10032a63fd58e14b3f3d9cc8c2122f501e95e AS build
+ARG SOURCE_DATE_EPOCH
+
+ENV CGO_ENABLED=0 \
+    GOTOOLCHAIN=local \
+    GOOS=linux \
+    GOARCH=amd64
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/gcp03origin ./cmd/gcp03origin
+COPY internal/gcp03origin ./internal/gcp03origin
+COPY internal/database/cloudsql ./internal/database/cloudsql
+RUN go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/gcp03origin ./cmd/gcp03origin
+
+FROM scratch
+ARG SOURCE_DATE_EPOCH
+WORKDIR /app
+COPY --from=build /out/gcp03origin /app/gcp03origin
+# Use the CA bundle from the pinned builder image for the connector's HTTPS control plane.
+COPY --from=build /etc/ssl/cert.pem /etc/ssl/cert.pem
+USER 65532:65532
+ENTRYPOINT ["/app/gcp03origin"]
