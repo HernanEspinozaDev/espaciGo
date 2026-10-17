@@ -4,9 +4,9 @@ Fecha: 2026-10-17. Estado: propuesta de implementación local para revisión; ni
 
 ## Alcance y evidencia de partida
 
-Este corte prepara el transporte y contrato de importación de la captura local sellada existente, cuyo `SEALED.json` revisado tiene SHA-256 `80a4e1e0002cf12f8e750ddaac7ceb796726b57a36405aa2b0b8e7852e928262`. El snapshot y `K_recovery` permanecen bajo custodia local y no se incluyen en el repositorio. La carga sintética `g03r-1016`, `cmd/gcp03restore`, su perfil `restore/retire` y `pilot01` quedan fuera de este flujo.
+Este corte prepara el transporte y contrato de importación de la captura local sellada existente, cuyo `source_capture_run_id` es `gcp03-merge-review-20261017` y cuyo `SEALED.json` revisado tiene SHA-256 `80a4e1e0002cf12f8e750ddaac7ceb796726b57a36405aa2b0b8e7852e928262`. El run destino `target_run_id` es `g03o-1017`; ambos IDs son distintos y se mantienen explícitos. El snapshot y `K_recovery` permanecen bajo custodia local y no se incluyen en el repositorio. La carga sintética `g03r-1016`, `cmd/gcp03restore`, su perfil `restore/retire` y `pilot01` quedan fuera de este flujo.
 
-El bootstrap y el observer para `g03o-1017` pasaron una vez cada uno. La evidencia F3 establece una base recién bootstrappeada y observada; no valida el snapshot importado ni la compatibilidad completa de datos/owners/ACL con Cloud SQL. La instancia creada el 2026-10-17 a las 07:55:05 UTC ya superó su cota operativa inicial de 8 horas. No se continúa con operaciones cloud por este documento; cualquier extensión, nuevo plan y acto de importación requiere revisión/liberación separadas.
+El bootstrap y el observer para `g03o-1017` pasaron una vez cada uno. La evidencia F3 establece una base recién bootstrappeada y observada; no valida el snapshot importado ni la compatibilidad completa de datos/owners/ACL con Cloud SQL. La ventana inicial de ocho horas se extendió por coordinación hasta las 20:15 UTC (17:15 Santiago) del 2026-10-17. La extensión no autoriza importación, staging cloud, secretos ni recursos nuevos; esos actos requieren revisión/liberación y plan exacto separados.
 
 La entrega de código incluye `scripts/gcp03_origin_import.py` y sus pruebas unitarias. El comando `stage` valida el SHA exacto del sello, `SEALED.sha256`, el run, el allowlist cerrado de cuatro artefactos, hashes/tamaños de ciphertext, `v1_v61_preserved`, credenciales excluidas y metadata autenticada. Compara las 61 entradas `schema_migrations` de la metadata sellada (nombre + SHA-256) con los bytes actuales V1–V61 del checkout. Descifra el cifrado GPG fuente en streaming y vuelve a cifrar bloques de hasta 1 MiB en AES-256-GCM con DEK aleatoria de 256 bits por artefacto; cada chunk usa nonce aleatorio de 96 bits y AAD con run, artefacto e índice. Envuelve las DEK con AES-256-GCM usando `K_run = HKDF-SHA-256(K_recovery, salt_aleatorio_32B, info="espacigo/gcp03/origin/<run-id>/transport/v1")`. No escribe plaintext ni llama a Google Cloud. `verify-recovery` deriva `K_run` fuera de cloud y autentica todos los chunks/hash sin guardar plaintext.
 
@@ -18,23 +18,25 @@ Desde la raíz del repositorio, instalar la dependencia fijada en un virtualenv 
 
 ```sh
 python3 -m venv .local/testing/gcp03-import-venv
-.local/testing/gcp03-import-venv/bin/pip install -r scripts/requirements-gcp03-origin-import.txt
-python3 scripts/test_gcp03_origin_import.py -v
+.local/testing/gcp03-import-venv/bin/python -m pip install -r scripts/requirements-gcp03-origin-import.txt
+.local/testing/gcp03-import-venv/bin/python scripts/test_gcp03_origin_import.py -v
 ```
 
 Después de recibir liberación específica de staging, el operador ejecuta el mismo checkout revisado con rutas de snapshot y custodia obtenidas únicamente de su inventario privado. Los siguientes placeholders deben resolverse localmente; no se guardan en PR, logs compartidos ni argumentos copiados a tickets:
 
 ```sh
-python3 scripts/gcp03_origin_import.py stage \
-  --snapshot '<ruta-privada-del-snapshot-existente>/g03o-1017' \
+.local/testing/gcp03-import-venv/bin/python scripts/gcp03_origin_import.py stage \
+  --snapshot '<ruta-privada-del-snapshot-existente>/gcp03-merge-review-20261017' \
   --recovery-key '<ruta-privada-de-custodia>/recovery.key' \
-  --run-id g03o-1017 \
+  --source-capture-run-id gcp03-merge-review-20261017 \
+  --target-run-id g03o-1017 \
   --expected-seal-sha256 80a4e1e0002cf12f8e750ddaac7ceb796726b57a36405aa2b0b8e7852e928262 \
   --output "$PWD/.local/testing/gcp03-origin-import-g03o-1017"
-python3 scripts/gcp03_origin_import.py verify-recovery \
+.local/testing/gcp03-import-venv/bin/python scripts/gcp03_origin_import.py verify-recovery \
   --stage-dir "$PWD/.local/testing/gcp03-origin-import-g03o-1017" \
   --recovery-key '<ruta-privada-de-custodia>/recovery.key' \
-  --run-id g03o-1017 \
+  --source-capture-run-id gcp03-merge-review-20261017 \
+  --target-run-id g03o-1017 \
   --expected-manifest-sha256 '<hash-manifest-copiado-del-reporte-stage>'
 ```
 
@@ -42,7 +44,7 @@ Guardar stdout JSON saneado y SHA-256 del `transport-manifest.json` en evidencia
 
 ## Contrato de importación
 
-El manifest generado lleva `espacigo.gcp03.origin-import-contract.v1`, `status=staged_ciphertext_only`, nombre exacto `espacigo_scratch`, exigencia de target vacío, sello/hash requerido, digest inmutable del executor requerido, evidencia bootstrap/observer hash-bound, una sola tentativa, cero reintentos, servicios/workers prohibidos y saneamiento antes de verificación. El uploader/restore executor de cloud es trabajo futuro explícito; el estado del paquete no significa importación completada.
+El manifest generado lleva `source_capture_run_id` y `target_run_id` en campos separados. El primero selecciona el directorio/sello y deriva las passphrases GPG del snapshot original; no se renombra ni modifica. El segundo liga HKDF, AAD, rutas de objetos y contrato al destino de importación. El manifest lleva `espacigo.gcp03.origin-import-contract.v1`, `status=staged_ciphertext_only`, nombre exacto `espacigo_scratch`, exigencia de target vacío, sello/hash requerido, digest inmutable del executor requerido, evidencia bootstrap/observer hash-bound, una sola tentativa, cero reintentos, servicios/workers prohibidos y saneamiento antes de verificación. El uploader/restore executor de cloud es trabajo futuro explícito; el estado del paquete no significa importación completada.
 
 Antes de diseñar el executor, revisión de implementación debe fijar el tratamiento de owners, roles gestionados Cloud SQL, ACL/default ACL, extensiones, `SECURITY DEFINER`, objetos incompatibles con superuser, objetos de la base, secuencias, PostGIS y archivos. Prohibir reejecutar migraciones: V1–V61 son historial byte a byte. Los datos sensibles incluidos por la captura solo pueden entrar al bucket cifrados y, después, a la copia aislada prevista; servicios HTTP, workers, schedulers, webhooks, correo, pagos/proveedores y credenciales de origen permanecen desactivados. El restore/normalización y saneamiento corren como Job de una tarea con cero reintentos, imagen por digest, identidad de mínimo privilegio y bucket/secret/instancia acotados al run. La transacción puede quedar incierta: reconciliar antes de una nueva ejecución; nunca reintentar automáticamente.
 
@@ -62,8 +64,8 @@ Cada límite 2–7 requiere plan y liberación específica; esta PR y sus tests 
 
 Referencia de precio regional registrada 2026-10-17: instancia N4 2 vCPU/4 GiB + 20 GiB Hyperdisk Balanced = USD 0.202209863/hora (aprox. USD 1.62/8h). El bucket Standard regional cuesta USD 0.03/GiB-mes: para `S` GiB ciphertext y `T` horas, estimado `0.03 * S * T / (30*24)` más operaciones y transferencia. El Cloud Run Job con 1 vCPU/1 GiB tiene costo mínimo de 60s; a las tasas registradas equivale aproximadamente USD 0.00144 por ejecución mínima. Secret Manager payload/operaciones, logging, egress, soporte y descuentos no se incluyen. Cifras antes de impuestos/créditos; no son límite duro ni autorización de gasto.
 
-Ventana futura propuesta: máximo 8 horas desde creación SQL, con reservar primera hora para setup/reconciliación, dos horas para una sola importación, dos horas para verify, y tres horas como margen/teardown. El stage local es previo y no consume Cloud SQL. El tamaño del payload no está disponible en este checkout: antes de autorizar subida, calcular suma exacta de `transport_cipher_bytes` y exigir medición de throughput que proyecte transferencia + restore + teardown dentro de 5 horas. Si no cabe, no empezar; preparar nueva ventana/revisión. Cualquier timeout o outcome incierto detiene el run sin retry. La cota inicial de `g03o-1017` venció a las 15:55:05 UTC del 2026-10-17; al momento de redactar a las 18:22 UTC ya no cumple la ventana y requiere coordinación/revisión separada.
+Ventana futura propuesta: máximo 8 horas desde creación SQL, con reservar primera hora para setup/reconciliación, dos horas para una sola importación, dos horas para verify, y tres horas como margen/teardown. El stage local es previo y no consume Cloud SQL. El tamaño del payload no está disponible en este checkout: antes de autorizar subida, calcular suma exacta de `transport_cipher_bytes` y exigir medición de throughput que proyecte transferencia + restore + teardown dentro de 5 horas. Si no cabe, no empezar; preparar nueva ventana/revisión. Cualquier timeout o outcome incierto detiene el run sin retry. La ventana de operación `g03o-1017` fue extendida por coordinación hasta `2026-10-17T20:15:00Z` (17:15 Santiago); la hora inicial 15:55:05 UTC no es la vigente. A las 18:26 UTC (15:26 Santiago), la extensión sigue activa, pero no autoriza staging/importación ni recursos/secretos nuevos. Estos requieren revisión del PR, plan exacto y liberación específica.
 
 ## Pruebas realizadas para la implementación local
 
-`python3 scripts/test_gcp03_origin_import.py -v`: 5 pruebas pasan (streaming GPG sintético de extremo a extremo con recuperación fuera de cloud, comprobación V1–V61 byte/hash, round-trip y alteración de chunk, binding del hash del snapshot y derivación atada al run). `python3 -m py_compile scripts/gcp03_origin_import.py`: pasa. Estas pruebas usan datos sintéticos recreables; no leen el snapshot ni la llave real, no invocan GCP ni prueban Cloud SQL. Ejecutar de nuevo contra la rama/HEAD final al preparar PR.
+`.local/testing/gcp03-import-venv/bin/python scripts/test_gcp03_origin_import.py -v`: 5 pruebas pasan (streaming GPG sintético de extremo a extremo con source/target run IDs distintos y recuperación fuera de cloud, comprobación V1–V61 byte/hash, round-trip y alteración de chunk, binding del hash del snapshot y derivación atada al run). `.local/testing/gcp03-import-venv/bin/python -m py_compile scripts/gcp03_origin_import.py scripts/test_gcp03_origin_import.py`: pasa. Estas pruebas usan datos sintéticos recreables; no leen el snapshot ni la llave real, no invocan GCP ni prueban Cloud SQL. Ejecutar de nuevo contra la rama/HEAD final al preparar PR.

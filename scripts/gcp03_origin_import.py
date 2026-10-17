@@ -27,6 +27,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 
 FORMAT = "espacigo.gcp03.origin-transport.v1"
+SOURCE_SEAL_FORMAT = "espacigo.gcp03.local-origin-capture.v1.sealed"
 RUN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{5,63}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 ARTIFACTS = {
@@ -62,21 +63,21 @@ def private_file(path: Path) -> bytes:
     return bytes.fromhex(value.decode("ascii"))
 
 
-def derive_source_passphrase(master: bytes, run_id: str, label: str) -> bytes:
-    msg = f"espacigo.gcp03.local-origin-capture.v1:{run_id}:{label}".encode()
+def derive_source_passphrase(master: bytes, source_capture_run_id: str, label: str) -> bytes:
+    msg = f"espacigo.gcp03.local-origin-capture.v1:{source_capture_run_id}:{label}".encode()
     return hmac.new(master, msg, hashlib.sha256).hexdigest().encode("ascii")
 
 
-def transport_key(master: bytes, salt: bytes, run_id: str) -> bytes:
+def transport_key(master: bytes, salt: bytes, target_run_id: str) -> bytes:
     return HKDF(algorithm=hashes.SHA256(), length=32, salt=salt,
-                info=INFO_PREFIX + run_id.encode() + b"/transport/v1").derive(master)
+                info=INFO_PREFIX + target_run_id.encode() + b"/transport/v1").derive(master)
 
 
-def verify_seal(snapshot: Path, run_id: str, expected_sha: str) -> tuple[dict, bytes]:
-    if not RUN_RE.fullmatch(run_id) or not SHA_RE.fullmatch(expected_sha):
+def verify_seal(snapshot: Path, source_capture_run_id: str, expected_sha: str) -> tuple[dict, bytes]:
+    if not RUN_RE.fullmatch(source_capture_run_id) or not SHA_RE.fullmatch(expected_sha):
         raise ImportErrorSafe("run ID or expected SEALED.json SHA-256 is invalid")
-    if snapshot.is_symlink() or not snapshot.is_dir() or snapshot.name != run_id:
-        raise ImportErrorSafe("snapshot directory must be the real directory named by run ID")
+    if snapshot.is_symlink() or not snapshot.is_dir() or snapshot.name != source_capture_run_id:
+        raise ImportErrorSafe("snapshot directory must be the real directory named by source capture run ID")
     seal_path = snapshot / "SEALED.json"
     checksum_path = snapshot / "SEALED.sha256"
     if seal_path.is_symlink() or checksum_path.is_symlink():
@@ -95,7 +96,10 @@ def verify_seal(snapshot: Path, run_id: str, expected_sha: str) -> tuple[dict, b
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ImportErrorSafe("SEALED.json is invalid") from exc
     names = set(seal.get("encrypted_artifacts", {}))
-    if seal.get("run_id") != run_id or seal.get("v1_v61_preserved") is not True or names != set(ARTIFACTS):
+    if seal.get("format") != SOURCE_SEAL_FORMAT or seal.get("run_id") != source_capture_run_id or \
+            seal.get("v1_v61_preserved") is not True or seal.get("custody_key_in_artifact") is not False or \
+            seal.get("database_volume_in_artifact") is not False or seal.get("source_secret_files_included") is not False or \
+            seal.get("contract_encryption_key_separately_encrypted") is not True or names != set(ARTIFACTS):
         raise ImportErrorSafe("seal identity, V1-V61 claim, or artifact allowlist is invalid")
     if {p.name for p in snapshot.iterdir()} != names | {"SEALED.json", "SEALED.sha256"}:
         raise ImportErrorSafe("snapshot has missing or unmanifested files")
@@ -111,14 +115,14 @@ def verify_seal(snapshot: Path, run_id: str, expected_sha: str) -> tuple[dict, b
     return seal, seal_bytes
 
 
-def encrypt_chunks(source: BinaryIO, destination: BinaryIO, key: bytes, run_id: str, artifact: str) -> dict:
+def encrypt_chunks(source: BinaryIO, destination: BinaryIO, key: bytes, target_run_id: str, artifact: str) -> dict:
     aead = AESGCM(key)
     digest = hashlib.sha256()
     plain_bytes = chunks = 0
     destination.write(MAGIC)
     while data := source.read(CHUNK_BYTES):
         nonce = secrets.token_bytes(12)
-        aad = f"{FORMAT}:{run_id}:{artifact}:{chunks}".encode()
+        aad = f"{FORMAT}:{target_run_id}:{artifact}:{chunks}".encode()
         encrypted = aead.encrypt(nonce, data, aad)
         destination.write(struct.pack(">I", len(data)))
         destination.write(nonce)
@@ -130,7 +134,7 @@ def encrypt_chunks(source: BinaryIO, destination: BinaryIO, key: bytes, run_id: 
     return {"plain_sha256": digest.hexdigest(), "plain_bytes": plain_bytes, "chunks": chunks}
 
 
-def decrypt_chunks(source: BinaryIO, destination: BinaryIO, key: bytes, run_id: str, artifact: str) -> dict:
+def decrypt_chunks(source: BinaryIO, destination: BinaryIO, key: bytes, target_run_id: str, artifact: str) -> dict:
     if source.read(len(MAGIC)) != MAGIC:
         raise ImportErrorSafe("transport artifact header is invalid")
     aead, digest, plain_bytes, index = AESGCM(key), hashlib.sha256(), 0, 0
@@ -148,7 +152,7 @@ def decrypt_chunks(source: BinaryIO, destination: BinaryIO, key: bytes, run_id: 
         nonce, encrypted = source.read(12), source.read(length + 16)
         if len(nonce) != 12 or len(encrypted) != length + 16:
             raise ImportErrorSafe("transport artifact is truncated")
-        aad = f"{FORMAT}:{run_id}:{artifact}:{index}".encode()
+        aad = f"{FORMAT}:{target_run_id}:{artifact}:{index}".encode()
         try:
             data = aead.decrypt(nonce, encrypted, aad)
         except Exception as exc:
@@ -175,8 +179,8 @@ def gpg_decrypt(source: Path, passphrase: bytes):
     return process, process.stdout
 
 
-def verify_source_metadata(snapshot: Path, master: bytes, run_id: str) -> str:
-    process, output = gpg_decrypt(snapshot / "origin-metadata.json.gpg", derive_source_passphrase(master, run_id, "metadata"))
+def verify_source_metadata(snapshot: Path, master: bytes, source_capture_run_id: str) -> str:
+    process, output = gpg_decrypt(snapshot / "origin-metadata.json.gpg", derive_source_passphrase(master, source_capture_run_id, "metadata"))
     try:
         metadata = json.load(output)
         rc = process.wait(timeout=180)
@@ -231,19 +235,24 @@ def private_output_dir(path: Path) -> Path:
     return resolved
 
 
-def stage(snapshot: Path, key_path: Path, run_id: str, expected_sha: str, output: Path) -> dict:
+def stage(snapshot: Path, key_path: Path, source_capture_run_id: str, target_run_id: str, expected_sha: str, output: Path) -> dict:
     master = private_file(key_path)
-    seal, _ = verify_seal(snapshot, run_id, expected_sha)
-    migration_inventory_sha = verify_source_metadata(snapshot, master, run_id)
+    seal, _ = verify_seal(snapshot, source_capture_run_id, expected_sha)
+    if not RUN_RE.fullmatch(target_run_id):
+        raise ImportErrorSafe("target run ID is invalid")
+    migration_inventory_sha = verify_source_metadata(snapshot, master, source_capture_run_id)
     out = private_output_dir(output)
     salt = secrets.token_bytes(32)
-    kek = transport_key(master, salt, run_id)
-    manifest = {"format": FORMAT, "run_id": run_id, "source_sealed_sha256": expected_sha,
+    kek = transport_key(master, salt, target_run_id)
+    manifest = {"format": FORMAT, "source_capture_run_id": source_capture_run_id,
+                "target_run_id": target_run_id, "source_sealed_sha256": expected_sha,
                 "kdf": "HKDF-SHA-256", "salt_hex": salt.hex(), "artifacts": {},
                 "migration_inventory_sha256": migration_inventory_sha,
                 "import_contract": {
                     "format": "espacigo.gcp03.origin-import-contract.v1",
                     "status": "staged_ciphertext_only",
+                    "source_capture_run_id": source_capture_run_id,
+                    "target_run_id": target_run_id,
                     "target_database": "espacigo_scratch",
                     "requires_empty_target": True,
                     "requires_reviewed_source_seal_sha256": expected_sha,
@@ -260,19 +269,19 @@ def stage(snapshot: Path, key_path: Path, run_id: str, expected_sha: str, output
         for source_name, output_name in ARTIFACTS.items():
             dek, wrap_nonce = secrets.token_bytes(32), secrets.token_bytes(12)
             artifact_key = source_name.removesuffix(".gpg")
-            aad = f"{FORMAT}:{run_id}:{artifact_key}:dek".encode()
+            aad = f"{FORMAT}:{target_run_id}:{artifact_key}:dek".encode()
             wrapped = AESGCM(kek).encrypt(wrap_nonce, dek, aad)
             target = out / output_name
             source_path = snapshot / source_name
             source_digest, source_size = sha256_file(source_path)
-            proc, plain_stream = gpg_decrypt(source_path, derive_source_passphrase(master, run_id, {
+            proc, plain_stream = gpg_decrypt(source_path, derive_source_passphrase(master, source_capture_run_id, {
                 "database.dump.gpg": "database-dump", "private-files.tar.gpg": "private-files",
                 "contract-encryption-key.gpg": "contract-key", "origin-metadata.json.gpg": "metadata",
             }[source_name]))
             try:
                 with target.open("xb") as encrypted_file:
                     os.chmod(target, 0o600)
-                    stats = encrypt_chunks(plain_stream, encrypted_file, dek, run_id, artifact_key)
+                    stats = encrypt_chunks(plain_stream, encrypted_file, dek, target_run_id, artifact_key)
                     encrypted_file.flush()
                     os.fsync(encrypted_file.fileno())
                 if proc.wait(timeout=3600) != 0:
@@ -285,7 +294,7 @@ def stage(snapshot: Path, key_path: Path, run_id: str, expected_sha: str, output
                 plain_stream.close()
             cipher_digest, cipher_size = sha256_file(target)
             manifest["artifacts"][artifact_key] = {
-                "source_name": source_name, "object_name": f"runs/{run_id}/{output_name}",
+                "source_name": source_name, "object_name": f"runs/{target_run_id}/{output_name}",
                 "source_cipher_sha256": source_digest, "source_cipher_bytes": source_size,
                 "transport_cipher_sha256": cipher_digest, "transport_cipher_bytes": cipher_size,
                 "plain_sha256": stats["plain_sha256"], "plain_bytes": stats["plain_bytes"],
@@ -298,7 +307,8 @@ def stage(snapshot: Path, key_path: Path, run_id: str, expected_sha: str, output
             stream.write((json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode())
             stream.flush()
             os.fsync(stream.fileno())
-        return {"run_id": run_id, "source_sealed_sha256": expected_sha,
+        return {"source_capture_run_id": source_capture_run_id, "target_run_id": target_run_id,
+                "source_sealed_sha256": expected_sha,
                 "transport_manifest_sha256": sha256_file(manifest_path)[0],
                 "artifact_count": len(manifest["artifacts"]), "status": "staged_ciphertext_only"}
     except BaseException:
@@ -306,8 +316,10 @@ def stage(snapshot: Path, key_path: Path, run_id: str, expected_sha: str, output
         raise
 
 
-def recover_verify(stage_dir: Path, key_path: Path, run_id: str, expected_manifest_sha: str) -> dict:
+def recover_verify(stage_dir: Path, key_path: Path, source_capture_run_id: str, target_run_id: str, expected_manifest_sha: str) -> dict:
     master = private_file(key_path)
+    if not RUN_RE.fullmatch(source_capture_run_id) or not RUN_RE.fullmatch(target_run_id):
+        raise ImportErrorSafe("source capture or target run ID is invalid")
     manifest_path = stage_dir / "transport-manifest.json"
     if stage_dir.is_symlink() or not stage_dir.is_dir() or stat.S_IMODE(stage_dir.stat().st_mode) != 0o700 or \
             manifest_path.is_symlink() or not manifest_path.is_file() or stat.S_IMODE(manifest_path.stat().st_mode) != 0o600:
@@ -317,13 +329,15 @@ def recover_verify(stage_dir: Path, key_path: Path, run_id: str, expected_manife
     if {entry.name for entry in stage_dir.iterdir()} != set(ARTIFACTS.values()) | {"transport-manifest.json"}:
         raise ImportErrorSafe("transport directory contains missing or unmanifested paths")
     manifest = json.loads(manifest_path.read_bytes())
-    if manifest.get("format") != FORMAT or manifest.get("run_id") != run_id or \
+    if manifest.get("format") != FORMAT or manifest.get("source_capture_run_id") != source_capture_run_id or \
+            manifest.get("target_run_id") != target_run_id or \
             not SHA_RE.fullmatch(str(manifest.get("source_sealed_sha256", ""))) or \
             set(manifest.get("artifacts", {})) != {n.removesuffix(".gpg") for n in ARTIFACTS}:
         raise ImportErrorSafe("transport manifest identity or allowlist is invalid")
     contract = manifest.get("import_contract") or {}
     if contract.get("format") != "espacigo.gcp03.origin-import-contract.v1" or \
             contract.get("status") != "staged_ciphertext_only" or contract.get("target_database") != "espacigo_scratch" or \
+            contract.get("source_capture_run_id") != source_capture_run_id or contract.get("target_run_id") != target_run_id or \
             contract.get("requires_empty_target") is not True or contract.get("restore_attempts") != 1 or \
             contract.get("automatic_retries") != 0 or contract.get("application_services_and_workers_may_start") is not False or \
             contract.get("sanitize_copy_before_verification") is not True or contract.get("source_mutation_allowed") is not False or \
@@ -332,11 +346,11 @@ def recover_verify(stage_dir: Path, key_path: Path, run_id: str, expected_manife
     salt = bytes.fromhex(manifest["salt_hex"])
     if len(salt) != 32:
         raise ImportErrorSafe("transport salt is invalid")
-    kek = transport_key(master, salt, run_id)
+    kek = transport_key(master, salt, target_run_id)
     verified = {}
     for artifact, entry in manifest["artifacts"].items():
         source_name = entry["source_name"]
-        if source_name not in ARTIFACTS or entry.get("object_name") != f"runs/{run_id}/{ARTIFACTS[source_name]}":
+        if source_name not in ARTIFACTS or entry.get("object_name") != f"runs/{target_run_id}/{ARTIFACTS[source_name]}":
             raise ImportErrorSafe("transport object path is invalid")
         path = stage_dir / ARTIFACTS[source_name]
         if path.is_symlink() or not path.is_file() or stat.S_IMODE(path.stat().st_mode) != 0o600:
@@ -345,13 +359,15 @@ def recover_verify(stage_dir: Path, key_path: Path, run_id: str, expected_manife
         if cipher_hash != entry.get("transport_cipher_sha256") or cipher_size != entry.get("transport_cipher_bytes"):
             raise ImportErrorSafe("transport ciphertext hash mismatch")
         nonce = bytes.fromhex(entry["wrap_nonce_hex"])
-        dek = AESGCM(kek).decrypt(nonce, bytes.fromhex(entry["wrapped_dek_hex"]), f"{FORMAT}:{run_id}:{artifact}:dek".encode())
+        dek = AESGCM(kek).decrypt(nonce, bytes.fromhex(entry["wrapped_dek_hex"]), f"{FORMAT}:{target_run_id}:{artifact}:dek".encode())
         with path.open("rb") as stream:
-            stats = decrypt_chunks(stream, _HashSink(), dek, run_id, artifact)
+            stats = decrypt_chunks(stream, _HashSink(), dek, target_run_id, artifact)
         if stats["plain_sha256"] != entry.get("plain_sha256") or stats["plain_bytes"] != entry.get("plain_bytes") or stats["chunks"] != entry.get("chunk_count"):
             raise ImportErrorSafe("transport plaintext hash or length mismatch")
         verified[artifact] = stats
-    return {"run_id": run_id, "source_sealed_sha256": manifest["source_sealed_sha256"], "verified_artifacts": len(verified), "plaintext_written": False}
+    return {"source_capture_run_id": source_capture_run_id, "target_run_id": target_run_id,
+            "source_sealed_sha256": manifest["source_sealed_sha256"],
+            "verified_artifacts": len(verified), "plaintext_written": False}
 
 
 class _HashSink:
@@ -365,17 +381,19 @@ def main() -> None:
     p_stage = sub.add_parser("stage", help="verify the seal and create a local encrypted transport envelope")
     p_stage.add_argument("--snapshot", type=Path, required=True)
     p_stage.add_argument("--recovery-key", type=Path, required=True)
-    p_stage.add_argument("--run-id", required=True)
+    p_stage.add_argument("--source-capture-run-id", required=True)
+    p_stage.add_argument("--target-run-id", required=True)
     p_stage.add_argument("--expected-seal-sha256", required=True)
     p_stage.add_argument("--output", type=Path, required=True)
     p_verify = sub.add_parser("verify-recovery", help="locally authenticate every staged artifact without writing plaintext")
     p_verify.add_argument("--stage-dir", type=Path, required=True)
     p_verify.add_argument("--recovery-key", type=Path, required=True)
-    p_verify.add_argument("--run-id", required=True)
+    p_verify.add_argument("--source-capture-run-id", required=True)
+    p_verify.add_argument("--target-run-id", required=True)
     p_verify.add_argument("--expected-manifest-sha256", required=True)
     args = parser.parse_args()
     try:
-        result = stage(args.snapshot, args.recovery_key, args.run_id, args.expected_seal_sha256, args.output) if args.command == "stage" else recover_verify(args.stage_dir, args.recovery_key, args.run_id, args.expected_manifest_sha256)
+        result = stage(args.snapshot, args.recovery_key, args.source_capture_run_id, args.target_run_id, args.expected_seal_sha256, args.output) if args.command == "stage" else recover_verify(args.stage_dir, args.recovery_key, args.source_capture_run_id, args.target_run_id, args.expected_manifest_sha256)
         print(json.dumps(result, sort_keys=True))
     except (ImportErrorSafe, OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True), file=sys.stderr)
