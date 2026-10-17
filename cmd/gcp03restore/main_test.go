@@ -1,6 +1,42 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+)
+
+func TestFailureEvidenceKeepsTypedArtifactSubsteps(t *testing.T) {
+	env := map[string]string{"GCP03_PHASE": "restore", "GCP03_RUN_ID": "local01"}
+	getenv := func(key string) string { return env[key] }
+	for code, substep := range restoreFailureCodes {
+		var output strings.Builder
+		writeFailureEvidence(&output, getenv, restoreFailure{code: code, substep: substep})
+		var got failureEvidence
+		if err := json.Unmarshal([]byte(output.String()), &got); err != nil {
+			t.Fatalf("code %s did not serialize: %v", code, err)
+		}
+		if got.Stage != "artifact_validation" || got.ErrorCode != code || got.Substep != substep {
+			t.Fatalf("code %s produced stage=%q code=%q substep=%q", code, got.Stage, got.ErrorCode, got.Substep)
+		}
+	}
+}
+
+func TestGeneratedTOCValidationDistinguishesHeaderAndEntryDifferences(t *testing.T) {
+	sealed := []byte("; Archive created at 2026-10-16 17:53:07 -03\n1; 0 10 TABLE public sample owner\n2; 0 11 TABLE DATA public sample owner\n")
+	generated := []byte("; Archive created at 2026-10-16 16:53:07 UTC\n1; 0 10 TABLE public sample owner\n2; 0 11 TABLE DATA public sample owner\n")
+	allowlist := []byte("2; 0 11 TABLE DATA public sample owner\n")
+	if err := validateGeneratedTOC(generated, sealed, allowlist); err != nil {
+		t.Fatalf("identical entries with an environment-dependent header rejected: %v", err)
+	}
+	changed := []byte("; Archive created at 2026-10-16 16:53:07 UTC\n1; 0 10 TABLE public altered owner\n2; 0 11 TABLE DATA public sample owner\n")
+	err := validateGeneratedTOC(changed, sealed, allowlist)
+	var failure restoreFailure
+	if !errors.As(err, &failure) || failure.code != "ARTIFACT_GENERATED_TOC_MISMATCH" {
+		t.Fatalf("changed entry did not return the generated TOC substep code: %v", err)
+	}
+}
 
 func TestLoadConfigContractAcrossAllPhases(t *testing.T) {
 	base := map[string]string{

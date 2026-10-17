@@ -97,7 +97,15 @@
     "resources_to_add": 17,
     "resources_to_change": 0,
     "resources_to_destroy": 0,
-    "applied": false
+    "applied": true,
+    "apply_resources_added": 17,
+    "apply_resources_changed": 0,
+    "apply_resources_destroyed": 0,
+    "state_serial_after_apply": 7,
+    "managed_resource_instances_after_apply": 27,
+    "apply_verified_no_drift": true,
+    "upload_evidence": "planning/gcp/evidence/gcp03-restore-g03r-1016/uploaded-artifacts.json",
+    "restore_failure_evidence": "planning/gcp/evidence/gcp03-restore-g03r-1016/restore-failure.json"
   },
   "fixed_inputs": {
     "manifest_sha256": "be91abf57aa34bae447b258353d11af107e1c56d625820ebc20a6c3567578317",
@@ -127,5 +135,11 @@
     "retire": false,
     "artifact_uploads": 0
   },
-  "prepared_from_main": "4e96a488f913f7c6311cf1582e05930166471a85"
+  "prepared_from_main": "4e96a488f913f7c6311cf1582e05930166471a85",
+  "authorization": {
+    "reviewed_pr": 373,
+    "reviewed_head": "06d46195966f19b3de36b88396c49728ba46dd21",
+    "merge_commit": "b60000ce20259a7090b7236b34844269bcba9a4b",
+    "merged_by": "HernanEspinozaDev"
+  }
 }

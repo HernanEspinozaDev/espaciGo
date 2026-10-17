@@ -1,0 +1,36 @@
+{
+  "format": "espacigo-gcp03-restore-artifact-upload-evidence-v1",
+  "bucket": "espacigo-gcp03-restore-g03r-1016",
+  "prefix": "runs/g03r-1016/",
+  "precondition": "if-generation-match=0",
+  "exact_object_count": 4,
+  "objects": [
+    {
+      "name": "runs/g03r-1016/manifest.json",
+      "generation": "1792195760678849",
+      "size": 671,
+      "sha256": "be91abf57aa34bae447b258353d11af107e1c56d625820ebc20a6c3567578317"
+    },
+    {
+      "name": "runs/g03r-1016/synthetic-v1-v61.dump",
+      "generation": "1792195769229365",
+      "size": 454328,
+      "sha256": "282f406d77e341ca7b8630cd11414e60a940051d86d8c7e5806387717aa14998"
+    },
+    {
+      "name": "runs/g03r-1016/dump.toc",
+      "generation": "1792195778303427",
+      "size": 69283,
+      "sha256": "4a2fddbdb08f636bc0f6cb7cfeeecfed621c9ad351dcb6b2f7fc5d2b0dc96244"
+    },
+    {
+      "name": "runs/g03r-1016/allowlist.toc",
+      "generation": "1792195786699241",
+      "size": 68996,
+      "sha256": "3c4595bd92c288f3189cee1f71f3c3f148b2f0cd8c3d27e68a335604abc38b93"
+    }
+  ],
+  "remote_sha256_verified": true,
+  "additional_objects": false,
+  "public_access": false
+}

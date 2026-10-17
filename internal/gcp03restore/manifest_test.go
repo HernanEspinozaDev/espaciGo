@@ -63,6 +63,21 @@ func TestAllowlistMustBeSubsetOfExactDumpTOC(t *testing.T) {
 	}
 }
 
+func TestSameTOCEntriesIgnoresOnlyEnvironmentDependentComments(t *testing.T) {
+	sealed := []byte("; Archive created at 2026-10-16 17:53:07 -03\n; dbname: fixture\n1; 0 10 TABLE public sample owner\n")
+	generated := []byte("; Archive created at 2026-10-16 16:53:07 UTC\n; dbname: fixture\n1; 0 10 TABLE public sample owner\n")
+	if !SameTOCEntries(sealed, generated) {
+		t.Fatal("timezone-dependent header prevented matching identical TOC entries")
+	}
+	changed := []byte("; Archive created at another time\n; dbname: fixture\n1; 0 10 TABLE public changed owner\n")
+	if SameTOCEntries(sealed, changed) {
+		t.Fatal("accepted a changed TOC entry")
+	}
+	if SameTOCEntries(sealed, []byte("; header only\n")) {
+		t.Fatal("accepted a missing TOC entry")
+	}
+}
+
 func TestAllowlistCannotRestorePreinstalledExtensionObjects(t *testing.T) {
 	raw := []byte("2; 3079 21312 EXTENSION - postgis\n4929; 0 21631 TABLE DATA public spatial_ref_sys postgres\n")
 	for _, selected := range []string{
