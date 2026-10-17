@@ -1,0 +1,88 @@
+{
+  "not_run": [
+    "retire",
+    "cleanup"
+  ],
+  "preconditions": {
+    "artifact_generations": {
+      "allowlist.toc": "1792195786699241",
+      "dump.toc": "1792195778303427",
+      "manifest.json": "1792195760678849",
+      "synthetic-v1-v61.dump": "1792195769229365"
+    },
+    "diagnostic_evidence_sha256": "fcb96ca650f173130402b52d73db658715fefd0bfc1c99a5fcb55ff3d1b761fb",
+    "only_changed_attribute": "template[0].template[0].containers[0].image",
+    "restore_plan_sha256": "97022edeaf12a6da7e305db810d8730757e23518cfd23cc05aecc1471665b068",
+    "state_serial_after_apply": 9,
+    "state_serial_before": 8
+  },
+  "raw_logs_or_credentials_included": false,
+  "restore": {
+    "artifact_hashes": {
+      "allowlist_sha256": "3c4595bd92c288f3189cee1f71f3c3f148b2f0cd8c3d27e68a335604abc38b93",
+      "dump_sha256": "282f406d77e341ca7b8630cd11414e60a940051d86d8c7e5806387717aa14998",
+      "migration_count": 61,
+      "migration_inventory_sha256": "e4086e95c3ecf05f9262aabfaa4e536a72503b992cc806b4fcf610748c8fa8c4",
+      "toc_sha256": "4a2fddbdb08f636bc0f6cb7cfeeecfed621c9ad351dcb6b2f7fc5d2b0dc96244"
+    },
+    "checks": {
+      "adjacent_calendar_slots": true,
+      "concurrent_overlap_one_winner": true,
+      "migration_checksums_v1_v61": true,
+      "object_ownership": true,
+      "overlap_rejected": true,
+      "postgis_spatial_function": true,
+      "santiago_dst_23_hour_day": true,
+      "security_definer_search_path": true,
+      "v60_trigger": true
+    },
+    "execution": "espacigo-gcp03-restore-g03r-1016-restore-f7xf5",
+    "image_digest": "sha256:927e1ab63f2eb767c407ad4a74b299f4a571acbb947ae5b0741daa8d6fea9dd8",
+    "restored_count_summary": {
+      "relations_with_counts": 3,
+      "total_rows_reported": 5
+    },
+    "result": {
+      "completed_at": "2026-10-17T00:43:16.610385Z",
+      "result": "succeeded",
+      "started_at": "2026-10-17T00:43:06.472388Z",
+      "succeeded_count": 1
+    }
+  },
+  "schema": "espacigo.gcp03.restore-verify-evidence.v1",
+  "scope": {
+    "manifest_sha256": "be91abf57aa34bae447b258353d11af107e1c56d625820ebc20a6c3567578317",
+    "project": "espacigo-testprod",
+    "region": "southamerica-west1",
+    "run_id": "g03r-1016",
+    "target": "espacigo-testprod:southamerica-west1:espacigo-gcp03-restore-g03r-1016-pg/espacigo_scratch"
+  },
+  "source_commit": "b692f80194cb42ad2d9b99724a5e5dabe621f5ea",
+  "verify": {
+    "checks": {
+      "adjacent_calendar_slots": true,
+      "concurrent_overlap_one_winner": true,
+      "migration_checksums_v1_v61": true,
+      "object_ownership": true,
+      "overlap_rejected": true,
+      "postgis_spatial_function": true,
+      "santiago_dst_23_hour_day": true,
+      "security_definer_search_path": true,
+      "v60_trigger": true
+    },
+    "execution": "espacigo-gcp03-restore-g03r-1016-verify-nddvw",
+    "image_digest": "sha256:7cca0b4371c415ebb1f5b72516f1d3a119ba6f8d298ce46f07f2a93d12369bce",
+    "migration_count": 61,
+    "migration_inventory_sha256": "e4086e95c3ecf05f9262aabfaa4e536a72503b992cc806b4fcf610748c8fa8c4",
+    "restored_count_summary": {
+      "relations_with_counts": 3,
+      "total_rows_reported": 5
+    },
+    "result": {
+      "completed_at": "2026-10-17T00:44:36.782910Z",
+      "result": "succeeded",
+      "started_at": "2026-10-17T00:44:28.478726Z",
+      "succeeded_count": 1
+    }
+  }
+}
