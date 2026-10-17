@@ -196,7 +196,27 @@ resource "google_cloud_run_v2_job" "origin_import" {
         name    = "cloud-sql-proxy"
         image   = var.origin_proxy_image
         command = ["/cloud-sql-proxy"]
-        args    = ["--private-ip", "--address=127.0.0.1", "--port=5432", google_sql_database_instance.origin[0].connection_name]
+        args = [
+          "--private-ip",
+          "--address=127.0.0.1",
+          "--port=5432",
+          "--admin-port=9091",
+          "--quitquitquit",
+          "--exit-zero-on-sigterm",
+          "--health-check",
+          "--http-address=0.0.0.0",
+          "--http-port=9801",
+          google_sql_database_instance.origin[0].connection_name,
+        ]
+        startup_probe {
+          http_get {
+            path = "/startup"
+            port = 9801
+          }
+          period_seconds    = 1
+          timeout_seconds   = 1
+          failure_threshold = 60
+        }
         resources {
           limits = {
             cpu    = "1"

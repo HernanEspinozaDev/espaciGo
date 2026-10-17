@@ -21,6 +21,7 @@ ROOTS = {"private-evidence", "privacy-replay"}
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 MAX_FILE_COUNT = 20_000
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89a-fA-F][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
 
 
 class PrivateFilesError(ValueError):
@@ -32,6 +33,7 @@ class PrivateFile:
     object_name: str
     data: bytes
     sha256: str
+    source_name: str = ""
 
 
 class PrivateFileStore(Protocol):
@@ -107,7 +109,17 @@ def validate_private_files_tar(data: bytes, *, run_id: str) -> list[PrivateFile]
                     raise PrivateFilesError("private file is unreadable")
                 payload = content.read(member.size + 1)
                 digest = hashlib.sha256(payload).hexdigest()
-                files.append(PrivateFile(f"runs/{run_id}/{member.name}", payload, digest))
+                if path.parts[0] == "private-evidence":
+                    if len(path.parts) != 2 or not path.name.endswith(".png"):
+                        raise PrivateFilesError("private evidence file path is invalid")
+                    file_id = path.name[:-4]
+                    if not UUID_RE.fullmatch(file_id):
+                        raise PrivateFilesError("private evidence identifier is invalid")
+                    object_name = f"runs/{run_id}/{file_id}.blob"
+                else:
+                    relative = PurePosixPath(*path.parts[1:]).as_posix()
+                    object_name = f"runs/{run_id}/privacy-replay/{relative}"
+                files.append(PrivateFile(object_name, payload, digest, member.name))
                 if len(files) > MAX_FILE_COUNT:
                     raise PrivateFilesError("private archive has too many files")
     except (tarfile.TarError, UnicodeError, json.JSONDecodeError, OSError) as exc:
@@ -116,7 +128,7 @@ def validate_private_files_tar(data: bytes, *, run_id: str) -> list[PrivateFile]
         raise PrivateFilesError("capture manifest is missing")
     if directories.intersection(ROOTS) != ROOTS:
         raise PrivateFilesError("private root directories are incomplete")
-    actual = {item.object_name.removeprefix(f"runs/{run_id}/"): item for item in files}
+    actual = {item.source_name: item for item in files}
     if set(actual) != set(expected):
         raise PrivateFilesError("capture manifest file inventory does not match archive")
     for name, item in actual.items():
@@ -132,8 +144,29 @@ def validate_private_files_tar(data: bytes, *, run_id: str) -> list[PrivateFile]
 def copy_private_files(data: bytes, *, run_id: str, store: PrivateFileStore) -> list[dict[str, object]]:
     """Validate the entire archive, then create-only copy files and return safe metadata."""
     files = validate_private_files_tar(data, run_id=run_id)
+    return copy_validated_private_files(files, run_id=run_id, store=store)
+
+
+def copy_validated_private_files(files: list[PrivateFile], *, run_id: str, store: PrivateFileStore) -> list[dict[str, object]]:
+    """Write an already validated archive inventory only after import postconditions pass."""
+    prefix = f"runs/{run_id}/"
     reports = []
     for item in files:
+        if not item.object_name.startswith(prefix) or ".." in item.object_name.split("/") or hashlib.sha256(item.data).hexdigest() != item.sha256:
+            raise PrivateFilesError("prepared private file object is invalid")
         store.create(item.object_name, item.data, item.sha256)
         reports.append({"object_name": item.object_name, "bytes": len(item.data), "sha256": item.sha256})
     return reports
+
+
+def private_evidence_ids(files: list[PrivateFile], *, run_id: str) -> set[str]:
+    prefix = f"runs/{run_id}/"
+    return {item.object_name[len(prefix):-5] for item in files
+            if item.object_name.startswith(prefix) and "/" not in item.object_name[len(prefix):] and item.object_name.endswith(".blob")}
+
+
+def validate_private_file_references(files: list[PrivateFile], referenced_ids: set[str], *, run_id: str) -> dict[str, int]:
+    file_ids = private_evidence_ids(files, run_id=run_id)
+    if any(not UUID_RE.fullmatch(value) for value in referenced_ids) or file_ids != referenced_ids:
+        raise PrivateFilesError("private evidence inventory does not match database references")
+    return {"database_reference_count": len(referenced_ids), "private_evidence_file_count": len(file_ids)}

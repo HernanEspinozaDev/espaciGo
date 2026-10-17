@@ -23,7 +23,7 @@ func newRuntimeFileStore(ctx context.Context, getenv func(string) string, eviden
 		if bucket == "" {
 			return nil, errors.New("CLOUD_STORAGE_BUCKET is required for the GCS backend")
 		}
-		return cloudstorage.New(ctx, bucket)
+		return cloudstorage.NewWithPrefix(ctx, bucket, getenv("CLOUD_STORAGE_OBJECT_PREFIX"))
 	default:
 		return nil, errors.New("BLOB_STORE_BACKEND must be filesystem or gcs")
 	}

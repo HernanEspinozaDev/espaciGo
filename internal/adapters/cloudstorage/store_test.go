@@ -22,7 +22,7 @@ func TestStorePrivateObjectLifecycleAndCreateOnlyWrite(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/upload/storage/v1/b/private-bucket/o"):
-			if r.URL.Query().Get("ifGenerationMatch") != "0" || r.URL.Query().Get("name") != id+".blob" {
+			if r.URL.Query().Get("ifGenerationMatch") != "0" || r.URL.Query().Get("name") != "runs/g03o-1017/"+id+".blob" {
 				http.Error(w, "missing create-only precondition", http.StatusBadRequest)
 				return
 			}
@@ -63,12 +63,12 @@ func TestStorePrivateObjectLifecycleAndCreateOnlyWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	store := newStoreWithClient(client, "private-bucket")
+	store := newStoreWithPrefix(client, "private-bucket", "runs/g03o-1017")
 	want := []byte("private synthetic bytes")
 	if err := store.Put(context.Background(), id, want); err != nil {
 		t.Fatal(err)
 	}
-	if name != id+".blob" || string(data) != string(want) {
+	if name != "runs/g03o-1017/"+id+".blob" || string(data) != string(want) {
 		t.Fatalf("stored object = %q %q", name, data)
 	}
 	got, err := store.Get(context.Background(), id)
@@ -89,5 +89,16 @@ func TestStoreRejectsInvalidIDAndCanceledContextBeforeAccess(t *testing.T) {
 	cancel()
 	if _, err := store.Get(ctx, "11111111-1111-4111-8111-111111111111"); err == nil {
 		t.Fatal("Get ignored canceled context")
+	}
+}
+
+func TestValidatePrefixRejectsTraversalAndAcceptsExactRunPrefix(t *testing.T) {
+	for _, prefix := range []string{"../other", "runs/../other", "/absolute", "runs//g03o-1017", "runs\\g03o-1017"} {
+		if err := validatePrefix(prefix); err == nil {
+			t.Fatalf("validatePrefix(%q) accepted unsafe prefix", prefix)
+		}
+	}
+	if err := validatePrefix("runs/g03o-1017"); err != nil {
+		t.Fatalf("validatePrefix rejected reviewed run prefix: %v", err)
 	}
 }

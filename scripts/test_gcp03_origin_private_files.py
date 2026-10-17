@@ -4,10 +4,13 @@ import json
 import tarfile
 import unittest
 
-from gcp03_origin_private_files import PrivateFilesError, copy_private_files, validate_private_files_tar
+from gcp03_origin_private_files import (PrivateFilesError, copy_private_files,
+    validate_private_file_references, validate_private_files_tar)
+
+FILE_ID = "11111111-1111-4111-8111-111111111111"
 
 
-def archive(*, filename="private-evidence/sample.bin", payload=b"synthetic private bytes", recorded_hash=None):
+def archive(*, filename=f"private-evidence/{FILE_ID}.png", payload=b"synthetic private bytes", recorded_hash=None):
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w") as tf:
         root = tarfile.TarInfo("private-evidence")
@@ -55,7 +58,7 @@ class PrivateFilesTests(unittest.TestCase):
         self.assertEqual(len(files), 1)
         store = Store()
         report = copy_private_files(archive_bytes, run_id="g03o-1017", store=store)
-        self.assertEqual(store.objects, {"runs/g03o-1017/private-evidence/sample.bin": payload})
+        self.assertEqual(store.objects, {f"runs/g03o-1017/{FILE_ID}.blob": payload})
         self.assertEqual(report[0]["bytes"], len(payload))
 
     def test_bad_inventory_creates_no_objects(self):
@@ -67,6 +70,13 @@ class PrivateFilesTests(unittest.TestCase):
     def test_traversal_member_rejected(self):
         with self.assertRaises(PrivateFilesError):
             validate_private_files_tar(archive(filename="private-evidence/../escape"), run_id="g03o-1017")
+
+    def test_archive_inventory_must_match_database_file_references(self):
+        files = validate_private_files_tar(archive(), run_id="g03o-1017")
+        report = validate_private_file_references(files, {FILE_ID}, run_id="g03o-1017")
+        self.assertEqual(report["database_reference_count"], 1)
+        with self.assertRaises(PrivateFilesError):
+            validate_private_file_references(files, set(), run_id="g03o-1017")
 
 
 if __name__ == "__main__":

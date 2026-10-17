@@ -22,13 +22,16 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from typing import BinaryIO, Callable, Protocol
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 import gcp03_origin_import as transport
-from gcp03_origin_private_files import copy_private_files
+from gcp03_origin_private_files import (PrivateFilesError, copy_validated_private_files,
+    validate_private_file_references, validate_private_files_tar)
 
 SOURCE_CAPTURE_RUN_ID = "gcp03-merge-review-20261017"
 TARGET_RUN_ID = "g03o-1017"
@@ -82,6 +85,7 @@ class DatabaseRunner(Protocol):
     def restore(self, feed_archive: Callable[[BinaryIO], dict], allowlist: bytes) -> None: ...
     def normalize_owners_and_acls(self, sql: bytes) -> None: ...
     def sanitize(self) -> dict: ...
+    def private_file_refs(self) -> set[str]: ...
 
 
 class HashingReader:
@@ -303,6 +307,14 @@ class OriginImportExecutor:
                 sink = _DiscardSink()
                 stats = decrypt_object(self.store, self.config.bucket, refs[artifact], manifest["artifacts"][artifact], k_wrap, artifact, sink)
                 artifact_reports[artifact] = {"plain_bytes": stats["plain_bytes"], "chunks": stats["chunks"]}
+            stage = "private_files_validate"
+            private_archive = io.BytesIO()
+            private_stats = decrypt_object(self.store, self.config.bucket, refs["private-files.tar"],
+                manifest["artifacts"]["private-files.tar"], k_wrap, "private-files.tar", private_archive)
+            try:
+                prepared_private_files = validate_private_files_tar(private_archive.getvalue(), run_id=TARGET_RUN_ID)
+            except PrivateFilesError as exc:
+                raise ImportStopped("PRIVATE_FILES_ARCHIVE_INVALID", stage) from exc
             stage = "toc_read"
             allowlist = read_exact(self.store, self.config.bucket, allowlist_ref)
             normalization_sql = read_exact(self.store, self.config.bucket, normalization_ref)
@@ -331,11 +343,13 @@ class OriginImportExecutor:
             if any(sanitation.get(name) != 0 for name in required) or sanitation.get("runtime_role_login") is not False:
                 raise ImportStopped("SANITATION_POSTCONDITIONS_FAILED", stage, mutation_started=True)
             stage = "private_files_copy"
-            private_archive = io.BytesIO()
-            private_stats = decrypt_object(self.store, self.config.bucket, refs["private-files.tar"],
-                manifest["artifacts"]["private-files.tar"], k_wrap, "private-files.tar", private_archive)
+            try:
+                private_refs_report = validate_private_file_references(
+                    prepared_private_files, self.database.private_file_refs(), run_id=TARGET_RUN_ID)
+            except PrivateFilesError as exc:
+                raise ImportStopped("PRIVATE_FILE_REFERENCE_MISMATCH", stage, mutation_started=True) from exc
             private_store = self.private_file_store or GCSPrivateFileStore(self.config.private_files_bucket)
-            private_files = copy_private_files(private_archive.getvalue(), run_id=TARGET_RUN_ID, store=private_store)
+            private_files = copy_validated_private_files(prepared_private_files, run_id=TARGET_RUN_ID, store=private_store)
             return {"format": FORMAT, "status": "imported_and_sanitized", "source_capture_run_id": SOURCE_CAPTURE_RUN_ID,
                     "target_run_id": TARGET_RUN_ID, "source_sealed_sha256": SOURCE_SEALED_SHA256,
                     "manifest_sha256": self.config.expected_manifest_sha256,
@@ -343,6 +357,7 @@ class OriginImportExecutor:
                     "artifacts_authenticated": len(artifact_reports), "allowlist_entries": len(selected_toc),
                     "normalization_sql_sha256": self.config.expected_normalization_sha256,
                     "sanitized": True, "private_files_copied": len(private_files),
+                    "private_file_references": private_refs_report["database_reference_count"],
                     "private_files_plain_bytes": private_stats["plain_bytes"], "services_or_workers_started": False}
         except ImportStopped as exc:
             return {"format": FORMAT, "status": "stopped", "stage": exc.stage or stage,
@@ -517,6 +532,15 @@ class PsqlPgRestoreRunner:
         try:return json.loads(self._run_sql(sql_path.read_bytes(),"SANITATION_SQL_FAILED"))
         except (json.JSONDecodeError,ImportStopped) as exc: raise ImportStopped("SANITATION_REPORT_INVALID","copy_sanitization",mutation_started=True) from exc
 
+    def private_file_refs(self) -> set[str]:
+        try:
+            result = json.loads(self._psql(PRIVATE_FILE_REFS_SQL))
+        except (json.JSONDecodeError, ImportStopped) as exc:
+            raise ImportStopped("PRIVATE_FILE_REFERENCE_QUERY_FAILED", "private_files_copy", mutation_started=True) from exc
+        if not isinstance(result, list) or any(not isinstance(item, str) for item in result):
+            raise ImportStopped("PRIVATE_FILE_REFERENCE_REPORT_INVALID", "private_files_copy", mutation_started=True)
+        return set(result)
+
     def _run_sql(self, sql: bytes, error_code: str) -> str:
         proc=subprocess.run([self.psql,"-X","-qAt","--set=ON_ERROR_STOP=1","--host="+self.host,"--port="+str(self.port),"--username=postgres","--dbname="+TARGET_DATABASE],
             input=sql,env=_psql_env(self.pgpass),stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=False)
@@ -586,6 +610,20 @@ SELECT json_build_object(
 )::text;
 """
 
+PRIVATE_FILE_REFS_SQL = """
+SELECT COALESCE(json_agg(file_id::text ORDER BY file_id), '[]'::json)::text
+FROM (
+  SELECT DISTINCT file_id FROM (
+    SELECT archivo_id AS file_id FROM public.foto_perfil_sintetica_local WHERE archivo_id IS NOT NULL
+    UNION ALL SELECT archivo_id FROM public.espacio_galeria_sintetica_local WHERE archivo_id IS NOT NULL
+    UNION ALL SELECT id FROM public.verificacion_evidencia_sintetica
+    UNION ALL SELECT archivo_id FROM public.espacio_galeria_archivo_candidato_local
+    UNION ALL SELECT archivo_id FROM public.operacion_arriendo_archivo_candidato_local
+    UNION ALL SELECT archivo_id FROM public.verificacion_archivo_retiro_pendiente_local
+  ) AS all_file_refs
+) AS unique_file_refs;
+"""
+
 
 def current_migration_inventory_sha256() -> str:
     migrations_dir = Path(__file__).resolve().parents[1] / "db" / "migrations"
@@ -625,7 +663,12 @@ def main() -> None:
             "transaction_outcome":"uncertain" if exc.mutation_started else "not_started","retry":False},sort_keys=True))
         raise SystemExit(1)
     finally:
-        if runner: runner.close()
+        try:
+            if runner:
+                runner.close()
+        finally:
+            if not shutdown_proxy():
+                print(json.dumps({"format":FORMAT,"status":"proxy_shutdown_failed","error_code":"CLOUD_SQL_PROXY_SHUTDOWN_FAILED"},sort_keys=True), file=sys.stderr)
 
 
 def wait_for_proxy(*, host: str = "127.0.0.1", port: int = 5432, timeout_seconds: float = 90,
@@ -638,6 +681,21 @@ def wait_for_proxy(*, host: str = "127.0.0.1", port: int = 5432, timeout_seconds
         except OSError:
             if clock() >= deadline:
                 raise ImportStopped("CLOUD_SQL_PROXY_NOT_READY", "proxy_startup")
+            sleep(min(0.5, max(0, deadline - clock())))
+
+
+def shutdown_proxy(*, endpoint: str = "http://127.0.0.1:9091/quitquitquit", timeout_seconds: float = 30,
+                   open_url=urllib.request.urlopen, clock=time.monotonic, sleep=time.sleep) -> bool:
+    """Request graceful Auth Proxy shutdown with a bounded retry window."""
+    deadline = clock() + timeout_seconds
+    request = urllib.request.Request(endpoint, method="POST")
+    while True:
+        try:
+            with open_url(request, timeout=1) as response:
+                return 200 <= response.status < 300
+        except (urllib.error.URLError, TimeoutError, OSError):
+            if clock() >= deadline:
+                return False
             sleep(min(0.5, max(0, deadline - clock())))
 
 

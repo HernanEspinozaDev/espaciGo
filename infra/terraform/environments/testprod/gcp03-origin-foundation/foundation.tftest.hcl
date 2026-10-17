@@ -91,6 +91,15 @@ run "import_job_is_single_attempt_private_and_hash_bound" {
     error_message = "Import container must wait for the Cloud SQL Proxy sidecar."
   }
   assert {
+    condition = (
+      contains(google_cloud_run_v2_job.origin_import[0].template[0].template[0].containers[1].args, "--quitquitquit") &&
+      contains(google_cloud_run_v2_job.origin_import[0].template[0].template[0].containers[1].args, "--exit-zero-on-sigterm") &&
+      google_cloud_run_v2_job.origin_import[0].template[0].template[0].containers[1].startup_probe[0].http_get[0].path == "/startup" &&
+      google_cloud_run_v2_job.origin_import[0].template[0].template[0].containers[1].startup_probe[0].http_get[0].port == 9801
+    )
+    error_message = "Proxy sidecar must expose controlled shutdown and a readiness startup probe."
+  }
+  assert {
     condition     = length(google_cloud_run_v2_job.origin_import[0].template[0].template[0].volumes) == 2
     error_message = "Import must mount exactly the admin password and K_run secret versions."
   }
