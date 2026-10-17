@@ -1,0 +1,83 @@
+{
+  "schema": "espacigo.gcp03.iam-user-closeout-stage1-plan.v1",
+  "created_at": "2026-10-17T01:55:12.577Z",
+  "run_id": "g03r-1016",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "stage0_apply_evidence": "planning/gcp/evidence/gcp03-restore-g03r-1016/iam-user-closeout-stage0-apply.json",
+  "terraform": {
+    "version": "1.16.6",
+    "google_provider_version": "8.7.0",
+    "state_lineage": "5bc6ad38-035f-fba3-2bcd-43bdf641e370",
+    "state_serial": 11,
+    "plan_sha256": "e6a04d3e301dcf82db3d82e2d8430637e71eb4e2d7793680ce2a3ef1a4ffa166",
+    "targeted": true,
+    "complete": false,
+    "applyable": true,
+    "applied": false,
+    "targets": [
+      "google_sql_user.restore_iam[0]",
+      "google_sql_user.verify_iam[0]"
+    ],
+    "inputs": {
+      "enable_restore_iam_users": false,
+      "allow_restore_iam_user_destroy": true,
+      "allow_restore_destroy": false,
+      "confirm_destroy_run_id": "g03r-1016",
+      "enable_restore_jobs": true
+    },
+    "actions": {"add": 0, "change": 0, "delete": 2},
+    "resource_changes": [
+      {
+        "address": "google_sql_user.restore_iam[0]",
+        "actions": ["delete"],
+        "before_name": "g03-restore-g03r-1016@espacigo-testprod.iam",
+        "before_id": "g03-restore-g03r-1016@espacigo-testprod.iam//espacigo-gcp03-restore-g03r-1016-pg",
+        "before_database_roles": ["g03_restore_owner_g03r_1016"],
+        "before_deletion_policy": "DELETE"
+      },
+      {
+        "address": "google_sql_user.verify_iam[0]",
+        "actions": ["delete"],
+        "before_name": "g03-verify-g03r-1016@espacigo-testprod.iam",
+        "before_id": "g03-verify-g03r-1016@espacigo-testprod.iam//espacigo-gcp03-restore-g03r-1016-pg",
+        "before_database_roles": ["g03_restore_verify_g03r_1016"],
+        "before_deletion_policy": "DELETE"
+      }
+    ]
+  },
+  "validator": {
+    "path": "scripts/gcp03_iam_user_plan_validator.py",
+    "phase": "stage1",
+    "accepted": true,
+    "condition": "Exactly the two target deletes; each before.deletion_policy is DELETE."
+  },
+  "preserved": {
+    "cloud_sql_instance_deletion_protection": true,
+    "all_six_run_jobs_present_and_protected": true,
+    "restore_and_verify_service_accounts": true,
+    "secret_and_secret_version": true,
+    "terraform_backend": true,
+    "pilot01": true,
+    "persistent_source_and_backups": true,
+    "baseline_network_and_subnetwork": true,
+    "roles_grants_and_memberships_changed": false,
+    "artifact_objects": [
+      {"name": "runs/g03r-1016/manifest.json", "generation": "1792195760678849"},
+      {"name": "runs/g03r-1016/synthetic-v1-v61.dump", "generation": "1792195769229365"},
+      {"name": "runs/g03r-1016/dump.toc", "generation": "1792195778303427"},
+      {"name": "runs/g03r-1016/allowlist.toc", "generation": "1792195786699241"}
+    ]
+  },
+  "operations": {
+    "stage0_applied": true,
+    "stage1_applied": false,
+    "sql_statements_executed": false,
+    "cloud_run_jobs_invoked": false,
+    "storage_object_operations": false,
+    "cloud_tests_run": false
+  },
+  "deadline_utc": "2026-10-17T05:08:13.708Z",
+  "autosuspend_configured": false,
+  "remaining_budget_verified": false
+}
