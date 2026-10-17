@@ -28,6 +28,11 @@ output "retire_job_name" {
   value       = try(google_cloud_run_v2_job.admin_phase["retire"].name, null)
 }
 
+output "retirement_diagnostic_job_name" {
+  description = "Default-off read-only catalog diagnosis Job using the existing run-scoped admin identity; Terraform creates it but never executes it."
+  value       = try(google_cloud_run_v2_job.retirement_diagnose[0].name, null)
+}
+
 output "artifact_bucket_name" {
   description = "Private run-scoped synthetic artifact bucket."
   value       = try(google_storage_bucket.artifacts[0].name, null)

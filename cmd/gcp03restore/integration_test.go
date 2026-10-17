@@ -361,6 +361,13 @@ func TestGCP03PhasesPostgres18Disposable(t *testing.T) {
 		t.Fatal("restore the baseline fixture row after rollback check")
 	}
 	_ = ownerConn.Close(context.Background())
+	preRetire, err := diagnoseRetirement(ctx, targetAdminURL, adminPassword, runID)
+	if err != nil || preRetire == nil || !preRetire.ReadOnlyTransaction || !preRetire.MigrationHistoryValid ||
+		preRetire.Counts["users"] != 2 || preRetire.Counts["spaces"] != 1 || preRetire.Counts["occupancy"] != 2 ||
+		!preRetire.Roles["restore"].LoginCapable || !preRetire.Roles["restore"].ExpectedGroupMembership || preRetire.Roles["restore"].MembershipCount != 1 ||
+		!preRetire.ACL["runtime_current_contract"] || preRetire.ACL["runtime_retired_contract"] || !preRetire.ACL["audit_exact_contract"] {
+		t.Fatalf("read-only pre-retire diagnosis mismatch: diagnosis=%+v err=%v", preRetire, err)
+	}
 	if err := retire(ctx, targetAdminURL, adminPassword, runID); err != nil {
 		t.Fatalf("atomic retire phase failed in the disposable local database: %v", err)
 	}
@@ -374,6 +381,13 @@ func TestGCP03PhasesPostgres18Disposable(t *testing.T) {
 		if err := control.QueryRow(ctx, `SELECT u.rolcanlogin,pg_catalog.pg_has_role(u.rolname,$2,'MEMBER'),(SELECT count(*) FROM pg_catalog.pg_auth_members m WHERE m.member=u.oid) FROM pg_catalog.pg_roles u WHERE u.rolname=$1`, login, groupRole).Scan(&canLogin, &member, &membershipCount); err != nil || !canLogin || !member || membershipCount != 1 {
 			t.Fatalf("retirement must leave the IAM SQL user login-capable with only its exact database role until Terraform deletes the account: %s", login)
 		}
+	}
+	postRetire, err := diagnoseRetirement(ctx, targetAdminURL, adminPassword, runID)
+	if err != nil || postRetire == nil || !postRetire.ReadOnlyTransaction || !postRetire.MigrationHistoryValid ||
+		postRetire.Counts["users"] != 2 || postRetire.Counts["spaces"] != 1 || postRetire.Counts["occupancy"] != 2 ||
+		!postRetire.Roles["verify"].LoginCapable || !postRetire.Roles["verify"].ExpectedGroupMembership || postRetire.Roles["verify"].MembershipCount != 1 ||
+		postRetire.ACL["runtime_current_contract"] || !postRetire.ACL["runtime_retired_contract"] || !postRetire.ACL["database_retired_acl"] || !postRetire.ACL["migrator_retired_contract"] || !postRetire.ACL["audit_exact_contract"] {
+		t.Fatalf("read-only post-retire diagnosis mismatch: diagnosis=%+v err=%v", postRetire, err)
 	}
 	if err := retire(ctx, targetAdminURL, adminPassword, runID); err == nil {
 		t.Fatal("retirement accepted a second attempt after synthetic rows were removed")

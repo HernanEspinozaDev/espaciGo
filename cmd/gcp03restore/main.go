@@ -51,18 +51,22 @@ func main() {
 
 func execute() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	evidence, runErr := runWithProxyShutdown(ctx, runContext, func(ctx context.Context) error {
+	defer stop()
+	return executePhase(ctx, runContext, func(ctx context.Context) error {
 		return shutdownProxy(ctx, http.DefaultClient)
-	})
-	stop()
+	}, os.Stdout, os.Stderr, os.Getenv)
+}
+
+func executePhase(ctx context.Context, runner func(context.Context) (evidence, error), shutdown func(context.Context) error, stdout, stderr io.Writer, getenv func(string) string) int {
+	evidence, runErr := runWithProxyShutdown(ctx, runner, shutdown)
 	if runErr != nil {
-		writeFailureEvidence(os.Stderr, os.Getenv, runErr)
+		writeFailureEvidence(stderr, getenv, runErr)
 		return 1
 	}
-	encoder := json.NewEncoder(os.Stdout)
+	encoder := json.NewEncoder(stdout)
 	encoder.SetEscapeHTML(true)
 	if err := encoder.Encode(evidence); err != nil {
-		writeFailureEvidence(os.Stderr, os.Getenv, errors.New("evidence encoding failed"))
+		writeFailureEvidence(stderr, getenv, errors.New("evidence encoding failed"))
 		return 1
 	}
 	return 0
@@ -123,7 +127,8 @@ type failureEvidence struct {
 	Substep                string `json:"substep,omitempty"`
 	SQLState               string `json:"sqlstate,omitempty"`
 	SubprocessExitCode     int    `json:"subprocess_exit_code,omitempty"`
-	CommitOutcomeUncertain bool   `json:"commit_outcome_uncertain"`
+	ApplicationExitCode    int    `json:"application_exit_code"`
+	CommitOutcome          string `json:"commit_outcome,omitempty"`
 	ProxyShutdownConfirmed bool   `json:"proxy_shutdown_confirmed"`
 	ManifestSHA256         string `json:"manifest_sha256,omitempty"`
 	FailureSHA256          string `json:"failure_sha256"`
@@ -136,6 +141,27 @@ func (e restoreFailure) Error() string { return e.code }
 type diagnosticFailure struct{ code, substep string }
 
 func (e diagnosticFailure) Error() string { return e.code }
+
+type retirementDiagnosticFailure struct{ substep, sqlState string }
+
+func (e retirementDiagnosticFailure) Error() string { return "RETIRE_DIAGNOSTIC_FAILED" }
+
+// retireFailure carries only an allowlisted operation label and SQLSTATE. It
+// deliberately does not retain driver error text, which may contain data.
+type retireFailure struct {
+	substep, code, sqlState, commitOutcome string
+}
+
+func (e retireFailure) Error() string { return e.code }
+
+func retirementFailure(substep string, err error) error {
+	failure := retireFailure{substep: substep, code: "RETIRE_STEP_FAILED"}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		failure.sqlState = pgErr.Code
+	}
+	return failure
+}
 
 var restoreFailureCodes = map[string]string{
 	"ARTIFACT_GCS_CLIENT_FAILED":            "gcs_client",
@@ -171,7 +197,7 @@ func writeFailureEvidence(out io.Writer, getenv func(string) string, err error) 
 	if !validPhase(phase) {
 		phase = "preflight"
 	}
-	record := failureEvidence{Format: "espacigo-gcp03-managed-synthetic-restore-failure-v1", Phase: phase, Stage: "phase_execute", ErrorCode: "PHASE_FAILED"}
+	record := failureEvidence{Format: "espacigo-gcp03-managed-synthetic-restore-failure-v2", Phase: phase, Stage: "phase_execute", ErrorCode: "PHASE_FAILED", ApplicationExitCode: 1}
 	if runID := getenv("GCP03_RUN_ID"); runIDPattern.MatchString(runID) {
 		record.RunID = runID
 	}
@@ -190,13 +216,21 @@ func writeFailureEvidence(out io.Writer, getenv func(string) string, err error) 
 	if errors.As(err, &typedFailure) {
 		record.Stage, record.ErrorCode, record.Substep = "artifact_validation", typedFailure.code, typedFailure.substep
 	} else {
+		var retireError retireFailure
+		var retireDiagnosticError retirementDiagnosticFailure
 		var diagnosticError diagnosticFailure
-		if errors.As(err, &diagnosticError) {
+		if errors.As(err, &retireError) {
+			record.Stage, record.ErrorCode, record.Substep = "retire", retireError.code, retireError.substep
+			record.SQLState, record.CommitOutcome = retireError.sqlState, retireError.commitOutcome
+		} else if errors.As(err, &retireDiagnosticError) {
+			record.Stage, record.ErrorCode, record.Substep = "read_only_retirement_diagnostic", "RETIRE_DIAGNOSTIC_FAILED", retireDiagnosticError.substep
+			record.SQLState = retireDiagnosticError.sqlState
+		} else if errors.As(err, &diagnosticError) {
 			record.Stage, record.ErrorCode, record.Substep = "read_only_diagnostic", diagnosticError.code, diagnosticError.substep
 		} else {
 			switch {
 			case strings.Contains(message, "uncertain"):
-				record.Stage, record.ErrorCode, record.CommitOutcomeUncertain = "commit", "COMMIT_OUTCOME_UNCERTAIN", true
+				record.Stage, record.ErrorCode, record.CommitOutcome = "commit", "COMMIT_OUTCOME_UNCERTAIN", "uncertain"
 			case strings.Contains(message, "preflight") || strings.Contains(message, "refused") || strings.Contains(message, "already") || strings.Contains(message, "empty"):
 				record.Stage, record.ErrorCode = "preflight", "PRECONDITION_FAILED"
 			case strings.Contains(message, "proxy shutdown"):
@@ -205,7 +239,7 @@ func writeFailureEvidence(out io.Writer, getenv func(string) string, err error) 
 		}
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if errors.As(err, &pgErr) && record.SQLState == "" {
 		record.Stage = "database_operation"
 		record.SQLState = pgErr.Code
 		record.ErrorCode = "DATABASE_SQLSTATE"
@@ -228,7 +262,7 @@ func writeFailureEvidence(out io.Writer, getenv func(string) string, err error) 
 
 func validPhase(phase string) bool {
 	switch phase {
-	case "bootstrap", "restore", "verify", "retire", "diagnose":
+	case "bootstrap", "restore", "verify", "retire", "diagnose", "retire-diagnose":
 		return true
 	default:
 		return false
@@ -272,7 +306,7 @@ func loadConfig(getenv func(string) string) (config, error) {
 		return config{}, errors.New("GCP-03 URL must target the local Cloud SQL Auth Proxy and fixed database")
 	}
 	switch c.phase {
-	case "bootstrap", "retire":
+	case "bootstrap", "retire", "retire-diagnose":
 		if u.User.Username() != "postgres" || c.bucket != "" || c.manifestSHA != "" || getenv("GCP03_ADMIN_PASSWORD_FILE") != "/secrets/postgres/password" {
 			return config{}, errors.New("GCP-03 administrative phase inputs are invalid")
 		}
@@ -290,27 +324,46 @@ func loadConfig(getenv func(string) string) (config, error) {
 			return config{}, errors.New("GCP-03 diagnostic identity or artifact binding is invalid")
 		}
 	default:
-		return config{}, errors.New("GCP03_PHASE must be bootstrap, restore, verify, diagnose, or retire")
+		return config{}, errors.New("GCP03_PHASE must be bootstrap, restore, verify, diagnose, retire, or retire-diagnose")
 	}
 	return c, nil
 }
 
 type evidence struct {
-	Format                   string          `json:"format"`
-	RunID                    string          `json:"run_id"`
-	Phase                    string          `json:"phase"`
-	Target                   string          `json:"target"`
-	ManifestSHA256           string          `json:"manifest_sha256"`
-	DumpBytes                int64           `json:"dump_bytes"`
-	DumpSHA256               string          `json:"dump_sha256"`
-	TOCSHA256                string          `json:"toc_sha256"`
-	AllowlistSHA256          string          `json:"allowlist_sha256"`
-	MigrationCount           int             `json:"migration_count"`
-	MigrationInventorySHA256 string          `json:"migration_inventory_sha256"`
-	RestoredCounts           map[string]int  `json:"restored_counts"`
-	Checks                   map[string]bool `json:"checks"`
-	ArtifactChecks           map[string]bool `json:"artifact_checks,omitempty"`
-	DatabaseBaseline         map[string]bool `json:"database_baseline,omitempty"`
+	Format                   string               `json:"format"`
+	RunID                    string               `json:"run_id"`
+	Phase                    string               `json:"phase"`
+	Target                   string               `json:"target"`
+	ManifestSHA256           string               `json:"manifest_sha256"`
+	DumpBytes                int64                `json:"dump_bytes"`
+	DumpSHA256               string               `json:"dump_sha256"`
+	TOCSHA256                string               `json:"toc_sha256"`
+	AllowlistSHA256          string               `json:"allowlist_sha256"`
+	MigrationCount           int                  `json:"migration_count"`
+	MigrationInventorySHA256 string               `json:"migration_inventory_sha256"`
+	RestoredCounts           map[string]int       `json:"restored_counts"`
+	Checks                   map[string]bool      `json:"checks"`
+	ArtifactChecks           map[string]bool      `json:"artifact_checks,omitempty"`
+	DatabaseBaseline         map[string]bool      `json:"database_baseline,omitempty"`
+	RetirementDiagnosis      *retirementDiagnosis `json:"retirement_diagnosis,omitempty"`
+	CommitOutcome            string               `json:"commit_outcome,omitempty"`
+}
+
+type retirementRoleState struct {
+	Exists                  bool `json:"exists"`
+	LoginCapable            bool `json:"login_capable"`
+	Superuser               bool `json:"superuser"`
+	ExpectedGroupMembership bool `json:"expected_group_membership"`
+	MembershipCount         int  `json:"membership_count"`
+}
+
+type retirementDiagnosis struct {
+	MigrationInventorySHA256 string                         `json:"migration_inventory_sha256"`
+	ReadOnlyTransaction      bool                           `json:"read_only_transaction"`
+	MigrationHistoryValid    bool                           `json:"migration_history_valid"`
+	Counts                   map[string]int                 `json:"counts"`
+	Roles                    map[string]retirementRoleState `json:"roles"`
+	ACL                      map[string]bool                `json:"acl"`
 }
 
 type restoreArtifacts struct {
@@ -430,61 +483,69 @@ func bootstrap(ctx context.Context, databaseURL, password, runID string) error {
 func retire(ctx context.Context, databaseURL, password, runID string) error {
 	conn, err := connectAdmin(ctx, databaseURL, password)
 	if err != nil {
-		return err
+		return retirementFailure("identity_connect", err)
 	}
 	defer conn.Close(context.Background())
 	if _, err := migrationInventory(migrationDirectory); err != nil {
-		return errors.New("retirement migration inventory preflight failed")
+		return retirementFailure("migration_inventory", err)
 	}
 	if err := migrator.VerifyAllApplied(ctx, conn, migrationDirectory, migrationCount); err != nil {
-		return errors.New("retirement refused because V1-V61 history no longer verifies")
+		return retirementFailure("migration_history", err)
 	}
 	if err := dbbootstrap.VerifyScratchRuntimePermissions(ctx, conn); err != nil {
-		return errors.New("retirement refused because runtime ACL checks no longer pass")
+		return retirementFailure("runtime_acl_precheck", err)
 	}
 	if err := verifyRetirementAuditACL(ctx, conn); err != nil {
-		return errors.New("retirement refused because the fixed audit grant contract does not pass")
+		return retirementFailure("audit_acl_precheck", err)
 	}
 	var users, spaces, occupancy int
-	if err := conn.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.usuario),(SELECT count(*) FROM public.espacio),(SELECT count(*) FROM public.ocupacion)`).Scan(&users, &spaces, &occupancy); err != nil || users != 2 || spaces != 1 || occupancy != 2 {
-		return errors.New("retirement refused because synthetic restore counts changed")
+	if err := conn.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.usuario),(SELECT count(*) FROM public.espacio),(SELECT count(*) FROM public.ocupacion)`).Scan(&users, &spaces, &occupancy); err != nil {
+		return retirementFailure("fixture_counts", err)
+	}
+	if users != 2 || spaces != 1 || occupancy != 2 {
+		return retirementFailure("fixture_counts", nil)
 	}
 	restoreLogin, verifyLogin := iamSQLUsername("restore", runID), iamSQLUsername("verify", runID)
 	for _, pair := range [][2]string{{restoreLogin, ownerRole(runID)}, {verifyLogin, verifyRole(runID)}} {
 		var canLogin, superuser, member bool
 		if err := conn.QueryRow(ctx, `SELECT u.rolcanlogin,u.rolsuper,pg_catalog.pg_has_role(u.rolname,g.rolname,'MEMBER')
- FROM pg_catalog.pg_roles u JOIN pg_catalog.pg_roles g ON g.rolname=$2 WHERE u.rolname=$1`, pair[0], pair[1]).Scan(&canLogin, &superuser, &member); err != nil || !canLogin || superuser || !member {
-			return errors.New("retirement preflight expected both IAM users to remain login-capable with their exact group role")
+FROM pg_catalog.pg_roles u JOIN pg_catalog.pg_roles g ON g.rolname=$2 WHERE u.rolname=$1`, pair[0], pair[1]).Scan(&canLogin, &superuser, &member); err != nil {
+			return retirementFailure("iam_memberships_precheck", err)
+		} else if !canLogin || superuser || !member {
+			return retirementFailure("iam_memberships_precheck", nil)
 		}
 	}
 	tx, err := conn.Begin(ctx)
 	if err != nil {
-		return errors.New("retirement could not begin its atomic cleanup transaction")
+		return retirementFailure("transaction_begin", err)
 	}
 	defer tx.Rollback(context.Background())
 	if _, err := tx.Exec(ctx, `DELETE FROM public.ocupacion WHERE id IN
  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee03','eeeeeeee-eeee-4eee-8eee-eeeeeeeeee04','eeeeeeee-eeee-4eee-8eee-eeeeeeeeee05')`); err != nil {
-		return errors.New("fixed synthetic calendar verification rows could not be removed")
+		return retirementFailure("fixed_delete", err)
 	}
-	for _, statement := range []string{"REVOKE TEMPORARY ON DATABASE espacigo_scratch FROM espacigo_scratch_migrator", "REVOKE CREATE ON SCHEMA public FROM espacigo_scratch_migrator"} {
-		if _, err := tx.Exec(ctx, statement); err != nil {
-			return errors.New("fixed synthetic migrator ACL retirement failed")
+	for _, revoke := range []struct{ substep, statement string }{
+		{"revoke_database_temporary", "REVOKE TEMPORARY ON DATABASE espacigo_scratch FROM espacigo_scratch_migrator"},
+		{"revoke_schema_create", "REVOKE CREATE ON SCHEMA public FROM espacigo_scratch_migrator"},
+	} {
+		if _, err := tx.Exec(ctx, revoke.statement); err != nil {
+			return retirementFailure(revoke.substep, err)
 		}
 	}
 	if err := dbbootstrap.VerifyScratchRetiredRuntimePermissions(ctx, tx); err != nil {
-		return errors.New("retired runtime ACL postcheck failed")
+		return retirementFailure("runtime_acl_postcheck", err)
 	}
 	if err := dbbootstrap.VerifyScratchMigratorRetired(ctx, tx); err != nil {
-		return errors.New("retired synthetic migrator role postcheck failed")
+		return retirementFailure("migrator_acl_postcheck", err)
 	}
 	if err := verifyRetirementAuditACL(ctx, tx); err != nil {
-		return errors.New("retirement changed the explicit audit privilege set")
+		return retirementFailure("audit_acl_postcheck", err)
 	}
 	var remainingUsers, remainingSpaces, remainingOccupancy, baselineOccupancy int
 	if err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.usuario),
  (SELECT count(*) FROM public.espacio),(SELECT count(*) FROM public.ocupacion),
  (SELECT count(*) FROM public.ocupacion WHERE id IN ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01','eeeeeeee-eeee-4eee-8eee-eeeeeeeeee02'))`).Scan(&remainingUsers, &remainingSpaces, &remainingOccupancy, &baselineOccupancy); err != nil || remainingUsers != 2 || remainingSpaces != 1 || remainingOccupancy != 2 || baselineOccupancy != 2 {
-		return errors.New("retirement changed the fixed synthetic baseline rows")
+		return retirementFailure("fixture_postcheck", err)
 	}
 	for _, login := range []string{restoreLogin, verifyLogin} {
 		groupRole := ownerRole(runID)
@@ -496,14 +557,111 @@ func retire(ctx context.Context, databaseURL, password, runID string) error {
 		if err := tx.QueryRow(ctx, `SELECT u.rolcanlogin,
  EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles granted ON granted.oid=m.roleid WHERE m.member=u.oid AND granted.rolname=$2),
  (SELECT count(*) FROM pg_catalog.pg_auth_members m WHERE m.member=u.oid)
- FROM pg_catalog.pg_roles u WHERE u.rolname=$1`, login, groupRole).Scan(&stillLogin, &expectedMembership, &membershipCount); err != nil || !stillLogin || !expectedMembership || membershipCount != 1 {
-			return errors.New("retirement did not preserve login capability and the exact IAM SQL role binding")
+ FROM pg_catalog.pg_roles u WHERE u.rolname=$1`, login, groupRole).Scan(&stillLogin, &expectedMembership, &membershipCount); err != nil {
+			return retirementFailure("iam_memberships_postcheck", err)
+		} else if !stillLogin || !expectedMembership || membershipCount != 1 {
+			return retirementFailure("iam_memberships_postcheck", nil)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return errors.New("retirement commit outcome is uncertain; do not retry")
+		failure := retirementFailure("commit", err).(retireFailure)
+		failure.code, failure.commitOutcome = "COMMIT_OUTCOME_UNCERTAIN", "uncertain"
+		return failure
 	}
 	return nil
+}
+
+// diagnoseRetirement is catalog-only. Its transaction is explicitly read-only
+// and returns only fixed counts, capability flags, and contract results.
+func diagnoseRetirement(ctx context.Context, databaseURL, password, runID string) (*retirementDiagnosis, error) {
+	conn, err := connectAdmin(ctx, databaseURL, password)
+	if err != nil {
+		return nil, retirementDiagnosticFailure{substep: "identity_connect"}
+	}
+	defer conn.Close(context.Background())
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, retirementDiagnosticFailure{substep: "read_only_transaction_begin"}
+	}
+	defer tx.Rollback(context.Background())
+	diagnosis := &retirementDiagnosis{Counts: map[string]int{}, Roles: map[string]retirementRoleState{}, ACL: map[string]bool{}}
+	if err := tx.QueryRow(ctx, `SELECT current_setting('transaction_read_only')='on'`).Scan(&diagnosis.ReadOnlyTransaction); err != nil || !diagnosis.ReadOnlyTransaction {
+		var pgErr *pgconn.PgError
+		state := ""
+		if errors.As(err, &pgErr) {
+			state = pgErr.Code
+		}
+		return nil, retirementDiagnosticFailure{substep: "read_only_transaction_assertion", sqlState: state}
+	}
+	diagnosis.MigrationInventorySHA256, err = migrationInventory(migrationDirectory)
+	if err != nil {
+		return nil, retirementDiagnosticFailure{substep: "migration_inventory"}
+	}
+	if err := migrator.VerifyAllApplied(ctx, tx, migrationDirectory, migrationCount); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			return nil, retirementDiagnosticFailure{substep: "migration_history_query", sqlState: pgErr.Code}
+		}
+		diagnosis.MigrationHistoryValid = false
+	} else {
+		diagnosis.MigrationHistoryValid = true
+	}
+	var users, spaces, occupancy int
+	if err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.usuario),
+ (SELECT count(*) FROM public.espacio),(SELECT count(*) FROM public.ocupacion)`).Scan(&users, &spaces, &occupancy); err != nil {
+		var pgErr *pgconn.PgError
+		state := ""
+		if errors.As(err, &pgErr) {
+			state = pgErr.Code
+		}
+		return nil, retirementDiagnosticFailure{substep: "fixture_counts", sqlState: state}
+	}
+	diagnosis.Counts["users"], diagnosis.Counts["spaces"], diagnosis.Counts["occupancy"] = users, spaces, occupancy
+	for label, pair := range map[string][2]string{
+		"restore": {iamSQLUsername("restore", runID), ownerRole(runID)},
+		"verify":  {iamSQLUsername("verify", runID), verifyRole(runID)},
+	} {
+		var state retirementRoleState
+		err := tx.QueryRow(ctx, `SELECT u.rolname IS NOT NULL, COALESCE(u.rolcanlogin,false),
+ COALESCE(u.rolsuper,false), COALESCE(pg_catalog.pg_has_role(u.rolname,g.rolname,'MEMBER'),false),
+ (SELECT count(*) FROM pg_catalog.pg_auth_members m WHERE u.oid IS NOT NULL AND m.member=u.oid)
+ FROM (SELECT $1::text AS name) requested
+ LEFT JOIN pg_catalog.pg_roles u ON u.rolname=requested.name
+ LEFT JOIN pg_catalog.pg_roles g ON g.rolname=$2`, pair[0], pair[1]).Scan(
+			&state.Exists, &state.LoginCapable, &state.Superuser, &state.ExpectedGroupMembership, &state.MembershipCount,
+		)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			sqlState := ""
+			if errors.As(err, &pgErr) {
+				sqlState = pgErr.Code
+			}
+			return nil, retirementDiagnosticFailure{substep: "iam_membership_catalog", sqlState: sqlState}
+		}
+		diagnosis.Roles[label] = state
+	}
+	checks := []struct {
+		name  string
+		check func(context.Context, dbbootstrap.ScratchPermissionDB) error
+	}{
+		{"runtime_current_contract", dbbootstrap.VerifyScratchRuntimePermissions},
+		{"runtime_retired_contract", dbbootstrap.VerifyScratchRetiredRuntimePermissions},
+		{"database_retired_acl", dbbootstrap.VerifyScratchRetiredDatabaseACL},
+		{"migrator_retired_contract", dbbootstrap.VerifyScratchMigratorRetired},
+		{"audit_exact_contract", verifyRetirementAuditACL},
+	}
+	for _, check := range checks {
+		diagnosis.ACL[check.name] = check.check(ctx, tx) == nil
+	}
+	if err := tx.Commit(ctx); err != nil {
+		var pgErr *pgconn.PgError
+		state := ""
+		if errors.As(err, &pgErr) {
+			state = pgErr.Code
+		}
+		return nil, retirementDiagnosticFailure{substep: "read_only_transaction_commit", sqlState: state}
+	}
+	return diagnosis, nil
 }
 
 func grantRetirementAuditAccess(ctx context.Context, conn *pgx.Conn) error {
@@ -552,7 +710,7 @@ SELECT has_table_privilege('postgres','public.schema_migrations','SELECT'),
  AND has_table_privilege('postgres','public.ocupacion','DELETE'),
  (SELECT count(*) FROM actual)`).Scan(&hasSelect, &hasDelete, &exactDirectACL, &noPublicReadWrite, &directCount)
 	if err != nil {
-		return errors.New("retirement audit ACL query failed")
+		return fmt.Errorf("retirement audit ACL query failed: %w", err)
 	}
 	if !hasSelect {
 		return errors.New("retirement audit migration-history SELECT grant is missing")
@@ -567,7 +725,10 @@ SELECT has_table_privilege('postgres','public.schema_migrations','SELECT'),
 		return errors.New("retirement audit fixture grants or PUBLIC ACL differ from the fixed contract")
 	}
 	var runtimeSchemaHistory bool
-	if err := db.QueryRow(ctx, `SELECT has_table_privilege('espacigo_runtime','public.schema_migrations','SELECT')`).Scan(&runtimeSchemaHistory); err != nil || runtimeSchemaHistory {
+	if err := db.QueryRow(ctx, `SELECT has_table_privilege('espacigo_runtime','public.schema_migrations','SELECT')`).Scan(&runtimeSchemaHistory); err != nil {
+		return fmt.Errorf("retirement audit runtime-leak query failed: %w", err)
+	}
+	if runtimeSchemaHistory {
 		return errors.New("retirement audit grant leaked migration history to runtime")
 	}
 	return nil
@@ -589,12 +750,23 @@ func runConfigured(ctx context.Context, c config) (evidence, error) {
 		if c.phase == "diagnose" {
 			return evidence{}, diagnosticFailure{code: "DIAGNOSTIC_PROXY_NOT_READY", substep: "proxy_connection"}
 		}
+		if c.phase == "retire-diagnose" {
+			return evidence{}, retirementDiagnosticFailure{substep: "proxy_connection"}
+		}
 		return evidence{}, errors.New("Cloud SQL Auth Proxy did not become ready")
 	}
-	if c.phase == "bootstrap" || c.phase == "retire" {
+	if c.phase == "bootstrap" || c.phase == "retire" || c.phase == "retire-diagnose" {
 		password, err := readAdminPassword(c.adminPasswordFile)
 		if err != nil {
 			return evidence{}, err
+		}
+		if c.phase == "retire-diagnose" {
+			diagnosis, err := diagnoseRetirement(ctx, c.databaseURL, password, c.runID)
+			if err != nil {
+				return evidence{}, err
+			}
+			return evidence{Format: "espacigo-gcp03-retirement-diagnosis-v1", RunID: c.runID,
+				Phase: "retire-diagnose", Target: c.confirmTarget, RetirementDiagnosis: diagnosis}, nil
 		}
 		if c.phase == "bootstrap" {
 			if err := bootstrap(ctx, c.databaseURL, password, c.runID); err != nil {
@@ -605,7 +777,9 @@ func runConfigured(ctx context.Context, c config) (evidence, error) {
 		if err := retire(ctx, c.databaseURL, password, c.runID); err != nil {
 			return evidence{}, err
 		}
-		return phaseEvidence(c, "retire", map[string]bool{"synthetic_rows_removed": true, "iam_users_remain_login_capable": true, "iam_role_bindings_preserved_for_reviewed_terraform_cleanup": true, "runtime_acl_retired": true}), nil
+		result := phaseEvidence(c, "retire", map[string]bool{"synthetic_rows_removed": true, "iam_users_remain_login_capable": true, "iam_role_bindings_preserved_for_reviewed_terraform_cleanup": true, "runtime_acl_retired": true})
+		result.CommitOutcome = "committed"
+		return result, nil
 	}
 	if c.phase == "verify" {
 		verified, err := verifyRestored(ctx, c.databaseURL, c.runID, c.migrationSHA, false)

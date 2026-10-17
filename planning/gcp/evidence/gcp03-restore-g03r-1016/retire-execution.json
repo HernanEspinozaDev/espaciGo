@@ -9,7 +9,7 @@
   "limits": [
     "Cloud Run task completion did not mean application retirement succeeded.",
     "No assertion is made that the database transaction rolled back; the executor reported commit_outcome_uncertain=false.",
-    "The three-user/one-space/two-occupancy rehearsal is synthetic and is not a snapshot or migration of the persistent source dataset."
+    "The fixture contains two synthetic application users, one space, and two occupancy rows. The `postgres` SQL administrator is separate from the application fixture; this rehearsal is not a snapshot or migration of the persistent source dataset."
   ],
   "no_retry": true,
   "preflight": {

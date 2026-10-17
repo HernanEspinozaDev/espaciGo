@@ -1,0 +1,62 @@
+{
+  "schema": "espacigo.gcp03.retire-observability-plan.v1",
+  "run_id": "g03r-1016",
+  "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03restore@sha256:f939c783628e633ffeb98a7b0487e9eaa27b0e3c91b3e87951482cc09dfbb85e",
+  "plan_sha256": "dcafb7f89987dd6cb176d7220331742c1b0a5725e2164158ffb44bde334a8f70",
+  "plan_summary": {
+    "create": 2,
+    "update": 0,
+    "delete": 0
+  },
+  "resources": [
+    {
+      "address": "google_cloud_run_v2_job.retirement_diagnose[0]",
+      "action": "create"
+    },
+    {
+      "address": "google_cloud_run_v2_job_iam_member.retirement_diagnostic_invoker[0]",
+      "action": "create"
+    }
+  ],
+  "job": {
+    "name": "espacigo-gcp03-restore-g03r-1016-retire-diagnose",
+    "project": "espacigo-testprod",
+    "region": "southamerica-west1",
+    "service_account": "g03-restore-admin-g03r-1016@espacigo-testprod.iam.gserviceaccount.com",
+    "task_count": 1,
+    "parallelism": 1,
+    "max_retries": 0,
+    "timeout": "300s",
+    "phase": "retire-diagnose",
+    "target": "espacigo-testprod:southamerica-west1:espacigo-gcp03-restore-g03r-1016-pg/espacigo_scratch",
+    "database_url": "postgres://postgres@127.0.0.1:5432/espacigo_scratch?sslmode=disable",
+    "containers": [
+      {
+        "name": "retire-diagnose",
+        "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03restore@sha256:f939c783628e633ffeb98a7b0487e9eaa27b0e3c91b3e87951482cc09dfbb85e"
+      },
+      {
+        "name": "cloud-sql-proxy",
+        "image": "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:076f128d5bdb9d345e253aa9bbf5f1f9a320caff21dfdbf07d582437e55e4f66"
+      }
+    ],
+    "admin_secret_version": {
+      "name": "espacigo-gcp03-restore-g03r-1016-postgres-password",
+      "version": "1"
+    },
+    "read_only_sql_transaction": true
+  },
+  "invoker": {
+    "role": "roles/run.invoker",
+    "member": "user:pasteleriahijitos@gmail.com"
+  },
+  "terraform_applied": false,
+  "job_invoked": false,
+  "sql_executed": false,
+  "terraform_plan": {
+    "applyable": true,
+    "complete": true,
+    "errored": false,
+    "evaluated_resources": 32
+  }
+}
