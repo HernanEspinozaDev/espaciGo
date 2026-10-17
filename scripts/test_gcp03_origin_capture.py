@@ -60,6 +60,7 @@ class FakeSource:
         self.inject_symlink_after_stop = False
         self.fail_start_once = False
         self.failed_start = False
+        self.validated_restore_targets: list[dict[str, object]] = []
         def provenance(name: str) -> dict[str, object]:
             return {"status": "available", "image_id": "sha256:" + hashlib.sha256(name.encode()).hexdigest(), "repo_digests": ["fixture/" + name + "@sha256:" + hashlib.sha256((name + "-manifest").encode()).hexdigest()]}
         self.preflight_report = {
@@ -78,7 +79,7 @@ class FakeSource:
                 {"id": "fixture-ingress-container", "published_ports": {"80/tcp": [{"HostPort": "8080"}]}, "image_provenance": provenance("ingress")},
             ],
             "source_projection": {
-                "database_container": {"id": "fixture-database-container", "image_provenance": provenance("database")},
+                "database_container": {"id": "fixture-database-container", "configured_image": "fixture/database:dev", "image_provenance": provenance("database")},
                 "backend_container": {"id": "fixture-api-container", "image_provenance": provenance("api")},
                 "evidence_files": self.evidence_manifest,
                 "privacy_replay_files": self.replay_manifest,
@@ -89,6 +90,7 @@ class FakeSource:
         return self.preflight_report
 
     def validate_restore_target(self, restore_target: dict) -> None:
+        self.validated_restore_targets.append(restore_target)
         return None
 
     def stop_container(self, container_id: str, timeout: int) -> None:
@@ -151,7 +153,7 @@ class LocalPostgresFixtureSource(FakeSource):
             "database_container_id": container_id,
             "database_volume_ids": ["fixture-tmpfs-only"],
             "mounted_volume_ids": ["fixture-tmpfs-only"],
-            "database_descriptor": {"id": container_id, "image_id": image_id},
+            "database_descriptor": {"id": container_id, "image_id": image_id, "image_provenance": capture.inspect_image_reference(image_id, missing_ok=True)},
             "source_projection": self.preflight_report["source_projection"] | {"database_admin_role": "postgres"},
         })
 
@@ -182,6 +184,7 @@ class LocalPostgresFixtureSource(FakeSource):
 def approved_release(source: FakeSource, run_id: str) -> dict:
     now = capture.datetime.now(capture.timezone.utc)
     restore_ref = "fixture.database@sha256:" + "d" * 64
+    _, image_provenance_complete, image_provenance_gaps = capture.source_image_provenance_review(source.preflight_report)
     return {
         "format": capture.RELEASE_FORMAT,
         "status": "approved",
@@ -194,7 +197,13 @@ def approved_release(source: FakeSource, run_id: str) -> dict:
         "external_ingress_and_writer_sources": [],
         "window_start_utc": (now - timedelta(minutes=1)).isoformat(),
         "window_end_utc": (now + timedelta(hours=2)).isoformat(),
-        "source": {"database_container_id": source.preflight_report["database_container_id"], "expected_source_fingerprint": source.preflight_report["source_fingerprint"]},
+        "source": {
+            "database_container_id": source.preflight_report["database_container_id"],
+            "expected_source_fingerprint": source.preflight_report["source_fingerprint"],
+            "image_provenance_complete": image_provenance_complete,
+            "image_provenance_gaps": image_provenance_gaps,
+            "image_provenance_gap_accepted": not image_provenance_complete,
+        },
         "restore_target": {"image_ref": restore_ref, "image_id": "sha256:" + "e" * 64, "repo_digests": [restore_ref]},
         "timeout_profile": capture.DEFAULT_TIMEOUT_PROFILE.copy(),
         "quiesce_order": ["fixture-ingress-container", "fixture-api-container"],
@@ -253,6 +262,17 @@ class CaptureFixtureTests(unittest.TestCase):
             with self.assertRaisesRegex(capture.CaptureError, "provenance inspection failed"):
                 capture.inspect_image_reference("sha256:" + "1" * 64, missing_ok=True)
 
+    def test_container_image_provenance_records_configured_tag_digest_mismatch(self) -> None:
+        image_id = "sha256:" + "1" * 64
+        tag_id = "sha256:" + "2" * 64
+        missing = subprocess.CompletedProcess([], 1, b"", b"Error response from daemon: No such image: " + image_id.encode())
+        tag = subprocess.CompletedProcess([], 0, json.dumps([{"Id": tag_id, "RepoDigests": ["fixture/database@" + tag_id]}]).encode(), b"")
+        with patch.object(capture.subprocess, "run", side_effect=[missing, tag]):
+            provenance = capture.container_image_provenance({"image_id": image_id, "configured_image": "fixture/database:dev"})
+        self.assertEqual(provenance["status"], "missing_locally")
+        self.assertFalse(provenance["configured_reference_matches_runtime_image"])
+        self.assertEqual(provenance["configured_reference_provenance"]["image_id"], tag_id)
+
     def test_ipv4_mapped_postgres_client_address_correlates_to_docker_ipv4(self) -> None:
         self.assertEqual(capture.normalize_ip_address("::ffff:192.0.2.17"), "192.0.2.17")
         self.assertEqual(capture.normalize_ip_address("::ffff:192.0.2.17/128"), "192.0.2.17")
@@ -306,26 +326,81 @@ class CaptureFixtureTests(unittest.TestCase):
             self.run_id,
             FIXTURE_HEAD,
             approved_release(self.source, self.run_id)["restore_target"],
+            restore_target_digest_verified=True,
         )
         self.assertFalse(candidate["all_ingress_and_writer_sources_enumerated"])
         self.assertFalse(candidate["exclusive_docker_control"])
         self.assertIsNone(candidate["external_ingress_and_writer_sources"])
         self.assertTrue(candidate["restore_target"]["image_ref"].endswith("d" * 64))
+        self.assertEqual(candidate["capture_budget_seconds"], capture.capture_budget_seconds(2))
 
-    def test_release_candidate_is_blocked_when_source_image_provenance_is_missing(self) -> None:
+    def test_unapproved_candidate_preserves_missing_source_image_and_tag_mismatch(self) -> None:
         db = self.source.preflight_report["source_projection"]["database_container"]
         original = db["image_provenance"]
-        db["image_provenance"] = {"status": "missing_locally", "image_id": original["image_id"], "repo_digests": []}
+        db["image_provenance"] = {
+            "status": "missing_locally",
+            "reason_code": "image_not_found",
+            "image_id": "sha256:" + "1" * 64,
+            "repo_digests": [],
+            "configured_reference_provenance": {"status": "available", "image_id": "sha256:" + "2" * 64, "repo_digests": ["fixture/database@sha256:" + "2" * 64]},
+            "configured_reference_matches_runtime_image": False,
+        }
+        candidate = capture.build_release_candidate(
+            self.source.preflight_report,
+            self.run_id,
+            FIXTURE_HEAD,
+            approved_release(self.source, self.run_id)["restore_target"],
+            restore_target_digest_verified=True,
+        )
+        self.assertEqual(candidate["status"], "not_approved")
+        self.assertFalse(candidate["source_image_provenance_complete"])
+        self.assertFalse(candidate["source"]["image_provenance_gap_accepted"])
+        self.assertEqual(candidate["source"]["container_descriptors"][0]["configured_image"], "fixture/database:dev")
+        self.assertIn("runtime_image_not_available_locally", candidate["source_image_provenance_gaps"][0]["reason_codes"])
+        self.assertIn("configured_reference_resolves_to_a_different_image_id", candidate["source_image_provenance_gaps"][0]["reason_codes"])
+        self.assertFalse(candidate["source_change_window_authorized"])
+        self.assertFalse(candidate["all_ingress_and_writer_sources_enumerated"])
+        self.assertFalse(candidate["exclusive_docker_control"])
+        self.assertIsNone(candidate["external_ingress_and_writer_sources"])
+        self.assertTrue(candidate["restore_target_review"]["local_digest_reference_validated"])
+
+    def test_unapproved_candidate_preserves_locally_available_image_without_repo_digests(self) -> None:
+        db = self.source.preflight_report["source_projection"]["database_container"]
+        original = db["image_provenance"]
+        db["image_provenance"] = {"status": "available", "image_id": original["image_id"], "repo_digests": []}
         try:
-            with self.assertRaisesRegex(capture.CaptureError, "source container image provenance is incomplete"):
-                capture.build_release_candidate(
-                    self.source.preflight_report,
-                    self.run_id,
-                    FIXTURE_HEAD,
-                    approved_release(self.source, self.run_id)["restore_target"],
-                )
+            candidate = capture.build_release_candidate(
+                self.source.preflight_report,
+                self.run_id,
+                FIXTURE_HEAD,
+                approved_release(self.source, self.run_id)["restore_target"],
+                restore_target_digest_verified=True,
+            )
         finally:
             db["image_provenance"] = original
+        self.assertFalse(candidate["source_image_provenance_complete"])
+        self.assertIn("runtime_image_has_no_verified_repo_digest", candidate["source_image_provenance_gaps"][0]["reason_codes"])
+
+    def test_release_requires_explicit_acknowledgement_of_source_image_gap(self) -> None:
+        release = approved_release(self.source, self.run_id)
+        release["source"]["image_provenance_complete"] = False
+        release["source"]["image_provenance_gaps"] = [{"reason_codes": ["runtime_image_not_available_locally"]}]
+        with self.assertRaisesRegex(capture.CaptureError, "explicitly review and acknowledge"):
+            capture.release_validate(release, self.run_id, FIXTURE_HEAD)
+
+    def test_capture_rejects_unapproved_candidate_before_validating_or_stopping_services(self) -> None:
+        candidate = capture.build_release_candidate(
+            self.source.preflight_report,
+            self.run_id,
+            FIXTURE_HEAD,
+            approved_release(self.source, self.run_id)["restore_target"],
+            restore_target_digest_verified=True,
+        )
+        with self.assertRaisesRegex(capture.CaptureError, "requires an approved"):
+            capture.CaptureCoordinator(self.source, self.layout).capture(candidate, self.run_id, FIXTURE_HEAD, free_bytes=1024 * 1024 * 1024)
+        self.assertEqual(self.source.validated_restore_targets, [])
+        self.assertEqual(self.source.stopped, [])
+        self.assertFalse((self.layout.snapshot_root / self.run_id).exists())
 
     def test_dump_failure_resumes_only_services_stopped_by_run(self) -> None:
         self.source.fail_dump = True

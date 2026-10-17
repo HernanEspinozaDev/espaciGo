@@ -345,6 +345,19 @@ def inspect_image_reference(reference: str, *, missing_ok: bool = False) -> dict
     }
 
 
+def container_image_provenance(descriptor: dict[str, Any]) -> dict[str, Any]:
+    image_id = descriptor.get("image_id", "")
+    provenance = inspect_image_reference(image_id, missing_ok=True)
+    configured_reference = descriptor.get("configured_image", "")
+    if configured_reference and configured_reference != image_id:
+        configured = inspect_image_reference(configured_reference, missing_ok=True)
+        provenance["configured_reference_provenance"] = configured
+        provenance["configured_reference_matches_runtime_image"] = (
+            configured.get("status") == "available" and configured.get("image_id") == image_id
+        )
+    return provenance
+
+
 def validate_restore_image_reference(reference: str) -> dict[str, Any]:
     if not isinstance(reference, str) or not IMAGE_DIGEST_REF_RE.fullmatch(reference):
         raise CaptureError("restore image must be selected by an immutable sha256 digest reference")
@@ -847,6 +860,8 @@ def release_validate(release: dict[str, Any], run_id: str, head_sha: str) -> lis
     source = release.get("source") or {}
     if not source.get("database_container_id") or not source.get("expected_source_fingerprint"):
         raise CaptureError("release source identity is incomplete")
+    if source.get("image_provenance_complete") is not True and source.get("image_provenance_gap_accepted") is not True:
+        raise CaptureError("release must explicitly review and acknowledge incomplete source image provenance")
     restore_target = release.get("restore_target") or {}
     if (
         not IMAGE_DIGEST_REF_RE.fullmatch(str(restore_target.get("image_ref", "")))
@@ -942,6 +957,12 @@ class CaptureCoordinator:
         preflight = self.port.preflight()
         if preflight.get("source_fingerprint") != release["source"]["expected_source_fingerprint"]:
             raise CaptureError("source identity/configuration changed after the release candidate was reviewed")
+        _, image_provenance_complete, image_provenance_gaps = source_image_provenance_review(preflight)
+        if (
+            release["source"].get("image_provenance_complete") is not image_provenance_complete
+            or release["source"].get("image_provenance_gaps") != image_provenance_gaps
+        ):
+            raise CaptureError("source image provenance evidence changed after the release candidate was reviewed")
         source_ids = {item["id"] for item in preflight.get("quiesce_candidates", []) if item.get("running")}
         if set(order) != source_ids:
             raise CaptureError("release container list is incomplete or contains an unknown writer/ingress")
@@ -1173,8 +1194,8 @@ class DockerSource:
         db_desc["runtime_binary_version"] = database_runtime_binary_version(db_desc["id"])
         if db_desc["published_ports"]:
             raise CaptureError("source PostgreSQL publishes a host port; capture cannot prove exclusive quiesce")
-        db_desc["image_provenance"] = inspect_image_reference(db_desc["image_id"], missing_ok=True)
-        api_desc["image_provenance"] = inspect_image_reference(api_desc["image_id"], missing_ok=True)
+        db_desc["image_provenance"] = container_image_provenance(db_desc)
+        api_desc["image_provenance"] = container_image_provenance(api_desc)
         expected_entrypoint = sha256_bytes(canonical_json(["/api"]))
         if api_desc["runtime_path"] != "/api" or api_desc["entrypoint_sha256"] != expected_entrypoint:
             raise CaptureError("backend runtime image entrypoint is not the reviewed direct API binary")
@@ -1254,7 +1275,7 @@ class DockerSource:
 
         candidate_descriptors = [container_descriptor(info, self.repo) for info in candidates]
         for desc in candidate_descriptors:
-            desc["image_provenance"] = inspect_image_reference(desc["image_id"], missing_ok=True)
+            desc["image_provenance"] = container_image_provenance(desc)
         container_health = {desc["id"]: desc["health"] for desc in candidate_descriptors}
         db_volume_id = db_mounts[0]["name"]
         source_projection = {
@@ -1495,18 +1516,51 @@ def read_release(path: Path) -> dict[str, Any]:
     return value
 
 
-def build_release_candidate(preflight: dict[str, Any], run_id: str, reviewed_head_sha: str, restore_target: dict[str, Any]) -> dict[str, Any]:
+def source_image_provenance_review(preflight: dict[str, Any]) -> tuple[list[dict[str, Any]], bool, list[dict[str, Any]]]:
+    projection = preflight.get("source_projection") or {}
+    descriptors = [
+        preflight.get("database_descriptor") or projection.get("database_container"),
+        preflight.get("api_descriptor") or projection.get("backend_container"),
+        *preflight.get("candidate_descriptors", []),
+    ]
+    descriptors = [item for item in descriptors if isinstance(item, dict)]
+    unique: dict[str, dict[str, Any]] = {}
+    for descriptor in descriptors:
+        unique.setdefault(descriptor.get("id") or descriptor.get("image_id") or str(len(unique)), descriptor)
+    descriptors = list(unique.values())
+    gaps: list[dict[str, Any]] = []
+    if not descriptors:
+        gaps.append({"container_id": "", "compose_service": "", "reason_codes": ["source_container_descriptors_missing"]})
+    for descriptor in descriptors:
+        provenance = descriptor.get("image_provenance") if isinstance(descriptor.get("image_provenance"), dict) else {}
+        reasons: list[str] = []
+        if provenance.get("status") != "available":
+            reasons.append("runtime_image_not_available_locally")
+        if not provenance.get("repo_digests"):
+            reasons.append("runtime_image_has_no_verified_repo_digest")
+        if provenance.get("configured_reference_matches_runtime_image") is False:
+            reasons.append("configured_reference_resolves_to_a_different_image_id")
+        if reasons:
+            gaps.append({
+                "container_id": descriptor.get("id", ""),
+                "compose_service": descriptor.get("compose_service", ""),
+                "configured_image": descriptor.get("configured_image", ""),
+                "runtime_image_id": descriptor.get("image_id", ""),
+                "runtime_image_status": provenance.get("status", "unknown"),
+                "runtime_image_repo_digests": provenance.get("repo_digests", []),
+                "configured_reference_matches_runtime_image": provenance.get("configured_reference_matches_runtime_image"),
+                "configured_reference_provenance": provenance.get("configured_reference_provenance"),
+                "reason_codes": reasons,
+            })
+    return descriptors, bool(descriptors) and not gaps, gaps
+
+
+def build_release_candidate(
+    preflight: dict[str, Any], run_id: str, reviewed_head_sha: str, restore_target: dict[str, Any], *,
+    restore_target_digest_verified: bool = False,
+) -> dict[str, Any]:
     database_id = preflight["database_container_id"]
-    source_projection = preflight.get("source_projection") or {}
-    source_image_descriptors = [source_projection.get("database_container"), source_projection.get("backend_container"), *preflight.get("candidate_descriptors", [])]
-    if not source_image_descriptors or any(
-        not isinstance(descriptor, dict)
-        or not isinstance(descriptor.get("image_provenance"), dict)
-        or descriptor["image_provenance"].get("status") != "available"
-        or not descriptor["image_provenance"].get("repo_digests")
-        for descriptor in source_image_descriptors
-    ):
-        raise CaptureError("source container image provenance is incomplete; release candidate is blocked")
+    source_descriptors, source_image_provenance_complete, source_image_provenance_gaps = source_image_provenance_review(preflight)
     order = [item["id"] for item in preflight["quiesce_candidates"] if item["running"]]
     # Ingress containers with published host ports are stopped first; the rest
     # follow. Resume always uses the exact reverse sequence.
@@ -1526,12 +1580,36 @@ def build_release_candidate(preflight: dict[str, Any], run_id: str, reviewed_hea
         "external_ingress_and_writer_sources": None,
         "window_start_utc": "",
         "window_end_utc": "",
-        "source": {"database_container_id": database_id, "expected_source_fingerprint": preflight["source_fingerprint"]},
+        "source": {
+            "database_container_id": database_id,
+            "expected_source_fingerprint": preflight["source_fingerprint"],
+            "container_descriptors": source_descriptors,
+            "image_provenance_complete": source_image_provenance_complete,
+            "image_provenance_gaps": source_image_provenance_gaps,
+            "image_provenance_gap_accepted": False,
+            "effective_connection": (preflight.get("source_projection") or {}).get("effective_connection"),
+        },
+        "source_image_provenance_complete": source_image_provenance_complete,
+        "source_image_provenance_gaps": source_image_provenance_gaps,
         "restore_target": restore_target,
+        "restore_target_review": {
+            "local_digest_reference_validated": restore_target_digest_verified,
+            "required_postgresql_major": int((preflight.get("database_report") or {}).get("server_version_num", 0)) // 10000,
+            "required_extension_versions": (preflight.get("database_report") or {}).get("extensions", []),
+            "snapshot_specific_restore_compatibility": "pending",
+        },
         "timeout_profile": DEFAULT_TIMEOUT_PROFILE.copy(),
         "quiesce_order": order,
+        "capture_budget_seconds": capture_budget_seconds(len(order), DEFAULT_TIMEOUT_PROFILE),
+        "review_procedure": [
+            "Verify each source container descriptor, database volume, network, client address, role, migrations, and source fingerprint against a fresh read-only preflight.",
+            "Enumerate every Docker and non-Docker writer/ingress; attest exclusive Docker control only after external sources and ownership are resolved.",
+            "Select an exact UTC window of at most four hours that covers the reviewed timeout envelope; confirm stop order and reverse recovery/readiness for every service.",
+            "Verify the restore target by its local repository@sha256 reference; confirm PostgreSQL major and each exact source extension version in the isolated copy-only restore before approving capture.",
+            "Review every source_image_provenance_gap explicitly. This unapproved candidate does not accept the gap; record any decision and risk in a separate reviewer-approved release.",
+        ],
         "created_at_utc": utc_now(),
-        "required_review": "After this capture implementation is reviewed and merged, record a specific capture window, verify every candidate and external ingress source, then create a separate mode-0600 approved release record bound to the reviewed HEAD and this run-id.",
+        "required_review": "Review every source image provenance gap without presuming acceptance, verify every container and external ingress/writer source, and validate the digest-pinned restore target. Only then create a separate mode-0600 approved release bound to the reviewed HEAD, source fingerprint and run-id; explicitly acknowledge any remaining provenance gap in that release.",
     }
 
 
@@ -2131,7 +2209,7 @@ def main(argv: list[str] | None = None) -> int:
                 if not RUN_ID_RE.fullmatch(args.run_id):
                     raise CaptureError("run-id format is invalid")
                 head = run_quiet(["git", "rev-parse", "HEAD"], timeout=10).decode().strip()
-                candidate_doc = build_release_candidate(report, args.run_id, head, restore_target)
+                candidate_doc = build_release_candidate(report, args.run_id, head, restore_target, restore_target_digest_verified=True)
                 write_new_private(private_dir / "release-candidate.json", canonical_json(candidate_doc))
                 print(json.dumps({"status": "unapproved_candidate_written", "run_id": args.run_id, "candidate_count": len(report["candidate_descriptors"]), "source_fingerprint": report["source_fingerprint"], "private_output": str(private_dir.relative_to(repo))}, sort_keys=True))
             else:
