@@ -299,6 +299,7 @@ class ExecutorTests(unittest.TestCase):
         safe = (b"ALTER TABLE public.sample OWNER TO espacigo_runtime;\n"
                 b"ALTER FUNCTION public.sample(integer) OWNER TO espacigo_runtime;\n"
                 b"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.sample TO espacigo_runtime;\n"
+                b"GRANT SELECT ON TABLE public.schema_migrations TO espacigo_gcp03_observer;\n"
                 b"ALTER DEFAULT PRIVILEGES FOR ROLE source_role IN SCHEMA public GRANT SELECT ON TABLES TO espacigo_runtime;\n")
         validate_normalization_sql(safe, hashlib.sha256(safe).hexdigest())
         with self.assertRaises(ImportStopped):

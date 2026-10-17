@@ -16,7 +16,6 @@ import gcp03_origin_import as transport
 RUN_ID = "g03o-1017"
 SOURCE_RUN_ID = "gcp03-merge-review-20261017"
 BUCKET = "espacigo-gcp03-origin-g03o-1017"
-PRIVATE_BUCKET = "espacigo-gcp03-private-g03o-1017"
 ARTIFACTS = sorted(transport.ARTIFACTS.values())
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -36,6 +35,18 @@ def _read_bound(path: Path, expected: str, *, secret: bool = False) -> tuple[byt
     if not SHA_RE.fullmatch(expected) or digest != expected:
         raise UploadError("input hash does not match reviewed value")
     return data, digest
+
+
+def _create_only(blob, object_name: str, data: bytes, *, content_type: str = "application/octet-stream"):
+    """Create an object and use only metadata returned by that write response."""
+    if blob.name != object_name:
+        raise UploadError("storage client returned an unexpected object handle")
+    blob.upload_from_string(data, content_type=content_type,
+                            if_generation_match=0, retry=None)
+    generation, size = blob.generation, blob.size
+    if generation is None or size is None or int(size) != len(data):
+        raise UploadError("create response omitted generation or returned an invalid size")
+    return str(generation), int(size)
 
 
 def upload_package(*, stage_dir: Path, recovery_key: Path, source_run_id: str,
@@ -58,40 +69,45 @@ def upload_package(*, stage_dir: Path, recovery_key: Path, source_run_id: str,
     toc, toc_hash = _read_bound(toc_allowlist, expected_toc_sha256)
     _, bootstrap_hash = _read_bound(bootstrap_report, expected_bootstrap_sha256)
     _, observer_hash = _read_bound(observer_report, expected_observer_sha256)
-    del normal, toc
+
+    # Read and bind every byte locally before the first create-only request. This
+    # avoids leaving a partial run when a later local artifact fails validation.
+    prepared_artifacts = []
+    for name in ARTIFACTS:
+        artifact_key = name.removesuffix(".gcm")
+        entry = manifest.get("artifacts", {}).get(artifact_key)
+        if not isinstance(entry, dict):
+            raise UploadError("transport manifest artifact inventory is invalid")
+        data, digest = _read_bound(stage_dir / name, entry.get("transport_cipher_sha256", ""))
+        prepared_artifacts.append((name, data, digest))
+    prepared_support = [
+        ("runs/" + RUN_ID + "/normalization.sql", normal, normal_hash),
+        ("runs/" + RUN_ID + "/toc.list", toc, toc_hash),
+    ]
+    prepared_manifest = ("runs/" + RUN_ID + "/transport-manifest.json", manifest_bytes, manifest_hash)
+    receipt_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if receipt_path.parent.is_symlink() or not receipt_path.parent.is_dir() or receipt_path.is_symlink() or receipt_path.exists():
+        raise UploadError("local receipt destination is unsafe or already exists")
 
     bucket = client.bucket(BUCKET)
     refs = {}
-    for name in ARTIFACTS:
-        path = stage_dir / name
-        artifact_key = name.removesuffix(".gcm")
-        expected_hash = manifest["artifacts"][artifact_key]["transport_cipher_sha256"]
-        data, digest = _read_bound(path, expected_hash)
-        blob = bucket.blob(f"runs/{RUN_ID}/{name}")
-        blob.upload_from_string(data, content_type="application/octet-stream", if_generation_match=0)
-        blob.reload()
-        if not blob.generation or int(blob.size) != len(data):
-            raise UploadError("uploaded artifact generation or size is invalid")
-        refs[name.removesuffix(".gcm")] = {"object_name": blob.name, "generation": str(blob.generation),
-            "sha256": digest, "bytes": len(data)}
-    support = {}
-    for label, path, digest in (("normalization_sql", normalization_sql, normal_hash),
-                                ("toc_allowlist", toc_allowlist, toc_hash)):
-        data, _ = _read_bound(path, digest)
-        object_name = f"runs/{RUN_ID}/normalization.sql" if label == "normalization_sql" else f"runs/{RUN_ID}/toc.list"
+    for name, data, digest in prepared_artifacts:
+        object_name = f"runs/{RUN_ID}/{name}"
         blob = bucket.blob(object_name)
-        blob.upload_from_string(data, content_type="application/octet-stream", if_generation_match=0)
-        blob.reload()
-        if not blob.generation or int(blob.size) != len(data):
-            raise UploadError("uploaded support object generation or size is invalid")
-        support[label] = {"object_name": blob.name, "generation": str(blob.generation),
-                          "sha256": digest, "bytes": len(data)}
-    manifest_blob = bucket.blob(f"runs/{RUN_ID}/transport-manifest.json")
-    manifest_bytes, _ = _read_bound(stage_dir / "transport-manifest.json", manifest_hash)
-    manifest_blob.upload_from_string(manifest_bytes, content_type="application/json", if_generation_match=0)
-    manifest_blob.reload()
-    manifest_ref = {"object_name": manifest_blob.name, "generation": str(manifest_blob.generation),
-                    "sha256": manifest_hash, "bytes": len(manifest_bytes)}
+        generation, size = _create_only(blob, object_name, data)
+        refs[name.removesuffix(".gcm")] = {"object_name": object_name, "generation": generation,
+            "sha256": digest, "bytes": size}
+    support = {}
+    for label, (object_name, data, digest) in zip(("normalization_sql", "toc_allowlist"), prepared_support):
+        blob = bucket.blob(object_name)
+        generation, size = _create_only(blob, object_name, data)
+        support[label] = {"object_name": object_name, "generation": generation,
+                          "sha256": digest, "bytes": size}
+    object_name, data, digest = prepared_manifest
+    manifest_blob = bucket.blob(object_name)
+    manifest_generation, manifest_size = _create_only(manifest_blob, object_name, data, content_type="application/json")
+    manifest_ref = {"object_name": object_name, "generation": manifest_generation,
+                    "sha256": digest, "bytes": manifest_size}
     receipt = {"format": "espacigo.gcp03.origin-upload-receipt.v1",
         "source_capture_run_id": source_run_id, "target_run_id": target_run_id,
         "source_sealed_sha256": expected_seal_sha256,
@@ -100,19 +116,16 @@ def upload_package(*, stage_dir: Path, recovery_key: Path, source_run_id: str,
         "transport_manifest": manifest_ref, "toc_allowlist": support["toc_allowlist"],
         "normalization_sql": support["normalization_sql"]}
     encoded = (json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    blob = bucket.blob(f"runs/{RUN_ID}/receipt.json")
-    blob.upload_from_string(encoded, content_type="application/json", if_generation_match=0)
-    blob.reload()
-    if not blob.generation or int(blob.size) != len(encoded):
-        raise UploadError("receipt generation or size is invalid")
-    receipt_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    fd = os.open(receipt_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    receipt_name = f"runs/{RUN_ID}/receipt.json"
+    blob = bucket.blob(receipt_name)
+    receipt_generation, _ = _create_only(blob, receipt_name, encoded, content_type="application/json")
+    fd = os.open(receipt_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
     with os.fdopen(fd, "wb") as stream:
         stream.write(encoded)
         stream.flush()
         os.fsync(stream.fileno())
     return {"status": "uploaded_ciphertext_only", "receipt_sha256": hashlib.sha256(encoded).hexdigest(),
-            "receipt_generation": str(blob.generation), "artifact_count": len(refs)}
+            "receipt_generation": receipt_generation, "artifact_count": len(refs)}
 
 
 def main() -> None:
