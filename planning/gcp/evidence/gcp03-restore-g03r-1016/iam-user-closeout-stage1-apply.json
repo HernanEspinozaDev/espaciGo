@@ -1,0 +1,79 @@
+{
+  "schema": "espacigo.gcp03.iam-user-closeout-stage1-apply.v1",
+  "completed_at": "2026-10-17T01:59:23.671Z",
+  "run_id": "g03r-1016",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "authorization": {
+    "pr": 382,
+    "reviewer": "HernanEspinozaDev",
+    "pr_head": "18ecda24506871112c170ebdcfada087b1e4ca22",
+    "merge_sha": "e6c1d5d3f5aac2c05ca7a1ae3022577f2a072c47"
+  },
+  "terraform": {
+    "version": "1.16.6",
+    "google_provider_version": "8.7.0",
+    "execution_commit": "e6c1d5d3f5aac2c05ca7a1ae3022577f2a072c47",
+    "plan_sha256": "e6a04d3e301dcf82db3d82e2d8430637e71eb4e2d7793680ce2a3ef1a4ffa166",
+    "state_lineage": "5bc6ad38-035f-fba3-2bcd-43bdf641e370",
+    "state_serial_before": 11,
+    "state_serial_after": 12,
+    "summary": {"added": 0, "changed": 0, "destroyed": 2},
+    "targeted_resources": [
+      "google_sql_user.restore_iam[0]",
+      "google_sql_user.verify_iam[0]"
+    ],
+    "apply_complete": true
+  },
+  "cloud_sql_delete_operations": [
+    {
+      "operation_id": "0fd54eaa-8c50-41bf-b3b2-5dc00000004b",
+      "operation_type": "DELETE_USER",
+      "target_instance": "espacigo-gcp03-restore-g03r-1016-pg",
+      "status": "DONE",
+      "error": null
+    },
+    {
+      "operation_id": "90fda82c-b433-4306-bc66-92280000004b",
+      "operation_type": "DELETE_USER",
+      "target_instance": "espacigo-gcp03-restore-g03r-1016-pg",
+      "status": "DONE",
+      "error": null
+    }
+  ],
+  "post_apply_verification": {
+    "cloud_sql_admin_api_lists_either_user": false,
+    "terraform_state_sql_user_resource_count": 0,
+    "state_lineage": "5bc6ad38-035f-fba3-2bcd-43bdf641e370",
+    "state_serial": 12,
+    "cloud_sql_instance": {
+      "name": "espacigo-gcp03-restore-g03r-1016-pg",
+      "state": "RUNNABLE",
+      "deletion_protection_enabled": true
+    },
+    "run_jobs": {
+      "count": 6,
+      "all_present": true,
+      "terraform_state_deletion_protection_enabled": true
+    },
+    "secret": {
+      "name": "espacigo-gcp03-restore-g03r-1016-postgres-password",
+      "present": true,
+      "version_1_state": "ENABLED"
+    },
+    "artifact_generations": [
+      {"name": "runs/g03r-1016/manifest.json", "generation": "1792195760678849"},
+      {"name": "runs/g03r-1016/synthetic-v1-v61.dump", "generation": "1792195769229365"},
+      {"name": "runs/g03r-1016/dump.toc", "generation": "1792195778303427"},
+      {"name": "runs/g03r-1016/allowlist.toc", "generation": "1792195786699241"}
+    ]
+  },
+  "side_effects": {
+    "sql_statements_executed": false,
+    "cloud_run_jobs_invoked": false,
+    "other_resource_deletions": false,
+    "secret_or_version_deleted": false,
+    "storage_object_mutations": false,
+    "cloud_tests_run": false
+  }
+}

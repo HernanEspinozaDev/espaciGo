@@ -1,0 +1,126 @@
+{
+  "schema": "espacigo.gcp03.run-protection-stage2-plan.v1",
+  "created_at": "2026-10-17T02:00:21.474Z",
+  "run_id": "g03r-1016",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "stage1_apply_evidence": "planning/gcp/evidence/gcp03-restore-g03r-1016/iam-user-closeout-stage1-apply.json",
+  "terraform": {
+    "version": "1.16.6",
+    "google_provider_version": "8.7.0",
+    "state_lineage": "5bc6ad38-035f-fba3-2bcd-43bdf641e370",
+    "state_serial": 12,
+    "plan_sha256": "e89e9c70ee79ca1b5b88a025d1a2c711fcece2b3485957cc9cd5fac3bf9893ff",
+    "targeted": false,
+    "complete": true,
+    "applyable": true,
+    "applied": false,
+    "inputs": {
+      "enable_restore_iam_users": false,
+      "allow_restore_iam_user_destroy": true,
+      "allow_restore_destroy": true,
+      "confirm_destroy_run_id": "g03r-1016",
+      "enable_restore_jobs": true
+    },
+    "actions": {"add": 0, "change": 9, "delete": 0},
+    "resource_changes": [
+      {
+        "address": "google_sql_database_instance.restore[0]",
+        "actions": ["update"],
+        "changed_attributes": ["deletion_protection", "deletion_policy", "settings.0.deletion_protection_enabled"],
+        "changes": {
+          "deletion_protection": {"before": true, "after": false},
+          "deletion_policy": {"before": "PREVENT", "after": "DELETE"},
+          "settings.0.deletion_protection_enabled": {"before": true, "after": false}
+        }
+      },
+      {
+        "address": "google_sql_database.restore[0]",
+        "actions": ["update"],
+        "changed_attributes": ["deletion_policy"],
+        "changes": {"deletion_policy": {"before": "PREVENT", "after": "DELETE"}}
+      },
+      {
+        "address": "google_secret_manager_secret.postgres_password[0]",
+        "actions": ["update"],
+        "changed_attributes": ["deletion_protection", "deletion_policy"],
+        "changes": {
+          "deletion_protection": {"before": true, "after": false},
+          "deletion_policy": {"before": "PREVENT", "after": "DELETE"}
+        }
+      },
+      {
+        "address": "google_cloud_run_v2_job.admin_phase[\"bootstrap\"]",
+        "actions": ["update"],
+        "changed_attributes": ["deletion_protection"],
+        "changes": {"deletion_protection": {"before": true, "after": false}}
+      },
+      {
+        "address": "google_cloud_run_v2_job.admin_phase[\"retire\"]",
+        "actions": ["update"],
+        "changed_attributes": ["deletion_protection"],
+        "changes": {"deletion_protection": {"before": true, "after": false}}
+      },
+      {
+        "address": "google_cloud_run_v2_job.diagnose[0]",
+        "actions": ["update"],
+        "changed_attributes": ["deletion_protection"],
+        "changes": {"deletion_protection": {"before": true, "after": false}}
+      },
+      {
+        "address": "google_cloud_run_v2_job.restore[0]",
+        "actions": ["update"],
+        "changed_attributes": ["deletion_protection"],
+        "changes": {"deletion_protection": {"before": true, "after": false}}
+      },
+      {
+        "address": "google_cloud_run_v2_job.retirement_diagnose[0]",
+        "actions": ["update"],
+        "changed_attributes": ["deletion_protection"],
+        "changes": {"deletion_protection": {"before": true, "after": false}}
+      },
+      {
+        "address": "google_cloud_run_v2_job.verify[0]",
+        "actions": ["update"],
+        "changed_attributes": ["deletion_protection"],
+        "changes": {"deletion_protection": {"before": true, "after": false}}
+      }
+    ],
+    "sql_user_resources_in_state_before_plan": 0,
+    "sql_user_resource_actions_in_plan": 0
+  },
+  "validator": {
+    "path": "scripts/gcp03_run_protection_plan_validator.py",
+    "unit_tests": "scripts/test_gcp03_run_protection_plan_validator.py",
+    "unit_tests_passed": 7,
+    "accepted_actual_full_plan": true
+  },
+  "preserved": {
+    "cloud_sql_users_recreated": false,
+    "restore_and_verify_service_accounts": true,
+    "six_run_jobs_remain_enabled": true,
+    "secret_and_enabled_version_1": true,
+    "terraform_backend": true,
+    "pilot01": true,
+    "persistent_source_and_backups": true,
+    "baseline_network_and_subnetwork": true,
+    "roles_grants_and_memberships_changed": false,
+    "artifact_generations": [
+      {"name": "runs/g03r-1016/manifest.json", "generation": "1792195760678849"},
+      {"name": "runs/g03r-1016/synthetic-v1-v61.dump", "generation": "1792195769229365"},
+      {"name": "runs/g03r-1016/dump.toc", "generation": "1792195778303427"},
+      {"name": "runs/g03r-1016/allowlist.toc", "generation": "1792195786699241"}
+    ]
+  },
+  "operations": {
+    "stage1_delete_plan_applied": true,
+    "stage2_protection_plan_applied": false,
+    "sql_statements_executed": false,
+    "cloud_run_jobs_invoked": false,
+    "storage_object_mutations": false,
+    "cloud_tests_run": false
+  },
+  "deadline_utc": "2026-10-17T05:08:13.708Z",
+  "autosuspend_configured": false,
+  "remaining_budget_verified": false
+}
