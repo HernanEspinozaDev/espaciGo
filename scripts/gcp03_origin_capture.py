@@ -97,12 +97,55 @@ def normalize_ip_address(value: Any) -> str | None:
     if not isinstance(value, str) or not value:
         return None
     try:
-        address = ipaddress.ip_address(value)
+        # PostgreSQL renders inet values as CIDR (for example 172.19.0.3/32),
+        # while Docker inspect reports a host address without a prefix.
+        address = ipaddress.ip_interface(value).ip
     except ValueError:
         return None
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
         return str(address.ipv4_mapped)
     return str(address)
+
+
+def correlate_backend_sessions(
+    clients: list[dict[str, Any]],
+    api_ips: set[str],
+    database: str,
+    runtime_user: str,
+    observability: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if observability.get("all_client_session_details_authorized") is not True:
+        raise CaptureError("insufficient PostgreSQL statistics visibility to classify runtime sessions")
+    runtime_clients = [
+        client for client in clients
+        if client.get("database") == database and client.get("user") == runtime_user
+    ]
+    if not runtime_clients:
+        raise CaptureError("no live database session proves the backend runtime connection target")
+    missing_address = [client for client in runtime_clients if normalize_ip_address(client.get("address")) is None]
+    matches = [
+        client for client in runtime_clients
+        if normalize_ip_address(client.get("address")) in api_ips
+    ]
+    if not matches:
+        if missing_address:
+            raise CaptureError("runtime database session address is absent; transport cannot be correlated")
+        raise CaptureError("runtime database sessions are visible but none originate from the inspected backend IP")
+    return matches
+
+
+def validate_client_inventory(
+    clients: list[dict[str, Any]],
+    known_ips: set[str],
+    observability: dict[str, Any],
+) -> None:
+    if observability.get("all_client_session_details_authorized") is not True:
+        raise CaptureError("insufficient PostgreSQL statistics visibility to classify all database clients")
+    relevant = [client for client in clients if client.get("application") != "pg_isready"]
+    if any(normalize_ip_address(client.get("address")) is None for client in relevant):
+        raise CaptureError("database client session has no observable address; transport cannot be classified")
+    if any(normalize_ip_address(client.get("address")) not in known_ips for client in relevant):
+        raise CaptureError("database client address is outside the enumerated source candidates")
 
 
 def fsync_file(path: Path) -> None:
@@ -302,6 +345,19 @@ def inspect_image_reference(reference: str, *, missing_ok: bool = False) -> dict
     }
 
 
+def container_image_provenance(descriptor: dict[str, Any]) -> dict[str, Any]:
+    image_id = descriptor.get("image_id", "")
+    provenance = inspect_image_reference(image_id, missing_ok=True)
+    configured_reference = descriptor.get("configured_image", "")
+    if configured_reference and configured_reference != image_id:
+        configured = inspect_image_reference(configured_reference, missing_ok=True)
+        provenance["configured_reference_provenance"] = configured
+        provenance["configured_reference_matches_runtime_image"] = (
+            configured.get("status") == "available" and configured.get("image_id") == image_id
+        )
+    return provenance
+
+
 def validate_restore_image_reference(reference: str) -> dict[str, Any]:
     if not isinstance(reference, str) or not IMAGE_DIGEST_REF_RE.fullmatch(reference):
         raise CaptureError("restore image must be selected by an immutable sha256 digest reference")
@@ -365,6 +421,19 @@ SELECT jsonb_build_object(
   'migration_history',(SELECT coalesce(jsonb_agg(jsonb_build_object('version',version,'name',name,'checksum',checksum) ORDER BY version),'[]'::jsonb) FROM public.schema_migrations),
   'roles',(SELECT coalesce(jsonb_agg(jsonb_build_object('name',rolname,'login',rolcanlogin,'superuser',rolsuper,'create_db',rolcreatedb,'create_role',rolcreaterole,'replication',rolreplication,'bypass_rls',rolbypassrls,'inherit',rolinherit,'connection_limit',rolconnlimit,'valid_until',rolvaliduntil,'config',coalesce((SELECT jsonb_agg(setting ORDER BY setting) FROM unnest(rolconfig) setting WHERE setting !~* '(password|secret|token)'), '[]'::jsonb)) ORDER BY rolname),'[]'::jsonb) FROM pg_roles),
   'memberships',(SELECT coalesce(jsonb_agg(jsonb_build_object('member',member.rolname,'granted_role',granted.rolname,'admin_option',m.admin_option,'inherit_option',m.inherit_option,'set_option',m.set_option) ORDER BY member.rolname,granted.rolname),'[]'::jsonb) FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles granted ON granted.oid=m.roleid),
+  'session_observability',jsonb_build_object(
+    'current_user',current_user,
+    'session_user',session_user,
+    'current_role_attributes',(SELECT jsonb_build_object('superuser',rolsuper,'inherit',rolinherit) FROM pg_roles WHERE rolname=current_user),
+    'session_role_attributes',(SELECT jsonb_build_object('superuser',rolsuper,'inherit',rolinherit) FROM pg_roles WHERE rolname=session_user),
+    'pg_read_all_stats_effective',(SELECT rolsuper FROM pg_roles WHERE rolname=current_user) OR pg_has_role(current_user,'pg_read_all_stats','USAGE'),
+    'pg_stat_activity_select',has_table_privilege(current_user,'pg_catalog.pg_stat_activity','SELECT'),
+    'pg_stat_get_activity_execute',has_function_privilege(current_user,'pg_catalog.pg_stat_get_activity(integer)','EXECUTE'),
+    'all_client_sessions_total',(SELECT count(*) FROM pg_stat_activity WHERE backend_type='client backend' AND datname=current_database() AND usename IS NOT NULL AND usename<>'pg_isready'),
+    'all_client_addresses_visible',(SELECT count(*) FROM pg_stat_activity WHERE backend_type='client backend' AND datname=current_database() AND usename IS NOT NULL AND usename<>'pg_isready' AND client_addr IS NOT NULL),
+    'all_client_addresses_null',(SELECT count(*) FROM pg_stat_activity WHERE backend_type='client backend' AND datname=current_database() AND usename IS NOT NULL AND usename<>'pg_isready' AND client_addr IS NULL),
+    'all_client_session_details_authorized',(SELECT coalesce(bool_and((SELECT rolsuper FROM pg_roles WHERE rolname=current_user) OR pg_has_role(current_user,'pg_read_all_stats','USAGE') OR pg_has_role(current_user,usename,'USAGE')),true) FROM pg_stat_activity WHERE backend_type='client backend' AND datname=current_database() AND usename IS NOT NULL AND usename<>'pg_isready')
+  ),
   'database_owner_acl',(SELECT jsonb_build_object('owner',owner.rolname,'acl',d.datacl::text,'settings',(SELECT coalesce(jsonb_agg(setting ORDER BY setting),'[]'::jsonb) FROM pg_db_role_setting setting_row CROSS JOIN LATERAL unnest(setting_row.setconfig) setting WHERE setting_row.setdatabase=d.oid AND setting_row.setrole=0)) FROM pg_database d JOIN pg_roles owner ON owner.oid=d.datdba WHERE d.datname=current_database()),
   'schema_owners_acls',(SELECT coalesce(jsonb_agg(jsonb_build_object('schema',n.nspname,'owner',owner.rolname,'acl',n.nspacl::text) ORDER BY n.nspname),'[]'::jsonb) FROM pg_namespace n JOIN pg_roles owner ON owner.oid=n.nspowner WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema'),
   'relation_owners_acls',(SELECT coalesce(jsonb_agg(jsonb_build_object('schema',n.nspname,'name',c.relname,'kind',c.relkind::text,'owner',owner.rolname,'acl',c.relacl::text) ORDER BY n.nspname,c.relname),'[]'::jsonb) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles owner ON owner.oid=c.relowner WHERE c.relkind IN ('r','p','v','m','S','f') AND n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema'),
@@ -791,6 +860,8 @@ def release_validate(release: dict[str, Any], run_id: str, head_sha: str) -> lis
     source = release.get("source") or {}
     if not source.get("database_container_id") or not source.get("expected_source_fingerprint"):
         raise CaptureError("release source identity is incomplete")
+    if source.get("image_provenance_complete") is not True and source.get("image_provenance_gap_accepted") is not True:
+        raise CaptureError("release must explicitly review and acknowledge incomplete source image provenance")
     restore_target = release.get("restore_target") or {}
     if (
         not IMAGE_DIGEST_REF_RE.fullmatch(str(restore_target.get("image_ref", "")))
@@ -886,6 +957,12 @@ class CaptureCoordinator:
         preflight = self.port.preflight()
         if preflight.get("source_fingerprint") != release["source"]["expected_source_fingerprint"]:
             raise CaptureError("source identity/configuration changed after the release candidate was reviewed")
+        _, image_provenance_complete, image_provenance_gaps = source_image_provenance_review(preflight)
+        if (
+            release["source"].get("image_provenance_complete") is not image_provenance_complete
+            or release["source"].get("image_provenance_gaps") != image_provenance_gaps
+        ):
+            raise CaptureError("source image provenance evidence changed after the release candidate was reviewed")
         source_ids = {item["id"] for item in preflight.get("quiesce_candidates", []) if item.get("running")}
         if set(order) != source_ids:
             raise CaptureError("release container list is incomplete or contains an unknown writer/ingress")
@@ -1117,8 +1194,8 @@ class DockerSource:
         db_desc["runtime_binary_version"] = database_runtime_binary_version(db_desc["id"])
         if db_desc["published_ports"]:
             raise CaptureError("source PostgreSQL publishes a host port; capture cannot prove exclusive quiesce")
-        db_desc["image_provenance"] = inspect_image_reference(db_desc["image_id"], missing_ok=True)
-        api_desc["image_provenance"] = inspect_image_reference(api_desc["image_id"], missing_ok=True)
+        db_desc["image_provenance"] = container_image_provenance(db_desc)
+        api_desc["image_provenance"] = container_image_provenance(api_desc)
         expected_entrypoint = sha256_bytes(canonical_json(["/api"]))
         if api_desc["runtime_path"] != "/api" or api_desc["entrypoint_sha256"] != expected_entrypoint:
             raise CaptureError("backend runtime image entrypoint is not the reviewed direct API binary")
@@ -1187,19 +1264,18 @@ class DockerSource:
 
         api_ips = {normalize_ip_address(n.get("IPAddress", "")) for n in api_networks.values()}
         api_ips.discard(None)
-        db_client_matches = [client for client in report.get("clients", []) if normalize_ip_address(client.get("address")) in api_ips and client.get("database") == db_name and client.get("user") == api_user]
-        if not db_client_matches:
-            raise CaptureError("no live database session proves the backend runtime connection target")
+        session_observability = report.get("session_observability") or {}
+        db_client_matches = correlate_backend_sessions(
+            report.get("clients", []), api_ips, db_name, api_user, session_observability
+        )
         known_ips = {normalize_ip_address(n.get("IPAddress", "")) for item in candidates for n in (item.get("NetworkSettings", {}).get("Networks") or {}).values()}
         known_ips.discard(None)
         known_ips |= {"127.0.0.1", "::1"}
-        unknown_clients = [client for client in report.get("clients", []) if normalize_ip_address(client.get("address")) not in known_ips and client.get("application") != "pg_isready"]
-        if unknown_clients:
-            raise CaptureError("database has a client outside the enumerated Docker source candidates")
+        validate_client_inventory(report.get("clients", []), known_ips, session_observability)
 
         candidate_descriptors = [container_descriptor(info, self.repo) for info in candidates]
         for desc in candidate_descriptors:
-            desc["image_provenance"] = inspect_image_reference(desc["image_id"], missing_ok=True)
+            desc["image_provenance"] = container_image_provenance(desc)
         container_health = {desc["id"]: desc["health"] for desc in candidate_descriptors}
         db_volume_id = db_mounts[0]["name"]
         source_projection = {
@@ -1440,8 +1516,51 @@ def read_release(path: Path) -> dict[str, Any]:
     return value
 
 
-def build_release_candidate(preflight: dict[str, Any], run_id: str, reviewed_head_sha: str, restore_target: dict[str, Any]) -> dict[str, Any]:
+def source_image_provenance_review(preflight: dict[str, Any]) -> tuple[list[dict[str, Any]], bool, list[dict[str, Any]]]:
+    projection = preflight.get("source_projection") or {}
+    descriptors = [
+        preflight.get("database_descriptor") or projection.get("database_container"),
+        preflight.get("api_descriptor") or projection.get("backend_container"),
+        *preflight.get("candidate_descriptors", []),
+    ]
+    descriptors = [item for item in descriptors if isinstance(item, dict)]
+    unique: dict[str, dict[str, Any]] = {}
+    for descriptor in descriptors:
+        unique.setdefault(descriptor.get("id") or descriptor.get("image_id") or str(len(unique)), descriptor)
+    descriptors = list(unique.values())
+    gaps: list[dict[str, Any]] = []
+    if not descriptors:
+        gaps.append({"container_id": "", "compose_service": "", "reason_codes": ["source_container_descriptors_missing"]})
+    for descriptor in descriptors:
+        provenance = descriptor.get("image_provenance") if isinstance(descriptor.get("image_provenance"), dict) else {}
+        reasons: list[str] = []
+        if provenance.get("status") != "available":
+            reasons.append("runtime_image_not_available_locally")
+        if not provenance.get("repo_digests"):
+            reasons.append("runtime_image_has_no_verified_repo_digest")
+        if provenance.get("configured_reference_matches_runtime_image") is False:
+            reasons.append("configured_reference_resolves_to_a_different_image_id")
+        if reasons:
+            gaps.append({
+                "container_id": descriptor.get("id", ""),
+                "compose_service": descriptor.get("compose_service", ""),
+                "configured_image": descriptor.get("configured_image", ""),
+                "runtime_image_id": descriptor.get("image_id", ""),
+                "runtime_image_status": provenance.get("status", "unknown"),
+                "runtime_image_repo_digests": provenance.get("repo_digests", []),
+                "configured_reference_matches_runtime_image": provenance.get("configured_reference_matches_runtime_image"),
+                "configured_reference_provenance": provenance.get("configured_reference_provenance"),
+                "reason_codes": reasons,
+            })
+    return descriptors, bool(descriptors) and not gaps, gaps
+
+
+def build_release_candidate(
+    preflight: dict[str, Any], run_id: str, reviewed_head_sha: str, restore_target: dict[str, Any], *,
+    restore_target_digest_verified: bool = False,
+) -> dict[str, Any]:
     database_id = preflight["database_container_id"]
+    source_descriptors, source_image_provenance_complete, source_image_provenance_gaps = source_image_provenance_review(preflight)
     order = [item["id"] for item in preflight["quiesce_candidates"] if item["running"]]
     # Ingress containers with published host ports are stopped first; the rest
     # follow. Resume always uses the exact reverse sequence.
@@ -1461,12 +1580,36 @@ def build_release_candidate(preflight: dict[str, Any], run_id: str, reviewed_hea
         "external_ingress_and_writer_sources": None,
         "window_start_utc": "",
         "window_end_utc": "",
-        "source": {"database_container_id": database_id, "expected_source_fingerprint": preflight["source_fingerprint"]},
+        "source": {
+            "database_container_id": database_id,
+            "expected_source_fingerprint": preflight["source_fingerprint"],
+            "container_descriptors": source_descriptors,
+            "image_provenance_complete": source_image_provenance_complete,
+            "image_provenance_gaps": source_image_provenance_gaps,
+            "image_provenance_gap_accepted": False,
+            "effective_connection": (preflight.get("source_projection") or {}).get("effective_connection"),
+        },
+        "source_image_provenance_complete": source_image_provenance_complete,
+        "source_image_provenance_gaps": source_image_provenance_gaps,
         "restore_target": restore_target,
+        "restore_target_review": {
+            "local_digest_reference_validated": restore_target_digest_verified,
+            "required_postgresql_major": int((preflight.get("database_report") or {}).get("server_version_num", 0)) // 10000,
+            "required_extension_versions": (preflight.get("database_report") or {}).get("extensions", []),
+            "snapshot_specific_restore_compatibility": "pending",
+        },
         "timeout_profile": DEFAULT_TIMEOUT_PROFILE.copy(),
         "quiesce_order": order,
+        "capture_budget_seconds": capture_budget_seconds(len(order), DEFAULT_TIMEOUT_PROFILE),
+        "review_procedure": [
+            "Verify each source container descriptor, database volume, network, client address, role, migrations, and source fingerprint against a fresh read-only preflight.",
+            "Enumerate every Docker and non-Docker writer/ingress; attest exclusive Docker control only after external sources and ownership are resolved.",
+            "Select an exact UTC window of at most four hours that covers the reviewed timeout envelope; confirm stop order and reverse recovery/readiness for every service.",
+            "Verify the restore target by its local repository@sha256 reference; confirm PostgreSQL major and each exact source extension version in the isolated copy-only restore before approving capture.",
+            "Review every source_image_provenance_gap explicitly. This unapproved candidate does not accept the gap; record any decision and risk in a separate reviewer-approved release.",
+        ],
         "created_at_utc": utc_now(),
-        "required_review": "After this capture implementation is reviewed and merged, record a specific capture window, verify every candidate and external ingress source, then create a separate mode-0600 approved release record bound to the reviewed HEAD and this run-id.",
+        "required_review": "Review every source image provenance gap without presuming acceptance, verify every container and external ingress/writer source, and validate the digest-pinned restore target. Only then create a separate mode-0600 approved release bound to the reviewed HEAD, source fingerprint and run-id; explicitly acknowledge any remaining provenance gap in that release.",
     }
 
 
@@ -2066,7 +2209,7 @@ def main(argv: list[str] | None = None) -> int:
                 if not RUN_ID_RE.fullmatch(args.run_id):
                     raise CaptureError("run-id format is invalid")
                 head = run_quiet(["git", "rev-parse", "HEAD"], timeout=10).decode().strip()
-                candidate_doc = build_release_candidate(report, args.run_id, head, restore_target)
+                candidate_doc = build_release_candidate(report, args.run_id, head, restore_target, restore_target_digest_verified=True)
                 write_new_private(private_dir / "release-candidate.json", canonical_json(candidate_doc))
                 print(json.dumps({"status": "unapproved_candidate_written", "run_id": args.run_id, "candidate_count": len(report["candidate_descriptors"]), "source_fingerprint": report["source_fingerprint"], "private_output": str(private_dir.relative_to(repo))}, sort_keys=True))
             else:
