@@ -43,6 +43,8 @@ QUIESCE_TIMEOUT_SECONDS = 180
 PG_DUMP_TIMEOUT_SECONDS = 3600
 TREE_TIMEOUT_SECONDS = 1800
 READINESS_TIMEOUT_SECONDS = 300
+DEFAULT_TIMEOUT_PROFILE = {"stop": 35, "start": 60, "readiness": 300, "quiesce": 180, "pg_dump": 900, "private_files": 600, "contract_key": 60, "metadata_sql": 120, "metadata_encrypt": 300, "margin": 300}
+TIMEOUT_PROFILE_BOUNDS = {"stop": (10, 35), "start": (10, 60), "readiness": (30, 300), "quiesce": (30, 180), "pg_dump": (60, 3600), "private_files": (60, 1800), "contract_key": (10, 60), "metadata_sql": (30, 120), "metadata_encrypt": (30, 300), "margin": (60, 300)}
 MIN_FREE_SPACE_BYTES = 128 * 1024 * 1024
 _STAGE = "arguments"
 
@@ -341,7 +343,7 @@ COMMIT;
 """
 
 
-def _database_query(container_id: str, password_file: str, sql: str) -> dict[str, Any]:
+def _database_query(container_id: str, password_file: str, sql: str, timeout: int = 120) -> dict[str, Any]:
     if not password_file.startswith("/run/secrets/"):
         raise CaptureError("database auth file is outside the mounted secret directory")
     shell = (
@@ -350,7 +352,7 @@ def _database_query(container_id: str, password_file: str, sql: str) -> dict[str
         'exec psql -h 127.0.0.1 -XqAt -v ON_ERROR_STOP=1 '
         '--username="$POSTGRES_USER" --dbname="$POSTGRES_DB" -f -'
     )
-    output = run_quiet(["docker", "exec", "-i", container_id, "sh", "-eu", "-c", shell], timeout=120, input_bytes=sql.encode())
+    output = run_quiet(["docker", "exec", "-i", container_id, "sh", "-eu", "-c", shell], timeout=timeout, input_bytes=sql.encode())
     lines = [line for line in output.decode().splitlines() if line.strip()]
     if len(lines) != 1:
         raise CaptureError("read-only database inventory returned an unexpected result")
@@ -686,11 +688,12 @@ class SnapshotPort(Protocol):
     def preflight(self) -> dict[str, Any]: ...
     def stop_container(self, container_id: str, timeout: int) -> None: ...
     def start_container(self, container_id: str, timeout: int) -> None: ...
-    def stop_event_confirmed(self, container_id: str, since: str) -> bool: ...
+    def stop_event_status(self, container_id: str, since: str) -> str: ...
+    def container_state(self, container_id: str) -> str: ...
     def wait_quiescent(self, timeout: int) -> dict[str, Any]: ...
     def wait_ready(self, container_id: str, timeout: int, expected_health: str) -> None: ...
     def stream_database_dump(self, destination: BinaryIO, timeout: int) -> dict[str, Any]: ...
-    def metadata_report(self) -> dict[str, Any]: ...
+    def metadata_report(self, timeout: int = 120) -> dict[str, Any]: ...
     def source_roots(self) -> dict[str, Path]: ...
     def source_contract_key(self) -> BinaryIO: ...
 
@@ -737,14 +740,65 @@ def release_validate(release: dict[str, Any], run_id: str, head_sha: str) -> lis
         raise CaptureError("release stop sequence is empty or malformed")
     if source["database_container_id"] in order or len(set(order)) != len(order):
         raise CaptureError("release may not stop PostgreSQL and stop IDs must be unique")
+    validate_timeout_profile(release.get("timeout_profile"))
     return order
 
 
-def capture_budget_seconds(candidate_count: int) -> int:
-    stop_bound = STOP_TIMEOUT_SECONDS + 15
-    per_service_resume = START_TIMEOUT_SECONDS + READINESS_TIMEOUT_SECONDS
-    fixed_stages = QUIESCE_TIMEOUT_SECONDS + PG_DUMP_TIMEOUT_SECONDS + TREE_TIMEOUT_SECONDS + 60 + 120 + 300 + 300
-    return fixed_stages + candidate_count * (stop_bound + per_service_resume)
+def resolve_stop_intents(journal: dict[str, Any], port: SnapshotPort, health_map: dict[str, Any], *, timeout_profile: dict[str, int] | None = None) -> list[str]:
+    """Resume only services whose stop was owned by this run; prove readiness for every intent."""
+    profile = timeout_profile or DEFAULT_TIMEOUT_PROFILE
+    owned = set(journal.get("stopped_by_this_run", []))
+    resolved = set(journal.get("resolved_stop_intents", []))
+    unresolved: list[str] = []
+    for container_id in reversed(journal.get("stop_intent_ids", [])):
+        if container_id in resolved:
+            continue
+        try:
+            event_status = port.stop_event_status(container_id, journal["started_at_utc"])
+            state = port.container_state(container_id)
+        except BaseException:
+            unresolved.append(container_id)
+            continue
+        owned_stop = container_id in owned or event_status == "confirmed"
+        try:
+            if state == "running":
+                port.wait_ready(container_id, profile["readiness"], health_map.get(container_id, "none"))
+            elif owned_stop:
+                port.start_container(container_id, profile["start"])
+                port.wait_ready(container_id, profile["readiness"], health_map.get(container_id, "none"))
+                started = set(journal.get("restored_by_this_run", []))
+                started.add(container_id)
+                journal["restored_by_this_run"] = [item for item in journal.get("quiesce_order", []) if item in started]
+            else:
+                unresolved.append(container_id)
+                continue
+            resolved.add(container_id)
+            journal["resolved_stop_intents"] = [item for item in journal.get("stop_intent_ids", []) if item in resolved]
+            journal["unresolved_stop_intents"] = [item for item in journal.get("stop_intent_ids", []) if item not in resolved]
+        except BaseException:
+            unresolved.append(container_id)
+    journal["resolved_stop_intents"] = [item for item in journal.get("stop_intent_ids", []) if item in resolved]
+    journal["unresolved_stop_intents"] = [item for item in journal.get("stop_intent_ids", []) if item not in resolved]
+    return unresolved
+
+
+def validate_timeout_profile(profile: Any) -> dict[str, int]:
+    if not isinstance(profile, dict) or set(profile) != set(TIMEOUT_PROFILE_BOUNDS):
+        raise CaptureError("release must contain the complete bounded timeout profile")
+    validated: dict[str, int] = {}
+    for name, (minimum, maximum) in TIMEOUT_PROFILE_BOUNDS.items():
+        value = profile.get(name)
+        if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+            raise CaptureError(f"release timeout profile value is outside reviewed bounds: {name}")
+        validated[name] = value
+    return validated
+
+
+def capture_budget_seconds(candidate_count: int, profile: dict[str, int] | None = None) -> int:
+    profile = validate_timeout_profile(profile or DEFAULT_TIMEOUT_PROFILE)
+    fixed_stages = sum(profile[name] for name in ("quiesce", "pg_dump", "private_files", "contract_key", "metadata_sql", "metadata_encrypt", "margin"))
+    per_service = profile["stop"] + 15 + profile["start"] + profile["readiness"]
+    return fixed_stages + candidate_count * per_service
 
 
 class CaptureCoordinator:
@@ -754,6 +808,7 @@ class CaptureCoordinator:
 
     def capture(self, release: dict[str, Any], run_id: str, head_sha: str, *, free_bytes: int | None = None) -> dict[str, Any]:
         order = release_validate(release, run_id, head_sha)
+        timeout_profile = validate_timeout_profile(release["timeout_profile"])
         self.layout.snapshot_root = private_root(self.layout.snapshot_root)
         self.layout.custody_root = private_root(self.layout.custody_root)
         self.layout.journal_root = private_root(self.layout.journal_root)
@@ -776,7 +831,7 @@ class CaptureCoordinator:
         if not db_volume_ids or not db_volume_ids.issubset(set(preflight.get("mounted_volume_ids", []))):
             raise CaptureError("persistent database volume identity could not be verified")
         window_end = datetime.fromisoformat(release["window_end_utc"].replace("Z", "+00:00"))
-        if (window_end - datetime.now(timezone.utc)).total_seconds() < capture_budget_seconds(len(order)):
+        if (window_end - datetime.now(timezone.utc)).total_seconds() < capture_budget_seconds(len(order), timeout_profile):
             raise CaptureError("remaining maintenance window is shorter than the bounded capture and resume envelope")
 
         estimate = int(preflight.get("estimated_private_bytes", 0))
@@ -802,10 +857,13 @@ class CaptureCoordinator:
             "database_volume_ids": sorted(db_volume_ids),
             "partial_snapshot": partial.name,
             "quiesce_order": order,
+            "timeout_profile": timeout_profile,
             "initial_health": preflight.get("container_health", {}),
             "stop_intent_ids": [],
             "stopped_by_this_run": [],
             "restored_by_this_run": [],
+            "resolved_stop_intents": [],
+            "unresolved_stop_intents": [],
             "status": "prepared",
         }
         write_new_private(journal_path, canonical_json(journal))
@@ -820,13 +878,13 @@ class CaptureCoordinator:
             for container_id in order:
                 journal["stop_intent_ids"].append(container_id)
                 write_private_replace(journal_path, canonical_json(journal))
-                self.port.stop_container(container_id, STOP_TIMEOUT_SECONDS)
+                self.port.stop_container(container_id, timeout_profile["stop"])
                 stop_confirmed.append(container_id)
                 journal["stopped_by_this_run"].append(container_id)
                 write_private_replace(journal_path, canonical_json(journal))
 
             stage = "quiesce evidence"
-            quiet = self.port.wait_quiescent(QUIESCE_TIMEOUT_SECONDS)
+            quiet = self.port.wait_quiescent(timeout_profile["quiesce"])
             if quiet.get("unknown_clients") or int(quiet.get("active_writers", -1)) != 0 or int(quiet.get("active_leases", -1)) != 0:
                 raise CaptureError("source connections or leases are not fully quiescent")
             journal["quiesce_evidence"] = quiet
@@ -836,10 +894,10 @@ class CaptureCoordinator:
             stage = "database dump"
             db_temp = partial / "database.dump.gpg"
             artifact_meta["database.dump.gpg"] = gpg_encrypt_producer(
-                lambda encrypted_stream: self.port.stream_database_dump(encrypted_stream, PG_DUMP_TIMEOUT_SECONDS),
+                lambda encrypted_stream: self.port.stream_database_dump(encrypted_stream, timeout_profile["pg_dump"]),
                 db_temp,
                 derive_passphrase(recovery_key, run_id, "database-dump"),
-                PG_DUMP_TIMEOUT_SECONDS,
+                timeout_profile["pg_dump"],
             )
 
             stage = "copy private file trees"
@@ -858,21 +916,21 @@ class CaptureCoordinator:
                     raise CaptureError("private files changed between reviewed preflight and quiesced capture")
                 tree_meta.update({"file_count": len(files_manifest), "source_tree_sha256": sha256_bytes(canonical_json(files_manifest))})
                 return tree_meta
-            encrypted_tree = gpg_encrypt_producer(tar_producer, files_path, derive_passphrase(recovery_key, run_id, "private-files"), TREE_TIMEOUT_SECONDS)
+            encrypted_tree = gpg_encrypt_producer(tar_producer, files_path, derive_passphrase(recovery_key, run_id, "private-files"), timeout_profile["private_files"])
             artifact_meta["private-files.tar.gpg"] = encrypted_tree
 
             stage = "contract key custody encryption"
             key_path = partial / "contract-encryption-key.gpg"
             with self.port.source_contract_key() as source_key:
-                artifact_meta["contract-encryption-key.gpg"] = gpg_encrypt_stream(source_key, key_path, derive_passphrase(recovery_key, run_id, "contract-key"), 60)
+                artifact_meta["contract-encryption-key.gpg"] = gpg_encrypt_stream(source_key, key_path, derive_passphrase(recovery_key, run_id, "contract-key"), timeout_profile["contract_key"])
 
             stage = "private metadata encryption"
-            metadata = self.port.metadata_report()
+            metadata = self.port.metadata_report(timeout_profile["metadata_sql"])
             if metadata.get("source_credentials_included") or "role_passwords" in metadata:
                 raise CaptureError("metadata report contains forbidden credential data")
             metadata_path = partial / "origin-metadata.json.gpg"
             stream = BytesIO(canonical_json({"preflight": preflight, "database_report": metadata, "file_inventory": files_manifest, "release": release}))
-            artifact_meta["origin-metadata.json.gpg"] = gpg_encrypt_stream(stream, metadata_path, derive_passphrase(recovery_key, run_id, "metadata"), 300)
+            artifact_meta["origin-metadata.json.gpg"] = gpg_encrypt_stream(stream, metadata_path, derive_passphrase(recovery_key, run_id, "metadata"), timeout_profile["metadata_encrypt"])
 
             stage = "integrity sealing"
             seal = {
@@ -903,35 +961,28 @@ class CaptureCoordinator:
             write_private_replace(journal_path, canonical_json(journal))
         finally:
             stage = "resume source services"
-            pending = set(journal["stop_intent_ids"]) - set(journal["stopped_by_this_run"])
-            for container_id in order:
-                if container_id not in pending:
-                    continue
-                if self.port.stop_event_confirmed(container_id, started_at):
-                    stop_confirmed.append(container_id)
+            for container_id in journal["stop_intent_ids"]:
+                if container_id not in journal["stopped_by_this_run"] and self.port.stop_event_status(container_id, started_at) == "confirmed":
                     journal["stopped_by_this_run"].append(container_id)
-            for container_id in reversed(stop_confirmed):
-                try:
-                    self.port.start_container(container_id, START_TIMEOUT_SECONDS)
-                    self.port.wait_ready(container_id, READINESS_TIMEOUT_SECONDS, preflight["container_health"].get(container_id, "none"))
-                    journal["restored_by_this_run"].append(container_id)
-                    write_private_replace(journal_path, canonical_json(journal))
-                except BaseException as exc:
-                    if primary_error is None:
-                        primary_error = CaptureError("a source service could not be restored/readied; run recovery using the private journal")
-                    journal["resume_error_type"] = type(exc).__name__
-                    journal["status"] = "resume_incomplete"
-                    write_private_replace(journal_path, canonical_json(journal))
+                    stop_confirmed.append(container_id)
+            unresolved = resolve_stop_intents(journal, self.port, preflight.get("container_health", {}), timeout_profile=timeout_profile)
+            write_private_replace(journal_path, canonical_json(journal))
+            if unresolved:
+                journal["status"] = "resume_incomplete"
+                journal["resume_unresolved_ids"] = unresolved
+                write_private_replace(journal_path, canonical_json(journal))
+                if primary_error is None:
+                    primary_error = CaptureError("source service state or readiness is unresolved; inspect the private recovery journal")
 
         if primary_error is not None:
-            journal["status"] = "failed_source_resumed" if len(journal["restored_by_this_run"]) == len(stop_confirmed) else "resume_incomplete"
+            journal["status"] = "failed_source_resumed" if not journal.get("unresolved_stop_intents") else "resume_incomplete"
             write_private_replace(journal_path, canonical_json(journal))
             if isinstance(primary_error, CaptureError):
                 raise primary_error
             if isinstance(primary_error, (KeyboardInterrupt, SystemExit)):
                 raise CaptureInterrupted("capture interrupted; source resume was attempted") from None
             raise CaptureError(f"capture stopped safely during {stage}; source resume was attempted") from None
-        if len(journal["restored_by_this_run"]) != len(stop_confirmed):
+        if journal.get("unresolved_stop_intents"):
             raise CaptureError("source recovery is incomplete; do not retry capture")
 
         os.rename(partial, final)
@@ -1144,7 +1195,7 @@ class DockerSource:
             return
         run_quiet(["docker", "start", container_id], timeout=timeout)
 
-    def stop_event_confirmed(self, container_id: str, since: str) -> bool:
+    def stop_event_status(self, container_id: str, since: str) -> str:
         try:
             result = run_quiet(["docker", "events", "--since", since, "--until", utc_now(), "--filter", f"container={container_id}", "--filter", "event=stop", "--format", "{{json .}}"], timeout=20)
             for line in result.decode().splitlines():
@@ -1152,11 +1203,25 @@ class DockerSource:
                 actor = event.get("Actor") or {}
                 event_id = event.get("id", "")
                 actor_id = actor.get("ID", "")
-                if (event.get("Action") == "stop" or event.get("status") == "stop") and (event_id == container_id or actor_id == container_id or (event_id and container_id.startswith(event_id)) or (actor_id and container_id.startswith(actor_id))):
-                    return True
+                if (event.get("Action") == "stop" or event.get("status") == "stop") and (event_id == container_id or actor_id == container_id):
+                    return "confirmed"
         except CaptureError:
-            return False
-        return False
+            return "unknown"
+        return "absent"
+
+    def container_state(self, container_id: str) -> str:
+        try:
+            info = docker_inspect(container_id)
+            if info.get("Id") != container_id:
+                return "unknown"
+            state = info.get("State") or {}
+            if state.get("Running") is True:
+                return "running"
+            if state.get("Status") in {"exited", "dead"}:
+                return "stopped"
+        except CaptureError:
+            return "unknown"
+        return "unknown"
 
     def wait_quiescent(self, timeout: int) -> dict[str, Any]:
         deadline = time.monotonic() + timeout
@@ -1241,8 +1306,8 @@ class DockerSource:
             timer.cancel()
         return {"plain_sha256": digest.hexdigest(), "plain_bytes": size, "format": "PostgreSQL custom archive", "global_role_password_hashes_exported": False, "source_database_stopped": False}
 
-    def metadata_report(self) -> dict[str, Any]:
-        report = _database_query(self._current["database_descriptor"]["id"], self._current["database_password_file"], SQL_CAPTURE)
+    def metadata_report(self, timeout: int = 120) -> dict[str, Any]:
+        report = _database_query(self._current["database_descriptor"]["id"], self._current["database_password_file"], SQL_CAPTURE, timeout=timeout)
         assert_preflight_catalog_stable(self._current["database_report"], report)
         history = {int(row["version"]): {"name": row["name"], "sha256": row["checksum"]} for row in report.get("migration_history", [])}
         if history != {v: {"name": info["name"], "sha256": info["sha256"]} for v, info in self._current["image_migrations"].items()}:
@@ -1309,6 +1374,7 @@ def build_release_candidate(preflight: dict[str, Any], run_id: str, reviewed_hea
         "window_start_utc": "",
         "window_end_utc": "",
         "source": {"database_container_id": database_id, "expected_source_fingerprint": preflight["source_fingerprint"]},
+        "timeout_profile": DEFAULT_TIMEOUT_PROFILE.copy(),
         "quiesce_order": order,
         "created_at_utc": utc_now(),
         "required_review": "After this capture implementation is reviewed and merged, record a specific capture window, verify every candidate and external ingress source, then create a separate mode-0600 approved release record bound to the reviewed HEAD and this run-id.",
@@ -1343,26 +1409,12 @@ def recover_journal(path: Path, port: SnapshotPort, snapshot_root: Path | None =
         partial_name = journal.get("partial_snapshot", f"{run_id}.partial")
         if partial_name != f"{run_id}.partial":
             raise CaptureError("recovery journal snapshot path is invalid")
-    since = journal.get("started_at_utc")
-    stopped = set(journal.get("stopped_by_this_run", []))
-    for container_id in set(stop_intents) - stopped:
-        if port.stop_event_confirmed(container_id, since):
-            stopped.add(container_id)
-    restored = set(journal.get("restored_by_this_run", []))
-    errors = 0
     health_map = journal.get("initial_health", {})
-    for container_id in reversed(order):
-        if container_id not in stopped or container_id in restored:
-            continue
-        try:
-            port.start_container(container_id, START_TIMEOUT_SECONDS)
-            port.wait_ready(container_id, READINESS_TIMEOUT_SECONDS, health_map.get(container_id, "none"))
-            restored.add(container_id)
-            journal["restored_by_this_run"] = sorted(restored)
-            write_private_replace(path, canonical_json(journal))
-        except BaseException:
-            errors += 1
+    timeout_profile = validate_timeout_profile(journal.get("timeout_profile", DEFAULT_TIMEOUT_PROFILE))
+    unresolved = resolve_stop_intents(journal, port, health_map, timeout_profile=timeout_profile)
+    errors = len(unresolved)
     journal["status"] = "recovered" if errors == 0 else "resume_incomplete"
+    journal["resume_unresolved_ids"] = unresolved
     journal["recovered_at_utc"] = utc_now()
     if errors == 0 and snapshot_root is not None and journal.get("artifact_seal_sha256"):
         partial = snapshot_root / journal.get("partial_snapshot", f"{run_id}.partial")
@@ -1384,7 +1436,7 @@ def recover_journal(path: Path, port: SnapshotPort, snapshot_root: Path | None =
     write_private_replace(path, canonical_json(journal))
     if errors:
         raise CaptureError("one or more services remain unrestored; inspect private recovery journal")
-    return {"run_id": journal["run_id"], "restored_services": len(restored), "status": journal["status"]}
+    return {"run_id": journal["run_id"], "restored_services": len(journal.get("restored_by_this_run", [])), "status": journal["status"]}
 
 
 def check_seal_files(snapshot: Path, expected_run_id: str, *, allow_partial: bool = False) -> dict[str, Any]:
@@ -1492,7 +1544,8 @@ def role_reconciliation_sql(role_report: dict[str, Any], existing_role_names: se
             f"CONNECTION LIMIT {int(role['connection_limit'])}",
         ]
         valid_until = role.get("valid_until")
-        flags.append("VALID UNTIL " + _quote_literal(valid_until if isinstance(valid_until, str) else "infinity"))
+        if isinstance(valid_until, str):
+            flags.append("VALID UNTIL " + _quote_literal(valid_until))
         operation = "ALTER ROLE" if name in existing_role_names else "CREATE ROLE"
         statements.append(f"{operation} {ident} WITH {' '.join(flags)};")
         for setting in role.get("config") or []:
@@ -1613,6 +1666,8 @@ def verify_private_tar(snapshot: Path, master: bytes, seal: dict[str, Any], expe
         raise
     finally:
         timer.cancel()
+        if process.stdout is not None and not process.stdout.closed:
+            process.stdout.close()
         if write_fd >= 0:
             os.close(write_fd)
 
@@ -1665,18 +1720,27 @@ def assert_preflight_catalog_stable(before: dict[str, Any], after: dict[str, Any
 
 
 def _write_synthetic_password(path: Path) -> None:
-    password = secrets.token_urlsafe(48).encode() + b"\n"
+    # The versioned database entrypoint accepts only lowercase hex credentials
+    # for its isolated runtime role initialization.
+    password = secrets.token_hex(48).encode() + b"\n"
     write_new_private(path, password)
 
 
 def wait_local_pg(container_id: str, timeout: int = READINESS_TIMEOUT_SECONDS) -> None:
     deadline = time.monotonic() + timeout
+    stable_checks = 0
     while time.monotonic() < deadline:
         try:
             run_quiet(["docker", "exec", "--user", "postgres", container_id, "pg_isready", "--username=postgres", "--dbname=restore_bootstrap"], timeout=10)
-            return
+            run_quiet(["docker", "exec", "--user", "postgres", container_id, "psql", "-XqAt", "--username=postgres", "--dbname=restore_bootstrap", "-c", "SELECT 1"], timeout=10)
+            stable_checks += 1
+            if stable_checks >= 5:
+                return
         except CaptureError:
+            stable_checks = 0
             time.sleep(2)
+        else:
+            time.sleep(1)
     raise CaptureError("isolated PostgreSQL restore container did not become ready")
 
 
@@ -1781,7 +1845,7 @@ def restore_validate_copy(repo: Path, snapshot: Path, recovery_key_path: Path, r
                 restored = _docker_query(container_id, db_name, SQL_CAPTURE)
                 comparison = compare_restored_database(report, restored)
                 if not comparison["matches"]:
-                    raise CaptureError("restored schema/data/ACL comparison failed")
+                    raise CaptureError("restored schema/data/ACL comparison failed: " + ",".join(comparison["mismatched_fields"]))
                 quarantine_sql = (repo / "scripts/gcp03_origin_quarantine_copy.sql").read_bytes()
                 quarantine_output = _docker_exec_sql(container_id, db_name, quarantine_sql, timeout=120)
                 quarantine_lines = [line for line in quarantine_output.decode().splitlines() if line.strip()]
@@ -1916,6 +1980,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(recover_journal(journal_path, port, snapshot_root), sort_keys=True))
             return 0
         if args.command in {"recover-key", "restore-copy"}:
+            _STAGE = "restore-copy validation" if args.command == "restore-copy" else "recover-key validation"
             snapshot = local_testing_path(repo, args.snapshot)
             recovery_root = (Path.home() / ".local/share/espacigo/gcp03-origin-custody").resolve()
             recovery_key_path = Path(args.recovery_key).expanduser().absolute()
@@ -1933,8 +1998,6 @@ def main(argv: list[str] | None = None) -> int:
             os.chmod(output.parent, 0o700)
             key = load_recovery_key(recovery_key_path)
             seal = check_encrypted_snapshot(snapshot, key)
-            seal_path = snapshot / "SEALED.json"
-            mode_exact(seal_path)
             encrypted = snapshot / "contract-encryption-key.gpg"
             artifact = seal["encrypted_artifacts"]["contract-encryption-key.gpg"]
             if sha256_file(encrypted)[0] != artifact["cipher_sha256"]:
