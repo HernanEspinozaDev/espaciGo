@@ -56,7 +56,9 @@ run "bootstrap_job_is_one_shot_and_never_manages_its_secret_version" {
 }
 
 run "observer_job_is_iam_only_and_has_no_secret_or_bucket_access" {
-  command = plan
+  # Use the mock provider's apply phase so its computed service-account email
+  # is known and the IAM database-login relationship can be asserted.
+  command = apply
 
   variables {
     run_id                             = "g03o-1017"
@@ -78,6 +80,7 @@ run "observer_job_is_iam_only_and_has_no_secret_or_bucket_access" {
       length(google_secret_manager_secret_iam_member.admin_password_reader) == 1 &&
       length(google_storage_bucket.artifacts) == 1 &&
       length(google_sql_user.origin_observer[0].database_roles) == 1 &&
+      google_sql_user.origin_observer[0].name == trimsuffix(google_service_account.origin_observer[0].email, ".gserviceaccount.com") &&
       contains(google_sql_user.origin_observer[0].database_roles, "espacigo_gcp03_observer")
     )
     error_message = "Observer must use a distinct IAM identity, no secret mount, and only its fixed database role."

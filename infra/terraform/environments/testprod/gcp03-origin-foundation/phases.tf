@@ -123,10 +123,13 @@ resource "google_project_iam_member" "origin_observer_instance_user" {
 }
 
 resource "google_sql_user" "origin_observer" {
-  count          = local.observer_enabled ? 1 : 0
-  project        = var.project_id
-  instance       = google_sql_database_instance.origin[0].name
-  name           = local.observer_database_login
+  count    = local.observer_enabled ? 1 : 0
+  project  = var.project_id
+  instance = google_sql_database_instance.origin[0].name
+  # Derive the Cloud SQL IAM login from the account resource itself. Besides
+  # keeping the principal exact, this graph edge makes Cloud SQL wait until the
+  # service account exists before registering its IAM database user.
+  name           = trimsuffix(google_service_account.origin_observer[0].email, ".gserviceaccount.com")
   type           = "CLOUD_IAM_SERVICE_ACCOUNT"
   database_roles = ["espacigo_gcp03_observer"]
   lifecycle {
