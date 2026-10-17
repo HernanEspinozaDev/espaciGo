@@ -1,0 +1,28 @@
+{
+  "diagnostic_evidence": {
+    "empty_baseline_acknowledged": true,
+    "path": "planning/gcp/evidence/gcp03-restore-g03r-1016/diagnostic.json",
+    "sha256": "fcb96ca650f173130402b52d73db658715fefd0bfc1c99a5fcb55ff3d1b761fb"
+  },
+  "proposed_image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03restore@sha256:927e1ab63f2eb767c407ad4a74b299f4a571acbb947ae5b0741daa8d6fea9dd8",
+  "restore_job_invoked": false,
+  "saved_plan": {
+    "actions": [
+      "update"
+    ],
+    "address": "google_cloud_run_v2_job.restore[0]",
+    "applied": false,
+    "applyable": true,
+    "binary_plan_retained_private": true,
+    "changed_attribute_paths": [
+      "template[0].template[0].containers[0].image"
+    ],
+    "sha256": "97022edeaf12a6da7e305db810d8730757e23518cfd23cc05aecc1471665b068"
+  },
+  "schema": "espacigo.gcp03.restore-plan-attestation.v1",
+  "target": {
+    "job": "espacigo-gcp03-restore-g03r-1016-restore",
+    "project": "espacigo-testprod",
+    "region": "southamerica-west1"
+  }
+}
