@@ -63,6 +63,56 @@ variable "enable_restore_jobs" {
   }
 }
 
+variable "enable_diagnostic_job" {
+  type        = bool
+  default     = false
+  description = "Separate default-off gate for a read-only artifact and database-catalog diagnostic Job."
+  validation {
+    condition     = !var.enable_diagnostic_job || (var.enable_foundation && var.enable_restore_jobs && var.confirm_isolated_restore && can(regex("^[0-9a-f]{64}$", var.manifest_sha256)) && can(regex("@sha256:[0-9a-f]{64}$", var.diagnostic_image)))
+    error_message = "The diagnostic Job requires the isolated run, verifier identity, reviewed artifact manifest hash, and an immutable diagnostic image digest."
+  }
+}
+
+variable "diagnostic_image" {
+  type        = string
+  default     = ""
+  description = "Reviewed immutable image digest for the one-shot read-only GCP-03 diagnostic Job."
+  validation {
+    condition     = var.diagnostic_image == "" || can(regex("@sha256:[0-9a-f]{64}$", var.diagnostic_image))
+    error_message = "A diagnostic image, when supplied, must be pinned by sha256 digest."
+  }
+}
+
+variable "restore_executor_image" {
+  type        = string
+  default     = ""
+  description = "Optional reviewed immutable image override for the restore Job only; set only after a read-only baseline and a separate recovery review."
+  validation {
+    condition = var.restore_executor_image == "" || (
+      can(regex("@sha256:[0-9a-f]{64}$", var.restore_executor_image)) &&
+      var.enable_restore_jobs && var.confirm_bootstrap_complete && var.confirm_isolated_restore &&
+      var.confirm_read_only_empty_baseline && can(regex("^[0-9a-f]{64}$", var.diagnostic_evidence_sha256))
+    )
+    error_message = "A restore-only image override requires the isolated restore gates, completed bootstrap, a confirmed empty read-only baseline, and its evidence SHA-256."
+  }
+}
+
+variable "confirm_read_only_empty_baseline" {
+  type        = bool
+  default     = false
+  description = "Set only after reviewing diagnostic evidence that the target satisfies the fixed empty-target precondition."
+}
+
+variable "diagnostic_evidence_sha256" {
+  type        = string
+  default     = ""
+  description = "SHA-256 of the sanitized read-only diagnostic result required for any restore image override."
+  validation {
+    condition     = var.diagnostic_evidence_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.diagnostic_evidence_sha256))
+    error_message = "Diagnostic evidence binding must be empty or a lowercase SHA-256 digest."
+  }
+}
+
 variable "confirm_bootstrap_complete" {
   type        = bool
   description = "Operator acknowledgment only after bootstrap Job evidence verifies roles, extensions, and target ACLs."
@@ -145,6 +195,8 @@ locals {
     local.executor_digest_valid && can(regex("^[0-9a-f]{64}$", var.manifest_sha256)) &&
     can(regex("^[0-9a-f]{64}$", var.migration_inventory_sha256))
   )
+  diagnostic_enabled            = local.restore_enabled && var.enable_diagnostic_job
+  restore_phase_image           = var.restore_executor_image != "" ? var.restore_executor_image : var.executor_image
   owner_role                    = "g03_restore_owner_${replace(var.run_id, "-", "_")}"
   verifier_role                 = "g03_restore_verify_${replace(var.run_id, "-", "_")}"
   restore_service_account_email = "g03-restore-${var.run_id}@${var.project_id}.iam.gserviceaccount.com"

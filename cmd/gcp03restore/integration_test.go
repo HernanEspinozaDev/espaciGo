@@ -184,6 +184,9 @@ func TestGCP03PhasesPostgres18Disposable(t *testing.T) {
 		allowLines = append(allowLines, line)
 	}
 	allowlist := []byte(strings.Join(allowLines, "\n") + "\n")
+	if err := validateArchiveTOC(ctx, dump, rawTOC, allowlist); err != nil {
+		t.Fatalf("read-only generated TOC diagnostic rejected the exact local archive: %v", err)
+	}
 	migrationSHA, err := migrationInventory(migrationDirectory)
 	if err != nil {
 		t.Fatal("calculate local V1-V61 inventory")
@@ -214,6 +217,10 @@ func TestGCP03PhasesPostgres18Disposable(t *testing.T) {
 	}
 	restoreURL := localDatabaseURL(parsed, targetName, restoreLogin)
 	verifyURL := localDatabaseURL(parsed, targetName, verifyLogin)
+	baseline, err := inspectReadOnlyBaseline(ctx, verifyURL, runID)
+	if err != nil || !baseline["transaction_read_only"] || !baseline["target_empty_except_extensions"] {
+		t.Fatalf("diagnostic did not report a read-only empty target before restore: baseline=%v err=%v", baseline, err)
+	}
 	if err := checkRestorePrerequisites(ctx, restoreURL, runID); err != nil {
 		t.Fatalf("restore role preflight failed: %v", err)
 	}
@@ -228,6 +235,10 @@ func TestGCP03PhasesPostgres18Disposable(t *testing.T) {
 			t.Fatalf("restore phase failed: code=%s sqlstate=%s exit=%d", processErr.code, processErr.sqlState, processErr.exitCode)
 		}
 		t.Fatalf("restore phase failed: %v", err)
+	}
+	baseline, err = inspectReadOnlyBaseline(ctx, verifyURL, runID)
+	if err != nil || !baseline["transaction_read_only"] || baseline["target_empty_except_extensions"] || !baseline["application_relations_present"] || !baseline["migration_history_present"] {
+		t.Fatalf("diagnostic did not safely detect restored schema metadata: baseline=%v err=%v", baseline, err)
 	}
 	if _, err := restoreSynthetic(ctx, restoreURL, runID, manifest, dump, rawTOC, allowlist); err == nil {
 		t.Fatal("restore retry accepted a populated target")

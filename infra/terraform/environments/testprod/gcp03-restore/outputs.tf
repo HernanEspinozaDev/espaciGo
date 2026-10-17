@@ -18,6 +18,11 @@ output "verify_job_name" {
   value       = try(google_cloud_run_v2_job.verify[0].name, null)
 }
 
+output "diagnostic_job_name" {
+  description = "Default-off read-only artifact and database-catalog diagnostic Job; Terraform creates it but never executes it."
+  value       = try(google_cloud_run_v2_job.diagnose[0].name, null)
+}
+
 output "retire_job_name" {
   description = "Post-verify retirement Job resource; Terraform never runs it."
   value       = try(google_cloud_run_v2_job.admin_phase["retire"].name, null)

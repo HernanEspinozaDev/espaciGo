@@ -23,6 +23,8 @@ run "restore_is_off_by_default" {
       length(google_cloud_run_v2_job.restore) == 0 &&
       length(google_cloud_run_v2_job.verify) == 0 &&
       length(google_cloud_run_v2_job.admin_phase) == 0 &&
+      length(google_cloud_run_v2_job.diagnose) == 0 &&
+      length(google_storage_bucket_iam_member.diagnostic_artifact_reader) == 0 &&
       length(google_service_account_iam_member.bootstrap_deployer_act_as) == 0 &&
       length(google_cloud_run_v2_job_iam_member.bootstrap_invoker) == 0 &&
       length(google_service_account_iam_member.restore_operator_act_as) == 0 &&
@@ -30,8 +32,111 @@ run "restore_is_off_by_default" {
       length(google_cloud_run_v2_job_iam_member.restore_invoker) == 0 &&
       length(google_cloud_run_v2_job_iam_member.verify_invoker) == 0 &&
       length(google_cloud_run_v2_job_iam_member.retire_invoker) == 0
+      && length(google_cloud_run_v2_job_iam_member.diagnostic_invoker) == 0
     )
     error_message = "The managed synthetic restore must create no resources unless all exact review inputs are supplied."
+  }
+}
+
+run "diagnostic_job_is_read_only_and_scoped" {
+  command = plan
+  variables {
+    project_id                    = "espacigo-testprod"
+    region                        = "southamerica-west1"
+    run_id                        = "fixture1"
+    enable_foundation             = true
+    enable_bootstrap_job          = true
+    enable_restore_jobs           = true
+    enable_diagnostic_job         = true
+    confirm_bootstrap_complete    = true
+    confirm_isolated_restore      = true
+    executor_image                = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-restore-fixture1/restore@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    diagnostic_image              = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03restore@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    proxy_image                   = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    admin_password_secret_version = "7"
+    manifest_sha256               = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    migration_inventory_sha256    = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    bootstrap_operator_member     = "user:pasteleriahijitos@gmail.com"
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.diagnose) == 1 &&
+      google_cloud_run_v2_job.diagnose[0].template[0].template[0].service_account == local.verify_service_account_email &&
+      google_cloud_run_v2_job.diagnose[0].template[0].template[0].max_retries == 0 &&
+      google_cloud_run_v2_job.diagnose[0].template[0].template[0].timeout == "300s" &&
+      one([for container in google_cloud_run_v2_job.diagnose[0].template[0].template[0].containers : container.image if container.name == "diagnose"]) == var.diagnostic_image &&
+      one([for env in google_cloud_run_v2_job.diagnose[0].template[0].template[0].containers[0].env : env.value if env.name == "GCP03_PHASE"]) == "diagnose" &&
+      one([for env in google_cloud_run_v2_job.diagnose[0].template[0].template[0].containers[0].env : env.value if env.name == "DATABASE_URL"]) == "postgres://g03-verify-fixture1%40espacigo-testprod.iam@127.0.0.1:5432/espacigo_scratch?sslmode=disable" &&
+      length([for env in google_cloud_run_v2_job.diagnose[0].template[0].template[0].containers[0].env : env if env.name == "GCP03_ADMIN_PASSWORD_FILE"]) == 0
+    )
+    error_message = "Diagnostics must use the existing verifier identity, bounded execution, no retry, no secret volume, and the fixed IAM SQL URL."
+  }
+  assert {
+    condition = (
+      length(google_storage_bucket_iam_member.diagnostic_artifact_reader) == 1 &&
+      google_storage_bucket_iam_member.diagnostic_artifact_reader[0].role == "roles/storage.objectViewer" &&
+      length(google_cloud_run_v2_job_iam_member.diagnostic_invoker) == 1 &&
+      google_cloud_run_v2_job_iam_member.diagnostic_invoker[0].name == google_cloud_run_v2_job.diagnose[0].name &&
+      google_cloud_run_v2_job_iam_member.diagnostic_invoker[0].role == "roles/run.invoker" &&
+      google_cloud_run_v2_job_iam_member.diagnostic_invoker[0].member == "user:pasteleriahijitos@gmail.com" &&
+      google_cloud_run_v2_job.restore[0].template[0].template[0].containers[0].image == var.executor_image
+    )
+    error_message = "The diagnostic receives only objectViewer on the run bucket and exact Job invocation; the existing restore image remains unchanged until its own recovery review."
+  }
+}
+
+run "restore_image_override_requires_diagnostic_baseline" {
+  command = plan
+  variables {
+    project_id                    = "espacigo-testprod"
+    region                        = "southamerica-west1"
+    run_id                        = "fixture1"
+    enable_foundation             = true
+    enable_bootstrap_job          = true
+    enable_restore_jobs           = true
+    confirm_bootstrap_complete    = true
+    confirm_isolated_restore      = true
+    executor_image                = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-restore-fixture1/restore@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    restore_executor_image        = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03restore@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    proxy_image                   = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    admin_password_secret_version = "7"
+    manifest_sha256               = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    migration_inventory_sha256    = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    bootstrap_operator_member     = "user:pasteleriahijitos@gmail.com"
+  }
+  expect_failures = [var.restore_executor_image]
+}
+
+run "reviewed_restore_override_changes_only_restore_job_image" {
+  command = plan
+  variables {
+    project_id                       = "espacigo-testprod"
+    region                           = "southamerica-west1"
+    run_id                           = "fixture1"
+    enable_foundation                = true
+    enable_bootstrap_job             = true
+    enable_restore_jobs              = true
+    confirm_bootstrap_complete       = true
+    confirm_isolated_restore         = true
+    confirm_read_only_empty_baseline = true
+    executor_image                   = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-restore-fixture1/restore@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    restore_executor_image           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03restore@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    diagnostic_evidence_sha256       = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    proxy_image                      = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    admin_password_secret_version    = "7"
+    manifest_sha256                  = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    migration_inventory_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    bootstrap_operator_member        = "user:pasteleriahijitos@gmail.com"
+  }
+  assert {
+    condition = (
+      google_cloud_run_v2_job.restore[0].template[0].template[0].containers[0].image == var.restore_executor_image &&
+      google_cloud_run_v2_job.verify[0].template[0].template[0].containers[0].image == var.executor_image &&
+      google_cloud_run_v2_job.admin_phase["bootstrap"].template[0].template[0].containers[0].image == var.executor_image &&
+      google_cloud_run_v2_job.admin_phase["retire"].template[0].template[0].containers[0].image == var.executor_image
+    )
+    error_message = "The separately acknowledged recovery override may update only the restore Job image."
   }
 }
 
