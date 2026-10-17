@@ -31,6 +31,7 @@ const (
 	PhaseObserve         Phase = "observe"
 	PhaseMembership      Phase = "membership"
 	PhaseMembershipCheck Phase = "membership-check"
+	PhaseOwnerACLCheck   Phase = "owner-acl-check"
 )
 
 type Config struct {
@@ -47,8 +48,8 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("GCP-03 origin environment is unavailable")
 	}
 	phase := Phase(strings.TrimSpace(getenv("GCP03_ORIGIN_PHASE")))
-	if phase != PhaseBootstrap && phase != PhaseObserve && phase != PhaseMembership && phase != PhaseMembershipCheck {
-		return Config{}, errors.New("GCP03_ORIGIN_PHASE must be bootstrap, membership, membership-check, or observe")
+	if phase != PhaseBootstrap && phase != PhaseObserve && phase != PhaseMembership && phase != PhaseMembershipCheck && phase != PhaseOwnerACLCheck {
+		return Config{}, errors.New("GCP03_ORIGIN_PHASE must be bootstrap, membership, membership-check, owner-acl-check, or observe")
 	}
 	if ValidateConfirmation(getenv("GCP03_ORIGIN_CONFIRM_TARGET")) != nil || getenv("CLOUD_SQL_INSTANCE_CONNECTION_NAME") != InstanceConnection || getenv("CLOUD_SQL_PRIVATE_IP") != "true" {
 		return Config{}, errors.New("GCP-03 origin target confirmation does not match the fixed private rehearsal target")
@@ -62,7 +63,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	config := Config{Phase: phase, Instance: InstanceConnection, PrivateIP: true}
-	if phase == PhaseBootstrap || phase == PhaseMembership || phase == PhaseMembershipCheck {
+	if phase == PhaseBootstrap || phase == PhaseMembership || phase == PhaseMembershipCheck || phase == PhaseOwnerACLCheck {
 		config.Login, config.DatabaseURL, config.PasswordFile = AdminLogin, AdminDatabaseURL, AdminPasswordFile
 	} else {
 		config.Login, config.DatabaseURL = ObserverLogin, ObserverDatabaseURL
@@ -70,7 +71,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if getenv("DATABASE_URL") != config.DatabaseURL || getenv("DATABASE_CONNECTION_MODE") != "cloudsql" {
 		return Config{}, errors.New("GCP-03 origin database connection does not match the fixed Cloud SQL target")
 	}
-	if (phase == PhaseBootstrap || phase == PhaseMembership || phase == PhaseMembershipCheck) && getenv("DATABASE_PASSWORD_FILE") != AdminPasswordFile {
+	if (phase == PhaseBootstrap || phase == PhaseMembership || phase == PhaseMembershipCheck || phase == PhaseOwnerACLCheck) && getenv("DATABASE_PASSWORD_FILE") != AdminPasswordFile {
 		return Config{}, errors.New("GCP-03 origin admin phase requires the fixed admin secret mount")
 	}
 	if phase == PhaseObserve && getenv("DATABASE_PASSWORD_FILE") != "" {

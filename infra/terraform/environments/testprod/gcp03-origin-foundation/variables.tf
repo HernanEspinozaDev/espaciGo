@@ -102,6 +102,26 @@ variable "origin_membership_diagnostic_image" {
   }
 }
 
+variable "enable_origin_owner_acl_diagnostic_job" {
+  type        = bool
+  default     = false
+  description = "Default-off read-only owner/ACL and import-count diagnostic for the fixed origin target."
+  validation {
+    condition     = !var.enable_origin_owner_acl_diagnostic_job || (var.enable_foundation && var.confirm_origin_rehearsal && var.run_id == "g03o-1017" && can(regex("@sha256:[0-9a-f]{64}$", var.origin_owner_acl_diagnostic_image)) && var.admin_password_secret_version == "1" && var.confirm_admin_password_secret_version)
+    error_message = "Owner/ACL diagnostic requires the exact target, digest-pinned executor, and confirmed admin-password secret version 1."
+  }
+}
+
+variable "origin_owner_acl_diagnostic_image" {
+  type        = string
+  default     = ""
+  description = "Digest-pinned GCP-03 origin executor with the fixed read-only owner/ACL diagnostic profile."
+  validation {
+    condition     = var.origin_owner_acl_diagnostic_image == "" || (can(regex("@sha256:[0-9a-f]{64}$", var.origin_owner_acl_diagnostic_image)) && startswith(var.origin_owner_acl_diagnostic_image, "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin@sha256:"))
+    error_message = "Owner/ACL diagnostic image must be digest-pinned in the reviewed origin executor repository."
+  }
+}
+
 variable "enable_uploader_impersonation_binding" {
   type        = bool
   default     = false
@@ -376,6 +396,7 @@ locals {
   admin_enabled                  = local.foundation_enabled && var.enable_origin_bootstrap_job
   membership_enabled             = local.foundation_enabled && var.enable_origin_membership_job
   membership_diagnostic_enabled  = local.foundation_enabled && var.enable_origin_membership_diagnostic_job
+  owner_acl_diagnostic_enabled   = local.foundation_enabled && var.enable_origin_owner_acl_diagnostic_job
   observer_enabled               = local.foundation_enabled && var.enable_origin_observer_job
   import_infrastructure_enabled  = local.foundation_enabled && var.enable_origin_import_infrastructure
   import_enabled                 = local.foundation_enabled && var.enable_origin_import_job

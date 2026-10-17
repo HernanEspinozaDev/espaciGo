@@ -13,7 +13,7 @@ func env(phase Phase) map[string]string {
 		"CLOUD_SQL_PRIVATE_IP":               "true",
 		"DATABASE_CONNECTION_MODE":           "cloudsql",
 	}
-	if phase == PhaseBootstrap || phase == PhaseMembership || phase == PhaseMembershipCheck {
+	if phase == PhaseBootstrap || phase == PhaseMembership || phase == PhaseMembershipCheck || phase == PhaseOwnerACLCheck {
 		values["DATABASE_URL"] = AdminDatabaseURL
 		values["DATABASE_PASSWORD_FILE"] = AdminPasswordFile
 	} else {
@@ -23,7 +23,7 @@ func env(phase Phase) map[string]string {
 }
 
 func TestLoadConfigAcceptsOnlyFixedBootstrapMembershipAndObserverProfiles(t *testing.T) {
-	for _, phase := range []Phase{PhaseBootstrap, PhaseMembership, PhaseMembershipCheck, PhaseObserve} {
+	for _, phase := range []Phase{PhaseBootstrap, PhaseMembership, PhaseMembershipCheck, PhaseOwnerACLCheck, PhaseObserve} {
 		t.Run(string(phase), func(t *testing.T) {
 			values := env(phase)
 			config, err := LoadConfig(func(key string) string { return values[key] })
@@ -42,6 +42,9 @@ func TestLoadConfigAcceptsOnlyFixedBootstrapMembershipAndObserverProfiles(t *tes
 			if phase == PhaseMembershipCheck && (config.PasswordFile != AdminPasswordFile || config.Login != AdminLogin) {
 				t.Fatalf("membership diagnostic did not receive the fixed read-only admin profile: %#v", config)
 			}
+			if phase == PhaseOwnerACLCheck && (config.PasswordFile != AdminPasswordFile || config.Login != AdminLogin) {
+				t.Fatalf("owner/ACL diagnostic did not receive the fixed read-only admin profile: %#v", config)
+			}
 		})
 	}
 }
@@ -59,6 +62,8 @@ func TestLoadConfigRejectsTargetAndSecretOverrides(t *testing.T) {
 		{"arbitrary sql", "GCP03_SQL", "DROP DATABASE", PhaseBootstrap},
 		{"diagnostic sql override", "GCP03_SQL_STDIN", "GRANT role TO user", PhaseMembershipCheck},
 		{"diagnostic other target", "GCP03_ORIGIN_CONFIRM_TARGET", "other/db", PhaseMembershipCheck},
+		{"owner acl diagnostic sql override", "GCP03_SQL_STDIN", "DROP TABLE public.sesion", PhaseOwnerACLCheck},
+		{"owner acl diagnostic other target", "GCP03_ORIGIN_CONFIRM_TARGET", "other/db", PhaseOwnerACLCheck},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			values := env(test.phase)

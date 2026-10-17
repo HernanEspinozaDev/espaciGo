@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // TestOriginBootstrapAndObserverPostgres18 exercises the complete bootstrap
@@ -160,6 +161,24 @@ func TestOriginBootstrapAndObserverPostgres18(t *testing.T) {
 	})
 	if failedCommitErr == nil || failedCommitReport.Passed || failedCommitReport.TransactionOutcome != "outcome_uncertain" {
 		t.Fatalf("observer commit failure must not produce successful evidence: report=%+v err=%v", failedCommitReport, failedCommitErr)
+	}
+	ownerTx, err := admin.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		t.Fatal("begin PG18 read-only mutation check", err)
+	}
+	_, mutationErr := ownerTx.Exec(ctx, `CREATE TABLE public.g03_readonly_probe(id integer)`)
+	var pgErr *pgconn.PgError
+	if !errors.As(mutationErr, &pgErr) || pgErr.Code != "25006" {
+		_ = ownerTx.Rollback(ctx)
+		t.Fatalf("read-only transaction must reject DDL with SQLSTATE 25006, got %v", mutationErr)
+	}
+	_ = ownerTx.Rollback(ctx)
+	ownerReport, ownerErr := ownerACLDiagnosticOnConnection(ctx, admin, func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) })
+	if ownerErr != nil || !ownerReport.ReportComplete || ownerReport.TransactionOutcome != "committed" || !ownerReport.ReadOnly || ownerReport.ServerVersionMajor != 18 {
+		t.Fatalf("read-only owner/ACL catalog diagnostic should report an incomplete import without requiring normalization: report=%+v err=%v", ownerReport, ownerErr)
+	}
+	if ownerReport.ExpectedMigration61Present || ownerReport.MigrationHistoryCount != 0 || ownerReport.ValidSessions != 0 || ownerReport.UsableActionTokens != 0 || ownerReport.PendingNotices != 0 || ownerReport.IdentityEventLeases != 0 {
+		t.Fatalf("empty scratch fixture must produce catalog/count-only diagnostics: %+v", ownerReport)
 	}
 
 }

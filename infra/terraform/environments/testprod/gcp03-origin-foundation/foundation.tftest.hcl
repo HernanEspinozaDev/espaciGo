@@ -23,6 +23,7 @@ run "foundation_is_off_by_default" {
       length(google_cloud_run_v2_job.origin_bootstrap) == 0 &&
       length(google_cloud_run_v2_job.origin_membership) == 0 &&
       length(google_cloud_run_v2_job.origin_membership_diagnostic) == 0 &&
+      length(google_cloud_run_v2_job.origin_owner_acl_diagnostic) == 0 &&
       length(google_cloud_run_v2_job.origin_observer) == 0 &&
       length(google_service_account.origin_observer) == 0 &&
       length(google_sql_user.origin_observer) == 0
@@ -266,6 +267,49 @@ run "import_job_is_single_attempt_private_and_hash_bound" {
   assert {
     condition     = google_storage_bucket.private_files[0].public_access_prevention == "enforced" && length(google_storage_bucket_iam_member.private_files_creator) == 1 && google_storage_bucket_iam_member.private_files_creator[0].role == "roles/storage.objectCreator"
     error_message = "Private files must use an enforced private bucket and create-only writer."
+  }
+}
+
+run "owner_acl_diagnostic_adds_one_readonly_job_and_preserves_import_job" {
+  command = plan
+
+  variables {
+    run_id                                 = "g03o-1017"
+    enable_foundation                      = true
+    confirm_origin_rehearsal               = true
+    enable_origin_import_infrastructure    = true
+    enable_origin_import_job               = true
+    enable_origin_owner_acl_diagnostic_job = true
+    confirm_origin_bootstrap_completed     = true
+    bootstrap_evidence_sha256              = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    admin_password_secret_version          = "1"
+    confirm_admin_password_secret_version  = true
+    transport_key_secret_version           = "7"
+    confirm_transport_key_secret_version   = true
+    origin_executor_image                  = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    origin_owner_acl_diagnostic_image      = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    origin_import_image                    = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin-import@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    origin_proxy_image                     = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    import_receipt_object                  = "runs/g03o-1017/receipt.json"
+    import_receipt_generation              = "9"
+    import_receipt_bytes                   = 2048
+    import_receipt_sha256                  = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    import_manifest_sha256                 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    import_observer_sha256                 = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    import_normalization_sha256            = "1111111111111111111111111111111111111111111111111111111111111111"
+  }
+
+  assert {
+    condition     = length(google_cloud_run_v2_job.origin_owner_acl_diagnostic) == 1 && length(google_cloud_run_v2_job.origin_import) == 1
+    error_message = "Enabling the diagnostic must preserve the existing import Job and add exactly one separate diagnostic Job."
+  }
+  assert {
+    condition = (
+      google_cloud_run_v2_job.origin_owner_acl_diagnostic[0].template[0].template[0].max_retries == 0 &&
+      contains([for env in google_cloud_run_v2_job.origin_owner_acl_diagnostic[0].template[0].template[0].containers[0].env : env.value if env.name == "GCP03_ORIGIN_PHASE"], "owner-acl-check") &&
+      one([for volume in google_cloud_run_v2_job.origin_owner_acl_diagnostic[0].template[0].template[0].volumes : volume.secret[0].items[0].version if volume.name == "origin-admin-password"]) == "1"
+    )
+    error_message = "The diagnostic must use its fixed read-only profile, one attempt, and admin secret version 1."
   }
 }
 
