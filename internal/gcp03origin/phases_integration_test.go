@@ -161,6 +161,7 @@ func TestOriginBootstrapAndObserverPostgres18(t *testing.T) {
 	if failedCommitErr == nil || failedCommitReport.Passed || failedCommitReport.TransactionOutcome != "outcome_uncertain" {
 		t.Fatalf("observer commit failure must not produce successful evidence: report=%+v err=%v", failedCommitReport, failedCommitErr)
 	}
+
 }
 
 func assertExtensionsAndRoles(t *testing.T, ctx context.Context, conn *pgx.Conn, wantExtensions int, wantRoles []string) {

@@ -21,6 +21,7 @@ run "foundation_is_off_by_default" {
       length(google_secret_manager_secret_iam_member.admin_password_reader) == 0 &&
       length(google_project_iam_member.admin_sql_client) == 0 &&
       length(google_cloud_run_v2_job.origin_bootstrap) == 0 &&
+      length(google_cloud_run_v2_job.origin_membership) == 0 &&
       length(google_cloud_run_v2_job.origin_observer) == 0 &&
       length(google_service_account.origin_observer) == 0 &&
       length(google_sql_user.origin_observer) == 0
@@ -28,8 +29,57 @@ run "foundation_is_off_by_default" {
       && length(google_cloud_run_v2_job.origin_postrestore) == 0
       && length(google_storage_bucket.private_files) == 0
       && length(google_service_account.ciphertext_uploader) == 0
+      && length(google_project_iam_custom_role.uploader_token_access) == 0
+      && length(google_service_account_iam_member.uploader_token_access) == 0
     )
     error_message = "No origin rehearsal resource may be planned while Foundation is off."
+  }
+}
+
+run "runtime_membership_job_is_one_shot_and_separate_from_bootstrap_import" {
+  command = plan
+  variables {
+    run_id                                = "g03o-1017"
+    enable_foundation                     = true
+    confirm_origin_rehearsal              = true
+    enable_origin_membership_job          = true
+    origin_membership_image               = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    admin_password_secret_version         = "3"
+    confirm_admin_password_secret_version = true
+  }
+  assert {
+    condition = (length(google_cloud_run_v2_job.origin_membership) == 1 &&
+      google_cloud_run_v2_job.origin_membership[0].template[0].template[0].max_retries == 0 &&
+      google_cloud_run_v2_job.origin_membership[0].template[0].task_count == 1 &&
+    google_cloud_run_v2_job.origin_membership[0].template[0].parallelism == 1)
+    error_message = "Membership remediation must be a single no-retry task."
+  }
+  assert {
+    condition = (length(google_cloud_run_v2_job.origin_bootstrap) == 0 &&
+      length(google_cloud_run_v2_job.origin_import) == 0 &&
+    length(google_cloud_run_v2_job.origin_postrestore) == 0)
+    error_message = "Membership remediation must not rerun bootstrap, import, or post-restore."
+  }
+}
+
+run "uploader_impersonation_role_has_only_access_token_permission" {
+  command = plan
+  variables {
+    run_id                                = "g03o-1017"
+    enable_foundation                     = true
+    confirm_origin_rehearsal              = true
+    enable_origin_ciphertext_uploader     = true
+    enable_uploader_impersonation_binding = true
+  }
+  assert {
+    condition = (length(google_project_iam_custom_role.uploader_token_access) == 1 &&
+    google_project_iam_custom_role.uploader_token_access[0].permissions == toset(["iam.serviceAccounts.getAccessToken"]))
+    error_message = "The temporary custom role must contain exactly getAccessToken."
+  }
+  assert {
+    condition = (length(google_service_account_iam_member.uploader_token_access) == 1 &&
+    google_service_account_iam_member.uploader_token_access[0].member == "user:pasteleriahijitos@gmail.com")
+    error_message = "The human binding must target only the exact run uploader service account."
   }
 }
 

@@ -1,0 +1,77 @@
+{
+  "cloudsql_reference": "https://docs.cloud.google.com/sql/docs/postgres/users (postgres has LOGIN, CREATEROLE, CREATEDB and lacks SUPERUSER)",
+  "effective_impersonation_preflight": "iam.serviceAccounts.getAccessToken denied (read-only testIamPermissions); no token minted",
+  "iam_credentials_api": "iamcredentials.googleapis.com enabled (read-only check)",
+  "import_executor": {
+    "archive_sha256": "14a41e75bd5f1645250093dfa1052054b890409197f67a3700affee9c53ca319",
+    "oci_manifest_digest": "sha256:bfc0d7dd47356d77b73dbe7aba88dc315e1f9914ab81679659641bebd39632ac",
+    "published": false
+  },
+  "membership_integration": "scripts/test-gcp03-origin-postgres.sh runs TestOriginMembershipPostgres18 against isolated PostgreSQL 18 with postgres NOSUPERUSER, CREATEROLE, CREATEDB; validates wrong identity, unsafe role, denied GRANT rollback, failed postcheck rollback, uncertain commit, exact successful membership, and unchanged role/object inventory.",
+  "plan_mode": "refresh=true, lock=false; saved plans only; no apply",
+  "plans": {
+    "runtime-membership": {
+      "file": "/home/nandev/.codex/worktrees/g03o-runtime-membership/espaciGo/.local/testing/g03o-runtime-membership-r2-20261017/runtime-membership.tfplan",
+      "oci_digest": "sha256:8f0266d13b4e589ffca8b8f8c5d699890305e4fce4119da923d53cb44b00e422",
+      "resource_changes": [
+        {
+          "actions": [
+            "create"
+          ],
+          "address": "google_cloud_run_v2_job.origin_membership[0]"
+        }
+      ],
+      "sha256": "5c9d76d0ddef405e715ee7bca230cc123b4491552fd91e10b82273ca8d3bcec5",
+      "source_commit": "6e3613e25ff6bcfe7f5dcb8f9f05f2d81a6a5668"
+    },
+    "runtime-membership-initial-superseded": {
+      "file": "runtime-membership.tfplan",
+      "resource_changes": [
+        {
+          "actions": [
+            "create"
+          ],
+          "address": "google_cloud_run_v2_job.origin_membership[0]"
+        }
+      ],
+      "sha256": "2419a9bc1338d68eb85817f27d81d3ca83ac94b891004fc14ffba6cb295c6b23",
+      "superseded_by": "runtime-membership-r2 after Cloud SQL postgres role-profile correction"
+    },
+    "uploader-impersonation": {
+      "file": "uploader-impersonation.tfplan",
+      "resource_changes": [
+        {
+          "actions": [
+            "create"
+          ],
+          "address": "google_project_iam_custom_role.uploader_token_access[0]"
+        },
+        {
+          "actions": [
+            "create"
+          ],
+          "address": "google_service_account_iam_member.uploader_token_access[0]"
+        }
+      ],
+      "sha256": "876a092a9a5fe10e84c4dbf773b2cc58e0d2bbd7859242842a2825c924b621cf"
+    }
+  },
+  "project_id": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "run_id": "g03o-1017",
+  "runtime_membership_executor": {
+    "archive": "/home/nandev/.codex/worktrees/g03o-runtime-membership/espaciGo/.local/testing/g03o-runtime-membership-r2-20261017/gcp03origin-linux-amd64.oci.tar",
+    "archive_sha256": "641cbe0783cbc59c82494c5e2e04a286c301036ee3d835e4f219e18092812af6",
+    "metadata": "/home/nandev/.codex/worktrees/g03o-runtime-membership/espaciGo/.local/testing/g03o-runtime-membership-r2-20261017/gcp03origin-manifest.json",
+    "metadata_sha256": "1ffd927711b9a307dcb099559b6c884e01424a4b0b7dc272502295864df46b19",
+    "oci_manifest_digest": "sha256:8f0266d13b4e589ffca8b8f8c5d699890305e4fce4119da923d53cb44b00e422",
+    "published": false
+  },
+  "schema_version": 1,
+  "source_commit": "6e3613e25ff6bcfe7f5dcb8f9f05f2d81a6a5668",
+  "sql": "not connected; no Cloud SQL mutation or job execution",
+  "state_backend": "gs://espacigo-testprod-tfstate-447373903153-gcp/espacigo/testprod/gcp03-origin/g03o-1017",
+  "state_lineage": "4e81a953-7353-fbd4-93a8-e4b9a5019e95",
+  "state_serial": 9,
+  "validity_note": "Both plans were generated from state serial 9. Applying the uploader-impersonation plan changes remote state; regenerate and review the runtime-membership plan after the upload/readback phase before any application. The saved membership plan is a preview for the current serial only."
+}

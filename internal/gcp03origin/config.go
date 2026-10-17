@@ -27,8 +27,9 @@ const (
 type Phase string
 
 const (
-	PhaseBootstrap Phase = "bootstrap"
-	PhaseObserve   Phase = "observe"
+	PhaseBootstrap  Phase = "bootstrap"
+	PhaseObserve    Phase = "observe"
+	PhaseMembership Phase = "membership"
 )
 
 type Config struct {
@@ -45,8 +46,8 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("GCP-03 origin environment is unavailable")
 	}
 	phase := Phase(strings.TrimSpace(getenv("GCP03_ORIGIN_PHASE")))
-	if phase != PhaseBootstrap && phase != PhaseObserve {
-		return Config{}, errors.New("GCP03_ORIGIN_PHASE must be bootstrap or observe")
+	if phase != PhaseBootstrap && phase != PhaseObserve && phase != PhaseMembership {
+		return Config{}, errors.New("GCP03_ORIGIN_PHASE must be bootstrap, membership, or observe")
 	}
 	if ValidateConfirmation(getenv("GCP03_ORIGIN_CONFIRM_TARGET")) != nil || getenv("CLOUD_SQL_INSTANCE_CONNECTION_NAME") != InstanceConnection || getenv("CLOUD_SQL_PRIVATE_IP") != "true" {
 		return Config{}, errors.New("GCP-03 origin target confirmation does not match the fixed private rehearsal target")
@@ -60,7 +61,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	config := Config{Phase: phase, Instance: InstanceConnection, PrivateIP: true}
-	if phase == PhaseBootstrap {
+	if phase == PhaseBootstrap || phase == PhaseMembership {
 		config.Login, config.DatabaseURL, config.PasswordFile = AdminLogin, AdminDatabaseURL, AdminPasswordFile
 	} else {
 		config.Login, config.DatabaseURL = ObserverLogin, ObserverDatabaseURL
@@ -68,8 +69,8 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if getenv("DATABASE_URL") != config.DatabaseURL || getenv("DATABASE_CONNECTION_MODE") != "cloudsql" {
 		return Config{}, errors.New("GCP-03 origin database connection does not match the fixed Cloud SQL target")
 	}
-	if phase == PhaseBootstrap && getenv("DATABASE_PASSWORD_FILE") != AdminPasswordFile {
-		return Config{}, errors.New("GCP-03 origin bootstrap requires the fixed admin secret mount")
+	if (phase == PhaseBootstrap || phase == PhaseMembership) && getenv("DATABASE_PASSWORD_FILE") != AdminPasswordFile {
+		return Config{}, errors.New("GCP-03 origin admin phase requires the fixed admin secret mount")
 	}
 	if phase == PhaseObserve && getenv("DATABASE_PASSWORD_FILE") != "" {
 		return Config{}, errors.New("GCP-03 origin observer must not receive a password file")

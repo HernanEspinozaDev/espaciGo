@@ -301,8 +301,8 @@ def build_review_plan(toc_text: str, metadata: dict, migration_sha: str) -> tupl
     if len(validated) != len(selected):
         raise ArtifactReviewError("generated TOC entry count changed during validation")
 
-    # Bootstrap grants the non-superuser import administrator ADMIN OPTION on
-    # the NOLOGIN runtime role. CREATE on public is temporary during transfers.
+    # The importer needs SET membership on the NOLOGIN runtime role. CREATE on
+    # public is temporary during transfers; ADMIN OPTION is unnecessary.
     statements = ["GRANT CREATE ON SCHEMA public TO espacigo_runtime;"]
     for item in owner_map:
         schema_name = f"{_quote_ident(item['schema'])}.{_quote_ident(item['name'])}"

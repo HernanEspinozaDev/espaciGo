@@ -13,7 +13,7 @@ func env(phase Phase) map[string]string {
 		"CLOUD_SQL_PRIVATE_IP":               "true",
 		"DATABASE_CONNECTION_MODE":           "cloudsql",
 	}
-	if phase == PhaseBootstrap {
+	if phase == PhaseBootstrap || phase == PhaseMembership {
 		values["DATABASE_URL"] = AdminDatabaseURL
 		values["DATABASE_PASSWORD_FILE"] = AdminPasswordFile
 	} else {
@@ -22,8 +22,8 @@ func env(phase Phase) map[string]string {
 	return values
 }
 
-func TestLoadConfigAcceptsOnlyFixedBootstrapAndObserverProfiles(t *testing.T) {
-	for _, phase := range []Phase{PhaseBootstrap, PhaseObserve} {
+func TestLoadConfigAcceptsOnlyFixedBootstrapMembershipAndObserverProfiles(t *testing.T) {
+	for _, phase := range []Phase{PhaseBootstrap, PhaseMembership, PhaseObserve} {
 		t.Run(string(phase), func(t *testing.T) {
 			values := env(phase)
 			config, err := LoadConfig(func(key string) string { return values[key] })
@@ -35,6 +35,9 @@ func TestLoadConfigAcceptsOnlyFixedBootstrapAndObserverProfiles(t *testing.T) {
 			}
 			if phase == PhaseObserve && (config.PasswordFile != "" || config.Login != ObserverLogin) {
 				t.Fatalf("observer received a password profile: %#v", config)
+			}
+			if phase == PhaseMembership && (config.PasswordFile != AdminPasswordFile || config.Login != AdminLogin) {
+				t.Fatalf("membership remediation received a non-admin profile: %#v", config)
 			}
 		})
 	}
