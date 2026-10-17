@@ -92,10 +92,10 @@ resource "google_storage_bucket" "artifacts" {
 }
 
 # Private application files use a different bucket from ciphertext receipts and
-# transport objects. It remains absent until the import Job gate is explicitly
-# enabled in a reviewed plan.
+# transport objects. Infrastructure can be reviewed/applied while the import
+# Job remains disabled and before a K_run Secret Manager version exists.
 resource "google_storage_bucket" "private_files" {
-  count                       = local.import_enabled ? 1 : 0
+  count                       = local.import_infrastructure_enabled ? 1 : 0
   project                     = var.project_id
   name                        = "espacigo-gcp03-private-${var.run_id}"
   location                    = var.region
@@ -114,7 +114,7 @@ resource "google_storage_bucket" "private_files" {
 }
 
 resource "google_storage_bucket_iam_member" "private_files_creator" {
-  count  = local.import_enabled ? 1 : 0
+  count  = local.import_infrastructure_enabled ? 1 : 0
   bucket = google_storage_bucket.private_files[0].name
   role   = "roles/storage.objectCreator"
   member = "serviceAccount:${google_service_account.admin[0].email}"
@@ -152,7 +152,7 @@ resource "google_secret_manager_secret_iam_member" "admin_password_reader" {
 }
 
 resource "google_secret_manager_secret" "transport_key" {
-  count               = local.import_enabled ? 1 : 0
+  count               = local.import_infrastructure_enabled ? 1 : 0
   project             = var.project_id
   secret_id           = "${local.prefix}-transport-key"
   deletion_protection = true
@@ -163,7 +163,7 @@ resource "google_secret_manager_secret" "transport_key" {
 }
 
 resource "google_secret_manager_secret_iam_member" "transport_key_reader" {
-  count     = local.import_enabled ? 1 : 0
+  count     = local.import_infrastructure_enabled ? 1 : 0
   project   = var.project_id
   secret_id = google_secret_manager_secret.transport_key[0].secret_id
   role      = "roles/secretmanager.secretAccessor"
@@ -171,7 +171,7 @@ resource "google_secret_manager_secret_iam_member" "transport_key_reader" {
 }
 
 resource "google_storage_bucket_iam_member" "artifact_reader" {
-  count  = local.import_enabled ? 1 : 0
+  count  = local.import_infrastructure_enabled ? 1 : 0
   bucket = google_storage_bucket.artifacts[0].name
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${google_service_account.admin[0].email}"

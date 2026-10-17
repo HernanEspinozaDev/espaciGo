@@ -222,6 +222,7 @@ run "import_job_is_single_attempt_private_and_hash_bound" {
     run_id                                = "g03o-1017"
     enable_foundation                     = true
     confirm_origin_rehearsal              = true
+    enable_origin_import_infrastructure   = true
     enable_origin_import_job              = true
     confirm_origin_bootstrap_completed    = true
     bootstrap_evidence_sha256             = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -265,6 +266,28 @@ run "import_job_is_single_attempt_private_and_hash_bound" {
   assert {
     condition     = google_storage_bucket.private_files[0].public_access_prevention == "enforced" && length(google_storage_bucket_iam_member.private_files_creator) == 1 && google_storage_bucket_iam_member.private_files_creator[0].role == "roles/storage.objectCreator"
     error_message = "Private files must use an enforced private bucket and create-only writer."
+  }
+}
+
+run "import_infrastructure_gate_does_not_create_import_job" {
+  command = plan
+
+  variables {
+    run_id                              = "g03o-1017"
+    enable_foundation                   = true
+    confirm_origin_rehearsal            = true
+    enable_origin_import_infrastructure = true
+    enable_origin_import_job            = false
+    enable_origin_postrestore_job       = false
+  }
+
+  assert {
+    condition     = length(google_storage_bucket.private_files) == 1 && length(google_secret_manager_secret.transport_key) == 1 && length(google_secret_manager_secret_iam_member.transport_key_reader) == 1
+    error_message = "Import infrastructure gate must create only the private bucket and transport-key secret metadata/access."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_job.origin_import) == 0 && length(google_cloud_run_v2_job.origin_postrestore) == 0
+    error_message = "Import infrastructure gate must leave import and post-restore Jobs absent."
   }
 }
 
