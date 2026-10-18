@@ -17,6 +17,10 @@ FROM (
     UNION ALL SELECT archivo_id FROM public.espacio_galeria_archivo_candidato_local WHERE archivo_id IS NOT NULL
     UNION ALL SELECT archivo_id FROM public.operacion_arriendo_archivo_candidato_local WHERE archivo_id IS NOT NULL
     UNION ALL SELECT archivo_id FROM public.verificacion_archivo_retiro_pendiente_local WHERE archivo_id IS NOT NULL
+    UNION ALL SELECT evidencia_id FROM public.baja_archivo_pendiente_local
+      WHERE completada_en IS NULL
+    UNION ALL SELECT id FROM public.operacion_arriendo_evidencia_ensayo_local
+      WHERE archivo_retirado_en IS NULL
   ) AS all_file_refs
 ) AS unique_file_refs;
 """
