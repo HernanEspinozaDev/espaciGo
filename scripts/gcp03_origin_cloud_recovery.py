@@ -11,9 +11,10 @@ from gcp03_origin_cloud_import_executor import (
     validate_manifest_and_receipt, validate_normalization_sql, wait_for_proxy,
     shutdown_proxy,
 )
-from gcp03_origin_private_files import validate_private_files_tar
+from gcp03_origin_private_files import PrivateFilesError, validate_private_files_tar
 from gcp03_origin_recovery_plan import (build_normalization_recovery_plan, execute_reviewed_recovery,
-    build_private_file_continuation_plan, execute_private_file_continuation, REQUIRED_SANITATION_COUNTS)
+    build_private_file_continuation_plan, execute_private_file_continuation,
+    private_file_reference_mismatch_details, RecoveryStop, REQUIRED_SANITATION_COUNTS)
 from gcp03_origin_recovery_preflight import (CatalogReader, DIAGNOSTIC_SHA256, EXPECTED_CURRENT,
     CANONICAL_MIGRATION_HISTORY_SHA256_V2, migration_history_hashes)
 from gcp03_origin_recovery_runner import REFS_SQL, postcheck_sql
@@ -204,7 +205,7 @@ SELECT jsonb_build_object(
         return json.loads(self._psql(sql, read_only=True))
 
 
-def run_private_file_continuation(*, mode, database, reader, files, store=None,
+def run_private_file_continuation(*, mode, database, reader, files, store_factory=None,
                                   approved_plan_sha256="", run_id=TARGET_RUN_ID):
     """Execute either continuation route; the plan route is strictly read-only."""
     if mode not in {"continuation-plan", "continuation-copy"}:
@@ -234,18 +235,44 @@ SELECT json_build_object(
         raise ImportStopped("CONTINUATION_ROLE_POSTCHECK_FAILED", "continuation_preflight")
     owner_checks = database.verify_normalized()
     sanitation_counts = database.continuation_sanitation_counts()
-    references = database.private_file_refs()
-    plan = build_private_file_continuation_plan(references=references, private_files=files,
-        run_id=run_id, normalized_checks=owner_checks, sanitation_counts=sanitation_counts,
-        migration_history_sha256=migration_history_sha256, role_checks=role_checks)
+    try:
+        references = database.private_file_refs()
+    except PrivateFileReferenceQueryError as exc:
+        result = {"format": "espacigo.g03o.private-file-continuation.v1", "phase": mode,
+            "status": "stopped", "phase_success": False, "report_complete": True,
+            "stage": "private_file_validation", "error_code": "PRIVATE_FILE_REFERENCE_QUERY_FAILED",
+            "transaction_outcome": "not_started", "retry": False}
+        if exc.sqlstate:
+            result["sqlstate"] = exc.sqlstate
+        return result
+    except Exception:
+        return {"format": "espacigo.g03o.private-file-continuation.v1", "phase": mode,
+            "status": "stopped", "phase_success": False, "report_complete": True,
+            "stage": "private_file_validation", "error_code": "PRIVATE_FILE_REFERENCE_QUERY_FAILED",
+            "transaction_outcome": "not_started", "retry": False}
+    try:
+        plan = build_private_file_continuation_plan(references=references, private_files=files,
+            run_id=run_id, normalized_checks=owner_checks, sanitation_counts=sanitation_counts,
+            migration_history_sha256=migration_history_sha256, role_checks=role_checks)
+    except RecoveryStop as exc:
+        return {"format": "espacigo.g03o.private-file-continuation.v1", "phase": mode,
+            "status": "stopped", "phase_success": False, "report_complete": True,
+            "stage": exc.stage, "error_code": exc.code,
+            "transaction_outcome": "not_started", "retry": False}
+    except PrivateFilesError:
+        return {"format": "espacigo.g03o.private-file-continuation.v1", "phase": mode,
+            "status": "stopped", "phase_success": False, "report_complete": True,
+            "stage": "private_file_validation", "error_code": "PRIVATE_FILE_REFERENCE_SET_MISMATCH",
+            "transaction_outcome": "not_started", "retry": False,
+            **private_file_reference_mismatch_details(references=references, private_files=files, run_id=run_id)}
     if mode == "continuation-plan":
         return {**plan, "phase": mode, "status": "plan_ready", "phase_success": True,
                 "report_complete": True, "retry": False}
-    if store is None:
+    if store_factory is None:
         raise ImportStopped("CONTINUATION_COPY_STORE_MISSING", "continuation_preflight")
     return execute_private_file_continuation(plan=plan, approved_plan_sha256=approved_plan_sha256,
         references=references, private_files=files, normalized_checks=owner_checks,
-        sanitation_counts=sanitation_counts, run_id=run_id, store=store,
+        sanitation_counts=sanitation_counts, run_id=run_id, store_factory=store_factory,
         migration_history_sha256=migration_history_sha256, role_checks=role_checks) | {"phase": mode}
 
 
@@ -266,7 +293,7 @@ def run(env):
         reader.normalization_generation = norm_ref.generation
         if mode in {"continuation-plan", "continuation-copy"}:
             return run_private_file_continuation(mode=mode, database=db, reader=reader,
-                files=files, store=GCSPrivateFileStore(cfg.private_files_bucket) if mode == "continuation-copy" else None,
+                files=files, store_factory=(lambda: GCSPrivateFileStore(cfg.private_files_bucket)) if mode == "continuation-copy" else None,
                 approved_plan_sha256=env.get("GCP03_ORIGIN_RECOVERY_APPROVED_PLAN_SHA256", ""))
         plan = make_plan(reader, normalization, archive_stats, private_ref, cfg,
             env["GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256"])

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import unittest
 
 from gcp03_origin_recovery_plan import (
@@ -244,10 +245,16 @@ class RecoveryExecutionTests(unittest.TestCase):
     def test_private_reference_mismatch_prevents_copy(self):
         payload = b"opaque private bytes"
         import uuid
-        self.files = [PrivateFile(f"runs/g03o-1017/{uuid.uuid4()}.blob", payload,
+        file_id = str(uuid.uuid4())
+        self.files = [PrivateFile(f"runs/g03o-1017/{file_id}.blob", payload,
                                   hashlib.sha256(payload).hexdigest())]
         report, db, store = self.run_flow(db=FakeDatabase(refs=set()))
-        self.assertEqual(report["error_code"], "PRIVATE_FILE_REFERENCE_MISMATCH")
+        self.assertEqual(report["error_code"], "PRIVATE_FILE_REFERENCE_SET_MISMATCH")
+        self.assertEqual(report["database_reference_count"], 0)
+        self.assertEqual(report["private_evidence_file_count"], 1)
+        self.assertRegex(report["database_reference_set_sha256"], r"^[0-9a-f]{64}$")
+        self.assertRegex(report["private_evidence_set_sha256"], r"^[0-9a-f]{64}$")
+        self.assertNotIn(file_id, json.dumps(report))
         self.assertEqual(store.calls, [])
 
 

@@ -68,6 +68,23 @@ class RecoveryStop(RuntimeError):
         self.code, self.stage, self.transaction_outcome = code, stage, transaction_outcome
 
 
+def private_file_reference_mismatch_details(*, references: set[str],
+                                           private_files: list[PrivateFile], run_id: str) -> dict:
+    """Expose only cardinalities and hashes for a reference-set mismatch."""
+    try:
+        file_ids = private_evidence_ids(private_files, run_id=run_id)
+    except Exception:
+        file_ids = set()
+    return {
+        "database_reference_count": len(references),
+        "private_evidence_file_count": len(file_ids),
+        "database_reference_set_sha256": hashlib.sha256(
+            "\n".join(sorted(references)).encode()).hexdigest(),
+        "private_evidence_set_sha256": hashlib.sha256(
+            "\n".join(sorted(file_ids)).encode()).hexdigest(),
+    }
+
+
 def build_private_file_continuation_plan(*, references: set[str], private_files: list[PrivateFile],
                                          run_id: str, normalized_checks: dict,
                                          sanitation_counts: dict, migration_history_sha256: str,
@@ -108,7 +125,7 @@ def build_private_file_continuation_plan(*, references: set[str], private_files:
 def execute_private_file_continuation(*, plan: dict, approved_plan_sha256: str,
                                       references: set[str], private_files: list[PrivateFile],
                                       normalized_checks: dict, sanitation_counts: dict,
-                                      run_id: str, store: PrivateFileStore,
+                                      run_id: str, store_factory,
                                       migration_history_sha256: str, role_checks: dict) -> dict:
     """Recompute the approved read-only inventory, then perform create-only copies."""
     current = build_private_file_continuation_plan(references=references,
@@ -126,6 +143,13 @@ def execute_private_file_continuation(*, plan: dict, approved_plan_sha256: str,
             return {"status": "stopped", "phase_success": False, "report_complete": True,
                     "stage": "continuation_private_file_validation", "error_code": "PRIVATE_FILE_ARCHIVE_INVALID",
                     "retry": False, "transaction_outcome": "not_started"}
+    try:
+        store = store_factory()
+    except Exception:
+        return {"format": current["format"], "status": "stopped", "phase_success": False,
+                "report_complete": True, "stage": "private_file_store_setup",
+                "error_code": "PRIVATE_FILE_COPY_STORE_UNAVAILABLE", "retry": False,
+                "transaction_outcome": "not_started"}
     copied = []
     for item in private_files:
         try:
@@ -383,13 +407,8 @@ def execute_reviewed_recovery(
         return report
     except Exception:
         report.update(error_code="PRIVATE_FILE_REFERENCE_SET_MISMATCH", transaction_outcome="committed")
-        try:
-            file_ids = private_evidence_ids(private_files, run_id=run_id)
-            report.update(database_reference_count=len(references), private_evidence_file_count=len(file_ids),
-                database_reference_set_sha256=hashlib.sha256("\n".join(sorted(references)).encode()).hexdigest(),
-                private_evidence_set_sha256=hashlib.sha256("\n".join(sorted(file_ids)).encode()).hexdigest())
-        except Exception:
-            pass
+        report.update(private_file_reference_mismatch_details(
+            references=references, private_files=private_files, run_id=run_id))
         return report
 
     try:

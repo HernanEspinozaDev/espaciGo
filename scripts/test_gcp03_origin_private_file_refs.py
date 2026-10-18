@@ -41,7 +41,7 @@ class PrivateFileReferenceTests(unittest.TestCase):
         store = Store()
         result = execute_private_file_continuation(plan=plan, approved_plan_sha256=plan["plan_sha256"],
             references={file_id}, private_files=[item], normalized_checks=checks,
-            sanitation_counts=sanitation, run_id="g03o-1017", store=store,
+            sanitation_counts=sanitation, run_id="g03o-1017", store_factory=lambda: store,
             migration_history_sha256=migration_sha, role_checks=role_checks)
         self.assertTrue(result["phase_success"])
         self.assertEqual(store.created, [item.object_name])
