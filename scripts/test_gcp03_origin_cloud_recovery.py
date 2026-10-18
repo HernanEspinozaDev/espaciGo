@@ -109,6 +109,42 @@ class CloudRecoveryRunTests(unittest.TestCase):
         self.assertFalse(result["execution_performed"])
         self.assertEqual(self.events, ["proxy-ready", "inputs-authenticated", "db-close", "proxy-shutdown"])
 
+    def test_safe_current_drift_reports_only_field_names_and_hashes(self):
+        expected = {"database": "private_db", "owned_sequence_dependency_count": 11,
+                    "runtime_membership_set": True}
+        observed = {"database": "private_db", "owned_sequence_dependency_count": 12,
+                    "runtime_membership_set": False, "unexpected": "private_value"}
+
+        report = cloud.safe_current_drift(expected, observed)
+
+        self.assertEqual(report["format"], "espacigo.g03o.current-drift.v1")
+        self.assertEqual([item["key"] for item in report["fields"]],
+                         ["owned_sequence_dependency_count", "runtime_membership_set", "unexpected"])
+        self.assertNotIn("private_db", repr(report))
+        self.assertNotIn("private_value", repr(report))
+        for item in report["fields"]:
+            self.assertRegex(item["expected_sha256"], r"^[0-9a-f]{64}$")
+            self.assertRegex(item["observed_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_plan_mode_includes_safe_drift_details(self):
+        drift = cloud.safe_current_drift({"database": "private_db"},
+                                         {"database": "different_private_db"})
+        with patch.object(cloud, "config", return_value=(self.cfg, object(), "plan")), \
+             patch.object(cloud, "GCSObjectStore", return_value=object()), \
+             patch.object(cloud, "wait_for_proxy"), \
+             patch.object(cloud, "CloudRecoveryDatabase", side_effect=lambda path: SimpleNamespace(passfile="/tmp/test-passfile", close=lambda: None)), \
+             patch.object(cloud, "authenticated_inputs", return_value=(None, None, SimpleNamespace(generation=7), object(), {"plain_sha256": "4" * 64}, [], b"sql")), \
+             patch.object(cloud, "CatalogReader", return_value=SimpleNamespace()), \
+             patch.object(cloud, "make_plan", side_effect=ImportStopped("CURRENT_STATE_OR_ARTIFACT_DRIFT", "current_preflight", safe_details={"drift": drift})), \
+             patch.object(cloud, "shutdown_proxy", return_value=True):
+            report = cloud.run({"GCP03_ORIGIN_RECOVERY_MODE": "plan",
+                                "GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256": cloud.F4_IMPORT_FAILURE_SHA256,
+                                "DATABASE_PASSWORD_FILE": "/secrets/admin/password"})
+
+        self.assertEqual(report["error_code"], "CURRENT_STATE_OR_ARTIFACT_DRIFT")
+        self.assertEqual(report["drift"], drift)
+        self.assertNotIn("different_private_db", repr(report))
+
     def test_apply_plan_drift_stops_before_mutation_and_closes_proxy(self):
         with patch.object(cloud, "config", return_value=(self.cfg, object(), "apply")), \
              patch.object(cloud, "GCSObjectStore", return_value=object()), \

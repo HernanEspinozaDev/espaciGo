@@ -30,6 +30,21 @@ La captura autorizada se realizó una sola vez sobre el merge #389 (`04848e9542c
 
 La captura no acredita compatibilidad con Cloud SQL ni con sus roles gestionados, ni una restauración final de archivos. GCP-03 sigue parcial; quedan pendientes el ensayo de compatibilidad Cloud SQL, permisos/funciones, transferencia y validación de archivos, los gates posteriores y la aceptación humana. No se repitió captura/restauración ni se ejecutó importación o acción cloud.
 
+## Actualización del ensayo de origen `g03o-1017` (2026-10-18)
+
+Esta fila de actualización complementa el cierre histórico `g03r-1016`; no cambia sus resultados ni declara GCP-03 aceptado.
+
+| Criterio | Estado | Evidencia / límite |
+| --- | --- | --- |
+| Implementación integrada #393–#404 | Fusionada técnicamente | Incluye bootstrap/observer, importación sellada, runtime, verificador, controles de roles/ACL, gates y Job de recuperación plan-only. Los merges no equivalen a aceptación de producto o del entorno. |
+| Copia del ensayo `g03o-1017` | Reportada con 96 tablas, 61 migraciones y 958 avisos en cuarentena | Son cifras de la copia de ensayo y evidencia asociada; no representan GCP-06 final ni igualdad completa de datos. El bucket privado de archivos estaba vacío antes de la recuperación. |
+| Job de recuperación en modo `plan` | Fallido antes de producir plan | Una ejecución terminó en `current_preflight` con `CURRENT_STATE_OR_ARTIFACT_DRIFT`; `transaction_outcome=not_started`, `retry=false`, `report_complete=false`. No se observó SQL mutador y no hubo reintento. |
+| Causa del drift | Pendiente de diagnóstico | El reporte original solo traía el código general y ocultó las claves discrepantes. No se alteró `EXPECTED_CURRENT`. Se preparó una corrección local para emitir nombres de campos y hashes SHA-256 de esperado/observado, sin exponer valores de catálogo. Hace falta revisión y otra ejecución plan-only para obtener esos hashes. |
+| Recuperación post-restore | Pendiente | No se generó plan completo, no se preparó ni ejecutó modo apply, y el saneamiento post-restore no se considera completado por este ensayo. |
+| GCP-06 final y aceptación GCP-03 | No acreditados | `g03o-1017` es un ensayo técnico run-scoped. No debe presentarse como GCP-06 final, aceptación humana ni operación productiva. |
+
+La evidencia cloud privada de la ejecución está en `.local/testing/g03o-1017-recovery-20261018/`; el reporte saneado tiene SHA-256 `e68368428f7ccbb2db7577144c8303f75c94949073d0e72bf5cf99b339158fed`. Se preservan evidencia y recursos conforme al límite de preservación revisado; no se programó apagado ni limpieza automática.
+
 ## Próximo paquete de trabajo, sin provisión
 
 1. Revisar y fusionar la implementación/procedimiento local del snapshot; corregir comentarios en el mismo PR. No iniciar el corte siguiente antes de la fusión.

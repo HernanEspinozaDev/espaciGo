@@ -90,10 +90,30 @@ def authenticated_inputs(cfg, store):
     return receipt, manifest, norm_ref, private_ref, archive_stats, files, normalization
 
 
+def safe_current_drift(expected: dict, observed: dict) -> dict:
+    """Return field names and digests only; never expose catalog values."""
+    def digest(present, value):
+        encoded = json.dumps({"present": present, "value": value}, sort_keys=True,
+                             separators=(",", ":"), ensure_ascii=True).encode("ascii")
+        return hashlib.sha256(encoded).hexdigest()
+
+    fields = []
+    for key in sorted(set(expected) | set(observed)):
+        expected_present = key in expected
+        observed_present = key in observed
+        if expected_present == observed_present and expected.get(key) == observed.get(key):
+            continue
+        fields.append({"key": key,
+            "expected_sha256": digest(expected_present, expected.get(key)),
+            "observed_sha256": digest(observed_present, observed.get(key))})
+    return {"format": "espacigo.g03o.current-drift.v1", "fields": fields}
+
+
 def make_plan(reader, normalization, archive_stats, private_ref, cfg, import_failure_sha256):
     current = reader.identity_and_inventory()
     if current != EXPECTED_CURRENT:
-        raise ImportStopped("CURRENT_STATE_OR_ARTIFACT_DRIFT", "current_preflight")
+        raise ImportStopped("CURRENT_STATE_OR_ARTIFACT_DRIFT", "current_preflight",
+                            safe_details={"drift": safe_current_drift(EXPECTED_CURRENT, current)})
     facts, parents = reader.statement_facts(normalization)
     binding = {
         "diagnostic_report_sha256": DIAGNOSTIC_SHA256,
@@ -199,10 +219,12 @@ def run(env):
         result["private_files_ciphertext_sha256"] = plan.summary["binding"]["private_files_ciphertext_sha256"]
         return result
     except ImportStopped as exc:
-        return {"format": PLAN_FORMAT if mode == "plan" else APPLY_FORMAT, "phase": phase,
+        result = {"format": PLAN_FORMAT if mode == "plan" else APPLY_FORMAT, "phase": phase,
             "run_id": TARGET_RUN_ID, "status": "stopped", "phase_success": False,
             "report_complete": False, "stage": exc.stage, "error_code": exc.code,
             "transaction_outcome": "uncertain" if exc.mutation_started else "not_started", "retry": False}
+        result.update(exc.safe_details)
+        return result
     except Exception:
         return {"format": PLAN_FORMAT if mode == "plan" else APPLY_FORMAT, "phase": phase,
             "run_id": TARGET_RUN_ID, "status": "stopped", "phase_success": False,
