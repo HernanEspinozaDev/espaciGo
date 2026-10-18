@@ -410,6 +410,104 @@ func TestMPV212HourlyScheduleMigrationFromFreshAndV60(t *testing.T) {
 	})
 }
 
+func TestGCP04DurableReplayRegistryFromFreshAndV61(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve migration source path")
+	}
+	sourceDir := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "db", "migrations"))
+	migrations, err := DiscoverMigrations(sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrations) < 62 || migrations[61].Name != "V000062__gcp04_durable_privacy_replay_registry.sql" {
+		t.Fatalf("unexpected latest migration: count=%d latest=%q", len(migrations), migrations[len(migrations)-1].Name)
+	}
+	v61Dir := t.TempDir()
+	for _, migration := range migrations[:61] {
+		if err := os.WriteFile(filepath.Join(v61Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v62Dir := t.TempDir()
+	for _, migration := range migrations[:62] {
+		if err := os.WriteFile(filepath.Join(v62Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("fresh V1-V62", func(t *testing.T) {
+		withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+			result, err := Run(ctx, databaseURL, v62Dir)
+			if err != nil || len(result.Applied) != 62 || result.Applied[61] != 62 {
+				t.Fatalf("fresh migration result=%v err=%v", result.Applied, err)
+			}
+			conn := connectTestDB(t, ctx, databaseURL)
+			defer conn.Close(ctx)
+			var exists int
+			if err := conn.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='registro_replay_baja_local'`).Scan(&exists); err != nil || exists != 1 {
+				t.Fatalf("fresh replay registry exists=%d err=%v", exists, err)
+			}
+		})
+	})
+
+	t.Run("upgrade V61 and seed completed rows", func(t *testing.T) {
+		withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+			result, err := Run(ctx, databaseURL, v61Dir)
+			if err != nil || len(result.Applied) != 61 || result.Applied[60] != 61 {
+				t.Fatalf("apply V1-V61: applied=%v err=%v", result.Applied, err)
+			}
+			conn := connectTestDB(t, ctx, databaseURL)
+			const accountID = "06200000-0000-4000-8000-000000000001"
+			const requestID = "06200000-0000-4000-8000-000000000002"
+			const executionID = "06200000-0000-4000-8000-000000000003"
+			requestedAt := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+			completedAt := requestedAt.Add(time.Hour)
+			if _, err := conn.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,'gcp04-migration@example.invalid','gcp04-migration@example.invalid','synthetic','desidentificado')`, accountID); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			if _, err := conn.Exec(ctx, `INSERT INTO public.solicitud_titular(id,usuario_id,tipo,canal,estado,solicitada_en) VALUES($1,$2,'supresion','web','resuelta',$3)`, requestID, accountID, requestedAt); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			if _, err := conn.Exec(ctx, `INSERT INTO public.ejecucion_baja_local(id,solicitud_id,usuario_id,actor_id,clave_idempotencia,estado,motivo_codigo,iniciada_en,completada_en,retirar_en,detalle)
+				VALUES($1,$2,$3,$3,'gcp04-migration','completada','baja_local_minimizada',$4,$5::timestamptz,$5::timestamptz+interval '5 years','{}'::jsonb)`, executionID, requestID, accountID, requestedAt, completedAt); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			var before string
+			if err := conn.QueryRow(ctx, `SELECT string_agg(version::text||':'||checksum, ',' ORDER BY version) FROM public.schema_migrations`).Scan(&before); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			if err := conn.Close(ctx); err != nil {
+				t.Fatal(err)
+			}
+			result, err = Run(ctx, databaseURL, v62Dir)
+			if err != nil || len(result.Applied) != 1 || result.Applied[0] != 62 {
+				t.Fatalf("upgrade V61 to V62: applied=%v err=%v", result.Applied, err)
+			}
+			conn = connectTestDB(t, ctx, databaseURL)
+			defer conn.Close(ctx)
+			var after, gotRequest, gotAccount string
+			var gotRequested, gotCompleted time.Time
+			if err := conn.QueryRow(ctx, `SELECT solicitud_id::text,usuario_id::text,solicitada_en,completada_en FROM public.registro_replay_baja_local WHERE ejecucion_origen_id=$1`, executionID).Scan(&gotRequest, &gotAccount, &gotRequested, &gotCompleted); err != nil {
+				t.Fatal(err)
+			}
+			if gotRequest != requestID || gotAccount != accountID || !gotRequested.Equal(requestedAt) || !gotCompleted.Equal(completedAt) {
+				t.Fatalf("backfilled registry row=%s/%s/%s/%s", gotRequest, gotAccount, gotRequested, gotCompleted)
+			}
+			if err := conn.QueryRow(ctx, `SELECT string_agg(version::text||':'||checksum, ',' ORDER BY version) FROM public.schema_migrations WHERE version<62`).Scan(&after); err != nil {
+				t.Fatal(err)
+			}
+			if before != after {
+				t.Fatal("V62 changed an applied V1-V61 migration checksum or history row")
+			}
+		})
+	})
+}
+
 func assertHourlyScheduleMigrationBehavior(t *testing.T, ctx context.Context, databaseURL string) {
 	t.Helper()
 	conn := connectTestDB(t, ctx, databaseURL)

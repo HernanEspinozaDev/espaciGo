@@ -448,6 +448,7 @@ func GrantRuntimePermissions(ctx context.Context, conn ScratchPermissionDB) erro
 	GRANT UPDATE (autor_id) ON public.mensaje_reserva_ensayo TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE, DELETE ON public.reserva_mensaje_lectura TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.ejecucion_baja_local TO espacigo_runtime;
+	GRANT SELECT, INSERT ON public.registro_replay_baja_local TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.baja_archivo_pendiente_local TO espacigo_runtime;
 	GRANT SELECT, INSERT ON public.foto_perfil_sintetica_local TO espacigo_runtime;
 	GRANT UPDATE (estado,retirada_en,limpia_en,intentos_limpieza,proximo_intento_en,ultimo_codigo_error,archivo_id,mime_type,sha256,size_bytes) ON public.foto_perfil_sintetica_local TO espacigo_runtime;
