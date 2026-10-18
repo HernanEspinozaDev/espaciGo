@@ -30,6 +30,7 @@ EXPECTED_CURRENT = {"database": "espacigo_scratch", "login": "postgres", "server
     "runtime_membership_admin": False, "runtime_membership_effective_set": True,
     "postgres_public_create": True, "runtime_public_create": False,
     "observer_column_select_count": 5, "observer_column_write_count": 0,
+    "owned_sequence_dependency_count": 11,
     "relation_type_counts": {"index": 267, "other": 2, "sequence": 11, "table": 96}}
 OWNER = re.compile(r"^ALTER\s+(TABLE|SEQUENCE|TYPE|DOMAIN|FUNCTION|PROCEDURE|AGGREGATE|TEXT\s+SEARCH\s+DICTIONARY|TEXT\s+SEARCH\s+CONFIGURATION)\s+(.+)\s+OWNER\s+TO\s+espacigo_runtime$", re.I | re.S)
 ACL = re.compile(r"^(GRANT|REVOKE)\s+SELECT\s*\(([^)]+)\)\s+ON\s+TABLE\s+(.+)\s+(TO|FROM)\s+(espacigo_gcp03_observer|espacigo_runtime)$", re.I | re.S)
@@ -74,6 +75,7 @@ class CatalogReader:
           'runtime_membership_effective_set',pg_has_role(current_user,'espacigo_runtime','SET'),
           'postgres_public_create',has_schema_privilege('postgres','public','CREATE'),
           'runtime_public_create',has_schema_privilege('espacigo_runtime','public','CREATE'),
+          'owned_sequence_dependency_count',(SELECT count(*) FROM pg_depend d JOIN pg_class s ON s.oid=d.objid JOIN pg_class p ON p.oid=d.refobjid JOIN pg_namespace n ON n.oid=s.relnamespace WHERE d.classid='pg_class'::regclass AND d.refclassid='pg_class'::regclass AND s.relkind='S' AND n.nspname='public' AND d.deptype IN ('a','i')),
           'observer_column_select_count',(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname='public' AND c.relkind IN ('r','p') AND has_column_privilege('espacigo_gcp03_observer',c.oid,a.attnum,'SELECT')),
           'observer_column_write_count',(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname='public' AND c.relkind IN ('r','p') AND (has_column_privilege('espacigo_gcp03_observer',c.oid,a.attnum,'INSERT') OR has_column_privilege('espacigo_gcp03_observer',c.oid,a.attnum,'UPDATE') OR has_column_privilege('espacigo_gcp03_observer',c.oid,a.attnum,'REFERENCES'))),
           'table_names',(SELECT COALESCE(json_agg(c.relname ORDER BY c.relname),'[]'::json)
@@ -228,6 +230,7 @@ def validate_historical_diagnostic(data: bytes, expected_sha256: str) -> dict:
        required.get("server_version_major") != 18 or required.get("table_inventory_count") != 96 or \
        required.get("table_inventory_sha256") != DIAGNOSTIC_TABLE_SHA256 or \
        required.get("migration_history_count") != 61 or required.get("migration_history_sha256") != DIAGNOSTIC_MIGRATION_SHA256 or \
+       required.get("owned_sequence_parent_owner_counts", {}).get("dependencies") != EXPECTED_CURRENT["owned_sequence_dependency_count"] or \
        required.get("expected_migration_61_present") is not True or required.get("runtime_membership_set") is not True or \
        required.get("runtime_membership_inherit") is not False or required.get("runtime_membership_admin") is not False:
         raise RecoveryPlanError("historical diagnostic does not match the reviewed restored-copy baseline")
@@ -247,6 +250,7 @@ def build_bound_plan(reader: CatalogReader, normalization: bytes, diagnostic_byt
                "migration_history_sha256": current["migration_history_sha256"],
                "database": current["database"], "login": current["login"],
                "server_version_major": current["server_version_major"],
+               "owned_sequence_dependency_count": current["owned_sequence_dependency_count"],
                "historical_owner_sequence_count": diag["owned_sequence_parent_owner_counts"]["dependencies"]}
     plan = build_normalization_recovery_plan(normalization, NORMALIZATION_SHA256, facts,
         owned_sequence_parent_statement=sequence_parents, binding=binding)
@@ -276,6 +280,7 @@ def execute_with_current_preflight(*, reader: CatalogReader, normalization: byte
             "migration_history_sha256": current["migration_history_sha256"],
             "database": current["database"], "login": current["login"],
             "server_version_major": current["server_version_major"],
+            "owned_sequence_dependency_count": current["owned_sequence_dependency_count"],
             "historical_owner_sequence_count": diag["owned_sequence_parent_owner_counts"]["dependencies"]}
         plan = build_normalization_recovery_plan(normalization, NORMALIZATION_SHA256, facts,
             owned_sequence_parent_statement=sequence_parents, binding=binding)

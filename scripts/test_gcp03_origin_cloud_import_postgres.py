@@ -386,7 +386,7 @@ FROM pg_class WHERE oid IN ('public.sample_identity_id_seq'::regclass,
         self.assertTrue(caught.exception.mutation_started)
         self.assertEqual(self.psql("SELECT count(*) FROM pg_class WHERE oid=to_regclass('public.failed_restore')"), "0")
 
-    def test_quarantine_updates_synthetic_rows_and_disables_runtime_login(self):
+    def test_quarantine_updates_synthetic_rows_with_runtime_owner_and_preserves_nologin(self):
         self.psql("""CREATE TABLE public.sesion(revocada_en timestamptz, creada_en timestamptz, expira_en timestamptz);
 CREATE TABLE public.token_accion(invalidado_en timestamptz, consumido_en timestamptz, creado_en timestamptz, expira_en timestamptz);
 CREATE TABLE public.aviso_local(id integer, ciclo integer, estado text, cancelada_en timestamptz, creada_en timestamptz, retirar_en timestamptz, lease_hasta timestamptz, codigo_error text);
@@ -397,7 +397,14 @@ INSERT INTO public.token_accion VALUES (NULL, NULL, now()-interval '1 hour', now
 INSERT INTO public.aviso_local VALUES (1,1,'procesando',NULL,now()-interval '1 hour',NULL,now()+interval '1 hour',NULL);
 INSERT INTO public.aviso_local_ciclo VALUES (1,1,'pendiente',NULL,now()-interval '1 hour',NULL);
 INSERT INTO public.outbox_evento_local VALUES (now()+interval '1 hour',NULL,NULL,NULL);
-ALTER ROLE espacigo_runtime LOGIN;""")
+REVOKE TEMP ON DATABASE espacigo_scratch FROM PUBLIC;
+ALTER TABLE public.sesion OWNER TO espacigo_runtime;
+ALTER TABLE public.token_accion OWNER TO espacigo_runtime;
+ALTER TABLE public.aviso_local OWNER TO espacigo_runtime;
+ALTER TABLE public.aviso_local_ciclo OWNER TO espacigo_runtime;
+ALTER TABLE public.outbox_evento_local OWNER TO espacigo_runtime;
+GRANT espacigo_runtime TO postgres WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;""")
+        self.assertEqual(self.psql("SELECT has_database_privilege('espacigo_runtime','espacigo_scratch','TEMP')"), "f")
         report = self.runner.sanitize()
         self.assertEqual(report["valid_sessions"], 0)
         self.assertEqual(report["usable_action_tokens"], 0)

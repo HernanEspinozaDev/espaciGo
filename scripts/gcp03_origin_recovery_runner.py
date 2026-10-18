@@ -47,18 +47,25 @@ POSTCHECK_SQL = """SELECT json_build_object(
     AND NOT EXISTS(SELECT 1 FROM pg_index ix JOIN pg_constraint con ON con.conindid=ix.indexrelid JOIN pg_depend d ON d.classid='pg_constraint'::regclass AND d.objid=con.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass WHERE ix.indexrelid=c.oid)),
  'routines_owned_by_runtime', NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proowner<>to_regrole('espacigo_runtime') AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass)),
  'text_search_owned_by_runtime', NOT EXISTS(SELECT 1 FROM pg_ts_dict d JOIN pg_namespace n ON n.oid=d.dictnamespace WHERE n.nspname='public' AND d.dictowner<>to_regrole('espacigo_runtime')) AND NOT EXISTS(SELECT 1 FROM pg_ts_config c JOIN pg_namespace n ON n.oid=c.cfgnamespace WHERE n.nspname='public' AND c.cfgowner<>to_regrole('espacigo_runtime')),
- 'sequences_parent_owner_consistent', COALESCE((SELECT bool_and(s.relowner=p.relowner) FROM pg_depend d JOIN pg_class s ON s.oid=d.objid JOIN pg_class p ON p.oid=d.refobjid JOIN pg_namespace n ON n.oid=s.relnamespace WHERE d.classid='pg_class'::regclass AND d.refclassid='pg_class'::regclass AND s.relkind='S' AND n.nspname='public' AND d.deptype IN ('a','i')), true),
+ 'sequences_parent_owner_consistent', COALESCE((SELECT count(*)={expected_sequence_dependency_count} AND bool_and(s.relowner=p.relowner) FROM pg_depend d JOIN pg_class s ON s.oid=d.objid JOIN pg_class p ON p.oid=d.refobjid JOIN pg_namespace n ON n.oid=s.relnamespace WHERE d.classid='pg_class'::regclass AND d.refclassid='pg_class'::regclass AND s.relkind='S' AND n.nspname='public' AND d.deptype IN ('a','i')), false),
  'observer_write_privileges_absent', (SELECT count(*) FILTER(WHERE has_column_privilege(to_regrole('espacigo_gcp03_observer'),c.oid,a.attnum,'INSERT') OR has_column_privilege(to_regrole('espacigo_gcp03_observer'),c.oid,a.attnum,'UPDATE') OR has_column_privilege(to_regrole('espacigo_gcp03_observer'),c.oid,a.attnum,'REFERENCES'))=0 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname='public' AND c.relkind IN ('r','p')),
  'runtime_public_create_absent', NOT has_schema_privilege('espacigo_runtime','public','CREATE'))::text"""
 
 
+def postcheck_sql(expected_sequence_dependency_count: int) -> str:
+    if type(expected_sequence_dependency_count) is not int or expected_sequence_dependency_count < 0:
+        raise ValueError("owned sequence dependency count must be a non-negative integer")
+    return POSTCHECK_SQL.format(expected_sequence_dependency_count=expected_sequence_dependency_count)
+
+
 class LocalPsqlRecoveryDatabase:
-    def __init__(self, *, socket: str, passfile: Path):
+    def __init__(self, *, socket: str, passfile: Path, expected_sequence_dependency_count: int = EXPECTED_CURRENT["owned_sequence_dependency_count"]):
         if not re.fullmatch(r"/[-A-Za-z0-9_./]+", socket):
             raise ValueError("local database socket path is invalid")
         if passfile.is_symlink() or not passfile.is_file() or stat.S_IMODE(passfile.stat().st_mode) != 0o600:
             raise ValueError("local database credential file must be regular mode 0600")
         self.socket, self.passfile = socket, passfile
+        self.expected_sequence_dependency_count = expected_sequence_dependency_count
 
     def _psql(self, sql: bytes | str, *, read_only=False) -> str:
         text = sql.decode("utf-8", "strict") if isinstance(sql, bytes) else sql
@@ -76,7 +83,7 @@ class LocalPsqlRecoveryDatabase:
         self._psql(b"BEGIN;\n" + sql + b"\nCOMMIT;")
 
     def verify_normalized(self) -> dict:
-        return json.loads(self._psql(POSTCHECK_SQL, read_only=True))
+        return json.loads(self._psql(postcheck_sql(self.expected_sequence_dependency_count), read_only=True))
 
     def sanitize(self) -> dict:
         path = Path(__file__).with_name("gcp03_origin_quarantine_cloud.sql")
@@ -128,6 +135,7 @@ def _current_bound_plan(reader, normalization, diagnostic, archive):
         "migration_history_sha256": current["migration_history_sha256"],
         "database": current["database"], "login": current["login"],
         "server_version_major": current["server_version_major"],
+        "owned_sequence_dependency_count": current["owned_sequence_dependency_count"],
         "historical_owner_sequence_count": diag["owned_sequence_parent_owner_counts"]["dependencies"],
         "private_files_tar_sha256": hashlib.sha256(archive).hexdigest()}
     return build_normalization_recovery_plan(normalization, NORMALIZATION_SHA256, facts,

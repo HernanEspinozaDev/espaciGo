@@ -146,7 +146,8 @@ RESET ROLE;
         os.fchmod(fd, 0o600)
         os.close(fd)
         self.addCleanup(lambda: passfile.unlink(missing_ok=True))
-        database = LocalPsqlRecoveryDatabase(socket=SOCKET, passfile=passfile)
+        database = LocalPsqlRecoveryDatabase(socket=SOCKET, passfile=passfile,
+            expected_sequence_dependency_count=len(sequence_parents))
 
         class ObservedDatabase:
             def normalize_owners_and_acls(inner, sql):

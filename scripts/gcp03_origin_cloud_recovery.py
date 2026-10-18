@@ -14,7 +14,7 @@ from gcp03_origin_cloud_import_executor import (
 from gcp03_origin_private_files import validate_private_files_tar
 from gcp03_origin_recovery_plan import build_normalization_recovery_plan, execute_reviewed_recovery
 from gcp03_origin_recovery_preflight import CatalogReader, DIAGNOSTIC_SHA256, EXPECTED_CURRENT
-from gcp03_origin_recovery_runner import POSTCHECK_SQL, REFS_SQL
+from gcp03_origin_recovery_runner import REFS_SQL, postcheck_sql
 
 PLAN_FORMAT = "espacigo.g03o.recovery-plan.v1"
 APPLY_FORMAT = "espacigo.g03o.recovery-execution.v1"
@@ -106,6 +106,7 @@ def make_plan(reader, normalization, archive_stats, private_ref, cfg):
         "migration_history_sha256": current["migration_history_sha256"],
         "database": current["database"], "login": current["login"],
         "server_version_major": current["server_version_major"],
+        "owned_sequence_dependency_count": current["owned_sequence_dependency_count"],
     }
     return build_normalization_recovery_plan(normalization, cfg.expected_normalization_sha256,
         facts, owned_sequence_parent_statement=parents, binding=binding)
@@ -143,7 +144,9 @@ class CloudRecoveryDatabase:
         return proc.stdout.decode("utf-8", "strict").strip()
 
     def normalize_owners_and_acls(self, sql): self._psql(b"BEGIN;\n" + sql + b"\nCOMMIT;")
-    def verify_normalized(self): return json.loads(self._psql(POSTCHECK_SQL, read_only=True))
+    def verify_normalized(self):
+        sql = postcheck_sql(EXPECTED_CURRENT["owned_sequence_dependency_count"])
+        return json.loads(self._psql(sql, read_only=True))
     def sanitize(self):
         path = Path(__file__).with_name("gcp03_origin_quarantine_cloud.sql")
         if path.is_symlink() or not path.is_file(): raise RuntimeError("fixed sanitation SQL unavailable")
