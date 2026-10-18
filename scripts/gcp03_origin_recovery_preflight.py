@@ -20,10 +20,12 @@ from gcp03_origin_recovery_plan import (RecoveryPlanError, build_normalization_r
 DIAGNOSTIC_SHA256 = "3325288140b1f2de8bb944f7c4c1599fcf56f1a19531dc334bf171629f99391a"
 DIAGNOSTIC_TABLE_SHA256 = "5d78e5d55d9021a935b7210977395c3dae2540c983e4266107b2583619aaabe1"
 DIAGNOSTIC_MIGRATION_SHA256 = "5dd344d805ecdf9c500eabac8e2013b0186a38066d3d17599d59ecef62c54cdd"
+CANONICAL_MIGRATION_HISTORY_SHA256_V2 = "dd2a4f3cf716137549b584f35bec5900df78c3e02a86354b4bad7ef1a90515ee"
 NORMALIZATION_SHA256 = "865697a41f9ca70881522f7558093e8ac4107dfa5a4e58dbf749d5f670eff842"
 EXPECTED_CURRENT = {"database": "espacigo_scratch", "login": "postgres", "server_version_major": 18,
     "table_inventory_count": 96, "table_inventory_sha256": DIAGNOSTIC_TABLE_SHA256,
     "migration_history_count": 61, "migration_history_sha256": DIAGNOSTIC_MIGRATION_SHA256,
+    "migration_history_sha256_v2": CANONICAL_MIGRATION_HISTORY_SHA256_V2,
     "actor_login": True, "actor_superuser": False, "actor_createrole": True,
     "runtime_role_login": False, "runtime_membership_row_count": 1,
     "runtime_membership_set": True, "runtime_membership_inherit": False,
@@ -88,17 +90,18 @@ class CatalogReader:
             FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
               AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass)
             GROUP BY 1) counts),
-          'migration_rows',(SELECT COALESCE(json_agg(json_build_array(version::text,checksum::text) ORDER BY version),'[]'::json)
+          'migration_rows',(SELECT COALESCE(json_agg(json_build_array(version::text,checksum::text)),'[]'::json)
             FROM public.schema_migrations))::text""")
         value = json.loads(raw)
         table_bytes = "".join(item + "\n" for item in value.pop("table_names"))
         migration_rows = value.pop("migration_rows")
+        migration_v1, migration_v2 = migration_history_hashes(migration_rows)
         value["relation_type_counts"] = {key: int(count) for key, count in value["relation_type_counts"].items()}
-        migration_bytes = "".join(f"{row[0]}\0{row[1]}\n" for row in migration_rows)
         value["table_inventory_count"] = len(table_bytes.splitlines())
         value["table_inventory_sha256"] = hashlib.sha256(table_bytes.encode()).hexdigest()
         value["migration_history_count"] = len(migration_rows)
-        value["migration_history_sha256"] = hashlib.sha256(migration_bytes.encode()).hexdigest()
+        value["migration_history_sha256"] = migration_v1
+        value["migration_history_sha256_v2"] = migration_v2
         return value
 
     @staticmethod
@@ -198,8 +201,10 @@ class CatalogReader:
           'tables',(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f') AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass)),
           'sequences',(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='S' AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass)),
           'routines',(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass)),
-          'dictionaries',(SELECT count(*) FROM pg_ts_dict d JOIN pg_namespace n ON n.oid=d.dictnamespace WHERE n.nspname='public'),
-          'configurations',(SELECT count(*) FROM pg_ts_config c JOIN pg_namespace n ON n.oid=c.cfgnamespace WHERE n.nspname='public'),
+          'dictionaries',(SELECT count(*) FROM pg_ts_dict d JOIN pg_namespace n ON n.oid=d.dictnamespace WHERE n.nspname='public'
+            AND NOT EXISTS(SELECT 1 FROM pg_depend dep WHERE dep.classid='pg_ts_dict'::regclass AND dep.objid=d.oid AND dep.deptype='e' AND dep.refclassid='pg_extension'::regclass)),
+          'configurations',(SELECT count(*) FROM pg_ts_config c JOIN pg_namespace n ON n.oid=c.cfgnamespace WHERE n.nspname='public'
+            AND NOT EXISTS(SELECT 1 FROM pg_depend dep WHERE dep.classid='pg_ts_config'::regclass AND dep.objid=c.oid AND dep.deptype='e' AND dep.refclassid='pg_extension'::regclass)),
           'types',(SELECT count(*) FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public' AND t.typtype IN ('d','e','r','m') AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.classid='pg_type'::regclass AND d.objid=t.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass)))::text"""))
         expected = {
             "tables": sum(bool(re.match(r"^ALTER\s+TABLE\b", item, re.I)) for item in statements),
@@ -216,6 +221,35 @@ class CatalogReader:
         if actual != expected:
             raise RecoveryPlanError("catalog object inventory has missing or unexpected objects")
         return facts, parent_map
+
+
+def migration_history_hashes(rows: list[list[str] | tuple[str, str]]) -> tuple[str, str]:
+    """Return the historical text-order hash and canonical numeric-order v2 hash.
+
+    V1 preserves the ordering used by the owner/ACL report. V2 sorts by the
+    numeric migration version, independent of SQL output-alias resolution or
+    row delivery order.
+    """
+    normalized = [(str(row[0]), str(row[1])) for row in rows]
+    numeric_versions = []
+    for version, _ in normalized:
+        try:
+            numeric = int(version, 10)
+        except ValueError as exc:
+            raise RecoveryPlanError("migration history contains a nonnumeric version") from exc
+        if numeric < 1 or str(numeric) != version:
+            raise RecoveryPlanError("migration history contains a noncanonical version")
+        numeric_versions.append(numeric)
+    if len(set(numeric_versions)) != len(numeric_versions):
+        raise RecoveryPlanError("migration history contains duplicate numeric versions")
+
+    def digest(ordered_rows: list[tuple[str, str]]) -> str:
+        payload = "".join(f"{version}\0{checksum}\n" for version, checksum in ordered_rows)
+        return hashlib.sha256(payload.encode()).hexdigest()
+
+    legacy = sorted(normalized, key=lambda row: row[0])
+    canonical = sorted(normalized, key=lambda row: int(row[0], 10))
+    return digest(legacy), digest(canonical)
 
 
 def validate_historical_diagnostic(data: bytes, expected_sha256: str) -> dict:
@@ -248,6 +282,7 @@ def build_bound_plan(reader: CatalogReader, normalization: bytes, diagnostic_byt
     binding = {"historical_diagnostic_sha256": DIAGNOSTIC_SHA256,
                "table_inventory_sha256": current["table_inventory_sha256"],
                "migration_history_sha256": current["migration_history_sha256"],
+               "migration_history_sha256_v2": current["migration_history_sha256_v2"],
                "database": current["database"], "login": current["login"],
                "server_version_major": current["server_version_major"],
                "owned_sequence_dependency_count": current["owned_sequence_dependency_count"],
@@ -278,6 +313,7 @@ def execute_with_current_preflight(*, reader: CatalogReader, normalization: byte
         binding = {"historical_diagnostic_sha256": DIAGNOSTIC_SHA256,
             "table_inventory_sha256": current["table_inventory_sha256"],
             "migration_history_sha256": current["migration_history_sha256"],
+            "migration_history_sha256_v2": current["migration_history_sha256_v2"],
             "database": current["database"], "login": current["login"],
             "server_version_major": current["server_version_major"],
             "owned_sequence_dependency_count": current["owned_sequence_dependency_count"],
