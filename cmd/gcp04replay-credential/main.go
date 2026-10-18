@@ -12,8 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"cloud.google.com/go/auth"
+	"cloud.google.com/go/auth/oauth2adapt"
 	"cloud.google.com/go/storage"
 	"github.com/HernanEspinozaDev/espaciGo/internal/gcp04credential"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/api/secretmanager/v1"
@@ -182,7 +186,15 @@ func (w sqlPasswordWriter) ReadOperation(ctx context.Context, project, operation
 }
 
 func newCloudRunner(ctx context.Context) (gcp04credential.CredentialRunner, error) {
-	options := []option.ClientOption{option.WithScopes(cloudPlatformScope), option.WithQuotaProject(gcp04credential.ProjectID)}
+	adc, err := google.FindDefaultCredentials(ctx, cloudPlatformScope)
+	if err != nil || adc == nil || adc.TokenSource == nil {
+		return gcp04credential.CredentialRunner{}, errors.New("authorized application default credentials are unavailable")
+	}
+	credentials, err := cloudAuthCredentialsFromTokenSource(adc.TokenSource)
+	if err != nil {
+		return gcp04credential.CredentialRunner{}, errors.New("authorized Cloud API credentials could not be prepared")
+	}
+	options := cloudClientOptions(credentials)
 	sqlService, err := sqladmin.NewService(ctx, options...)
 	if err != nil {
 		return gcp04credential.CredentialRunner{}, errors.New("Cloud SQL API client could not be initialized")
@@ -203,6 +215,22 @@ func newCloudRunner(ctx context.Context) (gcp04credential.CredentialRunner, erro
 		Journal:   gcp04credential.PrivateJournal{Path: gcp04credential.JournalPath},
 		Evidence:  gcp04credential.LocalEvidence{},
 	}, nil
+}
+
+func cloudAuthCredentialsFromTokenSource(source oauth2.TokenSource) (*auth.Credentials, error) {
+	if source == nil {
+		return nil, errors.New("OAuth token source is unavailable")
+	}
+	return auth.NewCredentials(&auth.CredentialsOptions{
+		TokenProvider: oauth2adapt.TokenProviderFromTokenSource(source),
+		QuotaProjectIDProvider: auth.CredentialsPropertyFunc(func(context.Context) (string, error) {
+			return gcp04credential.ProjectID, nil
+		}),
+	}), nil
+}
+
+func cloudClientOptions(credentials *auth.Credentials) []option.ClientOption {
+	return []option.ClientOption{option.WithAuthCredentials(credentials)}
 }
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }

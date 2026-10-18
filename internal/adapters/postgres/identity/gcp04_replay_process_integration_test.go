@@ -35,6 +35,7 @@ import (
 )
 
 const gcp04ReplayTestModeEnv = "GCP04_REPLAY_PROCESS_MODE"
+const gcp04ReplayExpectedConnectionName = "espacigo-testprod:southamerica-west1:espacigo-gcp04-g04replay18-pg"
 
 type gcp04ReplayProcessResult struct {
 	PID      int                               `json:"pid"`
@@ -133,6 +134,14 @@ func TestGCP04ReplayTwoProcessesPostgres18(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 110*time.Second)
 	defer cancel()
+	capacity, err := gcp04ReplayReadOnlyCapacityGate(ctx)
+	if err != nil {
+		t.Fatalf("read-only GCP-04 connection-capacity preflight failed before database creation: %v", err)
+	}
+	t.Logf("read-only GCP-04 preflight passed: server_version_num=%d role=%s max_connections=%d reserved=%d other_connections=%d available=%d demand=%d",
+		capacity.ServerVersionNum, capacity.CurrentUser, capacity.MaxConnections,
+		capacity.SuperuserReserved+capacity.ReservedConnections, capacity.OtherConnections,
+		capacity.AvailableOrdinarySlots, capacity.Demand)
 	h := newAuthHarness(t)
 	h.ctx = ctx
 	var serverVersionText string
@@ -526,6 +535,65 @@ func gcp04ReplayURLForDatabase(baseURL, databaseName string) string {
 
 func gcp04ReplayCloudMode() bool {
 	return os.Getenv("GCP04_REPLAY_CLOUD") == "YES"
+}
+
+func gcp04ReplayReadOnlyCapacityGate(ctx context.Context) (identitypg.GCP04ReplayCapacityAssessment, error) {
+	if gcp04ReplayCloudMode() {
+		if err := validateGCP04ReplayCloudTarget(
+			os.Getenv("GCP04_REPLAY_CLOUD_SQL_INSTANCE"),
+			os.Getenv("GCP04_REPLAY_CLOUD_SQL_PRIVATE_IP"),
+		); err != nil {
+			return identitypg.GCP04ReplayCapacityAssessment{}, err
+		}
+	}
+	databaseURL := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
+	if databaseURL == "" {
+		return identitypg.GCP04ReplayCapacityAssessment{}, fmt.Errorf("TEST_DATABASE_URL is required for the read-only capacity preflight")
+	}
+	parsedURL, err := url.Parse(databaseURL)
+	if err != nil || strings.Trim(parsedURL.Path, "/") != "postgres" {
+		return identitypg.GCP04ReplayCapacityAssessment{}, fmt.Errorf("read-only capacity preflight must use the postgres maintenance database")
+	}
+	pool, closeConnector, err := openGCP04ReplayPool(ctx, databaseURL)
+	if err != nil {
+		return identitypg.GCP04ReplayCapacityAssessment{}, fmt.Errorf("open the exact preflight connection: %w", err)
+	}
+	defer func() {
+		pool.Close()
+		closeConnector()
+	}()
+	var facts identitypg.GCP04ReplayCapacityFacts
+	const preflightQuery = `
+SELECT current_database(), current_user,
+       current_setting('server_version_num')::integer,
+       current_setting('max_connections')::integer,
+       current_setting('superuser_reserved_connections')::integer,
+       COALESCE(NULLIF(current_setting('reserved_connections', true), '')::integer, 0),
+       (SELECT count(*)::integer FROM pg_stat_activity
+        WHERE pid <> pg_backend_pid() AND backend_type = 'client backend'),
+       r.rolcanlogin, r.rolcreatedb, r.rolsuper, pg_is_in_recovery()
+FROM pg_roles AS r
+WHERE r.rolname = current_user`
+	err = pool.QueryRow(ctx, preflightQuery).Scan(
+		&facts.Database, &facts.CurrentUser, &facts.ServerVersionNum,
+		&facts.MaxConnections, &facts.SuperuserReserved, &facts.ReservedConnections,
+		&facts.OtherConnections, &facts.RoleCanLogin, &facts.RoleCanCreateDatabase,
+		&facts.RoleIsSuperuser, &facts.InRecovery,
+	)
+	if err != nil {
+		return identitypg.GCP04ReplayCapacityAssessment{}, fmt.Errorf("read PostgreSQL server, role, and connection limits: %w", err)
+	}
+	return identitypg.AssessGCP04ReplayCapacity(facts)
+}
+
+func validateGCP04ReplayCloudTarget(connectionName, privateIP string) error {
+	if connectionName != gcp04ReplayExpectedConnectionName {
+		return fmt.Errorf("Cloud SQL connector target does not match the released GCP-04 instance")
+	}
+	if privateIP != "true" {
+		return fmt.Errorf("Cloud SQL connector must use the private endpoint for the released instance")
+	}
+	return nil
 }
 
 func gcp04ReplayStorageConfig() (bucket, prefix string) {
