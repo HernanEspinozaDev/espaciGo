@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
+	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -366,11 +367,17 @@ func TestMPV212HourlyScheduleMigrationFromFreshAndV60(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	v61Dir := t.TempDir()
+	for _, migration := range migrations[:61] {
+		if err := os.WriteFile(filepath.Join(v61Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	t.Run("fresh V1-V61", func(t *testing.T) {
 		withTestDatabase(t, func(ctx context.Context, databaseURL string) {
-			result, err := Run(ctx, databaseURL, sourceDir)
-			if err != nil || len(result.Applied) != len(migrations) || result.Applied[len(result.Applied)-1] != 61 {
+			result, err := Run(ctx, databaseURL, v61Dir)
+			if err != nil || len(result.Applied) != 61 || result.Applied[60] != 61 {
 				t.Fatalf("fresh migration result=%v err=%v", result.Applied, err)
 			}
 			assertHourlyScheduleMigrationBehavior(t, ctx, databaseURL)
@@ -389,7 +396,7 @@ func TestMPV212HourlyScheduleMigrationFromFreshAndV60(t *testing.T) {
 				_ = conn.Close(ctx)
 				t.Fatal(err)
 			}
-			result, err = Run(ctx, databaseURL, sourceDir)
+			result, err = Run(ctx, databaseURL, v61Dir)
 			if err != nil || len(result.Applied) != 1 || result.Applied[0] != 61 {
 				_ = conn.Close(ctx)
 				t.Fatalf("upgrade V60 to V61: applied=%v err=%v", result.Applied, err)
@@ -503,6 +510,38 @@ func TestGCP04DurableReplayRegistryFromFreshAndV61(t *testing.T) {
 			}
 			if before != after {
 				t.Fatal("V62 changed an applied V1-V61 migration checksum or history row")
+			}
+		})
+	})
+
+	t.Run("runtime grants remain compatible with V61", func(t *testing.T) {
+		withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+			if result, err := Run(ctx, databaseURL, v61Dir); err != nil || len(result.Applied) != 61 {
+				t.Fatalf("apply historical V1-V61: applied=%v err=%v", result.Applied, err)
+			}
+			conn := connectTestDB(t, ctx, databaseURL)
+			if _, err := conn.Exec(ctx, `CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			if err := dbbootstrap.GrantRuntimePermissions(ctx, conn); err != nil {
+				_, _ = conn.Exec(context.Background(), `DROP OWNED BY espacigo_runtime; DROP ROLE espacigo_runtime`)
+				_ = conn.Close(ctx)
+				t.Fatalf("runtime grants on historical V61 database: %v", err)
+			}
+			var registryAbsent, suppressionSelect bool
+			if err := conn.QueryRow(ctx, `SELECT to_regclass('public.registro_replay_baja_local') IS NULL,
+				has_table_privilege('espacigo_runtime','public.ejecucion_baja_local','SELECT')`).Scan(&registryAbsent, &suppressionSelect); err != nil || !registryAbsent || !suppressionSelect {
+				_, _ = conn.Exec(context.Background(), `DROP OWNED BY espacigo_runtime; DROP ROLE espacigo_runtime`)
+				_ = conn.Close(ctx)
+				t.Fatalf("V61 runtime privilege compatibility: registry_absent=%v suppression_select=%v err=%v", registryAbsent, suppressionSelect, err)
+			}
+			if _, err := conn.Exec(ctx, `DROP OWNED BY espacigo_runtime; DROP ROLE espacigo_runtime`); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			if err := conn.Close(ctx); err != nil {
+				t.Fatal(err)
 			}
 		})
 	})

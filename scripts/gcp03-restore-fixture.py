@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import re
 
+from gcp03_migration_inventory import historical_v1_v61_migrations
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "db" / "migrations"
@@ -49,10 +51,10 @@ def main() -> None:
     if (output / "fixture.sql").exists() or (output / "fixture-manifest.json").exists():
         raise SystemExit("refusing to overwrite fixture or manifest from an existing run")
 
-    migration_files = sorted(MIGRATIONS.glob("V*.sql"))
-    expected = [f"V{i:06d}__" for i in range(1, 62)]
-    if len(migration_files) != 61 or any(not f.name.startswith(prefix) for f, prefix in zip(migration_files, expected, strict=True)):
-        raise SystemExit("expected immutable V1-V61 migrations, in order")
+    try:
+        migration_files = historical_v1_v61_migrations(MIGRATIONS)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     migration_hashes = [{"file": f.name, "sha256": sha256(f.read_bytes())} for f in migration_files]
     inventory_bytes = "".join(f"{item['file']} {item['sha256']}\n" for item in migration_hashes).encode()
     if not re.fullmatch(r"[0-9a-f]{64}", sha256(inventory_bytes)):

@@ -47,13 +47,13 @@ import sys
 import tarfile
 
 archive, manifest_path, commit, go_version, builder_image, source_date_epoch, buildx_version, docker_client_version = sys.argv[1:]
-migrations = sorted(pathlib.Path("db/migrations").glob("V*.sql"))
-if len(migrations) != 61:
-    raise SystemExit(f"expected exactly V1-V61, found {len(migrations)} migration files")
-expected = [f"V{i:06d}__" for i in range(1, 62)]
-for path, prefix in zip(migrations, expected, strict=True):
-    if not path.name.startswith(prefix):
-        raise SystemExit(f"migration inventory mismatch at {path.name}, expected prefix {prefix}")
+sys.path.insert(0, str(pathlib.Path.cwd() / "scripts"))
+from gcp03_migration_inventory import historical_v1_v61_migrations
+
+try:
+    migrations = historical_v1_v61_migrations(pathlib.Path("db/migrations"))
+except ValueError as exc:
+    raise SystemExit(str(exc)) from exc
 
 migration_hashes = {
     path.as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()

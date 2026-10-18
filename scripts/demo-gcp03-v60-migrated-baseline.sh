@@ -157,7 +157,14 @@ psql "$TARGET_DB_URL" -X -v ON_ERROR_STOP=1 -At \
 cat >"$EVIDENCE_DIR/manifest.txt" <<EOF
 scope=local disposable PostgreSQL 18/PostGIS baseline dump and restore demonstration
 source_git_commit=$(git -C "$ROOT_DIR" rev-parse HEAD)
-migration_files=$(find "$ROOT_DIR/db/migrations" -maxdepth 1 -type f -name 'V*.sql' | wc -l)
+migration_files=$(python3 - "$ROOT_DIR/db/migrations" <<'PY'
+from pathlib import Path
+import sys
+
+directory = Path(sys.argv[1])
+print(sum(1 for version in range(1, 62) if len(list(directory.glob(f"V{version:06d}__*.sql"))) == 1))
+PY
+)
 history_rows=$(wc -l <"$EVIDENCE_DIR/source-history.tsv")
 image_id=$IMAGE_ID
 source_container=$SOURCE

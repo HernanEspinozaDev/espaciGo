@@ -222,6 +222,12 @@ class CaptureFixtureTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
+    def test_repo_migration_inventory_remains_historical_when_v62_exists(self) -> None:
+        repo = Path(capture.__file__).resolve().parent.parent
+        migrations = capture.migration_files_from_repo(repo)
+        self.assertEqual(list(migrations), list(range(1, 62)))
+        self.assertNotIn(62, migrations)
+
     def test_capture_encrypts_each_payload_and_keeps_recovery_key_outside_snapshot(self) -> None:
         result = capture.CaptureCoordinator(self.source, self.layout).capture(approved_release(self.source, self.run_id), self.run_id, FIXTURE_HEAD, free_bytes=1024 * 1024 * 1024)
         snapshot = self.layout.snapshot_root / self.run_id

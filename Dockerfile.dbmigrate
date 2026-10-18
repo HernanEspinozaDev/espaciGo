@@ -14,14 +14,15 @@ COPY internal/gcp03scratch ./internal/gcp03scratch
 COPY internal/database/cloudsql ./internal/database/cloudsql
 COPY internal/dbbootstrap ./internal/dbbootstrap
 COPY internal/migrator ./internal/migrator
-COPY db/migrations ./db/migrations
+# This GCP-03 scratch executor is pinned to its historical V1-V61 contract.
+COPY db/migrations/V00000[1-9]__*.sql db/migrations/V0000[1-5][0-9]__*.sql db/migrations/V000060__*.sql db/migrations/V000061__*.sql /out/migrations/
 COPY db/bootstrap/gcp03scratch ./db/bootstrap/gcp03scratch
 RUN go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/gcp03scratch ./cmd/gcp03scratch
 
 FROM scratch
 WORKDIR /app
 COPY --from=build /out/gcp03scratch /app/gcp03scratch
-COPY --from=build /src/db/migrations /app/db/migrations
+COPY --from=build /out/migrations /app/db/migrations
 # Use the CA bundle from the pinned builder image for the connector's HTTPS control plane.
 COPY --from=build /etc/ssl/cert.pem /etc/ssl/cert.pem
 USER 65532:65532

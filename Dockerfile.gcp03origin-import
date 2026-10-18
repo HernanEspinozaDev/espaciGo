@@ -18,7 +18,8 @@ COPY scripts/gcp03_origin_import.py /app/scripts/gcp03_origin_import.py
 COPY scripts/gcp03_origin_normalization.py /app/scripts/gcp03_origin_normalization.py
 COPY scripts/gcp03_origin_postrestore_verify.py /app/scripts/gcp03_origin_postrestore_verify.py
 COPY scripts/gcp03_origin_quarantine_cloud.sql /app/scripts/gcp03_origin_quarantine_cloud.sql
-COPY db/migrations /app/db/migrations
+# Origin import verifies the sealed V1-V61 source history, independent of later migrations.
+COPY db/migrations/V00000[1-9]__*.sql db/migrations/V0000[1-5][0-9]__*.sql db/migrations/V000060__*.sql db/migrations/V000061__*.sql /app/db/migrations/
 ENV PYTHONPATH=/opt/python-deps:/app/scripts PYTHONDONTWRITEBYTECODE=1
 USER 65532:65532
 ENTRYPOINT ["python3", "/app/scripts/gcp03_origin_cloud_import_executor.py"]

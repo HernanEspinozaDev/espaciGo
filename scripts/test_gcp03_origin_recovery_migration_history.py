@@ -11,6 +11,7 @@ from gcp03_origin_recovery_preflight import (
     DIAGNOSTIC_MIGRATION_SHA256,
     migration_history_hashes,
 )
+from gcp03_migration_inventory import historical_v1_v61_migrations
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +29,7 @@ class MigrationHistoryHashTests(unittest.TestCase):
 
     def test_all_v1_to_v61_source_checksums_match_both_versions(self):
         rows = []
-        for path in (ROOT / "db/migrations").glob("V*__*.sql"):
+        for path in historical_v1_v61_migrations(ROOT / "db/migrations"):
             match = re.match(r"V(\d+)__", path.name)
             if match:
                 rows.append((str(int(match.group(1))), hashlib.sha256(path.read_bytes()).hexdigest()))

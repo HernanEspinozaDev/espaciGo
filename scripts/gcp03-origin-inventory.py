@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from gcp03_migration_inventory import historical_v1_v61_migrations
+
 
 SOURCE_PROJECT = "espacigo"
 DB_CONTAINER = "espacigo-database-1"
@@ -236,7 +238,11 @@ def main() -> int:
     _STAGE = "local migration fingerprint comparison"
     migrations: list[dict[str, Any]] = []
     migration_dir = root / "db" / "migrations"
-    for path in sorted(migration_dir.glob("V[0-9][0-9][0-9][0-9][0-9][0-9]__*.sql")):
+    try:
+        historical_migrations = historical_v1_v61_migrations(migration_dir)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    for path in historical_migrations:
         data = path.read_bytes()
         match = re.fullmatch(r"V([0-9]{6})__(.+)\.sql", path.name)
         if not match:
