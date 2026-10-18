@@ -20,6 +20,7 @@ from gcp03_origin_private_files import (
     PrivateFile, PrivateFileStore, copy_validated_private_files,
     validate_private_file_references, validate_private_files_tar,
 )
+from gcp03_origin_private_file_refs import PRIVATE_FILE_REFS_SQL, PrivateFileReferenceQueryError
 from gcp03_origin_recovery_plan import (RecoveryStop, build_normalization_recovery_plan,
     execute_reviewed_recovery)
 from gcp03_origin_recovery_preflight import (
@@ -28,15 +29,9 @@ from gcp03_origin_recovery_preflight import (
 )
 
 RUN_ID = "g03o-1017"
-REFS_SQL = """SELECT COALESCE(json_agg(file_id::text ORDER BY file_id), '[]'::json)::text FROM (
- SELECT DISTINCT file_id FROM (
- SELECT archivo_id AS file_id FROM public.foto_perfil_sintetica_local WHERE archivo_id IS NOT NULL
- UNION ALL SELECT archivo_id FROM public.espacio_galeria_sintetica_local WHERE archivo_id IS NOT NULL
- UNION ALL SELECT id FROM public.verificacion_evidencia_sintetica
- UNION ALL SELECT archivo_id FROM public.espacio_galeria_archivo_candidato_local
- UNION ALL SELECT archivo_id FROM public.operacion_arriendo_archivo_candidato_local
- UNION ALL SELECT archivo_id FROM public.verificacion_archivo_retiro_pendiente_local
- ) refs) unique_refs"""
+REFS_SQL = PRIVATE_FILE_REFS_SQL
+
+
 POSTCHECK_SQL = """SELECT json_build_object(
  'relations_owned_by_runtime', NOT EXISTS (
    SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace

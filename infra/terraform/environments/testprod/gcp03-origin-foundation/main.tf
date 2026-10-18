@@ -114,9 +114,10 @@ resource "google_storage_bucket" "private_files" {
 }
 
 resource "google_storage_bucket_iam_member" "private_files_creator" {
-  # The read-only recovery planner has no GCS write permission. Grant the
-  # existing create-only permission only to the importer or reviewed apply.
-  count  = local.import_enabled || local.recovery_apply_enabled ? 1 : 0
+  # Preserve the existing binding in continuation-plan mode so the plan can
+  # change only the recovery Job profile. That entrypoint never constructs the
+  # object store in plan mode; copy remains a separately reviewed mode.
+  count  = local.private_files_creator_enabled ? 1 : 0
   bucket = google_storage_bucket.private_files[0].name
   role   = "roles/storage.objectCreator"
   member = "serviceAccount:${google_service_account.admin[0].email}"

@@ -104,7 +104,7 @@ CREATE TABLE public.aviso_local_ciclo(aviso_id integer, ciclo integer, estado te
 CREATE TABLE public.outbox_evento_local(id serial PRIMARY KEY, lease_hasta timestamptz, entregada_en timestamptz, cancelada_en timestamptz, fallo_terminal_en timestamptz);
 CREATE TABLE public.foto_perfil_sintetica_local(id serial PRIMARY KEY, archivo_id uuid);
 CREATE TABLE public.espacio_galeria_sintetica_local(id serial PRIMARY KEY, archivo_id uuid);
-CREATE TABLE public.verificacion_evidencia_sintetica(id uuid PRIMARY KEY);
+CREATE TABLE public.verificacion_evidencia_sintetica(id uuid PRIMARY KEY, archivo_id uuid, archivo_retirado_en timestamptz);
 CREATE TABLE public.espacio_galeria_archivo_candidato_local(id serial PRIMARY KEY, archivo_id uuid);
 CREATE TABLE public.operacion_arriendo_archivo_candidato_local(id serial PRIMARY KEY, archivo_id uuid);
 CREATE TABLE public.verificacion_archivo_retiro_pendiente_local(id integer PRIMARY KEY, archivo_id uuid);
@@ -193,6 +193,18 @@ WHERE n.nspname='public' AND d.dictname='unaccent' AND EXISTS(SELECT 1 FROM pg_d
         self.assertEqual(report["private_file_count"], 1)
         self.assertEqual(len(store.created), 1)
         self.assertTrue(database.verify_normalized()["text_search_owned_by_runtime"])
+        # V47 keeps retired evidence metadata (id) after unlinking its blob;
+        # only archivo_id is a live storage reference. Pending deletion remains live.
+        active_blob = "1f8fad5b-d9cb-469f-a165-70867728950e"
+        retired_meta = "2f8fad5b-d9cb-469f-a165-70867728950e"
+        queued_blob = "3f8fad5b-d9cb-469f-a165-70867728950e"
+        self.psql(f"""INSERT INTO public.verificacion_evidencia_sintetica(id,archivo_id)
+VALUES ('{retired_meta}','{active_blob}'), ('4f8fad5b-d9cb-469f-a165-70867728950e',NULL);
+UPDATE public.verificacion_evidencia_sintetica SET archivo_retirado_en=now()
+WHERE id='4f8fad5b-d9cb-469f-a165-70867728950e';
+INSERT INTO public.verificacion_archivo_retiro_pendiente_local(id,archivo_id)
+VALUES (1,'{queued_blob}');""")
+        self.assertEqual(database.private_file_refs(), {file_id, active_blob, queued_blob})
         owners = self.psql("""SELECT string_agg(name || '=' || owner, ',' ORDER BY name) FROM (
 SELECT c.relname name, pg_get_userbyid(c.relowner) owner FROM pg_class c WHERE c.relname IN ('recovery_parent','recovery_parent_id_seq','recovery_standalone_seq')
 UNION ALL SELECT p.proname, pg_get_userbyid(p.proowner) FROM pg_proc p WHERE p.proname='recovery_probe'

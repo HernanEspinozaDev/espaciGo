@@ -13,6 +13,7 @@ COPY --from=python-runtime /usr/local/ /usr/local/
 COPY --from=python-runtime /opt/python-deps /opt/python-deps
 COPY scripts/gcp03_origin_cloud_import_executor.py /app/scripts/gcp03_origin_cloud_import_executor.py
 COPY scripts/gcp03_origin_private_files.py /app/scripts/gcp03_origin_private_files.py
+COPY scripts/gcp03_origin_private_file_refs.py /app/scripts/gcp03_origin_private_file_refs.py
 COPY scripts/gcp03_origin_import.py /app/scripts/gcp03_origin_import.py
 COPY scripts/gcp03_origin_normalization.py /app/scripts/gcp03_origin_normalization.py
 COPY scripts/gcp03_origin_postrestore_verify.py /app/scripts/gcp03_origin_postrestore_verify.py

@@ -45,7 +45,8 @@ record = {
     "platform": "linux/amd64", "oci_manifest_digest": digest,
     "oci_archive_sha256": hashlib.sha256(pathlib.Path(archive).read_bytes()).hexdigest(),
     "entrypoint": "scripts/gcp03_origin_cloud_recovery.py", "restore_api": False,
-    "reads_database_dump": False, "phases": ["recover-plan-read-only", "recover-apply-approved-hash"],
+    "reads_database_dump": False, "phases": ["recover-plan-read-only", "recover-apply-approved-hash",
+        "continuation-plan-read-only", "continuation-copy-approved-hash-create-only"],
     "uses_existing_u2_generations": True, "creates_recovery_support_artifacts": False,
     "cloud_publish_performed": False, "cloud_job_executed": False,
 }
