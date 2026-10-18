@@ -121,18 +121,16 @@ func newIdentityTestPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 	setupCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	admin, err := pgx.Connect(setupCtx, adminURL)
+	admin, closeAdmin, err := openGCP04ReplayConnection(setupCtx, adminURL)
 	if err != nil {
 		t.Fatalf("connect to disposable PostgreSQL: %v", err)
 	}
 	databaseName := fmt.Sprintf("auth_be01_test_%d", time.Now().UnixNano())
 	if _, err := admin.Exec(setupCtx, "CREATE DATABASE "+pgx.Identifier{databaseName}.Sanitize()); err != nil {
-		_ = admin.Close(context.Background())
+		closeAdmin()
 		t.Fatalf("create disposable test database: %v", err)
 	}
-	if err := admin.Close(setupCtx); err != nil {
-		t.Fatalf("close PostgreSQL setup connection: %v", err)
-	}
+	closeAdmin()
 
 	parsedURL, err := url.Parse(adminURL)
 	if err != nil {
@@ -146,12 +144,12 @@ func newIdentityTestPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cleanupCancel()
-		admin, err := pgx.Connect(cleanupCtx, adminURL)
+		admin, closeAdmin, err := openGCP04ReplayConnection(cleanupCtx, adminURL)
 		if err != nil {
 			t.Errorf("reconnect to drop disposable database: %v", err)
 			return
 		}
-		defer admin.Close(context.Background())
+		defer closeAdmin()
 		if _, err := admin.Exec(cleanupCtx, "DROP DATABASE IF EXISTS "+pgx.Identifier{databaseName}.Sanitize()); err != nil {
 			t.Errorf("drop disposable test database: %v", err)
 		}
@@ -163,15 +161,28 @@ func newIdentityTestPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 		}
 	})
 
-	if _, err := migrator.Run(setupCtx, testURL, migrationDir); err != nil {
-		t.Fatalf("apply M01 to disposable test database: %v", err)
+	var migrationErr error
+	if gcp04ReplayCloudMode() {
+		password, readErr := readGCP04ReplayPassword()
+		if readErr != nil {
+			t.Fatalf("read private Cloud SQL password file: %v", readErr)
+		}
+		_, migrationErr = migrator.RunCloudSQL(setupCtx, testURL, string(password), migrationDir, os.Getenv("GCP04_REPLAY_CLOUD_SQL_INSTANCE"), os.Getenv("GCP04_REPLAY_CLOUD_SQL_PRIVATE_IP") == "true")
+		for i := range password {
+			password[i] = 0
+		}
+	} else {
+		_, migrationErr = migrator.Run(setupCtx, testURL, migrationDir)
+	}
+	if migrationErr != nil {
+		t.Fatalf("apply V1-V62 to disposable test database: %v", migrationErr)
 	}
 
-	pool, err := pgxpool.New(context.Background(), testURL)
+	pool, closeConnector, err := openGCP04ReplayPool(context.Background(), testURL)
 	if err != nil {
 		t.Fatalf("create test pool: %v", err)
 	}
-	t.Cleanup(pool.Close)
+	t.Cleanup(func() { pool.Close(); closeConnector() })
 	return context.Background(), pool
 }
 

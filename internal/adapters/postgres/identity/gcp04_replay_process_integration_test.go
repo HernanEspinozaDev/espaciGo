@@ -27,6 +27,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/cloudstorage"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
+	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
@@ -53,17 +54,21 @@ func TestGCP04ReplayProcessHelper(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 55*time.Second)
 	defer cancel()
 	databaseURL := os.Getenv("GCP04_REPLAY_DATABASE_URL")
-	pool, err := pgxpool.New(ctx, databaseURL)
+	pool, closeConnector, err := openGCP04ReplayPool(ctx, databaseURL)
 	if err != nil {
 		t.Fatalf("open disposable test database: %v", err)
 	}
-	defer pool.Close()
+	defer func() {
+		pool.Close()
+		closeConnector()
+	}()
 	repo := identitypg.NewIdentityRepository(pool)
 	service, err := privacy.NewService(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := cloudstorage.NewReplayRegistry(ctx, "private-bucket", "privacy")
+	bucket, replayPrefix := gcp04ReplayStorageConfig()
+	registry, err := cloudstorage.NewReplayRegistry(ctx, bucket, replayPrefix)
 	if err != nil {
 		t.Fatalf("open replay registry emulator client: %v", err)
 	}
@@ -80,7 +85,14 @@ func TestGCP04ReplayProcessHelper(t *testing.T) {
 		if err != nil || outcome.Status != "completada" {
 			t.Fatalf("synthetic suppression status=%q err=%v", outcome.Status, err)
 		}
-		manifest, err := service.ExportSuppressionReplayManifestWithStore(ctx, registry)
+		var replayStore privacy.SuppressionReplayStore = registry
+		if barrierID := os.Getenv("GCP04_REPLAY_BARRIER_ID"); barrierID != "" {
+			replayStore = &gcp04BarrierReplayStore{
+				inner: registry, pool: pool, barrierID: barrierID,
+				participant: os.Getenv("GCP04_REPLAY_BARRIER_PARTICIPANT"),
+			}
+		}
+		manifest, err := service.ExportSuppressionReplayManifestWithStore(ctx, replayStore)
 		if err != nil {
 			t.Fatalf("synchronize external replay registry: %v", err)
 		}
@@ -160,27 +172,47 @@ func TestGCP04ReplayTwoProcessesPostgres18(t *testing.T) {
 			requests = append(requests, request.ID)
 		}
 	}
-	seedReplayFailureEvidence(t, h, adminID, targetFailure)
+	evidenceID := seedReplayFailureEvidence(t, h, adminID, targetFailure)
 
+	cloudMode := gcp04ReplayCloudMode()
 	emulator := &gcp04ReplayGCS{initialWriteBarrier: make(chan struct{}), loseNextWrite: true}
-	server := httptest.NewServer(emulator)
-	defer server.Close()
-	t.Setenv("STORAGE_EMULATOR_HOST", server.URL)
-
-	// Capture the deliberately old state before either process executes a
-	// suppression. Restore is isolated to a new database in this disposable
-	// Compose PostgreSQL cluster.
-	backupPath := filepath.Join(t.TempDir(), "before-suppressions.dump")
-	databaseURL := h.pool.Config().ConnConfig.ConnString()
-	if output, err := exec.CommandContext(ctx, "pg_dump", "--format=custom", "--no-owner", "--no-privileges", "--file", backupPath, "--dbname", databaseURL).CombinedOutput(); err != nil {
-		t.Fatalf("dump synthetic pre-suppression snapshot: %v: %s", err, redactReplayCommandOutput(output))
+	emulatorURL := ""
+	if !cloudMode {
+		server := httptest.NewServer(emulator)
+		defer server.Close()
+		emulatorURL = server.URL
+		t.Setenv("STORAGE_EMULATOR_HOST", emulatorURL)
 	}
+
+	// Clone the synthetic V1-V62 database before either process mutates it.
+	// This also works through the Cloud SQL Go Connector; pg_dump cannot use its
+	// in-process dialer, so the snapshot is a PostgreSQL TEMPLATE database.
+	snapshotURL, cleanupSnapshot := createGCP04ReplaySnapshot(t, h, ctx)
+	defer cleanupSnapshot()
+	if _, err := h.pool.Exec(ctx, `CREATE TABLE public.gcp04_replay_barrier (barrier_id text NOT NULL, participant text NOT NULL, PRIMARY KEY (barrier_id, participant))`); err != nil {
+		t.Fatalf("create disposable replay synchronization table: %v", err)
+	}
+	barrierID := fmt.Sprintf("gcp04-%d", time.Now().UnixNano())
+	bucket, _ := gcp04ReplayStorageConfig()
+	_, blobPrefix := gcp04ReplayBlobConfig()
+	if cloudMode {
+		blobStore, err := cloudstorage.NewWithPrefix(ctx, bucket, blobPrefix)
+		if err != nil {
+			t.Fatalf("open real GCS evidence store: %v", err)
+		}
+		if err := blobStore.Put(ctx, evidenceID, []byte("synthetic-gcp04-replay-evidence")); err != nil {
+			_ = blobStore.Close()
+			t.Fatalf("seed private synthetic evidence object in GCS: %v", err)
+		}
+		_ = blobStore.Close()
+	}
+	databaseURL := gcp04ReplayURLForDatabase(os.Getenv("TEST_DATABASE_URL"), h.pool.Config().ConnConfig.Database)
 
 	processes := []gcp04ReplayProcessConfig{
-		{mode: "suppress", databaseURL: databaseURL, actorID: adminID, requestID: requests[0], idempotencyKey: "gcp04-replay-process-a"},
-		{mode: "suppress", databaseURL: databaseURL, actorID: adminID, requestID: requests[1], idempotencyKey: "gcp04-replay-process-b"},
+		{mode: "suppress", databaseURL: databaseURL, actorID: adminID, requestID: requests[0], idempotencyKey: "gcp04-replay-process-a", barrierID: barrierID, barrierParticipant: "a"},
+		{mode: "suppress", databaseURL: databaseURL, actorID: adminID, requestID: requests[1], idempotencyKey: "gcp04-replay-process-b", barrierID: barrierID, barrierParticipant: "b"},
 	}
-	results := runGCP04ReplayProcesses(t, ctx, server.URL, processes)
+	results := runGCP04ReplayProcesses(t, ctx, emulatorURL, processes)
 	if results[0].Status != "completada" || results[1].Status != "completada" || results[0].PID == results[1].PID {
 		t.Fatalf("concurrent suppression processes did not both complete independently: %+v", results)
 	}
@@ -188,18 +220,21 @@ func TestGCP04ReplayTwoProcessesPostgres18(t *testing.T) {
 	if err := h.pool.QueryRow(ctx, `SELECT count(*) FROM public.registro_replay_baja_local`).Scan(&sourceLedgerRows); err != nil || sourceLedgerRows != 2 {
 		t.Fatalf("shared PostgreSQL V62 ledger rows=%d err=%v, want 2", sourceLedgerRows, err)
 	}
-	if generation, conflicts, lost, writes := emulator.counters(); generation < 1 || conflicts < 1 || lost != 1 || writes < 2 {
-		t.Fatalf("fake GCS did not exercise CAS conflict and lost response: generation=%d conflicts=%d lost=%d writes=%d", generation, conflicts, lost, writes)
+	if !cloudMode {
+		if generation, conflicts, lost, writes := emulator.counters(); generation < 1 || conflicts < 1 || lost != 1 || writes < 2 {
+			t.Fatalf("fake GCS did not exercise CAS conflict and lost response: generation=%d conflicts=%d lost=%d writes=%d", generation, conflicts, lost, writes)
+		}
 	}
 
 	// A newly started process proves the shared DB ledger and GCS manifest are
 	// readable after both writers have exited.
-	restartResult := runGCP04ReplayProcesses(t, ctx, server.URL, []gcp04ReplayProcessConfig{{mode: "export", databaseURL: databaseURL}})[0]
+	restartResult := runGCP04ReplayProcesses(t, ctx, emulatorURL, []gcp04ReplayProcessConfig{{mode: "export", databaseURL: databaseURL}})[0]
 	assertReplayManifest(t, restartResult.Manifest, 2)
 
 	// A failed object deletion must leave its DB evidence job retryable and the
 	// source suppression incomplete. This uses the actual GCS blob adapter.
-	blobStore, err := cloudstorage.NewWithPrefix(ctx, "private-bucket", "evidence")
+	blobBucket, blobPrefix := gcp04ReplayBlobConfig()
+	blobStore, err := cloudstorage.NewWithPrefix(ctx, blobBucket, blobPrefix)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,43 +249,48 @@ func TestGCP04ReplayTwoProcessesPostgres18(t *testing.T) {
 	failureOutcome, err := failureService.ExecuteSuppression(ctx, adminID, failureRequest[0].ID, "gcp04-delete-failure", "gcp04-delete-failure", time.Now, blobStore)
 	_ = blobStore.Close()
 	deleteAttempts := emulator.deleteAttemptsCount()
-	if err != nil || failureOutcome.Status != "limpieza_pendiente" || failureOutcome.PendingFiles != 1 || failureOutcome.CompletedAt != nil {
-		t.Fatalf("remote Delete failure was confirmed instead of remaining pending: result=%+v deleteAttempts=%d err=%v", failureOutcome, deleteAttempts, err)
+	if !cloudMode && (err != nil || failureOutcome.Status != "limpieza_pendiente" || failureOutcome.PendingFiles != 1 || failureOutcome.CompletedAt != nil) {
+		t.Fatalf("fake remote Delete failure was confirmed instead of remaining pending: result=%+v deleteAttempts=%d err=%v", failureOutcome, deleteAttempts, err)
+	}
+	if cloudMode && (err != nil || failureOutcome.Status != "completada" || failureOutcome.PendingFiles != 0 || failureOutcome.CompletedAt == nil) {
+		t.Fatalf("real Cloud Storage Delete did not complete the synthetic evidence removal: result=%+v err=%v", failureOutcome, err)
 	}
 	var pending, attempts, completed int
 	var lastError string
 	var jobExecutionID, jobEvidenceID string
-	if err := h.pool.QueryRow(ctx, `SELECT count(*),COALESCE(max(j.intentos),0),count(*) FILTER (WHERE j.completada_en IS NOT NULL),COALESCE(max(j.ultimo_codigo_error),''),COALESCE(max(j.ejecucion_id::text),''),COALESCE(max(j.evidencia_id::text),'') FROM public.baja_archivo_pendiente_local j JOIN public.ejecucion_baja_local x ON x.id=j.ejecucion_id WHERE x.solicitud_id=$1`, failureRequest[0].ID).Scan(&pending, &attempts, &completed, &lastError, &jobExecutionID, &jobEvidenceID); err != nil || pending != 1 || attempts != 1 || completed != 0 || lastError != "archivo_sintetico_no_eliminado" {
+	if err := h.pool.QueryRow(ctx, `SELECT count(*),COALESCE(max(j.intentos),0),count(*) FILTER (WHERE j.completada_en IS NOT NULL),COALESCE(max(j.ultimo_codigo_error),''),COALESCE(max(j.ejecucion_id::text),''),COALESCE(max(j.evidencia_id::text),'') FROM public.baja_archivo_pendiente_local j JOIN public.ejecucion_baja_local x ON x.id=j.ejecucion_id WHERE x.solicitud_id=$1`, failureRequest[0].ID).Scan(&pending, &attempts, &completed, &lastError, &jobExecutionID, &jobEvidenceID); err != nil || pending != 1 || (cloudMode && completed != 1) || (!cloudMode && (attempts != 1 || completed != 0 || lastError != "archivo_sintetico_no_eliminado")) {
 		t.Fatalf("failed remote Delete job state pending=%d attempts=%d completed=%d code=%q execution=%s evidence=%s deleteAttempts=%d err=%v", pending, attempts, completed, lastError, jobExecutionID, jobEvidenceID, deleteAttempts, err)
 	}
-	if deleteAttempts < 1 {
+	if !cloudMode && deleteAttempts < 1 {
 		t.Fatalf("fake GCS did not receive Delete: attempts=%d", deleteAttempts)
 	}
 
-	// Restore the pre-suppression dump into a new DB. Its V62 ledger is empty;
-	// the restarted helper exports the external manifest and applies it there.
-	restoreURL, cleanupRestore := createGCP04ReplayRestoreDB(t, ctx, backupPath)
+	// Restore the old database clone into another isolated DB. Its V62 ledger
+	// is empty; the restarted helper exports the external manifest and applies it.
+	restoreURL, cleanupRestore := createGCP04ReplayRestoreDB(t, ctx, snapshotURL)
 	defer cleanupRestore()
 	var restoredLedgerRows int
-	restoredPool, err := pgxpool.New(ctx, restoreURL)
+	restoredPool, closeRestoredConnector, err := openGCP04ReplayPool(ctx, restoreURL)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() { restoredPool.Close(); closeRestoredConnector() }()
 	if err := restoredPool.QueryRow(ctx, `SELECT count(*) FROM public.registro_replay_baja_local`).Scan(&restoredLedgerRows); err != nil || restoredLedgerRows != 0 {
 		restoredPool.Close()
 		t.Fatalf("old snapshot ledger rows=%d err=%v, want 0", restoredLedgerRows, err)
 	}
 	restoredPool.Close()
-	applyResult := runGCP04ReplayProcesses(t, ctx, server.URL, []gcp04ReplayProcessConfig{{mode: "restore", databaseURL: restoreURL, actorID: adminID, restoreID: "f2040000-0000-4000-8000-000000000001"}})[0]
+	closeRestoredConnector()
+	applyResult := runGCP04ReplayProcesses(t, ctx, emulatorURL, []gcp04ReplayProcessConfig{{mode: "restore", databaseURL: restoreURL, actorID: adminID, restoreID: "f2040000-0000-4000-8000-000000000001"}})[0]
 	assertReplayManifest(t, applyResult.Manifest, 2)
 	if len(applyResult.Results) != 2 || applyResult.Results[0].Status != "reaplicada" || applyResult.Results[1].Status != "reaplicada" {
 		t.Fatalf("apply on old restored database did not replay both completed source suppressions: %+v", applyResult.Results)
 	}
-	restoredPool, err = pgxpool.New(ctx, restoreURL)
+	restoredPool, closeRestoredConnector, err = openGCP04ReplayPool(ctx, restoreURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restoredPool.Close()
+	t.Cleanup(func() { restoredPool.Close(); closeRestoredConnector() })
 	var restoredLedgerRowsAfter int
 	if err := restoredPool.QueryRow(ctx, `SELECT count(*) FROM public.registro_replay_baja_local`).Scan(&restoredLedgerRowsAfter); err != nil || restoredLedgerRowsAfter != 2 {
 		t.Fatalf("restored V62 ledger rows=%d err=%v, want 2 after apply", restoredLedgerRowsAfter, err)
@@ -265,6 +305,7 @@ func TestGCP04ReplayTwoProcessesPostgres18(t *testing.T) {
 
 type gcp04ReplayProcessConfig struct {
 	mode, databaseURL, actorID, requestID, idempotencyKey, restoreID string
+	barrierID, barrierParticipant                                    string
 }
 
 func runGCP04ReplayProcesses(t *testing.T, ctx context.Context, emulatorURL string, configs []gcp04ReplayProcessConfig) []gcp04ReplayProcessResult {
@@ -283,16 +324,28 @@ func runGCP04ReplayProcesses(t *testing.T, ctx context.Context, emulatorURL stri
 		cmdCtx, cancel := context.WithTimeout(ctx, 65*time.Second)
 		t.Cleanup(cancel)
 		cmd := exec.CommandContext(cmdCtx, os.Args[0], "-test.run=^TestGCP04ReplayProcessHelper$", "-test.timeout=58s")
-		cmd.Env = gcp04ReplayProcessEnv(os.Environ(), map[string]string{
-			gcp04ReplayTestModeEnv:         config.mode,
-			"GCP04_REPLAY_DATABASE_URL":    config.databaseURL,
-			"GCP04_REPLAY_ADMIN_ID":        config.actorID,
-			"GCP04_REPLAY_REQUEST_ID":      config.requestID,
-			"GCP04_REPLAY_IDEMPOTENCY_KEY": config.idempotencyKey,
-			"GCP04_REPLAY_RESTORE_ID":      config.restoreID,
-			"GCP04_REPLAY_RESULT_PATH":     resultPath,
-			"STORAGE_EMULATOR_HOST":        emulatorURL,
-		})
+		overrides := map[string]string{
+			gcp04ReplayTestModeEnv:                config.mode,
+			"GCP04_REPLAY_DATABASE_URL":           config.databaseURL,
+			"GCP04_REPLAY_ADMIN_ID":               config.actorID,
+			"GCP04_REPLAY_REQUEST_ID":             config.requestID,
+			"GCP04_REPLAY_IDEMPOTENCY_KEY":        config.idempotencyKey,
+			"GCP04_REPLAY_RESTORE_ID":             config.restoreID,
+			"GCP04_REPLAY_RESULT_PATH":            resultPath,
+			"GCP04_REPLAY_BARRIER_ID":             config.barrierID,
+			"GCP04_REPLAY_BARRIER_PARTICIPANT":    config.barrierParticipant,
+			"GCP04_REPLAY_CLOUD":                  os.Getenv("GCP04_REPLAY_CLOUD"),
+			"GCP04_REPLAY_DATABASE_PASSWORD_FILE": os.Getenv("GCP04_REPLAY_DATABASE_PASSWORD_FILE"),
+			"GCP04_REPLAY_CLOUD_SQL_INSTANCE":     os.Getenv("GCP04_REPLAY_CLOUD_SQL_INSTANCE"),
+			"GCP04_REPLAY_CLOUD_SQL_PRIVATE_IP":   os.Getenv("GCP04_REPLAY_CLOUD_SQL_PRIVATE_IP"),
+			"GCP04_REPLAY_BUCKET":                 os.Getenv("GCP04_REPLAY_BUCKET"),
+			"GCP04_REPLAY_PREFIX":                 os.Getenv("GCP04_REPLAY_PREFIX"),
+			"GCP04_REPLAY_BLOB_PREFIX":            os.Getenv("GCP04_REPLAY_BLOB_PREFIX"),
+		}
+		if emulatorURL != "" {
+			overrides["STORAGE_EMULATOR_HOST"] = emulatorURL
+		}
+		cmd.Env = gcp04ReplayProcessEnv(os.Environ(), overrides)
 		stdin, err := cmd.StdinPipe()
 		if err != nil {
 			t.Fatal(err)
@@ -376,7 +429,7 @@ func gcp04ReplayProcessEnv(environment []string, override map[string]string) []s
 	return out
 }
 
-func createGCP04ReplayRestoreDB(t *testing.T, ctx context.Context, backupPath string) (string, func()) {
+func createGCP04ReplayRestoreDB(t *testing.T, ctx context.Context, snapshotURL string) (string, func()) {
 	t.Helper()
 	adminURL := os.Getenv("TEST_DATABASE_URL")
 	parsed, err := url.Parse(adminURL)
@@ -384,38 +437,233 @@ func createGCP04ReplayRestoreDB(t *testing.T, ctx context.Context, backupPath st
 		t.Fatalf("invalid disposable TEST_DATABASE_URL: %v", err)
 	}
 	restoreDB := fmt.Sprintf("gcp04_replay_restore_%d", time.Now().UnixNano())
-	admin, err := pgx.Connect(ctx, adminURL)
+	snapshot, err := url.Parse(snapshotURL)
+	if err != nil || snapshot.Path == "" {
+		t.Fatalf("invalid synthetic GCP-04 database snapshot URL: %v", err)
+	}
+	admin, closeAdmin, err := openGCP04ReplayConnection(ctx, adminURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{restoreDB}.Sanitize()); err != nil {
-		_ = admin.Close(context.Background())
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{restoreDB}.Sanitize()+" TEMPLATE "+pgx.Identifier{strings.TrimPrefix(snapshot.Path, "/")}.Sanitize()); err != nil {
+		closeAdmin()
 		t.Fatal(err)
 	}
-	_ = admin.Close(ctx)
+	closeAdmin()
 	parsed.Path = "/" + restoreDB
 	restoreURL := parsed.String()
 	cleanup := func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		connection, connectErr := pgx.Connect(cleanupCtx, adminURL)
+		connection, closeConnection, connectErr := openGCP04ReplayConnection(cleanupCtx, adminURL)
 		if connectErr != nil {
 			t.Errorf("connect to clean restored scratch database: %v", connectErr)
 			return
 		}
-		defer connection.Close(cleanupCtx)
+		defer closeConnection()
 		if _, dropErr := connection.Exec(cleanupCtx, "DROP DATABASE IF EXISTS "+pgx.Identifier{restoreDB}.Sanitize()); dropErr != nil {
 			t.Errorf("drop only GCP-04 restored scratch database %s: %v", restoreDB, dropErr)
 		}
 	}
-	if output, err := exec.CommandContext(ctx, "pg_restore", "--exit-on-error", "--no-owner", "--no-privileges", "--dbname", restoreURL, backupPath).CombinedOutput(); err != nil {
-		cleanup()
-		t.Fatalf("restore synthetic pre-suppression snapshot: %v: %s", err, redactReplayCommandOutput(output))
-	}
 	return restoreURL, cleanup
 }
 
-func seedReplayFailureEvidence(t *testing.T, h *authHarness, adminID, targetID string) {
+func createGCP04ReplaySnapshot(t *testing.T, h *authHarness, ctx context.Context) (string, func()) {
+	t.Helper()
+	adminURL := os.Getenv("TEST_DATABASE_URL")
+	sourceDB := h.pool.Config().ConnConfig.Database
+	snapshotDB := fmt.Sprintf("gcp04_replay_snapshot_%d", time.Now().UnixNano())
+	parsedAdmin, err := url.Parse(adminURL)
+	if err != nil || parsedAdmin.Path == "" {
+		t.Fatalf("invalid disposable TEST_DATABASE_URL for snapshot: %v", err)
+	}
+	// PostgreSQL requires the template source to have no open sessions.
+	h.pool.Close()
+	admin, closeAdmin, err := openGCP04ReplayConnection(ctx, adminURL)
+	if err != nil {
+		t.Fatalf("connect to clone synthetic database snapshot: %v", err)
+	}
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{snapshotDB}.Sanitize()+" TEMPLATE "+pgx.Identifier{sourceDB}.Sanitize()); err != nil {
+		closeAdmin()
+		t.Fatalf("clone pre-suppression synthetic database: %v", err)
+	}
+	closeAdmin()
+
+	sourceURL := gcp04ReplayURLForDatabase(adminURL, sourceDB)
+	newPool, closeConnector, err := openGCP04ReplayPool(ctx, sourceURL)
+	if err != nil {
+		t.Fatalf("reopen synthetic source database after clone: %v", err)
+	}
+	h.pool = newPool
+	h.repo = identitypg.NewIdentityRepository(newPool)
+	t.Cleanup(func() { newPool.Close(); closeConnector() })
+
+	snapshotURL := gcp04ReplayURLForDatabase(adminURL, snapshotDB)
+	cleanup := func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		connection, closeConnection, connectErr := openGCP04ReplayConnection(cleanupCtx, adminURL)
+		if connectErr != nil {
+			t.Errorf("connect to drop synthetic GCP-04 snapshot: %v", connectErr)
+			return
+		}
+		defer closeConnection()
+		if _, dropErr := connection.Exec(cleanupCtx, "DROP DATABASE IF EXISTS "+pgx.Identifier{snapshotDB}.Sanitize()); dropErr != nil {
+			t.Errorf("drop only synthetic GCP-04 snapshot database: %v", dropErr)
+		}
+	}
+	return snapshotURL, cleanup
+}
+
+func gcp04ReplayURLForDatabase(baseURL, databaseName string) string {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+	parsed.Path = "/" + databaseName
+	return parsed.String()
+}
+
+func gcp04ReplayCloudMode() bool {
+	return os.Getenv("GCP04_REPLAY_CLOUD") == "YES"
+}
+
+func gcp04ReplayStorageConfig() (bucket, prefix string) {
+	bucket = strings.TrimSpace(os.Getenv("GCP04_REPLAY_BUCKET"))
+	prefix = strings.TrimSpace(os.Getenv("GCP04_REPLAY_PREFIX"))
+	if bucket == "" {
+		bucket = "private-bucket"
+	}
+	if prefix == "" {
+		prefix = "privacy"
+	}
+	return bucket, prefix
+}
+
+func gcp04ReplayBlobConfig() (bucket, prefix string) {
+	bucket = strings.TrimSpace(os.Getenv("GCP04_REPLAY_BUCKET"))
+	prefix = strings.TrimSpace(os.Getenv("GCP04_REPLAY_BLOB_PREFIX"))
+	if bucket == "" {
+		bucket = "private-bucket"
+	}
+	if prefix == "" {
+		prefix = "evidence"
+	}
+	return bucket, prefix
+}
+
+func readGCP04ReplayPassword() ([]byte, error) {
+	path := strings.TrimSpace(os.Getenv("GCP04_REPLAY_DATABASE_PASSWORD_FILE"))
+	if path == "" {
+		return nil, fmt.Errorf("Cloud SQL password file path is required")
+	}
+	password, err := os.ReadFile(path)
+	if err != nil || len(bytes.TrimSpace(password)) == 0 {
+		for i := range password {
+			password[i] = 0
+		}
+		return nil, fmt.Errorf("Cloud SQL password file is unavailable")
+	}
+	trimmed := bytes.TrimRight(password, "\r\n")
+	return append([]byte(nil), trimmed...), nil
+}
+
+func openGCP04ReplayConnection(ctx context.Context, databaseURL string) (*pgx.Conn, func(), error) {
+	if !gcp04ReplayCloudMode() {
+		conn, err := pgx.Connect(ctx, databaseURL)
+		if err != nil {
+			return nil, nil, err
+		}
+		return conn, func() { _ = conn.Close(context.Background()) }, nil
+	}
+	password, err := readGCP04ReplayPassword()
+	if err != nil {
+		return nil, nil, err
+	}
+	conn, closeConnector, err := cloudsql.Connect(ctx, databaseURL, string(password), os.Getenv("GCP04_REPLAY_CLOUD_SQL_INSTANCE"), os.Getenv("GCP04_REPLAY_CLOUD_SQL_PRIVATE_IP") == "true")
+	for i := range password {
+		password[i] = 0
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return conn, func() {
+		_ = conn.Close(context.Background())
+		closeConnector()
+	}, nil
+}
+
+func openGCP04ReplayPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, func(), error) {
+	if !gcp04ReplayCloudMode() {
+		pool, err := pgxpool.New(ctx, databaseURL)
+		if err != nil {
+			return nil, nil, err
+		}
+		return pool, func() {}, nil
+	}
+	password, err := readGCP04ReplayPassword()
+	if err != nil {
+		return nil, nil, err
+	}
+	config, err := cloudsql.NewPGXConfig(databaseURL, string(password))
+	for i := range password {
+		password[i] = 0
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	poolConfig, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	poolConfig.ConnConfig = config
+	closeConnector, err := cloudsql.ConfigurePGX(ctx, poolConfig.ConnConfig, os.Getenv("GCP04_REPLAY_CLOUD_SQL_INSTANCE"), os.Getenv("GCP04_REPLAY_CLOUD_SQL_PRIVATE_IP") == "true")
+	if err != nil {
+		return nil, nil, err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		closeConnector()
+		return nil, nil, err
+	}
+	return pool, closeConnector, nil
+}
+
+type gcp04BarrierReplayStore struct {
+	inner       privacy.SuppressionReplayStore
+	pool        *pgxpool.Pool
+	barrierID   string
+	participant string
+}
+
+func (s *gcp04BarrierReplayStore) Load(ctx context.Context) (privacy.SuppressionReplaySnapshot, error) {
+	return s.inner.Load(ctx)
+}
+
+func (s *gcp04BarrierReplayStore) CompareAndSwap(ctx context.Context, revision string, manifest privacy.SuppressionReplayManifest) (string, error) {
+	if _, err := s.pool.Exec(ctx, `INSERT INTO public.gcp04_replay_barrier(barrier_id,participant) VALUES($1,$2) ON CONFLICT DO NOTHING`, s.barrierID, s.participant); err != nil {
+		return "", err
+	}
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var participants int
+		if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM public.gcp04_replay_barrier WHERE barrier_id=$1`, s.barrierID).Scan(&participants); err != nil {
+			return "", err
+		}
+		if participants >= 2 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-ticker.C:
+		}
+	}
+	return s.inner.CompareAndSwap(ctx, revision, manifest)
+}
+
+func seedReplayFailureEvidence(t *testing.T, h *authHarness, adminID, targetID string) string {
 	t.Helper()
 	caseID := "f2040000-0000-4000-8000-000000000010"
 	fixtureID := "f2040000-0000-4000-8000-000000000011"
@@ -434,6 +682,7 @@ func seedReplayFailureEvidence(t *testing.T, h *authHarness, adminID, targetID s
 	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.verificacion_evidencia_sintetica e JOIN public.verificacion v ON v.id=e.verificacion_id WHERE v.usuario_id=$1`, targetID).Scan(&rows); err != nil || rows != 1 {
 		t.Fatalf("synthetic suppression evidence rows=%d err=%v", rows, err)
 	}
+	return evidenceID
 }
 
 func assertReplayManifest(t *testing.T, manifest privacy.SuppressionReplayManifest, count int) {
