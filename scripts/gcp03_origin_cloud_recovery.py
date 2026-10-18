@@ -23,6 +23,7 @@ U2_NORMALIZATION_SHA256 = "2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73
 U2_RECEIPT_SHA256 = "42f817e89382af2df3e0f452b594311936e91839fd92cc251f133bd4d867377c"
 U2_RECEIPT_GENERATION = 1792273080133875
 U2_RECEIPT_BYTES = 1892
+F4_IMPORT_FAILURE_SHA256 = "bd4054e1a49eb082467f3c88bba5ef27d3aaec972115962e86e6ab87cb04f349"
 
 
 def config(env):
@@ -38,6 +39,7 @@ def config(env):
             Path(env["GCP03_ORIGIN_IMPORT_TRANSPORT_KEY_FILE"]))
         mode = env["GCP03_ORIGIN_RECOVERY_MODE"]
         diag_hash = env["GCP03_ORIGIN_RECOVERY_DIAGNOSTIC_SHA256"]
+        import_failure_hash = env["GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256"]
         confirmation = env["GCP03_ORIGIN_IMPORT_CONFIRM_TARGET"]
         instance = env["CLOUD_SQL_INSTANCE_CONNECTION_NAME"]
         private_ip = env["CLOUD_SQL_PRIVATE_IP"]
@@ -49,7 +51,7 @@ def config(env):
               cfg.expected_bootstrap_sha256, cfg.expected_observer_sha256,
               cfg.expected_normalization_sha256, diag_hash)
     if cfg.bucket != TARGET_BUCKET or cfg.private_files_bucket != PRIVATE_FILES_BUCKET or \
-       mode not in {"plan", "apply"} or diag_hash != DIAGNOSTIC_SHA256 or \
+       mode not in {"plan", "apply"} or diag_hash != DIAGNOSTIC_SHA256 or import_failure_hash != F4_IMPORT_FAILURE_SHA256 or \
        any(not re.fullmatch(r"[0-9a-f]{64}", value) for value in hashes) or \
        cfg.expected_manifest_sha256 != U2_MANIFEST_SHA256 or \
        cfg.expected_normalization_sha256 != U2_NORMALIZATION_SHA256 or \
@@ -88,7 +90,7 @@ def authenticated_inputs(cfg, store):
     return receipt, manifest, norm_ref, private_ref, archive_stats, files, normalization
 
 
-def make_plan(reader, normalization, archive_stats, private_ref, cfg):
+def make_plan(reader, normalization, archive_stats, private_ref, cfg, import_failure_sha256):
     current = reader.identity_and_inventory()
     if current != EXPECTED_CURRENT:
         raise ImportStopped("CURRENT_STATE_OR_ARTIFACT_DRIFT", "current_preflight")
@@ -107,6 +109,7 @@ def make_plan(reader, normalization, archive_stats, private_ref, cfg):
         "database": current["database"], "login": current["login"],
         "server_version_major": current["server_version_major"],
         "owned_sequence_dependency_count": current["owned_sequence_dependency_count"],
+        "failed_import_report_sha256": import_failure_sha256,
     }
     return build_normalization_recovery_plan(normalization, cfg.expected_normalization_sha256,
         facts, owned_sequence_parent_statement=parents, binding=binding)
@@ -171,7 +174,8 @@ def run(env):
         reader.manifest_sha256 = cfg.expected_manifest_sha256
         reader.normalization_sha256 = cfg.expected_normalization_sha256
         reader.normalization_generation = norm_ref.generation
-        plan = make_plan(reader, normalization, archive_stats, private_ref, cfg)
+        plan = make_plan(reader, normalization, archive_stats, private_ref, cfg,
+            env["GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256"])
         if mode == "plan":
             return {"format": PLAN_FORMAT, "phase": phase, "run_id": TARGET_RUN_ID,
                 "status": "plan_ready", "phase_success": True, "report_complete": True,

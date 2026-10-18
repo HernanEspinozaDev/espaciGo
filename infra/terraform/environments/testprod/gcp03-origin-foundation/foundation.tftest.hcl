@@ -48,8 +48,8 @@ run "recovery_plan_job_is_default_off_and_read_only_profile" {
     enable_origin_import_infrastructure   = true
     enable_origin_recovery_plan_job       = true
     confirm_origin_bootstrap_completed    = true
-    confirm_origin_import_completed       = true
-    origin_import_evidence_sha256         = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    confirm_origin_restored_copy_observed = true
+    origin_recovery_import_failure_sha256 = "bd4054e1a49eb082467f3c88bba5ef27d3aaec972115962e86e6ab87cb04f349"
     bootstrap_evidence_sha256             = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     admin_password_secret_version         = "1"
     confirm_admin_password_secret_version = true
@@ -72,6 +72,7 @@ run "recovery_plan_job_is_default_off_and_read_only_profile" {
       google_cloud_run_v2_job.origin_recovery[0].template[0].task_count == 1 &&
       one([for e in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_RECOVERY_MODE"]) == "plan" &&
       one([for e in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_RECOVERY_DIAGNOSTIC_SHA256"]) == "3325288140b1f2de8bb944f7c4c1599fcf56f1a19531dc334bf171629f99391a" &&
+      one([for e in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256"]) == "bd4054e1a49eb082467f3c88bba5ef27d3aaec972115962e86e6ab87cb04f349" &&
     one([for v in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].volumes : v.secret[0].items[0].version if v.name == "origin-transport-key"]) == "1")
     error_message = "Recovery planning must be one-task, zero-retry, plan-only and use the exact existing K_run version."
   }
@@ -93,8 +94,8 @@ run "recovery_apply_requires_explicit_plan_review_and_exact_hash" {
     confirm_origin_recovery_plan_reviewed = true
     origin_recovery_approved_plan_sha256  = "1111111111111111111111111111111111111111111111111111111111111111"
     confirm_origin_bootstrap_completed    = true
-    confirm_origin_import_completed       = true
-    origin_import_evidence_sha256         = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    confirm_origin_restored_copy_observed = true
+    origin_recovery_import_failure_sha256 = "bd4054e1a49eb082467f3c88bba5ef27d3aaec972115962e86e6ab87cb04f349"
     bootstrap_evidence_sha256             = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     admin_password_secret_version         = "1"
     confirm_admin_password_secret_version = true

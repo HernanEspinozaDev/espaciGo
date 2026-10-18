@@ -185,12 +185,13 @@ variable "enable_origin_postrestore_job" {
 variable "enable_origin_recovery_plan_job" {
   type        = bool
   default     = false
-  description = "Default-off one-shot read-only recovery planner over the already-restored g03o-1017 database; reads exact U2 generations and writes no objects."
+  description = "Default-off one-shot read-only recovery planner over the observed g03o-1017 restored copy; reads exact U2 generations and writes no objects."
   validation {
     condition = !var.enable_origin_recovery_plan_job || (
       var.enable_origin_import_infrastructure && var.enable_foundation && var.confirm_origin_rehearsal &&
       var.run_id == "g03o-1017" && var.confirm_origin_bootstrap_completed &&
-      var.confirm_origin_import_completed && var.confirm_admin_password_secret_version &&
+      var.confirm_origin_restored_copy_observed && var.origin_recovery_import_failure_sha256 == "bd4054e1a49eb082467f3c88bba5ef27d3aaec972115962e86e6ab87cb04f349" &&
+      var.confirm_admin_password_secret_version &&
       can(regex("^[1-9][0-9]*$", var.admin_password_secret_version)) && var.admin_password_secret_version == "1" &&
       var.confirm_transport_key_secret_version && can(regex("^[1-9][0-9]*$", var.transport_key_secret_version)) && var.transport_key_secret_version == "1" &&
       can(regex("@sha256:[0-9a-f]{64}$", var.origin_recovery_image)) &&
@@ -202,12 +203,27 @@ variable "enable_origin_recovery_plan_job" {
       var.import_receipt_sha256 == "42f817e89382af2df3e0f452b594311936e91839fd92cc251f133bd4d867377c" &&
       var.import_manifest_sha256 == "c5fc1964175244e998742e34dd4c4376b2d822b27574416b61228b912641ec30" &&
       can(regex("^[0-9a-f]{64}$", var.bootstrap_evidence_sha256)) &&
-      can(regex("^[0-9a-f]{64}$", var.origin_import_evidence_sha256)) &&
       can(regex("^[0-9a-f]{64}$", var.import_observer_sha256)) &&
       var.import_normalization_sha256 == "2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2" &&
       var.origin_recovery_diagnostic_sha256 == "3325288140b1f2de8bb944f7c4c1599fcf56f1a19531dc334bf171629f99391a"
     )
-    error_message = "Recovery planning requires the exact restored copy, reviewed U2 generations/hashes, numeric existing secrets, diagnostic hash, and digest-pinned images."
+    error_message = "Recovery planning requires the observed restored copy, exact failed-import and read-only diagnostic evidence, reviewed U2 generations/hashes, numeric existing secrets, and digest-pinned images."
+  }
+}
+
+variable "confirm_origin_restored_copy_observed" {
+  type        = bool
+  default     = false
+  description = "Acknowledges the successful read-only diagnostic of the existing restored copy before recovery planning; does not assert a successful import."
+}
+
+variable "origin_recovery_import_failure_sha256" {
+  type        = string
+  default     = ""
+  description = "SHA-256 of the fixed sanitized failed-import report that identifies the existing restored copy requiring recovery."
+  validation {
+    condition     = var.origin_recovery_import_failure_sha256 == "" || var.origin_recovery_import_failure_sha256 == "bd4054e1a49eb082467f3c88bba5ef27d3aaec972115962e86e6ab87cb04f349"
+    error_message = "Recovery must bind the exact preserved F4 failed-import report SHA-256."
   }
 }
 

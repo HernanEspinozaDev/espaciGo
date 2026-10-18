@@ -831,6 +831,10 @@ resource "google_cloud_run_v2_job" "origin_recovery" {
           value = var.origin_recovery_diagnostic_sha256
         }
         env {
+          name  = "GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256"
+          value = var.origin_recovery_import_failure_sha256
+        }
+        env {
           name  = "GCP03_ORIGIN_RECOVERY_APPROVED_PLAN_SHA256"
           value = local.recovery_apply_enabled ? var.origin_recovery_approved_plan_sha256 : ""
         }
@@ -962,9 +966,10 @@ resource "google_cloud_run_v2_job" "origin_recovery" {
   google_secret_manager_secret_iam_member.admin_password_reader, google_secret_manager_secret_iam_member.transport_key_reader]
   lifecycle {
     precondition {
-      condition = (local.recovery_enabled && var.enable_origin_import_infrastructure && var.confirm_origin_import_completed &&
+      condition = (local.recovery_enabled && var.enable_origin_import_infrastructure && var.confirm_origin_restored_copy_observed &&
         var.import_receipt_object == "runs/${var.run_id}/receipt.json" &&
         var.origin_recovery_diagnostic_sha256 == "3325288140b1f2de8bb944f7c4c1599fcf56f1a19531dc334bf171629f99391a" &&
+        var.origin_recovery_import_failure_sha256 == "bd4054e1a49eb082467f3c88bba5ef27d3aaec972115962e86e6ab87cb04f349" &&
       (!local.recovery_apply_enabled || (var.confirm_origin_recovery_plan_reviewed && can(regex("^[0-9a-f]{64}$", var.origin_recovery_approved_plan_sha256)))))
       error_message = "Recovery requires the exact existing receipt, diagnostic, secrets and reviewed plan SHA-256."
     }
