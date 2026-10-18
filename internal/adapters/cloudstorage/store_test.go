@@ -92,6 +92,22 @@ func TestStoreRejectsInvalidIDAndCanceledContextBeforeAccess(t *testing.T) {
 	}
 }
 
+func TestStoreDeleteReturnsRemoteFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "synthetic storage failure", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	client, err := storage.NewClient(context.Background(), option.WithEndpoint(server.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	store := newStoreWithClient(client, "private-bucket")
+	if err := store.Delete(context.Background(), "11111111-1111-4111-8111-111111111111"); err == nil {
+		t.Fatal("Delete swallowed a remote storage failure")
+	}
+}
+
 func TestValidatePrefixRejectsTraversalAndAcceptsExactRunPrefix(t *testing.T) {
 	for _, prefix := range []string{"../other", "runs/../other", "/absolute", "runs//g03o-1017", "runs\\g03o-1017"} {
 		if err := validatePrefix(prefix); err == nil {

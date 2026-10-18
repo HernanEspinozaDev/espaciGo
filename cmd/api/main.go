@@ -163,6 +163,7 @@ func run() error {
 	var localContractRepository *contractpg.Repository
 	var publicCatalogMasterKey []byte
 	var privacyReplayRegistryPath string
+	var privacyReplayStore privacy.SuppressionReplayStore
 	var privacyEvidenceCleaner privacy.SyntheticEvidenceCleaner
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
 	if prototypeEnabled {
@@ -212,6 +213,13 @@ func run() error {
 		}
 		localPrivacyService = privacyService
 		privacyReplayRegistryPath = os.Getenv("LOCAL_PRIVACY_REPLAY_FILE")
+		privacyReplayStore, err = newRuntimePrivacyReplayStore(context.Background(), os.Getenv)
+		if err != nil {
+			return errors.New("privacy replay storage configuration is invalid")
+		}
+		if closer, ok := privacyReplayStore.(interface{ Close() error }); ok {
+			defer closer.Close()
+		}
 		disputeService, err := dispute.NewService(disputepg.New(pool), businessNow)
 		if err != nil {
 			return errors.New("local dispute initialization failed")
@@ -232,7 +240,7 @@ func run() error {
 		mux.Handle("/api/v1/profile/photo", m02Handler)
 		mux.Handle("/api/v1/profile/photo/", m02Handler)
 		mux.Handle("/api/v1/payout-account", m02Handler)
-		mux.Handle("/api/v1/", identityhttp.NewHandlerWithSuppressionRegistry(service, repo, cfg.allowedOrigins, privacyService, evidenceStore, privacyReplayRegistryPath))
+		mux.Handle("/api/v1/", identityhttp.NewHandlerWithSuppressionRegistry(service, repo, cfg.allowedOrigins, privacyService, evidenceStore, privacyReplayRegistryPath, privacyReplayStore))
 		globalAdminService, err := adminglobal.New(pool, time.Now)
 		if err != nil {
 			return errors.New("global administration service initialization failed")
@@ -458,7 +466,7 @@ func run() error {
 		}()
 	}
 	if localPrivacyService != nil {
-		go localPrivacyService.RunSuppressionCleanupWorker(ctx, 10*time.Second, privacyEvidenceCleaner, privacyReplayRegistryPath)
+		go localPrivacyService.RunSuppressionCleanupWorkerWithStore(ctx, 10*time.Second, privacyEvidenceCleaner, privacyReplayRegistryPath, privacyReplayStore)
 		if localM02Service != nil {
 			go func() {
 				ticker := time.NewTicker(15 * time.Second)

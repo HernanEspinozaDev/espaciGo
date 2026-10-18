@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -19,10 +20,14 @@ import (
 )
 
 var (
-	ErrInvalid           = errors.New("invalid privacy input")
-	ErrNotFound          = errors.New("privacy resource not found")
-	ErrExportUnavailable = errors.New("complete owner export unavailable")
+	ErrInvalid                = errors.New("invalid privacy input")
+	ErrNotFound               = errors.New("privacy resource not found")
+	ErrExportUnavailable      = errors.New("complete owner export unavailable")
+	ErrReplayStoreUnavailable = errors.New("privacy replay store unavailable")
+	ErrReplayStoreConflict    = errors.New("privacy replay store conflict")
 )
+
+var suppressionReplayUUIDPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Profile struct {
 	AccountID string
@@ -92,6 +97,20 @@ type SuppressionReplayEntry struct {
 type SuppressionReplayManifest struct {
 	Version int                      `json:"version"`
 	Entries []SuppressionReplayEntry `json:"entries"`
+}
+
+// SuppressionReplaySnapshot is one generation of the external append-only
+// registry. Empty Revision means that no object exists yet.
+type SuppressionReplaySnapshot struct {
+	Revision string
+	Manifest SuppressionReplayManifest
+}
+
+// SuppressionReplayStore persists the complete minimal replay manifest using
+// compare-and-swap. Implementations must not silently overwrite a generation.
+type SuppressionReplayStore interface {
+	Load(context.Context) (SuppressionReplaySnapshot, error)
+	CompareAndSwap(context.Context, string, SuppressionReplayManifest) (string, error)
 }
 
 type RetentionPurgeResult struct {
@@ -483,13 +502,24 @@ func (s *Service) RunSuppressionCleanupOnce(ctx context.Context, now func() time
 }
 
 func (s *Service) RunSuppressionCleanupWorker(ctx context.Context, interval time.Duration, cleaner SyntheticEvidenceCleaner, replayRegistryPath ...string) {
+	path := ""
+	if len(replayRegistryPath) > 0 {
+		path = replayRegistryPath[0]
+	}
+	s.RunSuppressionCleanupWorkerWithStore(ctx, interval, cleaner, path, nil)
+}
+
+func (s *Service) RunSuppressionCleanupWorkerWithStore(ctx context.Context, interval time.Duration, cleaner SyntheticEvidenceCleaner, replayRegistryPath string, replayStore SuppressionReplayStore) {
 	if interval <= 0 {
 		interval = time.Minute
 	}
 	process := func() {
 		_ = s.RunSuppressionCleanupOnce(ctx, time.Now, cleaner)
-		if len(replayRegistryPath) > 0 && replayRegistryPath[0] != "" {
-			_ = s.ExportSuppressionReplayManifestToFile(ctx, replayRegistryPath[0])
+		if replayStore != nil {
+			_ = s.ExportSuppressionReplayManifestToStore(ctx, replayStore)
+		}
+		if replayRegistryPath != "" {
+			_ = s.ExportSuppressionReplayManifestToFile(ctx, replayRegistryPath)
 		}
 	}
 	ticker := time.NewTicker(interval)
@@ -683,7 +713,8 @@ func mergeSuppressionReplayManifests(manifests ...SuppressionReplayManifest) (Su
 			return SuppressionReplayManifest{}, ErrInvalid
 		}
 		for _, entry := range manifest.Entries {
-			if entry.ExecutionID == "" || entry.RequestID == "" || entry.AccountID == "" || entry.RequestedAt.IsZero() || entry.CompletedAt.IsZero() {
+			if !suppressionReplayUUIDPattern.MatchString(entry.ExecutionID) || !suppressionReplayUUIDPattern.MatchString(entry.RequestID) ||
+				!suppressionReplayUUIDPattern.MatchString(entry.AccountID) || entry.RequestedAt.IsZero() || entry.CompletedAt.IsZero() || entry.CompletedAt.Before(entry.RequestedAt) {
 				return SuppressionReplayManifest{}, ErrInvalid
 			}
 			if prior, exists := byID[entry.ExecutionID]; exists {
@@ -708,6 +739,98 @@ func mergeSuppressionReplayManifests(manifests ...SuppressionReplayManifest) (Su
 		return SuppressionReplayManifest{}, ErrInvalid
 	}
 	return merged, nil
+}
+
+func NormalizeSuppressionReplayManifest(manifest SuppressionReplayManifest) (SuppressionReplayManifest, error) {
+	return mergeSuppressionReplayManifests(manifest)
+}
+
+// MergeSuppressionReplayManifestWithStore adds the current external registry
+// to a reviewed/imported manifest before replaying it against a restored DB.
+func (s *Service) MergeSuppressionReplayManifestWithStore(ctx context.Context, manifest SuppressionReplayManifest, store SuppressionReplayStore) (SuppressionReplayManifest, error) {
+	if store == nil {
+		return SuppressionReplayManifest{}, ErrReplayStoreUnavailable
+	}
+	snapshot, err := store.Load(ctx)
+	if err != nil {
+		return SuppressionReplayManifest{}, ErrReplayStoreUnavailable
+	}
+	return mergeSuppressionReplayManifests(manifest, snapshot.Manifest)
+}
+
+// ExportSuppressionReplayManifestToStore synchronizes completed DB records
+// into a generation-checked external snapshot. Conflicts reload both sources
+// before retrying so concurrent instances cannot overwrite one another.
+func (s *Service) ExportSuppressionReplayManifestToStore(ctx context.Context, store SuppressionReplayStore) error {
+	_, err := s.syncSuppressionReplayManifestToStore(ctx, store)
+	return err
+}
+
+// ExportSuppressionReplayManifestWithStore confirms the DB-to-store sync and
+// returns the combined point-in-time manifest.
+func (s *Service) ExportSuppressionReplayManifestWithStore(ctx context.Context, store SuppressionReplayStore) (SuppressionReplayManifest, error) {
+	return s.syncSuppressionReplayManifestToStore(ctx, store)
+}
+
+func (s *Service) syncSuppressionReplayManifestToStore(ctx context.Context, store SuppressionReplayStore) (SuppressionReplayManifest, error) {
+	if store == nil {
+		return SuppressionReplayManifest{}, ErrReplayStoreUnavailable
+	}
+	for attempt := 0; attempt < 8; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return SuppressionReplayManifest{}, err
+		}
+		database, err := s.ExportSuppressionReplayManifest(ctx)
+		if err != nil {
+			return SuppressionReplayManifest{}, err
+		}
+		snapshot, err := store.Load(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return SuppressionReplayManifest{}, ctx.Err()
+			}
+			if err := waitReplayRegistryRetry(ctx, attempt); err != nil {
+				return SuppressionReplayManifest{}, err
+			}
+			continue
+		}
+		external, err := NormalizeSuppressionReplayManifest(snapshot.Manifest)
+		if err != nil {
+			return SuppressionReplayManifest{}, ErrReplayStoreConflict
+		}
+		merged, err := mergeSuppressionReplayManifests(database, external)
+		if err != nil {
+			return SuppressionReplayManifest{}, ErrReplayStoreConflict
+		}
+		if reflect.DeepEqual(merged, external) {
+			return merged, nil
+		}
+		if _, err := store.CompareAndSwap(ctx, snapshot.Revision, merged); err == nil {
+			return merged, nil
+		}
+		if ctx.Err() != nil {
+			return SuppressionReplayManifest{}, ctx.Err()
+		}
+		if err := waitReplayRegistryRetry(ctx, attempt); err != nil {
+			return SuppressionReplayManifest{}, err
+		}
+	}
+	return SuppressionReplayManifest{}, ErrReplayStoreUnavailable
+}
+
+func waitReplayRegistryRetry(ctx context.Context, attempt int) error {
+	delay := 5 * time.Millisecond * time.Duration(1<<attempt)
+	if delay > 100*time.Millisecond {
+		delay = 100 * time.Millisecond
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // ExportSuppressionReplayManifestToFile refreshes a mode-0600 sidecar outside
