@@ -50,11 +50,13 @@ DISALLOWED_TOC = (" EXTENSION - ", " COMMENT - EXTENSION ", " TABLE DATA public 
 
 
 class ImportStopped(RuntimeError):
-    def __init__(self, code: str, stage: str, *, mutation_started: bool = False):
+    def __init__(self, code: str, stage: str, *, mutation_started: bool = False,
+                 safe_details: dict | None = None):
         super().__init__(code)
         self.code = code
         self.stage = stage
         self.mutation_started = mutation_started
+        self.safe_details = safe_details or {}
 
 
 @dataclass(frozen=True)
