@@ -582,7 +582,7 @@ func (r *IdentityRepository) CompleteSuppressionFile(ctx context.Context, file p
 	return mapError(tx.Commit(ctx))
 }
 func (r *IdentityRepository) FailSuppressionFile(ctx context.Context, file privacy.SuppressionFile, at time.Time) error {
-	_, err := r.pool.Exec(ctx, `UPDATE public.baja_archivo_pendiente_local SET intentos=intentos+1,disponible_en=$3 + LEAST(interval '5 minutes', interval '5 seconds' * (intentos+1)),ultimo_codigo_error='archivo_sintetico_no_eliminado' WHERE ejecucion_id=$1 AND evidencia_id=$2 AND completada_en IS NULL`, file.ExecutionID, file.EvidenceID, at.UTC())
+	_, err := r.pool.Exec(ctx, `UPDATE public.baja_archivo_pendiente_local SET intentos=intentos+1,disponible_en=$3::timestamptz + LEAST(interval '5 minutes', interval '5 seconds' * (intentos+1)),ultimo_codigo_error='archivo_sintetico_no_eliminado' WHERE ejecucion_id=$1 AND evidencia_id=$2 AND completada_en IS NULL`, file.ExecutionID, file.EvidenceID, at.UTC())
 	return mapError(err)
 }
 
