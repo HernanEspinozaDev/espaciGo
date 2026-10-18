@@ -2554,6 +2554,11 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Keep this synthetic request on the harness clock so requested_at is not
+	// later than the injected completion time used by the replay registry.
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.solicitud_titular SET solicitada_en=$2 WHERE id=$1`, request.ID, h.now); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.historial_clave_local(id,usuario_id,hash_clave,dejo_de_ser_vigente_en,retirar_en,creado_en) VALUES('82000000-0000-4000-8000-000000000001',$1,'synthetic-old-password-hash',$2,$3,$2)`, targetID, h.now.Add(-time.Hour), identity.AddCalendarMonthsUTC(h.now, 3)); err != nil {
 		t.Fatal(err)
 	}

@@ -94,7 +94,17 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	if err := validate(ctx, id); err != nil {
 		return err
 	}
-	err := s.bucket.Object(s.objectName(id)).Delete(ctx)
+	obj := s.bucket.Object(s.objectName(id))
+	attrs, err := obj.Attrs(ctx)
+	if errors.Is(err, storage.ErrObjectNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// Bind deletion to the generation observed for this key. If an object is
+	// replaced between Attrs and Delete, GCS rejects the stale generation.
+	err = obj.If(storage.Conditions{GenerationMatch: attrs.Generation}).Delete(ctx)
 	if errors.Is(err, storage.ErrObjectNotExist) {
 		return nil
 	}

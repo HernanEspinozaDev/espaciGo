@@ -84,3 +84,21 @@ Entregables y aceptación propuestos:
 5. Antes de cualquier Cloud worker, presupuestar conexiones agregadas de API+worker+migrador con los valores configurados, definir roles/secretos por identidad y revisar plan run-scoped. Una ejecución de Job no valida dos réplicas de worker ni lease global.
 
 GCP-04 continúa pendiente de este worker durable, de la coordinación global de leases/migraciones, del despliegue API y de las fases de disponibilidad/restore/costos/aceptación. No se llama GCP-05 a este trabajo ni se declara que ya esté implementado.
+
+## Actualización posterior: retiro lógico de `g04replay18` y corte W1
+
+**Actualizado: 2026-10-18 22:05:06 UTC.** Esta sección supersede el estado de recursos y planes de retiro descrito arriba, que corresponde al corte de lectura de las 21:46 UTC. No modifica el resultado histórico del smoke.
+
+El revisor independiente confirmó el retiro selectivo del run: el state conserva lineage `a84a8366-a3f9-f432-7c3c-3e9bf5c005a6`, serial `9`, cero recursos administrados y SHA-256 `78ef07d3fde85defd63dd90dc1fd6fdfcae3b521c25edbdd8048b0ba64e47a86`. La evidencia privada de cierre tiene SHA-256 `15e7d2ae1cbd255e81fdba0254d547cd96827ece41aee541130151843884cd5b`. El plan aplicado informó `remove=11`, `add/change/import/action_fail=0`, once eventos `apply_complete` y cero diagnósticos. La evidencia independiente comprobó que las APIs de los recursos run-scoped responden 404 y que las tres instancias SQL preservadas (`GCP03origin`, `testprod`, `pilot`) permanecen `RUNNABLE`.
+
+La salida de Terraform se conservó como JSONL y los checks de state/inventario quedaron registrados. El código de salida numérico del proceso no quedó capturado en la terminal, por lo que no se afirma ese valor ni se repitió un teardown para obtenerlo. Las generaciones GCS retiradas siguen bajo el soft-delete configurado; no se purgaron, restauraron ni se cambió la retención. No se tocó GCP-03, baseline, red compartida ni bucket/state remoto.
+
+El retiro lógico ya no es un trabajo pendiente del smoke. La implementación local de GCP-04-W1 está en revisión en el corte de código que acompaña esta matriz; todavía no implica despliegue Cloud, workers globales, coordinación del migrador ni aceptación de GCP-04/producto. V63 se considera parte del diseño local de fencing de esta rama y debe conservar V1–V62 byte a byte.
+
+### GCP-04-W1 — worker local de limpieza durable
+
+El corte separa la eliminación de archivos de `baja_archivo_pendiente_local` del proceso API. La API deja el trabajo en la cola; `privacy-cleanup-worker` reclama en lotes con `FOR UPDATE SKIP LOCKED`, lease, owner y generación monotónica. El ack y el backoff verifican el owner/generación vigentes y la vigencia del lease. La nueva V63 añade esos campos y el índice de pendientes reclamables; V1–V62 permanecen inmutables. El export periódico del registro replay sigue separado en API, sin reclamar la cola.
+
+Cloud Storage lee la generación y envía `ifGenerationMatch` al borrar. Esto protege contra borrar una generación reemplazante entre lectura y borrado; el borrado externo sigue siendo al menos una vez y no se afirma exactamente una vez. Un borrado externo exitoso seguido de crash antes del ack se recupera por takeover; el borrado de una generación ya ausente es idempotente. V63 no activa una instancia o worker en Cloud.
+
+Verificación del corte en PostgreSQL 18/PostGIS efímero: `internal/adapters/postgres/identity` completo pasó secuencialmente (incluye dos procesos de sistema operativo reclamando filas distintas y el caso de crash/takeover, con rechazo de ack y retry viejos); `internal/migrator` pasó después (base vacía V1–V63 y upgrade V62→V63 con fila pendiente y checksums previos preservados). El replay GCP-04 integrado con GCS falso pasó con dos procesos, reinicio, CAS/respuesta perdida, delete fallido y restore. `go test ./...`, Compose config y el build Docker del target worker también pasaron. La corrida usa infraestructura de ensayo local y no prueba IAM, Cloud SQL ni Cloud Run.

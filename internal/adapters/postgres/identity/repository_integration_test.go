@@ -175,7 +175,7 @@ func newIdentityTestPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 		_, migrationErr = migrator.Run(setupCtx, testURL, migrationDir)
 	}
 	if migrationErr != nil {
-		t.Fatalf("apply V1-V62 to disposable test database: %v", migrationErr)
+		t.Fatalf("apply V1-V63 to disposable test database: %v", migrationErr)
 	}
 
 	pool, closeConnector, err := openGCP04ReplayPool(context.Background(), testURL)

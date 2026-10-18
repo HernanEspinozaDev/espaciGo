@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -542,6 +543,121 @@ func TestGCP04DurableReplayRegistryFromFreshAndV61(t *testing.T) {
 			}
 			if err := conn.Close(ctx); err != nil {
 				t.Fatal(err)
+			}
+		})
+	})
+}
+
+func TestGCP04SuppressionClaimFencingMigrationFromFreshAndV62(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve migration source path")
+	}
+	sourceDir := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "db", "migrations"))
+	migrations, err := DiscoverMigrations(sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrations) < 63 || migrations[62].Name != "V000063__gcp04_privacy_suppression_claim_fencing.sql" {
+		t.Fatalf("unexpected latest migration: count=%d latest=%q", len(migrations), migrations[len(migrations)-1].Name)
+	}
+	v62Dir, v63Dir := t.TempDir(), t.TempDir()
+	for _, migration := range migrations[:62] {
+		if err := os.WriteFile(filepath.Join(v62Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, migration := range migrations[:63] {
+		if err := os.WriteFile(filepath.Join(v63Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	assertClaimSchema := func(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+		t.Helper()
+		var ownerNullable, leaseNullable, generationDefault string
+		if err := conn.QueryRow(ctx, `SELECT
+			(SELECT is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='baja_archivo_pendiente_local' AND column_name='claim_owner'),
+			(SELECT is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='baja_archivo_pendiente_local' AND column_name='claim_hasta'),
+			(SELECT column_default FROM information_schema.columns WHERE table_schema='public' AND table_name='baja_archivo_pendiente_local' AND column_name='claim_generacion')`).Scan(&ownerNullable, &leaseNullable, &generationDefault); err != nil {
+			t.Fatal(err)
+		}
+		if ownerNullable != "YES" || leaseNullable != "YES" || !strings.Contains(generationDefault, "0") {
+			t.Fatalf("claim schema owner/lease/default=%s/%s/%q", ownerNullable, leaseNullable, generationDefault)
+		}
+		var indexDef string
+		if err := conn.QueryRow(ctx, `SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname='baja_archivo_pendiente_claim_idx'`).Scan(&indexDef); err != nil || !strings.Contains(indexDef, "claim_hasta") {
+			t.Fatalf("claim due index definition=%q err=%v", indexDef, err)
+		}
+	}
+
+	t.Run("fresh V1-V63", func(t *testing.T) {
+		withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+			result, err := Run(ctx, databaseURL, v63Dir)
+			if err != nil || len(result.Applied) != 63 || result.Applied[62] != 63 {
+				t.Fatalf("fresh migration result=%v err=%v", result.Applied, err)
+			}
+			conn := connectTestDB(t, ctx, databaseURL)
+			defer conn.Close(ctx)
+			assertClaimSchema(t, ctx, conn)
+		})
+	})
+
+	t.Run("upgrade V62 preserves history and queued rows", func(t *testing.T) {
+		withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+			if result, err := Run(ctx, databaseURL, v62Dir); err != nil || len(result.Applied) != 62 || result.Applied[61] != 62 {
+				t.Fatalf("apply V1-V62: applied=%v err=%v", result.Applied, err)
+			}
+			conn := connectTestDB(t, ctx, databaseURL)
+			const accountID = "06300000-0000-4000-8000-000000000001"
+			const requestID = "06300000-0000-4000-8000-000000000002"
+			const executionID = "06300000-0000-4000-8000-000000000003"
+			const evidenceID = "06300000-0000-4000-8000-000000000004"
+			now := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
+			if _, err := conn.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,'gcp04-v63@example.invalid','gcp04-v63@example.invalid','synthetic','activo')`, accountID); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			if _, err := conn.Exec(ctx, `INSERT INTO public.solicitud_titular(id,usuario_id,tipo,canal,estado,solicitada_en) VALUES($1,$2,'supresion','web','en_revision',$3)`, requestID, accountID, now); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			if _, err := conn.Exec(ctx, `INSERT INTO public.ejecucion_baja_local(id,solicitud_id,usuario_id,actor_id,clave_idempotencia,estado,motivo_codigo,iniciada_en,detalle)
+				VALUES($1,$2,$3,$3,'gcp04-v63','limpieza_pendiente','baja_local_minimizada',$4,'{}'::jsonb)`, executionID, requestID, accountID, now); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			if _, err := conn.Exec(ctx, `INSERT INTO public.baja_archivo_pendiente_local(ejecucion_id,evidencia_id,disponible_en) VALUES($1,$2,$3)`, executionID, evidenceID, now); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			var before string
+			if err := conn.QueryRow(ctx, `SELECT string_agg(version::text||':'||checksum, ',' ORDER BY version) FROM public.schema_migrations`).Scan(&before); err != nil {
+				_ = conn.Close(ctx)
+				t.Fatal(err)
+			}
+			if err := conn.Close(ctx); err != nil {
+				t.Fatal(err)
+			}
+			result, err := Run(ctx, databaseURL, v63Dir)
+			if err != nil || len(result.Applied) != 1 || result.Applied[0] != 63 {
+				t.Fatalf("upgrade V62 to V63: applied=%v err=%v", result.Applied, err)
+			}
+			conn = connectTestDB(t, ctx, databaseURL)
+			defer conn.Close(ctx)
+			var claimOwner *string
+			var claimUntil *time.Time
+			var claimGeneration int64
+			if err := conn.QueryRow(ctx, `SELECT claim_owner::text,claim_hasta,claim_generacion FROM public.baja_archivo_pendiente_local WHERE ejecucion_id=$1 AND evidencia_id=$2`, executionID, evidenceID).Scan(&claimOwner, &claimUntil, &claimGeneration); err != nil || claimOwner != nil || claimUntil != nil || claimGeneration != 0 {
+				t.Fatalf("existing pending row after V63 owner=%v lease=%v generation=%d err=%v", claimOwner, claimUntil, claimGeneration, err)
+			}
+			assertClaimSchema(t, ctx, conn)
+			var after string
+			if err := conn.QueryRow(ctx, `SELECT string_agg(version::text||':'||checksum, ',' ORDER BY version) FROM public.schema_migrations WHERE version<63`).Scan(&after); err != nil {
+				t.Fatal(err)
+			}
+			if before != after {
+				t.Fatal("V63 changed an applied V1-V62 migration checksum or history row")
 			}
 		})
 	})

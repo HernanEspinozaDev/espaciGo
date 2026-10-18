@@ -396,6 +396,166 @@ func TestSyntheticDamageDefenseEvidenceSuppressionQueuesRecoverableCleanup(t *te
 	}
 }
 
+func TestSuppressionCleanupClaimsFenceTwoWorkersAndRecoverAfterDeleteBeforeAck(t *testing.T) {
+	h := newAuthHarness(t)
+	f := newDefenseEvidenceFixture(t, h, 18)
+	item, err := f.operations.Record(h.ctx, f.renter, f.reservation, "defense-evidence-claim-fence-001", operation.Input{Kind: operation.DefenseEvidence})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.claims.Resolve(h.ctx, f.admin, f.claim, "defense-claim-fence-resolve", damageclaim.ResolutionInput{Outcome: "rechazado", ReasonCode: "hecho_no_acreditado"}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := privacy.NewService(newRuntimeIdentityRepository(t, h))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := service.RequestRight(h.ctx, f.renter, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.ReviewSuppression(h.ctx, f.admin, request.ID, "claim-fence-review", "claim-fence", func() time.Time { return h.now }); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := service.ExecuteSuppression(h.ctx, f.admin, request.ID, "claim-fence-execute", "claim-fence", func() time.Time { return h.now }, nil)
+	if err != nil || queued.Status != "limpieza_pendiente" || queued.PendingFiles < 1 {
+		t.Fatalf("API execution did not leave durable queued work: result=%+v err=%v", queued, err)
+	}
+	var pendingCount int
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.baja_archivo_pendiente_local j
+		JOIN public.ejecucion_baja_local x ON x.id=j.ejecucion_id WHERE x.solicitud_id=$1 AND j.completada_en IS NULL`, request.ID).Scan(&pendingCount); err != nil || pendingCount < 1 {
+		t.Fatalf("queued cleanup rows=%d err=%v", pendingCount, err)
+	}
+	if pendingCount < 2 {
+		t.Fatalf("claim fencing fixture needs at least two queued files, got %d", pendingCount)
+	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.baja_archivo_pendiente_local j SET disponible_en=$2
+		FROM public.ejecucion_baja_local x WHERE x.id=j.ejecucion_id AND x.solicitud_id=$1 AND j.completada_en IS NULL`, request.ID, h.now); err != nil {
+		t.Fatal(err)
+	}
+	var dueCount int
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.baja_archivo_pendiente_local j
+		JOIN public.ejecucion_baja_local x ON x.id=j.ejecucion_id
+		WHERE x.solicitud_id=$1 AND x.estado='limpieza_pendiente' AND j.completada_en IS NULL
+		AND j.disponible_en<=$2 AND (j.claim_hasta IS NULL OR j.claim_hasta<=$2)`, request.ID, h.now).Scan(&dueCount); err != nil || dueCount != pendingCount {
+		t.Fatalf("due suppression cleanup rows=%d pending=%d err=%v", dueCount, pendingCount, err)
+	}
+
+	workerA := "77777777-0000-4000-8000-000000000001"
+	workerB := "77777777-0000-4000-8000-000000000002"
+	leaseUntil := h.now.Add(time.Minute)
+	repos := []*identitypg.IdentityRepository{newRuntimeIdentityRepository(t, h), newRuntimeIdentityRepository(t, h)}
+	type claimResult struct {
+		worker string
+		files  []privacy.SuppressionFile
+		err    error
+	}
+	start := make(chan struct{})
+	results := make(chan claimResult, 2)
+	for i, workerID := range []string{workerA, workerB} {
+		go func(i int, workerID string) {
+			<-start
+			files, claimErr := repos[i].ClaimPendingSuppressionFiles(h.ctx, request.ID, workerID, h.now, leaseUntil, 1)
+			results <- claimResult{worker: workerID, files: files, err: claimErr}
+		}(i, workerID)
+	}
+	close(start)
+	first := claimResult{}
+	other := claimResult{}
+	for range 2 {
+		result := <-results
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if len(result.files) > 0 && len(first.files) == 0 {
+			first = result
+		} else {
+			other = result
+		}
+	}
+	// SKIP LOCKED may briefly leave the concurrent loser empty while the first
+	// statement holds row locks. Its next poll must claim a different file.
+	if len(other.files) == 0 {
+		other.worker = workerA
+		otherRepo := repos[0]
+		if first.worker == workerA {
+			other.worker = workerB
+			otherRepo = repos[1]
+		}
+		other.files, other.err = otherRepo.ClaimPendingSuppressionFiles(h.ctx, request.ID, other.worker, h.now, leaseUntil, 1)
+	}
+	if other.err != nil {
+		t.Fatal(other.err)
+	}
+	if len(first.files) != 1 || len(other.files) != 1 || first.files[0].EvidenceID == other.files[0].EvidenceID {
+		t.Fatalf("two workers did not receive distinct claims: first=%d second=%d pending=%d", len(first.files), len(other.files), pendingCount)
+	}
+	var crashFile privacy.SuppressionFile
+	claimed := append(append([]privacy.SuppressionFile{}, first.files...), other.files...)
+	for _, file := range claimed {
+		if file.EvidenceID == item.Evidence[0].ID {
+			crashFile = file
+			break
+		}
+	}
+	if crashFile.EvidenceID == "" {
+		t.Fatalf("claim batch omitted newly recorded evidence %s", item.Evidence[0].ID)
+	}
+	// Simulate a process crash after the idempotent external delete and before SQL ack.
+	if err := f.store.Delete(h.ctx, crashFile.StorageID); err != nil {
+		t.Fatal(err)
+	}
+	takeoverAt := leaseUntil
+	secondWorker := workerA
+	secondRepo := repos[0]
+	if first.worker == workerA {
+		secondWorker, secondRepo = workerB, repos[1]
+	}
+	takeoverUntil := takeoverAt.Add(time.Minute)
+	takenOver, err := secondRepo.ClaimPendingSuppressionFiles(h.ctx, request.ID, secondWorker, takeoverAt, takeoverUntil, 100)
+	if err != nil || len(takenOver) != pendingCount {
+		t.Fatalf("expired claim takeover count=%d want=%d err=%v", len(takenOver), pendingCount, err)
+	}
+	var retryFile privacy.SuppressionFile
+	for _, claimed := range takenOver {
+		if claimed.EvidenceID == crashFile.EvidenceID {
+			retryFile = claimed
+		}
+	}
+	if retryFile.ClaimGeneration != crashFile.ClaimGeneration+1 || retryFile.ClaimOwner != secondWorker {
+		t.Fatalf("takeover token owner/generation=%s/%d, previous=%s/%d", retryFile.ClaimOwner, retryFile.ClaimGeneration, crashFile.ClaimOwner, crashFile.ClaimGeneration)
+	}
+	firstRepo := repos[0]
+	if first.worker == workerB {
+		firstRepo = repos[1]
+	}
+	if err := firstRepo.CompleteSuppressionFile(h.ctx, crashFile, takeoverAt); !errors.Is(err, privacy.ErrSuppressionClaimLost) {
+		t.Fatalf("stale worker completion error=%v, want claim lost", err)
+	}
+	if err := firstRepo.FailSuppressionFile(h.ctx, crashFile, takeoverAt); !errors.Is(err, privacy.ErrSuppressionClaimLost) {
+		t.Fatalf("stale worker retry error=%v, want claim lost", err)
+	}
+	for _, claimed := range takenOver {
+		if err := f.store.Delete(h.ctx, claimed.StorageID); err != nil {
+			t.Fatalf("idempotent delete after crash/retry for %s: %v", claimed.EvidenceID, err)
+		}
+		if err := secondRepo.CompleteSuppressionFile(h.ctx, claimed, takeoverAt); err != nil {
+			t.Fatalf("current worker ack for %s: %v", claimed.EvidenceID, err)
+		}
+	}
+	completed, err := secondRepo.FinishSuppression(h.ctx, request.ID, takeoverAt)
+	if err != nil || completed.Status != "completada" || completed.PendingFiles != 0 {
+		t.Fatalf("suppression finish after takeover=%+v err=%v", completed, err)
+	}
+	var incomplete, staleClaims int
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FILTER(WHERE j.completada_en IS NULL),
+		count(*) FILTER(WHERE j.claim_generacion>1 AND (j.claim_owner IS NOT NULL OR j.claim_hasta IS NOT NULL))
+		FROM public.baja_archivo_pendiente_local j JOIN public.ejecucion_baja_local x ON x.id=j.ejecucion_id
+		WHERE x.solicitud_id=$1`, request.ID).Scan(&incomplete, &staleClaims); err != nil || incomplete != 0 || staleClaims != 0 {
+		t.Fatalf("cleanup final state incomplete=%d claimed_after_completion=%d err=%v", incomplete, staleClaims, err)
+	}
+}
+
 type failOncePrivateCleaner struct {
 	store *evidencefs.Store
 	fail  bool
@@ -1063,6 +1223,9 @@ func TestLocalSuppressionReplayRestoresAnOlderDatabaseSnapshotIdempotently(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.solicitud_titular SET solicitada_en=$2 WHERE id=$1`, request.ID, h.now); err != nil {
+		t.Fatal(err)
+	}
 	service, err := privacy.NewService(newRuntimeIdentityRepository(t, h))
 	if err != nil {
 		t.Fatal(err)
@@ -1180,6 +1343,9 @@ func TestLocalSuppressionReplayAfterPgDumpRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.solicitud_titular SET solicitada_en=$2 WHERE id=$1`, request.ID, h.now); err != nil {
+		t.Fatal(err)
+	}
 	runtimeRepo := newRuntimeIdentityRepository(t, h)
 	sourceService, err := privacy.NewService(runtimeRepo)
 	if err != nil {
@@ -1293,7 +1459,7 @@ func TestLocalSuppressionReplayAfterPgDumpRestore(t *testing.T) {
 	workerCtx, stopWorker := context.WithCancel(h.ctx)
 	workerDone := make(chan struct{})
 	go func() {
-		restoredService.RunSuppressionCleanupWorker(workerCtx, time.Hour, noOpPrivacyCleaner{}, registryPath)
+		restoredService.RunSuppressionReplayExportWorker(workerCtx, time.Hour, registryPath, nil)
 		close(workerDone)
 	}()
 	workerDeadline := time.Now().Add(5 * time.Second)

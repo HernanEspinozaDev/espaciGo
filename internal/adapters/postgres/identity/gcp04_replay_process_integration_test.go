@@ -28,6 +28,7 @@ import (
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
@@ -42,6 +43,7 @@ type gcp04ReplayProcessResult struct {
 	Status   string                            `json:"status,omitempty"`
 	Manifest privacy.SuppressionReplayManifest `json:"manifest,omitempty"`
 	Results  []privacy.SuppressionReplayResult `json:"results,omitempty"`
+	Claims   []privacy.SuppressionFile         `json:"claims,omitempty"`
 }
 
 // TestGCP04ReplayProcessHelper is launched as a separate OS process by the
@@ -68,13 +70,17 @@ func TestGCP04ReplayProcessHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bucket, replayPrefix := gcp04ReplayStorageConfig()
-	registry, err := cloudstorage.NewReplayRegistry(ctx, bucket, replayPrefix)
-	if err != nil {
-		t.Fatalf("open replay registry emulator client: %v", err)
-	}
-	defer registry.Close()
 	result := gcp04ReplayProcessResult{PID: os.Getpid()}
+	var registry privacy.SuppressionReplayStore
+	if mode != "claim" {
+		bucket, replayPrefix := gcp04ReplayStorageConfig()
+		client, err := cloudstorage.NewReplayRegistry(ctx, bucket, replayPrefix)
+		if err != nil {
+			t.Fatalf("open replay registry emulator client: %v", err)
+		}
+		defer client.Close()
+		registry = client
+	}
 	switch mode {
 	case "suppress":
 		gate := bufio.NewReader(os.Stdin)
@@ -116,6 +122,17 @@ func TestGCP04ReplayProcessHelper(t *testing.T) {
 		}
 		result.Manifest = manifest
 		result.Results = results
+	case "claim":
+		workerID, err := privacy.NewSuppressionCleanupWorkerID()
+		if err != nil {
+			t.Fatal("generate worker process identity")
+		}
+		now := time.Now().UTC()
+		claims, err := repo.ClaimPendingSuppressionFiles(ctx, os.Getenv("GCP04_REPLAY_REQUEST_ID"), workerID, now, now.Add(time.Minute), 1)
+		if err != nil {
+			t.Fatalf("claim privacy cleanup file: %v", err)
+		}
+		result.Claims = claims
 	default:
 		t.Fatalf("unknown subprocess mode %q", mode)
 	}
@@ -125,6 +142,66 @@ func TestGCP04ReplayProcessHelper(t *testing.T) {
 	}
 	if err := os.WriteFile(os.Getenv("GCP04_REPLAY_RESULT_PATH"), encoded, 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSuppressionCleanupTwoOSWorkersClaimDistinctFilesPostgres18(t *testing.T) {
+	if os.Getenv("TEST_DATABASE_URL") == "" {
+		t.Skip("TEST_DATABASE_URL is not set; requires disposable PostgreSQL 18")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	h := newAuthHarness(t)
+	h.ctx = ctx
+	var versionText string
+	if err := h.pool.QueryRow(ctx, `SHOW server_version_num`).Scan(&versionText); err != nil {
+		t.Fatalf("read PostgreSQL version for worker process claim test: %v", err)
+	}
+	version, err := strconv.Atoi(versionText)
+	if err != nil || version/10000 != 18 {
+		t.Fatalf("worker process claim test requires PostgreSQL 18: version=%q err=%v", versionText, err)
+	}
+	account := testAccount("f2040000-0000-4000-8000-000000000021", "gcp04-worker-process@example.invalid")
+	account.State = identity.AccountActive
+	if err := h.repo.CreateWithTerms(ctx, account, nil); err != nil {
+		t.Fatal(err)
+	}
+	request, err := h.repo.CreateRightsRequest(ctx, account.ID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	const executionID = "f2040000-0000-4000-8000-000000000022"
+	if _, err := h.pool.Exec(ctx, `INSERT INTO public.ejecucion_baja_local
+		(id,solicitud_id,usuario_id,actor_id,clave_idempotencia,estado,motivo_codigo,iniciada_en,detalle)
+		VALUES($1,$2,$3,$3,'worker-process-claim','limpieza_pendiente','baja_local_minimizada',$4,'{}'::jsonb)`,
+		executionID, request.ID, account.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, evidenceID := range []string{"f2040000-0000-4000-8000-000000000023", "f2040000-0000-4000-8000-000000000024"} {
+		if _, err := h.pool.Exec(ctx, `INSERT INTO public.baja_archivo_pendiente_local(ejecucion_id,evidencia_id,disponible_en) VALUES($1,$2,$3)`, executionID, evidenceID, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	databaseURL := gcp04ReplayURLForDatabase(os.Getenv("TEST_DATABASE_URL"), h.pool.Config().ConnConfig.Database)
+	configs := []gcp04ReplayProcessConfig{
+		{mode: "claim", databaseURL: databaseURL, requestID: request.ID},
+		{mode: "claim", databaseURL: databaseURL, requestID: request.ID},
+	}
+	results := runGCP04ReplayProcesses(t, ctx, "", configs)
+	claims := append(append([]privacy.SuppressionFile{}, results[0].Claims...), results[1].Claims...)
+	if len(claims) == 1 {
+		followup := runGCP04ReplayProcesses(t, ctx, "", []gcp04ReplayProcessConfig{{mode: "claim", databaseURL: databaseURL, requestID: request.ID}})[0]
+		if followup.PID == results[0].PID || followup.PID == results[1].PID {
+			t.Fatalf("follow-up worker reused an OS process: pids=%d/%d/%d", results[0].PID, results[1].PID, followup.PID)
+		}
+		claims = append(claims, followup.Claims...)
+	}
+	if len(claims) != 2 || claims[0].EvidenceID == claims[1].EvidenceID || claims[0].ClaimOwner == claims[1].ClaimOwner {
+		t.Fatalf("separate OS workers did not claim distinct queue rows: %+v", claims)
+	}
+	if results[0].PID == results[1].PID {
+		t.Fatalf("worker helpers did not use separate OS processes: pid=%d", results[0].PID)
 	}
 }
 
@@ -153,8 +230,8 @@ func TestGCP04ReplayTwoProcessesPostgres18(t *testing.T) {
 		t.Fatalf("expected PostgreSQL 18, server version=%q err=%v", serverVersionText, err)
 	}
 	var migrationCount int
-	if err := h.pool.QueryRow(ctx, `SELECT count(*) FROM public.schema_migrations`).Scan(&migrationCount); err != nil || migrationCount != 62 {
-		t.Fatalf("current schema migration ledger count=%d err=%v, want V1-V62", migrationCount, err)
+	if err := h.pool.QueryRow(ctx, `SELECT count(*) FROM public.schema_migrations`).Scan(&migrationCount); err != nil || migrationCount != 63 {
+		t.Fatalf("current schema migration ledger count=%d err=%v, want V1-V63", migrationCount, err)
 	}
 
 	adminID := h.register(t, "gcp04-replay-admin@ejemplo.invalid")
@@ -193,7 +270,7 @@ func TestGCP04ReplayTwoProcessesPostgres18(t *testing.T) {
 		t.Setenv("STORAGE_EMULATOR_HOST", emulatorURL)
 	}
 
-	// Clone the synthetic V1-V62 database before either process mutates it.
+	// Clone the synthetic V1-V63 database before either process mutates it.
 	// This also works through the Cloud SQL Go Connector; pg_dump cannot use its
 	// in-process dialer, so the snapshot is a PostgreSQL TEMPLATE database.
 	snapshotURL, cleanupSnapshot := createGCP04ReplaySnapshot(t, h, ctx)
@@ -788,11 +865,14 @@ func (s *gcp04ReplayGCS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.serveWrite(w, r)
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/private-bucket/privacy/privacy-replay-v1.json"):
 		s.serveReplayRead(w, r)
+	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, ".blob") && r.URL.Query().Get("alt") == "json":
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"name":"`+strings.TrimPrefix(r.URL.Path, "/private-bucket/")+`","generation":"1","size":"16"}`)
 	case r.Method == http.MethodDelete:
 		s.mu.Lock()
 		s.deleteAttempts++
 		s.mu.Unlock()
-		http.Error(w, "synthetic remote object delete failure", http.StatusServiceUnavailable)
+		http.Error(w, "synthetic remote object delete failure", http.StatusForbidden)
 	default:
 		http.NotFound(w, r)
 	}

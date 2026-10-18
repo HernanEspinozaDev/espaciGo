@@ -141,6 +141,45 @@ services:
       retries: 20
       start_period: 5s
 
+  privacy-cleanup-worker:
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-privacy-cleanup-worker:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: privacy-cleanup-worker
+    user: "${LOCAL_UID:?run scripts/dev-env.sh}:${LOCAL_GID:?run scripts/dev-env.sh}"
+    restart: unless-stopped
+    environment:
+      DATABASE_HOST: ${LOCAL_DATABASE_HOST:-database}
+      DATABASE_PORT: ${LOCAL_DATABASE_PORT:-5432}
+      DATABASE_NAME: ${LOCAL_DATABASE_NAME:-espacigo_local}
+      DATABASE_USER: espacigo_runtime
+      DATABASE_PASSWORD_FILE: /run/secrets/runtime_password
+      DATABASE_SSLMODE: ${DATABASE_SSLMODE:-disable}
+      DATABASE_SSLROOTCERT: ${DATABASE_SSLROOTCERT:-}
+      DATABASE_SSLCERT: ${DATABASE_SSLCERT:-}
+      DATABASE_SSLKEY: ${DATABASE_SSLKEY:-}
+      BLOB_STORE_BACKEND: filesystem
+      M03_EVIDENCE_DIR: /var/lib/espacigo/private-evidence
+      PRIVACY_CLEANUP_INTERVAL: ${PRIVACY_CLEANUP_INTERVAL:-10s}
+    secrets:
+      - runtime_password
+    volumes:
+      - type: bind
+        source: ${LOCAL_M03_EVIDENCE_DIR:?run scripts/dev-env.sh}
+        target: /var/lib/espacigo/private-evidence
+      - type: bind
+        source: ${LOCAL_DATABASE_TLS_DIR:-./.local/database-tls}
+        target: /run/database-tls
+        read_only: true
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - data
+
   angular-frontend:
     image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-angular:dev
     build:

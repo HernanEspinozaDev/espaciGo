@@ -19,6 +19,7 @@ func TestStorePrivateObjectLifecycleAndCreateOnlyWrite(t *testing.T) {
 	const id = "11111111-1111-4111-8111-111111111111"
 	var name string
 	var data []byte
+	var deletedGeneration string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/upload/storage/v1/b/private-bucket/o"):
@@ -47,10 +48,18 @@ func TestStorePrivateObjectLifecycleAndCreateOnlyWrite(t *testing.T) {
 			data, _ = io.ReadAll(part)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"bucket":"private-bucket","name":"`+name+`","generation":"1","size":"`+strconv.Itoa(len(data))+`"}`)
-		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/private-bucket/"):
+		case r.Method == http.MethodGet && r.URL.Query().Get("alt") == "json" && strings.Contains(r.URL.Path, "/private-bucket/"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"name":"runs/g03o-1017/`+id+`.blob","generation":"7","size":"`+strconv.Itoa(len(data))+`"}`)
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/private-bucket/"):
 			w.Header().Set("Content-Type", "application/octet-stream")
 			_, _ = w.Write(data)
-		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/private-bucket/"):
+		case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/private-bucket/"):
+			deletedGeneration = r.URL.Query().Get("ifGenerationMatch")
+			if deletedGeneration != "7" {
+				http.Error(w, "missing observed generation precondition", http.StatusPreconditionFailed)
+				return
+			}
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			http.NotFound(w, r)
@@ -78,6 +87,47 @@ func TestStorePrivateObjectLifecycleAndCreateOnlyWrite(t *testing.T) {
 	if err := store.Delete(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
+	if deletedGeneration != "7" {
+		t.Fatalf("Delete used ifGenerationMatch=%q, want observed generation 7", deletedGeneration)
+	}
+}
+
+func TestStoreDeleteDoesNotRemoveReplacementGeneration(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	var currentGeneration int64 = 8
+	var deletePrecondition string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Query().Get("alt") == "json":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"name":"`+id+`.blob","generation":"7","size":"1"}`)
+		case r.Method == http.MethodDelete:
+			deletePrecondition = r.URL.Query().Get("ifGenerationMatch")
+			if deletePrecondition != strconv.FormatInt(currentGeneration, 10) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusPreconditionFailed)
+				_, _ = io.WriteString(w, `{"error":{"code":412,"message":"generation changed"}}`)
+				return
+			}
+			currentGeneration = -1
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, err := storage.NewClient(context.Background(), option.WithEndpoint(server.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	store := newStoreWithClient(client, "private-bucket")
+	if err := store.Delete(context.Background(), id); err == nil {
+		t.Fatal("Delete ignored a generation change between metadata read and delete")
+	}
+	if deletePrecondition != "7" || currentGeneration != 8 {
+		t.Fatalf("delete precondition=%q current generation=%d; replacement generation was removed", deletePrecondition, currentGeneration)
+	}
 }
 
 func TestStoreRejectsInvalidIDAndCanceledContextBeforeAccess(t *testing.T) {
@@ -94,7 +144,7 @@ func TestStoreRejectsInvalidIDAndCanceledContextBeforeAccess(t *testing.T) {
 
 func TestStoreDeleteReturnsRemoteFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "synthetic storage failure", http.StatusServiceUnavailable)
+		http.Error(w, "synthetic storage failure", http.StatusForbidden)
 	}))
 	defer server.Close()
 	client, err := storage.NewClient(context.Background(), option.WithEndpoint(server.URL), option.WithoutAuthentication())

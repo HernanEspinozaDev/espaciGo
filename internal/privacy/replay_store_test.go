@@ -58,8 +58,8 @@ type replayCleanerFailureRepository struct {
 func (*replayCleanerFailureRepository) ExecuteSuppression(context.Context, string, string, string, string, func() time.Time) (SuppressionExecution, error) {
 	return SuppressionExecution{RequestID: "restored-request", Status: "en_proceso"}, nil
 }
-func (*replayCleanerFailureRepository) PendingSuppressionFiles(context.Context, string, time.Time) ([]SuppressionFile, error) {
-	return []SuppressionFile{{EvidenceID: "33333333-3333-4333-8333-333333333333", StorageID: "33333333-3333-4333-8333-333333333333"}}, nil
+func (*replayCleanerFailureRepository) ClaimPendingSuppressionFiles(_ context.Context, requestID, owner string, now, leaseUntil time.Time, _ int) ([]SuppressionFile, error) {
+	return []SuppressionFile{{ExecutionID: "33333333-3333-4333-8333-333333333334", EvidenceID: "33333333-3333-4333-8333-333333333333", StorageID: "33333333-3333-4333-8333-333333333333", RequestID: requestID, ClaimOwner: owner, ClaimUntil: leaseUntil, ClaimGeneration: 1}}, nil
 }
 func (r *replayCleanerFailureRepository) CompleteSuppressionFile(context.Context, SuppressionFile, time.Time) error {
 	r.completedFiles++
