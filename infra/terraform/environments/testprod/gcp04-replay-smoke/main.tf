@@ -5,7 +5,6 @@ locals {
   protect_job       = !var.allow_job_destroy || var.confirm_job_destroy_run_id != var.run_id
   prefix            = "espacigo-gcp04-${var.run_id}"
   runner_sa_email   = "${local.prefix}@${var.project_id}.iam.gserviceaccount.com"
-  runner_sa_name    = "projects/${var.project_id}/serviceAccounts/${local.runner_sa_email}"
   bucket_name       = "espacigo-testprod-${var.bucket_suffix}"
   password_secret   = "${local.prefix}-db-owner-password"
   repository_name   = "gcp04-replay-${var.run_id}"
@@ -143,7 +142,7 @@ resource "google_project_iam_member" "runner_cloudsql_client" {
   count   = local.resources_enabled ? 1 : 0
   project = var.project_id
   role    = "roles/cloudsql.client"
-  member  = "serviceAccount:${local.runner_sa_email}"
+  member  = "serviceAccount:${google_service_account.runner[0].email}"
 
   condition {
     title       = "gcp04-${var.run_id}-instance"
@@ -156,7 +155,7 @@ resource "google_storage_bucket_iam_member" "runner_objects" {
   count  = local.resources_enabled ? 1 : 0
   bucket = google_storage_bucket.private[0].name
   role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${local.runner_sa_email}"
+  member = "serviceAccount:${google_service_account.runner[0].email}"
 }
 
 resource "google_secret_manager_secret_iam_member" "runner_database_password" {
@@ -164,7 +163,7 @@ resource "google_secret_manager_secret_iam_member" "runner_database_password" {
   project   = var.project_id
   secret_id = google_secret_manager_secret.database_owner_password[0].secret_id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${local.runner_sa_email}"
+  member    = "serviceAccount:${google_service_account.runner[0].email}"
 }
 
 # Cloud Run's service agent pulls the image; the job identity gets no registry role.
@@ -189,7 +188,7 @@ resource "google_cloud_run_v2_job" "smoke" {
     parallelism = 1
 
     template {
-      service_account = local.runner_sa_email
+      service_account = google_service_account.runner[0].email
       timeout         = "900s"
       max_retries     = 0
 
@@ -275,6 +274,16 @@ resource "google_cloud_run_v2_job" "smoke" {
       error_message = "The smoke Job requires an independently verified image and active numeric password version."
     }
   }
+
+  # A Job must not become runnable before its runtime and image-pull access
+  # bindings have been provisioned. These edges matter on a fresh base apply.
+  depends_on = [
+    google_service_account.runner,
+    google_project_iam_member.runner_cloudsql_client,
+    google_storage_bucket_iam_member.runner_objects,
+    google_secret_manager_secret_iam_member.runner_database_password,
+    google_artifact_registry_repository_iam_member.cloud_run_reader,
+  ]
 }
 
 resource "google_cloud_run_v2_job_iam_member" "operator" {
