@@ -813,7 +813,7 @@ resource "google_cloud_run_v2_job" "origin_recovery" {
     parallelism = 1
     template {
       service_account = google_service_account.admin[0].email
-      timeout         = "14400s"
+      timeout         = local.recovery_apply_enabled ? "14400s" : "1800s"
       max_retries     = 0
 
       containers {

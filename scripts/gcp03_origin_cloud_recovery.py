@@ -133,7 +133,7 @@ class CloudRecoveryDatabase:
         text = sql.decode("utf-8", "strict") if isinstance(sql, bytes) else sql
         env = os.environ.copy(); env["PGPASSFILE"] = str(self.passfile); env["PGAPPNAME"] = "g03o-1017-recovery"
         prefix = "BEGIN TRANSACTION READ ONLY;\n" if read_only else ""
-        suffix = "\nCOMMIT;" if read_only else ""
+        suffix = "\n;\nCOMMIT;" if read_only else ""
         proc = subprocess.run(["psql", "-X", "-qAt", "--set=ON_ERROR_STOP=1", "--host=127.0.0.1",
             "--port=5432", "--username=postgres", "--dbname=espacigo_scratch"],
             input=(prefix + text + suffix).encode(), env=env, stdout=subprocess.PIPE,
@@ -148,7 +148,9 @@ class CloudRecoveryDatabase:
         path = Path(__file__).with_name("gcp03_origin_quarantine_cloud.sql")
         if path.is_symlink() or not path.is_file(): raise RuntimeError("fixed sanitation SQL unavailable")
         return json.loads(self._psql(path.read_bytes()))
-    def private_file_refs(self): return set(json.loads(self._psql(REFS_SQL, read_only=True)))
+    def private_file_refs(self):
+        sql = "SET LOCAL ROLE espacigo_runtime;\n" + REFS_SQL
+        return set(json.loads(self._psql(sql, read_only=True)))
 
 
 def run(env):

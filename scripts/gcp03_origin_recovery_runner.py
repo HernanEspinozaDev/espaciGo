@@ -47,7 +47,7 @@ POSTCHECK_SQL = """SELECT json_build_object(
     AND NOT EXISTS(SELECT 1 FROM pg_index ix JOIN pg_constraint con ON con.conindid=ix.indexrelid JOIN pg_depend d ON d.classid='pg_constraint'::regclass AND d.objid=con.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass WHERE ix.indexrelid=c.oid)),
  'routines_owned_by_runtime', NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proowner<>to_regrole('espacigo_runtime') AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass)),
  'text_search_owned_by_runtime', NOT EXISTS(SELECT 1 FROM pg_ts_dict d JOIN pg_namespace n ON n.oid=d.dictnamespace WHERE n.nspname='public' AND d.dictowner<>to_regrole('espacigo_runtime')) AND NOT EXISTS(SELECT 1 FROM pg_ts_config c JOIN pg_namespace n ON n.oid=c.cfgnamespace WHERE n.nspname='public' AND c.cfgowner<>to_regrole('espacigo_runtime')),
- 'sequences_parent_owner_consistent', (SELECT count(*)=11 AND bool_and(s.relowner=p.relowner) FROM pg_depend d JOIN pg_class s ON s.oid=d.objid JOIN pg_class p ON p.oid=d.refobjid JOIN pg_namespace n ON n.oid=s.relnamespace WHERE d.classid='pg_class'::regclass AND d.refclassid='pg_class'::regclass AND s.relkind='S' AND n.nspname='public' AND d.deptype IN ('a','i')),
+ 'sequences_parent_owner_consistent', COALESCE((SELECT bool_and(s.relowner=p.relowner) FROM pg_depend d JOIN pg_class s ON s.oid=d.objid JOIN pg_class p ON p.oid=d.refobjid JOIN pg_namespace n ON n.oid=s.relnamespace WHERE d.classid='pg_class'::regclass AND d.refclassid='pg_class'::regclass AND s.relkind='S' AND n.nspname='public' AND d.deptype IN ('a','i')), true),
  'observer_write_privileges_absent', (SELECT count(*) FILTER(WHERE has_column_privilege(to_regrole('espacigo_gcp03_observer'),c.oid,a.attnum,'INSERT') OR has_column_privilege(to_regrole('espacigo_gcp03_observer'),c.oid,a.attnum,'UPDATE') OR has_column_privilege(to_regrole('espacigo_gcp03_observer'),c.oid,a.attnum,'REFERENCES'))=0 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE n.nspname='public' AND c.relkind IN ('r','p')),
  'runtime_public_create_absent', NOT has_schema_privilege('espacigo_runtime','public','CREATE'))::text"""
 
@@ -63,7 +63,7 @@ class LocalPsqlRecoveryDatabase:
     def _psql(self, sql: bytes | str, *, read_only=False) -> str:
         text = sql.decode("utf-8", "strict") if isinstance(sql, bytes) else sql
         prefix = "BEGIN TRANSACTION READ ONLY;\n" if read_only else ""
-        suffix = "\nCOMMIT;" if read_only else ""
+        suffix = "\n;\nCOMMIT;" if read_only else ""
         env = {**os.environ, "PGPASSFILE": str(self.passfile)}
         proc = subprocess.run(["psql", "-X", "-qAt", "--set=ON_ERROR_STOP=1", "--host=" + self.socket,
              "--port=5432", "--username=postgres", "--dbname=espacigo_scratch"], input=(prefix+text+suffix).encode(),
@@ -85,7 +85,7 @@ class LocalPsqlRecoveryDatabase:
         return json.loads(self._psql(path.read_bytes()))
 
     def private_file_refs(self) -> set[str]:
-        value = json.loads(self._psql(REFS_SQL, read_only=True))
+        value = json.loads(self._psql("SET LOCAL ROLE espacigo_runtime;\n" + REFS_SQL, read_only=True))
         if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
             raise RuntimeError("private reference report is malformed")
         return set(value)

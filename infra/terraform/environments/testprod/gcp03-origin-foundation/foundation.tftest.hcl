@@ -68,6 +68,7 @@ run "recovery_plan_job_is_default_off_and_read_only_profile" {
   assert {
     condition = (length(google_cloud_run_v2_job.origin_recovery) == 1 &&
       google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].max_retries == 0 &&
+      google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].timeout == "1800s" &&
       google_cloud_run_v2_job.origin_recovery[0].template[0].task_count == 1 &&
       one([for e in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_RECOVERY_MODE"]) == "plan" &&
       one([for e in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_RECOVERY_DIAGNOSTIC_SHA256"]) == "3325288140b1f2de8bb944f7c4c1599fcf56f1a19531dc334bf171629f99391a" &&
@@ -111,6 +112,7 @@ run "recovery_apply_requires_explicit_plan_review_and_exact_hash" {
   }
   assert {
     condition = (one([for e in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_RECOVERY_MODE"]) == "apply" &&
+      google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].timeout == "14400s" &&
     one([for e in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_RECOVERY_APPROVED_PLAN_SHA256"]) == "1111111111111111111111111111111111111111111111111111111111111111")
     error_message = "Apply mode must be separately enabled and carry the reviewed plan SHA-256."
   }
