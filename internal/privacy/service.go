@@ -25,6 +25,7 @@ var (
 	ErrExportUnavailable      = errors.New("complete owner export unavailable")
 	ErrReplayStoreUnavailable = errors.New("privacy replay store unavailable")
 	ErrReplayStoreConflict    = errors.New("privacy replay store conflict")
+	ErrSuppressionClaimLost   = errors.New("privacy suppression cleanup claim lost")
 )
 
 var suppressionReplayUUIDPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -78,9 +79,13 @@ type SuppressionExecution struct {
 }
 
 type SuppressionFile struct {
-	ExecutionID string
-	EvidenceID  string
-	StorageID   string
+	ExecutionID     string
+	EvidenceID      string
+	StorageID       string
+	RequestID       string
+	ClaimOwner      string
+	ClaimUntil      time.Time
+	ClaimGeneration int64
 }
 
 // SuppressionReplayEntry is the minimum outside-database record needed to
@@ -155,7 +160,7 @@ type LocalDomainRetentionRepository interface {
 
 type SuppressionExecutionRepository interface {
 	ExecuteSuppression(context.Context, string, string, string, string, func() time.Time) (SuppressionExecution, error)
-	PendingSuppressionFiles(context.Context, string, time.Time) ([]SuppressionFile, error)
+	ClaimPendingSuppressionFiles(context.Context, string, string, time.Time, time.Time, int) ([]SuppressionFile, error)
 	CompleteSuppressionFile(context.Context, SuppressionFile, time.Time) error
 	FailSuppressionFile(context.Context, SuppressionFile, time.Time) error
 	FinishSuppression(context.Context, string, time.Time) (SuppressionExecution, error)
@@ -445,56 +450,51 @@ func (s *Service) ExecuteSuppression(ctx context.Context, actorID, requestID, ke
 	if cleaner == nil {
 		return result, nil
 	}
-	files, err := repo.PendingSuppressionFiles(ctx, result.RequestID, now().UTC())
+	workerID, err := NewSuppressionCleanupWorkerID()
 	if err != nil {
-		return result, err
+		return result, errors.New("privacy: cleanup worker identity unavailable")
 	}
-	for _, file := range files {
-		storageID := file.StorageID
-		if storageID == "" {
-			storageID = file.EvidenceID
-		}
-		if err := cleaner.Delete(ctx, storageID); err != nil {
-			if failErr := repo.FailSuppressionFile(ctx, file, now().UTC()); failErr != nil {
-				return result, failErr
-			}
-			continue
-		}
-		if err := repo.CompleteSuppressionFile(ctx, file, now().UTC()); err != nil {
-			return result, err
-		}
+	// The operation's injected clock may represent a historical replay. Claims,
+	// leases and external I/O use the operational wall clock instead.
+	if err := runSuppressionCleanupRequest(ctx, repo, result.RequestID, workerID, time.Now, cleaner, defaultSuppressionCleanupLease); err != nil {
+		return result, err
 	}
 	return repo.FinishSuppression(ctx, result.RequestID, now().UTC())
 }
 
 func (s *Service) RunSuppressionCleanupOnce(ctx context.Context, now func() time.Time, cleaner SyntheticEvidenceCleaner) error {
+	workerID, err := NewSuppressionCleanupWorkerID()
+	if err != nil {
+		return errors.New("privacy: cleanup worker identity unavailable")
+	}
+	return s.RunSuppressionCleanupOnceWithWorker(ctx, workerID, now, cleaner)
+}
+
+const (
+	defaultSuppressionCleanupLease = 2 * time.Minute
+)
+
+func (s *Service) RunSuppressionCleanupOnceWithWorker(ctx context.Context, workerID string, now func() time.Time, cleaner SyntheticEvidenceCleaner) error {
 	repo, ok := s.repo.(SuppressionExecutionRepository)
 	if !ok {
 		return errors.New("privacy: suppression execution repository unavailable")
 	}
+	if !suppressionReplayUUIDPattern.MatchString(workerID) {
+		return ErrInvalid
+	}
 	if now == nil {
 		now = time.Now
+	}
+	if cleaner == nil {
+		return nil
 	}
 	ids, err := repo.PendingSuppressionRequests(ctx)
 	if err != nil {
 		return err
 	}
 	for _, requestID := range ids {
-		files, err := repo.PendingSuppressionFiles(ctx, requestID, now().UTC())
-		if err != nil {
+		if _, err := runSuppressionCleanupBatch(ctx, repo, requestID, workerID, now, cleaner, defaultSuppressionCleanupLease, 1); err != nil {
 			return err
-		}
-		for _, file := range files {
-			if cleaner == nil {
-				continue
-			}
-			if err := cleaner.Delete(ctx, file.EvidenceID); err != nil {
-				_ = repo.FailSuppressionFile(ctx, file, now().UTC())
-				continue
-			}
-			if err := repo.CompleteSuppressionFile(ctx, file, now().UTC()); err != nil {
-				return err
-			}
 		}
 		if _, err := repo.FinishSuppression(ctx, requestID, now().UTC()); err != nil && !errors.Is(err, ErrNotFound) {
 			return err
@@ -508,15 +508,27 @@ func (s *Service) RunSuppressionCleanupWorker(ctx context.Context, interval time
 	if len(replayRegistryPath) > 0 {
 		path = replayRegistryPath[0]
 	}
-	s.RunSuppressionCleanupWorkerWithStore(ctx, interval, cleaner, path, nil)
+	workerID, err := NewSuppressionCleanupWorkerID()
+	if err != nil {
+		return
+	}
+	s.RunSuppressionCleanupWorkerWithID(ctx, workerID, interval, cleaner, path, nil)
 }
 
 func (s *Service) RunSuppressionCleanupWorkerWithStore(ctx context.Context, interval time.Duration, cleaner SyntheticEvidenceCleaner, replayRegistryPath string, replayStore SuppressionReplayStore) {
+	workerID, err := NewSuppressionCleanupWorkerID()
+	if err != nil {
+		return
+	}
+	s.RunSuppressionCleanupWorkerWithID(ctx, workerID, interval, cleaner, replayRegistryPath, replayStore)
+}
+
+func (s *Service) RunSuppressionCleanupWorkerWithID(ctx context.Context, workerID string, interval time.Duration, cleaner SyntheticEvidenceCleaner, replayRegistryPath string, replayStore SuppressionReplayStore) {
 	if interval <= 0 {
 		interval = time.Minute
 	}
 	process := func() {
-		_ = s.RunSuppressionCleanupOnce(ctx, time.Now, cleaner)
+		_ = s.RunSuppressionCleanupOnceWithWorker(ctx, workerID, time.Now, cleaner)
 		if replayStore != nil {
 			_ = s.ExportSuppressionReplayManifestToStore(ctx, replayStore)
 		}
@@ -535,6 +547,82 @@ func (s *Service) RunSuppressionCleanupWorkerWithStore(ctx context.Context, inte
 			process()
 		}
 	}
+}
+
+// RunSuppressionReplayExportWorker keeps the restore sidecar current without
+// running the evidence-deletion queue in the API process.
+func (s *Service) RunSuppressionReplayExportWorker(ctx context.Context, interval time.Duration, replayRegistryPath string, replayStore SuppressionReplayStore) {
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	process := func() {
+		if replayStore != nil {
+			_ = s.ExportSuppressionReplayManifestToStore(ctx, replayStore)
+		}
+		if replayRegistryPath != "" {
+			_ = s.ExportSuppressionReplayManifestToFile(ctx, replayRegistryPath)
+		}
+	}
+	process()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			process()
+		}
+	}
+}
+
+func runSuppressionCleanupRequest(ctx context.Context, repo SuppressionExecutionRepository, requestID, workerID string, now func() time.Time, cleaner SyntheticEvidenceCleaner, lease time.Duration) error {
+	_, err := runSuppressionCleanupBatch(ctx, repo, requestID, workerID, now, cleaner, lease, 100)
+	return err
+}
+
+// runSuppressionCleanupBatch bounds every external delete by its own remaining
+// claim lease. The long-running worker claims one row per request per cycle so
+// one large request cannot starve other requests.
+func runSuppressionCleanupBatch(ctx context.Context, repo SuppressionExecutionRepository, requestID, workerID string, now func() time.Time, cleaner SyntheticEvidenceCleaner, lease time.Duration, limit int) (bool, error) {
+	claimedAt := now().UTC()
+	files, err := repo.ClaimPendingSuppressionFiles(ctx, requestID, workerID, claimedAt, claimedAt.Add(lease), limit)
+	if err != nil {
+		return false, err
+	}
+	processed := false
+	for _, file := range files {
+		remaining := file.ClaimUntil.Sub(now().UTC())
+		if remaining <= 0 {
+			return processed, nil
+		}
+		deleteCtx, cancelDelete := context.WithTimeout(ctx, remaining)
+		storageID := file.StorageID
+		if storageID == "" {
+			storageID = file.EvidenceID
+		}
+		deleteErr := cleaner.Delete(deleteCtx, storageID)
+		cancelDelete()
+		if deleteErr != nil {
+			failErr := repo.FailSuppressionFile(ctx, file, now().UTC())
+			if errors.Is(failErr, ErrSuppressionClaimLost) {
+				return processed, nil
+			}
+			if failErr != nil {
+				return processed, failErr
+			}
+			processed = true
+			continue
+		}
+		if err := repo.CompleteSuppressionFile(ctx, file, now().UTC()); err != nil {
+			if errors.Is(err, ErrSuppressionClaimLost) {
+				return processed, nil
+			}
+			return processed, err
+		}
+		processed = true
+	}
+	return processed, nil
 }
 
 func (s *Service) RunReservationRetentionWorker(ctx context.Context, interval time.Duration, batchSize int) {

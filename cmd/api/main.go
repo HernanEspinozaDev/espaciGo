@@ -466,7 +466,7 @@ func run() error {
 		}()
 	}
 	if localPrivacyService != nil {
-		go localPrivacyService.RunSuppressionCleanupWorkerWithStore(ctx, 10*time.Second, privacyEvidenceCleaner, privacyReplayRegistryPath, privacyReplayStore)
+		go localPrivacyService.RunSuppressionReplayExportWorker(ctx, 10*time.Second, privacyReplayRegistryPath, privacyReplayStore)
 		if localM02Service != nil {
 			go func() {
 				ticker := time.NewTicker(15 * time.Second)

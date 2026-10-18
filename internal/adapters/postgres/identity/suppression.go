@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
@@ -21,6 +22,8 @@ type suppressionDetail struct {
 	Retained    []string `json:"retained"`
 	Decision    string   `json:"decision_code"`
 }
+
+var suppressionClaimUUIDPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 func suppressionError(err error) error {
 	var pgErr *pgconn.PgError
@@ -513,18 +516,48 @@ func (r *IdentityRepository) auditSuppression(ctx context.Context, tx pgx.Tx, ac
 	return mapError(err)
 }
 
-func (r *IdentityRepository) PendingSuppressionFiles(ctx context.Context, requestID string, now time.Time) ([]privacy.SuppressionFile, error) {
-	rows, err := r.pool.Query(ctx, `SELECT j.ejecucion_id::text,j.evidencia_id::text FROM public.baja_archivo_pendiente_local j JOIN public.ejecucion_baja_local x ON x.id=j.ejecucion_id WHERE x.solicitud_id=$1 AND x.estado='limpieza_pendiente' AND j.completada_en IS NULL AND j.disponible_en<=$2 ORDER BY j.ejecucion_id,j.evidencia_id`, requestID, now.UTC())
+func (r *IdentityRepository) ClaimPendingSuppressionFiles(ctx context.Context, requestID, workerID string, now, leaseUntil time.Time, limit int) ([]privacy.SuppressionFile, error) {
+	if !suppressionClaimUUIDPattern.MatchString(workerID) || (requestID != "" && !suppressionClaimUUIDPattern.MatchString(requestID)) || !leaseUntil.After(now) || limit < 1 || limit > 500 {
+		return nil, privacy.ErrInvalid
+	}
+	var requestFilter any
+	if requestID != "" {
+		requestFilter = requestID
+	}
+	rows, err := r.pool.Query(ctx, `WITH due AS (
+		SELECT j.ejecucion_id,j.evidencia_id,x.solicitud_id
+		FROM public.baja_archivo_pendiente_local j
+		JOIN public.ejecucion_baja_local x ON x.id=j.ejecucion_id
+		WHERE ($1::uuid IS NULL OR x.solicitud_id=$1::uuid)
+		  AND x.estado='limpieza_pendiente'
+		  AND j.completada_en IS NULL
+		  AND j.disponible_en<=$2
+		  AND (j.claim_hasta IS NULL OR j.claim_hasta<=$2)
+		ORDER BY j.disponible_en,j.ejecucion_id,j.evidencia_id
+		FOR UPDATE OF j SKIP LOCKED
+		LIMIT $5
+	), claimed AS (
+		UPDATE public.baja_archivo_pendiente_local j
+		SET claim_owner=$3::uuid,claim_hasta=$4,claim_generacion=j.claim_generacion+1
+		FROM due d
+		WHERE j.ejecucion_id=d.ejecucion_id AND j.evidencia_id=d.evidencia_id
+		RETURNING j.ejecucion_id,j.evidencia_id,j.claim_owner::text,j.claim_hasta,j.claim_generacion
+	)
+	SELECT c.ejecucion_id::text,c.evidencia_id::text,x.solicitud_id::text,
+	       c.claim_owner,c.claim_hasta,c.claim_generacion
+	FROM claimed c JOIN public.ejecucion_baja_local x ON x.id=c.ejecucion_id
+	ORDER BY c.ejecucion_id,c.evidencia_id`, requestFilter, now.UTC(), workerID, leaseUntil.UTC(), limit)
 	if err != nil {
 		return nil, mapError(err)
 	}
 	defer rows.Close()
-	items := []privacy.SuppressionFile{}
+	items := make([]privacy.SuppressionFile, 0)
 	for rows.Next() {
 		var v privacy.SuppressionFile
-		if err := rows.Scan(&v.ExecutionID, &v.EvidenceID); err != nil {
+		if err := rows.Scan(&v.ExecutionID, &v.EvidenceID, &v.RequestID, &v.ClaimOwner, &v.ClaimUntil, &v.ClaimGeneration); err != nil {
 			return nil, mapError(err)
 		}
+		v.StorageID = v.EvidenceID
 		items = append(items, v)
 	}
 	return items, rows.Err()
@@ -548,14 +581,26 @@ func (r *IdentityRepository) PendingSuppressionRequests(ctx context.Context) ([]
 }
 
 func (r *IdentityRepository) CompleteSuppressionFile(ctx context.Context, file privacy.SuppressionFile, at time.Time) error {
+	if !validSuppressionClaim(file) {
+		return privacy.ErrInvalid
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return mapError(err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	var done *time.Time
-	if err = tx.QueryRow(ctx, `SELECT completada_en FROM public.baja_archivo_pendiente_local WHERE ejecucion_id=$1 AND evidencia_id=$2 FOR UPDATE`, file.ExecutionID, file.EvidenceID).Scan(&done); err != nil {
+	var owner string
+	var generation int64
+	var leaseUntil *time.Time
+	if err = tx.QueryRow(ctx, `SELECT completada_en,COALESCE(claim_owner::text,''),claim_generacion,claim_hasta FROM public.baja_archivo_pendiente_local WHERE ejecucion_id=$1 AND evidencia_id=$2 FOR UPDATE`, file.ExecutionID, file.EvidenceID).Scan(&done, &owner, &generation, &leaseUntil); err != nil {
 		return mapError(err)
+	}
+	if done != nil {
+		return mapError(tx.Commit(ctx))
+	}
+	if owner != file.ClaimOwner || generation != file.ClaimGeneration || leaseUntil == nil || !leaseUntil.After(at.UTC()) {
+		return privacy.ErrSuppressionClaimLost
 	}
 	if done == nil {
 		if _, err = tx.Exec(ctx, `DELETE FROM public.verificacion_evidencia_sintetica WHERE id=$1`, file.EvidenceID); err != nil {
@@ -575,15 +620,45 @@ func (r *IdentityRepository) CompleteSuppressionFile(ctx context.Context, file p
 		if _, err = tx.Exec(ctx, `UPDATE public.espacio_galeria_sintetica_local SET archivo_id=NULL,limpia_en=$2,proximo_intento_en=NULL,ultimo_codigo_error=NULL WHERE id=$1 AND estado='retirada_baja'`, file.EvidenceID, at.UTC()); err != nil {
 			return mapError(err)
 		}
-		if _, err = tx.Exec(ctx, `UPDATE public.baja_archivo_pendiente_local SET completada_en=$3,ultimo_codigo_error=NULL WHERE ejecucion_id=$1 AND evidencia_id=$2`, file.ExecutionID, file.EvidenceID, at.UTC()); err != nil {
-			return mapError(err)
+		tag, updateErr := tx.Exec(ctx, `UPDATE public.baja_archivo_pendiente_local
+			SET completada_en=$6,ultimo_codigo_error=NULL,claim_owner=NULL,claim_hasta=NULL
+			WHERE ejecucion_id=$1 AND evidencia_id=$2 AND completada_en IS NULL
+			  AND claim_owner=$3::uuid AND claim_generacion=$4 AND claim_hasta>$5`,
+			file.ExecutionID, file.EvidenceID, file.ClaimOwner, file.ClaimGeneration, at.UTC(), at.UTC())
+		if updateErr != nil {
+			return mapError(updateErr)
+		}
+		if tag.RowsAffected() != 1 {
+			return privacy.ErrSuppressionClaimLost
 		}
 	}
 	return mapError(tx.Commit(ctx))
 }
 func (r *IdentityRepository) FailSuppressionFile(ctx context.Context, file privacy.SuppressionFile, at time.Time) error {
-	_, err := r.pool.Exec(ctx, `UPDATE public.baja_archivo_pendiente_local SET intentos=intentos+1,disponible_en=$3::timestamptz + LEAST(interval '5 minutes', interval '5 seconds' * (intentos+1)),ultimo_codigo_error='archivo_sintetico_no_eliminado' WHERE ejecucion_id=$1 AND evidencia_id=$2 AND completada_en IS NULL`, file.ExecutionID, file.EvidenceID, at.UTC())
-	return mapError(err)
+	if !validSuppressionClaim(file) {
+		return privacy.ErrInvalid
+	}
+	tag, err := r.pool.Exec(ctx, `UPDATE public.baja_archivo_pendiente_local
+		SET intentos=intentos+1,
+		    disponible_en=$6::timestamptz + LEAST(interval '5 minutes', interval '5 seconds' * (intentos+1)),
+		    ultimo_codigo_error='archivo_sintetico_no_eliminado',claim_owner=NULL,claim_hasta=NULL
+		WHERE ejecucion_id=$1 AND evidencia_id=$2 AND completada_en IS NULL
+		  AND claim_owner=$3::uuid AND claim_generacion=$4 AND claim_hasta>$5`,
+		file.ExecutionID, file.EvidenceID, file.ClaimOwner, file.ClaimGeneration, at.UTC(), at.UTC())
+	if err != nil {
+		return mapError(err)
+	}
+	if tag.RowsAffected() != 1 {
+		return privacy.ErrSuppressionClaimLost
+	}
+	return nil
+}
+
+func validSuppressionClaim(file privacy.SuppressionFile) bool {
+	return suppressionClaimUUIDPattern.MatchString(file.ExecutionID) &&
+		suppressionClaimUUIDPattern.MatchString(file.EvidenceID) &&
+		suppressionClaimUUIDPattern.MatchString(file.ClaimOwner) && file.ClaimGeneration > 0 &&
+		!file.ClaimUntil.IsZero()
 }
 
 func (r *IdentityRepository) FinishSuppression(ctx context.Context, requestID string, at time.Time) (privacy.SuppressionExecution, error) {

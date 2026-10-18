@@ -227,7 +227,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if executePath {
-			result, err := h.privacy.ExecuteSuppression(r.Context(), principal.AccountID, requestID, r.Header.Get("Idempotency-Key"), w.Header().Get("X-Request-ID"), h.now, h.evidenceCleaner)
+			// The API records durable cleanup work; the dedicated worker owns GCS deletion.
+			result, err := h.privacy.ExecuteSuppression(r.Context(), principal.AccountID, requestID, r.Header.Get("Idempotency-Key"), w.Header().Get("X-Request-ID"), h.now, nil)
 			if err != nil {
 				h.privacyError(w, err)
 				return
