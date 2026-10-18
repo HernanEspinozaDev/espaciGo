@@ -612,7 +612,7 @@ func openGCP04ReplayPool(ctx context.Context, databaseURL string) (*pgxpool.Pool
 	if err != nil {
 		return nil, nil, err
 	}
-	poolConfig, err := pgxpool.ParseConfig(databaseURL)
+	poolConfig, err := identitypg.GCP04ReplayPoolConfig(databaseURL)
 	if err != nil {
 		return nil, nil, err
 	}
