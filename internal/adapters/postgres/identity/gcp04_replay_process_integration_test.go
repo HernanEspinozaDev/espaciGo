@@ -35,6 +35,7 @@ import (
 )
 
 const gcp04ReplayTestModeEnv = "GCP04_REPLAY_PROCESS_MODE"
+const gcp04ReplayExpectedConnectionName = "espacigo-testprod:southamerica-west1:espacigo-gcp04-g04replay18-pg"
 
 type gcp04ReplayProcessResult struct {
 	PID      int                               `json:"pid"`
@@ -538,11 +539,11 @@ func gcp04ReplayCloudMode() bool {
 
 func gcp04ReplayReadOnlyCapacityGate(ctx context.Context) (identitypg.GCP04ReplayCapacityAssessment, error) {
 	if gcp04ReplayCloudMode() {
-		if os.Getenv("GCP04_REPLAY_CLOUD_SQL_INSTANCE") != "espacigo-gcp04-g04replay18-pg" {
-			return identitypg.GCP04ReplayCapacityAssessment{}, fmt.Errorf("Cloud SQL connector target does not match the released GCP-04 instance")
-		}
-		if os.Getenv("GCP04_REPLAY_CLOUD_SQL_PRIVATE_IP") != "true" {
-			return identitypg.GCP04ReplayCapacityAssessment{}, fmt.Errorf("Cloud SQL connector must use the private endpoint for the released instance")
+		if err := validateGCP04ReplayCloudTarget(
+			os.Getenv("GCP04_REPLAY_CLOUD_SQL_INSTANCE"),
+			os.Getenv("GCP04_REPLAY_CLOUD_SQL_PRIVATE_IP"),
+		); err != nil {
+			return identitypg.GCP04ReplayCapacityAssessment{}, err
 		}
 	}
 	databaseURL := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
@@ -583,6 +584,16 @@ WHERE r.rolname = current_user`
 		return identitypg.GCP04ReplayCapacityAssessment{}, fmt.Errorf("read PostgreSQL server, role, and connection limits: %w", err)
 	}
 	return identitypg.AssessGCP04ReplayCapacity(facts)
+}
+
+func validateGCP04ReplayCloudTarget(connectionName, privateIP string) error {
+	if connectionName != gcp04ReplayExpectedConnectionName {
+		return fmt.Errorf("Cloud SQL connector target does not match the released GCP-04 instance")
+	}
+	if privateIP != "true" {
+		return fmt.Errorf("Cloud SQL connector must use the private endpoint for the released instance")
+	}
+	return nil
 }
 
 func gcp04ReplayStorageConfig() (bucket, prefix string) {
