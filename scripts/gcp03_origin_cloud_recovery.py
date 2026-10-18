@@ -227,7 +227,7 @@ SELECT json_build_object(
  'session_user_is_postgres',session_user='postgres',
  'current_user_is_runtime',current_user='espacigo_runtime',
  'runtime_no_login',(SELECT NOT rolcanlogin AND NOT rolinherit FROM pg_roles WHERE rolname='espacigo_runtime'),
- 'postgres_runtime_set_only',(SELECT bool_or(m.set_option AND NOT m.inherit_option AND NOT m.admin_option)
+ 'postgres_runtime_set_only',(SELECT count(*)=1 AND bool_and(m.set_option AND NOT m.inherit_option AND NOT m.admin_option)
    FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles g ON g.oid=m.member
    WHERE r.rolname='espacigo_runtime' AND g.rolname='postgres'))::text""", read_only=True))
     if not isinstance(role_checks, dict) or any(value is not True for value in role_checks.values()):

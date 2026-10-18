@@ -27,8 +27,9 @@ class FakeReader:
 
 
 class FakeDatabase:
-    def __init__(self, refs): self.refs, self.mutations = refs, []
+    def __init__(self, refs): self.refs, self.mutations, self.read_queries = refs, [], []
     def _psql(self, sql, read_only=False):
+        self.read_queries.append((sql, read_only))
         if "session_user_is_postgres" in sql:
             return json.dumps({"session_user_is_postgres": True,
                 "current_user_is_runtime": True, "runtime_no_login": True,
@@ -77,6 +78,9 @@ class CloudRecoveryContinuationTests(unittest.TestCase):
         self.assertEqual(result["status"], "plan_ready")
         self.assertFalse(result["execution_performed"])
         self.assertFalse(self.db.mutations)
+        role_sql = next(sql for sql, _ in self.db.read_queries if "postgres_runtime_set_only" in sql)
+        self.assertIn("count(*)=1 AND bool_and", role_sql)
+        self.assertIn("NOT m.inherit_option", role_sql)
 
     def test_copy_route_uses_approved_plan_and_create_only_store(self):
         store = Store()
