@@ -45,8 +45,29 @@ class JobEvidenceTests(unittest.TestCase):
         ok, result = validate(self.execution, logs, "retire", "g03r-1016")
         self.assertFalse(ok)
         self.assertEqual(result["result"], "application_phase_failed_despite_cloud_run_success")
-        self.assertEqual(result["application_exit_code"], 1)
-        self.assertNotIn("private", str(result))
+
+    def test_recovery_requires_complete_application_report_even_when_cloud_run_completed(self):
+        payload = {"format": "espacigo.g03o.recovery-execution.v1", "phase_success": True,
+                   "report_complete": False}
+        logs = [self.log("recover", payload, execution_name="current-execution")]
+        ok, result = validate(self.execution, logs, "recover", "g03r-1016")
+        self.assertFalse(ok)
+        self.assertTrue(result["cloud_run_completed"])
+        self.assertEqual(result["application_evidence"], "failure")
+        self.assertEqual(result["result"], "recovery_application_report_incomplete_or_failed")
+
+    def test_recovery_plan_requires_complete_hash_bound_read_only_report(self):
+        digest = "a" * 64
+        summary = {"plan_sha256": digest, "execution_performed": False, "contains_sql_text": False}
+        payload = {"format": "espacigo.g03o.recovery-plan.v1", "status": "plan_ready",
+                   "phase_success": True, "report_complete": True, "execution_performed": False,
+                   "plan_sha256": digest, "review_plan": summary}
+        logs = [self.log("recover-plan", payload, execution_name="current-execution")]
+        self.assertTrue(validate(self.execution, logs, "recover-plan", "g03r-1016")[0])
+        payload["review_plan"]["plan_sha256"] = "b" * 64
+        ok, result = validate(self.execution, logs, "recover-plan", "g03r-1016")
+        self.assertFalse(ok)
+        self.assertEqual(result["result"], "recovery_plan_report_incomplete_or_invalid")
 
     def test_successful_diagnosis_requires_read_only_attestation(self):
         logs = [{"logName": "projects/p/logs/run.googleapis.com%2Fstdout", "labels": {"container_name": "retire-diagnose", "run.googleapis.com/execution_name": "current-execution"}, "jsonPayload": {

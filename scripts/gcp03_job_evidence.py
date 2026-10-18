@@ -19,6 +19,8 @@ SUCCESS_FORMATS = {
     "retire": "espacigo-gcp03-managed-synthetic-restore-evidence-v1",
     "diagnose": "espacigo-gcp03-read-only-diagnostic-v1",
     "retire-diagnose": "espacigo-gcp03-retirement-diagnosis-v1",
+    "recover": "espacigo.g03o.recovery-execution.v1",
+    "recover-plan": "espacigo.g03o.recovery-plan.v1",
 }
 
 
@@ -151,6 +153,21 @@ def validate(execution: dict[str, Any], logs: list[dict[str, Any]], phase: str, 
         summary["result"] = "application_success_evidence_missing_or_ambiguous"
         return False, summary
     evidence = successes[0]
+    if phase == "recover" and (evidence.get("phase_success") is not True or evidence.get("report_complete") is not True):
+        summary["application_evidence"] = "failure"
+        summary["result"] = "recovery_application_report_incomplete_or_failed"
+        return False, summary
+    if phase == "recover-plan":
+        plan = evidence.get("review_plan")
+        digest = evidence.get("plan_sha256")
+        if (evidence.get("phase_success") is not True or evidence.get("report_complete") is not True
+                or evidence.get("status") != "plan_ready" or evidence.get("execution_performed") is not False
+                or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+                or not isinstance(plan, dict) or plan.get("plan_sha256") != digest
+                or plan.get("execution_performed") is not False or plan.get("contains_sql_text") is not False):
+            summary["application_evidence"] = "failure"
+            summary["result"] = "recovery_plan_report_incomplete_or_invalid"
+            return False, summary
     if phase == "retire" and evidence.get("commit_outcome") != "committed":
         summary["result"] = "retirement_commit_not_confirmed"
         return False, summary
