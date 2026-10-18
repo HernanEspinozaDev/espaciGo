@@ -26,6 +26,7 @@ class CloudRecoveryConfigTests(unittest.TestCase):
             "GCP03_ORIGIN_IMPORT_TRANSPORT_KEY_FILE": "/secrets/transport/k_run",
             "GCP03_ORIGIN_RECOVERY_MODE": "plan",
             "GCP03_ORIGIN_RECOVERY_DIAGNOSTIC_SHA256": DIAGNOSTIC_SHA256,
+            "GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256": cloud.F4_IMPORT_FAILURE_SHA256,
             "GCP03_ORIGIN_IMPORT_CONFIRM_TARGET": EXPECTED_TARGET,
             "CLOUD_SQL_INSTANCE_CONNECTION_NAME": EXPECTED_TARGET.rsplit("/", 1)[0],
             "CLOUD_SQL_PRIVATE_IP": "true",
@@ -63,6 +64,14 @@ class CloudRecoveryConfigTests(unittest.TestCase):
             with self.subTest(overrides=overrides), self.assertRaises(ImportStopped):
                 config(self.env(**overrides))
 
+    def test_failed_import_evidence_is_required_and_exact(self):
+        missing = self.env()
+        del missing["GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256"]
+        with self.assertRaises(ImportStopped):
+            config(missing)
+        with self.assertRaises(ImportStopped):
+            config(self.env(GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256="f" * 64))
+
 
 class CloudRecoveryRunTests(unittest.TestCase):
     def setUp(self):
@@ -93,6 +102,7 @@ class CloudRecoveryRunTests(unittest.TestCase):
             stack.enter_context(patch.object(cloud, "make_plan", return_value=self.plan))
             stack.enter_context(patch.object(cloud, "shutdown_proxy", side_effect=lambda: self.events.append("proxy-shutdown") or True))
             result = cloud.run({"GCP03_ORIGIN_RECOVERY_MODE": "plan",
+                                "GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256": cloud.F4_IMPORT_FAILURE_SHA256,
                                 "DATABASE_PASSWORD_FILE": "/secrets/admin/password"})
         self.assertTrue(result["phase_success"], result)
         self.assertTrue(result["report_complete"])
@@ -110,6 +120,7 @@ class CloudRecoveryRunTests(unittest.TestCase):
              patch.object(cloud, "execute_reviewed_recovery") as execute, \
              patch.object(cloud, "shutdown_proxy", side_effect=lambda: self.events.append("proxy-shutdown") or True):
             result = cloud.run({"GCP03_ORIGIN_RECOVERY_MODE": "apply",
+                                "GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256": cloud.F4_IMPORT_FAILURE_SHA256,
                                 "GCP03_ORIGIN_RECOVERY_APPROVED_PLAN_SHA256": "9" * 64,
                                 "DATABASE_PASSWORD_FILE": "/secrets/admin/password"})
         self.assertEqual(result["error_code"], "CURRENT_PLAN_DIFFERS_FROM_APPROVED_PLAN")
@@ -135,6 +146,7 @@ class CloudRecoveryRunTests(unittest.TestCase):
              patch.object(cloud, "execute_reviewed_recovery") as execute, \
              patch.object(cloud, "shutdown_proxy", side_effect=lambda: self.events.append("proxy-shutdown") or True):
             result = cloud.run({"GCP03_ORIGIN_RECOVERY_MODE": "apply",
+                                "GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256": cloud.F4_IMPORT_FAILURE_SHA256,
                                 "DATABASE_PASSWORD_FILE": "/secrets/admin/password"})
         self.assertEqual(result["error_code"], "RECEIPT_HASH_MISMATCH")
         self.assertEqual(result["transaction_outcome"], "not_started")
