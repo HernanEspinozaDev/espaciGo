@@ -2,6 +2,8 @@
 
 Fecha de evidencia: 2026-10-16. Esta matriz registra el ensayo sintético y la limpieza del run cloud. No representa aceptación de producto, restore de datos reales ni cierre completo GCP-03.
 
+**Vigencia:** Las secciones cronológicas anteriores conservan los estados y límites vigentes al momento de cada intento. El cierre técnico actual de g03o-1017 aparece al final y sustituye sus pendientes operativos anteriores; no declara GCP-03 completo ni acepta producto.
+
 | Criterio | Estado | Evidencia / límite |
 | --- | --- | --- |
 | Fixture y restore PostgreSQL local aislado | Completo | Cinco ejecuciones finales PostgreSQL 18.6/PostGIS 3.6.4, network none, artefactos efímeros y diez comprobaciones por corrida; evidencia local excluida de Git. |
@@ -30,7 +32,7 @@ La captura autorizada se realizó una sola vez sobre el merge #389 (`04848e9542c
 
 La captura no acredita compatibilidad con Cloud SQL ni con sus roles gestionados, ni una restauración final de archivos. GCP-03 sigue parcial; quedan pendientes el ensayo de compatibilidad Cloud SQL, permisos/funciones, transferencia y validación de archivos, los gates posteriores y la aceptación humana. No se repitió captura/restauración ni se ejecutó importación o acción cloud.
 
-## Actualización del ensayo de origen `g03o-1017` (2026-10-18)
+## Registro histórico del ensayo de origen g03o-1017 antes de #408 (2026-10-18)
 
 Esta fila de actualización complementa el cierre histórico `g03r-1016`; no cambia sus resultados ni declara GCP-03 aceptado.
 
@@ -46,7 +48,7 @@ Esta fila de actualización complementa el cierre histórico `g03r-1016`; no cam
 
 La evidencia cloud privada de la ejecución está en `.local/testing/g03o-1017-recovery-20261018/`; el reporte saneado tiene SHA-256 `e68368428f7ccbb2db7577144c8303f75c94949073d0e72bf5cf99b339158fed`. Se preservan evidencia y recursos conforme al límite de preservación revisado; no se programó apagado ni limpieza automática.
 
-## Continuación privada posterior a #407 (2026-10-18)
+## Registro histórico de continuación privada previo al merge #408 (2026-10-18)
 
 El reporte local agregado del snapshot sellado autenticado resolvió la diferencia reportada en la ejecución plan-only: 1.200 IDs de galería más 2.045 IDs de evidencia de operación viva (722 checkin, 722 checkout, 601 recepción, 0 descargo) forman los 3.245 IDs del tar. Las seis fuentes restantes tuvieron cero IDs. La unión y el inventario del tar son iguales; missing=0, extras=0 e intersección=808.005 bytes. `privacy-replay` se informa separado: un miembro, 338 bytes. No se publican IDs ni nombres. El SHA del set según el protocolo del helper es `b94653f977d47472d5a2e4e73bbe5eb2478211a6807fb53a4b0eaa93343fdc6d`.
 
@@ -62,7 +64,7 @@ El agregado del revisor se conserva en `.local/testing/g03o-407-continuation-rev
 
 La corrección local está en `codex/infra/fix/g03o-1017-private-reference-set`, HEAD `35dff4a572e4931e198666925181a8df36ac6755`. Pasó 3 pruebas unitarias y 1 integración en PostgreSQL 18 desechable con V1–V61. El OCI local tiene digest `sha256:9c6856a44e27806f8f0f9c2773092735b6e2b88152f96b87774be1dcd697d9ca`. El plan Terraform local ligado a serial 22 es 0 altas/1 cambio de imagen/0 bajas, exclusivamente para el Job `continuation-plan`; copy permanece apagado. Plan SHA-256 `fde4324e94e22fd000fec7ae46d683d8b073858bfc1465c5d6c73bff5df7db2c`. No se publicó, aplicó ni ejecutó nada en Cloud. La ejecución de la consulta corregida contra Cloud y cualquier modo copy quedan pendientes de revisión y autorización separadas.
 
-## Próximo paquete de trabajo, sin provisión
+## Propuesta histórica de trabajo (2026-10-17; sustituida por el estado vigente al final)
 
 1. Revisar y fusionar la implementación/procedimiento local del snapshot; corregir comentarios en el mismo PR. No iniciar el corte siguiente antes de la fusión.
 2. Solo tras revisión humana y release específico, programar ventana del origen. Confirmar fuentes externas y scope, y ejecutar preflight actual; cualquier cliente/lease desconocido aborta. La herramienta no crea el release aprobado.
@@ -72,3 +74,21 @@ La corrección local está en `codex/infra/fix/g03o-1017-private-reference-set`,
 6. Someter snapshot, matriz, topología, costo, plan exacto, teardown y criterios de parada a una revisión antes de cualquier cambio cloud.
 
 La alternativa más barata no se presupone válida: una DB separa objetos de base, pero no los roles PostgreSQL del cluster ni la carga de CPU/IO. La revisión puede recomendar pilot01 solo si demuestra que esas dependencias no interfieren; de lo contrario, mantener la instancia efímera como alternativa con costo actualizado. Ninguna opción autoriza hoy una importación o provisión.
+
+
+## Cierre técnico vigente de g03o-1017 (2026-10-18)
+
+Esta sección supersede las filas operativas anteriores que indicaban archivos pendientes, saneamiento pendiente, OCI sin publicar o Job sin ejecutar. Conserva las causas y fallos anteriores como historia.
+
+| Criterio | Estado actual | Evidencia / límite |
+| --- | --- | --- |
+| PR #408 y corrección de referencias | Fusionado técnicamente | Merge e74e000c5c46b95639b3eb8f680c5f719d751299; el ensayo siguió después de esa fusión. |
+| OCI y Job continuation-plan | Publicado, aplicado y ejecutado una vez | Digest OCI sha256:9c6856a44e27806f8f0f9c2773092735b6e2b88152f96b87774be1dcd697d9ca; ejecución tpnvl plan_ready, 3.245 referencias, 3.246 archivos y 808.343 bytes. |
+| Copia privada de este ensayo | Completada y cotejada | Ejecución 7jnv2 continued, phase_success=true, report_complete=true, transaction_outcome=committed, retry=false. Lecturas independientes de metadatos cuentan 3.246 objetos/808.343 bytes y confirman SHA canónico b5df1ac2c9fbf93da19f5abb170ad7287303799768e5c5e75f1e42e7249bad06. |
+| Verificación post-restore | Completada para los checks del verificador | Ejecución xw28v status=verified; 10/10 checks verdaderos, 96 tablas, 61 migraciones y database_rows_emitted=false. No constituye comparación exhaustiva de filas/DDL ni aceptación humana; el revisor confirmó independientemente el reporte (attestation SHA-256 6425c392d0fe80bb8a3b62d9367938c3db7e70d4f9607bf21d4d2c35c6cdb112). |
+| State / recursos del ensayo | Preservados | Lineage 4e81a953-7353-fbd4-93a8-e4b9a5019e95, serial 25. No se retiró el run ni se tocaron las instancias baseline. Preservación extendida explícitamente hasta 2026-10-18 12:00 UTC; no es vencimiento con borrado automático. |
+| Cierre GCP-03 / GCP-06 | Aún parcial / GCP-06 pendiente | g03o-1017 es run-scoped. No demuestra datos finales completos ni compatibilidad del destino Cloud SQL que se elija para GCP-04; las instancias baseline no fueron necesariamente el destino de este ensayo. También quedan costos/rollback y aceptación final del usuario. |
+
+Los fallos iniciales OWNER_ACL_NORMALIZATION_FAILED y PRIVATE_FILE_REFERENCE_MISMATCH se conservan como historia; el resultado final es el de tpnvl/7jnv2/xw28v. El diagnóstico Cloud anterior al saneamiento registró pending_notices=958; después la recuperación confirmó commits de normalización/saneamiento y postverify reportó sanitized=true. Por separado, 958 avisos quedaron en cuarentena en el restore-copy local anterior; no son la misma copia ni el mismo conjunto. La evidencia privada modo 0600 y sus hashes están indexados en [cierre técnico y propuesta GCP-04](gcp03_g03o_1017_closeout_and_gcp04_proposal_20261018.md).
+
+El siguiente trabajo propuesto es preparar GCP-04/backend durable: resolver replay compartido basado en archivo local, coordinación y leases de workers, runner de migraciones separado, presupuesto de pool/red y secretos versionados; diseñar pruebas de reinicio y dos instancias. La propuesta es local/documental, no despliega ni autoriza cambios Cloud. El eventual retiro de recursos g03o-1017 requiere inventario/plan exacto y liberación independiente.
