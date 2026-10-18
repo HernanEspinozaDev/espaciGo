@@ -73,6 +73,21 @@ func main() {
 			fmt.Fprintln(os.Stderr, "GCP-03 origin membership diagnostic stopped; do not retry until its stage and outcome are reviewed")
 			os.Exit(1)
 		}
+	case gcp03origin.PhaseOwnerACLCheck:
+		password, err := gcp03origin.ReadAdminPassword(config.PasswordFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		report, err := gcp03origin.RunOwnerACLDiagnostic(ctx, config, password)
+		if encodeErr := gcp03origin.WriteJSON(os.Stdout, report); encodeErr != nil {
+			fmt.Fprintln(os.Stderr, "GCP-03 origin owner/ACL diagnostic report could not be encoded")
+			os.Exit(1)
+		}
+		if err != nil || !report.ReportComplete {
+			fmt.Fprintln(os.Stderr, "GCP-03 origin owner/ACL diagnostic stopped; review its stage and outcome before retry")
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintln(os.Stderr, "GCP-03 origin phase is unsupported")
 		os.Exit(2)

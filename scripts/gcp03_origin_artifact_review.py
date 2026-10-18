@@ -3,7 +3,8 @@
 
 This local-only tool decrypts only origin-metadata.json and database.dump from
 the reviewed transport package. Both plaintexts remain in process memory; the
-dump is passed to ``pg_restore --list`` on stdin and is never restored/executed.
+dump is passed to ``pg_restore --list`` and ``--schema-only`` on stdin and is
+never restored/executed or written to disk.
 """
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ TRANSPORT_MANIFEST_SHA256 = "c5fc1964175244e998742e34dd4c4376b2d822b27574416b612
 ARTIFACTS_TO_DECRYPT = {"database.dump", "origin-metadata.json"}
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 SIMPLE_IDENT = re.compile(r"^[a-z_][a-z0-9_$]*$")
+SQL_IDENT = r'"(?:[^"]|"")*"|[A-Za-z_][A-Za-z_0-9$]*'
 
 TYPE_WORDS = (
     "MATERIALIZED VIEW DATA", "TEXT SEARCH CONFIGURATION", "TEXT SEARCH DICTIONARY",
@@ -211,7 +213,8 @@ def _object_key(schema: str, name: str) -> tuple[str, str]:
     return schema, name
 
 
-def build_review_plan(toc_text: str, metadata: dict, migration_sha: str) -> tuple[bytes, bytes, dict]:
+def build_review_plan(toc_text: str, metadata: dict, migration_sha: str,
+                      identity_sequences: set[tuple[str, str]] | None = None) -> tuple[bytes, bytes, dict]:
     relation_rows = metadata.get("database_report", {}).get("relation_owners_acls")
     routine_rows = metadata.get("database_report", {}).get("routine_owners_acls")
     if not isinstance(relation_rows, list) or not isinstance(routine_rows, list):
@@ -231,6 +234,36 @@ def build_review_plan(toc_text: str, metadata: dict, migration_sha: str) -> tupl
         item = _parse_toc_entry(line)
         if item is None:
             continue
+        parsed.append(item)
+
+    # pg_dump records serial ownership dependencies in the TOC and identity
+    # dependencies in its schema-only representation, separately from the
+    # sequence relation itself. ALTER TABLE ... OWNER transfers those
+    # sequences with their parent; emitting a later
+    # ALTER SEQUENCE as the original non-superuser can then fail because the
+    # importer no longer owns that sequence. Keep explicit owner changes only
+    # for standalone sequences.
+    parent_owned_sequences = [
+        _object_key(item["schema"], item["name"])
+        for item in parsed if item["type"] == "SEQUENCE OWNED BY"
+    ]
+    if len(parent_owned_sequences) != len(set(parent_owned_sequences)):
+        raise ArtifactReviewError("archive has duplicate sequence ownership dependencies")
+    sequence_entries = {
+        _object_key(item["schema"], item["name"])
+        for item in parsed if item["type"] == "SEQUENCE"
+    }
+    if not set(parent_owned_sequences).issubset(sequence_entries):
+        raise ArtifactReviewError("archive sequence ownership dependency has no sequence entry")
+    parent_owned_sequences = set(parent_owned_sequences)
+    for schema, name in identity_sequences or set():
+        if not isinstance(schema, str) or not isinstance(name, str) or not schema or not name:
+            raise ArtifactReviewError("archive identity sequence metadata is malformed")
+        parent_owned_sequences.add(_object_key(schema, name))
+    if not parent_owned_sequences.issubset(sequence_entries):
+        raise ArtifactReviewError("archive parent-owned sequence has no sequence entry")
+
+    for item in parsed:
         kind = item["type"]
         kind_counts[kind] = kind_counts.get(kind, 0) + 1
         if kind in {"ACL", "COMMENT", "EXTENSION", "SCHEMA"}:
@@ -254,10 +287,14 @@ def build_review_plan(toc_text: str, metadata: dict, migration_sha: str) -> tupl
             source_acl = source.get("acl") if source else None
             if source_acl is not None:
                 source_acl_digests.append(hashlib.sha256(str(source_acl).encode()).hexdigest())
+            owner_action = None
+            if kind == "SEQUENCE" and key in parent_owned_sequences:
+                owner_action = "owner follows parent table ownership transfer"
             owner_map.append({"type": kind, "schema": item["schema"], "name": item["name"],
                 "source_owner": source_owner, "target_owner": "espacigo_runtime",
                 "source_acl_sha256": hashlib.sha256(str(source_acl).encode()).hexdigest() if source_acl is not None else None,
-                "source_acl_replaced": True})
+                "source_acl_replaced": True,
+                **({"owner_action": owner_action} if owner_action else {})})
         elif kind in OWNER_ROUTINE_TYPES:
             toc_name = item["name"]
             signature_match = re.fullmatch(r"(.+?)\((.*)\)", toc_name)
@@ -309,7 +346,8 @@ def build_review_plan(toc_text: str, metadata: dict, migration_sha: str) -> tupl
         if item["type"] in {"TABLE", "VIEW", "MATERIALIZED VIEW", "FOREIGN TABLE"}:
             statements.append(f"ALTER TABLE {schema_name} OWNER TO espacigo_runtime;")
         elif item["type"] == "SEQUENCE":
-            statements.append(f"ALTER SEQUENCE {schema_name} OWNER TO espacigo_runtime;")
+            if item.get("owner_action") != "owner follows parent table ownership transfer":
+                statements.append(f"ALTER SEQUENCE {schema_name} OWNER TO espacigo_runtime;")
         elif item["type"] in {"TEXT SEARCH DICTIONARY", "TEXT SEARCH CONFIGURATION"}:
             statements.append(f"ALTER {item['type']} {schema_name} OWNER TO espacigo_runtime;")
         elif item["type"] in OWNER_ROUTINE_TYPES:
@@ -373,8 +411,17 @@ def build_review_plan(toc_text: str, metadata: dict, migration_sha: str) -> tupl
         "selected_toc_entry_count": len(selected),
         "toc_entry_type_counts": kind_counts,
         "owner_action_count": len(owner_map),
-        "normalization_owner_statement_count": sum(item["type"] not in {"INDEX", "INDEX ATTACH"} for item in owner_map),
-        "normalization_total_statement_count": len(statements) + len(observer_grants),
+        "normalization_owner_statement_count": sum(
+            item["type"] not in {"INDEX", "INDEX ATTACH"} and
+            item.get("owner_action") != "owner follows parent table ownership transfer"
+            for item in owner_map),
+        "parent_owned_sequence_count": sum(
+            item.get("owner_action") == "owner follows parent table ownership transfer"
+            for item in owner_map),
+        "standalone_sequence_count": sum(
+            item["type"] == "SEQUENCE" and item.get("owner_action") is None
+            for item in owner_map),
+        "normalization_total_statement_count": len(statements),
         "normalization_transient_prerequisite_statement_count": 2,
         "owner_actions": owner_map,
         "source_acl_digest_count": len(source_acl_digests),
@@ -430,6 +477,41 @@ def _run_pg_restore_list(archive: bytes, pg_restore: str) -> str:
         raise ArtifactReviewError("archive TOC encoding is invalid") from exc
 
 
+def _run_pg_restore_schema(archive: bytes, pg_restore: str) -> str:
+    """Render schema-only DDL to memory so identity-owned sequences can be classified."""
+    try:
+        result = subprocess.run([pg_restore, "--schema-only", "--file=-"], input=archive,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                check=False, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ArtifactReviewError("archive schema listing failed") from exc
+    if result.returncode != 0:
+        raise ArtifactReviewError("archive schema listing rejected the authenticated archive")
+    try:
+        return result.stdout.decode("utf-8", "strict")
+    except UnicodeDecodeError as exc:
+        raise ArtifactReviewError("archive schema encoding is invalid") from exc
+
+
+def _unquote_ident(value: str) -> str:
+    return value[1:-1].replace('""', '"') if value.startswith('"') else value
+
+
+def identity_sequences_from_schema(schema_sql: str) -> set[tuple[str, str]]:
+    """Return qualified identity sequence names without retaining rendered DDL."""
+    ident = rf'(?:{SQL_IDENT})'
+    qualified = rf'(?P<schema>{ident})\s*\.\s*(?P<name>{ident})'
+    pattern = re.compile(
+        rf"\bALTER\s+TABLE\s+(?:ONLY\s+)?{qualified}"
+        rf"\s+ALTER\s+COLUMN\s+{ident}\s+ADD\s+GENERATED\s+"
+        rf"(?:ALWAYS|BY\s+DEFAULT)\s+AS\s+IDENTITY\s*\(\s*SEQUENCE\s+NAME\s+"
+        rf"(?P<sequence_schema>{ident})\s*\.\s*(?P<sequence_name>{ident})",
+        re.IGNORECASE | re.DOTALL,
+    )
+    return {(_unquote_ident(match.group("sequence_schema")), _unquote_ident(match.group("sequence_name")))
+            for match in pattern.finditer(schema_sql)}
+
+
 def _write_private(path: Path, payload: bytes) -> None:
     if path.exists() or path.is_symlink():
         raise ArtifactReviewError("refusing to overwrite private review evidence")
@@ -454,15 +536,19 @@ def generate(*, stage_dir: Path, recovery_key: Path, output_dir: Path,
     try:
         archive.extend(archive_stream.getbuffer())
         toc_text = _run_pg_restore_list(archive, pg_restore)
+        schema_sql = _run_pg_restore_schema(archive, pg_restore)
     finally:
         archive[:] = b"\x00" * len(archive)
         _wipe(archive_stream)
         recovery = b"\x00" * len(recovery)
     try:
-        toc, normalization, owner_map = build_review_plan(toc_text, metadata, migration_sha)
+        identity_sequences = identity_sequences_from_schema(schema_sql)
+        toc, normalization, owner_map = build_review_plan(
+            toc_text, metadata, migration_sha, identity_sequences=identity_sequences)
     finally:
         metadata.clear()
         toc_text = ""
+        schema_sql = ""
     final_manifest_sha, _ = sha256_file(stage_dir / "transport-manifest.json")
     if final_manifest_sha != expected_manifest_sha:
         raise ArtifactReviewError("transport manifest changed during review")

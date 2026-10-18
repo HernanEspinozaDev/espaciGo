@@ -75,7 +75,7 @@ record = {
     "oci_manifest_digest": digest,
     "oci_archive_sha256": hashlib.sha256(pathlib.Path(archive).read_bytes()).hexdigest(),
     "executor_command": "cmd/gcp03origin",
-    "executor_phases": ["bootstrap", "membership", "observe"],
+    "executor_phases": ["bootstrap", "membership", "membership-check", "owner-acl-check", "observe"],
     "target_confirmation": sql_target,
     "execution_purpose": "GCP-03 origin bootstrap and read-only pre-restore observation; no snapshot staging or restore",
 }

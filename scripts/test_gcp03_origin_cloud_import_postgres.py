@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -15,7 +16,10 @@ import gcp03_origin_import as transport
 from gcp03_origin_cloud_import_executor import (
     ImportStopped, ObjectRef, PsqlPgRestoreRunner, decrypt_object, validate_normalization_sql, validate_toc,
 )
-from gcp03_origin_artifact_review import _run_pg_restore_list, build_review_plan
+from gcp03_origin_artifact_review import (
+    _run_pg_restore_list, _run_pg_restore_schema, build_review_plan,
+    identity_sequences_from_schema,
+)
 from gcp03_origin_postrestore_verify import READ_ONLY_SQL
 from gcp03_origin_postrestore_verify import table_names_from_toc
 
@@ -70,6 +74,66 @@ END $$;
 ALTER ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
 ALTER ROLE espacigo_gadm_bootstrap NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
 ALTER ROLE espacigo_gcp03_observer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;""")
+
+    def test_parent_owner_transfer_makes_redundant_owned_sequence_alter_fail(self):
+        self.psql("CREATE ROLE g03_sequence_import_admin LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT")
+        self.psql("GRANT espacigo_runtime TO g03_sequence_import_admin WITH ADMIN FALSE, INHERIT FALSE, SET TRUE")
+        self.psql("GRANT CREATE ON SCHEMA public TO g03_sequence_import_admin, espacigo_runtime")
+        try:
+            self.psql("CREATE TABLE public.parent_probe(id serial PRIMARY KEY)", user="g03_sequence_import_admin")
+            self.psql("ALTER TABLE public.parent_probe OWNER TO espacigo_runtime", user="g03_sequence_import_admin")
+            cascaded_owner_observed = self.psql(
+                "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.parent_probe_id_seq'::regclass"
+            ) == "espacigo_runtime"
+            actor_sequence_owner_after_transfer = self.psql(
+                "SELECT has_sequence_privilege('g03_sequence_import_admin','public.parent_probe_id_seq','USAGE')"
+            ) == "t"
+            # Reset the synthetic objects so the second command reproduces the
+            # original atomic normalization transaction from its initial state.
+            self.psql("ALTER TABLE public.parent_probe OWNER TO g03_sequence_import_admin")
+            statements = [
+                "ALTER TABLE public.parent_probe OWNER TO espacigo_runtime",
+                "ALTER SEQUENCE public.parent_probe_id_seq OWNER TO espacigo_runtime",
+            ]
+            sql = "BEGIN;\n" + ";\n".join(statements) + ";\nCOMMIT;\n"
+            result = subprocess.run(["psql", "-X", "-qAt", "--set=ON_ERROR_STOP=1",
+                "--set=VERBOSITY=verbose", "--host=" + SOCKET, "--port=5432",
+                "--username=g03_sequence_import_admin", "--dbname=espacigo_scratch"],
+                input=sql, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+            sqlstate = re.search(r"ERROR:\s+([0-9A-Z]{5}):", result.stderr)
+            error_category = next((code for needle, code in (
+                ("must be owner of sequence", "SEQUENCE_OWNER_REQUIRED"),
+                ("must be owner of relation", "TABLE_OWNER_REQUIRED"),
+                ("must be able to SET ROLE", "SET_ROLE_REQUIRED"),
+                ("permission denied for schema", "SCHEMA_CREATE_REQUIRED"),
+                ("permission denied", "PRIVILEGE_REQUIRED"),
+            ) if needle in result.stderr), "UNCLASSIFIED")
+            evidence_path = os.environ.get("GCP03_ORIGIN_SEQUENCE_REPRO_EVIDENCE")
+            if evidence_path:
+                payload = {"format": "espacigo.g03o.sequence-owner-repro.v1",
+                    "postgres_major": 18, "actor_nosuperuser": True,
+                    "runtime_membership_set_true_inherit_false": True,
+                    "parent_owner_transfer_cascaded": cascaded_owner_observed,
+                    "importer_retains_sequence_usage_after_transfer": actor_sequence_owner_after_transfer,
+                    "redundant_owner_statement_ordinal": 2,
+                    "sqlstate": sqlstate.group(1) if sqlstate else None,
+                    "error_category": error_category,
+                    "transaction_rolled_back": self.psql("SELECT pg_get_userbyid(relowner)='g03_sequence_import_admin' FROM pg_class WHERE oid='public.parent_probe'::regclass") == "t",
+                    "raw_sql_or_error_text_recorded": False}
+                path = Path(evidence_path)
+                path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as output:
+                    json.dump(payload, output, sort_keys=True, indent=2)
+                    output.write("\n")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(cascaded_owner_observed)
+            self.assertIsNotNone(sqlstate)
+        finally:
+            self.psql("DROP TABLE IF EXISTS public.parent_probe")
+            self.psql("REVOKE espacigo_runtime FROM g03_sequence_import_admin")
+            self.psql("REVOKE CREATE ON SCHEMA public FROM g03_sequence_import_admin")
+            self.psql("DROP ROLE IF EXISTS g03_sequence_import_admin")
 
     def setUp(self):
         self.reset_target()
@@ -221,7 +285,9 @@ CREATE TABLE public.sesion(revocada_en timestamptz, expira_en timestamptz);
 CREATE TABLE public.token_accion(consumido_en timestamptz, invalidado_en timestamptz, expira_en timestamptz);
 CREATE TABLE public.aviso_local(estado text);
 CREATE TABLE public.outbox_evento_local(lease_hasta timestamptz, entregada_en timestamptz, cancelada_en timestamptz, fallo_terminal_en timestamptz);
-CREATE TABLE public.sample(id integer PRIMARY KEY);
+CREATE TABLE public.sample(id integer PRIMARY KEY, serial_id serial,
+ identity_id bigint GENERATED ALWAYS AS IDENTITY);
+CREATE SEQUENCE public.sample_standalone_seq;
 CREATE FUNCTION public.sample(integer) RETURNS integer LANGUAGE SQL IMMUTABLE AS $$ SELECT $1 + 1 $$;
 CREATE TEXT SEARCH DICTIONARY public.synthdict (TEMPLATE = pg_catalog.simple);""", source_db)
             dump = subprocess.run(["pg_dump", "--format=custom", "--compress=0", "--host=" + SOCKET,
@@ -229,6 +295,10 @@ CREATE TEXT SEARCH DICTIONARY public.synthdict (TEMPLATE = pg_catalog.simple);""
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True)
             archive = bytearray(dump.stdout)
             toc_text = _run_pg_restore_list(archive, "pg_restore")
+            schema_sql = _run_pg_restore_schema(archive, "pg_restore")
+            identity_sequences = identity_sequences_from_schema(schema_sql)
+            schema_sql = ""
+            self.assertEqual(identity_sequences, {("public", "sample_identity_id_seq")})
             relations = json.loads(self.psql("""SELECT COALESCE(json_agg(json_build_object(
  'schema',n.nspname,'name',c.relname,'kind',c.relkind::text,'owner',r.rolname,'acl',c.relacl::text)), '[]'::json)::text
 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles r ON r.oid=c.relowner
@@ -239,13 +309,19 @@ WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f')""", source_d
 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner
 WHERE n.nspname='public'""", source_db))
             allowlist, normalization, review_map = build_review_plan(toc_text,
-                {"database_report": {"relation_owners_acls": relations, "routine_owners_acls": routines}}, "f" * 64)
+                {"database_report": {"relation_owners_acls": relations, "routine_owners_acls": routines}},
+                "f" * 64, identity_sequences=identity_sequences)
             names = table_names_from_toc(allowlist)
             self.assertEqual(names, {"schema_migrations", "sesion", "token_accion", "aviso_local",
                 "outbox_evento_local", "sample"})
             self.assertNotIn("TABLE DATA public spatial_ref_sys", allowlist.decode())
             self.assertIn(b"GRANT SELECT (version, name, checksum)", normalization)
             self.assertIn(b"ALTER TEXT SEARCH DICTIONARY public.synthdict OWNER TO espacigo_runtime", normalization)
+            self.assertIn(b"SEQUENCE OWNED BY public sample_serial_id_seq", toc_text.encode())
+            self.assertIn(("public", "sample_identity_id_seq"), identity_sequences)
+            self.assertNotIn(b"ALTER SEQUENCE public.sample_serial_id_seq OWNER TO espacigo_runtime", normalization)
+            self.assertNotIn(b"ALTER SEQUENCE public.sample_identity_id_seq OWNER TO espacigo_runtime", normalization)
+            self.assertIn(b"ALTER SEQUENCE public.sample_standalone_seq OWNER TO espacigo_runtime", normalization)
             self.assertIn(b"GRANT CREATE ON SCHEMA public TO espacigo_runtime", normalization)
             self.assertLess(normalization.index(b"GRANT CREATE ON SCHEMA public"),
                 normalization.index(b"ALTER TABLE public.sample OWNER TO espacigo_runtime"))
@@ -287,6 +363,11 @@ WHERE n.nspname='public'""", source_db))
  has_table_privilege('espacigo_gcp03_observer','public.sample','SELECT'),
  has_table_privilege('espacigo_gcp03_observer','public.sample','INSERT')""")
                 self.assertEqual(final, "t|t|f|t|f|t|f|f|f")
+                sequence_owners = self.psql("""SELECT string_agg(
+  (pg_get_userbyid(relowner)='espacigo_runtime')::text, '|' ORDER BY relname)
+FROM pg_class WHERE oid IN ('public.sample_identity_id_seq'::regclass,
+  'public.sample_serial_id_seq'::regclass, 'public.sample_standalone_seq'::regclass)""")
+                self.assertEqual(sequence_owners, "true|true|true")
             finally:
                 admin.close()
                 self.psql("ALTER DATABASE espacigo_scratch OWNER TO postgres")
