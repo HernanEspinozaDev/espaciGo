@@ -29,6 +29,16 @@ func runLocalPrivacyCommand(command string, args []string) error {
 	if err != nil {
 		return errors.New("local privacy service unavailable")
 	}
+	var replayStore privacy.SuppressionReplayStore
+	if command == "local-privacy-replay-export" || command == "local-privacy-replay-apply" {
+		replayStore, err = newRuntimePrivacyReplayStore(context.Background(), os.Getenv)
+		if err != nil {
+			return errors.New("local privacy replay storage configuration is invalid")
+		}
+		if closer, ok := replayStore.(interface{ Close() error }); ok {
+			defer closer.Close()
+		}
+	}
 	switch command {
 	case "local-privacy-retention-purge":
 		store, err := evidencefs.New(os.Getenv("M03_EVIDENCE_DIR"))
@@ -41,7 +51,12 @@ func runLocalPrivacyCommand(command string, args []string) error {
 		}
 		return json.NewEncoder(os.Stdout).Encode(result)
 	case "local-privacy-replay-export":
-		manifest, err := service.ExportSuppressionReplayManifestWithFile(context.Background(), os.Getenv("LOCAL_PRIVACY_REPLAY_FILE"))
+		var manifest privacy.SuppressionReplayManifest
+		if replayStore != nil {
+			manifest, err = service.ExportSuppressionReplayManifestWithStore(context.Background(), replayStore)
+		} else {
+			manifest, err = service.ExportSuppressionReplayManifestWithFile(context.Background(), os.Getenv("LOCAL_PRIVACY_REPLAY_FILE"))
+		}
 		if err != nil {
 			return err
 		}
@@ -59,6 +74,12 @@ func runLocalPrivacyCommand(command string, args []string) error {
 		var trailing any
 		if err := decoder.Decode(&trailing); err != io.EOF {
 			return errors.New("invalid replay manifest")
+		}
+		if replayStore != nil {
+			manifest, err = service.MergeSuppressionReplayManifestWithStore(context.Background(), manifest, replayStore)
+			if err != nil {
+				return errors.New("local privacy replay registry is unavailable or conflicted")
+			}
 		}
 		store, err := evidencefs.New(os.Getenv("M03_EVIDENCE_DIR"))
 		if err != nil {

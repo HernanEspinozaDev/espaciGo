@@ -23,6 +23,7 @@ type Handler struct {
 	privacy                 *privacy.Service
 	evidenceCleaner         privacy.SyntheticEvidenceCleaner
 	suppressionRegistryPath string
+	suppressionReplayStore  privacy.SuppressionReplayStore
 	now                     func() time.Time
 }
 
@@ -44,18 +45,24 @@ func NewHandlerWithSuppressionClock(service *identity.AuthenticationService, ter
 
 // NewHandlerWithSuppressionRegistry keeps the local restore sidecar current
 // whenever a suppression execution has committed successfully.
-func NewHandlerWithSuppressionRegistry(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyService *privacy.Service, cleaner privacy.SyntheticEvidenceCleaner, registryPath string) http.Handler {
+func NewHandlerWithSuppressionRegistry(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyService *privacy.Service, cleaner privacy.SyntheticEvidenceCleaner, registryPath string, replayStores ...privacy.SuppressionReplayStore) http.Handler {
 	h := newHandler(service, terms, origins, cleaner, privacyService).(*Handler)
 	h.suppressionRegistryPath = registryPath
+	if len(replayStores) > 0 {
+		h.suppressionReplayStore = replayStores[0]
+	}
 	return h
 }
 
-func NewHandlerWithSuppressionClockAndRegistry(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyService *privacy.Service, cleaner privacy.SyntheticEvidenceCleaner, now func() time.Time, registryPath string) http.Handler {
+func NewHandlerWithSuppressionClockAndRegistry(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyService *privacy.Service, cleaner privacy.SyntheticEvidenceCleaner, now func() time.Time, registryPath string, replayStores ...privacy.SuppressionReplayStore) http.Handler {
 	h := newHandler(service, terms, origins, cleaner, privacyService).(*Handler)
 	if now != nil {
 		h.now = now
 	}
 	h.suppressionRegistryPath = registryPath
+	if len(replayStores) > 0 {
+		h.suppressionReplayStore = replayStores[0]
+	}
 	return h
 }
 
@@ -225,10 +232,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.privacyError(w, err)
 				return
 			}
-			if result.Status == "completada" && h.suppressionRegistryPath != "" {
-				if err := h.privacy.ExportSuppressionReplayManifestToFile(r.Context(), h.suppressionRegistryPath); err != nil {
-					h.fail(w, http.StatusServiceUnavailable, "privacy_replay_registry_unavailable", "La baja se completó, pero el registro local de recuperación requiere reintento.")
-					return
+			if result.Status == "completada" {
+				if h.suppressionReplayStore != nil {
+					if err := h.privacy.ExportSuppressionReplayManifestToStore(r.Context(), h.suppressionReplayStore); err != nil {
+						h.fail(w, http.StatusServiceUnavailable, "privacy_replay_registry_unavailable", "La baja se completó, pero el registro de recuperación durable requiere reintento.")
+						return
+					}
+				}
+				if h.suppressionRegistryPath != "" {
+					if err := h.privacy.ExportSuppressionReplayManifestToFile(r.Context(), h.suppressionRegistryPath); err != nil {
+						h.fail(w, http.StatusServiceUnavailable, "privacy_replay_registry_unavailable", "La baja se completó, pero el registro local de recuperación requiere reintento.")
+						return
+					}
 				}
 			}
 			h.write(w, http.StatusOK, result)
