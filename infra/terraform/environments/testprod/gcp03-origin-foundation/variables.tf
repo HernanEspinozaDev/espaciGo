@@ -528,6 +528,7 @@ locals {
   recovery_enabled               = local.foundation_enabled && (var.enable_origin_recovery_plan_job || var.enable_origin_recovery_apply_job || var.enable_origin_recovery_continuation_plan_job || var.enable_origin_recovery_continuation_copy_job)
   recovery_apply_enabled         = local.foundation_enabled && (var.enable_origin_recovery_apply_job || var.enable_origin_recovery_continuation_copy_job)
   recovery_mode                  = var.enable_origin_recovery_continuation_copy_job ? "continuation-copy" : var.enable_origin_recovery_continuation_plan_job ? "continuation-plan" : var.enable_origin_recovery_apply_job ? "apply" : "plan"
+  private_files_creator_enabled  = local.import_enabled || local.recovery_apply_enabled || (local.foundation_enabled && var.enable_origin_recovery_continuation_plan_job)
   postrestore_account_id         = "g03o-postverify-${var.run_id}"
   observer_database_url          = "postgres://${local.observer_account_id}%40${var.project_id}.iam@localhost:5432/espacigo_scratch?sslmode=disable"
 }

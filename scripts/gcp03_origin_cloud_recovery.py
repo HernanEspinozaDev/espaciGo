@@ -14,7 +14,8 @@ from gcp03_origin_cloud_import_executor import (
 from gcp03_origin_private_files import validate_private_files_tar
 from gcp03_origin_recovery_plan import (build_normalization_recovery_plan, execute_reviewed_recovery,
     build_private_file_continuation_plan, execute_private_file_continuation, REQUIRED_SANITATION_COUNTS)
-from gcp03_origin_recovery_preflight import CatalogReader, DIAGNOSTIC_SHA256, EXPECTED_CURRENT, migration_history_hashes
+from gcp03_origin_recovery_preflight import (CatalogReader, DIAGNOSTIC_SHA256, EXPECTED_CURRENT,
+    CANONICAL_MIGRATION_HISTORY_SHA256_V2, migration_history_hashes)
 from gcp03_origin_recovery_runner import REFS_SQL, postcheck_sql
 from gcp03_origin_private_file_refs import PrivateFileReferenceQueryError
 
@@ -203,6 +204,51 @@ SELECT jsonb_build_object(
         return json.loads(self._psql(sql, read_only=True))
 
 
+def run_private_file_continuation(*, mode, database, reader, files, store=None,
+                                  approved_plan_sha256="", run_id=TARGET_RUN_ID):
+    """Execute either continuation route; the plan route is strictly read-only."""
+    if mode not in {"continuation-plan", "continuation-copy"}:
+        raise ImportStopped("CONTINUATION_MODE_INVALID", "continuation_preflight")
+    identity = json.loads(database._psql(
+        "SELECT json_build_object('session_user',session_user,'current_user',current_user)::text", read_only=True))
+    if identity != {"session_user": "postgres", "current_user": "postgres"}:
+        raise ImportStopped("CONTINUATION_DATABASE_IDENTITY_FAILED", "continuation_preflight")
+    migration_rows = json.loads(reader.query(
+        "SET LOCAL ROLE espacigo_runtime;\n"
+        "SELECT COALESCE(json_agg(json_build_array(version::text,checksum::text) ORDER BY version), '[]'::json) "
+        "FROM public.schema_migrations"))
+    if not isinstance(migration_rows, list) or len(migration_rows) != 61:
+        raise ImportStopped("CONTINUATION_MIGRATION_HISTORY_FAILED", "continuation_preflight")
+    _, migration_history_sha256 = migration_history_hashes(migration_rows)
+    if migration_history_sha256 != CANONICAL_MIGRATION_HISTORY_SHA256_V2:
+        raise ImportStopped("CONTINUATION_MIGRATION_CHECKSUM_DRIFT", "continuation_preflight")
+    role_checks = json.loads(database._psql("""SET LOCAL ROLE espacigo_runtime;
+SELECT json_build_object(
+ 'session_user_is_postgres',session_user='postgres',
+ 'current_user_is_runtime',current_user='espacigo_runtime',
+ 'runtime_no_login',(SELECT NOT rolcanlogin AND NOT rolinherit FROM pg_roles WHERE rolname='espacigo_runtime'),
+ 'postgres_runtime_set_only',(SELECT bool_or(m.set_option AND NOT m.inherit_option AND NOT m.admin_option)
+   FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles g ON g.oid=m.member
+   WHERE r.rolname='espacigo_runtime' AND g.rolname='postgres'))::text""", read_only=True))
+    if not isinstance(role_checks, dict) or any(value is not True for value in role_checks.values()):
+        raise ImportStopped("CONTINUATION_ROLE_POSTCHECK_FAILED", "continuation_preflight")
+    owner_checks = database.verify_normalized()
+    sanitation_counts = database.continuation_sanitation_counts()
+    references = database.private_file_refs()
+    plan = build_private_file_continuation_plan(references=references, private_files=files,
+        run_id=run_id, normalized_checks=owner_checks, sanitation_counts=sanitation_counts,
+        migration_history_sha256=migration_history_sha256, role_checks=role_checks)
+    if mode == "continuation-plan":
+        return {**plan, "phase": mode, "status": "plan_ready", "phase_success": True,
+                "report_complete": True, "retry": False}
+    if store is None:
+        raise ImportStopped("CONTINUATION_COPY_STORE_MISSING", "continuation_preflight")
+    return execute_private_file_continuation(plan=plan, approved_plan_sha256=approved_plan_sha256,
+        references=references, private_files=files, normalized_checks=owner_checks,
+        sanitation_counts=sanitation_counts, run_id=run_id, store=store,
+        migration_history_sha256=migration_history_sha256, role_checks=role_checks) | {"phase": mode}
+
+
 def run(env):
     cfg, receipt_ref, mode = config(env)
     phase = "recover-plan" if mode == "plan" else "recover" if mode == "apply" else mode
@@ -219,41 +265,9 @@ def run(env):
         reader.normalization_sha256 = cfg.expected_normalization_sha256
         reader.normalization_generation = norm_ref.generation
         if mode in {"continuation-plan", "continuation-copy"}:
-            identity = db._psql("SELECT json_build_object('session_user',session_user,'current_user',current_user)::text", read_only=True)
-            if json.loads(identity) != {"session_user": "postgres", "current_user": "postgres"}:
-                raise ImportStopped("CONTINUATION_DATABASE_IDENTITY_FAILED", "continuation_preflight")
-            migration_rows = json.loads(reader.query("SET LOCAL ROLE espacigo_runtime;\nSELECT COALESCE(json_agg(json_build_array(version::text,checksum::text)),'[]'::json) FROM public.schema_migrations"))
-            if not isinstance(migration_rows, list) or len(migration_rows) != 61:
-                raise ImportStopped("CONTINUATION_MIGRATION_HISTORY_FAILED", "continuation_preflight")
-            _, migration_history_sha256 = migration_history_hashes(migration_rows)
-            role_checks = json.loads(db._psql("""SET LOCAL ROLE espacigo_runtime;
-SELECT json_build_object(
- 'session_user_is_postgres',session_user='postgres',
- 'current_user_is_runtime',current_user='espacigo_runtime',
- 'runtime_no_login',(SELECT NOT rolcanlogin AND NOT rolinherit FROM pg_roles WHERE rolname='espacigo_runtime'),
- 'postgres_runtime_set_only',(SELECT bool_or(m.set_option AND NOT m.inherit_option AND NOT m.admin_option)
-   FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles g ON g.oid=m.member
-   WHERE r.rolname='espacigo_runtime' AND g.rolname='postgres'))::text""", read_only=True))
-            if any(value is not True for value in role_checks.values()):
-                raise ImportStopped("CONTINUATION_ROLE_POSTCHECK_FAILED", "continuation_preflight")
-            owner_checks = db.verify_normalized()
-            sanitation_counts = db.continuation_sanitation_counts()
-            references = db.private_file_refs()
-            continuation = build_private_file_continuation_plan(references=references,
-                private_files=files, run_id=TARGET_RUN_ID, normalized_checks=owner_checks,
-                sanitation_counts=sanitation_counts, migration_history_sha256=migration_history_sha256,
-                role_checks=role_checks)
-            if mode == "continuation-plan":
-                return {**continuation, "phase": phase, "status": "plan_ready", "phase_success": True,
-                    "report_complete": True, "retry": False}
-            approved = env.get("GCP03_ORIGIN_RECOVERY_APPROVED_PLAN_SHA256", "")
-            result = execute_private_file_continuation(plan=continuation,
-                approved_plan_sha256=approved, references=references, private_files=files,
-                normalized_checks=owner_checks, sanitation_counts=sanitation_counts,
-                run_id=TARGET_RUN_ID, store=GCSPrivateFileStore(cfg.private_files_bucket),
-                migration_history_sha256=migration_history_sha256, role_checks=role_checks)
-            result["phase"] = phase
-            return result
+            return run_private_file_continuation(mode=mode, database=db, reader=reader,
+                files=files, store=GCSPrivateFileStore(cfg.private_files_bucket) if mode == "continuation-copy" else None,
+                approved_plan_sha256=env.get("GCP03_ORIGIN_RECOVERY_APPROVED_PLAN_SHA256", ""))
         plan = make_plan(reader, normalization, archive_stats, private_ref, cfg,
             env["GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256"])
         if mode == "plan":
@@ -279,14 +293,16 @@ SELECT json_build_object(
         result["private_files_ciphertext_sha256"] = plan.summary["binding"]["private_files_ciphertext_sha256"]
         return result
     except ImportStopped as exc:
-        result = {"format": PLAN_FORMAT if mode == "plan" else APPLY_FORMAT, "phase": phase,
+        is_plan = mode in {"plan", "continuation-plan"}
+        result = {"format": "espacigo.g03o.private-file-continuation.v1" if mode.startswith("continuation-") else PLAN_FORMAT if is_plan else APPLY_FORMAT, "phase": phase,
             "run_id": TARGET_RUN_ID, "status": "stopped", "phase_success": False,
             "report_complete": False, "stage": exc.stage, "error_code": exc.code,
             "transaction_outcome": "uncertain" if exc.mutation_started else "not_started", "retry": False}
         result.update(exc.safe_details)
         return result
     except Exception:
-        return {"format": PLAN_FORMAT if mode == "plan" else APPLY_FORMAT, "phase": phase,
+        is_plan = mode in {"plan", "continuation-plan"}
+        return {"format": "espacigo.g03o.private-file-continuation.v1" if mode.startswith("continuation-") else PLAN_FORMAT if is_plan else APPLY_FORMAT, "phase": phase,
             "run_id": TARGET_RUN_ID, "status": "stopped", "phase_success": False,
             "report_complete": False, "stage": "unexpected", "error_code": "RECOVERY_EXECUTOR_FAILED",
             "transaction_outcome": "not_started", "retry": False}
@@ -301,8 +317,9 @@ def main():
     except ImportStopped as exc:
         mode = os.environ.get("GCP03_ORIGIN_RECOVERY_MODE")
         is_plan = mode in {"plan", "continuation-plan"}
-        report = {"format": PLAN_FORMAT if is_plan else APPLY_FORMAT,
-            "phase": "recover-plan" if is_plan else "recover", "run_id": TARGET_RUN_ID,
+        continuation = mode in {"continuation-plan", "continuation-copy"}
+        report = {"format": "espacigo.g03o.private-file-continuation.v1" if continuation else PLAN_FORMAT if is_plan else APPLY_FORMAT,
+            "phase": mode if continuation else "recover-plan" if is_plan else "recover", "run_id": TARGET_RUN_ID,
             "status": "stopped", "phase_success": False, "report_complete": False,
             "stage": exc.stage, "error_code": exc.code, "transaction_outcome": "not_started", "retry": False}
     print(json.dumps(report, sort_keys=True))

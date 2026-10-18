@@ -118,13 +118,32 @@ def execute_private_file_continuation(*, plan: dict, approved_plan_sha256: str,
     if plan != current or approved_plan_sha256 != current["plan_sha256"]:
         return {"status": "stopped", "phase_success": False, "report_complete": True,
                 "stage": "continuation_plan_hash_check", "error_code": "CURRENT_PLAN_DIFFERS_FROM_APPROVED_PLAN",
-                "retry": False}
-    copied = copy_validated_private_files(private_files, run_id=run_id, store=store)
+                "transaction_outcome": "not_started", "retry": False}
+    prefix = f"runs/{run_id}/"
+    for item in private_files:
+        if not item.object_name.startswith(prefix) or ".." in item.object_name.split("/") or \
+                hashlib.sha256(item.data).hexdigest() != item.sha256:
+            return {"status": "stopped", "phase_success": False, "report_complete": True,
+                    "stage": "continuation_private_file_validation", "error_code": "PRIVATE_FILE_ARCHIVE_INVALID",
+                    "retry": False, "transaction_outcome": "not_started"}
+    copied = []
+    for item in private_files:
+        try:
+            store.create(item.object_name, item.data, item.sha256)
+            copied.append(item)
+        except Exception:
+            return {"format": current["format"], "status": "stopped", "phase_success": False,
+                "report_complete": True, "stage": "private_file_copy",
+                "error_code": "PRIVATE_FILE_COPY_PARTIAL_OR_UNCERTAIN", "retry": False,
+                "transaction_outcome": "uncertain", "copy_effects": "partial_or_unknown",
+                "private_file_copy_completed_count": len(copied),
+                "private_file_copy_expected_count": len(private_files)}
     return {"format": current["format"], "status": "continued", "phase_success": True,
             "report_complete": True, "stage": "complete", "retry": False,
             "plan_sha256": current["plan_sha256"],
+            "transaction_outcome": "committed",
             "database_reference_count": current["database_reference_count"],
-            "private_file_count": len(copied), "private_file_bytes": sum(int(x["bytes"]) for x in copied),
+            "private_file_count": len(copied), "private_file_bytes": sum(len(x.data) for x in copied),
             "private_file_inventory_sha256": current["private_file_inventory_sha256"]}
 
 
