@@ -18,6 +18,11 @@ from gcp03_origin_recovery_runner import POSTCHECK_SQL, REFS_SQL
 
 PLAN_FORMAT = "espacigo.g03o.recovery-plan.v1"
 APPLY_FORMAT = "espacigo.g03o.recovery-execution.v1"
+U2_MANIFEST_SHA256 = "c5fc1964175244e998742e34dd4c4376b2d822b27574416b61228b912641ec30"
+U2_NORMALIZATION_SHA256 = "2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2"
+U2_RECEIPT_SHA256 = "42f817e89382af2df3e0f452b594311936e91839fd92cc251f133bd4d867377c"
+U2_RECEIPT_GENERATION = 1792273080133875
+U2_RECEIPT_BYTES = 1892
 
 
 def config(env):
@@ -33,10 +38,27 @@ def config(env):
             Path(env["GCP03_ORIGIN_IMPORT_TRANSPORT_KEY_FILE"]))
         mode = env["GCP03_ORIGIN_RECOVERY_MODE"]
         diag_hash = env["GCP03_ORIGIN_RECOVERY_DIAGNOSTIC_SHA256"]
+        confirmation = env["GCP03_ORIGIN_IMPORT_CONFIRM_TARGET"]
+        instance = env["CLOUD_SQL_INSTANCE_CONNECTION_NAME"]
+        private_ip = env["CLOUD_SQL_PRIVATE_IP"]
+        password_file = env["DATABASE_PASSWORD_FILE"]
     except (KeyError, ValueError) as exc:
         raise ImportStopped("RECOVERY_CONFIGURATION_INVALID", "configuration") from exc
+    expected_instance = EXPECTED_TARGET.rsplit("/", 1)[0]
+    hashes = (cfg.expected_receipt_sha256, cfg.expected_manifest_sha256,
+              cfg.expected_bootstrap_sha256, cfg.expected_observer_sha256,
+              cfg.expected_normalization_sha256, diag_hash)
     if cfg.bucket != TARGET_BUCKET or cfg.private_files_bucket != PRIVATE_FILES_BUCKET or \
-       mode not in {"plan", "apply"} or diag_hash != DIAGNOSTIC_SHA256:
+       mode not in {"plan", "apply"} or diag_hash != DIAGNOSTIC_SHA256 or \
+       any(not re.fullmatch(r"[0-9a-f]{64}", value) for value in hashes) or \
+       cfg.expected_manifest_sha256 != U2_MANIFEST_SHA256 or \
+       cfg.expected_normalization_sha256 != U2_NORMALIZATION_SHA256 or \
+       cfg.expected_receipt_sha256 != U2_RECEIPT_SHA256 or \
+       cfg.receipt.generation != U2_RECEIPT_GENERATION or \
+       cfg.receipt.size_bytes != U2_RECEIPT_BYTES or \
+       confirmation != EXPECTED_TARGET or instance != expected_instance or private_ip != "true" or \
+       password_file != "/secrets/admin/password" or \
+       str(cfg.transport_key_file) != "/secrets/transport/k_run":
         raise ImportStopped("RECOVERY_CONFIGURATION_INVALID", "configuration")
     if cfg.receipt.name != f"runs/{TARGET_RUN_ID}/receipt.json":
         raise ImportStopped("RECOVERY_CONFIGURATION_INVALID", "configuration")
@@ -136,7 +158,7 @@ def run(env):
     try:
         store = GCSObjectStore()
         wait_for_proxy()
-        db = CloudRecoveryDatabase(Path("/secrets/admin/password"))
+        db = CloudRecoveryDatabase(Path(env["DATABASE_PASSWORD_FILE"]))
         receipt, manifest, norm_ref, private_ref, archive_stats, files, normalization = authenticated_inputs(cfg, store)
         reader = CatalogReader(host="127.0.0.1", port=5432, user="postgres", database="espacigo_scratch")
         reader.passfile = db.passfile

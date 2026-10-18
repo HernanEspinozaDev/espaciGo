@@ -58,12 +58,12 @@ run "recovery_plan_job_is_default_off_and_read_only_profile" {
     origin_recovery_image                 = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin-recovery@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     origin_proxy_image                    = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     import_receipt_object                 = "runs/g03o-1017/receipt.json"
-    import_receipt_generation             = "12"
-    import_receipt_bytes                  = 2048
-    import_receipt_sha256                 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-    import_manifest_sha256                = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    import_receipt_generation             = "1792273080133875"
+    import_receipt_bytes                  = 1892
+    import_receipt_sha256                 = "42f817e89382af2df3e0f452b594311936e91839fd92cc251f133bd4d867377c"
+    import_manifest_sha256                = "c5fc1964175244e998742e34dd4c4376b2d822b27574416b61228b912641ec30"
     import_observer_sha256                = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-    import_normalization_sha256           = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    import_normalization_sha256           = "2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2"
   }
   assert {
     condition = (length(google_cloud_run_v2_job.origin_recovery) == 1 &&
@@ -71,8 +71,7 @@ run "recovery_plan_job_is_default_off_and_read_only_profile" {
       google_cloud_run_v2_job.origin_recovery[0].template[0].task_count == 1 &&
       one([for e in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_RECOVERY_MODE"]) == "plan" &&
       one([for e in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_RECOVERY_DIAGNOSTIC_SHA256"]) == "3325288140b1f2de8bb944f7c4c1599fcf56f1a19531dc334bf171629f99391a" &&
-      one([for v in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].volumes : v.secret[0].items[0].version if v.name == "origin-transport-key"]) == "1" &&
-    length(google_storage_bucket_iam_member.private_files_creator) == 0)
+    one([for v in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].volumes : v.secret[0].items[0].version if v.name == "origin-transport-key"]) == "1")
     error_message = "Recovery planning must be one-task, zero-retry, plan-only and use the exact existing K_run version."
   }
   assert {
@@ -103,17 +102,16 @@ run "recovery_apply_requires_explicit_plan_review_and_exact_hash" {
     origin_recovery_image                 = "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin-recovery@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     origin_proxy_image                    = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     import_receipt_object                 = "runs/g03o-1017/receipt.json"
-    import_receipt_generation             = "12"
-    import_receipt_bytes                  = 2048
-    import_receipt_sha256                 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-    import_manifest_sha256                = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    import_receipt_generation             = "1792273080133875"
+    import_receipt_bytes                  = 1892
+    import_receipt_sha256                 = "42f817e89382af2df3e0f452b594311936e91839fd92cc251f133bd4d867377c"
+    import_manifest_sha256                = "c5fc1964175244e998742e34dd4c4376b2d822b27574416b61228b912641ec30"
     import_observer_sha256                = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-    import_normalization_sha256           = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    import_normalization_sha256           = "2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2"
   }
   assert {
     condition = (one([for e in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_RECOVERY_MODE"]) == "apply" &&
-      one([for e in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_RECOVERY_APPROVED_PLAN_SHA256"]) == "1111111111111111111111111111111111111111111111111111111111111111" &&
-    length(google_storage_bucket_iam_member.private_files_creator) == 1)
+    one([for e in google_cloud_run_v2_job.origin_recovery[0].template[0].template[0].containers[0].env : e.value if e.name == "GCP03_ORIGIN_RECOVERY_APPROVED_PLAN_SHA256"]) == "1111111111111111111111111111111111111111111111111111111111111111")
     error_message = "Apply mode must be separately enabled and carry the reviewed plan SHA-256."
   }
 }

@@ -197,13 +197,14 @@ variable "enable_origin_recovery_plan_job" {
       can(regex("@sha256:[0-9a-f]{64}$", var.origin_proxy_image)) &&
       var.import_receipt_object == "runs/g03o-1017/receipt.json" &&
       can(regex("^[1-9][0-9]*$", var.import_receipt_generation)) &&
-      var.import_receipt_bytes > 0 &&
-      can(regex("^[0-9a-f]{64}$", var.import_receipt_sha256)) &&
-      can(regex("^[0-9a-f]{64}$", var.import_manifest_sha256)) &&
+      var.import_receipt_generation == "1792273080133875" &&
+      var.import_receipt_bytes == 1892 &&
+      var.import_receipt_sha256 == "42f817e89382af2df3e0f452b594311936e91839fd92cc251f133bd4d867377c" &&
+      var.import_manifest_sha256 == "c5fc1964175244e998742e34dd4c4376b2d822b27574416b61228b912641ec30" &&
       can(regex("^[0-9a-f]{64}$", var.bootstrap_evidence_sha256)) &&
       can(regex("^[0-9a-f]{64}$", var.origin_import_evidence_sha256)) &&
       can(regex("^[0-9a-f]{64}$", var.import_observer_sha256)) &&
-      can(regex("^[0-9a-f]{64}$", var.import_normalization_sha256)) &&
+      var.import_normalization_sha256 == "2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2" &&
       var.origin_recovery_diagnostic_sha256 == "3325288140b1f2de8bb944f7c4c1599fcf56f1a19531dc334bf171629f99391a"
     )
     error_message = "Recovery planning requires the exact restored copy, reviewed U2 generations/hashes, numeric existing secrets, diagnostic hash, and digest-pinned images."

@@ -10,16 +10,18 @@ The reviewed anchors are:
 - owner/ACL application report SHA-256 `3325288140b1f2de8bb944f7c4c1599fcf56f1a19531dc334bf171629f99391a`
 - table inventory SHA-256 `5d78e5d55d9021a935b7210977395c3dae2540c983e4266107b2583619aaabe1` (96 relations)
 - migration history SHA-256 `5dd344d805ecdf9c500eabac8e2013b0186a38066d3d17599d59ecef62c54cdd` (61 migrations)
-- normalization SQL SHA-256 `865697a41f9ca70881522f7558093e8ac4107dfa5a4e58dbf749d5f670eff842`
+- U2 manifest SHA-256 `c5fc1964175244e998742e34dd4c4376b2d822b27574416b61228b912641ec30`
+- U2 normalization SQL SHA-256 `2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2`
+- U2 receipt SHA-256 `42f817e89382af2df3e0f452b594311936e91839fd92cc251f133bd4d867377c`, generation `1792273080133875`, 1892 bytes
 - PostgreSQL major version 18, database `espacigo_scratch`, login `postgres`
 
 The diagnostic Job reported Cloud Run task completion and a complete read-only application report. These are separate facts; `scripts/gcp03_job_evidence.py --phase recover` requires the recovery JSON report to set both `phase_success` and `report_complete` before accepting a successful execution.
 
 ## Catalog inspection needed for a production plan
 
-The current saved diagnostic contains aggregate relation owners and sequence dependency counts, but it does not contain per-object function and text-search ownership. Before a real plan is reviewed, run the fixed read-only catalog query in `scripts/gcp03_origin_recovery_catalog.sql` against the already-restored copy and preserve its output privately. It selects database identity, role/membership flags, object names and owners, sequence-parent links, observer column privilege flags, and migration metadata. It reads no application row values and contains no write statement. The local preflight also queries each exact allowlisted normalization object to classify it as `postgres` or `espacigo_runtime`, and fails on missing, extra, ambiguous, or unknown facts.
+The read-only Cloud plan Job performs the per-object catalog inspection itself, including function and text-search ownership. After the plan Job is authorized and run, review its catalog facts hash, current inventory, pending action counts, and complete plan SHA-256. `scripts/gcp03_origin_recovery_catalog.sql` is available for an independent manual catalog snapshot if the Job needs diagnosis; that query selects no application row values and makes no changes.
 
-No Cloud query or recovery mutation is authorized by this procedure. If the exact restored-copy catalog output is unavailable, the recovery plan remains unprepared; the PG18 fixture report is synthetic test evidence and cannot replace production state.
+The branch does not run the Cloud plan Job. The PG18 fixture report is synthetic test evidence and cannot replace the production plan output.
 
 ## Local fixture
 
@@ -39,6 +41,8 @@ The fixture includes a serial-owned sequence, a standalone sequence, a function,
 8. Compare all private-file references against the fully validated archive. Copy files only with create-only semantics; a collision or copy failure stops without retry.
 9. Preserve the complete application report separately from Cloud Run task status. Do not accept `Completed=True` as proof of recovery.
 
-Terraform now defines a default-off recovery Job with separate plan and apply gates. Both modes pin the existing admin password and K_run secret versions to version 1, use the existing private SQL proxy and service account, and consume the receipt, manifest, normalization SQL, and private-files ciphertext through their exact hash/generation references. Apply additionally requires a reviewed plan SHA-256 and recalculates the current catalog-bound plan before any mutation. The private-file destination uses create-only writes in the existing private bucket; the flow creates no recovery receipt or support object.
+Terraform now defines a default-off recovery Job with separate plan and apply gates. Both modes pin the existing admin password and K_run secret versions to version 1, use the existing private SQL proxy and shared admin service account, and consume the existing U2 receipt, manifest, normalization SQL, and private-files ciphertext through their exact hash/generation references. The shared service account already has conditional `roles/storage.objectCreator` on the exact private run prefix because the existing importer uses it. Plan mode makes no call to the writer, sanitizer, or recovery executor; tests assert this path. Apply additionally requires a reviewed plan SHA-256 and recalculates the current catalog-bound plan before any mutation. The private-file destination uses create-only writes in the existing private bucket; the flow creates no recovery receipt or support object.
 
-The Cloud image builder creates only a private local OCI archive and manifest. No OCI publish, Cloud Run execution, production plan result, or recovery mutation has been performed in this preparation. The Terraform gates remain off. The real production plan still requires the fixed read-only catalog query above and reviewer inspection of its output; the synthetic PG18 fixture proves the test path and production-baseline rejection only.
+The local preflight CLI also supports the separate normalization artifact hash `865697a41f9ca70881522f7558093e8ac4107dfa5a4e58dbf749d5f670eff842` used by the local reviewed copy. Cloud recovery does not use that local constant: it pins and validates the existing U2 normalization hash `2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2` from the receipt and manifest. The Terraform plan gate enforces the exact U2 manifest and normalization hashes.
+
+The Cloud image builder creates only a private local OCI archive and manifest. No OCI publish, Cloud Run execution, production plan result, or recovery mutation has been performed in this preparation. The Terraform gates remain off. The plan Job should run once after review of this branch; its own read-only catalog scan produces the production-bound plan for separate review. The synthetic PG18 fixture proves the test path and production-baseline rejection only.
