@@ -48,6 +48,47 @@ type replayMemoryStore struct {
 	conflictWrites int
 }
 
+type replayCleanerFailureRepository struct {
+	*replayOnlyRepository
+	failedFiles    int
+	completedFiles int
+	replayStatus   string
+}
+
+func (*replayCleanerFailureRepository) ExecuteSuppression(context.Context, string, string, string, string, func() time.Time) (SuppressionExecution, error) {
+	return SuppressionExecution{RequestID: "restored-request", Status: "en_proceso"}, nil
+}
+func (*replayCleanerFailureRepository) PendingSuppressionFiles(context.Context, string, time.Time) ([]SuppressionFile, error) {
+	return []SuppressionFile{{EvidenceID: "33333333-3333-4333-8333-333333333333", StorageID: "33333333-3333-4333-8333-333333333333"}}, nil
+}
+func (r *replayCleanerFailureRepository) CompleteSuppressionFile(context.Context, SuppressionFile, time.Time) error {
+	r.completedFiles++
+	return nil
+}
+func (r *replayCleanerFailureRepository) FailSuppressionFile(context.Context, SuppressionFile, time.Time) error {
+	r.failedFiles++
+	return nil
+}
+func (*replayCleanerFailureRepository) FinishSuppression(_ context.Context, requestID string, _ time.Time) (SuppressionExecution, error) {
+	return SuppressionExecution{RequestID: requestID, Status: "pendiente", PendingFiles: 1}, nil
+}
+func (*replayCleanerFailureRepository) PendingSuppressionRequests(context.Context) ([]string, error) {
+	return nil, nil
+}
+func (r *replayCleanerFailureRepository) PrepareSuppressionReplay(context.Context, SuppressionReplayEntry, string, string, time.Time) (string, string, string, bool, error) {
+	return "restored-request", "restore-key", "pendiente", false, nil
+}
+func (r *replayCleanerFailureRepository) FinishSuppressionReplay(_ context.Context, _ SuppressionReplayEntry, _, _, status string, _ time.Time) error {
+	r.replayStatus = status
+	return nil
+}
+
+type replayFailingCleaner struct{}
+
+func (replayFailingCleaner) Delete(context.Context, string) error {
+	return errors.New("remote object deletion failed")
+}
+
 func (s *replayMemoryStore) Load(ctx context.Context) (SuppressionReplaySnapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return SuppressionReplaySnapshot{}, err
@@ -170,5 +211,21 @@ func TestReplayAfterRestoreMergesCurrentExternalRegistry(t *testing.T) {
 	manifest, err := service.MergeSuppressionReplayManifestWithStore(context.Background(), SuppressionReplayManifest{Version: 1, Entries: []SuppressionReplayEntry{}}, store)
 	if err != nil || len(manifest.Entries) != 1 || manifest.Entries[0].ExecutionID != entry.ExecutionID {
 		t.Fatalf("restored replay manifest=%+v err=%v", manifest, err)
+	}
+}
+
+func TestReplayDoesNotCompleteWhenEvidenceDeletionFails(t *testing.T) {
+	entry := replayFixtureEntry("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "11111111-1111-4111-8111-111111111111", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+	repo := &replayCleanerFailureRepository{replayOnlyRepository: &replayOnlyRepository{database: SuppressionReplayManifest{Version: 1, Entries: []SuppressionReplayEntry{}}}}
+	service, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := service.ReplaySuppressionManifest(context.Background(), SuppressionReplayManifest{Version: 1, Entries: []SuppressionReplayEntry{entry}}, "restore-1", "admin-1", time.Now().UTC(), replayFailingCleaner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Status != "pendiente" || repo.failedFiles != 1 || repo.completedFiles != 0 || repo.replayStatus != "pendiente" {
+		t.Fatalf("failed remote evidence deletion was confirmed: results=%+v failed=%d completed=%d replayStatus=%q", results, repo.failedFiles, repo.completedFiles, repo.replayStatus)
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,8 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const localPrivacyReplayManifestMaxBytes = 16 << 20
 
 func runLocalPrivacyCommand(command string, args []string) error {
 	cfg, err := loadConfig(os.Getenv)
@@ -66,7 +69,11 @@ func runLocalPrivacyCommand(command string, args []string) error {
 			return errors.New("restore id and administrator id are required")
 		}
 		var manifest privacy.SuppressionReplayManifest
-		decoder := json.NewDecoder(io.LimitReader(os.Stdin, 2<<20))
+		input, err := io.ReadAll(io.LimitReader(os.Stdin, localPrivacyReplayManifestMaxBytes+1))
+		if err != nil || len(input) > localPrivacyReplayManifestMaxBytes {
+			return errors.New("invalid replay manifest")
+		}
+		decoder := json.NewDecoder(bytes.NewReader(input))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&manifest); err != nil {
 			return errors.New("invalid replay manifest")
@@ -81,9 +88,12 @@ func runLocalPrivacyCommand(command string, args []string) error {
 				return errors.New("local privacy replay registry is unavailable or conflicted")
 			}
 		}
-		store, err := evidencefs.New(os.Getenv("M03_EVIDENCE_DIR"))
+		store, err := newRuntimeFileStore(context.Background(), os.Getenv, os.Getenv("M03_EVIDENCE_DIR"))
 		if err != nil {
 			return errors.New("local private storage unavailable")
+		}
+		if closer, ok := store.(interface{ Close() error }); ok {
+			defer closer.Close()
 		}
 		results, err := service.ReplaySuppressionManifest(context.Background(), manifest, args[0], args[1], time.Now().UTC(), store)
 		if err != nil {
