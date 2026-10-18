@@ -46,6 +46,20 @@ Esta fila de actualización complementa el cierre histórico `g03r-1016`; no cam
 
 La evidencia cloud privada de la ejecución está en `.local/testing/g03o-1017-recovery-20261018/`; el reporte saneado tiene SHA-256 `e68368428f7ccbb2db7577144c8303f75c94949073d0e72bf5cf99b339158fed`. Se preservan evidencia y recursos conforme al límite de preservación revisado; no se programó apagado ni limpieza automática.
 
+## Continuación privada posterior a #407 (2026-10-18)
+
+El reporte local agregado del snapshot sellado autenticado resolvió la diferencia reportada en la ejecución plan-only: 1.200 IDs de galería más 2.045 IDs de evidencia de operación viva (722 checkin, 722 checkout, 601 recepción, 0 descargo) forman los 3.245 IDs del tar. Las seis fuentes restantes tuvieron cero IDs. La unión y el inventario del tar son iguales; missing=0, extras=0 e intersección=808.005 bytes. `privacy-replay` se informa separado: un miembro, 338 bytes. No se publican IDs ni nombres. El SHA del set según el protocolo del helper es `b94653f977d47472d5a2e4e73bbe5eb2478211a6807fb53a4b0eaa93343fdc6d`.
+
+| Criterio | Estado | Evidencia / límite |
+| --- | --- | --- |
+| Fuente omitida del set de referencias | Identificada | `operacion_arriendo_evidencia_ensayo_local.id` debe contarse mientras `archivo_retirado_en IS NULL`; las seis fuentes directas previas no explicaban la diferencia. |
+| Filas de limpieza | Reglas conservadoras fijadas | `baja_archivo_pendiente_local.evidencia_id` cuenta solo con `completada_en IS NULL`; evidencia retirada/completada queda fuera. Fecha de vencimiento no acredita que Delete se haya confirmado. |
+| Comparación snapshot sellado | Set igual, solo diagnóstico local | 3.245 referencias deduplicadas frente a 3.245 blobs; missing 0, extras 0. No se copió ningún archivo ni se ejecutó de nuevo el Job. |
+| Consulta compartida y regresión V1–V61 | Preparación local | Integración en PostgreSQL 18 desechable, no Cloud; OCI y plan Terraform para `continuation-plan` quedan sujetos a revisión y con copy apagado. La consulta de Cloud no se ejecuta en este corte. |
+| GCP-06 y aceptación GCP-03 | No acreditados | La igualdad del snapshot no demuestra transferencia al bucket destino, restauración final ni aceptación humana. |
+
+El agregado del revisor se conserva en `.local/testing/g03o-407-continuation-review-20261018/private-reference-snapshot-diagnostic-reviewer-20261018.json` (0600, SHA-256 `85523dbc1e21bea1d6a56dceea075a3f8d5f6d89d2e4e2b2e799e53f5407533c`); no se versiona ni modifica.
+
 ## Próximo paquete de trabajo, sin provisión
 
 1. Revisar y fusionar la implementación/procedimiento local del snapshot; corregir comentarios en el mismo PR. No iniciar el corte siguiente antes de la fusión.

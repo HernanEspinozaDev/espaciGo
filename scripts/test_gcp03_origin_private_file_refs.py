@@ -13,10 +13,20 @@ from gcp03_origin_private_files import PrivateFile
 
 
 class PrivateFileReferenceTests(unittest.TestCase):
-    def test_live_evidence_uses_archive_id_and_retirement_queue_stays_live(self):
+    def test_sql_covers_all_direct_storage_sources_and_only_live_rows(self):
         self.assertIn("SELECT archivo_id FROM public.verificacion_evidencia_sintetica WHERE archivo_id IS NOT NULL", PRIVATE_FILE_REFS_SQL)
         self.assertNotIn("SELECT id FROM public.verificacion_evidencia_sintetica", PRIVATE_FILE_REFS_SQL)
         self.assertIn("SELECT archivo_id FROM public.verificacion_archivo_retiro_pendiente_local WHERE archivo_id IS NOT NULL", PRIVATE_FILE_REFS_SQL)
+        self.assertIn("SELECT evidencia_id FROM public.baja_archivo_pendiente_local", PRIVATE_FILE_REFS_SQL)
+        self.assertIn("WHERE completada_en IS NULL", PRIVATE_FILE_REFS_SQL)
+        self.assertIn("SELECT id FROM public.operacion_arriendo_evidencia_ensayo_local", PRIVATE_FILE_REFS_SQL)
+        self.assertIn("WHERE archivo_retirado_en IS NULL", PRIVATE_FILE_REFS_SQL)
+        self.assertNotIn("checkout_evidencia_id", PRIVATE_FILE_REFS_SQL)
+        self.assertNotIn("reserva_decision_financiera_ensayo_local", PRIVATE_FILE_REFS_SQL)
+
+    def test_distinct_union_is_preserved(self):
+        self.assertIn("SELECT DISTINCT file_id FROM (", PRIVATE_FILE_REFS_SQL)
+        self.assertIn("UNION ALL", PRIVATE_FILE_REFS_SQL)
 
     def test_continuation_rechecks_plan_and_only_copies(self):
         file_id = "0f8fad5b-d9cb-469f-a165-70867728950e"
