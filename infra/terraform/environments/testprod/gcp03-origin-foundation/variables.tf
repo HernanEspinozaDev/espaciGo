@@ -182,6 +182,96 @@ variable "enable_origin_postrestore_job" {
   }
 }
 
+variable "enable_origin_recovery_plan_job" {
+  type        = bool
+  default     = false
+  description = "Default-off one-shot read-only recovery planner over the observed g03o-1017 restored copy; reads exact U2 generations and writes no objects."
+  validation {
+    condition = !var.enable_origin_recovery_plan_job || (
+      var.enable_origin_import_infrastructure && var.enable_foundation && var.confirm_origin_rehearsal &&
+      var.run_id == "g03o-1017" && var.confirm_origin_bootstrap_completed &&
+      var.confirm_origin_restored_copy_observed && var.origin_recovery_import_failure_sha256 == "bd4054e1a49eb082467f3c88bba5ef27d3aaec972115962e86e6ab87cb04f349" &&
+      var.confirm_admin_password_secret_version &&
+      can(regex("^[1-9][0-9]*$", var.admin_password_secret_version)) && var.admin_password_secret_version == "1" &&
+      var.confirm_transport_key_secret_version && can(regex("^[1-9][0-9]*$", var.transport_key_secret_version)) && var.transport_key_secret_version == "1" &&
+      can(regex("@sha256:[0-9a-f]{64}$", var.origin_recovery_image)) &&
+      can(regex("@sha256:[0-9a-f]{64}$", var.origin_proxy_image)) &&
+      var.import_receipt_object == "runs/g03o-1017/receipt.json" &&
+      can(regex("^[1-9][0-9]*$", var.import_receipt_generation)) &&
+      var.import_receipt_generation == "1792273080133875" &&
+      var.import_receipt_bytes == 1892 &&
+      var.import_receipt_sha256 == "42f817e89382af2df3e0f452b594311936e91839fd92cc251f133bd4d867377c" &&
+      var.import_manifest_sha256 == "c5fc1964175244e998742e34dd4c4376b2d822b27574416b61228b912641ec30" &&
+      can(regex("^[0-9a-f]{64}$", var.bootstrap_evidence_sha256)) &&
+      can(regex("^[0-9a-f]{64}$", var.import_observer_sha256)) &&
+      var.import_normalization_sha256 == "2ca53ad3e92e078c30375c691ca6259197be54f49c4682750ed73dd41d6820b2" &&
+      var.origin_recovery_diagnostic_sha256 == "3325288140b1f2de8bb944f7c4c1599fcf56f1a19531dc334bf171629f99391a"
+    )
+    error_message = "Recovery planning requires the observed restored copy, exact failed-import and read-only diagnostic evidence, reviewed U2 generations/hashes, numeric existing secrets, and digest-pinned images."
+  }
+}
+
+variable "confirm_origin_restored_copy_observed" {
+  type        = bool
+  default     = false
+  description = "Acknowledges the successful read-only diagnostic of the existing restored copy before recovery planning; does not assert a successful import."
+}
+
+variable "origin_recovery_import_failure_sha256" {
+  type        = string
+  default     = ""
+  description = "SHA-256 of the fixed sanitized failed-import report that identifies the existing restored copy requiring recovery."
+  validation {
+    condition     = var.origin_recovery_import_failure_sha256 == "" || var.origin_recovery_import_failure_sha256 == "bd4054e1a49eb082467f3c88bba5ef27d3aaec972115962e86e6ab87cb04f349"
+    error_message = "Recovery must bind the exact preserved F4 failed-import report SHA-256."
+  }
+}
+
+variable "enable_origin_recovery_apply_job" {
+  type        = bool
+  default     = false
+  description = "Default-off mutating recovery Job; requires a separately reviewed SHA-256 from the recovery plan report."
+  validation {
+    condition = !var.enable_origin_recovery_apply_job || (
+      var.enable_origin_recovery_plan_job && var.confirm_origin_recovery_plan_reviewed &&
+      can(regex("^[0-9a-f]{64}$", var.origin_recovery_approved_plan_sha256))
+    )
+    error_message = "Recovery apply requires the plan Job gate and explicit review of its exact 64-character plan SHA-256."
+  }
+}
+
+variable "confirm_origin_recovery_plan_reviewed" {
+  type        = bool
+  default     = false
+  description = "Acknowledges a human review of the exact current recovery plan SHA-256."
+}
+
+variable "origin_recovery_approved_plan_sha256" {
+  type        = string
+  default     = ""
+  description = "Exact recovery plan SHA-256 approved for one-shot apply; no plan is applied by Terraform."
+  validation {
+    condition     = var.origin_recovery_approved_plan_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.origin_recovery_approved_plan_sha256))
+    error_message = "Approved recovery plan hash must be a lowercase SHA-256 digest."
+  }
+}
+
+variable "origin_recovery_diagnostic_sha256" {
+  type        = string
+  default     = "3325288140b1f2de8bb944f7c4c1599fcf56f1a19531dc334bf171629f99391a"
+  description = "Fixed hash of the successful, read-only owner/ACL diagnostic report used as recovery evidence."
+}
+
+variable "origin_recovery_image" {
+  type        = string
+  default     = ""
+  description = "Digest-pinned recovery entrypoint image; distinct from the importer image tag and invoked with an explicit recovery mode."
+  validation {
+    condition     = var.origin_recovery_image == "" || (can(regex("@sha256:[0-9a-f]{64}$", var.origin_recovery_image)) && startswith(var.origin_recovery_image, "southamerica-west1-docker.pkg.dev/espacigo-testprod/gcp03-scratch-pilot01/gcp03origin-recovery@sha256:"))
+    error_message = "Recovery image must be digest-pinned under the existing reviewed GCP-03 Artifact Registry repository path."
+  }
+}
+
 variable "confirm_origin_import_completed" {
   type        = bool
   default     = false
@@ -404,6 +494,8 @@ locals {
   uploader_impersonation_enabled = local.foundation_enabled && var.enable_uploader_impersonation_binding
   observer_account_id            = "g03o-observer-${var.run_id}"
   postrestore_enabled            = local.foundation_enabled && var.enable_origin_postrestore_job
+  recovery_enabled               = local.foundation_enabled && (var.enable_origin_recovery_plan_job || var.enable_origin_recovery_apply_job)
+  recovery_apply_enabled         = local.foundation_enabled && var.enable_origin_recovery_apply_job
   postrestore_account_id         = "g03o-postverify-${var.run_id}"
   observer_database_url          = "postgres://${local.observer_account_id}%40${var.project_id}.iam@localhost:5432/espacigo_scratch?sslmode=disable"
 }

@@ -797,3 +797,181 @@ resource "google_cloud_run_v2_job" "origin_postrestore" {
     }
   }
 }
+
+# Recovery re-entry reads exact existing U2 generations. The plan mode is
+# read-only; apply is a separate explicit gate bound to its reviewed plan hash.
+# No database.dump object is opened by this recovery entrypoint.
+resource "google_cloud_run_v2_job" "origin_recovery" {
+  count               = local.recovery_enabled ? 1 : 0
+  project             = var.project_id
+  name                = "${local.prefix}-recovery"
+  location            = var.region
+  deletion_protection = true
+
+  template {
+    task_count  = 1
+    parallelism = 1
+    template {
+      service_account = google_service_account.admin[0].email
+      timeout         = local.recovery_apply_enabled ? "14400s" : "1800s"
+      max_retries     = 0
+
+      containers {
+        name       = "origin-recovery"
+        image      = var.origin_recovery_image
+        command    = ["python3"]
+        args       = ["/app/scripts/gcp03_origin_cloud_recovery.py"]
+        depends_on = ["cloud-sql-proxy"]
+        env {
+          name  = "GCP03_ORIGIN_RECOVERY_MODE"
+          value = local.recovery_apply_enabled ? "apply" : "plan"
+        }
+        env {
+          name  = "GCP03_ORIGIN_RECOVERY_DIAGNOSTIC_SHA256"
+          value = var.origin_recovery_diagnostic_sha256
+        }
+        env {
+          name  = "GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256"
+          value = var.origin_recovery_import_failure_sha256
+        }
+        env {
+          name  = "GCP03_ORIGIN_RECOVERY_APPROVED_PLAN_SHA256"
+          value = local.recovery_apply_enabled ? var.origin_recovery_approved_plan_sha256 : ""
+        }
+        env {
+          name  = "GCP03_ORIGIN_IMPORT_BUCKET"
+          value = local.prefix
+        }
+        env {
+          name  = "GCP03_ORIGIN_PRIVATE_FILES_BUCKET"
+          value = google_storage_bucket.private_files[0].name
+        }
+        env {
+          name  = "GCP03_ORIGIN_IMPORT_RECEIPT_OBJECT"
+          value = var.import_receipt_object
+        }
+        env {
+          name  = "GCP03_ORIGIN_IMPORT_RECEIPT_GENERATION"
+          value = var.import_receipt_generation
+        }
+        env {
+          name  = "GCP03_ORIGIN_IMPORT_RECEIPT_SHA256"
+          value = var.import_receipt_sha256
+        }
+        env {
+          name  = "GCP03_ORIGIN_IMPORT_RECEIPT_BYTES"
+          value = tostring(var.import_receipt_bytes)
+        }
+        env {
+          name  = "GCP03_ORIGIN_IMPORT_MANIFEST_SHA256"
+          value = var.import_manifest_sha256
+        }
+        env {
+          name  = "GCP03_ORIGIN_IMPORT_BOOTSTRAP_SHA256"
+          value = var.bootstrap_evidence_sha256
+        }
+        env {
+          name  = "GCP03_ORIGIN_IMPORT_OBSERVER_SHA256"
+          value = var.import_observer_sha256
+        }
+        env {
+          name  = "GCP03_ORIGIN_IMPORT_NORMALIZATION_SHA256"
+          value = var.import_normalization_sha256
+        }
+        env {
+          name  = "GCP03_ORIGIN_IMPORT_CONFIRM_TARGET"
+          value = "${google_sql_database_instance.origin[0].connection_name}/espacigo_scratch"
+        }
+        env {
+          name  = "GCP03_ORIGIN_IMPORT_TRANSPORT_KEY_FILE"
+          value = "/secrets/transport/k_run"
+        }
+        env {
+          name  = "DATABASE_PASSWORD_FILE"
+          value = "/secrets/admin/password"
+        }
+        env {
+          name  = "CLOUD_SQL_INSTANCE_CONNECTION_NAME"
+          value = google_sql_database_instance.origin[0].connection_name
+        }
+        env {
+          name  = "CLOUD_SQL_PRIVATE_IP"
+          value = "true"
+        }
+        volume_mounts {
+          name       = "origin-admin-password"
+          mount_path = "/secrets/admin"
+        }
+        volume_mounts {
+          name       = "origin-transport-key"
+          mount_path = "/secrets/transport"
+        }
+        resources {
+          limits = { cpu = "2", memory = "4Gi" }
+        }
+      }
+
+      containers {
+        name    = "cloud-sql-proxy"
+        image   = var.origin_proxy_image
+        command = ["/cloud-sql-proxy"]
+        args = ["--private-ip", "--address=127.0.0.1", "--port=5432", "--admin-port=9091",
+          "--quitquitquit", "--exit-zero-on-sigterm", "--health-check", "--http-address=0.0.0.0",
+        "--http-port=9801", google_sql_database_instance.origin[0].connection_name]
+        startup_probe {
+          http_get {
+            path = "/startup"
+            port = 9801
+          }
+          period_seconds    = 1
+          timeout_seconds   = 1
+          failure_threshold = 60
+        }
+        resources {
+          limits = { cpu = "1", memory = "256Mi" }
+        }
+      }
+
+      volumes {
+        name = "origin-admin-password"
+        secret {
+          secret = google_secret_manager_secret.admin_password[0].secret_id
+          items {
+            version = var.admin_password_secret_version
+            path    = "password"
+          }
+        }
+      }
+      volumes {
+        name = "origin-transport-key"
+        secret {
+          secret = google_secret_manager_secret.transport_key[0].secret_id
+          items {
+            version = var.transport_key_secret_version
+            path    = "k_run"
+          }
+        }
+      }
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = data.google_compute_network.existing[0].name
+          subnetwork = data.google_compute_subnetwork.existing[0].name
+        }
+      }
+    }
+  }
+
+  depends_on = [google_storage_bucket_iam_member.artifact_reader, google_storage_bucket_iam_member.private_files_creator,
+  google_secret_manager_secret_iam_member.admin_password_reader, google_secret_manager_secret_iam_member.transport_key_reader]
+  lifecycle {
+    precondition {
+      condition = (local.recovery_enabled && var.enable_origin_import_infrastructure && var.confirm_origin_restored_copy_observed &&
+        var.import_receipt_object == "runs/${var.run_id}/receipt.json" &&
+        var.origin_recovery_diagnostic_sha256 == "3325288140b1f2de8bb944f7c4c1599fcf56f1a19531dc334bf171629f99391a" &&
+        var.origin_recovery_import_failure_sha256 == "bd4054e1a49eb082467f3c88bba5ef27d3aaec972115962e86e6ab87cb04f349" &&
+      (!local.recovery_apply_enabled || (var.confirm_origin_recovery_plan_reviewed && can(regex("^[0-9a-f]{64}$", var.origin_recovery_approved_plan_sha256)))))
+      error_message = "Recovery requires the exact existing receipt, diagnostic, secrets and reviewed plan SHA-256."
+    }
+  }
+}
