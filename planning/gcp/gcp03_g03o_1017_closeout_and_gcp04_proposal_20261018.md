@@ -88,4 +88,6 @@ El smoke GCP-04 `g04replay18` fue retirado selectivamente bajo la revisión inde
 
 El corte GCP-04-W1 implementa un worker local separado para la cola de borrado de evidencia de privacidad. V63 agrega claim SQL atómico con lease, owner y generación de fencing; completion y retry requieren el token vigente. La API deja el trabajo en cola y conserva el export de replay; Docker/Compose incorporan solo el worker local. Cloud Storage usa `ifGenerationMatch` sobre la generación leída: protege contra reemplazos durante la operación, pero no da fencing remoto ni exactamente-una-vez.
 
+El código se publica en [PR #417](https://github.com/HernanEspinozaDev/espaciGo/pull/417), abierto hacia `main` por `HernanMEC`, con revisión solicitada a `HernanEspinozaDev`.
+
 Verificación: `go test ./...` pasó; con PostgreSQL 18/PostGIS efímero pasaron `internal/adapters/postgres/identity` y `internal/migrator` en secuencia, incluida base nueva V1–V63, actualización V62→V63 y pruebas de dos procesos de worker/takeover. El replay integrado con endpoint GCS falso también pasó. Compose config y el build Docker del worker pasaron. No se desplegó Cloud, no se probó IAM/Cloud SQL/Cloud Run y GCP-04 sigue pendiente de sus demás gates. La matriz de estado registra tanto el retiro del ensayo como el alcance y límites de W1.

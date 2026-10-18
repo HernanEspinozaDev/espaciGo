@@ -97,6 +97,8 @@ El retiro lógico ya no es un trabajo pendiente del smoke. La implementación lo
 
 ### GCP-04-W1 — worker local de limpieza durable
 
+Implementación y evidencia revisable: [PR #417](https://github.com/HernanEspinozaDev/espaciGo/pull/417), abierto hacia `main`, autor `HernanMEC`; revisión solicitada a `HernanEspinozaDev`. El PR no contiene deploy Cloud.
+
 El corte separa la eliminación de archivos de `baja_archivo_pendiente_local` del proceso API. La API deja el trabajo en la cola; `privacy-cleanup-worker` reclama en lotes con `FOR UPDATE SKIP LOCKED`, lease, owner y generación monotónica. El ack y el backoff verifican el owner/generación vigentes y la vigencia del lease. La nueva V63 añade esos campos y el índice de pendientes reclamables; V1–V62 permanecen inmutables. El export periódico del registro replay sigue separado en API, sin reclamar la cola.
 
 Cloud Storage lee la generación y envía `ifGenerationMatch` al borrar. Esto protege contra borrar una generación reemplazante entre lectura y borrado; el borrado externo sigue siendo al menos una vez y no se afirma exactamente una vez. Un borrado externo exitoso seguido de crash antes del ack se recupera por takeover; el borrado de una generación ya ausente es idempotente. V63 no activa una instancia o worker en Cloud.
