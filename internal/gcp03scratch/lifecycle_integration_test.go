@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -150,7 +149,7 @@ func TestScratchLifecyclePostgres18(t *testing.T) {
 	if err := migratorConn.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	migrationDir := filepath.Join(filepath.Dir(sourceFile(t)), "..", "..", "db", "migrations")
+	migrationDir := historicalMigrationDirectory(t)
 	// The local root connection models Cloud SQL's cloudsqlsuperuser capability
 	// for migrations. The actual Cloud SQL built-in role is service-managed and
 	// cannot be faithfully recreated by a vanilla local PostgreSQL cluster.

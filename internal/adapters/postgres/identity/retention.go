@@ -242,9 +242,8 @@ func nullableUUID(value string) any {
 }
 
 func (r *IdentityRepository) ExportCompletedSuppressions(ctx context.Context) (privacy.SuppressionReplayManifest, error) {
-	rows, err := r.pool.Query(ctx, `SELECT x.id::text,x.solicitud_id::text,x.usuario_id::text,s.solicitada_en,x.completada_en
-		FROM public.ejecucion_baja_local x JOIN public.solicitud_titular s ON s.id=x.solicitud_id
-		WHERE x.estado='completada' AND x.completada_en IS NOT NULL ORDER BY x.completada_en,x.id`)
+	rows, err := r.pool.Query(ctx, `SELECT ejecucion_origen_id::text,solicitud_id::text,usuario_id::text,solicitada_en,completada_en
+		FROM public.registro_replay_baja_local ORDER BY completada_en,ejecucion_origen_id`)
 	if err != nil {
 		return privacy.SuppressionReplayManifest{}, mapError(err)
 	}

@@ -23,6 +23,7 @@ NETWORK="${PREFIX}-net"
 SOURCE="${PREFIX}-source"
 TARGET="${PREFIX}-target"
 EVIDENCE_DIR="$ROOT_DIR/.local/planning/gcp/gcp03-v60-baseline-demo-${RUN_ID}"
+MIGRATION_DIR=""
 umask 077
 mkdir -p "$EVIDENCE_DIR"
 chmod 700 "$EVIDENCE_DIR"
@@ -30,6 +31,9 @@ chmod 700 "$EVIDENCE_DIR"
 cleanup_best_effort() {
   docker rm -fv "$SOURCE" "$TARGET" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
+  if [[ -n "$MIGRATION_DIR" ]]; then
+    rm -rf -- "$MIGRATION_DIR"
+  fi
 }
 cleanup_verified() {
   docker rm -fv "$SOURCE" "$TARGET" >/dev/null
@@ -41,6 +45,10 @@ cleanup_verified() {
   if docker network inspect "$NETWORK" >/dev/null 2>&1; then
     echo 'Disposable baseline network remains after cleanup.' >&2
     return 1
+  fi
+  if [[ -n "$MIGRATION_DIR" ]]; then
+    rm -rf -- "$MIGRATION_DIR"
+    MIGRATION_DIR=""
   fi
 }
 trap cleanup_best_effort EXIT
@@ -80,7 +88,19 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 docker exec "$SOURCE" psql -U postgres -d espacigo_scratch -Atqc 'SELECT 1' >/dev/null
-DATABASE_URL="$SOURCE_URL" go run ./cmd/dbmigrate -dir "$ROOT_DIR/db/migrations" \
+MIGRATION_DIR="$(mktemp -d "${TMPDIR:-/tmp}/espacigo-gcp03-v1v61-migrations.XXXXXX")"
+PYTHONPATH="$ROOT_DIR/scripts" python3 - "$ROOT_DIR/db/migrations" "$MIGRATION_DIR" <<'PY'
+from pathlib import Path
+import shutil
+import sys
+
+from gcp03_migration_inventory import historical_v1_v61_migrations
+
+source, destination = Path(sys.argv[1]), Path(sys.argv[2])
+for migration in historical_v1_v61_migrations(source):
+    shutil.copyfile(migration, destination / migration.name)
+PY
+DATABASE_URL="$SOURCE_URL" go run ./cmd/dbmigrate -dir "$MIGRATION_DIR" \
   >"$EVIDENCE_DIR/source-migrations.log" 2>&1
 
 psql "$SOURCE_URL" -X -v ON_ERROR_STOP=1 -AtF $'\t' \
@@ -157,7 +177,7 @@ psql "$TARGET_DB_URL" -X -v ON_ERROR_STOP=1 -At \
 cat >"$EVIDENCE_DIR/manifest.txt" <<EOF
 scope=local disposable PostgreSQL 18/PostGIS baseline dump and restore demonstration
 source_git_commit=$(git -C "$ROOT_DIR" rev-parse HEAD)
-migration_files=$(find "$ROOT_DIR/db/migrations" -maxdepth 1 -type f -name 'V*.sql' | wc -l)
+migration_files=$(find "$MIGRATION_DIR" -maxdepth 1 -type f -name 'V*.sql' | wc -l)
 history_rows=$(wc -l <"$EVIDENCE_DIR/source-history.tsv")
 image_id=$IMAGE_ID
 source_container=$SOURCE

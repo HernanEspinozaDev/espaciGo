@@ -45,12 +45,16 @@ func TestMigrationHistoryHashesV1ThroughV61SourceChecksums(t *testing.T) {
 		if match == nil {
 			continue
 		}
+		version := parseMigrationVersion(t, match[1])
+		if version > 61 {
+			continue
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		hash := sha256.Sum256(data)
-		rows = append(rows, migrationHistoryEntry{version: fmt.Sprint(parseMigrationVersion(t, match[1])), checksum: fmt.Sprintf("%x", hash)})
+		rows = append(rows, migrationHistoryEntry{version: fmt.Sprint(version), checksum: fmt.Sprintf("%x", hash)})
 		seen[match[1]] = true
 	}
 	if len(rows) != 61 || len(seen) != 61 {

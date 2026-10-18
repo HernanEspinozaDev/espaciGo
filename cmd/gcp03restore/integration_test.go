@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -46,7 +47,7 @@ func TestGCP03PhasesPostgres18Disposable(t *testing.T) {
 	}
 	_, sourceFile, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
-	migrationDirectory = filepath.Join(root, "db", "migrations")
+	migrationDirectory = historicalV1V61MigrationDirectory(t, filepath.Join(root, "db", "migrations"))
 	t.Cleanup(func() { migrationDirectory = "/app/db/migrations" })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 9*time.Minute)
@@ -393,6 +394,29 @@ func TestGCP03PhasesPostgres18Disposable(t *testing.T) {
 		t.Fatal("retirement accepted a second attempt after synthetic rows were removed")
 	}
 	_ = control.Close(context.Background())
+}
+
+func historicalV1V61MigrationDirectory(t *testing.T, source string) string {
+	t.Helper()
+	destination := t.TempDir()
+	for version := 1; version <= 61; version++ {
+		matches, err := filepath.Glob(filepath.Join(source, fmt.Sprintf("V%06d__*.sql", version)))
+		if err != nil || len(matches) != 1 {
+			t.Fatalf("historical migration V%d: matches=%v err=%v", version, matches, err)
+		}
+		info, err := os.Lstat(matches[0])
+		if err != nil || !info.Mode().IsRegular() {
+			t.Fatalf("historical migration V%d is not a regular file: %v", version, err)
+		}
+		content, err := os.ReadFile(matches[0])
+		if err != nil {
+			t.Fatalf("read historical migration V%d: %v", version, err)
+		}
+		if err := os.WriteFile(filepath.Join(destination, filepath.Base(matches[0])), content, 0o600); err != nil {
+			t.Fatalf("stage historical migration V%d: %v", version, err)
+		}
+	}
+	return destination
 }
 
 func localDatabaseURL(adminURL *url.URL, databaseName, username string) string {

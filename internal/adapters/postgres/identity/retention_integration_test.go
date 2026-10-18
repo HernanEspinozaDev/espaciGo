@@ -1078,6 +1078,28 @@ func TestLocalSuppressionReplayRestoresAnOlderDatabaseSnapshotIdempotently(t *te
 	if manifest.Version != 1 || len(manifest.Entries) != 1 || manifest.Entries[0].AccountID != targetID {
 		t.Fatalf("bad exported registry: %+v", manifest)
 	}
+	// Multiple API workers may finish the same request after a retry or lease
+	// recovery. The row lock plus primary key must leave one shared registry row.
+	runtimeRepos := []*identitypg.IdentityRepository{
+		newRuntimeIdentityRepository(t, h),
+		newRuntimeIdentityRepository(t, h),
+	}
+	finishErrors := make(chan error, 8)
+	for i := 0; i < cap(finishErrors); i++ {
+		go func(index int) {
+			_, finishErr := runtimeRepos[index%len(runtimeRepos)].FinishSuppression(h.ctx, request.ID, h.now)
+			finishErrors <- finishErr
+		}(i)
+	}
+	for i := 0; i < cap(finishErrors); i++ {
+		if finishErr := <-finishErrors; finishErr != nil {
+			t.Fatalf("concurrent replay registry finish: %v", finishErr)
+		}
+	}
+	var durableRows int
+	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.registro_replay_baja_local WHERE ejecucion_origen_id=$1`, manifest.Entries[0].ExecutionID).Scan(&durableRows); err != nil || durableRows != 1 {
+		t.Fatalf("concurrent durable replay rows=%d err=%v", durableRows, err)
+	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -1099,10 +1121,20 @@ func TestLocalSuppressionReplayRestoresAnOlderDatabaseSnapshotIdempotently(t *te
 	if _, err := h.pool.Exec(h.ctx, `DELETE FROM public.ejecucion_baja_local WHERE solicitud_id=$1`, request.ID); err != nil {
 		t.Fatal(err)
 	}
+	// A newly constructed service with a separate runtime pool represents an API
+	// process restart. The registry stays readable after source rows disappear.
+	restartedService, err := privacy.NewService(newRuntimeIdentityRepository(t, h))
+	if err != nil {
+		t.Fatal(err)
+	}
+	registryAfterRestart, err := restartedService.ExportSuppressionReplayManifest(h.ctx)
+	if err != nil || len(registryAfterRestart.Entries) != 1 || registryAfterRestart.Entries[0].ExecutionID != manifest.Entries[0].ExecutionID {
+		t.Fatalf("durable replay after process restart/source retention=%+v err=%v", registryAfterRestart, err)
+	}
 	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'arrendatario') ON CONFLICT DO NOTHING`, targetID); err != nil {
 		t.Fatal(err)
 	}
-	restoredService := service
+	restoredService := restartedService
 	restoreID := "85200000-0000-4000-8000-000000000001"
 	results, err := restoredService.ReplaySuppressionManifest(h.ctx, manifest, restoreID, adminID, h.now, noOpPrivacyCleaner{})
 	if err != nil || len(results) != 1 || results[0].Status != "reaplicada" {

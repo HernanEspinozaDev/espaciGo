@@ -472,6 +472,15 @@ func GrantRuntimePermissions(ctx context.Context, conn ScratchPermissionDB) erro
 	if err != nil {
 		return err
 	}
+	var replayRegistryExists bool
+	if err := conn.QueryRow(ctx, `SELECT to_regclass('public.registro_replay_baja_local') IS NOT NULL`).Scan(&replayRegistryExists); err != nil {
+		return err
+	}
+	if replayRegistryExists {
+		if _, err := conn.Exec(ctx, `GRANT SELECT, INSERT ON public.registro_replay_baja_local TO espacigo_runtime`); err != nil {
+			return err
+		}
+	}
 	// The runtime may remove unreferenced rates only through the narrowly
 	// scoped SECURITY DEFINER function used by publication retirement. It may
 	// not delete immutable rate history directly. Privacy suppression still

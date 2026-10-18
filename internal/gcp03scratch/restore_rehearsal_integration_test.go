@@ -163,7 +163,7 @@ func TestSyntheticRestoreRehearsalPostgres18(t *testing.T) {
 
 	sourceURL := databaseURL(adminURLParsed, sourceDB)
 	targetURL := databaseURL(adminURLParsed, targetDB)
-	migrationDir := filepath.Join(root, "db", "migrations")
+	migrationDir := historicalMigrationDirectory(t)
 	result, err := migrator.Run(ctx, sourceURL, migrationDir)
 	if err != nil || len(result.Applied) != MigrationCount || result.Applied[MigrationCount-1] != MigrationCount {
 		t.Fatalf("apply exact V1-V61 to disposable synthetic source: applied=%d err=%v", len(result.Applied), err)

@@ -32,6 +32,8 @@ from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Protocol
 
+from gcp03_migration_inventory import historical_v1_v61_migrations
+
 
 FORMAT = "espacigo.gcp03.local-origin-capture.v1"
 RELEASE_FORMAT = "espacigo.gcp03.local-origin-capture-release.v1"
@@ -378,7 +380,11 @@ def database_runtime_binary_version(container_id: str) -> str:
 
 def migration_files_from_repo(repo: Path) -> dict[int, dict[str, str]]:
     found: dict[int, dict[str, str]] = {}
-    for path in sorted((repo / "db" / "migrations").glob("V[0-9][0-9][0-9][0-9][0-9][0-9]__*.sql")):
+    try:
+        historical_migrations = historical_v1_v61_migrations(repo / "db" / "migrations")
+    except ValueError as exc:
+        raise CaptureError(str(exc)) from exc
+    for path in historical_migrations:
         match = re.fullmatch(r"V([0-9]{6})__(.+)\.sql", path.name)
         if not match:
             raise CaptureError("local migration file name is invalid")

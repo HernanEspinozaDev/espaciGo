@@ -613,6 +613,9 @@ func (r *IdentityRepository) FinishSuppression(ctx context.Context, requestID st
 		if err := tx.QueryRow(ctx, `SELECT count(*) FROM public.baja_archivo_pendiente_local WHERE ejecucion_id=$1 AND completada_en IS NULL`, execID).Scan(&exec.PendingFiles); err != nil {
 			return exec, mapError(err)
 		}
+		if err := ensureSuppressionReplayRegistry(ctx, tx, execID); err != nil {
+			return exec, err
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return exec, mapError(err)
 		}
@@ -658,8 +661,41 @@ func (r *IdentityRepository) FinishSuppression(ctx context.Context, requestID st
 	exec.Removed = detail.Removed
 	exec.Retained = detail.Retained
 	exec.DecisionCode = detail.Decision
+	if err = ensureSuppressionReplayRegistry(ctx, tx, execID); err != nil {
+		return privacy.SuppressionExecution{}, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return privacy.SuppressionExecution{}, mapError(err)
 	}
 	return exec, nil
+}
+
+func ensureSuppressionReplayRegistry(ctx context.Context, tx pgx.Tx, executionID string) error {
+	tag, err := tx.Exec(ctx, `INSERT INTO public.registro_replay_baja_local
+		(ejecucion_origen_id,solicitud_id,usuario_id,solicitada_en,completada_en)
+		SELECT x.id,x.solicitud_id,x.usuario_id,s.solicitada_en,x.completada_en
+		FROM public.ejecucion_baja_local x JOIN public.solicitud_titular s ON s.id=x.solicitud_id
+		WHERE x.id=$1 AND x.estado='completada' AND x.completada_en IS NOT NULL
+		ON CONFLICT (ejecucion_origen_id) DO NOTHING`, executionID)
+	if err != nil {
+		return mapError(err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	var matches bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM public.registro_replay_baja_local r
+		JOIN public.ejecucion_baja_local x ON x.id=r.ejecucion_origen_id
+		JOIN public.solicitud_titular s ON s.id=x.solicitud_id
+		WHERE r.ejecucion_origen_id=$1 AND x.estado='completada'
+		  AND r.solicitud_id=x.solicitud_id AND r.usuario_id=x.usuario_id
+		  AND r.solicitada_en=s.solicitada_en AND r.completada_en=x.completada_en
+	)`, executionID).Scan(&matches); err != nil {
+		return mapError(err)
+	}
+	if !matches {
+		return fmt.Errorf("privacy replay registry conflicts with completed execution %s: %w", executionID, privacy.ErrInvalid)
+	}
+	return nil
 }
