@@ -454,7 +454,9 @@ func (s *Service) ExecuteSuppression(ctx context.Context, actorID, requestID, ke
 	if err != nil {
 		return result, errors.New("privacy: cleanup worker identity unavailable")
 	}
-	if err := runSuppressionCleanupBatch(ctx, repo, result.RequestID, workerID, now, cleaner, defaultSuppressionCleanupLease, defaultSuppressionCleanupBatch); err != nil {
+	// The operation's injected clock may represent a historical replay. Claims,
+	// leases and external I/O use the operational wall clock instead.
+	if err := runSuppressionCleanupRequest(ctx, repo, result.RequestID, workerID, time.Now, cleaner, defaultSuppressionCleanupLease); err != nil {
 		return result, err
 	}
 	return repo.FinishSuppression(ctx, result.RequestID, now().UTC())
@@ -470,7 +472,6 @@ func (s *Service) RunSuppressionCleanupOnce(ctx context.Context, now func() time
 
 const (
 	defaultSuppressionCleanupLease = 2 * time.Minute
-	defaultSuppressionCleanupBatch = 100
 )
 
 func (s *Service) RunSuppressionCleanupOnceWithWorker(ctx context.Context, workerID string, now func() time.Time, cleaner SyntheticEvidenceCleaner) error {
@@ -492,7 +493,7 @@ func (s *Service) RunSuppressionCleanupOnceWithWorker(ctx context.Context, worke
 		return err
 	}
 	for _, requestID := range ids {
-		if err := runSuppressionCleanupBatch(ctx, repo, requestID, workerID, now, cleaner, defaultSuppressionCleanupLease, defaultSuppressionCleanupBatch); err != nil {
+		if _, err := runSuppressionCleanupBatch(ctx, repo, requestID, workerID, now, cleaner, defaultSuppressionCleanupLease, 1); err != nil {
 			return err
 		}
 		if _, err := repo.FinishSuppression(ctx, requestID, now().UTC()); err != nil && !errors.Is(err, ErrNotFound) {
@@ -575,29 +576,53 @@ func (s *Service) RunSuppressionReplayExportWorker(ctx context.Context, interval
 	}
 }
 
-func runSuppressionCleanupBatch(ctx context.Context, repo SuppressionExecutionRepository, requestID, workerID string, now func() time.Time, cleaner SyntheticEvidenceCleaner, lease time.Duration, limit int) error {
+func runSuppressionCleanupRequest(ctx context.Context, repo SuppressionExecutionRepository, requestID, workerID string, now func() time.Time, cleaner SyntheticEvidenceCleaner, lease time.Duration) error {
+	_, err := runSuppressionCleanupBatch(ctx, repo, requestID, workerID, now, cleaner, lease, 100)
+	return err
+}
+
+// runSuppressionCleanupBatch bounds every external delete by its own remaining
+// claim lease. The long-running worker claims one row per request per cycle so
+// one large request cannot starve other requests.
+func runSuppressionCleanupBatch(ctx context.Context, repo SuppressionExecutionRepository, requestID, workerID string, now func() time.Time, cleaner SyntheticEvidenceCleaner, lease time.Duration, limit int) (bool, error) {
 	claimedAt := now().UTC()
 	files, err := repo.ClaimPendingSuppressionFiles(ctx, requestID, workerID, claimedAt, claimedAt.Add(lease), limit)
 	if err != nil {
-		return err
+		return false, err
 	}
+	processed := false
 	for _, file := range files {
+		remaining := file.ClaimUntil.Sub(now().UTC())
+		if remaining <= 0 {
+			return processed, nil
+		}
+		deleteCtx, cancelDelete := context.WithTimeout(ctx, remaining)
 		storageID := file.StorageID
 		if storageID == "" {
 			storageID = file.EvidenceID
 		}
-		if err := cleaner.Delete(ctx, storageID); err != nil {
+		deleteErr := cleaner.Delete(deleteCtx, storageID)
+		cancelDelete()
+		if deleteErr != nil {
 			failErr := repo.FailSuppressionFile(ctx, file, now().UTC())
-			if failErr != nil && !errors.Is(failErr, ErrSuppressionClaimLost) {
-				return failErr
+			if errors.Is(failErr, ErrSuppressionClaimLost) {
+				return processed, nil
 			}
+			if failErr != nil {
+				return processed, failErr
+			}
+			processed = true
 			continue
 		}
-		if err := repo.CompleteSuppressionFile(ctx, file, now().UTC()); err != nil && !errors.Is(err, ErrSuppressionClaimLost) {
-			return err
+		if err := repo.CompleteSuppressionFile(ctx, file, now().UTC()); err != nil {
+			if errors.Is(err, ErrSuppressionClaimLost) {
+				return processed, nil
+			}
+			return processed, err
 		}
+		processed = true
 	}
-	return nil
+	return processed, nil
 }
 
 func (s *Service) RunReservationRetentionWorker(ctx context.Context, interval time.Duration, batchSize int) {

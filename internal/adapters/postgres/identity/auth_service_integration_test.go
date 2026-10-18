@@ -2747,7 +2747,7 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	clock := h.now.Add(6 * time.Second)
 	h.now = clock
 	executionNow = clock
-	if err := privacyService.RunSuppressionCleanupOnce(h.ctx, func() time.Time { return executionNow }, cleaner); err != nil {
+	if err := privacyService.RunSuppressionCleanupOnce(h.ctx, func() time.Time { return time.Now().UTC().Add(6 * time.Second) }, cleaner); err != nil {
 		t.Fatalf("cleanup worker did not recover pending file work: %v", err)
 	}
 	completedResponse := call(adminSession, "local-suppression-1")
