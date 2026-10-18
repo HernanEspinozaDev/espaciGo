@@ -167,6 +167,13 @@ type SuppressionExecutionRepository interface {
 	PendingSuppressionRequests(context.Context) ([]string, error)
 }
 
+// SuppressionCleanupFinalizer is implemented by repositories that can finish
+// queue work through a narrowly scoped database capability. API execution
+// keeps using FinishSuppression, which returns the full user-facing result.
+type SuppressionCleanupFinalizer interface {
+	FinalizeSuppressionCleanup(context.Context, string, time.Time) error
+}
+
 type SyntheticEvidenceCleaner interface {
 	Delete(context.Context, string) error
 }
@@ -496,7 +503,11 @@ func (s *Service) RunSuppressionCleanupOnceWithWorker(ctx context.Context, worke
 		if _, err := runSuppressionCleanupBatch(ctx, repo, requestID, workerID, now, cleaner, defaultSuppressionCleanupLease, 1); err != nil {
 			return err
 		}
-		if _, err := repo.FinishSuppression(ctx, requestID, now().UTC()); err != nil && !errors.Is(err, ErrNotFound) {
+		if finalizer, ok := repo.(SuppressionCleanupFinalizer); ok {
+			if err := finalizer.FinalizeSuppressionCleanup(ctx, requestID, now().UTC()); err != nil && !errors.Is(err, ErrNotFound) {
+				return err
+			}
+		} else if _, err := repo.FinishSuppression(ctx, requestID, now().UTC()); err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
 	}

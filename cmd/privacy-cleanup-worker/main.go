@@ -19,6 +19,7 @@ import (
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -47,6 +48,12 @@ func run() error {
 		return errors.New("invalid database connection configuration")
 	}
 	poolConfig.MaxConns = 2
+	if cfg.databaseSetRole != "" {
+		poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			_, err := conn.Exec(ctx, `SET ROLE espacigo_privacy_cleanup_worker`)
+			return err
+		}
+	}
 	var closeConnector func()
 	closeConnector = func() {}
 	if cfg.connectionMode == "cloudsql" {
@@ -72,7 +79,11 @@ func run() error {
 	if closer, ok := cleaner.(interface{ Close() error }); ok {
 		defer closer.Close()
 	}
-	service, err := privacy.NewService(identitypg.NewIdentityRepository(pool))
+	var repository privacy.Repository = identitypg.NewIdentityRepository(pool)
+	if cfg.databaseSetRole != "" {
+		repository = identitypg.NewSuppressionCleanupWorkerRepository(pool)
+	}
+	service, err := privacy.NewService(repository)
 	if err != nil {
 		return errors.New("privacy cleanup service initialization failed")
 	}
@@ -110,6 +121,7 @@ type workerConfig struct {
 	dbSSLRootCert     string
 	dbSSLCert         string
 	dbSSLKey          string
+	databaseSetRole   string
 	cloudSQLInstance  string
 	cloudSQLPrivateIP bool
 	storageBackend    string
@@ -157,6 +169,10 @@ func loadConfig(getenv func(string) string) (workerConfig, error) {
 	}
 	cfg.dbName = strings.TrimSpace(getenv("DATABASE_NAME"))
 	cfg.dbUser = strings.TrimSpace(getenv("DATABASE_USER"))
+	cfg.databaseSetRole = strings.TrimSpace(getenv("DATABASE_SET_ROLE"))
+	if cfg.databaseSetRole != "" && cfg.databaseSetRole != "espacigo_privacy_cleanup_worker" {
+		return workerConfig{}, errors.New("invalid database role activation")
+	}
 	passwordPath := strings.TrimSpace(getenv("DATABASE_PASSWORD_FILE"))
 	if cfg.dbName == "" || cfg.dbUser == "" || passwordPath == "" {
 		return workerConfig{}, errors.New("database name, user and password file are required")

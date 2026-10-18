@@ -1,0 +1,21 @@
+# Separate, current-schema migrator image. Dockerfile.dbmigrate remains the
+# immutable GCP-03 V1-V61 scratch runner.
+FROM golang:1.27.1-alpine3.24@sha256:cd9a32216aee5667f957a62d13a10032a63fd58e14b3f3d9cc8c2122f501e95e AS build
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=linux GOARCH=amd64
+WORKDIR /src
+RUN apk add --no-cache ca-certificates
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/dbmigrate ./cmd/dbmigrate
+COPY internal/database/cloudsql ./internal/database/cloudsql
+COPY internal/migrator ./internal/migrator
+COPY db/migrations/V00000[1-9]__*.sql db/migrations/V0000[1-6][0-9]__*.sql /out/migrations/
+RUN go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/dbmigrate ./cmd/dbmigrate
+
+FROM scratch
+WORKDIR /app
+COPY --from=build /out/dbmigrate /app/dbmigrate
+COPY --from=build /out/migrations /app/db/migrations
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+USER 65532:65532
+ENTRYPOINT ["/app/dbmigrate", "-dir", "/app/db/migrations"]

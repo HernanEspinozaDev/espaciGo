@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -660,6 +661,207 @@ func TestGCP04SuppressionClaimFencingMigrationFromFreshAndV62(t *testing.T) {
 				t.Fatal("V63 changed an applied V1-V62 migration checksum or history row")
 			}
 		})
+	})
+}
+
+func TestGCP04WorkerRoleMigrationV64LeastPrivilege(t *testing.T) {
+	adminURL := os.Getenv("TEST_DATABASE_URL")
+	if adminURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set; requires disposable PostgreSQL 18")
+	}
+	admin, err := pgx.Connect(context.Background(), adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(context.Background(), `DROP ROLE IF EXISTS espacigo_privacy_cleanup_worker; DROP ROLE IF EXISTS espacigo_runtime; CREATE ROLE espacigo_runtime NOLOGIN`); err != nil {
+		_ = admin.Close(context.Background())
+		t.Fatal(err)
+	}
+	if err := admin.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanup, err := pgx.Connect(context.Background(), adminURL)
+		if err != nil {
+			t.Errorf("connect to clean disposable roles: %v", err)
+			return
+		}
+		defer cleanup.Close(context.Background())
+		if _, err := cleanup.Exec(context.Background(), `DROP ROLE IF EXISTS espacigo_privacy_cleanup_worker; DROP ROLE IF EXISTS espacigo_runtime`); err != nil {
+			t.Errorf("drop disposable cluster roles: %v", err)
+		}
+	})
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve migration source path")
+	}
+	sourceDir := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "db", "migrations"))
+	migrations, err := DiscoverMigrations(sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrations) != 64 || migrations[63].Name != "V000064__gcp04_privacy_cleanup_worker_role.sql" {
+		t.Fatalf("unexpected latest migration: count=%d latest=%q", len(migrations), migrations[len(migrations)-1].Name)
+	}
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		result, err := Run(ctx, databaseURL, sourceDir)
+		if err != nil || len(result.Applied) != 64 || result.Applied[63] != 64 {
+			t.Fatalf("fresh V1-V64 migration: applied=%v err=%v", result.Applied, err)
+		}
+		conn := connectTestDB(t, ctx, databaseURL)
+		defer conn.Close(ctx)
+		var login, superuser, inherit, runtimeCanReadAccounts, runtimeCanExecute, workerCanReadQueue, workerCanDeleteEvidence bool
+		if err := conn.QueryRow(ctx, `SELECT r.rolcanlogin,r.rolsuper,r.rolinherit,
+			has_table_privilege('espacigo_privacy_cleanup_worker','public.usuario','SELECT'),
+			has_function_privilege('espacigo_runtime','public.finalize_pending_suppression_cleanup(uuid,timestamptz)','EXECUTE'),
+			has_column_privilege('espacigo_privacy_cleanup_worker','public.baja_archivo_pendiente_local','claim_owner','SELECT'),
+			has_table_privilege('espacigo_privacy_cleanup_worker','public.verificacion_evidencia_sintetica','DELETE')
+			FROM pg_roles r WHERE r.rolname='espacigo_privacy_cleanup_worker'`).Scan(&login, &superuser, &inherit, &runtimeCanReadAccounts, &runtimeCanExecute, &workerCanReadQueue, &workerCanDeleteEvidence); err != nil {
+			t.Fatal(err)
+		}
+		if login || superuser || inherit || runtimeCanReadAccounts || runtimeCanExecute || !workerCanReadQueue || !workerCanDeleteEvidence {
+			t.Fatalf("least privilege mismatch login=%v superuser=%v inherit=%v account_read=%v runtime_execute=%v queue_read=%v evidence_delete=%v", login, superuser, inherit, runtimeCanReadAccounts, runtimeCanExecute, workerCanReadQueue, workerCanDeleteEvidence)
+		}
+		const accountID = "06400000-0000-4000-8000-000000000101"
+		const requestID = "06400000-0000-4000-8000-000000000102"
+		const executionID = "06400000-0000-4000-8000-000000000103"
+		now := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
+		if _, err := conn.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,'worker-role@example.invalid','worker-role@example.invalid','synthetic','activo')`, accountID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO public.solicitud_titular(id,usuario_id,tipo,canal,estado,solicitada_en) VALUES($1,$2,'supresion','web','en_revision',$3)`, requestID, accountID, now); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO public.ejecucion_baja_local(id,solicitud_id,usuario_id,actor_id,clave_idempotencia,estado,motivo_codigo,iniciada_en,detalle) VALUES($1,$2,$3,$3,'gcp04-v64-role-test','limpieza_pendiente','baja_local_minimizada',$4,'{}'::jsonb)`, executionID, requestID, accountID, now); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx, `SET ROLE espacigo_privacy_cleanup_worker`); err != nil {
+			t.Fatal(err)
+		}
+		var finalized bool
+		if err := conn.QueryRow(ctx, `SELECT public.finalize_pending_suppression_cleanup($1,$2)`, requestID, now).Scan(&finalized); err != nil || !finalized {
+			t.Fatalf("worker finalizer did not complete queue: finalized=%v err=%v", finalized, err)
+		}
+		if _, err := conn.Exec(ctx, `RESET ROLE`); err != nil {
+			t.Fatal(err)
+		}
+		var executionState, requestState string
+		var replayRows int
+		if err := conn.QueryRow(ctx, `SELECT x.estado,s.estado,(SELECT count(*) FROM public.registro_replay_baja_local WHERE ejecucion_origen_id=x.id) FROM public.ejecucion_baja_local x JOIN public.solicitud_titular s ON s.id=x.solicitud_id WHERE x.id=$1`, executionID).Scan(&executionState, &requestState, &replayRows); err != nil || executionState != "completada" || requestState != "resuelta" || replayRows != 1 {
+			t.Fatalf("worker finalizer state execution=%s request=%s replay=%d err=%v", executionState, requestState, replayRows, err)
+		}
+		if _, err := conn.Exec(ctx, `SET ROLE espacigo_runtime`); err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.QueryRow(ctx, `SELECT public.finalize_pending_suppression_cleanup($1,$2)`, requestID, now).Scan(&finalized); err == nil {
+			t.Fatal("broad runtime role invoked worker finalizer")
+		}
+	})
+	v63Dir := t.TempDir()
+	for _, migration := range migrations[:63] {
+		if err := os.WriteFile(filepath.Join(v63Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		if result, err := Run(ctx, databaseURL, v63Dir); err != nil || len(result.Applied) != 63 || result.Applied[62] != 63 {
+			t.Fatalf("apply V1-V63: applied=%v err=%v", result.Applied, err)
+		}
+		conn := connectTestDB(t, ctx, databaseURL)
+		const accountID = "06400000-0000-4000-8000-000000000001"
+		const requestID = "06400000-0000-4000-8000-000000000002"
+		const executionID = "06400000-0000-4000-8000-000000000003"
+		const evidenceID = "06400000-0000-4000-8000-000000000004"
+		now := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
+		if _, err := conn.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,'gcp04-v64@example.invalid','gcp04-v64@example.invalid','synthetic','activo')`, accountID); err != nil {
+			_ = conn.Close(ctx)
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO public.solicitud_titular(id,usuario_id,tipo,canal,estado,solicitada_en) VALUES($1,$2,'supresion','web','en_revision',$3)`, requestID, accountID, now); err != nil {
+			_ = conn.Close(ctx)
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO public.ejecucion_baja_local(id,solicitud_id,usuario_id,actor_id,clave_idempotencia,estado,motivo_codigo,iniciada_en,detalle) VALUES($1,$2,$3,$3,'gcp04-v64','limpieza_pendiente','baja_local_minimizada',$4,'{}'::jsonb)`, executionID, requestID, accountID, now); err != nil {
+			_ = conn.Close(ctx)
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx, `INSERT INTO public.baja_archivo_pendiente_local(ejecucion_id,evidencia_id,disponible_en) VALUES($1,$2,$3)`, executionID, evidenceID, now); err != nil {
+			_ = conn.Close(ctx)
+			t.Fatal(err)
+		}
+		var before string
+		if err := conn.QueryRow(ctx, `SELECT string_agg(version::text||':'||checksum, ',' ORDER BY version) FROM public.schema_migrations`).Scan(&before); err != nil {
+			_ = conn.Close(ctx)
+			t.Fatal(err)
+		}
+		if err := conn.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		result, err := Run(ctx, databaseURL, sourceDir)
+		if err != nil || len(result.Applied) != 1 || result.Applied[0] != 64 {
+			t.Fatalf("upgrade V63 to V64: applied=%v err=%v", result.Applied, err)
+		}
+		conn = connectTestDB(t, ctx, databaseURL)
+		defer conn.Close(ctx)
+		var claimGeneration int64
+		var completedAt *time.Time
+		if err := conn.QueryRow(ctx, `SELECT claim_generacion,completada_en FROM public.baja_archivo_pendiente_local WHERE ejecucion_id=$1 AND evidencia_id=$2`, executionID, evidenceID).Scan(&claimGeneration, &completedAt); err != nil || claimGeneration != 0 || completedAt != nil {
+			t.Fatalf("V63 pending row after V64 generation=%d completed=%v err=%v", claimGeneration, completedAt, err)
+		}
+		var after string
+		if err := conn.QueryRow(ctx, `SELECT string_agg(version::text||':'||checksum, ',' ORDER BY version) FROM public.schema_migrations WHERE version<64`).Scan(&after); err != nil {
+			t.Fatal(err)
+		}
+		if before != after {
+			t.Fatal("V64 changed an applied V1-V63 migration checksum or history row")
+		}
+	})
+}
+
+func TestMigratorSerializesIndependentProcesses(t *testing.T) {
+	if os.Getenv("MIGRATOR_PROCESS_HELPER") == "1" {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if _, err := Run(ctx, os.Getenv("TEST_DATABASE_URL"), os.Getenv("MIGRATOR_PROCESS_MIGRATIONS")); err != nil {
+			t.Fatalf("subprocess migrator failed: %v", err)
+		}
+		return
+	}
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		migrationDir := t.TempDir()
+		writeMigration(t, migrationDir, "V000001__process_lock.sql", `CREATE TABLE public.process_migration_once (id integer PRIMARY KEY); INSERT INTO public.process_migration_once VALUES (1);`)
+		env := make([]string, 0, len(os.Environ())+3)
+		for _, item := range os.Environ() {
+			if strings.HasPrefix(item, "MIGRATOR_PROCESS_HELPER=") || strings.HasPrefix(item, "TEST_DATABASE_URL=") || strings.HasPrefix(item, "MIGRATOR_PROCESS_MIGRATIONS=") {
+				continue
+			}
+			env = append(env, item)
+		}
+		commands := make([]*exec.Cmd, 2)
+		var outputs [2]bytes.Buffer
+		for index := range commands {
+			commands[index] = exec.Command(os.Args[0], "-test.run=^TestMigratorSerializesIndependentProcesses$")
+			commands[index].Env = append(env, "MIGRATOR_PROCESS_HELPER=1", "TEST_DATABASE_URL="+databaseURL, "MIGRATOR_PROCESS_MIGRATIONS="+migrationDir)
+			commands[index].Stdout = &outputs[index]
+			commands[index].Stderr = &outputs[index]
+			if err := commands[index].Start(); err != nil {
+				t.Fatalf("start migrator subprocess %d: %v", index, err)
+			}
+		}
+		for index, command := range commands {
+			if err := command.Wait(); err != nil {
+				t.Fatalf("migrator subprocess %d: %v: %s", index, err, outputs[index].String())
+			}
+		}
+		conn := connectTestDB(t, ctx, databaseURL)
+		defer conn.Close(ctx)
+		var historyRows, ddlRows int
+		if err := conn.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.schema_migrations),(SELECT count(*) FROM public.process_migration_once)`).Scan(&historyRows, &ddlRows); err != nil {
+			t.Fatal(err)
+		}
+		if historyRows != 1 || ddlRows != 1 {
+			t.Fatalf("concurrent process migration duplicated work: history=%d ddl=%d", historyRows, ddlRows)
+		}
 	})
 }
 
