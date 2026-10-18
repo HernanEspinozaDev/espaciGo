@@ -60,6 +60,8 @@ El reporte local agregado del snapshot sellado autenticado resolvió la diferenc
 
 El agregado del revisor se conserva en `.local/testing/g03o-407-continuation-review-20261018/private-reference-snapshot-diagnostic-reviewer-20261018.json` (0600, SHA-256 `85523dbc1e21bea1d6a56dceea075a3f8d5f6d89d2e4e2b2e799e53f5407533c`); no se versiona ni modifica.
 
+La corrección local está en `codex/infra/fix/g03o-1017-private-reference-set`, HEAD `35dff4a572e4931e198666925181a8df36ac6755`. Pasó 3 pruebas unitarias y 1 integración en PostgreSQL 18 desechable con V1–V61. El OCI local tiene digest `sha256:9c6856a44e27806f8f0f9c2773092735b6e2b88152f96b87774be1dcd697d9ca`. El plan Terraform local ligado a serial 22 es 0 altas/1 cambio de imagen/0 bajas, exclusivamente para el Job `continuation-plan`; copy permanece apagado. Plan SHA-256 `fde4324e94e22fd000fec7ae46d683d8b073858bfc1465c5d6c73bff5df7db2c`. No se publicó, aplicó ni ejecutó nada en Cloud. La ejecución de la consulta corregida contra Cloud y cualquier modo copy quedan pendientes de revisión y autorización separadas.
+
 ## Próximo paquete de trabajo, sin provisión
 
 1. Revisar y fusionar la implementación/procedimiento local del snapshot; corregir comentarios en el mismo PR. No iniciar el corte siguiente antes de la fusión.
