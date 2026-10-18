@@ -133,6 +133,7 @@ def _current_bound_plan(reader, normalization, diagnostic, archive):
     binding = {"historical_diagnostic_sha256": DIAGNOSTIC_SHA256,
         "table_inventory_sha256": current["table_inventory_sha256"],
         "migration_history_sha256": current["migration_history_sha256"],
+        "migration_history_sha256_v2": current["migration_history_sha256_v2"],
         "database": current["database"], "login": current["login"],
         "server_version_major": current["server_version_major"],
         "owned_sequence_dependency_count": current["owned_sequence_dependency_count"],

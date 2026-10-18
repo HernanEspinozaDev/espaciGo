@@ -126,6 +126,7 @@ def make_plan(reader, normalization, archive_stats, private_ref, cfg, import_fai
         "private_files_plain_sha256": archive_stats["plain_sha256"],
         "table_inventory_sha256": current["table_inventory_sha256"],
         "migration_history_sha256": current["migration_history_sha256"],
+        "migration_history_sha256_v2": current["migration_history_sha256_v2"],
         "database": current["database"], "login": current["login"],
         "server_version_major": current["server_version_major"],
         "owned_sequence_dependency_count": current["owned_sequence_dependency_count"],

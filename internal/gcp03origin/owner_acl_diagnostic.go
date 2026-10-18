@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
@@ -29,6 +31,13 @@ type OwnerACLSequenceCounts struct {
 	IdentityDependencies  int64 `json:"identity_dependencies"`
 }
 
+type migrationHistoryEntry struct {
+	version  string
+	checksum string
+}
+
+const canonicalMigrationHistorySHA256V2 = "dd2a4f3cf716137549b584f35bec5900df78c3e02a86354b4bad7ef1a90515ee"
+
 type OwnerACLDiagnosticReport struct {
 	Format                        string                 `json:"format"`
 	Database                      string                 `json:"database"`
@@ -44,6 +53,7 @@ type OwnerACLDiagnosticReport struct {
 	TableInventoryWithinLimit     bool                   `json:"table_inventory_within_limit"`
 	MigrationHistoryCount         int                    `json:"migration_history_count"`
 	MigrationHistorySHA256        string                 `json:"migration_history_sha256,omitempty"`
+	MigrationHistorySHA256V2      string                 `json:"migration_history_sha256_v2,omitempty"`
 	ExpectedMigration61Present    bool                   `json:"expected_migration_61_present"`
 	Owners                        []OwnerACLOwnerCount   `json:"owners_by_role_and_type"`
 	Sequences                     OwnerACLSequenceCounts `json:"owned_sequence_parent_owner_counts"`
@@ -64,7 +74,7 @@ type OwnerACLDiagnosticReport struct {
 }
 
 func RunOwnerACLDiagnostic(ctx context.Context, config Config, password string) (OwnerACLDiagnosticReport, error) {
-	r := OwnerACLDiagnosticReport{Format: "espacigo.g03o.owner-acl-check.v1", ReadOnly: true,
+	r := OwnerACLDiagnosticReport{Format: "espacigo.g03o.owner-acl-check.v2", ReadOnly: true,
 		TransactionOutcome: "not_started", Owners: []OwnerACLOwnerCount{},
 		AggregateTablesPresent: map[string]bool{}}
 	if config.Phase != PhaseOwnerACLCheck || config.Login != AdminLogin || config.DatabaseURL != AdminDatabaseURL || password == "" || !config.PrivateIP {
@@ -82,7 +92,7 @@ func RunOwnerACLDiagnostic(ctx context.Context, config Config, password string) 
 }
 
 func ownerACLDiagnosticOnConnection(ctx context.Context, conn *pgx.Conn, commit func(context.Context, pgx.Tx) error) (OwnerACLDiagnosticReport, error) {
-	r := OwnerACLDiagnosticReport{Format: "espacigo.g03o.owner-acl-check.v1", ReadOnly: true,
+	r := OwnerACLDiagnosticReport{Format: "espacigo.g03o.owner-acl-check.v2", ReadOnly: true,
 		TransactionOutcome: "not_started", Owners: []OwnerACLOwnerCount{}, AggregateTablesPresent: map[string]bool{}}
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -139,18 +149,21 @@ func ownerACLDiagnosticOnConnection(ctx context.Context, conn *pgx.Conn, commit 
 		return fail("migration_catalog", err)
 	}
 	if migExists {
-		rows, err = tx.Query(ctx, `SELECT version::text, checksum::text FROM public.schema_migrations ORDER BY version`)
+		// Read the rows without relying on ORDER BY alias resolution. The two
+		// hashes below sort explicitly: v1 preserves the historical text order,
+		// while v2 uses numeric migration version order.
+		rows, err = tx.Query(ctx, `SELECT version::text, checksum::text FROM public.schema_migrations`)
 		if err != nil {
 			return fail("migration_history", err)
 		}
-		var history strings.Builder
+		var historyRows []migrationHistoryEntry
 		for rows.Next() {
 			var v, c string
 			if err = rows.Scan(&v, &c); err != nil {
 				rows.Close()
 				return fail("migration_history", err)
 			}
-			fmt.Fprintf(&history, "%s\x00%s\n", v, c)
+			historyRows = append(historyRows, migrationHistoryEntry{version: v, checksum: c})
 			r.MigrationHistoryCount++
 			if v == "61" {
 				r.ExpectedMigration61Present = true
@@ -161,7 +174,10 @@ func ownerACLDiagnosticOnConnection(ctx context.Context, conn *pgx.Conn, commit 
 			return fail("migration_history", err)
 		}
 		rows.Close()
-		r.MigrationHistorySHA256 = hashText(history.String())
+		r.MigrationHistorySHA256, r.MigrationHistorySHA256V2, err = migrationHistoryHashes(historyRows)
+		if err != nil {
+			return fail("migration_history", err)
+		}
 	}
 	rows, err = tx.Query(ctx, `SELECT owner.rolname, CASE WHEN c.relkind IN ('r','p') THEN 'table' WHEN c.relkind='v' THEN 'view' WHEN c.relkind='m' THEN 'materialized_view' WHEN c.relkind='S' THEN 'sequence' WHEN c.relkind IN ('i','I') THEN 'index' WHEN c.relkind='f' THEN 'foreign_table' ELSE 'other' END, count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace JOIN pg_catalog.pg_roles owner ON owner.oid=c.relowner WHERE n.nspname='public' AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid AND d.deptype='e' AND d.refclassid='pg_extension'::regclass) GROUP BY owner.rolname,2 ORDER BY owner.rolname,2`)
 	if err != nil {
@@ -236,6 +252,49 @@ func ownerACLDiagnosticOnConnection(ctx context.Context, conn *pgx.Conn, commit 
 	r.TransactionOutcome = "committed"
 	r.ReportComplete = true
 	return r, nil
+}
+
+// migrationHistoryHashes keeps the v1 text ordering used by historical
+// diagnostic evidence and adds a deterministic numeric-order v2 hash.
+func migrationHistoryHashes(rows []migrationHistoryEntry) (string, string, error) {
+	legacy := append([]migrationHistoryEntry(nil), rows...)
+	canonical := append([]migrationHistoryEntry(nil), rows...)
+	sort.Slice(legacy, func(i, j int) bool {
+		if legacy[i].version == legacy[j].version {
+			return legacy[i].checksum < legacy[j].checksum
+		}
+		return legacy[i].version < legacy[j].version
+	})
+	versions := make(map[int64]struct{}, len(canonical))
+	for _, row := range canonical {
+		version, err := strconv.ParseInt(row.version, 10, 64)
+		if err != nil || version < 1 || strconv.FormatInt(version, 10) != row.version {
+			return "", "", fmt.Errorf("invalid migration version")
+		}
+		if _, exists := versions[version]; exists {
+			return "", "", fmt.Errorf("duplicate numeric migration version")
+		}
+		versions[version] = struct{}{}
+	}
+	sort.Slice(canonical, func(i, j int) bool {
+		left, _ := strconv.ParseInt(canonical[i].version, 10, 64)
+		right, _ := strconv.ParseInt(canonical[j].version, 10, 64)
+		if left != right {
+			return left < right
+		}
+		if canonical[i].version != canonical[j].version {
+			return canonical[i].version < canonical[j].version
+		}
+		return canonical[i].checksum < canonical[j].checksum
+	})
+	serialize := func(items []migrationHistoryEntry) string {
+		var b strings.Builder
+		for _, row := range items {
+			fmt.Fprintf(&b, "%s\x00%s\n", row.version, row.checksum)
+		}
+		return hashText(b.String())
+	}
+	return serialize(legacy), serialize(canonical), nil
 }
 
 func hashText(value string) string {
