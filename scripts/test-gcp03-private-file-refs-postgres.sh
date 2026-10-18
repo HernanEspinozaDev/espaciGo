@@ -48,7 +48,10 @@ docker run -d --name "$CONTAINER" --network none \
 
 ready=false
 for _ in $(seq 1 160); do
-  if docker exec "$CONTAINER" pg_isready -U postgres -d espacigo_scratch >/dev/null 2>&1 && [[ -S "$SOCKET_DIR/.s.PGSQL.5432" ]]; then
+  if docker logs "$CONTAINER" 2>&1 | rg 'PostgreSQL init process complete' >/dev/null && \
+     [[ "$(docker exec "$CONTAINER" ps -o comm= -p 1 2>/dev/null | tr -d '[:space:]')" == "postgres" ]] && \
+     docker exec "$CONTAINER" pg_isready -U postgres -d espacigo_scratch >/dev/null 2>&1 && \
+     [[ -S "$SOCKET_DIR/.s.PGSQL.5432" ]]; then
     ready=true
     break
   fi
@@ -58,8 +61,12 @@ done
 : > "$SOCKET_DIR/.gcp03-private-file-refs-isolated-test"
 chmod 0600 "$SOCKET_DIR/.gcp03-private-file-refs-isolated-test"
 
-DATABASE_URL="postgres://postgres@localhost/espacigo_scratch?host=$SOCKET_DIR&sslmode=disable" \
-  go run ./cmd/dbmigrate -dir "$ROOT_DIR/db/migrations"
+DATABASE_URL="postgres://postgres@localhost/espacigo_scratch?host=$SOCKET_DIR&sslmode=disable"
+[[ "$(psql "$DATABASE_URL" -X -qAt --set=ON_ERROR_STOP=1 -c 'SELECT current_database()')" == "espacigo_scratch" ]] || {
+  echo 'Disposable PostgreSQL socket rejected the dedicated migration database URL.' >&2
+  exit 2
+}
+DATABASE_URL="$DATABASE_URL" go run ./cmd/dbmigrate -dir "$ROOT_DIR/db/migrations"
 cd "$ROOT_DIR"
 PYTHONPATH="$ROOT_DIR/scripts${PYTHONPATH:+:$PYTHONPATH}" \
   G03O_PRIVATE_FILE_REFS_TEST_SOCKET="$SOCKET_DIR" \

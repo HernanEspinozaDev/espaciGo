@@ -29,6 +29,7 @@ TABLES = (
     "foto_perfil_sintetica_local", "espacio_galeria_sintetica_local",
     "verificacion_evidencia_sintetica", "espacio_galeria_archivo_candidato_local",
     "operacion_arriendo_archivo_candidato_local", "verificacion_archivo_retiro_pendiente_local",
+    "baja_archivo_pendiente_local", "operacion_arriendo_evidencia_ensayo_local",
 )
 SERIAL_TABLES = (
     "recovery_parent", "recovery_notice", "sesion", "token_accion", "aviso_local",
@@ -108,6 +109,8 @@ CREATE TABLE public.verificacion_evidencia_sintetica(id uuid PRIMARY KEY, archiv
 CREATE TABLE public.espacio_galeria_archivo_candidato_local(id serial PRIMARY KEY, archivo_id uuid);
 CREATE TABLE public.operacion_arriendo_archivo_candidato_local(id serial PRIMARY KEY, archivo_id uuid);
 CREATE TABLE public.verificacion_archivo_retiro_pendiente_local(id integer PRIMARY KEY, archivo_id uuid);
+CREATE TABLE public.baja_archivo_pendiente_local(ejecucion_id uuid, evidencia_id uuid, completada_en timestamptz);
+CREATE TABLE public.operacion_arriendo_evidencia_ensayo_local(id uuid PRIMARY KEY, archivo_retirado_en timestamptz);
 CREATE SEQUENCE public.recovery_standalone_seq;
 CREATE FUNCTION public.recovery_probe(p_at timestamp with time zone, p_count integer) RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT p_count';
 CREATE TEXT SEARCH DICTIONARY public.recovery_dict (TEMPLATE = pg_catalog.simple);
@@ -198,13 +201,24 @@ WHERE n.nspname='public' AND d.dictname='unaccent' AND EXISTS(SELECT 1 FROM pg_d
         active_blob = "1f8fad5b-d9cb-469f-a165-70867728950e"
         retired_meta = "2f8fad5b-d9cb-469f-a165-70867728950e"
         queued_blob = "3f8fad5b-d9cb-469f-a165-70867728950e"
+        live_operation_blob = "4f8fad5b-d9cb-469f-a165-70867728950e"
+        retired_operation_blob = "5f8fad5b-d9cb-469f-a165-70867728950e"
+        completed_suppression_blob = "6f8fad5b-d9cb-469f-a165-70867728950e"
         self.psql(f"""INSERT INTO public.verificacion_evidencia_sintetica(id,archivo_id)
 VALUES ('{retired_meta}','{active_blob}'), ('4f8fad5b-d9cb-469f-a165-70867728950e',NULL);
 UPDATE public.verificacion_evidencia_sintetica SET archivo_retirado_en=now()
 WHERE id='4f8fad5b-d9cb-469f-a165-70867728950e';
 INSERT INTO public.verificacion_archivo_retiro_pendiente_local(id,archivo_id)
-VALUES (1,'{queued_blob}');""")
-        self.assertEqual(database.private_file_refs(), {file_id, active_blob, queued_blob})
+VALUES (1,'{queued_blob}');
+INSERT INTO public.baja_archivo_pendiente_local(ejecucion_id,evidencia_id,completada_en)
+VALUES ('7f8fad5b-d9cb-469f-a165-70867728950e','{queued_blob}',NULL),
+       ('8f8fad5b-d9cb-469f-a165-70867728950e','{completed_suppression_blob}',now());
+INSERT INTO public.operacion_arriendo_evidencia_ensayo_local(id,archivo_retirado_en)
+VALUES ('{live_operation_blob}',NULL), ('{retired_operation_blob}',now());""")
+        self.assertEqual(database.private_file_refs(),
+                         {file_id, active_blob, queued_blob, live_operation_blob})
+        self.assertNotIn(completed_suppression_blob, database.private_file_refs())
+        self.assertNotIn(retired_operation_blob, database.private_file_refs())
         owners = self.psql("""SELECT string_agg(name || '=' || owner, ',' ORDER BY name) FROM (
 SELECT c.relname name, pg_get_userbyid(c.relowner) owner FROM pg_class c WHERE c.relname IN ('recovery_parent','recovery_parent_id_seq','recovery_standalone_seq')
 UNION ALL SELECT p.proname, pg_get_userbyid(p.proowner) FROM pg_proc p WHERE p.proname='recovery_probe'
