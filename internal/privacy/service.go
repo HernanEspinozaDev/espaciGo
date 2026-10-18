@@ -455,7 +455,9 @@ func (s *Service) ExecuteSuppression(ctx context.Context, actorID, requestID, ke
 			storageID = file.EvidenceID
 		}
 		if err := cleaner.Delete(ctx, storageID); err != nil {
-			_ = repo.FailSuppressionFile(ctx, file, now().UTC())
+			if failErr := repo.FailSuppressionFile(ctx, file, now().UTC()); failErr != nil {
+				return result, failErr
+			}
 			continue
 		}
 		if err := repo.CompleteSuppressionFile(ctx, file, now().UTC()); err != nil {

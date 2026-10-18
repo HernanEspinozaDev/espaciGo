@@ -12,7 +12,6 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const localPrivacyReplayManifestMaxBytes = 16 << 20
@@ -22,11 +21,12 @@ func runLocalPrivacyCommand(command string, args []string) error {
 	if err != nil {
 		return errors.New("invalid local API configuration")
 	}
-	pool, err := pgxpool.New(context.Background(), cfg.databaseURL())
+	pool, closeConnector, err := newDatabasePool(context.Background(), cfg)
 	if err != nil {
 		return errors.New("local database unavailable")
 	}
 	defer pool.Close()
+	defer closeConnector()
 	repo := identitypg.NewIdentityRepository(pool)
 	service, err := privacy.NewService(repo)
 	if err != nil {
