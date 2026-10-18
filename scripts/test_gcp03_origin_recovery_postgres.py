@@ -60,6 +60,7 @@ class RecoveryPlanPostgres18Tests(unittest.TestCase):
         major = self.psql("SHOW server_version_num")
         self.assertTrue(major.startswith("180"), major)
         self.psql("""DROP TABLE IF EXISTS public.verificacion_archivo_retiro_pendiente_local CASCADE;
+DROP EXTENSION IF EXISTS unaccent CASCADE;
 DROP TABLE IF EXISTS public.operacion_arriendo_archivo_candidato_local CASCADE;
 DROP TABLE IF EXISTS public.espacio_galeria_archivo_candidato_local CASCADE;
 DROP TABLE IF EXISTS public.verificacion_evidencia_sintetica CASCADE;
@@ -78,9 +79,7 @@ DROP FUNCTION IF EXISTS public.recovery_probe(timestamp with time zone,integer);
 DROP FUNCTION IF EXISTS public.recovery_probe(integer);
 DROP TEXT SEARCH CONFIGURATION IF EXISTS public.recovery_config CASCADE;
 DROP TEXT SEARCH DICTIONARY IF EXISTS public.recovery_dict;
-REVOKE CREATE ON SCHEMA public FROM espacigo_runtime;
 ALTER SCHEMA public OWNER TO fixture_control;
-REVOKE CREATE ON SCHEMA public FROM postgres;
 ALTER DATABASE espacigo_scratch OWNER TO fixture_control;
 DROP ROLE IF EXISTS postgres;
 DROP ROLE IF EXISTS espacigo_gcp03_observer;
@@ -88,6 +87,8 @@ DROP ROLE IF EXISTS espacigo_runtime;
 CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
 CREATE ROLE espacigo_gcp03_observer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
 CREATE ROLE postgres LOGIN NOSUPERUSER CREATEDB CREATEROLE NOINHERIT;
+REVOKE CREATE ON SCHEMA public FROM espacigo_runtime;
+REVOKE CREATE ON SCHEMA public FROM postgres;
 GRANT espacigo_runtime TO postgres WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
 ALTER DATABASE espacigo_scratch OWNER TO postgres;
 ALTER SCHEMA public OWNER TO postgres;
@@ -119,6 +120,7 @@ INSERT INTO public.aviso_local_ciclo(aviso_id, ciclo, estado, iniciada_en) VALUE
 INSERT INTO public.outbox_evento_local(lease_hasta) VALUES (now() + interval '1 hour');
 INSERT INTO public.foto_perfil_sintetica_local(archivo_id) VALUES ('0f8fad5b-d9cb-469f-a165-70867728950e');
 RESET ROLE;
+CREATE EXTENSION unaccent WITH SCHEMA public;
 """, user="fixture_control")
         reader = CatalogReader(host=SOCKET, port=5432, user="postgres", database="espacigo_scratch")
         current = reader.identity_and_inventory()
@@ -130,6 +132,14 @@ RESET ROLE;
         self.assertFalse(current["runtime_membership_inherit"])
         self.assertNotEqual(current, EXPECTED_CURRENT)
         facts, sequence_parents = reader.statement_facts(NORMALIZATION)
+        self.assertEqual(self.psql("""SELECT
+(SELECT count(*) FROM pg_ts_dict d JOIN pg_namespace n ON n.oid=d.dictnamespace WHERE n.nspname='public'
+ AND NOT EXISTS(SELECT 1 FROM pg_depend dep WHERE dep.classid='pg_ts_dict'::regclass AND dep.objid=d.oid AND dep.deptype='e' AND dep.refclassid='pg_extension'::regclass)) || ':' ||
+(SELECT count(*) FROM pg_ts_config c JOIN pg_namespace n ON n.oid=c.cfgnamespace WHERE n.nspname='public'
+ AND NOT EXISTS(SELECT 1 FROM pg_depend dep WHERE dep.classid='pg_ts_config'::regclass AND dep.objid=c.oid AND dep.deptype='e' AND dep.refclassid='pg_extension'::regclass))"""), "1:1")
+        self.assertEqual(self.psql("""SELECT count(*) FROM pg_ts_dict d JOIN pg_namespace n ON n.oid=d.dictnamespace
+WHERE n.nspname='public' AND d.dictname='unaccent' AND EXISTS(SELECT 1 FROM pg_depend dep
+ WHERE dep.classid='pg_ts_dict'::regclass AND dep.objid=d.oid AND dep.deptype='e' AND dep.refclassid='pg_extension'::regclass)"""), "1")
         self.assertTrue(set(facts.values()) <= {"postgres", "satisfied", "missing"})
         plan = build_normalization_recovery_plan(
             NORMALIZATION, hashlib.sha256(NORMALIZATION).hexdigest(), facts,
@@ -182,13 +192,23 @@ RESET ROLE;
         self.assertEqual(report["database_reference_count"], 1)
         self.assertEqual(report["private_file_count"], 1)
         self.assertEqual(len(store.created), 1)
+        self.assertTrue(database.verify_normalized()["text_search_owned_by_runtime"])
         owners = self.psql("""SELECT string_agg(name || '=' || owner, ',' ORDER BY name) FROM (
 SELECT c.relname name, pg_get_userbyid(c.relowner) owner FROM pg_class c WHERE c.relname IN ('recovery_parent','recovery_parent_id_seq','recovery_standalone_seq')
 UNION ALL SELECT p.proname, pg_get_userbyid(p.proowner) FROM pg_proc p WHERE p.proname='recovery_probe'
 UNION ALL SELECT d.dictname, pg_get_userbyid(d.dictowner) FROM pg_ts_dict d WHERE d.dictname='recovery_dict'
+UNION ALL SELECT d.dictname, pg_get_userbyid(d.dictowner) FROM pg_ts_dict d WHERE d.dictname='unaccent'
 UNION ALL SELECT c.cfgname, pg_get_userbyid(c.cfgowner) FROM pg_ts_config c WHERE c.cfgname='recovery_config'
 ) x""")
-        self.assertEqual(owners, "recovery_config=espacigo_runtime,recovery_dict=espacigo_runtime,recovery_parent=espacigo_runtime,recovery_parent_id_seq=espacigo_runtime,recovery_probe=espacigo_runtime,recovery_standalone_seq=espacigo_runtime")
+        self.assertEqual(owners, "recovery_config=espacigo_runtime,recovery_dict=espacigo_runtime,recovery_parent=espacigo_runtime,recovery_parent_id_seq=espacigo_runtime,recovery_probe=espacigo_runtime,recovery_standalone_seq=espacigo_runtime,unaccent=fixture_control")
+        self.psql("ALTER TEXT SEARCH DICTIONARY public.recovery_dict OWNER TO fixture_control")
+        self.assertFalse(database.verify_normalized()["text_search_owned_by_runtime"], "custom dictionary with wrong owner must fail postcheck")
+        self.psql("ALTER TEXT SEARCH DICTIONARY public.recovery_dict OWNER TO espacigo_runtime")
+        self.psql("ALTER TEXT SEARCH CONFIGURATION public.recovery_config OWNER TO fixture_control")
+        self.assertFalse(database.verify_normalized()["text_search_owned_by_runtime"], "custom configuration with wrong owner must fail postcheck")
+        self.psql("ALTER TEXT SEARCH CONFIGURATION public.recovery_config OWNER TO espacigo_runtime")
+        self.assertTrue(database.verify_normalized()["text_search_owned_by_runtime"])
+        self.assertEqual(self.psql("SELECT pg_get_userbyid(ext.extowner) || ':' || pg_get_userbyid(d.dictowner) FROM pg_extension ext JOIN pg_ts_dict d ON d.dictname='unaccent' WHERE ext.extname='unaccent'"), "fixture_control:fixture_control")
         options = self.psql("""SELECT set_option || '/' || inherit_option || '/' || admin_option
 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles g ON g.oid=m.member
 WHERE r.rolname='espacigo_runtime' AND g.rolname='postgres'""")
