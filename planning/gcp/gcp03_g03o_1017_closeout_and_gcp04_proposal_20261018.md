@@ -54,7 +54,7 @@ El ensayo g03o-1017 concluyó técnicamente las etapas de copia y post-restore d
 
 ## Propuesta concreta del siguiente corte: GCP-04 backend durable
 
-El siguiente corte propuesto prepara y valida un backend durable aislado. Esta sección es un plan de trabajo, no una capacidad ya desplegada ni autorización de apply. La propuesta concreta forma parte de la sección siguiente de este mismo documento; no hay un segundo documento GCP-04 separado en este PR.
+El siguiente corte propuesto prepara y valida un backend durable aislado. Esta sección es un plan de trabajo, no una capacidad ya desplegada ni autorización de apply. El protocolo para el smoke real con GCS/Cloud SQL, sus fases, costo y retención se desarrolla en la [propuesta específica de GCP-04](gcp04_cloud_replay_smoke_proposal_20261018.md).
 
 ### Bloqueos verificables que el corte debe resolver
 

@@ -103,10 +103,17 @@ CONTAINER_ID="$(compose ps -q postgres)"
 [[ -n "$CONTAINER_ID" ]] || { echo 'Disposable PostgreSQL container did not start.' >&2; exit 1; }
 docker inspect "$CONTAINER_ID" | python3 -c 'import json,sys; c=json.load(sys.stdin)[0]; mounts=c["Mounts"]; assert c["HostConfig"]["NetworkMode"] == "none"; assert "/var/lib/postgresql" in c["HostConfig"]["Tmpfs"]; assert all(m["Type"] == "bind" for m in mounts); assert not c["HostConfig"].get("PortBindings"); print("Runtime Compose container isolation verified.")'
 for _ in $(seq 1 120); do
-  if compose exec -T postgres pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
+  if compose exec -T postgres pg_isready -U postgres -d postgres >/dev/null 2>&1 \
+    && [[ "$(compose exec -T postgres psql -X -A -t -U postgres -d postgres -c 'SHOW listen_addresses' 2>/dev/null | tr -d '\r')" == '*' ]]; then
+    break
+  fi
   sleep 0.25
 done
 compose exec -T postgres pg_isready -U postgres -d postgres >/dev/null
+[[ "$(compose exec -T postgres psql -X -A -t -U postgres -d postgres -c 'SHOW listen_addresses' | tr -d '\r')" == '*' ]] || {
+  echo 'Disposable PostgreSQL did not reach the final server process after initialization.' >&2
+  exit 1
+}
 
 cd "$ROOT_DIR"
 set +e
