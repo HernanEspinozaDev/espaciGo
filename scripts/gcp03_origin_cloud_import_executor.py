@@ -32,6 +32,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import gcp03_origin_import as transport
 from gcp03_origin_private_files import (PrivateFilesError, copy_validated_private_files,
     validate_private_file_references, validate_private_files_tar)
+from gcp03_origin_private_file_refs import PRIVATE_FILE_REFS_SQL
 
 SOURCE_CAPTURE_RUN_ID = "gcp03-merge-review-20261017"
 TARGET_RUN_ID = "g03o-1017"
@@ -606,21 +607,6 @@ SELECT json_build_object(
  ) SELECT count(*) FILTER (WHERE NOT directly_extension_owned AND NOT (has_extension_objects AND NOT has_application_objects))=0 FROM schema_inventory)
 )::text;
 """
-
-PRIVATE_FILE_REFS_SQL = """
-SELECT COALESCE(json_agg(file_id::text ORDER BY file_id), '[]'::json)::text
-FROM (
-  SELECT DISTINCT file_id FROM (
-    SELECT archivo_id AS file_id FROM public.foto_perfil_sintetica_local WHERE archivo_id IS NOT NULL
-    UNION ALL SELECT archivo_id FROM public.espacio_galeria_sintetica_local WHERE archivo_id IS NOT NULL
-    UNION ALL SELECT id FROM public.verificacion_evidencia_sintetica
-    UNION ALL SELECT archivo_id FROM public.espacio_galeria_archivo_candidato_local
-    UNION ALL SELECT archivo_id FROM public.operacion_arriendo_archivo_candidato_local
-    UNION ALL SELECT archivo_id FROM public.verificacion_archivo_retiro_pendiente_local
-  ) AS all_file_refs
-) AS unique_file_refs;
-"""
-
 
 def current_migration_inventory_sha256() -> str:
     migrations_dir = Path(__file__).resolve().parents[1] / "db" / "migrations"

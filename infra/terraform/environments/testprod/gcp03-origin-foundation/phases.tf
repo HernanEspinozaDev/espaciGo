@@ -824,7 +824,7 @@ resource "google_cloud_run_v2_job" "origin_recovery" {
         depends_on = ["cloud-sql-proxy"]
         env {
           name  = "GCP03_ORIGIN_RECOVERY_MODE"
-          value = local.recovery_apply_enabled ? "apply" : "plan"
+          value = local.recovery_mode
         }
         env {
           name  = "GCP03_ORIGIN_RECOVERY_DIAGNOSTIC_SHA256"

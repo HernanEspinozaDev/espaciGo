@@ -12,9 +12,11 @@ from gcp03_origin_cloud_import_executor import (
     shutdown_proxy,
 )
 from gcp03_origin_private_files import validate_private_files_tar
-from gcp03_origin_recovery_plan import build_normalization_recovery_plan, execute_reviewed_recovery
-from gcp03_origin_recovery_preflight import CatalogReader, DIAGNOSTIC_SHA256, EXPECTED_CURRENT
+from gcp03_origin_recovery_plan import (build_normalization_recovery_plan, execute_reviewed_recovery,
+    build_private_file_continuation_plan, execute_private_file_continuation, REQUIRED_SANITATION_COUNTS)
+from gcp03_origin_recovery_preflight import CatalogReader, DIAGNOSTIC_SHA256, EXPECTED_CURRENT, migration_history_hashes
 from gcp03_origin_recovery_runner import REFS_SQL, postcheck_sql
+from gcp03_origin_private_file_refs import PrivateFileReferenceQueryError
 
 PLAN_FORMAT = "espacigo.g03o.recovery-plan.v1"
 APPLY_FORMAT = "espacigo.g03o.recovery-execution.v1"
@@ -51,7 +53,7 @@ def config(env):
               cfg.expected_bootstrap_sha256, cfg.expected_observer_sha256,
               cfg.expected_normalization_sha256, diag_hash)
     if cfg.bucket != TARGET_BUCKET or cfg.private_files_bucket != PRIVATE_FILES_BUCKET or \
-       mode not in {"plan", "apply"} or diag_hash != DIAGNOSTIC_SHA256 or import_failure_hash != F4_IMPORT_FAILURE_SHA256 or \
+       mode not in {"plan", "apply", "continuation-plan", "continuation-copy"} or diag_hash != DIAGNOSTIC_SHA256 or import_failure_hash != F4_IMPORT_FAILURE_SHA256 or \
        any(not re.fullmatch(r"[0-9a-f]{64}", value) for value in hashes) or \
        cfg.expected_manifest_sha256 != U2_MANIFEST_SHA256 or \
        cfg.expected_normalization_sha256 != U2_NORMALIZATION_SHA256 or \
@@ -159,11 +161,14 @@ class CloudRecoveryDatabase:
         env = os.environ.copy(); env["PGPASSFILE"] = str(self.passfile); env["PGAPPNAME"] = "g03o-1017-recovery"
         prefix = "BEGIN TRANSACTION READ ONLY;\n" if read_only else ""
         suffix = "\n;\nCOMMIT;" if read_only else ""
-        proc = subprocess.run(["psql", "-X", "-qAt", "--set=ON_ERROR_STOP=1", "--host=127.0.0.1",
+        proc = subprocess.run(["psql", "-X", "-qAt", "--set=ON_ERROR_STOP=1", "--set=VERBOSITY=verbose", "--host=127.0.0.1",
             "--port=5432", "--username=postgres", "--dbname=espacigo_scratch"],
             input=(prefix + text + suffix).encode(), env=env, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, check=False)
+            stderr=subprocess.PIPE, check=False)
         if proc.returncode:
+            match = re.search(rb"\b(?:SQLSTATE|ERROR):?\s*([0-9A-Z]{5})\b", proc.stderr)
+            if "verificacion_evidencia_sintetica" in text or "archivo_id" in text:
+                raise PrivateFileReferenceQueryError(match.group(1).decode() if match else None)
             raise RuntimeError("fixed database operation failed")
         return proc.stdout.decode("utf-8", "strict").strip()
 
@@ -177,12 +182,30 @@ class CloudRecoveryDatabase:
         return json.loads(self._psql(path.read_bytes()))
     def private_file_refs(self):
         sql = "SET LOCAL ROLE espacigo_runtime;\n" + REFS_SQL
-        return set(json.loads(self._psql(sql, read_only=True)))
+        try:
+            value = json.loads(self._psql(sql, read_only=True))
+        except (json.JSONDecodeError, PrivateFileReferenceQueryError) as exc:
+            if isinstance(exc, PrivateFileReferenceQueryError):
+                raise
+            raise PrivateFileReferenceQueryError() from exc
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            raise PrivateFileReferenceQueryError()
+        return set(value)
+
+    def continuation_sanitation_counts(self):
+        sql = """SET LOCAL ROLE espacigo_runtime;
+SELECT jsonb_build_object(
+ 'valid_sessions',(SELECT count(*) FROM public.sesion WHERE revocada_en IS NULL AND expira_en>transaction_timestamp()),
+ 'usable_action_tokens',(SELECT count(*) FROM public.token_accion WHERE consumido_en IS NULL AND invalidado_en IS NULL AND expira_en>transaction_timestamp()),
+ 'pending_notices',(SELECT count(*) FROM public.aviso_local WHERE estado IN ('pendiente','procesando')),
+ 'identity_event_leases',(SELECT count(*) FROM public.outbox_evento_local WHERE lease_hasta IS NOT NULL AND lease_hasta>transaction_timestamp()),
+ 'runtime_role_login',(SELECT rolcanlogin FROM pg_roles WHERE rolname='espacigo_runtime'))::text"""
+        return json.loads(self._psql(sql, read_only=True))
 
 
 def run(env):
     cfg, receipt_ref, mode = config(env)
-    phase = "recover-plan" if mode == "plan" else "recover"
+    phase = "recover-plan" if mode == "plan" else "recover" if mode == "apply" else mode
     db = None
     try:
         store = GCSObjectStore()
@@ -195,6 +218,42 @@ def run(env):
         reader.manifest_sha256 = cfg.expected_manifest_sha256
         reader.normalization_sha256 = cfg.expected_normalization_sha256
         reader.normalization_generation = norm_ref.generation
+        if mode in {"continuation-plan", "continuation-copy"}:
+            identity = db._psql("SELECT json_build_object('session_user',session_user,'current_user',current_user)::text", read_only=True)
+            if json.loads(identity) != {"session_user": "postgres", "current_user": "postgres"}:
+                raise ImportStopped("CONTINUATION_DATABASE_IDENTITY_FAILED", "continuation_preflight")
+            migration_rows = json.loads(reader.query("SET LOCAL ROLE espacigo_runtime;\nSELECT COALESCE(json_agg(json_build_array(version::text,checksum::text)),'[]'::json) FROM public.schema_migrations"))
+            if not isinstance(migration_rows, list) or len(migration_rows) != 61:
+                raise ImportStopped("CONTINUATION_MIGRATION_HISTORY_FAILED", "continuation_preflight")
+            _, migration_history_sha256 = migration_history_hashes(migration_rows)
+            role_checks = json.loads(db._psql("""SET LOCAL ROLE espacigo_runtime;
+SELECT json_build_object(
+ 'session_user_is_postgres',session_user='postgres',
+ 'current_user_is_runtime',current_user='espacigo_runtime',
+ 'runtime_no_login',(SELECT NOT rolcanlogin AND NOT rolinherit FROM pg_roles WHERE rolname='espacigo_runtime'),
+ 'postgres_runtime_set_only',(SELECT bool_or(m.set_option AND NOT m.inherit_option AND NOT m.admin_option)
+   FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles g ON g.oid=m.member
+   WHERE r.rolname='espacigo_runtime' AND g.rolname='postgres'))::text""", read_only=True))
+            if any(value is not True for value in role_checks.values()):
+                raise ImportStopped("CONTINUATION_ROLE_POSTCHECK_FAILED", "continuation_preflight")
+            owner_checks = db.verify_normalized()
+            sanitation_counts = db.continuation_sanitation_counts()
+            references = db.private_file_refs()
+            continuation = build_private_file_continuation_plan(references=references,
+                private_files=files, run_id=TARGET_RUN_ID, normalized_checks=owner_checks,
+                sanitation_counts=sanitation_counts, migration_history_sha256=migration_history_sha256,
+                role_checks=role_checks)
+            if mode == "continuation-plan":
+                return {**continuation, "phase": phase, "status": "plan_ready", "phase_success": True,
+                    "report_complete": True, "retry": False}
+            approved = env.get("GCP03_ORIGIN_RECOVERY_APPROVED_PLAN_SHA256", "")
+            result = execute_private_file_continuation(plan=continuation,
+                approved_plan_sha256=approved, references=references, private_files=files,
+                normalized_checks=owner_checks, sanitation_counts=sanitation_counts,
+                run_id=TARGET_RUN_ID, store=GCSPrivateFileStore(cfg.private_files_bucket),
+                migration_history_sha256=migration_history_sha256, role_checks=role_checks)
+            result["phase"] = phase
+            return result
         plan = make_plan(reader, normalization, archive_stats, private_ref, cfg,
             env["GCP03_ORIGIN_RECOVERY_IMPORT_FAILURE_SHA256"])
         if mode == "plan":
@@ -241,7 +300,7 @@ def main():
         report = run(dict(os.environ))
     except ImportStopped as exc:
         mode = os.environ.get("GCP03_ORIGIN_RECOVERY_MODE")
-        is_plan = mode != "apply"
+        is_plan = mode in {"plan", "continuation-plan"}
         report = {"format": PLAN_FORMAT if is_plan else APPLY_FORMAT,
             "phase": "recover-plan" if is_plan else "recover", "run_id": TARGET_RUN_ID,
             "status": "stopped", "phase_success": False, "report_complete": False,

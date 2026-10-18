@@ -17,8 +17,10 @@ from gcp03_origin_private_files import (
     PrivateFile,
     PrivateFileStore,
     copy_validated_private_files,
+    private_evidence_ids,
     validate_private_file_references,
 )
+from gcp03_origin_private_file_refs import PrivateFileReferenceQueryError
 
 FORMAT = "espacigo.g03o.normalization-reentry-plan.v1"
 OWNER_RE = re.compile(
@@ -64,6 +66,66 @@ class RecoveryStop(RuntimeError):
     def __init__(self, code: str, stage: str, transaction_outcome: str = "not_started"):
         super().__init__(code)
         self.code, self.stage, self.transaction_outcome = code, stage, transaction_outcome
+
+
+def build_private_file_continuation_plan(*, references: set[str], private_files: list[PrivateFile],
+                                         run_id: str, normalized_checks: dict,
+                                         sanitation_counts: dict, migration_history_sha256: str,
+                                         role_checks: dict) -> dict:
+    """Bind a copy-only continuation to an already-normalized target snapshot."""
+    if any(normalized_checks.get(key) is not True for key in REQUIRED_OWNER_POSTCHECKS):
+        raise RecoveryStop("OWNER_ACL_POSTCHECK_FAILED", "continuation_preflight")
+    if any(sanitation_counts.get(key) != 0 for key in REQUIRED_SANITATION_COUNTS) or \
+            sanitation_counts.get("runtime_role_login") is not False:
+        raise RecoveryStop("SANITATION_POSTCONDITIONS_FAILED", "continuation_preflight")
+    if any(value is not True for value in role_checks.values()) or not role_checks:
+        raise RecoveryStop("CONTINUATION_ROLE_POSTCHECK_FAILED", "continuation_preflight")
+    reference_report = validate_private_file_references(private_files, references, run_id=run_id)
+    inventory = sorted(
+        f"{hashlib.sha256(str(item.object_name).encode()).hexdigest()}:{len(item.data)}:{item.sha256}"
+        for item in private_files
+    )
+    canonical = {
+        "format": "espacigo.g03o.private-file-continuation.v1",
+        "run_id": run_id,
+        "migration_history_sha256": migration_history_sha256,
+        "role_checks_sha256": hashlib.sha256(json.dumps(role_checks, sort_keys=True,
+            separators=(",", ":")).encode()).hexdigest(),
+        "database_reference_count": reference_report["database_reference_count"],
+        "private_file_count": len(private_files),
+        "private_file_bytes": sum(len(item.data) for item in private_files),
+        "private_file_inventory_sha256": hashlib.sha256("\n".join(inventory).encode()).hexdigest(),
+        "reference_set_sha256": hashlib.sha256("\n".join(sorted(references)).encode()).hexdigest(),
+        "execution_performed": False,
+        "contains_identifiers": False,
+    }
+    canonical["plan_sha256"] = hashlib.sha256(json.dumps(
+        canonical, sort_keys=True, separators=(",", ":")
+    ).encode()).hexdigest()
+    return canonical
+
+
+def execute_private_file_continuation(*, plan: dict, approved_plan_sha256: str,
+                                      references: set[str], private_files: list[PrivateFile],
+                                      normalized_checks: dict, sanitation_counts: dict,
+                                      run_id: str, store: PrivateFileStore,
+                                      migration_history_sha256: str, role_checks: dict) -> dict:
+    """Recompute the approved read-only inventory, then perform create-only copies."""
+    current = build_private_file_continuation_plan(references=references,
+        private_files=private_files, run_id=run_id, normalized_checks=normalized_checks,
+        sanitation_counts=sanitation_counts, migration_history_sha256=migration_history_sha256,
+        role_checks=role_checks)
+    if plan != current or approved_plan_sha256 != current["plan_sha256"]:
+        return {"status": "stopped", "phase_success": False, "report_complete": True,
+                "stage": "continuation_plan_hash_check", "error_code": "CURRENT_PLAN_DIFFERS_FROM_APPROVED_PLAN",
+                "retry": False}
+    copied = copy_validated_private_files(private_files, run_id=run_id, store=store)
+    return {"format": current["format"], "status": "continued", "phase_success": True,
+            "report_complete": True, "stage": "complete", "retry": False,
+            "plan_sha256": current["plan_sha256"],
+            "database_reference_count": current["database_reference_count"],
+            "private_file_count": len(copied), "private_file_bytes": sum(int(x["bytes"]) for x in copied),
+            "private_file_inventory_sha256": current["private_file_inventory_sha256"]}
 
 
 REQUIRED_SANITATION_COUNTS = (
@@ -292,8 +354,23 @@ def execute_reviewed_recovery(
         report["stage"] = "private_file_validation"
         references = database.private_file_refs()
         reference_report = validate_private_file_references(private_files, references, run_id=run_id)
+    except PrivateFileReferenceQueryError as exc:
+        report.update(error_code="PRIVATE_FILE_REFERENCE_QUERY_FAILED", transaction_outcome="committed")
+        if exc.sqlstate:
+            report["sqlstate"] = exc.sqlstate
+        return report
+    except RuntimeError:
+        report.update(error_code="PRIVATE_FILE_REFERENCE_SET_MISMATCH", transaction_outcome="committed")
+        return report
     except Exception:
-        report.update(error_code="PRIVATE_FILE_REFERENCE_MISMATCH", transaction_outcome="committed")
+        report.update(error_code="PRIVATE_FILE_REFERENCE_SET_MISMATCH", transaction_outcome="committed")
+        try:
+            file_ids = private_evidence_ids(private_files, run_id=run_id)
+            report.update(database_reference_count=len(references), private_evidence_file_count=len(file_ids),
+                database_reference_set_sha256=hashlib.sha256("\n".join(sorted(references)).encode()).hexdigest(),
+                private_evidence_set_sha256=hashlib.sha256("\n".join(sorted(file_ids)).encode()).hexdigest())
+        except Exception:
+            pass
         return report
 
     try:

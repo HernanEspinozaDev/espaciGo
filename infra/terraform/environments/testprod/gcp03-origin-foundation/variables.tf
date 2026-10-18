@@ -240,6 +240,37 @@ variable "enable_origin_recovery_apply_job" {
   }
 }
 
+variable "enable_origin_recovery_continuation_plan_job" {
+  type        = bool
+  default     = false
+  description = "Default-off read-only plan for the private-file copy continuation after the already-committed normalization and sanitation phases."
+  validation {
+    condition = !var.enable_origin_recovery_continuation_plan_job || (
+      var.enable_origin_recovery_plan_job && !var.enable_origin_recovery_apply_job
+    )
+    error_message = "Continuation planning requires the reviewed recovery infrastructure and cannot run with normalization apply enabled."
+  }
+}
+
+variable "enable_origin_recovery_continuation_copy_job" {
+  type        = bool
+  default     = false
+  description = "Default-off create-only private-file copy continuation; never normalizes owners or sanitizes rows."
+  validation {
+    condition = !var.enable_origin_recovery_continuation_copy_job || (
+      var.enable_origin_recovery_continuation_plan_job && var.confirm_origin_recovery_continuation_plan_reviewed &&
+      !var.enable_origin_recovery_apply_job && can(regex("^[0-9a-f]{64}$", var.origin_recovery_approved_plan_sha256))
+    )
+    error_message = "Continuation copy requires a separately reviewed continuation plan SHA and must not run with the original apply mode."
+  }
+}
+
+variable "confirm_origin_recovery_continuation_plan_reviewed" {
+  type        = bool
+  default     = false
+  description = "Acknowledges review of the exact read-only private-file continuation plan SHA-256."
+}
+
 variable "confirm_origin_recovery_plan_reviewed" {
   type        = bool
   default     = false
@@ -494,8 +525,9 @@ locals {
   uploader_impersonation_enabled = local.foundation_enabled && var.enable_uploader_impersonation_binding
   observer_account_id            = "g03o-observer-${var.run_id}"
   postrestore_enabled            = local.foundation_enabled && var.enable_origin_postrestore_job
-  recovery_enabled               = local.foundation_enabled && (var.enable_origin_recovery_plan_job || var.enable_origin_recovery_apply_job)
-  recovery_apply_enabled         = local.foundation_enabled && var.enable_origin_recovery_apply_job
+  recovery_enabled               = local.foundation_enabled && (var.enable_origin_recovery_plan_job || var.enable_origin_recovery_apply_job || var.enable_origin_recovery_continuation_plan_job || var.enable_origin_recovery_continuation_copy_job)
+  recovery_apply_enabled         = local.foundation_enabled && (var.enable_origin_recovery_apply_job || var.enable_origin_recovery_continuation_copy_job)
+  recovery_mode                  = var.enable_origin_recovery_continuation_copy_job ? "continuation-copy" : var.enable_origin_recovery_continuation_plan_job ? "continuation-plan" : var.enable_origin_recovery_apply_job ? "apply" : "plan"
   postrestore_account_id         = "g03o-postverify-${var.run_id}"
   observer_database_url          = "postgres://${local.observer_account_id}%40${var.project_id}.iam@localhost:5432/espacigo_scratch?sslmode=disable"
 }
