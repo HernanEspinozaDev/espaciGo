@@ -1,15 +1,21 @@
 FROM golang:1.27.1-alpine3.24@sha256:cd9a32216aee5667f957a62d13a10032a63fd58e14b3f3d9cc8c2122f501e95e AS build
 WORKDIR /src
-RUN apk add --no-cache ca-certificates && install -d -m 1777 /out/tmp
+RUN install -d -m 0700 /out/bin /runtime-root && install -d -m 1777 /runtime-root/tmp
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/gcp04-w7-b1-probe ./cmd/gcp04w7b1probe
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/bin/gcp04-w7-b1-probe ./cmd/gcp04w7b1probe
 
-FROM scratch
-COPY --from=build --chown=0:0 /out/gcp04-w7-b1-probe /gcp04-w7-b1-probe
+FROM scratch AS binary-export
+COPY --from=build /out/bin/gcp04-w7-b1-probe /gcp04-w7-b1-probe
 COPY --from=build /src/db/query/gcp04_w7_b1_actor_probe.sql /gcp04_w7_b1_actor_probe.sql
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-COPY --from=build --chown=0:0 --chmod=1777 /out/tmp /tmp
+COPY --from=build --chown=0:0 --chmod=1777 /runtime-root/tmp /tmp
+
+FROM scratch
+COPY --from=build --chown=0:0 /out/bin/gcp04-w7-b1-probe /gcp04-w7-b1-probe
+COPY --from=build /src/db/query/gcp04_w7_b1_actor_probe.sql /gcp04_w7_b1_actor_probe.sql
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build --chown=0:0 --chmod=1777 /runtime-root/tmp /tmp
 USER 0:0
 ENTRYPOINT ["/gcp04-w7-b1-probe"]

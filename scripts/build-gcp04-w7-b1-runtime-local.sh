@@ -4,7 +4,13 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 output_dir="$repo_root/.local/testing/gcp04-w7-b1/runtime-build"
-install -d -m 0700 "$output_dir"
+install -d -m 0700 "$output_dir" "$output_dir/exported"
+docker buildx build --platform linux/amd64 --file Dockerfile.gcp04-w7-b1-runtime --target binary-export --output "type=local,dest=$output_dir/exported" .
+find "$output_dir/exported" -type d -exec chmod 0700 {} +
+find "$output_dir/exported" -type f -exec chmod 0600 {} +
+chmod 0700 "$output_dir/exported"
+sha256sum "$output_dir/exported/gcp04-w7-b1-probe" > "$output_dir/binary-sha256.txt"
+chmod 0600 "$output_dir/binary-sha256.txt"
 docker buildx build \
   --platform linux/amd64 \
   --file Dockerfile.gcp04-w7-b1-runtime \

@@ -97,3 +97,21 @@ variable "release_sha256" {
     error_message = "The approved release SHA-256 must be lowercase hex."
   }
 }
+
+variable "marker_bucket_name" {
+  type    = string
+  default = ""
+  validation {
+    condition     = var.marker_bucket_name == "" || can(regex("^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$", var.marker_bucket_name))
+    error_message = "Set the exact pre-existing private bucket only for an approved run."
+  }
+}
+
+variable "binary_sha256" {
+  type    = string
+  default = ""
+  validation {
+    condition     = var.binary_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.binary_sha256))
+    error_message = "Use the exact runtime binary SHA-256 for this release."
+  }
+}
