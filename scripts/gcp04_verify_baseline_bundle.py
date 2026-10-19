@@ -56,6 +56,13 @@ def canonical_json(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def validate_manifest_format(manifest: dict) -> str:
+    manifest_format = manifest.get("format")
+    if manifest_format not in {FORMAT, LEGACY_FORMAT} or manifest.get("role_definitions_and_memberships_in_dump") is not False:
+        raise ValueError("unsupported baseline bundle format or archive role policy")
+    return manifest_format
+
+
 def verify_gadm_bootstrap_manifest(manifest: dict, catalog: dict) -> None:
     gadm = next((role for role in catalog.get("roles", []) if role.get("name") == "espacigo_gadm_bootstrap"), None)
     bootstrap = manifest.get("gadm_bootstrap")
@@ -220,9 +227,7 @@ def verify_bundle(bundle_dir: Path, repo_root: Path, archive_lister: Callable[[P
 
     manifest_path = resolved / "baseline.manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest_format = manifest.get("format")
-    if manifest_format not in {FORMAT, LEGACY_FORMAT} or manifest.get("role_definitions_and_memberships_in_dump") is not False:
-        raise ValueError("unsupported baseline bundle format or archive role policy")
+    manifest_format = validate_manifest_format(manifest)
     body = {key: value for key, value in manifest.items() if key != "manifest_body_sha256"}
     if sha256(canonical_json(body)) != manifest.get("manifest_body_sha256"):
         raise ValueError("baseline manifest body hash mismatch")
@@ -323,7 +328,7 @@ def verify_bundle(bundle_dir: Path, repo_root: Path, archive_lister: Callable[[P
     if lister(resolved / "baseline.dump") != (resolved / "baseline.toc.original").read_bytes():
         raise ValueError("native pg_restore TOC differs from the retained original TOC")
     return {
-        "format": FORMAT,
+        "format": manifest_format,
         "manifest_body_sha256": manifest["manifest_body_sha256"],
         "archive_sha256": manifest["archive_sha256"],
         "migration_history_sha256": manifest["migration_history_sha256_equal"],

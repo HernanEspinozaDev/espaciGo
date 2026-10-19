@@ -3,10 +3,24 @@ import hashlib
 import json
 import unittest
 
-from gcp04_verify_baseline_bundle import canonical_json, verify_gadm_bootstrap_manifest
+from gcp04_verify_baseline_bundle import (
+    FORMAT,
+    LEGACY_FORMAT,
+    canonical_json,
+    validate_manifest_format,
+    verify_gadm_bootstrap_manifest,
+)
 
 
 class GadmManifestContractTests(unittest.TestCase):
+    def test_legacy_format_is_preserved(self):
+        manifest = {"format": LEGACY_FORMAT, "role_definitions_and_memberships_in_dump": False}
+        self.assertEqual(LEGACY_FORMAT, validate_manifest_format(manifest))
+
+    def test_current_format_is_preserved(self):
+        manifest = {"format": FORMAT, "role_definitions_and_memberships_in_dump": False}
+        self.assertEqual(FORMAT, validate_manifest_format(manifest))
+
     def setUp(self):
         self.comment = "NOLOGIN GADM local bootstrap group; temporary isolated login membership only."
         self.catalog = {"roles": [{"name": "espacigo_gadm_bootstrap", "login": False,
