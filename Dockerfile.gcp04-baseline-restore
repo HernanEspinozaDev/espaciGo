@@ -1,0 +1,20 @@
+# syntax=docker/dockerfile:1.7
+FROM golang:1.27.1-alpine3.24@sha256:cd9a32216aee5667f957a62d13a10032a63fd58e14b3f3d9cc8c2122f501e95e AS build
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=linux GOARCH=amd64
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/gcp04baseline-restore ./cmd/gcp04baseline-restore
+COPY internal/database/cloudsql ./internal/database/cloudsql
+RUN go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/gcp04-baseline-restore ./cmd/gcp04baseline-restore
+
+FROM postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+WORKDIR /app
+COPY --from=build /out/gcp04-baseline-restore /app/gcp04-baseline-restore
+COPY --chmod=0444 --from=baseline baseline.dump /app/baseline/baseline.dump
+COPY --chmod=0444 --from=baseline baseline.manifest.json /app/baseline/baseline.manifest.json
+COPY --chmod=0444 --from=baseline baseline.toc.original /app/baseline/baseline.toc.original
+COPY --chmod=0444 --from=baseline baseline.toc.restore /app/baseline/baseline.toc.restore
+COPY --chmod=0444 --from=baseline baseline.acl.restore.sql /app/baseline/baseline.acl.restore.sql
+USER 65532:65532
+ENTRYPOINT ["/app/gcp04-baseline-restore"]
