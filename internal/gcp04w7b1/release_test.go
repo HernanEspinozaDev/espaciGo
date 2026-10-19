@@ -21,6 +21,7 @@ type testAPI struct {
 	role                        []string
 	secretPayload, userPassword []byte
 	failInsert                  bool
+	failInsertDefinitive        bool
 	insertConflict              bool
 	failWait                    bool
 	failDelete                  bool
@@ -75,11 +76,19 @@ func (f *testAPI) InsertUser(_ context.Context, name, typ string, roles []string
 		if f.insertConflict {
 			f.users = append(f.users, UserMetadata{Name: name, Type: typ, Roles: append([]string(nil), roles...)})
 		}
+		if f.failInsertDefinitive {
+			return "", definitiveTestError{}
+		}
 		return "", errors.New("transport uncertain")
 	}
 	f.users = append(f.users, UserMetadata{Name: name, Type: typ, Roles: roles})
 	return "operation-1", nil
 }
+
+type definitiveTestError struct{}
+
+func (definitiveTestError) Error() string    { return "rejected" }
+func (definitiveTestError) Definitive() bool { return true }
 func (f *testAPI) WaitOperation(context.Context, string) error {
 	f.calls = append(f.calls, "wait")
 	if f.failWait {
@@ -156,6 +165,23 @@ func approved(stage string) Release {
 	return Release{Decision: "approved", Stage: stage, ReleaseID: id, ResourceReleaseID: "b1-run-1", CreateOperationID: "create-op-1", Reviewer: "HernanEspinozaDev", ExpiresAt: time.Now().Add(10 * time.Minute), Target: ProjectID + "/" + Instance, Login: Bootstrap, Role: AdminRole, SecretID: SecretID, QuerySHA256: QuerySHA256, Runs: 1, MaxDurationSeconds: 30, SecretETag: "secret-etag", Version: "7", VersionETag: "version-etag", CreatedVersionETag: "version-etag"}
 }
 
+func approvedSecretCleanup(withVersion bool) Release {
+	r := approved("b1_cleanup_secret")
+	r.ReleaseID = "b1-secret-cleanup-1"
+	r.CreateOperationID = ""
+	if !withVersion {
+		r.Version, r.VersionETag, r.CreatedVersionETag = "", "", ""
+	}
+	return r
+}
+
+func approvedReconcile() Release {
+	r := approved("b1_reconcile")
+	r.ReleaseID = "b1-reconcile-1"
+	r.VersionETag = "version-etag"
+	return r
+}
+
 func seedCreateProof(j *testJournal) {
 	j.records = append(j.records, JournalRecord{ReleaseID: "b1-run-1", ResourceReleaseID: "b1-run-1", Stage: "b1_create", Phase: "create_complete", Target: ProjectID + "/" + Instance, Login: Bootstrap, Secret: secretParent(), SecretETag: "secret-etag", Version: "7", VersionETag: "version-etag", Operation: "create-op-1", OperationType: "CREATE_USER", OperationTarget: Instance, OperationUser: Bootstrap})
 }
@@ -229,6 +255,94 @@ func TestInsertConflictNeverCreatesOwnUserProofOrAllowsCleanupDeletion(t *testin
 	err = CleanupB1(context.Background(), f.inv, approved("b1_cleanup"), f, f, f, j, t.TempDir(), time.Now())
 	if err == nil || count(f.calls, "delete-user:"+Bootstrap) != 0 {
 		t.Fatalf("409-like same-name user was adopted/deleted without own operation proof: err=%v calls=%v", err, f.calls)
+	}
+}
+
+func TestPendingCreateCanBeDurablyReconciledAfterWaitFailure(t *testing.T) {
+	f := &testAPI{inv: fixtureInventory(), failWait: true}
+	j := &testJournal{}
+	_, err := CreateB1(context.Background(), f.inv, approved("b1_create"), f, f, j, t.TempDir(), time.Now(), strings.NewReader(strings.Repeat("p", 32)))
+	if !errors.Is(err, ErrUncertain) {
+		t.Fatalf("expected interrupted operation: %v", err)
+	}
+	f.inv.Users, f.inv.Secret, f.inv.Versions = f.users, f.secret, f.versions
+	r := approvedReconcile()
+	r.CreateOperationID = "operation-1"
+	if err = ReconcilePendingCreate(context.Background(), f.inv, r, f, f, j, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if len(j.records) == 0 || j.records[len(j.records)-1].Phase != "user_create_reconciled" || j.records[len(j.records)-1].Stage != "b1_reconcile" {
+		t.Fatalf("missing distinct reconciliation proof: %#v", j.records)
+	}
+	cleanup := approved("b1_cleanup")
+	cleanup.VersionETag = "version-etag"
+	cleanup.CreateOperationID = "operation-1"
+	f.failWait = false
+	if err = CleanupB1(context.Background(), f.inv, cleanup, f, f, f, j, t.TempDir(), time.Now()); err != nil {
+		t.Fatalf("reconciled create proof not accepted by cleanup: %v", err)
+	}
+}
+
+func TestPendingCreateCannotReconcileWithoutExactOperationIDProof(t *testing.T) {
+	f := &testAPI{inv: fixtureInventory()}
+	j := &testJournal{}
+	r := approvedReconcile()
+	if err := ReconcilePendingCreate(context.Background(), f.inv, r, f, f, j, time.Now()); err == nil || count(f.calls, "read-operation:") != 0 {
+		t.Fatalf("reconciliation accepted missing journal proof: %v %v", err, f.calls)
+	}
+}
+
+func TestSecretOnlyCleanupHandlesShellOnlyAndVersionWithoutUserProof(t *testing.T) {
+	for _, withVersion := range []bool{false, true} {
+		f := &testAPI{inv: fixtureInventory()}
+		j := &testJournal{}
+		var err error
+		if withVersion {
+			f.failInsert = true
+			f.failInsertDefinitive = true
+			_, err = CreateB1(context.Background(), f.inv, approved("b1_create"), f, f, j, t.TempDir(), time.Now(), strings.NewReader(strings.Repeat("q", 32)))
+		} else {
+			_, err = CreateB1(context.Background(), f.inv, approved("b1_create"), f, f, j, t.TempDir(), time.Now(), strings.NewReader(""))
+		}
+		if !withVersion {
+			// Simulate failure after shell creation by retaining only the shell-created journal fact.
+			f.versions = nil
+			j.records = append([]JournalRecord(nil), j.records[:2]...)
+		} else {
+			// User insert failure leaves a created secret version and no user.
+		}
+		_ = err
+		f.inv.Secret, f.inv.Versions = f.secret, f.versions
+		r := approvedSecretCleanup(withVersion)
+		if err := CleanupSecretOnlyB1(context.Background(), f.inv, r, f, f, j, t.TempDir(), time.Now()); err != nil {
+			t.Fatalf("withVersion=%v cleanup failed: %v", withVersion, err)
+		}
+		if len(f.versions) != 0 && f.versions[0].State != "DESTROYED" {
+			t.Fatalf("version not safely destroyed: %#v", f.versions)
+		}
+		if f.secret.Name != "" || count(f.calls, "delete-user:") != 0 {
+			t.Fatalf("secret cleanup incomplete or touched user: %v", f.calls)
+		}
+	}
+}
+
+func TestSecretOnlyCleanupRefusesWhenBootstrapUserExists(t *testing.T) {
+	f := &testAPI{inv: fixtureInventory(), users: []UserMetadata{{Name: Bootstrap, Type: "BUILT_IN", Roles: []string{AdminRole}}}, secret: SecretMetadata{Name: secretParent(), ETag: "secret-etag", Replication: "USER_MANAGED", Replicas: []string{Region}, Labels: map[string]string{"release_id": "b1-run-1", "purpose": "gcp04-w7-b1-bootstrap"}}, versions: []VersionMetadata{{Name: secretParent() + "/versions/7", Number: "7", State: "ENABLED", ETag: "version-etag"}}}
+	f.inv.Users, f.inv.Secret, f.inv.Versions = f.users, f.secret, f.versions
+	j := &testJournal{}
+	j.records = append(j.records, JournalRecord{ReleaseID: "b1-run-1", ResourceReleaseID: "b1-run-1", Stage: "b1_create", Phase: "secret_shell_created", Target: ProjectID + "/" + Instance, Login: Bootstrap, Secret: secretParent(), SecretETag: "secret-etag"}, JournalRecord{ReleaseID: "b1-run-1", ResourceReleaseID: "b1-run-1", Stage: "b1_create", Phase: "secret_version_created", SecretETag: "secret-etag", Version: "7", VersionETag: "version-etag"})
+	if err := CleanupSecretOnlyB1(context.Background(), f.inv, approvedSecretCleanup(true), f, f, j, t.TempDir(), time.Now()); err == nil || count(f.calls, "destroy-version:") != 0 || count(f.calls, "delete-secret:") != 0 {
+		t.Fatalf("secret-only cleanup acted while user exists: %v %v", err, f.calls)
+	}
+}
+
+func TestSecretOnlyCleanupRefusesUncertainInsertEvenIfUserCurrentlyAbsent(t *testing.T) {
+	f := &testAPI{inv: fixtureInventory(), failInsert: true}
+	j := &testJournal{}
+	_, _ = CreateB1(context.Background(), f.inv, approved("b1_create"), f, f, j, t.TempDir(), time.Now(), strings.NewReader(strings.Repeat("u", 32)))
+	f.inv.Secret, f.inv.Versions = f.secret, f.versions
+	if err := CleanupSecretOnlyB1(context.Background(), f.inv, approvedSecretCleanup(true), f, f, j, t.TempDir(), time.Now()); err == nil || count(f.calls, "destroy-version:") != 0 || count(f.calls, "delete-secret:") != 0 {
+		t.Fatalf("uncertain insert allowed secret cleanup: %v %v", err, f.calls)
 	}
 }
 

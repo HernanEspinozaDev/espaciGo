@@ -26,6 +26,15 @@ func apiError(err error) error {
 	}
 	return errors.New("Cloud API outcome uncertain")
 }
+
+type definitiveInsertError struct{ code int }
+
+func (e definitiveInsertError) Error() string {
+	return fmt.Sprintf("Cloud SQL rejected user insert (HTTP %d)", e.code)
+}
+func (e definitiveInsertError) Definitive() bool {
+	return e.code >= 400 && e.code < 500 && e.code != 408 && e.code != 429
+}
 func parent() string               { return "projects/" + gcp04w7b1.ProjectID + "/secrets/" + gcp04w7b1.SecretID }
 func parentCanonical() string      { return "projects/447373903153/secrets/" + gcp04w7b1.SecretID }
 func secretParentOK(s string) bool { return s == parent() || s == parentCanonical() }
@@ -171,6 +180,10 @@ func (a cloudAPI) InsertUser(ctx context.Context, name, typ string, roles []stri
 	}
 	x, e := a.sql.Users.Insert(gcp04w7b1.ProjectID, gcp04w7b1.Instance, &sqladmin.User{Name: name, Type: typ, DatabaseRoles: append([]string(nil), roles...), Password: string(password)}).Context(ctx).Do()
 	if e != nil {
+		var httpErr *googleapi.Error
+		if errors.As(e, &httpErr) && httpErr.Code >= 400 && httpErr.Code < 500 && httpErr.Code != 408 && httpErr.Code != 429 {
+			return "", definitiveInsertError{code: httpErr.Code}
+		}
 		return "", apiError(e)
 	}
 	if x == nil || x.Name == "" {

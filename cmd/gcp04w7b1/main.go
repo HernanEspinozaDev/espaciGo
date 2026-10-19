@@ -28,18 +28,19 @@ func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 func run(args []string, out, errOut io.Writer) int {
 	f := flag.NewFlagSet("gcp04w7b1", flag.ContinueOnError)
 	f.SetOutput(errOut)
-	mode := f.String("mode", "plan", "plan (offline default), create, probe, reconcile, or cleanup")
+	mode := f.String("mode", "plan", "plan (offline default), create, probe, reconcile, cleanup, or cleanup-secret")
 	releasePath := f.String("release-file", "", "private stage-specific release under .local/testing/gcp04-w7-b1")
 	confirm := f.String("confirm-release-sha256", "", "exact SHA-256 of release file")
 	executeCreate := f.Bool("execute-b1-create", false, "required in addition to a valid b1_create release")
 	executeCleanup := f.Bool("execute-b1-cleanup", false, "required in addition to a valid b1_cleanup release")
+	executeSecretCleanup := f.Bool("execute-b1-secret-cleanup", false, "required in addition to a valid b1_cleanup_secret release")
 	passwordFile := f.String("password-file", "", "protected mounted credential file; never pass the payload in argv")
 	queryPath := f.String("query-file", "db/query/gcp04_w7_b1_actor_probe.sql", "pinned B1 SQL source")
 	if f.Parse(args) != nil || f.NArg() != 0 {
 		return 2
 	}
 	if *mode == "plan" {
-		if *releasePath != "" || *confirm != "" || *passwordFile != "" || *executeCreate || *executeCleanup {
+		if *releasePath != "" || *confirm != "" || *passwordFile != "" || *executeCreate || *executeCleanup || *executeSecretCleanup {
 			fmt.Fprintln(errOut, "plan mode is offline and accepts no release or credential")
 			return 2
 		}
@@ -50,11 +51,11 @@ func run(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "an exact private stage release and SHA-256 confirmation are required")
 		return 2
 	}
-	if (*mode == "create" && !*executeCreate) || (*mode == "cleanup" && !*executeCleanup) || (*mode != "create" && *executeCreate) || (*mode != "cleanup" && *executeCleanup) {
+	if (*mode == "create" && !*executeCreate) || (*mode == "cleanup" && !*executeCleanup) || (*mode == "cleanup-secret" && !*executeSecretCleanup) || (*mode != "create" && *executeCreate) || (*mode != "cleanup" && *executeCleanup) || (*mode != "cleanup-secret" && *executeSecretCleanup) {
 		fmt.Fprintln(errOut, "the requested B1 stage switch is missing or mismatched")
 		return 2
 	}
-	stage := map[string]string{"create": "b1_create", "probe": "b1_probe", "reconcile": "b1_reconcile", "cleanup": "b1_cleanup"}[*mode]
+	stage := map[string]string{"create": "b1_create", "probe": "b1_probe", "reconcile": "b1_reconcile", "cleanup": "b1_cleanup", "cleanup-secret": "b1_cleanup_secret"}[*mode]
 	if stage == "" {
 		fmt.Fprintln(errOut, "unsupported B1 mode")
 		return 2
@@ -154,12 +155,11 @@ func run(args []string, out, errOut io.Writer) int {
 		_ = json.NewEncoder(out).Encode(result)
 		return 0
 	case "reconcile":
-		result, err := gcp04w7b1.ReconcileInventory(inv, release.ResourceReleaseID, release.Version)
-		if err != nil {
-			fmt.Fprintln(errOut, "B1 inventory is inconsistent")
+		if err = gcp04w7b1.ReconcilePendingCreate(ctx, inv, release, api, api, journal, time.Now()); err != nil {
+			fmt.Fprintln(errOut, "B1 pending create cannot be reconciled; operation/journal proof is required; do not retry or delete")
 			return 1
 		}
-		_ = json.NewEncoder(out).Encode(result)
+		_ = json.NewEncoder(out).Encode(map[string]any{"format": "espacigo.gcp04.w7.b1-reconciliation.v1", "status": "user_create_reconciled", "login": gcp04w7b1.Bootstrap, "create_operation_id": release.CreateOperationID, "mutation_authorized": false})
 		return 0
 	case "cleanup":
 		if err = gcp04w7b1.CleanupB1(ctx, inv, release, api, api, api, journal, leases, time.Now()); err != nil {
@@ -167,6 +167,13 @@ func run(args []string, out, errOut io.Writer) int {
 			return 1
 		}
 		_ = json.NewEncoder(out).Encode(map[string]any{"format": "espacigo.gcp04.w7.b1-cleanup.v1", "status": "user_delete_done_absent_secret_version_destroyed_shell_absent", "login": gcp04w7b1.Bootstrap, "secret_resource": parent(), "secret_version": release.Version})
+		return 0
+	case "cleanup-secret":
+		if err = gcp04w7b1.CleanupSecretOnlyB1(ctx, inv, release, api, api, journal, leases, time.Now()); err != nil {
+			fmt.Fprintln(errOut, "B1 secret-only cleanup failed or is uncertain; user absence and exact run ownership are required")
+			return 1
+		}
+		_ = json.NewEncoder(out).Encode(map[string]any{"format": "espacigo.gcp04.w7.b1-secret-cleanup.v1", "status": "secret_absent", "login": gcp04w7b1.Bootstrap, "secret_resource": parent(), "secret_version": release.Version})
 		return 0
 	default:
 		return 2
