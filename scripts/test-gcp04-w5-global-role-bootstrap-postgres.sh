@@ -61,7 +61,7 @@ done
 psql_local() { compose exec -T postgres psql -X -v ON_ERROR_STOP=1 "$@"; }
 psql_local -U postgres -d postgres <<'SQL' >/dev/null
 CREATE DATABASE espacigo;
-CREATE ROLE gcp04_w5_actor LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS INHERIT;
+CREATE ROLE gcp04_w5_actor LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 SQL
 
 # Run the exact desired operation inside a disposable transaction. PostgreSQL
@@ -126,4 +126,46 @@ BEGIN
   END IF;
 END $$;
 SQL
-echo 'PASS: PG18 proves COMMENT succeeds but no-superuser CREATEROLE cannot remove the automatically granted ADMIN edge; failed transaction leaves no role or membership.'
+
+expect_failure() {
+  local expected="$1" output="$TMP_DIR/failure.log" status=0
+  compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U gcp04_w5_actor -d espacigo \
+    < "$ROOT_DIR/db/bootstrap/gcp04-runtime/004_gadm_global_role.sql" > "$output" 2>&1 || status=$?
+  if [[ "$status" -eq 0 ]]; then cat "$output" >&2; echo 'Expected existing-role contract failure.' >&2; exit 1; fi
+  if ! grep -Fq "$expected" "$output"; then cat "$output" >&2; echo "Failure did not match expected contract guard: $expected" >&2; exit 1; fi
+  echo 'Expected fail-closed existing-role case confirmed.'
+}
+
+# Successful candidate: atomic temporary CREATEROLE intermediary, exact
+# comment, no residual memberships/ownership/settings, and exact rerun no-op.
+psql_local -U gcp04_w5_actor -d espacigo < "$ROOT_DIR/db/bootstrap/gcp04-runtime/004_gadm_global_role.sql"
+BEFORE_RERUN="$(psql_local -U postgres -d espacigo -Atc "SELECT (SELECT count(*) FROM pg_catalog.pg_roles)::text || ':' || (SELECT count(*) FROM pg_catalog.pg_auth_members)::text || ':' || (SELECT count(*) FROM pg_catalog.pg_db_role_setting)::text")"
+psql_local -U gcp04_w5_actor -d espacigo < "$ROOT_DIR/db/bootstrap/gcp04-runtime/004_gadm_global_role.sql"
+AFTER_RERUN="$(psql_local -U postgres -d espacigo -Atc "SELECT (SELECT count(*) FROM pg_catalog.pg_roles)::text || ':' || (SELECT count(*) FROM pg_catalog.pg_auth_members)::text || ':' || (SELECT count(*) FROM pg_catalog.pg_db_role_setting)::text")"
+[[ "$BEFORE_RERUN" == "$AFTER_RERUN" ]] || { echo 'Exact rerun changed role, membership, or role-setting counts.' >&2; exit 1; }
+
+psql_local -U postgres -d espacigo -c 'ALTER ROLE espacigo_gadm_bootstrap LOGIN' >/dev/null
+expect_failure 'existing espacigo_gadm_bootstrap has unexpected role attributes'
+psql_local -U postgres -d espacigo -Atc "SELECT rolcanlogin FROM pg_catalog.pg_roles WHERE rolname='espacigo_gadm_bootstrap'" | grep -qx t
+psql_local -U postgres -d espacigo -c 'ALTER ROLE espacigo_gadm_bootstrap NOLOGIN' >/dev/null
+
+psql_local -U postgres -d espacigo -c "COMMENT ON ROLE espacigo_gadm_bootstrap IS 'unexpected fixture comment'" >/dev/null
+expect_failure 'existing espacigo_gadm_bootstrap has unexpected comment'
+psql_local -U postgres -d espacigo -Atc "SELECT shobj_description(oid,'pg_authid') FROM pg_catalog.pg_roles WHERE rolname='espacigo_gadm_bootstrap'" | grep -qx 'unexpected fixture comment'
+psql_local -U postgres -d espacigo -c "COMMENT ON ROLE espacigo_gadm_bootstrap IS 'NOLOGIN GADM local bootstrap group; temporary isolated login membership only.'" >/dev/null
+
+psql_local -U postgres -d espacigo <<'SQL' >/dev/null
+CREATE ROLE gcp04_w5_member_fixture NOLOGIN;
+GRANT gcp04_w5_member_fixture TO espacigo_gadm_bootstrap;
+SQL
+expect_failure 'existing espacigo_gadm_bootstrap has role memberships'
+psql_local -U postgres -d espacigo -c 'REVOKE gcp04_w5_member_fixture FROM espacigo_gadm_bootstrap' >/dev/null
+psql_local -U postgres -d espacigo -c 'GRANT espacigo_gadm_bootstrap TO gcp04_w5_member_fixture' >/dev/null
+expect_failure 'existing espacigo_gadm_bootstrap has role memberships'
+psql_local -U postgres -d espacigo -c 'REVOKE espacigo_gadm_bootstrap FROM gcp04_w5_member_fixture' >/dev/null
+psql_local -U postgres -d espacigo -c 'CREATE SCHEMA gcp04_w5_owned AUTHORIZATION espacigo_gadm_bootstrap' >/dev/null
+expect_failure 'existing espacigo_gadm_bootstrap owns database objects'
+psql_local -U postgres -d espacigo -c 'DROP SCHEMA gcp04_w5_owned' >/dev/null
+psql_local -U postgres -d espacigo -c 'DROP ROLE gcp04_w5_member_fixture' >/dev/null
+
+echo 'PASS: PG18 direct REVOKE limitation reproduced; intermediary helper creates/comments GADM atomically, removes temporary memberships, passes exact rerun, and rejects unexpected attributes/comment/memberships/ownership.'
