@@ -1,5 +1,16 @@
 # GCP-04 `g04replay18`: matriz de estado y cierre técnico
 
+## Actualización posterior: GCP-04-W7 gate observer local (2026-10-19)
+
+| Capacidad | Estado | Evidencia / alcance |
+| --- | --- | --- |
+| W4/W7 PUBLIC preflight | Verificado localmente en PostgreSQL 18, sin Cloud | El harness W6 informa `CONNECT=true`, `CREATE=false`, `TEMPORARY=false` en la base y `USAGE=true`, `CREATE=false` en `public`, tanto antes como después del restore. W9 registró `TEMPORARY=true` antes del bootstrap; W7 adopta el estado más restrictivo que ya fijan `001/002`. W4 solo lee ACL. |
+| Runner observador | Prueba local completa en ambas fases | `TestLocalObserverReadOnlyIntegration` pasó antes y después del restore. Falla cerrado para `PUBLIC TEMPORARY=true` y para cualquier miembro adicional del grupo observer; consulta read-only. No demuestra estado Cloud. |
+| Canal de alta y actor | Sin canal compatible acreditado | PostgreSQL 18 deja ADMIN OPTION al actor `CREATEROLE` que crea un rol; una prueba aislada confirmó que la concesión permanece tras intentar retirarla desde el mismo actor. Cloud SQL `users.insert` requiere un rol custom existente para evitar `cloudsqlsuperuser`, pero el request documentado no expresa opciones `INHERIT/SET`. Ver [paquete de decisión W7](gcp04_w7_observer_channel_decision_20261019.md). |
+| Cloud / avance | Bloqueado antes de mutaciones | No se creó login, grupo, secreto, IAM, Job ni state. Siguiente gate: decidir stewardship de membresías y contar con actor SQL cuya capacidad `CREATEROLE`/grant options se pruebe directamente, no desde `users.list`. |
+
+**Corte local:** worktree `codex/infra/chore/gcp04-w7-observer-gate`, base `9f9e084b35f31d8710ca7665cd75362732e48c80`. Harness de dos PostgreSQL 18/PostGIS con red deshabilitada y `tmpfs`; contenedores/volúmenes retirados y verificado. Evidencia sintética privada `.local/testing/gcp04-w3-logical-baseline-w7-observer-sql-final2-20261019.json` (0600). No es aceptación de GCP-04 ni autorización de Cloud.
+
 ## Actualización posterior: GCP-04-W6 (2026-10-19)
 
 | Capacidad | Estado | Evidencia / alcance |
