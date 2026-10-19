@@ -84,15 +84,23 @@ func compileQuery(source []byte) (string, error) {
 		return "", errors.New("W8 SQL source digest mismatch")
 	}
 	body := string(source)
-	if !strings.HasPrefix(body, "-- W8 first observation") || strings.Count(body, "BEGIN READ ONLY;") != 1 || !strings.HasSuffix(body, "COMMIT;\n") {
+	beginMarker := "BEGIN READ ONLY;\n"
+	commitMarker := "\nCOMMIT;\n"
+	if !strings.HasPrefix(body, "-- W8 first observation") || strings.Count(body, beginMarker) != 1 || !strings.HasSuffix(body, commitMarker) {
 		return "", errors.New("W8 SQL wrapper differs from reviewed form")
 	}
-	for _, forbidden := range []string{"pg_settings", "pg_stat_", "pg_authid", "pg_shadow", "INSERT ", "UPDATE ", "DELETE ", "CREATE ", "ALTER ", "DROP ", "\\\\"} {
-		if strings.Contains(strings.ToLower(body), strings.ToLower(forbidden)) {
+	start := strings.Index(body, beginMarker) + len(beginMarker)
+	statement := strings.TrimSpace(strings.TrimSuffix(body[start:], commitMarker))
+	statement = strings.TrimSuffix(statement, ";")
+	if !strings.HasPrefix(statement, "WITH RECURSIVE") || strings.Contains(statement, ";") {
+		return "", errors.New("W8 SQL must contain exactly one catalog SELECT statement")
+	}
+	for _, forbidden := range []string{"pg_settings", "pg_stat_", "pg_authid", "pg_shadow", "INSERT ", "UPDATE ", "DELETE ", "CREATE ", "ALTER ", "DROP "} {
+		if strings.Contains(strings.ToLower(statement), strings.ToLower(forbidden)) {
 			return "", errors.New("W8 SQL contains a forbidden catalog or mutation token")
 		}
 	}
-	return strings.TrimSpace(body), nil
+	return statement, nil
 }
 
 func readPassword(path string) (string, error) {
@@ -144,8 +152,8 @@ func run(ctx context.Context, c config) (map[string]any, error) {
 	if err != nil {
 		return nil, errors.New("read-only catalog transaction failed")
 	}
-	var raw []byte
-	if err := tx.QueryRow(deadline, query).Scan(&raw); err != nil {
+	raw, err := queryReport(deadline, tx, query)
+	if err != nil {
 		_ = tx.Rollback(context.Background())
 		return nil, errors.New("allowlisted catalog query failed")
 	}
@@ -157,4 +165,10 @@ func run(ctx context.Context, c config) (map[string]any, error) {
 		return nil, errors.New("catalog report identity or read-only contract failed")
 	}
 	return map[string]any{"format": decoded.Format, "status": "observed", "target": decoded.Target, "report": json.RawMessage(raw), "query_sha256": querySHA256, "secret_version": c.secretVersion}, nil
+}
+
+func queryReport(ctx context.Context, tx pgx.Tx, query string) ([]byte, error) {
+	var raw []byte
+	err := tx.QueryRow(ctx, query).Scan(&raw)
+	return raw, err
 }

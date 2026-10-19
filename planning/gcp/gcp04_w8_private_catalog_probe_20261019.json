@@ -32,25 +32,28 @@
     "forbidden": ["pg_settings", "pg_stat_activity", "business table rows", "pg_authid", "pg_shadow", "passwords", "secrets", "mutations"]
   },
   "resources": {
-    "regional_secret": "projects/espacigo-testprod/locations/southamerica-west1/secrets/espacigo-gcp04-w8-catalog-probe-password",
-    "secret_version_policy": "numeric version only; payload generated in process memory and sent directly to regional AddSecretVersion; never Terraform state, logs, arguments, or report",
+    "secret_resource": "projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password",
+    "secret_replication": {"policy": "USER_MANAGED", "replica_locations": ["southamerica-west1"]},
+    "secret_resource_creation": "separately reviewed metadata-only global google_secret_manager_secret; no payload/version in Terraform state",
+    "secret_version_policy": "numeric version only; payload generated in process memory and sent directly to global AddSecretVersion; version payload is replicated only to southamerica-west1; never Terraform state, logs, arguments, or report",
     "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/gcp04-w8-catalog-probe@sha256:<must-be-reviewed-before-release>",
     "job": "espacigo-gcp04-w8-catalog-probe",
     "service_account": "espacigo-gcp04-w8-catalog-probe",
     "network": "projects/espacigo-testprod/global/networks/espacigo-testprod",
     "subnetwork": "projects/espacigo-testprod/regions/southamerica-west1/subnetworks/espacigo-testprod-serverless",
     "vpc_egress": "PRIVATE_RANGES_ONLY",
-    "secret_mount": {"volume": "w8-database-password", "mount_path": "/var/secrets/w8", "filename": "password", "file_path": "/var/secrets/w8/password", "mode_octal": "0444"},
+    "secret_mount": {"volume": "w8-database-password", "secret_resource": "projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password", "cloud_run_same_project_secret_reference": "espacigo-gcp04-w8-catalog-probe-password", "mount_path": "/var/secrets/w8", "filename": "password", "file_path": "/var/secrets/w8/password", "version": "<exact-numeric-version-required>", "mode_octal": "0444"},
     "environment": {"DATABASE_NAME": "espacigo", "DATABASE_USER": "espacigo_gcp04_w8_catalog_probe", "DATABASE_PASSWORD_FILE": "/var/secrets/w8/password", "GCP04_W8_SECRET_VERSION": "<exact-numeric-version-required>", "GCP04_W8_PROJECT_ID": "espacigo-testprod", "GCP04_W8_EXPECTED_PRIVATE_IP": "10.189.0.3", "CLOUD_SQL_INSTANCE_CONNECTION_NAME": "espacigo-testprod:southamerica-west1:espacigo-testprod-pg"},
     "job_shape": {"tasks": 1, "parallelism": 1, "retries": 0, "cpu": "1", "memory": "512Mi", "timeout_seconds": 120},
-    "iam": ["roles/cloudsql.client conditioned to exact SQL instance", "roles/secretmanager.secretAccessor on exact regional W8 secret only", "roles/artifactregistry.reader for the exact repository service agent"]
+    "iam": ["roles/cloudsql.client conditioned to exact SQL instance", "roles/secretmanager.secretAccessor on exact global W8 API secret only", "roles/artifactregistry.reader for the exact repository service agent"]
   },
   "sequence": [
-    "read exact Cloud SQL metadata, user inventory, and regional secret metadata",
+    "require separately reviewed metadata-only global API secret resource with immutable user-managed single southamerica-west1 replica; abort if absent",
+    "read exact Cloud SQL metadata, user inventory, and global API secret metadata/version inventory",
     "abort before credential generation on login collision, secret version collision, target mismatch, or incomplete metadata",
     "obtain separate review of the broad candidate role and Admin API role acceptance",
     "generate high-entropy password in memory only",
-    "append version to the exact pre-existing regional secret and retain only the numeric version identifier",
+    "append version to exact global API secret with immutable user-managed replication to southamerica-west1 only; retain only numeric version identifier",
     "CREATE_USER with type BUILT_IN and explicit databaseRoles=[pg_read_all_settings]",
     "prepare exact resource plan and one isolated Job pinned to a reviewed immutable image digest",
     "run the allowlisted catalog query once after a separately approved execution release"
@@ -65,14 +68,15 @@
   "teardown": [
     "delete only the exact W8 Job and dedicated service account and bindings created by the release",
     "delete login only when release journal proves this run created it",
-    "destroy only the exact numeric secret version created by this run",
+    "destroy only the exact numeric secret version created by this run through the global Secret Manager API",
     "preserve Cloud SQL instance/database, VPC/subnet, Artifact Registry repository, pre-existing secret metadata, remote Terraform state, and unrelated resources"
   ],
   "cost_estimate_usd": {
     "cloud_run_jobs_rate": {"cpu_per_vcpu_second": 0.000018, "memory_per_gib_second": 0.000002, "source_region": "southamerica-west1", "source_url": "https://cloud.google.com/run/pricing"},
     "one_minute_minimum_1_vcpu_0_5_gib": 0.00114,
     "120_second_timeout_maximum_compute": 0.00228,
-    "one_active_regional_secret_version_24h_above_free_quota": 0.001973,
+    "one_active_version_24h_one_user_managed_replica_above_free_quota": 0.001973,
+    "secret_replication_billing_source_url": "https://docs.cloud.google.com/secret-manager/docs/choosing-replication",
     "secret_manager_free_quota_account_usage": "unknown; estimate is gross and excludes any free quota"
   },
   "review_gates": [

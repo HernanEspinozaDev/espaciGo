@@ -5,8 +5,6 @@ package gcp04w8release
 import (
 	"context"
 	"errors"
-	"fmt"
-	"sort"
 )
 
 const (
@@ -30,14 +28,19 @@ type Instance struct {
 }
 
 type User struct{ Name string }
+type SecretMetadata struct {
+	Name              string
+	ReplicationPolicy string
+	ReplicaLocations  []string
+}
 
-// AdminReader is intentionally read-only. A production Cloud SQL Admin API
-// mutator is deliberately absent from this package.
+// AdminReader is intentionally read-only. Production Cloud SQL or Secret
+// Manager mutators are deliberately absent from this package.
 type AdminReader interface {
 	ReadInstance(context.Context, string, string) (Instance, error)
 	ListUsers(context.Context, string, string) ([]User, error)
-	ReadRegionalSecret(context.Context, string, string, string) (bool, error)
-	ListRegionalSecretVersions(context.Context, string, string, string) ([]string, error)
+	ReadSecretMetadata(context.Context, string, string) (SecretMetadata, error)
+	ListSecretVersions(context.Context, string, string) ([]string, error)
 }
 
 type CreateUserRequest struct {
@@ -47,21 +50,22 @@ type CreateUserRequest struct {
 }
 
 type Plan struct {
-	Format         string            `json:"format"`
-	Mode           string            `json:"mode"`
-	Target         Instance          `json:"target"`
-	Login          string            `json:"login"`
-	UserRequest    CreateUserRequest `json:"user_request_proposal"`
-	RoleDecision   string            `json:"role_decision"`
-	RegionalSecret string            `json:"regional_secret"`
-	SecretPayload  string            `json:"secret_payload"`
-	Image          string            `json:"image"`
-	Job            string            `json:"job"`
-	ServiceAccount string            `json:"service_account"`
-	RequiredIAM    []string          `json:"required_iam"`
-	Sequence       []string          `json:"sequence"`
-	Teardown       []string          `json:"teardown"`
-	CloudMutations string            `json:"cloud_mutations"`
+	Format            string            `json:"format"`
+	Mode              string            `json:"mode"`
+	Target            Instance          `json:"target"`
+	Login             string            `json:"login"`
+	UserRequest       CreateUserRequest `json:"user_request_proposal"`
+	RoleDecision      string            `json:"role_decision"`
+	SecretResource    string            `json:"secret_resource"`
+	SecretReplication string            `json:"secret_replication"`
+	SecretPayload     string            `json:"secret_payload"`
+	Image             string            `json:"image"`
+	Job               string            `json:"job"`
+	ServiceAccount    string            `json:"service_account"`
+	RequiredIAM       []string          `json:"required_iam"`
+	Sequence          []string          `json:"sequence"`
+	Teardown          []string          `json:"teardown"`
+	CloudMutations    string            `json:"cloud_mutations"`
 }
 
 func Build(ctx context.Context, api AdminReader) (Plan, error) {
@@ -81,19 +85,19 @@ func Build(ctx context.Context, api AdminReader) (Plan, error) {
 			return Plan{}, ErrCollision
 		}
 	}
-	secretExists, err := api.ReadRegionalSecret(ctx, ProjectID, Region, SecretID)
+	secret, err := api.ReadSecretMetadata(ctx, ProjectID, SecretID)
 	if err != nil {
-		return Plan{}, errors.New("regional Secret Manager metadata unavailable")
+		return Plan{}, errors.New("global Secret Manager metadata unavailable")
 	}
-	if !secretExists {
-		return Plan{}, errors.New("regional secret must be separately reviewed and precreated; no payload is written by this plan")
+	if secret.Name != SecretResource || secret.ReplicationPolicy != "USER_MANAGED" || len(secret.ReplicaLocations) != 1 || secret.ReplicaLocations[0] != Region {
+		return Plan{}, errors.New("Secret Manager resource or single-region replication policy differs from the pinned W8 plan")
 	}
-	versions, err := api.ListRegionalSecretVersions(ctx, ProjectID, Region, SecretID)
+	versions, err := api.ListSecretVersions(ctx, ProjectID, SecretID)
 	if err != nil {
-		return Plan{}, errors.New("regional secret version inventory unavailable")
+		return Plan{}, errors.New("Secret Manager version inventory unavailable")
 	}
 	if len(versions) != 0 {
-		return Plan{}, errors.New("regional secret version collision; abort without rotation or deletion")
+		return Plan{}, errors.New("secret version collision; abort without rotation or deletion")
 	}
 	roles := []string{CandidateRole}
 	if err := validateRoles(roles); err != nil {
@@ -103,15 +107,17 @@ func Build(ctx context.Context, api AdminReader) (Plan, error) {
 		Format: "espacigo.gcp04.w8-release-plan.v1", Mode: "dry_run_only", Target: instance,
 		Login: Login, UserRequest: CreateUserRequest{Name: Login, Type: "BUILT_IN", DatabaseRoles: roles},
 		RoleDecision:   "candidate_unresolved: pg_read_all_settings is broad and Cloud SQL users.insert acceptance is undocumented; no create is authorized",
-		RegionalSecret: fmt.Sprintf("projects/%s/locations/%s/secrets/%s", ProjectID, Region, SecretID),
-		SecretPayload:  "not_generated_or_serialized", Image: "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/gcp04-w8-catalog-probe@sha256:<reviewed-immutable-digest-required>",
+		SecretResource: SecretResource, SecretReplication: "USER_MANAGED replicas=[southamerica-west1]",
+		SecretPayload: "not_generated_or_serialized", Image: "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/gcp04-w8-catalog-probe@sha256:<reviewed-immutable-digest-required>",
 		Job: JobName, ServiceAccount: ServiceAccount,
-		RequiredIAM:    []string{"roles/cloudsql.client (condition: exact SQL instance)", "roles/secretmanager.secretAccessor (exact W8 regional secret)", "roles/artifactregistry.reader (exact repository service agent)"},
-		Sequence:       []string{"read exact instance/user/secret metadata", "abort on login or secret-version collision; never reset or update", "review candidate role and Admin API databaseRoles support", "generate password in memory only", "add regional secret version from memory; record numeric version only", "CREATE_USER for new login only with explicit databaseRoles=[pg_read_all_settings]", "create one isolated Job pinned to immutable image digest", "run first catalog probe once; emit allowlisted report only"},
+		RequiredIAM:    []string{"roles/cloudsql.client (condition: exact SQL instance)", "roles/secretmanager.secretAccessor (exact global API secret resource with one southamerica-west1 replica)", "roles/artifactregistry.reader (exact repository service agent)"},
+		Sequence:       []string{"require separately reviewed metadata-only global secret with immutable USER_MANAGED replica southamerica-west1; abort if absent", "read exact instance/user/global-secret metadata and version inventory", "abort on login or secret-version collision; never reset or update", "review candidate role and Admin API databaseRoles support", "generate password in memory only", "add version through the global Secret Manager API; payload replication is user-managed to southamerica-west1 only; retain numeric version only", "CREATE_USER for new login only with explicit databaseRoles=[pg_read_all_settings]", "create one isolated Job pinned to immutable image digest and referencing same-project global secret ID espacigo-gcp04-w8-catalog-probe-password with exact numeric version", "run first catalog probe once; emit allowlisted report only"},
 		Teardown:       []string{"delete only exact W8 Job and dedicated service account/IAM bindings created by this release", "delete only W8 login if ownership is proven from this release journal", "destroy only exact numeric secret version created by this release", "preserve SQL instance, database, network, repository, preexisting secret metadata and all unrelated resources"},
 		CloudMutations: "none; this output is a proposal",
 	}, nil
 }
+
+const SecretResource = "projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password"
 
 func validateRoles(roles []string) error {
 	if len(roles) != 1 || roles[0] != CandidateRole {
@@ -122,15 +128,4 @@ func validateRoles(roles []string) error {
 
 func expectedInstance() Instance {
 	return Instance{Project: ProjectID, Name: InstanceName, Region: Region, Version: "POSTGRES_18", State: "RUNNABLE", ConnectionName: ConnectionName, PrivateIP: PrivateIP}
-}
-
-// SortedUsers is useful for deterministic mock/API inventory diagnostics and
-// never includes credential fields.
-func SortedUsers(users []User) []string {
-	names := make([]string, 0, len(users))
-	for _, user := range users {
-		names = append(names, user.Name)
-	}
-	sort.Strings(names)
-	return names
 }
