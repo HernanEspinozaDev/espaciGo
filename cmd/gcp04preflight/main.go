@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -24,7 +25,7 @@ const (
 	expectedPrivateIP        = "10.189.0.3"
 	expectedDatabase         = "espacigo"
 	expectedDatabaseUser     = "espacigo_gcp04_w7_observer"
-	expectedQuerySHA256      = "3e9783799360c4438cdb7399ec78fce6aaf8ee62d404cf70e3dfe90da6f2b869"
+	expectedQuerySHA256      = "6bfb8f0ac959bcda27de6a7e5442606d1be559e5dacf992a6e1e8af91a1f838b"
 	defaultQueryPath         = "/target_preflight.sql"
 	maximumTimeout           = 15 * time.Minute
 	maximumCredentialsLength = 4096
@@ -325,6 +326,8 @@ func validateReport(raw []byte, c config) (reportValidation, error) {
 			ServerVersion       string `json:"server_version"`
 			User                string `json:"user"`
 			TransactionReadOnly bool   `json:"transaction_read_only"`
+			Owner               string `json:"owner"`
+			PublicSchemaOwner   string `json:"public_schema_owner"`
 		} `json:"database"`
 		Capacity struct {
 			MaxConnections               int  `json:"max_connections"`
@@ -414,26 +417,45 @@ func validateReport(raw []byte, c config) (reportValidation, error) {
 		if err := requireJSONKeys(item, "name", "owner", "extension_owned"); err != nil {
 			return reportValidation{}, errors.New("target schema inventory is incomplete")
 		}
+		if !hasNonemptyOwner(item) {
+			return reportValidation{}, errors.New("target schema owner is missing")
+		}
 	}
 	for _, item := range report.Destination.RelationInventory {
 		if err := requireJSONKeys(item, "identity", "schema", "kind", "owner", "extension_owned"); err != nil {
 			return reportValidation{}, errors.New("target relation inventory is incomplete")
+		}
+		if !hasNonemptyOwner(item) {
+			return reportValidation{}, errors.New("target relation owner is missing")
 		}
 	}
 	for _, item := range report.Destination.RoutineInventory {
 		if err := requireJSONKeys(item, "identity", "schema", "owner", "security_definer", "settings", "extension_owned"); err != nil {
 			return reportValidation{}, errors.New("target routine inventory is incomplete")
 		}
+		if !hasNonemptyOwner(item) {
+			return reportValidation{}, errors.New("target routine owner is missing")
+		}
 	}
 	for _, item := range report.Destination.TypeInventory {
 		if err := requireJSONKeys(item, "identity", "schema", "kind", "owner", "extension_owned"); err != nil {
 			return reportValidation{}, errors.New("target type inventory is incomplete")
 		}
+		if !hasNonemptyOwner(item) {
+			return reportValidation{}, errors.New("target type owner is missing")
+		}
 	}
 	for _, inventory := range [][]json.RawMessage{report.Destination.OtherSchemaObjectInventory, report.Destination.NonPublicObjectInventory} {
 		for _, item := range inventory {
-			if err := requireJSONKeys(item, "identity", "schema", "kind", "extension_owned"); err != nil {
+			if err := requireJSONKeys(item, "identity", "schema", "kind", "owner", "extension_owned"); err != nil {
 				return reportValidation{}, errors.New("target object inventory is incomplete")
+			}
+			if !ownerFieldValidForKind(item) {
+				var entry struct {
+					Kind string `json:"kind"`
+				}
+				_ = json.Unmarshal(item, &entry)
+				return reportValidation{}, fmt.Errorf("target object owner field is invalid for %s", entry.Kind)
 			}
 		}
 	}
@@ -442,12 +464,17 @@ func validateReport(raw []byte, c config) (reportValidation, error) {
 			return reportValidation{}, errors.New("target non-public object owner is missing")
 		}
 	}
+	for _, item := range report.Destination.OtherSchemaObjectInventory {
+		if err := requireJSONKeys(item, "owner"); err != nil {
+			return reportValidation{}, errors.New("target object owner is missing")
+		}
+	}
 	for _, item := range report.ACLEntries {
 		if err := requireJSONKeys(item, "kind", "identity", "object_owner", "grantor", "grantee", "privilege", "grantable"); err != nil {
 			return reportValidation{}, errors.New("target ACL report is incomplete")
 		}
 		var acl reportACLEntry
-		if err := json.Unmarshal(item, &acl); err != nil || acl.Kind == "" || acl.Identity == "" || acl.Grantee == "" || acl.Privilege == "" {
+		if err := json.Unmarshal(item, &acl); err != nil || acl.Kind == "" || acl.Identity == "" || acl.ObjectOwner == "" || acl.Grantor == "" || acl.Grantee == "" || acl.Privilege == "" {
 			return reportValidation{}, errors.New("target ACL report has invalid field types")
 		}
 	}
@@ -456,12 +483,15 @@ func validateReport(raw []byte, c config) (reportValidation, error) {
 			return reportValidation{}, errors.New("target effective-privilege report is incomplete")
 		}
 		var effective reportEffectivePrivilege
-		if err := json.Unmarshal(item, &effective); err != nil || effective.Kind == "" || effective.Identity == "" || effective.Required == nil || effective.Missing == nil {
+		if err := json.Unmarshal(item, &effective); err != nil || effective.Kind == "" || effective.Identity == "" || effective.Owner == "" || effective.Required == nil || effective.Missing == nil {
 			return reportValidation{}, errors.New("target effective-privilege report has invalid field types")
 		}
 	}
 	if report.Database.Name != c.Database || report.Database.User != c.DatabaseUser || !report.Database.TransactionReadOnly || report.Database.ServerVersionNum < 180000 || report.Database.ServerVersionNum >= 190000 || report.Database.ServerVersion == "" {
 		return reportValidation{}, errors.New("target SQL identity, PostgreSQL 18 engine, or read-only invariant failed")
+	}
+	if report.Database.Owner == "" || report.Database.PublicSchemaOwner == "" {
+		return reportValidation{}, errors.New("target database ownership report is incomplete")
 	}
 	capacity := report.Capacity
 	if capacity.MaxConnections <= 0 || capacity.ReservedConnections < 0 || capacity.SuperuserReservedConnections < 0 || capacity.VisibleClientBackends < 0 || capacity.UnclassifiedActivityRows < 0 || capacity.RequiredConnections != c.RequiredConnections || report.RequiredConnections != c.RequiredConnections {
@@ -531,6 +561,10 @@ func validateReport(raw []byte, c config) (reportValidation, error) {
 	}
 	observerContract := loginFound && groupFound && login.Login && !login.Super && !login.CreateDB && !login.CreateRole && !login.Replication && !login.BypassRLS && login.Inherit &&
 		!observerGroup.Login && !observerGroup.Super && !observerGroup.CreateDB && !observerGroup.CreateRole && !observerGroup.Replication && !observerGroup.BypassRLS && !observerGroup.Inherit
+	observerContract = observerContract && validateObserverACL(report.ACLEntries, report.Database.Owner, report.Database.PublicSchemaOwner,
+		[][]json.RawMessage{report.Destination.SchemaInventory, report.Destination.RelationInventory, report.Destination.RoutineInventory,
+			report.Destination.TypeInventory, report.Destination.OtherSchemaObjectInventory, report.Destination.NonPublicObjectInventory},
+		c.Database, c.DatabaseUser, "espacigo_db_observer", report.Destination.MigrationsPresent)
 	loginEdges := 0
 	for _, edge := range report.Memberships {
 		if (edge.AppLogin != nil && *edge.AppLogin == c.DatabaseUser) || edge.MemberRole == c.DatabaseUser || edge.GrantedRole == c.DatabaseUser {
@@ -550,15 +584,68 @@ func validateReport(raw []byte, c config) (reportValidation, error) {
 	if loginEdges != 1 {
 		observerContract = false
 	}
-	for _, acl := range report.ACLEntries {
-		var item struct {
-			Grantee string `json:"grantee"`
-		}
-		if json.Unmarshal(acl, &item) != nil || item.Grantee == c.DatabaseUser {
-			observerContract = false
+	return reportValidation{ObserverContractPass: observerContract, CapacityPass: capacityPass, DestinationCandidate: report.Destination.EmptyCandidate}, nil
+}
+
+type observerACLKey struct {
+	kind      string
+	identity  string
+	privilege string
+}
+
+func validateObserverACL(entries []json.RawMessage, databaseOwner, schemaOwner string,
+	collections [][]json.RawMessage, databaseName, loginName, groupName string, ledgerPresent bool) bool {
+	if ownedByObserver(databaseOwner, loginName, groupName) || ownedByObserver(schemaOwner, loginName, groupName) {
+		return false
+	}
+	for _, collection := range collections {
+		for _, raw := range collection {
+			var item struct {
+				Owner string `json:"owner"`
+			}
+			if json.Unmarshal(raw, &item) != nil || ownedByObserver(item.Owner, loginName, groupName) {
+				return false
+			}
 		}
 	}
-	return reportValidation{ObserverContractPass: observerContract, CapacityPass: capacityPass, DestinationCandidate: report.Destination.EmptyCandidate}, nil
+	allowed := map[observerACLKey]struct{}{
+		{kind: "database", identity: databaseName, privilege: "CONNECT"}: {},
+		{kind: "schema", identity: "public", privilege: "USAGE"}:         {},
+	}
+	if ledgerPresent {
+		allowed[observerACLKey{kind: "relation", identity: "public.schema_migrations", privilege: "SELECT"}] = struct{}{}
+	}
+	seen := make(map[observerACLKey]int, len(allowed))
+	for _, raw := range entries {
+		var item reportACLEntry
+		if json.Unmarshal(raw, &item) != nil || ownedByObserver(item.ObjectOwner, loginName, groupName) {
+			return false
+		}
+		if item.Grantee == loginName {
+			return false
+		}
+		if item.Grantee != groupName {
+			continue
+		}
+		key := observerACLKey{kind: item.Kind, identity: item.Identity, privilege: item.Privilege}
+		if item.Grantable {
+			return false
+		}
+		if _, ok := allowed[key]; !ok {
+			return false
+		}
+		seen[key]++
+	}
+	for key := range allowed {
+		if seen[key] == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func ownedByObserver(owner, loginName, groupName string) bool {
+	return owner == loginName || owner == groupName
 }
 
 func countInventoryNonExtension(items []json.RawMessage) int {
@@ -632,6 +719,30 @@ func rawObjectField(raw json.RawMessage, key string) json.RawMessage {
 	var object map[string]json.RawMessage
 	_ = json.Unmarshal(raw, &object)
 	return object[key]
+}
+
+func hasNonemptyOwner(raw json.RawMessage) bool {
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) != nil {
+		return false
+	}
+	var owner string
+	return json.Unmarshal(object["owner"], &owner) == nil && owner != ""
+}
+
+func ownerFieldValidForKind(raw json.RawMessage) bool {
+	var item struct {
+		Kind  string          `json:"kind"`
+		Owner json.RawMessage `json:"owner"`
+	}
+	if json.Unmarshal(raw, &item) != nil {
+		return false
+	}
+	if strings.TrimSpace(string(item.Owner)) == "null" {
+		return item.Kind == "text_search_parser" || item.Kind == "text_search_template"
+	}
+	var owner string
+	return json.Unmarshal(item.Owner, &owner) == nil && owner != ""
 }
 
 func findRole(roles []reportRole, name string) (reportRole, bool) {

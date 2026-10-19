@@ -143,7 +143,19 @@ func TestLocalObserverReadOnlyIntegration(t *testing.T) {
 		t.Fatalf("local observer preflight failed: %v", err)
 	}
 	if gateFailed {
-		t.Fatalf("local fixture rejected the selected test budget: %s", report)
+		validation, validationErr := validateReport(report, config{Database: databaseName, DatabaseUser: databaseUser, RequiredConnections: required})
+		var decoded struct {
+			ACLEntries []reportACLEntry                          `json:"acl_entries"`
+			Database   struct{ Owner, PublicSchemaOwner string } `json:"database"`
+		}
+		_ = json.Unmarshal(report, &decoded)
+		var observerACL []reportACLEntry
+		for _, entry := range decoded.ACLEntries {
+			if entry.Grantee == "espacigo_db_observer" {
+				observerACL = append(observerACL, entry)
+			}
+		}
+		t.Fatalf("local fixture rejected budget: validation=%+v validation_err=%v db_owner=%s schema_owner=%s observer_acl=%+v report_len=%d", validation, validationErr, decoded.Database.Owner, decoded.Database.PublicSchemaOwner, observerACL, len(report))
 	}
 	localConfig := config{Database: databaseName, DatabaseUser: databaseUser, RequiredConnections: required}
 	validReport, err := validateReport(report, localConfig)
@@ -170,6 +182,99 @@ func TestLocalObserverReadOnlyIntegration(t *testing.T) {
 	if err := json.Unmarshal(report, &mutated); err != nil {
 		t.Fatal(err)
 	}
+	aclEntries := mutated["acl_entries"].([]any)
+	aclEntries = append(aclEntries, map[string]any{"kind": "relation", "identity": "public.schema_migrations", "object_owner": "espacigo_schema_owner", "grantor": "espacigo_schema_owner", "grantee": "espacigo_db_observer", "privilege": "DELETE", "grantable": false})
+	mutated["acl_entries"] = aclEntries
+	excessiveDelete, _ := json.Marshal(mutated)
+	validation, err := validateReport(excessiveDelete, localConfig)
+	if err != nil || validation.ObserverContractPass {
+		t.Fatalf("observer group with ledger DELETE passed: validation=%+v err=%v", validation, err)
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	aclEntries = mutated["acl_entries"].([]any)
+	aclEntries = append(aclEntries, map[string]any{"kind": "schema", "identity": "public", "object_owner": "espacigo_schema_owner", "grantor": "espacigo_schema_owner", "grantee": "espacigo_db_observer", "privilege": "CREATE", "grantable": false})
+	mutated["acl_entries"] = aclEntries
+	excessiveCreate, _ := json.Marshal(mutated)
+	validation, err = validateReport(excessiveCreate, localConfig)
+	if err != nil || validation.ObserverContractPass {
+		t.Fatalf("observer group with schema CREATE passed: validation=%+v err=%v", validation, err)
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	aclEntries = mutated["acl_entries"].([]any)
+	aclEntries = append(aclEntries, map[string]any{"kind": "default", "identity": "public:r", "object_owner": "espacigo_schema_owner", "grantor": "espacigo_schema_owner", "grantee": "espacigo_db_observer", "privilege": "INSERT", "grantable": false})
+	mutated["acl_entries"] = aclEntries
+	defaultWrite, _ := json.Marshal(mutated)
+	validation, err = validateReport(defaultWrite, localConfig)
+	if err != nil || validation.ObserverContractPass {
+		t.Fatalf("observer default write ACL passed: validation=%+v err=%v", validation, err)
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	aclEntries = mutated["acl_entries"].([]any)
+	for i, raw := range aclEntries {
+		entry := raw.(map[string]any)
+		if entry["grantee"] == "espacigo_db_observer" && entry["kind"] == "schema" {
+			entry["grantable"] = true
+			aclEntries[i] = entry
+			break
+		}
+	}
+	mutated["acl_entries"] = aclEntries
+	grantOption, _ := json.Marshal(mutated)
+	validation, err = validateReport(grantOption, localConfig)
+	if err != nil || validation.ObserverContractPass {
+		t.Fatalf("observer grant option passed: validation=%+v err=%v", validation, err)
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	database := mutated["database"].(map[string]any)
+	database["owner"] = "espacigo_db_observer"
+	ownedDatabase, _ := json.Marshal(mutated)
+	validation, err = validateReport(ownedDatabase, localConfig)
+	if err != nil || validation.ObserverContractPass {
+		t.Fatalf("observer group owning the database passed: validation=%+v err=%v", validation, err)
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	destination := mutated["destination"].(map[string]any)
+	relations := destination["relation_inventory"].([]any)
+	relations[0].(map[string]any)["owner"] = databaseUser
+	ownedObject, _ := json.Marshal(mutated)
+	validation, err = validateReport(ownedObject, localConfig)
+	if err != nil || validation.ObserverContractPass {
+		t.Fatalf("observer login owning a database object passed: validation=%+v err=%v", validation, err)
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	database = mutated["database"].(map[string]any)
+	database["public_schema_owner"] = databaseUser
+	ownedSchema, _ := json.Marshal(mutated)
+	validation, err = validateReport(ownedSchema, localConfig)
+	if err != nil || validation.ObserverContractPass {
+		t.Fatalf("observer login owning public schema passed: validation=%+v err=%v", validation, err)
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	destination = mutated["destination"].(map[string]any)
+	relations = destination["relation_inventory"].([]any)
+	relations[0].(map[string]any)["owner"] = "espacigo_db_observer"
+	ownedObject, _ = json.Marshal(mutated)
+	validation, err = validateReport(ownedObject, localConfig)
+	if err != nil || validation.ObserverContractPass {
+		t.Fatalf("observer group owning a database object passed: validation=%+v err=%v", validation, err)
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
 	roles := mutated["roles"].([]any)
 	for _, item := range roles {
 		role := item.(map[string]any)
@@ -178,7 +283,7 @@ func TestLocalObserverReadOnlyIntegration(t *testing.T) {
 		}
 	}
 	overprivileged, _ := json.Marshal(mutated)
-	validation, err := validateReport(overprivileged, localConfig)
+	validation, err = validateReport(overprivileged, localConfig)
 	if err != nil || validation.ObserverContractPass {
 		t.Fatalf("overprivileged observer passed: validation=%+v err=%v", validation, err)
 	}

@@ -2,7 +2,7 @@ locals {
   enabled         = var.enable_preflight
   sql_instance    = "projects/${var.project_id}/instances/${var.sql_instance_name}"
   secret_resource = "projects/${var.project_id}/secrets/${var.preflight_database_password_secret_id}"
-  query_sha256    = "3e9783799360c4438cdb7399ec78fce6aaf8ee62d404cf70e3dfe90da6f2b869"
+  query_sha256    = "6bfb8f0ac959bcda27de6a7e5442606d1be559e5dacf992a6e1e8af91a1f838b"
 }
 
 data "google_compute_network" "existing" {
@@ -171,7 +171,7 @@ resource "google_cloud_run_v2_job" "preflight" {
         var.preflight_database_password_secret_id == "espacigo-gcp04-w7-observer-password" &&
         can(regex("^[1-9][0-9]*$", var.preflight_database_password_version)) &&
         var.required_connections >= 1 && var.preflight_expected_private_ip == "10.189.0.3" &&
-        can(regex("^southamerica-west1-docker\\.pkg\\.dev/espacigo-testprod/espacigo-testprod/gcp04-preflight@sha256:[0-9a-f]{64}$", var.preflight_image)) && local.query_sha256 == "3e9783799360c4438cdb7399ec78fce6aaf8ee62d404cf70e3dfe90da6f2b869"
+        can(regex("^southamerica-west1-docker\\.pkg\\.dev/espacigo-testprod/espacigo-testprod/gcp04-preflight@sha256:[0-9a-f]{64}$", var.preflight_image)) && local.query_sha256 == "6bfb8f0ac959bcda27de6a7e5442606d1be559e5dacf992a6e1e8af91a1f838b"
       )
       error_message = "W7 activation requires a separately reviewed release, exact target/login, numeric active secret version, positive connection budget and immutable image digest."
     }
