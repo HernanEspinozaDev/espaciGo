@@ -65,7 +65,7 @@ def service(container, socket, side):
         "image": image,
         "container_name": container,
         "network_mode": "none",
-        "command": ["postgres", "-c", "listen_addresses=*"],
+        "command": ["postgres", "-c", "listen_addresses=*", "-c", "max_connections=40"],
         "tmpfs": ["/var/lib/postgresql:rw,noexec,nosuid,size=1g"],
         "volumes": [
             {"type": "bind", "source": socket, "target": "/var/run/postgresql", "bind": {"create_host_path": False}},
@@ -93,7 +93,7 @@ assert set(resolved["services"]) == {"source", "target"}
 for name, container, socket in (("source", source_container, source_socket), ("target", target_container, target_socket)):
     service = resolved["services"][name]
     assert service["image"] == image and service["container_name"] == container
-    assert service["network_mode"] == "none" and service["command"] == ["postgres", "-c", "listen_addresses=*" ]
+    assert service["network_mode"] == "none" and service["command"] == ["postgres", "-c", "listen_addresses=*", "-c", "max_connections=40"]
     assert any(item.startswith("/var/lib/postgresql:") for item in service["tmpfs"])
     assert len(service["volumes"]) == 2 and all(item["type"] == "bind" for item in service["volumes"])
     assert {item["source"] for item in service["volumes"]} == {socket, artifacts}
@@ -326,8 +326,44 @@ END
 $checks$;
 SELECT count(*) FROM public.schema_migrations;
 SQL
-compose exec -T target psql -X -v ON_ERROR_STOP=1 -U espacigo_observer_login -d espacigo \
+# Keep enough concurrent API LOGIN sessions to make a 24-connection proposed
+# budget impossible on this disposable max_connections=40 server. PostgreSQL
+# 18 hides backend_type for these other-user rows unless broad stats privileges
+# are granted; the observer must count them as unclassified and subtract them.
+capacity_probe_pids=()
+for probe in $(seq 1 14); do
+  compose exec -e PGAPPNAME=gcp04_w3_capacity_probe -T target psql -X -q -v ON_ERROR_STOP=1 \
+    -U espacigo_api_login -d espacigo -c 'SELECT pg_catalog.pg_sleep(20)' \
+    > "$ARTIFACTS/capacity-probe-${probe}.log" 2>&1 &
+  capacity_probe_pids+=("$!")
+done
+for _ in $(seq 1 80); do
+  probe_count="$(compose exec -T target psql -X -At -U postgres -d espacigo \
+    -c "SELECT count(*) FROM pg_catalog.pg_stat_activity WHERE application_name = 'gcp04_w3_capacity_probe'" 2>/dev/null || true)"
+  [[ "$probe_count" == 14 ]] && break
+  sleep 0.25
+done
+[[ "$probe_count" == 14 ]] || { echo "Expected 14 concurrent API login probes, observed [$probe_count]." >&2; exit 1; }
+compose exec -T target psql -X -q -A -t -F '|' -v ON_ERROR_STOP=1 -U espacigo_observer_login -d espacigo \
   < "$ROOT_DIR/db/query/gcp04_runtime_private_preflight.sql" > "$ARTIFACTS/target-private-preflight.txt"
+python3 - "$ARTIFACTS/target-private-preflight.txt" <<'PY'
+import sys
+from pathlib import Path
+
+rows = [line.split("|") for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()]
+capacity = next((row for row in rows if len(row) == 6 and row[0].isdigit()), None)
+assert capacity is not None, "preflight capacity row was not emitted"
+maximum, reserved, super_reserved, visible, unclassified, lower_bound = map(int, capacity)
+assert maximum == 40, f"unexpected isolated capacity fixture: {maximum}"
+assert visible >= 1, f"observer did not see its own client backend: {visible}"
+assert unclassified >= 14, f"observer omitted concurrent other-login rows: {unclassified}"
+assert lower_bound == max(maximum - reserved - super_reserved - visible - unclassified, 0)
+assert lower_bound < 24, f"capacity gate would incorrectly admit a 24-connection budget: {lower_bound}"
+print(f"PG18 observer capacity regression passed: visible={visible}, unclassified={unclassified}, conservative_free_lower_bound={lower_bound} (<24).")
+PY
+for probe_pid in "${capacity_probe_pids[@]}"; do
+  wait "$probe_pid"
+done
 compose exec -T target psql -X -v ON_ERROR_STOP=1 -U espacigo_migrator_login -d espacigo <<'SQL'
 SET ROLE espacigo_schema_owner;
 DO $checks$

@@ -9,18 +9,29 @@ SELECT current_database() AS database_name,
        current_user AS observer_role,
        current_setting('transaction_read_only') AS transaction_read_only;
 
-SELECT current_setting('max_connections')::integer AS max_connections,
-       current_setting('reserved_connections')::integer AS reserved_connections,
-       current_setting('superuser_reserved_connections')::integer AS superuser_reserved_connections,
-       count(*) FILTER (WHERE backend_type = 'client backend')::integer AS client_backends,
+WITH activity_visibility AS (
+    SELECT count(*) FILTER (WHERE backend_type = 'client backend')::integer AS visible_client_backends,
+           count(*) FILTER (WHERE backend_type IS NULL)::integer AS unclassified_activity_rows
+    FROM pg_catalog.pg_stat_activity
+), connection_limits AS (
+    SELECT current_setting('max_connections')::integer AS max_connections,
+           current_setting('reserved_connections')::integer AS reserved_connections,
+           current_setting('superuser_reserved_connections')::integer AS superuser_reserved_connections
+)
+SELECT connection_limits.max_connections,
+       connection_limits.reserved_connections,
+       connection_limits.superuser_reserved_connections,
+       activity_visibility.visible_client_backends,
+       activity_visibility.unclassified_activity_rows,
        greatest(
-           current_setting('max_connections')::integer
-           - current_setting('reserved_connections')::integer
-           - current_setting('superuser_reserved_connections')::integer
-           - count(*) FILTER (WHERE backend_type = 'client backend'),
+           connection_limits.max_connections
+           - connection_limits.reserved_connections
+           - connection_limits.superuser_reserved_connections
+           - activity_visibility.visible_client_backends
+           - activity_visibility.unclassified_activity_rows,
            0
-       )::integer AS currently_unreserved_slots
-FROM pg_catalog.pg_stat_activity;
+       )::integer AS currently_unreserved_slots_lower_bound
+FROM connection_limits CROSS JOIN activity_visibility;
 
 SELECT datname AS database_name,
        pg_catalog.pg_get_userbyid(datdba) AS database_owner,
