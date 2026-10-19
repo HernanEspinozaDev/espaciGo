@@ -26,6 +26,7 @@ type testAPI struct {
 	failWait                    bool
 	failDelete                  bool
 	failNextSecretDelete        bool
+	failNextReadSecret          bool
 	failOperationProof          bool
 	slowCreateSecret            time.Duration
 	ignoreCreateSecretDeadline  bool
@@ -39,7 +40,13 @@ func (f *testAPI) ListUsers(context.Context) ([]UserMetadata, error) {
 	f.calls = append(f.calls, "list-users")
 	return append([]UserMetadata(nil), f.users...), nil
 }
-func (f *testAPI) ReadSecret(context.Context) (SecretMetadata, error) { return f.secret, nil }
+func (f *testAPI) ReadSecret(context.Context) (SecretMetadata, error) {
+	if f.failNextReadSecret {
+		f.failNextReadSecret = false
+		return SecretMetadata{}, errors.New("read outcome uncertain")
+	}
+	return f.secret, nil
+}
 func (f *testAPI) ListVersions(context.Context) ([]VersionMetadata, error) {
 	return append([]VersionMetadata(nil), f.versions...), nil
 }
@@ -135,6 +142,7 @@ func (f *testAPI) DeleteSecret(_ context.Context, name, release, etag string) er
 		return errors.New("secret delete outcome uncertain")
 	}
 	f.secret = SecretMetadata{}
+	f.versions = nil
 	return nil
 }
 
@@ -169,7 +177,9 @@ func approvedSecretCleanup(withVersion bool) Release {
 	r := approved("b1_cleanup_secret")
 	r.ReleaseID = "b1-secret-cleanup-1"
 	r.CreateOperationID = ""
-	if !withVersion {
+	if withVersion {
+		r.CreatedVersionETag = "version-etag"
+	} else {
 		r.Version, r.VersionETag, r.CreatedVersionETag = "", "", ""
 	}
 	return r
@@ -266,6 +276,13 @@ func TestPendingCreateCanBeDurablyReconciledAfterWaitFailure(t *testing.T) {
 		t.Fatalf("expected interrupted operation: %v", err)
 	}
 	f.inv.Users, f.inv.Secret, f.inv.Versions = f.users, f.secret, f.versions
+	f.secret.Name = secretParentCanonical()
+	f.inv.Secret = f.secret
+	for i := range j.records {
+		if j.records[i].Secret == secretParent() {
+			j.records[i].Secret = secretParentCanonical()
+		}
+	}
 	r := approvedReconcile()
 	r.CreateOperationID = "operation-1"
 	if err = ReconcilePendingCreate(context.Background(), f.inv, r, f, f, j, time.Now()); err != nil {
@@ -312,6 +329,15 @@ func TestSecretOnlyCleanupHandlesShellOnlyAndVersionWithoutUserProof(t *testing.
 			// User insert failure leaves a created secret version and no user.
 		}
 		_ = err
+		f.secret.Name = secretParentCanonical()
+		for i := range j.records {
+			if j.records[i].Secret == secretParent() {
+				j.records[i].Secret = secretParentCanonical()
+			}
+		}
+		for i := range f.versions {
+			f.versions[i].Name = secretParentCanonical() + "/versions/" + f.versions[i].Number
+		}
 		f.inv.Secret, f.inv.Versions = f.secret, f.versions
 		r := approvedSecretCleanup(withVersion)
 		if err := CleanupSecretOnlyB1(context.Background(), f.inv, r, f, f, j, t.TempDir(), time.Now()); err != nil {
@@ -322,6 +348,83 @@ func TestSecretOnlyCleanupHandlesShellOnlyAndVersionWithoutUserProof(t *testing.
 		}
 		if f.secret.Name != "" || count(f.calls, "delete-user:") != 0 {
 			t.Fatalf("secret cleanup incomplete or touched user: %v", f.calls)
+		}
+	}
+}
+
+func TestSecretOnlyCleanupResumesAfterDestroyETagChanges(t *testing.T) {
+	f := &testAPI{inv: fixtureInventory(), failInsert: true, failInsertDefinitive: true, failNextSecretDelete: true, destroyedETag: "version-etag-destroyed"}
+	j := &testJournal{}
+	_, _ = CreateB1(context.Background(), f.inv, approved("b1_create"), f, f, j, t.TempDir(), time.Now(), strings.NewReader(strings.Repeat("v", 32)))
+	f.inv.Secret, f.inv.Versions = f.secret, f.versions
+	first := approvedSecretCleanup(true)
+	if err := CleanupSecretOnlyB1(context.Background(), f.inv, first, f, f, j, t.TempDir(), time.Now()); !errors.Is(err, ErrUncertain) {
+		t.Fatalf("expected interrupted shell delete after destroy: %v", err)
+	}
+	if f.versions[0].State != "DESTROYED" || f.versions[0].ETag != "version-etag-destroyed" {
+		t.Fatalf("destroy not reflected: %#v", f.versions)
+	}
+	f.inv.Secret, f.inv.Versions = f.secret, f.versions
+	second := approvedSecretCleanup(true)
+	second.ReleaseID = "b1-secret-cleanup-2"
+	second.VersionETag = "version-etag-destroyed"
+	if err := CleanupSecretOnlyB1(context.Background(), f.inv, second, f, f, j, t.TempDir(), time.Now()); err != nil {
+		t.Fatalf("resume with current ETag failed: %v", err)
+	}
+	if count(f.calls, "destroy-version:"+secretParent()+"/versions/7:version-etag") != 1 || f.secret.Name != "" {
+		t.Fatalf("resume repeated destroy or left secret: %v", f.calls)
+	}
+}
+
+func TestSecretOnlyCleanupResumesAfterShellDeleteAndFailedAbsenceRead(t *testing.T) {
+	f := &testAPI{inv: fixtureInventory(), failInsert: true, failInsertDefinitive: true, failNextReadSecret: true, destroyedETag: "version-etag-destroyed"}
+	j := &testJournal{}
+	_, _ = CreateB1(context.Background(), f.inv, approved("b1_create"), f, f, j, t.TempDir(), time.Now(), strings.NewReader(strings.Repeat("w", 32)))
+	f.inv.Secret, f.inv.Versions = f.secret, f.versions
+	first := approvedSecretCleanup(true)
+	first.VersionETag = "version-etag"
+	if err := CleanupSecretOnlyB1(context.Background(), f.inv, first, f, f, j, t.TempDir(), time.Now()); !errors.Is(err, ErrUncertain) {
+		t.Fatalf("expected failed post-delete inventory read: %v", err)
+	}
+	if f.secret.Name != "" || len(f.versions) != 0 {
+		t.Fatal("fake did not reflect successful shell deletion")
+	}
+	second := approvedSecretCleanup(true)
+	second.ReleaseID = "b1-secret-cleanup-after-delete"
+	second.VersionETag = "version-etag-destroyed"
+	f.inv.Secret, f.inv.Versions = f.secret, f.versions
+	if err := CleanupSecretOnlyB1(context.Background(), f.inv, second, f, f, j, t.TempDir(), time.Now()); err != nil {
+		t.Fatalf("resume after deletion failed: %v", err)
+	}
+	if count(f.calls, "destroy-version:"+secretParent()+"/versions/7:version-etag") != 1 || count(f.calls, "delete-secret:"+secretParent()+":b1-run-1:secret-etag") != 1 {
+		t.Fatalf("resume repeated a completed delete: %v", f.calls)
+	}
+}
+
+func TestSecretOwnershipAcceptsOnlyTwoPinnedParentAliases(t *testing.T) {
+	r := approvedSecretCleanup(false)
+	for _, alias := range []string{secretParent(), secretParentCanonical()} {
+		j := &testJournal{records: []JournalRecord{{ReleaseID: r.ResourceReleaseID, ResourceReleaseID: r.ResourceReleaseID, Stage: "b1_create", Phase: "secret_shell_created", Target: r.Target, Login: r.Login, Secret: alias, SecretETag: r.SecretETag}}}
+		if !hasOwnedShellProof(j.records, r) {
+			t.Fatalf("pinned alias rejected: %s", alias)
+		}
+		j.records[0].Secret = "projects/other-project/secrets/" + SecretID
+		if hasOwnedShellProof(j.records, r) {
+			t.Fatal("foreign project secret was accepted")
+		}
+	}
+}
+
+func TestPendingCreateProofAcceptsOnlyTwoPinnedParentAliases(t *testing.T) {
+	r := approvedReconcile()
+	for _, alias := range []string{secretParent(), secretParentCanonical()} {
+		record := JournalRecord{ReleaseID: r.ResourceReleaseID, ResourceReleaseID: r.ResourceReleaseID, Stage: "b1_create", Phase: "user_operation_pending", Target: r.Target, Login: r.Login, Secret: alias, SecretETag: r.SecretETag, Version: r.Version, VersionETag: r.VersionETag, Operation: r.CreateOperationID, OperationType: "CREATE_USER", OperationTarget: Instance, OperationUser: Bootstrap}
+		if !hasPendingCreateProof([]JournalRecord{record}, r) {
+			t.Fatalf("pinned alias rejected: %s", alias)
+		}
+		record.Secret = "projects/other-project/secrets/" + SecretID
+		if hasPendingCreateProof([]JournalRecord{record}, r) {
+			t.Fatal("foreign project secret was accepted")
 		}
 	}
 }

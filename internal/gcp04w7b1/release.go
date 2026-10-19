@@ -323,7 +323,7 @@ func validRelease(r Release, stage string, now time.Time) bool {
 	if stage == "b1_create" && resourceRelease == "" {
 		resourceRelease = r.ReleaseID
 	}
-	return r.Decision == "approved" && r.Stage == stage && r.Reviewer == "HernanEspinozaDev" && safeID(r.ReleaseID) && safeID(resourceRelease) && (stage != "b1_create" || resourceRelease == r.ReleaseID) && r.ExpiresAt.After(now) && r.ExpiresAt.Sub(now) <= 30*time.Minute && r.Target == ProjectID+"/"+Instance && r.Login == Bootstrap && r.Role == AdminRole && r.SecretID == SecretID && r.QuerySHA256 == QuerySHA256 && r.Runs == 1 && r.MaxDurationSeconds > 0 && r.MaxDurationSeconds <= 1800 && (stage != "b1_probe" || (r.Version != "" && r.VersionETag != "" && r.SecretETag != "")) && (stage != "b1_cleanup" || (r.Version != "" && r.VersionETag != "" && r.CreatedVersionETag != "" && r.SecretETag != "" && safeOperationID(r.CreateOperationID))) && (stage != "b1_reconcile" || (r.Version != "" && r.VersionETag != "" && r.SecretETag != "" && safeOperationID(r.CreateOperationID))) && (stage != "b1_cleanup_secret" || (r.SecretETag != "" && ((r.Version == "" && r.VersionETag == "") || (numericVersion(r.Version) && r.VersionETag != ""))))
+	return r.Decision == "approved" && r.Stage == stage && r.Reviewer == "HernanEspinozaDev" && safeID(r.ReleaseID) && safeID(resourceRelease) && (stage != "b1_create" || resourceRelease == r.ReleaseID) && r.ExpiresAt.After(now) && r.ExpiresAt.Sub(now) <= 30*time.Minute && r.Target == ProjectID+"/"+Instance && r.Login == Bootstrap && r.Role == AdminRole && r.SecretID == SecretID && r.QuerySHA256 == QuerySHA256 && r.Runs == 1 && r.MaxDurationSeconds > 0 && r.MaxDurationSeconds <= 1800 && (stage != "b1_probe" || (r.Version != "" && r.VersionETag != "" && r.SecretETag != "")) && (stage != "b1_cleanup" || (r.Version != "" && r.VersionETag != "" && r.CreatedVersionETag != "" && r.SecretETag != "" && safeOperationID(r.CreateOperationID))) && (stage != "b1_reconcile" || (r.Version != "" && r.VersionETag != "" && r.SecretETag != "" && safeOperationID(r.CreateOperationID))) && (stage != "b1_cleanup_secret" || (r.SecretETag != "" && ((r.Version == "" && r.VersionETag == "" && r.CreatedVersionETag == "") || (numericVersion(r.Version) && r.VersionETag != "" && r.CreatedVersionETag != ""))))
 }
 
 func stageContext(ctx context.Context, r Release, now time.Time) (context.Context, context.CancelFunc) {
@@ -769,7 +769,7 @@ func hasPendingCreateProof(records []JournalRecord, r Release) bool {
 		if !pending {
 			continue
 		}
-		if p.ReleaseID != r.ResourceReleaseID || p.Target != r.Target || p.Login != r.Login || p.Secret != secretParent() || p.SecretETag != r.SecretETag || p.Version != r.Version || p.VersionETag != r.VersionETag || p.Operation != r.CreateOperationID || p.OperationType != "CREATE_USER" || p.OperationTarget != Instance || p.OperationUser != Bootstrap {
+		if p.ReleaseID != r.ResourceReleaseID || p.Target != r.Target || p.Login != r.Login || !isSecretParent(p.Secret) || p.SecretETag != r.SecretETag || p.Version != r.Version || p.VersionETag != r.VersionETag || p.Operation != r.CreateOperationID || p.OperationType != "CREATE_USER" || p.OperationTarget != Instance || p.OperationUser != Bootstrap {
 			return false
 		}
 		found = true
@@ -807,9 +807,9 @@ func CleanupSecretOnlyB1(ctx context.Context, x Inventory, r Release, reader Rea
 	if err = AcquireLease(leaseDir, leaseKey(r.ReleaseID, "cleanup-secret"), now); err != nil {
 		return err
 	}
-	secretAbsent := x.Secret.Name == "" && x.Secret.ETag == "" && len(x.Versions) == 0
+	secretAbsent := x.Secret.Name == "" && x.Secret.ETag == "" && x.Secret.Replication == "" && len(x.Secret.Replicas) == 0 && len(x.Secret.Labels) == 0 && len(x.Versions) == 0
 	if secretAbsent {
-		if !hasSecretCleanupAttempt(records, r) {
+		if !hasSecretCleanupAttempt(records, r) || (r.Version != "" && !hasSecretVersionDestroyedProof(records, r)) {
 			return errors.New("absent secret lacks prior exact cleanup attempt proof")
 		}
 		return nil
@@ -843,6 +843,7 @@ func CleanupSecretOnlyB1(ctx context.Context, x Inventory, r Release, reader Rea
 			if err = j.Save(JournalRecord{ReleaseID: r.ReleaseID, ResourceReleaseID: r.ResourceReleaseID, Stage: r.Stage, Phase: "secret_version_destroyed", Target: r.Target, Login: r.Login, Secret: x.Secret.Name, SecretETag: x.Secret.ETag, Version: r.Version, VersionETag: versions[0].ETag, At: time.Now().UTC().Format(time.RFC3339)}); err != nil {
 				return ErrUncertain
 			}
+			r.VersionETag = versions[0].ETag
 		} else if !hasSecretVersionDestroyedProof(records, r) {
 			return errors.New("DESTROYED version lacks exact cleanup proof")
 		}
@@ -881,7 +882,7 @@ func containsBootstrap(users []UserMetadata) bool {
 
 func hasOwnedShellProof(rs []JournalRecord, r Release) bool {
 	for _, p := range rs {
-		if p.ResourceReleaseID == r.ResourceReleaseID && p.ReleaseID == r.ResourceReleaseID && p.Stage == "b1_create" && p.Phase == "secret_shell_created" && p.Target == r.Target && p.Login == r.Login && p.Secret == secretParent() && p.SecretETag == r.SecretETag {
+		if p.ResourceReleaseID == r.ResourceReleaseID && p.ReleaseID == r.ResourceReleaseID && p.Stage == "b1_create" && p.Phase == "secret_shell_created" && p.Target == r.Target && p.Login == r.Login && isSecretParent(p.Secret) && p.SecretETag == r.SecretETag {
 			return true
 		}
 	}
@@ -897,7 +898,7 @@ func hasUncertainUserInsert(rs []JournalRecord, r Release) bool {
 }
 func hasVersionCreateProof(rs []JournalRecord, r Release) bool {
 	for _, p := range rs {
-		if p.ResourceReleaseID == r.ResourceReleaseID && p.ReleaseID == r.ResourceReleaseID && p.Stage == "b1_create" && (p.Phase == "secret_version_created" || p.Phase == "secret_version_outcome_uncertain" || p.Phase == "secret_version_identity_uncertain") && p.SecretETag == r.SecretETag && p.Version == r.Version && p.VersionETag == r.VersionETag {
+		if p.ResourceReleaseID == r.ResourceReleaseID && p.ReleaseID == r.ResourceReleaseID && p.Stage == "b1_create" && (p.Phase == "secret_version_created" || p.Phase == "secret_version_outcome_uncertain" || p.Phase == "secret_version_identity_uncertain") && isSecretParent(p.Secret) && p.SecretETag == r.SecretETag && p.Version == r.Version && p.VersionETag == r.CreatedVersionETag {
 			return true
 		}
 	}
@@ -905,7 +906,7 @@ func hasVersionCreateProof(rs []JournalRecord, r Release) bool {
 }
 func hasSecretVersionDestroyedProof(rs []JournalRecord, r Release) bool {
 	for _, p := range rs {
-		if p.ResourceReleaseID == r.ResourceReleaseID && p.Phase == "secret_version_destroyed" && p.SecretETag == r.SecretETag && p.Version == r.Version {
+		if p.ResourceReleaseID == r.ResourceReleaseID && p.Stage == "b1_cleanup_secret" && p.Phase == "secret_version_destroyed" && isSecretParent(p.Secret) && p.SecretETag == r.SecretETag && p.Version == r.Version && p.VersionETag == r.VersionETag {
 			return true
 		}
 	}
@@ -913,7 +914,7 @@ func hasSecretVersionDestroyedProof(rs []JournalRecord, r Release) bool {
 }
 func hasSecretCleanupAttempt(rs []JournalRecord, r Release) bool {
 	for _, p := range rs {
-		if p.ResourceReleaseID == r.ResourceReleaseID && (p.Phase == "secret_shell_delete_started" || p.Phase == "secret_shell_delete_uncertain" || p.Phase == "secret_cleanup_complete") && p.SecretETag == r.SecretETag {
+		if p.ResourceReleaseID == r.ResourceReleaseID && p.Stage == "b1_cleanup_secret" && (p.Phase == "secret_shell_delete_started" || p.Phase == "secret_shell_delete_uncertain" || p.Phase == "secret_cleanup_complete") && isSecretParent(p.Secret) && p.SecretETag == r.SecretETag && p.Version == r.Version && p.VersionETag == r.VersionETag {
 			return true
 		}
 	}
