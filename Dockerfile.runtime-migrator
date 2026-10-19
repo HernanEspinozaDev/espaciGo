@@ -8,6 +8,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/dbmigrate ./cmd/dbmigrate
 COPY internal/database/cloudsql ./internal/database/cloudsql
+COPY internal/dbbootstrap ./internal/dbbootstrap
 COPY internal/migrator ./internal/migrator
 COPY db/migrations/V00000[1-9]__*.sql db/migrations/V0000[1-6][0-9]__*.sql /out/migrations/
 RUN go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/dbmigrate ./cmd/dbmigrate

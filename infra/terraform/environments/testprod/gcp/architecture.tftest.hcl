@@ -7,6 +7,12 @@ mock_provider "google" {
     }
   }
 
+  mock_data "google_compute_image" {
+    defaults = {
+      self_link = "projects/cos-cloud/global/images/cos-stable-test"
+    }
+  }
+
   mock_resource "google_compute_security_policy" {
     defaults = {
       id = "projects/offline-test-project/global/securityPolicies/public"
@@ -106,7 +112,6 @@ run "services_and_edge_preserve_runtime_contracts" {
     api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     mailpit_private_address            = "10.80.0.10:1025"
-    confirm_pga_iap_key_preflight      = true
     confirm_runtime_secret_versions    = true
     confirm_runtime_database_bootstrap = true
   }
@@ -201,7 +206,6 @@ run "services_without_edge_expose_runapp_with_private_gates" {
     enable_edge                        = false
     confirm_project_inventory          = true
     confirm_cost_policy_review         = true
-    acknowledge_gcp04_runtime_gates    = true
     bucket_suffix                      = "offline-test"
     api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -225,6 +229,10 @@ run "services_without_edge_expose_runapp_with_private_gates" {
     error_message = "Public web stays public while private web requires native IAP and its IAP service agent."
   }
   assert {
+    condition     = alltrue([for service in values(google_cloud_run_v2_service.web) : service.template[0].vpc_access[0].egress == "PRIVATE_RANGES_ONLY"])
+    error_message = "The run.app-only stage must not claim the edge egress preflight."
+  }
+  assert {
     condition     = one([for env in google_cloud_run_v2_service.web["public"].template[0].containers[0].env : env.value if env.name == "PRIVATE_DEMO_ORIGIN"]) == var.private_demo_origin_override
     error_message = "The second no-DNS rollout step must route private links to the private IAP-protected run.app origin."
   }
@@ -239,6 +247,7 @@ run "services_reject_unverified_iap_key_egress" {
     enable_foundation                  = true
     enable_database                    = true
     enable_services                    = true
+    enable_edge                        = true
     confirm_project_inventory          = true
     confirm_cost_policy_review         = true
     acknowledge_gcp04_runtime_gates    = true
@@ -251,6 +260,46 @@ run "services_reject_unverified_iap_key_egress" {
   }
 
   expect_failures = [var.enable_services]
+}
+
+run "mailpit_vm_is_private_and_scoped" {
+  command = plan
+
+  variables {
+    project_id                 = "offline-test-project"
+    project_number             = "123456789012"
+    enable_foundation          = true
+    enable_mailpit             = true
+    confirm_project_inventory  = true
+    confirm_cost_policy_review = true
+    bucket_suffix              = "offline-test"
+    iap_evaluator_members      = ["user:tester@example.test"]
+  }
+
+  assert {
+    condition     = google_compute_instance.mailpit[0].network_interface[0].access_config == []
+    error_message = "The Mailpit VM must not have a public IP address."
+  }
+  assert {
+    condition     = google_compute_firewall.mailpit_smtp[0].source_ranges == [var.api_serverless_subnet_cidr] && google_compute_firewall.mailpit_smtp[0].allow[0].ports == ["1025"]
+    error_message = "SMTP must be limited to the dedicated API subnet on port 1025."
+  }
+  assert {
+    condition     = google_compute_firewall.mailpit_ui_iap[0].source_ranges == ["35.235.240.0/20"] && google_compute_firewall.mailpit_ui_iap[0].allow[0].ports == ["8025"]
+    error_message = "The Mailpit UI must be reachable only through the IAP TCP forwarding source range on port 8025."
+  }
+  assert {
+    condition     = google_iap_tunnel_instance_iam_member.mailpit_ui["user:tester@example.test"].condition[0].expression == "destination.port == 8025"
+    error_message = "The explicit evaluator's IAP tunnel grant must be restricted to the Mailpit UI port."
+  }
+  assert {
+    condition     = google_artifact_registry_repository.mailpit_dockerhub[0].mode == "REMOTE_REPOSITORY" && google_artifact_registry_repository_iam_member.mailpit_reader[0].role == "roles/artifactregistry.reader"
+    error_message = "The VM must pull the pinned upstream image through a read-only Artifact Registry proxy."
+  }
+  assert {
+    condition     = strcontains(google_compute_instance.mailpit[0].metadata_startup_script, "b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48")
+    error_message = "The private VM must use the same digest-pinned Mailpit image as Compose."
+  }
 }
 
 run "services_reject_missing_runtime_secret_versions" {

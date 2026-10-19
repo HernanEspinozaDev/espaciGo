@@ -38,6 +38,16 @@ output "private_web_runapp_url" {
   description = "Cloud Run URI for the native-IAP private web service; direct external access is available when enable_edge is false."
 }
 
+output "mailpit_private_smtp_address" {
+  value       = var.enable_mailpit ? "${google_compute_address.mailpit[0].address}:1025" : null
+  description = "Private SMTP endpoint for API test traffic; firewall permits only the dedicated API subnet."
+}
+
+output "mailpit_instance_identity" {
+  value       = var.enable_mailpit ? "${var.mailpit_zone}/${google_compute_instance.mailpit[0].name}" : null
+  description = "Private VM identity used to open an IAP TCP tunnel to the Mailpit UI on port 8025."
+}
+
 output "cloudsql_connection_name" {
   value       = try(google_sql_database_instance.postgres[0].connection_name, null)
   description = "Cloud SQL Connector connection name."
