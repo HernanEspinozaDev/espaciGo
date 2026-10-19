@@ -60,7 +60,7 @@ SELECT rolname,
 FROM pg_catalog.pg_roles
 WHERE rolname IN (
     'espacigo_schema_owner', 'espacigo_runtime', 'espacigo_privacy_cleanup_worker', 'espacigo_db_observer', 'espacigo_gadm_bootstrap',
-    'espacigo_api_login', 'espacigo_worker_login', 'espacigo_migrator_login', 'espacigo_observer_login'
+    'espacigo_api_login', 'espacigo_privacy_worker_login', 'espacigo_migrator_login', 'espacigo_observer_login'
 )
 ORDER BY rolname;
 

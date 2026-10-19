@@ -62,6 +62,7 @@ config = {
             "image": image,
             "container_name": container,
             "network_mode": "none",
+            "command": ["postgres", "-c", "listen_addresses=*"],
             "tmpfs": ["/var/lib/postgresql:rw,noexec,nosuid,size=1g"],
             "volumes": [{
                 "type": "bind",
@@ -89,6 +90,7 @@ expected_image, expected_container, expected_socket = sys.argv[2:]
 assert service["image"] == expected_image
 assert service["container_name"] == expected_container
 assert service["network_mode"] == "none"
+assert service["command"] == ["postgres", "-c", "listen_addresses=*"]
 assert any(item.startswith("/var/lib/postgresql:") for item in service["tmpfs"])
 assert len(service["volumes"]) == 1 and service["volumes"][0]["type"] == "bind"
 assert service["volumes"][0]["source"] == expected_socket
@@ -102,13 +104,12 @@ compose up -d postgres >/dev/null
 CONTAINER_ID="$(compose ps -q postgres)"
 [[ -n "$CONTAINER_ID" ]] || { echo 'Disposable PostgreSQL container did not start.' >&2; exit 1; }
 docker inspect "$CONTAINER_ID" | python3 -c 'import json,sys; c=json.load(sys.stdin)[0]; assert c["HostConfig"]["NetworkMode"] == "none"; assert "/var/lib/postgresql" in c["HostConfig"]["Tmpfs"]; assert all(m["Type"] == "bind" for m in c["Mounts"]); assert not c["HostConfig"].get("PortBindings"); print("Runtime isolation verified.")'
-for _ in $(seq 1 120); do
-  if compose exec -T postgres pg_isready -U postgres -d postgres >/dev/null 2>&1; then
-    break
-  fi
+for _ in $(seq 1 240); do
+  listen_addresses="$(compose exec -T postgres psql -X -At -U postgres -d postgres -c "SELECT quote_literal(current_setting('listen_addresses'))" 2>/dev/null || true)"
+  if [[ "$listen_addresses" == "'*'" ]]; then break; fi
   sleep 0.25
 done
-compose exec -T postgres pg_isready -U postgres -d postgres >/dev/null
+[[ "$listen_addresses" == "'*'" ]] || { echo "PostgreSQL final server listen_addresses was [$listen_addresses], expected ['*']." >&2; exit 1; }
 
 compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'CREATE DATABASE espacigo' >/dev/null
 compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
@@ -157,7 +158,7 @@ echo 'Confirmed: restricted schema-owner execution stops at V60 COMMENT ON ROLE;
 
 compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo <<'SQL'
 CREATE ROLE espacigo_api_login NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
-CREATE ROLE espacigo_worker_login NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+CREATE ROLE espacigo_privacy_worker_login NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 CREATE ROLE espacigo_migrator_login NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 CREATE ROLE espacigo_observer_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT;
 GRANT espacigo_db_observer TO espacigo_observer_login WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
