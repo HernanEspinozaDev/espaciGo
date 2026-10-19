@@ -246,7 +246,11 @@ report = json.load(open(sys.argv[1], encoding="utf-8"))
 assert report["database"]["transaction_read_only"] is True
 empty_counts = {key: report["destination"][key] for key in ("relations_non_extension", "routines_non_extension", "types_non_extension", "other_schema_objects_non_extension")}
 if any(empty_counts.values()):
-    raise AssertionError(f"empty destination has non-extension objects: {empty_counts}")
+    raise AssertionError(f"empty destination has non-extension objects: {empty_counts}; relations={[row for row in report['destination']['relation_inventory'] if not row['extension_owned']]}")
+assert report["destination"]["non_public_schemas_non_extension"] == 0
+assert report["destination"]["non_public_objects_non_extension"] == 0
+assert report["destination"]["unapproved_extensions"] == 0
+assert report["destination"]["empty_destination_candidate"] is True
 assert report["schema_migrations"]["present"] is False
 assert report["capacity"]["required_connections"] == 24
 PY
@@ -299,6 +303,10 @@ assert report["database"]["transaction_read_only"] is True
 assert report["destination"]["schema_migrations_present"] is True
 assert report["schema_migrations"]["present"] is True
 assert report["destination"]["relations_non_extension"] >= 98
+assert report["destination"]["non_public_schemas_non_extension"] == 0
+assert report["destination"]["non_public_objects_non_extension"] == 0
+assert report["destination"]["unapproved_extensions"] == 0
+assert report["destination"]["empty_destination_candidate"] is False
 assert report["capacity"]["required_connections"] == 24
 assert all(not row["missing_effective_privileges"] for row in report["owner_effective_privileges"])
 PY
@@ -309,6 +317,86 @@ import json, sys
 report = json.load(open(sys.argv[1], encoding="utf-8"))
 assert report["capacity"]["passes"] is False
 PY
+
+run_observer_preflight() {
+  local name="$1"
+  psql -X -qAt -v ON_ERROR_STOP=1 -v required_connections=24 \
+    -h "$TARGET_SOCKET" -U espacigo_observer_login -d espacigo \
+    -f "$ROOT_DIR/db/query/gcp04_w4_target_preflight.sql" \
+    > "$ARTIFACTS/$name.json" 2> "$ARTIFACTS/$name.stderr"
+}
+
+# An unapproved schema and table outside public must be inventoried and close the empty-target gate.
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo <<'SQL'
+CREATE SCHEMA foreign_app;
+CREATE TABLE foreign_app.real_data (id integer PRIMARY KEY);
+INSERT INTO foreign_app.real_data VALUES (7);
+SQL
+run_observer_preflight observer-foreign-schema
+python3 - "$ARTIFACTS/observer-foreign-schema.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+destination = report["destination"]
+assert destination["non_public_schemas_non_extension"] == 1
+assert destination["non_public_objects_non_extension"] >= 1
+assert destination["empty_destination_candidate"] is False
+assert any(row["identity"] == "foreign_app.real_data" for row in destination["non_public_object_inventory"])
+assert any(row["name"] == "foreign_app" and not row["extension_owned"] for row in destination["schema_inventory"])
+PY
+set +e
+psql -X -q -v ON_ERROR_STOP=1 -h "$TARGET_SOCKET" -U espacigo_observer_login -d espacigo \
+  -c 'SELECT * FROM foreign_app.real_data' > "$ARTIFACTS/observer-foreign-data-denial.log" 2>&1
+FOREIGN_DATA_STATUS=$?
+set -e
+[[ "$FOREIGN_DATA_STATUS" -ne 0 ]] && grep -Fq 'permission denied for schema foreign_app' "$ARTIFACTS/observer-foreign-data-denial.log"
+
+# Direct membership of a login in a powerful catalog role must be visible to the restricted observer.
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
+  -c 'GRANT pg_read_all_stats TO espacigo_observer_login' >/dev/null
+run_observer_preflight observer-direct-stats-membership
+python3 - "$ARTIFACTS/observer-direct-stats-membership.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+assert any(edge["app_login"] == "espacigo_observer_login" and edge["member_role"] == "espacigo_observer_login"
+           and edge["granted_role"] == "pg_read_all_stats" and edge["edge_context"] == "transitive-login-membership"
+           and edge["inherit_option"]
+           for edge in report["memberships"])
+PY
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
+  -c 'REVOKE pg_read_all_stats FROM espacigo_observer_login' >/dev/null
+
+# The closure must also report a powerful role reached through a settable intermediate group.
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo <<'SQL'
+CREATE ROLE gcp04_w4_inherit_group NOLOGIN;
+CREATE ROLE gcp04_w4_set_group NOLOGIN;
+GRANT pg_read_all_stats TO gcp04_w4_inherit_group;
+GRANT pg_read_all_stats TO gcp04_w4_set_group;
+GRANT gcp04_w4_inherit_group TO espacigo_observer_login WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
+GRANT gcp04_w4_set_group TO espacigo_observer_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+SQL
+run_observer_preflight observer-transitive-stats-membership
+python3 - "$ARTIFACTS/observer-transitive-stats-membership.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+edges = report["memberships"]
+assert any(edge["app_login"] == "espacigo_observer_login" and edge["member_role"] == "espacigo_observer_login"
+           and edge["granted_role"] == "gcp04_w4_inherit_group" and edge["inherit_option"] and not edge["set_option"] for edge in edges)
+assert any(edge["app_login"] == "espacigo_observer_login" and edge["member_role"] == "gcp04_w4_inherit_group"
+           and edge["granted_role"] == "pg_read_all_stats" for edge in edges)
+assert any(edge["app_login"] == "espacigo_observer_login" and edge["member_role"] == "espacigo_observer_login"
+           and edge["granted_role"] == "gcp04_w4_set_group" and not edge["inherit_option"] and edge["set_option"] for edge in edges)
+assert any(edge["app_login"] == "espacigo_observer_login" and edge["member_role"] == "gcp04_w4_set_group"
+           and edge["granted_role"] == "pg_read_all_stats" for edge in edges)
+PY
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo <<'SQL'
+REVOKE gcp04_w4_inherit_group FROM espacigo_observer_login;
+REVOKE gcp04_w4_set_group FROM espacigo_observer_login;
+REVOKE pg_read_all_stats FROM gcp04_w4_inherit_group;
+REVOKE pg_read_all_stats FROM gcp04_w4_set_group;
+DROP ROLE gcp04_w4_inherit_group;
+DROP ROLE gcp04_w4_set_group;
+DROP SCHEMA foreign_app CASCADE;
+SQL
 
 # Checksum drift is tested by altering an existing ledger value, confirming the
 # restricted migrator aborts, then restoring that exact prior value in this throwaway DB.
@@ -539,9 +627,9 @@ catalog_sql = r"""
 SELECT jsonb_build_object(
   'database', (SELECT jsonb_build_object('name', datname, 'owner', pg_catalog.pg_get_userbyid(datdba)) FROM pg_catalog.pg_database WHERE datname=current_database()),
   'schema', (SELECT jsonb_build_object('name', nspname, 'owner', pg_catalog.pg_get_userbyid(nspowner)) FROM pg_catalog.pg_namespace WHERE nspname='public'),
-  'roles', (SELECT jsonb_agg(jsonb_build_object('name',r.rolname,'login',r.rolcanlogin,'super',r.rolsuper,'createdb',r.rolcreatedb,'createrole',r.rolcreaterole,'replication',r.rolreplication,'bypassrls',r.rolbypassrls,'inherit',r.rolinherit,'comment',(SELECT d.description FROM pg_catalog.pg_shdescription d WHERE d.objoid=r.oid AND d.classoid='pg_catalog.pg_authid'::regclass)) ORDER BY r.rolname) FROM pg_catalog.pg_roles r WHERE r.rolname IN ('espacigo_schema_owner','espacigo_runtime','espacigo_privacy_cleanup_worker','espacigo_db_observer','espacigo_gadm_bootstrap','espacigo_api_login','espacigo_privacy_worker_login','espacigo_migrator_login','espacigo_observer_login')),
+  'roles', (SELECT jsonb_agg(jsonb_build_object('name',r.rolname,'login',r.rolcanlogin,'super',r.rolsuper,'createdb',r.rolcreatedb,'createrole',r.rolcreaterole,'replication',r.rolreplication,'bypassrls',r.rolbypassrls,'inherit',r.rolinherit,'comment',(SELECT d.description FROM pg_catalog.pg_shdescription d WHERE d.objoid=r.oid AND d.classoid='pg_catalog.pg_authid'::regclass)) ORDER BY r.rolname) FROM pg_catalog.pg_roles r WHERE left(r.rolname,9)='espacigo_'),
   'public_object_kinds', (SELECT jsonb_agg(jsonb_build_object('identity',n.nspname||'.'||c.relname,'kind',c.relkind,'owner',pg_catalog.pg_get_userbyid(c.relowner)) ORDER BY n.nspname,c.relname) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f','S')),
-  'memberships', (SELECT jsonb_agg(jsonb_build_object('granted',r.rolname,'member',mbr.rolname,'admin',m.admin_option,'inherit',m.inherit_option,'set',m.set_option) ORDER BY r.rolname,mbr.rolname) FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid JOIN pg_catalog.pg_roles mbr ON mbr.oid=m.member WHERE r.rolname IN ('espacigo_schema_owner','espacigo_runtime','espacigo_privacy_cleanup_worker','espacigo_db_observer','espacigo_gadm_bootstrap') OR mbr.rolname IN ('espacigo_schema_owner','espacigo_runtime','espacigo_privacy_cleanup_worker','espacigo_db_observer','espacigo_gadm_bootstrap')),
+  'memberships', (SELECT jsonb_agg(jsonb_build_object('granted',r.rolname,'member',mbr.rolname,'admin',m.admin_option,'inherit',m.inherit_option,'set',m.set_option) ORDER BY r.rolname,mbr.rolname) FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid JOIN pg_catalog.pg_roles mbr ON mbr.oid=m.member),
   'extensions', (SELECT jsonb_agg(jsonb_build_object('name',extname,'version',extversion) ORDER BY extname) FROM pg_catalog.pg_extension),
   'security_definers', (SELECT jsonb_agg(jsonb_build_object('signature',p.oid::regprocedure::text,'owner',pg_catalog.pg_get_userbyid(p.proowner),'search_path',p.proconfig) ORDER BY p.oid::regprocedure::text) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosecdef),
   'acl_entries', (SELECT jsonb_agg(jsonb_build_object('kind',a.kind,'identity',a.identity,'object_owner',pg_catalog.pg_get_userbyid(a.object_owner),'grantor',pg_catalog.pg_get_userbyid(a.grantor),'grantee',CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END,'privilege',a.privilege_type,'grantable',a.is_grantable) ORDER BY a.kind,a.identity,a.object_owner,a.grantor,a.grantee,a.privilege_type,a.is_grantable) FROM (
