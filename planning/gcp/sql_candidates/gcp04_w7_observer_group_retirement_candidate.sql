@@ -1,3 +1,5 @@
+-- SUPERSEDED historical candidate from PR #429. Do not execute; see
+-- gcp04_w7_executor_membership_finding_20261019.md for the tested lifecycle.
 -- REVIEW CANDIDATE ONLY. Not approved for Cloud SQL or production execution.
 -- First delete the exact W7 login via the approved Cloud SQL Admin API.
 -- This transaction assumes the creating CREATEROLE actor holds the original

@@ -2,6 +2,8 @@
 
 **Estado:** paquete local para revisión. No autoriza ni ejecuta mutaciones en Cloud SQL, Admin API, IAM, Secret Manager o Terraform. El gate remoto sigue OFF.
 
+**Actualización posterior:** PR #429 fusionó el diagnóstico del creador directo. La prueba del patrón executor está en [hallazgo W7 executor](gcp04_w7_executor_membership_finding_20261019.md) y define el estado vigente. Los SQL directos de abajo y sus candidatos se conservan como historia de esa revisión; no ejecutar como solución actual.
+
 ## Hallazgo ACL por fase
 
 W9 observó `PUBLIC CONNECT=true`, `TEMPORARY=true` en `espacigo` y `USAGE=true` en `public` antes del bootstrap runtime local. El contrato runtime que ya implementan `001_pre_migrate_roles.sql` y `002_local_restore_role_contract.sql` revoca `TEMPORARY` de `PUBLIC` y mantiene `TEMPORARY` solo para `espacigo_schema_owner`. El harness W6 ejecuta W4 antes y después del restore **después** de aplicar ese contrato.

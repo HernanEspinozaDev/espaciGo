@@ -1,3 +1,5 @@
+-- SUPERSEDED historical candidate from PR #429. Do not execute; see
+-- gcp04_w7_executor_membership_finding_20261019.md for the tested lifecycle.
 -- REVIEW CANDIDATE ONLY. Not approved for Cloud SQL or production execution.
 -- Requires a separately verified direct LOGIN CREATEROLE actor plus GRANT
 -- OPTION on database CONNECT, public schema USAGE, and ledger SELECT if present.
