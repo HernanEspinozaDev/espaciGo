@@ -12,6 +12,12 @@ Costos: el Job de Cloud Run factura por su duración con mínimo facturable de u
 
 **Estado:** replay directo V1–V64 con rol restringido bloqueado por V60. Candidato de baseline lógico validado solo entre clústeres PostgreSQL locales efímeros; todavía no es un procedimiento autorizado ni probado en Cloud SQL. Este corte no acepta GCP-04 ni habilita API/worker.
 
+### W7 — runner privado del preflight (2026-10-19)
+
+La implementación local y los límites de ejecución están documentados en [GCP-04-W7](gcp04_w7_private_preflight_runner_20261019.md). El runner traduce el wrapper psql a `pgx` conservando el digest exacto, fija proyecto/instancia/IP privada/base/login, exige presupuesto positivo, timeout acotado, concurrencia uno y archivo de credencial asociado a versión numérica. Terraform para Job/IAM/Direct VPC permanece apagado; el plan OFF local dio `No changes` sin inicializar backend remoto. La regresión integrada local PostgreSQL 18 pasó, sin demostrar compatibilidad Cloud SQL.
+
+La metadata actual vuelve a mostrar únicamente el usuario integrado `postgres`. No se vio el catálogo SQL ni la existencia/grants de `espacigo_db_observer`. Según Cloud SQL, un usuario builtin creado sin roles personalizados recibe `cloudsqlsuperuser`; la Admin API admite `databaseRoles` personalizados cuando el rol ya existe. No crear el login, resetear `postgres`, leer secretos, abrir SQL remoto ni ejecutar Job hasta revisar la existencia y privilegios del grupo observer por un canal autorizado. No se cambia V1–V64.
+
 ## Inventario confirmado, solo metadata
 
 El candidato único de este corte es la instancia existente `espacigo-testprod-pg` del proyecto `espacigo-testprod`: PostgreSQL 18, `RUNNABLE`, IP privada, región `southamerica-west1`, red `espacigo-testprod` y subred serverless de la misma región. En el inventario previo la API de Cloud SQL listó las bases `postgres` y `espacigo` y únicamente el usuario integrado `postgres`. Existen los secretos metadata de API y migrador, pero la lista de versiones no devolvió versiones activas. No se leyó ningún secreto ni se abrió sesión SQL.
