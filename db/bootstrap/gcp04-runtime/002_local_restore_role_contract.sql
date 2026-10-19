@@ -61,6 +61,11 @@ GRANT espacigo_privacy_cleanup_worker TO espacigo_privacy_worker_login WITH ADMI
 GRANT espacigo_schema_owner TO espacigo_migrator_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
 GRANT espacigo_db_observer TO espacigo_observer_login WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
 
+-- Global role comments are not part of a database-scoped pg_dump archive.
+-- Keep the V60 comment in the explicit local restore contract for comparison.
+COMMENT ON ROLE espacigo_gadm_bootstrap IS
+    'NOLOGIN GADM local bootstrap group; temporary isolated login membership only.';
+
 DO $assertions$
 BEGIN
     IF EXISTS (
