@@ -2,7 +2,9 @@
 
 Fecha original de comprobación: 2026-10-15 (histórica).
 
-**Vigencia al 2026-10-18:** la foundation GCP-02 y los recursos run-scoped de g03o-1017 existen; su copia privada y postverify concluyeron. GCP-04 sigue parcial: el smoke aislado `g04replay18` creó recursos run-scoped y ejecutó un Job una vez, con resultado satisfactorio, pero no desplegó API/worker ni completa la aceptación GCP-04. No se aplicó teardown; el ensayo y sus límites están en la [matriz de estado de g04replay18](gcp04_g04replay18_status_matrix_20261018.md) y la [propuesta de smoke GCP-04](gcp04_cloud_replay_smoke_proposal_20261018.md). Los estados anteriores e inventarios se conservan como historia; la secuencia GCP-03 vigente se registra en la [matriz de cierre g03o-1017](gcp03_g03r_1016_closeout_matrix.md).
+**Registro histórico al 2026-10-18:** en esa fecha, la foundation GCP-02 y los recursos run-scoped de g03o-1017 existían; su copia privada y postverify habían concluido. El smoke aislado `g04replay18` había creado recursos run-scoped y ejecutado un Job una vez con resultado satisfactorio; el teardown aún no se había aplicado en ese corte. La [matriz de estado de g04replay18](gcp04_g04replay18_status_matrix_20261018.md) conserva ese snapshot y las actualizaciones posteriores, y la [propuesta de smoke GCP-04](gcp04_cloud_replay_smoke_proposal_20261018.md) conserva el diseño original.
+
+**Vigencia al 2026-10-19:** GCP-04 permanece parcial. El teardown selectivo de `g04replay18` y el worker W1 local están registrados en la matriz. La liberación W9 completó una sola ejecución controlada de la consulta allowlisted W8 y retiró el login, secreto y cinco recursos Terraform temporales; no desplegó API/worker ni autoriza restore. El siguiente gate es el preflight W7 con observer de mínimo privilegio y revisión de ACL antes de restore o despliegue API. Véanse el [cierre W9](gcp04_w9_operational_release_20261019.md), la [matriz de estado GCP-04](gcp04_g04replay18_status_matrix_20261018.md) y la [matriz de cierre g03o-1017](gcp03_g03r_1016_closeout_matrix.md). Los estados e inventarios anteriores permanecen como historia fechada.
 
 ## 1. Decisiones y límites del encargo
 
