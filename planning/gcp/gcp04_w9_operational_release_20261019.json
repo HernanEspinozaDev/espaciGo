@@ -1,0 +1,72 @@
+{
+  "format": "espacigo.gcp04.w9.operational-release.v1",
+  "status": "local_package_prepared_review_pending_no_cloud_mutations",
+  "base": "66bd4eb4845b3393b967d003dd70084b99cd30a3",
+  "target": {
+    "project": "espacigo-testprod",
+    "instance": "espacigo-testprod-pg",
+    "region": "southamerica-west1",
+    "version": "POSTGRES_18",
+    "connection_name": "espacigo-testprod:southamerica-west1:espacigo-testprod-pg",
+    "private_ip": "10.189.0.3",
+    "database": "espacigo"
+  },
+  "candidate_user": {
+    "name": "espacigo_gcp04_w8_catalog_probe",
+    "type": "BUILT_IN",
+    "database_roles": [
+      "pg_read_all_settings"
+    ],
+    "decision": "not_approved_role_breadth_and_users.insert_acceptance_pending",
+    "fallback": "forbidden"
+  },
+  "secret": {
+    "api_resource": "projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password",
+    "replication": {
+      "policy": "USER_MANAGED",
+      "locations": [
+        "southamerica-west1"
+      ]
+    },
+    "payload": "random_256_bit_password_in_memory_only",
+    "terraform_payload_state": false,
+    "version": "numeric_only"
+  },
+  "job": {
+    "name": "espacigo-gcp04-w8-catalog-probe",
+    "tasks": 1,
+    "parallelism": 1,
+    "retries": 0,
+    "timeout_seconds": 120,
+    "default_enabled": false,
+    "execution_authorized": false,
+    "sql_sha256": "3fc825934660bbfc965e8d97b2ef7f4648baf2cded6c8871ae6953bd18c70d16",
+    "image_local_manifest_sha256": "9139098697d8437715460bb1912141c3bfee141c6531d0c38a29132fadfd5991",
+    "image_tar_sha256_private_artifact": "1525135e1088e19bd3cd04770c1a7088f380dcb76e41cb49e845368a82d9d4b9",
+    "published": false,
+    "service_account_id": "espacigo-gcp04-w8-probe"
+  },
+  "iam": [
+    "roles/cloudsql.client conditioned to exact instance",
+    "roles/secretmanager.secretAccessor on exact global secret",
+    "roles/artifactregistry.reader on exact repository for Cloud Run service agent"
+  ],
+  "release_gates": [
+    "review one exact temporary pg_read_all_settings experiment; no broader fallback",
+    "review active release file SHA-256 and exact user/secret targets before helper execution",
+    "review mock enabled Terraform plan, exact image digest and numeric version before activation",
+    "separate approval for one Job execution, then exact-user/version teardown"
+  ],
+  "uncertainty_policy": "journal exact phase/resource/operation; no blind retry or delete on uncertain result",
+  "cloud_mutations_performed": false,
+  "sql_connections_opened": false,
+  "image_published": false,
+  "terraform_apply": false,
+  "job_executed": false,
+  "metadata_read_attempt": {
+    "status": "blocked_first_cloud_sql_instance_get_http_403",
+    "users_listed": false,
+    "secret_manager_called": false,
+    "sql_opened": false
+  }
+}
