@@ -2,6 +2,18 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+RETAIN_DIR="${GCP04_W3_RETAIN_BUNDLE_DIR:-}"
+if [[ -n "$RETAIN_DIR" ]]; then
+  [[ "$RETAIN_DIR" == /* ]] || { echo 'GCP04_W3_RETAIN_BUNDLE_DIR must be an absolute private .local/testing path.' >&2; exit 2; }
+  TESTING_DIR="$(realpath -m -- "$ROOT_DIR/.local/testing")"
+  RETAIN_DIR="$(realpath -m -- "$RETAIN_DIR")"
+  case "$RETAIN_DIR" in
+    "$TESTING_DIR"/gcp04-w4-baseline-*) ;;
+    *) echo 'GCP04_W3_RETAIN_BUNDLE_DIR must be a new gcp04-w4-baseline-* directory under .local/testing.' >&2; exit 2 ;;
+  esac
+  [[ "$(basename -- "$RETAIN_DIR")" =~ ^gcp04-w4-baseline-[A-Za-z0-9._-]{1,64}$ ]] || { echo 'Private bundle directory name is invalid.' >&2; exit 2; }
+  [[ ! -e "$RETAIN_DIR" && ! -L "$RETAIN_DIR" ]] || { echo 'Refusing to overwrite an existing retained baseline bundle.' >&2; exit 2; }
+fi
 IMAGE='postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
 EXPECTED_IMAGE_ID='sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
 RUN_ID="${GCP04_W3_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
@@ -199,6 +211,50 @@ Path(str(output_path) + ".skipped").write_text("\n".join(skipped) + "\n", encodi
 bootstrap_acl_path.write_text("\n".join(bootstrap_acl) + "\n", encoding="utf-8")
 PY
 
+run_target_preflight() {
+  local name="$1" expected="$2"
+  shift 2
+  set +e
+  psql -X -qAt -v ON_ERROR_STOP=1 "$@" -h "$TARGET_SOCKET" -U postgres -d espacigo \
+    -f "$ROOT_DIR/db/query/gcp04_w4_target_preflight.sql" \
+    > "$ARTIFACTS/$name.json" 2> "$ARTIFACTS/$name.stderr"
+  local status=$?
+  set -e
+  if [[ "$expected" == success && "$status" -ne 0 ]]; then
+    cat "$ARTIFACTS/$name.stderr" >&2
+    return "$status"
+  elif [[ "$expected" == failure && "$status" -eq 0 ]]; then
+    echo "preflight unexpectedly accepted invalid input: $name" >&2
+    cat "$ARTIFACTS/$name.json" >&2
+    return 1
+  fi
+}
+
+# Reject missing, zero, and non-numeric connection budgets before querying catalog state.
+run_target_preflight missing-budget failure
+run_target_preflight zero-budget failure -v required_connections=0
+run_target_preflight invalid-budget failure -v required_connections=abc
+grep -Fq 'required_connections is required' "$ARTIFACTS/missing-budget.stderr"
+grep -Fq 'required_connections must be a positive integer' "$ARTIFACTS/zero-budget.stderr"
+grep -Fq 'required_connections must be a positive integer' "$ARTIFACTS/invalid-budget.stderr"
+
+# Read-only preflight report against the empty restore target, through its isolated Unix socket.
+run_target_preflight pre-restore-report success -v required_connections=24
+python3 - "$ARTIFACTS/pre-restore-report.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+assert report["database"]["transaction_read_only"] is True
+empty_counts = {key: report["destination"][key] for key in ("relations_non_extension", "routines_non_extension", "types_non_extension", "other_schema_objects_non_extension")}
+if any(empty_counts.values()):
+    raise AssertionError(f"empty destination has non-extension objects: {empty_counts}; relations={[row for row in report['destination']['relation_inventory'] if not row['extension_owned']]}")
+assert report["destination"]["non_public_schemas_non_extension"] == 0
+assert report["destination"]["non_public_objects_non_extension"] == 0
+assert report["destination"]["unapproved_extensions"] == 0
+assert report["destination"]["empty_destination_candidate"] is True
+assert report["schema_migrations"]["present"] is False
+assert report["capacity"]["required_connections"] == 24
+PY
+
 compose exec -T target pg_restore --exit-on-error --single-transaction --no-owner --no-acl \
   --role=espacigo_schema_owner -U espacigo_migrator_login -d espacigo \
   --use-list=/w3-artifacts/baseline.toc.restore /w3-artifacts/baseline.dump
@@ -238,6 +294,109 @@ fi
 DATABASE_URL="postgres://espacigo_migrator_login@localhost:5432/espacigo?host=$TARGET_SOCKET" \
 DATABASE_SET_ROLE=espacigo_schema_owner go run ./cmd/dbmigrate -dir db/migrations | tee "$ARTIFACTS/target-no-changes.txt"
 grep -Fxq 'sin cambios' "$ARTIFACTS/target-no-changes.txt"
+
+run_target_preflight post-restore-report success -v required_connections=24
+python3 - "$ARTIFACTS/post-restore-report.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+assert report["database"]["transaction_read_only"] is True
+assert report["destination"]["schema_migrations_present"] is True
+assert report["schema_migrations"]["present"] is True
+assert report["destination"]["relations_non_extension"] >= 98
+assert report["destination"]["non_public_schemas_non_extension"] == 0
+assert report["destination"]["non_public_objects_non_extension"] == 0
+assert report["destination"]["unapproved_extensions"] == 0
+assert report["destination"]["empty_destination_candidate"] is False
+assert report["capacity"]["required_connections"] == 24
+assert all(not row["missing_effective_privileges"] for row in report["owner_effective_privileges"])
+PY
+
+run_target_preflight insufficient-budget success -v required_connections=999999
+python3 - "$ARTIFACTS/insufficient-budget.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+assert report["capacity"]["passes"] is False
+PY
+
+run_observer_preflight() {
+  local name="$1"
+  psql -X -qAt -v ON_ERROR_STOP=1 -v required_connections=24 \
+    -h "$TARGET_SOCKET" -U espacigo_observer_login -d espacigo \
+    -f "$ROOT_DIR/db/query/gcp04_w4_target_preflight.sql" \
+    > "$ARTIFACTS/$name.json" 2> "$ARTIFACTS/$name.stderr"
+}
+
+# An unapproved schema and table outside public must be inventoried and close the empty-target gate.
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo <<'SQL'
+CREATE SCHEMA foreign_app;
+CREATE TABLE foreign_app.real_data (id integer PRIMARY KEY);
+INSERT INTO foreign_app.real_data VALUES (7);
+SQL
+run_observer_preflight observer-foreign-schema
+python3 - "$ARTIFACTS/observer-foreign-schema.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+destination = report["destination"]
+assert destination["non_public_schemas_non_extension"] == 1
+assert destination["non_public_objects_non_extension"] >= 1
+assert destination["empty_destination_candidate"] is False
+assert any(row["identity"] == "foreign_app.real_data" for row in destination["non_public_object_inventory"])
+assert any(row["name"] == "foreign_app" and not row["extension_owned"] for row in destination["schema_inventory"])
+PY
+set +e
+psql -X -q -v ON_ERROR_STOP=1 -h "$TARGET_SOCKET" -U espacigo_observer_login -d espacigo \
+  -c 'SELECT * FROM foreign_app.real_data' > "$ARTIFACTS/observer-foreign-data-denial.log" 2>&1
+FOREIGN_DATA_STATUS=$?
+set -e
+[[ "$FOREIGN_DATA_STATUS" -ne 0 ]] && grep -Fq 'permission denied for schema foreign_app' "$ARTIFACTS/observer-foreign-data-denial.log"
+
+# Direct membership of a login in a powerful catalog role must be visible to the restricted observer.
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
+  -c 'GRANT pg_read_all_stats TO espacigo_observer_login' >/dev/null
+run_observer_preflight observer-direct-stats-membership
+python3 - "$ARTIFACTS/observer-direct-stats-membership.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+assert any(edge["app_login"] == "espacigo_observer_login" and edge["member_role"] == "espacigo_observer_login"
+           and edge["granted_role"] == "pg_read_all_stats" and edge["edge_context"] == "transitive-login-membership"
+           and edge["inherit_option"]
+           for edge in report["memberships"])
+PY
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
+  -c 'REVOKE pg_read_all_stats FROM espacigo_observer_login' >/dev/null
+
+# The closure must also report a powerful role reached through a settable intermediate group.
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo <<'SQL'
+CREATE ROLE gcp04_w4_inherit_group NOLOGIN;
+CREATE ROLE gcp04_w4_set_group NOLOGIN;
+GRANT pg_read_all_stats TO gcp04_w4_inherit_group;
+GRANT pg_read_all_stats TO gcp04_w4_set_group;
+GRANT gcp04_w4_inherit_group TO espacigo_observer_login WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
+GRANT gcp04_w4_set_group TO espacigo_observer_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+SQL
+run_observer_preflight observer-transitive-stats-membership
+python3 - "$ARTIFACTS/observer-transitive-stats-membership.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+edges = report["memberships"]
+assert any(edge["app_login"] == "espacigo_observer_login" and edge["member_role"] == "espacigo_observer_login"
+           and edge["granted_role"] == "gcp04_w4_inherit_group" and edge["inherit_option"] and not edge["set_option"] for edge in edges)
+assert any(edge["app_login"] == "espacigo_observer_login" and edge["member_role"] == "gcp04_w4_inherit_group"
+           and edge["granted_role"] == "pg_read_all_stats" for edge in edges)
+assert any(edge["app_login"] == "espacigo_observer_login" and edge["member_role"] == "espacigo_observer_login"
+           and edge["granted_role"] == "gcp04_w4_set_group" and not edge["inherit_option"] and edge["set_option"] for edge in edges)
+assert any(edge["app_login"] == "espacigo_observer_login" and edge["member_role"] == "gcp04_w4_set_group"
+           and edge["granted_role"] == "pg_read_all_stats" for edge in edges)
+PY
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo <<'SQL'
+REVOKE gcp04_w4_inherit_group FROM espacigo_observer_login;
+REVOKE gcp04_w4_set_group FROM espacigo_observer_login;
+REVOKE pg_read_all_stats FROM gcp04_w4_inherit_group;
+REVOKE pg_read_all_stats FROM gcp04_w4_set_group;
+DROP ROLE gcp04_w4_inherit_group;
+DROP ROLE gcp04_w4_set_group;
+DROP SCHEMA foreign_app CASCADE;
+SQL
 
 # Checksum drift is tested by altering an existing ledger value, confirming the
 # restricted migrator aborts, then restoring that exact prior value in this throwaway DB.
@@ -468,8 +627,9 @@ catalog_sql = r"""
 SELECT jsonb_build_object(
   'database', (SELECT jsonb_build_object('name', datname, 'owner', pg_catalog.pg_get_userbyid(datdba)) FROM pg_catalog.pg_database WHERE datname=current_database()),
   'schema', (SELECT jsonb_build_object('name', nspname, 'owner', pg_catalog.pg_get_userbyid(nspowner)) FROM pg_catalog.pg_namespace WHERE nspname='public'),
-  'roles', (SELECT jsonb_agg(jsonb_build_object('name',rolname,'login',rolcanlogin,'super',rolsuper,'createdb',rolcreatedb,'createrole',rolcreaterole,'replication',rolreplication,'bypassrls',rolbypassrls,'inherit',rolinherit) ORDER BY rolname) FROM pg_catalog.pg_roles WHERE rolname IN ('espacigo_schema_owner','espacigo_runtime','espacigo_privacy_cleanup_worker','espacigo_db_observer','espacigo_gadm_bootstrap','espacigo_api_login','espacigo_privacy_worker_login','espacigo_migrator_login','espacigo_observer_login')),
-  'memberships', (SELECT jsonb_agg(jsonb_build_object('granted',r.rolname,'member',mbr.rolname,'admin',m.admin_option,'inherit',m.inherit_option,'set',m.set_option) ORDER BY r.rolname,mbr.rolname) FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid JOIN pg_catalog.pg_roles mbr ON mbr.oid=m.member WHERE r.rolname IN ('espacigo_schema_owner','espacigo_runtime','espacigo_privacy_cleanup_worker','espacigo_db_observer','espacigo_gadm_bootstrap') OR mbr.rolname IN ('espacigo_schema_owner','espacigo_runtime','espacigo_privacy_cleanup_worker','espacigo_db_observer','espacigo_gadm_bootstrap')),
+  'roles', (SELECT jsonb_agg(jsonb_build_object('name',r.rolname,'login',r.rolcanlogin,'super',r.rolsuper,'createdb',r.rolcreatedb,'createrole',r.rolcreaterole,'replication',r.rolreplication,'bypassrls',r.rolbypassrls,'inherit',r.rolinherit,'comment',(SELECT d.description FROM pg_catalog.pg_shdescription d WHERE d.objoid=r.oid AND d.classoid='pg_catalog.pg_authid'::regclass)) ORDER BY r.rolname) FROM pg_catalog.pg_roles r WHERE left(r.rolname,9)='espacigo_'),
+  'public_object_kinds', (SELECT jsonb_agg(jsonb_build_object('identity',n.nspname||'.'||c.relname,'kind',c.relkind,'owner',pg_catalog.pg_get_userbyid(c.relowner)) ORDER BY n.nspname,c.relname) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f','S')),
+  'memberships', (SELECT jsonb_agg(jsonb_build_object('granted',r.rolname,'member',mbr.rolname,'admin',m.admin_option,'inherit',m.inherit_option,'set',m.set_option) ORDER BY r.rolname,mbr.rolname) FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid JOIN pg_catalog.pg_roles mbr ON mbr.oid=m.member),
   'extensions', (SELECT jsonb_agg(jsonb_build_object('name',extname,'version',extversion) ORDER BY extname) FROM pg_catalog.pg_extension),
   'security_definers', (SELECT jsonb_agg(jsonb_build_object('signature',p.oid::regprocedure::text,'owner',pg_catalog.pg_get_userbyid(p.proowner),'search_path',p.proconfig) ORDER BY p.oid::regprocedure::text) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prosecdef),
   'acl_entries', (SELECT jsonb_agg(jsonb_build_object('kind',a.kind,'identity',a.identity,'object_owner',pg_catalog.pg_get_userbyid(a.object_owner),'grantor',pg_catalog.pg_get_userbyid(a.grantor),'grantee',CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END,'privilege',a.privilege_type,'grantable',a.is_grantable) ORDER BY a.kind,a.identity,a.object_owner,a.grantor,a.grantee,a.privilege_type,a.is_grantable) FROM (
@@ -503,12 +663,104 @@ for service in ("source", "target"):
     effective_entries = [entry for entry in acl_entries if entry not in owner_entries]
     normalized_catalogs[service]["acl_entries"] = effective_entries
     owner_acl_representation[service] = owner_entries
+
+owner_effective_sql = r"""
+SELECT jsonb_agg(jsonb_build_object('kind',kind,'identity',identity,'owner',owner_name,
+  'required_privileges',required_privileges,'missing_effective_privileges',missing_effective_privileges)
+  ORDER BY kind,identity)::text
+FROM (
+  SELECT 'relation'::text AS kind, n.nspname||'.'||c.relname AS identity,
+         pg_catalog.pg_get_userbyid(c.relowner) AS owner_name,
+         spec.required_privileges,
+         ARRAY(SELECT privilege FROM unnest(spec.required_privileges) privilege
+               WHERE NOT CASE WHEN c.relkind='S'
+                 THEN has_sequence_privilege(c.relowner,c.oid,privilege)
+                 ELSE has_table_privilege(c.relowner,c.oid,privilege)
+               END ORDER BY privilege) AS missing_effective_privileges
+  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+  CROSS JOIN LATERAL (SELECT CASE WHEN c.relkind='S'
+    THEN ARRAY['SELECT','USAGE','UPDATE']::text[]
+    ELSE ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']::text[] END AS required_privileges) spec
+  WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f','S')
+  UNION ALL
+  SELECT 'routine',n.nspname||'.'||p.oid::regprocedure::text,
+         pg_catalog.pg_get_userbyid(p.proowner),ARRAY['EXECUTE']::text[],
+         ARRAY(SELECT 'EXECUTE' WHERE NOT has_function_privilege(p.proowner,p.oid,'EXECUTE'))
+  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname='public'
+  UNION ALL
+  SELECT 'type',n.nspname||'.'||t.typname,pg_catalog.pg_get_userbyid(t.typowner),ARRAY['USAGE']::text[],
+         ARRAY(SELECT 'USAGE' WHERE NOT has_type_privilege(t.typowner,t.oid,'USAGE'))
+  FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace
+  WHERE n.nspname='public' AND t.typrelid=0 AND t.typtype IN ('b','d','e','r','m')
+  UNION ALL
+  SELECT 'schema',n.nspname,pg_catalog.pg_get_userbyid(n.nspowner),ARRAY['USAGE','CREATE']::text[],
+         ARRAY(SELECT privilege FROM unnest(ARRAY['USAGE','CREATE']::text[]) privilege
+               WHERE NOT has_schema_privilege(n.nspowner,n.oid,privilege) ORDER BY privilege)
+  FROM pg_catalog.pg_namespace n WHERE n.nspname='public'
+  UNION ALL
+  SELECT 'database',d.datname,pg_catalog.pg_get_userbyid(d.datdba),ARRAY['CONNECT','CREATE','TEMP']::text[],
+         ARRAY(SELECT privilege FROM unnest(ARRAY['CONNECT','CREATE','TEMP']::text[]) privilege
+               WHERE NOT has_database_privilege(d.datdba,d.oid,privilege) ORDER BY privilege)
+  FROM pg_catalog.pg_database d WHERE d.datname=current_database()
+) owner_privileges
+"""
+owner_acl_effective = {}
+for service in ("source", "target"):
+    owner_acl_effective[service] = json.loads(psql(service, owner_effective_sql)) or []
+    incomplete = [entry for entry in owner_acl_effective[service] if entry["missing_effective_privileges"]]
+    if incomplete:
+        raise SystemExit(f"owner lacks effective full privileges on {service} objects: {[entry['identity'] for entry in incomplete]}")
+
+object_kinds = {item["identity"]: item["kind"] for item in catalogs["source"]["public_object_kinds"] or []}
+owner_acl_groups = {}
+for service in ("source", "target"):
+    groups = {}
+    for entry in owner_acl_representation[service]:
+        key = (entry["kind"], entry["identity"], entry["object_owner"])
+        groups.setdefault(key, []).append(entry)
+    for (kind, identity, owner), entries in groups.items():
+        privilege_names = {entry["privilege"] for entry in entries}
+        if kind == "relation":
+            required = ({"SELECT", "USAGE", "UPDATE"} if object_kinds.get(identity) == "S" else
+                        {"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"})
+        elif kind == "column":
+            required = {"SELECT", "INSERT", "UPDATE", "REFERENCES"}
+        elif kind == "routine":
+            required = {"EXECUTE"}
+        elif kind == "type":
+            required = {"USAGE"}
+        else:
+            raise SystemExit(f"unexpected explicit owner ACL kind: {kind}")
+        if privilege_names != required:
+            raise SystemExit(f"explicit owner ACL is partial or unexpected for {service} {identity}: {sorted(privilege_names)}")
+    owner_acl_groups[service] = groups
+
+def owner_entry_key(entry):
+    return (entry["kind"], entry["identity"], entry["object_owner"], entry["grantor"],
+            entry["grantee"], entry["privilege"], entry["grantable"])
+source_owner_entries = {owner_entry_key(entry) for entry in owner_acl_representation["source"]}
+target_owner_entries = {owner_entry_key(entry) for entry in owner_acl_representation["target"]}
+owner_acl_differences = {
+    "source_only": [entry for entry in owner_acl_representation["source"] if owner_entry_key(entry) not in target_owner_entries],
+    "target_only": [entry for entry in owner_acl_representation["target"] if owner_entry_key(entry) not in source_owner_entries],
+}
+owner_acl_effective_normalized = {}
+for service in ("source", "target"):
+    owner_acl_effective_normalized[service] = [
+        {key: value for key, value in item.items() if key != "owner"}
+        for item in owner_acl_effective[service]
+    ]
+if owner_acl_effective_normalized["source"] != owner_acl_effective_normalized["target"]:
+    raise SystemExit("source/destination effective owner privileges differ")
 if normalized_catalogs["source"] != normalized_catalogs["target"]:
     source_json = json.dumps(normalized_catalogs["source"], sort_keys=True, indent=2).splitlines()
     target_json = json.dumps(normalized_catalogs["target"], sort_keys=True, indent=2).splitlines()
     diff = "\n".join(__import__("difflib").unified_diff(source_json, target_json, fromfile="source-catalog", tofile="target-catalog")) + "\n"
     print(diff[:10000], file=sys.stderr)
     raise SystemExit("source/destination role, membership, owner, ACL, extension, or SECURITY DEFINER inventories differ")
+(artifacts / "source.catalog.json").write_text(
+    json.dumps(normalized_catalogs["source"], sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 constraint_sql = """
 SELECT jsonb_agg(jsonb_build_object('identity',n.nspname||'.'||c.relname||'.'||k.conname,
@@ -601,22 +853,37 @@ if source_structure != target_structure:
 schema_sha = hashlib.sha256(source_structure.encode()).hexdigest()
 constraint_differences_sha = hashlib.sha256(json.dumps(constraint_deparser_differences, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 body = {
-    "format": "espacigo-gcp04-w3-logical-baseline-v1",
+    "format": "espacigo-gcp04-w4-baseline-package-v1",
     "postgres_image": "postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677",
     "source": "canonical empty ephemeral database; V1-V64 applied by cmd/dbmigrate as local postgres; ownership/grants normalized locally after replay",
     "destination": "separate ephemeral PostgreSQL 18 cluster; global roles provisioned separately; pg_restore as espacigo_migrator_login SET ROLE espacigo_schema_owner",
-    "migrations": {"count": 64, "first": 1, "last": 64, "source_target_checksums_equal": True},
+    "repo_head": subprocess.check_output(["git", "-C", root, "rev-parse", "HEAD"], text=True).strip(),
+    "migrations": {"count": 64, "first": 1, "last": 64, "source_target_checksums_equal": True,
+        "source_ledger": migration_history["source"],
+        "canonical_files": [{"name": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                             for path in sorted((Path(root) / "db/migrations").glob("V*.sql"))]},
+    "extension_config_tables": (artifacts / "extension-config-tables.txt").read_text(encoding="utf-8").splitlines(),
     "archive_sha256": hashlib.sha256((artifacts / "baseline.dump").read_bytes()).hexdigest(),
     "toc_sha256": hashlib.sha256((artifacts / "baseline.toc.restore").read_bytes()).hexdigest(),
     "toc_original_sha256": hashlib.sha256((artifacts / "baseline.toc.original").read_bytes()).hexdigest(),
     "toc_skipped_sha256": hashlib.sha256((artifacts / "baseline.toc.restore.skipped").read_bytes()).hexdigest(),
     "toc_bootstrap_acl_sha256": hashlib.sha256((artifacts / "baseline.toc.bootstrap-acl").read_bytes()).hexdigest(),
+    "toc_acl_sha256": hashlib.sha256((artifacts / "baseline.toc.acl").read_bytes()).hexdigest(),
+    "acl_raw_sql_sha256": hashlib.sha256((artifacts / "baseline.acl.raw.sql").read_bytes()).hexdigest(),
+    "acl_restore_sql_sha256": hashlib.sha256((artifacts / "baseline.acl.restore.sql").read_bytes()).hexdigest(),
     "source_schema_dump_sha256": hashlib.sha256((artifacts / "source.schema.sql").read_bytes()).hexdigest(),
+    "source_structure_sha256": hashlib.sha256((artifacts / "source.structure.sql").read_bytes()).hexdigest(),
+    "source_catalog_sha256": hashlib.sha256((artifacts / "source.catalog.json").read_bytes()).hexdigest(),
     "target_schema_dump_sha256": hashlib.sha256((artifacts / "target.schema.sql").read_bytes()).hexdigest(),
     "normalized_schema_sha256_equal": schema_sha,
     "acl_inventory_sha256_equal": hashlib.sha256(json.dumps(normalized_catalogs["source"]["acl_entries"], sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
     "explicit_owner_acl_representation_sha256": hashlib.sha256(json.dumps(owner_acl_representation, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
     "explicit_owner_acl_representation": owner_acl_representation,
+    "explicit_owner_acl_representation_differences_sha256": hashlib.sha256(json.dumps(owner_acl_differences, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+    "explicit_owner_acl_representation_differences": owner_acl_differences,
+    "owner_acl_effective_sha256_equal": hashlib.sha256(json.dumps(owner_acl_effective_normalized["source"], sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+    "owner_acl_effective_full_privileges_checked": True,
+    "owner_acl_effective_inventory": owner_acl_effective,
     "constraint_deparser_differences_sha256": constraint_differences_sha,
     "constraint_deparser_differences": constraint_deparser_differences,
     "catalog_manifest_sha256_equal": hashlib.sha256(json.dumps(normalized_catalogs["source"], sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
@@ -653,6 +920,23 @@ chmod 0700 "$ROOT_DIR/.local/testing"
 MANIFEST_PATH="$ROOT_DIR/.local/testing/gcp04-w3-logical-baseline-${RUN_SLUG}.json"
 install -m 0600 "$ARTIFACTS/baseline.manifest.json" "$MANIFEST_PATH"
 echo "Private manifest: $MANIFEST_PATH"
+
+if [[ -n "$RETAIN_DIR" ]]; then
+  mkdir -m 0700 -- "$RETAIN_DIR"
+  bundle_files=(
+    baseline.dump baseline.manifest.json baseline.toc.original baseline.toc.restore
+    baseline.toc.restore.skipped baseline.toc.bootstrap-acl baseline.toc.acl
+    baseline.acl.raw.sql baseline.acl.restore.sql source.schema.sql source.structure.sql
+    source.catalog.json
+  )
+  for file in "${bundle_files[@]}"; do
+    [[ -f "$ARTIFACTS/$file" && ! -L "$ARTIFACTS/$file" ]] || { echo "Required bundle input missing: $file" >&2; exit 1; }
+    install -m 0600 -- "$ARTIFACTS/$file" "$RETAIN_DIR/$file"
+  done
+  (cd -- "$RETAIN_DIR" && sha256sum "${bundle_files[@]}" | LC_ALL=C sort -k2) > "$RETAIN_DIR/SHA256SUMS"
+  chmod 0600 "$RETAIN_DIR/SHA256SUMS"
+  echo "Private baseline package retained: $RETAIN_DIR"
+fi
 
 echo 'V1-V64 canonical baseline dump/restore, restricted no-change verification, checksum-drift rejection, runtime role identities/denials, private preflight, and inventory checks passed locally.'
 cleanup_verified
