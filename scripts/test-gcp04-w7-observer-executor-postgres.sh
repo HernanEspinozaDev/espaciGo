@@ -87,6 +87,13 @@ expect_failure() {
   if [[ "$status" -eq 0 ]]; then cat "$output" >&2; echo 'Expected W7 prepare failure.' >&2; exit 1; fi
   if ! grep -Fq "$expected" "$output"; then cat "$output" >&2; echo "Failure did not match guard: $expected" >&2; exit 1; fi
 }
+expect_verify_failure() {
+  local expected="$1" output="$TMP_DIR/verify-failure.log" status=0
+  psql_local -U gcp04_w7_actor -d espacigo \
+    < "$ROOT_DIR/planning/gcp/sql_candidates/gcp04_w7_observer_verify_api_membership_candidate.sql" > "$output" 2>&1 || status=$?
+  if [[ "$status" -eq 0 ]]; then cat "$output" >&2; echo 'Expected W7 verifier failure.' >&2; exit 1; fi
+  if ! grep -Fq "$expected" "$output"; then cat "$output" >&2; echo "Verifier failure did not match: $expected" >&2; exit 1; fi
+}
 
 # Missing grant options fail before creating either reserved role.
 expect_failure gcp04_w7_unprivileged 'W7 actor lacks database CONNECT or public schema USAGE grant option'
@@ -97,11 +104,13 @@ expect_failure gcp04_w7_unprivileged 'W7 actor lacks database CONNECT or public 
 psql_local -U gcp04_w7_actor -d espacigo < "$ROOT_DIR/planning/gcp/sql_candidates/gcp04_w7_observer_executor_prepare_candidate.sql"
 [[ "$(psql_local -U postgres -d espacigo -Atc "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='espacigo_gcp04_w7_observer_executor'")" == 1 ]]
 [[ "$(psql_local -U postgres -d espacigo -Atc "SELECT count(*) FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid WHERE r.rolname='espacigo_db_observer'")" == 1 ]]
+expect_verify_failure 'W7 API-created login is absent'
 
 # If the API call is reconciled as absent, compensate while the executor still
 # exists; the group is empty and only the original actor's ACL grants remain.
 psql_local -U gcp04_w7_actor -d espacigo < "$ROOT_DIR/planning/gcp/sql_candidates/gcp04_w7_observer_compensate_candidate.sql"
 [[ "$(psql_local -U postgres -d espacigo -Atc "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN ('espacigo_db_observer','espacigo_gcp04_w7_observer_executor')")" == 0 ]]
+expect_verify_failure 'W7 API-created login is absent'
 
 psql_local -U gcp04_w7_actor -d espacigo < "$ROOT_DIR/planning/gcp/sql_candidates/gcp04_w7_observer_executor_prepare_candidate.sql"
 
@@ -130,9 +139,13 @@ if psql_local -U gcp04_w7_actor -d espacigo < "$ROOT_DIR/planning/gcp/sql_candid
 fi
 grep -Fq 'W7 API membership must be exactly ADMIN=false INHERIT=true SET=false' "$TMP_DIR/default-membership.log"
 psql_local -U postgres -d espacigo -c 'GRANT espacigo_db_observer TO espacigo_gcp04_w7_observer WITH ADMIN FALSE, INHERIT TRUE, SET FALSE' >/dev/null
+psql_local -U postgres -d espacigo -c 'ALTER ROLE espacigo_gcp04_w7_observer NOINHERIT' >/dev/null
+expect_verify_failure 'W7 API-created login must be LOGIN INHERIT with elevated attributes disabled'
+psql_local -U postgres -d espacigo -c 'ALTER ROLE espacigo_gcp04_w7_observer INHERIT' >/dev/null
 psql_local -U gcp04_w7_actor -d espacigo < "$ROOT_DIR/planning/gcp/sql_candidates/gcp04_w7_observer_verify_api_membership_candidate.sql"
 
 psql_local -U gcp04_w7_actor -d espacigo < "$ROOT_DIR/planning/gcp/sql_candidates/gcp04_w7_observer_executor_retire_success_candidate.sql"
+psql_local -U gcp04_w7_actor -d espacigo < "$ROOT_DIR/planning/gcp/sql_candidates/gcp04_w7_observer_verify_api_membership_candidate.sql"
 psql_local -U postgres -d espacigo <<'SQL'
 DO $$
 DECLARE membership record;
@@ -171,9 +184,10 @@ SQL
 # ADMIN membership belonged to the removed executor. Preserve this as a real
 # lifecycle limitation, rather than claiming full cleanup.
 psql_local -U postgres -d espacigo -c 'DROP ROLE espacigo_gcp04_w7_observer' >/dev/null
+expect_verify_failure 'W7 API-created login is absent'
 if psql_local -U gcp04_w7_actor -d espacigo -c 'DROP ROLE espacigo_db_observer' > "$TMP_DIR/post-success-drop.log" 2>&1; then
   echo 'Actor unexpectedly dropped observer after executor retirement.' >&2; exit 1
 fi
 grep -Fq 'may drop this role' "$TMP_DIR/post-success-drop.log"
 
-echo 'PASS: absent-API compensation removes the empty group; executor-granted login edge blocks executor retirement; exact API-style membership can pass read-only verification and executor retirement, but later group retirement is blocked without a persistent ADMIN steward.'
+echo 'PASS: verifier handles missing login with executor present/absent, checks LOGIN INHERIT, and passes before/after executor retirement; absent-API compensation works; executor-granted login edge blocks executor retirement; later group retirement needs an ADMIN steward.'

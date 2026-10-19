@@ -8,16 +8,22 @@ DECLARE
     membership record;
     executor_oid oid;
     expected_group_members integer;
+    login_found boolean;
 BEGIN
     IF current_database() <> 'espacigo' THEN RAISE EXCEPTION 'W7 verify requires database espacigo'; END IF;
     IF has_database_privilege('public', current_database(), 'TEMP') THEN
         RAISE EXCEPTION 'W7 PUBLIC TEMP baseline differs from the reviewed runtime contract';
     END IF;
     SELECT * INTO login_role FROM pg_catalog.pg_roles WHERE rolname='espacigo_gcp04_w7_observer';
+    login_found := FOUND;
+    IF NOT login_found THEN
+        RAISE EXCEPTION 'W7 API-created login is absent';
+    END IF;
     SELECT oid INTO executor_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_gcp04_w7_observer_executor';
-    IF NOT FOUND OR NOT login_role.rolcanlogin OR login_role.rolsuper OR login_role.rolcreatedb
-       OR login_role.rolcreaterole OR login_role.rolreplication OR login_role.rolbypassrls THEN
-        RAISE EXCEPTION 'W7 API-created login absent or has unexpected elevated attributes';
+    IF NOT login_role.rolcanlogin OR NOT login_role.rolinherit OR login_role.rolsuper
+       OR login_role.rolcreatedb OR login_role.rolcreaterole
+       OR login_role.rolreplication OR login_role.rolbypassrls THEN
+        RAISE EXCEPTION 'W7 API-created login must be LOGIN INHERIT with elevated attributes disabled';
     END IF;
     IF (SELECT count(*) FROM pg_catalog.pg_auth_members m
         JOIN pg_catalog.pg_roles member ON member.oid=m.member
