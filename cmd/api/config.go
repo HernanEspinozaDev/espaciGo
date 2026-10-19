@@ -18,6 +18,7 @@ type config struct {
 	dbPort               uint16
 	dbName               string
 	dbUser               string
+	dbSetRole            string
 	dbPassword           string
 	dbSSLMode            string
 	dbSSLRootCert        string
@@ -91,6 +92,10 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if cfg.dbUser, err = required(getenv, "DATABASE_USER"); err != nil {
 		return config{}, err
 	}
+	cfg.dbSetRole = strings.TrimSpace(getenv("DATABASE_SET_ROLE"))
+	if cfg.dbSetRole != "" && !validDatabaseRoleName(cfg.dbSetRole) {
+		return config{}, errors.New("DATABASE_SET_ROLE must be a simple PostgreSQL role name")
+	}
 	cfg.dbSSLMode = strings.TrimSpace(getenv("DATABASE_SSLMODE"))
 	if cfg.dbSSLMode == "" {
 		cfg.dbSSLMode = "disable"
@@ -158,6 +163,20 @@ func loadConfig(getenv func(string) string) (config, error) {
 		return config{}, errors.New("FRONTEND_PUBLIC_ORIGIN must be an HTTP(S) origin without path, query, or fragment")
 	}
 	return cfg, nil
+}
+
+func validDatabaseRoleName(value string) bool {
+	if len(value) == 0 || len(value) > 63 {
+		return false
+	}
+	for i, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' ||
+			(i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func required(getenv func(string) string, key string) (string, error) {

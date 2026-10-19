@@ -162,7 +162,7 @@ func TestRunWithConnectorAlwaysClosesAfterPreflightError(t *testing.T) {
 	if parseErr != nil {
 		t.Fatal(parseErr)
 	}
-	_, err := runWithConnector(context.Background(), config, filepath.Join(t.TempDir(), "missing-migrations"), func() {
+	_, err := runWithConnector(context.Background(), config, filepath.Join(t.TempDir(), "missing-migrations"), "", func() {
 		closed = true
 	})
 	if err == nil {

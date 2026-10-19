@@ -349,6 +349,16 @@ func VerifyScratchMigratorRetired(ctx context.Context, conn ScratchPermissionDB)
 // Versioned rates and private simulations are append/read only for user flows;
 // the administrator-guarded local suppression path may delete private simulations.
 func GrantRuntimePermissions(ctx context.Context, conn ScratchPermissionDB) error {
+	var observerRoleExists bool
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'espacigo_db_observer')`).Scan(&observerRoleExists); err != nil {
+		return fmt.Errorf("could not inspect read-only observer role: %w", err)
+	}
+	if observerRoleExists {
+		if _, err := conn.Exec(ctx, `GRANT SELECT ON public.schema_migrations TO espacigo_db_observer;
+GRANT USAGE ON SCHEMA public TO espacigo_db_observer`); err != nil {
+			return fmt.Errorf("could not grant read-only observer metadata: %w", err)
+		}
+	}
 	_, err := conn.Exec(ctx, `GRANT USAGE ON SCHEMA public TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.usuario, public.sesion, public.token_accion TO espacigo_runtime;
  GRANT DELETE ON public.sesion, public.token_accion TO espacigo_runtime;

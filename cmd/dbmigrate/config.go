@@ -10,12 +10,27 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
 )
 
+func validDatabaseRoleName(value string) bool {
+	if len(value) == 0 || len(value) > 63 {
+		return false
+	}
+	for i, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' ||
+			(i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 type connectionSettings struct {
 	databaseURL  string
 	passwordFile string
 	mode         string
 	instance     string
 	privateIP    bool
+	setRole      string
 	timeout      time.Duration
 }
 
@@ -23,7 +38,11 @@ func loadConnectionSettings(getenv func(string) string) (connectionSettings, err
 	settings := connectionSettings{
 		databaseURL: getenv("DATABASE_URL"),
 		mode:        strings.TrimSpace(getenv("DATABASE_CONNECTION_MODE")),
+		setRole:     strings.TrimSpace(getenv("DATABASE_SET_ROLE")),
 		timeout:     10 * time.Minute,
+	}
+	if settings.setRole != "" && !validDatabaseRoleName(settings.setRole) {
+		return connectionSettings{}, errors.New("DATABASE_SET_ROLE must be a simple PostgreSQL role name")
 	}
 	if strings.TrimSpace(settings.databaseURL) == "" {
 		return connectionSettings{}, errors.New("DATABASE_URL is required")

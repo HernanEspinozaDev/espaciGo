@@ -57,6 +57,73 @@ func TestRunnerAppliesFromEmptyAndRepeatIsNoop(t *testing.T) {
 	})
 }
 
+func TestRunnerAppliesDDLUnderRestrictedSetRoleMembership(t *testing.T) {
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+		group := "mig_group_" + suffix
+		login := "mig_login_" + suffix
+		adminURL := os.Getenv("TEST_DATABASE_URL")
+		admin := connectTestDB(t, ctx, adminURL)
+		defer admin.Close(context.Background())
+		dbURL, err := url.Parse(databaseURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		databaseName := strings.TrimPrefix(dbURL.Path, "/")
+		if _, err := admin.Exec(ctx, "CREATE ROLE "+pgx.Identifier{group}.Sanitize()+" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.Exec(ctx, "CREATE ROLE "+pgx.Identifier{login}.Sanitize()+" LOGIN PASSWORD 'local-integration-only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			cleanupAdmin, err := pgx.Connect(cleanupCtx, adminURL)
+			if err != nil {
+				t.Errorf("connect disposable PostgreSQL for role cleanup: %v", err)
+				return
+			}
+			defer cleanupAdmin.Close(context.Background())
+			if _, err := cleanupAdmin.Exec(cleanupCtx, "DROP ROLE IF EXISTS "+pgx.Identifier{login}.Sanitize()+", "+pgx.Identifier{group}.Sanitize()); err != nil {
+				t.Errorf("drop disposable restricted roles: %v", err)
+			}
+		})
+		if _, err := admin.Exec(ctx, "GRANT CONNECT ON DATABASE "+pgx.Identifier{databaseName}.Sanitize()+" TO "+pgx.Identifier{login}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+		databaseAdmin := connectTestDB(t, ctx, databaseURL)
+		if _, err := databaseAdmin.Exec(ctx, "GRANT USAGE, CREATE ON SCHEMA public TO "+pgx.Identifier{group}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+		if err := databaseAdmin.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.Exec(ctx, "GRANT "+pgx.Identifier{group}.Sanitize()+" TO "+pgx.Identifier{login}.Sanitize()+" WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"); err != nil {
+			t.Fatal(err)
+		}
+		loginURL := *dbURL
+		loginURL.User = url.UserPassword(login, "local-integration-only")
+		dir := t.TempDir()
+		writeMigration(t, dir, "V000001__owned_probe.sql", "CREATE TABLE set_role_probe (id integer PRIMARY KEY);\n")
+		result, err := RunWithRole(ctx, loginURL.String(), dir, group)
+		if err != nil || len(result.Applied) != 1 {
+			t.Fatalf("restricted migration applied=%v err=%v", result.Applied, err)
+		}
+		inspector := connectTestDB(t, ctx, databaseURL)
+		var owner string
+		if err := inspector.QueryRow(ctx, `SELECT tableowner FROM pg_tables WHERE schemaname='public' AND tablename='set_role_probe'`).Scan(&owner); err != nil {
+			t.Fatal(err)
+		}
+		if err := inspector.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if owner != group {
+			t.Fatalf("migration object owner=%q, want SET ROLE group %q", owner, group)
+		}
+	})
+}
+
 func TestGADM03MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T) {
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {

@@ -285,6 +285,10 @@ resource "google_cloud_run_v2_job" "migrator" {
           value = var.migrator_database_user
         }
         env {
+          name  = "DATABASE_SET_ROLE"
+          value = "espacigo_schema_owner"
+        }
+        env {
           name  = "DATABASE_PASSWORD_FILE"
           value = "/var/secrets/database-password/password"
         }

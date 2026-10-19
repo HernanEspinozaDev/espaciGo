@@ -27,9 +27,9 @@ func main() {
 			fmt.Fprintln(os.Stderr, urlErr)
 			os.Exit(2)
 		}
-		result, err = migrator.RunCloudSQL(ctx, databaseURL, password, *migrationDir, settings.instance, settings.privateIP)
+		result, err = migrator.RunCloudSQLWithRole(ctx, databaseURL, password, *migrationDir, settings.instance, settings.privateIP, settings.setRole)
 	} else {
-		result, err = migrator.Run(ctx, settings.databaseURL, *migrationDir)
+		result, err = migrator.RunWithRole(ctx, settings.databaseURL, *migrationDir, settings.setRole)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "migration failed: %v\n", err)
