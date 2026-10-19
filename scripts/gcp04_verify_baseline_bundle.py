@@ -14,7 +14,8 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-FORMAT = "espacigo-gcp04-w4-baseline-package-v1"
+FORMAT = "espacigo-gcp04-w4-baseline-package-v2"
+LEGACY_FORMAT = "espacigo-gcp04-w4-baseline-package-v1"
 FILES = {
     "baseline.dump",
     "baseline.manifest.json",
@@ -44,6 +45,7 @@ ROLE_ALLOWLIST = {
 TABLE_PRIVILEGES = {"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"}
 SEQUENCE_PRIVILEGES = {"SELECT", "USAGE", "UPDATE"}
 COLUMN_PRIVILEGES = {"SELECT", "INSERT", "UPDATE", "REFERENCES"}
+GADM_COMMENT = "NOLOGIN GADM local bootstrap group; temporary isolated login membership only."
 
 
 def sha256(data: bytes) -> str:
@@ -52,6 +54,38 @@ def sha256(data: bytes) -> str:
 
 def canonical_json(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def validate_manifest_format(manifest: dict) -> str:
+    manifest_format = manifest.get("format")
+    if manifest_format not in {FORMAT, LEGACY_FORMAT} or manifest.get("role_definitions_and_memberships_in_dump") is not False:
+        raise ValueError("unsupported baseline bundle format or archive role policy")
+    return manifest_format
+
+
+def verify_gadm_bootstrap_manifest(manifest: dict, catalog: dict) -> None:
+    gadm = next((role for role in catalog.get("roles", []) if role.get("name") == "espacigo_gadm_bootstrap"), None)
+    bootstrap = manifest.get("gadm_bootstrap")
+    if gadm is None or not isinstance(bootstrap, dict):
+        raise ValueError("GADM bootstrap evidence is missing from manifest/catalog")
+    if gadm.get("login") is not False or gadm.get("super") is not False or gadm.get("comment") != GADM_COMMENT:
+        raise ValueError("GADM bootstrap catalog attributes/comment differ from the V60 contract")
+    if bootstrap.get("helper") != "db/bootstrap/gcp04-runtime/004_gadm_global_role.sql":
+        raise ValueError("GADM bootstrap helper identity differs from the reviewed helper")
+    if bootstrap.get("actor_contract") != "LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT":
+        raise ValueError("GADM bootstrap actor contract differs from the tested actor")
+    if bootstrap.get("exact_comment") != gadm["comment"]:
+        raise ValueError("GADM manifest comment differs from the catalog and V60 contract")
+    required_true = (
+        "created_and_commented_by_controlled_actor",
+        "zero_memberships_and_settings_after_restore",
+        "executor_absent_after_commit",
+        "failure_injection_rollback_clean",
+        "reserved_executor_collision_rejected",
+        "invalid_actor_and_setting_rejected",
+    )
+    if any(bootstrap.get(field) is not True for field in required_true):
+        raise ValueError("GADM bootstrap manifest is missing a required passing assertion")
 
 
 def read_lines(path: Path) -> list[str]:
@@ -193,8 +227,7 @@ def verify_bundle(bundle_dir: Path, repo_root: Path, archive_lister: Callable[[P
 
     manifest_path = resolved / "baseline.manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("format") != FORMAT or manifest.get("role_definitions_and_memberships_in_dump") is not False:
-        raise ValueError("unsupported baseline bundle format or archive role policy")
+    manifest_format = validate_manifest_format(manifest)
     body = {key: value for key, value in manifest.items() if key != "manifest_body_sha256"}
     if sha256(canonical_json(body)) != manifest.get("manifest_body_sha256"):
         raise ValueError("baseline manifest body hash mismatch")
@@ -280,9 +313,12 @@ def verify_bundle(bundle_dir: Path, repo_root: Path, archive_lister: Callable[[P
         raise ValueError("source catalog does not match the canonical manifest")
     if manifest.get("catalog_manifest_sha256_equal") != sha256(canonical_json(catalog_file)):
         raise ValueError("catalog manifest hash mismatch")
-    gadm = next((role for role in catalog_file.get("roles", []) if role.get("name") == "espacigo_gadm_bootstrap"), None)
-    if gadm is None or gadm.get("login") is not False or gadm.get("super") is not False or gadm.get("comment") != "NOLOGIN GADM local bootstrap group; temporary isolated login membership only.":
-        raise ValueError("GADM bootstrap role comment/attributes are not represented in the retained baseline")
+    if manifest_format == FORMAT or "gadm_bootstrap" in manifest:
+        verify_gadm_bootstrap_manifest(manifest, catalog_file)
+    else:
+        gadm = next((role for role in catalog_file.get("roles", []) if role.get("name") == "espacigo_gadm_bootstrap"), None)
+        if gadm is None or gadm.get("login") is not False or gadm.get("super") is not False or gadm.get("comment") != GADM_COMMENT:
+            raise ValueError("legacy GADM bootstrap role comment/attributes are not represented in the retained baseline")
     memberships = catalog_file.get("memberships") or []
     if any(edge.get("admin") or edge.get("granted") == "espacigo_gadm_bootstrap" or edge.get("member") == "espacigo_gadm_bootstrap" for edge in memberships):
         raise ValueError("baseline role membership contains ADMIN OPTION or a GADM membership")
@@ -292,7 +328,7 @@ def verify_bundle(bundle_dir: Path, repo_root: Path, archive_lister: Callable[[P
     if lister(resolved / "baseline.dump") != (resolved / "baseline.toc.original").read_bytes():
         raise ValueError("native pg_restore TOC differs from the retained original TOC")
     return {
-        "format": FORMAT,
+        "format": manifest_format,
         "manifest_body_sha256": manifest["manifest_body_sha256"],
         "archive_sha256": manifest["archive_sha256"],
         "migration_history_sha256": manifest["migration_history_sha256_equal"],

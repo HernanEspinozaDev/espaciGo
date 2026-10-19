@@ -127,7 +127,28 @@ for service in source target; do
   [[ "$listen_addresses" == "'*'" ]] || { echo "PostgreSQL $service final server listen_addresses was [$listen_addresses], expected ['*']." >&2; exit 1; }
 done
 
+BOOTSTRAP_ACTOR='gcp04_w6_bootstrap_actor'
+UNPRIVILEGED_ACTOR='gcp04_w6_unprivileged_actor'
+OVERPRIVILEGED_ACTOR='gcp04_w6_overprivileged_actor'
+BOOTSTRAP_SQL="$ROOT_DIR/db/bootstrap/gcp04-runtime/004_gadm_global_role.sql"
+
+expect_helper_failure() {
+  local side="$1" actor="$2" expected="$3" input="$BOOTSTRAP_SQL"
+  local output="$ARTIFACTS/${side}-${actor}-bootstrap-failure.log" status=0
+  if [[ "$4" != '-' ]]; then input="$4"; fi
+  compose exec -T "$side" psql -X -v ON_ERROR_STOP=1 -U "$actor" -d espacigo \
+    < "$input" > "$output" 2>&1 || status=$?
+  if [[ "$status" -eq 0 ]] || ! grep -Fq "$expected" "$output"; then
+    cat "$output" >&2
+    echo "Expected GADM bootstrap rejection [$expected] for $actor on $side." >&2
+    return 1
+  fi
+}
+
 compose exec -T source psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'CREATE DATABASE espacigo' >/dev/null
+compose exec -T source psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres \
+  -c "CREATE ROLE $BOOTSTRAP_ACTOR LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT" >/dev/null
+compose exec -T source psql -X -v ON_ERROR_STOP=1 -U "$BOOTSTRAP_ACTOR" -d espacigo < "$BOOTSTRAP_SQL" >/dev/null
 compose exec -T source psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
   < "$ROOT_DIR/db/bootstrap/gcp04-runtime/001_pre_migrate_roles.sql" >/dev/null
 
@@ -150,6 +171,57 @@ compose exec -T source psql -X -At -U postgres -d espacigo -c "
   WHERE n.nspname='public' AND c.relname='verificacion_evidencia_sintetica'"
 
 compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'CREATE DATABASE espacigo' >/dev/null
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres <<SQL >/dev/null
+CREATE ROLE $BOOTSTRAP_ACTOR LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+CREATE ROLE $UNPRIVILEGED_ACTOR LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+CREATE ROLE $OVERPRIVILEGED_ACTOR LOGIN NOSUPERUSER CREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+SQL
+
+# Wrong identities fail before any global role change.
+expect_helper_failure target postgres 'GADM bootstrap requires a direct LOGIN NOSUPERUSER CREATEROLE actor with other elevated attributes disabled' -
+expect_helper_failure target "$UNPRIVILEGED_ACTOR" 'GADM bootstrap requires a direct LOGIN NOSUPERUSER CREATEROLE actor with other elevated attributes disabled' -
+expect_helper_failure target "$OVERPRIVILEGED_ACTOR" 'GADM bootstrap requires a direct LOGIN NOSUPERUSER CREATEROLE actor with other elevated attributes disabled' -
+
+# A reserved-name collision is not repaired or adopted.
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo -c \
+  'CREATE ROLE espacigo_gadm_bootstrap_executor NOLOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT' >/dev/null
+expect_helper_failure target "$BOOTSTRAP_ACTOR" 'unexpected pre-existing GADM bootstrap executor role' -
+[[ "$(compose exec -T target psql -X -At -U postgres -d espacigo -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='espacigo_gadm_bootstrap'")" == 0 ]]
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo -c 'DROP ROLE espacigo_gadm_bootstrap_executor' >/dev/null
+
+# Inject a failure after helper creation/assertions but before COMMIT. Closing
+# the failed psql transaction must roll back GADM and the transient executor.
+python3 - "$BOOTSTRAP_SQL" "$ARTIFACTS/gadm-bootstrap-failure-injected.sql" <<'PY'
+import sys
+from pathlib import Path
+source, target = map(Path, sys.argv[1:])
+sql=source.read_text(encoding="utf-8")
+assert sql.rstrip().endswith("COMMIT;")
+sql=sql.rstrip()[:-len("COMMIT;")] + "SELECT 1 / 0;\nCOMMIT;\n"
+target.write_text(sql, encoding="utf-8")
+PY
+expect_helper_failure target "$BOOTSTRAP_ACTOR" 'division by zero' "$ARTIFACTS/gadm-bootstrap-failure-injected.sql"
+ROLLBACK_ROLE_COUNT="$(compose exec -T target psql -X -At -U postgres -d espacigo -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN ('espacigo_gadm_bootstrap','espacigo_gadm_bootstrap_executor')")"
+ROLLBACK_EDGE_COUNT="$(compose exec -T target psql -X -At -U postgres -d espacigo -c "SELECT count(*) FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid JOIN pg_catalog.pg_roles u ON u.oid=m.member WHERE r.rolname IN ('espacigo_gadm_bootstrap','espacigo_gadm_bootstrap_executor') OR u.rolname IN ('espacigo_gadm_bootstrap','espacigo_gadm_bootstrap_executor')")"
+[[ "$ROLLBACK_ROLE_COUNT" == 0 && "$ROLLBACK_EDGE_COUNT" == 0 ]] || { echo 'Injected pre-COMMIT failure left a GADM/transient role or membership.' >&2; exit 1; }
+
+# Actual target role bootstrap runs with the CREATEROLE actor before the
+# superuser-owned local role/extension fixture. The fixture may validate and
+# grant DB/schema ACLs, but cannot create or comment GADM.
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U "$BOOTSTRAP_ACTOR" -d espacigo < "$BOOTSTRAP_SQL" >/dev/null
+GADM_COUNTS_BEFORE_RERUN="$(compose exec -T target psql -X -At -U postgres -d espacigo -c "SELECT (SELECT count(*) FROM pg_catalog.pg_roles)::text || ':' || (SELECT count(*) FROM pg_catalog.pg_auth_members)::text || ':' || (SELECT count(*) FROM pg_catalog.pg_db_role_setting)::text")"
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U "$BOOTSTRAP_ACTOR" -d espacigo < "$BOOTSTRAP_SQL" >/dev/null
+GADM_COUNTS_AFTER_RERUN="$(compose exec -T target psql -X -At -U postgres -d espacigo -c "SELECT (SELECT count(*) FROM pg_catalog.pg_roles)::text || ':' || (SELECT count(*) FROM pg_catalog.pg_auth_members)::text || ':' || (SELECT count(*) FROM pg_catalog.pg_db_role_setting)::text")"
+[[ "$GADM_COUNTS_BEFORE_RERUN" == "$GADM_COUNTS_AFTER_RERUN" ]] || { echo 'Exact helper rerun broadened role, membership, or role-setting state.' >&2; exit 1; }
+
+# Per-role settings are unexpected state and must remain untouched on abort.
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
+  -c "ALTER ROLE espacigo_gadm_bootstrap SET statement_timeout = '5s'" >/dev/null
+expect_helper_failure target "$BOOTSTRAP_ACTOR" 'existing espacigo_gadm_bootstrap has role settings' -
+[[ "$(compose exec -T target psql -X -At -U postgres -d espacigo -c "SELECT count(*) FROM pg_catalog.pg_db_role_setting s JOIN pg_catalog.pg_roles r ON r.oid=s.setrole WHERE r.rolname='espacigo_gadm_bootstrap'")" == 1 ]]
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
+  -c 'ALTER ROLE espacigo_gadm_bootstrap RESET statement_timeout' >/dev/null
+
 compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
   < "$ROOT_DIR/db/bootstrap/gcp04-runtime/002_local_restore_role_contract.sql" >/dev/null
 compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo <<'SQL' >/dev/null
@@ -215,7 +287,7 @@ run_target_preflight() {
   local name="$1" expected="$2"
   shift 2
   set +e
-  psql -X -qAt -v ON_ERROR_STOP=1 "$@" -h "$TARGET_SOCKET" -U postgres -d espacigo \
+  psql -X -qAt -v ON_ERROR_STOP=1 "$@" -h "$TARGET_SOCKET" -U espacigo_observer_login -d espacigo \
     -f "$ROOT_DIR/db/query/gcp04_w4_target_preflight.sql" \
     > "$ARTIFACTS/$name.json" 2> "$ARTIFACTS/$name.stderr"
   local status=$?
@@ -244,6 +316,7 @@ python3 - "$ARTIFACTS/pre-restore-report.json" <<'PY'
 import json, sys
 report = json.load(open(sys.argv[1], encoding="utf-8"))
 assert report["database"]["transaction_read_only"] is True
+assert report["database"]["user"] == "espacigo_observer_login"
 empty_counts = {key: report["destination"][key] for key in ("relations_non_extension", "routines_non_extension", "types_non_extension", "other_schema_objects_non_extension")}
 if any(empty_counts.values()):
     raise AssertionError(f"empty destination has non-extension objects: {empty_counts}; relations={[row for row in report['destination']['relation_inventory'] if not row['extension_owned']]}")
@@ -418,6 +491,7 @@ compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
 
 compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo <<'SQL'
 DO $checks$
+DECLARE gadm_oid oid;
 BEGIN
     IF (SELECT count(*) FROM public.schema_migrations) <> 64
        OR (SELECT min(version) FROM public.schema_migrations) <> 1
@@ -432,6 +506,24 @@ BEGIN
            OR m.admin_option
     ) THEN
         RAISE EXCEPTION 'target has ADMIN OPTION or GADM role membership';
+    END IF;
+    SELECT oid INTO gadm_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_gadm_bootstrap';
+    IF gadm_oid IS NULL OR EXISTS (
+        SELECT 1 FROM pg_catalog.pg_roles
+         WHERE oid=gadm_oid AND (rolcanlogin OR rolsuper OR rolcreatedb OR rolcreaterole
+                                 OR rolreplication OR rolbypassrls OR rolinherit OR rolconnlimit <> -1)
+    ) THEN
+        RAISE EXCEPTION 'target GADM attributes differ from the helper contract';
+    END IF;
+    IF shobj_description(gadm_oid,'pg_authid') IS DISTINCT FROM
+       'NOLOGIN GADM local bootstrap group; temporary isolated login membership only.' THEN
+        RAISE EXCEPTION 'target GADM comment differs from V60';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_db_role_setting WHERE setrole=gadm_oid)
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='espacigo_gadm_bootstrap_executor')
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_shdepend d WHERE d.refclassid='pg_catalog.pg_authid'::regclass
+                   AND d.refobjid=gadm_oid AND d.deptype='o') THEN
+        RAISE EXCEPTION 'target GADM has settings, transient executor, or owned objects';
     END IF;
     IF (SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls
         FROM pg_catalog.pg_roles WHERE rolname='espacigo_migrator_login') THEN
@@ -759,6 +851,11 @@ if normalized_catalogs["source"] != normalized_catalogs["target"]:
     diff = "\n".join(__import__("difflib").unified_diff(source_json, target_json, fromfile="source-catalog", tofile="target-catalog")) + "\n"
     print(diff[:10000], file=sys.stderr)
     raise SystemExit("source/destination role, membership, owner, ACL, extension, or SECURITY DEFINER inventories differ")
+gadm_role = next((role for role in normalized_catalogs["target"]["roles"]
+                  if role["name"] == "espacigo_gadm_bootstrap"), None)
+expected_gadm_comment = "NOLOGIN GADM local bootstrap group; temporary isolated login membership only."
+if gadm_role is None or gadm_role["comment"] != expected_gadm_comment:
+    raise SystemExit("target GADM role comment differs from the exact V60 contract")
 (artifacts / "source.catalog.json").write_text(
     json.dumps(normalized_catalogs["source"], sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
@@ -853,10 +950,24 @@ if source_structure != target_structure:
 schema_sha = hashlib.sha256(source_structure.encode()).hexdigest()
 constraint_differences_sha = hashlib.sha256(json.dumps(constraint_deparser_differences, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 body = {
-    "format": "espacigo-gcp04-w4-baseline-package-v1",
+    "format": "espacigo-gcp04-w4-baseline-package-v2",
     "postgres_image": "postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677",
     "source": "canonical empty ephemeral database; V1-V64 applied by cmd/dbmigrate as local postgres; ownership/grants normalized locally after replay",
     "destination": "separate ephemeral PostgreSQL 18 cluster; global roles provisioned separately; pg_restore as espacigo_migrator_login SET ROLE espacigo_schema_owner",
+    "gadm_bootstrap": {
+        "helper": "db/bootstrap/gcp04-runtime/004_gadm_global_role.sql",
+        "actor_contract": "LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT",
+        "created_and_commented_by_controlled_actor": True,
+        "exact_comment": gadm_role["comment"],
+        "zero_memberships_and_settings_after_restore": True,
+        "executor_absent_after_commit": True,
+        "failure_injection_rollback_clean": True,
+        "reserved_executor_collision_rejected": True,
+        "invalid_actor_and_setting_rejected": True
+    },
+    "target_preflight": {"login": "espacigo_observer_login", "read_only": True,
+        "executed_before_and_after_restore": True},
+    "target_restore": {"login": "espacigo_migrator_login", "set_role": "espacigo_schema_owner"},
     "repo_head": subprocess.check_output(["git", "-C", root, "rev-parse", "HEAD"], text=True).strip(),
     "migrations": {"count": 64, "first": 1, "last": 64, "source_target_checksums_equal": True,
         "source_ledger": migration_history["source"],

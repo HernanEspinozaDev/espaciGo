@@ -1,5 +1,13 @@
 # GCP-04 `g04replay18`: matriz de estado y cierre técnico
 
+## Actualización posterior: GCP-04-W6 (2026-10-19)
+
+| Capacidad | Estado | Evidencia / alcance |
+| --- | --- | --- |
+| Baseline lógico con bootstrap GADM | Validado en PostgreSQL 18 local efímero; Cloud pendiente | El harness integrado ejecuta `004_gadm_global_role.sql` con actor `NOSUPERUSER CREATEROLE` antes de los fixtures; `001`/`002` no crean ni comentan GADM. Restore como migrator con `SET ROLE espacigo_schema_owner`; V1–V64, datos, ACL/checksums, no-op y drift cubiertos. Prueba también rollback sin residuos, actor/settings inválidos y colisión del executor. |
+| Preflight de destino | Ejecutable local, privado/read-only; remoto no ejecutado | W4 target preflight corre antes y después del restore como `espacigo_observer_login`; el reporte verifica identidad y `transaction_read_only`. La capacidad observada de fixture no representa Cloud SQL. |
+| Identidad y costo remoto | Pendiente de revisión/liberación | Solo existe la referencia histórica a instancia privada candidata; no se verificaron secretos, sesión SQL, IAM ni Job en W6. Cloud SQL identity/CREATEROLE-compatible actor requiere resolver la diferencia con los atributos contractuales locales. No hay versión numérica de secreto seleccionada. Costeo regional exacto pendiente de calculador/facturación antes de autorizar. |
+
 **Corte de lectura: 2026-10-18 21:46 UTC.** Esta matriz registra el smoke ejecutado; no declara GCP-04 completo ni aceptación del producto. El ensayo sigue activo y ningún teardown se aplicó.
 
 ## Actualización posterior: GCP-04-W5 (2026-10-19)

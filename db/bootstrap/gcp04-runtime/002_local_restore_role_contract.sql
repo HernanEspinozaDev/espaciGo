@@ -22,6 +22,9 @@ BEGIN
     ] LOOP
         SELECT * INTO role_row FROM pg_catalog.pg_roles WHERE rolname = role_name;
         IF NOT FOUND THEN
+            IF role_name = 'espacigo_gadm_bootstrap' THEN
+                RAISE EXCEPTION 'GADM must be pre-created by 004_gadm_global_role.sql using the restricted bootstrap actor';
+            END IF;
             EXECUTE format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT', role_name);
         ELSIF role_row.rolcanlogin OR role_row.rolsuper OR role_row.rolcreatedb OR role_row.rolcreaterole
            OR role_row.rolreplication OR role_row.rolbypassrls OR role_row.rolinherit THEN
@@ -43,6 +46,18 @@ BEGIN
             RAISE EXCEPTION 'login % has unexpected global attributes', role_name;
         END IF;
     END LOOP;
+
+    IF shobj_description((SELECT oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_gadm_bootstrap'), 'pg_authid') IS DISTINCT FROM
+       'NOLOGIN GADM local bootstrap group; temporary isolated login membership only.' THEN
+        RAISE EXCEPTION 'GADM comment does not match the V60 contract';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_auth_members m
+        WHERE m.roleid=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_gadm_bootstrap')
+           OR m.member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_gadm_bootstrap')
+    ) THEN
+        RAISE EXCEPTION 'local restore contract found a GADM membership';
+    END IF;
 END
 $roles$;
 
@@ -60,11 +75,6 @@ GRANT espacigo_runtime TO espacigo_api_login WITH ADMIN FALSE, INHERIT FALSE, SE
 GRANT espacigo_privacy_cleanup_worker TO espacigo_privacy_worker_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
 GRANT espacigo_schema_owner TO espacigo_migrator_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
 GRANT espacigo_db_observer TO espacigo_observer_login WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
-
--- Global role comments are not part of a database-scoped pg_dump archive.
--- Keep the V60 comment in the explicit local restore contract for comparison.
-COMMENT ON ROLE espacigo_gadm_bootstrap IS
-    'NOLOGIN GADM local bootstrap group; temporary isolated login membership only.';
 
 DO $assertions$
 BEGIN

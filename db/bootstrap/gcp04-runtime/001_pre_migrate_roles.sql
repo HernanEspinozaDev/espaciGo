@@ -1,8 +1,6 @@
--- LOCAL DIAGNOSTIC ONLY. Not executable on the Cloud SQL candidate until the
--- V60 role-comment/membership compatibility is resolved and reviewed.
--- In Cloud SQL, a CREATEROLE creator may receive an ADMIN membership edge;
--- the fail-closed membership check below is expected to abort and roll back.
--- Never run this file against persistent Cloud SQL in its current form.
+-- LOCAL DIAGNOSTIC ONLY. Does not create or comment GADM; first run
+-- 004_gadm_global_role.sql as the dedicated restricted actor. This fixture
+-- still grants local migration/bootstrap ACL and is never a Cloud SQL script.
 \set ON_ERROR_STOP on
 
 BEGIN;
@@ -25,10 +23,19 @@ BEGIN
     ] LOOP
         SELECT * INTO role_row FROM pg_catalog.pg_roles WHERE rolname = role_name;
         IF NOT FOUND THEN
+            IF role_name = 'espacigo_gadm_bootstrap' THEN
+                RAISE EXCEPTION 'GADM must be pre-created by 004_gadm_global_role.sql using the restricted bootstrap actor';
+            END IF;
             EXECUTE format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT', role_name);
         ELSIF role_row.rolcanlogin OR role_row.rolsuper OR role_row.rolcreatedb OR role_row.rolcreaterole
            OR role_row.rolreplication OR role_row.rolbypassrls OR role_row.rolinherit THEN
             RAISE EXCEPTION 'existing role % has unexpected attributes', role_name;
+        END IF;
+
+        IF role_name = 'espacigo_gadm_bootstrap'
+           AND shobj_description(role_row.oid, 'pg_authid') IS DISTINCT FROM
+               'NOLOGIN GADM local bootstrap group; temporary isolated login membership only.' THEN
+            RAISE EXCEPTION 'GADM comment does not match the V60 contract';
         END IF;
 
         IF EXISTS (
