@@ -1,0 +1,14 @@
+FROM golang:1.27.1-alpine3.24@sha256:cd9a32216aee5667f957a62d13a10032a63fd58e14b3f3d9cc8c2122f501e95e AS build
+WORKDIR /src
+RUN apk add --no-cache ca-certificates
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/gcp04-w8-catalog-probe ./cmd/gcp04w8catalogprobe
+
+FROM scratch
+COPY --from=build --chown=65532:65532 /out/gcp04-w8-catalog-probe /gcp04-w8-catalog-probe
+COPY --from=build /src/db/query/gcp04_w8_catalog_probe.sql /gcp04_w8_catalog_probe.sql
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+USER 65532:65532
+ENTRYPOINT ["/gcp04-w8-catalog-probe"]
