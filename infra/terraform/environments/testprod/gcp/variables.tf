@@ -171,6 +171,16 @@ variable "private_hostname" {
   default = "espacigo-demo.testingpage.store"
 }
 
+variable "private_demo_origin_override" {
+  type        = string
+  description = "Optional private Cloud Run run.app origin for the initial no-DNS test; set from private_web_runapp_url after the first service apply."
+  default     = ""
+  validation {
+    condition     = var.private_demo_origin_override == "" || can(regex("^https://[a-z0-9.-]+\\.run\\.app$", var.private_demo_origin_override))
+    error_message = "private_demo_origin_override must be empty or an HTTPS Cloud Run run.app origin without a path."
+  }
+}
+
 variable "api_max_instances" {
   type        = number
   description = "API hard cap; do not raise before shared replay and worker leases are implemented."

@@ -28,6 +28,16 @@ output "api_internal_base_url" {
   description = "Backend API base path consumed by SSR and accepted by configuredApiBase."
 }
 
+output "public_web_runapp_url" {
+  value       = var.enable_services ? google_cloud_run_v2_service.web["public"].uri : null
+  description = "Cloud Run URI for the public web service; direct external access is available when enable_edge is false."
+}
+
+output "private_web_runapp_url" {
+  value       = var.enable_services ? google_cloud_run_v2_service.web["private"].uri : null
+  description = "Cloud Run URI for the native-IAP private web service; direct external access is available when enable_edge is false."
+}
+
 output "cloudsql_connection_name" {
   value       = try(google_sql_database_instance.postgres[0].connection_name, null)
   description = "Cloud SQL Connector connection name."

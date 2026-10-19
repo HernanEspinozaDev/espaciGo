@@ -16,7 +16,7 @@ mock_provider "google" {
   mock_data "google_storage_bucket" {
     defaults = {
       name     = "private-w7-runmarks"
-      location = "southamerica-west1"
+      location = "SOUTHAMERICA-WEST1"
     }
   }
 }

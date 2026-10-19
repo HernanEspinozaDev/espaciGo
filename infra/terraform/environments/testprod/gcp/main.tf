@@ -323,11 +323,14 @@ resource "google_sql_database" "application" {
 }
 
 resource "google_cloud_run_v2_service" "api" {
-  count               = var.enable_services ? 1 : 0
-  project             = var.project_id
-  name                = var.api_service_name
-  location            = var.region
-  ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  count    = var.enable_services ? 1 : 0
+  project  = var.project_id
+  name     = var.api_service_name
+  location = var.region
+  # The public run.app URL is the first test endpoint. Cloud Run IAM remains
+  # the authentication boundary; only the public/private SSR service accounts
+  # receive roles/run.invoker below.
+  ingress             = "INGRESS_TRAFFIC_ALL"
   deletion_protection = true
 
   template {
@@ -464,11 +467,13 @@ resource "google_cloud_run_v2_service" "api" {
 }
 
 resource "google_cloud_run_v2_service" "web" {
-  for_each            = local.web_services
-  project             = var.project_id
-  name                = each.value.name
-  location            = var.region
-  ingress             = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+  for_each = local.web_services
+  project  = var.project_id
+  name     = each.value.name
+  location = var.region
+  # Direct run.app access is needed for the no-LB test stage. Native Cloud Run
+  # IAP still protects the private entry on every ingress path.
+  ingress             = var.enable_edge ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
   iap_enabled         = each.value.iap_enabled
   deletion_protection = true
 
@@ -513,7 +518,7 @@ resource "google_cloud_run_v2_service" "web" {
       }
       env {
         name  = "PRIVATE_DEMO_ORIGIN"
-        value = "https://${var.private_hostname}"
+        value = (var.enable_edge || var.private_demo_origin_override == "") ? "https://${var.private_hostname}" : var.private_demo_origin_override
       }
       env {
         name  = "IAP_JWT_AUDIENCE"
