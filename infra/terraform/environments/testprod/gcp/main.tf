@@ -626,6 +626,14 @@ resource "google_cloud_run_v2_service" "api" {
         value = "espacigo_api_login"
       }
       env {
+        name  = "DATABASE_SET_ROLE"
+        value = "espacigo_runtime"
+      }
+      env {
+        name  = "FRONTEND_PUBLIC_ORIGIN"
+        value = var.private_demo_origin_override != "" ? var.private_demo_origin_override : "https://${var.private_hostname}"
+      }
+      env {
         name  = "DATABASE_POOL_MAX_CONNS"
         value = "4"
       }
@@ -652,6 +660,14 @@ resource "google_cloud_run_v2_service" "api" {
       env {
         name  = "BLOB_STORE_BACKEND"
         value = "gcs"
+      }
+      env {
+        name  = "LOCAL_PRIVACY_REPLAY_BACKEND"
+        value = "gcs"
+      }
+      env {
+        name  = "LOCAL_PRIVACY_REPLAY_BUCKET"
+        value = google_storage_bucket.private_files[0].name
       }
     }
   }
