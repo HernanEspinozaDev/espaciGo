@@ -851,6 +851,11 @@ if normalized_catalogs["source"] != normalized_catalogs["target"]:
     diff = "\n".join(__import__("difflib").unified_diff(source_json, target_json, fromfile="source-catalog", tofile="target-catalog")) + "\n"
     print(diff[:10000], file=sys.stderr)
     raise SystemExit("source/destination role, membership, owner, ACL, extension, or SECURITY DEFINER inventories differ")
+gadm_role = next((role for role in normalized_catalogs["target"]["roles"]
+                  if role["name"] == "espacigo_gadm_bootstrap"), None)
+expected_gadm_comment = "NOLOGIN GADM local bootstrap group; temporary isolated login membership only."
+if gadm_role is None or gadm_role["comment"] != expected_gadm_comment:
+    raise SystemExit("target GADM role comment differs from the exact V60 contract")
 (artifacts / "source.catalog.json").write_text(
     json.dumps(normalized_catalogs["source"], sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
@@ -945,7 +950,7 @@ if source_structure != target_structure:
 schema_sha = hashlib.sha256(source_structure.encode()).hexdigest()
 constraint_differences_sha = hashlib.sha256(json.dumps(constraint_deparser_differences, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 body = {
-    "format": "espacigo-gcp04-w4-baseline-package-v1",
+    "format": "espacigo-gcp04-w4-baseline-package-v2",
     "postgres_image": "postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677",
     "source": "canonical empty ephemeral database; V1-V64 applied by cmd/dbmigrate as local postgres; ownership/grants normalized locally after replay",
     "destination": "separate ephemeral PostgreSQL 18 cluster; global roles provisioned separately; pg_restore as espacigo_migrator_login SET ROLE espacigo_schema_owner",
@@ -953,7 +958,7 @@ body = {
         "helper": "db/bootstrap/gcp04-runtime/004_gadm_global_role.sql",
         "actor_contract": "LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT",
         "created_and_commented_by_controlled_actor": True,
-        "exact_comment": "Global bootstrap role; no login or memberships.",
+        "exact_comment": gadm_role["comment"],
         "zero_memberships_and_settings_after_restore": True,
         "executor_absent_after_commit": True,
         "failure_injection_rollback_clean": True,
