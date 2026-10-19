@@ -422,11 +422,11 @@ resource "google_cloud_run_v2_service" "api" {
       }
       env {
         name  = "DATABASE_USER"
-        value = "espacigo_runtime"
+        value = "espacigo_api_login"
       }
       env {
         name  = "DATABASE_POOL_MAX_CONNS"
-        value = "10"
+        value = "4"
       }
       env {
         name  = "CLOUD_SQL_PRIVATE_IP"
