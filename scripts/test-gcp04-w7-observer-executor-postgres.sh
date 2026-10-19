@@ -180,6 +180,10 @@ BEGIN
     END IF;
 END $$;
 SQL
+set_true_initial_identity="$(psql_local -U gcp04_w7_set_true -d espacigo -qAtc "SELECT session_user || '|' || current_user")"
+set_false_initial_identity="$(psql_local -U gcp04_w7_set_false -d espacigo -qAtc "SELECT session_user || '|' || current_user")"
+[[ "$set_true_initial_identity" == 'gcp04_w7_set_true|gcp04_w7_set_true' ]]
+[[ "$set_false_initial_identity" == 'gcp04_w7_set_false|gcp04_w7_set_false' ]]
 set_true_identity="$(psql_local -U gcp04_w7_set_true -d espacigo -qAtc "SET ROLE espacigo_db_observer; SELECT session_user || '|' || current_user")"
 [[ "$set_true_identity" == 'gcp04_w7_set_true|espacigo_db_observer' ]]
 [[ "$(psql_local -U gcp04_w7_set_true -d espacigo -qAtc 'SELECT count(*) FROM public.schema_migrations')" == \
@@ -243,4 +247,4 @@ if psql_local -U gcp04_w7_actor -d espacigo -c 'DROP ROLE espacigo_db_observer' 
 fi
 grep -Fq 'may drop this role' "$TMP_DIR/post-success-drop.log"
 
-echo 'PASS: SET TRUE/FALSE have identical database/schema/ledger privileges (SELECT allowed, INSERT denied); SET TRUE changes current_user and SET FALSE rejects SET ROLE. W4 reports current_user, so keep SET=false unless identity reporting is deliberately redesigned. Verifier handles login absent/present before/after executor retirement; compensation works; executor-granted membership blocks executor retirement; later group retirement needs ADMIN stewardship.'
+echo 'PASS: SET TRUE/FALSE have identical database/schema/ledger privileges (SELECT allowed, INSERT denied); immediately after login both preserve current_user=session_user; explicit SET ROLE changes current_user only for SET TRUE, and SET FALSE rejects it. W4 reports current_user but does not issue SET ROLE. Keep the current SET=false contract without claiming an automatic identity change. Verifier handles login absent/present before/after executor retirement; compensation works; executor-granted membership blocks executor retirement; later group retirement needs ADMIN stewardship.'
