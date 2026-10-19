@@ -144,6 +144,63 @@ expect_verify_failure 'W7 API-created login must be LOGIN INHERIT with elevated 
 psql_local -U postgres -d espacigo -c 'ALTER ROLE espacigo_gcp04_w7_observer INHERIT' >/dev/null
 psql_local -U gcp04_w7_actor -d espacigo < "$ROOT_DIR/planning/gcp/sql_candidates/gcp04_w7_observer_verify_api_membership_candidate.sql"
 
+# Compare exact observer ACLs under inherited SET TRUE and SET FALSE. The
+# effective object privileges must match; SET TRUE only permits switching the
+# current_user identity to the group role.
+psql_local -U postgres -d espacigo <<'SQL' >/dev/null
+CREATE ROLE gcp04_w7_set_true LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT;
+CREATE ROLE gcp04_w7_set_false LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT;
+GRANT espacigo_db_observer TO gcp04_w7_set_true WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
+GRANT espacigo_db_observer TO gcp04_w7_set_false WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
+SQL
+psql_local -U postgres -d espacigo <<'SQL'
+DO $$
+BEGIN
+    IF NOT has_database_privilege('gcp04_w7_set_true','espacigo','CONNECT')
+       OR NOT has_database_privilege('gcp04_w7_set_false','espacigo','CONNECT')
+       OR has_database_privilege('gcp04_w7_set_true','espacigo','CREATE')
+       OR has_database_privilege('gcp04_w7_set_false','espacigo','CREATE')
+       OR has_database_privilege('gcp04_w7_set_true','espacigo','TEMP')
+       OR has_database_privilege('gcp04_w7_set_false','espacigo','TEMP')
+       OR NOT has_schema_privilege('gcp04_w7_set_true','public','USAGE')
+       OR NOT has_schema_privilege('gcp04_w7_set_false','public','USAGE')
+       OR has_schema_privilege('gcp04_w7_set_true','public','CREATE')
+       OR has_schema_privilege('gcp04_w7_set_false','public','CREATE')
+       OR NOT has_table_privilege('gcp04_w7_set_true','public.schema_migrations','SELECT')
+       OR NOT has_table_privilege('gcp04_w7_set_false','public.schema_migrations','SELECT')
+       OR has_table_privilege('gcp04_w7_set_true','public.schema_migrations','INSERT')
+       OR has_table_privilege('gcp04_w7_set_false','public.schema_migrations','INSERT') THEN
+        RAISE EXCEPTION 'SET option changed effective database/schema/ledger privileges';
+    END IF;
+    IF NOT pg_has_role('gcp04_w7_set_true','espacigo_db_observer','USAGE')
+       OR NOT pg_has_role('gcp04_w7_set_false','espacigo_db_observer','USAGE')
+       OR NOT pg_has_role('gcp04_w7_set_true','espacigo_db_observer','SET')
+       OR pg_has_role('gcp04_w7_set_false','espacigo_db_observer','SET') THEN
+        RAISE EXCEPTION 'SET option capability was not distinguished from inherited privileges';
+    END IF;
+END $$;
+SQL
+set_true_initial_identity="$(psql_local -U gcp04_w7_set_true -d espacigo -qAtc "SELECT session_user || '|' || current_user")"
+set_false_initial_identity="$(psql_local -U gcp04_w7_set_false -d espacigo -qAtc "SELECT session_user || '|' || current_user")"
+[[ "$set_true_initial_identity" == 'gcp04_w7_set_true|gcp04_w7_set_true' ]]
+[[ "$set_false_initial_identity" == 'gcp04_w7_set_false|gcp04_w7_set_false' ]]
+set_true_identity="$(psql_local -U gcp04_w7_set_true -d espacigo -qAtc "SET ROLE espacigo_db_observer; SELECT session_user || '|' || current_user")"
+[[ "$set_true_identity" == 'gcp04_w7_set_true|espacigo_db_observer' ]]
+[[ "$(psql_local -U gcp04_w7_set_true -d espacigo -qAtc 'SELECT count(*) FROM public.schema_migrations')" == \
+   "$(psql_local -U gcp04_w7_set_false -d espacigo -qAtc 'SELECT count(*) FROM public.schema_migrations')" ]]
+for compare_login in gcp04_w7_set_true gcp04_w7_set_false; do
+  if psql_local -U "$compare_login" -d espacigo -c "INSERT INTO public.schema_migrations(version) VALUES ('$compare_login')" > "$TMP_DIR/set-option-write-denial.log" 2>&1; then
+    echo "Read-only observer unexpectedly inserted via $compare_login." >&2; exit 1
+  fi
+  grep -Fq 'permission denied for table schema_migrations' "$TMP_DIR/set-option-write-denial.log"
+done
+if psql_local -U gcp04_w7_set_false -d espacigo -c 'SET ROLE espacigo_db_observer' > "$TMP_DIR/set-false-denial.log" 2>&1; then
+  echo 'SET FALSE login unexpectedly changed current_user to observer.' >&2; exit 1
+fi
+grep -Fq 'permission denied to set role' "$TMP_DIR/set-false-denial.log"
+psql_local -U postgres -d espacigo -c 'REVOKE espacigo_db_observer FROM gcp04_w7_set_true, gcp04_w7_set_false' >/dev/null
+psql_local -U postgres -d espacigo -c 'DROP ROLE gcp04_w7_set_true, gcp04_w7_set_false' >/dev/null
+
 psql_local -U gcp04_w7_actor -d espacigo < "$ROOT_DIR/planning/gcp/sql_candidates/gcp04_w7_observer_executor_retire_success_candidate.sql"
 psql_local -U gcp04_w7_actor -d espacigo < "$ROOT_DIR/planning/gcp/sql_candidates/gcp04_w7_observer_verify_api_membership_candidate.sql"
 psql_local -U postgres -d espacigo <<'SQL'
@@ -190,4 +247,4 @@ if psql_local -U gcp04_w7_actor -d espacigo -c 'DROP ROLE espacigo_db_observer' 
 fi
 grep -Fq 'may drop this role' "$TMP_DIR/post-success-drop.log"
 
-echo 'PASS: verifier handles missing login with executor present/absent, checks LOGIN INHERIT, and passes before/after executor retirement; absent-API compensation works; executor-granted login edge blocks executor retirement; later group retirement needs an ADMIN steward.'
+echo 'PASS: SET TRUE/FALSE have identical database/schema/ledger privileges (SELECT allowed, INSERT denied); immediately after login both preserve current_user=session_user; explicit SET ROLE changes current_user only for SET TRUE, and SET FALSE rejects it. W4 reports current_user but does not issue SET ROLE. Keep the current SET=false contract without claiming an automatic identity change. Verifier handles login absent/present before/after executor retirement; compensation works; executor-granted membership blocks executor retirement; later group retirement needs ADMIN stewardship.'
