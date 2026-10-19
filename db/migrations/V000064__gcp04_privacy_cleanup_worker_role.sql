@@ -61,7 +61,8 @@ GRANT SELECT (id) ON public.verificacion_evidencia_sintetica TO espacigo_privacy
 GRANT DELETE ON public.verificacion_evidencia_sintetica TO espacigo_privacy_cleanup_worker;
 GRANT SELECT (archivo_id) ON public.operacion_arriendo_archivo_candidato_local TO espacigo_privacy_cleanup_worker;
 GRANT DELETE ON public.operacion_arriendo_archivo_candidato_local TO espacigo_privacy_cleanup_worker;
-GRANT SELECT (id) ON public.operacion_arriendo_evidencia_ensayo_local TO espacigo_privacy_cleanup_worker;
+GRANT SELECT (id, retirar_archivo_en, archivo_retirado_en)
+    ON public.operacion_arriendo_evidencia_ensayo_local TO espacigo_privacy_cleanup_worker;
 GRANT UPDATE (retirar_archivo_en, archivo_retirado_en)
     ON public.operacion_arriendo_evidencia_ensayo_local TO espacigo_privacy_cleanup_worker;
 GRANT SELECT (id, estado) ON public.foto_perfil_sintetica_local TO espacigo_privacy_cleanup_worker;

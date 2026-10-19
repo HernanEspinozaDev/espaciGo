@@ -24,6 +24,27 @@ data "google_sql_database_instance" "existing" {
   project = var.project_id
 }
 
+data "google_artifact_registry_repository" "images" {
+  count         = local.runtime_enabled ? 1 : 0
+  project       = var.project_id
+  location      = var.region
+  repository_id = var.artifact_registry_repository_id
+}
+
+data "google_project" "current" {
+  count      = local.runtime_enabled ? 1 : 0
+  project_id = var.project_id
+}
+
+resource "google_artifact_registry_repository_iam_member" "cloud_run_reader" {
+  count      = local.runtime_enabled ? 1 : 0
+  project    = var.project_id
+  location   = data.google_artifact_registry_repository.images[0].location
+  repository = data.google_artifact_registry_repository.images[0].name
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:service-${data.google_project.current[0].number}@serverless-robot-prod.iam.gserviceaccount.com"
+}
+
 resource "google_service_account" "privacy_worker" {
   count        = local.worker_enabled ? 1 : 0
   project      = var.project_id
@@ -97,12 +118,29 @@ resource "google_cloud_run_v2_worker_pool" "privacy_cleanup" {
   location            = var.region
   launch_stage        = "BETA"
   deletion_protection = true
+  depends_on = [
+    google_artifact_registry_repository_iam_member.cloud_run_reader,
+    google_project_iam_member.worker_cloudsql_client,
+    google_storage_bucket_iam_member.worker_private_files,
+    google_secret_manager_secret_iam_member.worker_db_password,
+  ]
 
   scaling {
     manual_instance_count = 1
   }
 
   template {
+    volumes {
+      name = "database-password"
+      secret {
+        secret = var.worker_database_password_secret_id
+        items {
+          version = var.worker_database_password_version
+          path    = "password"
+          mode    = 292
+        }
+      }
+    }
     vpc_access {
       connector = null
       egress    = "PRIVATE_RANGES_ONLY"
@@ -154,13 +192,12 @@ resource "google_cloud_run_v2_worker_pool" "privacy_cleanup" {
         value = var.private_object_prefix
       }
       env {
-        name = "DATABASE_PASSWORD_FILE"
-        value_source {
-          secret_key_ref {
-            secret  = var.worker_database_password_secret_id
-            version = var.worker_database_password_version
-          }
-        }
+        name  = "DATABASE_PASSWORD_FILE"
+        value = "/var/secrets/database-password/password"
+      }
+      volume_mounts {
+        name       = "database-password"
+        mount_path = "/var/secrets/database-password"
       }
       env {
         name  = "PRIVACY_CLEANUP_INTERVAL"
@@ -188,6 +225,11 @@ resource "google_cloud_run_v2_job" "migrator" {
   name                = var.migrator_job_name
   location            = var.region
   deletion_protection = true
+  depends_on = [
+    google_artifact_registry_repository_iam_member.cloud_run_reader,
+    google_project_iam_member.migrator_cloudsql_client,
+    google_secret_manager_secret_iam_member.migrator_db_password,
+  ]
 
   template {
     task_count = 1
@@ -195,6 +237,17 @@ resource "google_cloud_run_v2_job" "migrator" {
       service_account = var.migrator_service_account_email
       max_retries     = 0
       timeout         = "1800s"
+      volumes {
+        name = "database-password"
+        secret {
+          secret = var.migrator_database_password_secret_id
+          items {
+            version = var.migrator_database_password_version
+            path    = "password"
+            mode    = 292
+          }
+        }
+      }
       vpc_access {
         connector = null
         egress    = "PRIVATE_RANGES_ONLY"
@@ -232,13 +285,12 @@ resource "google_cloud_run_v2_job" "migrator" {
           value = var.migrator_database_user
         }
         env {
-          name = "DATABASE_PASSWORD_FILE"
-          value_source {
-            secret_key_ref {
-              secret  = var.migrator_database_password_secret_id
-              version = var.migrator_database_password_version
-            }
-          }
+          name  = "DATABASE_PASSWORD_FILE"
+          value = "/var/secrets/database-password/password"
+        }
+        volume_mounts {
+          name       = "database-password"
+          mount_path = "/var/secrets/database-password"
         }
       }
     }

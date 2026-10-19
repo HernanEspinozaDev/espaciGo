@@ -26,6 +26,10 @@ variable "sql_instance_name" {
   type    = string
   default = "espacigo-testprod-pg"
 }
+variable "artifact_registry_repository_id" {
+  type    = string
+  default = "espacigo-testprod"
+}
 variable "database_name" {
   type    = string
   default = "espacigo"
