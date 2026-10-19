@@ -300,6 +300,18 @@ func TestPendingCreateCanBeDurablyReconciledAfterWaitFailure(t *testing.T) {
 	}
 }
 
+func TestPendingCreateReconcilesLogicalSecretAliasEndToEnd(t *testing.T) {
+	f := &testAPI{inv: fixtureInventory(), failWait: true}
+	j := &testJournal{}
+	_, _ = CreateB1(context.Background(), f.inv, approved("b1_create"), f, f, j, t.TempDir(), time.Now(), strings.NewReader(strings.Repeat("x", 32)))
+	f.inv.Users, f.inv.Secret, f.inv.Versions = f.users, f.secret, f.versions
+	r := approvedReconcile()
+	r.CreateOperationID = "operation-1"
+	if err := ReconcilePendingCreate(context.Background(), f.inv, r, f, f, j, time.Now()); err != nil {
+		t.Fatalf("logical alias reconciliation failed: %v", err)
+	}
+}
+
 func TestPendingCreateCannotReconcileWithoutExactOperationIDProof(t *testing.T) {
 	f := &testAPI{inv: fixtureInventory()}
 	j := &testJournal{}
@@ -349,6 +361,31 @@ func TestSecretOnlyCleanupHandlesShellOnlyAndVersionWithoutUserProof(t *testing.
 		if f.secret.Name != "" || count(f.calls, "delete-user:") != 0 {
 			t.Fatalf("secret cleanup incomplete or touched user: %v", f.calls)
 		}
+	}
+}
+
+func TestSecretOnlyCleanupLogicalAliasEndToEnd(t *testing.T) {
+	f := &testAPI{inv: fixtureInventory(), failInsert: true, failInsertDefinitive: true}
+	j := &testJournal{}
+	_, _ = CreateB1(context.Background(), f.inv, approved("b1_create"), f, f, j, t.TempDir(), time.Now(), strings.NewReader(strings.Repeat("x", 32)))
+	f.inv.Secret, f.inv.Versions = f.secret, f.versions
+	if err := CleanupSecretOnlyB1(context.Background(), f.inv, approvedSecretCleanup(true), f, f, j, t.TempDir(), time.Now()); err != nil {
+		t.Fatalf("logical alias cleanup failed: %v", err)
+	}
+}
+
+func TestSecretOnlyCleanupRejectsForeignJournalResourceEndToEnd(t *testing.T) {
+	f := &testAPI{inv: fixtureInventory()}
+	j := &testJournal{}
+	_, _ = CreateB1(context.Background(), f.inv, approved("b1_create"), f, f, j, t.TempDir(), time.Now(), strings.NewReader(""))
+	f.inv.Secret = f.secret
+	for i := range j.records {
+		if j.records[i].Secret == secretParent() {
+			j.records[i].Secret = "projects/other-project/secrets/" + SecretID
+		}
+	}
+	if err := CleanupSecretOnlyB1(context.Background(), f.inv, approvedSecretCleanup(false), f, f, j, t.TempDir(), time.Now()); err == nil || count(f.calls, "delete-secret:"+secretParent()+":b1-run-1:secret-etag") != 0 {
+		t.Fatalf("foreign journal resource was deleted: %v %v", err, f.calls)
 	}
 }
 
