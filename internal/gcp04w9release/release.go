@@ -94,7 +94,7 @@ type Mutator interface {
 	CreateUser(context.Context, string, []string, []byte) (string, error)
 	WaitOperation(context.Context, string) error
 	DestroyVersion(context.Context, string) error
-	DeleteSecretIfOwned(context.Context, string) error
+	DeleteSecretIfOwned(context.Context, string, string) error
 }
 type Plan struct {
 	Mode              string       `json:"mode"`
@@ -181,8 +181,8 @@ func Collect(ctx context.Context, r Reader) (Inventory, error) {
 	return x, nil
 }
 func BuildPlan(x Inventory) (Plan, error) {
-	want := InstanceMetadata{Project: ProjectID, Name: Instance, Region: Region, Version: "POSTGRES_18", State: "RUNNABLE", Connection: Connection, IP: PrivateIP, Tier: "db-n4-standard-2", DiskType: "PD_SSD", DiskSizeGB: 20, Availability: "ZONAL", PrivateNetwork: "projects/espacigo-testprod/global/networks/espacigo-testprod", IPv4Enabled: false}
-	if x.Instance.Project != want.Project || x.Instance.Name != want.Name || x.Instance.Region != want.Region || x.Instance.Version != want.Version || x.Instance.State != want.State || x.Instance.Connection != want.Connection || x.Instance.IP != want.IP || x.Instance.Tier != want.Tier || x.Instance.DiskSizeGB != want.DiskSizeGB || x.Instance.PrivateNetwork != want.PrivateNetwork || x.Instance.IPv4Enabled != want.IPv4Enabled {
+	want := InstanceMetadata{Project: ProjectID, Name: Instance, Region: Region, Version: "POSTGRES_18", State: "RUNNABLE", Connection: Connection, IP: PrivateIP, Tier: "db-custom-N4-2-4096", DiskType: "HYPERDISK_BALANCED", DiskSizeGB: 20, Availability: "ZONAL", PrivateNetwork: "projects/espacigo-testprod/global/networks/espacigo-testprod", IPv4Enabled: false}
+	if x.Instance.Project != want.Project || x.Instance.Name != want.Name || x.Instance.Region != want.Region || x.Instance.Version != want.Version || x.Instance.State != want.State || x.Instance.Connection != want.Connection || x.Instance.IP != want.IP || x.Instance.Tier != want.Tier || x.Instance.DiskType != want.DiskType || x.Instance.DiskSizeGB != want.DiskSizeGB || x.Instance.PrivateNetwork != want.PrivateNetwork || x.Instance.IPv4Enabled != want.IPv4Enabled {
 		return Plan{}, errors.New("pinned Cloud SQL metadata drift")
 	}
 	for _, u := range x.Users {
@@ -303,7 +303,7 @@ func compensateSecret(ctx context.Context, m Mutator, releaseID, version string,
 		return errors.New("exact created secret version compensation uncertain")
 	}
 	if createdShell {
-		if err := m.DeleteSecretIfOwned(ctx, releaseID); err != nil {
+		if err := m.DeleteSecretIfOwned(ctx, releaseID, version); err != nil {
 			return errors.New("version compensated; run-owned secret shell cleanup uncertain")
 		}
 	}

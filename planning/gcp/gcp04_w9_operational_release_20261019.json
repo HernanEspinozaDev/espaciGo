@@ -1,6 +1,6 @@
 {
   "format": "espacigo.gcp04.w9.operational-release.v1",
-  "status": "local_package_prepared_review_pending_no_cloud_mutations",
+  "status": "local_package_prepared_metadata_preflight_passed_review_pending_no_cloud_mutations",
   "base": "66bd4eb4845b3393b967d003dd70084b99cd30a3",
   "target": {
     "project": "espacigo-testprod",
@@ -9,7 +9,10 @@
     "version": "POSTGRES_18",
     "connection_name": "espacigo-testprod:southamerica-west1:espacigo-testprod-pg",
     "private_ip": "10.189.0.3",
-    "database": "espacigo"
+    "database": "espacigo",
+    "observed_tier": "db-custom-N4-2-4096",
+    "observed_disk_type": "HYPERDISK_BALANCED",
+    "observed_disk_size_gb": 20
   },
   "candidate_user": {
     "name": "espacigo_gcp04_w8_catalog_probe",
@@ -64,9 +67,14 @@
   "terraform_apply": false,
   "job_executed": false,
   "metadata_read_attempt": {
-    "status": "blocked_first_cloud_sql_instance_get_http_403",
-    "users_listed": false,
-    "secret_manager_called": false,
-    "sql_opened": false
+    "status": "completed_read_only_dry_run",
+    "mode": "dry_run",
+    "users_count": 1,
+    "secret_present": false,
+    "secret_versions_count": 0,
+    "mutations": "none",
+    "sql_opened": false,
+    "quota_project_header": "espacigo-testprod",
+    "initial_403_cause": "ADC quota project differed from the target project; fixed per-client without changing ADC"
   }
 }

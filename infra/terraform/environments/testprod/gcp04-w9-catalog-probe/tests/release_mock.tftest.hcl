@@ -50,6 +50,14 @@ run "exact_mock_release_plan" {
     error_message = "W9 must pin one numeric secret version, zero retries and a 120 second maximum."
   }
   assert {
+    condition     = toset(google_cloud_run_v2_job.probe[0].template[0].template[0].containers[0].args) == toset(["--query-file", "/gcp04_w8_catalog_probe.sql"])
+    error_message = "W9 must point to the query file included in the W8 image."
+  }
+  assert {
+    condition     = length([for e in google_cloud_run_v2_job.probe[0].template[0].template[0].containers[0].env : e if e.name == "GCP04_W8_PROJECT_ID" && e.value == "espacigo-testprod"]) == 1 && length([for e in google_cloud_run_v2_job.probe[0].template[0].template[0].containers[0].env : e if e.name == "GCP04_W8_SECRET_VERSION" && e.value == "7"]) == 1
+    error_message = "W9 must provide the exact W8 project and numeric secret version contract."
+  }
+  assert {
     condition     = strcontains(google_project_iam_member.sql_client[0].condition[0].expression, "projects/espacigo-testprod/instances/espacigo-testprod-pg") && google_secret_manager_secret_iam_member.secret_accessor[0].role == "roles/secretmanager.secretAccessor" && strcontains(google_secret_manager_secret_iam_member.secret_accessor[0].secret_id, "espacigo-gcp04-w8-catalog-probe-password")
     error_message = "W9 IAM must target only the exact SQL instance and secret."
   }

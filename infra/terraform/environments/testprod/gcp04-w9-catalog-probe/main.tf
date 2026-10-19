@@ -109,7 +109,7 @@ resource "google_cloud_run_v2_job" "probe" {
       }
       containers {
         image = var.image_digest
-        args  = ["--query-file", "/target_catalog_probe.sql"]
+        args  = ["--query-file", "/gcp04_w8_catalog_probe.sql"]
         resources {
           limits = { cpu = "1", memory = "512Mi" }
         }
@@ -132,6 +132,14 @@ resource "google_cloud_run_v2_job" "probe" {
         env {
           name  = "GCP04_W8_EXPECTED_PRIVATE_IP"
           value = "10.189.0.3"
+        }
+        env {
+          name  = "GCP04_W8_PROJECT_ID"
+          value = var.project_id
+        }
+        env {
+          name  = "GCP04_W8_SECRET_VERSION"
+          value = var.secret_version
         }
         volume_mounts {
           name       = "db-password"

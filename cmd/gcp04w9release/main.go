@@ -25,6 +25,10 @@ import (
 
 const scope = "https://www.googleapis.com/auth/cloud-platform"
 
+func quotaProjectOption() option.ClientOption {
+	return option.WithQuotaProject(gcp04w9release.ProjectID)
+}
+
 type api struct {
 	sql *sqladmin.Service
 	sm  *secretmanager.Service
@@ -202,9 +206,15 @@ func (w writer) WaitOperation(ctx context.Context, name string) error {
 	return errors.New("operation deadline exceeded; reconcile")
 }
 func (w writer) DestroyVersion(ctx context.Context, v string) error {
-	_, e := w.a.sm.Projects.Secrets.Versions.Destroy(gcp04w9release.SecretParent+"/versions/"+v, &secretmanager.DestroySecretVersionRequest{}).Context(ctx).Do()
+	if v == "" || strings.Trim(v, "0123456789") != "" {
+		return errors.New("numeric secret version required")
+	}
+	x, e := w.a.sm.Projects.Secrets.Versions.Destroy(gcp04w9release.SecretParent+"/versions/"+v, &secretmanager.DestroySecretVersionRequest{}).Context(ctx).Do()
 	if e != nil {
 		return safe(e)
+	}
+	if x == nil || x.Name != gcp04w9release.SecretParent+"/versions/"+v || x.State != "DESTROYED" {
+		return errors.New("destroyed version response mismatch")
 	}
 	return nil
 }
@@ -225,7 +235,7 @@ func run(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "authorized application default credentials unavailable")
 		return 1
 	}
-	opts := []option.ClientOption{option.WithCredentials(cred)}
+	opts := []option.ClientOption{option.WithCredentials(cred), quotaProjectOption()}
 	sql, e := sqladmin.NewService(ctx, opts...)
 	if e != nil {
 		fmt.Fprintln(errOut, "Cloud SQL metadata client unavailable")
@@ -297,9 +307,9 @@ func run(args []string, out, errOut io.Writer) int {
 	}
 	return 0
 }
-func (w writer) DeleteSecretIfOwned(ctx context.Context, release string) error {
-	if release == "" {
-		return errors.New("release identity required for secret cleanup")
+func (w writer) DeleteSecretIfOwned(ctx context.Context, release, version string) error {
+	if release == "" || version == "" || strings.Trim(version, "0123456789") != "" {
+		return errors.New("release identity and numeric version required for secret cleanup")
 	}
 	got, err := w.a.sm.Projects.Secrets.Get(gcp04w9release.SecretParent).Context(ctx).Do()
 	if err != nil {
@@ -312,8 +322,8 @@ func (w writer) DeleteSecretIfOwned(ctx context.Context, release string) error {
 	if err != nil {
 		return err
 	}
-	if len(versions) != 0 {
-		return errors.New("secret shell still has versions; refusing delete")
+	if len(versions) != 1 || versions[0].Name != gcp04w9release.SecretParent+"/versions/"+version || versions[0].State != "DESTROYED" {
+		return errors.New("secret version inventory is not the sole exact destroyed run-owned version; refusing delete")
 	}
 	_, err = w.a.sm.Projects.Secrets.Delete(gcp04w9release.SecretParent).Context(ctx).Do()
 	if err != nil {

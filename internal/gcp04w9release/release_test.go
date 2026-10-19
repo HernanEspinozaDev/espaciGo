@@ -58,7 +58,7 @@ func (f *fake) DestroyVersion(context.Context, string) error {
 	f.calls = append(f.calls, "destroy-version")
 	return nil
 }
-func (f *fake) DeleteSecretIfOwned(context.Context, string) error {
+func (f *fake) DeleteSecretIfOwned(context.Context, string, string) error {
 	f.calls = append(f.calls, "delete-secret-owned")
 	return nil
 }
@@ -73,7 +73,7 @@ func (j *journal) Save(x JournalRecord) error {
 	return nil
 }
 func fixture() Inventory {
-	return Inventory{Instance: InstanceMetadata{Project: ProjectID, Name: Instance, Region: Region, Version: "POSTGRES_18", State: "RUNNABLE", Connection: Connection, IP: PrivateIP, Tier: "db-n4-standard-2", DiskType: "PD_SSD", DiskSizeGB: 20, Availability: "ZONAL", PrivateNetwork: "projects/espacigo-testprod/global/networks/espacigo-testprod", IPv4Enabled: false}, Secret: SecretMetadata{Name: SecretParent, Replication: "USER_MANAGED", Replicas: []string{Region}}}
+	return Inventory{Instance: InstanceMetadata{Project: ProjectID, Name: Instance, Region: Region, Version: "POSTGRES_18", State: "RUNNABLE", Connection: Connection, IP: PrivateIP, Tier: "db-custom-N4-2-4096", DiskType: "HYPERDISK_BALANCED", DiskSizeGB: 20, Availability: "ZONAL", PrivateNetwork: "projects/espacigo-testprod/global/networks/espacigo-testprod", IPv4Enabled: false}, Secret: SecretMetadata{Name: SecretParent, Replication: "USER_MANAGED", Replicas: []string{Region}}}
 }
 func TestBuildPlanOnlyMetadataNoPayload(t *testing.T) {
 	x := fixture()
