@@ -10,6 +10,7 @@ COPY . .
 RUN mkdir -p /out \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/api ./cmd/api \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/privacy-cleanup-worker ./cmd/privacy-cleanup-worker \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/gcp04-preflight ./cmd/gcp04preflight \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/netprobe ./cmd/netprobe
 
 FROM scratch AS api
@@ -31,6 +32,13 @@ COPY --from=api-build --chown=65532:65532 /out/privacy-cleanup-worker /privacy-c
 COPY --from=go-deps /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 USER 65532:65532
 ENTRYPOINT ["/privacy-cleanup-worker"]
+
+FROM scratch AS gcp04-preflight
+COPY --from=api-build --chown=65532:65532 /out/gcp04-preflight /gcp04-preflight
+COPY --from=go-deps /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --chown=65532:65532 db/query/gcp04_w4_target_preflight.sql /target_preflight.sql
+USER 65532:65532
+ENTRYPOINT ["/gcp04-preflight"]
 
 FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS frontend-runner
 WORKDIR /runner

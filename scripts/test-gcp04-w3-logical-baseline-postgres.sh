@@ -384,6 +384,13 @@ assert report["capacity"]["required_connections"] == 24
 assert all(not row["missing_effective_privileges"] for row in report["owner_effective_privileges"])
 PY
 
+# The Go runner compiles the exact reviewed psql source, applies its SQL body
+# in a native read-only transaction, and connects as the restricted observer.
+GCP04_W7_TEST_DSN="postgres://espacigo_observer_login@localhost:5432/espacigo?host=$TARGET_SOCKET" \
+GCP04_W7_TEST_QUERY_FILE="$ROOT_DIR/db/query/gcp04_w4_target_preflight.sql" \
+GCP04_W7_TEST_REQUIRED_CONNECTIONS=1 \
+go test ./cmd/gcp04preflight -run TestLocalObserverReadOnlyIntegration -count=1 -v
+
 run_target_preflight insufficient-budget success -v required_connections=999999
 python3 - "$ARTIFACTS/insufficient-budget.json" <<'PY'
 import json, sys

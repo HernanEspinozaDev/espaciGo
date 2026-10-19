@@ -72,43 +72,43 @@ WITH RECURSIVE limits AS (
     WHERE t.typrelid=0 AND t.typtype IN ('b','c','d','e','r','m')
 ), other_schema_inventory AS (
     SELECT 'operator'::text AS kind, o.oid::regoperator::text AS identity,
-           n.nspname AS schema_name,
+           n.nspname AS schema_name, pg_catalog.pg_get_userbyid(o.oprowner) AS owner,
            EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_operator'::regclass AND d.objid=o.oid AND d.refclassid='pg_catalog.pg_extension'::regclass AND d.deptype='e') AS extension_owned
     FROM pg_catalog.pg_operator o JOIN pg_catalog.pg_namespace n ON n.oid=o.oprnamespace JOIN user_schemas s ON s.oid=n.oid
     UNION ALL
-    SELECT 'collation', n.nspname||'.'||c.collname, n.nspname,
+    SELECT 'collation', n.nspname||'.'||c.collname, n.nspname, pg_catalog.pg_get_userbyid(c.collowner),
            EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_collation'::regclass AND d.objid=c.oid AND d.refclassid='pg_catalog.pg_extension'::regclass AND d.deptype='e')
     FROM pg_catalog.pg_collation c JOIN pg_catalog.pg_namespace n ON n.oid=c.collnamespace JOIN user_schemas s ON s.oid=n.oid
     UNION ALL
-    SELECT 'conversion', n.nspname||'.'||c.conname, n.nspname,
+    SELECT 'conversion', n.nspname||'.'||c.conname, n.nspname, pg_catalog.pg_get_userbyid(c.conowner),
            EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_conversion'::regclass AND d.objid=c.oid AND d.refclassid='pg_catalog.pg_extension'::regclass AND d.deptype='e')
     FROM pg_catalog.pg_conversion c JOIN pg_catalog.pg_namespace n ON n.oid=c.connamespace JOIN user_schemas s ON s.oid=n.oid
     UNION ALL
-    SELECT 'opclass', n.nspname||'.'||o.opcname, n.nspname,
+    SELECT 'opclass', n.nspname||'.'||o.opcname, n.nspname, pg_catalog.pg_get_userbyid(o.opcowner),
            EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_opclass'::regclass AND d.objid=o.oid AND d.refclassid='pg_catalog.pg_extension'::regclass AND d.deptype='e')
     FROM pg_catalog.pg_opclass o JOIN pg_catalog.pg_namespace n ON n.oid=o.opcnamespace JOIN user_schemas s ON s.oid=n.oid
     UNION ALL
-    SELECT 'opfamily', n.nspname||'.'||o.opfname, n.nspname,
+    SELECT 'opfamily', n.nspname||'.'||o.opfname, n.nspname, pg_catalog.pg_get_userbyid(o.opfowner),
            EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_opfamily'::regclass AND d.objid=o.oid AND d.refclassid='pg_catalog.pg_extension'::regclass AND d.deptype='e')
     FROM pg_catalog.pg_opfamily o JOIN pg_catalog.pg_namespace n ON n.oid=o.opfnamespace JOIN user_schemas s ON s.oid=n.oid
     UNION ALL
-    SELECT 'text_search_dictionary', n.nspname||'.'||d.dictname, n.nspname,
+    SELECT 'text_search_dictionary', n.nspname||'.'||d.dictname, n.nspname, pg_catalog.pg_get_userbyid(d.dictowner),
            EXISTS (SELECT 1 FROM pg_catalog.pg_depend dep WHERE dep.classid='pg_catalog.pg_ts_dict'::regclass AND dep.objid=d.oid AND dep.refclassid='pg_catalog.pg_extension'::regclass AND dep.deptype='e')
     FROM pg_catalog.pg_ts_dict d JOIN pg_catalog.pg_namespace n ON n.oid=d.dictnamespace JOIN user_schemas s ON s.oid=n.oid
     UNION ALL
-    SELECT 'text_search_parser', n.nspname||'.'||p.prsname, n.nspname,
+    SELECT 'text_search_parser', n.nspname||'.'||p.prsname, n.nspname, NULL::text,
            EXISTS (SELECT 1 FROM pg_catalog.pg_depend dep WHERE dep.classid='pg_catalog.pg_ts_parser'::regclass AND dep.objid=p.oid AND dep.refclassid='pg_catalog.pg_extension'::regclass AND dep.deptype='e')
     FROM pg_catalog.pg_ts_parser p JOIN pg_catalog.pg_namespace n ON n.oid=p.prsnamespace JOIN user_schemas s ON s.oid=n.oid
     UNION ALL
-    SELECT 'text_search_template', n.nspname||'.'||t.tmplname, n.nspname,
+    SELECT 'text_search_template', n.nspname||'.'||t.tmplname, n.nspname, NULL::text,
            EXISTS (SELECT 1 FROM pg_catalog.pg_depend dep WHERE dep.classid='pg_catalog.pg_ts_template'::regclass AND dep.objid=t.oid AND dep.refclassid='pg_catalog.pg_extension'::regclass AND dep.deptype='e')
     FROM pg_catalog.pg_ts_template t JOIN pg_catalog.pg_namespace n ON n.oid=t.tmplnamespace JOIN user_schemas s ON s.oid=n.oid
     UNION ALL
-    SELECT 'text_search_configuration', n.nspname||'.'||c.cfgname, n.nspname,
+    SELECT 'text_search_configuration', n.nspname||'.'||c.cfgname, n.nspname, pg_catalog.pg_get_userbyid(c.cfgowner),
            EXISTS (SELECT 1 FROM pg_catalog.pg_depend dep WHERE dep.classid='pg_catalog.pg_ts_config'::regclass AND dep.objid=c.oid AND dep.refclassid='pg_catalog.pg_extension'::regclass AND dep.deptype='e')
     FROM pg_catalog.pg_ts_config c JOIN pg_catalog.pg_namespace n ON n.oid=c.cfgnamespace JOIN user_schemas s ON s.oid=n.oid
     UNION ALL
-    SELECT 'extended_statistics', n.nspname||'.'||e.stxname, n.nspname,
+    SELECT 'extended_statistics', n.nspname||'.'||e.stxname, n.nspname, pg_catalog.pg_get_userbyid(e.stxowner),
            EXISTS (SELECT 1 FROM pg_catalog.pg_depend dep WHERE dep.classid='pg_catalog.pg_statistic_ext'::regclass AND dep.objid=e.oid AND dep.refclassid='pg_catalog.pg_extension'::regclass AND dep.deptype='e')
     FROM pg_catalog.pg_statistic_ext e JOIN pg_catalog.pg_namespace n ON n.oid=e.stxnamespace JOIN user_schemas s ON s.oid=n.oid
 ), app_roles AS (
@@ -158,7 +158,7 @@ WITH RECURSIVE limits AS (
     UNION ALL
     SELECT 'type', identity, schema_name, owner, extension_owned FROM type_inventory
     UNION ALL
-    SELECT kind, identity, schema_name, NULL::text AS owner, extension_owned FROM other_schema_inventory
+    SELECT kind, identity, schema_name, owner, extension_owned FROM other_schema_inventory
 ), capacity AS (
     SELECT limits.max_connections, limits.reserved_connections, limits.superuser_reserved_connections,
            activity.visible_client_backends, activity.unclassified_activity_rows,
@@ -192,7 +192,7 @@ WITH RECURSIVE limits AS (
         'relation_inventory',(SELECT coalesce(jsonb_agg(jsonb_build_object('identity',identity,'schema',schema_name,'kind',kind,'owner',owner,'extension_owned',extension_owned) ORDER BY identity),'[]'::jsonb) FROM relation_inventory),
         'routine_inventory',(SELECT coalesce(jsonb_agg(jsonb_build_object('identity',identity,'schema',schema_name,'owner',owner,'security_definer',security_definer,'settings',settings,'extension_owned',extension_owned) ORDER BY identity),'[]'::jsonb) FROM routine_inventory),
         'type_inventory',(SELECT coalesce(jsonb_agg(jsonb_build_object('identity',identity,'schema',schema_name,'kind',kind,'owner',owner,'extension_owned',extension_owned) ORDER BY identity),'[]'::jsonb) FROM type_inventory),
-        'other_schema_object_inventory',(SELECT coalesce(jsonb_agg(jsonb_build_object('identity',identity,'schema',schema_name,'kind',kind,'extension_owned',extension_owned) ORDER BY identity),'[]'::jsonb) FROM other_schema_inventory),
+        'other_schema_object_inventory',(SELECT coalesce(jsonb_agg(jsonb_build_object('identity',identity,'schema',schema_name,'kind',kind,'owner',owner,'extension_owned',extension_owned) ORDER BY identity),'[]'::jsonb) FROM other_schema_inventory),
         'non_public_object_inventory',(SELECT coalesce(jsonb_agg(jsonb_build_object('identity',identity,'schema',schema_name,'kind',kind,'owner',owner,'extension_owned',extension_owned) ORDER BY schema_name,kind,identity),'[]'::jsonb) FROM all_user_object_inventory WHERE schema_name<>'public')),
       'roles',(SELECT coalesce(jsonb_agg(to_jsonb(r)-'oid' ORDER BY r.name),'[]'::jsonb) FROM app_roles r),
       'memberships',(SELECT coalesce(jsonb_agg(to_jsonb(m) ORDER BY m.app_login NULLS LAST,m.granted_role,m.member_role,m.edge_context),'[]'::jsonb) FROM memberships m),
