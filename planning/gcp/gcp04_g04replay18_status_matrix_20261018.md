@@ -2,6 +2,12 @@
 
 **Corte de lectura: 2026-10-18 21:46 UTC.** Esta matriz registra el smoke ejecutado; no declara GCP-04 completo ni aceptación del producto. El ensayo sigue activo y ningún teardown se aplicó.
 
+## Actualización posterior: GCP-04-W5 (2026-10-19)
+
+| Capacidad | Estado | Evidencia / alcance |
+| --- | --- | --- |
+| Bootstrap global GADM sin SUPERUSER | Bloqueado / no compatible con el actor probado | Regresión PostgreSQL 18 local: CREATEROLE puede crear y comentar el rol, pero queda una membresía `ADMIN OPTION` otorgada por `postgres`; REVOKE ordinario no la quita y `GRANTED BY postgres` requiere privilegios del grantor. La transacción de prueba se revirtió y no dejó rol. Ver [hallazgo W5](gcp04_w5_global_role_bootstrap_finding_20261019.md) y `scripts/test-gcp04-w5-global-role-bootstrap-postgres.sh`. Sin ejecución Cloud. |
+
 ## Estado de capacidades
 
 | Capacidad | Estado | Evidencia / alcance |

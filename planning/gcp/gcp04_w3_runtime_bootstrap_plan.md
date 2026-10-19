@@ -17,6 +17,12 @@ La inspección local de PostgreSQL 18 encontró una incompatibilidad que impide 
 - En PostgreSQL 16+, un usuario con `CREATEROLE` que crea otro rol recibe una membresía `ADMIN OPTION` sobre ese rol ([CREATE ROLE](https://www.postgresql.org/docs/current/sql-createrole.html)). La migración V60 rechaza cualquier membresía del rol GADM. Por eso dar temporalmente `CREATEROLE` al schema owner no basta: la ejecución local se detiene en V60 con `permission denied`; permitirle crear el rol produciría la membresía que V60 prohíbe.
 - El preflight y la prueba local reproducen ambos comportamientos. No hubo conexión SQL con Cloud SQL, por lo que esto es compatibilidad deducida de la migración versionada y del comportamiento PostgreSQL 18, no una observación sobre el estado SQL del candidato.
 
+### Resultado GCP-04-W5 (2026-10-19)
+
+La prueba dedicada `scripts/test-gcp04-w5-global-role-bootstrap-postgres.sh` confirmó el límite que faltaba medir: un actor directo `NOSUPERUSER CREATEROLE` puede crear GADM y establecer el comentario V60, pero PostgreSQL 18 registra la membresía `ADMIN OPTION` con grantor `postgres`. El `REVOKE` ordinario no la elimina (advertencia; la arista permanece) y `REVOKE ... GRANTED BY postgres` falla por falta de privilegios del grantor. El rollback transaccional retira el rol temporal y evita residuos, pero no completa el bootstrap.
+
+No hay helper transaccional funcional bajo ese actor que cumpla el requisito de no dejar membresías. No se añadió una secuencia de dos transacciones porque deja una arista global persistente entre operaciones y pierde atomicidad. El resultado reproducible y sus límites constan en [GCP-04-W5](gcp04_w5_global_role_bootstrap_finding_20261019.md). V1–V64 y V60 siguen inmutables. La compatibilidad SQL administrada continúa sin demostrarse; no se hizo operación Cloud.
+
 V1–V64 son inmutables según las reglas del repositorio. Un replay directo con el rol de esquema en Cloud SQL sigue sin ruta compatible por la guarda de V60. El ensayo local completó las migraciones originales sin filtrar statements en una fuente efímera administrada localmente, y después probó un candidato de traslado lógico. No se presupone que Cloud SQL pueda aceptar ese artefacto ni se propone ejecutarlo allí antes de una decisión/revisión del procedimiento operativo.
 
 ## Roles y secuencia propuesta (no ejecutable aún)
