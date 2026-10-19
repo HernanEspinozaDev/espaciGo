@@ -626,6 +626,10 @@ resource "google_cloud_run_v2_service" "api" {
         value = "espacigo_api_login"
       }
       env {
+        name  = "CORS_ALLOWED_ORIGINS"
+        value = join(",", ["https://${var.public_hostname}", "https://${var.private_hostname}"])
+      }
+      env {
         name  = "DATABASE_SET_ROLE"
         value = "espacigo_runtime"
       }
