@@ -92,7 +92,13 @@ func (a api) ReadSecret(ctx context.Context) (gcp04w9release.SecretMetadata, err
 		}
 		return gcp04w9release.SecretMetadata{}, safe(e)
 	}
-	if x == nil || x.Replication == nil || x.Replication.UserManaged == nil {
+	if x == nil {
+		return gcp04w9release.SecretMetadata{}, errors.New("global secret replication metadata incomplete")
+	}
+	if !gcp04w9release.IsSecretParent(x.Name) {
+		return gcp04w9release.SecretMetadata{}, errors.New("global secret resource name is outside the exact W9 aliases")
+	}
+	if x.Replication == nil || x.Replication.UserManaged == nil {
 		return gcp04w9release.SecretMetadata{}, errors.New("global secret replication metadata incomplete")
 	}
 	ls := []string{}
@@ -125,6 +131,9 @@ func (a api) ListVersions(ctx context.Context) ([]gcp04w9release.VersionMetadata
 		}
 		for _, v := range x.Versions {
 			if v != nil {
+				if !gcp04w9release.IsSecretVersion(v.Name) {
+					return nil, errors.New("version inventory contains a resource outside the exact W9 secret")
+				}
 				out = append(out, gcp04w9release.VersionMetadata{Name: v.Name, State: v.State, CreateTime: v.CreateTime, DestroyTime: v.DestroyTime, ScheduledDestroyTime: v.ScheduledDestroyTime, ETag: v.Etag, ClientSpecifiedPayloadChecksum: v.ClientSpecifiedPayloadChecksum})
 			}
 		}
@@ -149,24 +158,28 @@ func (w writer) CreateSecret(ctx context.Context, release string) error {
 	if e != nil {
 		return safe(e)
 	}
-	if x == nil || x.Name != gcp04w9release.SecretParent || x.Etag == "" || x.Labels["release_id"] != release || x.Labels["purpose"] != "gcp04-w9-catalog-probe" || x.Replication == nil || x.Replication.UserManaged == nil || len(x.Replication.UserManaged.Replicas) != 1 || x.Replication.UserManaged.Replicas[0].Location != gcp04w9release.Region {
+	if x == nil || !gcp04w9release.IsSecretParent(x.Name) || x.Etag == "" || x.Labels["release_id"] != release || x.Labels["purpose"] != "gcp04-w9-catalog-probe" || x.Replication == nil || x.Replication.UserManaged == nil || len(x.Replication.UserManaged.Replicas) != 1 || x.Replication.UserManaged.Replicas[0].Location != gcp04w9release.Region {
 		return errors.New("created secret shell response does not match exact release")
 	}
 	return nil
 }
 func (w writer) AddVersion(ctx context.Context, parent string, p []byte) (string, error) {
-	if parent != gcp04w9release.SecretParent {
+	if !gcp04w9release.IsSecretParent(parent) {
 		return "", errors.New("secret resource mismatch")
 	}
 	x, e := w.a.sm.Projects.Secrets.AddVersion(parent, &secretmanager.AddSecretVersionRequest{Payload: &secretmanager.SecretPayload{Data: base64.StdEncoding.EncodeToString(p)}}).Context(ctx).Do()
 	if e != nil {
 		return "", safe(e)
 	}
-	if x == nil {
+	if x == nil || !gcp04w9release.IsSecretVersion(x.Name) {
 		return "", errors.New("version response missing")
 	}
 	q := strings.Split(x.Name, "/")
-	return q[len(q)-1], nil
+	version := q[len(q)-1]
+	if !gcp04w9release.IsSecretVersionName(x.Name, version) {
+		return "", errors.New("version response resource mismatch")
+	}
+	return version, nil
 }
 func (w writer) CreateUser(ctx context.Context, name string, roles []string, p []byte) (string, error) {
 	if name != gcp04w9release.Login || len(roles) != 1 || roles[0] != gcp04w9release.Role || len(p) == 0 {
@@ -209,22 +222,22 @@ func (w writer) WaitOperation(ctx context.Context, name string) error {
 	return errors.New("operation deadline exceeded; reconcile")
 }
 func (w writer) DestroyVersion(ctx context.Context, v string) error {
-	if v == "" || strings.Trim(v, "0123456789") != "" {
+	name, ok := gcp04w9release.SecretVersionResource(v)
+	if !ok {
 		return errors.New("numeric secret version required")
 	}
-	name := gcp04w9release.SecretParent + "/versions/" + v
 	current, e := w.a.sm.Projects.Secrets.Versions.Get(name).Context(ctx).Do()
 	if e != nil {
 		return safe(e)
 	}
-	if current == nil || current.Name != name || current.Etag == "" || (current.State != "ENABLED" && current.State != "DISABLED") {
+	if current == nil || !gcp04w9release.IsSecretVersionName(current.Name, v) || current.Etag == "" || (current.State != "ENABLED" && current.State != "DISABLED") {
 		return errors.New("exact destroyable version metadata unavailable")
 	}
 	x, e := w.a.sm.Projects.Secrets.Versions.Destroy(name, &secretmanager.DestroySecretVersionRequest{Etag: current.Etag}).Context(ctx).Do()
 	if e != nil {
 		return safe(e)
 	}
-	if x == nil || x.Name != gcp04w9release.SecretParent+"/versions/"+v || x.State != "DESTROYED" {
+	if x == nil || !gcp04w9release.IsSecretVersionName(x.Name, v) || x.State != "DESTROYED" {
 		return errors.New("destroyed version response mismatch")
 	}
 	return nil
@@ -235,12 +248,19 @@ func run(args []string, out, errOut io.Writer) int {
 	f.SetOutput(errOut)
 	execute := f.Bool("execute", false, "requires exact, active experiment-stage approval")
 	prepareShell := f.Bool("prepare-secret-shell", false, "creates only an approved empty Secret shell")
+	reconcileShell := f.Bool("reconcile-secret-shell", false, "read-only verification of an existing ETag-pinned empty shell")
 	relpath := f.String("release-file", "", "private release file under .local/testing/gcp04-w9")
 	relsha := f.String("confirm-release-sha256", "", "exact SHA-256 of reviewed release file")
 	if e := f.Parse(args); e != nil {
 		return 2
 	}
-	if *execute && *prepareShell {
+	selected := 0
+	for _, enabled := range []bool{*execute, *prepareShell, *reconcileShell} {
+		if enabled {
+			selected++
+		}
+	}
+	if selected > 1 {
 		fmt.Fprintln(errOut, "choose exactly one release stage")
 		return 2
 	}
@@ -268,7 +288,7 @@ func run(args []string, out, errOut io.Writer) int {
 		return 1
 	}
 	plan, planErr := gcp04w9release.BuildPlan(inv)
-	if *execute || *prepareShell {
+	if *execute || *prepareShell || *reconcileShell {
 		if planErr != nil {
 			fmt.Fprintln(errOut, planErr)
 			return 1
@@ -276,6 +296,8 @@ func run(args []string, out, errOut io.Writer) int {
 		expectedPath := ".local/testing/gcp04-w9/release.json"
 		if *prepareShell {
 			expectedPath = ".local/testing/gcp04-w9/shell-release.json"
+		} else if *reconcileShell {
+			expectedPath = ".local/testing/gcp04-w9/reconcile-shell-release.json"
 		}
 		if filepath.Clean(*relpath) != expectedPath || len(*relsha) != 64 {
 			fmt.Fprintln(errOut, "selected release stage requires its exact private W9 release file and reviewed SHA-256")
@@ -317,16 +339,28 @@ func run(args []string, out, errOut io.Writer) int {
 			}
 			secret, re := (api{sql, sm}).ReadSecret(ctx)
 			versions, ve := (api{sql, sm}).ListVersions(ctx)
-			if re != nil || ve != nil || secret.Name != gcp04w9release.SecretParent || secret.ETag == "" || secret.Replication != "USER_MANAGED" || len(secret.Replicas) != 1 || secret.Replicas[0] != gcp04w9release.Region || secret.Labels["release_id"] != release.ReleaseID || secret.Labels["purpose"] != "gcp04-w9-catalog-probe" || len(versions) != 0 {
+			if re != nil || ve != nil || !gcp04w9release.IsSecretParent(secret.Name) || secret.ETag == "" || secret.Replication != "USER_MANAGED" || len(secret.Replicas) != 1 || secret.Replicas[0] != gcp04w9release.Region || secret.Labels["release_id"] != release.ReleaseID || secret.Labels["purpose"] != "gcp04-w9-catalog-probe" || len(versions) != 0 {
 				fmt.Fprintln(errOut, "created shell metadata or empty version inventory could not be verified; reconcile before retry")
 				return 1
 			}
 			j := gcp04w9release.LocalJournal{Dir: ".local/testing/gcp04-w9/journal"}
-			if se = j.Save(gcp04w9release.JournalRecord{ReleaseID: release.ReleaseID, Phase: "secret_shell_verified", SecretResource: gcp04w9release.SecretParent, ETag: secret.ETag, UpdatedAt: time.Now().UTC().Format(time.RFC3339)}); se != nil {
+			if se = j.Save(gcp04w9release.JournalRecord{ReleaseID: release.ReleaseID, Phase: "secret_shell_verified", SecretResource: gcp04w9release.SecretParent, ObservedSecretName: secret.Name, ETag: secret.ETag, UpdatedAt: time.Now().UTC().Format(time.RFC3339)}); se != nil {
 				fmt.Fprintln(errOut, "shell verified; private journal confirmation failed")
 				return 1
 			}
 			fmt.Fprintf(out, "{\"mode\":\"prepare_secret_shell\",\"secret_resource\":%q,\"secret_etag\":%q,\"versions\":0,\"sql_user_created\":false,\"payload_created\":false}\n", secret.Name, secret.ETag)
+			return 0
+		}
+		if *reconcileShell {
+			if release.Stage != "secret_shell" || release.SecretShellETag == "" {
+				fmt.Fprintln(errOut, "read-only reconciliation requires a secret_shell release with the exact observed ETag")
+				return 2
+			}
+			if se = gcp04w9release.ReconcileSecretShell(inv, release, gcp04w9release.LocalJournal{Dir: ".local/testing/gcp04-w9/journal"}, time.Now()); se != nil {
+				fmt.Fprintln(errOut, se)
+				return 1
+			}
+			fmt.Fprintf(out, "{\"mode\":\"reconcile_secret_shell_read_only\",\"secret_resource\":%q,\"secret_etag\":%q,\"versions\":0,\"cloud_mutations\":false}\n", inv.Secret.Name, inv.Secret.ETag)
 			return 0
 		}
 		if release.Stage != "experiment" {
@@ -362,14 +396,14 @@ func (w writer) DeleteSecretIfOwned(ctx context.Context, release, version string
 	if err != nil {
 		return safe(err)
 	}
-	if got == nil || got.Name != gcp04w9release.SecretParent || got.Labels["release_id"] != release || got.Labels["purpose"] != "gcp04-w9-catalog-probe" {
+	if got == nil || !gcp04w9release.IsSecretParent(got.Name) || got.Labels["release_id"] != release || got.Labels["purpose"] != "gcp04-w9-catalog-probe" {
 		return errors.New("secret shell ownership labels do not match this release")
 	}
 	versions, err := w.a.ListVersions(ctx)
 	if err != nil {
 		return err
 	}
-	if len(versions) != 1 || versions[0].Name != gcp04w9release.SecretParent+"/versions/"+version || versions[0].State != "DESTROYED" {
+	if len(versions) != 1 || !gcp04w9release.IsSecretVersionName(versions[0].Name, version) || versions[0].State != "DESTROYED" {
 		return errors.New("secret version inventory is not the sole exact destroyed run-owned version; refusing delete")
 	}
 	if got.Etag == "" {

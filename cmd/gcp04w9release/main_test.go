@@ -51,12 +51,12 @@ func TestMetadataReaderCollectsCompleteUserAndVersionMetadata(t *testing.T) {
 				if r.URL.Query().Get("pageSize") != "100" {
 					t.Errorf("page size missing")
 				}
-				_, _ = w.Write([]byte(`{"versions":[{"name":"projects/espacigo-testprod/secrets/x/versions/1","state":"ENABLED","createTime":"2026-10-19T00:00:00Z","etag":"etag-1"}],"nextPageToken":"next"}`))
+				_, _ = w.Write([]byte(`{"versions":[{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/1","state":"ENABLED","createTime":"2026-10-19T00:00:00Z","etag":"etag-1"}],"nextPageToken":"next"}`))
 			} else {
 				if r.URL.Query().Get("pageToken") != "next" {
 					t.Errorf("next page token missing")
 				}
-				_, _ = w.Write([]byte(`{"versions":[{"name":"projects/espacigo-testprod/secrets/x/versions/2","state":"DISABLED","destroyTime":"2026-10-19T00:01:00Z"}]}`))
+				_, _ = w.Write([]byte(`{"versions":[{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/2","state":"DISABLED","destroyTime":"2026-10-19T00:01:00Z"}]}`))
 			}
 		default:
 			t.Errorf("unexpected endpoint %s", r.URL.Path)
@@ -81,27 +81,36 @@ func TestMetadataReaderCollectsCompleteUserAndVersionMetadata(t *testing.T) {
 	}
 }
 
-func TestSecretCompensationRetainsDestroyedVersionAndDeletesOnlyExactOwnedShell(t *testing.T) {
-	state := "ENABLED"
+func TestSecretCanonicalNameFullLifecycle(t *testing.T) {
+	state := ""
 	deleted := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("X-Goog-User-Project"); got != gcp04w9release.ProjectID {
 			t.Errorf("quota project header = %q", got)
 		}
 		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/secrets"):
+			_, _ = w.Write([]byte(`{"name":"projects/447373903153/secrets/espacigo-gcp04-w8-catalog-probe-password","etag":"secret-etag","labels":{"release_id":"release-1","purpose":"gcp04-w9-catalog-probe"},"replication":{"userManaged":{"replicas":[{"location":"southamerica-west1"}]}}}`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/secrets/espacigo-gcp04-w8-catalog-probe-password:addVersion"):
+			state = "ENABLED"
+			_, _ = w.Write([]byte(`{"name":"projects/447373903153/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/7","etag":"version-etag"}`))
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/versions/7"):
-			_, _ = w.Write([]byte(`{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/7","state":"ENABLED","etag":"version-etag"}`))
+			_, _ = w.Write([]byte(`{"name":"projects/447373903153/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/7","state":"ENABLED","etag":"version-etag"}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/versions/7:destroy"):
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["etag"] != "version-etag" {
 				t.Errorf("destroy request did not pin version ETag: %#v, %v", body, err)
 			}
 			state = "DESTROYED"
-			_, _ = w.Write([]byte(`{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/7","state":"DESTROYED","etag":"version-etag"}`))
+			_, _ = w.Write([]byte(`{"name":"projects/447373903153/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/7","state":"DESTROYED","etag":"version-etag"}`))
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/secrets/espacigo-gcp04-w8-catalog-probe-password"):
-			_, _ = w.Write([]byte(`{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password","etag":"secret-etag","labels":{"release_id":"release-1","purpose":"gcp04-w9-catalog-probe"}}`))
+			_, _ = w.Write([]byte(`{"name":"projects/447373903153/secrets/espacigo-gcp04-w8-catalog-probe-password","etag":"secret-etag","labels":{"release_id":"release-1","purpose":"gcp04-w9-catalog-probe"},"replication":{"userManaged":{"replicas":[{"location":"southamerica-west1"}]}}}`))
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/versions"):
-			_, _ = w.Write([]byte(`{"versions":[{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/7","state":"` + state + `","etag":"version-etag"}]}`))
+			if state == "" {
+				_, _ = w.Write([]byte(`{"versions":[]}`))
+			} else {
+				_, _ = w.Write([]byte(`{"versions":[{"name":"projects/447373903153/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/7","state":"` + state + `","etag":"version-etag"}]}`))
+			}
 		case r.Method == http.MethodDelete && strings.HasSuffix(r.URL.Path, "/secrets/espacigo-gcp04-w8-catalog-probe-password"):
 			if r.URL.Query().Get("etag") != "secret-etag" {
 				t.Errorf("secret delete did not use current ETag: %q", r.URL.RawQuery)
@@ -116,6 +125,21 @@ func TestSecretCompensationRetainsDestroyedVersionAndDeletesOnlyExactOwnedShell(
 	defer srv.Close()
 	a := testAPI(t, srv)
 	w := writer{a}
+	if err := w.CreateSecret(context.Background(), "release-1"); err != nil {
+		t.Fatal(err)
+	}
+	created, err := a.ReadSecret(context.Background())
+	if err != nil || !gcp04w9release.IsSecretParent(created.Name) || created.Name != gcp04w9release.SecretParentCanonical || created.ETag != "secret-etag" {
+		t.Fatalf("canonical created secret was not accepted: %#v, %v", created, err)
+	}
+	emptyVersions, err := a.ListVersions(context.Background())
+	if err != nil || len(emptyVersions) != 0 {
+		t.Fatalf("new canonical shell was not empty: %#v, %v", emptyVersions, err)
+	}
+	version, err := w.AddVersion(context.Background(), created.Name, []byte("test-only-payload"))
+	if err != nil || version != "7" {
+		t.Fatalf("canonical version create result %q, %v", version, err)
+	}
 	if err := w.DestroyVersion(context.Background(), "7"); err != nil {
 		t.Fatal(err)
 	}
@@ -217,10 +241,62 @@ func TestWriterCreateSecretBuildsOnlyExactRegionalLabeledShell(t *testing.T) {
 		if labels["release_id"] != "shell-1" || labels["purpose"] != "gcp04-w9-catalog-probe" || len(replicas) != 1 || replicas[0].(map[string]any)["location"] != gcp04w9release.Region {
 			t.Errorf("shell request is not exact and regional: %#v", body)
 		}
-		_, _ = w.Write([]byte(`{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password","etag":"shell-etag","labels":{"release_id":"shell-1","purpose":"gcp04-w9-catalog-probe"},"replication":{"userManaged":{"replicas":[{"location":"southamerica-west1"}]}}}`))
+		_, _ = w.Write([]byte(`{"name":"projects/447373903153/secrets/espacigo-gcp04-w8-catalog-probe-password","etag":"shell-etag","labels":{"release_id":"shell-1","purpose":"gcp04-w9-catalog-probe"},"replication":{"userManaged":{"replicas":[{"location":"southamerica-west1"}]}}}`))
 	}))
 	defer srv.Close()
 	if err := (writer{testAPI(t, srv)}).CreateSecret(context.Background(), "shell-1"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMetadataReaderAcceptsOnlyExactProjectNumberAliases(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		resource   string
+		wantSecret bool
+	}{
+		{name: "numeric-project-and-exact-secret", resource: gcp04w9release.SecretParentCanonical, wantSecret: true},
+		{name: "wrong-project", resource: "projects/447373903154/secrets/" + gcp04w9release.SecretID},
+		{name: "wrong-secret", resource: "projects/447373903153/secrets/other"},
+		{name: "version-suffix-is-not-secret", resource: gcp04w9release.SecretParentCanonical + "/versions/1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/versions") {
+					_, _ = w.Write([]byte(`{"versions":[{"name":"` + tc.resource + `/versions/1","state":"ENABLED"}]}`))
+					return
+				}
+				_, _ = w.Write([]byte(`{"name":"` + tc.resource + `","etag":"etag","replication":{"userManaged":{"replicas":[{"location":"southamerica-west1"}]}}}`))
+			}))
+			defer srv.Close()
+			a := testAPI(t, srv)
+			secret, err := a.ReadSecret(context.Background())
+			if tc.wantSecret {
+				if err != nil || secret.Name != gcp04w9release.SecretParentCanonical {
+					t.Fatalf("exact canonical parent rejected: %#v %v", secret, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("unexpected secret alias accepted: %q", secret.Name)
+			}
+		})
+	}
+}
+
+func TestMetadataReaderRejectsVersionsOutsideExactSecretAliases(t *testing.T) {
+	for _, name := range []string{
+		"projects/447373903154/secrets/" + gcp04w9release.SecretID + "/versions/1",
+		gcp04w9release.SecretParentCanonical + "/versions/1/extra",
+		gcp04w9release.SecretParentCanonical + "/versions/latest",
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"versions":[{"name":"` + name + `","state":"ENABLED"}]}`))
+		}))
+		a := testAPI(t, srv)
+		if _, err := a.ListVersions(context.Background()); err == nil {
+			t.Errorf("unexpected version resource accepted: %q", name)
+		}
+		srv.Close()
 	}
 }

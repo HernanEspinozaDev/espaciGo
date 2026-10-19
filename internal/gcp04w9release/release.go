@@ -17,17 +17,18 @@ import (
 )
 
 const (
-	ProjectID    = "espacigo-testprod"
-	Instance     = "espacigo-testprod-pg"
-	Region       = "southamerica-west1"
-	Connection   = "espacigo-testprod:southamerica-west1:espacigo-testprod-pg"
-	PrivateIP    = "10.189.0.3"
-	Database     = "espacigo"
-	Login        = "espacigo_gcp04_w8_catalog_probe"
-	Role         = "pg_read_all_settings"
-	SecretID     = "espacigo-gcp04-w8-catalog-probe-password"
-	SecretParent = "projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password"
-	QuerySHA256  = "3fc825934660bbfc965e8d97b2ef7f4648baf2cded6c8871ae6953bd18c70d16"
+	ProjectID             = "espacigo-testprod"
+	Instance              = "espacigo-testprod-pg"
+	Region                = "southamerica-west1"
+	Connection            = "espacigo-testprod:southamerica-west1:espacigo-testprod-pg"
+	PrivateIP             = "10.189.0.3"
+	Database              = "espacigo"
+	Login                 = "espacigo_gcp04_w8_catalog_probe"
+	Role                  = "pg_read_all_settings"
+	SecretID              = "espacigo-gcp04-w8-catalog-probe-password"
+	SecretParent          = "projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password"
+	SecretParentCanonical = "projects/447373903153/secrets/espacigo-gcp04-w8-catalog-probe-password"
+	QuerySHA256           = "3fc825934660bbfc965e8d97b2ef7f4648baf2cded6c8871ae6953bd18c70d16"
 )
 
 var ErrCollision = errors.New("exact release resource collision; refusing update/reset")
@@ -121,7 +122,9 @@ type Release struct {
 	QuerySHA256        string    `json:"query_sha256"`
 	SecretShellETag    string    `json:"secret_shell_etag,omitempty"`
 }
-type JournalRecord struct{ ReleaseID, Phase, SecretResource, Version, Operation, ETag, UpdatedAt string }
+type JournalRecord struct {
+	ReleaseID, Phase, SecretResource, ObservedSecretName, Version, Operation, ETag, UpdatedAt string
+}
 type Journal interface{ Save(JournalRecord) error }
 type LocalJournal struct{ Dir string }
 
@@ -136,7 +139,7 @@ func (j LocalJournal) Save(r JournalRecord) error {
 		return err
 	}
 	p := filepath.Join(j.Dir, r.ReleaseID+".json")
-	b := []byte(fmt.Sprintf("{\"release_id\":%q,\"phase\":%q,\"secret_resource\":%q,\"version\":%q,\"operation\":%q,\"etag\":%q,\"updated_at\":%q}\n", r.ReleaseID, r.Phase, r.SecretResource, r.Version, r.Operation, r.ETag, r.UpdatedAt))
+	b := []byte(fmt.Sprintf("{\"release_id\":%q,\"phase\":%q,\"secret_resource\":%q,\"observed_secret_name\":%q,\"version\":%q,\"operation\":%q,\"etag\":%q,\"updated_at\":%q}\n", r.ReleaseID, r.Phase, r.SecretResource, r.ObservedSecretName, r.Version, r.Operation, r.ETag, r.UpdatedAt))
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -182,6 +185,39 @@ func Collect(ctx context.Context, r Reader) (Inventory, error) {
 	}
 	return x, nil
 }
+
+// IsSecretParent accepts only the project ID and the independently verified
+// project-number forms of this one exact W9 secret resource.
+func IsSecretParent(name string) bool {
+	return name == SecretParent || name == SecretParentCanonical
+}
+
+// IsSecretVersion accepts only an exact numeric version resource under either
+// verified project-name alias for this exact secret.
+func IsSecretVersion(name string) bool {
+	for _, parent := range []string{SecretParent, SecretParentCanonical} {
+		prefix := parent + "/versions/"
+		if strings.HasPrefix(name, prefix) && numericVersion(strings.TrimPrefix(name, prefix)) {
+			return true
+		}
+	}
+	return false
+}
+
+func IsSecretVersionName(name, version string) bool {
+	if !numericVersion(version) {
+		return false
+	}
+	return name == SecretParent+"/versions/"+version || name == SecretParentCanonical+"/versions/"+version
+}
+
+func SecretVersionResource(version string) (string, bool) {
+	if !numericVersion(version) {
+		return "", false
+	}
+	return SecretParent + "/versions/" + version, true
+}
+
 func BuildPlan(x Inventory) (Plan, error) {
 	want := InstanceMetadata{Project: ProjectID, Name: Instance, Region: Region, Version: "POSTGRES_18", State: "RUNNABLE", Connection: Connection, IP: PrivateIP, Tier: "db-custom-N4-2-4096", DiskType: "HYPERDISK_BALANCED", DiskSizeGB: 20, Availability: "ZONAL", PrivateNetwork: "projects/espacigo-testprod/global/networks/espacigo-testprod", IPv4Enabled: false}
 	if x.Instance.Project != want.Project || x.Instance.Name != want.Name || x.Instance.Region != want.Region || x.Instance.Version != want.Version || x.Instance.State != want.State || x.Instance.Connection != want.Connection || x.Instance.IP != want.IP || x.Instance.Tier != want.Tier || x.Instance.DiskType != want.DiskType || x.Instance.DiskSizeGB != want.DiskSizeGB || x.Instance.PrivateNetwork != want.PrivateNetwork || x.Instance.IPv4Enabled != want.IPv4Enabled {
@@ -193,7 +229,7 @@ func BuildPlan(x Inventory) (Plan, error) {
 		}
 	}
 	secretMissing := x.Secret.Name == "" && x.Secret.Replication == "" && len(x.Secret.Replicas) == 0
-	secretExact := x.Secret.Name == SecretParent && x.Secret.Replication == "USER_MANAGED" && len(x.Secret.Replicas) == 1 && x.Secret.Replicas[0] == Region
+	secretExact := IsSecretParent(x.Secret.Name) && x.Secret.Replication == "USER_MANAGED" && len(x.Secret.Replicas) == 1 && x.Secret.Replicas[0] == Region
 	if !secretMissing && !secretExact {
 		return Plan{}, errors.New("global secret metadata or replica policy mismatch")
 	}
@@ -232,6 +268,24 @@ func PrepareSecretShell(ctx context.Context, inv Inventory, release Release, m M
 		return errors.New("secret shell created; journal confirmation uncertain")
 	}
 	return nil
+}
+
+// ReconcileSecretShell records a read-only confirmation of an already-created
+// empty shell. It never invokes a mutator and requires the observed ETag.
+func ReconcileSecretShell(inv Inventory, release Release, j Journal, now time.Time) error {
+	if !validRelease(release, "secret_shell", now) || release.SecretShellETag == "" {
+		return errors.New("release document is not an active exact shell-reconciliation approval")
+	}
+	if j == nil {
+		return errors.New("private journal required")
+	}
+	if _, err := BuildPlan(inv); err != nil {
+		return err
+	}
+	if !IsSecretParent(inv.Secret.Name) || inv.Secret.ETag != release.SecretShellETag || inv.Secret.Labels["release_id"] != release.ReleaseID || inv.Secret.Labels["purpose"] != "gcp04-w9-catalog-probe" || inv.Secret.Replication != "USER_MANAGED" || len(inv.Secret.Replicas) != 1 || inv.Secret.Replicas[0] != Region || len(inv.Versions) != 0 {
+		return ErrCollision
+	}
+	return j.Save(JournalRecord{ReleaseID: release.ReleaseID, Phase: "secret_shell_reconciled_readonly", SecretResource: SecretParent, ObservedSecretName: inv.Secret.Name, ETag: inv.Secret.ETag, UpdatedAt: now.UTC().Format(time.RFC3339)})
 }
 
 func Execute(ctx context.Context, inv Inventory, release Release, m Mutator, j Journal, now time.Time, random io.Reader) (string, error) {
@@ -361,10 +415,10 @@ func safeID(s string) bool {
 	return true
 }
 func numericVersion(v string) bool {
-	if v == "" {
+	if v == "" || v[0] < '1' || v[0] > '9' {
 		return false
 	}
-	for _, c := range v {
+	for _, c := range v[1:] {
 		if c < '0' || c > '9' {
 			return false
 		}
