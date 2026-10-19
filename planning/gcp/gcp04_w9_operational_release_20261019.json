@@ -20,11 +20,15 @@
     "database_roles": [
       "pg_read_all_settings"
     ],
-    "decision": "not_approved_role_breadth_and_users.insert_acceptance_pending",
+    "decision": "role_preparation_accepted_users.insert_mutation_authorization_pending",
     "fallback": "forbidden"
   },
   "secret": {
     "api_resource": "projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password",
+    "accepted_api_resource_aliases": [
+      "projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password",
+      "projects/447373903153/secrets/espacigo-gcp04-w8-catalog-probe-password"
+    ],
     "replication": {
       "policy": "USER_MANAGED",
       "locations": [

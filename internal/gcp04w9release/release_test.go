@@ -87,6 +87,80 @@ func TestBuildPlanOnlyMetadataNoPayload(t *testing.T) {
 	if strings.Contains(p.PayloadPolicy, "password=") {
 		t.Fatal("payload value leaked")
 	}
+	x.Secret.Name = SecretParentCanonical
+	if _, err := BuildPlan(x); err != nil {
+		t.Fatalf("verified project-number alias rejected: %v", err)
+	}
+}
+
+func TestExactSecretProjectAliasesAndVersions(t *testing.T) {
+	for _, name := range []string{SecretParent, SecretParentCanonical} {
+		if !IsSecretParent(name) {
+			t.Errorf("exact secret parent rejected: %q", name)
+		}
+		if !IsSecretVersionName(name+"/versions/17", "17") || !IsSecretVersion(name+"/versions/17") {
+			t.Errorf("exact numeric version rejected: %q", name)
+		}
+	}
+	for _, name := range []string{
+		"projects/447373903154/secrets/" + SecretID,
+		"projects/espacigo-testprod/secrets/another-secret",
+		SecretParentCanonical + "/versions/1",
+	} {
+		if IsSecretParent(name) {
+			t.Errorf("unapproved parent alias accepted: %q", name)
+		}
+	}
+	for _, name := range []string{
+		"projects/447373903154/secrets/" + SecretID + "/versions/1",
+		SecretParentCanonical + "/versions/17/extra",
+		SecretParentCanonical + "/versions/latest",
+		SecretParentCanonical + "/versions/0",
+		SecretParentCanonical + "/versions/017",
+	} {
+		if IsSecretVersion(name) {
+			t.Errorf("unapproved version resource accepted: %q", name)
+		}
+	}
+	if IsSecretVersionName(SecretParentCanonical+"/versions/18", "17") || IsSecretVersionName(SecretParentCanonical+"/versions/latest", "latest") {
+		t.Fatal("mismatched or nonnumeric version identity accepted")
+	}
+}
+
+func TestReconcileCanonicalShellMetadataOnlyAppendsEvidence(t *testing.T) {
+	inv := fixture()
+	inv.Secret = SecretMetadata{Name: SecretParentCanonical, Replication: "USER_MANAGED", Replicas: []string{Region}, Labels: map[string]string{"release_id": "shell-1", "purpose": "gcp04-w9-catalog-probe"}, ETag: "observed-etag"}
+	j := &journal{}
+	r := approvedShellRelease("shell-1")
+	r.SecretShellETag = "observed-etag"
+	if err := ReconcileSecretShell(inv, r, j, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if len(j.records) != 1 || j.records[0].Phase != "secret_shell_reconciled_readonly" || j.records[0].SecretResource != SecretParent || j.records[0].ObservedSecretName != SecretParentCanonical || j.records[0].ETag != "observed-etag" {
+		t.Fatalf("reconciliation evidence did not retain canonical name and ETag: %#v", j.records)
+	}
+	for _, tc := range []struct {
+		name   string
+		change func(*Inventory, *Release)
+	}{
+		{name: "wrong-etag", change: func(_ *Inventory, r *Release) { r.SecretShellETag = "stale" }},
+		{name: "wrong-project", change: func(i *Inventory, _ *Release) { i.Secret.Name = "projects/447373903154/secrets/" + SecretID }},
+		{name: "wrong-secret", change: func(i *Inventory, _ *Release) { i.Secret.Name = "projects/447373903153/secrets/other" }},
+		{name: "version-exists", change: func(i *Inventory, _ *Release) {
+			i.Versions = []VersionMetadata{{Name: SecretParentCanonical + "/versions/1", State: "ENABLED"}}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			candidate := inv
+			candidate.Secret.Labels = map[string]string{"release_id": "shell-1", "purpose": "gcp04-w9-catalog-probe"}
+			approval := r
+			tc.change(&candidate, &approval)
+			log := &journal{}
+			if err := ReconcileSecretShell(candidate, approval, log, time.Now()); err == nil || len(log.records) != 0 {
+				t.Fatalf("invalid reconciliation accepted: err=%v journal=%#v", err, log.records)
+			}
+		})
+	}
 }
 func TestBuildPlanFailsClosedOnCollisionOrDrift(t *testing.T) {
 	x := fixture()
@@ -162,7 +236,7 @@ func TestReleaseStagesCannotAuthorizeEachOther(t *testing.T) {
 
 func TestExecuteUsesOnlyReviewerPinnedStagedShell(t *testing.T) {
 	inv := fixture()
-	inv.Secret = SecretMetadata{Name: SecretParent, ETag: "etag-shell", Replication: "USER_MANAGED", Replicas: []string{Region}, Labels: map[string]string{"release_id": "staged-1", "purpose": "gcp04-w9-catalog-probe"}}
+	inv.Secret = SecretMetadata{Name: SecretParentCanonical, ETag: "etag-shell", Replication: "USER_MANAGED", Replicas: []string{Region}, Labels: map[string]string{"release_id": "staged-1", "purpose": "gcp04-w9-catalog-probe"}}
 	f := &fake{inv: inv}
 	r := approvedRelease("staged-1")
 	r.SecretShellETag = "etag-shell"

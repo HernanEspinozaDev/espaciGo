@@ -16,7 +16,7 @@ mock_provider "google" {
   }
   mock_data "google_secret_manager_secret" {
     defaults = {
-      name      = "projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password"
+      name      = "projects/447373903153/secrets/espacigo-gcp04-w8-catalog-probe-password"
       secret_id = "espacigo-gcp04-w8-catalog-probe-password"
       replication = [{
         user_managed = [{ replicas = [{ location = "southamerica-west1" }] }]
@@ -27,7 +27,7 @@ mock_provider "google" {
     defaults = { location = "southamerica-west1",
     name = "projects/espacigo-testprod/locations/southamerica-west1/repositories/espacigo-testprod" }
   }
-  mock_data "google_project" { defaults = { number = "123456789012" } }
+  mock_data "google_project" { defaults = { number = "447373903153" } }
 }
 
 run "exact_mock_release_plan" {
@@ -80,6 +80,30 @@ run "rejects_wrong_candidate_ip" {
       region           = "southamerica-west1",
       database_version = "POSTGRES_18",
     private_ip_address = "10.189.0.4" }
+  }
+  expect_failures = [google_cloud_run_v2_job.probe]
+}
+
+run "rejects_wrong_secret_project_number" {
+  command = plan
+  variables {
+    enable_w9_release  = true
+    confirm_w9_release = true
+    reviewer           = "HernanEspinozaDev"
+    release_id         = "w9-review-fixture"
+    release_sha256     = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    secret_version     = "7"
+    image_digest       = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/gcp04-w8-catalog-probe@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+  override_data {
+    target = data.google_secret_manager_secret.target[0]
+    values = {
+      name      = "projects/447373903154/secrets/espacigo-gcp04-w8-catalog-probe-password"
+      secret_id = "espacigo-gcp04-w8-catalog-probe-password"
+      replication = [{
+        user_managed = [{ replicas = [{ location = "southamerica-west1" }] }]
+      }]
+    }
   }
   expect_failures = [google_cloud_run_v2_job.probe]
 }
