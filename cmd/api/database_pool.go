@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -15,6 +16,16 @@ func newDatabasePool(ctx context.Context, cfg config) (*pgxpool.Pool, func(), er
 	}
 	poolConfig.MaxConns = cfg.dbPoolMaxConns
 	poolConfig.MinConns = cfg.dbPoolMinConns
+	if cfg.dbSetRole != "" {
+		role := pgx.Identifier{cfg.dbSetRole}.Sanitize()
+		poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			_, err := conn.Exec(ctx, "SET ROLE "+role)
+			if err != nil {
+				return errors.New("could not assume configured database role")
+			}
+			return nil
+		}
+	}
 	closeConnector := func() {}
 	if cfg.dbConnectionMode == "cloudsql" {
 		var connectorErr error

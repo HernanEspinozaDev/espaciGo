@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
+	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -15,16 +16,34 @@ const (
 	advisoryLockObject int32 = 0x4d494752 // "MIGR"
 )
 
+func validDatabaseRoleName(value string) bool {
+	if len(value) == 0 || len(value) > 63 {
+		return false
+	}
+	for i, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' ||
+			(i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 type Result struct {
 	Applied []int64
 }
 
 func Run(ctx context.Context, databaseURL, migrationDir string) (Result, error) {
+	return RunWithRole(ctx, databaseURL, migrationDir, "")
+}
+
+func RunWithRole(ctx context.Context, databaseURL, migrationDir, setRole string) (Result, error) {
 	config, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
 		return Result{}, errors.New("invalid database connection configuration")
 	}
-	return runWithConfig(ctx, config, migrationDir)
+	return runWithConfig(ctx, config, migrationDir, setRole)
 }
 
 // RunCloudSQL runs the existing migration sequence through Cloud SQL Go
@@ -32,6 +51,10 @@ func Run(ctx context.Context, databaseURL, migrationDir string) (Result, error) 
 // supplied separately from the secret file, and the URL network host is a
 // validated localhost placeholder ignored by the connector.
 func RunCloudSQL(ctx context.Context, databaseURL, password, migrationDir, instance string, privateIP bool) (Result, error) {
+	return RunCloudSQLWithRole(ctx, databaseURL, password, migrationDir, instance, privateIP, "")
+}
+
+func RunCloudSQLWithRole(ctx context.Context, databaseURL, password, migrationDir, instance string, privateIP bool, setRole string) (Result, error) {
 	config, err := cloudsql.NewPGXConfig(databaseURL, password)
 	if err != nil {
 		return Result{}, err
@@ -40,21 +63,38 @@ func RunCloudSQL(ctx context.Context, databaseURL, password, migrationDir, insta
 	if err != nil {
 		return Result{}, err
 	}
-	return runWithConnector(ctx, config, migrationDir, closeConnector)
+	return runWithConnector(ctx, config, migrationDir, setRole, closeConnector)
 }
 
-func runWithConnector(ctx context.Context, config *pgx.ConnConfig, migrationDir string, closeConnector func()) (Result, error) {
+func runWithConnector(ctx context.Context, config *pgx.ConnConfig, migrationDir, setRole string, closeConnector func()) (Result, error) {
 	defer closeConnector()
-	return runWithConfig(ctx, config, migrationDir)
+	return runWithConfig(ctx, config, migrationDir, setRole)
 }
 
-func runWithConfig(ctx context.Context, config *pgx.ConnConfig, migrationDir string) (Result, error) {
+func runWithConfig(ctx context.Context, config *pgx.ConnConfig, migrationDir, setRole string) (Result, error) {
 	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
 		return Result{}, errors.New("connect to migration database")
 	}
 	defer conn.Close(context.Background())
-	return runWithConn(ctx, conn, migrationDir)
+	if setRole != "" {
+		if !validDatabaseRoleName(setRole) {
+			return Result{}, errors.New("configured database role name is invalid")
+		}
+		if _, err := conn.Exec(ctx, "SET ROLE "+pgx.Identifier{setRole}.Sanitize()); err != nil {
+			return Result{}, errors.New("could not assume configured database role")
+		}
+	}
+	result, err := runWithConn(ctx, conn, migrationDir)
+	if err != nil {
+		return result, err
+	}
+	if setRole == "espacigo_schema_owner" {
+		if err := dbbootstrap.GrantRuntimePermissions(ctx, conn); err != nil {
+			return result, fmt.Errorf("apply restricted runtime grants: %w", err)
+		}
+	}
+	return result, nil
 }
 
 func runWithConn(ctx context.Context, conn *pgx.Conn, migrationDir string) (Result, error) {

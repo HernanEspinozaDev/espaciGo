@@ -65,6 +65,28 @@ func TestLoadConfigReadsLocalPasswordFileAndParsesOrigins(t *testing.T) {
 	}
 }
 
+func TestLoadConfigValidatesDatabaseSetRole(t *testing.T) {
+	passwordFile := filepath.Join(t.TempDir(), "runtime-password")
+	if err := os.WriteFile(passwordFile, []byte("synthetic-test-value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{
+		"HTTP_ADDR": ":8080", "DATABASE_HOST": "database", "DATABASE_NAME": "espacigo_test",
+		"DATABASE_USER": "api_login", "DATABASE_PASSWORD_FILE": passwordFile,
+		"DATABASE_SET_ROLE": "espacigo_runtime",
+	}
+	cfg, err := loadConfig(func(key string) string { return values[key] })
+	if err != nil || cfg.dbSetRole != "espacigo_runtime" {
+		t.Fatalf("set role = %q, err=%v", cfg.dbSetRole, err)
+	}
+	for _, role := range []string{"bad role", `x; RESET ROLE`, strings.Repeat("a", 64), "9starts_with_digit"} {
+		values["DATABASE_SET_ROLE"] = role
+		if _, err := loadConfig(func(key string) string { return values[key] }); err == nil {
+			t.Fatalf("accepted invalid set role %q", role)
+		}
+	}
+}
+
 func TestLoadConfigUsesCloudRunPortWhenHTTPAddrIsUnset(t *testing.T) {
 	passwordFile := filepath.Join(t.TempDir(), "runtime-password")
 	if err := os.WriteFile(passwordFile, []byte("synthetic-test-value\n"), 0o600); err != nil {

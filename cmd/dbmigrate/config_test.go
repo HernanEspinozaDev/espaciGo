@@ -29,6 +29,7 @@ func TestLoadConnectionSettingsCloudSQLPrivateMode(t *testing.T) {
 		"CLOUD_SQL_INSTANCE_CONNECTION_NAME": "project-one:southamerica-west1:db-one",
 		"CLOUD_SQL_PRIVATE_IP":               "true",
 		"DATABASE_PASSWORD_FILE":             "/run/secrets/database-migrator-password/password",
+		"DATABASE_SET_ROLE":                  "espacigo_schema_owner",
 		"DBMIGRATE_TIMEOUT":                  "4h",
 	}
 	settings, err := loadConnectionSettings(func(key string) string { return values[key] })
@@ -43,6 +44,20 @@ func TestLoadConnectionSettingsCloudSQLPrivateMode(t *testing.T) {
 	}
 	if settings.passwordFile != values["DATABASE_PASSWORD_FILE"] {
 		t.Fatal("password file path not preserved")
+	}
+	if settings.setRole != "espacigo_schema_owner" {
+		t.Fatalf("set role = %q", settings.setRole)
+	}
+}
+
+func TestLoadConnectionSettingsRejectsUnsafeSetRole(t *testing.T) {
+	for _, value := range []string{"role name", `x; RESET ROLE`, "9bad", strings.Repeat("a", 64)} {
+		values := map[string]string{
+			"DATABASE_URL": "postgres://migrator@localhost/app", "DATABASE_SET_ROLE": value,
+		}
+		if _, err := loadConnectionSettings(func(key string) string { return values[key] }); err == nil {
+			t.Fatalf("accepted unsafe DATABASE_SET_ROLE %q", value)
+		}
 	}
 }
 
