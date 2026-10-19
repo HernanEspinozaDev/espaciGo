@@ -7,6 +7,12 @@ mock_provider "google" {
     }
   }
 
+  mock_data "google_compute_image" {
+    defaults = {
+      self_link = "projects/cos-cloud/global/images/cos-stable-test"
+    }
+  }
+
   mock_resource "google_compute_security_policy" {
     defaults = {
       id = "projects/offline-test-project/global/securityPolicies/public"
@@ -106,7 +112,6 @@ run "services_and_edge_preserve_runtime_contracts" {
     api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     mailpit_private_address            = "10.80.0.10:1025"
-    confirm_pga_iap_key_preflight      = true
     confirm_runtime_secret_versions    = true
     confirm_runtime_database_bootstrap = true
   }
@@ -116,8 +121,28 @@ run "services_and_edge_preserve_runtime_contracts" {
     error_message = "API workers need explicitly allocated CPU while their instance is running."
   }
   assert {
+    condition     = google_cloud_run_v2_service.api[0].ingress == "INGRESS_TRAFFIC_ALL"
+    error_message = "The API run.app URL must be network-reachable for authenticated SSR service-to-service calls; IAM still limits callers."
+  }
+  assert {
+    condition     = alltrue([for service in values(google_cloud_run_v2_service.web) : service.ingress == (var.enable_edge ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL")])
+    error_message = "Web ingress must match the selected run.app or load-balancer stage."
+  }
+  assert {
+    condition     = alltrue([for binding in values(google_cloud_run_v2_service_iam_member.api_invoker) : binding.member != "allUsers" && binding.member != "allAuthenticatedUsers"])
+    error_message = "The API must not grant public invocation; only SSR service identities are allowed."
+  }
+  assert {
+    condition     = google_cloud_run_v2_service_iam_member.public_web_invoker[0].member == "allUsers" && google_cloud_run_v2_service.web["public"].iap_enabled == false
+    error_message = "The public test entry must be publicly reachable and must not require IAP."
+  }
+  assert {
+    condition     = google_cloud_run_v2_service.web["private"].iap_enabled == true && google_cloud_run_v2_service_iam_member.private_iap_invoker[0].member == google_project_service_identity.iap[0].member
+    error_message = "The private run.app entry must retain native Cloud Run IAP and grant run.invoker only to the IAP service agent."
+  }
+  assert {
     condition     = alltrue([for service in values(google_cloud_run_v2_service.web) : service.template[0].vpc_access[0].egress == "ALL_TRAFFIC"])
-    error_message = "SSR-to-API requests must traverse Direct VPC egress for internal ingress recognition."
+    error_message = "SSR must retain Direct VPC egress for private service dependencies and IAP key retrieval."
   }
   assert {
     condition     = output.api_internal_base_url == "https://espacigo-test.run.app/api/v1"
@@ -136,8 +161,8 @@ run "services_and_edge_preserve_runtime_contracts" {
     error_message = "The deployed SSR audience and exported API audience must match."
   }
   assert {
-    condition     = google_cloud_run_v2_service.web["private"].iap_enabled == true && google_cloud_run_v2_service.web["private"].ingress == "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
-    error_message = "The private entry must retain native Cloud Run IAP and load-balancer-only ingress."
+    condition     = google_cloud_run_v2_service.web["private"].iap_enabled == true && google_cloud_run_v2_service.web["private"].ingress == (var.enable_edge ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL")
+    error_message = "The private entry must retain native Cloud Run IAP and use the selected ingress stage."
   }
   assert {
     condition     = google_cloud_run_v2_service_iam_member.private_iap_invoker[0].member == google_project_service_identity.iap[0].member
@@ -169,6 +194,50 @@ run "services_and_edge_preserve_runtime_contracts" {
   }
 }
 
+run "services_without_edge_expose_runapp_with_private_gates" {
+  command = plan
+
+  variables {
+    project_id                         = "offline-test-project"
+    project_number                     = "123456789012"
+    enable_foundation                  = true
+    enable_database                    = true
+    enable_services                    = true
+    enable_edge                        = false
+    confirm_project_inventory          = true
+    confirm_cost_policy_review         = true
+    bucket_suffix                      = "offline-test"
+    api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address            = "10.80.0.10:1025"
+    confirm_pga_iap_key_preflight      = true
+    confirm_runtime_secret_versions    = true
+    confirm_runtime_database_bootstrap = true
+    private_demo_origin_override       = "https://private-123.run.app"
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_service.api[0].ingress == "INGRESS_TRAFFIC_ALL" && alltrue([for service in values(google_cloud_run_v2_service.web) : service.ingress == "INGRESS_TRAFFIC_ALL"])
+    error_message = "The first demo endpoints must be network-reachable by run.app."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_service_iam_member.api_invoker) == 2 && alltrue([for binding in values(google_cloud_run_v2_service_iam_member.api_invoker) : startswith(binding.member, "serviceAccount:") && binding.member != "allUsers" && binding.member != "allAuthenticatedUsers"])
+    error_message = "Only the two SSR runtime service accounts may invoke the API."
+  }
+  assert {
+    condition     = google_cloud_run_v2_service_iam_member.public_web_invoker[0].member == "allUsers" && google_cloud_run_v2_service.web["private"].iap_enabled == true && google_cloud_run_v2_service_iam_member.private_iap_invoker[0].member == google_project_service_identity.iap[0].member
+    error_message = "Public web stays public while private web requires native IAP and its IAP service agent."
+  }
+  assert {
+    condition     = alltrue([for service in values(google_cloud_run_v2_service.web) : service.template[0].vpc_access[0].egress == "PRIVATE_RANGES_ONLY"])
+    error_message = "The run.app-only stage must not claim the edge egress preflight."
+  }
+  assert {
+    condition     = one([for env in google_cloud_run_v2_service.web["public"].template[0].containers[0].env : env.value if env.name == "PRIVATE_DEMO_ORIGIN"]) == var.private_demo_origin_override
+    error_message = "The second no-DNS rollout step must route private links to the private IAP-protected run.app origin."
+  }
+}
+
 run "services_reject_unverified_iap_key_egress" {
   command = plan
 
@@ -178,6 +247,7 @@ run "services_reject_unverified_iap_key_egress" {
     enable_foundation                  = true
     enable_database                    = true
     enable_services                    = true
+    enable_edge                        = true
     confirm_project_inventory          = true
     confirm_cost_policy_review         = true
     acknowledge_gcp04_runtime_gates    = true
@@ -190,6 +260,46 @@ run "services_reject_unverified_iap_key_egress" {
   }
 
   expect_failures = [var.enable_services]
+}
+
+run "mailpit_vm_is_private_and_scoped" {
+  command = plan
+
+  variables {
+    project_id                 = "offline-test-project"
+    project_number             = "123456789012"
+    enable_foundation          = true
+    enable_mailpit             = true
+    confirm_project_inventory  = true
+    confirm_cost_policy_review = true
+    bucket_suffix              = "offline-test"
+    iap_evaluator_members      = ["user:tester@example.test"]
+  }
+
+  assert {
+    condition     = google_compute_instance.mailpit[0].network_interface[0].access_config == []
+    error_message = "The Mailpit VM must not have a public IP address."
+  }
+  assert {
+    condition     = google_compute_firewall.mailpit_smtp[0].source_ranges == [var.api_serverless_subnet_cidr] && google_compute_firewall.mailpit_smtp[0].allow[0].ports == ["1025"]
+    error_message = "SMTP must be limited to the dedicated API subnet on port 1025."
+  }
+  assert {
+    condition     = google_compute_firewall.mailpit_ui_iap[0].source_ranges == ["35.235.240.0/20"] && google_compute_firewall.mailpit_ui_iap[0].allow[0].ports == ["8025"]
+    error_message = "The Mailpit UI must be reachable only through the IAP TCP forwarding source range on port 8025."
+  }
+  assert {
+    condition     = google_iap_tunnel_instance_iam_member.mailpit_ui["user:tester@example.test"].condition[0].expression == "destination.port == 8025"
+    error_message = "The explicit evaluator's IAP tunnel grant must be restricted to the Mailpit UI port."
+  }
+  assert {
+    condition     = google_artifact_registry_repository.mailpit_dockerhub[0].mode == "REMOTE_REPOSITORY" && google_artifact_registry_repository_iam_member.mailpit_reader[0].role == "roles/artifactregistry.reader"
+    error_message = "The VM must pull the pinned upstream image through a read-only Artifact Registry proxy."
+  }
+  assert {
+    condition     = strcontains(google_compute_instance.mailpit[0].metadata_startup_script, "b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48")
+    error_message = "The private VM must use the same digest-pinned Mailpit image as Compose."
+  }
 }
 
 run "services_reject_missing_runtime_secret_versions" {

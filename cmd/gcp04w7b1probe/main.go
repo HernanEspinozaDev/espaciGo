@@ -133,8 +133,17 @@ func runWith(cfg runtimeConfig, claim claimFunc, connect connectFunc) int {
 }
 
 func connectCloudSQL(ctx context.Context, password string) (*pgx.Conn, func(), error) {
-	dsn := (&url.URL{Scheme: "postgres", User: url.User(gcp04w7b1.Bootstrap), Host: gcp04w7b1.PrivateIP + ":5432", Path: "/" + gcp04w7b1.Database, RawQuery: "sslmode=disable"}).String()
-	return cloudsql.Connect(ctx, dsn, password, gcp04w7b1.Connection, true)
+	return cloudsql.Connect(ctx, runtimeDatabaseURL(), password, gcp04w7b1.Connection, true)
+}
+
+func runtimeDatabaseURL() string {
+	return (&url.URL{
+		Scheme:   "postgres",
+		User:     url.User(gcp04w7b1.Bootstrap),
+		Host:     "localhost:5432",
+		Path:     "/" + gcp04w7b1.Database,
+		RawQuery: "sslmode=disable",
+	}).String()
 }
 
 func releaseContext(release gcp04w7b1.Release, now time.Time) (context.Context, context.CancelFunc) {

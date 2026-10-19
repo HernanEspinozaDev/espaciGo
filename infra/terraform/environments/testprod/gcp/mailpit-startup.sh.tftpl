@@ -1,0 +1,30 @@
+#!/bin/bash
+set -euo pipefail
+set +x
+
+DEVICE="/dev/disk/by-id/google-mailpit-data"
+DATA_DIR="/mnt/disks/mailpit"
+IMAGE="${image}"
+REGISTRY="${registry}"
+
+udevadm settle
+mkdir -p "$DATA_DIR"
+if ! blkid "$DEVICE" >/dev/null 2>&1; then
+  mkfs.ext4 -F "$DEVICE"
+fi
+mountpoint -q "$DATA_DIR" || mount -o discard,defaults "$DEVICE" "$DATA_DIR"
+chmod 0770 "$DATA_DIR"
+
+export HOME="/home/cloudservice"
+mkdir -p "$HOME"
+/usr/bin/docker-credential-gcr configure-docker --registries="$REGISTRY"
+/usr/bin/docker pull "$IMAGE"
+/usr/bin/docker rm -f mailpit >/dev/null 2>&1 || true
+/usr/bin/docker run -d \
+  --name=mailpit \
+  --restart=always \
+  --network=host \
+  --env=MP_MAX_MESSAGES=100 \
+  --env=MP_DATABASE=/data/mailpit.db \
+  --volume="$DATA_DIR:/data" \
+  "$IMAGE"

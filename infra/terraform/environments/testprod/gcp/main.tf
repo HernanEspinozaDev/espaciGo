@@ -62,6 +62,8 @@ locals {
       iap_enabled  = true
     }
   } : {}
+  mailpit_image           = "${var.region}-docker.pkg.dev/${var.project_id}/espacigo-testprod-dockerhub/axllent/mailpit@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48"
+  runtime_mailpit_address = var.enable_mailpit ? "${google_compute_address.mailpit[0].address}:1025" : var.mailpit_private_address
 }
 
 resource "google_project_service" "required" {
@@ -102,6 +104,26 @@ resource "google_compute_subnetwork" "serverless" {
   purpose                  = "PRIVATE"
 }
 
+resource "google_compute_subnetwork" "api_serverless" {
+  count                    = var.enable_foundation && var.enable_mailpit ? 1 : 0
+  name                     = "espacigo-testprod-api-serverless"
+  region                   = var.region
+  network                  = google_compute_network.testprod[0].name
+  ip_cidr_range            = var.api_serverless_subnet_cidr
+  private_ip_google_access = true
+  purpose                  = "PRIVATE"
+}
+
+resource "google_compute_subnetwork" "mailpit" {
+  count                    = var.enable_foundation && var.enable_mailpit ? 1 : 0
+  name                     = "espacigo-testprod-mailpit"
+  region                   = var.region
+  network                  = google_compute_network.testprod[0].name
+  ip_cidr_range            = var.mailpit_subnet_cidr
+  private_ip_google_access = true
+  purpose                  = "PRIVATE"
+}
+
 resource "google_compute_global_address" "private_services" {
   count         = var.enable_database ? 1 : 0
   name          = "espacigo-testprod-private-services"
@@ -125,6 +147,16 @@ resource "google_service_account" "runtime" {
   for_each     = var.enable_foundation ? toset(["api", "public-web", "private-web", "migrator", "deployer"]) : toset([])
   account_id   = "espacigo-test-${each.key}"
   display_name = "EspaciGo testprod ${each.key} runtime"
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_service_account" "mailpit" {
+  count        = var.enable_mailpit ? 1 : 0
+  project      = var.project_id
+  account_id   = "espacigo-test-mailpit"
+  display_name = "EspaciGo private Mailpit test sink"
+  description  = "Read-only pull identity for the pinned Mailpit image; no SQL, application secrets, or relay permissions."
 
   depends_on = [google_project_service.required]
 }
@@ -184,6 +216,172 @@ resource "google_artifact_registry_repository" "containers" {
   mode          = "STANDARD_REPOSITORY"
 
   depends_on = [google_project_service.required]
+}
+
+resource "google_artifact_registry_repository" "mailpit_dockerhub" {
+  count         = var.enable_mailpit ? 1 : 0
+  location      = var.region
+  repository_id = "espacigo-testprod-dockerhub"
+  description   = "Read-through cache for the exact public Mailpit image digest used by Compose."
+  format        = "DOCKER"
+  mode          = "REMOTE_REPOSITORY"
+
+  remote_repository_config {
+    description = "Public Docker Hub images used by the private test sink."
+    docker_repository {
+      public_repository = "DOCKER_HUB"
+    }
+  }
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_artifact_registry_repository_iam_member" "mailpit_reader" {
+  count      = var.enable_mailpit ? 1 : 0
+  location   = google_artifact_registry_repository.mailpit_dockerhub[0].location
+  repository = google_artifact_registry_repository.mailpit_dockerhub[0].name
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${google_service_account.mailpit[0].email}"
+}
+
+data "google_compute_image" "mailpit_cos" {
+  count   = var.enable_mailpit ? 1 : 0
+  project = "cos-cloud"
+  family  = "cos-stable"
+}
+
+resource "google_compute_address" "mailpit" {
+  count        = var.enable_mailpit ? 1 : 0
+  project      = var.project_id
+  name         = "espacigo-testprod-mailpit"
+  region       = var.region
+  address_type = "INTERNAL"
+  subnetwork   = google_compute_subnetwork.mailpit[0].id
+}
+
+resource "google_compute_disk" "mailpit_data" {
+  count   = var.enable_mailpit ? 1 : 0
+  project = var.project_id
+  name    = "espacigo-testprod-mailpit-data"
+  type    = "pd-balanced"
+  size    = 10
+  zone    = var.mailpit_zone
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "google_compute_firewall" "mailpit_smtp" {
+  count       = var.enable_mailpit ? 1 : 0
+  project     = var.project_id
+  name        = "espacigo-testprod-mailpit-smtp"
+  network     = google_compute_network.testprod[0].name
+  description = "Only the dedicated API Direct VPC subnet may submit test mail to Mailpit."
+  direction   = "INGRESS"
+  priority    = 1000
+
+  source_ranges = [var.api_serverless_subnet_cidr]
+  target_tags   = ["espacigo-mailpit"]
+
+  allow {
+    protocol = "tcp"
+    ports    = ["1025"]
+  }
+}
+
+resource "google_compute_firewall" "mailpit_ui_iap" {
+  count       = var.enable_mailpit ? 1 : 0
+  project     = var.project_id
+  name        = "espacigo-testprod-mailpit-iap-ui"
+  network     = google_compute_network.testprod[0].name
+  description = "IAP TCP forwarding only to the private Mailpit UI port."
+  direction   = "INGRESS"
+  priority    = 1000
+
+  source_ranges = ["35.235.240.0/20"]
+  target_tags   = ["espacigo-mailpit"]
+
+  allow {
+    protocol = "tcp"
+    ports    = ["8025"]
+  }
+}
+
+resource "google_compute_instance" "mailpit" {
+  count                     = var.enable_mailpit ? 1 : 0
+  project                   = var.project_id
+  name                      = "espacigo-testprod-mailpit"
+  zone                      = var.mailpit_zone
+  machine_type              = "e2-micro"
+  allow_stopping_for_update = true
+  tags                      = ["espacigo-mailpit"]
+  metadata = {
+    enable-oslogin         = "TRUE"
+    block-project-ssh-keys = "TRUE"
+  }
+
+  boot_disk {
+    auto_delete = true
+    initialize_params {
+      image = data.google_compute_image.mailpit_cos[0].self_link
+      size  = 20
+      type  = "pd-balanced"
+    }
+  }
+
+  attached_disk {
+    source      = google_compute_disk.mailpit_data[0].id
+    device_name = "mailpit-data"
+    mode        = "READ_WRITE"
+  }
+
+  network_interface {
+    network    = google_compute_network.testprod[0].self_link
+    subnetwork = google_compute_subnetwork.mailpit[0].self_link
+    network_ip = google_compute_address.mailpit[0].address
+  }
+
+  service_account {
+    email  = google_service_account.mailpit[0].email
+    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+  }
+
+  metadata_startup_script = templatefile("${path.module}/mailpit-startup.sh.tftpl", {
+    image    = local.mailpit_image
+    registry = "${var.region}-docker.pkg.dev"
+  })
+
+  depends_on = [
+    google_artifact_registry_repository_iam_member.mailpit_reader,
+    google_compute_firewall.mailpit_smtp,
+    google_compute_firewall.mailpit_ui_iap,
+    google_project_service.required,
+  ]
+}
+
+resource "google_compute_instance_iam_member" "mailpit_ui_viewer" {
+  for_each      = var.enable_mailpit ? toset(var.iap_evaluator_members) : toset([])
+  project       = var.project_id
+  zone          = google_compute_instance.mailpit[0].zone
+  instance_name = google_compute_instance.mailpit[0].name
+  role          = "roles/compute.instanceViewer"
+  member        = each.value
+}
+
+resource "google_iap_tunnel_instance_iam_member" "mailpit_ui" {
+  for_each = var.enable_mailpit ? toset(var.iap_evaluator_members) : toset([])
+  project  = var.project_id
+  zone     = google_compute_instance.mailpit[0].zone
+  instance = google_compute_instance.mailpit[0].name
+  role     = "roles/iap.tunnelResourceAccessor"
+  member   = each.value
+
+  condition {
+    title       = "mailpit-ui-port-only"
+    description = "IAP TCP access is limited to the Mailpit UI port."
+    expression  = "destination.port == 8025"
+  }
 }
 
 resource "google_artifact_registry_repository_iam_member" "deployer_writer" {
@@ -323,11 +521,14 @@ resource "google_sql_database" "application" {
 }
 
 resource "google_cloud_run_v2_service" "api" {
-  count               = var.enable_services ? 1 : 0
-  project             = var.project_id
-  name                = var.api_service_name
-  location            = var.region
-  ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  count    = var.enable_services ? 1 : 0
+  project  = var.project_id
+  name     = var.api_service_name
+  location = var.region
+  # The public run.app URL is the first test endpoint. Cloud Run IAM remains
+  # the authentication boundary; only the public/private SSR service accounts
+  # receive roles/run.invoker below.
+  ingress             = "INGRESS_TRAFFIC_ALL"
   deletion_protection = true
 
   template {
@@ -341,7 +542,7 @@ resource "google_cloud_run_v2_service" "api" {
       egress = "PRIVATE_RANGES_ONLY"
       network_interfaces {
         network    = google_compute_network.testprod[0].name
-        subnetwork = google_compute_subnetwork.serverless[0].name
+        subnetwork = var.enable_mailpit ? google_compute_subnetwork.api_serverless[0].name : google_compute_subnetwork.serverless[0].name
       }
     }
     volumes {
@@ -438,7 +639,7 @@ resource "google_cloud_run_v2_service" "api" {
       }
       env {
         name  = "LOCAL_SMTP_ADDR"
-        value = var.mailpit_private_address
+        value = local.runtime_mailpit_address
       }
       env {
         name  = "M03_EVIDENCE_DIR"
@@ -464,11 +665,13 @@ resource "google_cloud_run_v2_service" "api" {
 }
 
 resource "google_cloud_run_v2_service" "web" {
-  for_each            = local.web_services
-  project             = var.project_id
-  name                = each.value.name
-  location            = var.region
-  ingress             = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+  for_each = local.web_services
+  project  = var.project_id
+  name     = each.value.name
+  location = var.region
+  # Direct run.app access is needed for the no-LB test stage. Native Cloud Run
+  # IAP still protects the private entry on every ingress path.
+  ingress             = var.enable_edge ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
   iap_enabled         = each.value.iap_enabled
   deletion_protection = true
 
@@ -480,7 +683,7 @@ resource "google_cloud_run_v2_service" "web" {
       max_instance_count = var.web_max_instances
     }
     vpc_access {
-      egress = "ALL_TRAFFIC"
+      egress = var.enable_edge ? "ALL_TRAFFIC" : "PRIVATE_RANGES_ONLY"
       network_interfaces {
         network    = google_compute_network.testprod[0].name
         subnetwork = google_compute_subnetwork.serverless[0].name
@@ -513,7 +716,7 @@ resource "google_cloud_run_v2_service" "web" {
       }
       env {
         name  = "PRIVATE_DEMO_ORIGIN"
-        value = "https://${var.private_hostname}"
+        value = (var.enable_edge || var.private_demo_origin_override == "") ? "https://${var.private_hostname}" : var.private_demo_origin_override
       }
       env {
         name  = "IAP_JWT_AUDIENCE"

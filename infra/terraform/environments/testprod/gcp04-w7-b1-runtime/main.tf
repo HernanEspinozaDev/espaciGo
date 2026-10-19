@@ -170,7 +170,7 @@ resource "google_cloud_run_v2_job" "probe" {
 
   lifecycle {
     precondition {
-      condition     = local.runtime_ready && var.project_id == "espacigo-testprod" && var.region == "southamerica-west1" && data.google_storage_bucket.run_marker[0].location == var.region
+      condition     = local.runtime_ready && var.project_id == "espacigo-testprod" && var.region == "southamerica-west1" && lower(data.google_storage_bucket.run_marker[0].location) == var.region
       error_message = "W7 B1 runtime requires an exact run-scoped release, matching pins and a same-region marker bucket."
     }
     precondition {
