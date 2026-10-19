@@ -2,6 +2,12 @@
 
 **Corte de lectura: 2026-10-18 21:46 UTC.** Esta matriz registra el smoke ejecutado; no declara GCP-04 completo ni aceptación del producto. El ensayo sigue activo y ningún teardown se aplicó.
 
+## Actualización posterior: GCP-04-W5 (2026-10-19)
+
+| Capacidad | Estado | Evidencia / alcance |
+| --- | --- | --- |
+| Bootstrap global GADM sin SUPERUSER | Candidato local verificado; destino Cloud pendiente | PostgreSQL 18 local: `CREATEROLE` directo puede crear/comentar, pero su ADMIN automático lo otorga `postgres` y no puede revocarlo. Un intermediario transaccional `NOLOGIN CREATEROLE` con SET restringido al actor sí crea/comenta y se elimina antes del commit; final sin membresías GADM, rerun no-op y casos inesperados fail-closed. No valida Cloud SQL ni cambia replay V60. Ver [hallazgo W5](gcp04_w5_global_role_bootstrap_finding_20261019.md) y `scripts/test-gcp04-w5-global-role-bootstrap-postgres.sh`. |
+
 ## Estado de capacidades
 
 | Capacidad | Estado | Evidencia / alcance |

@@ -17,6 +17,12 @@ La inspección local de PostgreSQL 18 encontró una incompatibilidad que impide 
 - En PostgreSQL 16+, un usuario con `CREATEROLE` que crea otro rol recibe una membresía `ADMIN OPTION` sobre ese rol ([CREATE ROLE](https://www.postgresql.org/docs/current/sql-createrole.html)). La migración V60 rechaza cualquier membresía del rol GADM. Por eso dar temporalmente `CREATEROLE` al schema owner no basta: la ejecución local se detiene en V60 con `permission denied`; permitirle crear el rol produciría la membresía que V60 prohíbe.
 - El preflight y la prueba local reproducen ambos comportamientos. No hubo conexión SQL con Cloud SQL, por lo que esto es compatibilidad deducida de la migración versionada y del comportamiento PostgreSQL 18, no una observación sobre el estado SQL del candidato.
 
+### Resultado GCP-04-W5 (2026-10-19)
+
+La prueba dedicada `scripts/test-gcp04-w5-global-role-bootstrap-postgres.sh` confirmó que el `REVOKE` directo no puede retirar la membresía automática del creador: el grantor registrado es `postgres`, el REVOKE normal deja la arista y `REVOKE ... GRANTED BY postgres` requiere privilegios del grantor. También probó una ruta local transaccional: un rol intermediario temporal `NOLOGIN CREATEROLE`, con `SET ROLE` restringido al actor, crea/comenta GADM y se elimina antes del commit. Así desaparecen las membresías a/desde el intermediario sin cambiar V60 ni elevar el actor a SUPERUSER. El rerun exacto es no-op; roles preexistentes con contrato inesperado abortan sin reparación.
+
+El helper `db/bootstrap/gcp04-runtime/004_gadm_global_role.sql` es un candidato local probado para preaprovisionar el rol global antes de restaurar un baseline lógico; no modifica el ledger ni V1–V64. Esto no soluciona replay directo de V1–V64 como `espacigo_schema_owner`, que sigue fallando en V60. La secuencia de uso previa a restore y su compatibilidad con Cloud SQL aún requieren revisión y evidencia del destino; no se hizo operación Cloud. Ver [GCP-04-W5](gcp04_w5_global_role_bootstrap_finding_20261019.md).
+
 V1–V64 son inmutables según las reglas del repositorio. Un replay directo con el rol de esquema en Cloud SQL sigue sin ruta compatible por la guarda de V60. El ensayo local completó las migraciones originales sin filtrar statements en una fuente efímera administrada localmente, y después probó un candidato de traslado lógico. No se presupone que Cloud SQL pueda aceptar ese artefacto ni se propone ejecutarlo allí antes de una decisión/revisión del procedimiento operativo.
 
 ## Roles y secuencia propuesta (no ejecutable aún)
