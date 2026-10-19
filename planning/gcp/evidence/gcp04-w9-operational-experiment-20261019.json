@@ -1,0 +1,138 @@
+{
+  "format": "espacigo.gcp04.w9.operational-experiment-evidence.v1",
+  "date": "2026-10-19",
+  "release_id": "gcp04-w9-20261019-00155501c3",
+  "source_head": "bb5273cd4d58ef33ef7cdfb1649256bd936e38f4",
+  "approval_sha256": "e80f586f4556d202660d2e046f0faf807b0c32c2261ed7f165bc29e7fa45e457",
+  "experiment": {
+    "window_start": "2026-10-19T08:06:15Z",
+    "retirement_completed": "2026-10-19T08:10:55Z",
+    "active_window_seconds": 280,
+    "sql_user": {
+      "name": "espacigo_gcp04_w8_catalog_probe",
+      "database_roles": ["pg_read_all_settings"],
+      "create_operation": "DONE",
+      "delete_operation": "DONE",
+      "final_presence": false
+    },
+    "secret": {
+      "name": "espacigo-gcp04-w8-catalog-probe-password",
+      "version": 1,
+      "version_destroyed_with_etag": true,
+      "shell_deleted_with_fresh_etag": true,
+      "final_presence": false
+    },
+    "terraform": {
+      "approved_plan_sha256": "a5b318645d4e41a893690d81063d30514342ae8b2add36566acfd27bbf3df253",
+      "apply_exit_code": 0,
+      "resources_created": 5,
+      "destroy_plan_sha256": "578e65d4abfcfa290e63bbe50cd80d0638087b7d6e9ddc51733a0edd155697cb",
+      "destroy_addresses": [
+        "google_artifact_registry_repository_iam_member.image_reader[0]",
+        "google_cloud_run_v2_job.probe[0]",
+        "google_project_iam_member.sql_client[0]",
+        "google_secret_manager_secret_iam_member.secret_accessor[0]",
+        "google_service_account.probe[0]"
+      ],
+      "resources_destroyed": 5,
+      "destroy_exit_code": 0,
+      "state_lineage": "61623e7f-08e6-fea6-d482-0661b31f818f",
+      "state_serial": 4,
+      "state_resource_count": 0
+    },
+    "job": {
+      "name": "espacigo-gcp04-w8-catalog-probe",
+      "region": "southamerica-west1",
+      "image_digest": "sha256:9139098697d8437715460bb1912141c3bfee141c6531d0c38a29132fadfd5991",
+      "task_count": 1,
+      "parallelism": 1,
+      "max_retries": 0,
+      "timeout_seconds": 120,
+      "execution_count": 1,
+      "execution_result": "success",
+      "execution_describe_after_retirement": "not_found"
+    },
+    "query_observation": {
+      "status": "observed",
+      "timestamp": "2026-10-19T08:08:39Z",
+      "query_sha256": "3fc825934660bbfc965e8d97b2ef7f4648baf2cded6c8871ae6953bd18c70d16",
+      "database": "espacigo",
+      "server_version_num": 180006,
+      "transaction_read_only": true,
+      "scope": {
+        "business_rows_read": false,
+        "configuration_catalog_read": false,
+        "statistics_read": false,
+        "password_or_secret_read": false,
+        "mutations": false
+      },
+      "login_attributes": {
+        "login": true,
+        "inherit": true,
+        "superuser": false,
+        "createdb": false,
+        "createrole": false,
+        "replication": false,
+        "bypass_rls": false
+      },
+      "role_memberships": [
+        {
+          "member": "espacigo_gcp04_w8_catalog_probe",
+          "role": "pg_read_all_settings",
+          "admin_option": false,
+          "inherit_option": true,
+          "set_option": true
+        },
+        {
+          "member": "pg_monitor",
+          "role": "pg_read_all_settings",
+          "admin_option": false,
+          "inherit_option": true,
+          "set_option": true
+        }
+      ],
+      "public_acl": [
+        {
+          "grantee": "PUBLIC",
+          "object_kind": "database",
+          "object_name": "espacigo",
+          "privilege": "CONNECT",
+          "grant_option": false
+        },
+        {
+          "grantee": "PUBLIC",
+          "object_kind": "database",
+          "object_name": "espacigo",
+          "privilege": "TEMPORARY",
+          "grant_option": false
+        },
+        {
+          "grantee": "PUBLIC",
+          "object_kind": "schema",
+          "object_name": "public",
+          "privilege": "USAGE",
+          "grant_option": false
+        }
+      ],
+      "observer_and_ledger_roles": "not included in the allowlisted report; existence was not exhaustively verified"
+    }
+  },
+  "final_verification": {
+    "sql_user_absent": true,
+    "secret_shell_absent": true,
+    "cloud_run_job_absent": true,
+    "service_account_absent": true,
+    "temporary_project_iam_absent": true,
+    "temporary_repository_iam_absent": true,
+    "preexisting_run_service_agent_binding_preserved": true,
+    "published_image_digest_preserved": true,
+    "existing_sql_instance_database_network_and_state_bucket_preserved": true
+  },
+  "limits": [
+    "This was one bounded catalog query, not a restore, API deployment, worker rollout, or GCP-04 acceptance.",
+    "The report shows the temporary login as a member of pg_read_all_settings and separately shows pg_monitor as a member of pg_read_all_settings; it does not report the temporary login as a member of pg_monitor. pg_read_all_settings remains broader than the custom W7 observer contract, so the temporary identity is not reused.",
+    "PUBLIC CONNECT, TEMPORARY, and schema USAGE were observed and not changed; W7 must evaluate them explicitly.",
+    "The execution detail endpoint returned not found after the Job was retired; success is evidenced by the single successful --wait result, the pre-retirement execution listing, and the Cloud Logging observation.",
+    "No query payload, business data, secret payload, ETag, password, token, or raw API/log response is included."
+  ]
+}
