@@ -50,6 +50,18 @@ variable "enable_migrator" {
     error_message = "Migrator runtime requires reviewed SQL bootstrap, connection budget and cost confirmations."
   }
 }
+variable "enable_bootstrap" {
+  type    = bool
+  default = false
+  validation {
+    condition     = !var.enable_bootstrap || (var.confirm_runtime_database_bootstrap && var.confirm_connection_budget && var.confirm_cost_review)
+    error_message = "W7 bootstrap requires reviewed SQL bootstrap, connection budget and cost confirmations."
+  }
+}
+variable "manage_migrator_secret_iam" {
+  type    = bool
+  default = true
+}
 variable "confirm_runtime_database_bootstrap" {
   type    = bool
   default = false
@@ -102,6 +114,38 @@ variable "migrator_database_password_version" {
   type    = string
   default = ""
 }
+variable "api_database_user" {
+  type    = string
+  default = ""
+}
+variable "bootstrap_database_user" {
+  type    = string
+  default = ""
+}
+variable "api_database_password_secret_id" {
+  type    = string
+  default = ""
+}
+variable "api_database_password_version" {
+  type    = string
+  default = ""
+}
+variable "bootstrap_database_password_secret_id" {
+  type    = string
+  default = ""
+}
+variable "bootstrap_database_password_version" {
+  type    = string
+  default = ""
+}
+variable "bootstrap_job_name" {
+  type    = string
+  default = "espacigo-test-runtime-bootstrap"
+}
+variable "bootstrap_mode" {
+  type    = string
+  default = "bootstrap"
+}
 variable "private_bucket_name" {
   type    = string
   default = ""
@@ -115,6 +159,10 @@ variable "worker_image" {
   default = ""
 }
 variable "migrator_image" {
+  type    = string
+  default = ""
+}
+variable "bootstrap_image" {
   type    = string
   default = ""
 }
