@@ -172,6 +172,12 @@ WITH RECURSIVE limits AS (
         'transaction_read_only',current_setting('transaction_read_only')::boolean,
         'owner',(SELECT pg_catalog.pg_get_userbyid(d.datdba) FROM pg_catalog.pg_database d WHERE d.datname=current_database()),
         'public_schema_owner',(SELECT pg_catalog.pg_get_userbyid(n.nspowner) FROM pg_catalog.pg_namespace n WHERE n.nspname='public')),
+      'public_effective_privileges', jsonb_build_object(
+        'database_connect', has_database_privilege('public', current_database(), 'CONNECT'),
+        'database_create', has_database_privilege('public', current_database(), 'CREATE'),
+        'database_temporary', has_database_privilege('public', current_database(), 'TEMP'),
+        'public_schema_usage', has_schema_privilege('public', 'public', 'USAGE'),
+        'public_schema_create', has_schema_privilege('public', 'public', 'CREATE')),
       'capacity', (SELECT to_jsonb(c) || jsonb_build_object('required_connections', :'required_connections'::integer,
         'passes', c.free_slots_lower_bound >= :'required_connections'::integer) FROM capacity c),
       'destination', jsonb_build_object(

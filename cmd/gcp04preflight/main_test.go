@@ -41,6 +41,30 @@ func TestConfigRequiresPinnedIdentityBudgetAndSingleConcurrency(t *testing.T) {
 	}
 }
 
+func TestPublicEffectivePrivilegesRequireReviewedBaseline(t *testing.T) {
+	baseline := publicEffectivePrivileges{
+		DatabaseConnect: true, PublicSchemaUsage: true,
+	}
+	if !baseline.matchesReviewedBaseline() {
+		t.Fatal("reviewed PUBLIC ACL baseline was rejected")
+	}
+	for name, mutate := range map[string]func(*publicEffectivePrivileges){
+		"database connect":     func(p *publicEffectivePrivileges) { p.DatabaseConnect = false },
+		"database create":      func(p *publicEffectivePrivileges) { p.DatabaseCreate = true },
+		"database temporary":   func(p *publicEffectivePrivileges) { p.DatabaseTemporary = true },
+		"public schema usage":  func(p *publicEffectivePrivileges) { p.PublicSchemaUsage = false },
+		"public schema create": func(p *publicEffectivePrivileges) { p.PublicSchemaCreate = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := baseline
+			mutate(&changed)
+			if changed.matchesReviewedBaseline() {
+				t.Fatal("unexpected PUBLIC effective privilege was accepted")
+			}
+		})
+	}
+}
+
 func TestCompileQueryPinsAndTranslatesPsqlWrapper(t *testing.T) {
 	queryPath := filepath.Join("..", "..", "db", "query", "gcp04_w4_target_preflight.sql")
 	source, err := os.ReadFile(queryPath)
@@ -166,6 +190,31 @@ func TestLocalObserverReadOnlyIntegration(t *testing.T) {
 	if err := json.Unmarshal(report, &mutated); err != nil {
 		t.Fatal(err)
 	}
+	publicPrivileges := mutated["public_effective_privileges"].(map[string]any)
+	publicPrivileges["database_temporary"] = true
+	mutatedPublic, _ := json.Marshal(mutated)
+	validation, err := validateReport(mutatedPublic, localConfig)
+	if err != nil || validation.ObserverContractPass {
+		t.Fatalf("unexpected PUBLIC effective privileges passed: validation=%+v err=%v", validation, err)
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	memberships := mutated["memberships"].([]any)
+	memberships = append(memberships, map[string]any{
+		"app_login": nil, "granted_role": "espacigo_db_observer", "member_role": "gcp04_temporary_provisioner",
+		"admin_option": true, "inherit_option": false, "set_option": false,
+		"edge_context": "direct-edge-touches-application-role",
+	})
+	mutated["memberships"] = memberships
+	provisionerEdge, _ := json.Marshal(mutated)
+	validation, err = validateReport(provisionerEdge, localConfig)
+	if err != nil || validation.ObserverContractPass {
+		t.Fatalf("observer group with an additional temporary provisioner membership passed: validation=%+v err=%v", validation, err)
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
 	delete(mutated, "destination")
 	incomplete, _ := json.Marshal(mutated)
 	if _, err := validateReport(incomplete, localConfig); err == nil {
@@ -186,7 +235,7 @@ func TestLocalObserverReadOnlyIntegration(t *testing.T) {
 	aclEntries = append(aclEntries, map[string]any{"kind": "relation", "identity": "public.schema_migrations", "object_owner": "espacigo_schema_owner", "grantor": "espacigo_schema_owner", "grantee": "espacigo_db_observer", "privilege": "DELETE", "grantable": false})
 	mutated["acl_entries"] = aclEntries
 	excessiveDelete, _ := json.Marshal(mutated)
-	validation, err := validateReport(excessiveDelete, localConfig)
+	validation, err = validateReport(excessiveDelete, localConfig)
 	if err != nil || validation.ObserverContractPass {
 		t.Fatalf("observer group with ledger DELETE passed: validation=%+v err=%v", validation, err)
 	}
@@ -290,7 +339,7 @@ func TestLocalObserverReadOnlyIntegration(t *testing.T) {
 	if err := json.Unmarshal(report, &mutated); err != nil {
 		t.Fatal(err)
 	}
-	memberships := mutated["memberships"].([]any)
+	memberships = mutated["memberships"].([]any)
 	memberships = append(memberships, map[string]any{"app_login": databaseUser, "granted_role": "cloudsqlsuperuser", "member_role": databaseUser, "admin_option": false, "inherit_option": true, "set_option": false, "edge_context": "transitive-login-membership"})
 	mutated["memberships"] = memberships
 	overprivilegedMembership, _ := json.Marshal(mutated)

@@ -222,6 +222,33 @@ expect_helper_failure target "$BOOTSTRAP_ACTOR" 'existing espacigo_gadm_bootstra
 compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
   -c 'ALTER ROLE espacigo_gadm_bootstrap RESET statement_timeout' >/dev/null
 
+# Execute the exact W7 group-bootstrap SQL candidate in this disposable
+# PostgreSQL 18 target. The fixture establishes its GRANT OPTION prerequisites
+# and PUBLIC TEMP restriction; neither action is part of the candidate.
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c \
+  'REVOKE TEMP ON DATABASE espacigo FROM PUBLIC' >/dev/null
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c \
+  "GRANT CONNECT ON DATABASE espacigo TO $BOOTSTRAP_ACTOR WITH GRANT OPTION" >/dev/null
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo -c \
+  "GRANT USAGE ON SCHEMA public TO $BOOTSTRAP_ACTOR WITH GRANT OPTION" >/dev/null
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U "$BOOTSTRAP_ACTOR" -d espacigo \
+  < "$ROOT_DIR/planning/gcp/sql_candidates/gcp04_w7_observer_group_bootstrap_candidate.sql" >/dev/null
+[[ "$(compose exec -T target psql -X -At -U postgres -d espacigo -c \
+  "SELECT admin_option::text || ':' || inherit_option::text || ':' || set_option::text FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid JOIN pg_catalog.pg_roles u ON u.oid=m.member WHERE r.rolname='espacigo_db_observer' AND u.rolname='$BOOTSTRAP_ACTOR'")" == 'true:false:false' ]]
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U "$BOOTSTRAP_ACTOR" -d espacigo -c \
+  'REVOKE ADMIN OPTION FOR espacigo_db_observer FROM gcp04_w6_bootstrap_actor' >/dev/null 2>&1 || true
+[[ "$(compose exec -T target psql -X -At -U postgres -d espacigo -c \
+  "SELECT admin_option::text FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid JOIN pg_catalog.pg_roles u ON u.oid=m.member WHERE r.rolname='espacigo_db_observer' AND u.rolname='$BOOTSTRAP_ACTOR'")" == 'true' ]]
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U "$BOOTSTRAP_ACTOR" -d espacigo \
+  < "$ROOT_DIR/planning/gcp/sql_candidates/gcp04_w7_observer_group_retirement_candidate.sql" >/dev/null
+[[ "$(compose exec -T target psql -X -At -U postgres -d espacigo -c \
+  "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='espacigo_db_observer'")" == 0 ]]
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c \
+  "REVOKE CONNECT ON DATABASE espacigo FROM $BOOTSTRAP_ACTOR" >/dev/null
+compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo -c \
+  "REVOKE USAGE ON SCHEMA public FROM $BOOTSTRAP_ACTOR" >/dev/null
+echo 'W7 candidate SQL passed locally; its direct CREATEROLE actor retained automatic ADMIN OPTION.'
+
 compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
   < "$ROOT_DIR/db/bootstrap/gcp04-runtime/002_local_restore_role_contract.sql" >/dev/null
 compose exec -T target psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo <<'SQL' >/dev/null
@@ -317,6 +344,13 @@ import json, sys
 report = json.load(open(sys.argv[1], encoding="utf-8"))
 assert report["database"]["transaction_read_only"] is True
 assert report["database"]["user"] == "espacigo_observer_login"
+assert report["public_effective_privileges"] == {
+    "database_connect": True,
+    "database_create": False,
+    "database_temporary": False,
+    "public_schema_usage": True,
+    "public_schema_create": False,
+}
 empty_counts = {key: report["destination"][key] for key in ("relations_non_extension", "routines_non_extension", "types_non_extension", "other_schema_objects_non_extension")}
 if any(empty_counts.values()):
     raise AssertionError(f"empty destination has non-extension objects: {empty_counts}; relations={[row for row in report['destination']['relation_inventory'] if not row['extension_owned']]}")
@@ -327,6 +361,14 @@ assert report["destination"]["empty_destination_candidate"] is True
 assert report["schema_migrations"]["present"] is False
 assert report["capacity"]["required_connections"] == 24
 PY
+
+# The same W7 observer contract is checked before and after restore. The
+# pre-restore fixture has already applied the explicit PUBLIC TEMP revoke in
+# 002_local_restore_role_contract.sql; W9's earlier default ACL is historical.
+GCP04_W7_TEST_DSN="postgres://espacigo_observer_login@localhost:5432/espacigo?host=$TARGET_SOCKET" \
+GCP04_W7_TEST_QUERY_FILE="$ROOT_DIR/db/query/gcp04_w4_target_preflight.sql" \
+GCP04_W7_TEST_REQUIRED_CONNECTIONS=1 \
+go test ./cmd/gcp04preflight -run TestLocalObserverReadOnlyIntegration -count=1 -v
 
 compose exec -T target pg_restore --exit-on-error --single-transaction --no-owner --no-acl \
   --role=espacigo_schema_owner -U espacigo_migrator_login -d espacigo \
@@ -373,6 +415,13 @@ python3 - "$ARTIFACTS/post-restore-report.json" <<'PY'
 import json, sys
 report = json.load(open(sys.argv[1], encoding="utf-8"))
 assert report["database"]["transaction_read_only"] is True
+assert report["public_effective_privileges"] == {
+    "database_connect": True,
+    "database_create": False,
+    "database_temporary": False,
+    "public_schema_usage": True,
+    "public_schema_create": False,
+}
 assert report["destination"]["schema_migrations_present"] is True
 assert report["schema_migrations"]["present"] is True
 assert report["destination"]["relations_non_extension"] >= 98

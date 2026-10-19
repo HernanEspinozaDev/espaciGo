@@ -25,7 +25,7 @@ const (
 	expectedPrivateIP        = "10.189.0.3"
 	expectedDatabase         = "espacigo"
 	expectedDatabaseUser     = "espacigo_gcp04_w7_observer"
-	expectedQuerySHA256      = "6bfb8f0ac959bcda27de6a7e5442606d1be559e5dacf992a6e1e8af91a1f838b"
+	expectedQuerySHA256      = "d0d3101667aff59899e231ca4ecd27c66358fd4e83c4615aae97ab873b4c2701"
 	defaultQueryPath         = "/target_preflight.sql"
 	maximumTimeout           = 15 * time.Minute
 	maximumCredentialsLength = 4096
@@ -318,6 +318,18 @@ type reportEffectivePrivilege struct {
 	Missing  []string `json:"missing_effective_privileges"`
 }
 
+type publicEffectivePrivileges struct {
+	DatabaseConnect    bool `json:"database_connect"`
+	DatabaseCreate     bool `json:"database_create"`
+	DatabaseTemporary  bool `json:"database_temporary"`
+	PublicSchemaUsage  bool `json:"public_schema_usage"`
+	PublicSchemaCreate bool `json:"public_schema_create"`
+}
+
+func (p publicEffectivePrivileges) matchesReviewedBaseline() bool {
+	return p.DatabaseConnect && !p.DatabaseCreate && !p.DatabaseTemporary && p.PublicSchemaUsage && !p.PublicSchemaCreate
+}
+
 func validateReport(raw []byte, c config) (reportValidation, error) {
 	var report struct {
 		Database struct {
@@ -329,7 +341,8 @@ func validateReport(raw []byte, c config) (reportValidation, error) {
 			Owner               string `json:"owner"`
 			PublicSchemaOwner   string `json:"public_schema_owner"`
 		} `json:"database"`
-		Capacity struct {
+		PublicEffectivePrivileges publicEffectivePrivileges `json:"public_effective_privileges"`
+		Capacity                  struct {
 			MaxConnections               int  `json:"max_connections"`
 			ReservedConnections          int  `json:"reserved_connections"`
 			SuperuserReservedConnections int  `json:"superuser_reserved_connections"`
@@ -366,7 +379,7 @@ func validateReport(raw []byte, c config) (reportValidation, error) {
 		ACLEntries     []json.RawMessage `json:"acl_entries"`
 		OwnerEffective []json.RawMessage `json:"owner_effective_privileges"`
 	}
-	if err := requireJSONKeys(raw, "database", "capacity", "destination", "roles", "memberships", "extensions", "schema_migrations", "acl_entries", "owner_effective_privileges", "required_connections"); err != nil {
+	if err := requireJSONKeys(raw, "database", "public_effective_privileges", "capacity", "destination", "roles", "memberships", "extensions", "schema_migrations", "acl_entries", "owner_effective_privileges", "required_connections"); err != nil {
 		return reportValidation{}, errors.New("target inventory report is incomplete")
 	}
 	for _, key := range []string{"roles", "memberships", "extensions", "acl_entries", "owner_effective_privileges"} {
@@ -379,6 +392,9 @@ func validateReport(raw []byte, c config) (reportValidation, error) {
 	}
 	if err := requireJSONKeys(rawObjectField(raw, "database"), "name", "server_version_num", "server_version", "user", "transaction_read_only", "owner", "public_schema_owner"); err != nil {
 		return reportValidation{}, errors.New("target database report is incomplete")
+	}
+	if err := requireJSONKeys(rawObjectField(raw, "public_effective_privileges"), "database_connect", "database_create", "database_temporary", "public_schema_usage", "public_schema_create"); err != nil {
+		return reportValidation{}, errors.New("target PUBLIC effective privilege report is incomplete")
 	}
 	if err := requireJSONKeys(rawObjectField(raw, "capacity"), "max_connections", "reserved_connections", "superuser_reserved_connections", "visible_client_backends", "unclassified_activity_rows", "free_slots_lower_bound", "required_connections", "passes"); err != nil {
 		return reportValidation{}, errors.New("target capacity report is incomplete")
@@ -559,7 +575,7 @@ func validateReport(raw []byte, c config) (reportValidation, error) {
 		}
 		seenRoleNames[role.Name] = struct{}{}
 	}
-	observerContract := loginFound && groupFound && login.Login && !login.Super && !login.CreateDB && !login.CreateRole && !login.Replication && !login.BypassRLS && login.Inherit &&
+	observerContract := report.PublicEffectivePrivileges.matchesReviewedBaseline() && loginFound && groupFound && login.Login && !login.Super && !login.CreateDB && !login.CreateRole && !login.Replication && !login.BypassRLS && login.Inherit &&
 		!observerGroup.Login && !observerGroup.Super && !observerGroup.CreateDB && !observerGroup.CreateRole && !observerGroup.Replication && !observerGroup.BypassRLS && !observerGroup.Inherit
 	observerContract = observerContract && validateObserverACL(report.ACLEntries, report.Database.Owner, report.Database.PublicSchemaOwner,
 		[][]json.RawMessage{report.Destination.SchemaInventory, report.Destination.RelationInventory, report.Destination.RoutineInventory,
@@ -567,6 +583,9 @@ func validateReport(raw []byte, c config) (reportValidation, error) {
 		c.Database, c.DatabaseUser, "espacigo_db_observer", report.Destination.MigrationsPresent)
 	loginEdges := 0
 	for _, edge := range report.Memberships {
+		if edge.GrantedRole == "espacigo_db_observer" && edge.MemberRole != c.DatabaseUser {
+			observerContract = false
+		}
 		if (edge.AppLogin != nil && *edge.AppLogin == c.DatabaseUser) || edge.MemberRole == c.DatabaseUser || edge.GrantedRole == c.DatabaseUser {
 			if edge.GrantedRole != "espacigo_db_observer" || edge.MemberRole != c.DatabaseUser || edge.Admin || !edge.Inherit || edge.Set {
 				observerContract = false
