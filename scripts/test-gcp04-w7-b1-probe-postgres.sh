@@ -28,17 +28,24 @@ done
 docker exec -i "$CONTAINER" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres <<'SQL'
 CREATE DATABASE espacigo;
 CREATE ROLE cloudsqlsuperuser NOLOGIN;
+CREATE ROLE cloudsqlsuperuser_base NOLOGIN;
 CREATE ROLE espacigo_gcp04_w7_bootstrap LOGIN CREATEROLE CREATEDB INHERIT;
+GRANT cloudsqlsuperuser_base TO cloudsqlsuperuser WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
 GRANT cloudsqlsuperuser TO espacigo_gcp04_w7_bootstrap WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
+GRANT CONNECT ON DATABASE espacigo TO cloudsqlsuperuser_base WITH GRANT OPTION;
 SQL
 docker exec -i "$CONTAINER" psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo <<'SQL'
 CREATE TABLE public.schema_migrations(version text PRIMARY KEY, dirty boolean NOT NULL DEFAULT false);
-GRANT CONNECT ON DATABASE espacigo TO espacigo_gcp04_w7_bootstrap WITH GRANT OPTION;
-GRANT USAGE ON SCHEMA public TO espacigo_gcp04_w7_bootstrap WITH GRANT OPTION;
-GRANT SELECT ON TABLE public.schema_migrations TO espacigo_gcp04_w7_bootstrap WITH GRANT OPTION;
+GRANT USAGE ON SCHEMA public TO cloudsqlsuperuser_base WITH GRANT OPTION;
+GRANT SELECT ON TABLE public.schema_migrations TO cloudsqlsuperuser_base WITH GRANT OPTION;
 SQL
 docker cp "$ROOT_DIR/db/query/gcp04_w7_b1_actor_probe.sql" "$CONTAINER:/tmp/gcp04_w7_b1_actor_probe.sql" >/dev/null
 docker exec "$CONTAINER" psql -X -q -A -t -v ON_ERROR_STOP=1 -U espacigo_gcp04_w7_bootstrap -d espacigo -f /tmp/gcp04_w7_b1_actor_probe.sql > "$TMP_DIR/report.json"
+docker exec -i "$CONTAINER" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres <<'SQL'
+ALTER ROLE espacigo_gcp04_w7_bootstrap NOINHERIT;
+GRANT cloudsqlsuperuser TO espacigo_gcp04_w7_bootstrap WITH ADMIN FALSE, INHERIT FALSE, SET FALSE;
+SQL
+docker exec "$CONTAINER" psql -X -q -A -t -v ON_ERROR_STOP=1 -U espacigo_gcp04_w7_bootstrap -d espacigo -f /tmp/gcp04_w7_b1_actor_probe.sql > "$TMP_DIR/noinherit-report.json"
 python3 - "$TMP_DIR/report.json" <<'PY'
 import json, sys
 from pathlib import Path
@@ -50,14 +57,26 @@ assert r['target']['transaction_read_only'] is True
 assert r['actor']['superuser'] is False
 assert r['actor']['createdb'] is True and r['actor']['createrole'] is True and r['actor']['inherit'] is True
 assert any(m['granted_role']=='cloudsqlsuperuser' and m['member_role']=='espacigo_gcp04_w7_bootstrap' for m in r['memberships'])
-assert r['capabilities']['database_connect_grant_option'] is True
-assert r['capabilities']['public_schema_usage_grant_option'] is True
-assert r['capabilities']['ledger_select_grant_option'] is True
+assert any(m['granted_role']=='cloudsqlsuperuser_base' and m['depth']==2 and m['effective_inherit'] is True and m['role_path']==['espacigo_gcp04_w7_bootstrap','cloudsqlsuperuser','cloudsqlsuperuser_base'] for m in r['recursive_memberships'])
+assert r['capabilities']['database_connect_direct_grant_option'] is False
+assert r['capabilities']['database_connect_effective_grant_option'] is True
+assert r['capabilities']['public_schema_usage_direct_grant_option'] is False
+assert r['capabilities']['public_schema_usage_effective_grant_option'] is True
+assert r['capabilities']['ledger_select_direct_grant_option'] is False
+assert r['capabilities']['ledger_select_effective_grant_option'] is True
+assert len(r['actor_acl']) == 0
 assert any(a['grantee']=='PUBLIC' and a['privilege_type']=='TEMPORARY' for a in r['public_acl'])
 assert r['scope']=={'business_rows_read':False,'password_or_secret_read':False,'mutations':False}
+noinherit=json.loads(Path(sys.argv[1].replace('report.json','noinherit-report.json')).read_text())
+assert noinherit['actor']['inherit'] is False
+assert any(m['inherit_option'] is False for m in noinherit['memberships'])
+assert any(m['granted_role']=='cloudsqlsuperuser_base' and m['depth']==2 and m['effective_inherit'] is False for m in noinherit['recursive_memberships'])
+assert noinherit['capabilities']['database_connect_effective_grant_option'] is False
+assert noinherit['capabilities']['public_schema_usage_effective_grant_option'] is False
+assert noinherit['capabilities']['ledger_select_effective_grant_option'] is False
 PY
 
 docker rm -f "$CONTAINER" >/dev/null
 trap - EXIT
 rm -rf -- "$TMP_DIR"
-echo 'PASS: pinned PostgreSQL 18 B1 query reports actor attributes, membership, owner/grant-option matrix and PUBLIC ACL in READ ONLY; network none, tmpfs only.'
+echo 'PASS: pinned PostgreSQL 18 B1 query separates direct ACL from inherited effective grant options and reports INHERIT/NOINHERIT; network none, tmpfs only.'

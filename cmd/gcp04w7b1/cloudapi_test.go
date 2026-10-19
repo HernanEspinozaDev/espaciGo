@@ -79,6 +79,23 @@ func TestInsertFailureIsNotRetried(t *testing.T) {
 	}
 }
 
+func TestReadUserCreateOperationVerifiesAPIIdentityFields(t *testing.T) {
+	calls := 0
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Method != http.MethodGet || r.URL.Path != "/sql/v1beta4/projects/espacigo-testprod/operations/create-op-1" {
+			t.Errorf("unexpected operation read %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"name":"create-op-1","operationType":"CREATE_USER","targetId":"espacigo-testprod-pg","targetProject":"espacigo-testprod","targetLink":"https://sqladmin.googleapis.com/sql/v1beta4/projects/espacigo-testprod/instances/espacigo-testprod-pg","status":"DONE"}`))
+	}))
+	defer s.Close()
+	a := mockCloudAPI(t, s)
+	op, err := a.ReadOperation(context.Background(), "create-op-1")
+	if err != nil || op.ID != "create-op-1" || op.Type != "CREATE_USER" || op.TargetID != gcp04w7b1.Instance || op.TargetProject != gcp04w7b1.ProjectID || op.Status != "DONE" || calls != 1 {
+		t.Fatalf("operation proof %#v err=%v calls=%d", op, err, calls)
+	}
+}
+
 func TestCreateSecretIsExactUserManagedShell(t *testing.T) {
 	calls := 0
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

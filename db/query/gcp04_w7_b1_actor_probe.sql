@@ -1,7 +1,7 @@
 -- GCP04-W7 B1: read-only observation of the exact temporary bootstrap actor.
 -- Do not run until a separate release exists. Never reads passwords or app rows.
 BEGIN READ ONLY;
-WITH actor AS (
+WITH RECURSIVE actor AS (
     SELECT oid, rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
            rolreplication, rolbypassrls, rolinherit
     FROM pg_catalog.pg_roles
@@ -14,6 +14,28 @@ WITH actor AS (
     JOIN pg_catalog.pg_roles granted ON granted.oid = edge.roleid
     JOIN pg_catalog.pg_roles member ON member.oid = edge.member
     WHERE edge.member = (SELECT oid FROM actor)
+), membership_closure AS (
+    SELECT granted.oid AS granted_oid, granted.rolname AS granted_role,
+           member.rolname AS member_role, edge.admin_option,
+           edge.inherit_option, edge.set_option, 1 AS depth,
+           edge.inherit_option AS effective_inherit,
+           ARRAY[member.rolname::text, granted.rolname::text] AS role_path,
+           ARRAY[(SELECT oid FROM actor), granted.oid] AS oid_path
+    FROM pg_catalog.pg_auth_members edge
+    JOIN pg_catalog.pg_roles granted ON granted.oid = edge.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid = edge.member
+    WHERE edge.member = (SELECT oid FROM actor)
+    UNION ALL
+    SELECT granted.oid, granted.rolname, member.rolname,
+           edge.admin_option, edge.inherit_option, edge.set_option,
+           prior.depth + 1, prior.effective_inherit AND edge.inherit_option,
+           prior.role_path || granted.rolname::text,
+           prior.oid_path || granted.oid
+    FROM membership_closure prior
+    JOIN pg_catalog.pg_auth_members edge ON edge.member = prior.granted_oid
+    JOIN pg_catalog.pg_roles granted ON granted.oid = edge.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid = edge.member
+    WHERE NOT granted.oid = ANY(prior.oid_path)
 ), relevant_acl AS (
     SELECT 'database'::text AS object_kind, db.datname AS object_name,
            CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE grantee.rolname END AS grantee,
@@ -68,6 +90,13 @@ SELECT pg_catalog.jsonb_build_object(
     'memberships', COALESCE((SELECT pg_catalog.jsonb_agg(
         pg_catalog.to_jsonb(actor_memberships)
         ORDER BY granted_role, member_role) FROM actor_memberships), '[]'::jsonb),
+    'recursive_memberships', COALESCE((SELECT pg_catalog.jsonb_agg(
+        pg_catalog.jsonb_build_object('granted_role', granted_role,
+            'member_role', member_role, 'admin_option', admin_option,
+            'inherit_option', inherit_option, 'set_option', set_option,
+            'effective_inherit', effective_inherit,
+            'depth', depth, 'role_path', role_path)
+        ORDER BY depth, granted_role, member_role) FROM membership_closure), '[]'::jsonb),
     'owners', pg_catalog.jsonb_build_object(
         'database', pg_catalog.pg_get_userbyid(db.datdba),
         'public_schema', pg_catalog.pg_get_userbyid(ns.nspowner),
@@ -75,22 +104,31 @@ SELECT pg_catalog.jsonb_build_object(
                                  ELSE pg_catalog.pg_get_userbyid(cls.relowner) END),
     'capabilities', pg_catalog.jsonb_build_object(
         'create_role_attribute', COALESCE((SELECT rolcreaterole FROM actor), false),
-        'database_connect_grant_option', EXISTS (SELECT 1 FROM relevant_acl
+        'database_connect_direct_grant_option', EXISTS (SELECT 1 FROM relevant_acl
             WHERE object_kind='database' AND object_name=current_database()
               AND grantee='espacigo_gcp04_w7_bootstrap'
               AND privilege_type='CONNECT' AND is_grantable),
-        'public_schema_usage_grant_option', EXISTS (SELECT 1 FROM relevant_acl
+        'database_connect_effective_grant_option',
+            has_database_privilege('espacigo_gcp04_w7_bootstrap', current_database(), 'CONNECT WITH GRANT OPTION'),
+        'public_schema_usage_direct_grant_option', EXISTS (SELECT 1 FROM relevant_acl
             WHERE object_kind='schema' AND object_name='public'
               AND grantee='espacigo_gcp04_w7_bootstrap'
               AND privilege_type='USAGE' AND is_grantable),
-        'ledger_select_grant_option', CASE WHEN cls.oid IS NULL THEN NULL ELSE EXISTS (
+        'public_schema_usage_effective_grant_option',
+            has_schema_privilege('espacigo_gcp04_w7_bootstrap', 'public', 'USAGE WITH GRANT OPTION'),
+        'ledger_select_direct_grant_option', CASE WHEN cls.oid IS NULL THEN NULL ELSE EXISTS (
             SELECT 1 FROM relevant_acl WHERE object_kind='ledger'
               AND grantee='espacigo_gcp04_w7_bootstrap'
               AND privilege_type='SELECT' AND is_grantable) END,
+        'ledger_select_effective_grant_option', CASE WHEN cls.oid IS NULL THEN NULL ELSE
+            has_table_privilege('espacigo_gcp04_w7_bootstrap', cls.oid, 'SELECT WITH GRANT OPTION') END,
         'database_owner', pg_catalog.pg_get_userbyid(db.datdba)='espacigo_gcp04_w7_bootstrap',
         'public_schema_owner', pg_catalog.pg_get_userbyid(ns.nspowner)='espacigo_gcp04_w7_bootstrap',
         'ledger_owner', CASE WHEN cls.oid IS NULL THEN NULL ELSE
             pg_catalog.pg_get_userbyid(cls.relowner)='espacigo_gcp04_w7_bootstrap' END),
+    'actor_acl', COALESCE((SELECT pg_catalog.jsonb_agg(pg_catalog.to_jsonb(relevant_acl)
+        ORDER BY object_kind, object_name, privilege_type, is_grantable)
+        FROM relevant_acl WHERE grantee='espacigo_gcp04_w7_bootstrap'), '[]'::jsonb),
     'public_acl', COALESCE((SELECT pg_catalog.jsonb_agg(pg_catalog.to_jsonb(relevant_acl)
         ORDER BY object_kind, object_name, privilege_type, is_grantable)
         FROM relevant_acl WHERE grantee='PUBLIC'), '[]'::jsonb),

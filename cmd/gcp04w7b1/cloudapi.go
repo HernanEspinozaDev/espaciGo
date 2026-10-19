@@ -205,6 +205,20 @@ func (a cloudAPI) WaitOperation(ctx context.Context, name string) error {
 		}
 	}
 }
+func (a cloudAPI) ReadOperation(ctx context.Context, name string) (gcp04w7b1.OperationMetadata, error) {
+	if name == "" {
+		return gcp04w7b1.OperationMetadata{}, errors.New("B1 operation ID required")
+	}
+	op, e := a.sql.Operations.Get(gcp04w7b1.ProjectID, name).Context(ctx).Do()
+	if e != nil {
+		return gcp04w7b1.OperationMetadata{}, apiError(e)
+	}
+	if op == nil {
+		return gcp04w7b1.OperationMetadata{}, errors.New("B1 operation metadata missing")
+	}
+	failed := op.Error != nil && len(op.Error.Errors) > 0
+	return gcp04w7b1.OperationMetadata{ID: op.Name, Type: op.OperationType, TargetID: op.TargetId, TargetLink: op.TargetLink, TargetProject: op.TargetProject, Status: op.Status, HasErrors: failed}, nil
+}
 func (a cloudAPI) DeleteUser(ctx context.Context, name string) (string, error) {
 	if name != gcp04w7b1.Bootstrap {
 		return "", errors.New("B1 cleanup user identity mismatch")
@@ -229,12 +243,18 @@ func (a cloudAPI) DestroyVersion(ctx context.Context, name, etag string) error {
 	if v == nil || v.Name != name || v.Etag != etag || (v.State != "ENABLED" && v.State != "DISABLED") {
 		return errors.New("B1 version state or ETag changed")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	x, e := a.sm.Projects.Secrets.Versions.Destroy(name, &secretmanager.DestroySecretVersionRequest{Etag: etag}).Context(ctx).Do()
 	if e != nil {
 		return apiError(e)
 	}
 	if x == nil || x.Name != name || x.State != "DESTROYED" {
 		return errors.New("B1 version destruction not confirmed")
+	}
+	if x.Etag == "" {
+		return errors.New("B1 destroyed version ETag missing")
 	}
 	return nil
 }
@@ -248,6 +268,9 @@ func (a cloudAPI) DeleteSecret(ctx context.Context, name, release, etag string) 
 	}
 	if x == nil || x.Name != name || x.Etag != etag || x.Labels["release_id"] != release || x.Labels["purpose"] != "gcp04-w7-b1-bootstrap" {
 		return errors.New("B1 secret ownership or ETag mismatch")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	_, e = a.sm.Projects.Secrets.Delete(name).Etag(etag).Context(ctx).Do()
 	if e != nil {

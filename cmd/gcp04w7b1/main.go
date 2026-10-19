@@ -78,7 +78,7 @@ func run(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "credential file is accepted only by the probe stage")
 		return 2
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(release.MaxDurationSeconds)*time.Second)
+	ctx, cancel := boundedReleaseContext(context.Background(), release, time.Now())
 	defer cancel()
 	api, err := newCloudAPI(ctx)
 	if err != nil {
@@ -103,7 +103,23 @@ func run(args []string, out, errOut io.Writer) int {
 			fmt.Fprintln(errOut, "B1 create incomplete or uncertain; reconcile exact run before any retry")
 			return 1
 		}
-		_ = json.NewEncoder(out).Encode(map[string]any{"format": "espacigo.gcp04.w7.b1-create.v1", "status": "created", "login": gcp04w7b1.Bootstrap, "database_role_requested": gcp04w7b1.AdminRole, "secret_resource": inv.Secret.Name, "secret_version": version, "mutation_authorized": true})
+		resourceReleaseID := release.ResourceReleaseID
+		if resourceReleaseID == "" {
+			resourceReleaseID = release.ReleaseID
+		}
+		records, journalErr := journal.ReadRecords(resourceReleaseID)
+		operationID, proofErr := gcp04w7b1.CreateOperationIDFromJournal(records, resourceReleaseID)
+		if journalErr != nil || proofErr != nil {
+			fmt.Fprintln(errOut, "B1 created but exact operation proof could not be recovered from the private journal")
+			return 1
+		}
+		created, inventoryErr := gcp04w7b1.Collect(ctx, api)
+		status, reconcileErr := gcp04w7b1.ReconcileInventory(created, resourceReleaseID, version)
+		if inventoryErr != nil || reconcileErr != nil || status["status"] != "bootstrap_actor_created_probe_not_accredited" || created.Secret.ETag == "" || len(created.Versions) != 1 || created.Versions[0].Number != version || created.Versions[0].State != "ENABLED" || created.Versions[0].ETag == "" {
+			fmt.Fprintln(errOut, "B1 created but exact post-create resource inventory could not be reconciled")
+			return 1
+		}
+		_ = json.NewEncoder(out).Encode(map[string]any{"format": "espacigo.gcp04.w7.b1-create.v1", "status": "created", "login": gcp04w7b1.Bootstrap, "database_role_requested": gcp04w7b1.AdminRole, "secret_resource": parent(), "secret_etag": created.Secret.ETag, "secret_version": version, "secret_version_etag": created.Versions[0].ETag, "created_secret_version_etag": created.Versions[0].ETag, "create_operation_id": operationID, "mutation_authorized": true})
 		return 0
 	case "probe":
 		status, err := gcp04w7b1.ReconcileInventory(inv, release.ResourceReleaseID, release.Version)
@@ -155,6 +171,17 @@ func run(args []string, out, errOut io.Writer) int {
 	default:
 		return 2
 	}
+}
+
+func boundedReleaseContext(ctx context.Context, release gcp04w7b1.Release, now time.Time) (context.Context, context.CancelFunc) {
+	deadline := now.Add(time.Duration(release.MaxDurationSeconds) * time.Second)
+	if release.ExpiresAt.Before(deadline) {
+		deadline = release.ExpiresAt
+	}
+	if parent, ok := ctx.Deadline(); ok && parent.Before(deadline) {
+		deadline = parent
+	}
+	return context.WithDeadline(ctx, deadline)
 }
 
 func newCloudAPI(ctx context.Context) (cloudAPI, error) {

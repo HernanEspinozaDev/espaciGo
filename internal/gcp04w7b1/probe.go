@@ -28,7 +28,7 @@ const (
 	Observer     = "espacigo_gcp04_w7_observer"
 	ObserverRole = "espacigo_db_observer"
 	SecretID     = "espacigo-gcp04-w7-b1-bootstrap-credential"
-	QuerySHA256  = "cd0544ae25fa4dc335cb6c10ac029ea6c3b65e7bebd48c29c4c2c8cf1c90f9aa"
+	QuerySHA256  = "9f9427086cb31d446edeb64e007e1f5e24999feee4cb245930964e1507ec3826"
 )
 
 // CompileQuery accepts only the reviewed, single read-only catalog SELECT.
@@ -56,14 +56,16 @@ func CompileQuery(source []byte) (string, error) {
 }
 
 type ProbeReport struct {
-	Format       string       `json:"format"`
-	Target       ProbeTarget  `json:"target"`
-	Actor        *Actor       `json:"actor"`
-	Memberships  []Membership `json:"memberships"`
-	Owners       Owners       `json:"owners"`
-	Capabilities Capabilities `json:"capabilities"`
-	PublicACL    []ACL        `json:"public_acl"`
-	Scope        ProbeScope   `json:"scope"`
+	Format               string                `json:"format"`
+	Target               ProbeTarget           `json:"target"`
+	Actor                *Actor                `json:"actor"`
+	Memberships          []Membership          `json:"memberships"`
+	RecursiveMemberships []RecursiveMembership `json:"recursive_memberships"`
+	Owners               Owners                `json:"owners"`
+	Capabilities         Capabilities          `json:"capabilities"`
+	ActorACL             []ACL                 `json:"actor_acl"`
+	PublicACL            []ACL                 `json:"public_acl"`
+	Scope                ProbeScope            `json:"scope"`
 }
 type ProbeTarget struct {
 	Database string `json:"database"`
@@ -89,19 +91,32 @@ type Membership struct {
 	Inherit     bool   `json:"inherit_option"`
 	Set         bool   `json:"set_option"`
 }
+type RecursiveMembership struct {
+	GrantedRole string   `json:"granted_role"`
+	MemberRole  string   `json:"member_role"`
+	Admin       bool     `json:"admin_option"`
+	Inherit     bool     `json:"inherit_option"`
+	Set         bool     `json:"set_option"`
+	Effective   bool     `json:"effective_inherit"`
+	Depth       int      `json:"depth"`
+	RolePath    []string `json:"role_path"`
+}
 type Owners struct {
 	Database string  `json:"database"`
 	Schema   string  `json:"public_schema"`
 	Ledger   *string `json:"migration_ledger"`
 }
 type Capabilities struct {
-	CreateRoleAttribute bool  `json:"create_role_attribute"`
-	DatabaseConnectGO   bool  `json:"database_connect_grant_option"`
-	SchemaUsageGO       bool  `json:"public_schema_usage_grant_option"`
-	LedgerSelectGO      *bool `json:"ledger_select_grant_option"`
-	DatabaseOwner       bool  `json:"database_owner"`
-	SchemaOwner         bool  `json:"public_schema_owner"`
-	LedgerOwner         *bool `json:"ledger_owner"`
+	CreateRoleAttribute        bool  `json:"create_role_attribute"`
+	DatabaseConnectDirectGO    bool  `json:"database_connect_direct_grant_option"`
+	DatabaseConnectEffectiveGO bool  `json:"database_connect_effective_grant_option"`
+	SchemaUsageDirectGO        bool  `json:"public_schema_usage_direct_grant_option"`
+	SchemaUsageEffectiveGO     bool  `json:"public_schema_usage_effective_grant_option"`
+	LedgerSelectDirectGO       *bool `json:"ledger_select_direct_grant_option"`
+	LedgerSelectEffectiveGO    *bool `json:"ledger_select_effective_grant_option"`
+	DatabaseOwner              bool  `json:"database_owner"`
+	SchemaOwner                bool  `json:"public_schema_owner"`
+	LedgerOwner                *bool `json:"ledger_owner"`
 }
 type ACL struct {
 	Kind      string `json:"object_kind"`
@@ -142,15 +157,23 @@ func Assess(raw []byte) (map[string]any, error) {
 		"actor_attributes_observed":             r.Actor,
 		"cloudsqlsuperuser_membership_observed": roleMembership,
 		"memberships":                           r.Memberships,
+		"recursive_memberships":                 r.RecursiveMemberships,
 		"owners":                                r.Owners,
 		"capability_matrix": map[string]any{
-			"create_role_attribute":                     observation(r.Actor.CreateRole),
-			"createdb_attribute":                        observation(r.Actor.CreateDB),
-			"inherit_attribute":                         observation(r.Actor.Inherit),
-			"database_connect_grant_option_or_owner":    r.Capabilities.DatabaseConnectGO || r.Capabilities.DatabaseOwner,
-			"public_schema_usage_grant_option_or_owner": r.Capabilities.SchemaUsageGO || r.Capabilities.SchemaOwner,
-			"ledger_select_grant_option_or_owner":       nullableCapability(r.Capabilities.LedgerSelectGO, r.Capabilities.LedgerOwner),
+			"create_role_attribute":                      observation(r.Actor.CreateRole),
+			"createdb_attribute":                         observation(r.Actor.CreateDB),
+			"inherit_attribute":                          observation(r.Actor.Inherit),
+			"database_connect_direct_grant_option":       r.Capabilities.DatabaseConnectDirectGO,
+			"database_connect_effective_grant_option":    r.Capabilities.DatabaseConnectEffectiveGO,
+			"database_owner":                             r.Capabilities.DatabaseOwner,
+			"public_schema_usage_direct_grant_option":    r.Capabilities.SchemaUsageDirectGO,
+			"public_schema_usage_effective_grant_option": r.Capabilities.SchemaUsageEffectiveGO,
+			"public_schema_owner":                        r.Capabilities.SchemaOwner,
+			"ledger_select_direct_grant_option":          observationNullable(r.Capabilities.LedgerSelectDirectGO),
+			"ledger_select_effective_grant_option":       observationNullable(r.Capabilities.LedgerSelectEffectiveGO),
+			"ledger_owner":                               observationNullable(r.Capabilities.LedgerOwner),
 		},
+		"actor_acl":                        r.ActorACL,
 		"public_acl":                       r.PublicACL,
 		"observer_bootstrap_compatibility": "not_accredited_by_b1_probe",
 		"mutation_authorized":              false,
@@ -204,7 +227,7 @@ func RunProbeOnce(ctx context.Context, r Release, conn *pgx.Conn, source []byte,
 	if err := stamp("probe_started"); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(r.MaxDurationSeconds)*time.Second)
+	ctx, cancel := stageContext(ctx, r, now)
 	defer cancel()
 	result, err := RunProbe(ctx, conn, source)
 	if err != nil {
@@ -247,9 +270,9 @@ func observation(v bool) string {
 	}
 	return "observed_false"
 }
-func nullableCapability(grant, owner *bool) any {
-	if grant == nil || owner == nil {
+func observationNullable(v *bool) any {
+	if v == nil {
 		return "unknown"
 	}
-	return *grant || *owner
+	return *v
 }

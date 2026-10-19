@@ -6,16 +6,17 @@
 
 La ruta B1 usa un login builtin temporal nuevo, separado de `espacigo_gcp04_w7_observer` y de `postgres`. La solicitud de alta fija explícitamente `databaseRoles=["cloudsqlsuperuser"]`; el código rechaza rol omitido, distinto o fallback. El atributo PostgreSQL `SUPERUSER` se exige falso en la observación. `CREATEDB`, `CREATEROLE` e `INHERIT` se reportan como observados y no se normalizan. El resultado declara que B1 no acredita compatibilidad del observer.
 
-El SQL fijo consulta únicamente catálogos: identidad de sesión, atributos propios, membresías directas, owners, grant options de base/schema/ledger y ACL directa/PUBLIC. No lee filas de negocio, secretos, settings ni estadísticas; ejecuta un único SELECT dentro de transacción de solo lectura. El hash aceptado está fijado en código y todo cambio de bytes invalida el ejecutor.
+El SQL fijo consulta únicamente catálogos: identidad de sesión, atributos propios, membresías directas y su cierre recursivo, owners, ACL directas/PUBLIC y capacidades efectivas de grant option para base/schema/ledger. El reporte mantiene por separado ACL directa, propietario literal y capacidad efectiva heredada; por eso puede mostrar direct grant=false y effective grant=true por la membresía `cloudsqlsuperuser`. No lee filas de negocio, secretos, settings ni estadísticas; ejecuta un único SELECT dentro de transacción de solo lectura. El hash aceptado está fijado en código y todo cambio de bytes invalida el ejecutor.
 
 ## Gating y límites
 
 - La CLI inicia en `--mode=plan`; esa ruta no construye clientes ni consulta ADC.
 - Operaciones requieren release JSON exacto, privado (`0600`), digest confirmado en CLI, etapa coincidente, responsable revisor `HernanEspinozaDev`, target/login/rol/hash fijados, una ejecución y expiración máxima de 30 minutos. Crear y limpiar exigen además sus flags de etapa.
-- Cada etapa usa lease local exclusivo; una lease vencida no se roba automáticamente. Resultado API incierto requiere reconciliación antes de reintentar.
+- Cada etapa limita su contexto por el menor entre deadline del padre, `expires_at` del release y `max_duration_seconds`; se vuelve a comprobar antes de cada mutación. Cada etapa usa lease local exclusivo; una lease vencida no se roba automáticamente. Resultado API incierto requiere reconciliación antes de reintentar.
 - Crear hace una sola alta de secreto, una sola versión y una sola inserción de usuario. El payload se genera en memoria; no va en argumentos, salida, journal ni logs. El journal privado registra solo metadatos saneados.
 - Probe requiere archivo de credencial protegido `0600`, identidad/base/IP privada exactas, una consulta fijada y deadline SQL de 120 segundos. No habilita escritura ni acredita el contrato observer.
-- Limpieza es una etapa separada: `users.delete` exacto una vez, espera de operación DONE y ausencia comprobada; después destruye solo la versión fijada por ETag, confirma `DESTROYED` y elimina únicamente el shell con etiquetas y ETag propios.
+- El journal común del recurso registra el `CREATE_USER` que este proceso inició, con ID, tipo, instancia objetivo, login solicitado, release y ETags. Limpieza exige el registro `create_complete` y vuelve a leer la operación en Admin API (`CREATE_USER`, ID, proyecto/instancia, `DONE`) antes de borrar; también verifica tipo, target e ID de `DELETE_USER`, `DONE` y ausencia antes de limpiar el secreto. La liberación de cleanup fija tanto el ETag original del alta como el ETag actual observado para reanudaciones tras un cambio de estado. Una colisión 409 o login de mismo nombre/rol sin esa prueba no se adopta.
+- Limpieza es una etapa separada: `users.delete` exacto una vez, espera de operación DONE y ausencia comprobada; después destruye solo la versión fijada por ETag, confirma `DESTROYED` y elimina únicamente el shell con etiquetas y ETag propios. Puede reconciliar versiones `ENABLED`, `DISABLED`, `DESTROYED`, shell vacío o ausente usando release y prueba del journal con ETags; nunca repite la destrucción de una versión ya `DESTROYED`.
 - La reconciliación rechaza colisiones, recursos ajenos, versiones extra o inventario incompleto. No adopta ni modifica `postgres` ni el observer.
 
 ## Preflight antes de cualquier uso futuro
@@ -30,7 +31,7 @@ Las llamadas habilitadas por el código son acotadas por release y contexto, con
 
 ## Evidencia local y límites
 
-Las pruebas unitarias usan mocks HTTP locales para confirmar requests explícitos, no reintento, ETags e identidad exacta. `scripts/test-gcp04-w7-b1-probe-postgres.sh` usa PostgreSQL 18 local con red deshabilitada y almacenamiento temporal; el rol fixture `cloudsqlsuperuser` es `NOLOGIN` y no tiene atributo nativo `SUPERUSER`. Estas pruebas comprueban SQL y lógica del paquete local. No prueban catálogo, flags de membresía, endpoint, credenciales, IAM, Secret Manager, costo ni comportamiento Cloud SQL real. No hay evidencia de ejecución Cloud en este corte.
+Las pruebas unitarias usan mocks HTTP locales para confirmar requests explícitos, no reintento, ETags, expiración y propiedad por operación/ID/tipo/target. Las pruebas de cleanup cubren colisión de mismo nombre y rol, `ENABLED`/`DISABLED`/`DESTROYED`, shell vacío/ausente y reanudación sin repetir destroy ni borrar sin prueba. `scripts/test-gcp04-w7-b1-probe-postgres.sh` usa PostgreSQL 18 local con red deshabilitada y almacenamiento temporal; el rol fixture `cloudsqlsuperuser` es `NOLOGIN` y no tiene atributo nativo `SUPERUSER`. El harness prueba permisos heredados con `INHERIT` y los contrasta con `NOINHERIT`, separando ACL directa de capacidad efectiva. Estas pruebas comprueban SQL y lógica del paquete local. No prueban catálogo, endpoint, credenciales, IAM, Secret Manager, costo ni comportamiento Cloud SQL real. No hay evidencia de ejecución Cloud en este corte.
 
 ## Archivos implementados
 

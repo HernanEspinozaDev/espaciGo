@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,15 @@ type VersionMetadata struct {
 	State  string `json:"state"`
 	ETag   string `json:"etag"`
 }
+type OperationMetadata struct {
+	ID            string `json:"id"`
+	Type          string `json:"type"`
+	TargetID      string `json:"target_id"`
+	TargetLink    string `json:"target_link"`
+	TargetProject string `json:"target_project"`
+	Status        string `json:"status"`
+	HasErrors     bool   `json:"has_errors"`
+}
 type Inventory struct {
 	Instance InstanceMetadata  `json:"instance"`
 	Users    []UserMetadata    `json:"users"`
@@ -67,30 +77,43 @@ type Mutator interface {
 	AddVersion(context.Context, string, []byte) (VersionMetadata, error)
 	InsertUser(context.Context, string, string, []string, []byte) (string, error)
 	WaitOperation(context.Context, string) error
+	ReadOperation(context.Context, string) (OperationMetadata, error)
 }
 type CleanupMutator interface {
 	DeleteUser(context.Context, string) (string, error)
 	DestroyVersion(context.Context, string, string) error
 	DeleteSecret(context.Context, string, string, string) error
+	ReadOperation(context.Context, string) (OperationMetadata, error)
 }
 type JournalRecord struct {
-	ReleaseID   string `json:"release_id"`
-	Stage       string `json:"stage"`
-	Phase       string `json:"phase"`
-	Target      string `json:"target"`
-	Login       string `json:"login"`
-	Secret      string `json:"secret"`
-	SecretETag  string `json:"secret_etag,omitempty"`
-	Version     string `json:"version,omitempty"`
-	VersionETag string `json:"version_etag,omitempty"`
-	Operation   string `json:"operation,omitempty"`
-	At          string `json:"at"`
+	ReleaseID         string `json:"release_id"`
+	ResourceReleaseID string `json:"resource_release_id"`
+	Stage             string `json:"stage"`
+	Phase             string `json:"phase"`
+	Target            string `json:"target"`
+	Login             string `json:"login"`
+	Secret            string `json:"secret"`
+	SecretETag        string `json:"secret_etag,omitempty"`
+	Version           string `json:"version,omitempty"`
+	VersionETag       string `json:"version_etag,omitempty"`
+	Operation         string `json:"operation,omitempty"`
+	OperationType     string `json:"operation_type,omitempty"`
+	OperationTarget   string `json:"operation_target,omitempty"`
+	OperationUser     string `json:"operation_user,omitempty"`
+	At                string `json:"at"`
 }
-type Journal interface{ Save(JournalRecord) error }
+type Journal interface {
+	Save(JournalRecord) error
+	ReadRecords(string) ([]JournalRecord, error)
+}
 type AppendJournal struct{ Dir string }
 
 func (j AppendJournal) Save(r JournalRecord) error {
-	if !safeID(r.ReleaseID) || j.Dir == "" {
+	resourceID := r.ResourceReleaseID
+	if resourceID == "" {
+		resourceID = r.ReleaseID
+	}
+	if !safeID(r.ReleaseID) || !safeID(resourceID) || j.Dir == "" {
 		return errors.New("private journal path and release ID required")
 	}
 	if err := os.MkdirAll(j.Dir, 0700); err != nil {
@@ -99,12 +122,20 @@ func (j AppendJournal) Save(r JournalRecord) error {
 	if err := os.Chmod(j.Dir, 0700); err != nil {
 		return err
 	}
+	dirPath, err := filepath.Abs(j.Dir)
+	if err != nil {
+		return err
+	}
+	resolvedDir, err := filepath.EvalSymlinks(dirPath)
+	if err != nil || resolvedDir != dirPath {
+		return errors.New("private journal path contains a symlink")
+	}
 	b, err := json.Marshal(r)
 	if err != nil {
 		return err
 	}
 	b = append(b, '\n')
-	p := filepath.Join(j.Dir, r.ReleaseID+".jsonl")
+	p := filepath.Join(j.Dir, resourceID+".jsonl")
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -117,6 +148,44 @@ func (j AppendJournal) Save(r JournalRecord) error {
 		return err
 	}
 	return f.Sync()
+}
+
+func (j AppendJournal) ReadRecords(releaseID string) ([]JournalRecord, error) {
+	if !safeID(releaseID) || j.Dir == "" {
+		return nil, errors.New("private journal path and release ID required")
+	}
+	dir, err := filepath.Abs(j.Dir)
+	if err != nil {
+		return nil, err
+	}
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil || resolvedDir != dir {
+		return nil, errors.New("private journal path contains a symlink")
+	}
+	info, err := os.Lstat(dir)
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 || info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("private journal directory unavailable")
+	}
+	path := filepath.Join(dir, releaseID+".jsonl")
+	info, err = os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Mode()&os.ModeSymlink != 0 || info.Size() == 0 || info.Size() > 1<<20 {
+		return nil, errors.New("private journal file unavailable")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || int64(len(b)) != info.Size() {
+		return nil, errors.New("private journal file unreadable or changed")
+	}
+	var records []JournalRecord
+	for _, line := range strings.Split(strings.TrimSuffix(string(b), "\n"), "\n") {
+		var r JournalRecord
+		dec := json.NewDecoder(strings.NewReader(line))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&r); err != nil || (r.ResourceReleaseID != "" && r.ResourceReleaseID != releaseID) || (r.ResourceReleaseID == "" && r.ReleaseID != releaseID) || dec.Decode(&struct{}{}) != io.EOF {
+			return nil, errors.New("private journal record invalid")
+		}
+		records = append(records, r)
+	}
+	return records, nil
 }
 
 type Release struct {
@@ -136,6 +205,8 @@ type Release struct {
 	SecretETag         string    `json:"secret_etag,omitempty"`
 	Version            string    `json:"secret_version,omitempty"`
 	VersionETag        string    `json:"secret_version_etag,omitempty"`
+	CreatedVersionETag string    `json:"created_secret_version_etag,omitempty"`
+	CreateOperationID  string    `json:"create_operation_id,omitempty"`
 }
 type Plan struct {
 	Format         string           `json:"format"`
@@ -226,9 +297,18 @@ func ReconcileInventory(x Inventory, resourceRelease string, version string) (ma
 	case !userPresent && !secretPresent && len(x.Versions) == 0:
 		status = "resources_absent"
 	case !userPresent && secretExact && len(x.Versions) == 1 && versionFound && versionExact:
-		status = "user_absent_secret_version_requires_explicit_cleanup"
-	case userExact && secretExact && len(x.Versions) == 1 && versionFound && versionExact && x.Versions[0].State == "ENABLED":
-		status = "bootstrap_actor_created_probe_not_accredited"
+		if x.Versions[0].State == "ENABLED" || x.Versions[0].State == "DISABLED" || x.Versions[0].State == "DESTROYED" {
+			status = "user_absent_secret_version_requires_explicit_cleanup"
+		}
+	case userExact && secretExact && len(x.Versions) == 1 && versionFound && versionExact:
+		switch x.Versions[0].State {
+		case "ENABLED":
+			status = "bootstrap_actor_created_probe_not_accredited"
+		case "DISABLED":
+			status = "bootstrap_actor_created_version_disabled_requires_cleanup"
+		case "DESTROYED":
+			status = "bootstrap_actor_created_version_destroyed_requires_cleanup"
+		}
 	case userPresent && !userExact:
 		status = "user_collision_do_not_adopt_or_delete"
 	case secretPresent && !secretExact:
@@ -242,7 +322,30 @@ func validRelease(r Release, stage string, now time.Time) bool {
 	if stage == "b1_create" && resourceRelease == "" {
 		resourceRelease = r.ReleaseID
 	}
-	return r.Decision == "approved" && r.Stage == stage && r.Reviewer == "HernanEspinozaDev" && safeID(r.ReleaseID) && safeID(resourceRelease) && r.ExpiresAt.After(now) && r.ExpiresAt.Sub(now) <= 30*time.Minute && r.Target == ProjectID+"/"+Instance && r.Login == Bootstrap && r.Role == AdminRole && r.SecretID == SecretID && r.QuerySHA256 == QuerySHA256 && r.Runs == 1 && r.MaxDurationSeconds > 0 && r.MaxDurationSeconds <= 1800 && (stage != "b1_probe" || (r.Version != "" && r.VersionETag != "" && r.SecretETag != ""))
+	return r.Decision == "approved" && r.Stage == stage && r.Reviewer == "HernanEspinozaDev" && safeID(r.ReleaseID) && safeID(resourceRelease) && (stage != "b1_create" || resourceRelease == r.ReleaseID) && r.ExpiresAt.After(now) && r.ExpiresAt.Sub(now) <= 30*time.Minute && r.Target == ProjectID+"/"+Instance && r.Login == Bootstrap && r.Role == AdminRole && r.SecretID == SecretID && r.QuerySHA256 == QuerySHA256 && r.Runs == 1 && r.MaxDurationSeconds > 0 && r.MaxDurationSeconds <= 1800 && (stage != "b1_probe" || (r.Version != "" && r.VersionETag != "" && r.SecretETag != "")) && (stage != "b1_cleanup" || (r.Version != "" && r.VersionETag != "" && r.CreatedVersionETag != "" && r.SecretETag != "" && safeOperationID(r.CreateOperationID)))
+}
+
+func stageContext(ctx context.Context, r Release, now time.Time) (context.Context, context.CancelFunc) {
+	deadline := now.Add(time.Duration(r.MaxDurationSeconds) * time.Second)
+	if r.ExpiresAt.Before(deadline) {
+		deadline = r.ExpiresAt
+	}
+	if parentDeadline, ok := ctx.Deadline(); ok && parentDeadline.Before(deadline) {
+		deadline = parentDeadline
+	}
+	return context.WithDeadline(ctx, deadline)
+}
+
+func validOperation(op OperationMetadata, id, typ string) bool {
+	return safeOperationID(id) && op.ID == id && op.Type == typ && op.TargetID == Instance && op.TargetProject == ProjectID && op.Status == "DONE" && !op.HasErrors && operationTargetLink(op.TargetLink)
+}
+
+func operationTargetLink(link string) bool {
+	u, err := url.Parse(link)
+	if err != nil || u.Scheme != "https" || (u.Host != "sqladmin.googleapis.com" && u.Host != "www.googleapis.com") {
+		return false
+	}
+	return strings.HasSuffix(u.Path, "/projects/"+ProjectID+"/instances/"+Instance)
 }
 
 func ValidateRelease(r Release, stage string, now time.Time) error {
@@ -315,10 +418,17 @@ func CreateB1(ctx context.Context, x Inventory, r Release, reader Reader, m Muta
 	if err != nil {
 		return "", err
 	}
-	deadline, cancel := context.WithTimeout(ctx, time.Duration(r.MaxDurationSeconds)*time.Second)
+	deadline, cancel := stageContext(ctx, r, now)
 	defer cancel()
 	stamp := func(phase string, secret SecretMetadata, version VersionMetadata, op string) error {
-		return j.Save(JournalRecord{ReleaseID: r.ReleaseID, Stage: r.Stage, Phase: phase, Target: r.Target, Login: r.Login, Secret: secret.Name, SecretETag: secret.ETag, Version: version.Number, VersionETag: version.ETag, Operation: op, At: time.Now().UTC().Format(time.RFC3339)})
+		typ, target, user := "", "", ""
+		if op != "" {
+			typ, target, user = "CREATE_USER", Instance, Bootstrap
+		}
+		return j.Save(JournalRecord{ReleaseID: r.ReleaseID, ResourceReleaseID: r.ReleaseID, Stage: r.Stage, Phase: phase, Target: r.Target, Login: r.Login, Secret: secret.Name, SecretETag: secret.ETag, Version: version.Number, VersionETag: version.ETag, Operation: op, OperationType: typ, OperationTarget: target, OperationUser: user, At: time.Now().UTC().Format(time.RFC3339)})
+	}
+	if err = deadline.Err(); err != nil {
+		return "", err
 	}
 	if err = stamp("create_started", SecretMetadata{}, VersionMetadata{}, ""); err != nil {
 		return "", err
@@ -330,6 +440,10 @@ func CreateB1(ctx context.Context, x Inventory, r Release, reader Reader, m Muta
 	}
 	if !validSecret(secret, r.ReleaseID) || secret.ETag == "" {
 		_ = stamp("secret_shell_identity_uncertain", secret, VersionMetadata{}, "")
+		return "", ErrUncertain
+	}
+	if err = deadline.Err(); err != nil {
+		_ = stamp("create_expired_after_secret_shell", secret, VersionMetadata{}, "")
 		return "", ErrUncertain
 	}
 	if err = stamp("secret_shell_created", secret, VersionMetadata{}, ""); err != nil {
@@ -354,10 +468,17 @@ func CreateB1(ctx context.Context, x Inventory, r Release, reader Reader, m Muta
 		_ = stamp("secret_version_identity_uncertain", secret, version, "")
 		return "", ErrUncertain
 	}
+	if err = deadline.Err(); err != nil {
+		_ = stamp("create_expired_after_secret_version", secret, version, "")
+		return "", ErrUncertain
+	}
 	if err = stamp("secret_version_created", secret, version, ""); err != nil {
 		return "", ErrUncertain
 	}
 	// The administrative role is explicit in every request; empty roles are rejected.
+	if err = deadline.Err(); err != nil {
+		return "", ErrUncertain
+	}
 	op, err := m.InsertUser(deadline, Bootstrap, "BUILT_IN", []string{AdminRole}, password)
 	if err != nil || strings.TrimSpace(op) == "" {
 		_ = stamp("user_insert_outcome_uncertain", secret, version, op)
@@ -368,6 +489,11 @@ func CreateB1(ctx context.Context, x Inventory, r Release, reader Reader, m Muta
 	}
 	if err = m.WaitOperation(deadline, op); err != nil {
 		_ = stamp("user_operation_uncertain", secret, version, op)
+		return "", ErrUncertain
+	}
+	operation, err := m.ReadOperation(deadline, op)
+	if err != nil || !validOperation(operation, op, "CREATE_USER") {
+		_ = stamp("user_operation_identity_uncertain", secret, version, op)
 		return "", ErrUncertain
 	}
 	users, err := reader.ListUsers(deadline)
@@ -426,27 +552,68 @@ func CleanupB1(ctx context.Context, x Inventory, r Release, reader Reader, m Cle
 	if x.Instance != expectedInstance() {
 		return errors.New("B1 cleanup target metadata drift")
 	}
+	deadline, cancel := stageContext(ctx, r, now)
+	defer cancel()
 	userPresent, userExact := inspectExactUser(x.Users)
 	if userPresent && !userExact {
 		return errors.New("B1 cleanup exact user identity or explicit role mismatch")
 	}
-	if !validSecret(x.Secret, r.ResourceReleaseID) || x.Secret.ETag != r.SecretETag {
-		return errors.New("B1 cleanup run-owned secret identity mismatch")
+	records, err := j.ReadRecords(r.ResourceReleaseID)
+	if err != nil || !hasCreateProof(records, r) {
+		return errors.New("B1 cleanup lacks journal proof for this exact completed CREATE_USER operation")
 	}
-	if len(x.Versions) != 1 || x.Versions[0].Number != r.Version || x.Versions[0].ETag != r.VersionETag || !validVersion(x.Versions[0]) {
+	createOp, err := m.ReadOperation(deadline, r.CreateOperationID)
+	if err != nil || !validOperation(createOp, r.CreateOperationID, "CREATE_USER") {
+		return errors.New("B1 cleanup lacks fresh control-plane proof for the exact CREATE_USER operation")
+	}
+	secretAbsent := x.Secret.Name == "" && x.Secret.ETag == "" && x.Secret.Replication == "" && len(x.Secret.Replicas) == 0 && len(x.Secret.Labels) == 0
+	secretPresent := validSecret(x.Secret, r.ResourceReleaseID) && x.Secret.ETag == r.SecretETag
+	if !secretAbsent && !secretPresent {
+		return errors.New("B1 cleanup run-owned secret identity or ETag mismatch")
+	}
+	versionPresent := false
+	versionState := ""
+	if len(x.Versions) > 1 {
 		return ErrCollision
 	}
-	err := AcquireLease(leaseDir, leaseKey(r.ReleaseID, "cleanup"), now)
+	if len(x.Versions) == 1 {
+		v := x.Versions[0]
+		if v.Number != r.Version || v.ETag != r.VersionETag || !validVersionIdentity(v) {
+			return ErrCollision
+		}
+		versionPresent, versionState = true, v.State
+	}
+	if secretAbsent {
+		if len(x.Versions) != 0 || !hasVersionProof(records, r, "version_destroyed") || !hasShellDeleteProof(records, r) {
+			return errors.New("B1 absent secret shell lacks exact prior version-destroy and shell-delete proof")
+		}
+	} else if !versionPresent && !hasVersionProof(records, r, "version_destroyed") {
+		return errors.New("B1 empty secret shell lacks exact prior version-destroy proof")
+	}
+	if err = deadline.Err(); err != nil {
+		return err
+	}
+	err = AcquireLease(leaseDir, leaseKey(r.ReleaseID, "cleanup"), now)
 	if err != nil {
 		return err
 	}
-	deadline, cancel := context.WithTimeout(ctx, time.Duration(r.MaxDurationSeconds)*time.Second)
-	defer cancel()
+	var stampVersion func(string, string, string) error
+	versionETagForJournal := r.VersionETag
 	stamp := func(phase, op string) error {
-		return j.Save(JournalRecord{ReleaseID: r.ReleaseID, Stage: r.Stage, Phase: phase, Target: r.Target, Login: r.Login, Secret: x.Secret.Name, SecretETag: x.Secret.ETag, Version: r.Version, VersionETag: r.VersionETag, Operation: op, At: time.Now().UTC().Format(time.RFC3339)})
+		return stampVersion(phase, op, versionETagForJournal)
+	}
+	stampVersion = func(phase, op, versionETag string) error {
+		typ, target, user := "", "", ""
+		if op != "" {
+			typ, target, user = "DELETE_USER", Instance, Bootstrap
+		}
+		return j.Save(JournalRecord{ReleaseID: r.ReleaseID, ResourceReleaseID: r.ResourceReleaseID, Stage: r.Stage, Phase: phase, Target: r.Target, Login: r.Login, Secret: x.Secret.Name, SecretETag: x.Secret.ETag, Version: r.Version, VersionETag: versionETag, Operation: op, OperationType: typ, OperationTarget: target, OperationUser: user, At: time.Now().UTC().Format(time.RFC3339)})
 	}
 	op := ""
 	if userPresent {
+		if err = deadline.Err(); err != nil {
+			return err
+		}
 		if err = stamp("user_delete_started", ""); err != nil {
 			return err
 		}
@@ -457,6 +624,11 @@ func CleanupB1(ctx context.Context, x Inventory, r Release, reader Reader, m Cle
 		}
 		if err = waiter.WaitOperation(deadline, op); err != nil {
 			_ = stamp("user_delete_operation_uncertain", op)
+			return ErrUncertain
+		}
+		deleteOperation, operationErr := m.ReadOperation(deadline, op)
+		if operationErr != nil || !validOperation(deleteOperation, op, "DELETE_USER") {
+			_ = stamp("user_delete_operation_identity_uncertain", op)
 			return ErrUncertain
 		}
 		users, listErr := reader.ListUsers(deadline)
@@ -478,17 +650,44 @@ func CleanupB1(ctx context.Context, x Inventory, r Release, reader Reader, m Cle
 			return ErrUncertain
 		}
 	}
-	if err = m.DestroyVersion(deadline, x.Secret.Name+"/versions/"+r.Version, r.VersionETag); err != nil {
-		_ = stamp("version_destroy_uncertain", op)
+	if versionState != "DESTROYED" && versionPresent {
+		if err = deadline.Err(); err != nil {
+			return err
+		}
+		if err = m.DestroyVersion(deadline, x.Secret.Name+"/versions/"+r.Version, r.VersionETag); err != nil {
+			_ = stamp("version_destroy_uncertain", op)
+			return ErrUncertain
+		}
+		versions, listErr := reader.ListVersions(deadline)
+		if listErr != nil || len(versions) != 1 || versions[0].Number != r.Version || versions[0].State != "DESTROYED" || !validVersionIdentity(versions[0]) {
+			_ = stamp("version_destroy_reconcile", op)
+			return ErrUncertain
+		}
+		if err = stampVersion("version_destroyed", op, versions[0].ETag); err != nil {
+			return ErrUncertain
+		}
+		versionETagForJournal = versions[0].ETag
+	} else if versionState == "DESTROYED" {
+		if !containsDestroyedVersion(x.Versions, r.Version, r.VersionETag) {
+			return ErrCollision
+		}
+		if err = stampVersion("version_destroyed", op, r.VersionETag); err != nil {
+			return ErrUncertain
+		}
+	} else if !versionPresent && !hasVersionProof(records, r, "version_destroyed") {
+		return errors.New("B1 destroyed version absence lacks prior ETag proof")
+	}
+	if secretAbsent {
+		if err = stamp("cleanup_complete", op); err != nil {
+			return ErrUncertain
+		}
+		return nil
+	}
+	if err = stamp("secret_shell_delete_started", op); err != nil {
 		return ErrUncertain
 	}
-	versions, err := reader.ListVersions(deadline)
-	if err != nil || !containsDestroyedVersion(versions, r.Version) {
-		_ = stamp("version_destroy_reconcile", op)
-		return ErrUncertain
-	}
-	if err = stamp("version_destroyed", op); err != nil {
-		return ErrUncertain
+	if err = deadline.Err(); err != nil {
+		return err
 	}
 	if err = m.DeleteSecret(deadline, x.Secret.Name, r.ResourceReleaseID, r.SecretETag); err != nil {
 		_ = stamp("secret_shell_delete_uncertain", op)
@@ -505,12 +704,59 @@ func CleanupB1(ctx context.Context, x Inventory, r Release, reader Reader, m Cle
 	return nil
 }
 
-func containsDestroyedVersion(versions []VersionMetadata, number string) bool {
+func containsDestroyedVersion(versions []VersionMetadata, number, etag string) bool {
 	if len(versions) != 1 {
 		return false
 	}
 	v := versions[0]
-	return v.Number == number && isSecretVersion(suffixParent(v.Name), number) && v.State == "DESTROYED" && v.ETag != ""
+	return v.Number == number && v.ETag == etag && isSecretVersion(suffixParent(v.Name), number) && v.State == "DESTROYED"
+}
+
+func hasCreateProof(records []JournalRecord, r Release) bool {
+	for _, p := range records {
+		if p.ResourceReleaseID == r.ResourceReleaseID && p.ReleaseID == r.ResourceReleaseID && p.Stage == "b1_create" && p.Phase == "create_complete" && p.Target == r.Target && p.Login == r.Login && isSecretParent(p.Secret) && p.SecretETag == r.SecretETag && p.Version == r.Version && p.VersionETag == r.CreatedVersionETag && p.Operation == r.CreateOperationID && p.OperationType == "CREATE_USER" && p.OperationTarget == Instance && p.OperationUser == Bootstrap {
+			return true
+		}
+	}
+	return false
+}
+
+func CreateOperationIDFromJournal(records []JournalRecord, resourceRelease string) (string, error) {
+	var id string
+	for _, p := range records {
+		if p.ResourceReleaseID != resourceRelease || p.ReleaseID != resourceRelease || p.Stage != "b1_create" || p.Phase != "create_complete" {
+			continue
+		}
+		if p.Target != ProjectID+"/"+Instance || p.Login != Bootstrap || p.OperationType != "CREATE_USER" || p.OperationTarget != Instance || p.OperationUser != Bootstrap || !safeOperationID(p.Operation) {
+			return "", ErrCollision
+		}
+		if id != "" {
+			return "", ErrCollision
+		}
+		id = p.Operation
+	}
+	if id == "" {
+		return "", errors.New("completed exact CREATE_USER operation is absent from journal")
+	}
+	return id, nil
+}
+
+func hasVersionProof(records []JournalRecord, r Release, phase string) bool {
+	for _, p := range records {
+		if p.ResourceReleaseID == r.ResourceReleaseID && p.Phase == phase && p.SecretETag == r.SecretETag && p.Version == r.Version && p.VersionETag == r.VersionETag {
+			return true
+		}
+	}
+	return false
+}
+
+func hasShellDeleteProof(records []JournalRecord, r Release) bool {
+	for _, p := range records {
+		if p.ResourceReleaseID == r.ResourceReleaseID && (p.Phase == "secret_shell_delete_started" || p.Phase == "secret_shell_delete_uncertain" || p.Phase == "cleanup_complete") && isSecretParent(p.Secret) && p.SecretETag == r.SecretETag && p.Version == r.Version && p.VersionETag == r.VersionETag {
+			return true
+		}
+	}
+	return false
 }
 
 func leaseKey(releaseID, stage string) string {
@@ -524,7 +770,10 @@ func validSecret(s SecretMetadata, run string) bool {
 	return isSecretParent(s.Name) && s.Replication == "USER_MANAGED" && len(s.Replicas) == 1 && s.Replicas[0] == Region && s.Labels["release_id"] == run && s.Labels["purpose"] == "gcp04-w7-b1-bootstrap"
 }
 func validVersion(v VersionMetadata) bool {
-	return v.Number != "" && len(v.Number) <= 19 && v.Number[0] >= '1' && v.Number[0] <= '9' && allDigits(v.Number[1:]) && isSecretVersion(suffixParent(v.Name), v.Number) && v.State == "ENABLED"
+	return validVersionIdentity(v) && v.State == "ENABLED"
+}
+func validVersionIdentity(v VersionMetadata) bool {
+	return v.Number != "" && len(v.Number) <= 19 && v.Number[0] >= '1' && v.Number[0] <= '9' && allDigits(v.Number[1:]) && isSecretVersion(suffixParent(v.Name), v.Number) && v.ETag != "" && (v.State == "ENABLED" || v.State == "DISABLED" || v.State == "DESTROYED")
 }
 func secretParent() string          { return "projects/" + ProjectID + "/secrets/" + SecretID }
 func secretParentCanonical() string { return "projects/447373903153/secrets/" + SecretID }
@@ -550,6 +799,17 @@ func safeID(s string) bool {
 	}
 	for _, c := range s {
 		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+func safeOperationID(s string) bool {
+	if s == "" || len(s) > 128 {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
 			return false
 		}
 	}

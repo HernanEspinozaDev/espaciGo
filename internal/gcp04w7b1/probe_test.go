@@ -31,7 +31,7 @@ func TestAssessReportsObservedAttributesWithoutAssumingCompatibility(t *testing.
 		Target:       ProbeTarget{Database: Database, Session: Bootstrap, Current: Bootstrap, Version: 180000, ReadOnly: true},
 		Actor:        &Actor{Name: Bootstrap, Login: true, Superuser: false, CreateDB: true, CreateRole: true, Inherit: true},
 		Memberships:  []Membership{{GrantedRole: AdminRole, MemberRole: Bootstrap, Admin: false, Inherit: true, Set: true}},
-		Capabilities: Capabilities{CreateRoleAttribute: true, DatabaseConnectGO: true, SchemaUsageGO: true, LedgerSelectGO: &ledgerGrant, LedgerOwner: &ledgerOwner},
+		Capabilities: Capabilities{CreateRoleAttribute: true, DatabaseConnectEffectiveGO: true, SchemaUsageEffectiveGO: true, LedgerSelectEffectiveGO: &ledgerGrant, LedgerOwner: &ledgerOwner},
 		Scope:        ProbeScope{},
 	}
 	data, _ := json.Marshal(r)
@@ -48,6 +48,10 @@ func TestAssessReportsObservedAttributesWithoutAssumingCompatibility(t *testing.
 	}
 	if result["observer_bootstrap_compatibility"] != "not_accredited_by_b1_probe" || result["mutation_authorized"] != false {
 		t.Fatalf("probe overclaimed compatibility or authority: %#v", result)
+	}
+	matrix := result["capability_matrix"].(map[string]any)
+	if matrix["database_connect_effective_grant_option"] != true || matrix["database_connect_direct_grant_option"] != false {
+		t.Fatalf("effective inherited capability was conflated with direct ACL: %#v", matrix)
 	}
 }
 
