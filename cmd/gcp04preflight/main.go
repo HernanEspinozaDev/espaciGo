@@ -47,11 +47,16 @@ type config struct {
 }
 
 type output struct {
-	Format      string          `json:"format"`
-	Status      string          `json:"status"`
-	Target      targetOutput    `json:"target"`
-	QuerySHA256 string          `json:"query_sha256"`
-	Report      json.RawMessage `json:"report"`
+	Format               string          `json:"format"`
+	Status               string          `json:"status"`
+	Target               targetOutput    `json:"target"`
+	Network              networkOutput   `json:"network"`
+	QuerySHA256          string          `json:"query_sha256"`
+	ObserverContractPass bool            `json:"observer_contract_pass"`
+	CapacityGatePass     bool            `json:"capacity_gate_pass"`
+	DestinationCandidate bool            `json:"destination_candidate_observed"`
+	RestoreApproval      string          `json:"restore_approval"`
+	Report               json.RawMessage `json:"report"`
 }
 
 type targetOutput struct {
@@ -62,6 +67,11 @@ type targetOutput struct {
 	DatabaseUser        string `json:"database_user"`
 	SecretVersion       string `json:"secret_version"`
 	RequiredConnections int    `json:"required_connections"`
+}
+
+type networkOutput struct {
+	ExpectedPrivateIP string `json:"expected_private_ip"`
+	ObservedRemoteIP  string `json:"observed_remote_ip"`
 }
 
 func main() {
@@ -76,6 +86,16 @@ func main() {
 
 	result, gateFailed, err := run(context.Background(), cfg)
 	if err != nil {
+		var ipMismatch *remoteAddressMismatchError
+		if errors.As(err, &ipMismatch) {
+			_ = json.NewEncoder(os.Stdout).Encode(struct {
+				Format  string        `json:"format"`
+				Status  string        `json:"status"`
+				Error   string        `json:"error"`
+				Network networkOutput `json:"network"`
+			}{"espacigo.gcp04.target-preflight.v1", "failed", "Cloud SQL connector transport did not reach the pinned private IP", networkOutput{ExpectedPrivateIP: ipMismatch.Expected, ObservedRemoteIP: ipMismatch.Observed}})
+			os.Exit(1)
+		}
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"format": "espacigo.gcp04.target-preflight.v1", "status": "failed", "error": "preflight did not complete"})
 		os.Exit(1)
 	}
@@ -204,6 +224,10 @@ func run(ctx context.Context, c config) (output, bool, error) {
 	}
 	defer closeConnector()
 	defer conn.Close(context.Background())
+	observedIP, err := validateRemoteAddress(conn.PgConn().Conn().RemoteAddr(), c.ExpectedPrivateIP)
+	if err != nil {
+		return output{}, false, err
+	}
 
 	tx, err := conn.BeginTx(deadline, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -220,12 +244,12 @@ func run(ctx context.Context, c config) (output, bool, error) {
 	if len(report) == 0 || len(report) > 8<<20 || !json.Valid(report) {
 		return output{}, false, errors.New("target inventory report is missing or invalid")
 	}
-	gateFailed, err := validateReport(report, c)
+	validation, err := validateReport(report, c)
 	if err != nil {
 		return output{}, false, err
 	}
 	status := "passed"
-	if gateFailed {
+	if !validation.CapacityPass || !validation.ObserverContractPass {
 		status = "gate_failed"
 	}
 	return output{
@@ -233,29 +257,429 @@ func run(ctx context.Context, c config) (output, bool, error) {
 		Target: targetOutput{ProjectID: c.ProjectID, InstanceConnection: c.ConnectionName,
 			PrivateIP: c.ExpectedPrivateIP, Database: c.Database, DatabaseUser: c.DatabaseUser,
 			SecretVersion: c.SecretVersion, RequiredConnections: c.RequiredConnections},
-		QuerySHA256: queryDigest, Report: json.RawMessage(report),
-	}, gateFailed, nil
+		Network:     networkOutput{ExpectedPrivateIP: c.ExpectedPrivateIP, ObservedRemoteIP: observedIP},
+		QuerySHA256: queryDigest, ObserverContractPass: validation.ObserverContractPass,
+		CapacityGatePass: validation.CapacityPass, DestinationCandidate: validation.DestinationCandidate,
+		RestoreApproval: "not_granted", Report: json.RawMessage(report),
+	}, status == "gate_failed", nil
 }
 
-func validateReport(raw []byte, c config) (bool, error) {
+type reportValidation struct {
+	ObserverContractPass bool
+	CapacityPass         bool
+	DestinationCandidate bool
+}
+
+type reportRole struct {
+	Name        string  `json:"name"`
+	Login       bool    `json:"login"`
+	Super       bool    `json:"super"`
+	CreateDB    bool    `json:"createdb"`
+	CreateRole  bool    `json:"createrole"`
+	Replication bool    `json:"replication"`
+	BypassRLS   bool    `json:"bypassrls"`
+	Inherit     bool    `json:"inherit"`
+	Comment     *string `json:"comment"`
+}
+
+type reportMembership struct {
+	AppLogin    *string `json:"app_login"`
+	GrantedRole string  `json:"granted_role"`
+	MemberRole  string  `json:"member_role"`
+	Admin       bool    `json:"admin_option"`
+	Inherit     bool    `json:"inherit_option"`
+	Set         bool    `json:"set_option"`
+	Context     string  `json:"edge_context"`
+}
+
+type reportExtension struct {
+	Name          string  `json:"name"`
+	Version       string  `json:"version"`
+	Approved      *string `json:"approved_version"`
+	ApprovedExact bool    `json:"approved_exact"`
+}
+
+type reportACLEntry struct {
+	Kind        string `json:"kind"`
+	Identity    string `json:"identity"`
+	ObjectOwner string `json:"object_owner"`
+	Grantor     string `json:"grantor"`
+	Grantee     string `json:"grantee"`
+	Privilege   string `json:"privilege"`
+	Grantable   bool   `json:"grantable"`
+}
+
+type reportEffectivePrivilege struct {
+	Kind     string   `json:"kind"`
+	Identity string   `json:"identity"`
+	Owner    string   `json:"owner"`
+	Required []string `json:"required_privileges"`
+	Missing  []string `json:"missing_effective_privileges"`
+}
+
+func validateReport(raw []byte, c config) (reportValidation, error) {
 	var report struct {
 		Database struct {
 			Name                string `json:"name"`
+			ServerVersionNum    int    `json:"server_version_num"`
+			ServerVersion       string `json:"server_version"`
 			User                string `json:"user"`
 			TransactionReadOnly bool   `json:"transaction_read_only"`
 		} `json:"database"`
 		Capacity struct {
-			RequiredConnections int  `json:"required_connections"`
-			Passes              bool `json:"passes"`
+			MaxConnections               int  `json:"max_connections"`
+			ReservedConnections          int  `json:"reserved_connections"`
+			SuperuserReservedConnections int  `json:"superuser_reserved_connections"`
+			VisibleClientBackends        int  `json:"visible_client_backends"`
+			UnclassifiedActivityRows     int  `json:"unclassified_activity_rows"`
+			FreeSlotsLowerBound          int  `json:"free_slots_lower_bound"`
+			RequiredConnections          int  `json:"required_connections"`
+			Passes                       bool `json:"passes"`
 		} `json:"capacity"`
+		Destination struct {
+			RelationsNonExtension      int               `json:"relations_non_extension"`
+			RoutinesNonExtension       int               `json:"routines_non_extension"`
+			TypesNonExtension          int               `json:"types_non_extension"`
+			OtherNonExtension          int               `json:"other_schema_objects_non_extension"`
+			NonPublicSchemas           int               `json:"non_public_schemas_non_extension"`
+			NonPublicObjects           int               `json:"non_public_objects_non_extension"`
+			UnapprovedExtensions       int               `json:"unapproved_extensions"`
+			EmptyCandidate             bool              `json:"empty_destination_candidate"`
+			MigrationsPresent          bool              `json:"schema_migrations_present"`
+			SchemaInventory            []json.RawMessage `json:"schema_inventory"`
+			RelationInventory          []json.RawMessage `json:"relation_inventory"`
+			RoutineInventory           []json.RawMessage `json:"routine_inventory"`
+			TypeInventory              []json.RawMessage `json:"type_inventory"`
+			OtherSchemaObjectInventory []json.RawMessage `json:"other_schema_object_inventory"`
+			NonPublicObjectInventory   []json.RawMessage `json:"non_public_object_inventory"`
+		} `json:"destination"`
+		Roles               []reportRole       `json:"roles"`
+		Memberships         []reportMembership `json:"memberships"`
+		RequiredConnections int                `json:"required_connections"`
+		Extensions          []json.RawMessage  `json:"extensions"`
+		SchemaMigrations    struct {
+			Present bool `json:"present"`
+		} `json:"schema_migrations"`
+		ACLEntries     []json.RawMessage `json:"acl_entries"`
+		OwnerEffective []json.RawMessage `json:"owner_effective_privileges"`
+	}
+	if err := requireJSONKeys(raw, "database", "capacity", "destination", "roles", "memberships", "extensions", "schema_migrations", "acl_entries", "owner_effective_privileges", "required_connections"); err != nil {
+		return reportValidation{}, errors.New("target inventory report is incomplete")
+	}
+	for _, key := range []string{"roles", "memberships", "extensions", "acl_entries", "owner_effective_privileges"} {
+		if err := requireJSONArray(rawObjectField(raw, key)); err != nil {
+			return reportValidation{}, errors.New("target inventory report contains an invalid collection")
+		}
 	}
 	if err := json.Unmarshal(raw, &report); err != nil {
-		return false, errors.New("target inventory report schema is invalid")
+		return reportValidation{}, errors.New("target inventory report schema is invalid")
 	}
-	if report.Database.Name != c.Database || report.Database.User != c.DatabaseUser || !report.Database.TransactionReadOnly || report.Capacity.RequiredConnections != c.RequiredConnections {
-		return false, errors.New("target SQL session identity or read-only invariant failed")
+	if err := requireJSONKeys(rawObjectField(raw, "database"), "name", "server_version_num", "server_version", "user", "transaction_read_only", "owner", "public_schema_owner"); err != nil {
+		return reportValidation{}, errors.New("target database report is incomplete")
 	}
-	return !report.Capacity.Passes, nil
+	if err := requireJSONKeys(rawObjectField(raw, "capacity"), "max_connections", "reserved_connections", "superuser_reserved_connections", "visible_client_backends", "unclassified_activity_rows", "free_slots_lower_bound", "required_connections", "passes"); err != nil {
+		return reportValidation{}, errors.New("target capacity report is incomplete")
+	}
+	if err := requireJSONKeys(rawObjectField(raw, "destination"), "relations_non_extension", "routines_non_extension", "types_non_extension", "other_schema_objects_non_extension", "non_public_schemas_non_extension", "non_public_objects_non_extension", "unapproved_extensions", "empty_destination_candidate", "schema_migrations_present", "schema_inventory", "relation_inventory", "routine_inventory", "type_inventory", "other_schema_object_inventory", "non_public_object_inventory"); err != nil {
+		return reportValidation{}, errors.New("target destination report is incomplete")
+	}
+	for _, key := range []string{"schema_inventory", "relation_inventory", "routine_inventory", "type_inventory", "other_schema_object_inventory", "non_public_object_inventory"} {
+		if err := requireJSONArray(rawObjectField(rawObjectField(raw, "destination"), key)); err != nil {
+			return reportValidation{}, errors.New("target destination report contains an invalid inventory")
+		}
+	}
+	if err := requireJSONKeys(rawObjectField(raw, "schema_migrations"), "present"); err != nil {
+		return reportValidation{}, errors.New("target migration report is incomplete")
+	}
+	for _, role := range report.Roles {
+		if err := requireJSONKeys(roleRaw(raw, role.Name), "name", "login", "super", "createdb", "createrole", "replication", "bypassrls", "inherit", "comment"); err != nil {
+			return reportValidation{}, errors.New("target role report is incomplete")
+		}
+	}
+	for _, membership := range report.Memberships {
+		if err := requireJSONKeys(membershipRaw(raw, membership), "app_login", "granted_role", "member_role", "admin_option", "inherit_option", "set_option", "edge_context"); err != nil {
+			return reportValidation{}, errors.New("target membership report is incomplete")
+		}
+	}
+	for _, item := range report.Extensions {
+		if err := requireJSONKeys(item, "name", "version", "approved_version", "approved_exact"); err != nil {
+			return reportValidation{}, errors.New("target extension report is incomplete")
+		}
+		var extension reportExtension
+		if err := json.Unmarshal(item, &extension); err != nil || extension.Name == "" || extension.Version == "" {
+			return reportValidation{}, errors.New("target extension report has invalid field types")
+		}
+	}
+	for _, item := range report.Destination.SchemaInventory {
+		if err := requireJSONKeys(item, "name", "owner", "extension_owned"); err != nil {
+			return reportValidation{}, errors.New("target schema inventory is incomplete")
+		}
+	}
+	for _, item := range report.Destination.RelationInventory {
+		if err := requireJSONKeys(item, "identity", "schema", "kind", "owner", "extension_owned"); err != nil {
+			return reportValidation{}, errors.New("target relation inventory is incomplete")
+		}
+	}
+	for _, item := range report.Destination.RoutineInventory {
+		if err := requireJSONKeys(item, "identity", "schema", "owner", "security_definer", "settings", "extension_owned"); err != nil {
+			return reportValidation{}, errors.New("target routine inventory is incomplete")
+		}
+	}
+	for _, item := range report.Destination.TypeInventory {
+		if err := requireJSONKeys(item, "identity", "schema", "kind", "owner", "extension_owned"); err != nil {
+			return reportValidation{}, errors.New("target type inventory is incomplete")
+		}
+	}
+	for _, inventory := range [][]json.RawMessage{report.Destination.OtherSchemaObjectInventory, report.Destination.NonPublicObjectInventory} {
+		for _, item := range inventory {
+			if err := requireJSONKeys(item, "identity", "schema", "kind", "extension_owned"); err != nil {
+				return reportValidation{}, errors.New("target object inventory is incomplete")
+			}
+		}
+	}
+	for _, item := range report.Destination.NonPublicObjectInventory {
+		if err := requireJSONKeys(item, "owner"); err != nil {
+			return reportValidation{}, errors.New("target non-public object owner is missing")
+		}
+	}
+	for _, item := range report.ACLEntries {
+		if err := requireJSONKeys(item, "kind", "identity", "object_owner", "grantor", "grantee", "privilege", "grantable"); err != nil {
+			return reportValidation{}, errors.New("target ACL report is incomplete")
+		}
+		var acl reportACLEntry
+		if err := json.Unmarshal(item, &acl); err != nil || acl.Kind == "" || acl.Identity == "" || acl.Grantee == "" || acl.Privilege == "" {
+			return reportValidation{}, errors.New("target ACL report has invalid field types")
+		}
+	}
+	for _, item := range report.OwnerEffective {
+		if err := requireJSONKeys(item, "kind", "identity", "owner", "required_privileges", "missing_effective_privileges"); err != nil {
+			return reportValidation{}, errors.New("target effective-privilege report is incomplete")
+		}
+		var effective reportEffectivePrivilege
+		if err := json.Unmarshal(item, &effective); err != nil || effective.Kind == "" || effective.Identity == "" || effective.Required == nil || effective.Missing == nil {
+			return reportValidation{}, errors.New("target effective-privilege report has invalid field types")
+		}
+	}
+	if report.Database.Name != c.Database || report.Database.User != c.DatabaseUser || !report.Database.TransactionReadOnly || report.Database.ServerVersionNum < 180000 || report.Database.ServerVersionNum >= 190000 || report.Database.ServerVersion == "" {
+		return reportValidation{}, errors.New("target SQL identity, PostgreSQL 18 engine, or read-only invariant failed")
+	}
+	capacity := report.Capacity
+	if capacity.MaxConnections <= 0 || capacity.ReservedConnections < 0 || capacity.SuperuserReservedConnections < 0 || capacity.VisibleClientBackends < 0 || capacity.UnclassifiedActivityRows < 0 || capacity.RequiredConnections != c.RequiredConnections || report.RequiredConnections != c.RequiredConnections {
+		return reportValidation{}, errors.New("target capacity values are outside the valid range")
+	}
+	free := capacity.MaxConnections - capacity.ReservedConnections - capacity.SuperuserReservedConnections - capacity.VisibleClientBackends - capacity.UnclassifiedActivityRows
+	if free < 0 {
+		free = 0
+	}
+	capacityPass := free >= c.RequiredConnections
+	if capacity.FreeSlotsLowerBound != free || capacity.Passes != capacityPass || report.Database.ServerVersionNum/10000 != 18 {
+		return reportValidation{}, errors.New("target capacity report is internally inconsistent")
+	}
+	if report.Destination.MigrationsPresent != report.SchemaMigrations.Present {
+		return reportValidation{}, errors.New("target destination migration indicators disagree")
+	}
+	if countInventoryNonExtension(report.Destination.RelationInventory) != report.Destination.RelationsNonExtension ||
+		countInventoryNonExtension(report.Destination.RoutineInventory) != report.Destination.RoutinesNonExtension ||
+		countInventoryNonExtension(report.Destination.TypeInventory) != report.Destination.TypesNonExtension ||
+		countInventoryNonExtension(report.Destination.OtherSchemaObjectInventory) != report.Destination.OtherNonExtension {
+		return reportValidation{}, errors.New("target destination inventory counts disagree with details")
+	}
+	var nonPublicSchemas, nonPublicObjects, unapprovedExtensions int
+	for _, item := range report.Destination.SchemaInventory {
+		var value struct {
+			Name           string `json:"name"`
+			ExtensionOwned bool   `json:"extension_owned"`
+		}
+		_ = json.Unmarshal(item, &value)
+		if value.Name != "public" && !value.ExtensionOwned {
+			nonPublicSchemas++
+		}
+	}
+	for _, item := range report.Destination.NonPublicObjectInventory {
+		var value struct {
+			ExtensionOwned bool `json:"extension_owned"`
+		}
+		_ = json.Unmarshal(item, &value)
+		if !value.ExtensionOwned {
+			nonPublicObjects++
+		}
+	}
+	for _, item := range report.Extensions {
+		var value struct {
+			ApprovedExact bool `json:"approved_exact"`
+		}
+		_ = json.Unmarshal(item, &value)
+		if !value.ApprovedExact {
+			unapprovedExtensions++
+		}
+	}
+	if nonPublicSchemas != report.Destination.NonPublicSchemas || nonPublicObjects != report.Destination.NonPublicObjects || unapprovedExtensions != report.Destination.UnapprovedExtensions {
+		return reportValidation{}, errors.New("target destination aggregate counts disagree with inventories")
+	}
+	destinationDerivedEmpty := report.Destination.RelationsNonExtension == 0 && report.Destination.RoutinesNonExtension == 0 && report.Destination.TypesNonExtension == 0 && report.Destination.OtherNonExtension == 0 && report.Destination.NonPublicSchemas == 0 && report.Destination.NonPublicObjects == 0 && report.Destination.UnapprovedExtensions == 0 && !report.SchemaMigrations.Present
+	if report.Destination.EmptyCandidate != destinationDerivedEmpty {
+		return reportValidation{}, errors.New("target destination candidate indicator is inconsistent")
+	}
+	login, loginFound := findRole(report.Roles, c.DatabaseUser)
+	observerGroup, groupFound := findRole(report.Roles, "espacigo_db_observer")
+	seenRoleNames := make(map[string]struct{}, len(report.Roles))
+	for _, role := range report.Roles {
+		if _, exists := seenRoleNames[role.Name]; exists {
+			return reportValidation{}, errors.New("target role report contains duplicate role identities")
+		}
+		seenRoleNames[role.Name] = struct{}{}
+	}
+	observerContract := loginFound && groupFound && login.Login && !login.Super && !login.CreateDB && !login.CreateRole && !login.Replication && !login.BypassRLS && login.Inherit &&
+		!observerGroup.Login && !observerGroup.Super && !observerGroup.CreateDB && !observerGroup.CreateRole && !observerGroup.Replication && !observerGroup.BypassRLS && !observerGroup.Inherit
+	loginEdges := 0
+	for _, edge := range report.Memberships {
+		if (edge.AppLogin != nil && *edge.AppLogin == c.DatabaseUser) || edge.MemberRole == c.DatabaseUser || edge.GrantedRole == c.DatabaseUser {
+			if edge.GrantedRole != "espacigo_db_observer" || edge.MemberRole != c.DatabaseUser || edge.Admin || !edge.Inherit || edge.Set {
+				observerContract = false
+			}
+			if edge.AppLogin != nil && *edge.AppLogin == c.DatabaseUser {
+				loginEdges++
+				if edge.Context != "transitive-login-membership" {
+					observerContract = false
+				}
+			} else if edge.Context != "direct-edge-touches-application-role" {
+				observerContract = false
+			}
+		}
+	}
+	if loginEdges != 1 {
+		observerContract = false
+	}
+	for _, acl := range report.ACLEntries {
+		var item struct {
+			Grantee string `json:"grantee"`
+		}
+		if json.Unmarshal(acl, &item) != nil || item.Grantee == c.DatabaseUser {
+			observerContract = false
+		}
+	}
+	return reportValidation{ObserverContractPass: observerContract, CapacityPass: capacityPass, DestinationCandidate: report.Destination.EmptyCandidate}, nil
+}
+
+func countInventoryNonExtension(items []json.RawMessage) int {
+	count := 0
+	for _, item := range items {
+		var value struct {
+			ExtensionOwned bool `json:"extension_owned"`
+		}
+		_ = json.Unmarshal(item, &value)
+		if !value.ExtensionOwned {
+			count++
+		}
+	}
+	return count
+}
+
+func validateRemoteAddress(address net.Addr, expectedIP string) (string, error) {
+	if address == nil {
+		return "", errors.New("connector returned no remote address")
+	}
+	host, _, err := net.SplitHostPort(address.String())
+	if err != nil {
+		return "", errors.New("connector remote address is not a TCP endpoint")
+	}
+	observed := net.ParseIP(host)
+	expected := net.ParseIP(expectedIP)
+	if observed == nil || expected == nil {
+		return "", errors.New("connector remote address differs from pinned private IP")
+	}
+	if !observed.Equal(expected) {
+		return observed.String(), &remoteAddressMismatchError{Expected: expected.String(), Observed: observed.String()}
+	}
+	return observed.String(), nil
+}
+
+type remoteAddressMismatchError struct {
+	Expected string
+	Observed string
+}
+
+func (e *remoteAddressMismatchError) Error() string {
+	return "connector remote address differs from pinned private IP"
+}
+
+func requireJSONKeys(raw json.RawMessage, keys ...string) error {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil || object == nil {
+		return errors.New("expected JSON object")
+	}
+	for _, key := range keys {
+		if _, ok := object[key]; !ok {
+			return errors.New("required JSON key is missing")
+		}
+	}
+	return nil
+}
+
+func requireJSONArray(raw json.RawMessage) error {
+	trimmed := strings.TrimSpace(string(raw))
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		return errors.New("expected JSON array")
+	}
+	var values []json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return errors.New("invalid JSON array")
+	}
+	return nil
+}
+
+func rawObjectField(raw json.RawMessage, key string) json.RawMessage {
+	var object map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &object)
+	return object[key]
+}
+
+func findRole(roles []reportRole, name string) (reportRole, bool) {
+	for _, role := range roles {
+		if role.Name == name {
+			return role, true
+		}
+	}
+	return reportRole{}, false
+}
+
+func roleRaw(raw json.RawMessage, name string) json.RawMessage {
+	var object map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &object)
+	var roles []json.RawMessage
+	_ = json.Unmarshal(object["roles"], &roles)
+	for _, item := range roles {
+		var role struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(item, &role)
+		if role.Name == name {
+			return item
+		}
+	}
+	return nil
+}
+
+func membershipRaw(raw json.RawMessage, wanted reportMembership) json.RawMessage {
+	var object map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &object)
+	var edges []json.RawMessage
+	_ = json.Unmarshal(object["memberships"], &edges)
+	for _, item := range edges {
+		var edge reportMembership
+		_ = json.Unmarshal(item, &edge)
+		if edge.GrantedRole == wanted.GrantedRole && edge.MemberRole == wanted.MemberRole && edge.Context == wanted.Context && sameOptionalString(edge.AppLogin, wanted.AppLogin) {
+			return item
+		}
+	}
+	return nil
+}
+
+func sameOptionalString(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 func runForLocalIntegration(ctx context.Context, conn *pgx.Conn, query string, required int, expectedDatabase, expectedUser string) (json.RawMessage, bool, error) {
@@ -272,6 +696,6 @@ func runForLocalIntegration(ctx context.Context, conn *pgx.Conn, query string, r
 		return nil, false, err
 	}
 	cfg := config{Database: expectedDatabase, DatabaseUser: expectedUser, RequiredConnections: required}
-	gateFailed, err := validateReport(report, cfg)
-	return report, gateFailed, err
+	validation, err := validateReport(report, cfg)
+	return report, !validation.CapacityPass || !validation.ObserverContractPass, err
 }

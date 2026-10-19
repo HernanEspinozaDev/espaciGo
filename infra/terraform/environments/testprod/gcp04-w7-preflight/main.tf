@@ -179,9 +179,10 @@ resource "google_cloud_run_v2_job" "preflight" {
       condition = (
         data.google_sql_database_instance.existing[0].connection_name == "espacigo-testprod:southamerica-west1:espacigo-testprod-pg" &&
         data.google_sql_database_instance.existing[0].region == var.region &&
+        data.google_sql_database_instance.existing[0].private_ip_address == var.preflight_expected_private_ip &&
         data.google_compute_subnetwork.existing[0].private_ip_google_access
       )
-      error_message = "W7 requires the exact current private SQL target and its same-region private Google access subnet."
+      error_message = "W7 requires the exact current SQL connection name, region, private IP and same-region private Google access subnet."
     }
   }
 }

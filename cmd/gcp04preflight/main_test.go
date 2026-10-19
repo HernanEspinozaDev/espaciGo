@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,6 +83,24 @@ func TestPasswordFileRequiresProtectedRegularFile(t *testing.T) {
 	}
 }
 
+func TestValidateRemoteAddressPinsObservedPrivateIP(t *testing.T) {
+	got, err := validateRemoteAddress(&net.TCPAddr{IP: net.ParseIP(expectedPrivateIP), Port: 5432}, expectedPrivateIP)
+	if err != nil || got != expectedPrivateIP {
+		t.Fatalf("pinned connector address rejected: ip=%q err=%v", got, err)
+	}
+	if _, err := validateRemoteAddress(&net.TCPAddr{IP: net.ParseIP("10.189.0.4"), Port: 5432}, expectedPrivateIP); err == nil {
+		t.Fatal("connector address mismatch passed")
+	} else {
+		var mismatch *remoteAddressMismatchError
+		if !errors.As(err, &mismatch) || mismatch.Expected != expectedPrivateIP || mismatch.Observed != "10.189.0.4" {
+			t.Fatalf("connector mismatch evidence is incomplete: %#v", err)
+		}
+	}
+	if _, err := validateRemoteAddress(&net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 5432}, expectedPrivateIP); err == nil {
+		t.Fatal("loopback connector address passed")
+	}
+}
+
 func TestLocalObserverReadOnlyIntegration(t *testing.T) {
 	dsn := os.Getenv("GCP04_W7_TEST_DSN")
 	if dsn == "" {
@@ -124,6 +144,63 @@ func TestLocalObserverReadOnlyIntegration(t *testing.T) {
 	}
 	if gateFailed {
 		t.Fatalf("local fixture rejected the selected test budget: %s", report)
+	}
+	localConfig := config{Database: databaseName, DatabaseUser: databaseUser, RequiredConnections: required}
+	validReport, err := validateReport(report, localConfig)
+	if err != nil || !validReport.ObserverContractPass || !validReport.CapacityPass {
+		t.Fatalf("legitimate local observer report was not accepted: validation=%+v err=%v", validReport, err)
+	}
+	var mutated map[string]any
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	delete(mutated, "destination")
+	incomplete, _ := json.Marshal(mutated)
+	if _, err := validateReport(incomplete, localConfig); err == nil {
+		t.Fatal("inventory without destination details passed schema validation")
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	delete(mutated, "owner_effective_privileges")
+	incomplete, _ = json.Marshal(mutated)
+	if _, err := validateReport(incomplete, localConfig); err == nil {
+		t.Fatal("inventory without effective ACL details passed schema validation")
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	roles := mutated["roles"].([]any)
+	for _, item := range roles {
+		role := item.(map[string]any)
+		if role["name"] == databaseUser {
+			role["createdb"] = true
+		}
+	}
+	overprivileged, _ := json.Marshal(mutated)
+	validation, err := validateReport(overprivileged, localConfig)
+	if err != nil || validation.ObserverContractPass {
+		t.Fatalf("overprivileged observer passed: validation=%+v err=%v", validation, err)
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	memberships := mutated["memberships"].([]any)
+	memberships = append(memberships, map[string]any{"app_login": databaseUser, "granted_role": "cloudsqlsuperuser", "member_role": databaseUser, "admin_option": false, "inherit_option": true, "set_option": false, "edge_context": "transitive-login-membership"})
+	mutated["memberships"] = memberships
+	overprivilegedMembership, _ := json.Marshal(mutated)
+	validation, err = validateReport(overprivilegedMembership, localConfig)
+	if err != nil || validation.ObserverContractPass {
+		t.Fatalf("observer with unexpected administrative membership passed: validation=%+v err=%v", validation, err)
+	}
+	if err := json.Unmarshal(report, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	capacity := mutated["capacity"].(map[string]any)
+	capacity["free_slots_lower_bound"] = capacity["free_slots_lower_bound"].(float64) + 1
+	inconsistentCapacity, _ := json.Marshal(mutated)
+	if _, err := validateReport(inconsistentCapacity, localConfig); err == nil {
+		t.Fatal("internally inconsistent connection capacity passed")
 	}
 	var decoded map[string]any
 	if err := json.Unmarshal(report, &decoded); err != nil || decoded["database"] == nil {

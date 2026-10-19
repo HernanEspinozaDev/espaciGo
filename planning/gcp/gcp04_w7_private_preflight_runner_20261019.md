@@ -6,7 +6,11 @@
 
 `cmd/gcp04preflight` ejecuta únicamente `db/query/gcp04_w4_target_preflight.sql`, con transacción PostgreSQL `READ ONLY`, presupuesto de conexiones explícito y salida JSON saneada. Verifica en código el SHA-256 del archivo fuente (`3e9783799360c4438cdb7399ec78fce6aaf8ee62d404cf70e3dfe90da6f2b869`), extrae el cuerpo SQL del wrapper de `psql`, reemplaza sus tres parámetros psql por un parámetro `$1` de `pgx` y rechaza cambios de hash o de forma. La identidad del proyecto, connection name, IP privada, base y login está fijada en el binario. El login candidato es `espacigo_gcp04_w7_observer`; su existencia y grants en Cloud SQL no están comprobados. La consulta requiere `GCP04_PREFLIGHT_SECRET_VERSION` numérico, archivo montado y protegido, deadline de máximo 15 minutos y concurrencia exactamente 1. La configuración Terraform limita el tiempo a 900 segundos, fija por defecto 120, y usa un solo task/paralelismo 1/retries 0.
 
-El proceso devuelve `passed` con código 0, `gate_failed` con código 2 cuando el presupuesto conservador no pasa y `failed` con código 1 ante error. Errores operativos se sanitizan; nunca se imprime la contraseña ni detalles de conexión. El digest de imagen remoto queda sujeto al Artifact Registry aprobado; el scaffold exige la ruta W7 y digest inmutable.
+El proceso devuelve `passed` con código 0, `gate_failed` con código 2 cuando el presupuesto conservador o el contrato observer no pasan y `failed` con código 1 ante error. Antes de iniciar la transacción o consulta, compara el `RemoteAddr` TCP del socket del Cloud SQL Connector con `10.189.0.3`; tanto en éxito como en discrepancia registra IP esperada y observada en JSON saneado. Errores operativos se sanitizan; nunca se imprime la contraseña ni detalles de conexión. El digest de imagen remoto queda sujeto al Artifact Registry aprobado; el scaffold exige la ruta W7 y digest inmutable.
+
+La validación exige el esquema completo de base, motor PostgreSQL 18, capacidad, destino/inventarios, roles, membresías, extensiones, historial, ACL y privilegios efectivos. Comprueba la coherencia de los conteos de inventario y de capacidad (`max - reserves - backends visibles - filas no clasificadas`, con piso 0), y que el `passes` reportado corresponda al presupuesto solicitado. Exige `LOGIN INHERIT` sin `SUPERUSER`, `CREATEDB`, `CREATEROLE`, `REPLICATION` ni `BYPASSRLS`, y exactamente la membresía heredada permitida al grupo `espacigo_db_observer`, sin admin/set ni ACL directas al login. Una respuesta incompleta falla cerrada; privilegios o membresías extra producen `gate_failed`. Terraform también compara la IP privada de metadata del recurso Cloud SQL con la IP aprobada y se niega a planificar el Job si no coincide.
+
+`destination_candidate_observed` es solo una observación derivada de los catálogos. La salida fija `restore_approval: not_granted`; ni `passed` ni la capacidad son aprobación de restore, liberación global ni aceptación del producto.
 
 ## Metadata observada y límite de identidad
 
@@ -33,10 +37,12 @@ Referencias: [Cloud Run pricing](https://cloud.google.com/run/pricing), [Secret 
 En el worktree aislado `codex/infra/feature/gcp-04-w7-private-preflight-runner`, desde `main` `9dc4e43ea7d75f2a152125a95220dc6a22cf8305`:
 
 - `go test ./cmd/gcp04preflight ./internal/database/cloudsql`: pasó.
+- La integración local valida el observer legítimo y muta reportes del PostgreSQL efímero para confirmar rechazo de `CREATEDB`, membresía `cloudsqlsuperuser`, secciones/inventarios incompletos y capacidad inconsistente. Una prueba de socket rechaza la IP distinta y conserva esperado/observado.
 - `bash -n scripts/test-gcp04-w3-logical-baseline-postgres.sh`: pasó.
 - `bash scripts/test-gcp04-w3-logical-baseline-postgres.sh`: pasó. Corrió dos clústeres PostgreSQL 18/PostGIS efímeros con red deshabilitada y sockets privados; ejecutó la integración de preflight como `espacigo_observer_login`; verificó replay V1–V64, inventario/datos/ACL y retiros del ensayo. Evidencia privada bajo `.local/testing/gcp04-w3-logical-baseline-*.json` con permisos 0600.
 - `docker build --target gcp04-preflight -t espacigo-gcp04-preflight:w7-local .`: pasó local; no se publicó la imagen.
 - `terraform fmt`, `validate` y plan OFF en copia local: pasaron; `No changes`.
+- `terraform test -test-directory=tests` con mock provider, configuración enabled y sin backend: 2 pruebas pasaron. Planificó 5 altas (Job, SA y bindings W7) con target, red, timeout/concurrencia, secreto/versionado e IAM condicionados; otra prueba verificó que una IP metadata diferente bloquea el Job. Mockeó los data sources; no llamó APIs ni usó state remoto.
 - `git diff --check`: pendiente al cierre final del PR. V1–V64 permanecen byte por byte; no se propone migración.
 
 La prueba local demuestra compatibilidad con ese PostgreSQL 18 local y el fixture observador; no demuestra compatibilidad, conexión, roles, capacidad ni credenciales del Cloud SQL remoto. No se ejecutó SQL contra Cloud, no se creó/ejecutó Job, no se creó usuario/secret/IAM, no se habilitaron APIs, no se inicializó ni escribió state remoto, no se aplicó Terraform ni se publicó una imagen.
