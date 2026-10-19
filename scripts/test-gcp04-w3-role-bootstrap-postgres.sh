@@ -112,6 +112,10 @@ done
 [[ "$listen_addresses" == "'*'" ]] || { echo "PostgreSQL final server listen_addresses was [$listen_addresses], expected ['*']." >&2; exit 1; }
 
 compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'CREATE DATABASE espacigo' >/dev/null
+compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres \
+  -c 'CREATE ROLE gcp04_w3_bootstrap_actor LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT' >/dev/null
+compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U gcp04_w3_bootstrap_actor -d espacigo \
+  < "$ROOT_DIR/db/bootstrap/gcp04-runtime/004_gadm_global_role.sql" >/dev/null
 compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d espacigo \
   < "$ROOT_DIR/db/bootstrap/gcp04-runtime/001_pre_migrate_roles.sql"
 

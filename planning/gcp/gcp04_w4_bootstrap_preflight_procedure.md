@@ -1,5 +1,13 @@
 # GCP-04-W4 — procedimiento propuesto de baseline y preflight
 
+## Adenda W6 — secuencia GADM y puerta de liberación
+
+El harness W6 ejecutable es `bash scripts/test-gcp04-w3-logical-baseline-postgres.sh`. Incluye preflight privado read-only mediante `db/query/gcp04_w4_target_preflight.sql` con `espacigo_observer_login`, antes y después del restore, y valida que el reporte identifica ese login. El bootstrap usa `004_gadm_global_role.sql` con un actor controlado; los fixtures `001`/`002` no crean ni comentan GADM. El destino se restaura con `espacigo_migrator_login SET ROLE espacigo_schema_owner`. Los casos de rollback y colisión no son simulaciones de destino Cloud.
+
+Una liberación futura requiere autorización explícita separada, validar en ese momento proyecto/instancia/base/red, IAM del Job/service account, acceso a paquete privado, login bootstrap compatible con Cloud SQL, login observer y presupuesto de conexiones. La versión numérica del secreto debe seleccionarse entonces (sin alias `latest` en la ejecución registrada), verificando estado `ENABLED` sin leer ni imprimir el valor. Separar secretos bootstrap y observer; el primero solo para la operación aprobada, el segundo solo para preflight. Ejecutar primero preflight, capturar reporte saneado y decidir; cualquier divergencia aborta. Si se autoriza bootstrap/restore, conservar hashes y logs sin secretos, y al cierre retirar Job, bindings, paquete temporal y credencial temporal según el plan; preservar la instancia SQL existente y su volumen. W6 no ha ejecutado ninguna de estas acciones remotas.
+
+La ruta propuesta usa un Job Cloud Run de una tarea con Direct VPC e IP privada y service account dedicado. La compatibilidad del helper con la identidad disponible en Cloud SQL es un bloqueo abierto: no se debe sustituir por `postgres` ni relajar atributos sin revisión y nueva prueba. Costos se calculan antes de liberar usando duración mínima facturable del Job, lecturas/versiones de Secret Manager, transferencia/almacenamiento y costo horario continuo de la instancia existente. Ver [precios Cloud Run](https://cloud.google.com/run/pricing) y [Secret Manager](https://cloud.google.com/secret-manager/pricing).
+
 **Estado:** propuesta local en revisión; no aprobada para ejecución Cloud. No habilita GCP-04, API, migraciones remotas, worker ni aceptación de producto.
 
 ## Propósito y alcance
