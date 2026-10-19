@@ -15,6 +15,10 @@
 
 El harness nuevo [test-gcp04-w7-observer-executor-postgres.sh](../../scripts/test-gcp04-w7-observer-executor-postgres.sh) verificó el patrón W5 y delimitó su frontera. La compensación del grupo vacío funciona mientras el executor conserva su ADMIN. Si el executor concede la membresía al login, la referencia como grantor impide retirarlo. Si la API crea la membresía exacta bajo otro grantor, el executor puede retirarse; tras borrar después el login, el actor original ya no puede borrar el grupo porque no tiene ADMIN. El fixture rechazó `SET=true` por defecto y aceptó solo el contrato exacto tras una alteración superuser **exclusiva del fixture**. Eso no demuestra los flags de Cloud SQL. La evidencia local no resuelve un steward ADMIN de mínimo privilegio, `PUBLIC TEMPORARY=true` observado en W9, actor/grant options remotos ni la compatibilidad API; no hubo mutaciones Cloud.
 
+### GCP-04-W7 — actor/control plane y comparación SET (2026-10-19)
+
+La lectura de metadatos y `projects.testIamPermissions` confirmó permisos IAM de control plane del principal activo (`cloudsql.instances.connect/get`, `cloudsql.users.create/delete`) y un binding `roles/owner` del proyecto. `users.list` del target mostró solo `postgres`; no hubo sesión SQL y esos metadatos no identifican atributos PostgreSQL ni `GRANT OPTION` de un actor aprobado. No se declara que no existan otros roles. El harness compara `SET=true/false`: los privilegios efectivos de base/schema/ledger son iguales, ambos permiten SELECT y deniegan INSERT; `SET=true` cambia `current_user` al grupo. Como W4 reporta `current_user`, se recomienda mantener `SET=false`. Detalle: [evaluación actor/canal W7](gcp04_w7_actor_channel_assessment_20261019.md); los metadatos privados permanecen en `.local/testing/`.
+
 ## Actualización posterior: GCP-04-W6 (2026-10-19)
 
 | Capacidad | Estado | Evidencia / alcance |
