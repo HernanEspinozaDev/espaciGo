@@ -109,6 +109,7 @@ type Plan struct {
 }
 type Release struct {
 	Decision           string    `json:"decision"`
+	Stage              string    `json:"stage"`
 	ReleaseID          string    `json:"release_id"`
 	Reviewer           string    `json:"reviewer"`
 	ExpiresAt          time.Time `json:"expires_at"`
@@ -118,8 +119,9 @@ type Release struct {
 	MaxDurationSeconds int       `json:"max_duration_seconds"`
 	Runs               int       `json:"runs"`
 	QuerySHA256        string    `json:"query_sha256"`
+	SecretShellETag    string    `json:"secret_shell_etag,omitempty"`
 }
-type JournalRecord struct{ ReleaseID, Phase, SecretResource, Version, Operation, UpdatedAt string }
+type JournalRecord struct{ ReleaseID, Phase, SecretResource, Version, Operation, ETag, UpdatedAt string }
 type Journal interface{ Save(JournalRecord) error }
 type LocalJournal struct{ Dir string }
 
@@ -134,7 +136,7 @@ func (j LocalJournal) Save(r JournalRecord) error {
 		return err
 	}
 	p := filepath.Join(j.Dir, r.ReleaseID+".json")
-	b := []byte(fmt.Sprintf("{\"release_id\":%q,\"phase\":%q,\"secret_resource\":%q,\"version\":%q,\"operation\":%q,\"updated_at\":%q}\n", r.ReleaseID, r.Phase, r.SecretResource, r.Version, r.Operation, r.UpdatedAt))
+	b := []byte(fmt.Sprintf("{\"release_id\":%q,\"phase\":%q,\"secret_resource\":%q,\"version\":%q,\"operation\":%q,\"etag\":%q,\"updated_at\":%q}\n", r.ReleaseID, r.Phase, r.SecretResource, r.Version, r.Operation, r.ETag, r.UpdatedAt))
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -198,10 +200,42 @@ func BuildPlan(x Inventory) (Plan, error) {
 	if len(x.Versions) != 0 {
 		return Plan{}, errors.New("secret version collision; refusing rotation")
 	}
-	return Plan{Mode: "dry_run", Inventory: x, ProposedUser: UserMetadata{Name: Login, Type: "BUILT_IN", DatabaseRoles: []string{Role}}, SecretResource: SecretParent, SecretShellAction: "create only if absent; pre-existing resource blocks execute", SecretReplication: "USER_MANAGED: southamerica-west1 only", PayloadPolicy: "random bytes generated only in process memory; never output, journal, Terraform state, args or logs", Mutations: "none"}, nil
+	return Plan{Mode: "dry_run", Inventory: x, ProposedUser: UserMetadata{Name: Login, Type: "BUILT_IN", DatabaseRoles: []string{Role}}, SecretResource: SecretParent, SecretShellAction: "create only if absent; existing shell requires exact release labels and separately reviewed ETag", SecretReplication: "USER_MANAGED: southamerica-west1 only", PayloadPolicy: "random bytes generated only in process memory; never output, journal, Terraform state, args or logs", Mutations: "none"}, nil
 }
+func validRelease(release Release, stage string, now time.Time) bool {
+	return release.Decision == "approved" && release.Stage == stage && release.Reviewer == "HernanEspinozaDev" && safeID(release.ReleaseID) && release.Target == ProjectID+"/"+Instance && now.Before(release.ExpiresAt) && release.ExpiresAt.Sub(now) <= 30*time.Minute && len(release.Roles) == 1 && release.Roles[0] == Role && release.Experiment == "one_temporary_cloudsql_role_and_one_w8_probe" && release.MaxDurationSeconds == 1800 && release.Runs == 1 && release.QuerySHA256 == QuerySHA256
+}
+
+// PrepareSecretShell creates only the empty, run-labeled global Secret. It does
+// not generate a payload, add a version, or create a SQL user.
+func PrepareSecretShell(ctx context.Context, inv Inventory, release Release, m Mutator, j Journal, now time.Time) error {
+	if !validRelease(release, "secret_shell", now) || release.SecretShellETag != "" {
+		return errors.New("release document is not an active exact secret-shell approval")
+	}
+	if m == nil || j == nil {
+		return errors.New("mutator and private journal required")
+	}
+	if _, err := BuildPlan(inv); err != nil || inv.Secret.Name != "" || len(inv.Versions) != 0 {
+		return errors.New("exact absent secret shell and collision-free inventory required")
+	}
+	stamp := func(phase string) error {
+		return j.Save(JournalRecord{ReleaseID: release.ReleaseID, Phase: phase, SecretResource: SecretParent, UpdatedAt: time.Now().UTC().Format(time.RFC3339)})
+	}
+	if err := stamp("secret_shell_create_started"); err != nil {
+		return err
+	}
+	if err := m.CreateSecret(ctx, release.ReleaseID); err != nil {
+		_ = stamp("secret_shell_create_uncertain")
+		return errors.New("secret shell creation failed or uncertain; reconcile exact resource before retry")
+	}
+	if err := stamp("secret_shell_created"); err != nil {
+		return errors.New("secret shell created; journal confirmation uncertain")
+	}
+	return nil
+}
+
 func Execute(ctx context.Context, inv Inventory, release Release, m Mutator, j Journal, now time.Time, random io.Reader) (string, error) {
-	if release.Decision != "approved" || release.Reviewer != "HernanEspinozaDev" || !safeID(release.ReleaseID) || release.Target != ProjectID+"/"+Instance || (!now.Before(release.ExpiresAt) || release.ExpiresAt.Sub(now) > 30*time.Minute) || len(release.Roles) != 1 || release.Roles[0] != Role || release.Experiment != "one_temporary_cloudsql_role_and_one_w8_probe" || release.MaxDurationSeconds != 1800 || release.Runs != 1 || release.QuerySHA256 != QuerySHA256 {
+	if !validRelease(release, "experiment", now) {
 		return "", errors.New("release document is not an active exact reviewer approval")
 	}
 	if m == nil || j == nil {
@@ -210,8 +244,14 @@ func Execute(ctx context.Context, inv Inventory, release Release, m Mutator, j J
 	if _, e := BuildPlan(inv); e != nil {
 		return "", e
 	}
-	if inv.Secret.Name != "" {
-		return "", ErrCollision
+	createdSecret := inv.Secret.Name == ""
+	if createdSecret && release.SecretShellETag != "" {
+		return "", errors.New("approved secret shell disappeared; reconcile before execution")
+	}
+	if !createdSecret {
+		if release.SecretShellETag == "" || inv.Secret.ETag != release.SecretShellETag || inv.Secret.Labels["release_id"] != release.ReleaseID || inv.Secret.Labels["purpose"] != "gcp04-w9-catalog-probe" || len(inv.Versions) != 0 {
+			return "", ErrCollision
+		}
 	}
 	if random == nil {
 		random = rand.Reader
@@ -226,7 +266,6 @@ func Execute(ctx context.Context, inv Inventory, release Release, m Mutator, j J
 	stamp := func(phase, ver, op string) error {
 		return j.Save(JournalRecord{ReleaseID: release.ReleaseID, Phase: phase, SecretResource: SecretParent, Version: ver, Operation: op, UpdatedAt: time.Now().UTC().Format(time.RFC3339)})
 	}
-	createdSecret := inv.Secret.Name == ""
 	if createdSecret {
 		if e := stamp("secret_shell_create_started", "", ""); e != nil {
 			return "", e
@@ -238,7 +277,7 @@ func Execute(ctx context.Context, inv Inventory, release Release, m Mutator, j J
 		if e := stamp("secret_shell_created", "", ""); e != nil {
 			return "", e
 		}
-	} else if e := stamp("secret_shell_preexisting_exact", "", ""); e != nil {
+	} else if e := stamp("secret_shell_prepared_exact", "", ""); e != nil {
 		return "", e
 	}
 	if e := stamp("secret_version_add_started", "", ""); e != nil {
@@ -261,7 +300,7 @@ func Execute(ctx context.Context, inv Inventory, release Release, m Mutator, j J
 	op, e := m.CreateUser(ctx, Login, []string{Role}, password)
 	if e != nil {
 		if errors.Is(e, ErrDefinitive) {
-			if ce := compensateSecret(ctx, m, release.ReleaseID, ver, createdSecret); ce != nil {
+			if ce := compensateSecret(ctx, m, release.ReleaseID, ver, true); ce != nil {
 				_ = stamp("compensation_uncertain", ver, "")
 				return "", ce
 			}
@@ -280,7 +319,7 @@ func Execute(ctx context.Context, inv Inventory, release Release, m Mutator, j J
 	}
 	if e = m.WaitOperation(ctx, op); e != nil {
 		if errors.Is(e, ErrDefinitive) {
-			if ce := compensateSecret(ctx, m, release.ReleaseID, ver, createdSecret); ce != nil {
+			if ce := compensateSecret(ctx, m, release.ReleaseID, ver, true); ce != nil {
 				_ = stamp("operation_compensation_uncertain", ver, op)
 				return "", ce
 			}

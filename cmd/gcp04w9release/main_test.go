@@ -89,14 +89,23 @@ func TestSecretCompensationRetainsDestroyedVersionAndDeletesOnlyExactOwnedShell(
 			t.Errorf("quota project header = %q", got)
 		}
 		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/versions/7"):
+			_, _ = w.Write([]byte(`{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/7","state":"ENABLED","etag":"version-etag"}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/versions/7:destroy"):
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["etag"] != "version-etag" {
+				t.Errorf("destroy request did not pin version ETag: %#v, %v", body, err)
+			}
 			state = "DESTROYED"
-			_, _ = w.Write([]byte(`{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/7","state":"DESTROYED"}`))
+			_, _ = w.Write([]byte(`{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/7","state":"DESTROYED","etag":"version-etag"}`))
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/secrets/espacigo-gcp04-w8-catalog-probe-password"):
-			_, _ = w.Write([]byte(`{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password","labels":{"release_id":"release-1","purpose":"gcp04-w9-catalog-probe"}}`))
+			_, _ = w.Write([]byte(`{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password","etag":"secret-etag","labels":{"release_id":"release-1","purpose":"gcp04-w9-catalog-probe"}}`))
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/versions"):
-			_, _ = w.Write([]byte(`{"versions":[{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/7","state":"` + state + `"}]}`))
+			_, _ = w.Write([]byte(`{"versions":[{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password/versions/7","state":"` + state + `","etag":"version-etag"}]}`))
 		case r.Method == http.MethodDelete && strings.HasSuffix(r.URL.Path, "/secrets/espacigo-gcp04-w8-catalog-probe-password"):
+			if r.URL.Query().Get("etag") != "secret-etag" {
+				t.Errorf("secret delete did not use current ETag: %q", r.URL.RawQuery)
+			}
 			deleted = true
 			_, _ = w.Write([]byte(`{}`))
 		default:
@@ -189,5 +198,29 @@ func TestWriterUserInsertContainsExplicitRole(t *testing.T) {
 	op, e := (writer{a}).CreateUser(context.Background(), gcp04w9release.Login, []string{gcp04w9release.Role}, []byte("test-only-password"))
 	if e != nil || op != "operation-1" {
 		t.Fatalf("insert result %q %v", op, e)
+	}
+}
+
+func TestWriterCreateSecretBuildsOnlyExactRegionalLabeledShell(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/projects/espacigo-testprod/secrets" || r.URL.Query().Get("secretId") != gcp04w9release.SecretID {
+			t.Errorf("unexpected shell create request %s %s", r.Method, r.URL.String())
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		labels, _ := body["labels"].(map[string]any)
+		replication, _ := body["replication"].(map[string]any)
+		userManaged, _ := replication["userManaged"].(map[string]any)
+		replicas, _ := userManaged["replicas"].([]any)
+		if labels["release_id"] != "shell-1" || labels["purpose"] != "gcp04-w9-catalog-probe" || len(replicas) != 1 || replicas[0].(map[string]any)["location"] != gcp04w9release.Region {
+			t.Errorf("shell request is not exact and regional: %#v", body)
+		}
+		_, _ = w.Write([]byte(`{"name":"projects/espacigo-testprod/secrets/espacigo-gcp04-w8-catalog-probe-password","etag":"shell-etag","labels":{"release_id":"shell-1","purpose":"gcp04-w9-catalog-probe"},"replication":{"userManaged":{"replicas":[{"location":"southamerica-west1"}]}}}`))
+	}))
+	defer srv.Close()
+	if err := (writer{testAPI(t, srv)}).CreateSecret(context.Background(), "shell-1"); err != nil {
+		t.Fatal(err)
 	}
 }

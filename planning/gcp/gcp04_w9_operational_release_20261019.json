@@ -55,6 +55,9 @@
     "roles/artifactregistry.reader on exact repository for Cloud Run service agent"
   ],
   "release_gates": [
+    "review and separately approve secret_shell stage; creates only an empty exact regional shell and captures its ETag",
+    "review enabled Terraform plan against the exact shell ETag, future numeric version and verified remote image digest",
+    "review and separately approve experiment stage with the shell ETag; maximum active credential window 1800 seconds",
     "review one exact temporary pg_read_all_settings experiment; no broader fallback",
     "review active release file SHA-256 and exact user/secret targets before helper execution",
     "review mock enabled Terraform plan, exact image digest and numeric version before activation",
