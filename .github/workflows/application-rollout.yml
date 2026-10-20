@@ -130,10 +130,6 @@ jobs:
           protected=json.loads(os.environ["TFVARS_JSON"])
           if not isinstance(protected,dict): raise SystemExit("invalid protected configuration")
           if not isinstance(manifest.get("images"),dict): raise SystemExit("invalid release manifest")
-          protected.update({"enable_foundation":False,"enable_database":False,"enable_services":True,"enable_edge":False,
-                            "enable_mailpit":False,"enable_gcp06_admin_bootstrap_job":False,
-                            "enable_gcp06_test_access_job":False,"enable_gcp06_sql_inspector_job":False,
-                            "enable_gcp06_jobs_reviewed":False})
           if "api" in manifest["images"]: protected["api_image"]=manifest["images"]["api"]
           if "web" in manifest["images"]: protected["frontend_image"]=manifest["images"]["web"]
           with open(p,"w",encoding="utf-8") as f: json.dump(protected,f,sort_keys=True)
