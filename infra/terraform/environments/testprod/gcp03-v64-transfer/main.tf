@@ -60,7 +60,7 @@ data "google_secret_manager_secret" "source_admin" {
 }
 
 data "google_secret_manager_secret" "source_transport" {
-  count     = local.enabled ? 1 : 0
+  count     = local.execute ? 1 : 0
   project   = var.project_id
   secret_id = "espacigo-gcp03-origin-g03o-1017-transport-key"
 }
@@ -125,7 +125,7 @@ resource "google_secret_manager_secret_iam_member" "source_admin_reader" {
 }
 
 resource "google_secret_manager_secret_iam_member" "source_transport_reader" {
-  count     = local.enabled && var.confirm_source_secrets ? 1 : 0
+  count     = local.execute && var.confirm_source_secrets ? 1 : 0
   project   = var.project_id
   secret_id = data.google_secret_manager_secret.source_transport[0].secret_id
   role      = "roles/secretmanager.secretAccessor"
@@ -336,9 +336,12 @@ resource "google_cloud_run_v2_job" "transfer" {
           name  = "GCP03_ORIGIN_IMPORT_CONFIRM_TARGET"
           value = local.source_confirm
         }
-        env {
-          name  = "GCP03_ORIGIN_IMPORT_TRANSPORT_KEY_FILE"
-          value = "/secrets/source-transport/k_run"
+        dynamic "env" {
+          for_each = local.execute ? [1] : []
+          content {
+            name  = "GCP03_ORIGIN_IMPORT_TRANSPORT_KEY_FILE"
+            value = "/secrets/source-transport/k_run"
+          }
         }
         env {
           name  = "CLOUD_SQL_INSTANCE_CONNECTION_NAME"
@@ -365,9 +368,12 @@ resource "google_cloud_run_v2_job" "transfer" {
           name       = "target-migrator"
           mount_path = "/secrets/target-migrator"
         }
-        volume_mounts {
-          name       = "source-transport"
-          mount_path = "/secrets/source-transport"
+        dynamic "volume_mounts" {
+          for_each = local.execute ? [1] : []
+          content {
+            name       = "source-transport"
+            mount_path = "/secrets/source-transport"
+          }
         }
         resources {
           limits = {
@@ -443,15 +449,18 @@ resource "google_cloud_run_v2_job" "transfer" {
           }
         }
       }
-      volumes {
-        name = "source-transport"
-        secret {
-          secret       = data.google_secret_manager_secret.source_transport[0].secret_id
-          default_mode = 292
-          items {
-            version = var.source_transport_secret_version
-            path    = "k_run"
-            mode    = 292
+      dynamic "volumes" {
+        for_each = local.execute ? [1] : []
+        content {
+          name = "source-transport"
+          secret {
+            secret       = data.google_secret_manager_secret.source_transport[0].secret_id
+            default_mode = 292
+            items {
+              version = var.source_transport_secret_version
+              path    = "k_run"
+              mode    = 292
+            }
           }
         }
       }
@@ -476,7 +485,7 @@ resource "google_cloud_run_v2_job" "transfer" {
     precondition {
       condition = (!local.enabled || (var.confirm_source_secrets && var.confirm_target_migrator_secret && var.confirm_target_files_bucket &&
         can(regex("^[1-9][0-9]*$", var.source_admin_secret_version)) &&
-        can(regex("^[1-9][0-9]*$", var.source_transport_secret_version)) &&
+        (!local.execute || can(regex("^[1-9][0-9]*$", var.source_transport_secret_version))) &&
         can(regex("^[1-9][0-9]*$", var.target_migrator_secret_version)) &&
         can(regex("^[0-9a-f]{64}$", var.receipt_sha256)) && can(regex("^[0-9a-f]{64}$", var.manifest_sha256)) &&
         can(regex("^[0-9a-f]{64}$", var.bootstrap_report_sha256)) && can(regex("^[0-9a-f]{64}$", var.observer_report_sha256)) &&
