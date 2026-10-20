@@ -30,7 +30,7 @@ resource "google_sql_database_instance" "candidate" {
     availability_type           = "ZONAL"
     connector_enforcement       = "REQUIRED"
     deletion_protection_enabled = local.protect_candidate
-    disk_type                   = "HYPERDISK_BALANCED"
+    disk_type                   = "PD_SSD"
     disk_size                   = var.disk_gib
     disk_autoresize             = false
 
