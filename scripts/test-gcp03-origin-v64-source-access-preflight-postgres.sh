@@ -233,6 +233,21 @@ sys.stdout.write(source_owner_discovery_sql() + ";\n")
 PY
 }
 
+psql_local -U postgres -d espacigo_scratch -c 'DROP TABLE public.espacio; DROP TABLE public.operacion_arriendo_evidencia_ensayo_local' >/dev/null
+run_owner_discovery postgres "$TMP_DIR/owner-missing-groups.json"
+python3 - "$TMP_DIR/owner-missing-groups.json" <<'PY'
+import json, sys
+from pathlib import Path
+report=json.loads(Path(sys.argv[1]).read_text())
+assert report['complete'] is False
+assert report['required_missing_count'] == 2
+assert report['report_missing_count'] == 1
+assert report['file_reference_missing_count'] == 1
+print('Real owner inventory distinguishes missing report and file-reference relations using counts only.')
+PY
+psql_local -U postgres -d espacigo_scratch -c 'CREATE TABLE public.espacio(id integer); CREATE TABLE public.operacion_arriendo_evidencia_ensayo_local(id integer)' >/dev/null
+psql_local -U postgres -d espacigo_scratch -c 'GRANT SELECT ON public.espacio, public.operacion_arriendo_evidencia_ensayo_local TO g03o_report_login' >/dev/null
+
 psql_local -U postgres -d espacigo_scratch -c 'ALTER TABLE public.usuario OWNER TO postgres' >/dev/null
 run_owner_discovery postgres "$TMP_DIR/owner-unique.json"
 python3 - "$TMP_DIR/owner-unique.json" <<'PY'
@@ -240,10 +255,14 @@ import json, sys
 from pathlib import Path
 report=json.loads(Path(sys.argv[1]).read_text())
 assert report['complete'] is True
+assert report['required_missing_count'] == 0
+assert report['report_missing_count'] == 0
+assert report['file_reference_missing_count'] == 0
 assert report['owner_count'] == 1
 assert report['set_allowed'] is True
 assert report['access_complete'] is True
 assert report['row_security_complete'] is True
+assert report['access_mode'] == 'owner_role'
 print('Real owner inventory passes for one complete accessible owner.')
 PY
 
@@ -254,8 +273,12 @@ import json, sys
 from pathlib import Path
 report=json.loads(Path(sys.argv[1]).read_text())
 assert report['complete'] is True
-assert report['owner_count'] > 1
-print('Real owner inventory detects mixed owners and blocks the source cut.')
+assert report['owner_count'] == 2
+assert report['owner_name'] is None
+assert report['access_mode'] == 'current_login'
+assert report['login_access_complete'] is True
+assert report['login_row_security_complete'] is True
+print('Real owner inventory identifies mixed owners and permits the verified current-login read path.')
 PY
 
 python3 - "$ROOT_DIR" <<'PY' | compose exec -T postgres psql -X -qAt --set=ON_ERROR_STOP=1 -U postgres -d espacigo_scratch >/dev/null
@@ -276,7 +299,9 @@ assert report['owner_count'] == 1
 assert report['set_allowed'] is False
 assert report['access_complete'] is True
 assert report['row_security_complete'] is True
-print('Real owner inventory denies continuation when SET ROLE is unavailable.')
+assert report['login_access_complete'] is False
+assert report['access_mode'] == 'blocked'
+print('Real owner inventory blocks when SET ROLE is denied and current-login access is incomplete.')
 PY
 
 psql_local -U postgres -d espacigo_scratch -c 'GRANT espacigo_schema_owner TO g03o_report_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE' >/dev/null
@@ -291,6 +316,9 @@ assert report['owner_count'] == 1
 assert report['set_allowed'] is True
 assert report['access_complete'] is True
 assert report['row_security_complete'] is False
+assert report['login_access_complete'] is False
+assert report['login_row_security_complete'] is False
+assert report['access_mode'] == 'blocked'
 print('Real owner inventory detects forced RLS that would make the dump incomplete.')
 PY
 
