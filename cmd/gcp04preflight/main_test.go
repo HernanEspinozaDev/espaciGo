@@ -140,6 +140,10 @@ func TestLocalObserverReadOnlyIntegration(t *testing.T) {
 			t.Fatal("local integration budget must be a positive integer")
 		}
 	}
+	localDatabaseUser := os.Getenv("GCP04_W7_TEST_DATABASE_USER")
+	if localDatabaseUser == "" {
+		localDatabaseUser = "espacigo_observer_login"
+	}
 	source, err := os.ReadFile(queryPath)
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +163,7 @@ func TestLocalObserverReadOnlyIntegration(t *testing.T) {
 	if err := conn.QueryRow(ctx, "SELECT current_database(), current_user").Scan(&databaseName, &databaseUser); err != nil {
 		t.Fatal(err)
 	}
-	if databaseName != expectedDatabase || databaseUser != "espacigo_observer_login" {
+	if databaseName != expectedDatabase || databaseUser != localDatabaseUser {
 		t.Fatalf("local fixture connected as %q/%q instead of the dedicated read-only observer", databaseName, databaseUser)
 	}
 	report, gateFailed, err := runForLocalIntegration(ctx, conn, query, required, databaseName, databaseUser)

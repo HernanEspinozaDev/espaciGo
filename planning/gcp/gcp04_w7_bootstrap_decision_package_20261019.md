@@ -2,6 +2,12 @@
 
 **Estado:** propuesta local de decisión, no autorización operativa. No se abrió sesión SQL remota ni se llamó a Cloud SQL Admin API para crear, actualizar o borrar usuarios. No se leyó ni creó ningún secreto, no se cambió IAM/ACL y no se publicó ni ejecutó infraestructura.
 
+## Actualización 2026-10-20 — ruta B local
+
+Se preparó el candidato local [`gcp04_w7_b1_observer_group_prepare_candidate.sql`](sql_candidates/gcp04_w7_b1_observer_group_prepare_candidate.sql) y su harness de PostgreSQL 18 en la [preparación local del observer B1](gcp04_w7_b1_observer_local_preparation_20261020.md). El candidato opera solo con un actor B1 directo y una ACL baseline que ya cumpla `PUBLIC TEMP=false` y las grant options requeridas. Crea el grupo observer de mínimo privilegio y retira el executor en la misma transacción. La prueba ejecuta también el preflight W4 exacto como un login sintético separado.
+
+Esto resuelve únicamente el diseño/código local. No demuestra el estado del actor, grant options, flags de membresía de `users.insert`, ni permite crear el actor, login observer, secreto o Job en Cloud. La ruta B sigue sin liberar para ejecución; persisten la decisión de stewardship, la comprobación de catálogo remota y la revisión de una eventual operación separada.
+
 ## Decisión que falta
 
 Elegir una sola ruta, sin sustitución automática:
@@ -9,7 +15,7 @@ Elegir una sola ruta, sin sustitución automática:
 1. **Ruta A: actor SQL preexistente, nombrado por su responsable.** Identificar el nombre exacto del login y acreditar en una sesión directa de solo lectura sus atributos y concesiones. Es la ruta preferida si existe un actor que satisface el contrato estricto del artefacto `gcp04_w7_observer_executor_prepare_candidate.sql`. La evidencia de control plane actual no identifica ninguno. `postgres` aparece en `users.list`; queda fuera del alcance y la liberación W7 vigentes, que excluyen usarlo o recuperar/configurar su acceso. Eso describe el alcance actual, no una prohibición humana permanente para encargos futuros.
 2. **Ruta B: bootstrap SQL temporal mediante una identidad builtin distinta.** Esta ruta requeriría crear por Admin API un actor de bootstrap separado del login observer. Si se omiten roles DB, Google documenta que recibe `cloudsqlsuperuser` y atributos `CREATEROLE`, `CREATEDB` y `LOGIN`. `cloudsqlsuperuser` no es el atributo PostgreSQL `SUPERUSER`: Cloud SQL no permite clientes con ese atributo. Sí es una capacidad elevada. El actor B no satisface el contrato A: el candidato A exige `NOCREATEDB` y `NOINHERIT`, mientras que la alta builtin documentada entrega `CREATEDB` y `LOGIN` y puede no cumplir `NOINHERIT`; por tanto el SQL candidato actual lo rechazaría. B necesitaría preflight de atributos/membresías propio y un artefacto SQL B diseñado, revisado y probado aparte. Esta ruta se presenta como opción de decisión, no se crea ni se usa. Omitir roles custom al crear **B** no equivale a crear el observer: la identidad W7 observer sería otro usuario, creado después con el rol custom preexistente `espacigo_db_observer`. Crear ese rol antes de darlo al observer es el propósito de B.
 
-**Decisión requerida para el siguiente diseño:** nombrar actor A, elegir que se prepare un diseño revisable de ruta B para ese actor temporal separado, o detener W7. Esta decisión de diseño no es liberación de operación. La ejecución de cualquiera de las rutas sigue sujeta a aprobación/revisión separada; además deben resolverse `PUBLIC TEMP`, la membresía API y la política de retiro del grupo. El alcance y las exclusiones de la liberación actual se aplican a este corte; no se infieren como prohibiciones permanentes ni se infiere silencio como aprobación.
+**Decisión solicitada el 2026-10-19 (histórica):** nombrar actor A, preparar diseño revisable de ruta B para un actor temporal separado o detener W7. La ruta B tiene ahora un candidato local, pero ninguna de estas opciones constituye liberación operativa. Antes de una eventual ejecución siguen pendientes `PUBLIC TEMP`, verificación de grant options/actor, membresía API y política de retiro del grupo. El silencio no equivale a aprobación.
 
 ## Actor preexistente: capacidades exactas a verificar
 
@@ -57,7 +63,7 @@ Cada fase queda condicionada a su propia revisión/liberación, con objetivo exa
 
 ### Archivos y hashes de consulta
 
-Los cuatro SQL son candidatos locales de ruta A. La ruta B no tiene SQL todavía y no puede usar el candidato `prepare` de A. W4 es solamente el preflight de lectura.
+Al 2026-10-19, los cuatro SQL eran candidatos locales de ruta A y la ruta B no tenía candidato; no se debe reutilizar el SQL A para B. Desde el 2026-10-20 existe el candidato separado [`gcp04_w7_b1_observer_group_prepare_candidate.sql`](sql_candidates/gcp04_w7_b1_observer_group_prepare_candidate.sql), con límites documentados arriba. W4 sigue siendo únicamente un preflight de lectura.
 
 | Uso | Ruta del archivo | SHA-256 |
 | --- | --- | --- |

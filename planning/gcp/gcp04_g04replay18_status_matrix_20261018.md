@@ -13,6 +13,12 @@ Esta actualización prevalece solo para el estado operativo vigente; las seccion
 | Mailpit | VM preservada | COS `638-5`; SMTP privado `10.81.1.2:1025`. Sin bootstrap B1 temporal activo. |
 | Estado de corte | GCP-04 parcial operativo single-instance; GCP-05 parcial | No se demuestra multiinstancia/durabilidad/aceptación; no se importó dataset local; GCP-06/07 no están cerrados. |
 
+## Actualización: W7 B1 observer, preparación local (2026-10-20)
+
+El candidato local [B1 observer y preflight](gcp04_w7_b1_observer_local_preparation_20261020.md) crea únicamente el grupo `NOLOGIN` de lectura mínima mediante un executor temporal que se elimina en la misma transacción. El grupo tiene `CONNECT`, `USAGE` y `SELECT` opcional sobre `schema_migrations`, sin ACL de tablas de negocio, `CREATE`, `TEMP`, membresías ni autoridad administrativa. La prueba PostgreSQL 18 aislada ejecutó el candidato y el preflight W4 exacto como login sintético independiente; `TestLocalObserverReadOnlyIntegration` confirmó `transaction_read_only=true`. También pasaron los harnesses locales del executor y probe y los paquetes Go relacionados.
+
+Esto es preparación candidata, no liberación ni evidencia Cloud. No se verificó el actor B1 real, sus membresías/grant options ni las ACL de Cloud SQL; no se creó login, grupo, secreto, IAM, Job ni state; no hubo SQL remoto ni cambios de V1–V64. Continúan pendientes la política de stewardship/retirada del grupo y la revisión de cualquier operación remota separada.
+
 ## Actualización posterior: GCP-04-W7 gate observer local (2026-10-19)
 
 | Capacidad | Estado | Evidencia / alcance |
