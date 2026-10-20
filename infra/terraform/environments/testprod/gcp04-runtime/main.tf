@@ -275,7 +275,9 @@ resource "google_cloud_run_v2_job" "migrator" {
         }
       }
       containers {
-        image = var.migrator_image
+        image   = var.migrator_operation == "baseline-restore" ? var.baseline_restore_image : var.migrator_image
+        command = var.migrator_operation == "baseline-restore" ? ["/app/gcp04-baseline-restore"] : null
+        args    = var.migrator_operation == "baseline-restore" ? ["--mode=restore"] : null
         resources { limits = { cpu = "1", memory = "512Mi" } }
         env {
           name  = "DATABASE_URL"
@@ -309,6 +311,14 @@ resource "google_cloud_run_v2_job" "migrator" {
           name  = "DATABASE_PASSWORD_FILE"
           value = "/var/secrets/database-password/password"
         }
+        env {
+          name  = "GCP04_BASELINE_MANIFEST_SHA256"
+          value = var.baseline_manifest_sha256
+        }
+        env {
+          name  = "GCP04_BASELINE_DUMP_SHA256"
+          value = var.baseline_dump_sha256
+        }
         volume_mounts {
           name       = "database-password"
           mount_path = "/var/secrets/database-password"
@@ -318,8 +328,12 @@ resource "google_cloud_run_v2_job" "migrator" {
   }
   lifecycle {
     precondition {
-      condition     = var.project_id == "espacigo-testprod" && can(regex("^[^@]+@[^@]+\\.iam\\.gserviceaccount\\.com$", var.migrator_service_account_email)) && var.migrator_database_user == "espacigo_migrator_login" && var.migrator_database_password_secret_id != "" && can(regex("^[1-9][0-9]*$", var.migrator_database_password_version)) && can(regex("@sha256:[0-9a-f]{64}$", var.migrator_image))
-      error_message = "Migrator activation requires the reviewed project, dedicated runtime identity, dedicated DB login, numeric secret version and immutable image digest."
+      condition     = var.project_id == "espacigo-testprod" && can(regex("^[^@]+@[^@]+\\.iam\\.gserviceaccount\\.com$", var.migrator_service_account_email)) && var.migrator_database_user == "espacigo_migrator_login" && var.migrator_database_password_secret_id != "" && can(regex("^[1-9][0-9]*$", var.migrator_database_password_version)) && (var.migrator_operation == "baseline-restore" ? can(regex("@sha256:[0-9a-f]{64}$", var.baseline_restore_image)) : can(regex("@sha256:[0-9a-f]{64}$", var.migrator_image)))
+      error_message = "Migrator activation requires the reviewed project, dedicated runtime identity, dedicated DB login, numeric secret version and immutable selected image digest."
+    }
+    precondition {
+      condition     = var.migrator_operation == "baseline-restore" ? (var.confirm_baseline_restore && can(regex("^[0-9a-f]{64}$", var.baseline_manifest_sha256)) && var.baseline_dump_sha256 == "1d31721c1a3fee15903f3a5cfbb348e5803b567727187c0a8871313b94f7faee") : (!var.confirm_baseline_restore && var.baseline_manifest_sha256 == "" && var.baseline_dump_sha256 == "")
+      error_message = "W6 restore requires explicit confirmation and the pinned W6 artifact hashes; normal migrations require those restore inputs to remain unset."
     }
     precondition {
       condition     = data.google_compute_subnetwork.existing[0].private_ip_google_access && data.google_sql_database_instance.existing[0].region == var.region
