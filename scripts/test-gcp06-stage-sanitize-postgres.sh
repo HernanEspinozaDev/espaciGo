@@ -193,7 +193,7 @@ SQL
 EXPORT_ID="e2e-$(date -u +%Y%m%d%H%M%S)-$$"
 EXPORT_DIR=".local/testing/gcp06-stage-$EXPORT_ID"
 GCP06_SOURCE_CONTAINER="$CONTAINER" GCP06_SOURCE_DATABASE_USER=postgres \
-  "$ROOT_DIR/scripts/gcp06-local-stage-export.sh" "$EXPORT_DIR" >/dev/null
+  bash "$ROOT_DIR/scripts/gcp06-local-stage-export.sh" "$EXPORT_DIR" >/dev/null
 python3 - "$ROOT_DIR/$EXPORT_DIR/manifest.json" "$ROOT_DIR/$EXPORT_DIR/data.sql" <<'PY'
 import json,re,sys
 manifest_path,dump_path=sys.argv[1:]

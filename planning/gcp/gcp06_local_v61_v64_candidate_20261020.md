@@ -21,7 +21,7 @@ Como el catálogo requiere elegibilidad KYC, las verificaciones originales se re
 Después de revisar este PR y verificar el origen local por el canal autorizado:
 
 ```bash
-scripts/gcp06-local-stage-export.sh .local/testing/gcp06-stage-<run-id>
+bash scripts/gcp06-local-stage-export.sh .local/testing/gcp06-stage-<run-id>
 ```
 
 El comando requiere el contenedor local configurado (`espacigo-database-1` por defecto), base `espacigo_local`, PostgreSQL 18 con V1–V61 y la imagen fijada ya disponible localmente. Antes de ejecutar sobre el origen persistente, revisar el script y autorizar una ventana de lectura coherente; el harness de este PR solo usa un origen desechable sintético.
