@@ -31,6 +31,20 @@ BEGIN
 END
 $guard$;
 
+-- These append-only ledgers are omitted from candidate data. Empty only the
+-- disposable staging copies with TRUNCATE (row DELETE triggers never run), so
+-- their outgoing RESTRICT FKs cannot pin a tainted space or owner in staging.
+DO $truncate_append_only_staging_copies$
+BEGIN
+    IF to_regclass('public.espacio_publicacion_historial_local') IS NOT NULL THEN
+        TRUNCATE TABLE public.espacio_publicacion_historial_local;
+    END IF;
+    IF to_regclass('public.espacio_eliminacion_historial_local') IS NOT NULL THEN
+        TRUNCATE TABLE public.espacio_eliminacion_historial_local;
+    END IF;
+END
+$truncate_append_only_staging_copies$;
+
 CREATE TEMP TABLE gcp06_tainted_row (
     relid oid NOT NULL,
     row_tid tid NOT NULL,

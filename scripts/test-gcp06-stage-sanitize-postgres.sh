@@ -230,6 +230,13 @@ INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion
  reglas_uso,modalidad_tarifa,precio_base_clp,direccion)
 VALUES('30000000-0000-4000-8000-000000000022','10000000-0000-4000-8000-000000000022','oficina',
  'Espacio tainted',repeat('Descripción sintética para prueba local. ',4),25,4,'Uso responsable','dia',25000,'Dirección sintética 2');
+UPDATE public.espacio SET estado='activa' WHERE id='30000000-0000-4000-8000-000000000022';
+INSERT INTO public.espacio_publicacion_historial_local(
+  espacio_id,actor_id,estado_anterior,estado_nuevo,ocurrida_en,correlacion_id
+) VALUES(
+  '30000000-0000-4000-8000-000000000022','10000000-0000-4000-8000-000000000022',
+  'borrador','activa',now(),'synthetic-tainted-owner-publication-history'
+);
 INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,motivo)
 VALUES('a0000000-0000-4000-8000-000000000022','30000000-0000-4000-8000-000000000022',NULL,
   tstzrange(now()+interval '3 days',now()+interval '4 days','[)'),'bloqueo_manual',true,'synthetic private block');
@@ -264,7 +271,7 @@ assert reports and reports[0]['source_only']==0 and reports[0]['stage_only']==0,
 print('PASS: disposable staging extension bootstrap matches the synthetic source catalog inventory')
 PY
 source_history_count="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM espacio_publicacion_historial_local')"
-[[ "$source_history_count" == 1 ]] || { echo 'Synthetic source append-only history changed during export.' >&2; exit 1; }
+[[ "$source_history_count" == 2 ]] || { echo 'Synthetic source append-only history changed during export.' >&2; exit 1; }
 source_quote_count="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM cotizacion_reserva_ensayo')"
 [[ "$source_quote_count" == 1 ]] || { echo 'Synthetic source quote changed during export.' >&2; exit 1; }
 source_reservation_count="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM reserva_ensayo_local')"
@@ -332,7 +339,7 @@ fi
 source_rows_after_rejected_import="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM public.usuario')"
 [[ "$source_rows_after_rejected_import" == 2 ]] || { echo 'Rejected import modified the synthetic source fixture.' >&2; exit 1; }
 source_history_after_import="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM public.espacio_publicacion_historial_local')"
-[[ "$source_history_after_import" == 1 ]] || { echo 'Source append-only publication history changed.' >&2; exit 1; }
+[[ "$source_history_after_import" == 2 ]] || { echo 'Source append-only publication history changed.' >&2; exit 1; }
 source_quote_after_import="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM public.cotizacion_reserva_ensayo')"
 [[ "$source_quote_after_import" == 1 ]] || { echo 'Source quote changed.' >&2; exit 1; }
 source_reservation_after_import="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM public.reserva_ensayo_local')"
