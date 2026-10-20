@@ -33,7 +33,9 @@ jobs:
           terraform_version: 1.16.6
           terraform_wrapper: false
       - name: Pull pinned PostgreSQL/PostGIS test image
-        run: docker pull postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+        run: |
+          docker pull postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+          docker image tag postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677 postgis/postgis:18-3.6
       - name: Check shell syntax
         run: bash -n scripts/gcp06-local-stage-export.sh scripts/gcp06-upload-candidate-sql.sh scripts/test-gcp06-stage-sanitize-postgres.sh
       - name: Run isolated GCP-06 PostgreSQL harness
