@@ -1,6 +1,10 @@
 name: Application rollout
 
 on:
+  workflow_run:
+    workflows: [Application release]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       mode:
@@ -44,30 +48,22 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - name: Validate rollout inputs and activation gates
-        env:
-          MODE: ${{ inputs.mode }}
-          CONFIRMATION: ${{ inputs.confirmation }}
-          PREVIEW_RUN_ID: ${{ inputs.preview_run_id }}
-          FINGERPRINT: ${{ inputs.approved_fingerprint }}
-          PUBLISH_ENABLED: ${{ vars.GCP07C_PUBLISH_ENABLED }}
-          ROLLOUT_ENABLED: ${{ vars.GCP07D_ROLLOUT_ENABLED }}
-        run: |
-          test "$PUBLISH_ENABLED" = true
-          test "$ROLLOUT_ENABLED" = true
-          if [[ "$MODE" == apply ]]; then
-            test "$CONFIRMATION" = 'APPLY GCP-07D'
-            [[ "$PREVIEW_RUN_ID" =~ ^[0-9]+$ ]]
-            [[ "$FINGERPRINT" =~ ^[0-9a-f]{64}$ ]]
-          else
-            test "$MODE" = preview
-          fi
       - id: verify
         name: Verify existing protected environment without creating it
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          MODE: ${{ github.event_name == 'workflow_run' && 'auto' || inputs.mode }}
+          PUBLISH_ENABLED: ${{ vars.GCP07C_PUBLISH_ENABLED }}
+          ROLLOUT_ENABLED: ${{ vars.GCP07D_ROLLOUT_ENABLED }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          PREVIEW_RUN_ID: ${{ inputs.preview_run_id }}
+          FINGERPRINT: ${{ inputs.approved_fingerprint }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
         run: python3 scripts/verify_gcp07_environment.py
 
   rollout:
@@ -83,19 +79,20 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
+          fetch-depth: 0
           persist-credentials: false
       - name: Download image manifest from selected release run
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: gcp07d-release-${{ inputs.release_run_id }}
+          name: gcp07d-release-${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.release_run_id }}
           path: release
-          run-id: ${{ inputs.release_run_id }}
+          run-id: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.release_run_id }}
           github-token: ${{ github.token }}
       - name: Verify source release and digest manifest
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          RELEASE_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.release_run_id }}
         run: python3 scripts/verify_gcp07_release_manifest.py release/manifest.json
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v4.0.1
         with:
@@ -104,8 +101,8 @@ jobs:
       - name: Configure private Terraform inputs and image references
         env:
           TFVARS_JSON: ${{ secrets.GCP07D_TFVARS_JSON }}
-          MODE: ${{ inputs.mode }}
-          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          MODE: ${{ github.event_name == 'workflow_run' && 'auto' || inputs.mode }}
+          RELEASE_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.release_run_id }}
         run: |
           set -euo pipefail
           umask 077
@@ -141,8 +138,8 @@ jobs:
           token_format: access_token
       - name: Initialize canonical Terraform root and produce private plan
         env:
-          MODE: ${{ inputs.mode }}
-          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          MODE: ${{ github.event_name == 'workflow_run' && 'auto' || inputs.mode }}
+          RELEASE_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.release_run_id }}
         run: |
           set -euo pipefail
           umask 077
@@ -170,11 +167,10 @@ jobs:
         env:
           EXPECTED_FINGERPRINT: ${{ inputs.approved_fingerprint }}
           RELEASE_RUN_ID: ${{ inputs.release_run_id }}
-          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           python3 scripts/compare_gcp07d_preview.py "$RUNNER_TEMP/gcp07d/summary.json" \
-            approved-preview/summary.json "$EXPECTED_FINGERPRINT" "$RELEASE_RUN_ID" "$SOURCE_SHA"
+            approved-preview/summary.json "$EXPECTED_FINGERPRINT" "$RELEASE_RUN_ID" "$GCP07D_SOURCE_SHA"
           cd infra/terraform/environments/testprod/gcp
           terraform apply -input=false -auto-approve "$RUNNER_TEMP/gcp07d/rollout.tfplan" > "$RUNNER_TEMP/gcp07d/apply.log" 2>&1 || { echo "Terraform apply failed; private diagnostics retained only on runner"; exit 1; }
       - name: Publish allowlisted preview summary
@@ -190,6 +186,20 @@ jobs:
           path: gcp07d-preview/summary.json
           if-no-files-found: error
           retention-days: 14
+      - name: Apply automatic release plan after activation
+        if: github.event_name == 'workflow_run'
+        run: |
+          set -euo pipefail
+          cd infra/terraform/environments/testprod/gcp
+          terraform apply -input=false -auto-approve "$RUNNER_TEMP/gcp07d/rollout.tfplan" > "$RUNNER_TEMP/gcp07d/apply.log" 2>&1 || { echo "Terraform apply failed; private diagnostics retained only on runner"; exit 1; }
+          python3 - "$RUNNER_TEMP/gcp07d/summary.json" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json,sys
+          summary=json.load(open(sys.argv[1],encoding="utf-8"))
+          print("GCP-07D automatic rollout completed under the image-only policy." if summary["changes"] else "GCP-07D automatic rollout found no service image changes.")
+          print(f"Source SHA: `{summary['source_sha']}`")
+          print(f"Release run: `{summary['release_run_id']}`")
+          print(f"Policy fingerprint: `{summary['fingerprint']}`")
+          PY
       - name: Remove private Terraform files
         if: always()
         run: rm -rf "$RUNNER_TEMP/gcp07d" release approved-preview

@@ -77,8 +77,6 @@ def validate(plan, expected, source_sha, release_run_id):
             raise PolicyError()
         seen.add(address)
         summary.append({"address": address, "action": "update", "image": image})
-    if not summary:
-        raise PolicyError()
     normalized = {
         "source_sha": source_sha,
         "release_run_id": str(release_run_id),

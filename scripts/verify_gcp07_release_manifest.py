@@ -10,6 +10,12 @@ import urllib.request
 PREFIX = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/"
 
 
+def affects_application(path):
+    return (path.endswith(".go") or path in {"go.mod", "go.sum", "go.work", "go.work.sum",
+            "Dockerfile", ".dockerignore", "planning/openapi.yaml"}
+            or path.startswith(("cmd/", "internal/", "db/migrations/", "frontend/")))
+
+
 def main(path):
     try:
         repo = os.environ["REPOSITORY"]
@@ -29,8 +35,12 @@ def main(path):
                 or run.get("head_branch") != "main" or run.get("path") != ".github/workflows/application-release.yml"
                 or manifest.get("source_sha") != run.get("head_sha")):
             raise ValueError()
+        source_sha = manifest["source_sha"]
         current = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-        if current != manifest["source_sha"]:
+        subprocess.run(["git", "merge-base", "--is-ancestor", source_sha, current], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        later_paths = subprocess.check_output(["git", "diff", "--name-only", source_sha, current], text=True).splitlines()
+        if any(affects_application(path) for path in later_paths):
             raise ValueError()
         images = manifest.get("images")
         if not isinstance(images, dict) or not images or set(images) - {"api", "web"}:

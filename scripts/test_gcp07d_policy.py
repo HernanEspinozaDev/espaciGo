@@ -1,14 +1,15 @@
 import copy
 import unittest
+from unittest.mock import patch
 
 from verify_gcp07_environment import is_ready
+from verify_gcp07_environment import published_release_exists
 from verify_gcp07_plan import ALLOWED, IMAGE_PATH, PolicyError, validate
 
 
 def environment():
     return {
-        "protection_rules": [{"type": "required_reviewers", "prevent_self_review": True,
-                              "reviewers": [{"type": "User", "reviewer": {"login": "HernanEspinozaDev", "id": 176093371}}]}],
+        "protection_rules": [],
         "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True},
     }
 
@@ -21,18 +22,34 @@ def resource(address, image):
 
 
 class Gcp07dPolicyTests(unittest.TestCase):
-    def test_environment_requires_reviewer_and_exact_main_policy(self):
+    def test_environment_allows_continuous_rollout_without_reviewer_gate(self):
         self.assertTrue(is_ready(environment(), {"branch_policies": [{"name": "main"}]}))
         self.assertFalse(is_ready(environment(), {"branch_policies": [{"name": "main"}, {"name": "release/*"}]}))
-        wrong = environment()
-        wrong["protection_rules"][0]["prevent_self_review"] = False
-        self.assertFalse(is_ready(wrong, {"branch_policies": [{"name": "main"}]}))
+        reviewer_gate = environment()
+        reviewer_gate["protection_rules"] = [{"type": "required_reviewers"}]
+        self.assertFalse(is_ready(reviewer_gate, {"branch_policies": [{"name": "main"}]}))
+
+    def test_automatic_trigger_requires_successful_publish_and_artifact(self):
+        run = {"status": "completed", "conclusion": "success", "event": "push",
+               "head_branch": "main", "path": ".github/workflows/application-release.yml",
+               "head_repository": {"full_name": "HernanEspinozaDev/espaciGo"}}
+        jobs = {"jobs": [{"name": "publish digest-pinned images and attestations", "conclusion": "success"}]}
+        artifact = {"artifacts": [{"name": "gcp07d-release-42", "expired": False}]}
+        with patch("verify_gcp07_environment.request_json", side_effect=[run, jobs, artifact]):
+            self.assertTrue(published_release_exists("HernanEspinozaDev/espaciGo", "42", "token"))
+        artifact["artifacts"][0]["expired"] = True
+        with patch("verify_gcp07_environment.request_json", side_effect=[run, jobs, artifact]):
+            self.assertFalse(published_release_exists("HernanEspinozaDev/espaciGo", "42", "token"))
 
     def test_accepts_single_allowlisted_digest_update(self):
         image = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
         address = next(key for key, value in ALLOWED.items() if value[0] == "api")
         result = validate({"applyable": True, "resource_changes": [resource(address, image)]}, {"api": image}, "b" * 40, "123")
         self.assertEqual(len(result["fingerprint"]), 64)
+
+    def test_accepts_empty_plan_as_noop(self):
+        result = validate({"applyable": True, "resource_changes": []}, {}, "b" * 40, "123")
+        self.assertEqual(result["changes"], [])
 
     def test_rejects_create_wrong_image_and_non_image_change(self):
         image = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
