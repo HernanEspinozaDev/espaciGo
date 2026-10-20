@@ -108,6 +108,7 @@ run "services_and_edge_preserve_runtime_contracts" {
     confirm_project_inventory          = true
     confirm_cost_policy_review         = true
     acknowledge_gcp04_runtime_gates    = true
+    confirm_pga_iap_key_preflight      = true
     bucket_suffix                      = "offline-test"
     api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -119,6 +120,10 @@ run "services_and_edge_preserve_runtime_contracts" {
   assert {
     condition     = google_cloud_run_v2_service.api[0].template[0].containers[0].resources[0].cpu_idle == false
     error_message = "API workers need explicitly allocated CPU while their instance is running."
+  }
+  assert {
+    condition     = one([for env in google_cloud_run_v2_service.api[0].template[0].containers[0].env : env.value if env.name == "LOCAL_VERIFICATION_IP_LIMIT"]) == "20"
+    error_message = "The cloud-test API profile must receive a valid local verification quota at startup."
   }
   assert {
     condition     = google_cloud_run_v2_service.api[0].ingress == "INGRESS_TRAFFIC_ALL"
@@ -259,7 +264,7 @@ run "services_reject_unverified_iap_key_egress" {
     confirm_runtime_database_bootstrap = true
   }
 
-  expect_failures = [var.enable_services]
+  expect_failures = [var.enable_edge]
 }
 
 run "mailpit_vm_is_private_and_scoped" {
@@ -277,15 +282,15 @@ run "mailpit_vm_is_private_and_scoped" {
   }
 
   assert {
-    condition     = google_compute_instance.mailpit[0].network_interface[0].access_config == []
+    condition     = length(google_compute_instance.mailpit[0].network_interface[0].access_config) == 0
     error_message = "The Mailpit VM must not have a public IP address."
   }
   assert {
-    condition     = google_compute_firewall.mailpit_smtp[0].source_ranges == [var.api_serverless_subnet_cidr] && google_compute_firewall.mailpit_smtp[0].allow[0].ports == ["1025"]
+    condition     = toset(google_compute_firewall.mailpit_smtp[0].source_ranges) == toset([var.api_serverless_subnet_cidr]) && toset(one([for rule in google_compute_firewall.mailpit_smtp[0].allow : rule.ports if rule.protocol == "tcp"])) == toset(["1025"])
     error_message = "SMTP must be limited to the dedicated API subnet on port 1025."
   }
   assert {
-    condition     = google_compute_firewall.mailpit_ui_iap[0].source_ranges == ["35.235.240.0/20"] && google_compute_firewall.mailpit_ui_iap[0].allow[0].ports == ["8025"]
+    condition     = toset(google_compute_firewall.mailpit_ui_iap[0].source_ranges) == toset(["35.235.240.0/20"]) && toset(one([for rule in google_compute_firewall.mailpit_ui_iap[0].allow : rule.ports if rule.protocol == "tcp"])) == toset(["8025"])
     error_message = "The Mailpit UI must be reachable only through the IAP TCP forwarding source range on port 8025."
   }
   assert {
