@@ -119,6 +119,39 @@ class DestinationInventoryTests(unittest.TestCase):
 
 
 class DatabasePreflightDiagnosticTests(unittest.TestCase):
+    def test_owner_discovery_fails_closed_for_mixed_owner_without_exposing_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            password_path = Path(directory) / "db-password"
+            password_path.write_text("synthetic-password\n")
+            os.chmod(password_path, 0o600)
+            db = PsqlDatabase(database="espacigo_scratch", user="postgres", password_file=password_path, port=5432)
+            response = b'{"complete":true,"owner_count":2,"owner_oid":1,"owner_name":"sensitive_role","set_allowed":true,"access_complete":true,"row_security_complete":true}'
+            try:
+                with patch("gcp03_origin_v64_transfer.subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=response, stderr=b"")):
+                    with self.assertRaises(TransferStopped) as error:
+                        db.discover_source_owner()
+                self.assertEqual(error.exception.code, "SOURCE_OWNER_PREFLIGHT_FAILED")
+                self.assertFalse(error.exception.safe_details["source_required_owner_unique"])
+                self.assertNotIn("sensitive_role", repr(error.exception.safe_details))
+            finally:
+                db.close()
+
+    def test_owner_discovery_fails_closed_when_set_role_is_denied(self):
+        with tempfile.TemporaryDirectory() as directory:
+            password_path = Path(directory) / "db-password"
+            password_path.write_text("synthetic-password\n")
+            os.chmod(password_path, 0o600)
+            db = PsqlDatabase(database="espacigo_scratch", user="postgres", password_file=password_path, port=5432)
+            response = b'{"complete":true,"owner_count":1,"owner_oid":1,"owner_name":"sensitive_role","set_allowed":false,"access_complete":true,"row_security_complete":true}'
+            try:
+                with patch("gcp03_origin_v64_transfer.subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=response, stderr=b"")):
+                    with self.assertRaises(TransferStopped) as error:
+                        db.discover_source_owner()
+                self.assertFalse(error.exception.safe_details["source_required_owner_set_allowed"])
+                self.assertNotIn("sensitive_role", repr(error.exception.safe_details))
+            finally:
+                db.close()
+
     def run_report_failure(self, database: str, stderr: bytes, stdout: bytes = b"", returncode: int = 2):
         with tempfile.TemporaryDirectory() as directory:
             password_path = Path(directory) / "db-password"
@@ -128,8 +161,10 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
             db = PsqlDatabase(database=database, user="postgres" if source else "espacigo_migrator_login",
                 password_file=password_path, port=5432 if source else 5433)
             try:
+                failure = SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+                owner = SimpleNamespace(returncode=0, stdout=b'{"complete":true,"owner_count":1,"owner_oid":1,"owner_name":"fixture_owner","set_allowed":true,"access_complete":true,"row_security_complete":true}', stderr=b"")
                 with patch("gcp03_origin_v64_transfer.subprocess.run",
-                    return_value=SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)) as run:
+                    side_effect=[owner, failure] if source else [failure]) as run:
                     with self.assertRaises(TransferStopped) as error:
                         db.report()
                 command = run.call_args.args[0]
@@ -224,6 +259,7 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
                 value = {"report_complete": True}
             stdout.extend([f"{SOURCE_REPORT_MARKER}{name}", json.dumps(value)])
         completed = SimpleNamespace(returncode=0, stdout=("\n".join(stdout) + "\n").encode(), stderr=b"")
+        owner = SimpleNamespace(returncode=0, stdout=b'{"complete":true,"owner_count":1,"owner_oid":1,"owner_name":"fixture_owner","set_allowed":true,"access_complete":true,"row_security_complete":true}', stderr=b"")
 
         with tempfile.TemporaryDirectory() as directory:
             password_path = Path(directory) / "db-password"
@@ -232,10 +268,11 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
             db = PsqlDatabase(database="espacigo_scratch", user="postgres",
                 password_file=password_path, port=5432)
             try:
-                with patch("gcp03_origin_v64_transfer.subprocess.run", return_value=completed) as run:
+                with patch("gcp03_origin_v64_transfer.subprocess.run", side_effect=[owner, completed]) as run:
                     report = db.report()
-                script = run.call_args.kwargs["input"].decode()
-                self.assertTrue(script.startswith("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;"))
+                script = run.call_args_list[1].kwargs["input"].decode()
+                self.assertTrue(script.startswith('SET ROLE "fixture_owner";'))
+                self.assertIn("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;", script)
                 self.assertTrue(script.rstrip().endswith("COMMIT;"))
                 self.assertIn(f"{SOURCE_REPORT_MARKER}count_usuario", script)
                 self.assertEqual(report["counts"], {"usuario": 1, "espacio": 1, "reserva": 1})
