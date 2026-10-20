@@ -197,6 +197,8 @@ INSERT INTO public.espacio_publicacion_historial_local(
   '30000000-0000-4000-8000-000000000021','10000000-0000-4000-8000-000000000021',
   'borrador','activa',now(),'synthetic-publication-history'
 );
+BEGIN;
+SET CONSTRAINTS ALL DEFERRED;
 INSERT INTO public.cotizacion_reserva_ensayo(
   id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,
   precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,
@@ -207,6 +209,23 @@ INSERT INTO public.cotizacion_reserva_ensayo(
   'dia',25000,'CLP',1,25000,now()+interval '1 day',now()+interval '2 days',
   'America/Santiago','Synthetic quote terms','oficina',1,'{}'::jsonb,now(),now()+interval '15 minutes'
 );
+INSERT INTO public.reserva_ensayo_local(
+  id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,clave_idempotencia,
+  huella_solicitud,ocupacion_id,estado,precio_unitario_clp,unidades,subtotal_clp,
+  modalidad,moneda,inicio,termino,zona_horaria,condiciones_snapshot,
+  pago_vence_en,creada_en,actualizada_en
+) VALUES (
+  '90000000-0000-4000-8000-000000000021','80000000-0000-4000-8000-000000000021',
+  '30000000-0000-4000-8000-000000000021','10000000-0000-4000-8000-000000000021',
+  '10000000-0000-4000-8000-000000000022','synthetic-tainted-renter-quote',decode(repeat('00',32),'hex'),
+  'a0000000-0000-4000-8000-000000000021','pagada',25000,1,25000,'dia','CLP',
+  now()+interval '1 day',now()+interval '2 days','America/Santiago','Synthetic terms',
+  now()+interval '15 minutes',now(),now()
+);
+INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo)
+VALUES('a0000000-0000-4000-8000-000000000021','30000000-0000-4000-8000-000000000021',
+  '90000000-0000-4000-8000-000000000021',tstzrange(now()+interval '1 day',now()+interval '2 days','[)'),'reserva',true);
+COMMIT;
 SQL
 EXPORT_ID="e2e-$(date -u +%Y%m%d%H%M%S)-$$"
 EXPORT_DIR=".local/testing/gcp06-stage-$EXPORT_ID"
@@ -241,6 +260,10 @@ source_history_count="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT
 [[ "$source_history_count" == 1 ]] || { echo 'Synthetic source append-only history changed during export.' >&2; exit 1; }
 source_quote_count="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM cotizacion_reserva_ensayo')"
 [[ "$source_quote_count" == 1 ]] || { echo 'Synthetic source quote changed during export.' >&2; exit 1; }
+source_reservation_count="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM reserva_ensayo_local')"
+[[ "$source_reservation_count" == 1 ]] || { echo 'Synthetic source reservation changed during export.' >&2; exit 1; }
+source_occupancy_count="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM ocupacion WHERE reserva_id IS NOT NULL')"
+[[ "$source_occupancy_count" == 1 ]] || { echo 'Synthetic source occupancy changed during export.' >&2; exit 1; }
 python3 - "$ROOT_DIR/$EXPORT_DIR/manifest.json" "$ROOT_DIR/$EXPORT_DIR/data.sql" <<'PY'
 import json,re,sys
 manifest_path,dump_path=sys.argv[1:]
@@ -288,6 +311,10 @@ candidate_history_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2
 [[ "$candidate_history_count" == 0 ]] || { echo 'Append-only publication history data leaked into the candidate dump.' >&2; exit 1; }
 candidate_quote_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) FROM public.cotizacion_reserva_ensayo')"
 [[ "$candidate_quote_count" == 0 ]] || { echo 'Quote referencing a tainted user leaked into the candidate dump.' >&2; exit 1; }
+candidate_reservation_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) FROM public.reserva_ensayo_local')"
+[[ "$candidate_reservation_count" == 0 ]] || { echo 'Reservation linked to a tainted-user quote leaked into the candidate dump.' >&2; exit 1; }
+candidate_occupancy_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) FROM public.ocupacion WHERE reserva_id IS NOT NULL')"
+[[ "$candidate_occupancy_count" == 0 ]] || { echo 'Occupancy linked to a tainted-user reservation leaked into the candidate dump.' >&2; exit 1; }
 if docker exec -i "$CONTAINER" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d espacigo_local \
   < "$ROOT_DIR/$EXPORT_DIR/data.sql" >/dev/null 2>&1; then
   echo 'Import guard accepted a non-candidate database.' >&2
@@ -299,6 +326,10 @@ source_history_after_import="$(psql_local -U postgres -d espacigo_local -qAt -c 
 [[ "$source_history_after_import" == 1 ]] || { echo 'Source append-only publication history changed.' >&2; exit 1; }
 source_quote_after_import="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM public.cotizacion_reserva_ensayo')"
 [[ "$source_quote_after_import" == 1 ]] || { echo 'Source quote changed.' >&2; exit 1; }
+source_reservation_after_import="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM public.reserva_ensayo_local')"
+[[ "$source_reservation_after_import" == 1 ]] || { echo 'Source reservation changed.' >&2; exit 1; }
+source_occupancy_after_import="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM public.ocupacion WHERE reserva_id IS NOT NULL')"
+[[ "$source_occupancy_after_import" == 1 ]] || { echo 'Source reservation occupancy changed.' >&2; exit 1; }
 ledger_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) || chr(58) || max(version) FROM public.schema_migrations')"
 [[ "$ledger_count" == '64:64' ]] || { echo 'Portable SQL dump did not restore ledger V1-V64.' >&2; exit 1; }
 seed_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) FROM public.categoria_espacio')"

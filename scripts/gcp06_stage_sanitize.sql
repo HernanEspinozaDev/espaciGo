@@ -145,6 +145,39 @@ BEGIN
 END
 $taint_closure$;
 
+-- Reservation and occupancy point to each other through ON DELETE RESTRICT.
+-- In this disposable staging database only, detach tainted reservation
+-- occupancies before the leaf-first delete pass; their tuple identities are
+-- refreshed because the UPDATE changes ctid. The source is never targeted.
+CREATE TEMP TABLE gcp06_tainted_reservation_occupancy (
+    occupancy_id uuid PRIMARY KEY
+) ON COMMIT DROP;
+DO $detach_tainted_reservation_occupancy$
+BEGIN
+    IF to_regclass('public.ocupacion') IS NOT NULL
+       AND to_regclass('public.reserva_ensayo_local') IS NOT NULL THEN
+        INSERT INTO pg_temp.gcp06_tainted_reservation_occupancy(occupancy_id)
+        SELECT o.id
+        FROM public.ocupacion o
+        JOIN public.reserva_ensayo_local r ON r.ocupacion_id=o.id AND o.reserva_id=r.id
+        JOIN pg_temp.gcp06_tainted_row t
+          ON t.relid='public.reserva_ensayo_local'::regclass AND t.row_tid=r.ctid;
+        IF EXISTS (SELECT 1 FROM pg_temp.gcp06_tainted_reservation_occupancy) THEN
+            DELETE FROM pg_temp.gcp06_tainted_row WHERE relid='public.ocupacion'::regclass;
+            UPDATE public.ocupacion o
+               SET reserva_id=NULL, tipo='bloqueo_manual', expira_en=NULL,
+                   motivo='GCP-06 disposable staging cleanup'
+              FROM pg_temp.gcp06_tainted_reservation_occupancy x
+             WHERE o.id=x.occupancy_id;
+            INSERT INTO pg_temp.gcp06_tainted_row(relid,row_tid)
+            SELECT 'public.ocupacion'::regclass, o.ctid
+              FROM public.ocupacion o
+              JOIN pg_temp.gcp06_tainted_reservation_occupancy x ON x.occupancy_id=o.id;
+        END IF;
+    END IF;
+END
+$detach_tainted_reservation_occupancy$;
+
 -- Delete leaf rows first, respecting immediate foreign keys. Remaining cycles
 -- are deleted in one deferred transaction; a non-deferrable cycle aborts all.
 DO $delete_tainted$
