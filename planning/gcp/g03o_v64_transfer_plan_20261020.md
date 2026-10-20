@@ -2,6 +2,8 @@
 
 **Estado del paquete inicial:** implementación local preparada para revisión; en esa etapa no se había publicado imagen, inicializado backend remoto, aplicado IAM ni ejecutado Cloud. El PR contiene un Job default-off y un ejecutor de una sola operación. La transferencia requiere una liberación de ejecución separada.
 
+**Evidencia posterior:** el registro de una imagen fijada por digest y una prevalidación Cloud de solo lectura, ejecutada una vez el 2026-10-20, está en [la evidencia de release/preflight](evidence/g03o-v64-readonly-preflight-20261020.md). La ejecución se detuvo en `source_preflight`; no transfirió datos ni cambió permisos.
+
 **Actualización del preflight (2026-10-20):** el Job Cloud Run `espacigo-g03o-v64-transfer-22msr` llegó a levantar ambos proxies privados y terminó con `DATABASE_PREFLIGHT_QUERY_FAILED`, `transaction_outcome=not_started`. No ocurrió transferencia ni se inició una transacción. El runner ocultaba stderr y no identificaba cuál `report()` falló. La corrección local agrega solo `database_endpoint` (`source`/`target`) y una categoría SQLSTATE allowlisted cuando psql la devuelve en modo `VERBOSITY=sqlstate`; stderr se captura y nunca se imprime ni persiste. No se incluyen texto de error, SQL, filas, valores SQLSTATE ni secretos.
 
 Este corte no equivale a aceptación de producto, finalización de GCP-06 ni autorización para producción, personas/proveedores/fondos reales o despliegues.
