@@ -8,6 +8,7 @@ SOURCE_DB="${GCP06_SOURCE_DATABASE:-espacigo_local}"
 SOURCE_USER="${GCP06_SOURCE_DATABASE_USER:-espacigo_admin}"
 IMAGE='postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
 EXPECTED_IMAGE_ID='sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
+EXPECTED_IMAGE_REPO_DIGEST='postgis/postgis@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
 
 if [[ $# -ne 1 ]]; then
   echo 'usage: scripts/gcp06-local-stage-export.sh .local/testing/gcp06-stage-<run-id>' >&2
@@ -51,7 +52,11 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 IMAGE_ID="$(docker image inspect 'postgis/postgis:18-3.6' --format '{{.Id}}' 2>/dev/null || true)"
-[[ "$IMAGE_ID" == "$EXPECTED_IMAGE_ID" ]] || { echo 'Pinned PostgreSQL 18 image is not cached; refusing pull/substitution.' >&2; exit 1; }
+IMAGE_REPO_DIGESTS="$(docker image inspect 'postgis/postgis:18-3.6' --format '{{json .RepoDigests}}' 2>/dev/null || true)"
+if [[ "$IMAGE_ID" != "$EXPECTED_IMAGE_ID" && "$IMAGE_REPO_DIGESTS" != *"$EXPECTED_IMAGE_REPO_DIGEST"* ]]; then
+  echo "Pinned PostgreSQL 18 image is not cached or its repo digest differs (id=$IMAGE_ID; repoDigests=$IMAGE_REPO_DIGESTS)." >&2
+  exit 1
+fi
 [[ -z "$(docker ps -aq --filter "name=^/${CONTAINER}$")" ]] || { echo 'staging container name already exists.' >&2; exit 1; }
 docker inspect "$SOURCE_CONTAINER" >/dev/null 2>&1 || { echo 'configured local source container is unavailable.' >&2; exit 1; }
 

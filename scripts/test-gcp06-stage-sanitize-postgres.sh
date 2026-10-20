@@ -7,11 +7,16 @@ chmod 0700 "$TMP_DIR"
 trap 'rm -rf -- "$TMP_DIR"' EXIT
 IMAGE='postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
 EXPECTED_IMAGE_ID='sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
+EXPECTED_IMAGE_REPO_DIGEST='postgis/postgis@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
 RUN_ID="${GCP06_SANITIZE_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 [[ "$RUN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || { echo 'Unsafe run id.' >&2; exit 2; }
 CONTAINER="espacigo-gcp06-sanitize-${RUN_ID,,}"
 IMAGE_ID="$(docker image inspect 'postgis/postgis:18-3.6' --format '{{.Id}}' 2>/dev/null || true)"
-[[ "$IMAGE_ID" == "$EXPECTED_IMAGE_ID" ]] || { echo 'Pinned PostgreSQL 18 image is not cached; refusing pull or substitution.' >&2; exit 1; }
+IMAGE_REPO_DIGESTS="$(docker image inspect 'postgis/postgis:18-3.6' --format '{{json .RepoDigests}}' 2>/dev/null || true)"
+if [[ "$IMAGE_ID" != "$EXPECTED_IMAGE_ID" && "$IMAGE_REPO_DIGESTS" != *"$EXPECTED_IMAGE_REPO_DIGEST"* ]]; then
+  echo "Pinned PostgreSQL 18 image is not cached or its repo digest differs (id=$IMAGE_ID; repoDigests=$IMAGE_REPO_DIGESTS)." >&2
+  exit 1
+fi
 [[ -z "$(docker ps -aq --filter "name=^/${CONTAINER}$")" ]] || { echo 'Disposable container name already exists.' >&2; exit 1; }
 
 mkdir "$TMP_DIR/migrations-v61" "$TMP_DIR/migrations-v64"
