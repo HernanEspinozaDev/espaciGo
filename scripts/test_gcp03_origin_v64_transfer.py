@@ -170,6 +170,18 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
             "report_component": "target_report",
         })
 
+    def test_source_report_parses_sqlstate_with_psql_stdin_location_prefix(self):
+        marker = f"{SOURCE_REPORT_MARKER}count_usuario\n".encode()
+        error = self.run_report_failure(
+            "espacigo_scratch", b"psql:<stdin>:5: ERROR:  42501\n", marker)
+
+        self.assertEqual(error.safe_details, {
+            "database_endpoint": "source",
+            "report_component": "count_usuario",
+            "sqlstate_category": "query_or_privilege",
+        })
+        self.assertNotIn("42501", repr(error.safe_details))
+
     def test_source_report_marks_failing_component_in_one_read_only_snapshot(self):
         stdout = []
         for name, _ in source_report_components():
