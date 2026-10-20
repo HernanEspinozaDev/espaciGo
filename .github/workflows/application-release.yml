@@ -21,6 +21,7 @@ on:
       - "scripts/verify_gcp07_attestations.py"
       - "scripts/verify_gcp07_environment.py"
       - "scripts/classify_gcp07_release_changes.py"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -31,6 +32,7 @@ concurrency:
 
 jobs:
   changes:
+    if: github.ref == 'refs/heads/main'
     name: detect application changes
     runs-on: ubuntu-24.04
     outputs:
@@ -47,9 +49,12 @@ jobs:
         env:
           BEFORE_SHA: ${{ github.event.before }}
           CURRENT_SHA: ${{ github.sha }}
+          MANUAL_PUBLISH_ONLY: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+          SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
         run: python3 scripts/classify_gcp07_release_changes.py
 
   environment-preflight:
+    if: github.ref == 'refs/heads/main'
     name: verify protected testprod environment
     runs-on: ubuntu-24.04
     permissions:
@@ -66,12 +71,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          MODE: ${{ github.event_name == 'workflow_dispatch' && 'manual-publish' || 'push' }}
+          PUBLISH_ENABLED: ${{ vars.GCP07C_PUBLISH_ENABLED }}
         run: python3 scripts/verify_gcp07_environment.py
 
   publish:
     name: publish digest-pinned images and attestations
     needs: [changes, environment-preflight]
-    if: needs.environment-preflight.outputs.ready == 'true' && vars.GCP07C_PUBLISH_ENABLED == 'true' && (needs.changes.outputs.api == 'true' || needs.changes.outputs.web == 'true')
+    if: github.ref == 'refs/heads/main' && needs.environment-preflight.outputs.ready == 'true' && vars.GCP07C_PUBLISH_ENABLED == 'true' && (needs.changes.outputs.api == 'true' || needs.changes.outputs.web == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: testprod
@@ -145,6 +153,8 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           API_CHANGED: ${{ needs.changes.outputs.api }}
           WEB_CHANGED: ${{ needs.changes.outputs.web }}
+          MIGRATIONS_CHANGED: ${{ needs.changes.outputs.migrations }}
+          PUBLISH_ONLY: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
           API_DIGEST: ${{ steps.api.outputs.digest }}
           WEB_DIGEST: ${{ steps.web.outputs.digest }}
         run: |
@@ -154,6 +164,7 @@ jobs:
           result = {"schema": 1, "repository": os.environ["GITHUB_REPOSITORY"],
                     "source_sha": os.environ["SOURCE_SHA"], "run_id": os.environ["GITHUB_RUN_ID"],
                     "contains_migrations": os.environ["MIGRATIONS_CHANGED"] == "true",
+                    "publish_only": os.environ["PUBLISH_ONLY"] == "true",
                     "images": {}}
           for name in ("api", "web"):
               if os.environ[name.upper() + "_CHANGED"] == "true":
