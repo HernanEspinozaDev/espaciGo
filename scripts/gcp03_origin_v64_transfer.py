@@ -104,6 +104,52 @@ SOURCE_REPORT_COMPONENTS = frozenset({
     "migration_history", *(f"seed_{name}" for name in SEED_TABLES),
     "external_sessions", "report_complete",
 })
+SOURCE_REFERENCE_TABLES = tuple(re.findall(r"public\.([a-z_][a-z0-9_]*)", PRIVATE_FILE_REFS_SQL))
+SOURCE_REPORT_TABLES = ("usuario", "espacio", "reserva", "schema_migrations", *SEED_TABLES)
+
+
+def source_owner_discovery_sql() -> str:
+    """Return private owner metadata for all source relations read by report/dump."""
+    omitted = {name.removeprefix("public.") for name in OMIT_DATA_TABLES}
+    # pg_dump includes all ordinary/partitioned tables except the explicit data exclusions.
+    excluded = ",".join("'" + name.replace("'", "''") + "'" for name in sorted(omitted)) or "''"
+    required = sorted(set(SOURCE_REPORT_TABLES) | set(SOURCE_REFERENCE_TABLES))
+    required_sql = ",".join("'" + name.replace("'", "''") + "'" for name in required)
+    return f"""WITH required(name) AS (SELECT unnest(ARRAY[{required_sql}]::text[])),
+relations AS (
+ SELECT c.oid,n.oid AS nspoid,n.nspname,c.relname,c.relowner,c.relkind,c.relrowsecurity,c.relforcerowsecurity
+ FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+ WHERE c.relkind IN ('r','p','S','m','f') AND n.nspname NOT IN ('pg_catalog','information_schema')
+   AND n.nspname !~ '^pg_temp_' AND n.nspname !~ '^pg_toast'
+), needed AS (
+ SELECT r.* FROM relations r WHERE NOT (r.nspname='public' AND r.relname IN ({excluded}))
+ UNION
+ SELECT r.* FROM relations r JOIN required q ON r.nspname='public' AND r.relname=q.name
+ UNION
+ SELECT NULL::oid,NULL::oid,'public',q.name,NULL::oid,'r'::"char",false,false FROM required q
+ WHERE NOT EXISTS (SELECT 1 FROM relations r WHERE r.nspname='public' AND r.relname=q.name)
+), owners AS (
+ SELECT DISTINCT relowner FROM needed WHERE relowner IS NOT NULL
+)
+SELECT jsonb_build_object(
+ 'complete',NOT EXISTS(SELECT 1 FROM needed WHERE relowner IS NULL),
+ 'owner_count',(SELECT count(*) FROM owners),
+ 'owner_oid',(SELECT min(relowner)::bigint FROM owners),
+ 'owner_name',(SELECT rolname FROM pg_catalog.pg_roles WHERE oid=(SELECT min(relowner) FROM owners)),
+ 'set_allowed',COALESCE((SELECT pg_has_role(current_user,min(relowner),'SET') FROM owners),false),
+ 'access_complete',NOT EXISTS(SELECT 1 FROM needed x WHERE x.relowner IS NOT NULL AND
+   (NOT has_schema_privilege((SELECT min(relowner) FROM owners),x.nspoid,'USAGE') OR
+    NOT CASE WHEN x.relkind='S' THEN has_sequence_privilege((SELECT min(relowner) FROM owners),x.oid,'SELECT')
+             ELSE has_table_privilege((SELECT min(relowner) FROM owners),x.oid,'SELECT') END)),
+ 'row_security_complete',NOT EXISTS(SELECT 1 FROM needed x WHERE x.oid IS NOT NULL AND
+   x.relrowsecurity AND x.relforcerowsecurity AND NOT (SELECT rolbypassrls FROM pg_catalog.pg_roles WHERE oid=(SELECT min(relowner) FROM owners)))
+)::text"""
+
+
+def quote_ident(value: str) -> str:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise TransferStopped("SOURCE_OWNER_PREFLIGHT_FAILED", "source_preflight")
+    return '"' + value.replace('"', '""') + '"'
 REPORT_COMPONENTS = SOURCE_REPORT_COMPONENTS | {"target_report"}
 
 
@@ -451,7 +497,11 @@ class PsqlDatabase:
             pass
 
     def _query(self, sql: str, *, diagnostic_step: str | None = None) -> str:
-        query = sql if self.database == SOURCE_DB else "SET ROLE espacigo_schema_owner; " + sql
+        if self.database == SOURCE_DB:
+            role = getattr(self, "source_owner_name", None) or self.discover_source_owner()
+            query = "SET ROLE " + quote_ident(role) + "; " + sql
+        else:
+            query = "SET ROLE espacigo_schema_owner; " + sql
         proc = subprocess.run([self.psql, "-X", "-qAt", "--set=ON_ERROR_STOP=1", "--set=VERBOSITY=sqlstate", "-h", "127.0.0.1",
             "-p", str(self.port), "-U", self.user, "-d", self.database, "-c", query],
             env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
@@ -468,7 +518,7 @@ class PsqlDatabase:
 
     def report(self) -> dict:
         if self.database == SOURCE_DB:
-            script = source_report_script()
+            script = "SET ROLE " + quote_ident(self.discover_source_owner()) + ";\n" + source_report_script()
             proc = subprocess.run([self.psql, "-X", "-qAt", "--set=ON_ERROR_STOP=1",
                 "--set=VERBOSITY=sqlstate", "-h", "127.0.0.1", "-p", str(self.port),
                 "-U", self.user, "-d", self.database, "-f", "-"], env=self.env,
@@ -495,6 +545,35 @@ class PsqlDatabase:
         except json.JSONDecodeError as exc:
             raise TransferStopped("DATABASE_REPORT_INVALID", "preflight") from exc
 
+    def discover_source_owner(self) -> str:
+        """Discover the unique source owner privately; diagnostics expose booleans only."""
+        sql = "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; " + source_owner_discovery_sql() + "; COMMIT;"
+        proc = subprocess.run([self.psql, "-X", "-qAt", "--set=ON_ERROR_STOP=1", "--set=VERBOSITY=sqlstate",
+            "-h", "127.0.0.1", "-p", str(self.port), "-U", self.user, "-d", self.database, "-c", sql],
+            env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        safe = {"source_required_relations_complete": False, "source_required_owner_unique": False,
+                "source_required_owner_set_allowed": False, "source_required_owner_access_complete": False,
+                "source_required_owner_row_security_complete": False}
+        if proc.returncode:
+            raise TransferStopped("SOURCE_OWNER_PREFLIGHT_FAILED", "source_preflight", safe_details=safe)
+        try:
+            result = json.loads(proc.stdout.decode("utf-8", "strict").strip())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise TransferStopped("SOURCE_OWNER_PREFLIGHT_FAILED", "source_preflight", safe_details=safe)
+        booleans = ("complete", "set_allowed", "access_complete", "row_security_complete")
+        if (not isinstance(result, dict) or any(type(result.get(key)) is not bool for key in booleans)
+                or type(result.get("owner_count")) is not int):
+            raise TransferStopped("SOURCE_OWNER_PREFLIGHT_FAILED", "source_preflight", safe_details=safe)
+        safe.update({"source_required_relations_complete": result["complete"],
+                     "source_required_owner_unique": result["owner_count"] == 1,
+                     "source_required_owner_set_allowed": result["set_allowed"],
+                     "source_required_owner_access_complete": result["access_complete"],
+                     "source_required_owner_row_security_complete": result["row_security_complete"]})
+        if not all(safe.values()) or not isinstance(result.get("owner_name"), str) or not result["owner_name"]:
+            raise TransferStopped("SOURCE_OWNER_PREFLIGHT_FAILED", "source_preflight", safe_details=safe)
+        self.source_owner_name = result["owner_name"]
+        return self.source_owner_name
+
     def file_refs(self) -> set[str]:
         raw = self._query(PRIVATE_FILE_REFS_SQL)
         try:
@@ -507,6 +586,8 @@ class PsqlDatabase:
 
     def dump_plain_data(self, destination: Path) -> None:
         args = [self.pg_dump, "--data-only", "--format=plain", "--no-owner", "--no-privileges", "--no-comments", "--serializable-deferrable"]
+        if self.database == SOURCE_DB:
+            args.append("--role=" + self.discover_source_owner())
         args.extend(f"--exclude-table-data={table}" for table in OMIT_DATA_TABLES)
         args.extend(["-h", "127.0.0.1", "-p", str(self.port), "-U", self.user, "-d", self.database])
         with destination.open("wb") as output:
