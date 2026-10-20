@@ -213,14 +213,24 @@ assert 'CREATE TABLE public.schema_migrations' in dump
 assert 'COPY public.schema_migrations' in dump
 assert 'CREATE TABLE public.categoria_espacio' in dump
 assert 'COPY public.categoria_espacio' in dump
+postgis_extension=[line for line in dump.splitlines()
+                   if re.search(r'^\s*CREATE\s+EXTENSION\b.*\bpostgis\b',line,re.I)]
+assert len(postgis_extension)==1
+assert not re.search(r'\bVERSION\b',postgis_extension[0],re.I)
 assert not re.search(r'^(CREATE ROLE|ALTER ROLE|GRANT|REVOKE)\b', dump, re.M)
 assert 'OWNER TO' not in dump
 assert not any(line.startswith('\\') and line != '\\.' for line in dump.splitlines())
-print('PASS: full portable V64 SQL includes schema, static seeds, and ledger without role DDL or ACLs; only COPY terminators remain')
+print('PASS: full portable V64 SQL includes schema, static seeds, and ledger without role DDL or ACLs; PostGIS CREATE EXTENSION has no VERSION clause; only COPY terminators remain')
 PY
 docker exec "$CONTAINER" createdb -U postgres espacigo_gcp06_candidate_e2e-test >/dev/null
 docker exec -i "$CONTAINER" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d espacigo_gcp06_candidate_e2e-test \
   < "$ROOT_DIR/$EXPORT_DIR/data.sql" >/dev/null
+postgis_available_default="$(psql_local -U postgres -d postgres -qAt -c "SELECT default_version FROM pg_available_extensions WHERE name='postgis'")"
+postgis_candidate_version="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c "SELECT extversion FROM pg_extension WHERE extname='postgis'")"
+[[ -n "$postgis_available_default" && "$postgis_candidate_version" == "$postgis_available_default" ]] || {
+  echo 'Imported PostGIS did not select the target server default extension version.' >&2; exit 1;
+}
+echo 'PASS: psql import selected the target PostgreSQL server default PostGIS version'
 catalog_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c \
   "SELECT count(*) FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo AND c.activa JOIN LATERAL (SELECT 1 FROM public.tarifa_espacio t0 WHERE t0.espacio_id=e.id ORDER BY t0.version DESC LIMIT 1) t ON true JOIN public.usuario u ON u.id=e.propietario_id AND u.estado='activo' WHERE e.estado='activa' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id) AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local el JOIN public.verificacion v ON v.id=el.verificacion_id AND v.usuario_id=el.usuario_id AND v.tipo=el.tipo AND v.estado='aprobada' WHERE el.usuario_id=u.id AND el.tipo='kyc' AND el.estado='elegible') AND NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local_fixture fx WHERE fx.espacio_id=e.id AND fx.anfitrion_id=e.propietario_id AND fx.habilitada)")"
 [[ "$catalog_count" == 1 ]] || { echo 'Candidate database did not expose the expected synthetic catalog fixture.' >&2; exit 1; }

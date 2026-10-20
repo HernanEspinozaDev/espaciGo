@@ -106,6 +106,32 @@ docker exec -e DATABASE_URL="postgres://postgres@localhost:5432/$STAGE_DB?sslmod
 
 # The raw snapshot streams directly from the unchanged source container to the
 # disposable staging container. No unredacted dump is written to host storage.
+SOURCE_DUMP_STDERR="$TMP_DIR/source-dump.stderr"
+STAGE_RESTORE_STDERR="$TMP_DIR/stage-restore.stderr"
+classify_pg_error() {
+  python3 - "$1" <<'PY'
+import re,sys
+try:
+    lines=open(sys.argv[1],encoding='utf-8',errors='replace').read().splitlines()
+except OSError:
+    lines=[]
+line=next((x for x in lines if re.search(r'\b(error|fatal|panic)\b',x,re.I)), '')
+if not line:
+    print('no_error_line')
+else:
+    low=line.lower()
+    if 'permission denied' in low or 'must be superuser' in low: code='permission_denied'
+    elif 'duplicate key' in low or 'unique constraint' in low or '23505' in low: code='unique_violation'
+    elif 'foreign key' in low or '23503' in low: code='foreign_key_violation'
+    elif 'check constraint' in low or '23514' in low: code='check_violation'
+    elif 'does not exist' in low: code='missing_object'
+    elif 'invalid input syntax' in low or 'cannot cast' in low or '22p02' in low: code='data_type_mismatch'
+    elif 'connection' in low or 'server closed' in low: code='connection_failure'
+    elif 'broken pipe' in low or 'unexpected end of file' in low: code='stream_interrupted'
+    else: code='unclassified_error'
+    print(code)
+PY
+}
 set +e
 docker exec "$SOURCE_CONTAINER" pg_dump --data-only --format=custom --no-owner --no-privileges \
   --no-comments --serializable-deferrable \
@@ -120,13 +146,22 @@ docker exec "$SOURCE_CONTAINER" pg_dump --data-only --format=custom --no-owner -
   --exclude-table-data=public.reserva_ensayo_local_ubicacion_sintetica \
   --exclude-table-data=public.resena_autoria_marca_local \
   --exclude-table-data=public.version_terminos \
-  -U "$SOURCE_USER" -d "$SOURCE_DB" 2>/dev/null |
+  -U "$SOURCE_USER" -d "$SOURCE_DB" 2>"$SOURCE_DUMP_STDERR" |
   docker exec -i "$CONTAINER" pg_restore --data-only --disable-triggers --no-owner --no-privileges \
-    -U postgres -d "$STAGE_DB" 2>/dev/null
+    -U postgres -d "$STAGE_DB" 2>"$STAGE_RESTORE_STDERR"
 pipeline_status=("${PIPESTATUS[@]}")
 set -e
 if (( pipeline_status[0] != 0 || pipeline_status[1] != 0 )); then
-  echo 'local logical snapshot failed; raw output was discarded with the ephemeral container.' >&2
+  source_error='not_applicable'
+  stage_error='not_applicable'
+  if (( pipeline_status[0] != 0 )); then
+    source_error="$(classify_pg_error "$SOURCE_DUMP_STDERR")"
+  fi
+  if (( pipeline_status[1] != 0 )); then
+    stage_error="$(classify_pg_error "$STAGE_RESTORE_STDERR")"
+  fi
+  printf 'local logical snapshot failed (pg_dump_exit=%s pg_dump_error=%s; pg_restore_exit=%s pg_restore_error=%s); raw diagnostics were discarded with the ephemeral container.\n' \
+    "${pipeline_status[0]}" "$source_error" "${pipeline_status[1]}" "$stage_error" >&2
   exit 1
 fi
 
