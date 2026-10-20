@@ -520,7 +520,7 @@ def source_report_components() -> list[tuple[str, str]]:
 
 
 def source_report_script() -> str:
-    return "BEGIN READ ONLY;\n" + "\n".join(
+    return "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\n" + "\n".join(
         f"\\echo {SOURCE_REPORT_MARKER}{name}\n{query};"
         for name, query in source_report_components()) + "\nCOMMIT;\n"
 

@@ -198,7 +198,7 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
                 with patch("gcp03_origin_v64_transfer.subprocess.run", return_value=completed) as run:
                     report = db.report()
                 script = run.call_args.kwargs["input"].decode()
-                self.assertTrue(script.startswith("BEGIN READ ONLY;"))
+                self.assertTrue(script.startswith("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;"))
                 self.assertTrue(script.rstrip().endswith("COMMIT;"))
                 self.assertIn(f"{SOURCE_REPORT_MARKER}count_usuario", script)
                 self.assertEqual(report["counts"], {"usuario": 1, "espacio": 1, "reserva": 1})
