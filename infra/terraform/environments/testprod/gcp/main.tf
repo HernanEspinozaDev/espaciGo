@@ -259,7 +259,7 @@ resource "google_cloud_run_v2_service_iam_member" "deployer_service_updater" {
   for_each = var.enable_services ? toset(["api", "public", "private"]) : toset([])
   project  = var.project_id
   location = var.region
-  name     = each.value == "api" ? google_cloud_run_v2_service.api[0].name : google_cloud_run_v2_service.web[each.value].name
+  name     = each.value == "api" ? var.api_service_name : (each.value == "public" ? var.public_service_name : var.private_service_name)
   role     = "projects/${var.project_id}/roles/${google_project_iam_custom_role.deployer_cloud_run_service_updater[0].role_id}"
   member   = "serviceAccount:${google_service_account.runtime["deployer"].email}"
 

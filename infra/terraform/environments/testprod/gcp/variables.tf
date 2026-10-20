@@ -181,6 +181,10 @@ variable "cloudsql_disk_limit_gib" {
 variable "api_service_name" {
   type    = string
   default = "espacigo-test-api"
+  validation {
+    condition     = var.api_service_name == "espacigo-test-api"
+    error_message = "The testprod deployer grant is limited to the existing EspaciGo API service."
+  }
 }
 
 variable "api_gcp06_candidate_run_id" {
@@ -396,11 +400,19 @@ variable "api_privacy_replay_prefix" {
 variable "public_service_name" {
   type    = string
   default = "espacigo-test-public"
+  validation {
+    condition     = var.public_service_name == "espacigo-test-public"
+    error_message = "The testprod deployer grant is limited to the existing public web service."
+  }
 }
 
 variable "private_service_name" {
   type    = string
   default = "espacigo-test-private"
+  validation {
+    condition     = var.private_service_name == "espacigo-test-private"
+    error_message = "The testprod deployer grant is limited to the existing private web service."
+  }
 }
 
 variable "api_image" {
