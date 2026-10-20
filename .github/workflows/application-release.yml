@@ -71,6 +71,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          MODE: ${{ github.event_name == 'workflow_dispatch' && 'manual-publish' || 'push' }}
+          PUBLISH_ENABLED: ${{ vars.GCP07C_PUBLISH_ENABLED }}
         run: python3 scripts/verify_gcp07_environment.py
 
   publish:

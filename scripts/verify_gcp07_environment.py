@@ -60,6 +60,8 @@ def event_gate_ready(event, mode, publish_enabled, rollout_enabled,
         return False
     if event == "workflow_run":
         return mode == "auto" and rollout_enabled
+    if event == "workflow_dispatch" and mode == "manual-publish":
+        return publish_enabled
     if event == "workflow_dispatch" and mode == "preview":
         return True
     if event == "workflow_dispatch" and mode == "apply":
@@ -88,9 +90,11 @@ def main():
             environment = request_json(base, token)
             policies = request_json(base + "/deployment-branch-policies", token)
             ready = is_ready(environment, policies)
-            if ready and event in {"workflow_run", "workflow_dispatch"}:
-                run_id = (os.environ.get("UPSTREAM_RUN_ID", "") if event == "workflow_run"
-                          else os.environ.get("RELEASE_RUN_ID", ""))
+            if ready and event == "workflow_run":
+                run_id = os.environ.get("UPSTREAM_RUN_ID", "")
+                ready = run_id.isdigit() and published_release_exists(repo, run_id, token)
+            elif ready and event == "workflow_dispatch" and mode in {"preview", "apply"}:
+                run_id = os.environ.get("RELEASE_RUN_ID", "")
                 ready = run_id.isdigit() and published_release_exists(repo, run_id, token)
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError, KeyError, TypeError):
             ready = False

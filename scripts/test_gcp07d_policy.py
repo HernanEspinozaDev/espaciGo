@@ -44,6 +44,8 @@ class Gcp07dPolicyTests(unittest.TestCase):
 
     def test_release_push_checks_environment_without_rollout_flags(self):
         self.assertTrue(event_gate_ready("push", "", False, False))
+        self.assertTrue(event_gate_ready("workflow_dispatch", "manual-publish", True, False))
+        self.assertFalse(event_gate_ready("workflow_dispatch", "manual-publish", False, False))
         self.assertFalse(event_gate_ready("workflow_run", "auto", True, False))
         self.assertTrue(event_gate_ready("workflow_dispatch", "preview", True, False))
         self.assertFalse(event_gate_ready("workflow_dispatch", "apply", True, True,
