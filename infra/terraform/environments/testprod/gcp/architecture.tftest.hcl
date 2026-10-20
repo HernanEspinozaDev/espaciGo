@@ -78,8 +78,8 @@ run "foundation_plan_is_gated_and_scoped" {
     error_message = "The deployer may act as the API and two web identities only, never the migrator."
   }
   assert {
-    condition     = google_storage_bucket_iam_member.deployer_terraform_state[0].condition[0].expression == "resource.name.startsWith('projects/_/buckets/${var.terraform_state_bucket}/objects/espacigo/testprod/gcp/')"
-    error_message = "The deployer state grant must be restricted to the canonical Terraform state and lock object prefix."
+    condition     = google_storage_managed_folder.terraform_state[0].name == "espacigo/testprod/gcp/" && google_storage_managed_folder_iam_member.deployer_terraform_state[0].managed_folder == "espacigo/testprod/gcp/"
+    error_message = "The deployer state grant must be scoped to the managed folder for the canonical Terraform state and lock prefix."
   }
 }
 

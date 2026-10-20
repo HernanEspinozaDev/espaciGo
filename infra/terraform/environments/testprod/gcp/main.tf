@@ -280,17 +280,19 @@ resource "google_project_iam_custom_role" "terraform_state_object_access" {
   ]
 }
 
-resource "google_storage_bucket_iam_member" "deployer_terraform_state" {
-  count  = var.enable_foundation ? 1 : 0
-  bucket = var.terraform_state_bucket
-  role   = "projects/${var.project_id}/roles/${google_project_iam_custom_role.terraform_state_object_access[0].role_id}"
-  member = "serviceAccount:${google_service_account.runtime["deployer"].email}"
+resource "google_storage_managed_folder" "terraform_state" {
+  count         = var.enable_foundation ? 1 : 0
+  bucket        = var.terraform_state_bucket
+  name          = "espacigo/testprod/gcp/"
+  force_destroy = false
+}
 
-  condition {
-    title       = "canonical-testprod-gcp-state-prefix"
-    description = "Limit Terraform backend object access to the existing testprod/gcp state and lock prefix."
-    expression  = "resource.name.startsWith('projects/_/buckets/${var.terraform_state_bucket}/objects/espacigo/testprod/gcp/')"
-  }
+resource "google_storage_managed_folder_iam_member" "deployer_terraform_state" {
+  count          = var.enable_foundation ? 1 : 0
+  bucket         = google_storage_managed_folder.terraform_state[0].bucket
+  managed_folder = google_storage_managed_folder.terraform_state[0].name
+  role           = "projects/${var.project_id}/roles/${google_project_iam_custom_role.terraform_state_object_access[0].role_id}"
+  member         = "serviceAccount:${google_service_account.runtime["deployer"].email}"
 }
 
 resource "google_artifact_registry_repository" "containers" {
