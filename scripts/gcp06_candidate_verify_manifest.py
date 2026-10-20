@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""Compare private sanitized GCP-06 V64 manifest aggregates with fixed SQL output."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import stat
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+RUN_ID = "20261020-gcp06a"
+DATABASE = "espacigo_gcp06_candidate_20261020-gcp06a"
+INSTANCE = "espacigo-gcp06-20261020-gcp06a-pg"
+REGION = "southamerica-west1"
+CONNECTION_NAME = f"espacigo-testprod:{REGION}:{INSTANCE}"
+QUERY_ID = "GCP06-ROWS-001"
+MANIFEST_FORMAT = "espacigo.gcp06.local-stage.v1"
+IMPORTED_DUMP_BYTES = 16_620_453
+IMPORTED_DUMP_SHA256 = "bb35a8709ae74d51e73b69d0dd75d7b4b761822508353dab9dddcd631cec9c11"
+
+STAGED_FIELDS = (
+    "migration_count",
+    "migration_max",
+    "users",
+    "spaces",
+    "active_spaces",
+    "catalog_candidates",
+    "synthetic_kyc",
+    "bookings",
+    "active_users",
+    "admins",
+    "global_admins",
+    "disabled_hashes",
+)
+ACTUAL_FIELDS = {
+    "migration_count": "migration_count",
+    "migration_max": "migration_max",
+    "users": "users",
+    "spaces": "spaces",
+    "active_spaces": "active_spaces",
+    "catalog_candidates": "catalog_candidates",
+    "synthetic_kyc": "synthetic_kyc",
+    "bookings": "bookings",
+    "active_users": "active_users",
+    "admins": "admins",
+    "global_admins": "global_admins",
+    "disabled_hashes": "disabled_hashes",
+}
+
+
+class VerificationError(Exception):
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def _read_private_json(path: Path, max_bytes: int) -> tuple[bytes, Any]:
+    try:
+        parent_info = path.parent.lstat()
+        info = path.lstat()
+    except OSError as exc:
+        raise VerificationError("input_unavailable") from exc
+    if stat.S_ISLNK(parent_info.st_mode) or not stat.S_ISDIR(parent_info.st_mode) or stat.S_IMODE(parent_info.st_mode) != 0o700:
+        raise VerificationError("input_parent_permissions")
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        raise VerificationError("input_not_regular")
+    if stat.S_IMODE(info.st_mode) != 0o600 or info.st_size < 1 or info.st_size > max_bytes:
+        raise VerificationError("input_permissions_or_size")
+    try:
+        raw = path.read_bytes()
+        return raw, json.loads(raw)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise VerificationError("input_invalid_json") from exc
+
+
+def verify(manifest_path: Path, actual_path: Path, target_evidence_path: Path, resource_snapshot_path: Path) -> dict[str, Any]:
+    manifest_raw, manifest = _read_private_json(manifest_path, 1_000_000)
+    _, actual = _read_private_json(actual_path, 100_000)
+    target_evidence_raw, target_evidence = _read_private_json(target_evidence_path, 100_000)
+    resource_snapshot_raw, resource_snapshot = _read_private_json(resource_snapshot_path, 100_000)
+    manifest_sha = hashlib.sha256(manifest_raw).hexdigest()
+
+    if not isinstance(manifest, dict) or manifest.get("format") != MANIFEST_FORMAT:
+        raise VerificationError("manifest_format_mismatch")
+    source = manifest.get("source")
+    staged = manifest.get("staged")
+    if not isinstance(source, dict) or not isinstance(staged, dict):
+        raise VerificationError("manifest_profile_missing")
+    if source.get("migration_count") != 61 or source.get("migration_max") != 61:
+        raise VerificationError("manifest_source_ledger_mismatch")
+    if manifest.get("dump_bytes") != IMPORTED_DUMP_BYTES or manifest.get("dump_sha256") != IMPORTED_DUMP_SHA256:
+        raise VerificationError("manifest_import_artifact_mismatch")
+    if any(type(staged.get(field)) is not int for field in STAGED_FIELDS):
+        raise VerificationError("manifest_aggregate_profile_invalid")
+    if staged["migration_count"] != 64 or staged["migration_max"] != 64:
+        raise VerificationError("manifest_v64_baseline_mismatch")
+
+    if not isinstance(actual, dict) or set(actual) != {
+        "query_id", "run_id", "database", "server_major", "session_user", "current_user", "observed_at", "challenge_nonce", "ledger", "staged"
+    }:
+        raise VerificationError("query_output_shape_invalid")
+    if actual.get("query_id") != QUERY_ID or actual.get("run_id") != RUN_ID:
+        raise VerificationError("query_identity_mismatch")
+    if actual.get("database") != DATABASE or actual.get("server_major") != 18:
+        raise VerificationError("query_target_mismatch")
+    session_user = actual.get("session_user")
+    current_user = actual.get("current_user")
+    observed_at = actual.get("observed_at")
+    challenge_nonce = actual.get("challenge_nonce")
+    if not isinstance(session_user, str) or not session_user or current_user != session_user:
+        raise VerificationError("query_session_identity_invalid")
+    if not isinstance(observed_at, str) or not observed_at.endswith("Z"):
+        raise VerificationError("query_observation_time_invalid")
+    if not isinstance(challenge_nonce, str) or re.fullmatch(r"[0-9a-f]{64}", challenge_nonce) is None:
+        raise VerificationError("query_challenge_invalid")
+
+    if not isinstance(target_evidence, dict) or set(target_evidence) != {
+        "transport",
+        "proxy_connection_name", "resource_snapshot_sha256", "resource_observed_at", "challenge_nonce", "query_output_sha256", "session_user", "observed_at"
+    }:
+        raise VerificationError("target_evidence_shape_invalid")
+    expected_evidence = {
+        "transport": "cloud_sql_auth_proxy",
+        "proxy_connection_name": CONNECTION_NAME,
+        "resource_snapshot_sha256": target_evidence.get("resource_snapshot_sha256"),
+        "resource_observed_at": target_evidence.get("resource_observed_at"),
+        "challenge_nonce": challenge_nonce,
+        "query_output_sha256": hashlib.sha256(actual_path.read_bytes()).hexdigest(),
+        "session_user": session_user,
+        "observed_at": observed_at,
+    }
+    if any(target_evidence.get(key) != value for key, value in expected_evidence.items()):
+        raise VerificationError("target_evidence_mismatch")
+    resource_sha = target_evidence.get("resource_snapshot_sha256")
+    if not isinstance(resource_sha, str) or re.fullmatch(r"[0-9a-f]{64}", resource_sha) is None:
+        raise VerificationError("target_evidence_hash_invalid")
+    if hashlib.sha256(resource_snapshot_raw).hexdigest() != resource_sha:
+        raise VerificationError("resource_snapshot_hash_mismatch")
+    try:
+        resource_observed_at = datetime.fromisoformat(target_evidence["resource_observed_at"].replace("Z", "+00:00"))
+        query_observed_at = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+        if resource_observed_at.tzinfo is None or query_observed_at.tzinfo is None:
+            raise ValueError("timezone required")
+        age_seconds = (query_observed_at.astimezone(timezone.utc) - resource_observed_at.astimezone(timezone.utc)).total_seconds()
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise VerificationError("target_evidence_time_invalid") from exc
+    if age_seconds < 0 or age_seconds > 120:
+        raise VerificationError("target_evidence_stale")
+    expected_resource = {
+        "name": INSTANCE,
+        "region": REGION,
+        "connectionName": CONNECTION_NAME,
+        "databaseVersion": "POSTGRES_18",
+        "state": "RUNNABLE",
+    }
+    if not isinstance(resource_snapshot, dict) or set(resource_snapshot) != set(expected_resource) or any(
+        resource_snapshot.get(key) != value for key, value in expected_resource.items()
+    ):
+        raise VerificationError("resource_snapshot_target_mismatch")
+    ledger = actual.get("ledger")
+    if not isinstance(ledger, dict) or set(ledger) != {
+        "rows", "min_version", "max_version", "distinct_versions", "duplicate_rows", "contiguous_v1_v64"
+    }:
+        raise VerificationError("ledger_result_shape_invalid")
+    if ledger != {
+        "rows": 64,
+        "min_version": 1,
+        "max_version": 64,
+        "distinct_versions": 64,
+        "duplicate_rows": 0,
+        "contiguous_v1_v64": True,
+    }:
+        raise VerificationError("candidate_ledger_mismatch")
+    actual_staged = actual.get("staged")
+    if not isinstance(actual_staged, dict) or set(actual_staged) != set(STAGED_FIELDS):
+        raise VerificationError("aggregate_result_shape_invalid")
+    if any(type(actual_staged.get(field)) is not int for field in STAGED_FIELDS):
+        raise VerificationError("aggregate_result_type_invalid")
+    if any(actual_staged[actual_key] != staged[manifest_key] for manifest_key, actual_key in ACTUAL_FIELDS.items()):
+        raise VerificationError("candidate_aggregate_mismatch")
+
+    return {
+        "status": "PASS",
+        "run_id": RUN_ID,
+        "instance": INSTANCE,
+        "database": DATABASE,
+        "query_id": QUERY_ID,
+        "manifest_sha256": manifest_sha,
+        "target_evidence_sha256": hashlib.sha256(target_evidence_raw).hexdigest(),
+        "resource_snapshot_sha256": resource_sha,
+        "imported_dump_sha256": IMPORTED_DUMP_SHA256,
+        "session_user": session_user,
+        "observed_at": observed_at,
+        "resource_observed_at": target_evidence["resource_observed_at"],
+        "challenge_nonce": challenge_nonce,
+        "checks": ["manifest_format_and_private_mode", "target_evidence_and_session_binding", "imported_dump_identity", "ledger_v1_v64", "sanitized_aggregates"],
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--actual", type=Path, required=True)
+    parser.add_argument("--target-evidence", type=Path, required=True)
+    parser.add_argument("--resource-snapshot", type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        report = verify(args.manifest, args.actual, args.target_evidence, args.resource_snapshot)
+    except VerificationError as exc:
+        report = {
+            "status": "STOP",
+            "run_id": RUN_ID,
+            "query_id": QUERY_ID,
+            "reason_code": exc.code,
+        }
+        print(json.dumps(report, sort_keys=True))
+        return 1
+    print(json.dumps(report, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

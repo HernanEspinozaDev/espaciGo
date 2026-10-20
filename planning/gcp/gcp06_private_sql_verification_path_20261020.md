@@ -36,3 +36,7 @@ Una vez disponible una autenticación aprobada, la secuencia de lectura será:
 4. Registrar solo resultados agregados, instancia/base, usuario de lectura, hora UTC y limitaciones. No conectar la aplicación.
 
 No hay camino ejecutable ahora que respete simultáneamente la falta de credenciales y la prohibición de crear/resetear usuarios o habilitar IAM DB auth. Siguiente gate humano: disponer por canal seguro de una credencial DB ya válida, o aprobar por separado un diseño de observador y su bootstrap. No cambiar Secret Manager, IAM, flags, ingress, password de `postgres`, recursos ni ejecución Cloud Run antes de ese gate y revisión de su plan exacto.
+
+## Paquete local posterior: Fase A2 de agregados (2026-10-20)
+
+El [paquete de verificación SQL privada](gcp06_private_verification_package_20261020.md) conserva el inspector Fase A estrictamente catalog-only y separa el script fijo `GCP06-ROWS-001` para ledger V1–V64 y el perfil agregado del manifiesto de staging. Esta segunda consulta requiere revisión/actor y permisos de lectura propios; no asume que el login del inspector catalog-only pueda leer tablas. El manifiesto privado no está en el worktree, por lo que su hash no se ha calculado. No hubo sesión SQL, ejecución Cloud ni cambio de estado. Esto no completa verificación ni habilita runtime.
