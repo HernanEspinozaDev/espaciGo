@@ -1,0 +1,51 @@
+name: GCP-06 candidate checks
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/gcp06-candidate.yml"
+      - "db/migrations/**"
+      - "cmd/dbmigrate/**"
+      - "go.mod"
+      - "go.sum"
+      - "scripts/gcp06-local-stage-export.sh"
+      - "scripts/gcp06_stage_sanitize.sql"
+      - "scripts/gcp06-upload-candidate-sql.sh"
+      - "scripts/test-gcp06-stage-sanitize-postgres.sh"
+      - "infra/terraform/environments/testprod/gcp06-candidate/**"
+      - "planning/gcp/gcp06_local_v61_v64_candidate_20261020.md"
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+      - name: Pull pinned PostgreSQL/PostGIS test image
+        run: |
+          docker pull postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+          docker image tag postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677 postgis/postgis:18-3.6
+      - name: Check shell syntax
+        run: bash -n scripts/gcp06-local-stage-export.sh scripts/gcp06-upload-candidate-sql.sh scripts/test-gcp06-upload-candidate-sql.sh scripts/test-gcp06-stage-sanitize-postgres.sh
+      - name: Verify candidate uploader against synthetic gcloud JSON
+        run: bash scripts/test-gcp06-upload-candidate-sql.sh
+      - name: Run isolated GCP-06 PostgreSQL harness
+        run: bash scripts/test-gcp06-stage-sanitize-postgres.sh
+      - name: Validate default-off Terraform candidate
+        working-directory: infra/terraform/environments/testprod/gcp06-candidate
+        run: |
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform fmt -check -recursive
+          terraform validate -no-color
+          terraform test -no-color
