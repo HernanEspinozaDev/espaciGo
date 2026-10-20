@@ -47,10 +47,10 @@ jobs:
         run: bash -n scripts/gcp06-local-stage-export.sh scripts/gcp06-upload-candidate-sql.sh scripts/test-gcp06-upload-candidate-sql.sh scripts/test-gcp06-stage-sanitize-postgres.sh
       - name: Verify candidate uploader against synthetic gcloud JSON
         run: bash scripts/test-gcp06-upload-candidate-sql.sh
-      - name: Run isolated GCP-06 PostgreSQL harness
+      - name: Run isolated GCP-06 PostgreSQL harness and SQL inspector integration
         run: bash scripts/test-gcp06-stage-sanitize-postgres.sh
-      - name: Test GCP-06 account access and SQL inspector
-        run: go test ./internal/gcp06sqlaccess ./internal/gcp06sqlinspect ./cmd/gcp06sqlaccess ./cmd/gcp06sqlinspect
+      - name: Test GCP-06 account access and inspector CLI
+        run: go test ./internal/gcp06sqlaccess ./cmd/gcp06sqlaccess ./cmd/gcp06sqlinspect
       - name: Build SQL inspector image
         run: docker build --file Dockerfile.gcp06-sql-inspect --tag gcp06-sql-inspect:ci .
       - name: Validate default-off Terraform candidate

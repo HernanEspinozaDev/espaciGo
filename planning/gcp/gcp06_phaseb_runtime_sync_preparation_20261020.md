@@ -29,11 +29,11 @@ Este plan dirigido es evidencia de wiring, no es aplicable: el secreto runtime c
 
 ## Verificaciones y límites
 
-- `go test ./internal/gcp06sqlinspect ./cmd/gcp06sqlinspect`: pasa.
+- `go test ./internal/gcp06sqlinspect ./cmd/gcp06sqlinspect`: pasa para las pruebas unitarias; la integración se ejecuta en el harness PostgreSQL 18 y no se omite en CI.
 - `terraform fmt -check infra/terraform/environments/testprod/gcp/architecture.tftest.hcl`: pasa.
 - `terraform -chdir=infra/terraform/environments/testprod/gcp test -no-color`: 14/14 pasan.
 - `git diff --check`: pasa.
-- La prueba de consultas contra PostgreSQL 18 desechable no pudo ejecutarse: el runtime local Docker falló al iniciar el proceso del contenedor. La prueba de integración quedó opt-in mediante `GCP06_INSPECTOR_SQL_TEST_DSN` y se omite si no se configura un PostgreSQL 18 aislado. No se conectó a Cloud SQL.
+- `bash scripts/test-gcp06-stage-sanitize-postgres.sh`: pasa, incluida la suite completa de `gcp06sqlinspect` dentro del contenedor PostgreSQL 18 desechable con red `none`. El harness fija `GCP06_INSPECTOR_SQL_TEST_REQUIRED=1`, agrega fixtures sintéticos para obtener filas de relaciones, rutinas y ACL por defecto, y falla si falta DSN o alguna consulta no valida su forma de `Scan`. No se conectó a Cloud SQL.
 - No se aplicó Terraform, DDL ni DML; no se rotó ninguna contraseña, creó secreto/rol/login, cambió servicio, publicó imagen ni ejecutó E2E. No se consultaron filas ni se alteró una cuenta.
 
 ## Siguiente gate

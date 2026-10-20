@@ -36,6 +36,9 @@ func TestValidateTargetPinsCandidateAndOneRunLogin(t *testing.T) {
 func TestCatalogPermissionQueriesExecuteOnDisposablePostgres18(t *testing.T) {
 	dsn := os.Getenv("GCP06_INSPECTOR_SQL_TEST_DSN")
 	if dsn == "" {
+		if os.Getenv("GCP06_INSPECTOR_SQL_TEST_REQUIRED") == "1" {
+			t.Fatal("GCP06_INSPECTOR_SQL_TEST_DSN is required for this PostgreSQL 18 integration run")
+		}
 		t.Skip("set GCP06_INSPECTOR_SQL_TEST_DSN only for an isolated PostgreSQL 18 test database")
 	}
 
@@ -73,6 +76,7 @@ func TestCatalogPermissionQueriesExecuteOnDisposablePostgres18(t *testing.T) {
 	if err != nil {
 		t.Fatal("relation access inventory query did not execute")
 	}
+	relationCount := 0
 	for rows.Next() {
 		var access RelationAccess
 		if err := rows.Scan(&access.Identity, &access.Kind, &access.Owner, &access.ObjectClass,
@@ -82,46 +86,60 @@ func TestCatalogPermissionQueriesExecuteOnDisposablePostgres18(t *testing.T) {
 			rows.Close()
 			t.Fatal("relation access inventory result shape is invalid")
 		}
+		relationCount++
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		t.Fatal("relation access inventory returned an error")
 	}
 	rows.Close()
+	if relationCount == 0 {
+		t.Fatal("relation access inventory returned no fixture relations")
+	}
 
 	rows, err = tx.Query(ctx, queryRoutineAccess)
 	if err != nil {
 		t.Fatal("routine access inventory query did not execute")
 	}
+	routineCount := 0
 	for rows.Next() {
 		var access RoutineAccess
 		if err := rows.Scan(&access.Identity, &access.Owner, &access.SecurityDefiner, &access.APILoginExists, &access.APILoginExecute, &access.RuntimeRoleExists, &access.RuntimeRoleExecute); err != nil {
 			rows.Close()
 			t.Fatal("routine access inventory result shape is invalid")
 		}
+		routineCount++
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		t.Fatal("routine access inventory returned an error")
 	}
 	rows.Close()
+	if routineCount == 0 {
+		t.Fatal("routine access inventory returned no fixture routines")
+	}
 
 	rows, err = tx.Query(ctx, queryDefaultACL, roles)
 	if err != nil {
 		t.Fatal("default ACL inventory query did not execute")
 	}
+	defaultACLCount := 0
 	for rows.Next() {
 		var acl DefaultACL
 		if err := rows.Scan(&acl.OwnerClass, &acl.Schema, &acl.ObjectType, &acl.Grantee, &acl.Privilege, &acl.Grantable, &acl.Count); err != nil {
 			rows.Close()
 			t.Fatal("default ACL inventory result shape is invalid")
 		}
+		defaultACLCount++
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		t.Fatal("default ACL inventory returned an error")
 	}
 	rows.Close()
+	if defaultACLCount == 0 {
+		t.Fatal("default ACL inventory returned no fixture ACLs")
+	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal("catalog preflight test transaction did not commit")
 	}
