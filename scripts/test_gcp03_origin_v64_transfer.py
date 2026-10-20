@@ -205,7 +205,11 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
             if name == "database_identity":
                 value = {"database": "espacigo_scratch", "postgres_major": 18}
             elif name == "source_table_access":
-                value = {"source_table_access": {"usuario_present": True, "usuario_select_allowed": True}}
+                value = {"source_table_access": {
+                    "usuario_present": True, "usuario_select_allowed": True,
+                    "public_schema_usage_allowed": True, "schema_owner_role_present": True,
+                    "schema_owner_member": True, "schema_owner_set_allowed": False,
+                }}
             elif name.startswith("count_"):
                 value = {"counts": {name.removeprefix("count_"): 1}}
             elif name == "migration_history":
@@ -235,6 +239,8 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
                 self.assertEqual(report["counts"], {"usuario": 1, "espacio": 1, "reserva": 1})
                 self.assertEqual(report["source_table_access"], {
                     "usuario_present": True, "usuario_select_allowed": True,
+                    "public_schema_usage_allowed": True, "schema_owner_role_present": True,
+                    "schema_owner_member": True, "schema_owner_set_allowed": False,
                 })
                 self.assertEqual(report["external_sessions"], 0)
                 self.assertTrue(report["report_complete"])
@@ -256,15 +262,21 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
 
     def test_source_table_access_precheck_blocks_count_and_reports_only_booleans(self):
         script = source_report_script()
-        self.assertIn("to_regclass('public.usuario')", script)
-        self.assertIn("has_table_privilege(current_user,'public.usuario','SELECT')", script)
+        self.assertIn("pg_catalog.pg_class", script)
+        self.assertIn("has_table_privilege(current_user,usuario_oid,'SELECT')", script)
+        self.assertIn("has_schema_privilege(current_user,'public','USAGE')", script)
+        self.assertIn("pg_has_role(current_user,schema_owner_oid,'MEMBER')", script)
+        self.assertIn("pg_has_role(current_user,schema_owner_oid,'SET')", script)
         self.assertLess(script.index(f"{SOURCE_REPORT_MARKER}source_table_access"),
             script.index(f"{SOURCE_REPORT_MARKER}count_usuario"))
         self.assertLess(script.index("RAISE EXCEPTION 'source access precheck failed'"),
             script.index(f"{SOURCE_REPORT_MARKER}count_usuario"))
+        self.assertIn("NOT has_schema_privilege(current_user,'public','USAGE')", script)
 
         stdout = (f"{SOURCE_REPORT_MARKER}source_table_access\n"
-            '{"source_table_access":{"usuario_present":true,"usuario_select_allowed":false}}\n').encode()
+            '{"source_table_access":{"usuario_present":true,"usuario_select_allowed":false,'
+            '"public_schema_usage_allowed":true,"schema_owner_role_present":false,'
+            '"schema_owner_member":false,"schema_owner_set_allowed":false}}\n').encode()
         error = self.run_report_failure("espacigo_scratch", b"", stdout, returncode=3)
 
         self.assertEqual(error.code, "DATABASE_PREFLIGHT_QUERY_FAILED")
@@ -273,6 +285,10 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
             "report_component": "source_table_access",
             "source_table_present": True,
             "source_table_select_allowed": False,
+            "source_public_schema_usage_allowed": True,
+            "source_schema_owner_role_present": False,
+            "source_schema_owner_member": False,
+            "source_schema_owner_set_allowed": False,
         })
         self.assertNotIn("usuario", repr(error.safe_details))
         self.assertNotIn("SELECT", repr(error.safe_details))
