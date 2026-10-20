@@ -16,6 +16,7 @@ def rollout_allowed(manifest, baseline_sha, baseline_is_ancestor, pending_migrat
     return (manifest.get("schema") == 1
             and isinstance(manifest.get("contains_migrations"), bool)
             and manifest["contains_migrations"] is False
+            and manifest.get("publish_only") is False
             and isinstance(source_sha, str) and SHA.fullmatch(source_sha) is not None
             and isinstance(baseline_sha, str) and SHA.fullmatch(baseline_sha) is not None
             and baseline_is_ancestor and not pending_migrations)
