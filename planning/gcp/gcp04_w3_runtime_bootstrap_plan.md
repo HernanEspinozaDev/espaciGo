@@ -18,6 +18,10 @@ La implementación local y los límites de ejecución están documentados en [GC
 
 La metadata actual vuelve a mostrar únicamente el usuario integrado `postgres`. No se vio el catálogo SQL ni la existencia/grants de `espacigo_db_observer`. Según Cloud SQL, un usuario builtin creado sin roles personalizados recibe `cloudsqlsuperuser`; la Admin API admite `databaseRoles` personalizados cuando el rol ya existe. No crear el login, resetear `postgres`, leer secretos, abrir SQL remoto ni ejecutar Job hasta revisar la existencia y privilegios del grupo observer por un canal autorizado. No se cambia V1–V64.
 
+### W7 B1 — candidato local para el grupo observer (2026-10-20)
+
+Se agrega el candidato [observer B1 local](gcp04_w7_b1_observer_local_preparation_20261020.md) para crear solo el grupo `espacigo_db_observer`, con ACL mínima de `CONNECT`, `USAGE` y `SELECT` del ledger opcional, más un executor transaccional efímero que se retira antes del commit. La prueba local ejecuta el candidato y el W4 preflight exacto como login sintético en PostgreSQL 18/PostGIS aislado; pasó con `transaction_read_only=true`. El fixture no acredita los atributos/grant options del B1 real, el comportamiento de `users.insert`, Cloud SQL ni membresías reales. El login observer real, su secreto y el preflight Cloud permanecen bloqueados hasta un corte/liberación independiente. Sin cambios V1–V64 o infraestructura.
+
 ## Inventario confirmado, solo metadata
 
 El candidato único de este corte es la instancia existente `espacigo-testprod-pg` del proyecto `espacigo-testprod`: PostgreSQL 18, `RUNNABLE`, IP privada, región `southamerica-west1`, red `espacigo-testprod` y subred serverless de la misma región. En el inventario previo la API de Cloud SQL listó las bases `postgres` y `espacigo` y únicamente el usuario integrado `postgres`. Existen los secretos metadata de API y migrador, pero la lista de versiones no devolvió versiones activas. No se leyó ningún secreto ni se abrió sesión SQL.
