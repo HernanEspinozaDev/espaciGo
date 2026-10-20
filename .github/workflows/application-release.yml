@@ -1,0 +1,140 @@
+name: Application release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "go.mod"
+      - "go.sum"
+      - "go.work"
+      - "go.work.sum"
+      - "**/*.go"
+      - "cmd/**"
+      - "internal/**"
+      - "db/migrations/**"
+      - "planning/openapi.yaml"
+      - "frontend/**"
+      - ".github/workflows/application-release.yml"
+      - ".github/workflows/application-quality.yml"
+      - "scripts/verify_gcp07_attestations.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testprod-application-release-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    name: detect application changes
+    runs-on: ubuntu-24.04
+    outputs:
+      api: ${{ steps.paths.outputs.api }}
+      web: ${{ steps.paths.outputs.web }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: paths
+        name: Classify source changes
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          api=false
+          web=false
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            api=true
+            web=true
+          else
+            while IFS= read -r path; do
+              case "$path" in
+                *.go|go.mod|go.sum|go.work|go.work.sum|Dockerfile|.dockerignore|cmd/*|internal/*|db/migrations/*|planning/openapi.yaml)
+                  api=true
+                  ;;
+              esac
+              case "$path" in
+                frontend/*|planning/openapi.yaml)
+                  web=true
+                  ;;
+              esac
+            done < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
+          fi
+          printf 'api=%s\nweb=%s\n' "$api" "$web" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: publish digest-pinned images and attestations
+    needs: changes
+    if: vars.GCP07C_PUBLISH_ENABLED == 'true' && (needs.changes.outputs.api == 'true' || needs.changes.outputs.web == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: testprod
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        with:
+          driver-opts: image=moby/buildkit@sha256:054d632d0d7e94b11cdc6048674773499a5170cf7d8ce0c326daaff6be43c8e0
+      - id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: projects/447373903153/locations/global/workloadIdentityPools/espacigo-testprod-github/providers/espacigo-main
+          service_account: espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com
+          token_format: access_token
+      - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: southamerica-west1-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+      - id: api
+        name: Publish API by source SHA with SBOM and provenance
+        if: needs.changes.outputs.api == 'true'
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: ./Dockerfile
+          target: api
+          platforms: linux/amd64
+          push: true
+          tags: southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-api:sha-${{ github.sha }}
+          attests: |
+            type=sbom,generator=docker/buildkit-syft-scanner@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+            type=provenance,mode=min
+      - id: web
+        name: Publish web by source SHA with SBOM and provenance
+        if: needs.changes.outputs.web == 'true'
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web:sha-${{ github.sha }}
+          attests: |
+            type=sbom,generator=docker/buildkit-syft-scanner@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+            type=provenance,mode=min
+      - name: Write sanitized publication summary
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          API_CHANGED: ${{ needs.changes.outputs.api }}
+          WEB_CHANGED: ${{ needs.changes.outputs.web }}
+          API_DIGEST: ${{ steps.api.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+        run: |
+          {
+            echo "## GCP-07C image publication"
+            echo "Source SHA: \`$SOURCE_SHA\`"
+            if [[ "$API_CHANGED" == true ]]; then echo "API digest: \`$API_DIGEST\`"; fi
+            if [[ "$WEB_CHANGED" == true ]]; then echo "Web digest: \`$WEB_DIGEST\`"; fi
+            echo "SBOM: BuildKit SPDX attestation generated"
+            echo "Provenance: BuildKit minimal provenance attestation generated"
+          } >> "$GITHUB_STEP_SUMMARY"
