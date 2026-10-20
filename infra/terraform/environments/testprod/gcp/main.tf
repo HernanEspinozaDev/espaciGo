@@ -27,6 +27,7 @@ provider "google-beta" {
 
 locals {
   api_gcp06_candidate_enabled = var.api_gcp06_candidate_run_id != ""
+  gcp06_candidate_run_id      = local.api_gcp06_candidate_enabled ? var.api_gcp06_candidate_run_id : (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_sql_inspector_job ? "20261020-gcp06a" : "")
   api_database_secret_key     = local.api_gcp06_candidate_enabled ? "database-password-gcp06" : "database-password"
   api_secret_access_keys = setunion(
     toset([
@@ -45,13 +46,14 @@ locals {
     (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_admin_bootstrap_job) ? toset(["gcp06-admin-bootstrap-password"]) : toset([]),
     (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_test_access_job) ? toset(["gcp06-test-access-db-password"]) : toset([]),
     (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_test_access_job && var.gcp06_test_access_mode == "apply") ? toset(["gcp06-test-account-password"]) : toset([]),
+    (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_sql_inspector_job) ? toset(["gcp06-sql-inspector-credential"]) : toset([]),
   ) : toset([])
   migrator_database_secret_id   = var.enable_database ? "database-migrator-password" : local.api_database_secret_key
   api_sql_connection_name       = try(local.api_gcp06_candidate_enabled ? data.google_sql_database_instance.gcp06_candidate[0].connection_name : google_sql_database_instance.postgres[0].connection_name, "")
   api_database_name             = try(local.api_gcp06_candidate_enabled ? local.gcp06_candidate_database_name : google_sql_database.application[0].name, "")
   api_database_password_version = local.api_gcp06_candidate_enabled ? var.api_gcp06_candidate_password_version : "latest"
-  gcp06_candidate_instance_name = "espacigo-gcp06-${var.api_gcp06_candidate_run_id}-pg"
-  gcp06_candidate_database_name = "espacigo_gcp06_candidate_${var.api_gcp06_candidate_run_id}"
+  gcp06_candidate_instance_name = "espacigo-gcp06-${local.gcp06_candidate_run_id}-pg"
+  gcp06_candidate_database_name = "espacigo_gcp06_candidate_${local.gcp06_candidate_run_id}"
   project_enabled_apis = toset([
     "artifactregistry.googleapis.com",
     "cloudresourcemanager.googleapis.com",
@@ -88,7 +90,7 @@ locals {
 }
 
 data "google_sql_database_instance" "gcp06_candidate" {
-  count   = local.api_gcp06_candidate_enabled ? 1 : 0
+  count   = local.api_gcp06_candidate_enabled || (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_sql_inspector_job) ? 1 : 0
   project = var.project_id
   name    = local.gcp06_candidate_instance_name
 }
@@ -179,7 +181,7 @@ resource "google_service_account" "runtime" {
 }
 
 resource "google_service_account" "gcp06_job" {
-  for_each     = var.enable_foundation && var.enable_gcp06_jobs_reviewed ? toset(compact([var.enable_gcp06_admin_bootstrap_job ? "admin-bootstrap" : "", var.enable_gcp06_test_access_job ? "test-access" : ""])) : toset([])
+  for_each     = var.enable_foundation && var.enable_gcp06_jobs_reviewed ? toset(compact([var.enable_gcp06_admin_bootstrap_job ? "admin-bootstrap" : "", var.enable_gcp06_test_access_job ? "test-access" : "", var.enable_gcp06_sql_inspector_job ? "sql-inspector" : ""])) : toset([])
   project      = var.project_id
   account_id   = "espacigo-gcp06-${each.key}"
   display_name = "EspaciGo GCP-06 candidate ${each.key} one-shot job"
@@ -494,15 +496,15 @@ resource "google_project_iam_member" "cloudsql_clients" {
 }
 
 resource "google_project_iam_member" "gcp06_job_cloudsql_client" {
-  for_each = var.enable_gcp06_jobs_reviewed ? toset(compact([var.enable_gcp06_admin_bootstrap_job ? "admin-bootstrap" : "", var.enable_gcp06_test_access_job ? "test-access" : ""])) : toset([])
+  for_each = var.enable_gcp06_jobs_reviewed ? toset(compact([var.enable_gcp06_admin_bootstrap_job ? "admin-bootstrap" : "", var.enable_gcp06_test_access_job ? "test-access" : "", var.enable_gcp06_sql_inspector_job ? "sql-inspector" : ""])) : toset([])
   project  = var.project_id
   role     = "roles/cloudsql.client"
   member   = "serviceAccount:${google_service_account.gcp06_job[each.key].email}"
 
   condition {
     title       = "${each.key}-only-gcp06-candidate-sql"
-    description = "Connector use only for the reviewed GCP-06 candidate instance."
-    expression  = "resource.name == 'projects/espacigo-testprod/instances/espacigo-gcp06-20261020-gcp06a-pg' && resource.type == 'sqladmin.googleapis.com/Instance'"
+    description = "Connector use only for the reviewed GCP-06 candidate instance; inspector grant expires at the separately reviewed timestamp."
+    expression  = "resource.name == 'projects/espacigo-testprod/instances/espacigo-gcp06-20261020-gcp06a-pg' && resource.type == 'sqladmin.googleapis.com/Instance'${each.key == "sql-inspector" ? " && request.time < timestamp('${var.gcp06_sql_inspector_iam_expiry}')" : ""}"
   }
 }
 
@@ -520,6 +522,9 @@ resource "google_secret_manager_secret_iam_member" "gcp06_job_secret_access" {
         "test-access-app-password" = { job = "test-access", secret = "gcp06-test-account-password" }
       } : {},
     ) : {},
+    var.enable_gcp06_sql_inspector_job ? {
+      "sql-inspector-credential" = { job = "sql-inspector", secret = "gcp06-sql-inspector-credential" }
+    } : {},
   ) : {}
   project   = var.project_id
   secret_id = google_secret_manager_secret.runtime[each.value.secret].secret_id
@@ -528,7 +533,7 @@ resource "google_secret_manager_secret_iam_member" "gcp06_job_secret_access" {
 }
 
 resource "google_artifact_registry_repository_iam_member" "gcp06_job_image_reader" {
-  for_each   = var.enable_gcp06_jobs_reviewed ? toset(compact([var.enable_gcp06_admin_bootstrap_job ? "admin-bootstrap" : "", var.enable_gcp06_test_access_job ? "test-access" : ""])) : toset([])
+  for_each   = var.enable_gcp06_jobs_reviewed ? toset(compact([var.enable_gcp06_admin_bootstrap_job ? "admin-bootstrap" : "", var.enable_gcp06_test_access_job ? "test-access" : "", var.enable_gcp06_sql_inspector_job ? "sql-inspector" : ""])) : toset([])
   project    = var.project_id
   location   = var.region
   repository = "espacigo-testprod"
@@ -1044,6 +1049,93 @@ resource "google_cloud_run_v2_job_iam_member" "gcp06_test_access_invoker" {
   name     = google_cloud_run_v2_job.gcp06_test_access[0].name
   role     = "roles/run.invoker"
   member   = var.gcp06_test_access_operator_member
+}
+
+resource "google_cloud_run_v2_job" "gcp06_sql_inspector" {
+  count               = var.enable_gcp06_jobs_reviewed && var.enable_gcp06_sql_inspector_job ? 1 : 0
+  project             = var.project_id
+  name                = "espacigo-gcp06-sql-inspector"
+  location            = var.region
+  deletion_protection = false
+  depends_on = [
+    google_project_iam_member.gcp06_job_cloudsql_client,
+    google_secret_manager_secret_iam_member.gcp06_job_secret_access,
+    google_artifact_registry_repository_iam_member.gcp06_job_image_reader,
+  ]
+
+  template {
+    task_count  = 1
+    parallelism = 1
+    template {
+      service_account = google_service_account.gcp06_job["sql-inspector"].email
+      max_retries     = 0
+      timeout         = "600s"
+      volumes {
+        name = "inspector-credential"
+        secret {
+          secret = google_secret_manager_secret.runtime["gcp06-sql-inspector-credential"].secret_id
+          items {
+            version = var.gcp06_sql_inspector_secret_version
+            path    = "credentials.json"
+            mode    = 256
+          }
+        }
+      }
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = google_compute_network.testprod[0].name
+          subnetwork = google_compute_subnetwork.serverless[0].name
+          tags       = ["espacigo-gcp06-sql-inspector"]
+        }
+      }
+      containers {
+        image = var.gcp06_sql_inspector_image
+        resources { limits = { cpu = "1", memory = "512Mi" } }
+        env {
+          name  = "GCP06_RUN_ID"
+          value = "20261020-gcp06a"
+        }
+        env {
+          name  = "CLOUD_SQL_INSTANCE_CONNECTION_NAME"
+          value = data.google_sql_database_instance.gcp06_candidate[0].connection_name
+        }
+        env {
+          name  = "DATABASE_NAME"
+          value = local.gcp06_candidate_database_name
+        }
+        env {
+          name  = "GCP06_SQL_INSPECTOR_CREDENTIAL_FILE"
+          value = "/var/run/secrets/gcp06-sql-inspector/credentials.json"
+        }
+        volume_mounts {
+          name       = "inspector-credential"
+          mount_path = "/var/run/secrets/gcp06-sql-inspector"
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition = (
+        length(data.google_sql_database_instance.gcp06_candidate) == 1 && var.project_id == "espacigo-testprod" && var.region == "southamerica-west1" &&
+        can(regex("^[1-9][0-9]*$", var.gcp06_sql_inspector_secret_version)) &&
+        can(regex("^southamerica-west1-docker\\.pkg\\.dev/espacigo-testprod/espacigo-testprod/gcp06-sql-inspect@sha256:[0-9a-f]{64}$", var.gcp06_sql_inspector_image)) &&
+        var.gcp06_sql_inspector_operator_member != "" && can(timecmp(var.gcp06_sql_inspector_iam_expiry, plantimestamp()) > 0)
+      )
+      error_message = "The inspector requires the exact candidate, numeric credential version, immutable image, one named invoker, and a future IAM expiry."
+    }
+  }
+}
+
+resource "google_cloud_run_v2_job_iam_member" "gcp06_sql_inspector_invoker" {
+  count    = var.enable_gcp06_jobs_reviewed && var.enable_gcp06_sql_inspector_job ? 1 : 0
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.gcp06_sql_inspector[0].name
+  role     = "roles/run.invoker"
+  member   = var.gcp06_sql_inspector_operator_member
 }
 
 resource "google_cloud_run_v2_service" "web" {

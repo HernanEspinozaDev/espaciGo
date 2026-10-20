@@ -5,14 +5,21 @@ on:
       - ".github/workflows/gcp06-candidate.yml"
       - "db/migrations/**"
       - "cmd/dbmigrate/**"
+      - "cmd/gcp06sqlaccess/**"
+      - "cmd/gcp06sqlinspect/**"
       - "go.mod"
       - "go.sum"
+      - "internal/gcp06sqlaccess/**"
+      - "internal/gcp06sqlinspect/**"
+      - "Dockerfile.gcp06-sql-inspect"
       - "scripts/gcp06-local-stage-export.sh"
       - "scripts/gcp06_stage_sanitize.sql"
       - "scripts/gcp06-upload-candidate-sql.sh"
       - "scripts/test-gcp06-stage-sanitize-postgres.sh"
       - "infra/terraform/environments/testprod/gcp06-candidate/**"
+      - "infra/terraform/environments/testprod/gcp/**"
       - "planning/gcp/gcp06_local_v61_v64_candidate_20261020.md"
+      - "planning/gcp/gcp06_candidate_sql_access_route_20261020.md"
 permissions:
   contents: read
 jobs:
@@ -42,8 +49,19 @@ jobs:
         run: bash scripts/test-gcp06-upload-candidate-sql.sh
       - name: Run isolated GCP-06 PostgreSQL harness
         run: bash scripts/test-gcp06-stage-sanitize-postgres.sh
+      - name: Test GCP-06 account access and SQL inspector
+        run: go test ./internal/gcp06sqlaccess ./internal/gcp06sqlinspect ./cmd/gcp06sqlaccess ./cmd/gcp06sqlinspect
+      - name: Build SQL inspector image
+        run: docker build --file Dockerfile.gcp06-sql-inspect --tag gcp06-sql-inspect:ci .
       - name: Validate default-off Terraform candidate
         working-directory: infra/terraform/environments/testprod/gcp06-candidate
+        run: |
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform fmt -check -recursive
+          terraform validate -no-color
+          terraform test -no-color
+      - name: Validate GCP testprod infrastructure root
+        working-directory: infra/terraform/environments/testprod/gcp
         run: |
           terraform init -backend=false -input=false -lockfile=readonly
           terraform fmt -check -recursive

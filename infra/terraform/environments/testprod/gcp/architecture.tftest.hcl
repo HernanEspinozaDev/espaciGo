@@ -66,8 +66,61 @@ run "foundation_plan_is_gated_and_scoped" {
     error_message = "Foundation should create one dedicated VPC and serverless subnet."
   }
   assert {
-    condition     = length(google_cloud_run_v2_job.gcp06_admin_bootstrap) == 0 && length(google_cloud_run_v2_job.gcp06_test_access) == 0 && length(google_service_account.gcp06_job) == 0
+    condition     = length(google_cloud_run_v2_job.gcp06_admin_bootstrap) == 0 && length(google_cloud_run_v2_job.gcp06_test_access) == 0 && length(google_cloud_run_v2_job.gcp06_sql_inspector) == 0 && length(google_service_account.gcp06_job) == 0
     error_message = "GCP-06 candidate Jobs and their identities must remain absent until their dedicated review gate is enabled."
+  }
+}
+
+run "sql_inspector_is_private_readonly_and_time_bounded" {
+  command = plan
+  variables {
+    project_id                          = "espacigo-testprod"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    acknowledge_gcp04_runtime_gates     = true
+    bucket_suffix                       = "inspector-job"
+    enable_gcp06_sql_inspector_job      = true
+    enable_gcp06_jobs_reviewed          = true
+    gcp06_sql_inspector_image           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/gcp06-sql-inspect@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    gcp06_sql_inspector_secret_version  = "7"
+    gcp06_sql_inspector_operator_member = "user:operator@example.test"
+    gcp06_sql_inspector_iam_expiry      = "2026-11-01T00:00:00Z"
+  }
+  override_data {
+    target = data.google_sql_database_instance.gcp06_candidate[0]
+    values = {
+      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg"
+      database_version   = "POSTGRES_18"
+      private_ip_address = "10.189.0.13"
+      region             = "southamerica-west1"
+    }
+  }
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.gcp06_sql_inspector) == 1 &&
+      google_cloud_run_v2_job.gcp06_sql_inspector[0].template[0].task_count == 1 &&
+      google_cloud_run_v2_job.gcp06_sql_inspector[0].template[0].template[0].max_retries == 0 &&
+      google_service_account.gcp06_job["sql-inspector"].account_id == "espacigo-gcp06-sql-inspector" &&
+      contains(local.runtime_secret_ids, "gcp06-sql-inspector-credential")
+    )
+    error_message = "The catalog inspector must be a one-shot job with its dedicated identity and exact credential secret."
+  }
+  assert {
+    condition = (
+      google_project_iam_member.gcp06_job_cloudsql_client["sql-inspector"].condition[0].expression == "resource.name == 'projects/espacigo-testprod/instances/espacigo-gcp06-20261020-gcp06a-pg' && resource.type == 'sqladmin.googleapis.com/Instance' && request.time < timestamp('2026-11-01T00:00:00Z')" &&
+      length(google_secret_manager_secret_iam_member.gcp06_job_secret_access) == 1 &&
+      google_cloud_run_v2_job.gcp06_sql_inspector[0].template[0].template[0].vpc_access[0].egress == "PRIVATE_RANGES_ONLY"
+    )
+    error_message = "Inspector permissions must be scoped to the candidate instance and expiration, and execution must use private VPC egress."
+  }
+  assert {
+    condition = alltrue([
+      for env in google_cloud_run_v2_job.gcp06_sql_inspector[0].template[0].template[0].containers[0].env :
+      !can(regex("(?i)password", env.name))
+    ])
+    error_message = "The inspector Job must not pass a password in environment variables."
   }
 }
 

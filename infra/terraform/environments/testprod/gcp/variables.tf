@@ -197,13 +197,47 @@ variable "enable_gcp06_test_access_job" {
   description = "Prepare the dedicated one-shot candidate test-account access Job. Defaults to preview mode; apply mode requires a separately reviewed exact cohort."
 }
 
+variable "enable_gcp06_sql_inspector_job" {
+  type        = bool
+  default     = false
+  description = "Prepare the dedicated, private, read-only GCP-06 SQL catalog inspector Job."
+}
+
+variable "gcp06_sql_inspector_image" {
+  type        = string
+  default     = ""
+  description = "Immutable Artifact Registry digest for the catalog-only inspector Job."
+}
+
+variable "gcp06_sql_inspector_secret_version" {
+  type        = string
+  default     = ""
+  description = "Exact numeric Secret Manager version containing the one-run inspector login credential."
+}
+
+variable "gcp06_sql_inspector_operator_member" {
+  type        = string
+  default     = ""
+  description = "Single nominated human principal permitted to invoke only the SQL inspector Job."
+  validation {
+    condition     = var.gcp06_sql_inspector_operator_member == "" || can(regex("^(user|serviceAccount):[A-Za-z0-9._@+-]+$", var.gcp06_sql_inspector_operator_member))
+    error_message = "Inspector Job invoker must be one explicit user or service-account principal."
+  }
+}
+
+variable "gcp06_sql_inspector_iam_expiry" {
+  type        = string
+  default     = ""
+  description = "RFC3339 UTC expiration for the inspector's instance-scoped Cloud SQL client grant."
+}
+
 variable "enable_gcp06_jobs_reviewed" {
   type        = bool
   default     = false
   description = "Human review gate for creating candidate-only Jobs and their exact service-account, SQL, Artifact Registry, and Secret Manager permissions."
   validation {
-    condition     = !var.enable_gcp06_jobs_reviewed || (var.enable_foundation && var.project_id == "espacigo-testprod" && var.region == "southamerica-west1" && var.api_gcp06_candidate_run_id == "20261020-gcp06a" && (var.enable_gcp06_admin_bootstrap_job || var.enable_gcp06_test_access_job))
-    error_message = "GCP-06 Jobs require the reviewed foundation, exact candidate, test project/region, and at least one explicitly selected Job."
+    condition     = !var.enable_gcp06_jobs_reviewed || (var.enable_foundation && var.project_id == "espacigo-testprod" && var.region == "southamerica-west1" && ((var.api_gcp06_candidate_run_id == "20261020-gcp06a" && (var.enable_gcp06_admin_bootstrap_job || var.enable_gcp06_test_access_job)) || (var.api_gcp06_candidate_run_id == "" && var.enable_gcp06_sql_inspector_job && !var.enable_gcp06_admin_bootstrap_job && !var.enable_gcp06_test_access_job)))
+    error_message = "GCP-06 Jobs require the reviewed foundation, exact candidate, test project/region, and an explicitly selected operation; the inspector may be planned independently from the API cutover."
   }
 }
 
