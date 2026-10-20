@@ -60,7 +60,10 @@ OMIT_DATA_TABLES = (*[f"public.{name}" for name in SEED_TABLES],
 MIGRATIONS = Path(__file__).resolve().parents[1] / "db" / "migrations"
 IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
-SQLSTATE_RE = re.compile(rb"^(?:ERROR|FATAL|PANIC):\s*([0-9A-Z]{5})\s*$", re.MULTILINE)
+SQLSTATE_RE = re.compile(
+    rb"^(?:psql:<stdin>:[1-9][0-9]*: )?(?:ERROR|FATAL|PANIC):\s*([0-9A-Z]{5})\s*$",
+    re.MULTILINE,
+)
 SQLSTATE_CATEGORIES = {
     "08": "connection",
     "22": "data",
