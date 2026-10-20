@@ -77,6 +77,14 @@ if any(type(report.get(key)) is not int for key in ('users','spaces','bookings')
     raise SystemExit('source row-count preflight was incomplete')
 PY
 
+# Compare only catalog relation identities before opening the data stream. The
+# query emits schema/name/kind (never rows or column values); the report keeps
+# only counts and digests so unexpected source identifiers cannot escape.
+relation_inventory() {
+  docker exec "$1" psql -X -qAt -U "$2" -d "$3" -c \
+    "BEGIN READ ONLY; SELECT n.nspname || '.' || c.relname || ':' || c.relkind::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','S','f') ORDER BY 1; COMMIT;" 2>/dev/null
+}
+
 for version in $(seq -w 1 64); do
   matches=("$ROOT_DIR"/db/migrations/V0000"$version"*.sql)
   [[ -f "${matches[0]}" ]] || { echo 'migration files are incomplete.' >&2; exit 1; }
@@ -103,6 +111,23 @@ docker cp "$TMP_DIR/." "$CONTAINER:/tmp/migrations-v64/" >/dev/null
 
 docker exec -e DATABASE_URL="postgres://postgres@localhost:5432/$STAGE_DB?sslmode=disable" \
   "$CONTAINER" /tmp/dbmigrate -dir /tmp/migrations-v61 >/dev/null
+
+source_inventory="$(relation_inventory "$SOURCE_CONTAINER" "$SOURCE_USER" "$SOURCE_DB" || true)"
+stage_inventory="$(relation_inventory "$CONTAINER" postgres "$STAGE_DB" || true)"
+python3 - "$source_inventory" "$stage_inventory" <<'PY'
+import hashlib,sys
+source,stage=(set(x for x in arg.splitlines() if x) for arg in sys.argv[1:])
+if not source or not stage:
+    raise SystemExit('catalog relation inventory unavailable; no source rows were streamed')
+missing=stage-source
+extra=source-stage
+def digest(items):
+    return hashlib.sha256(('\n'.join(sorted(items))+'\n').encode()).hexdigest()
+if missing or extra:
+    print(f"catalog relation inventory mismatch (source_count={len(source)} stage_count={len(stage)} source_only={len(extra)} stage_only={len(missing)} source_sha256={digest(source)} stage_sha256={digest(stage)}); identifiers and row data suppressed",file=sys.stderr)
+    raise SystemExit(1)
+print(f"catalog relation inventory matched (relations={len(source)} sha256={digest(source)})")
+PY
 
 # The raw snapshot streams directly from the unchanged source container to the
 # disposable staging container. No unredacted dump is written to host storage.

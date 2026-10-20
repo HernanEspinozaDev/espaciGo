@@ -192,6 +192,19 @@ VALUES('30000000-0000-4000-8000-000000000021',1,'dia',25000);
 SQL
 EXPORT_ID="e2e-$(date -u +%Y%m%d%H%M%S)-$$"
 EXPORT_DIR=".local/testing/gcp06-stage-$EXPORT_ID"
+psql_local -U postgres -d espacigo_local -c 'CREATE TABLE public.private_identifier_must_not_leak(id bigint)' >/dev/null
+MISMATCH_ID="drift-$(date -u +%Y%m%d%H%M%S)-$$"
+MISMATCH_DIR=".local/testing/gcp06-stage-$MISMATCH_ID"
+if GCP06_SOURCE_CONTAINER="$CONTAINER" GCP06_SOURCE_DATABASE_USER=postgres \
+  bash "$ROOT_DIR/scripts/gcp06-local-stage-export.sh" "$MISMATCH_DIR" >"$TMP_DIR/inventory.out" 2>"$TMP_DIR/inventory.err"; then
+  echo 'Catalog inventory mismatch was not rejected.' >&2; exit 1
+fi
+grep -q 'catalog relation inventory mismatch' "$TMP_DIR/inventory.err" || { cat "$TMP_DIR/inventory.err" >&2; exit 1; }
+grep -q 'source_only=1' "$TMP_DIR/inventory.err"
+! grep -q 'private_identifier_must_not_leak' "$TMP_DIR/inventory.err"
+! grep -q 'opaque-local-verifier\|@dataset.invalid\|@local.invalid' "$TMP_DIR/inventory.err"
+psql_local -U postgres -d espacigo_local -c 'DROP TABLE public.private_identifier_must_not_leak' >/dev/null
+echo 'PASS: catalog drift preflight reports aggregate counts/digests and suppresses source identifiers and row data'
 GCP06_SOURCE_CONTAINER="$CONTAINER" GCP06_SOURCE_DATABASE_USER=postgres \
   bash "$ROOT_DIR/scripts/gcp06-local-stage-export.sh" "$EXPORT_DIR" >/dev/null
 python3 - "$ROOT_DIR/$EXPORT_DIR/manifest.json" "$ROOT_DIR/$EXPORT_DIR/data.sql" <<'PY'
