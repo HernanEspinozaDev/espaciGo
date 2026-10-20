@@ -209,6 +209,8 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
                     "usuario_present": True, "usuario_select_allowed": True,
                     "public_schema_usage_allowed": True, "schema_owner_role_present": True,
                     "schema_owner_member": True, "schema_owner_set_allowed": False,
+                    "usuario_owner_role_present": True, "usuario_owner_is_current_user": False,
+                    "current_user_can_set_usuario_owner": False,
                 }}
             elif name.startswith("count_"):
                 value = {"counts": {name.removeprefix("count_"): 1}}
@@ -241,6 +243,8 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
                     "usuario_present": True, "usuario_select_allowed": True,
                     "public_schema_usage_allowed": True, "schema_owner_role_present": True,
                     "schema_owner_member": True, "schema_owner_set_allowed": False,
+                    "usuario_owner_role_present": True, "usuario_owner_is_current_user": False,
+                    "current_user_can_set_usuario_owner": False,
                 })
                 self.assertEqual(report["external_sessions"], 0)
                 self.assertTrue(report["report_complete"])
@@ -267,6 +271,9 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
         self.assertIn("has_schema_privilege(current_user,'public','USAGE')", script)
         self.assertIn("pg_has_role(current_user,schema_owner_oid,'MEMBER')", script)
         self.assertIn("pg_has_role(current_user,schema_owner_oid,'SET')", script)
+        self.assertIn("usuario_owner_oid", script)
+        self.assertIn("usuario_owner_oid=current_user_oid", script)
+        self.assertIn("pg_has_role(current_user,usuario_owner_oid,'SET')", script)
         self.assertLess(script.index(f"{SOURCE_REPORT_MARKER}source_table_access"),
             script.index(f"{SOURCE_REPORT_MARKER}count_usuario"))
         self.assertLess(script.index("RAISE EXCEPTION 'source access precheck failed'"),
@@ -276,7 +283,9 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
         stdout = (f"{SOURCE_REPORT_MARKER}source_table_access\n"
             '{"source_table_access":{"usuario_present":true,"usuario_select_allowed":false,'
             '"public_schema_usage_allowed":true,"schema_owner_role_present":false,'
-            '"schema_owner_member":false,"schema_owner_set_allowed":false}}\n').encode()
+            '"schema_owner_member":false,"schema_owner_set_allowed":false,'
+            '"usuario_owner_role_present":true,"usuario_owner_is_current_user":false,'
+            '"current_user_can_set_usuario_owner":false}}\n').encode()
         error = self.run_report_failure("espacigo_scratch", b"", stdout, returncode=3)
 
         self.assertEqual(error.code, "DATABASE_PREFLIGHT_QUERY_FAILED")
@@ -289,6 +298,9 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
             "source_schema_owner_role_present": False,
             "source_schema_owner_member": False,
             "source_schema_owner_set_allowed": False,
+            "source_table_owner_role_present": True,
+            "source_table_owner_is_current_user": False,
+            "source_current_user_can_set_table_owner": False,
         })
         self.assertNotIn("usuario", repr(error.safe_details))
         self.assertNotIn("SELECT", repr(error.safe_details))

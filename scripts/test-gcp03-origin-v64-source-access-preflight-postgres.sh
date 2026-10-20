@@ -115,12 +115,16 @@ assert failed_source_table_access(stdout) == {
     "source_schema_owner_role_present": False,
     "source_schema_owner_member": False,
     "source_schema_owner_set_allowed": False,
+    "source_table_owner_role_present": True,
+    "source_table_owner_is_current_user": False,
+    "source_current_user_can_set_table_owner": False,
 }
 print('Missing SELECT/USAGE and absent owner role are reported as booleans before count.')
 PY
 
 psql_local -U postgres -d espacigo_scratch <<'SQL' >/dev/null
 CREATE ROLE espacigo_schema_owner NOLOGIN;
+ALTER TABLE public.usuario OWNER TO espacigo_schema_owner;
 GRANT espacigo_schema_owner TO g03o_report_login WITH ADMIN FALSE, INHERIT FALSE, SET FALSE;
 SQL
 set +e
@@ -146,6 +150,9 @@ assert failed_source_table_access(Path(sys.argv[2]).read_bytes()) == {
     "source_schema_owner_role_present": True,
     "source_schema_owner_member": True,
     "source_schema_owner_set_allowed": False,
+    "source_table_owner_role_present": True,
+    "source_table_owner_is_current_user": False,
+    "source_current_user_can_set_table_owner": False,
 }
 print('PostgreSQL 18 distinguishes owner role membership from SET ROLE permission.')
 PY
@@ -175,12 +182,39 @@ assert report['source_table_access'] == {
     'schema_owner_role_present': True,
     'schema_owner_member': True,
     'schema_owner_set_allowed': True,
+    'usuario_owner_role_present': True,
+    'usuario_owner_is_current_user': False,
+    'current_user_can_set_usuario_owner': True,
 }
 assert report['counts']['usuario'] == 1 and report['report_complete'] is True
 print('With fixture-only schema usage, SET ROLE membership, and SELECT, the report passes and completes.')
 PY
 
+psql_local -U postgres -d espacigo_scratch <<'SQL' >/dev/null
+GRANT CREATE ON SCHEMA public TO g03o_report_login;
+ALTER TABLE public.usuario OWNER TO g03o_report_login;
+SQL
+python3 - "$ROOT_DIR" <<'PY' | compose exec -T postgres psql -X -qAt --set=ON_ERROR_STOP=1 --set=VERBOSITY=sqlstate -U g03o_report_login -d espacigo_scratch -f - > "$TMP_DIR/owner.stdout" 2> "$TMP_DIR/owner.stderr"
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "scripts"))
+from gcp03_origin_v64_transfer import source_report_script
+sys.stdout.write(source_report_script())
+PY
+python3 - "$ROOT_DIR" "$TMP_DIR/owner.stdout" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "scripts"))
+from gcp03_origin_v64_transfer import parse_source_report_output
+report = parse_source_report_output(Path(sys.argv[2]).read_bytes())
+access = report['source_table_access']
+assert access['usuario_owner_role_present'] is True
+assert access['usuario_owner_is_current_user'] is True
+assert access['current_user_can_set_usuario_owner'] is True
+print('When current_user owns usuario, only the expected owner booleans are exposed.')
+PY
+
 compose down --volumes --remove-orphans >/dev/null
 [[ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT")" ]]
 [[ -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT")" ]]
-echo 'G03O source access precheck passed in both blocked and allowed local cases.'
+echo 'G03O source access precheck passed in denied, MEMBER/SET, allowed, and current-owner local cases.'
