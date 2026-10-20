@@ -24,7 +24,7 @@ output "api_service_audience" {
 }
 
 output "api_internal_base_url" {
-  value       = var.enable_services ? "${google_cloud_run_v2_service.api[0].uri}/api/v1" : null
+  value       = var.enable_services ? try(google_cloud_run_v2_service.api[0].uri == null ? null : "${google_cloud_run_v2_service.api[0].uri}/api/v1", null) : null
   description = "Backend API base path consumed by SSR and accepted by configuredApiBase."
 }
 

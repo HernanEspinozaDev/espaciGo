@@ -298,12 +298,36 @@ run "mailpit_vm_is_private_and_scoped" {
     error_message = "The explicit evaluator's IAP tunnel grant must be restricted to the Mailpit UI port."
   }
   assert {
+    condition     = google_compute_instance.mailpit[0].boot_disk[0].initialize_params[0].image == "projects/cos-cloud/global/images/cos-stable-test" && length(data.google_compute_image.mailpit_cos) == 1
+    error_message = "The Mailpit VM must keep the cos-stable family lookup when no image pin is supplied."
+  }
+  assert {
     condition     = google_artifact_registry_repository.mailpit_dockerhub[0].mode == "REMOTE_REPOSITORY" && google_artifact_registry_repository_iam_member.mailpit_reader[0].role == "roles/artifactregistry.reader"
     error_message = "The VM must pull the pinned upstream image through a read-only Artifact Registry proxy."
   }
   assert {
     condition     = strcontains(google_compute_instance.mailpit[0].metadata_startup_script, "b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48")
     error_message = "The private VM must use the same digest-pinned Mailpit image as Compose."
+  }
+}
+
+run "mailpit_vm_uses_explicit_cos_image_pin" {
+  command = plan
+
+  variables {
+    project_id                 = "offline-test-project"
+    project_number             = "123456789012"
+    enable_foundation          = true
+    enable_mailpit             = true
+    confirm_project_inventory  = true
+    confirm_cost_policy_review = true
+    bucket_suffix              = "offline-test"
+    mailpit_cos_image          = "https://www.googleapis.com/compute/v1/projects/cos-cloud/global/images/cos-stable-121-18867-638-5"
+  }
+
+  assert {
+    condition     = google_compute_instance.mailpit[0].boot_disk[0].initialize_params[0].image == var.mailpit_cos_image && length(data.google_compute_image.mailpit_cos) == 0
+    error_message = "An explicit COS pin must be used directly without querying the moving cos-stable family."
   }
 }
 
