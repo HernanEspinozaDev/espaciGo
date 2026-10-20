@@ -165,6 +165,36 @@ variable "api_service_name" {
   default = "espacigo-test-api"
 }
 
+variable "api_contract_encryption_key_version" {
+  type        = string
+  default     = "latest"
+  description = "Numeric Secret Manager version mounted by the API; before enabling services, verify this exact version is ENABLED through metadata without reading its payload."
+  validation {
+    condition     = !var.enable_services || can(regex("^[1-9][0-9]*$", var.api_contract_encryption_key_version))
+    error_message = "When API services are enabled, pin a positive numeric contract key version."
+  }
+}
+
+variable "api_private_object_prefix" {
+  type        = string
+  default     = ""
+  description = "Private Cloud Storage object prefix configured for the API; the G03O transfer uses g03o-1017."
+  validation {
+    condition     = contains(["", "g03o-1017"], var.api_private_object_prefix)
+    error_message = "The API private object prefix must be empty or the reviewed g03o-1017 namespace."
+  }
+}
+
+variable "api_privacy_replay_prefix" {
+  type        = string
+  default     = ""
+  description = "Private replay registry object prefix configured for the API; the G03O transfer uses g03o-1017/privacy-replay."
+  validation {
+    condition     = contains(["", "g03o-1017/privacy-replay"], var.api_privacy_replay_prefix)
+    error_message = "The API privacy replay prefix must be empty or the reviewed g03o-1017/privacy-replay namespace."
+  }
+}
+
 variable "public_service_name" {
   type    = string
   default = "espacigo-test-public"

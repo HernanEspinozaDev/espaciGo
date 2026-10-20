@@ -1,0 +1,21 @@
+ARG SOURCE_DATE_EPOCH
+
+FROM python:3.13.16-slim-trixie@sha256:bf44cdfcb76cd3b41e879bc058fc37ec5872002ccfde7fcb765e218cde0cd79c AS python-runtime
+WORKDIR /src
+COPY scripts/requirements-gcp03-origin-executor.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --disable-pip-version-check --no-compile --target=/opt/python-deps -r /tmp/requirements.txt
+
+FROM postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+COPY --from=python-runtime /usr/local/ /usr/local/
+COPY --from=python-runtime /opt/python-deps /opt/python-deps
+COPY scripts/gcp03_origin_v64_transfer.py /app/scripts/gcp03_origin_v64_transfer.py
+COPY scripts/gcp03_origin_v64_sanitize.sql /app/scripts/gcp03_origin_v64_sanitize.sql
+COPY scripts/gcp03_origin_cloud_import_executor.py /app/scripts/gcp03_origin_cloud_import_executor.py
+COPY scripts/gcp03_origin_import.py /app/scripts/gcp03_origin_import.py
+COPY scripts/gcp03_origin_private_files.py /app/scripts/gcp03_origin_private_files.py
+COPY scripts/gcp03_origin_private_file_refs.py /app/scripts/gcp03_origin_private_file_refs.py
+COPY scripts/gcp03_origin_normalization.py /app/scripts/gcp03_origin_normalization.py
+COPY db/migrations /app/db/migrations
+ENV PYTHONPATH=/opt/python-deps:/app/scripts PYTHONDONTWRITEBYTECODE=1
+USER 65532:65532
+ENTRYPOINT ["python3", "/app/scripts/gcp03_origin_v64_transfer.py"]

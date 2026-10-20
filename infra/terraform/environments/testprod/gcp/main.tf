@@ -551,7 +551,7 @@ resource "google_cloud_run_v2_service" "api" {
       secret {
         secret = google_secret_manager_secret.runtime["contract-encryption-key"].secret_id
         items {
-          version = "latest"
+          version = var.api_contract_encryption_key_version
           path    = "key"
         }
       }
@@ -657,6 +657,10 @@ resource "google_cloud_run_v2_service" "api" {
         value = google_storage_bucket.private_files[0].name
       }
       env {
+        name  = "CLOUD_STORAGE_OBJECT_PREFIX"
+        value = var.api_private_object_prefix
+      }
+      env {
         name  = "BLOB_STORE_BACKEND"
         value = "gcs"
       }
@@ -668,6 +672,22 @@ resource "google_cloud_run_v2_service" "api" {
         name  = "LOCAL_PRIVACY_REPLAY_BUCKET"
         value = google_storage_bucket.private_files[0].name
       }
+      env {
+        name  = "LOCAL_PRIVACY_REPLAY_PREFIX"
+        value = var.api_privacy_replay_prefix
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition = !var.enable_services || (
+        google_secret_manager_secret.runtime["contract-encryption-key"].secret_id == "espacigo-test-contract-encryption-key" &&
+        can(regex("^[1-9][0-9]*$", var.api_contract_encryption_key_version)) &&
+        ((var.api_private_object_prefix == "" && var.api_privacy_replay_prefix == "") ||
+        (var.api_private_object_prefix == "g03o-1017" && var.api_privacy_replay_prefix == "g03o-1017/privacy-replay"))
+      )
+      error_message = "The API contract key must use an explicit numeric version of the existing Secret Manager secret. Verify that exact version is ENABLED using metadata only before planning."
     }
   }
 
