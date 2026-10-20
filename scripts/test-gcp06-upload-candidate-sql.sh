@@ -56,10 +56,10 @@ chmod 0700 "$MOCK_BIN"
 
 export MOCK_STATE_DIR="$ARTIFACT_DIR"
 export GCP06_GCLOUD_BIN="$MOCK_BIN"
-"$ROOT_DIR/scripts/gcp06-upload-candidate-sql.sh" ".local/testing/gcp06-stage-$RUN_ID/data.sql" "synthetic-gcp06-test-bucket"
+bash "$ROOT_DIR/scripts/gcp06-upload-candidate-sql.sh" ".local/testing/gcp06-stage-$RUN_ID/data.sql" "synthetic-gcp06-test-bucket"
 
 for mutation in bucket name generation size sha256; do
-  if GCP06_TEST_MUTATION="$mutation" "$ROOT_DIR/scripts/gcp06-upload-candidate-sql.sh" \
+  if GCP06_TEST_MUTATION="$mutation" bash "$ROOT_DIR/scripts/gcp06-upload-candidate-sql.sh" \
     ".local/testing/gcp06-stage-$RUN_ID/data.sql" "synthetic-gcp06-test-bucket" >/dev/null 2>&1; then
     echo "expected verification failure for mutated $mutation" >&2
     exit 1
