@@ -216,11 +216,15 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   workload_identity_pool_provider_id = "espacigo-main"
   display_name                       = "EspaciGo main branch"
   attribute_mapping = {
-    "google.subject"       = "assertion.sub"
-    "attribute.repository" = "assertion.repository"
-    "attribute.ref"        = "assertion.ref"
+    "google.subject"                = "assertion.sub"
+    "attribute.repository"          = "assertion.repository"
+    "attribute.repository_id"       = "assertion.repository_id"
+    "attribute.repository_owner_id" = "assertion.repository_owner_id"
+    "attribute.ref"                 = "assertion.ref"
+    "attribute.workflow_ref"        = "assertion.workflow_ref"
+    "attribute.environment"         = "assertion.environment"
   }
-  attribute_condition = "assertion.repository == '${var.github_repository}' && assertion.ref == 'refs/heads/main'"
+  attribute_condition = "assertion.repository == '${var.github_repository}' && assertion.repository_id == '${var.github_repository_id}' && assertion.repository_owner_id == '${var.github_repository_owner_id}' && assertion.ref == 'refs/heads/main' && assertion.workflow_ref == '${var.github_repository}/.github/workflows/application-release.yml@refs/heads/main' && assertion.environment == 'testprod'"
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
@@ -232,18 +236,63 @@ resource "google_service_account_iam_member" "github_deployer" {
   count              = var.enable_foundation ? 1 : 0
   service_account_id = google_service_account.runtime["deployer"].name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github[0].name}/attribute.repository/${var.github_repository}"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github[0].name}/attribute.repository_id/${var.github_repository_id}"
 
   depends_on = [google_project_service.required]
 }
 
-resource "google_project_iam_member" "deployer_run" {
-  count   = var.enable_foundation ? 1 : 0
-  project = var.project_id
-  role    = "roles/run.developer"
-  member  = "serviceAccount:${google_service_account.runtime["deployer"].email}"
+resource "google_project_iam_custom_role" "deployer_cloud_run_service_updater" {
+  count       = var.enable_foundation ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoCloudRunServiceUpdater"
+  title       = "EspaciGo Cloud Run service updater"
+  description = "Read and update existing Cloud Run services only; no create, delete, Jobs, or IAM policy permissions."
+  stage       = "GA"
+  permissions = [
+    "run.services.get",
+    "run.services.update",
+  ]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "deployer_service_updater" {
+  for_each = var.enable_services ? toset(["api", "public", "private"]) : toset([])
+  project  = var.project_id
+  location = var.region
+  name     = each.value == "api" ? google_cloud_run_v2_service.api[0].name : google_cloud_run_v2_service.web[each.value].name
+  role     = "projects/${var.project_id}/roles/${google_project_iam_custom_role.deployer_cloud_run_service_updater[0].role_id}"
+  member   = "serviceAccount:${google_service_account.runtime["deployer"].email}"
 
   depends_on = [google_project_service.required]
+}
+
+resource "google_project_iam_custom_role" "terraform_state_object_access" {
+  count       = var.enable_foundation ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoTerraformStateObjectAccess"
+  title       = "EspaciGo Terraform state object access"
+  description = "Read/write/list only the canonical testprod/gcp Terraform state and lock objects."
+  stage       = "GA"
+  permissions = [
+    "storage.objects.create",
+    "storage.objects.delete",
+    "storage.objects.get",
+    "storage.objects.list",
+  ]
+}
+
+resource "google_storage_managed_folder" "terraform_state" {
+  count         = var.enable_foundation ? 1 : 0
+  bucket        = var.terraform_state_bucket
+  name          = "espacigo/testprod/gcp/"
+  force_destroy = false
+}
+
+resource "google_storage_managed_folder_iam_member" "deployer_terraform_state" {
+  count          = var.enable_foundation ? 1 : 0
+  bucket         = google_storage_managed_folder.terraform_state[0].bucket
+  managed_folder = google_storage_managed_folder.terraform_state[0].name
+  role           = "projects/${var.project_id}/roles/${google_project_iam_custom_role.terraform_state_object_access[0].role_id}"
+  member         = "serviceAccount:${google_service_account.runtime["deployer"].email}"
 }
 
 resource "google_artifact_registry_repository" "containers" {
@@ -1237,7 +1286,7 @@ resource "google_cloud_run_v2_service_iam_member" "private_iap_invoker" {
 }
 
 resource "google_service_account_iam_member" "deployer_act_as_runtime" {
-  for_each           = var.enable_foundation ? toset(["api", "public-web", "private-web", "migrator"]) : toset([])
+  for_each           = var.enable_foundation ? toset(["api", "public-web", "private-web"]) : toset([])
   service_account_id = google_service_account.runtime[each.value].name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_service_account.runtime["deployer"].email}"

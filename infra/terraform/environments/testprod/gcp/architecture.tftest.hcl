@@ -69,6 +69,18 @@ run "foundation_plan_is_gated_and_scoped" {
     condition     = length(google_cloud_run_v2_job.gcp06_admin_bootstrap) == 0 && length(google_cloud_run_v2_job.gcp06_test_access) == 0 && length(google_cloud_run_v2_job.gcp06_sql_inspector) == 0 && length(google_service_account.gcp06_job) == 0
     error_message = "GCP-06 candidate Jobs and their identities must remain absent until their dedicated review gate is enabled."
   }
+  assert {
+    condition     = google_iam_workload_identity_pool_provider.github[0].attribute_mapping["attribute.repository_id"] == "assertion.repository_id" && google_iam_workload_identity_pool_provider.github[0].attribute_mapping["attribute.repository_owner_id"] == "assertion.repository_owner_id" && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "workflow_ref") && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "environment")
+    error_message = "GitHub federation must use immutable repository identity and restrict the release workflow and protected environment."
+  }
+  assert {
+    condition     = length(google_service_account_iam_member.deployer_act_as_runtime) == 3 && !contains(keys(google_service_account_iam_member.deployer_act_as_runtime), "migrator")
+    error_message = "The deployer may act as the API and two web identities only, never the migrator."
+  }
+  assert {
+    condition     = google_storage_managed_folder.terraform_state[0].name == "espacigo/testprod/gcp/" && google_storage_managed_folder_iam_member.deployer_terraform_state[0].managed_folder == "espacigo/testprod/gcp/"
+    error_message = "The deployer state grant must be scoped to the managed folder for the canonical Terraform state and lock prefix."
+  }
 }
 
 run "sql_inspector_is_private_readonly_and_time_bounded" {
@@ -181,6 +193,11 @@ run "services_and_edge_preserve_runtime_contracts" {
     mailpit_private_address             = "10.80.0.10:1025"
     confirm_runtime_secret_versions     = true
     confirm_runtime_database_bootstrap  = true
+  }
+
+  assert {
+    condition     = length(google_cloud_run_v2_service_iam_member.deployer_service_updater) == 3 && alltrue([for binding in values(google_cloud_run_v2_service_iam_member.deployer_service_updater) : binding.role == "projects/${var.project_id}/roles/espacigoCloudRunServiceUpdater"])
+    error_message = "The deployer must receive only the custom service updater role on the three existing application services."
   }
 
   assert {

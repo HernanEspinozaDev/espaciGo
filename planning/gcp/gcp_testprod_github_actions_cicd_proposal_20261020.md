@@ -1,6 +1,6 @@
 # Plan GCP-07: publicar y desplegar frontend y backend de `main` en Cloud Run
 
-**Estado:** GCP-07A agrega CI de Go y builds locales de las imágenes y amplía el check Angular a todos los PR hacia `main`. GitHub protege `main` con aprobación independiente y los checks `backend`, `frontend` y `application-images`; exige aprobación luego del último push, descarta aprobaciones obsoletas, aplica la regla a administradores y bloquea force-push y eliminación. GCP-07B–07E siguen como propuesta. No se añaden credenciales OIDC, publicación de imágenes ni deploy Cloud en este corte.
+**Estado:** GCP-07A agrega CI de Go y builds locales de las imágenes y amplía el check Angular a todos los PR hacia `main`. GitHub protege `main` con aprobación independiente y los checks `backend`, `frontend` y `application-images`; exige aprobación luego del último push, descarta aprobaciones obsoletas, aplica la regla a administradores y bloquea force-push y eliminación. GCP-07B está en preparación local: el código restringe WIF por IDs inmutables, workflow y environment, limita la actualización a los tres servicios y el acceso a los objetos del state; Terraform validate y 14 tests locales pasan. Falta revisión del plan remoto y PR. No se aplicó ningún cambio Cloud. GCP-07C–07E siguen como propuesta.
 **Alcance:** automatizar la entrega de cambios de aplicación ya integrados y aprobados en `main` al entorno de ensayo `espacigo-testprod`.
 **Región:** `southamerica-west1`.
 **No incluye:** cambios a bases de datos/migraciones, transferencias G03O, Jobs de ensayo, producción ni aceptación del producto.
@@ -104,7 +104,17 @@ Los sucesores no se activan por anticipado: cada fase se revisa antes de iniciar
 
 En el repositorio hay checks Angular para PR y `main`, y workflows aislados GCP-06/G03O; no existe hoy CI general de backend ni workflow de publicación/deploy de aplicación. El Terraform raíz declara WIF, deployer, Artifact Registry e imágenes por digest, pero esta lectura local no comprueba sus recursos aplicados, permisos efectivos, protecciones de GitHub, state actual, cuota/costo ni que el deploy funcione.
 
-Esta propuesta no añade workflows, no cambia Terraform, no modifica GitHub, no inicia sesión en GCP, no publica imágenes y no actualiza Cloud Run. Es un plan de diseño para la siguiente fase autorizada, no evidencia de que el despliegue esté funcionando.
+La lectura de estado y recursos descrita aquí no es evidencia de que el despliegue funcione. La preparación 07B modifica Terraform y sus pruebas; no modifica GitHub, no publica imágenes y no actualiza Cloud Run.
+
+### GCP-07B — baseline observado y límites del plan
+
+La lectura de solo consulta del proyecto `espacigo-testprod` confirmó el state GCS canónico del root, versión Terraform 1.16.6, serial 25, los tres servicios Cloud Run esperados, el repositorio Artifact Registry existente y los recursos WIF/deployer. No se cambió ni se copió el state. El proveedor aplicado aceptaba nombre del repositorio y `refs/heads/main`; el principal deployer tenía `roles/run.developer` a nivel de proyecto, `roles/artifactregistry.writer` limitado al repositorio existente y `roles/iam.serviceAccountUser` para API, web pública, web privada y migrator. No se observaron grants directos del deployer sobre los servicios.
+
+El ID numérico del repositorio y el ID del propietario se verificaron con la API pública de GitHub. El Terraform de 07B propone mapear esos IDs más `workflow_ref` y `environment`, exigir `application-release.yml` en `main` con environment `testprod`, retirar el rol de proyecto de Cloud Run, conceder un rol custom con solo `run.services.get`/`run.services.update` sobre los servicios de API y web existentes, retirar `actAs` del migrator y conceder acceso de objetos al deployer mediante un managed folder `espacigo/testprod/gcp/`. El bucket contiene 34 objetos y 32 están fuera de ese prefijo, por lo que el grant no se hace al bucket. UBLA y versionado están activos. El writer de Artifact Registry sigue limitado al repositorio.
+
+El root canónico también administra infraestructura ajena al cambio de imagen. Un plan Terraform completo requiere refrescar su inventario y leer el state; por eso no basta con conceder al deployer permisos de Cloud Run sobre esos tres recursos. Antes de 07D se debe demostrar el acceso de lectura necesario para planificar el root y el acceso al objeto/state-lock sin dar permisos de mutación adicionales ni exponer valores de state. El state puede contener datos sensibles y debe tratarse como tal. El script `scripts/gcp07-verify-state-backend.sh` comprueba `terraform init` y el listado del workspace predeterminado sin mostrar contenido ni nombres del state; se validó contra el backend remoto con la identidad local existente, no con el deployer. La prueba con el deployer queda pendiente de aplicar el grant tras revisar y autorizar el plan exacto. No se ha generado ni aplicado un plan remoto para este corte; tampoco se habilitó OIDC, publicación, deploy ni una identidad de planificación.
+
+La aplicación del plan 07B modificaría IAM/WIF en Cloud y requiere revisión del plan exacto y autorización explícita previa. El PR de código, por sí solo, no ejecuta esa operación.
 
 ## Referencias oficiales consultadas el 2026-10-20
 

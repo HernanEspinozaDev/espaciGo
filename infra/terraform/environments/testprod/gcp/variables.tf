@@ -116,6 +116,24 @@ variable "github_repository" {
   default     = "HernanEspinozaDev/espaciGo"
 }
 
+variable "github_repository_id" {
+  type        = string
+  description = "Immutable GitHub repository ID allowed by Workload Identity Federation."
+  default     = "1361448198"
+}
+
+variable "github_repository_owner_id" {
+  type        = string
+  description = "Immutable GitHub repository owner ID allowed by Workload Identity Federation."
+  default     = "176093371"
+}
+
+variable "terraform_state_bucket" {
+  type        = string
+  description = "Existing canonical GCS backend bucket for the testprod/gcp Terraform state."
+  default     = "espacigo-testprod-tfstate-447373903153-gcp"
+}
+
 variable "serverless_subnet_cidr" {
   type        = string
   description = "Dedicated non-overlapping subnet for Cloud Run Direct VPC egress."
