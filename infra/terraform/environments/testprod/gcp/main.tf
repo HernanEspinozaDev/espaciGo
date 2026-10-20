@@ -714,6 +714,10 @@ resource "google_cloud_run_v2_service" "web" {
         value = each.value.entry_mode
       }
       env {
+        name  = "NG_ALLOWED_HOSTS"
+        value = each.key == "public" ? var.public_hostname : var.private_hostname
+      }
+      env {
         name  = "API_INTERNAL_BASE_URL"
         value = "${google_cloud_run_v2_service.api[0].uri}/api/v1"
       }
