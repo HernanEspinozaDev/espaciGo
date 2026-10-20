@@ -23,7 +23,12 @@ var catalogRoles = []string{
 	"cloudsqlsuperuser",
 	"espacigo_schema_owner",
 	"espacigo_runtime",
+	"espacigo_privacy_cleanup_worker",
+	"espacigo_db_observer",
 	"espacigo_api_login",
+	"espacigo_migrator_login",
+	"espacigo_observer_login",
+	"espacigo_privacy_worker_login",
 	"espacigo_gadm_bootstrap",
 	"espacigo_gcp06_test_access",
 }
@@ -68,6 +73,143 @@ JOIN pg_catalog.pg_roles owner ON owner.oid = relation.relowner
 WHERE namespace.nspname = 'public' AND relation.relkind IN ('r','p','S','v','m','f')
 GROUP BY 1
 ORDER BY 1`
+	queryDatabaseSchemaAccess = `SELECT
+  CASE WHEN pg_catalog.pg_get_userbyid(db.datdba) = ANY(ARRAY['postgres','cloudsqlsuperuser','espacigo_schema_owner','espacigo_runtime','espacigo_privacy_cleanup_worker','espacigo_db_observer','espacigo_api_login','espacigo_migrator_login','espacigo_observer_login','espacigo_privacy_worker_login','espacigo_gadm_bootstrap','espacigo_gcp06_test_access']) THEN pg_catalog.pg_get_userbyid(db.datdba) ELSE 'other' END,
+  CASE WHEN pg_catalog.pg_get_userbyid(ns.nspowner) = ANY(ARRAY['postgres','cloudsqlsuperuser','espacigo_schema_owner','espacigo_runtime','espacigo_privacy_cleanup_worker','espacigo_db_observer','espacigo_api_login','espacigo_migrator_login','espacigo_observer_login','espacigo_privacy_worker_login','espacigo_gadm_bootstrap','espacigo_gcp06_test_access']) THEN pg_catalog.pg_get_userbyid(ns.nspowner) ELSE 'other' END,
+  pg_catalog.to_regrole('espacigo_api_login') IS NOT NULL,
+  pg_catalog.to_regrole('espacigo_runtime') IS NOT NULL,
+  CASE WHEN pg_catalog.to_regrole('espacigo_api_login') IS NULL THEN false ELSE pg_catalog.has_database_privilege('espacigo_api_login', db.oid, 'CONNECT') END,
+  CASE WHEN pg_catalog.to_regrole('espacigo_api_login') IS NULL THEN false ELSE pg_catalog.has_database_privilege('espacigo_api_login', db.oid, 'CREATE') END,
+  CASE WHEN pg_catalog.to_regrole('espacigo_api_login') IS NULL THEN false ELSE pg_catalog.has_database_privilege('espacigo_api_login', db.oid, 'TEMP') END,
+  CASE WHEN pg_catalog.to_regrole('espacigo_runtime') IS NULL THEN false ELSE pg_catalog.has_database_privilege('espacigo_runtime', db.oid, 'CONNECT') END,
+  CASE WHEN pg_catalog.to_regrole('espacigo_runtime') IS NULL THEN false ELSE pg_catalog.has_database_privilege('espacigo_runtime', db.oid, 'CREATE') END,
+  CASE WHEN pg_catalog.to_regrole('espacigo_runtime') IS NULL THEN false ELSE pg_catalog.has_database_privilege('espacigo_runtime', db.oid, 'TEMP') END,
+  CASE WHEN pg_catalog.to_regrole('espacigo_api_login') IS NULL THEN false ELSE pg_catalog.has_schema_privilege('espacigo_api_login', ns.oid, 'USAGE') END,
+  CASE WHEN pg_catalog.to_regrole('espacigo_api_login') IS NULL THEN false ELSE pg_catalog.has_schema_privilege('espacigo_api_login', ns.oid, 'CREATE') END,
+  CASE WHEN pg_catalog.to_regrole('espacigo_runtime') IS NULL THEN false ELSE pg_catalog.has_schema_privilege('espacigo_runtime', ns.oid, 'USAGE') END,
+  CASE WHEN pg_catalog.to_regrole('espacigo_runtime') IS NULL THEN false ELSE pg_catalog.has_schema_privilege('espacigo_runtime', ns.oid, 'CREATE') END
+FROM pg_catalog.pg_database db
+CROSS JOIN pg_catalog.pg_namespace ns
+WHERE db.datname = current_database() AND ns.nspname = 'public'`
+	queryRelationAccess = `WITH target_roles AS (
+  SELECT pg_catalog.to_regrole('espacigo_api_login') AS api_login,
+         pg_catalog.to_regrole('espacigo_runtime') AS runtime_role
+), relations AS (
+  SELECT relation.oid, namespace.nspname || '.' || relation.relname AS identity,
+         relation.relkind,
+         CASE WHEN pg_catalog.pg_get_userbyid(relation.relowner) = ANY(ARRAY['postgres','cloudsqlsuperuser','espacigo_schema_owner','espacigo_runtime','espacigo_privacy_cleanup_worker','espacigo_db_observer','espacigo_api_login','espacigo_migrator_login','espacigo_observer_login','espacigo_privacy_worker_login','espacigo_gadm_bootstrap','espacigo_gcp06_test_access']) THEN pg_catalog.pg_get_userbyid(relation.relowner) ELSE 'other' END AS owner,
+         EXISTS (SELECT 1 FROM pg_catalog.pg_depend dependency
+                 WHERE dependency.classid = 'pg_catalog.pg_class'::regclass
+                   AND dependency.objid = relation.oid
+                   AND dependency.refclassid = 'pg_catalog.pg_extension'::regclass
+                   AND dependency.deptype = 'e') AS extension_owned
+  FROM pg_catalog.pg_class relation
+  JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public' AND relation.relkind IN ('r','p','v','m','f')
+), sequence_access AS (
+  SELECT relation.oid, namespace.nspname || '.' || relation.relname AS identity,
+         relation.relkind,
+         CASE WHEN pg_catalog.pg_get_userbyid(relation.relowner) = ANY(ARRAY['postgres','cloudsqlsuperuser','espacigo_schema_owner','espacigo_runtime','espacigo_privacy_cleanup_worker','espacigo_db_observer','espacigo_api_login','espacigo_migrator_login','espacigo_observer_login','espacigo_privacy_worker_login','espacigo_gadm_bootstrap','espacigo_gcp06_test_access']) THEN pg_catalog.pg_get_userbyid(relation.relowner) ELSE 'other' END AS owner,
+         EXISTS (SELECT 1 FROM pg_catalog.pg_depend dependency
+                 WHERE dependency.classid = 'pg_catalog.pg_class'::regclass
+                   AND dependency.objid = relation.oid
+                   AND dependency.refclassid = 'pg_catalog.pg_extension'::regclass
+                   AND dependency.deptype = 'e') AS extension_owned
+  FROM pg_catalog.pg_class relation
+  JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public' AND relation.relkind = 'S'
+)
+SELECT relation.identity, relation.relkind::text, relation.owner,
+       CASE WHEN relation.extension_owned THEN 'extension' ELSE 'application' END,
+       target_roles.api_login IS NOT NULL, target_roles.runtime_role IS NOT NULL,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'SELECT') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'INSERT') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'UPDATE') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'DELETE') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'TRUNCATE') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'REFERENCES') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'TRIGGER') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'MAINTAIN') END,
+       false,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'SELECT') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'INSERT') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'UPDATE') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'DELETE') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'TRUNCATE') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'REFERENCES') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'TRIGGER') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'MAINTAIN') END,
+       false
+FROM relations relation CROSS JOIN target_roles
+UNION ALL
+SELECT sequence.identity, sequence.relkind::text, sequence.owner,
+       CASE WHEN sequence.extension_owned THEN 'extension' ELSE 'application' END,
+       target_roles.api_login IS NOT NULL, target_roles.runtime_role IS NOT NULL,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_sequence_privilege(target_roles.api_login, sequence.oid, 'SELECT') END,
+       false,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_sequence_privilege(target_roles.api_login, sequence.oid, 'UPDATE') END,
+       false, false, false, false, false,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_sequence_privilege(target_roles.api_login, sequence.oid, 'USAGE') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_sequence_privilege(target_roles.runtime_role, sequence.oid, 'SELECT') END,
+       false,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_sequence_privilege(target_roles.runtime_role, sequence.oid, 'UPDATE') END,
+       false, false, false, false, false,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_sequence_privilege(target_roles.runtime_role, sequence.oid, 'USAGE') END
+FROM sequence_access sequence CROSS JOIN target_roles
+ORDER BY 1`
+	queryColumnAccess = `WITH target_roles AS (
+  SELECT pg_catalog.to_regrole('espacigo_api_login') AS api_login,
+         pg_catalog.to_regrole('espacigo_runtime') AS runtime_role
+)
+SELECT pg_catalog.format('%I.%I.%I', namespace.nspname, relation.relname, attribute.attname),
+       target_roles.api_login IS NOT NULL,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.api_login, relation.oid, attribute.attnum, 'SELECT') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.api_login, relation.oid, attribute.attnum, 'INSERT') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.api_login, relation.oid, attribute.attnum, 'UPDATE') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.api_login, relation.oid, attribute.attnum, 'REFERENCES') END,
+       target_roles.runtime_role IS NOT NULL,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.runtime_role, relation.oid, attribute.attnum, 'SELECT') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.runtime_role, relation.oid, attribute.attnum, 'INSERT') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.runtime_role, relation.oid, attribute.attnum, 'UPDATE') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.runtime_role, relation.oid, attribute.attnum, 'REFERENCES') END
+FROM pg_catalog.pg_class relation
+JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid = relation.oid
+CROSS JOIN target_roles
+WHERE namespace.nspname = 'public' AND relation.relkind IN ('r','p','v','f')
+  AND attribute.attnum > 0 AND NOT attribute.attisdropped
+ORDER BY 1`
+	queryRoutineAccess = `WITH target_roles AS (
+  SELECT pg_catalog.to_regrole('espacigo_api_login') AS api_login,
+         pg_catalog.to_regrole('espacigo_runtime') AS runtime_role
+)
+SELECT namespace.nspname || '.' || procedure.oid::regprocedure::text,
+       CASE WHEN pg_catalog.pg_get_userbyid(procedure.proowner) = ANY(ARRAY['postgres','cloudsqlsuperuser','espacigo_schema_owner','espacigo_runtime','espacigo_privacy_cleanup_worker','espacigo_db_observer','espacigo_api_login','espacigo_migrator_login','espacigo_observer_login','espacigo_privacy_worker_login','espacigo_gadm_bootstrap','espacigo_gcp06_test_access']) THEN pg_catalog.pg_get_userbyid(procedure.proowner) ELSE 'other' END,
+       procedure.prosecdef,
+       target_roles.api_login IS NOT NULL,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_function_privilege(target_roles.api_login, procedure.oid, 'EXECUTE') END,
+       target_roles.runtime_role IS NOT NULL,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_function_privilege(target_roles.runtime_role, procedure.oid, 'EXECUTE') END
+FROM pg_catalog.pg_proc procedure
+JOIN pg_catalog.pg_namespace namespace ON namespace.oid = procedure.pronamespace
+CROSS JOIN target_roles
+WHERE namespace.nspname = 'public'
+ORDER BY 1`
+	queryDefaultACL = `SELECT
+  CASE WHEN owner.rolname = ANY($1::text[]) THEN owner.rolname ELSE 'other' END,
+  COALESCE(namespace.nspname, 'all_schemas'), defaults.defaclobjtype::text,
+  CASE WHEN acl.grantee = 0 THEN 'PUBLIC'
+       WHEN grantee.rolname = ANY($1::text[]) THEN grantee.rolname
+       ELSE 'other' END,
+  acl.privilege_type, acl.is_grantable, count(*)::integer
+FROM pg_catalog.pg_default_acl defaults
+JOIN pg_catalog.pg_roles owner ON owner.oid = defaults.defaclrole
+LEFT JOIN pg_catalog.pg_namespace namespace ON namespace.oid = defaults.defaclnamespace
+CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) acl
+LEFT JOIN pg_catalog.pg_roles grantee ON grantee.oid = acl.grantee
+WHERE owner.rolname = ANY($1::text[])
+GROUP BY 1,2,3,4,5,6
+ORDER BY 1,2,3,4,5,6`
 )
 
 type Credentials struct {
@@ -106,20 +248,103 @@ type OwnerAggregate struct {
 	Objects    int64  `json:"objects"`
 }
 
+type DatabaseSchemaAccess struct {
+	DatabaseOwner                string `json:"database_owner"`
+	PublicSchemaOwner            string `json:"public_schema_owner"`
+	APILoginExists               bool   `json:"api_login_exists"`
+	RuntimeRoleExists            bool   `json:"runtime_role_exists"`
+	APILoginCanConnect           bool   `json:"api_login_can_connect"`
+	APILoginCanCreateDatabase    bool   `json:"api_login_can_create_database"`
+	APILoginCanUseTemporary      bool   `json:"api_login_can_use_temporary"`
+	RuntimeRoleCanConnect        bool   `json:"runtime_role_can_connect"`
+	RuntimeRoleCanCreateDatabase bool   `json:"runtime_role_can_create_database"`
+	RuntimeRoleCanUseTemporary   bool   `json:"runtime_role_can_use_temporary"`
+	APILoginPublicUsage          bool   `json:"api_login_public_usage"`
+	APILoginPublicCreate         bool   `json:"api_login_public_create"`
+	RuntimeRolePublicUsage       bool   `json:"runtime_role_public_usage"`
+	RuntimeRolePublicCreate      bool   `json:"runtime_role_public_create"`
+}
+
+type RelationAccess struct {
+	Identity              string `json:"identity"`
+	Kind                  string `json:"kind"`
+	Owner                 string `json:"owner"`
+	ObjectClass           string `json:"object_class"`
+	APILoginExists        bool   `json:"api_login_exists"`
+	RuntimeRoleExists     bool   `json:"runtime_role_exists"`
+	APILoginSelect        bool   `json:"api_login_select"`
+	APILoginInsert        bool   `json:"api_login_insert"`
+	APILoginUpdate        bool   `json:"api_login_update"`
+	APILoginDelete        bool   `json:"api_login_delete"`
+	APILoginTruncate      bool   `json:"api_login_truncate"`
+	APILoginReferences    bool   `json:"api_login_references"`
+	APILoginTrigger       bool   `json:"api_login_trigger"`
+	APILoginMaintain      bool   `json:"api_login_maintain"`
+	APILoginUsage         bool   `json:"api_login_usage"`
+	RuntimeRoleSelect     bool   `json:"runtime_role_select"`
+	RuntimeRoleInsert     bool   `json:"runtime_role_insert"`
+	RuntimeRoleUpdate     bool   `json:"runtime_role_update"`
+	RuntimeRoleDelete     bool   `json:"runtime_role_delete"`
+	RuntimeRoleTruncate   bool   `json:"runtime_role_truncate"`
+	RuntimeRoleReferences bool   `json:"runtime_role_references"`
+	RuntimeRoleTrigger    bool   `json:"runtime_role_trigger"`
+	RuntimeRoleMaintain   bool   `json:"runtime_role_maintain"`
+	RuntimeRoleUsage      bool   `json:"runtime_role_usage"`
+}
+
+type ColumnAccess struct {
+	Identity              string `json:"identity"`
+	APILoginExists        bool   `json:"api_login_exists"`
+	APILoginSelect        bool   `json:"api_login_select"`
+	APILoginInsert        bool   `json:"api_login_insert"`
+	APILoginUpdate        bool   `json:"api_login_update"`
+	APILoginReferences    bool   `json:"api_login_references"`
+	RuntimeRoleExists     bool   `json:"runtime_role_exists"`
+	RuntimeRoleSelect     bool   `json:"runtime_role_select"`
+	RuntimeRoleInsert     bool   `json:"runtime_role_insert"`
+	RuntimeRoleUpdate     bool   `json:"runtime_role_update"`
+	RuntimeRoleReferences bool   `json:"runtime_role_references"`
+}
+
+type RoutineAccess struct {
+	Identity           string `json:"identity"`
+	Owner              string `json:"owner"`
+	SecurityDefiner    bool   `json:"security_definer"`
+	APILoginExists     bool   `json:"api_login_exists"`
+	APILoginExecute    bool   `json:"api_login_execute"`
+	RuntimeRoleExists  bool   `json:"runtime_role_exists"`
+	RuntimeRoleExecute bool   `json:"runtime_role_execute"`
+}
+
+type DefaultACL struct {
+	OwnerClass string `json:"owner_class"`
+	Schema     string `json:"schema"`
+	ObjectType string `json:"object_type"`
+	Grantee    string `json:"grantee"`
+	Privilege  string `json:"privilege"`
+	Grantable  bool   `json:"grantable"`
+	Count      int    `json:"count"`
+}
+
 type Report struct {
-	RunID                     string           `json:"run_id"`
-	Database                  string           `json:"database"`
-	ServerMajor               int              `json:"server_major"`
-	TransactionReadOnly       bool             `json:"transaction_read_only"`
-	InspectedRoles            []Role           `json:"roles"`
-	RoleMemberships           []Membership     `json:"role_memberships"`
-	Extensions                []Extension      `json:"extensions"`
-	MigrationHistoryExists    bool             `json:"migration_history_exists"`
-	UsuarioRelationExists     bool             `json:"usuario_relation_exists"`
-	InspectorHasPublicUsage   bool             `json:"inspector_has_public_usage"`
-	InspectorCanReadHistory   bool             `json:"inspector_can_read_history"`
-	InspectorCanReadUserTable bool             `json:"inspector_can_read_user_table"`
-	PublicObjectOwnerCounts   []OwnerAggregate `json:"public_object_owner_counts"`
+	RunID                     string               `json:"run_id"`
+	Database                  string               `json:"database"`
+	ServerMajor               int                  `json:"server_major"`
+	TransactionReadOnly       bool                 `json:"transaction_read_only"`
+	InspectedRoles            []Role               `json:"roles"`
+	RoleMemberships           []Membership         `json:"role_memberships"`
+	Extensions                []Extension          `json:"extensions"`
+	MigrationHistoryExists    bool                 `json:"migration_history_exists"`
+	UsuarioRelationExists     bool                 `json:"usuario_relation_exists"`
+	InspectorHasPublicUsage   bool                 `json:"inspector_has_public_usage"`
+	InspectorCanReadHistory   bool                 `json:"inspector_can_read_history"`
+	InspectorCanReadUserTable bool                 `json:"inspector_can_read_user_table"`
+	PublicObjectOwnerCounts   []OwnerAggregate     `json:"public_object_owner_counts"`
+	DatabaseSchemaAccess      DatabaseSchemaAccess `json:"database_schema_access"`
+	PublicRelationAccess      []RelationAccess     `json:"public_relation_access"`
+	PublicColumnAccess        []ColumnAccess       `json:"public_column_access"`
+	PublicRoutineAccess       []RoutineAccess      `json:"public_routine_access"`
+	DefaultACLs               []DefaultACL         `json:"default_acls"`
 }
 
 func ValidateTarget(runID, connectionName, databaseName, username string) error {
@@ -146,7 +371,7 @@ func validInspectorLogin(username string) bool {
 
 // AllowedStatements exposes query text for audit/tests; callers cannot supply SQL.
 func AllowedStatements() []string {
-	return []string{queryIdentity, queryRoles, queryMemberships, queryExtensions, querySchemaState, queryOwnerAggregates}
+	return []string{queryIdentity, queryRoles, queryMemberships, queryExtensions, querySchemaState, queryOwnerAggregates, queryDatabaseSchemaAccess, queryRelationAccess, queryColumnAccess, queryRoutineAccess, queryDefaultACL}
 }
 
 func Inspect(ctx context.Context, conn *pgx.Conn, username string) (Report, error) {
@@ -246,6 +471,93 @@ func Inspect(ctx context.Context, conn *pgx.Conn, username string) (Report, erro
 		return Report{}, errors.New("public object owner aggregate query failed")
 	}
 	rows.Close()
+	if err := tx.QueryRow(ctx, queryDatabaseSchemaAccess).Scan(
+		&report.DatabaseSchemaAccess.DatabaseOwner, &report.DatabaseSchemaAccess.PublicSchemaOwner,
+		&report.DatabaseSchemaAccess.APILoginExists, &report.DatabaseSchemaAccess.RuntimeRoleExists,
+		&report.DatabaseSchemaAccess.APILoginCanConnect, &report.DatabaseSchemaAccess.APILoginCanCreateDatabase,
+		&report.DatabaseSchemaAccess.APILoginCanUseTemporary, &report.DatabaseSchemaAccess.RuntimeRoleCanConnect,
+		&report.DatabaseSchemaAccess.RuntimeRoleCanCreateDatabase, &report.DatabaseSchemaAccess.RuntimeRoleCanUseTemporary,
+		&report.DatabaseSchemaAccess.APILoginPublicUsage, &report.DatabaseSchemaAccess.APILoginPublicCreate,
+		&report.DatabaseSchemaAccess.RuntimeRolePublicUsage, &report.DatabaseSchemaAccess.RuntimeRolePublicCreate,
+	); err != nil {
+		return Report{}, errors.New("allowlisted database and schema access query failed")
+	}
+	rows, err = tx.Query(ctx, queryRelationAccess)
+	if err != nil {
+		return Report{}, errors.New("allowlisted relation access query failed")
+	}
+	for rows.Next() {
+		var access RelationAccess
+		if err := rows.Scan(&access.Identity, &access.Kind, &access.Owner, &access.ObjectClass,
+			&access.APILoginExists, &access.RuntimeRoleExists,
+			&access.APILoginSelect, &access.APILoginInsert, &access.APILoginUpdate, &access.APILoginDelete,
+			&access.APILoginTruncate, &access.APILoginReferences, &access.APILoginTrigger, &access.APILoginMaintain, &access.APILoginUsage,
+			&access.RuntimeRoleSelect, &access.RuntimeRoleInsert, &access.RuntimeRoleUpdate, &access.RuntimeRoleDelete,
+			&access.RuntimeRoleTruncate, &access.RuntimeRoleReferences, &access.RuntimeRoleTrigger, &access.RuntimeRoleMaintain, &access.RuntimeRoleUsage); err != nil {
+			rows.Close()
+			return Report{}, errors.New("allowlisted relation access result was invalid")
+		}
+		report.PublicRelationAccess = append(report.PublicRelationAccess, access)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return Report{}, errors.New("allowlisted relation access query failed")
+	}
+	rows.Close()
+	rows, err = tx.Query(ctx, queryColumnAccess)
+	if err != nil {
+		return Report{}, errors.New("allowlisted column access query failed")
+	}
+	for rows.Next() {
+		var access ColumnAccess
+		if err := rows.Scan(&access.Identity, &access.APILoginExists,
+			&access.APILoginSelect, &access.APILoginInsert, &access.APILoginUpdate, &access.APILoginReferences,
+			&access.RuntimeRoleExists, &access.RuntimeRoleSelect, &access.RuntimeRoleInsert, &access.RuntimeRoleUpdate, &access.RuntimeRoleReferences); err != nil {
+			rows.Close()
+			return Report{}, errors.New("allowlisted column access result was invalid")
+		}
+		report.PublicColumnAccess = append(report.PublicColumnAccess, access)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return Report{}, errors.New("allowlisted column access query failed")
+	}
+	rows.Close()
+	rows, err = tx.Query(ctx, queryRoutineAccess)
+	if err != nil {
+		return Report{}, errors.New("allowlisted routine access query failed")
+	}
+	for rows.Next() {
+		var access RoutineAccess
+		if err := rows.Scan(&access.Identity, &access.Owner, &access.SecurityDefiner,
+			&access.APILoginExists, &access.APILoginExecute, &access.RuntimeRoleExists, &access.RuntimeRoleExecute); err != nil {
+			rows.Close()
+			return Report{}, errors.New("allowlisted routine access result was invalid")
+		}
+		report.PublicRoutineAccess = append(report.PublicRoutineAccess, access)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return Report{}, errors.New("allowlisted routine access query failed")
+	}
+	rows.Close()
+	rows, err = tx.Query(ctx, queryDefaultACL, rolesToInspect)
+	if err != nil {
+		return Report{}, errors.New("allowlisted default ACL query failed")
+	}
+	for rows.Next() {
+		var acl DefaultACL
+		if err := rows.Scan(&acl.OwnerClass, &acl.Schema, &acl.ObjectType, &acl.Grantee, &acl.Privilege, &acl.Grantable, &acl.Count); err != nil {
+			rows.Close()
+			return Report{}, errors.New("allowlisted default ACL result was invalid")
+		}
+		report.DefaultACLs = append(report.DefaultACLs, acl)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return Report{}, errors.New("allowlisted default ACL query failed")
+	}
+	rows.Close()
 
 	if err := tx.Commit(ctx); err != nil {
 		return Report{}, errors.New("read-only catalog inspection did not complete")
@@ -254,5 +566,11 @@ func Inspect(ctx context.Context, conn *pgx.Conn, username string) (Report, erro
 		return Report{}, errors.New("candidate catalog response was incomplete")
 	}
 	sort.Slice(report.InspectedRoles, func(i, j int) bool { return report.InspectedRoles[i].Name < report.InspectedRoles[j].Name })
+	sort.Slice(report.PublicRelationAccess, func(i, j int) bool {
+		return report.PublicRelationAccess[i].Identity < report.PublicRelationAccess[j].Identity
+	})
+	sort.Slice(report.PublicRoutineAccess, func(i, j int) bool {
+		return report.PublicRoutineAccess[i].Identity < report.PublicRoutineAccess[j].Identity
+	})
 	return report, nil
 }

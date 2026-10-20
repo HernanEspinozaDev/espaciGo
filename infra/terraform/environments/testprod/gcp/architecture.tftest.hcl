@@ -311,8 +311,27 @@ run "candidate_mode_targets_only_the_pinned_gcp06_database" {
     error_message = "The API revision must target the pinned candidate instance and database."
   }
   assert {
+    condition = (
+      one([for env in google_cloud_run_v2_service.api[0].template[0].containers[0].env : env.value if env.name == "DATABASE_USER"]) == "espacigo_api_login" &&
+      one([for env in google_cloud_run_v2_service.api[0].template[0].containers[0].env : env.value if env.name == "DATABASE_SET_ROLE"]) == "espacigo_runtime" &&
+      one([for env in google_cloud_run_v2_service.api[0].template[0].containers[0].env : env.value if env.name == "CLOUD_SQL_INSTANCE_CONNECTION_NAME"]) == "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg" &&
+      one([for env in google_cloud_run_v2_service.api[0].template[0].containers[0].env : env.value if env.name == "DATABASE_NAME"]) == "espacigo_gcp06_candidate_20261020-gcp06a"
+    )
+    error_message = "Candidate mode must use the fixed least-privilege API login and SET ROLE contract on only the candidate database."
+  }
+  assert {
     condition     = local.web_services["public"].name == "espacigo-test-public" && local.web_services["private"].name == "espacigo-test-private" && length(local.web_services) == 2
     error_message = "Candidate mode must retain the existing public/private frontend services."
+  }
+  assert {
+    condition = (
+      google_cloud_run_v2_service.api[0].template[0].containers[0].image == var.api_image &&
+      google_cloud_run_v2_service.web["public"].template[0].containers[0].image == var.frontend_image &&
+      google_cloud_run_v2_service.web["private"].template[0].containers[0].image == var.frontend_image &&
+      one([for env in google_cloud_run_v2_service.web["public"].template[0].containers[0].env : env.value if env.name == "API_INTERNAL_BASE_URL"]) == output.api_internal_base_url &&
+      one([for env in google_cloud_run_v2_service.web["private"].template[0].containers[0].env : env.value if env.name == "API_INTERNAL_BASE_URL"]) == output.api_internal_base_url
+    )
+    error_message = "Candidate database wiring may change the API database target but must retain both frontend images and their existing API origin."
   }
   assert {
     condition     = local.api_database_secret_key == "database-password-gcp06" && local.api_database_password_version == "3"
