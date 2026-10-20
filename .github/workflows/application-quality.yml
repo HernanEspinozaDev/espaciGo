@@ -1,0 +1,44 @@
+name: Application quality
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache: true
+      - name: Run Go tests
+        run: go test ./...
+      - name: Run Go vet
+        run: go vet ./...
+      - name: Build Go packages
+        run: go build ./...
+
+  application-images:
+    name: application-images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Build API image without publishing
+        run: docker build --file Dockerfile --target api --tag espacigo-api:ci .
+      - name: Build Angular SSR image without publishing
+        run: docker build --file frontend/Dockerfile --tag espacigo-web:ci frontend
