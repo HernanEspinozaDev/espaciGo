@@ -529,7 +529,7 @@ class PsqlDatabase:
 def source_report_components() -> list[tuple[str, str]]:
     components = [
         ("database_identity", "SELECT jsonb_build_object('database',current_database(),'postgres_major',current_setting('server_version_num')::int / 10000)::text"),
-        ("source_table_access", "WITH targets AS (SELECT (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='usuario' AND c.relkind IN ('r','p','v','m','f')) AS usuario_oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_schema_owner') AS schema_owner_oid) SELECT jsonb_build_object('source_table_access',jsonb_build_object('usuario_present',usuario_oid IS NOT NULL,'usuario_select_allowed',CASE WHEN usuario_oid IS NULL THEN false ELSE has_table_privilege(current_user,usuario_oid,'SELECT') END,'public_schema_usage_allowed',has_schema_privilege(current_user,'public','USAGE'),'schema_owner_role_present',schema_owner_oid IS NOT NULL,'schema_owner_member',CASE WHEN schema_owner_oid IS NULL THEN false ELSE pg_has_role(current_user,schema_owner_oid,'MEMBER') END,'schema_owner_set_allowed',CASE WHEN schema_owner_oid IS NULL THEN false ELSE pg_has_role(current_user,schema_owner_oid,'SET') END))::text FROM targets"),
+        ("source_table_access", "WITH targets AS (SELECT (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='usuario' AND c.relkind IN ('r','p','v','m','f')) AS usuario_oid,(SELECT c.relowner FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='usuario' AND c.relkind IN ('r','p','v','m','f')) AS usuario_owner_oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user) AS current_user_oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_schema_owner') AS schema_owner_oid) SELECT jsonb_build_object('source_table_access',jsonb_build_object('usuario_present',usuario_oid IS NOT NULL,'usuario_select_allowed',CASE WHEN usuario_oid IS NULL THEN false ELSE has_table_privilege(current_user,usuario_oid,'SELECT') END,'public_schema_usage_allowed',has_schema_privilege(current_user,'public','USAGE'),'schema_owner_role_present',schema_owner_oid IS NOT NULL,'schema_owner_member',CASE WHEN schema_owner_oid IS NULL THEN false ELSE pg_has_role(current_user,schema_owner_oid,'MEMBER') END,'schema_owner_set_allowed',CASE WHEN schema_owner_oid IS NULL THEN false ELSE pg_has_role(current_user,schema_owner_oid,'SET') END,'usuario_owner_role_present',EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid=usuario_owner_oid),'usuario_owner_is_current_user',usuario_owner_oid IS NOT NULL AND usuario_owner_oid=current_user_oid,'current_user_can_set_usuario_owner',CASE WHEN usuario_owner_oid IS NULL THEN false ELSE pg_has_role(current_user,usuario_owner_oid,'SET') END))::text FROM targets"),
         ("count_usuario", "SELECT jsonb_build_object('counts',jsonb_build_object('usuario',(SELECT count(*) FROM public.usuario)))::text"),
         ("count_espacio", "SELECT jsonb_build_object('counts',jsonb_build_object('espacio',(SELECT count(*) FROM public.espacio)))::text"),
         ("count_reserva", "SELECT jsonb_build_object('counts',jsonb_build_object('reserva',(SELECT count(*) FROM public.reserva)))::text"),
@@ -592,6 +592,8 @@ def failed_source_table_access(stdout: bytes) -> dict | None:
         expected_keys = {
             "usuario_present", "usuario_select_allowed", "public_schema_usage_allowed",
             "schema_owner_role_present", "schema_owner_member", "schema_owner_set_allowed",
+            "usuario_owner_role_present", "usuario_owner_is_current_user",
+            "current_user_can_set_usuario_owner",
         }
         if not isinstance(access, dict) or set(access) != expected_keys:
             return None
@@ -604,6 +606,9 @@ def failed_source_table_access(stdout: bytes) -> dict | None:
             "source_schema_owner_role_present": access["schema_owner_role_present"],
             "source_schema_owner_member": access["schema_owner_member"],
             "source_schema_owner_set_allowed": access["schema_owner_set_allowed"],
+            "source_table_owner_role_present": access["usuario_owner_role_present"],
+            "source_table_owner_is_current_user": access["usuario_owner_is_current_user"],
+            "source_current_user_can_set_table_owner": access["current_user_can_set_usuario_owner"],
         }
     return None
 
