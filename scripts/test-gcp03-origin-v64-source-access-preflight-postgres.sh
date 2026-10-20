@@ -294,6 +294,19 @@ assert report['row_security_complete'] is False
 print('Real owner inventory detects forced RLS that would make the dump incomplete.')
 PY
 
+psql_local -U postgres -d espacigo_scratch -c 'ALTER TABLE public.usuario NO FORCE ROW LEVEL SECURITY; ALTER TABLE public.usuario DISABLE ROW LEVEL SECURITY' >/dev/null
+SOURCE_OWNER="$(python3 - "$TMP_DIR/owner-denied-set.json" <<'PY'
+import json, sys
+from pathlib import Path
+print(json.loads(Path(sys.argv[1]).read_text())['owner_name'])
+PY
+)"
+compose exec -T postgres pg_dump --data-only --format=plain --no-owner --no-privileges \
+  --role="$SOURCE_OWNER" -U g03o_report_login -d espacigo_scratch > "$TMP_DIR/owner-role-dump.sql"
+rg -q '^COPY public\.usuario \(id\) FROM stdin;$' "$TMP_DIR/owner-role-dump.sql"
+rg -q '^1$' "$TMP_DIR/owner-role-dump.sql"
+echo 'Real pg_dump accepted the discovered raw role name and exported the expected source row.'
+
 compose down --volumes --remove-orphans >/dev/null
 [[ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT")" ]]
 [[ -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT")" ]]

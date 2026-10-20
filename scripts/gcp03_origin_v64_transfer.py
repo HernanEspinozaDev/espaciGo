@@ -587,7 +587,7 @@ class PsqlDatabase:
     def dump_plain_data(self, destination: Path) -> None:
         args = [self.pg_dump, "--data-only", "--format=plain", "--no-owner", "--no-privileges", "--no-comments", "--serializable-deferrable"]
         if self.database == SOURCE_DB:
-            args.append("--role=" + quote_ident(self.discover_source_owner()))
+            args.append("--role=" + self.discover_source_owner())
         args.extend(f"--exclude-table-data={table}" for table in OMIT_DATA_TABLES)
         args.extend(["-h", "127.0.0.1", "-p", str(self.port), "-U", self.user, "-d", self.database])
         with destination.open("wb") as output:

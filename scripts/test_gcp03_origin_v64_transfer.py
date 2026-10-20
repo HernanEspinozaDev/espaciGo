@@ -119,6 +119,24 @@ class DestinationInventoryTests(unittest.TestCase):
 
 
 class DatabasePreflightDiagnosticTests(unittest.TestCase):
+    def test_source_dump_uses_raw_discovered_role_argument(self):
+        with tempfile.TemporaryDirectory() as directory:
+            password_path = Path(directory) / "db-password"
+            password_path.write_text("synthetic-password\n")
+            os.chmod(password_path, 0o600)
+            db = PsqlDatabase(database="espacigo_scratch", user="postgres", password_file=password_path, port=5432)
+            owner = SimpleNamespace(returncode=0, stdout=b'{"complete":true,"owner_count":1,"owner_oid":1,"owner_name":"fixture_owner","set_allowed":true,"access_complete":true,"row_security_complete":true}', stderr=b"")
+            dumped = SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+            try:
+                destination = Path(directory) / "rows.sql"
+                with patch("gcp03_origin_v64_transfer.subprocess.run", side_effect=[owner, dumped]) as run:
+                    db.dump_plain_data(destination)
+                args = run.call_args_list[1].args[0]
+                self.assertIn("--role=fixture_owner", args)
+                self.assertNotIn('--role="fixture_owner"', args)
+            finally:
+                db.close()
+
     def test_owner_discovery_fails_closed_for_mixed_owner_without_exposing_names(self):
         with tempfile.TemporaryDirectory() as directory:
             password_path = Path(directory) / "db-password"
