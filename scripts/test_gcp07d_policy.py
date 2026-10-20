@@ -54,16 +54,23 @@ class Gcp07dPolicyTests(unittest.TestCase):
         self.assertTrue(migration_only["api"])
         self.assertTrue(migration_only["migrations"])
         self.assertFalse(migration_only["web"])
-        self.assertFalse(rollout_allowed({"schema": 1, "contains_migrations": migration_only["migrations"]}))
+        manifest = {"schema": 1, "contains_migrations": migration_only["migrations"], "source_sha": "b" * 40}
+        self.assertFalse(rollout_allowed(manifest, "a" * 40, True, []))
 
         mixed = classify(["internal/api/handler.go", "frontend/src/app.ts", "db/migrations/V65__example.sql"])
         self.assertTrue(mixed["api"])
         self.assertTrue(mixed["web"])
         self.assertTrue(mixed["migrations"])
-        self.assertFalse(rollout_allowed({"schema": 1, "contains_migrations": mixed["migrations"]}))
+        manifest = {"schema": 1, "contains_migrations": mixed["migrations"], "source_sha": "b" * 40}
+        self.assertFalse(rollout_allowed(manifest, "a" * 40, True, []))
 
         app_only = classify(["internal/api/handler.go", "frontend/src/app.ts"])
-        self.assertTrue(rollout_allowed({"schema": 1, "contains_migrations": app_only["migrations"]}))
+        manifest = {"schema": 1, "contains_migrations": app_only["migrations"], "source_sha": "b" * 40}
+        self.assertTrue(rollout_allowed(manifest, "a" * 40, True, []))
+        self.assertFalse(rollout_allowed(manifest, "", False, []))
+        self.assertFalse(rollout_allowed(manifest, "a" * 40, True, ["db/migrations/V66__example.sql"]))
+        self.assertFalse(rollout_allowed(manifest, "c" * 40, False, []))
+        self.assertFalse(rollout_allowed({"schema": 1, "contains_migrations": False}, "a" * 40, True, []))
 
     def test_accepts_single_allowlisted_digest_update(self):
         image = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64

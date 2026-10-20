@@ -251,6 +251,7 @@ resource "google_project_iam_custom_role" "deployer_cloud_run_service_updater" {
   permissions = [
     "run.services.get",
     "run.services.update",
+    "run.operations.get",
   ]
 }
 

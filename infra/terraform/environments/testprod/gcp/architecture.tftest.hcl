@@ -201,6 +201,11 @@ run "services_and_edge_preserve_runtime_contracts" {
   }
 
   assert {
+    condition     = toset(google_project_iam_custom_role.deployer_cloud_run_service_updater[0].permissions) == toset(["run.services.get", "run.services.update", "run.operations.get"])
+    error_message = "The deployer custom role must contain only the Cloud Run permissions needed to update and observe existing service operations."
+  }
+
+  assert {
     condition     = google_cloud_run_v2_service.api[0].template[0].containers[0].resources[0].cpu_idle == false
     error_message = "API workers need explicitly allocated CPU while their instance is running."
   }

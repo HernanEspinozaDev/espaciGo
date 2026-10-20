@@ -75,8 +75,10 @@ jobs:
           run-id: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.release_run_id }}
           github-token: ${{ github.token }}
       - id: scope
-        name: Block releases that include database migrations
+        name: Require a verified schema baseline with no unapplied migrations
         if: steps.verify.outputs.ready == 'true'
+        env:
+          SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
         run: python3 scripts/verify_gcp07_manifest_scope.py preflight-release/manifest.json
 
   rollout:
