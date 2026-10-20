@@ -42,22 +42,23 @@ func TestGCP06ApplyHashesAndRevokesExactCandidateCohort(t *testing.T) {
 		t.Fatalf("apply migrations to disposable PostgreSQL database: %v", err)
 	}
 	const (
-		ownerID                        = "00000000-0000-4000-8000-000000000001"
-		userAID                        = "00000000-0000-4000-8000-000000000002"
-		userBID                        = "00000000-0000-4000-8000-000000000003"
-		operationID                    = "00000000-0000-4000-8000-000000000099"
-		login                          = "gcp06_test_access_012345abcdef"
-		sharedPassword identity.Secret = "FixturePass1!"
+		ownerID                         = "00000000-0000-4000-8000-000000000001"
+		userAID                         = "00000000-0000-4000-8000-000000000002"
+		userBID                         = "00000000-0000-4000-8000-000000000003"
+		desidentifiedID                 = "00000000-0000-4000-8000-000000000004"
+		operationID                     = "00000000-0000-4000-8000-000000000099"
+		login                           = "gcp06_test_access_012345abcdef"
+		sharedPassword  identity.Secret = "FixturePass1!"
 	)
 	if _, err := admin.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES
-		($1,$2,$2,'owner-hash','activo'),($3,'fixture-a@example.invalid','fixture-a@example.invalid','old-a','activo'),($4,'fixture-b@example.invalid','fixture-b@example.invalid','old-b','activo')`, ownerID, gcp06testaccess.OwnerEmail, userAID, userBID); err != nil {
+		($1,$2,$2,'owner-hash','activo'),($3,'fixture-a@example.invalid','fixture-a@example.invalid','old-a','activo'),($4,'fixture-b@example.invalid','fixture-b@example.invalid','old-b','activo'),($5,'fixture-desidentified@example.invalid','fixture-desidentified@example.invalid','untouched-hash','desidentificado')`, ownerID, gcp06testaccess.OwnerEmail, userAID, userBID, desidentifiedID); err != nil {
 		t.Fatal("insert synthetic candidate account cohort")
 	}
 	if _, err := admin.Exec(ctx, `INSERT INTO public.administrador_global(usuario_id,concedido_en,motivo_codigo) VALUES($1,now(),'bootstrap_propietario')`, ownerID); err != nil {
 		t.Fatal("mark the synthetic owner as bootstrapped")
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	for index, id := range []string{userAID, userBID} {
+	for index, id := range []string{ownerID, userAID, userBID} {
 		if _, err := admin.Exec(ctx, `INSERT INTO public.sesion(id,usuario_id,token_hash,creada_en,ultima_actividad_en,expira_en) VALUES($1,$2,$3,$4,$4,$5)`, uuidForTest(index+10), id, hashForTest(index+10), now, now.Add(time.Hour)); err != nil {
 			t.Fatal("insert synthetic active session")
 		}
@@ -82,48 +83,86 @@ func TestGCP06ApplyHashesAndRevokesExactCandidateCohort(t *testing.T) {
 	if err := gcp06testaccess.ValidateRestrictedConnection(ctx, conn, login); err != nil {
 		t.Fatalf("restricted SQL contract rejected: %v", err)
 	}
+	if _, err := admin.Exec(ctx, `DELETE FROM public.administrador_global WHERE usuario_id=$1`, ownerID); err != nil {
+		t.Fatal("prepare missing-owner-role guard case")
+	}
+	if _, err := gcp06testaccess.Preview(ctx, conn); err == nil {
+		t.Fatal("reset preview proceeded without the unique global owner role")
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO public.administrador_global(usuario_id,concedido_en,motivo_codigo) VALUES($1,now(),'bootstrap_propietario')`, ownerID); err != nil {
+		t.Fatal("restore synthetic global owner role")
+	}
+	if _, err := admin.Exec(ctx, `UPDATE public.usuario SET estado='correo_pendiente' WHERE id=$1`, ownerID); err != nil {
+		t.Fatal("prepare inactive-owner guard case")
+	}
+	if _, err := gcp06testaccess.Preview(ctx, conn); err == nil {
+		t.Fatal("reset preview proceeded for an inactive owner")
+	}
+	if _, err := admin.Exec(ctx, `UPDATE public.usuario SET estado='activo' WHERE id=$1`, ownerID); err != nil {
+		t.Fatal("restore active synthetic owner")
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO public.bloqueo_cuenta_administrativo_local(cuenta_id,bloqueada_por,motivo_codigo,bloqueada_en,correlacion_id) VALUES($1,$2,'revision_administrativa',now(),'gcp06-test-owner-guard')`, ownerID, userAID); err != nil {
+		t.Fatal("prepare administratively-blocked owner guard case")
+	}
+	if _, err := gcp06testaccess.Preview(ctx, conn); err == nil {
+		t.Fatal("reset preview proceeded for an administratively blocked owner")
+	}
+	if _, err := admin.Exec(ctx, `DELETE FROM public.bloqueo_cuenta_administrativo_local WHERE cuenta_id=$1`, ownerID); err != nil {
+		t.Fatal("restore unblocked synthetic owner")
+	}
 	preview, err := gcp06testaccess.Preview(ctx, conn)
-	if err != nil || preview.TargetCount != 2 {
+	if err != nil || preview.TargetCount != 3 {
 		t.Fatalf("unexpected non-PII preview: count=%d err=%v", preview.TargetCount, err)
 	}
 	if _, err := gcp06testaccess.Apply(ctx, conn, operationID, preview.TargetCount, "0000000000000000000000000000000000000000000000000000000000000000", sharedPassword); err == nil {
 		t.Fatal("stale cohort digest unexpectedly applied")
 	}
-	if result, err := gcp06testaccess.Apply(ctx, conn, operationID, preview.TargetCount, preview.TargetSHA256, sharedPassword); err != nil || result.TargetCount != 2 {
+	if result, err := gcp06testaccess.Apply(ctx, conn, operationID, preview.TargetCount, preview.TargetSHA256, sharedPassword); err != nil || result.TargetCount != 3 {
 		t.Fatalf("reviewed candidate reset failed: result=%+v err=%v", result, err)
 	}
 	if result, err := gcp06testaccess.Apply(ctx, conn, operationID, preview.TargetCount, preview.TargetSHA256, sharedPassword); err == nil || !result.AlreadyApplied {
 		t.Fatalf("committed operation replay was not blocked: result=%+v err=%v", result, err)
 	}
 	var ownerHash string
-	if err := admin.QueryRow(ctx, `SELECT hash_clave FROM public.usuario WHERE id=$1`, ownerID).Scan(&ownerHash); err != nil || ownerHash != "owner-hash" {
-		t.Fatal("owner credential was changed by the imported-account reset")
+	if err := admin.QueryRow(ctx, `SELECT hash_clave FROM public.usuario WHERE id=$1`, ownerID).Scan(&ownerHash); err != nil {
+		t.Fatal("read synthetic owner hash")
+	}
+	if matched, err := (bcrypt.Hasher{}).Matches(identity.Secret(ownerHash), sharedPassword); err != nil || !matched {
+		t.Fatal("owner was not included in the shared bcrypt reset")
+	}
+	var ownerRoleCount int
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM public.administrador_global WHERE usuario_id=$1`, ownerID).Scan(&ownerRoleCount); err != nil || ownerRoleCount != 1 {
+		t.Fatal("global owner role was not preserved by the credential reset")
 	}
 	var resetAccounts, revokedSessions, invalidatedTokens, distinctHashes int
-	if err := admin.QueryRow(ctx, `SELECT count(*) FROM public.usuario WHERE id IN ($1,$2) AND hash_clave NOT IN ('old-a','old-b')`, userAID, userBID).Scan(&resetAccounts); err != nil {
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM public.usuario WHERE id IN ($1,$2,$3)`, ownerID, userAID, userBID).Scan(&resetAccounts); err != nil {
 		t.Fatal("read fixture credential hashes")
 	}
-	if err := admin.QueryRow(ctx, `SELECT count(DISTINCT hash_clave) FROM public.usuario WHERE id IN ($1,$2)`, userAID, userBID).Scan(&distinctHashes); err != nil {
+	if err := admin.QueryRow(ctx, `SELECT count(DISTINCT hash_clave) FROM public.usuario WHERE id IN ($1,$2,$3)`, ownerID, userAID, userBID).Scan(&distinctHashes); err != nil {
 		t.Fatal("check fixture credential hash equality")
 	}
-	if err := admin.QueryRow(ctx, `SELECT count(*) FROM public.sesion WHERE usuario_id IN ($1,$2) AND revocada_en IS NOT NULL`, userAID, userBID).Scan(&revokedSessions); err != nil {
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM public.sesion WHERE usuario_id IN ($1,$2,$3) AND revocada_en IS NOT NULL`, ownerID, userAID, userBID).Scan(&revokedSessions); err != nil {
 		t.Fatal("read fixture session revocations")
 	}
-	if err := admin.QueryRow(ctx, `SELECT count(*) FROM public.token_accion WHERE usuario_id IN ($1,$2) AND invalidado_en IS NOT NULL`, userAID, userBID).Scan(&invalidatedTokens); err != nil {
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM public.token_accion WHERE usuario_id IN ($1,$2,$3) AND invalidado_en IS NOT NULL`, ownerID, userAID, userBID).Scan(&invalidatedTokens); err != nil {
 		t.Fatal("read fixture token invalidations")
 	}
-	if resetAccounts != 2 || distinctHashes != 1 || revokedSessions != 2 || invalidatedTokens != 2 {
-		t.Fatalf("unexpected reset side effects: account_hashes=%d revoked_sessions=%d invalidated_tokens=%d", resetAccounts, revokedSessions, invalidatedTokens)
+	var desidentifiedHash string
+	if err := admin.QueryRow(ctx, `SELECT hash_clave FROM public.usuario WHERE id=$1`, desidentifiedID).Scan(&desidentifiedHash); err != nil || desidentifiedHash != "untouched-hash" {
+		t.Fatal("desidentified account was included in the reset cohort")
+	}
+	if resetAccounts != 3 || distinctHashes != 1 || revokedSessions != 3 || invalidatedTokens != 3 {
+		t.Fatalf("unexpected reset side effects: accounts=%d distinct_hashes=%d revoked_sessions=%d invalidated_tokens=%d", resetAccounts, distinctHashes, revokedSessions, invalidatedTokens)
 	}
 	var commonHash string
-	if err := admin.QueryRow(ctx, `SELECT min(hash_clave) FROM public.usuario WHERE id IN ($1,$2)`, userAID, userBID).Scan(&commonHash); err != nil {
+	if err := admin.QueryRow(ctx, `SELECT min(hash_clave) FROM public.usuario WHERE id IN ($1,$2,$3)`, ownerID, userAID, userBID).Scan(&commonHash); err != nil {
 		t.Fatal("read synthetic common hash")
 	}
 	if matched, err := (bcrypt.Hasher{}).Matches(identity.Secret(commonHash), sharedPassword); err != nil || !matched {
 		t.Fatal("reset hash does not verify with the synthetic shared password")
 	}
 	var auditCount int
-	if err := admin.QueryRow(ctx, `SELECT count(*) FROM public.gcp06_test_access_batch_audit WHERE id=$1 AND target_count=2 AND target_set_sha256=$2`, operationID, preview.TargetSHA256).Scan(&auditCount); err != nil || auditCount != 1 {
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM public.gcp06_test_access_batch_audit WHERE id=$1 AND target_count=3 AND target_set_sha256=$2`, operationID, preview.TargetSHA256).Scan(&auditCount); err != nil || auditCount != 1 {
 		t.Fatal("atomic candidate reset audit row is missing")
 	}
 	if _, err := conn.Exec(ctx, `SELECT hash_clave FROM public.usuario LIMIT 1`); err == nil {

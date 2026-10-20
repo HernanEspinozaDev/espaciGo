@@ -265,6 +265,15 @@ run "candidate_mode_targets_only_the_pinned_gcp06_database" {
     condition     = local.api_database_secret_key == "database-password-gcp06" && local.api_database_password_version == "3"
     error_message = "Candidate API must mount the separately versioned candidate DB secret without reading its payload."
   }
+  assert {
+    condition = (
+      contains(local.runtime_secret_ids, "database-password") &&
+      contains(local.runtime_secret_ids, "database-password-gcp06") &&
+      contains(local.api_secret_access_keys, "database-password") &&
+      contains(local.api_secret_access_keys, "database-password-gcp06")
+    )
+    error_message = "Candidate mode must retain the existing DB secret resource/access for rollback while adding candidate-only access."
+  }
 }
 
 run "candidate_mode_rejects_a_different_run_id" {

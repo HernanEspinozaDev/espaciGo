@@ -67,8 +67,7 @@ LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $function$
     SELECT u.id FROM public.usuario u
-    WHERE u.correo_normalizado <> 'hernan.espinoza.dev@gmail.com'
-      AND u.estado <> 'desidentificado'
+    WHERE u.estado <> 'desidentificado'
     ORDER BY u.id
 $function$;
 
@@ -76,13 +75,13 @@ CREATE FUNCTION public.gcp06_test_access_owner_ready() RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $function$
-    SELECT EXISTS (
-        SELECT 1 FROM public.usuario u
-        JOIN public.administrador_global g ON g.usuario_id=u.id
-        WHERE u.correo_normalizado='hernan.espinoza.dev@gmail.com'
-          AND u.estado='activo'
-          AND (u.bloqueado_hasta IS NULL OR u.bloqueado_hasta<=now())
-    )
+    SELECT count(*)=1
+    FROM public.usuario u
+    JOIN public.administrador_global g ON g.usuario_id=u.id
+    WHERE u.correo_normalizado='hernan.espinoza.dev@gmail.com'
+      AND u.estado='activo'
+      AND (u.bloqueado_hasta IS NULL OR u.bloqueado_hasta<=now())
+      AND NOT EXISTS (SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)
 $function$;
 
 REVOKE ALL ON FUNCTION public.gcp06_test_access_target_ids() FROM PUBLIC;

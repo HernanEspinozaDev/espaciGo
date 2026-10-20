@@ -28,13 +28,19 @@ provider "google-beta" {
 locals {
   api_gcp06_candidate_enabled = var.api_gcp06_candidate_run_id != ""
   api_database_secret_key     = local.api_gcp06_candidate_enabled ? "database-password-gcp06" : "database-password"
-  api_secret_access_keys = toset([
-    local.api_database_secret_key,
-    "contract-encryption-key",
-    "payment-webhook-secret",
-  ])
+  api_secret_access_keys = setunion(
+    toset([
+      local.api_database_secret_key,
+      "contract-encryption-key",
+      "payment-webhook-secret",
+    ]),
+    # Keep the stable DB credential available to the retained rollback revision.
+    local.api_gcp06_candidate_enabled ? toset(["database-password"]) : toset([]),
+  )
   runtime_secret_ids = var.enable_foundation ? setunion(
     local.api_secret_access_keys,
+    # Preserve the legacy API database secret resource while preparing candidate mode.
+    local.api_gcp06_candidate_enabled ? toset(["database-password"]) : toset([]),
     var.enable_database ? toset(["database-migrator-password"]) : toset([]),
     (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_admin_bootstrap_job) ? toset(["gcp06-admin-bootstrap-password"]) : toset([]),
     (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_test_access_job) ? toset(["gcp06-test-access-db-password"]) : toset([]),

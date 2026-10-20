@@ -123,7 +123,6 @@ func validateExactColumnGrants(ctx context.Context, conn *pgx.Conn) error {
 		AND NOT EXISTS (SELECT 1 FROM information_schema.table_privileges WHERE grantee=current_user)
 		AND NOT EXISTS (SELECT 1 FROM information_schema.role_table_grants WHERE grantee=current_user AND privilege_type IN ('DELETE','TRUNCATE'))
 		AND NOT EXISTS (SELECT 1 FROM information_schema.usage_privileges WHERE grantee=current_user)
-		AND NOT EXISTS (SELECT 1 FROM information_schema.usage_privileges WHERE grantee=current_user)
 		AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_shdepend sd JOIN pg_catalog.pg_roles r ON r.oid=sd.refobjid
 		 WHERE sd.refclassid='pg_catalog.pg_authid'::regclass AND r.rolname=current_user AND sd.deptype='o')`).Scan(&exactRoutines); err != nil || !exactRoutines {
 		return errors.New("candidate test-access role has unexpected table, routine, or sequence privileges")
@@ -131,9 +130,8 @@ func validateExactColumnGrants(ctx context.Context, conn *pgx.Conn) error {
 	return nil
 }
 
-// Preview returns only a count and an order-independent digest of target UUIDs.
-// The cohort is the imported candidate's accounts, excluding the newly
-// registered owner identity; the owner and SQL privilege records stay untouched.
+// Preview returns only a count and an order-independent digest of eligible
+// candidate account UUIDs, including the active, verified global owner.
 func Preview(ctx context.Context, conn *pgx.Conn) (Result, error) {
 	if err := requireBootstrappedOwner(ctx, conn); err != nil {
 		return Result{}, err
