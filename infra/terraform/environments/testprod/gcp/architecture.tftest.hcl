@@ -13,6 +13,14 @@ mock_provider "google" {
     }
   }
 
+  mock_data "google_sql_database_instance" {
+    defaults = {
+      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg"
+      database_version   = "POSTGRES_18"
+      private_ip_address = "10.189.0.13"
+    }
+  }
+
   mock_resource "google_compute_security_policy" {
     defaults = {
       id = "projects/offline-test-project/global/securityPolicies/public"
@@ -57,6 +65,63 @@ run "foundation_plan_is_gated_and_scoped" {
     condition     = length(google_compute_network.testprod) == 1 && length(google_compute_subnetwork.serverless) == 1
     error_message = "Foundation should create one dedicated VPC and serverless subnet."
   }
+  assert {
+    condition     = length(google_cloud_run_v2_job.gcp06_admin_bootstrap) == 0 && length(google_cloud_run_v2_job.gcp06_test_access) == 0 && length(google_cloud_run_v2_job.gcp06_sql_inspector) == 0 && length(google_service_account.gcp06_job) == 0
+    error_message = "GCP-06 candidate Jobs and their identities must remain absent until their dedicated review gate is enabled."
+  }
+}
+
+run "sql_inspector_is_private_readonly_and_time_bounded" {
+  command = plan
+  variables {
+    project_id                          = "espacigo-testprod"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    acknowledge_gcp04_runtime_gates     = true
+    bucket_suffix                       = "inspector-job"
+    enable_gcp06_sql_inspector_job      = true
+    enable_gcp06_jobs_reviewed          = true
+    gcp06_sql_inspector_image           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/gcp06-sql-inspect@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    gcp06_sql_inspector_secret_version  = "7"
+    gcp06_sql_inspector_operator_member = "user:operator@example.test"
+    gcp06_sql_inspector_iam_expiry      = "2026-11-01T00:00:00Z"
+  }
+  override_data {
+    target = data.google_sql_database_instance.gcp06_candidate[0]
+    values = {
+      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg"
+      database_version   = "POSTGRES_18"
+      private_ip_address = "10.189.0.13"
+      region             = "southamerica-west1"
+    }
+  }
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.gcp06_sql_inspector) == 1 &&
+      google_cloud_run_v2_job.gcp06_sql_inspector[0].template[0].task_count == 1 &&
+      google_cloud_run_v2_job.gcp06_sql_inspector[0].template[0].template[0].max_retries == 0 &&
+      google_service_account.gcp06_job["sql-inspector"].account_id == "espacigo-gcp06-sql-inspector" &&
+      contains(local.runtime_secret_ids, "gcp06-sql-inspector-credential")
+    )
+    error_message = "The catalog inspector must be a one-shot job with its dedicated identity and exact credential secret."
+  }
+  assert {
+    condition = (
+      google_project_iam_member.gcp06_job_cloudsql_client["sql-inspector"].condition[0].expression == "resource.name == 'projects/espacigo-testprod/instances/espacigo-gcp06-20261020-gcp06a-pg' && resource.type == 'sqladmin.googleapis.com/Instance' && request.time < timestamp('2026-11-01T00:00:00Z')" &&
+      length(google_secret_manager_secret_iam_member.gcp06_job_secret_access) == 1 &&
+      google_cloud_run_v2_job.gcp06_sql_inspector[0].template[0].template[0].vpc_access[0].egress == "PRIVATE_RANGES_ONLY"
+    )
+    error_message = "Inspector permissions must be scoped to the candidate instance and expiration, and execution must use private VPC egress."
+  }
+  assert {
+    condition = alltrue([
+      for env in google_cloud_run_v2_job.gcp06_sql_inspector[0].template[0].template[0].containers[0].env :
+      !can(regex("(?i)password", env.name))
+    ])
+    error_message = "The inspector Job must not pass a password in environment variables."
+  }
 }
 
 run "foundation_rejects_missing_human_gates" {
@@ -99,22 +164,23 @@ run "services_and_edge_preserve_runtime_contracts" {
   command = plan
 
   variables {
-    project_id                         = "offline-test-project"
-    project_number                     = "123456789012"
-    enable_foundation                  = true
-    enable_database                    = true
-    enable_services                    = true
-    enable_edge                        = true
-    confirm_project_inventory          = true
-    confirm_cost_policy_review         = true
-    acknowledge_gcp04_runtime_gates    = true
-    confirm_pga_iap_key_preflight      = true
-    bucket_suffix                      = "offline-test"
-    api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address            = "10.80.0.10:1025"
-    confirm_runtime_secret_versions    = true
-    confirm_runtime_database_bootstrap = true
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_database                     = true
+    enable_services                     = true
+    api_contract_encryption_key_version = "1"
+    enable_edge                         = true
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    acknowledge_gcp04_runtime_gates     = true
+    confirm_pga_iap_key_preflight       = true
+    bucket_suffix                       = "offline-test"
+    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address             = "10.80.0.10:1025"
+    confirm_runtime_secret_versions     = true
+    confirm_runtime_database_bootstrap  = true
   }
 
   assert {
@@ -203,26 +269,159 @@ run "services_and_edge_preserve_runtime_contracts" {
   }
 }
 
+run "candidate_mode_targets_only_the_pinned_gcp06_database" {
+  command = plan
+
+  variables {
+    project_id                           = "espacigo-testprod"
+    project_number                       = "123456789012"
+    enable_foundation                    = true
+    enable_database                      = true
+    enable_services                      = true
+    api_contract_encryption_key_version  = "1"
+    confirm_project_inventory            = true
+    confirm_cost_policy_review           = true
+    acknowledge_gcp04_runtime_gates      = true
+    bucket_suffix                        = "offline-test"
+    api_image                            = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                       = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address              = "10.80.0.10:1025"
+    confirm_runtime_secret_versions      = true
+    confirm_runtime_database_bootstrap   = true
+    api_gcp06_candidate_run_id           = "20261020-gcp06a"
+    api_gcp06_candidate_password_version = "3"
+  }
+
+  override_data {
+    target = data.google_sql_database_instance.gcp06_candidate[0]
+    values = {
+      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg"
+      database_version   = "POSTGRES_18"
+      private_ip_address = "10.189.0.13"
+      region             = "southamerica-west1"
+    }
+  }
+
+  assert {
+    condition     = length(google_sql_database_instance.postgres) == 1 && length(data.google_sql_database_instance.gcp06_candidate) == 1
+    error_message = "Candidate mode must retain the managed legacy instance while reading the existing GCP-06 target; it must not destroy the old database."
+  }
+  assert {
+    condition     = local.api_sql_connection_name == "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg" && local.api_database_name == "espacigo_gcp06_candidate_20261020-gcp06a"
+    error_message = "The API revision must target the pinned candidate instance and database."
+  }
+  assert {
+    condition     = local.web_services["public"].name == "espacigo-test-public" && local.web_services["private"].name == "espacigo-test-private" && length(local.web_services) == 2
+    error_message = "Candidate mode must retain the existing public/private frontend services."
+  }
+  assert {
+    condition     = local.api_database_secret_key == "database-password-gcp06" && local.api_database_password_version == "3"
+    error_message = "Candidate API must mount the separately versioned candidate DB secret without reading its payload."
+  }
+  assert {
+    condition = (
+      contains(local.runtime_secret_ids, "database-password") &&
+      contains(local.runtime_secret_ids, "database-password-gcp06") &&
+      contains(local.api_secret_access_keys, "database-password") &&
+      contains(local.api_secret_access_keys, "database-password-gcp06")
+    )
+    error_message = "Candidate mode must retain the existing DB secret resource/access for rollback while adding candidate-only access."
+  }
+}
+
+run "candidate_mode_rejects_a_different_run_id" {
+  command = plan
+
+  variables {
+    project_id                 = "espacigo-testprod"
+    region                     = "southamerica-west1"
+    api_gcp06_candidate_run_id = "20261021-gcp06b"
+  }
+
+  expect_failures = [var.api_gcp06_candidate_run_id]
+}
+
+run "candidate_jobs_are_one_shot_private_and_separately_secret_scoped" {
+  command = plan
+
+  variables {
+    project_id                             = "espacigo-testprod"
+    project_number                         = "123456789012"
+    enable_foundation                      = true
+    confirm_project_inventory              = true
+    confirm_cost_policy_review             = true
+    acknowledge_gcp04_runtime_gates        = true
+    bucket_suffix                          = "candidate-jobs"
+    api_gcp06_candidate_run_id             = "20261020-gcp06a"
+    api_gcp06_candidate_password_version   = "3"
+    enable_gcp06_admin_bootstrap_job       = true
+    enable_gcp06_test_access_job           = true
+    enable_gcp06_jobs_reviewed             = true
+    gcp06_admin_bootstrap_image            = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/gcp06-admin-bootstrap@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    gcp06_activation_login                 = "gadm_activation_012345abcdef"
+    gcp06_admin_bootstrap_password_version = "4"
+    gcp06_bootstrap_operator_member        = "user:operator@example.test"
+    gcp06_test_access_image                = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/gcp06-test-access@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    gcp06_test_access_login                = "gcp06_test_access_012345abcdef"
+    gcp06_test_access_db_password_version  = "5"
+    gcp06_test_access_operator_member      = "user:operator@example.test"
+  }
+
+  override_data {
+    target = data.google_sql_database_instance.gcp06_candidate[0]
+    values = {
+      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg"
+      database_version   = "POSTGRES_18"
+      private_ip_address = "10.189.0.13"
+      region             = "southamerica-west1"
+    }
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.gcp06_admin_bootstrap) == 1 &&
+      google_cloud_run_v2_job.gcp06_admin_bootstrap[0].template[0].task_count == 1 &&
+      google_cloud_run_v2_job.gcp06_admin_bootstrap[0].template[0].template[0].max_retries == 0 &&
+      google_service_account.gcp06_job["admin-bootstrap"].account_id == "espacigo-gcp06-admin-bootstrap"
+    )
+    error_message = "The owner bootstrap must use its dedicated one-shot identity and no automatic retries."
+  }
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.gcp06_test_access) == 1 &&
+      google_cloud_run_v2_job.gcp06_test_access[0].template[0].template[0].max_retries == 0 &&
+      google_service_account.gcp06_job["test-access"].account_id == "espacigo-gcp06-test-access" &&
+      length(google_secret_manager_secret_iam_member.gcp06_job_secret_access) == 3
+    )
+    error_message = "Preview Jobs must use isolated identities and only the three required SQL secrets."
+  }
+  assert {
+    condition     = one([for env in google_cloud_run_v2_job.gcp06_test_access[0].template[0].template[0].containers[0].env : env.value if env.name == "GCP06_TEST_ACCESS_MODE"]) == "preview"
+    error_message = "Test-access Job must default to a non-mutating preview."
+  }
+}
+
 run "services_without_edge_expose_runapp_with_private_gates" {
   command = plan
 
   variables {
-    project_id                         = "offline-test-project"
-    project_number                     = "123456789012"
-    enable_foundation                  = true
-    enable_database                    = true
-    enable_services                    = true
-    enable_edge                        = false
-    confirm_project_inventory          = true
-    confirm_cost_policy_review         = true
-    bucket_suffix                      = "offline-test"
-    api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address            = "10.80.0.10:1025"
-    confirm_pga_iap_key_preflight      = true
-    confirm_runtime_secret_versions    = true
-    confirm_runtime_database_bootstrap = true
-    private_demo_origin_override       = "https://private-123.run.app"
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_database                     = true
+    enable_services                     = true
+    api_contract_encryption_key_version = "1"
+    enable_edge                         = false
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    bucket_suffix                       = "offline-test"
+    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address             = "10.80.0.10:1025"
+    confirm_pga_iap_key_preflight       = true
+    confirm_runtime_secret_versions     = true
+    confirm_runtime_database_bootstrap  = true
+    private_demo_origin_override        = "https://private-123.run.app"
   }
 
   assert {
@@ -251,21 +450,22 @@ run "services_reject_unverified_iap_key_egress" {
   command = plan
 
   variables {
-    project_id                         = "offline-test-project"
-    project_number                     = "123456789012"
-    enable_foundation                  = true
-    enable_database                    = true
-    enable_services                    = true
-    enable_edge                        = true
-    confirm_project_inventory          = true
-    confirm_cost_policy_review         = true
-    acknowledge_gcp04_runtime_gates    = true
-    bucket_suffix                      = "offline-test"
-    api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address            = "10.80.0.10:1025"
-    confirm_runtime_secret_versions    = true
-    confirm_runtime_database_bootstrap = true
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_database                     = true
+    enable_services                     = true
+    api_contract_encryption_key_version = "1"
+    enable_edge                         = true
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    acknowledge_gcp04_runtime_gates     = true
+    bucket_suffix                       = "offline-test"
+    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address             = "10.80.0.10:1025"
+    confirm_runtime_secret_versions     = true
+    confirm_runtime_database_bootstrap  = true
   }
 
   expect_failures = [var.enable_edge]
@@ -339,20 +539,21 @@ run "services_reject_missing_runtime_secret_versions" {
   command = plan
 
   variables {
-    project_id                         = "offline-test-project"
-    project_number                     = "123456789012"
-    enable_foundation                  = true
-    enable_database                    = true
-    enable_services                    = true
-    confirm_project_inventory          = true
-    confirm_cost_policy_review         = true
-    acknowledge_gcp04_runtime_gates    = true
-    confirm_pga_iap_key_preflight      = true
-    confirm_runtime_database_bootstrap = true
-    bucket_suffix                      = "offline-test"
-    api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address            = "10.80.0.10:1025"
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_database                     = true
+    enable_services                     = true
+    api_contract_encryption_key_version = "1"
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    acknowledge_gcp04_runtime_gates     = true
+    confirm_pga_iap_key_preflight       = true
+    confirm_runtime_database_bootstrap  = true
+    bucket_suffix                       = "offline-test"
+    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address             = "10.80.0.10:1025"
   }
 
   expect_failures = [var.enable_services]
@@ -362,20 +563,21 @@ run "services_reject_missing_runtime_database_bootstrap" {
   command = plan
 
   variables {
-    project_id                      = "offline-test-project"
-    project_number                  = "123456789012"
-    enable_foundation               = true
-    enable_database                 = true
-    enable_services                 = true
-    confirm_project_inventory       = true
-    confirm_cost_policy_review      = true
-    acknowledge_gcp04_runtime_gates = true
-    confirm_pga_iap_key_preflight   = true
-    confirm_runtime_secret_versions = true
-    bucket_suffix                   = "offline-test"
-    api_image                       = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                  = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address         = "10.80.0.10:1025"
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_database                     = true
+    enable_services                     = true
+    api_contract_encryption_key_version = "1"
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    acknowledge_gcp04_runtime_gates     = true
+    confirm_pga_iap_key_preflight       = true
+    confirm_runtime_secret_versions     = true
+    bucket_suffix                       = "offline-test"
+    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address             = "10.80.0.10:1025"
   }
 
   expect_failures = [var.enable_services]

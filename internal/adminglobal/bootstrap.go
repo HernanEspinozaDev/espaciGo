@@ -12,10 +12,13 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var testDatabaseName = regexp.MustCompile(`^espacigo_gadm01_[a-f0-9]{8,12}$`)
+
+type TransactionBeginner interface {
+	BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
+}
 
 // ValidateBootstrapTarget intentionally accepts only a named loopback test DB.
 func ValidateBootstrapTarget(environment, databaseURL, expectedDatabase string) error {
@@ -65,9 +68,15 @@ func IsLocalDatabaseAddress(address net.IP) bool {
 
 // Bootstrap binds one verified, active account as the initial global administrator.
 // Recovery only restores the account recorded by the first successful bootstrap.
-func Bootstrap(ctx context.Context, pool *pgxpool.Pool, target, action, correlation string) error {
+func Bootstrap(ctx context.Context, pool TransactionBeginner, target, action, correlation string) error {
+	return BootstrapWithActor(ctx, pool, target, action, correlation, "cli_local")
+}
+
+// BootstrapWithActor executes the same serialized, audited bootstrap while
+// recording one of the explicitly supported CLI identities.
+func BootstrapWithActor(ctx context.Context, pool TransactionBeginner, target, action, correlation, actor string) error {
 	action, validAction := canonicalBootstrapAction(action)
-	if pool == nil || !canonicalUUID.MatchString(target) || !canonicalUUID.MatchString(correlation) || !validAction {
+	if pool == nil || !canonicalUUID.MatchString(target) || !canonicalUUID.MatchString(correlation) || !validAction || !canonicalBootstrapActor(actor) {
 		return ErrInvalid
 	}
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
@@ -123,7 +132,7 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool, target, action, correlat
 		return err
 	}
 	_, auditErr := tx.Exec(ctx, `INSERT INTO public.administrador_global_bootstrap_evento(id,usuario_objetivo_id,actor_tipo,accion,resultado,motivo_codigo,correlacion_id,ocurrida_en)
-		VALUES($1,$2,'cli_local',$3,$4,$5,$6,$7)`, id, target, action, result, reason, correlation, time.Now().UTC())
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, id, target, actor, action, result, reason, correlation, time.Now().UTC())
 	if auditErr != nil {
 		return auditErr
 	}
@@ -134,6 +143,10 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool, target, action, correlat
 		return fmt.Errorf("bootstrap rejected: %s", reason)
 	}
 	return nil
+}
+
+func canonicalBootstrapActor(actor string) bool {
+	return actor == "cli_local" || actor == "cli_gcp06"
 }
 
 func canonicalBootstrapAction(action string) (string, bool) {

@@ -24,6 +24,19 @@ func TestBootstrapTargetRequiresExplicitLoopbackTestDatabase(t *testing.T) {
 	}
 }
 
+func TestBootstrapActorAllowlist(t *testing.T) {
+	for _, actor := range []string{"cli_local", "cli_gcp06"} {
+		if !canonicalBootstrapActor(actor) {
+			t.Fatalf("expected supported actor %q", actor)
+		}
+	}
+	for _, actor := range []string{"", "postgres", "cli_cloud", "cli_local' OR true --"} {
+		if canonicalBootstrapActor(actor) {
+			t.Fatalf("unexpected actor accepted: %q", actor)
+		}
+	}
+}
+
 func TestIsLocalDatabaseAddressRequiresLoopback(t *testing.T) {
 	for _, test := range []struct {
 		address string
