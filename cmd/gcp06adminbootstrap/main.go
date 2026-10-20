@@ -97,7 +97,7 @@ func run(args []string, getenv func(string) string) error {
 	if err != nil {
 		return errors.New("could not create bootstrap audit correlation")
 	}
-	if err := adminglobal.Bootstrap(ctx, activationConn, accountID, "bootstrap", correlation); err != nil {
+	if err := adminglobal.BootstrapWithActor(ctx, activationConn, accountID, "bootstrap", correlation, "cli_gcp06"); err != nil {
 		return errors.New("candidate bootstrap was rejected; inspect audit by correlation through the approved observer")
 	}
 	fmt.Println("GCP-06 candidate owner bootstrap completed")
