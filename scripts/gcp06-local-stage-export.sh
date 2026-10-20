@@ -171,11 +171,7 @@ $gcp06_target_guard$;
 SQL
   # Cloud SQL SQL import consumes SQL, not psql shell commands. PostgreSQL 18
   # pg_dump adds these two client-side guards; discard only those exact lines.
-  if rg -n '^\\(restrict|unrestrict)( |$)' "$ROOT_DIR/$OUTPUT_DIR/data.sql.dump.tmp" >/dev/null; then
-    sed '/^\\restrict /d; /^\\unrestrict /d' "$ROOT_DIR/$OUTPUT_DIR/data.sql.dump.tmp"
-  else
-    cat "$ROOT_DIR/$OUTPUT_DIR/data.sql.dump.tmp"
-  fi
+  sed '/^\\restrict /d; /^\\unrestrict /d' "$ROOT_DIR/$OUTPUT_DIR/data.sql.dump.tmp"
   printf '\nCOMMIT;\n'
 } > "$ROOT_DIR/$OUTPUT_DIR/data.sql.tmp"
 chmod 0600 "$ROOT_DIR/$OUTPUT_DIR/data.sql.tmp"
