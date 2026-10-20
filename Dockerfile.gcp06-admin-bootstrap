@@ -1,0 +1,14 @@
+FROM golang:1.27.1-alpine3.24@sha256:cd9a32216aee5667f957a62d13a10032a63fd58e14b3f3d9cc8c2122f501e95e AS build
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=linux GOARCH=amd64
+WORKDIR /src
+RUN apk add --no-cache ca-certificates
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/gcp06adminbootstrap ./cmd/gcp06adminbootstrap
+COPY internal ./internal
+RUN go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/gcp06-admin-bootstrap ./cmd/gcp06adminbootstrap
+
+FROM scratch
+COPY --from=build /out/gcp06-admin-bootstrap /gcp06-admin-bootstrap
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+ENTRYPOINT ["/gcp06-admin-bootstrap"]

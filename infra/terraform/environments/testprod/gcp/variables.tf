@@ -41,8 +41,8 @@ variable "enable_services" {
   description = "Separate explicit apply gate for Cloud Run services; requires foundation and database."
   default     = false
   validation {
-    condition     = !var.enable_services || (var.enable_foundation && var.enable_database && (var.mailpit_private_address != "" || var.enable_mailpit) && var.confirm_runtime_secret_versions && var.confirm_runtime_database_bootstrap)
-    error_message = "Cloud Run services require foundation/database, a private Mailpit endpoint or gated VM, loaded runtime secret versions, and completed SQL runtime-user bootstrap."
+    condition     = !var.enable_services || (var.enable_foundation && (var.enable_database || var.api_gcp06_candidate_run_id != "") && (var.mailpit_private_address != "" || var.enable_mailpit) && var.confirm_runtime_secret_versions && var.confirm_runtime_database_bootstrap)
+    error_message = "Cloud Run services require foundation, either the managed database or the exact GCP-06 candidate, a private Mailpit endpoint or gated VM, loaded runtime secret versions, and completed SQL runtime-user bootstrap."
   }
 }
 
@@ -163,6 +163,26 @@ variable "cloudsql_disk_limit_gib" {
 variable "api_service_name" {
   type    = string
   default = "espacigo-test-api"
+}
+
+variable "api_gcp06_candidate_run_id" {
+  type        = string
+  default     = ""
+  description = "When set, direct only the API test service to the reviewed run-scoped GCP-06 candidate. Empty preserves the existing database target."
+  validation {
+    condition     = var.api_gcp06_candidate_run_id == "" || (var.api_gcp06_candidate_run_id == "20261020-gcp06a" && var.project_id == "espacigo-testprod" && var.region == "southamerica-west1")
+    error_message = "Only candidate 20261020-gcp06a in the existing testprod Santiago project is allowed by this cut."
+  }
+}
+
+variable "api_gcp06_candidate_password_version" {
+  type        = string
+  default     = ""
+  description = "Numeric, pre-created Secret Manager version for the candidate API database login; Terraform never reads the secret payload."
+  validation {
+    condition     = var.api_gcp06_candidate_run_id == "" || can(regex("^[1-9][0-9]*$", var.api_gcp06_candidate_password_version))
+    error_message = "Candidate mode requires an explicit positive Secret Manager version number."
+  }
 }
 
 variable "api_contract_encryption_key_version" {

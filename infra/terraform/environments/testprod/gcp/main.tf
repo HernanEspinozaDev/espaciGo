@@ -26,11 +26,23 @@ provider "google-beta" {
 }
 
 locals {
+  api_gcp06_candidate_enabled = var.api_gcp06_candidate_run_id != ""
+  api_database_secret_key     = local.api_gcp06_candidate_enabled ? "database-password-gcp06" : "database-password"
+  api_secret_access_keys = toset([
+    local.api_database_secret_key,
+    "contract-encryption-key",
+    "payment-webhook-secret",
+  ])
   runtime_secret_ids = var.enable_foundation ? setunion(
-    toset(["database-password", "contract-encryption-key", "payment-webhook-secret"]),
+    local.api_secret_access_keys,
     var.enable_database ? toset(["database-migrator-password"]) : toset([]),
   ) : toset([])
-  migrator_database_secret_id = var.enable_database ? "database-migrator-password" : "database-password"
+  migrator_database_secret_id   = var.enable_database ? "database-migrator-password" : local.api_database_secret_key
+  api_sql_connection_name       = try(local.api_gcp06_candidate_enabled ? data.google_sql_database_instance.gcp06_candidate[0].connection_name : google_sql_database_instance.postgres[0].connection_name, "")
+  api_database_name             = try(local.api_gcp06_candidate_enabled ? local.gcp06_candidate_database_name : google_sql_database.application[0].name, "")
+  api_database_password_version = local.api_gcp06_candidate_enabled ? var.api_gcp06_candidate_password_version : "latest"
+  gcp06_candidate_instance_name = "espacigo-gcp06-${var.api_gcp06_candidate_run_id}-pg"
+  gcp06_candidate_database_name = "espacigo_gcp06_candidate_${var.api_gcp06_candidate_run_id}"
   project_enabled_apis = toset([
     "artifactregistry.googleapis.com",
     "cloudresourcemanager.googleapis.com",
@@ -64,6 +76,12 @@ locals {
   } : {}
   mailpit_image           = "${var.region}-docker.pkg.dev/${var.project_id}/espacigo-testprod-dockerhub/axllent/mailpit@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48"
   runtime_mailpit_address = var.enable_mailpit ? "${google_compute_address.mailpit[0].address}:1025" : var.mailpit_private_address
+}
+
+data "google_sql_database_instance" "gcp06_candidate" {
+  count   = local.api_gcp06_candidate_enabled ? 1 : 0
+  project = var.project_id
+  name    = local.gcp06_candidate_instance_name
 }
 
 resource "google_project_service" "required" {
@@ -428,7 +446,7 @@ resource "google_secret_manager_secret" "runtime" {
 }
 
 resource "google_secret_manager_secret_iam_member" "api_secret_access" {
-  for_each  = var.enable_foundation ? toset(["database-password", "contract-encryption-key", "payment-webhook-secret"]) : toset([])
+  for_each  = var.enable_foundation ? local.api_secret_access_keys : toset([])
   project   = var.project_id
   secret_id = google_secret_manager_secret.runtime[each.value].secret_id
   role      = "roles/secretmanager.secretAccessor"
@@ -539,9 +557,9 @@ resource "google_cloud_run_v2_service" "api" {
     volumes {
       name = "database-secret"
       secret {
-        secret = google_secret_manager_secret.runtime["database-password"].secret_id
+        secret = google_secret_manager_secret.runtime[local.api_database_secret_key].secret_id
         items {
-          version = "latest"
+          version = local.api_database_password_version
           path    = "password"
         }
       }
@@ -598,11 +616,11 @@ resource "google_cloud_run_v2_service" "api" {
       }
       env {
         name  = "CLOUD_SQL_INSTANCE_CONNECTION_NAME"
-        value = google_sql_database_instance.postgres[0].connection_name
+        value = local.api_sql_connection_name
       }
       env {
         name  = "DATABASE_NAME"
-        value = google_sql_database.application[0].name
+        value = local.api_database_name
       }
       env {
         name  = "DATABASE_PASSWORD_FILE"
@@ -688,6 +706,14 @@ resource "google_cloud_run_v2_service" "api" {
         (var.api_private_object_prefix == "g03o-1017" && var.api_privacy_replay_prefix == "g03o-1017/privacy-replay"))
       )
       error_message = "The API contract key must use an explicit numeric version of the existing Secret Manager secret. Verify that exact version is ENABLED using metadata only before planning."
+    }
+    precondition {
+      condition = !local.api_gcp06_candidate_enabled || (
+        data.google_sql_database_instance.gcp06_candidate[0].database_version == "POSTGRES_18" &&
+        data.google_sql_database_instance.gcp06_candidate[0].connection_name == "espacigo-testprod:southamerica-west1:espacigo-gcp06-${var.api_gcp06_candidate_run_id}-pg" &&
+        data.google_sql_database_instance.gcp06_candidate[0].private_ip_address == "10.189.0.13"
+      )
+      error_message = "The API candidate target must be the exact run-scoped private PostgreSQL 18 GCP-06 instance in the testprod Santiago project."
     }
   }
 

@@ -13,6 +13,14 @@ mock_provider "google" {
     }
   }
 
+  mock_data "google_sql_database_instance" {
+    defaults = {
+      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg"
+      database_version   = "POSTGRES_18"
+      private_ip_address = "10.189.0.13"
+    }
+  }
+
   mock_resource "google_compute_security_policy" {
     defaults = {
       id = "projects/offline-test-project/global/securityPolicies/public"
@@ -99,22 +107,23 @@ run "services_and_edge_preserve_runtime_contracts" {
   command = plan
 
   variables {
-    project_id                         = "offline-test-project"
-    project_number                     = "123456789012"
-    enable_foundation                  = true
-    enable_database                    = true
-    enable_services                    = true
-    enable_edge                        = true
-    confirm_project_inventory          = true
-    confirm_cost_policy_review         = true
-    acknowledge_gcp04_runtime_gates    = true
-    confirm_pga_iap_key_preflight      = true
-    bucket_suffix                      = "offline-test"
-    api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address            = "10.80.0.10:1025"
-    confirm_runtime_secret_versions    = true
-    confirm_runtime_database_bootstrap = true
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_database                     = true
+    enable_services                     = true
+    api_contract_encryption_key_version = "1"
+    enable_edge                         = true
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    acknowledge_gcp04_runtime_gates     = true
+    confirm_pga_iap_key_preflight       = true
+    bucket_suffix                       = "offline-test"
+    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address             = "10.80.0.10:1025"
+    confirm_runtime_secret_versions     = true
+    confirm_runtime_database_bootstrap  = true
   }
 
   assert {
@@ -203,26 +212,90 @@ run "services_and_edge_preserve_runtime_contracts" {
   }
 }
 
+run "candidate_mode_targets_only_the_pinned_gcp06_database" {
+  command = plan
+
+  variables {
+    project_id                           = "espacigo-testprod"
+    project_number                       = "123456789012"
+    enable_foundation                    = true
+    enable_database                      = true
+    enable_services                      = true
+    api_contract_encryption_key_version  = "1"
+    confirm_project_inventory            = true
+    confirm_cost_policy_review           = true
+    acknowledge_gcp04_runtime_gates      = true
+    bucket_suffix                        = "offline-test"
+    api_image                            = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                       = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address              = "10.80.0.10:1025"
+    confirm_runtime_secret_versions      = true
+    confirm_runtime_database_bootstrap   = true
+    api_gcp06_candidate_run_id           = "20261020-gcp06a"
+    api_gcp06_candidate_password_version = "3"
+  }
+
+  override_data {
+    target = data.google_sql_database_instance.gcp06_candidate[0]
+    values = {
+      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg"
+      database_version   = "POSTGRES_18"
+      private_ip_address = "10.189.0.13"
+      region             = "southamerica-west1"
+    }
+  }
+
+  assert {
+    condition     = length(google_sql_database_instance.postgres) == 1 && length(data.google_sql_database_instance.gcp06_candidate) == 1
+    error_message = "Candidate mode must retain the managed legacy instance while reading the existing GCP-06 target; it must not destroy the old database."
+  }
+  assert {
+    condition     = local.api_sql_connection_name == "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg" && local.api_database_name == "espacigo_gcp06_candidate_20261020-gcp06a"
+    error_message = "The API revision must target the pinned candidate instance and database."
+  }
+  assert {
+    condition     = local.web_services["public"].name == "espacigo-test-public" && local.web_services["private"].name == "espacigo-test-private" && length(local.web_services) == 2
+    error_message = "Candidate mode must retain the existing public/private frontend services."
+  }
+  assert {
+    condition     = local.api_database_secret_key == "database-password-gcp06" && local.api_database_password_version == "3"
+    error_message = "Candidate API must mount the separately versioned candidate DB secret without reading its payload."
+  }
+}
+
+run "candidate_mode_rejects_a_different_run_id" {
+  command = plan
+
+  variables {
+    project_id                 = "espacigo-testprod"
+    region                     = "southamerica-west1"
+    api_gcp06_candidate_run_id = "20261021-gcp06b"
+  }
+
+  expect_failures = [var.api_gcp06_candidate_run_id]
+}
+
 run "services_without_edge_expose_runapp_with_private_gates" {
   command = plan
 
   variables {
-    project_id                         = "offline-test-project"
-    project_number                     = "123456789012"
-    enable_foundation                  = true
-    enable_database                    = true
-    enable_services                    = true
-    enable_edge                        = false
-    confirm_project_inventory          = true
-    confirm_cost_policy_review         = true
-    bucket_suffix                      = "offline-test"
-    api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address            = "10.80.0.10:1025"
-    confirm_pga_iap_key_preflight      = true
-    confirm_runtime_secret_versions    = true
-    confirm_runtime_database_bootstrap = true
-    private_demo_origin_override       = "https://private-123.run.app"
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_database                     = true
+    enable_services                     = true
+    api_contract_encryption_key_version = "1"
+    enable_edge                         = false
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    bucket_suffix                       = "offline-test"
+    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address             = "10.80.0.10:1025"
+    confirm_pga_iap_key_preflight       = true
+    confirm_runtime_secret_versions     = true
+    confirm_runtime_database_bootstrap  = true
+    private_demo_origin_override        = "https://private-123.run.app"
   }
 
   assert {
@@ -251,21 +324,22 @@ run "services_reject_unverified_iap_key_egress" {
   command = plan
 
   variables {
-    project_id                         = "offline-test-project"
-    project_number                     = "123456789012"
-    enable_foundation                  = true
-    enable_database                    = true
-    enable_services                    = true
-    enable_edge                        = true
-    confirm_project_inventory          = true
-    confirm_cost_policy_review         = true
-    acknowledge_gcp04_runtime_gates    = true
-    bucket_suffix                      = "offline-test"
-    api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address            = "10.80.0.10:1025"
-    confirm_runtime_secret_versions    = true
-    confirm_runtime_database_bootstrap = true
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_database                     = true
+    enable_services                     = true
+    api_contract_encryption_key_version = "1"
+    enable_edge                         = true
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    acknowledge_gcp04_runtime_gates     = true
+    bucket_suffix                       = "offline-test"
+    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address             = "10.80.0.10:1025"
+    confirm_runtime_secret_versions     = true
+    confirm_runtime_database_bootstrap  = true
   }
 
   expect_failures = [var.enable_edge]
@@ -339,20 +413,21 @@ run "services_reject_missing_runtime_secret_versions" {
   command = plan
 
   variables {
-    project_id                         = "offline-test-project"
-    project_number                     = "123456789012"
-    enable_foundation                  = true
-    enable_database                    = true
-    enable_services                    = true
-    confirm_project_inventory          = true
-    confirm_cost_policy_review         = true
-    acknowledge_gcp04_runtime_gates    = true
-    confirm_pga_iap_key_preflight      = true
-    confirm_runtime_database_bootstrap = true
-    bucket_suffix                      = "offline-test"
-    api_image                          = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                     = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address            = "10.80.0.10:1025"
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_database                     = true
+    enable_services                     = true
+    api_contract_encryption_key_version = "1"
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    acknowledge_gcp04_runtime_gates     = true
+    confirm_pga_iap_key_preflight       = true
+    confirm_runtime_database_bootstrap  = true
+    bucket_suffix                       = "offline-test"
+    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address             = "10.80.0.10:1025"
   }
 
   expect_failures = [var.enable_services]
@@ -362,20 +437,21 @@ run "services_reject_missing_runtime_database_bootstrap" {
   command = plan
 
   variables {
-    project_id                      = "offline-test-project"
-    project_number                  = "123456789012"
-    enable_foundation               = true
-    enable_database                 = true
-    enable_services                 = true
-    confirm_project_inventory       = true
-    confirm_cost_policy_review      = true
-    acknowledge_gcp04_runtime_gates = true
-    confirm_pga_iap_key_preflight   = true
-    confirm_runtime_secret_versions = true
-    bucket_suffix                   = "offline-test"
-    api_image                       = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                  = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address         = "10.80.0.10:1025"
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_database                     = true
+    enable_services                     = true
+    api_contract_encryption_key_version = "1"
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    acknowledge_gcp04_runtime_gates     = true
+    confirm_pga_iap_key_preflight       = true
+    confirm_runtime_secret_versions     = true
+    bucket_suffix                       = "offline-test"
+    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address             = "10.80.0.10:1025"
   }
 
   expect_failures = [var.enable_services]

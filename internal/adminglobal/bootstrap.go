@@ -12,10 +12,13 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var testDatabaseName = regexp.MustCompile(`^espacigo_gadm01_[a-f0-9]{8,12}$`)
+
+type TransactionBeginner interface {
+	BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
+}
 
 // ValidateBootstrapTarget intentionally accepts only a named loopback test DB.
 func ValidateBootstrapTarget(environment, databaseURL, expectedDatabase string) error {
@@ -65,7 +68,7 @@ func IsLocalDatabaseAddress(address net.IP) bool {
 
 // Bootstrap binds one verified, active account as the initial global administrator.
 // Recovery only restores the account recorded by the first successful bootstrap.
-func Bootstrap(ctx context.Context, pool *pgxpool.Pool, target, action, correlation string) error {
+func Bootstrap(ctx context.Context, pool TransactionBeginner, target, action, correlation string) error {
 	action, validAction := canonicalBootstrapAction(action)
 	if pool == nil || !canonicalUUID.MatchString(target) || !canonicalUUID.MatchString(correlation) || !validAction {
 		return ErrInvalid

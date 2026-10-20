@@ -13,6 +13,13 @@ const RestrictedLocalBootstrapRole = "espacigo_gadm_bootstrap"
 // the NOLOGIN group role before any application SQL is issued, then verifies
 // the temporary login's membership and exact column-level allowlist.
 func SetRestrictedLocalBootstrapRole(ctx context.Context, conn *pgx.Conn) error {
+	return SetRestrictedBootstrapRole(ctx, conn)
+}
+
+// SetRestrictedBootstrapRole binds one temporary activation login to the
+// existing, column-scoped bootstrap group and verifies its exact privileges.
+// Callers must separately pin the environment and database target.
+func SetRestrictedBootstrapRole(ctx context.Context, conn *pgx.Conn) error {
 	if conn == nil {
 		return ErrInvalid
 	}
