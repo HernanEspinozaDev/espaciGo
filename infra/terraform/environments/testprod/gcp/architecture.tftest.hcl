@@ -134,6 +134,10 @@ run "services_and_edge_preserve_runtime_contracts" {
     error_message = "Web ingress must match the selected run.app or load-balancer stage."
   }
   assert {
+    condition     = one([for env in google_cloud_run_v2_service.web["public"].template[0].containers[0].env : env.value if env.name == "NG_ALLOWED_HOSTS"]) == var.public_hostname && one([for env in google_cloud_run_v2_service.web["private"].template[0].containers[0].env : env.value if env.name == "NG_ALLOWED_HOSTS"]) == var.private_hostname
+    error_message = "Each Angular SSR service must allow only its configured public or private hostname."
+  }
+  assert {
     condition     = alltrue([for binding in values(google_cloud_run_v2_service_iam_member.api_invoker) : binding.member != "allUsers" && binding.member != "allAuthenticatedUsers"])
     error_message = "The API must not grant public invocation; only SSR service identities are allowed."
   }
