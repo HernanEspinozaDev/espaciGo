@@ -190,7 +190,7 @@ EXPORT_DIR=".local/testing/gcp06-stage-$EXPORT_ID"
 GCP06_SOURCE_CONTAINER="$CONTAINER" GCP06_SOURCE_DATABASE_USER=postgres \
   "$ROOT_DIR/scripts/gcp06-local-stage-export.sh" "$EXPORT_DIR" >/dev/null
 python3 - "$ROOT_DIR/$EXPORT_DIR/manifest.json" "$ROOT_DIR/$EXPORT_DIR/data.sql" <<'PY'
-import json,sys
+import json,re,sys
 manifest_path,dump_path=sys.argv[1:]
 m=json.load(open(manifest_path,encoding='utf-8'))
 assert m['format']=='espacigo.gcp06.local-stage.v1'
@@ -204,11 +204,16 @@ assert 'opaque-dataset-verifier' not in dump and '@transfer.invalid' in dump
 assert '!gcp06-disabled!' in dump and 'Usuario Sintetico' in dump
 assert 'gcp06-synthetic-kyc-' in dump and 'fixture:' in dump
 assert "current_database() !~ '^espacigo_gcp06_candidate_[a-z0-9-]{6,30}$'" in dump
-print('PASS: end-to-end local V61 export, taint removal, V64 ledger, synthetic KYC, and one public catalog candidate')
+assert 'CREATE TABLE public.schema_migrations' in dump
+assert 'COPY public.schema_migrations' in dump
+assert 'CREATE TABLE public.categoria_espacio' in dump
+assert 'COPY public.categoria_espacio' in dump
+assert not re.search(r'^(CREATE ROLE|ALTER ROLE|GRANT|REVOKE)\b', dump, re.M)
+assert 'OWNER TO' not in dump
+assert not any(line.startswith('\\') and line != '\\.' for line in dump.splitlines())
+print('PASS: full portable V64 SQL includes schema, static seeds, and ledger without role DDL or ACLs; only COPY terminators remain')
 PY
 docker exec "$CONTAINER" createdb -U postgres espacigo_gcp06_candidate_e2e-test >/dev/null
-docker exec -e DATABASE_URL='postgres://postgres@localhost:5432/espacigo_gcp06_candidate_e2e-test?sslmode=disable' \
-  "$CONTAINER" /tmp/dbmigrate -dir /tmp/migrations-v64 >/dev/null
 docker exec -i "$CONTAINER" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d espacigo_gcp06_candidate_e2e-test \
   < "$ROOT_DIR/$EXPORT_DIR/data.sql" >/dev/null
 catalog_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c \
@@ -221,6 +226,10 @@ if docker exec -i "$CONTAINER" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d espa
 fi
 source_rows_after_rejected_import="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM public.usuario')"
 [[ "$source_rows_after_rejected_import" == 2 ]] || { echo 'Rejected import modified the synthetic source fixture.' >&2; exit 1; }
-echo 'PASS: guarded SQL import into an isolated V64 candidate; catalog query returns one fixture; wrong-database import rejected'
+ledger_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) || chr(58) || max(version) FROM public.schema_migrations')"
+[[ "$ledger_count" == '64:64' ]] || { echo 'Portable SQL dump did not restore ledger V1-V64.' >&2; exit 1; }
+seed_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) FROM public.categoria_espacio')"
+(( seed_count > 0 )) || { echo 'Portable SQL dump did not restore category seeds.' >&2; exit 1; }
+echo 'PASS: full portable V64 SQL imported into an empty isolated database; schema, ledger 64:64, static category seeds, and one catalog fixture verified; wrong-database import rejected'
 rm -f -- "$ROOT_DIR/$EXPORT_DIR/data.sql" "$ROOT_DIR/$EXPORT_DIR/manifest.json"
 rmdir -- "$ROOT_DIR/$EXPORT_DIR"

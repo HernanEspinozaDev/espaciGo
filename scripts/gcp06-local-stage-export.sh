@@ -148,13 +148,7 @@ if r.get('active_spaces', 0) > 0 and r.get('catalog_candidates', 0) == 0:
 PY
 
 set +e
-docker exec "$CONTAINER" pg_dump --data-only --format=plain --no-owner --no-privileges --no-comments \
-  --exclude-table-data=public.schema_migrations --exclude-table-data=public.spatial_ref_sys \
-  --exclude-table-data=public.atributo_filtro_publico --exclude-table-data=public.categoria_espacio \
-  --exclude-table-data=public.categoria_perfil_atributos --exclude-table-data=public.catalogo_ubicacion_publica \
-  --exclude-table-data=public.comuna_publica --exclude-table-data=public.region_publica \
-  --exclude-table-data=public.reserva_ensayo_local_ubicacion_sintetica \
-  --exclude-table-data=public.resena_autoria_marca_local --exclude-table-data=public.version_terminos \
+docker exec "$CONTAINER" pg_dump --format=plain --no-owner --no-privileges --no-comments \
   -U postgres -d "$STAGE_DB" 2>/dev/null > "$ROOT_DIR/$OUTPUT_DIR/data.sql.dump.tmp"
 dump_status=$?
 set -e
@@ -170,7 +164,13 @@ BEGIN
 END
 $gcp06_target_guard$;
 SQL
-  cat "$ROOT_DIR/$OUTPUT_DIR/data.sql.dump.tmp"
+  # Cloud SQL SQL import consumes SQL, not psql shell commands. PostgreSQL 18
+  # pg_dump adds these two client-side guards; discard only those exact lines.
+  if rg -n '^\\(restrict|unrestrict)( |$)' "$ROOT_DIR/$OUTPUT_DIR/data.sql.dump.tmp" >/dev/null; then
+    sed '/^\\restrict /d; /^\\unrestrict /d' "$ROOT_DIR/$OUTPUT_DIR/data.sql.dump.tmp"
+  else
+    cat "$ROOT_DIR/$OUTPUT_DIR/data.sql.dump.tmp"
+  fi
   printf '\nCOMMIT;\n'
 } > "$ROOT_DIR/$OUTPUT_DIR/data.sql.tmp"
 chmod 0600 "$ROOT_DIR/$OUTPUT_DIR/data.sql.tmp"
@@ -182,7 +182,7 @@ path,source_raw,stage_raw,dump=sys.argv[1:]
 record={"format":"espacigo.gcp06.local-stage.v1","source":json.loads(source_raw),"staged":json.loads(stage_raw),
         "dump_bytes":os.path.getsize(dump),"dump_sha256":hashlib.sha256(open(dump,'rb').read()).hexdigest(),
         "identity_policy":"synthetic dataset namespace only; account identifiers pseudonymized; password verifiers disabled; active account state preserved; administrator/global-bootstrap rows excluded",
-        "schema_target":"V1-V64 canonical migration runner",
+        "schema_target":"portable PostgreSQL 18 V1-V64 schema, seeds, ledger, and sanitized data dump; target extensions must be compatible",
         "catalog_policy":"synthetic KYC fixture marker only; destination must be an isolated allowlisted candidate"}
 with open(path,'x',encoding='utf-8') as f:
     json.dump(record,f,sort_keys=True,indent=2); f.write('\n')
