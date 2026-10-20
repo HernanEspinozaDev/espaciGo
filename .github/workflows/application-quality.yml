@@ -38,7 +38,38 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
-      - name: Build API image without publishing
-        run: docker build --file Dockerfile --target api --tag espacigo-api:ci .
-      - name: Build Angular SSR image without publishing
-        run: docker build --file frontend/Dockerfile --tag espacigo-web:ci frontend
+      - name: Test BuildKit attestation verifier
+        run: python3 -m unittest discover -s scripts -p 'test_verify_gcp07_attestations.py'
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        with:
+          driver-opts: image=moby/buildkit@sha256:054d632d0d7e94b11cdc6048674773499a5170cf7d8ce0c326daaff6be43c8e0
+      - name: Build API OCI image and verify SBOM/provenance without publishing
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: ./Dockerfile
+          target: api
+          platforms: linux/amd64
+          push: false
+          tags: espacigo-api:ci
+          outputs: type=oci,dest=${{ runner.temp }}/espacigo-api.oci.tar
+          attests: |
+            type=sbom,generator=docker/buildkit-syft-scanner@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+            type=provenance,mode=min
+      - name: Build Angular SSR OCI image and verify SBOM/provenance without publishing
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          platforms: linux/amd64
+          push: false
+          tags: espacigo-web:ci
+          outputs: type=oci,dest=${{ runner.temp }}/espacigo-web.oci.tar
+          attests: |
+            type=sbom,generator=docker/buildkit-syft-scanner@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+            type=provenance,mode=min
+      - name: Verify both OCI attestations without printing their contents
+        run: python3 scripts/verify_gcp07_attestations.py "$RUNNER_TEMP/espacigo-api.oci.tar" "$RUNNER_TEMP/espacigo-web.oci.tar"
+      - name: Remove temporary OCI images and attestations
+        if: always()
+        run: rm -f "$RUNNER_TEMP/espacigo-api.oci.tar" "$RUNNER_TEMP/espacigo-web.oci.tar"
