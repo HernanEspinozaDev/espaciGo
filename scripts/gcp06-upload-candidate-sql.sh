@@ -35,7 +35,9 @@ try:
 except (ValueError,IndexError):
     raise SystemExit('object metadata was invalid; stop before Cloud SQL import')
 bucket,name,sha,size=sys.argv[2:]
-metadata=obj.get('metadata') or {}
+metadata=obj.get('custom_fields') if 'custom_fields' in obj else obj.get('metadata')
+if not isinstance(metadata,dict):
+    raise SystemExit('object custom metadata was invalid; stop before Cloud SQL import')
 try:
     generation=int(obj.get('generation',0))
     remote_size=int(obj.get('size',-1))
