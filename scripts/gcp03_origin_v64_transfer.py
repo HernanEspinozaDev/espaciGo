@@ -45,7 +45,7 @@ TARGET_FILES_BUCKET = "espacigo-test-files-447373903153-gcp02"
 DESTINATION_PREFIX = "g03o-1017"
 API_SERVICE = "espacigo-test-api"
 EXPECTED_CONFIRMATION = f"{TARGET_INSTANCE}/{TARGET_DB}:full-copy:g03o-1017"
-TRANSFER_ID = "g03o-1017-to-primary-v64"
+TRANSFER_ID = f"g03o-1017-to-primary-v64-{secrets.token_hex(16)}"
 FORMAT = "espacigo.g03o.primary-v64-transfer.v1"
 EXPECTED_ROWS = {"usuario": 1045, "espacio": 1241, "reserva": 1228}
 EXPECTED_FILE_COUNT = 3246
@@ -532,14 +532,15 @@ class GCSFiles:
                     break
             dst.reload()
         except Exception as exc:
-            try:
-                partial = self.target.get_blob(destination_name)
-                if partial is not None and (partial.metadata or {}).get("transfer_id") == TRANSFER_ID:
-                    partial.delete(if_generation_match=int(partial.generation))
-            except Exception:
-                pass
+            # A failed/ambiguous rewrite cannot prove which generation exists.
+            # Preserve it for inspection and let the next preflight reconcile it.
             raise TransferStopped("PRIVATE_FILE_COPY_FAILED", "files_copy") from exc
-        if int(dst.size) != int(source["size"]) or (dst.metadata or {}).get("sha256") != source["sha256"] or dst.crc32c != source.get("crc32c"):
+        metadata = dst.metadata or {}
+        ours = (metadata.get("transfer_id") == TRANSFER_ID and
+                metadata.get("source_generation") == str(source["generation"]))
+        if not ours:
+            raise TransferStopped("PRIVATE_FILE_COPY_OWNERSHIP_UNCONFIRMED", "files_copy")
+        if int(dst.size) != int(source["size"]) or metadata.get("sha256") != source["sha256"] or dst.crc32c != source.get("crc32c"):
             generation = int(dst.generation)
             try:
                 dst.delete(if_generation_match=generation)
