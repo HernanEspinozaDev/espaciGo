@@ -185,6 +185,132 @@ variable "api_gcp06_candidate_password_version" {
   }
 }
 
+variable "enable_gcp06_admin_bootstrap_job" {
+  type        = bool
+  default     = false
+  description = "Prepare the dedicated one-shot Cloud Run Job for the exact candidate global-admin bootstrap."
+}
+
+variable "enable_gcp06_test_access_job" {
+  type        = bool
+  default     = false
+  description = "Prepare the dedicated one-shot candidate test-account access Job. Defaults to preview mode; apply mode requires a separately reviewed exact cohort."
+}
+
+variable "enable_gcp06_jobs_reviewed" {
+  type        = bool
+  default     = false
+  description = "Human review gate for creating candidate-only Jobs and their exact service-account, SQL, Artifact Registry, and Secret Manager permissions."
+  validation {
+    condition     = !var.enable_gcp06_jobs_reviewed || (var.enable_foundation && var.project_id == "espacigo-testprod" && var.region == "southamerica-west1" && var.api_gcp06_candidate_run_id == "20261020-gcp06a" && (var.enable_gcp06_admin_bootstrap_job || var.enable_gcp06_test_access_job))
+    error_message = "GCP-06 Jobs require the reviewed foundation, exact candidate, test project/region, and at least one explicitly selected Job."
+  }
+}
+
+variable "gcp06_admin_bootstrap_image" {
+  type        = string
+  default     = ""
+  description = "Immutable Artifact Registry digest for the separately reviewed owner-bootstrap Job."
+}
+
+variable "gcp06_activation_login" {
+  type        = string
+  default     = ""
+  description = "One-time PostgreSQL login that is SET ROLE member only of espacigo_gadm_bootstrap."
+  validation {
+    condition     = var.gcp06_activation_login == "" || can(regex("^gadm_activation_[a-f0-9]{12}$", var.gcp06_activation_login))
+    error_message = "GCP-06 activation login must be one-time and match the restricted login contract."
+  }
+}
+
+variable "gcp06_admin_bootstrap_password_version" {
+  type        = string
+  default     = ""
+  description = "Numeric Secret Manager version for the one-time activation login password; the secret payload is never stored in Terraform."
+}
+
+variable "gcp06_bootstrap_operator_member" {
+  type        = string
+  default     = ""
+  description = "One nominated human principal permitted to invoke only the candidate admin-bootstrap Job."
+  validation {
+    condition     = var.gcp06_bootstrap_operator_member == "" || can(regex("^(user|serviceAccount):[A-Za-z0-9._@+-]+$", var.gcp06_bootstrap_operator_member))
+    error_message = "Bootstrap Job invoker must be one explicit user or service-account principal."
+  }
+}
+
+variable "gcp06_test_access_image" {
+  type        = string
+  default     = ""
+  description = "Immutable Artifact Registry digest for the candidate test-access Job."
+}
+
+variable "gcp06_test_access_login" {
+  type        = string
+  default     = ""
+  description = "One-time PostgreSQL login that is SET ROLE member only of espacigo_gcp06_test_access."
+  validation {
+    condition     = var.gcp06_test_access_login == "" || can(regex("^gcp06_test_access_[a-f0-9]{12}$", var.gcp06_test_access_login))
+    error_message = "Test-access login must be one-time and match the restricted login contract."
+  }
+}
+
+variable "gcp06_test_access_db_password_version" {
+  type        = string
+  default     = ""
+  description = "Numeric Secret Manager version for the separate one-time SQL test-access login."
+}
+
+variable "gcp06_test_app_password_version" {
+  type        = string
+  default     = ""
+  description = "Numeric Secret Manager version for the shared synthetic application password; Secret Manager only, never Terraform payload/state."
+}
+
+variable "gcp06_test_access_operator_member" {
+  type        = string
+  default     = ""
+  description = "One nominated human principal permitted to invoke only the candidate test-access Job."
+  validation {
+    condition     = var.gcp06_test_access_operator_member == "" || can(regex("^(user|serviceAccount):[A-Za-z0-9._@+-]+$", var.gcp06_test_access_operator_member))
+    error_message = "Test-access Job invoker must be one explicit user or service-account principal."
+  }
+}
+
+variable "gcp06_test_access_mode" {
+  type        = string
+  default     = "preview"
+  description = "Preview emits only count and target-set digest. Apply changes the exact reviewed candidate cohort and revokes its sessions/tokens."
+  validation {
+    condition     = contains(["preview", "apply"], var.gcp06_test_access_mode)
+    error_message = "GCP-06 test-access Job mode must be preview or apply."
+  }
+}
+
+variable "gcp06_test_access_expected_count" {
+  type        = number
+  default     = 0
+  description = "Exact user count from the separately reviewed, non-PII preview. Required only in apply mode."
+}
+
+variable "gcp06_test_access_expected_sha256" {
+  type        = string
+  default     = ""
+  description = "Order-independent digest of the candidate UUID cohort from the reviewed preview; no account IDs are stored in Terraform."
+}
+
+variable "gcp06_test_access_operation_id" {
+  type        = string
+  default     = ""
+  description = "Unique UUID for one apply attempt. Reconcile this audit ID after uncertain outcomes; never re-run with a new ID until reconciled."
+}
+
+variable "gcp06_test_access_confirmation" {
+  type        = string
+  default     = ""
+  description = "Exact candidate/count/digest/operation confirmation required by the apply Job. Contains no secret."
+}
+
 variable "api_contract_encryption_key_version" {
   type        = string
   default     = "latest"

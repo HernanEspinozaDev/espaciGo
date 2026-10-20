@@ -767,11 +767,17 @@ func TestGCP04WorkerRoleMigrationV64LeastPrivilege(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 64 || migrations[63].Name != "V000064__gcp04_privacy_cleanup_worker_role.sql" {
-		t.Fatalf("unexpected latest migration: count=%d latest=%q", len(migrations), migrations[len(migrations)-1].Name)
+	if len(migrations) < 64 || migrations[63].Name != "V000064__gcp04_privacy_cleanup_worker_role.sql" {
+		t.Fatalf("unexpected V64 migration: count=%d v64=%q", len(migrations), migrations[63].Name)
+	}
+	v64Dir := t.TempDir()
+	for _, migration := range migrations[:64] {
+		if err := os.WriteFile(filepath.Join(v64Dir, filepath.Base(migration.Path)), migration.SQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
-		result, err := Run(ctx, databaseURL, sourceDir)
+		result, err := Run(ctx, databaseURL, v64Dir)
 		if err != nil || len(result.Applied) != 64 || result.Applied[63] != 64 {
 			t.Fatalf("fresh V1-V64 migration: applied=%v err=%v", result.Applied, err)
 		}
@@ -864,7 +870,7 @@ func TestGCP04WorkerRoleMigrationV64LeastPrivilege(t *testing.T) {
 		if err := conn.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		result, err := Run(ctx, databaseURL, sourceDir)
+		result, err := Run(ctx, databaseURL, v64Dir)
 		if err != nil || len(result.Applied) != 1 || result.Applied[0] != 64 {
 			t.Fatalf("upgrade V63 to V64: applied=%v err=%v", result.Applied, err)
 		}
@@ -1369,6 +1375,61 @@ func TestRunnerRejectsVersionGapBeforeDDL(t *testing.T) {
 			if historyRows != 0 {
 				t.Fatalf("invalid sequence changed history: %d rows", historyRows)
 			}
+		}
+	})
+}
+
+func TestGCP06TestAccessMigrationV66LeastPrivilege(t *testing.T) {
+	adminURL := os.Getenv("TEST_DATABASE_URL")
+	if adminURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set; requires disposable PostgreSQL 18")
+	}
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve migration source path")
+	}
+	sourceDir := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "db", "migrations"))
+	migrations, err := DiscoverMigrations(sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrations) != 66 || migrations[65].Name != "V000066__gcp06_test_access_reset.sql" {
+		t.Fatalf("unexpected GCP-06 migration tail: count=%d latest=%q", len(migrations), migrations[len(migrations)-1].Name)
+	}
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		result, err := Run(ctx, databaseURL, sourceDir)
+		if err != nil || len(result.Applied) != 66 || result.Applied[65] != 66 {
+			t.Fatalf("fresh V1-V66 migration: applied=%v err=%v", result.Applied, err)
+		}
+		conn := connectTestDB(t, ctx, databaseURL)
+		defer conn.Close(context.Background())
+		var canLogin, super, createRole, inherit, hashRead, hashWrite, eventDelete, publicExecute bool
+		if err := conn.QueryRow(ctx, `SELECT r.rolcanlogin,r.rolsuper,r.rolcreaterole,r.rolinherit,
+			has_column_privilege('espacigo_gcp06_test_access','public.usuario','hash_clave','SELECT'),
+			has_column_privilege('espacigo_gcp06_test_access','public.usuario','hash_clave','UPDATE'),
+			has_table_privilege('espacigo_gcp06_test_access','public.gcp06_test_access_batch_audit','DELETE'),
+			EXISTS(SELECT 1 FROM pg_catalog.pg_proc p CROSS JOIN LATERAL pg_catalog.aclexplode(p.proacl) a
+				WHERE p.oid='public.gcp06_test_access_target_ids()'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE')
+			FROM pg_catalog.pg_roles r WHERE r.rolname='espacigo_gcp06_test_access'`).Scan(&canLogin, &super, &createRole, &inherit, &hashRead, &hashWrite, &eventDelete, &publicExecute); err != nil {
+			t.Fatal(err)
+		}
+		if canLogin || super || createRole || inherit || hashRead || !hashWrite || eventDelete || publicExecute {
+			t.Fatalf("GCP-06 reset role privilege mismatch: login=%v super=%v create_role=%v inherit=%v hash_read=%v hash_write=%v audit_delete=%v public_execute=%v", canLogin, super, createRole, inherit, hashRead, hashWrite, eventDelete, publicExecute)
+		}
+		var targetIDs int
+		if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.gcp06_test_access_target_ids()`).Scan(&targetIDs); err != nil || targetIDs != 0 {
+			t.Fatalf("empty candidate target function returned unexpected rows: count=%d err=%v", targetIDs, err)
+		}
+	})
+	t.Cleanup(func() {
+		admin, err := pgx.Connect(context.Background(), adminURL)
+		if err != nil {
+			t.Errorf("connect to clean disposable GCP-06 role: %v", err)
+			return
+		}
+		defer admin.Close(context.Background())
+		if _, err := admin.Exec(context.Background(), "DROP ROLE IF EXISTS espacigo_gcp06_test_access"); err != nil {
+			t.Errorf("drop disposable GCP-06 test role: %v", err)
 		}
 	})
 }

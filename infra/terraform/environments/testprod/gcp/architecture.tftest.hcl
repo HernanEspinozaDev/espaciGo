@@ -65,6 +65,10 @@ run "foundation_plan_is_gated_and_scoped" {
     condition     = length(google_compute_network.testprod) == 1 && length(google_compute_subnetwork.serverless) == 1
     error_message = "Foundation should create one dedicated VPC and serverless subnet."
   }
+  assert {
+    condition     = length(google_cloud_run_v2_job.gcp06_admin_bootstrap) == 0 && length(google_cloud_run_v2_job.gcp06_test_access) == 0 && length(google_service_account.gcp06_job) == 0
+    error_message = "GCP-06 candidate Jobs and their identities must remain absent until their dedicated review gate is enabled."
+  }
 }
 
 run "foundation_rejects_missing_human_gates" {
@@ -273,6 +277,66 @@ run "candidate_mode_rejects_a_different_run_id" {
   }
 
   expect_failures = [var.api_gcp06_candidate_run_id]
+}
+
+run "candidate_jobs_are_one_shot_private_and_separately_secret_scoped" {
+  command = plan
+
+  variables {
+    project_id                             = "espacigo-testprod"
+    project_number                         = "123456789012"
+    enable_foundation                      = true
+    confirm_project_inventory              = true
+    confirm_cost_policy_review             = true
+    acknowledge_gcp04_runtime_gates        = true
+    bucket_suffix                          = "candidate-jobs"
+    api_gcp06_candidate_run_id             = "20261020-gcp06a"
+    api_gcp06_candidate_password_version   = "3"
+    enable_gcp06_admin_bootstrap_job       = true
+    enable_gcp06_test_access_job           = true
+    enable_gcp06_jobs_reviewed             = true
+    gcp06_admin_bootstrap_image            = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/gcp06-admin-bootstrap@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    gcp06_activation_login                 = "gadm_activation_012345abcdef"
+    gcp06_admin_bootstrap_password_version = "4"
+    gcp06_bootstrap_operator_member        = "user:operator@example.test"
+    gcp06_test_access_image                = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/gcp06-test-access@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    gcp06_test_access_login                = "gcp06_test_access_012345abcdef"
+    gcp06_test_access_db_password_version  = "5"
+    gcp06_test_access_operator_member      = "user:operator@example.test"
+  }
+
+  override_data {
+    target = data.google_sql_database_instance.gcp06_candidate[0]
+    values = {
+      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg"
+      database_version   = "POSTGRES_18"
+      private_ip_address = "10.189.0.13"
+      region             = "southamerica-west1"
+    }
+  }
+
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.gcp06_admin_bootstrap) == 1 &&
+      google_cloud_run_v2_job.gcp06_admin_bootstrap[0].template[0].task_count == 1 &&
+      google_cloud_run_v2_job.gcp06_admin_bootstrap[0].template[0].template[0].max_retries == 0 &&
+      google_service_account.gcp06_job["admin-bootstrap"].account_id == "espacigo-gcp06-admin-bootstrap"
+    )
+    error_message = "The owner bootstrap must use its dedicated one-shot identity and no automatic retries."
+  }
+  assert {
+    condition = (
+      length(google_cloud_run_v2_job.gcp06_test_access) == 1 &&
+      google_cloud_run_v2_job.gcp06_test_access[0].template[0].template[0].max_retries == 0 &&
+      google_service_account.gcp06_job["test-access"].account_id == "espacigo-gcp06-test-access" &&
+      length(google_secret_manager_secret_iam_member.gcp06_job_secret_access) == 3
+    )
+    error_message = "Preview Jobs must use isolated identities and only the three required SQL secrets."
+  }
+  assert {
+    condition     = one([for env in google_cloud_run_v2_job.gcp06_test_access[0].template[0].template[0].containers[0].env : env.value if env.name == "GCP06_TEST_ACCESS_MODE"]) == "preview"
+    error_message = "Test-access Job must default to a non-mutating preview."
+  }
 }
 
 run "services_without_edge_expose_runapp_with_private_gates" {
