@@ -267,6 +267,16 @@ variable "mailpit_private_address" {
   }
 }
 
+variable "mailpit_cos_image" {
+  type        = string
+  description = "Optional fully qualified COS image URL for the Mailpit VM; empty keeps the cos-stable family lookup."
+  default     = ""
+  validation {
+    condition     = var.mailpit_cos_image == "" || can(regex("^https://www\\.googleapis\\.com/compute/v1/projects/cos-cloud/global/images/cos-stable-[a-z0-9-]+$", var.mailpit_cos_image))
+    error_message = "mailpit_cos_image must be empty or a fully qualified cos-cloud cos-stable image URL."
+  }
+}
+
 variable "mailpit_zone" {
   type        = string
   description = "Explicit zone for the small, private Mailpit test VM and persistent data disk."

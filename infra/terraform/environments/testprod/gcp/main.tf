@@ -245,7 +245,7 @@ resource "google_artifact_registry_repository_iam_member" "mailpit_reader" {
 }
 
 data "google_compute_image" "mailpit_cos" {
-  count   = var.enable_mailpit ? 1 : 0
+  count   = var.enable_mailpit && var.mailpit_cos_image == "" ? 1 : 0
   project = "cos-cloud"
   family  = "cos-stable"
 }
@@ -324,7 +324,7 @@ resource "google_compute_instance" "mailpit" {
   boot_disk {
     auto_delete = true
     initialize_params {
-      image = data.google_compute_image.mailpit_cos[0].self_link
+      image = var.mailpit_cos_image != "" ? var.mailpit_cos_image : data.google_compute_image.mailpit_cos[0].self_link
       size  = 20
       type  = "pd-balanced"
     }
