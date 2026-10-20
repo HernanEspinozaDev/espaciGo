@@ -191,6 +191,12 @@ VALUES('30000000-0000-4000-8000-000000000021','10000000-0000-4000-8000-000000000
 UPDATE public.espacio SET estado='activa' WHERE id='30000000-0000-4000-8000-000000000021';
 INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp)
 VALUES('30000000-0000-4000-8000-000000000021',1,'dia',25000);
+INSERT INTO public.espacio_publicacion_historial_local(
+  espacio_id,actor_id,estado_anterior,estado_nuevo,ocurrida_en,correlacion_id
+) VALUES(
+  '30000000-0000-4000-8000-000000000021','10000000-0000-4000-8000-000000000021',
+  'borrador','activa',now(),'synthetic-publication-history'
+);
 SQL
 EXPORT_ID="e2e-$(date -u +%Y%m%d%H%M%S)-$$"
 EXPORT_DIR=".local/testing/gcp06-stage-$EXPORT_ID"
@@ -221,6 +227,8 @@ reports=[json.loads(line) for line in open(sys.argv[1],encoding='utf-8') if line
 assert reports and reports[0]['source_only']==0 and reports[0]['stage_only']==0, reports
 print('PASS: disposable staging extension bootstrap matches the synthetic source catalog inventory')
 PY
+source_history_count="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM espacio_publicacion_historial_local')"
+[[ "$source_history_count" == 1 ]] || { echo 'Synthetic source append-only history changed during export.' >&2; exit 1; }
 python3 - "$ROOT_DIR/$EXPORT_DIR/manifest.json" "$ROOT_DIR/$EXPORT_DIR/data.sql" <<'PY'
 import json,re,sys
 manifest_path,dump_path=sys.argv[1:]
@@ -240,6 +248,9 @@ assert 'CREATE TABLE public.schema_migrations' in dump
 assert 'COPY public.schema_migrations' in dump
 assert 'CREATE TABLE public.categoria_espacio' in dump
 assert 'COPY public.categoria_espacio' in dump
+assert 'CREATE TABLE public.espacio_publicacion_historial_local' in dump
+assert 'COPY public.espacio_publicacion_historial_local' not in dump
+assert 'INSERT INTO public.espacio_publicacion_historial_local' not in dump
 postgis_extension=[line for line in dump.splitlines()
                    if re.search(r'^\s*CREATE\s+EXTENSION\b.*\bpostgis\b',line,re.I)]
 assert len(postgis_extension)==1
@@ -261,6 +272,8 @@ echo 'PASS: psql import selected the target PostgreSQL server default PostGIS ve
 catalog_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c \
   "SELECT count(*) FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo AND c.activa JOIN LATERAL (SELECT 1 FROM public.tarifa_espacio t0 WHERE t0.espacio_id=e.id ORDER BY t0.version DESC LIMIT 1) t ON true JOIN public.usuario u ON u.id=e.propietario_id AND u.estado='activo' WHERE e.estado='activa' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id) AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local el JOIN public.verificacion v ON v.id=el.verificacion_id AND v.usuario_id=el.usuario_id AND v.tipo=el.tipo AND v.estado='aprobada' WHERE el.usuario_id=u.id AND el.tipo='kyc' AND el.estado='elegible') AND NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local_fixture fx WHERE fx.espacio_id=e.id AND fx.anfitrion_id=e.propietario_id AND fx.habilitada)")"
 [[ "$catalog_count" == 1 ]] || { echo 'Candidate database did not expose the expected synthetic catalog fixture.' >&2; exit 1; }
+candidate_history_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) FROM public.espacio_publicacion_historial_local')"
+[[ "$candidate_history_count" == 0 ]] || { echo 'Append-only publication history data leaked into the candidate dump.' >&2; exit 1; }
 if docker exec -i "$CONTAINER" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d espacigo_local \
   < "$ROOT_DIR/$EXPORT_DIR/data.sql" >/dev/null 2>&1; then
   echo 'Import guard accepted a non-candidate database.' >&2
@@ -268,6 +281,8 @@ if docker exec -i "$CONTAINER" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d espa
 fi
 source_rows_after_rejected_import="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM public.usuario')"
 [[ "$source_rows_after_rejected_import" == 2 ]] || { echo 'Rejected import modified the synthetic source fixture.' >&2; exit 1; }
+source_history_after_import="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM public.espacio_publicacion_historial_local')"
+[[ "$source_history_after_import" == 1 ]] || { echo 'Source append-only publication history changed.' >&2; exit 1; }
 ledger_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) || chr(58) || max(version) FROM public.schema_migrations')"
 [[ "$ledger_count" == '64:64' ]] || { echo 'Portable SQL dump did not restore ledger V1-V64.' >&2; exit 1; }
 seed_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) FROM public.categoria_espacio')"

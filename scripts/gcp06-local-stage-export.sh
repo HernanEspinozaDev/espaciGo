@@ -246,6 +246,8 @@ PY
 
 set +e
 docker exec "$CONTAINER" pg_dump --format=plain --no-owner --no-privileges --no-comments \
+  --exclude-table-data=public.espacio_publicacion_historial_local \
+  --exclude-table-data=public.espacio_eliminacion_historial_local \
   -U postgres -d "$STAGE_DB" 2>/dev/null > "$ROOT_DIR/$OUTPUT_DIR/data.sql.dump.tmp"
 dump_status=$?
 set -e

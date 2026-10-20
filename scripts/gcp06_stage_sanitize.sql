@@ -37,6 +37,20 @@ CREATE TEMP TABLE gcp06_tainted_row (
     PRIMARY KEY (relid, row_tid)
 ) ON COMMIT DROP;
 
+-- Publication/deletion ledgers are append-only. Preserve their table schemas
+-- but keep their rows out of the sanitized candidate rather than attempting
+-- DELETE/UPDATE through immutable-history triggers.
+CREATE TEMP TABLE gcp06_excluded_append_only_data (
+    relid oid PRIMARY KEY
+) ON COMMIT DROP;
+INSERT INTO pg_temp.gcp06_excluded_append_only_data(relid)
+SELECT r::regclass::oid
+FROM unnest(ARRAY[
+    to_regclass('public.espacio_publicacion_historial_local'),
+    to_regclass('public.espacio_eliminacion_historial_local')
+]) AS r
+WHERE r IS NOT NULL;
+
 -- Only deterministic dataset accounts enter the copied snapshot. Global
 -- administrators, local test identities and retained privacy/audit work are
 -- removed together with every row that references them.
@@ -98,6 +112,10 @@ BEGIN
             JOIN pg_class parent ON parent.oid=c.confrelid AND parent.relkind='r'
             JOIN pg_namespace parent_ns ON parent_ns.oid=parent.relnamespace AND parent_ns.nspname='public'
             WHERE c.contype='f'
+              AND NOT EXISTS (
+                  SELECT 1 FROM pg_temp.gcp06_excluded_append_only_data x
+                  WHERE x.relid=c.conrelid
+              )
             ORDER BY c.oid
         LOOP
             SELECT string_agg(format('p.%I', a.attname), ',' ORDER BY k.ordinality)
