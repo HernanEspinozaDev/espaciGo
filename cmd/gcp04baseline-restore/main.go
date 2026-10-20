@@ -495,7 +495,11 @@ func generateRestoreSQL(ctx context.Context, files bundleFiles, m manifest, scri
 	combined.Write(*script)
 	combined.Write(restoreBody)
 	combined.WriteString("\n")
-	combined.Write(files["baseline.acl.restore.sql"])
+	aclSQL, err := optionalObserverACL(files["baseline.acl.restore.sql"])
+	if err != nil {
+		return err
+	}
+	combined.Write(aclSQL)
 	combined.WriteString("\nDO $gcp04_postcheck$ BEGIN\n")
 	combined.WriteString("IF (SELECT count(*) FROM public.schema_migrations)<>64 OR (SELECT min(version) FROM public.schema_migrations)<>1 OR (SELECT max(version) FROM public.schema_migrations)<>64 THEN RAISE EXCEPTION 'restored_migration_history_invalid'; END IF;\n")
 	allRows, err := migrationValues(m.Migrations.SourceLedger)
@@ -511,6 +515,22 @@ func generateRestoreSQL(ctx context.Context, files bundleFiles, m manifest, scri
 	combined.WriteString("SELECT json_build_object('format','espacigo.gcp04.baseline-restore.v1','phase','restore','status','passed','target',json_build_object('database','espacigo','database_user','espacigo_migrator_login'),'migration_history','V1-V64_verified','gadm_role','preserved')::text;\n")
 	*script = combined.Bytes()
 	return nil
+}
+
+const observerGrant = "GRANT SELECT ON TABLE public.schema_migrations TO espacigo_db_observer;"
+
+func optionalObserverACL(aclSQL []byte) ([]byte, error) {
+	if strings.Count(string(aclSQL), observerGrant) != 1 {
+		return nil, errors.New("ACL artifact has unexpected optional observer grant")
+	}
+	guardedGrant := `DO $gcp04_optional_observer_acl$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='espacigo_db_observer') THEN
+    EXECUTE 'GRANT SELECT ON TABLE public.schema_migrations TO espacigo_db_observer';
+  END IF;
+END
+$gcp04_optional_observer_acl$;`
+	return []byte(strings.Replace(string(aclSQL), observerGrant, guardedGrant, 1)), nil
 }
 
 func parseSQLReport(output []byte) (report, error) {
