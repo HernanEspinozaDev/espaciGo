@@ -113,11 +113,11 @@ En el inventario privado de solo nombres/metadatos bajo `.local/testing` del wor
 Antes de implementar o capturar, el operador debe verificar en el canal local autorizado, sin copiar contenido a GitHub:
 
 - snapshot lógico consistente de `espacigo_local` V61 con timestamp/LSN, `pg_dump --data-only` o formato equivalente revisado, SHA-256, tamaño, versión del cliente y recibo de origen;
-- manifiesto allowlisted de tablas/columnas y transformaciones V61→V64, inventarios antes/después y política explícita de filas que no se trasladan (sesiones, tokens, outbox, contraseñas/hashes o credenciales locales);
+- manifiesto allowlisted de tablas/columnas y transformaciones V61→V64, inventarios antes/después y política de filas que no se trasladan (sesiones, tokens, outbox y credenciales plaintext). Los verificadores de contraseña de cuentas sintéticas de ensayo autorizadas por la política privada pueden conservarse opacos y byte a byte para mantener esos accesos; nunca se exportan contraseñas plaintext ni se inspeccionan, muestran o registran hashes. Si la política privada no permite determinar las cuentas incluidas, la carga se detiene;
 - archivos privados necesarios para las referencias permitidas, cada uno con ID de aplicación, nombre de objeto destino, tamaño, MIME y SHA-256; el contenido y manifiesto permanecen fuera de Git/PR/logs;
 - llave contractual que permita leer los artefactos existentes, referencia de custodia y procedimiento para introducirla en Secret Manager sin imprimirla ni incorporarla al dump;
 - archivos montados locales auxiliares que sí tengan función de aplicación (evidencia privada, registro de replay de supresiones), con procedencia, permisos y compatibilidad. La ruta del volumen Docker y su contenido no se infieren desde este worktree;
-- política de cuentas de ensayo solo si se necesita crear/verificar una cuenta local; la política LOCAL PRIVADA permanece en `.local/testing/` y no se copia al paquete.
+- política privada de ensayo para determinar qué cuentas sintéticas pueden conservar su verificador opaco; permanece en `.local/testing/` y no se copia al paquete. La fila/identidad del administrador global no forma parte del import masivo: se preserva sin sobrescritura si ya existe, y toda colisión o decisión de importar su registro requiere reconciliación allowlisted separada. La carga no crea, activa ni cambia roles/credenciales del administrador global ni ejecuta bootstrap; cualquier activación/bootstrap es un paso local explícito separado y nunca se infiere de importar datos.
 
 Si falta un artefacto indispensable o no se puede comprobar su integridad/legibilidad, detenerse antes de exportar/cargar. El origen persistente no se detiene, reinicia, modifica ni limpia durante la preparación documental.
 

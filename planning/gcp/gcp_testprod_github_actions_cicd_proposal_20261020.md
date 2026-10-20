@@ -13,7 +13,7 @@
 ## Flujo mínimo propuesto
 
 1. **PR / push a ramas:** ejecutar lint, checks de arquitectura/API, pruebas backend relevantes, pruebas frontend, build de contenedores y escaneo de dependencias. No conceder `id-token: write`, no autenticarse en Google Cloud, no publicar imágenes y no desplegar desde PRs.
-2. **Push a `main`:** después de checks requeridos, construir imágenes API y Angular SSR desde el mismo SHA, publicar en `southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod`, resolver y registrar digest OCI inmutable y provenance de commit/herramientas. Acciones de terceros fijadas por SHA.
+2. **Push a `main`:** desplegar automáticamente a Cloud Run después de que pasen los checks requeridos de ese commit integrado. El usuario ya indicó que quiere este comportamiento para `main`; no habrá despliegues desde PRs ni aprobación manual por cada merge. Construir imágenes API y Angular SSR desde el mismo SHA, publicar en `southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod`, resolver y registrar digest OCI inmutable y provenance de commit/herramientas. Acciones de terceros fijadas por SHA.
 3. **Autenticación:** GitHub OIDC→WIF, sin llave JSON. `id-token: write` se limita al job de deploy; `contents: read` al workflow. Conservar la restricción de repositorio/ref, y considerar mapear/restringir `repository_id`, `workflow_ref` y environment para evitar depender solo del nombre mutable del repo.
 4. **Despliegue:** actualizar servicios Cloud Run declarados (`espacigo-test-api`, `espacigo-test-public`, `espacigo-test-private`) usando referencias `@sha256`, no tags mutables. Ejecutar health checks públicos/privados aprobados sin exponer tokens. El cambio de imágenes se mantiene coherente con Terraform; no permitir drift permanente entre la fuente declarativa y el estado desplegado.
 5. **Evidencia:** publicar en el resumen del workflow commit, digest(s), servicios/revisiones resultantes, URLs/checks y resultado. No imprimir variables secretas, DSN, tokens, cuerpos de solicitudes ni contenido de Secret Manager.
@@ -24,12 +24,11 @@ El deployer existente tiene permisos a nivel de proyecto para Run y puede adjunt
 
 Antes de activar un workflow hay que comprobar que la condición WIF realmente restringe al repositorio y a `main`, auditar el alcance de IAM vigente, decidir si se mantendrán tres servicios en Terraform como fuente declarativa o se migrará el control de imagen al pipeline, y añadir pruebas de configuración/política. No dar por sentado que un archivo YAML por sí solo despliega con éxito.
 
-## Decisiones de producto/operación requeridas
+## Decisiones y gates de implementación
 
-- Confirmar si cada merge a `main` debe desplegar automáticamente a testprod una vez verdes los checks, o si el primer despliegue debe requerir aprobación manual de un Environment de GitHub.
-- Confirmar si deploy se permite solo desde `main` o desde tags de release; la WIF actual solo permite `main`.
-- Acordar estrategia de rollback por digest y disponibilidad del servicio API durante actualización. Los cambios de schema y las migraciones de datos permanecen en releases aparte; el pipeline de aplicación no debe ejecutar migraciones de esquema o transferencia G03O automáticamente.
-- Aprobar lista de checks obligatorios por imagen y plan de observabilidad del release. El estado de revisión de PR no debe confundirse con la aceptación final del producto.
+- El comportamiento deseado ya está definido: cada commit integrado en `main` se despliega automáticamente a testprod cuando pasan los checks requeridos; los PR no despliegan. La condición WIF existente también apunta a `main`.
+- Acordar la lista concreta de checks obligatorios por imagen y definir estrategia de rollback por digest y disponibilidad de la API. Los cambios de schema, bootstrap y transferencias G03O permanecen en releases aparte; el pipeline de aplicación no ejecuta esas operaciones.
+- Antes de activar el workflow, revisar IAM efectivo, GitHub branch protection/required checks, configuración WIF y coherencia con Terraform. La existencia actual de estos controles no se ha verificado en GitHub/Cloud; este PR no los cambia.
 
 ## Límites
 
