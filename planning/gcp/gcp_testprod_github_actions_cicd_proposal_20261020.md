@@ -61,8 +61,10 @@ No se propone renombrar servicios a `backend`/`frontend`: los nombres actuales i
 ### 3. Deploy: Terraform como fuente declarativa
 
 - El job de publicación/deploy declara `environment: testprod`, restringido a `main`, y se autentica con OIDC→WIF. `id-token: write` queda solo en ese job; no usar llaves JSON ni claves de cuenta de servicio.
-- Ejecutar `terraform plan` desde `infra/terraform/environments/testprod/gcp`, con el backend GCS ya usado por ese root y los nuevos `api_image`/`frontend_image` por digest. Guardar el plan generado como artefacto de la corrida y aplicar exactamente ese plan, nunca volver a resolver tags entre plan y apply.
-- Antes del apply, evaluar el JSON del plan con una política de allowlist. Aceptar únicamente actualizaciones en sitio del campo de imagen de `google_cloud_run_v2_service.api` y/o `google_cloud_run_v2_service.web["public"|"private"]`, según el componente construido. Rechazar creación, eliminación, reemplazo o cualquier cambio de IAM, tráfico, URLs, ingress, Secret Manager, variables de entorno, SQL, red, Jobs u otros recursos. No usar `-target` para esconder drift.
+- Ejecutar `terraform plan` desde `infra/terraform/environments/testprod/gcp`, con el backend GCS ya usado por ese root y los nuevos `api_image`/`frontend_image` por digest. Mantener el plan binario y cualquier JSON derivado únicamente dentro del job confiable de deploy, en el workspace efímero del runner, con acceso restringido (archivo `0600` cuando aplique). Aplicar exactamente ese plan dentro del mismo job; nunca volver a resolver tags entre plan y apply.
+- No subir el plan binario ni JSON completo a Actions artifacts, caché, outputs, comentarios del PR, logs u otro almacenamiento descargable: los planes pueden contener valores sensibles en claro incluso cuando Terraform los marca como sensibles. No imprimirlos con `terraform show` ni volcar el JSON a logs. Limpiar los archivos temporales al terminar y depender del descarte del runner efímero.
+- Antes del apply, evaluar localmente el JSON del plan con una política de allowlist. Aceptar únicamente actualizaciones en sitio del campo de imagen de `google_cloud_run_v2_service.api` y/o `google_cloud_run_v2_service.web["public"|"private"]`, según el componente construido. Rechazar creación, eliminación, reemplazo o cualquier cambio de IAM, tráfico, URLs, ingress, Secret Manager, variables de entorno, SQL, red, Jobs u otros recursos. No usar `-target` para esconder drift.
+- El resumen publicable de la corrida contendrá solo datos de allowlist explícita: SHA fuente, digest de imagen, resultado/código de salida y conteos de acciones permitidas. No incluir valores del plan, variables, nombres de recursos no aprobados ni fragmentos del JSON. Si se necesita revisión humana de cambios fuera de la allowlist, detener el deploy y abrir un flujo de infraestructura separado; no distribuir el plan sensible como artefacto.
 - Si el plan detecta drift o requiere otros cambios, detener el release y preparar un PR/plan de infraestructura por separado. No aplicar automáticamente un plan amplio solo porque se originó desde `main`.
 - Mantener `api_image` y `frontend_image` actualizados en el mismo state Terraform que administra esos servicios. No usar `gcloud run deploy` como camino de rutina, porque dejaría un estado remoto distinto a la configuración declarativa.
 
@@ -78,7 +80,7 @@ No se propone renombrar servicios a `backend`/`frontend`: los nombres actuales i
 Se propone mantener dos responsabilidades separadas para que un PR nunca pueda acceder a Cloud:
 
 1. `application-quality.yml`: `pull_request` hacia `main`; checks Go y Angular requeridos, sin WIF.
-2. `application-release.yml`: `push` a `main`; build/publicación, job Terraform con WIF, control de diff, apply del plan guardado y verificaciones.
+2. `application-release.yml`: `push` a `main`; build/publicación, job Terraform con WIF, control local del plan efímero, apply del mismo plan dentro del job y verificaciones. El workflow no publica el plan binario ni su JSON.
 
 El release puede usar jobs `build-api`, `build-web` y `deploy`, conectados por `needs`. La concurrencia será `testprod-cloud-run` y conservará la corrida activa. Las acciones de terceros se fijan por SHA completo y se limita `permissions` por job.
 
