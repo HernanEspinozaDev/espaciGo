@@ -1,0 +1,51 @@
+{
+  "format": "espacigo.gcp06.candidate-verification.v1",
+  "target": {
+    "run_id": "20261020-gcp06a",
+    "project_id": "espacigo-testprod",
+    "instance": "espacigo-gcp06-20261020-gcp06a-pg",
+    "database": "espacigo_gcp06_candidate_20261020-gcp06a",
+    "expected_imported_ledger": "V1-V64",
+    "server_major": 18
+  },
+  "phase_a_catalog_only": {
+    "program": "cmd/gcp06sqlinspect",
+    "source": "internal/gcp06sqlinspect/inspect.go",
+    "source_sha256": "78da371f1a84e1fd9b5e89e329ae613e94edfd9838e70b7298be64b88507c139",
+    "query_ids": [
+      {"id": "GCP06-CAT-001", "source_symbol": "queryIdentity"},
+      {"id": "GCP06-CAT-002", "source_symbol": "queryRoles"},
+      {"id": "GCP06-CAT-003", "source_symbol": "queryMemberships"},
+      {"id": "GCP06-CAT-004", "source_symbol": "queryExtensions"},
+      {"id": "GCP06-CAT-005", "source_symbol": "querySchemaState"},
+      {"id": "GCP06-CAT-006", "source_symbol": "queryOwnerAggregates"},
+      {"id": "GCP06-CAT-007", "source_symbol": "queryDatabaseSchemaAccess"},
+      {"id": "GCP06-CAT-008", "source_symbol": "queryRelationAccess"},
+      {"id": "GCP06-CAT-009", "source_symbol": "queryColumnAccess"},
+      {"id": "GCP06-CAT-010", "source_symbol": "queryRoutineAccess"},
+      {"id": "GCP06-CAT-011", "source_symbol": "queryDefaultACL"}
+    ],
+    "contract": "Existing inspector only: PostgreSQL catalog metadata, extension inventory, ownership aggregates and effective privileges. No migration-ledger rows or application-table reads."
+  },
+  "phase_a2_fixed_row_aggregates": {
+    "query_id": "GCP06-ROWS-001",
+    "sql": "planning/gcp/sql_candidates/gcp06_candidate_data_verify_v1_v64.sql",
+    "sql_sha256": "82401779dd362d409273128f20c2f8b940936e5438b4773c7e3d1ed79c8687f5",
+    "contract": "Separate, fixed psql script in one read-only transaction. Reads only the migration ledger and aggregate profile represented by the sanitized staging manifest; emits one JSON object and no application rows.",
+    "permission": "Not part of Phase A or the Phase A inspector Job. Requires a separately reviewed and authorized private SQL path and successful SELECT rights; otherwise STOP without grants or retry.",
+    "expected_profile_format": "espacigo.gcp06.local-stage.v1",
+    "private_manifest_template": ".local/testing/gcp06-stage-<run-id>/manifest.json",
+    "manifest_sha256": null,
+    "manifest_sha256_note": "Private manifest was not present in the development worktree; do not invent or version its hash. The local comparator computes it from the mode-0600 input when later supplied.",
+    "imported_object": {
+      "bytes": 16620453,
+      "sha256": "bb35a8709ae74d51e73b69d0dd75d7b4b761822508353dab9dddcd631cec9c11"
+    },
+    "comparator": "scripts/gcp06_candidate_verify_manifest.py"
+  },
+  "result_policy": {
+    "allowed_output": ["target identity", "query_id", "ledger aggregates", "sanitized manifest aggregates", "manifest hash", "pass/stop reason code"],
+    "prohibited_output": ["application rows", "emails", "UUIDs", "passwords", "password hashes", "tokens", "secret payloads", "DSNs"]
+  },
+  "cloud_status": "NOT_RUN; no Cloud SQL session, Cloud API, credentials, IAM, Secret Manager, Cloud Run, Terraform, or remote resource was used by this package."
+}
