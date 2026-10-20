@@ -33,7 +33,8 @@ def main(path):
                 or str(manifest.get("run_id")) != str(run_id) or run.get("status") != "completed"
                 or run.get("conclusion") != "success" or run.get("event") != "push"
                 or run.get("head_branch") != "main" or run.get("path") != ".github/workflows/application-release.yml"
-                or manifest.get("source_sha") != run.get("head_sha")):
+                or manifest.get("source_sha") != run.get("head_sha")
+                or not isinstance(manifest.get("contains_migrations"), bool)):
             raise ValueError()
         source_sha = manifest["source_sha"]
         current = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()

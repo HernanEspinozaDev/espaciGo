@@ -45,6 +45,7 @@ jobs:
       contents: read
     outputs:
       ready: ${{ steps.verify.outputs.ready }}
+      migration_free: ${{ steps.scope.outputs.migration_free }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
@@ -65,10 +66,22 @@ jobs:
           RELEASE_RUN_ID: ${{ inputs.release_run_id }}
           UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
         run: python3 scripts/verify_gcp07_environment.py
+      - name: Download release manifest for migration scope check
+        if: steps.verify.outputs.ready == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gcp07d-release-${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.release_run_id }}
+          path: preflight-release
+          run-id: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.release_run_id }}
+          github-token: ${{ github.token }}
+      - id: scope
+        name: Block releases that include database migrations
+        if: steps.verify.outputs.ready == 'true'
+        run: python3 scripts/verify_gcp07_manifest_scope.py preflight-release/manifest.json
 
   rollout:
     needs: preflight
-    if: needs.preflight.outputs.ready == 'true'
+    if: needs.preflight.outputs.ready == 'true' && needs.preflight.outputs.migration_free == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: testprod
@@ -202,4 +215,4 @@ jobs:
           PY
       - name: Remove private Terraform files
         if: always()
-        run: rm -rf "$RUNNER_TEMP/gcp07d" release approved-preview
+        run: rm -rf "$RUNNER_TEMP/gcp07d" release approved-preview preflight-release

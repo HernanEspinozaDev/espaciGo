@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 from verify_gcp07_environment import event_gate_ready, is_ready, published_release_exists
 from verify_gcp07_plan import ALLOWED, IMAGE_PATH, PolicyError, validate
+from classify_gcp07_release_changes import classify
+from verify_gcp07_manifest_scope import rollout_allowed
 
 
 def environment():
@@ -46,6 +48,22 @@ class Gcp07dPolicyTests(unittest.TestCase):
         self.assertTrue(event_gate_ready("workflow_dispatch", "preview", True, False))
         self.assertFalse(event_gate_ready("workflow_dispatch", "apply", True, True,
                                           "", "42", "f" * 64))
+
+    def test_migration_only_and_mixed_changes_are_marked_and_blocked(self):
+        migration_only = classify(["db/migrations/V65__example.sql"])
+        self.assertTrue(migration_only["api"])
+        self.assertTrue(migration_only["migrations"])
+        self.assertFalse(migration_only["web"])
+        self.assertFalse(rollout_allowed({"schema": 1, "contains_migrations": migration_only["migrations"]}))
+
+        mixed = classify(["internal/api/handler.go", "frontend/src/app.ts", "db/migrations/V65__example.sql"])
+        self.assertTrue(mixed["api"])
+        self.assertTrue(mixed["web"])
+        self.assertTrue(mixed["migrations"])
+        self.assertFalse(rollout_allowed({"schema": 1, "contains_migrations": mixed["migrations"]}))
+
+        app_only = classify(["internal/api/handler.go", "frontend/src/app.ts"])
+        self.assertTrue(rollout_allowed({"schema": 1, "contains_migrations": app_only["migrations"]}))
 
     def test_accepts_single_allowlisted_digest_update(self):
         image = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
