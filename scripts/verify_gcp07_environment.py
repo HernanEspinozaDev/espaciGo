@@ -50,6 +50,25 @@ def published_release_exists(repo, run_id, token):
     return any(a.get("name") == f"gcp07d-release-{run_id}" and not a.get("expired") for a in artifacts)
 
 
+def event_gate_ready(event, mode, publish_enabled, rollout_enabled,
+                     confirmation="", preview_run_id="", fingerprint=""):
+    # application-release.yml uses this helper on push only to validate the
+    # pre-existing Environment. Its own job condition gates publication.
+    if event == "push":
+        return True
+    if not publish_enabled:
+        return False
+    if event == "workflow_run":
+        return mode == "auto" and rollout_enabled
+    if event == "workflow_dispatch" and mode == "preview":
+        return True
+    if event == "workflow_dispatch" and mode == "apply":
+        return (rollout_enabled and confirmation == "APPLY GCP-07D"
+                and preview_run_id.isdigit()
+                and re.fullmatch(r"[0-9a-f]{64}", fingerprint) is not None)
+    return False
+
+
 def main():
     output = os.environ.get("GITHUB_OUTPUT")
     token = os.environ.get("GITHUB_TOKEN", "")
@@ -59,26 +78,23 @@ def main():
     publish_enabled = os.environ.get("PUBLISH_ENABLED") == "true"
     rollout_enabled = os.environ.get("ROLLOUT_ENABLED") == "true"
     ready = False
-    gates_ready = publish_enabled and (
-        (event == "workflow_run" and mode == "auto" and rollout_enabled)
-        or (event == "workflow_dispatch" and mode == "preview")
-        or (event == "workflow_dispatch" and mode == "apply" and rollout_enabled
-            and os.environ.get("CONFIRMATION") == "APPLY GCP-07D"
-            and os.environ.get("PREVIEW_RUN_ID", "").isdigit()
-            and re.fullmatch(r"[0-9a-f]{64}", os.environ.get("FINGERPRINT", "")))
-    )
-    if token and repo and output and gates_ready:
+    eligible = event_gate_ready(
+        event, mode, publish_enabled, rollout_enabled,
+        os.environ.get("CONFIRMATION", ""), os.environ.get("PREVIEW_RUN_ID", ""),
+        os.environ.get("FINGERPRINT", ""))
+    if token and repo and output and eligible:
         base = f"{API}/repos/{repo}/environments/testprod"
         try:
             environment = request_json(base, token)
             policies = request_json(base + "/deployment-branch-policies", token)
             ready = is_ready(environment, policies)
-            if ready:
+            if ready and event in {"workflow_run", "workflow_dispatch"}:
                 run_id = (os.environ.get("UPSTREAM_RUN_ID", "") if event == "workflow_run"
                           else os.environ.get("RELEASE_RUN_ID", ""))
                 ready = run_id.isdigit() and published_release_exists(repo, run_id, token)
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError, KeyError, TypeError):
             ready = False
+    if output:
         with open(output, "a", encoding="utf-8") as stream:
             stream.write(f"ready={'true' if ready else 'false'}\n")
     print("testprod protection verified" if ready else "testprod protection unavailable or does not match policy")

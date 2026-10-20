@@ -2,8 +2,7 @@ import copy
 import unittest
 from unittest.mock import patch
 
-from verify_gcp07_environment import is_ready
-from verify_gcp07_environment import published_release_exists
+from verify_gcp07_environment import event_gate_ready, is_ready, published_release_exists
 from verify_gcp07_plan import ALLOWED, IMAGE_PATH, PolicyError, validate
 
 
@@ -40,6 +39,13 @@ class Gcp07dPolicyTests(unittest.TestCase):
         artifact["artifacts"][0]["expired"] = True
         with patch("verify_gcp07_environment.request_json", side_effect=[run, jobs, artifact]):
             self.assertFalse(published_release_exists("HernanEspinozaDev/espaciGo", "42", "token"))
+
+    def test_release_push_checks_environment_without_rollout_flags(self):
+        self.assertTrue(event_gate_ready("push", "", False, False))
+        self.assertFalse(event_gate_ready("workflow_run", "auto", True, False))
+        self.assertTrue(event_gate_ready("workflow_dispatch", "preview", True, False))
+        self.assertFalse(event_gate_ready("workflow_dispatch", "apply", True, True,
+                                          "", "42", "f" * 64))
 
     def test_accepts_single_allowlisted_digest_update(self):
         image = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
