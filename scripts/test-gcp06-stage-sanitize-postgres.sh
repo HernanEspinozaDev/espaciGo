@@ -172,6 +172,8 @@ PY
 docker exec "$CONTAINER" createdb -U postgres espacigo_local >/dev/null
 docker exec -e DATABASE_URL='postgres://postgres@localhost:5432/espacigo_local?sslmode=disable' \
   "$CONTAINER" /tmp/dbmigrate -dir /tmp/migrations-v61 >/dev/null
+docker exec -i "$CONTAINER" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d espacigo_local \
+  -f /dev/stdin < "$ROOT_DIR/scripts/gcp06_stage_source_extensions.sql" >/dev/null
 psql_local -U postgres -d espacigo_local <<'SQL' >/dev/null
 INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES
  ('10000000-0000-4000-8000-000000000021','u0021@dataset.invalid','u0021@dataset.invalid','opaque-dataset-verifier','activo'),
@@ -208,8 +210,17 @@ grep -q '"type/e"' "$TMP_DIR/inventory.out"
 psql_local -U postgres -d espacigo_local -c 'DROP TABLE public.private_identifier_must_not_leak' >/dev/null
 psql_local -U postgres -d espacigo_local -c 'DROP SCHEMA private_schema_marker_must_not_leak CASCADE' >/dev/null 2>&1
 echo 'PASS: catalog drift preflight reports aggregate counts/digests and suppresses source identifiers and row data'
-GCP06_SOURCE_CONTAINER="$CONTAINER" GCP06_SOURCE_DATABASE_USER=postgres \
-  bash "$ROOT_DIR/scripts/gcp06-local-stage-export.sh" "$EXPORT_DIR" >/dev/null
+if ! GCP06_SOURCE_CONTAINER="$CONTAINER" GCP06_SOURCE_DATABASE_USER=postgres \
+  bash "$ROOT_DIR/scripts/gcp06-local-stage-export.sh" "$EXPORT_DIR" >"$TMP_DIR/export.out" 2>"$TMP_DIR/export.err"; then
+  cat "$TMP_DIR/export.out" "$TMP_DIR/export.err" >&2
+  exit 1
+fi
+python3 - "$TMP_DIR/export.out" <<'PY'
+import json,sys
+reports=[json.loads(line) for line in open(sys.argv[1],encoding='utf-8') if line.startswith('{')]
+assert reports and reports[0]['source_only']==0 and reports[0]['stage_only']==0, reports
+print('PASS: disposable staging extension bootstrap matches the synthetic source catalog inventory')
+PY
 python3 - "$ROOT_DIR/$EXPORT_DIR/manifest.json" "$ROOT_DIR/$EXPORT_DIR/data.sql" <<'PY'
 import json,re,sys
 manifest_path,dump_path=sys.argv[1:]

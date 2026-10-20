@@ -146,6 +146,8 @@ docker cp "$TMP_DIR/." "$CONTAINER:/tmp/migrations-v64/" >/dev/null
 
 docker exec -e DATABASE_URL="postgres://postgres@localhost:5432/$STAGE_DB?sslmode=disable" \
   "$CONTAINER" /tmp/dbmigrate -dir /tmp/migrations-v61 >/dev/null
+docker exec -i "$CONTAINER" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d "$STAGE_DB" \
+  -f /dev/stdin < "$ROOT_DIR/scripts/gcp06_stage_source_extensions.sql" >/dev/null
 
 catalog_inventory "$SOURCE_CONTAINER" "$SOURCE_USER" "$SOURCE_DB" "$TMP_DIR/source-catalog.jsonl" || {
   echo 'source catalog inventory unavailable; no source rows were streamed' >&2; exit 1;
