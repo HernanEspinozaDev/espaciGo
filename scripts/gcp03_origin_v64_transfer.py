@@ -60,6 +60,31 @@ OMIT_DATA_TABLES = (*[f"public.{name}" for name in SEED_TABLES],
 MIGRATIONS = Path(__file__).resolve().parents[1] / "db" / "migrations"
 IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+SQLSTATE_RE = re.compile(rb"^(?:ERROR|FATAL|PANIC):\s*([0-9A-Z]{5})\s*$", re.MULTILINE)
+SQLSTATE_CATEGORIES = {
+    "08": "connection",
+    "22": "data",
+    "23": "constraint",
+    "25": "transaction_state",
+    "28": "authentication",
+    "3D": "database",
+    "3F": "schema",
+    "40": "transaction_rollback",
+    "42": "query_or_privilege",
+    "53": "resource",
+    "55": "object_state",
+    "57": "operator",
+    "58": "system",
+    "XX": "internal",
+}
+
+
+def sqlstate_category(stderr: bytes) -> str | None:
+    """Map psql's SQLSTATE-only diagnostic to a safe, low-detail category."""
+    match = SQLSTATE_RE.search(stderr)
+    if match is None:
+        return None
+    return SQLSTATE_CATEGORIES.get(match.group(1)[:2].decode("ascii"), "other")
 
 
 class TransferStopped(RuntimeError):
@@ -398,11 +423,16 @@ class PsqlDatabase:
 
     def _query(self, sql: str) -> str:
         query = sql if self.database == SOURCE_DB else "SET ROLE espacigo_schema_owner; " + sql
-        proc = subprocess.run([self.psql, "-X", "-qAt", "--set=ON_ERROR_STOP=1", "-h", "127.0.0.1",
+        proc = subprocess.run([self.psql, "-X", "-qAt", "--set=ON_ERROR_STOP=1", "--set=VERBOSITY=sqlstate", "-h", "127.0.0.1",
             "-p", str(self.port), "-U", self.user, "-d", self.database, "-c", query],
-            env=self.env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+            env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
         if proc.returncode:
-            raise TransferStopped("DATABASE_PREFLIGHT_QUERY_FAILED", "preflight")
+            endpoint = "source" if self.database == SOURCE_DB else "target"
+            safe_details = {"database_endpoint": endpoint}
+            category = sqlstate_category(proc.stderr or b"")
+            if category is not None:
+                safe_details["sqlstate_category"] = category
+            raise TransferStopped("DATABASE_PREFLIGHT_QUERY_FAILED", "preflight", safe_details=safe_details)
         return proc.stdout.decode("utf-8", "strict").strip()
 
     def report(self) -> dict:
