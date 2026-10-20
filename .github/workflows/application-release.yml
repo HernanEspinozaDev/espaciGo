@@ -19,6 +19,8 @@ on:
       - ".github/workflows/application-release.yml"
       - ".github/workflows/application-quality.yml"
       - "scripts/verify_gcp07_attestations.py"
+      - "scripts/verify_gcp07_environment.py"
+      - "scripts/classify_gcp07_release_changes.py"
 
 permissions:
   contents: read
@@ -34,6 +36,7 @@ jobs:
     outputs:
       api: ${{ steps.paths.outputs.api }}
       web: ${{ steps.paths.outputs.web }}
+      migrations: ${{ steps.paths.outputs.migrations }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
@@ -41,36 +44,34 @@ jobs:
           persist-credentials: false
       - id: paths
         name: Classify source changes
-        shell: bash
         env:
           BEFORE_SHA: ${{ github.event.before }}
           CURRENT_SHA: ${{ github.sha }}
-        run: |
-          api=false
-          web=false
-          if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
-            api=true
-            web=true
-          else
-            while IFS= read -r path; do
-              case "$path" in
-                *.go|go.mod|go.sum|go.work|go.work.sum|Dockerfile|.dockerignore|cmd/*|internal/*|db/migrations/*|planning/openapi.yaml)
-                  api=true
-                  ;;
-              esac
-              case "$path" in
-                frontend/*|planning/openapi.yaml)
-                  web=true
-                  ;;
-              esac
-            done < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
-          fi
-          printf 'api=%s\nweb=%s\n' "$api" "$web" >> "$GITHUB_OUTPUT"
+        run: python3 scripts/classify_gcp07_release_changes.py
+
+  environment-preflight:
+    name: verify protected testprod environment
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      ready: ${{ steps.verify.outputs.ready }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - id: verify
+        name: Verify existing environment without creating it
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/verify_gcp07_environment.py
 
   publish:
     name: publish digest-pinned images and attestations
-    needs: changes
-    if: vars.GCP07C_PUBLISH_ENABLED == 'true' && (needs.changes.outputs.api == 'true' || needs.changes.outputs.web == 'true')
+    needs: [changes, environment-preflight]
+    if: needs.environment-preflight.outputs.ready == 'true' && vars.GCP07C_PUBLISH_ENABLED == 'true' && (needs.changes.outputs.api == 'true' || needs.changes.outputs.web == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: testprod
@@ -127,6 +128,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           API_CHANGED: ${{ needs.changes.outputs.api }}
           WEB_CHANGED: ${{ needs.changes.outputs.web }}
+          MIGRATIONS_CHANGED: ${{ needs.changes.outputs.migrations }}
           API_DIGEST: ${{ steps.api.outputs.digest }}
           WEB_DIGEST: ${{ steps.web.outputs.digest }}
         run: |
@@ -138,3 +140,36 @@ jobs:
             echo "SBOM: BuildKit SPDX attestation generated"
             echo "Provenance: BuildKit minimal provenance attestation generated"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Write immutable release manifest
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          API_CHANGED: ${{ needs.changes.outputs.api }}
+          WEB_CHANGED: ${{ needs.changes.outputs.web }}
+          API_DIGEST: ${{ steps.api.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          repo = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod"
+          result = {"schema": 1, "repository": os.environ["GITHUB_REPOSITORY"],
+                    "source_sha": os.environ["SOURCE_SHA"], "run_id": os.environ["GITHUB_RUN_ID"],
+                    "contains_migrations": os.environ["MIGRATIONS_CHANGED"] == "true",
+                    "images": {}}
+          for name in ("api", "web"):
+              if os.environ[name.upper() + "_CHANGED"] == "true":
+                  image_name = "espacigo-api" if name == "api" else "espacigo-web"
+                  digest = os.environ[name.upper() + "_DIGEST"]
+                  if not digest.startswith("sha256:") or len(digest) != 71:
+                      raise SystemExit("invalid registry digest")
+                  result["images"][name] = f"{repo}/{image_name}@{digest}"
+          os.makedirs("gcp07d-release", mode=0o700, exist_ok=True)
+          with open("gcp07d-release/manifest.json", "w", encoding="utf-8") as f:
+              json.dump(result, f, sort_keys=True, separators=(",", ":"))
+              f.write("\n")
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gcp07d-release-${{ github.run_id }}
+          path: gcp07d-release/manifest.json
+          if-no-files-found: error
+          retention-days: 14

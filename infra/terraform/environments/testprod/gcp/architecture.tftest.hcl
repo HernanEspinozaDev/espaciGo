@@ -70,8 +70,8 @@ run "foundation_plan_is_gated_and_scoped" {
     error_message = "GCP-06 candidate Jobs and their identities must remain absent until their dedicated review gate is enabled."
   }
   assert {
-    condition     = google_iam_workload_identity_pool_provider.github[0].attribute_mapping["attribute.repository_id"] == "assertion.repository_id" && google_iam_workload_identity_pool_provider.github[0].attribute_mapping["attribute.repository_owner_id"] == "assertion.repository_owner_id" && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "workflow_ref") && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "environment")
-    error_message = "GitHub federation must use immutable repository identity and restrict the release workflow and protected environment."
+    condition     = google_iam_workload_identity_pool_provider.github[0].attribute_mapping["attribute.repository_id"] == "assertion.repository_id" && google_iam_workload_identity_pool_provider.github[0].attribute_mapping["attribute.repository_owner_id"] == "assertion.repository_owner_id" && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "application-release.yml@refs/heads/main") && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "application-rollout.yml@refs/heads/main") && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "environment")
+    error_message = "GitHub federation must use immutable repository identity and restrict both trusted workflows to main and the protected environment."
   }
   assert {
     condition     = length(google_service_account_iam_member.deployer_act_as_runtime) == 3 && !contains(keys(google_service_account_iam_member.deployer_act_as_runtime), "migrator")

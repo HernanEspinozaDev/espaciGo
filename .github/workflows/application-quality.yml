@@ -40,6 +40,17 @@ jobs:
           persist-credentials: false
       - name: Test BuildKit attestation verifier
         run: python3 -m unittest discover -s scripts -p 'test_verify_gcp07_attestations.py'
+      - name: Test GCP-07D environment and Terraform plan policy
+        run: python3 -m unittest discover -s scripts -p 'test_gcp07d_policy.py'
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+      - name: Test testprod Terraform policy without a backend or credentials
+        working-directory: infra/terraform/environments/testprod/gcp
+        run: |
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform test -no-color
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         with:
           driver-opts: image=moby/buildkit@sha256:054d632d0d7e94b11cdc6048674773499a5170cf7d8ce0c326daaff6be43c8e0
