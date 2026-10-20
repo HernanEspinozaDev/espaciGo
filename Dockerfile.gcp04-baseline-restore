@@ -16,5 +16,6 @@ COPY --chmod=0444 --from=baseline baseline.manifest.json /app/baseline/baseline.
 COPY --chmod=0444 --from=baseline baseline.toc.original /app/baseline/baseline.toc.original
 COPY --chmod=0444 --from=baseline baseline.toc.restore /app/baseline/baseline.toc.restore
 COPY --chmod=0444 --from=baseline baseline.acl.restore.sql /app/baseline/baseline.acl.restore.sql
+RUN chmod 0555 /app/baseline
 USER 65532:65532
 ENTRYPOINT ["/app/gcp04-baseline-restore"]
