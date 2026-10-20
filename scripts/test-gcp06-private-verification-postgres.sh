@@ -83,6 +83,15 @@ docker exec -i "$CONTAINER" psql -X -qAt -v ON_ERROR_STOP=1 -U "$LOGIN" \
   -f /dev/stdin < "$ROOT_DIR/planning/gcp/sql_candidates/gcp06_candidate_data_verify_v1_v64.sql" > "$TMP_DIR/actual.json"
 chmod 0600 "$TMP_DIR/actual.json"
 
+python3 - "$TMP_DIR/target-evidence.json" <<'PY'
+import json,sys
+from pathlib import Path
+evidence={"name":"espacigo-gcp06-20261020-gcp06a-pg","region":"southamerica-west1",
+          "connectionName":"espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg",
+          "databaseVersion":"POSTGRES_18","state":"RUNNABLE"}
+path=Path(sys.argv[1]); path.write_text(json.dumps(evidence,sort_keys=True),encoding='utf-8'); path.chmod(0o600)
+PY
+
 python3 - "$TMP_DIR/manifest.json" <<'PY'
 import json,sys
 from pathlib import Path
@@ -101,7 +110,8 @@ path=Path(sys.argv[1]); path.write_text(json.dumps(manifest,sort_keys=True),enco
 PY
 
 if ! python3 "$ROOT_DIR/scripts/gcp06_candidate_verify_manifest.py" \
-  --manifest "$TMP_DIR/manifest.json" --actual "$TMP_DIR/actual.json" > "$TMP_DIR/report.json"; then
+  --manifest "$TMP_DIR/manifest.json" --actual "$TMP_DIR/actual.json" \
+  --target-evidence "$TMP_DIR/target-evidence.json" > "$TMP_DIR/report.json"; then
   cat "$TMP_DIR/report.json" >&2
   exit 1
 fi

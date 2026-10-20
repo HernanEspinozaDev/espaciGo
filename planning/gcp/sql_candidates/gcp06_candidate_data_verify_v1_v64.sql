@@ -23,6 +23,9 @@ SELECT jsonb_build_object(
     'run_id', '20261020-gcp06a',
     'database', current_database(),
     'server_major', current_setting('server_version_num')::integer / 10000,
+    'session_user', session_user,
+    'current_user', current_user,
+    'observed_at', to_char(transaction_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
     'ledger', (
         SELECT jsonb_build_object(
             'rows', count(*)::integer,

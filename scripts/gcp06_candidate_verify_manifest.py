@@ -14,6 +14,8 @@ from typing import Any
 RUN_ID = "20261020-gcp06a"
 DATABASE = "espacigo_gcp06_candidate_20261020-gcp06a"
 INSTANCE = "espacigo-gcp06-20261020-gcp06a-pg"
+REGION = "southamerica-west1"
+CONNECTION_NAME = f"espacigo-testprod:{REGION}:{INSTANCE}"
 QUERY_ID = "GCP06-ROWS-001"
 MANIFEST_FORMAT = "espacigo.gcp06.local-stage.v1"
 IMPORTED_DUMP_BYTES = 16_620_453
@@ -74,9 +76,10 @@ def _read_private_json(path: Path, max_bytes: int) -> tuple[bytes, Any]:
         raise VerificationError("input_invalid_json") from exc
 
 
-def verify(manifest_path: Path, actual_path: Path) -> dict[str, Any]:
+def verify(manifest_path: Path, actual_path: Path, target_evidence_path: Path) -> dict[str, Any]:
     manifest_raw, manifest = _read_private_json(manifest_path, 1_000_000)
-    actual_raw, actual = _read_private_json(actual_path, 100_000)
+    _, actual = _read_private_json(actual_path, 100_000)
+    target_evidence_raw, target_evidence = _read_private_json(target_evidence_path, 100_000)
     manifest_sha = hashlib.sha256(manifest_raw).hexdigest()
 
     if not isinstance(manifest, dict) or manifest.get("format") != MANIFEST_FORMAT:
@@ -94,12 +97,35 @@ def verify(manifest_path: Path, actual_path: Path) -> dict[str, Any]:
     if staged["migration_count"] != 64 or staged["migration_max"] != 64:
         raise VerificationError("manifest_v64_baseline_mismatch")
 
-    if not isinstance(actual, dict) or set(actual) != {"query_id", "run_id", "database", "server_major", "ledger", "staged"}:
+    if not isinstance(actual, dict) or set(actual) != {
+        "query_id", "run_id", "database", "server_major", "session_user", "current_user", "observed_at", "ledger", "staged"
+    }:
         raise VerificationError("query_output_shape_invalid")
     if actual.get("query_id") != QUERY_ID or actual.get("run_id") != RUN_ID:
         raise VerificationError("query_identity_mismatch")
     if actual.get("database") != DATABASE or actual.get("server_major") != 18:
         raise VerificationError("query_target_mismatch")
+    session_user = actual.get("session_user")
+    current_user = actual.get("current_user")
+    observed_at = actual.get("observed_at")
+    if not isinstance(session_user, str) or not session_user or current_user != session_user:
+        raise VerificationError("query_session_identity_invalid")
+    if not isinstance(observed_at, str) or not observed_at.endswith("Z"):
+        raise VerificationError("query_observation_time_invalid")
+
+    if not isinstance(target_evidence, dict) or set(target_evidence) != {
+        "name", "region", "connectionName", "databaseVersion", "state"
+    }:
+        raise VerificationError("target_evidence_shape_invalid")
+    expected_evidence = {
+        "name": INSTANCE,
+        "region": REGION,
+        "connectionName": CONNECTION_NAME,
+        "databaseVersion": "POSTGRES_18",
+        "state": "RUNNABLE",
+    }
+    if any(target_evidence.get(key) != value for key, value in expected_evidence.items()):
+        raise VerificationError("target_evidence_mismatch")
     ledger = actual.get("ledger")
     if not isinstance(ledger, dict) or set(ledger) != {
         "rows", "min_version", "max_version", "distinct_versions", "duplicate_rows", "contiguous_v1_v64"
@@ -129,8 +155,11 @@ def verify(manifest_path: Path, actual_path: Path) -> dict[str, Any]:
         "database": DATABASE,
         "query_id": QUERY_ID,
         "manifest_sha256": manifest_sha,
+        "target_evidence_sha256": hashlib.sha256(target_evidence_raw).hexdigest(),
         "imported_dump_sha256": IMPORTED_DUMP_SHA256,
-        "checks": ["manifest_format_and_private_mode", "imported_dump_identity", "ledger_v1_v64", "sanitized_aggregates"],
+        "session_user": session_user,
+        "observed_at": observed_at,
+        "checks": ["manifest_format_and_private_mode", "target_evidence_and_session_binding", "imported_dump_identity", "ledger_v1_v64", "sanitized_aggregates"],
     }
 
 
@@ -138,9 +167,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--actual", type=Path, required=True)
+    parser.add_argument("--target-evidence", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        report = verify(args.manifest, args.actual)
+        report = verify(args.manifest, args.actual, args.target_evidence)
     except VerificationError as exc:
         report = {
             "status": "STOP",
