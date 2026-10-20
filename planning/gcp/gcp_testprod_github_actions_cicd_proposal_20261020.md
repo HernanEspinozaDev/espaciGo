@@ -1,6 +1,6 @@
 # Plan GCP-07: publicar y desplegar frontend y backend de `main` en Cloud Run
 
-**Estado:** GCP-07A está integrado y `main` conserva la protección con revisión independiente y checks obligatorios. GCP-07B se fusionó mediante PR #466 (HEAD revisado `dca7eed735acdbd307a0cbcea8aae0b653b73d0d`, merge `76a8ca731513010d8d40895059587122ffe40c57`); los cambios Terraform/IAM siguen sin aplicarse en Cloud. GCP-07C está en preparación local: las imágenes generan y verifican SBOM/provenance localmente; la publicación al Artifact Registry queda desactivada hasta superar el gate y recibir autorización explícita. El GitHub Environment `testprod` aún no está creado/configurado. No se publicaron imágenes ni se desplegó. GCP-07D–07E siguen como propuesta.
+**Estado:** GCP-07A está integrado y `main` conserva la protección con revisión independiente y checks obligatorios. GCP-07B se fusionó mediante PR #466 (HEAD revisado `dca7eed735acdbd307a0cbcea8aae0b653b73d0d`, merge `76a8ca731513010d8d40895059587122ffe40c57`); los cambios Terraform/IAM siguen sin aplicarse en Cloud. La implementación GCP-07C se fusionó mediante PR #467 (HEAD aprobado `12519e4856c3a6e2dfd429d2b6907b7e5680d5c6`, merge `4c1e26ef242fd81c77ba2e1a094929e4051c7f8c`); sus checks backend, frontend y application-images pasaron. El release de `main` ejecutó el detector y omitió `publish` porque `GCP07C_PUBLISH_ENABLED` sigue desactivada. El GitHub Environment `testprod` aún no está creado/configurado. No se publicaron imágenes, no se aplicó OIDC/IAM ni se desplegó. GCP-07D queda detenido hasta que se cumplan las precondiciones descritas en GCP-07C y haya autorizaciones explícitas.
 **Alcance:** automatizar la entrega de cambios de aplicación ya integrados y aprobados en `main` al entorno de ensayo `espacigo-testprod`.
 **Región:** `southamerica-west1`.
 **No incluye:** cambios a bases de datos/migraciones, transferencias G03O, Jobs de ensayo, producción ni aceptación del producto.
@@ -94,7 +94,7 @@ El pipeline solo cubre la actualización de código de la app. No ejecuta migrac
 | --- | --- | --- |
 | GCP-07A | CI obligatorio de backend + frontend en PR y política de `main` documentada/verificada | CI verde y protección de `main` activa |
 | GCP-07B | Baseline state/config, WIF endurecido y deployer con mínimo privilegio | PR aprobado y plan IAM exacto revisado |
-| GCP-07C | Build/push de imágenes por SHA, digest, SBOM/provenance | publicación verificada en Artifact Registry sin deploy |
+| GCP-07C | Implementación fusionada del build/publicación por SHA y attestations; publicación remota aún pendiente | Crear/proteger `testprod`, revisar y autorizar el plan IAM exacto de 07B, autorizar el primer push y verificar digest/attestations en Artifact Registry; no desplegar |
 | GCP-07D | Deploy automatizado mediante plan Terraform acotado a imágenes | gate inicial autorizado y plan exacto sin cambios fuera de allowlist |
 | GCP-07E | Smoke checks, historial de revisiones y rollback ensayado con digest previo | evidencia reproducible y límites documentados |
 
@@ -102,9 +102,9 @@ Los sucesores no se activan por anticipado: cada fase se revisa antes de iniciar
 
 ## Estado y límites de esta propuesta
 
-El repositorio tiene CI de backend, frontend e imágenes, además de workflows aislados GCP-06/G03O; GCP-07C prepara publicación con WIF protegida, aún no activada. El Terraform raíz declara WIF, deployer, Artifact Registry e imágenes por digest, pero una lectura local no confirma el estado aplicado, la cuota/costo ni que el deploy funcione.
+El repositorio tiene CI de backend, frontend e imágenes, además de workflows aislados GCP-06/G03O; la implementación GCP-07C está fusionada, pero la publicación sigue sin activarse. El Terraform raíz declara WIF, deployer, Artifact Registry e imágenes por digest, pero una lectura local no confirma el estado aplicado, la cuota/costo ni que el deploy funcione.
 
-La lectura de estado y recursos descrita aquí no es evidencia de que el despliegue funcione. GCP-07B preparó cambios Terraform, pero no aplicó IAM en Cloud. GCP-07C agrega generación/verificación local de attestations y un flujo de publicación protegido; no publica imágenes ni actualiza Cloud Run.
+La lectura de estado y recursos descrita aquí no es evidencia de que el despliegue funcione. GCP-07B preparó cambios Terraform, pero no aplicó IAM en Cloud. GCP-07C agrega generación/verificación local de attestations y un flujo de publicación condicionado a un flag y al GitHub Environment `testprod`; el workflow no despliega Cloud Run. La configuración de ese environment aún está pendiente.
 
 ### GCP-07B — baseline observado y límites del plan
 
@@ -118,11 +118,13 @@ La aplicación del plan 07B modificaría IAM/WIF en Cloud y requiere revisión d
 
 ### GCP-07C — imágenes, digest y supply chain
 
-`application-quality.yml` construye ambos targets en modo local con BuildKit y genera attestations SPDX SBOM y provenance mínima; `scripts/verify_gcp07_attestations.py` verifica que ambas estén presentes en cada archivo OCI temporal sin mostrar su contenido. Los archivos quedan solo en el runner y se eliminan al finalizar. Los PR no tienen permiso `id-token: write`, no inician sesión en GCP y no publican imágenes. El tag de Go está fijado al digest del índice multi-plataforma; las otras bases ya tenían digest.
+`application-quality.yml` construye ambos targets en modo local con BuildKit y genera attestations SPDX SBOM y provenance mínima; `scripts/verify_gcp07_attestations.py` verifica su presencia y que la anotación OCI y el subject in-toto estén enlazados al digest de la imagen, sin mostrar su contenido. Seis pruebas cubren attestation válida, índice anidado, faltantes y referencias/subjects ausentes o con digest distinto. Los archivos quedan solo en el runner y se eliminan al finalizar. Los PR no tienen permiso `id-token: write`, no inician sesión en GCP y no publican imágenes. El tag de Go está fijado al digest del índice multi-plataforma; las otras bases ya tenían digest.
 
 `application-release.yml` atiende pushes a `main`, clasifica cambios API/web y publica el target afectado con un tag informativo `sha-<commit>` únicamente cuando la variable GitHub `GCP07C_PUBLISH_ENABLED` vale `true`. El job declara `environment: testprod`, pero al 2026-10-20 la lista de GitHub Environments del repositorio está vacía; por ello todavía no existe ese gate ni aplican protecciones de entorno. Antes de configurar/activar la variable, se debe crear `testprod`, restringirlo a `main` y configurar las reglas de protección acordadas. No se crean ni modifican settings en este corte. Tras configurar ese environment, la publicación usaría WIF de 07B, permisos de escritura limitados al repositorio Artifact Registry y attestations SBOM/provenance. El resumen contiene SHA fuente y digest; este workflow no despliega.
 
-La variable de publicación no está configurada. El Environment `testprod` tampoco está creado/configurado, por lo que no hay protecciones de environment activas. No se hizo push de imágenes, no se verificó un digest remoto y WIF/IAM de 07B no se ha aplicado. Antes de habilitar el flag, crear y proteger el environment, revisar el plan IAM exacto de 07B y recibir autorización explícita para aplicar ese plan y publicar; luego se comprobarán los digests y attestations en Artifact Registry. GCP-07D no debe comenzar hasta que la publicación 07C se verifique y 07C se fusione.
+PR #467 se fusionó en `main` con merge SHA `4c1e26ef242fd81c77ba2e1a094929e4051c7f8c`; el HEAD aprobado fue `12519e4856c3a6e2dfd429d2b6907b7e5680d5c6`. Los checks de PR backend, frontend y application-images pasaron. Después del merge, también pasaron `Application quality` #39504999017 (backend y application-images) y `Frontend architecture and quality` #39504998983. La corrida de `application-release.yml` en `main` (#39504999026) terminó correctamente: el detector pasó y `publish` quedó `SKIPPED`, consistente con la variable desactivada. La ejecución no publicó imágenes.
+
+La variable de publicación no está configurada. El Environment `testprod` tampoco está creado/configurado, por lo que no hay protecciones de environment activas. No se hizo push de imágenes, no se verificó un digest remoto y WIF/IAM de 07B no se ha aplicado. Antes de habilitar el flag, crear y proteger el environment, revisar el plan IAM exacto de 07B y recibir autorización explícita para aplicar ese plan y publicar; luego se comprobarán los digests y attestations en Artifact Registry. Este cierre no autoriza cambios de settings ni Cloud. GCP-07D no debe comenzar hasta que esas precondiciones estén cumplidas y el corte se autorice por separado.
 
 ## Referencias oficiales consultadas el 2026-10-20
 
