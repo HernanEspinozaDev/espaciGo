@@ -19,6 +19,7 @@ on:
       - ".github/workflows/application-release.yml"
       - ".github/workflows/application-quality.yml"
       - "scripts/verify_gcp07_attestations.py"
+      - "scripts/verify_gcp07_environment.py"
 
 permissions:
   contents: read
@@ -67,10 +68,29 @@ jobs:
           fi
           printf 'api=%s\nweb=%s\n' "$api" "$web" >> "$GITHUB_OUTPUT"
 
+  environment-preflight:
+    name: verify protected testprod environment
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      ready: ${{ steps.verify.outputs.ready }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - id: verify
+        name: Verify existing environment without creating it
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/verify_gcp07_environment.py
+
   publish:
     name: publish digest-pinned images and attestations
-    needs: changes
-    if: vars.GCP07C_PUBLISH_ENABLED == 'true' && (needs.changes.outputs.api == 'true' || needs.changes.outputs.web == 'true')
+    needs: [changes, environment-preflight]
+    if: needs.environment-preflight.outputs.ready == 'true' && vars.GCP07C_PUBLISH_ENABLED == 'true' && (needs.changes.outputs.api == 'true' || needs.changes.outputs.web == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: testprod
@@ -138,3 +158,35 @@ jobs:
             echo "SBOM: BuildKit SPDX attestation generated"
             echo "Provenance: BuildKit minimal provenance attestation generated"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Write immutable release manifest
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          API_CHANGED: ${{ needs.changes.outputs.api }}
+          WEB_CHANGED: ${{ needs.changes.outputs.web }}
+          API_DIGEST: ${{ steps.api.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          repo = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod"
+          result = {"schema": 1, "repository": os.environ["GITHUB_REPOSITORY"],
+                    "source_sha": os.environ["SOURCE_SHA"], "run_id": os.environ["GITHUB_RUN_ID"],
+                    "images": {}}
+          for name in ("api", "web"):
+              if os.environ[name.upper() + "_CHANGED"] == "true":
+                  image_name = "espacigo-api" if name == "api" else "espacigo-web"
+                  digest = os.environ[name.upper() + "_DIGEST"]
+                  if not digest.startswith("sha256:") or len(digest) != 71:
+                      raise SystemExit("invalid registry digest")
+                  result["images"][name] = f"{repo}/{image_name}@{digest}"
+          os.makedirs("gcp07d-release", mode=0o700, exist_ok=True)
+          with open("gcp07d-release/manifest.json", "w", encoding="utf-8") as f:
+              json.dump(result, f, sort_keys=True, separators=(",", ":"))
+              f.write("\n")
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gcp07d-release-${{ github.run_id }}
+          path: gcp07d-release/manifest.json
+          if-no-files-found: error
+          retention-days: 14

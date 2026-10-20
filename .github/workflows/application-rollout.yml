@@ -1,0 +1,195 @@
+name: Application rollout
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Create a review summary, or re-plan and apply an approved summary
+        required: true
+        type: choice
+        options: [preview, apply]
+      release_run_id:
+        description: Successful application-release run on main
+        required: true
+        type: string
+      preview_run_id:
+        description: Required for apply; run that produced the reviewed summary
+        required: false
+        type: string
+      approved_fingerprint:
+        description: Required for apply; exact fingerprint from the preview summary
+        required: false
+        type: string
+      confirmation:
+        description: Type APPLY GCP-07D to authorize this workflow's apply attempt
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testprod-cloud-run-rollout
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      ready: ${{ steps.verify.outputs.ready }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - name: Validate rollout inputs and activation gates
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          PREVIEW_RUN_ID: ${{ inputs.preview_run_id }}
+          FINGERPRINT: ${{ inputs.approved_fingerprint }}
+          PUBLISH_ENABLED: ${{ vars.GCP07C_PUBLISH_ENABLED }}
+          ROLLOUT_ENABLED: ${{ vars.GCP07D_ROLLOUT_ENABLED }}
+        run: |
+          test "$PUBLISH_ENABLED" = true
+          test "$ROLLOUT_ENABLED" = true
+          if [[ "$MODE" == apply ]]; then
+            test "$CONFIRMATION" = 'APPLY GCP-07D'
+            [[ "$PREVIEW_RUN_ID" =~ ^[0-9]+$ ]]
+            [[ "$FINGERPRINT" =~ ^[0-9a-f]{64}$ ]]
+          else
+            test "$MODE" = preview
+          fi
+      - id: verify
+        name: Verify existing protected environment without creating it
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/verify_gcp07_environment.py
+
+  rollout:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: testprod
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - name: Download image manifest from selected release run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gcp07d-release-${{ inputs.release_run_id }}
+          path: release
+          run-id: ${{ inputs.release_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify source release and digest manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: python3 scripts/verify_gcp07_release_manifest.py release/manifest.json
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+      - name: Configure private Terraform inputs and image references
+        env:
+          TFVARS_JSON: ${{ secrets.GCP07D_TFVARS_JSON }}
+          MODE: ${{ inputs.mode }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$TFVARS_JSON"
+          mkdir -p "$RUNNER_TEMP/gcp07d"
+          chmod 700 "$RUNNER_TEMP/gcp07d"
+          echo "$TFVARS_JSON" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null
+          TFVARS_JSON="$TFVARS_JSON" python3 - "$RUNNER_TEMP/gcp07d/terraform.tfvars.json" <<'PY'
+          import json,os,sys
+          p=sys.argv[1]
+          with open("release/manifest.json",encoding="utf-8") as f: manifest=json.load(f)
+          protected=json.loads(os.environ["TFVARS_JSON"])
+          if not isinstance(protected,dict): raise SystemExit("invalid protected configuration")
+          if not isinstance(manifest.get("images"),dict): raise SystemExit("invalid release manifest")
+          protected.update({"enable_foundation":False,"enable_database":False,"enable_services":True,"enable_edge":False,
+                            "enable_mailpit":False,"enable_gcp06_admin_bootstrap_job":False,
+                            "enable_gcp06_test_access_job":False,"enable_gcp06_sql_inspector_job":False,
+                            "enable_gcp06_jobs_reviewed":False})
+          if "api" in manifest["images"]: protected["api_image"]=manifest["images"]["api"]
+          if "web" in manifest["images"]: protected["frontend_image"]=manifest["images"]["web"]
+          with open(p,"w",encoding="utf-8") as f: json.dump(protected,f,sort_keys=True)
+          os.chmod(p,0o600)
+          image_path=os.path.join(os.environ["RUNNER_TEMP"],"gcp07d","images.json")
+          with open(image_path,"w",encoding="utf-8") as f:
+              json.dump(manifest["images"],f,sort_keys=True,separators=(",",":"))
+          os.chmod(image_path,0o600)
+          PY
+          echo "GCP07D_TFVARS=$RUNNER_TEMP/gcp07d/terraform.tfvars.json" >> "$GITHUB_ENV"
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: projects/447373903153/locations/global/workloadIdentityPools/espacigo-testprod-github/providers/espacigo-main
+          service_account: espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com
+          token_format: access_token
+      - name: Initialize canonical Terraform root and produce private plan
+        env:
+          MODE: ${{ inputs.mode }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          cd infra/terraform/environments/testprod/gcp
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=espacigo-testprod-tfstate-447373903153-gcp" \
+            -backend-config="prefix=espacigo/testprod/gcp" \
+            > "$RUNNER_TEMP/gcp07d/init.log" 2>&1 || { echo "Terraform initialization failed; private diagnostics retained only on runner"; exit 1; }
+          terraform workspace select default
+          terraform plan -input=false -lock-timeout=5m -var-file="$GCP07D_TFVARS" -out="$RUNNER_TEMP/gcp07d/rollout.tfplan" -no-color > "$RUNNER_TEMP/gcp07d/plan.log" 2>&1 || { echo "Terraform plan failed or was rejected; private diagnostics retained only on runner"; exit 1; }
+          terraform show -json "$RUNNER_TEMP/gcp07d/rollout.tfplan" > "$RUNNER_TEMP/gcp07d/plan.json" 2> "$RUNNER_TEMP/gcp07d/show.log" || { echo "Terraform plan inspection failed; private diagnostics retained only on runner"; exit 1; }
+          python3 "$GITHUB_WORKSPACE/scripts/verify_gcp07_plan.py" "$RUNNER_TEMP/gcp07d/plan.json" \
+            --images "$RUNNER_TEMP/gcp07d/images.json" --source-sha "$GCP07D_SOURCE_SHA" \
+            --release-run-id "$RELEASE_RUN_ID" --output "$RUNNER_TEMP/gcp07d/summary.json"
+      - name: Verify approved preview summary before apply
+        if: inputs.mode == 'apply'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gcp07d-preview-${{ inputs.preview_run_id }}
+          path: approved-preview
+          run-id: ${{ inputs.preview_run_id }}
+          github-token: ${{ github.token }}
+      - name: Compare fingerprint and apply this job's exact private plan
+        if: inputs.mode == 'apply'
+        env:
+          EXPECTED_FINGERPRINT: ${{ inputs.approved_fingerprint }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/compare_gcp07d_preview.py "$RUNNER_TEMP/gcp07d/summary.json" \
+            approved-preview/summary.json "$EXPECTED_FINGERPRINT" "$RELEASE_RUN_ID" "$SOURCE_SHA"
+          cd infra/terraform/environments/testprod/gcp
+          terraform apply -input=false -auto-approve "$RUNNER_TEMP/gcp07d/rollout.tfplan" > "$RUNNER_TEMP/gcp07d/apply.log" 2>&1 || { echo "Terraform apply failed; private diagnostics retained only on runner"; exit 1; }
+      - name: Publish allowlisted preview summary
+        if: inputs.mode == 'preview'
+        run: |
+          mkdir -p gcp07d-preview
+          cp "$RUNNER_TEMP/gcp07d/summary.json" gcp07d-preview/summary.json
+          python3 -c 'import json; x=json.load(open("gcp07d-preview/summary.json")); print("GCP-07D preview fingerprint: " + x["fingerprint"])' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: inputs.mode == 'preview'
+        with:
+          name: gcp07d-preview-${{ github.run_id }}
+          path: gcp07d-preview/summary.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove private Terraform files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/gcp07d" release approved-preview
