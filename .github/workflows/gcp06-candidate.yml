@@ -37,7 +37,7 @@ jobs:
       - name: Check shell syntax
         run: bash -n scripts/gcp06-local-stage-export.sh scripts/gcp06-upload-candidate-sql.sh scripts/test-gcp06-stage-sanitize-postgres.sh
       - name: Run isolated GCP-06 PostgreSQL harness
-        run: scripts/test-gcp06-stage-sanitize-postgres.sh
+        run: bash scripts/test-gcp06-stage-sanitize-postgres.sh
       - name: Validate default-off Terraform candidate
         working-directory: infra/terraform/environments/testprod/gcp06-candidate
         run: |
