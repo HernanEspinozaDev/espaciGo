@@ -113,9 +113,11 @@ def source_owner_discovery_sql() -> str:
     omitted = {name.removeprefix("public.") for name in OMIT_DATA_TABLES}
     # pg_dump includes all ordinary/partitioned tables except the explicit data exclusions.
     excluded = ",".join("'" + name.replace("'", "''") + "'" for name in sorted(omitted)) or "''"
-    required = sorted(set(SOURCE_REPORT_TABLES) | set(SOURCE_REFERENCE_TABLES))
-    required_sql = ",".join("'" + name.replace("'", "''") + "'" for name in required)
-    return f"""WITH required(name) AS (SELECT unnest(ARRAY[{required_sql}]::text[])),
+    required = sorted({(name, "report") for name in SOURCE_REPORT_TABLES} |
+                      {(name, "file_reference") for name in SOURCE_REFERENCE_TABLES})
+    required_sql = ",".join(
+        "('" + name.replace("'", "''") + "','" + group + "')" for name, group in required)
+    return f"""WITH required(name,relation_group) AS (VALUES {required_sql}),
 relations AS (
  SELECT c.oid,n.oid AS nspoid,n.nspname,c.relname,c.relowner,c.relkind,c.relrowsecurity,c.relforcerowsecurity
  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
@@ -133,16 +135,49 @@ relations AS (
 )
 SELECT jsonb_build_object(
  'complete',NOT EXISTS(SELECT 1 FROM needed WHERE relowner IS NULL),
- 'owner_count',(SELECT count(*) FROM owners),
+ 'required_missing_count',(SELECT count(*) FROM required q WHERE NOT EXISTS (
+   SELECT 1 FROM relations r WHERE r.nspname='public' AND r.relname=q.name)),
+ 'report_missing_count',(SELECT count(*) FROM required q WHERE q.relation_group='report' AND NOT EXISTS (
+   SELECT 1 FROM relations r WHERE r.nspname='public' AND r.relname=q.name)),
+ 'file_reference_missing_count',(SELECT count(*) FROM required q WHERE q.relation_group='file_reference' AND NOT EXISTS (
+   SELECT 1 FROM relations r WHERE r.nspname='public' AND r.relname=q.name)),
+ 'owner_count',LEAST((SELECT count(*) FROM owners),2),
  'owner_oid',(SELECT min(relowner)::bigint FROM owners),
- 'owner_name',(SELECT rolname FROM pg_catalog.pg_roles WHERE oid=(SELECT min(relowner) FROM owners)),
- 'set_allowed',COALESCE((SELECT pg_has_role(current_user,min(relowner),'SET') FROM owners),false),
- 'access_complete',NOT EXISTS(SELECT 1 FROM needed x WHERE x.relowner IS NOT NULL AND
+ 'owner_name',CASE WHEN (SELECT count(*) FROM owners)=1 THEN
+   (SELECT rolname FROM pg_catalog.pg_roles WHERE oid=(SELECT min(relowner) FROM owners)) ELSE NULL END,
+ 'set_allowed',COALESCE((SELECT count(*)=1 AND pg_has_role(current_user,min(relowner),'SET') FROM owners),false),
+ 'access_complete',(SELECT count(*)=1 FROM owners) AND NOT EXISTS(SELECT 1 FROM needed x WHERE x.relowner IS NOT NULL AND
    (NOT has_schema_privilege((SELECT min(relowner) FROM owners),x.nspoid,'USAGE') OR
     NOT CASE WHEN x.relkind='S' THEN has_sequence_privilege((SELECT min(relowner) FROM owners),x.oid,'SELECT')
              ELSE has_table_privilege((SELECT min(relowner) FROM owners),x.oid,'SELECT') END)),
  'row_security_complete',NOT EXISTS(SELECT 1 FROM needed x WHERE x.oid IS NOT NULL AND
-   x.relrowsecurity AND x.relforcerowsecurity AND NOT (SELECT rolbypassrls FROM pg_catalog.pg_roles WHERE oid=(SELECT min(relowner) FROM owners)))
+   x.relrowsecurity AND x.relforcerowsecurity AND NOT COALESCE((SELECT rolbypassrls FROM pg_catalog.pg_roles WHERE oid=(SELECT min(relowner) FROM owners)),false)),
+ 'login_access_complete',NOT EXISTS(SELECT 1 FROM needed x WHERE x.oid IS NOT NULL AND
+   (NOT has_schema_privilege(current_user,x.nspoid,'USAGE') OR
+    NOT CASE WHEN x.relkind='S' THEN has_sequence_privilege(current_user,x.oid,'SELECT')
+             ELSE has_table_privilege(current_user,x.oid,'SELECT') END)),
+ 'login_row_security_complete',NOT EXISTS(SELECT 1 FROM needed x WHERE x.oid IS NOT NULL AND x.relrowsecurity
+   AND (x.relforcerowsecurity OR x.relowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+   AND NOT COALESCE((SELECT rolbypassrls FROM pg_catalog.pg_roles WHERE rolname=current_user),false)),
+ 'access_mode',CASE
+   WHEN (SELECT count(*) FROM owners)=1
+     AND COALESCE((SELECT pg_has_role(current_user,min(relowner),'SET') FROM owners),false)
+     AND NOT EXISTS(SELECT 1 FROM needed x WHERE x.relowner IS NOT NULL AND
+       (NOT has_schema_privilege((SELECT min(relowner) FROM owners),x.nspoid,'USAGE') OR
+        NOT CASE WHEN x.relkind='S' THEN has_sequence_privilege((SELECT min(relowner) FROM owners),x.oid,'SELECT')
+                 ELSE has_table_privilege((SELECT min(relowner) FROM owners),x.oid,'SELECT') END))
+     AND NOT EXISTS(SELECT 1 FROM needed x WHERE x.oid IS NOT NULL AND x.relrowsecurity AND x.relforcerowsecurity
+       AND NOT COALESCE((SELECT rolbypassrls FROM pg_catalog.pg_roles WHERE oid=(SELECT min(relowner) FROM owners)),false))
+     THEN 'owner_role'
+   WHEN NOT EXISTS(SELECT 1 FROM needed x WHERE x.oid IS NOT NULL AND
+       (NOT has_schema_privilege(current_user,x.nspoid,'USAGE') OR
+        NOT CASE WHEN x.relkind='S' THEN has_sequence_privilege(current_user,x.oid,'SELECT')
+                 ELSE has_table_privilege(current_user,x.oid,'SELECT') END))
+     AND NOT EXISTS(SELECT 1 FROM needed x WHERE x.oid IS NOT NULL AND x.relrowsecurity
+       AND (x.relforcerowsecurity OR x.relowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+       AND NOT COALESCE((SELECT rolbypassrls FROM pg_catalog.pg_roles WHERE rolname=current_user),false))
+     THEN 'current_login'
+   ELSE 'blocked' END
 )::text"""
 
 
@@ -498,8 +533,9 @@ class PsqlDatabase:
 
     def _query(self, sql: str, *, diagnostic_step: str | None = None) -> str:
         if self.database == SOURCE_DB:
-            role = getattr(self, "source_owner_name", None) or self.discover_source_owner()
-            query = "SET ROLE " + quote_ident(role) + "; " + sql
+            self.discover_source_owner()
+            role = self.source_owner_name
+            query = (("SET ROLE " + quote_ident(role) + "; ") if role else "") + sql
         else:
             query = "SET ROLE espacigo_schema_owner; " + sql
         proc = subprocess.run([self.psql, "-X", "-qAt", "--set=ON_ERROR_STOP=1", "--set=VERBOSITY=sqlstate", "-h", "127.0.0.1",
@@ -518,7 +554,9 @@ class PsqlDatabase:
 
     def report(self) -> dict:
         if self.database == SOURCE_DB:
-            script = "SET ROLE " + quote_ident(self.discover_source_owner()) + ";\n" + source_report_script()
+            self.discover_source_owner()
+            prefix = ("SET ROLE " + quote_ident(self.source_owner_name) + ";\n") if self.source_owner_name else ""
+            script = prefix + source_report_script()
             proc = subprocess.run([self.psql, "-X", "-qAt", "--set=ON_ERROR_STOP=1",
                 "--set=VERBOSITY=sqlstate", "-h", "127.0.0.1", "-p", str(self.port),
                 "-U", self.user, "-d", self.database, "-f", "-"], env=self.env,
@@ -545,33 +583,88 @@ class PsqlDatabase:
         except json.JSONDecodeError as exc:
             raise TransferStopped("DATABASE_REPORT_INVALID", "preflight") from exc
 
-    def discover_source_owner(self) -> str:
-        """Discover the unique source owner privately; diagnostics expose booleans only."""
+    def discover_source_owner(self) -> str | None:
+        """Choose a read mode; diagnostics expose only allowlisted codes and counts."""
         sql = "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; " + source_owner_discovery_sql() + "; COMMIT;"
         proc = subprocess.run([self.psql, "-X", "-qAt", "--set=ON_ERROR_STOP=1", "--set=VERBOSITY=sqlstate",
             "-h", "127.0.0.1", "-p", str(self.port), "-U", self.user, "-d", self.database, "-c", sql],
             env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-        safe = {"source_required_relations_complete": False, "source_required_owner_unique": False,
-                "source_required_owner_set_allowed": False, "source_required_owner_access_complete": False,
-                "source_required_owner_row_security_complete": False}
+        safe = {"source_owner_diagnostic_codes": ["diagnostic_unavailable"]}
         if proc.returncode:
             raise TransferStopped("SOURCE_OWNER_PREFLIGHT_FAILED", "source_preflight", safe_details=safe)
         try:
             result = json.loads(proc.stdout.decode("utf-8", "strict").strip())
         except (json.JSONDecodeError, UnicodeDecodeError):
             raise TransferStopped("SOURCE_OWNER_PREFLIGHT_FAILED", "source_preflight", safe_details=safe)
-        booleans = ("complete", "set_allowed", "access_complete", "row_security_complete")
-        if (not isinstance(result, dict) or any(type(result.get(key)) is not bool for key in booleans)
-                or type(result.get("owner_count")) is not int):
+        expected_keys = {"complete", "required_missing_count", "report_missing_count",
+            "file_reference_missing_count", "owner_count", "owner_oid", "owner_name",
+            "set_allowed", "access_complete", "row_security_complete", "login_access_complete",
+            "login_row_security_complete", "access_mode"}
+        booleans = ("complete", "set_allowed", "access_complete", "row_security_complete",
+                    "login_access_complete", "login_row_security_complete")
+        counts = ("required_missing_count", "report_missing_count", "file_reference_missing_count")
+        if (not isinstance(result, dict) or set(result) != expected_keys
+                or any(type(result.get(key)) is not bool for key in booleans)
+                or type(result.get("owner_count")) is not int or result["owner_count"] not in (0, 1, 2)
+                or any(type(result.get(key)) is not int or result[key] < 0 for key in counts)
+                or result["required_missing_count"] > len(SOURCE_REPORT_TABLES) + len(SOURCE_REFERENCE_TABLES)
+                or result["report_missing_count"] > len(SOURCE_REPORT_TABLES)
+                or result["file_reference_missing_count"] > len(SOURCE_REFERENCE_TABLES)
+                or result["required_missing_count"] != result["report_missing_count"] + result["file_reference_missing_count"]
+                or result["complete"] != (result["required_missing_count"] == 0)
+                or result.get("access_mode") not in {"owner_role", "current_login", "blocked"}):
             raise TransferStopped("SOURCE_OWNER_PREFLIGHT_FAILED", "source_preflight", safe_details=safe)
-        safe.update({"source_required_relations_complete": result["complete"],
-                     "source_required_owner_unique": result["owner_count"] == 1,
-                     "source_required_owner_set_allowed": result["set_allowed"],
-                     "source_required_owner_access_complete": result["access_complete"],
-                     "source_required_owner_row_security_complete": result["row_security_complete"]})
-        if not all(safe.values()) or not isinstance(result.get("owner_name"), str) or not result["owner_name"]:
+        issues = []
+        if result["report_missing_count"]:
+            issues.append("report_relations_missing")
+        if result["file_reference_missing_count"]:
+            issues.append("file_reference_relations_missing")
+        if result["owner_count"] == 0:
+            issues.append("owner_inventory_empty")
+        elif result["owner_count"] == 2:
+            issues.append("multiple_table_owners")
+        if result["owner_count"] == 1:
+            if not result["set_allowed"]:
+                issues.append("unique_owner_set_denied")
+            if not result["access_complete"]:
+                issues.append("unique_owner_access_incomplete")
+            if not result["row_security_complete"]:
+                issues.append("unique_owner_row_security_incomplete")
+        if result["access_mode"] in {"current_login", "blocked"}:
+            if not result["login_access_complete"]:
+                issues.append("current_login_access_incomplete")
+            if not result["login_row_security_complete"]:
+                issues.append("current_login_row_security_incomplete")
+        if result["access_mode"] == "blocked":
+            issues.append("no_safe_read_mode")
+        safe.update({
+            "source_owner_diagnostic_codes": issues or ["none"],
+            "source_required_relations_complete": result["complete"],
+            "source_required_missing_relations_count": result["required_missing_count"],
+            "source_required_missing_report_relations_count": result["report_missing_count"],
+            "source_required_missing_file_reference_relations_count": result["file_reference_missing_count"],
+            "source_required_owner_count_bucket": result["owner_count"],
+            "source_required_owner_unique": result["owner_count"] == 1,
+            "source_required_owner_set_allowed": result["set_allowed"],
+            "source_required_owner_access_complete": result["access_complete"],
+            "source_required_owner_row_security_complete": result["row_security_complete"],
+            "source_current_login_access_complete": result["login_access_complete"],
+            "source_current_login_row_security_complete": result["login_row_security_complete"],
+            "source_access_mode": result["access_mode"],
+        })
+        if result["required_missing_count"] or result["access_mode"] == "blocked":
             raise TransferStopped("SOURCE_OWNER_PREFLIGHT_FAILED", "source_preflight", safe_details=safe)
-        self.source_owner_name = result["owner_name"]
+        if result["access_mode"] == "owner_role":
+            if result["owner_count"] != 1 or not isinstance(result.get("owner_name"), str) or not result["owner_name"]:
+                safe["source_owner_diagnostic_codes"] = ["diagnostic_inconsistent"]
+                raise TransferStopped("SOURCE_OWNER_PREFLIGHT_FAILED", "source_preflight", safe_details=safe)
+            self.source_owner_name = result["owner_name"]
+        else:
+            if result.get("owner_name") is not None:
+                safe["source_owner_diagnostic_codes"] = ["diagnostic_inconsistent"]
+                raise TransferStopped("SOURCE_OWNER_PREFLIGHT_FAILED", "source_preflight", safe_details=safe)
+            self.source_owner_name = None
+        self.source_access_mode = result["access_mode"]
         return self.source_owner_name
 
     def file_refs(self) -> set[str]:
@@ -587,7 +680,9 @@ class PsqlDatabase:
     def dump_plain_data(self, destination: Path) -> None:
         args = [self.pg_dump, "--data-only", "--format=plain", "--no-owner", "--no-privileges", "--no-comments", "--serializable-deferrable"]
         if self.database == SOURCE_DB:
-            args.append("--role=" + self.discover_source_owner())
+            role = self.discover_source_owner()
+            if role is not None:
+                args.append("--role=" + role)
         args.extend(f"--exclude-table-data={table}" for table in OMIT_DATA_TABLES)
         args.extend(["-h", "127.0.0.1", "-p", str(self.port), "-U", self.user, "-d", self.database])
         with destination.open("wb") as output:
