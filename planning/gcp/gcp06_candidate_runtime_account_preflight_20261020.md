@@ -7,7 +7,7 @@
 
 Dejar una secuencia verificable para habilitar el candidato importado como backend del API de ensayo, crear la cuenta de ensayo solicitada por un flujo permitido, y comprobar los dos frontends contra el API. El orden de trabajo es: verificar el candidato y su esquema; acordar rol y mecanismo de cuenta; preparar permisos mínimos; revisar el diff de Terraform y el costo; ejecutar en una ventana autorizada; verificar API y frontends; y conservar una reversa exacta.
 
-PR #459 sigue abierto y contiene el estado reportado de importación y la propuesta de observación SQL; no se considera fusionado ni su propuesta se considera implementada. El PR #460 prepara un modo Terraform opt-in para dirigir el API a la candidata, Jobs de una sola tarea para bootstrap/reset y CLIs Cloud distintos del `gadm-admin` local. Solo se consultaron metadatos de Cloud y se generó un plan remoto read-only; no hubo cambios de recursos, SQL ni tráfico. El cambio necesita revisión del HEAD y del plan exactos antes de cualquier operación remota.
+Actualización del estado al 2026-10-20: PR #459 está fusionado e incorpora el informe de la importación y la ruta propuesta de observación SQL; no equivale a verificación SQL. PR #460 añadió preparación opt-in para bootstrap/reset y PR #461 amplió el inspector SQL y preparó wiring API a la candidata. Esos cambios están fusionados, pero no habilitan por sí solos usuarios/roles/secretos en Cloud, ni validan la base importada ni cambian el runtime. Véase la [propuesta reducida de recorrido único](gcp06_single_walkthrough_completion_20261020.md) para el orden actualizado de gates.
 
 ## Bloqueos que requieren resolver antes de ejecutar
 
