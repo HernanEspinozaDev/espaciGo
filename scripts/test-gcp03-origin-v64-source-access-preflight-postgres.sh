@@ -83,6 +83,14 @@ CREATE TABLE public.catalogo_ubicacion_publica(id integer);
 CREATE TABLE public.comuna_publica(id integer);
 CREATE TABLE public.region_publica(id integer);
 CREATE TABLE public.version_terminos(id integer);
+CREATE TABLE public.foto_perfil_sintetica_local(id integer);
+CREATE TABLE public.espacio_galeria_sintetica_local(id integer);
+CREATE TABLE public.verificacion_evidencia_sintetica(id integer);
+CREATE TABLE public.espacio_galeria_archivo_candidato_local(id integer);
+CREATE TABLE public.operacion_arriendo_archivo_candidato_local(id integer);
+CREATE TABLE public.verificacion_archivo_retiro_pendiente_local(id integer);
+CREATE TABLE public.baja_archivo_pendiente_local(id integer);
+CREATE TABLE public.operacion_arriendo_evidencia_ensayo_local(id integer);
 INSERT INTO public.usuario VALUES (1);
 REVOKE USAGE ON SCHEMA public FROM PUBLIC;
 SQL
@@ -212,6 +220,78 @@ assert access['usuario_owner_role_present'] is True
 assert access['usuario_owner_is_current_user'] is True
 assert access['current_user_can_set_usuario_owner'] is True
 print('When current_user owns usuario, only the expected owner booleans are exposed.')
+PY
+
+run_owner_discovery() {
+  local login="$1" output="$2"
+  python3 - "$ROOT_DIR" <<'PY' | compose exec -T postgres psql -X -qAt --set=ON_ERROR_STOP=1 --set=VERBOSITY=sqlstate -U "$login" -d espacigo_scratch -f - > "$output"
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "scripts"))
+from gcp03_origin_v64_transfer import source_owner_discovery_sql
+sys.stdout.write(source_owner_discovery_sql() + ";\n")
+PY
+}
+
+psql_local -U postgres -d espacigo_scratch -c 'ALTER TABLE public.usuario OWNER TO postgres' >/dev/null
+run_owner_discovery postgres "$TMP_DIR/owner-unique.json"
+python3 - "$TMP_DIR/owner-unique.json" <<'PY'
+import json, sys
+from pathlib import Path
+report=json.loads(Path(sys.argv[1]).read_text())
+assert report['complete'] is True
+assert report['owner_count'] == 1
+assert report['set_allowed'] is True
+assert report['access_complete'] is True
+assert report['row_security_complete'] is True
+print('Real owner inventory passes for one complete accessible owner.')
+PY
+
+psql_local -U postgres -d espacigo_scratch -c 'ALTER TABLE public.usuario OWNER TO g03o_report_login' >/dev/null
+run_owner_discovery postgres "$TMP_DIR/owner-mixed.json"
+python3 - "$TMP_DIR/owner-mixed.json" <<'PY'
+import json, sys
+from pathlib import Path
+report=json.loads(Path(sys.argv[1]).read_text())
+assert report['complete'] is True
+assert report['owner_count'] > 1
+print('Real owner inventory detects mixed owners and blocks the source cut.')
+PY
+
+python3 - "$ROOT_DIR" <<'PY' | compose exec -T postgres psql -X -qAt --set=ON_ERROR_STOP=1 -U postgres -d espacigo_scratch >/dev/null
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "scripts"))
+from gcp03_origin_v64_transfer import SOURCE_REPORT_TABLES, SOURCE_REFERENCE_TABLES
+print("DO $$ DECLARE name text; BEGIN FOR name IN SELECT tablename FROM pg_tables WHERE schemaname='public' LOOP EXECUTE format('ALTER TABLE public.%I OWNER TO espacigo_schema_owner',name); END LOOP; END $$;")
+PY
+psql_local -U postgres -d espacigo_scratch -c 'GRANT espacigo_schema_owner TO g03o_report_login WITH ADMIN FALSE, INHERIT FALSE, SET FALSE' >/dev/null
+run_owner_discovery g03o_report_login "$TMP_DIR/owner-denied-set.json"
+python3 - "$TMP_DIR/owner-denied-set.json" <<'PY'
+import json, sys
+from pathlib import Path
+report=json.loads(Path(sys.argv[1]).read_text())
+assert report['complete'] is True
+assert report['owner_count'] == 1
+assert report['set_allowed'] is False
+assert report['access_complete'] is True
+assert report['row_security_complete'] is True
+print('Real owner inventory denies continuation when SET ROLE is unavailable.')
+PY
+
+psql_local -U postgres -d espacigo_scratch -c 'GRANT espacigo_schema_owner TO g03o_report_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE' >/dev/null
+psql_local -U postgres -d espacigo_scratch -c 'ALTER TABLE public.usuario ENABLE ROW LEVEL SECURITY; ALTER TABLE public.usuario FORCE ROW LEVEL SECURITY' >/dev/null
+run_owner_discovery g03o_report_login "$TMP_DIR/owner-forced-rls.json"
+python3 - "$TMP_DIR/owner-forced-rls.json" <<'PY'
+import json, sys
+from pathlib import Path
+report=json.loads(Path(sys.argv[1]).read_text())
+assert report['complete'] is True
+assert report['owner_count'] == 1
+assert report['set_allowed'] is True
+assert report['access_complete'] is True
+assert report['row_security_complete'] is False
+print('Real owner inventory detects forced RLS that would make the dump incomplete.')
 PY
 
 compose down --volumes --remove-orphans >/dev/null

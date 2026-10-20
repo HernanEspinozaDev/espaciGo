@@ -126,7 +126,7 @@ relations AS (
  UNION
  SELECT r.* FROM relations r JOIN required q ON r.nspname='public' AND r.relname=q.name
  UNION
- SELECT NULL::oid,NULL::oid,'public',q.name,NULL::oid,'r'::char,false,false FROM required q
+ SELECT NULL::oid,NULL::oid,'public',q.name,NULL::oid,'r'::"char",false,false FROM required q
  WHERE NOT EXISTS (SELECT 1 FROM relations r WHERE r.nspname='public' AND r.relname=q.name)
 ), owners AS (
  SELECT DISTINCT relowner FROM needed WHERE relowner IS NOT NULL
