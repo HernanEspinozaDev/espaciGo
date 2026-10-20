@@ -1,6 +1,6 @@
 # Plan GCP-07: publicar y desplegar frontend y backend de `main` en Cloud Run
 
-**Estado:** GCP-07A se implementa en el PR que añade CI de Go y builds locales de las imágenes y amplía el check Angular a todos los PR hacia `main`. La protección de `main` aún no está activa. GCP-07B–07E siguen como propuesta. No se añaden credenciales OIDC, publicación de imágenes ni deploy Cloud en este corte.
+**Estado:** GCP-07A agrega CI de Go y builds locales de las imágenes y amplía el check Angular a todos los PR hacia `main`. GitHub protege `main` con aprobación independiente y los checks `backend`, `frontend` y `application-images`; exige aprobación luego del último push, descarta aprobaciones obsoletas, aplica la regla a administradores y bloquea force-push y eliminación. GCP-07B–07E siguen como propuesta. No se añaden credenciales OIDC, publicación de imágenes ni deploy Cloud en este corte.
 **Alcance:** automatizar la entrega de cambios de aplicación ya integrados y aprobados en `main` al entorno de ensayo `espacigo-testprod`.
 **Región:** `southamerica-west1`.
 **No incluye:** cambios a bases de datos/migraciones, transferencias G03O, Jobs de ensayo, producción ni aceptación del producto.
