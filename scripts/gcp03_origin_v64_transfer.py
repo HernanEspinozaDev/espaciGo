@@ -100,7 +100,7 @@ SQLSTATE_REASONS = {
 }
 SOURCE_REPORT_MARKER = "__G03O_V64_REPORT_COMPONENT__"
 SOURCE_REPORT_COMPONENTS = frozenset({
-    "database_identity", "count_usuario", "count_espacio", "count_reserva",
+    "database_identity", "source_table_access", "count_usuario", "count_espacio", "count_reserva",
     "migration_history", *(f"seed_{name}" for name in SEED_TABLES),
     "external_sessions", "report_complete",
 })
@@ -478,9 +478,14 @@ class PsqlDatabase:
                 component = failed_source_report_component(proc.stdout or b"")
                 if component is not None:
                     safe_details["report_component"] = component
-                category = sqlstate_category(proc.stderr or b"")
-                if category is not None:
-                    safe_details["sqlstate_category"] = category
+                if component == "source_table_access":
+                    access = failed_source_table_access(proc.stdout or b"")
+                    if access is not None:
+                        safe_details.update(access)
+                else:
+                    category = sqlstate_category(proc.stderr or b"")
+                    if category is not None:
+                        safe_details["sqlstate_category"] = category
                 raise TransferStopped("DATABASE_PREFLIGHT_QUERY_FAILED", "preflight", safe_details=safe_details)
             return parse_source_report_output(proc.stdout)
 
@@ -524,6 +529,7 @@ class PsqlDatabase:
 def source_report_components() -> list[tuple[str, str]]:
     components = [
         ("database_identity", "SELECT jsonb_build_object('database',current_database(),'postgres_major',current_setting('server_version_num')::int / 10000)::text"),
+        ("source_table_access", "SELECT jsonb_build_object('source_table_access',jsonb_build_object('usuario_present',to_regclass('public.usuario') IS NOT NULL,'usuario_select_allowed',CASE WHEN to_regclass('public.usuario') IS NULL THEN false ELSE has_table_privilege(current_user,'public.usuario','SELECT') END))::text"),
         ("count_usuario", "SELECT jsonb_build_object('counts',jsonb_build_object('usuario',(SELECT count(*) FROM public.usuario)))::text"),
         ("count_espacio", "SELECT jsonb_build_object('counts',jsonb_build_object('espacio',(SELECT count(*) FROM public.espacio)))::text"),
         ("count_reserva", "SELECT jsonb_build_object('counts',jsonb_build_object('reserva',(SELECT count(*) FROM public.reserva)))::text"),
@@ -542,9 +548,20 @@ def source_report_components() -> list[tuple[str, str]]:
 
 
 def source_report_script() -> str:
-    return "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\n" + "\n".join(
-        f"\\echo {SOURCE_REPORT_MARKER}{name}\n{query};"
-        for name, query in source_report_components()) + "\nCOMMIT;\n"
+    lines = ["BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;"]
+    for name, query in source_report_components():
+        lines.append(f"\\echo {SOURCE_REPORT_MARKER}{name}")
+        if name == "source_table_access":
+            lines.extend([
+                query + ";",
+                "DO $$ BEGIN IF to_regclass('public.usuario') IS NULL OR "
+                "NOT has_table_privilege(current_user,'public.usuario','SELECT') THEN "
+                "RAISE EXCEPTION 'source access precheck failed'; END IF; END $$;",
+            ])
+        else:
+            lines.append(query + ";")
+    lines.append("COMMIT;")
+    return "\n".join(lines) + "\n"
 
 
 def failed_source_report_component(stdout: bytes) -> str | None:
@@ -555,6 +572,30 @@ def failed_source_report_component(stdout: bytes) -> str | None:
             candidate = line[len(marker):].decode("ascii", "ignore")
             component = candidate if candidate in SOURCE_REPORT_COMPONENTS else None
     return component
+
+
+def failed_source_table_access(stdout: bytes) -> dict | None:
+    lines = stdout.decode("utf-8", "strict").splitlines()
+    marker = SOURCE_REPORT_MARKER + "source_table_access"
+    for index, line in enumerate(lines):
+        if line != marker or index + 1 >= len(lines):
+            continue
+        try:
+            report = json.loads(lines[index + 1])
+        except json.JSONDecodeError:
+            return None
+        access = report.get("source_table_access") if isinstance(report, dict) else None
+        if not isinstance(access, dict) or set(access) != {"usuario_present", "usuario_select_allowed"}:
+            return None
+        present = access["usuario_present"]
+        select_allowed = access["usuario_select_allowed"]
+        if type(present) is not bool or type(select_allowed) is not bool:
+            return None
+        return {
+            "source_table_present": present,
+            "source_table_select_allowed": select_allowed,
+        }
+    return None
 
 
 def parse_source_report_output(stdout: bytes) -> dict:

@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from gcp03_origin_v64_transfer import (
     GCSFiles, PsqlDatabase, SOURCE_REPORT_MARKER, TransferStopped,
-    source_report_components,
+    source_report_components, source_report_script,
 )
 
 
@@ -119,7 +119,7 @@ class DestinationInventoryTests(unittest.TestCase):
 
 
 class DatabasePreflightDiagnosticTests(unittest.TestCase):
-    def run_report_failure(self, database: str, stderr: bytes, stdout: bytes = b""):
+    def run_report_failure(self, database: str, stderr: bytes, stdout: bytes = b"", returncode: int = 2):
         with tempfile.TemporaryDirectory() as directory:
             password_path = Path(directory) / "db-password"
             password_path.write_text("synthetic-password\n")
@@ -129,7 +129,7 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
                 password_file=password_path, port=5432 if source else 5433)
             try:
                 with patch("gcp03_origin_v64_transfer.subprocess.run",
-                    return_value=SimpleNamespace(returncode=2, stdout=stdout, stderr=stderr)) as run:
+                    return_value=SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)) as run:
                     with self.assertRaises(TransferStopped) as error:
                         db.report()
                 command = run.call_args.args[0]
@@ -204,6 +204,8 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
         for name, _ in source_report_components():
             if name == "database_identity":
                 value = {"database": "espacigo_scratch", "postgres_major": 18}
+            elif name == "source_table_access":
+                value = {"source_table_access": {"usuario_present": True, "usuario_select_allowed": True}}
             elif name.startswith("count_"):
                 value = {"counts": {name.removeprefix("count_"): 1}}
             elif name == "migration_history":
@@ -231,6 +233,9 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
                 self.assertTrue(script.rstrip().endswith("COMMIT;"))
                 self.assertIn(f"{SOURCE_REPORT_MARKER}count_usuario", script)
                 self.assertEqual(report["counts"], {"usuario": 1, "espacio": 1, "reserva": 1})
+                self.assertEqual(report["source_table_access"], {
+                    "usuario_present": True, "usuario_select_allowed": True,
+                })
                 self.assertEqual(report["external_sessions"], 0)
                 self.assertTrue(report["report_complete"])
             finally:
@@ -248,6 +253,29 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
             "sqlstate_category": "insufficient_privilege",
         })
         self.assertNotIn("private SQL", repr(error.safe_details))
+
+    def test_source_table_access_precheck_blocks_count_and_reports_only_booleans(self):
+        script = source_report_script()
+        self.assertIn("to_regclass('public.usuario')", script)
+        self.assertIn("has_table_privilege(current_user,'public.usuario','SELECT')", script)
+        self.assertLess(script.index(f"{SOURCE_REPORT_MARKER}source_table_access"),
+            script.index(f"{SOURCE_REPORT_MARKER}count_usuario"))
+        self.assertLess(script.index("RAISE EXCEPTION 'source access precheck failed'"),
+            script.index(f"{SOURCE_REPORT_MARKER}count_usuario"))
+
+        stdout = (f"{SOURCE_REPORT_MARKER}source_table_access\n"
+            '{"source_table_access":{"usuario_present":true,"usuario_select_allowed":false}}\n').encode()
+        error = self.run_report_failure("espacigo_scratch", b"", stdout, returncode=3)
+
+        self.assertEqual(error.code, "DATABASE_PREFLIGHT_QUERY_FAILED")
+        self.assertEqual(error.safe_details, {
+            "database_endpoint": "source",
+            "report_component": "source_table_access",
+            "source_table_present": True,
+            "source_table_select_allowed": False,
+        })
+        self.assertNotIn("usuario", repr(error.safe_details))
+        self.assertNotIn("SELECT", repr(error.safe_details))
 
 
 if __name__ == "__main__":
