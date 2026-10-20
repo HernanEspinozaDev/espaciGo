@@ -30,8 +30,8 @@
   "phase_a2_fixed_row_aggregates": {
     "query_id": "GCP06-ROWS-001",
     "sql": "planning/gcp/sql_candidates/gcp06_candidate_data_verify_v1_v64.sql",
-    "sql_sha256": "efa8547e178fb1ca311b716a64dc9b2687802d63f73b2de528274d800f2da27c",
-    "contract": "Separate, fixed psql script in one read-only transaction. Reads only the migration ledger and aggregate profile represented by the sanitized staging manifest; emits one JSON object, no application rows, plus session_user/current_user and UTC observed_at. SQL constants do not prove remote project or instance.",
+    "sql_sha256": "5b9657f1fe3ea384df50529c48a32d5dcb0dade22a9f72a23f42d4e608be452f",
+    "contract": "Separate, fixed psql script in one read-only transaction. Reads only the migration ledger and aggregate profile represented by the sanitized staging manifest; emits one JSON object, no application rows, plus session_user/current_user, UTC observed_at and the runner-generated challenge nonce. SQL constants do not prove remote project or instance.",
     "permission": "Not part of Phase A or the Phase A inspector Job. Requires a separately reviewed and authorized private SQL path and successful SELECT rights; otherwise STOP without grants or retry.",
     "expected_profile_format": "espacigo.gcp06.local-stage.v1",
     "private_manifest_template": ".local/testing/gcp06-stage-<run-id>/manifest.json",
@@ -42,14 +42,20 @@
       "sha256": "bb35a8709ae74d51e73b69d0dd75d7b4b761822508353dab9dddcd631cec9c11"
     },
     "target_evidence": {
-      "source": "approved channel output from gcloud sql instances describe",
+      "source": "approved gcloud sql instances describe snapshot plus the fixed Cloud SQL Auth Proxy invocation",
       "required_fields": ["name", "region", "connectionName", "databaseVersion", "state"],
-      "expected_connection_name": "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg"
+      "artifacts": ["actual.json", "target-evidence.json", "resource-snapshot.json"],
+      "binding": "runner-generated random nonce, query-output SHA-256, resource snapshot SHA-256, session_user and observed_at must match the SQL result",
+      "expected_connection_name": "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg",
+      "resource_snapshot_sha256": "SHA-256 of the retained raw resource-snapshot.json"
     },
+    "runner": "scripts/gcp06-run-private-sql-verification.sh",
+    "runner_sha256": "8395ef18a3bf849d1ab0bbdea4047367fd2f2751d30d7027786ec8977f48cad6",
+    "comparator_sha256": "b23e9ce1c2872709d9be7f4a0d0aad9896f7c02991b4639808df17557d52ddfb",
     "comparator": "scripts/gcp06_candidate_verify_manifest.py"
   },
   "result_policy": {
-    "allowed_output": ["target identity", "query_id", "session_user", "observed_at", "ledger aggregates", "sanitized manifest aggregates", "manifest hash", "target evidence hash", "pass/stop reason code"],
+    "allowed_output": ["target identity", "query_id", "session_user", "observed_at", "challenge nonce", "ledger aggregates", "sanitized manifest aggregates", "manifest hash", "target evidence hash", "resource snapshot hash", "pass/stop reason code"],
     "prohibited_output": ["application rows", "emails", "UUIDs", "passwords", "password hashes", "tokens", "secret payloads", "DSNs"]
   },
   "cloud_status": "NOT_RUN; no Cloud SQL session, Cloud API, credentials, IAM, Secret Manager, Cloud Run, Terraform, or remote resource was used by this package."

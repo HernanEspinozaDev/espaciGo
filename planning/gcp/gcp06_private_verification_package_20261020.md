@@ -22,24 +22,24 @@ Esta fase es independiente de Fase A y requiere su propia revisión del actor, c
 
 ### Comparador y manifiesto
 
-`planning/gcp/gcp06_candidate_verification_manifest_20261020.json` fija target, query IDs, SHA de código fuente y SQL, campos de salida y política de redacción. El comparador `scripts/gcp06_candidate_verify_manifest.py` exige tres archivos privados en modo `0600` bajo directorios `0700`: manifiesto, JSON de `GCP06-ROWS-001` y evidencia de destino obtenida por el canal aprobado (salida JSON proyectada de `gcloud sql instances describe`). Comprueba `name`, `region`, `connectionName`, `databaseVersion` y `state` contra el proyecto/instancia fijados, y valida que el resultado SQL registre `session_user = current_user` y hora UTC. Sin evidencia, o con un recurso distinto, devuelve `STOP`. Reporta hashes de manifiesto/evidencia más identidad de sesión y hora observada; no imprime conteos ni contenido de los archivos.
+`planning/gcp/gcp06_candidate_verification_manifest_20261020.json` fija target, query IDs, SHA de código fuente y SQL, campos de salida y política de redacción. El runner futuro `scripts/gcp06-run-private-sql-verification.sh` captura el JSON proyectado de `gcloud sql instances describe`, inicia Cloud SQL Auth Proxy con el `connectionName` fijo, genera un nonce aleatorio y lo entrega a la consulta SQL de esa única sesión. Solo tras `psql` exitoso crea evidencia privada que enlaza el nonce, hash exacto de `actual.json`, usuario, hora UTC, identidad del proxy y hash del snapshot de recurso. El comparador exige cuatro archivos privados en modo `0600` bajo directorios `0700`: manifiesto, salida SQL, evidencia enlazada y snapshot de recurso. Recalcula los hashes, compara todos los campos del recurso y verifica nonce/usuario/hora entre SQL y evidencia. Una salida de otra sesión no puede combinarse con una evidencia válida sin romper el enlace hash/nonce y produce `STOP`. El registro saneado devuelve hashes de manifiesto/evidencia/recurso, `session_user`, hora observada y nonce; no imprime conteos ni contenido de los archivos.
 
 El manifiesto privado de staging no está en este worktree. Por eso `manifest_sha256` queda `null` en el manifiesto de consulta y el comparador lo calculará únicamente cuando el archivo privado esté disponible por el canal local autorizado. No se inventó el hash ni se copió contenido de `.local`. El hash/bytes del objeto importado fijados por la evidencia versionada son `bb35a8709ae74d51e73b69d0dd75d7b4b761822508353dab9dddcd631cec9c11` / `16620453`; esto identifica el dump comunicado, no demuestra su verificación SQL.
 
 ## Precondiciones y ejecución futura
 
-Antes de ejecutar, una revisión separada debe identificar y autorizar el canal privado, actor SQL, recursos exactos, consulta `GCP06-ROWS-001`, coste y evidencia de rollback. Obtener mediante el canal aprobado la evidencia JSON proyectada del recurso exacto; comparar proyecto/instancia/conexión, región, motor y estado. La evidencia debe corresponder a la misma sesión de verificación; conservar hora y `session_user` informados por SQL y el hash del archivo de evidencia. La consulta no identifica por sí sola proyecto ni instancia y no debe aceptarse sin el archivo de evidencia. No reutilizar una credencial local ni asumir acceso del inspector. El actor SQL debe ser exactamente el login autorizado de esa fase, sin cambio de rol, con permisos de lectura efectivos para los objetos que cubren los agregados. La consulta está fijada a la candidata y fallará si falta una tabla/permisión.
+Antes de ejecutar, una revisión separada debe identificar y autorizar el canal privado, actor SQL, recursos exactos, consulta `GCP06-ROWS-001`, coste y evidencia de rollback. El runner está preparado para usar `gcloud` y Cloud SQL Auth Proxy; no se ejecutó. Su nonce aleatorio solo enlaza un output producido por el runner; el destino se verifica mediante proxy con connectionName exacto más snapshot de recurso aprobado y sus hashes. La consulta no identifica por sí sola proyecto ni instancia y el comparador detiene si falta cualquiera de estos artefactos. No reutilizar una credencial local ni asumir acceso del inspector. El actor SQL debe ser exactamente el login autorizado de esa fase, sin cambio de rol, con permisos de lectura efectivos para los objetos que cubren los agregados. La consulta está fijada a la candidata y fallará si falta una tabla/permisión.
 
-Los archivos de ejecución permanecen bajo `.local/testing/` con directorios `0700` y archivos `0600`; no copiar DSN, contraseñas, filas o manifiestos al repositorio, terminal compartido, logs, capturas o PR. En la sesión privada, guardar la salida de `GCP06-ROWS-001` en un archivo privado de modo `0600`; después ejecutar localmente:
+Los archivos de ejecución permanecen bajo `.local/testing/` con directorios `0700` y archivos `0600`; no copiar DSN, contraseñas, filas o manifiestos al repositorio, terminal compartido, logs, capturas o PR. Tras revisión y autorización separadas del uso de Cloud, el runner solicita la contraseña SQL con el prompt interactivo de `psql`, crea los artefactos privados y solo imprime el informe saneado:
 
 ```bash
-python3 scripts/gcp06_candidate_verify_manifest.py \
+scripts/gcp06-run-private-sql-verification.sh \
   --manifest .local/testing/gcp06-stage-<run-id>/manifest.json \
-  --actual .local/testing/gcp06-verify-<run-id>/actual.json \
-  --target-evidence .local/testing/gcp06-verify-<run-id>/target-evidence.json
+  --sql-user '<login autorizado para esta fase>' \
+  --output-dir .local/testing/gcp06-verify-<run-id>
 ```
 
-`target-evidence.json` debe ser la salida saneada capturada del canal aprobado, por ejemplo `gcloud sql instances describe espacigo-gcp06-20261020-gcp06a-pg --project espacigo-testprod --format='json(name,region,connectionName,databaseVersion,state)'`. Esta instrucción es futura y no se ejecutó en este corte. La vinculación del informe resultante conserva `session_user`, `current_user` y `observed_at`; rechaza una evidencia ausente o que no coincida exactamente con el destino esperado.
+Esta instrucción es futura y no se ejecutó en este corte. Los artefactos son `actual.json`, `target-evidence.json`, `resource-snapshot.json` y el informe saneado `report.json`. La evidencia enlaza el snapshot del API y la conexión del proxy al nonce de la ejecución SQL; cambiar o mezclar la salida invalida sus hashes.
 
 Solo `PASS` habilita la revisión humana de los resultados del catálogo y los agregados. La evidencia registrará hash del manifiesto, hash del dump, hashes de consulta/código, IDs de consulta, actor aprobado sin divulgar identidad personal, destino, hora UTC, resultado y límites. No incluye filas ni secretos.
 
@@ -60,7 +60,7 @@ El incidente previo del nombre de recurso que devuelve Secret Manager con númer
 
 Todas son locales y sintéticas; el harness PostgreSQL usa imagen fijada, red Docker `none`, filesystem temporal, base descartable y filas ficticias.
 
-- `python3 scripts/test_gcp06_candidate_verify_manifest.py`: PASS (7 casos; comparación, drift de ledger/conteo, permisos de archivo/directorio, evidencia de destino distinta y rechazo de campos personales).
+- `python3 scripts/test_gcp06_candidate_verify_manifest.py`: PASS (8 casos; comparación, drift de ledger/conteo, permisos de archivo/directorio, evidencia de destino distinta, salida mezclada de otra sesión y rechazo de campos personales).
 - `scripts/test-gcp06-private-verification-postgres.sh`: PASS (consulta fija contra PostgreSQL 18 descartable, rechazo de DB ajena y denegación de lectura sin grants; no concede grants).
 - `go test ./internal/gcp06sqlaccess ./cmd/gcp06sqlaccess ./internal/gcp06sqlinspect ./cmd/gcp06sqlinspect`: PASS; incluye el canonicalizador de Secret Manager y la garantía catalog-only del inspector.
 - `bash -n scripts/test-gcp06-private-verification-postgres.sh`, `python3 -m py_compile ...` y `git diff --check`: PASS.

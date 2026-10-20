@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import stat
 from pathlib import Path
 from typing import Any
@@ -76,10 +77,11 @@ def _read_private_json(path: Path, max_bytes: int) -> tuple[bytes, Any]:
         raise VerificationError("input_invalid_json") from exc
 
 
-def verify(manifest_path: Path, actual_path: Path, target_evidence_path: Path) -> dict[str, Any]:
+def verify(manifest_path: Path, actual_path: Path, target_evidence_path: Path, resource_snapshot_path: Path) -> dict[str, Any]:
     manifest_raw, manifest = _read_private_json(manifest_path, 1_000_000)
     _, actual = _read_private_json(actual_path, 100_000)
     target_evidence_raw, target_evidence = _read_private_json(target_evidence_path, 100_000)
+    resource_snapshot_raw, resource_snapshot = _read_private_json(resource_snapshot_path, 100_000)
     manifest_sha = hashlib.sha256(manifest_raw).hexdigest()
 
     if not isinstance(manifest, dict) or manifest.get("format") != MANIFEST_FORMAT:
@@ -98,7 +100,7 @@ def verify(manifest_path: Path, actual_path: Path, target_evidence_path: Path) -
         raise VerificationError("manifest_v64_baseline_mismatch")
 
     if not isinstance(actual, dict) or set(actual) != {
-        "query_id", "run_id", "database", "server_major", "session_user", "current_user", "observed_at", "ledger", "staged"
+        "query_id", "run_id", "database", "server_major", "session_user", "current_user", "observed_at", "challenge_nonce", "ledger", "staged"
     }:
         raise VerificationError("query_output_shape_invalid")
     if actual.get("query_id") != QUERY_ID or actual.get("run_id") != RUN_ID:
@@ -108,24 +110,46 @@ def verify(manifest_path: Path, actual_path: Path, target_evidence_path: Path) -
     session_user = actual.get("session_user")
     current_user = actual.get("current_user")
     observed_at = actual.get("observed_at")
+    challenge_nonce = actual.get("challenge_nonce")
     if not isinstance(session_user, str) or not session_user or current_user != session_user:
         raise VerificationError("query_session_identity_invalid")
     if not isinstance(observed_at, str) or not observed_at.endswith("Z"):
         raise VerificationError("query_observation_time_invalid")
+    if not isinstance(challenge_nonce, str) or re.fullmatch(r"[0-9a-f]{64}", challenge_nonce) is None:
+        raise VerificationError("query_challenge_invalid")
 
     if not isinstance(target_evidence, dict) or set(target_evidence) != {
-        "name", "region", "connectionName", "databaseVersion", "state"
+        "transport",
+        "proxy_connection_name", "resource_snapshot_sha256", "challenge_nonce", "query_output_sha256", "session_user", "observed_at"
     }:
         raise VerificationError("target_evidence_shape_invalid")
     expected_evidence = {
+        "transport": "cloud_sql_auth_proxy",
+        "proxy_connection_name": CONNECTION_NAME,
+        "resource_snapshot_sha256": target_evidence.get("resource_snapshot_sha256"),
+        "challenge_nonce": challenge_nonce,
+        "query_output_sha256": hashlib.sha256(actual_path.read_bytes()).hexdigest(),
+        "session_user": session_user,
+        "observed_at": observed_at,
+    }
+    if any(target_evidence.get(key) != value for key, value in expected_evidence.items()):
+        raise VerificationError("target_evidence_mismatch")
+    resource_sha = target_evidence.get("resource_snapshot_sha256")
+    if not isinstance(resource_sha, str) or re.fullmatch(r"[0-9a-f]{64}", resource_sha) is None:
+        raise VerificationError("target_evidence_hash_invalid")
+    if hashlib.sha256(resource_snapshot_raw).hexdigest() != resource_sha:
+        raise VerificationError("resource_snapshot_hash_mismatch")
+    expected_resource = {
         "name": INSTANCE,
         "region": REGION,
         "connectionName": CONNECTION_NAME,
         "databaseVersion": "POSTGRES_18",
         "state": "RUNNABLE",
     }
-    if any(target_evidence.get(key) != value for key, value in expected_evidence.items()):
-        raise VerificationError("target_evidence_mismatch")
+    if not isinstance(resource_snapshot, dict) or set(resource_snapshot) != set(expected_resource) or any(
+        resource_snapshot.get(key) != value for key, value in expected_resource.items()
+    ):
+        raise VerificationError("resource_snapshot_target_mismatch")
     ledger = actual.get("ledger")
     if not isinstance(ledger, dict) or set(ledger) != {
         "rows", "min_version", "max_version", "distinct_versions", "duplicate_rows", "contiguous_v1_v64"
@@ -156,9 +180,11 @@ def verify(manifest_path: Path, actual_path: Path, target_evidence_path: Path) -
         "query_id": QUERY_ID,
         "manifest_sha256": manifest_sha,
         "target_evidence_sha256": hashlib.sha256(target_evidence_raw).hexdigest(),
+        "resource_snapshot_sha256": resource_sha,
         "imported_dump_sha256": IMPORTED_DUMP_SHA256,
         "session_user": session_user,
         "observed_at": observed_at,
+        "challenge_nonce": challenge_nonce,
         "checks": ["manifest_format_and_private_mode", "target_evidence_and_session_binding", "imported_dump_identity", "ledger_v1_v64", "sanitized_aggregates"],
     }
 
@@ -168,9 +194,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--actual", type=Path, required=True)
     parser.add_argument("--target-evidence", type=Path, required=True)
+    parser.add_argument("--resource-snapshot", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        report = verify(args.manifest, args.actual, args.target_evidence)
+        report = verify(args.manifest, args.actual, args.target_evidence, args.resource_snapshot)
     except VerificationError as exc:
         report = {
             "status": "STOP",

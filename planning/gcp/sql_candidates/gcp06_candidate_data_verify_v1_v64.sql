@@ -26,6 +26,7 @@ SELECT jsonb_build_object(
     'session_user', session_user,
     'current_user', current_user,
     'observed_at', to_char(transaction_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+    'challenge_nonce', :'gcp06_challenge',
     'ledger', (
         SELECT jsonb_build_object(
             'rows', count(*)::integer,

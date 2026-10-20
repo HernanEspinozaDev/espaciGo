@@ -20,6 +20,7 @@ class CandidateManifestVerificationTests(unittest.TestCase):
         self.manifest_path = self.root / "manifest.json"
         self.actual_path = self.root / "actual.json"
         self.target_evidence_path = self.root / "target-evidence.json"
+        self.resource_snapshot_path = self.root / "resource-snapshot.json"
         self.manifest = {
             "format": verifier.MANIFEST_FORMAT,
             "source": {"migration_count": 61, "migration_max": 61},
@@ -35,6 +36,7 @@ class CandidateManifestVerificationTests(unittest.TestCase):
             "session_user": "gcp06_readonly_test",
             "current_user": "gcp06_readonly_test",
             "observed_at": "2026-10-20T12:34:56.123456Z",
+            "challenge_nonce": "a" * 64,
             "ledger": {
                 "rows": 64,
                 "min_version": 1,
@@ -75,16 +77,26 @@ class CandidateManifestVerificationTests(unittest.TestCase):
 
     def _write_actual_and_evidence(self) -> None:
         self._write(self.actual_path, self.actual)
-        self._write(self.target_evidence_path, {
+        resource = {
             "name": verifier.INSTANCE,
             "region": verifier.REGION,
             "connectionName": verifier.CONNECTION_NAME,
             "databaseVersion": "POSTGRES_18",
             "state": "RUNNABLE",
+        }
+        self._write(self.resource_snapshot_path, resource)
+        self._write(self.target_evidence_path, {
+            "transport": "cloud_sql_auth_proxy",
+            "proxy_connection_name": verifier.CONNECTION_NAME,
+            "resource_snapshot_sha256": hashlib.sha256(self.resource_snapshot_path.read_bytes()).hexdigest(),
+            "challenge_nonce": self.actual["challenge_nonce"],
+            "query_output_sha256": hashlib.sha256(self.actual_path.read_bytes()).hexdigest(),
+            "session_user": self.actual["session_user"],
+            "observed_at": self.actual["observed_at"],
         })
 
     def test_matches_synthetic_v64_manifest_and_returns_only_sanitized_summary(self) -> None:
-        report = verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path)
+        report = verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path, self.resource_snapshot_path)
         self.assertEqual(report["status"], "PASS")
         self.assertEqual(report["manifest_sha256"], hashlib.sha256(self.manifest_path.read_bytes()).hexdigest())
         self.assertNotIn("users", report)
@@ -94,36 +106,44 @@ class CandidateManifestVerificationTests(unittest.TestCase):
         self.actual["ledger"]["min_version"] = 2
         self._write_actual_and_evidence()
         with self.assertRaisesRegex(verifier.VerificationError, "candidate_ledger_mismatch"):
-            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path)
+            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path, self.resource_snapshot_path)
 
     def test_rejects_aggregate_drift(self) -> None:
         self.actual["staged"]["spaces"] += 1
         self._write_actual_and_evidence()
         with self.assertRaisesRegex(verifier.VerificationError, "candidate_aggregate_mismatch"):
-            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path)
+            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path, self.resource_snapshot_path)
 
     def test_rejects_private_input_with_wrong_permissions(self) -> None:
         self.manifest_path.chmod(0o644)
         with self.assertRaisesRegex(verifier.VerificationError, "input_permissions_or_size"):
-            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path)
+            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path, self.resource_snapshot_path)
 
     def test_rejects_private_directory_with_wrong_permissions(self) -> None:
         self.root.chmod(0o755)
         with self.assertRaisesRegex(verifier.VerificationError, "input_parent_permissions"):
-            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path)
+            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path, self.resource_snapshot_path)
 
     def test_rejects_unexpected_personal_fields(self) -> None:
         self.actual["email"] = "should-not-exist"
         self._write_actual_and_evidence()
         with self.assertRaisesRegex(verifier.VerificationError, "query_output_shape_invalid"):
-            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path)
+            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path, self.resource_snapshot_path)
 
     def test_rejects_target_evidence_bound_to_other_instance(self) -> None:
         evidence = json.loads(self.target_evidence_path.read_text(encoding="utf-8"))
-        evidence["name"] = "other-instance"
+        evidence["proxy_connection_name"] = "other-project:region:other-instance"
         self._write(self.target_evidence_path, evidence)
         with self.assertRaisesRegex(verifier.VerificationError, "target_evidence_mismatch"):
-            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path)
+            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path, self.resource_snapshot_path)
+
+    def test_rejects_query_output_mixed_from_another_session(self) -> None:
+        self.actual["session_user"] = "other_session"
+        self.actual["current_user"] = "other_session"
+        self.actual["challenge_nonce"] = "b" * 64
+        self._write(self.actual_path, self.actual)
+        with self.assertRaisesRegex(verifier.VerificationError, "target_evidence_mismatch"):
+            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path, self.resource_snapshot_path)
 
 
 if __name__ == "__main__":
