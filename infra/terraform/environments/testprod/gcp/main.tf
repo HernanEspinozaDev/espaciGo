@@ -360,15 +360,6 @@ resource "google_compute_instance" "mailpit" {
   ]
 }
 
-resource "google_compute_instance_iam_member" "mailpit_ui_viewer" {
-  for_each      = var.enable_mailpit ? toset(var.iap_evaluator_members) : toset([])
-  project       = var.project_id
-  zone          = google_compute_instance.mailpit[0].zone
-  instance_name = google_compute_instance.mailpit[0].name
-  role          = "roles/compute.instanceViewer"
-  member        = each.value
-}
-
 resource "google_iap_tunnel_instance_iam_member" "mailpit_ui" {
   for_each = var.enable_mailpit ? toset(var.iap_evaluator_members) : toset([])
   project  = var.project_id
@@ -596,6 +587,10 @@ resource "google_cloud_run_v2_service" "api" {
       env {
         name  = "APP_PROFILE"
         value = "cloud-test"
+      }
+      env {
+        name  = "LOCAL_VERIFICATION_IP_LIMIT"
+        value = "20"
       }
       env {
         name  = "DATABASE_CONNECTION_MODE"
