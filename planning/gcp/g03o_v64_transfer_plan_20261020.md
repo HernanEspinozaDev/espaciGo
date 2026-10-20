@@ -53,3 +53,11 @@ Tras fusionarse el diagnóstico anterior, la ejecución read-only `espacigo-g03o
 La reproducción local con PostgreSQL 18 y un rol sintético sin `SELECT` mostró el stderr de `psql -f -` como `psql:<stdin>:5: ERROR:  42501`. El parser anterior solo aceptaba líneas que empezaran directamente con `ERROR/FATAL/PANIC`, por lo que descartaba ese formato de stdin. La corrección mínima reconoce además el prefijo exacto `psql:<stdin>:<línea>:` y sigue exponiendo solo la categoría allowlisted. El código SQLSTATE 42501 fue de la fixture sintética; no es evidencia del SQLSTATE recibido por `4wx9v` ni identifica la causa Cloud.
 
 Esta revisión añade una prueba unitaria del formato de psql observado en la reproducción local. `python3 scripts/test_gcp03_origin_v64_transfer.py` (8 pruebas), `py_compile` y `git diff --check` pasan. No se volvió a ejecutar Cloud Run ni se consultó Cloud SQL; tampoco hubo cambios a grants, IAM, secretos, buckets o datos. La revisión del nuevo PR es el siguiente paso antes de cualquier nuevo preflight.
+
+### Cuarto diagnóstico y enum SQLSTATE seguro (2026-10-20)
+
+El Job `espacigo-g03o-v64-transfer-b6qb9` alcanzó `count_usuario` y devolvió endpoint `source`, categoría `query_or_privilege` y `transaction_outcome=not_started`. Esa categoría no diferencia permisos de errores de objeto/sintaxis y no se recibió el SQLSTATE literal. No se atribuye una causa concreta.
+
+El siguiente ajuste mantiene el valor únicamente de manera interna para mapear un conjunto finito de SQLSTATE conocidos a etiquetas seguras (`insufficient_privilege`, `undefined_table`, `undefined_column`, `syntax_error`, y algunos estados conocidos de conexión/autenticación/database/schema). Los códigos no incluidos se reducen a la categoría de clase conocida o `other`; nunca se emiten el código SQLSTATE, mensajes, SQL, usuario ni filas.
+
+La validación local cubre el enum, los prefijos de psql, el fallback para códigos desconocidos y la ausencia del código literal en el detalle seguro. El motivo de `b6qb9` permanece abierto. No se ejecutaron más Jobs, no hubo consultas Cloud SQL ni cambios a grants/IAM/ACL/secretos/buckets/datos; un nuevo preflight espera revisión del PR.
