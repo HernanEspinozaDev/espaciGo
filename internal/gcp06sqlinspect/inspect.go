@@ -126,10 +126,20 @@ SELECT relation.identity, relation.relkind::text, relation.owner,
        CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'INSERT') END,
        CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'UPDATE') END,
        CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'DELETE') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'TRUNCATE') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'REFERENCES') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'TRIGGER') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.api_login, relation.oid, 'MAINTAIN') END,
+       false,
        CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'SELECT') END,
        CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'INSERT') END,
        CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'UPDATE') END,
-       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'DELETE') END
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'DELETE') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'TRUNCATE') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'REFERENCES') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'TRIGGER') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_table_privilege(target_roles.runtime_role, relation.oid, 'MAINTAIN') END,
+       false
 FROM relations relation CROSS JOIN target_roles
 UNION ALL
 SELECT sequence.identity, sequence.relkind::text, sequence.owner,
@@ -138,12 +148,36 @@ SELECT sequence.identity, sequence.relkind::text, sequence.owner,
        CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_sequence_privilege(target_roles.api_login, sequence.oid, 'SELECT') END,
        false,
        CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_sequence_privilege(target_roles.api_login, sequence.oid, 'UPDATE') END,
-       false,
+       false, false, false, false, false,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_sequence_privilege(target_roles.api_login, sequence.oid, 'USAGE') END,
        CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_sequence_privilege(target_roles.runtime_role, sequence.oid, 'SELECT') END,
        false,
        CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_sequence_privilege(target_roles.runtime_role, sequence.oid, 'UPDATE') END,
-       false
+       false, false, false, false, false,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_sequence_privilege(target_roles.runtime_role, sequence.oid, 'USAGE') END
 FROM sequence_access sequence CROSS JOIN target_roles
+ORDER BY 1`
+	queryColumnAccess = `WITH target_roles AS (
+  SELECT pg_catalog.to_regrole('espacigo_api_login') AS api_login,
+         pg_catalog.to_regrole('espacigo_runtime') AS runtime_role
+)
+SELECT pg_catalog.format('%I.%I.%I', namespace.nspname, relation.relname, attribute.attname),
+       target_roles.api_login IS NOT NULL,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.api_login, relation.oid, attribute.attnum, 'SELECT') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.api_login, relation.oid, attribute.attnum, 'INSERT') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.api_login, relation.oid, attribute.attnum, 'UPDATE') END,
+       CASE WHEN target_roles.api_login IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.api_login, relation.oid, attribute.attnum, 'REFERENCES') END,
+       target_roles.runtime_role IS NOT NULL,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.runtime_role, relation.oid, attribute.attnum, 'SELECT') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.runtime_role, relation.oid, attribute.attnum, 'INSERT') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.runtime_role, relation.oid, attribute.attnum, 'UPDATE') END,
+       CASE WHEN target_roles.runtime_role IS NULL THEN false ELSE pg_catalog.has_column_privilege(target_roles.runtime_role, relation.oid, attribute.attnum, 'REFERENCES') END
+FROM pg_catalog.pg_class relation
+JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid = relation.oid
+CROSS JOIN target_roles
+WHERE namespace.nspname = 'public' AND relation.relkind IN ('r','p','v','f')
+  AND attribute.attnum > 0 AND NOT attribute.attisdropped
 ORDER BY 1`
 	queryRoutineAccess = `WITH target_roles AS (
   SELECT pg_catalog.to_regrole('espacigo_api_login') AS api_login,
@@ -232,20 +266,44 @@ type DatabaseSchemaAccess struct {
 }
 
 type RelationAccess struct {
-	Identity          string `json:"identity"`
-	Kind              string `json:"kind"`
-	Owner             string `json:"owner"`
-	ObjectClass       string `json:"object_class"`
-	APILoginExists    bool   `json:"api_login_exists"`
-	RuntimeRoleExists bool   `json:"runtime_role_exists"`
-	APILoginSelect    bool   `json:"api_login_select"`
-	APILoginInsert    bool   `json:"api_login_insert"`
-	APILoginUpdate    bool   `json:"api_login_update"`
-	APILoginDelete    bool   `json:"api_login_delete"`
-	RuntimeRoleSelect bool   `json:"runtime_role_select"`
-	RuntimeRoleInsert bool   `json:"runtime_role_insert"`
-	RuntimeRoleUpdate bool   `json:"runtime_role_update"`
-	RuntimeRoleDelete bool   `json:"runtime_role_delete"`
+	Identity              string `json:"identity"`
+	Kind                  string `json:"kind"`
+	Owner                 string `json:"owner"`
+	ObjectClass           string `json:"object_class"`
+	APILoginExists        bool   `json:"api_login_exists"`
+	RuntimeRoleExists     bool   `json:"runtime_role_exists"`
+	APILoginSelect        bool   `json:"api_login_select"`
+	APILoginInsert        bool   `json:"api_login_insert"`
+	APILoginUpdate        bool   `json:"api_login_update"`
+	APILoginDelete        bool   `json:"api_login_delete"`
+	APILoginTruncate      bool   `json:"api_login_truncate"`
+	APILoginReferences    bool   `json:"api_login_references"`
+	APILoginTrigger       bool   `json:"api_login_trigger"`
+	APILoginMaintain      bool   `json:"api_login_maintain"`
+	APILoginUsage         bool   `json:"api_login_usage"`
+	RuntimeRoleSelect     bool   `json:"runtime_role_select"`
+	RuntimeRoleInsert     bool   `json:"runtime_role_insert"`
+	RuntimeRoleUpdate     bool   `json:"runtime_role_update"`
+	RuntimeRoleDelete     bool   `json:"runtime_role_delete"`
+	RuntimeRoleTruncate   bool   `json:"runtime_role_truncate"`
+	RuntimeRoleReferences bool   `json:"runtime_role_references"`
+	RuntimeRoleTrigger    bool   `json:"runtime_role_trigger"`
+	RuntimeRoleMaintain   bool   `json:"runtime_role_maintain"`
+	RuntimeRoleUsage      bool   `json:"runtime_role_usage"`
+}
+
+type ColumnAccess struct {
+	Identity              string `json:"identity"`
+	APILoginExists        bool   `json:"api_login_exists"`
+	APILoginSelect        bool   `json:"api_login_select"`
+	APILoginInsert        bool   `json:"api_login_insert"`
+	APILoginUpdate        bool   `json:"api_login_update"`
+	APILoginReferences    bool   `json:"api_login_references"`
+	RuntimeRoleExists     bool   `json:"runtime_role_exists"`
+	RuntimeRoleSelect     bool   `json:"runtime_role_select"`
+	RuntimeRoleInsert     bool   `json:"runtime_role_insert"`
+	RuntimeRoleUpdate     bool   `json:"runtime_role_update"`
+	RuntimeRoleReferences bool   `json:"runtime_role_references"`
 }
 
 type RoutineAccess struct {
@@ -284,6 +342,7 @@ type Report struct {
 	PublicObjectOwnerCounts   []OwnerAggregate     `json:"public_object_owner_counts"`
 	DatabaseSchemaAccess      DatabaseSchemaAccess `json:"database_schema_access"`
 	PublicRelationAccess      []RelationAccess     `json:"public_relation_access"`
+	PublicColumnAccess        []ColumnAccess       `json:"public_column_access"`
 	PublicRoutineAccess       []RoutineAccess      `json:"public_routine_access"`
 	DefaultACLs               []DefaultACL         `json:"default_acls"`
 }
@@ -312,7 +371,7 @@ func validInspectorLogin(username string) bool {
 
 // AllowedStatements exposes query text for audit/tests; callers cannot supply SQL.
 func AllowedStatements() []string {
-	return []string{queryIdentity, queryRoles, queryMemberships, queryExtensions, querySchemaState, queryOwnerAggregates, queryDatabaseSchemaAccess, queryRelationAccess, queryRoutineAccess, queryDefaultACL}
+	return []string{queryIdentity, queryRoles, queryMemberships, queryExtensions, querySchemaState, queryOwnerAggregates, queryDatabaseSchemaAccess, queryRelationAccess, queryColumnAccess, queryRoutineAccess, queryDefaultACL}
 }
 
 func Inspect(ctx context.Context, conn *pgx.Conn, username string) (Report, error) {
@@ -432,7 +491,9 @@ func Inspect(ctx context.Context, conn *pgx.Conn, username string) (Report, erro
 		if err := rows.Scan(&access.Identity, &access.Kind, &access.Owner, &access.ObjectClass,
 			&access.APILoginExists, &access.RuntimeRoleExists,
 			&access.APILoginSelect, &access.APILoginInsert, &access.APILoginUpdate, &access.APILoginDelete,
-			&access.RuntimeRoleSelect, &access.RuntimeRoleInsert, &access.RuntimeRoleUpdate, &access.RuntimeRoleDelete); err != nil {
+			&access.APILoginTruncate, &access.APILoginReferences, &access.APILoginTrigger, &access.APILoginMaintain, &access.APILoginUsage,
+			&access.RuntimeRoleSelect, &access.RuntimeRoleInsert, &access.RuntimeRoleUpdate, &access.RuntimeRoleDelete,
+			&access.RuntimeRoleTruncate, &access.RuntimeRoleReferences, &access.RuntimeRoleTrigger, &access.RuntimeRoleMaintain, &access.RuntimeRoleUsage); err != nil {
 			rows.Close()
 			return Report{}, errors.New("allowlisted relation access result was invalid")
 		}
@@ -441,6 +502,25 @@ func Inspect(ctx context.Context, conn *pgx.Conn, username string) (Report, erro
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		return Report{}, errors.New("allowlisted relation access query failed")
+	}
+	rows.Close()
+	rows, err = tx.Query(ctx, queryColumnAccess)
+	if err != nil {
+		return Report{}, errors.New("allowlisted column access query failed")
+	}
+	for rows.Next() {
+		var access ColumnAccess
+		if err := rows.Scan(&access.Identity, &access.APILoginExists,
+			&access.APILoginSelect, &access.APILoginInsert, &access.APILoginUpdate, &access.APILoginReferences,
+			&access.RuntimeRoleExists, &access.RuntimeRoleSelect, &access.RuntimeRoleInsert, &access.RuntimeRoleUpdate, &access.RuntimeRoleReferences); err != nil {
+			rows.Close()
+			return Report{}, errors.New("allowlisted column access result was invalid")
+		}
+		report.PublicColumnAccess = append(report.PublicColumnAccess, access)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return Report{}, errors.New("allowlisted column access query failed")
 	}
 	rows.Close()
 	rows, err = tx.Query(ctx, queryRoutineAccess)

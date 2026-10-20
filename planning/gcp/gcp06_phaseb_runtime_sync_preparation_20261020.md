@@ -8,7 +8,7 @@
 
 - El API conserva `DATABASE_USER=espacigo_api_login` y `DATABASE_SET_ROLE=espacigo_runtime`, con conexión a la instancia y base candidatas fijadas por `20261020-gcp06a`. La identidad login y el rol runtime deben existir y tener privilegios mínimos verificados antes de que una revisión API pueda conectarse.
 - El cambio de destino no cambia imagen/digest del API, imágenes de los frontends, origen API ni configuración de los servicios web. Se añadieron aserciones al test de arquitectura Terraform para fijar estos invariantes.
-- El inspector SQL de solo lectura amplía su inventario de catálogos para mostrar propietario de base/esquema, existencia y privilegios efectivos de login/rol en base y esquema, acceso por relación y secuencia, ejecución por rutina y ACL por defecto agregadas. Limita sus consultas a `public`, usa roles/objetos fijos y nombres de propietarios/grantees allowlistados o resumidos como `other`; no lee filas de aplicación ni cargas de credenciales.
+- El inspector SQL de solo lectura amplía su inventario de catálogos para mostrar propietario de base/esquema, existencia y privilegios efectivos de login/rol en base y esquema; privilegios de tabla `SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER/MAINTAIN`; `SELECT/UPDATE/USAGE` de secuencias; privilegios por columna `SELECT/INSERT/UPDATE/REFERENCES`; ejecución por rutina y ACL por defecto agregadas. Limita sus consultas a `public`, usa roles/objetos fijos y nombres de propietarios/grantees allowlistados o resumidos como `other`; no lee filas de aplicación ni cargas de credenciales.
 - El informe no decide qué grants deben aplicarse. Aún hace falta observar el catálogo de la candidata con una identidad preexistente autorizada y revisar los resultados frente al contrato de privilegio mínimo. El inventario nuevo tampoco concede permisos ni ejecuta migraciones.
 
 ## Plan Terraform de revisión
@@ -33,7 +33,7 @@ Este plan dirigido es evidencia de wiring, no es aplicable: el secreto runtime c
 - `terraform fmt -check infra/terraform/environments/testprod/gcp/architecture.tftest.hcl`: pasa.
 - `terraform -chdir=infra/terraform/environments/testprod/gcp test -no-color`: 14/14 pasan.
 - `git diff --check`: pasa.
-- `bash scripts/test-gcp06-stage-sanitize-postgres.sh`: pasa, incluida la suite completa de `gcp06sqlinspect` dentro del contenedor PostgreSQL 18 desechable con red `none`. El harness fija `GCP06_INSPECTOR_SQL_TEST_REQUIRED=1`, agrega fixtures sintéticos para obtener filas de relaciones, rutinas y ACL por defecto, y falla si falta DSN o alguna consulta no valida su forma de `Scan`. No se conectó a Cloud SQL.
+- `bash scripts/test-gcp06-stage-sanitize-postgres.sh`: pasa, incluida la suite completa de `gcp06sqlinspect` dentro del contenedor PostgreSQL 18 desechable con red `none`. El harness fija `GCP06_INSPECTOR_SQL_TEST_REQUIRED=1`, agrega ACL sintéticas positivas y negativas para privilegios de tabla, secuencia, columna, rutina y ACL por defecto, y falla si falta DSN, una consulta no valida su forma de `Scan` o una respuesta no refleja las concesiones esperadas. No se conectó a Cloud SQL.
 - No se aplicó Terraform, DDL ni DML; no se rotó ninguna contraseña, creó secreto/rol/login, cambió servicio, publicó imagen ni ejecutó E2E. No se consultaron filas ni se alteró una cuenta.
 
 ## Siguiente gate

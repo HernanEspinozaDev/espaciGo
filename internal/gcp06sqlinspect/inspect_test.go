@@ -74,17 +74,36 @@ func TestCatalogPermissionQueriesExecuteOnDisposablePostgres18(t *testing.T) {
 
 	rows, err := tx.Query(ctx, queryRelationAccess)
 	if err != nil {
-		t.Fatal("relation access inventory query did not execute")
+		t.Fatalf("relation access inventory query did not execute: %v", err)
 	}
 	relationCount := 0
+	foundProbeTable := false
+	foundProbeSequence := false
 	for rows.Next() {
 		var access RelationAccess
 		if err := rows.Scan(&access.Identity, &access.Kind, &access.Owner, &access.ObjectClass,
 			&access.APILoginExists, &access.RuntimeRoleExists,
 			&access.APILoginSelect, &access.APILoginInsert, &access.APILoginUpdate, &access.APILoginDelete,
-			&access.RuntimeRoleSelect, &access.RuntimeRoleInsert, &access.RuntimeRoleUpdate, &access.RuntimeRoleDelete); err != nil {
+			&access.APILoginTruncate, &access.APILoginReferences, &access.APILoginTrigger, &access.APILoginMaintain, &access.APILoginUsage,
+			&access.RuntimeRoleSelect, &access.RuntimeRoleInsert, &access.RuntimeRoleUpdate, &access.RuntimeRoleDelete,
+			&access.RuntimeRoleTruncate, &access.RuntimeRoleReferences, &access.RuntimeRoleTrigger, &access.RuntimeRoleMaintain, &access.RuntimeRoleUsage); err != nil {
 			rows.Close()
 			t.Fatal("relation access inventory result shape is invalid")
+		}
+		if access.Identity == "public.inspector_probe" {
+			foundProbeTable = true
+			if !access.RuntimeRoleSelect || !access.RuntimeRoleInsert || !access.RuntimeRoleTruncate || !access.RuntimeRoleReferences || !access.RuntimeRoleTrigger || !access.RuntimeRoleMaintain {
+				t.Fatal("runtime relation inventory missed granted table privileges")
+			}
+			if access.APILoginSelect || access.APILoginTruncate || access.APILoginReferences || access.APILoginTrigger || access.APILoginMaintain {
+				t.Fatal("API login relation inventory reported an ungranted table privilege")
+			}
+		}
+		if access.Identity == "public.inspector_probe_id_seq" {
+			foundProbeSequence = true
+			if !access.APILoginUsage || access.RuntimeRoleUsage {
+				t.Fatal("sequence usage inventory did not distinguish the granted and ungranted roles")
+			}
 		}
 		relationCount++
 	}
@@ -96,17 +115,65 @@ func TestCatalogPermissionQueriesExecuteOnDisposablePostgres18(t *testing.T) {
 	if relationCount == 0 {
 		t.Fatal("relation access inventory returned no fixture relations")
 	}
+	if !foundProbeTable || !foundProbeSequence {
+		t.Fatal("relation access inventory did not return both positive and negative privilege fixtures")
+	}
+
+	rows, err = tx.Query(ctx, queryColumnAccess)
+	if err != nil {
+		t.Fatalf("column access inventory query did not execute: %v", err)
+	}
+	columnCount := 0
+	foundGrantedColumn := false
+	foundDeniedColumn := false
+	for rows.Next() {
+		var access ColumnAccess
+		if err := rows.Scan(&access.Identity, &access.APILoginExists,
+			&access.APILoginSelect, &access.APILoginInsert, &access.APILoginUpdate, &access.APILoginReferences,
+			&access.RuntimeRoleExists, &access.RuntimeRoleSelect, &access.RuntimeRoleInsert, &access.RuntimeRoleUpdate, &access.RuntimeRoleReferences); err != nil {
+			rows.Close()
+			t.Fatal("column access inventory result shape is invalid")
+		}
+		if access.Identity == "public.inspector_probe.visible" {
+			foundGrantedColumn = true
+			if !access.APILoginSelect || !access.APILoginInsert || !access.APILoginUpdate || !access.APILoginReferences {
+				t.Fatal("column inventory missed privileges granted to the API login")
+			}
+		}
+		if access.Identity == "public.inspector_probe.protected" {
+			foundDeniedColumn = true
+			if access.APILoginSelect || access.APILoginInsert || access.APILoginUpdate || access.APILoginReferences {
+				t.Fatal("column inventory reported privileges not granted to the API login")
+			}
+		}
+		columnCount++
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		t.Fatal("column access inventory returned an error")
+	}
+	rows.Close()
+	if columnCount == 0 || !foundGrantedColumn || !foundDeniedColumn {
+		t.Fatal("column access inventory did not return positive and negative fixture columns")
+	}
 
 	rows, err = tx.Query(ctx, queryRoutineAccess)
 	if err != nil {
-		t.Fatal("routine access inventory query did not execute")
+		t.Fatalf("routine access inventory query did not execute: %v", err)
 	}
 	routineCount := 0
+	foundProbeRoutine := false
 	for rows.Next() {
 		var access RoutineAccess
 		if err := rows.Scan(&access.Identity, &access.Owner, &access.SecurityDefiner, &access.APILoginExists, &access.APILoginExecute, &access.RuntimeRoleExists, &access.RuntimeRoleExecute); err != nil {
 			rows.Close()
 			t.Fatal("routine access inventory result shape is invalid")
+		}
+		if strings.Contains(access.Identity, "inspector_probe_fn") {
+			foundProbeRoutine = true
+			if access.APILoginExecute || !access.RuntimeRoleExecute {
+				t.Fatal("routine inventory did not distinguish granted and ungranted EXECUTE")
+			}
 		}
 		routineCount++
 	}
@@ -115,20 +182,24 @@ func TestCatalogPermissionQueriesExecuteOnDisposablePostgres18(t *testing.T) {
 		t.Fatal("routine access inventory returned an error")
 	}
 	rows.Close()
-	if routineCount == 0 {
-		t.Fatal("routine access inventory returned no fixture routines")
+	if routineCount == 0 || !foundProbeRoutine {
+		t.Fatal("routine access inventory did not return its positive/negative EXECUTE fixture")
 	}
 
 	rows, err = tx.Query(ctx, queryDefaultACL, roles)
 	if err != nil {
-		t.Fatal("default ACL inventory query did not execute")
+		t.Fatalf("default ACL inventory query did not execute: %v", err)
 	}
 	defaultACLCount := 0
+	foundDefaultACL := false
 	for rows.Next() {
 		var acl DefaultACL
 		if err := rows.Scan(&acl.OwnerClass, &acl.Schema, &acl.ObjectType, &acl.Grantee, &acl.Privilege, &acl.Grantable, &acl.Count); err != nil {
 			rows.Close()
 			t.Fatal("default ACL inventory result shape is invalid")
+		}
+		if acl.OwnerClass == "postgres" && acl.Grantee == "espacigo_runtime" && acl.Privilege == "SELECT" && acl.Count > 0 {
+			foundDefaultACL = true
 		}
 		defaultACLCount++
 	}
@@ -137,8 +208,8 @@ func TestCatalogPermissionQueriesExecuteOnDisposablePostgres18(t *testing.T) {
 		t.Fatal("default ACL inventory returned an error")
 	}
 	rows.Close()
-	if defaultACLCount == 0 {
-		t.Fatal("default ACL inventory returned no fixture ACLs")
+	if defaultACLCount == 0 || !foundDefaultACL {
+		t.Fatal("default ACL inventory did not return its positive fixture grant")
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal("catalog preflight test transaction did not commit")
@@ -147,8 +218,8 @@ func TestCatalogPermissionQueriesExecuteOnDisposablePostgres18(t *testing.T) {
 
 func TestInspectorSQLIsFixedReadOnlyCatalogAllowlist(t *testing.T) {
 	statements := AllowedStatements()
-	if len(statements) != 10 {
-		t.Fatalf("expected ten fixed catalog statements; got %d", len(statements))
+	if len(statements) != 11 {
+		t.Fatalf("expected eleven fixed catalog statements; got %d", len(statements))
 	}
 	for i, statement := range statements {
 		upper := strings.ToUpper(strings.TrimSpace(statement))
@@ -165,7 +236,8 @@ func TestInspectorSQLIsFixedReadOnlyCatalogAllowlist(t *testing.T) {
 	for _, allowed := range []string{
 		"pg_catalog.pg_roles", "pg_catalog.pg_auth_members", "pg_catalog.pg_extension", "pg_catalog.pg_class",
 		"pg_catalog.pg_database", "pg_catalog.pg_default_acl", "to_regclass('public.schema_migrations')",
-		"has_table_privilege", "has_sequence_privilege", "has_function_privilege",
+		"has_table_privilege", "has_sequence_privilege", "has_function_privilege", "has_column_privilege",
+		"'TRUNCATE'", "'REFERENCES'", "'TRIGGER'", "'MAINTAIN'", "'USAGE'",
 		"espacigo_api_login", "espacigo_runtime",
 	} {
 		if !strings.Contains(joined, allowed) {
