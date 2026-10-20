@@ -301,3 +301,16 @@ func TestCleanupVerifiesAlreadyDeletedUserBeforeDestroyingExactSecret(t *testing
 		t.Fatal("cleanup did not verify absent login before destroying only the exact secret version")
 	}
 }
+
+func TestCanonicalSecretManagerProjectNumberNames(t *testing.T) {
+	canonical := SecretCanonicalParent + "/versions/123"
+	if !validVersionName(canonical) || VersionNumber(canonical) != "123" {
+		t.Fatal("canonical Secret Manager project-number resource name was rejected")
+	}
+	if got := CanonicalVersion("123"); got != canonical {
+		t.Fatalf("numeric version did not canonicalize to the project-number resource name: %q", got)
+	}
+	if validVersionName("projects/999999999999/secrets/espacigo-test-gcp06-sql-inspector-credential/versions/123") {
+		t.Fatal("version from a different project was accepted")
+	}
+}

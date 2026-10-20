@@ -13,16 +13,18 @@ import (
 )
 
 const (
-	RunID            = "20261020-gcp06a"
-	ProjectID        = "espacigo-testprod"
-	InstanceName     = "espacigo-gcp06-20261020-gcp06a-pg"
-	DatabaseName     = "espacigo_gcp06_candidate_20261020-gcp06a"
-	SecretParent     = "projects/espacigo-testprod/secrets/espacigo-test-gcp06-sql-inspector-credential"
-	PrepareConfirm   = "GCP06 SQL INSPECT PREPARE 20261020-gcp06a"
-	ConnectionName   = "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg"
-	ExpectedRegion   = "southamerica-west1"
-	DefaultPollEvery = time.Second
-	DefaultMaxPolls  = 90
+	RunID                 = "20261020-gcp06a"
+	ProjectID             = "espacigo-testprod"
+	ProjectNumber         = "447373903153"
+	InstanceName          = "espacigo-gcp06-20261020-gcp06a-pg"
+	DatabaseName          = "espacigo_gcp06_candidate_20261020-gcp06a"
+	SecretParent          = "projects/espacigo-testprod/secrets/espacigo-test-gcp06-sql-inspector-credential"
+	SecretCanonicalParent = "projects/447373903153/secrets/espacigo-test-gcp06-sql-inspector-credential"
+	PrepareConfirm        = "GCP06 SQL INSPECT PREPARE 20261020-gcp06a"
+	ConnectionName        = "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg"
+	ExpectedRegion        = "southamerica-west1"
+	DefaultPollEvery      = time.Second
+	DefaultMaxPolls       = 90
 )
 
 var inspectorLoginPattern = regexp.MustCompile(`^gcp06_inspect_[a-f0-9]{12}$`)
@@ -282,7 +284,7 @@ func credentialPayload(login string, password []byte) []byte {
 
 func validVersionName(name string) bool {
 	parts := strings.Split(name, "/")
-	if len(parts) != 6 || parts[0] != "projects" || parts[1] != ProjectID || parts[2] != "secrets" || parts[3] != "espacigo-test-gcp06-sql-inspector-credential" || parts[4] != "versions" {
+	if len(parts) != 6 || parts[0] != "projects" || (parts[1] != ProjectID && parts[1] != ProjectNumber) || parts[2] != "secrets" || parts[3] != "espacigo-test-gcp06-sql-inspector-credential" || parts[4] != "versions" {
 		return false
 	}
 	version := parts[5]
@@ -301,7 +303,7 @@ func VersionNumber(name string) string {
 	if !validVersionName(name) {
 		return ""
 	}
-	return strings.TrimPrefix(name, SecretParent+"/versions/")
+	return strings.Split(name, "/")[5]
 }
 
 func CanonicalVersion(value string) string {
@@ -316,7 +318,7 @@ func CanonicalVersion(value string) string {
 			return ""
 		}
 	}
-	return SecretParent + "/versions/" + value
+	return SecretCanonicalParent + "/versions/" + value
 }
 
 func IsInspectorLogin(value string) bool { return inspectorLoginPattern.MatchString(value) }

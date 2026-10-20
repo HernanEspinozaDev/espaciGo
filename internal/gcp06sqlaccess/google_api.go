@@ -74,7 +74,7 @@ func (a secretManagerAPI) GetSecret(ctx context.Context, parent string) (bool, s
 		}
 		return false, "", apiError("secretmanager.googleapis.com", "projects.secrets.get", err)
 	}
-	if secret == nil || secret.Name != SecretParent {
+	if secret == nil || (secret.Name != SecretCanonicalParent && secret.Name != SecretParent) {
 		return false, "", errors.New("Secret Manager returned a different candidate secret")
 	}
 	return true, secret.VersionDestroyTtl, nil
